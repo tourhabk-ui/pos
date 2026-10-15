@@ -1,35 +1,37 @@
 {
   "timeout": 90,
-  "run": 949,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Режим мест по ILIKE 169/170: в какие охраняемые территории OSM попадает точка каждого места (Overpass is_in, фильтр областей) — по порядку: Вид на гейзер Большой; Долина гейзеров; Вулкан Академии Наук; Вулкан Кроноцкий; Кратер Троицкого; Озеро Кроноцкое; Вид на вулкан Шмидта; Голая; Ново-Бакенинг; затем точка Асачи с карточки и живы ли страницы разрешения kronoki.ru/ru/visit/requests/ и vulcanikamchatki.ru. 948: kronoki.ru/visit/ — 404. Конфиг записан целиком.",
+  "run": 950,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Повтор 949: зеркало kumi.systems ответило 500 на все точки. Overpass is_in на двух других зеркалах (overpass-api.de, затем private.coffee) для десяти мест с режимом по ILIKE 169/170 — по порядку: Вид на гейзер Большой; Долина гейзеров; Вулкан Академии Наук; Вулкан Кроноцкий; Кратер Троицкого; Озеро Кроноцкое; Вид на вулкан Шмидта; Голая; Ново-Бакенинг; Асача. Последним — статья Википедии «Кроноцкое озеро» (описание места — очерк с «плеском нерпы» в пресном озере, без источника). Конфиг записан целиком.",
   "urls": [
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.4377884%2C160.1367375%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.437%2C160.14%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9835639%2C159.462645%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.7528%2C160.5361%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.1177569%2C159.6536218%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.813806%2C160.218436%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9086354%2C160.6449015%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2852.2622028%2C157.7914279%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9441412%2C158.0991725%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
-    "https://vedarai.ru/api/places/ce3db5c5-69c8-41b9-8a95-8b088ac2230e",
-    "https://kronoki.ru/ru/visit/requests/",
-    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/usloviya_poseweniya/"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.4377884%2C160.1367375%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.437%2C160.14%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9835639%2C159.462645%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.7528%2C160.5361%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.1177569%2C159.6536218%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.813806%2C160.218436%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9086354%2C160.6449015%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2852.2622028%2C157.7914279%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9441412%2C158.0991725%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2852.3547167%2C157.8299389%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.4377884%2C160.1367375%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.437%2C160.14%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9835639%2C159.462645%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.7528%2C160.5361%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.1177569%2C159.6536218%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.813806%2C160.218436%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9086354%2C160.6449015%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2852.2622028%2C157.7914279%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9441412%2C158.0991725%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.private.coffee/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2852.3547167%2C157.8299389%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%D0%BE%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BE"
   ],
   "allowStale": true,
   "retries": 1,
-  "retryDelay": 20,
+  "retryDelay": 15,
   "grep": [
-    "\"name\"",
-    "\"locationType\"",
-    "<title"
+    "\"protect_class\"",
+    "\"name\""
   ],
-  "around": [
-    "\"locationType\"",
-    "<title"
-  ],
-  "aroundLines": 6,
-  "aroundHits": 1,
-  "bytes": 3500,
+  "bytes": 2500,
   "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
 }
