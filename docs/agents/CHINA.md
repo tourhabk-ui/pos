@@ -171,6 +171,12 @@ VPN шаг пропускается; из всех шагов у него сам
 
 ### Шаг 5. Bing Webmaster — Bing работает в КНР, и часть китайских ИИ-поисков опирается на него
 
+**15.10: аккаунт заведён, тег стоит.** Владелец получил `msvalidate.01` и прислал; тег
+вписан в `lib/seo/site-verification.ts` (один блок подтверждений на весь сайт, сторож
+`tests/unit/site-verification.test.ts`). Сайт в Bing добавляется адресом
+`https://vedarai.ru/` — не `/api/mcp`: это адрес MCP-сервера, на нём нет ни HTML, ни
+файла `BingSiteAuth.xml`. Verify — после выката тега.
+
 1. https://www.bing.com/webmasters → вход с аккаунтом Microsoft (почта).
 2. Add a site → `https://vedarai.ru` → способ: HTML Meta Tag → значение `msvalidate.01` →
    пришлите мне (шаг 5б) → Verify. Есть Google Search Console — можно импортировать сайт
@@ -181,7 +187,12 @@ VPN шаг пропускается; из всех шагов у него сам
 
 ### Шаг 6. Ключи Kimi и GLM — чтобы проба знания спрашивала всех четверых
 
-- Moonshot (Kimi): https://platform.moonshot.ai (международный контур, почта; код
+**15.10: `MOONSHOT_API_KEY` на Timeweb стоит** (владелец); внеочередной прогон пробы — 8,
+итог в маркере `model-knowledge-probe.json`. Ключ китайского контура (platform.kimi.com)
+работает только на `api.moonshot.cn` — тогда проба покажет 401, и нужна ещё
+`MOONSHOT_BASE_URL=https://api.moonshot.cn/v1`. GLM — по-прежнему без ключа.
+
+- Moonshot (Kimi): https://platform.moonshot.ai (с 10.2026 переадресует на platform.kimi.ai; международный контур, вход по почте; код
   платформы ходит на `api.moonshot.ai`) → API key → переменная `MOONSHOT_API_KEY` на Timeweb.
 - Zhipu (GLM): https://open.bigmodel.cn (код ходит на `open.bigmodel.cn`) → API key →
   `GLM_API_KEY` на Timeweb.
