@@ -117,6 +117,31 @@ describe('перепись дверей под /api/admin/migrations', () => {
     expect(writeHandlers).toBeGreaterThanOrEqual(2);
   });
 
+  it('снятая дверь не анонимна: без прав админа — отказ от requireAdmin, не 410', async () => {
+    // Заглушка базы не трогает, но объяснение «как устроен накат» — для админа,
+    // а Edge пускает на /api/admin/* ещё и по CRON_SECRET. Проверка прав стоит
+    // в хендлере, как у живых роутов (сторож периметра api-guard-before-action).
+    let checked = 0;
+    for (const rel of ROUTES) {
+      const mod = await loadRoute(rel);
+      for (const method of WRITE_METHODS) {
+        const handler = mod[method];
+        if (typeof handler !== 'function') continue;
+        checked += 1;
+        requireAdminMock.mockReset();
+        requireAdminMock.mockResolvedValue(
+          NextResponse.json({ error: 'Требуется роль администратора' }, { status: 403 }),
+        );
+        const res = await (handler as Handler)(request(rel, method, { dry_run: false }));
+        expect(requireAdminMock, `${method} ${rel} не спросил права`).toHaveBeenCalledTimes(1);
+        expect(res.status, `${method} ${rel} ответил анониму`).toBe(403);
+        expect(queryMock).not.toHaveBeenCalled();
+        expect(connectMock).not.toHaveBeenCalled();
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(2);
+  });
+
   it('каждый GET там же только читает', async () => {
     let readers = 0;
     for (const rel of ROUTES) {

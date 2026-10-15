@@ -14,14 +14,21 @@
  * 410, а не удаление файла: 404 неотличим от опечатки в пути.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth/middleware';
 import { MIGRATIONS_DEPLOY_ONLY } from '@/lib/agents/migration-status';
 
 export const dynamic = 'force-dynamic';
 
-// AUTH: заглушка ничего не читает и не пишет — проверять права не у чего;
-// Edge (middleware.ts) по-прежнему пускает к /api/admin/* только админа.
-export async function POST() {
+// AUTH: requireAdmin — первой строкой, как у живого роута. Заглушка базы не
+// трогает, но дверь админки не становится анонимной оттого, что за ней пусто:
+// ответ 410 рассказывает, как устроен накат, и предназначен админу, а Edge
+// пропускает на /api/admin/* ещё и CRON_SECRET. Без проверки роут выпадает и
+// из-под сторожа периметра `api-guard-before-action` (аудит 15.10, P4-04).
+export async function POST(request: NextRequest) {
+  const auth = await requireAdmin(request);
+  if (auth instanceof NextResponse) return auth;
+
   return NextResponse.json(
     { success: false, error: MIGRATIONS_DEPLOY_ONLY, status_url: '/api/admin/migrations/status' },
     { status: 410 },
