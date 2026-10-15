@@ -79,14 +79,17 @@ describe('static-checks: факт по синтаксису вместо дог�
   });
 
   // Путь обязан быть ПУБЛИЧНЫМ на Edge — иначе анонима отсекает middleware и
-  // находки нет (см. блок «знание реальных рубежей репо» ниже). /api/discovery
-  // объявлен публичным для GET и POST.
+  // находки нет (см. блок «знание реальных рубежей репо» ниже). /api/assistant
+  // объявлен публичным для GET и POST. Прежде пример стоял на /api/discovery,
+  // но POST там с 15.10 закрыт на Edge (аудит, W2-2) — и объектив обязан это
+  // знать: тот же голый POST под /api/discovery больше не дыра.
   it('мутирующий публичный роут БЕЗ защиты — находка critical', () => {
     const naked = `export async function POST(req: Request) { return Response.json({}); }`;
-    const found = checkRouteAuthGate('app/api/discovery/route.ts', naked);
+    const found = checkRouteAuthGate('app/api/assistant/route.ts', naked);
     expect(found).toHaveLength(1);
     expect(found[0].severity).toBe('critical');
     expect(found[0].title).toContain('POST');
+    expect(checkRouteAuthGate('app/api/discovery/route.ts', naked)).toEqual([]);
   });
 
   it('GET без защиты — не находка (читающий роут)', () => {

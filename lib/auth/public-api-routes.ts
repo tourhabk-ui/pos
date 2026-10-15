@@ -29,7 +29,14 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/leads': ['POST'],          // форма заявки без регистрации
   '/api/reviews': ['GET'],         // отзывы (LiveFeed на главной)
   '/api/public': 'ALL',            // публичная статистика
-  '/api/discovery': ['GET', 'POST'], // поиск
+  // Поиск и каталог туров — только чтение. POST снят 15.10 (аудит, W2-2):
+  // после волны 2 анонимного писателя под префиксом не осталось ни одного,
+  // единственный POST — публикация тура (discovery/tours/[id]/publish) — сам
+  // требует оператора (requireOperator), а вошедшему Edge и так открыт.
+  // Запись «GET и POST» на весь префикс молча открывала анониму любой
+  // будущий писатель под ним. Сторож — исполнение middleware:
+  // tests/unit/edge-discovery-read-only.test.ts.
+  '/api/discovery': ['GET'],
   '/api/partners': ['GET'],
   '/api/eco-points': ['GET'],
   '/api/ai/chat': ['POST', 'GET'],
