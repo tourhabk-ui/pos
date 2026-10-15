@@ -157,7 +157,9 @@ describe('связка: никто не сортирует имена мигра
     'lib/db/unmigrated-tables.ts',
     'lib/agents/evo/schema-model.ts',
     'scripts/gen-db-schema.ts',
-    'tests/unit/db-schema-doc.test.ts',
+    // Правило свежести справочника переехало из сторожа в модуль: его зовут
+    // и сторож, и job после влития (аудит 15.10, AR-schema-doc).
+    'lib/database/schema-doc-freshness.ts',
     // Порядок неприменённых для сторожа (watchdog) и экрана админки. До 15.10
     // здесь был голый `.sort()`: список читался `1000_` раньше `999_` — не в
     // том порядке, в каком их покатит деплой (аудит 15.10, P4-04).

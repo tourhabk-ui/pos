@@ -11,17 +11,28 @@
  * AS, ни колонок, снятых DROP COLUMN. Судить статикой запрещено (CLAUDE.md
  * §4.0) — здесь тот же принцип для документации.
  *
- * Как получить базу с полной схемой (миграции с нуля не проигрываются: цепочка
- * писалась поверх живой базы, каталог начинается с 017):
+ * Кто снимает: job `.github/workflows/db-schema-doc.yml` после влития миграций
+ * в main, коммитом со [skip ci]. В PR справочник руками не перегенерируют —
+ * общий файл, который пишет каждая ветка, конфликтует (аудит 15.10,
+ * AR-schema-doc: PR #2511 простоял ~25 минут). Ветке разрешено отставать на
+ * свои миграции; сторож — tests/unit/db-schema-doc.test.ts.
+ *
+ * Те же шаги руками (миграции с нуля не проигрываются: цепочка писалась
+ * поверх живой базы, каталог начинается с 017):
  *
  *   createdb schema_doc
  *   DATABASE_URL=postgresql://.../schema_doc node scripts/bootstrap-from-baseline.js
- *   psql schema_doc -c "DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint >= 863"   # всё новее baseline
+ *   DATABASE_URL=postgresql://.../schema_doc npx tsx scripts/schema-doc.ts reset-after-baseline
  *   DATABASE_URL=postgresql://.../schema_doc npm run migrate
  *   DATABASE_URL=postgresql://.../schema_doc npm run db:schema-doc
  *
- * Первая строка «после baseline» — 863: baseline снят с прода 2026-08-15,
- * последней миграцией того дня была 862 (migrations/MIGRATION_ORDER.md).
+ * Граница baseline — `FIRST_MIGRATION_AFTER_BASELINE` в
+ * lib/database/migration-order.ts (baseline снят 2026-08-15, последней в нём
+ * была 862), а не число в команде.
+ *
+ * Генератор отказывается писать, если в базе применены не все миграции
+ * каталога: шапка подписывает снимок именем последней миграции, и снимок с
+ * недокатанной базы был бы подписан чужим именем.
  *
  * Из базы выходят только имена и типы — ни одного значения данных. Файл можно
  * читать кому угодно.
@@ -157,7 +168,23 @@ async function main() {
   const client = new Client({ connectionString: url, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined });
   await client.connect();
 
-  const tables = (await client.query<{ table_name: string }>(
+  // Подпись «последняя миграция в снимке» берётся из КАТАЛОГА, а схема — из
+  // БАЗЫ. Совпадают они только если в базе применено всё, что лежит в
+  // каталоге; иначе снимок недокатанной базы получил бы чужое имя (аудит
+  // 15.10, AR-schema-doc: снимает job после влития, и молча подписанный
+  // неполный снимок жил бы до следующего мержа).
+  const applied = new Set((await client.query<{ name: string }>('SELECT name FROM _migrations')).rows.map((r) => r.name));
+  const notApplied = sortMigrations(readdirSync(join(process.cwd(), 'migrations')).filter((f) => f.endsWith('.sql')))
+    .filter((f) => !applied.has(f));
+  if (notApplied.length > 0) {
+    await client.end();
+    throw new Error(
+      `в базе не применены ${notApplied.length} миграций каталога (первые: ${notApplied.slice(0, 5).join(', ')}) — ` +
+        'снимок такой базы нельзя подписать последней миграцией; сначала npm run migrate',
+    );
+  }
+
+  const tables =(await client.query<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`,
   )).rows.map((r) => r.table_name);

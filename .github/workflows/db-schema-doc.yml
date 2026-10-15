@@ -1,0 +1,156 @@
+name: DB_SCHEMA после влития
+
+# Справочник docs/DB_SCHEMA.md снимается ЗДЕСЬ, после влития миграций в main,
+# а не в каждом PR (аудит 15.10, AR-schema-doc).
+#
+# Пока сторож требовал перегенерации в PR со схемной миграцией, справочник
+# стал общим файлом, который пишет каждая ветка: 15.10 две сессии сняли его
+# каждая у себя, PR #2511 встал в конфликт с main, а на PR с конфликтом
+# GitHub не запускает проверок — около 25 минут простоя на файле, который
+# никто не правил руками. Общее состояние, которое пишут все ветки, при
+# агентном числе веток становится очередью.
+#
+# Теперь ветке разрешено отставать на свои миграции (их в main ещё нет), а
+# сторож tests/unit/db-schema-doc.test.ts держит связку: этот job существует,
+# собирает базу штатным путём и коммитит со [skip ci]; справочник не отстаёт
+# сверх порога, который выдаёт мёртвого производителя.
+#
+# Почему отдельный файл, а не job в post-merge.yml: фильтр путей задаётся на
+# весь workflow. В post-merge.yml job поднимал бы PostgreSQL и `npm ci` на
+# каждый влитый PR (их десятки в день), а нужен только на те, что принесли
+# миграцию. Расписания нет и не будет (CLAUDE.md §8: планировщик душит
+# очередь по числу расписаний).
+#
+# Петли нет трижды: коммит идёт от GITHUB_TOKEN (его пуш не запускает
+# workflow), несёт [skip ci], и docs/ не входит ни в пути этого файла, ни в
+# пути ci.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - '.github/workflows/db-schema-doc.yml'
+  # Ручной запуск снимает справочник заново без проверки свежести — для
+  # правки самого генератора, когда схема не менялась.
+  workflow_dispatch:
+
+# Два мержа подряд не снимают справочник наперегонки: второй ждёт первого.
+# Идущий прогон не отменяется — оборванный не сказал бы ни «снял», ни «не
+# смог». Ждущий GitHub вправе заменить более новым: это не потеря, каждый
+# прогон снимает весь main, а не свой коммит.
+concurrency:
+  group: db-schema-doc
+  cancel-in-progress: false
+
+jobs:
+  db-schema-doc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    # Та же мажорная версия, что у интеграционных тестов (ci.yml, kernel-pg):
+    # справочник и pg-тесты обязаны видеть одну и ту же схему.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: schema_doc
+          POSTGRES_PASSWORD: schema_doc
+          POSTGRES_DB: schema_doc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U schema_doc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://schema_doc:schema_doc@localhost:5432/schema_doc
+      DATABASE_SSL: 'false'
+    steps:
+      # main на момент запуска, а не коммит события: прогон, вставший в
+      # очередь за соседним, снимает справочник с того, что уже влито.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Тот же предикат, что у сторожа (lib/database/schema-doc-freshness.ts):
+      # миграция, которая только пишет строки, справочник не старит.
+      - name: Отстал ли справочник от миграций main
+        id: fresh
+        run: npx tsx scripts/schema-doc.ts check
+
+      - name: Схема baseline прода на пустой базе
+        if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
+        run: node scripts/bootstrap-from-baseline.js
+
+      # Граница baseline — FIRST_MIGRATION_AFTER_BASELINE в
+      # lib/database/migration-order.ts, не число здесь. Ноль снятых — отказ.
+      - name: Снять отметки миграций новее baseline
+        if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
+        run: npx tsx scripts/schema-doc.ts reset-after-baseline
+
+      - name: Накатить миграции штатным раннером
+        if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
+        run: npm run migrate
+
+      # Генератор сам отказывается, если в базе применены не все миграции
+      # каталога: иначе снимок получил бы чужую подпись.
+      - name: Снять справочник с базы
+        if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
+        run: npm run db:schema-doc
+
+      - name: Закоммитить в main
+        if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            if git diff --quiet -- docs/DB_SCHEMA.md; then
+              echo "Справочник совпал с main — коммитить нечего"
+              exit 0
+            fi
+            STAMP=$(npx tsx scripts/schema-doc.ts stamp)
+            git add docs/DB_SCHEMA.md
+            git commit -m "DB_SCHEMA: снят с ${STAMP} после мержа [skip ci]"
+            if git push origin HEAD:main; then
+              echo "Справочник снят с ${STAMP} и записан в main"
+              exit 0
+            fi
+            # Гонка с соседним мержем (или со счётчиками README): main ушёл
+            # вперёд. Дотянуть его миграции в ту же базу и снять заново.
+            echo "main ушёл вперёд (попытка ${attempt}) — дотягиваю и снимаю заново"
+            git fetch origin main
+            git reset --hard origin/main
+            RECHECK=$(mktemp)
+            GITHUB_OUTPUT="$RECHECK" npx tsx scripts/schema-doc.ts check
+            if ! grep -q '^stale=true$' "$RECHECK" && [ "$EVENT" != "workflow_dispatch" ]; then
+              echo "В main справочник уже свежий — соседний прогон снял его"
+              exit 0
+            fi
+            npm run migrate
+            npm run db:schema-doc
+          done
+          echo "::error::Справочник снят, но в main не записан за 5 попыток: push отклонялся не из-за гонки или гонка не кончалась."
+          exit 1
+
+      # Отказ — красный job с причиной, а не тихий пропуск (§4.0). Справочник
+      # при этом остаётся прежним, и следующий мерж миграции снимет его заново:
+      # проверка свежести смотрит на весь main, а не на один коммит.
+      - name: Отказ вслух
+        if: failure()
+        run: |
+          echo "::error::docs/DB_SCHEMA.md после влития не снят — упал шаг выше. Справочник отстаёт от main до следующего мержа миграции или ручного запуска этого workflow."
+          exit 1

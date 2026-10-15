@@ -41,10 +41,14 @@ description: >
 ```
 createdb schema_doc
 DATABASE_URL=.../schema_doc node scripts/bootstrap-from-baseline.js
-psql schema_doc -c "DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint >= 863"
+DATABASE_URL=.../schema_doc npx tsx scripts/schema-doc.ts reset-after-baseline   # граница — lib/database/migration-order.ts
 DATABASE_URL=.../schema_doc npm run migrate
-DATABASE_URL=.../schema_doc npm run db:schema-doc      # docs/DB_SCHEMA.md
+DATABASE_URL=.../schema_doc npm run db:schema-doc      # docs/DB_SCHEMA.md — только чтобы посмотреть
 ```
+
+`docs/DB_SCHEMA.md` в PR не перегенерировать: его снимает
+`.github/workflows/db-schema-doc.yml` после влития (аудит 15.10 — общий файл
+ставил PR в конфликт).
 
 Итог миграций обязан быть `Errors: 0`. База «где-то осталась от прошлого раза» —
 не доказательство: если в ней уже прогонялись чужие версии миграций,
@@ -85,8 +89,8 @@ ROLLBACK;
   миграциях только через `::text` с обеих сторон.
 - `tests/unit/schema-coverage.test.ts` — таблица без `CREATE TABLE` в миграциях
   или baseline запрещена.
-- `tests/unit/db-schema-doc.test.ts` — `docs/DB_SCHEMA.md` не отстаёт от
-  последней миграции, менявшей схему.
+- `tests/unit/db-schema-doc.test.ts` — `docs/DB_SCHEMA.md` снимает job после
+  влития; отставание на миграции своей ветки разрешено, сверх порога — нет.
 
 Судить вывод типов статикой запрещено (CLAUDE.md §4, случай 24.08): решает сервер.
 

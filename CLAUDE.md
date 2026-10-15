@@ -1410,6 +1410,7 @@ only» / «Stop when free quota is exhausted». Ставится на модел
 - Все миграции должны быть идемпотентны (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`)
 - Bootstrap tracking на новом инстансе: `DATABASE_URL=<prod> npx tsx scripts/bootstrap-migrations-tracking.ts`
 - **Авто-миграции при деплое:** `start.js` запускает `scripts/migrate-standalone.js` перед стартом сервера
+- `docs/DB_SCHEMA.md` руками в PR не перегенерировать — его снимает job `db-schema-doc.yml` после влития миграций (аудит 15.10: общий файл, который пишет каждая ветка, ставил PR в конфликт); ветке разрешено отставать на свои миграции, сторож — `tests/unit/db-schema-doc.test.ts`
 
 ---
 
