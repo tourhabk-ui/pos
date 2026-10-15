@@ -108,6 +108,20 @@ describe('цикл инструментов: реплики человека д�
     expect(msgs[0]).toEqual({ role: 'system', content: `Система. Телефон МЧС для туристов: ${MCHS}` });
   });
 
+  // Ревью A20: граница режет телефон, а не всё с цифрами. Даты поездки нужны
+  // инструментам занятости, координаты — инструменту погоды («из вопроса
+  // человека»), бюджет — подбору.
+  it('даты, координаты и бюджет доходят до модели как есть, телефон в той же реплике — нет', async () => {
+    const FACTS = ['10-15.08.2026', '53.2551 158.8432', '150000-200000', '150 000 - 200 000 руб'];
+    const question = `Едем ${FACTS[0]}, стоим на ${FACTS[1]}, бюджет ${FACTS[2]} или ${FACTS[3]}. Мой телефон ${PHONE}`;
+    await aiChatAgentLoop(question, 'система', [], []);
+    const msgs = tools.mock.calls[0]![0] as Msg[];
+    const human = msgs.filter((m) => m.role === 'user').map((m) => m.content ?? '').join('\n');
+    for (const fact of FACTS) expect(human).toContain(fact);
+    expectNoPII(human);
+    expect(human).toContain('Мой телефон [телефон]');
+  });
+
   it('вопрос уже в истории (веб-чат) — не дублируется и после чистки', async () => {
     await aiChatAgentLoop(QUESTION, 'система', [{ role: 'user', content: QUESTION }], []);
     const msgs = tools.mock.calls[0]![0] as Msg[];
