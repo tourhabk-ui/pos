@@ -1,22 +1,27 @@
 {
   "timeout": 90,
-  "run": 941,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Ожидаемые 404 после выката, подтверждённого пробой 940: снятые статьи блога по прямому адресу и главные кадры «Края Вулканов» (1265) по прямому адресу раздачи. Без повторов — 404 здесь ожидаемый ответ. Плюс кандидаты Wikimedia Commons (автор и лицензия — extmetadata) для двух карточек, оставшихся без снимков: парк «Ключевской» национального парка «Вулканы Камчатки» и остров Старичков. Конфиг записан целиком.",
+  "run": 942,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката подписи кадров галереи: карточка места отдаёт photoRights — лицензию, ссылку на неё и страницу файла у кадров Commons (Налычевские источники и долина, 1266; галерея «Быстринского», 1246), у снимка владельца на Авачинском перевале записи прав нет. Ждёт выката по полю photoRights. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/blog/kamchatka-season-2026",
-    "https://vedarai.ru/blog/operators-2026",
-    "https://vedarai.ru/api/images/route/a79c9a19-e5c6-4d99-9134-cae496430dca",
-    "https://vedarai.ru/api/images/route/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0",
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=12&gsrsearch=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA%D0%B0%D1%8F%20%D1%81%D0%BE%D0%BF%D0%BA%D0%B0&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&iiextmetadatalanguage=ru&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=12&gsrsearch=Klyuchevskaya%20Sopka%20volcano&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&iiextmetadatalanguage=ru&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=10&gsrsearch=%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2%20%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B2&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&iiextmetadatalanguage=ru&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=10&gsrsearch=Starichkov%20Island&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&iiextmetadatalanguage=ru&format=json&formatversion=2&utf8=1"
+    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
+    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
+    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
+    "https://vedarai.ru/api/places/c35c5024-238f-44ec-85f6-c31127fdfffb"
   ],
-  "retries": 0,
-  "allowStale": true,
+  "until": "\"photoRights\"",
+  "retries": 40,
+  "retryDelay": 45,
   "grep": [
-    "Сезон 2026 на Камчатке",
-    "Верифицированные операторы"
+    "\"photoRights\":{}",
+    "CC BY-SA 4.0",
+    "creativecommons.org/licenses/by-sa/4.0",
+    "Общественное достояние",
+    "commons.wikimedia.org/wiki/File:"
   ],
-  "bytes": 7000
+  "around": [
+    "\"photoRights\""
+  ],
+  "aroundLines": 6,
+  "aroundHits": 1,
+  "bytes": 120
 }
