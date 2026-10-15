@@ -1,9 +1,11 @@
 /**
- * Снимки «Местечка Камчатка» вне его туров — до согласия партнёра (15.10).
+ * Снимки партнёров вне их туров — до согласия партнёра (15.10).
  *
- * Владелец на вопрос, покрывает ли «ДА» партнёра на снимки туров (1217)
- * карточки мест: «пока нет получим согласе востановим». Поведение на базе —
- * карточка, фото маршрута, раздача, возврат — судит
+ * Владелец на вопрос, покрывает ли «ДА» «Местечка Камчатка» на снимки туров
+ * (1217) карточки мест: «пока нет получим согласе востановим» (1263). У «Края
+ * Вулканов» было только слово владельца «публикуй фото и туры» (1177) — его
+ * кадры спрятаны тем же порядком (1265). Поведение на базе — карточка, фото
+ * маршрута, раздача, возврат — судит
  * tests/integration/partner-photos-no-consent.pg.test.ts. Здесь — то, что
  * живёт в коде, а не в базе: род в словаре показа, главные кадры статей
  * летописи и снимки владельца, которыми их заменили.
@@ -35,24 +37,26 @@ describe('род «снимок партнёра без согласия»', () 
   });
 });
 
-describe('летопись: главных кадров партнёра нет до его согласия', () => {
-  it('ни одна статья не ставит снимок «Местечка Камчатка» главным кадром', () => {
+describe('летопись: главных кадров партнёров нет до их согласия', () => {
+  it('ни одна статья не ставит главным кадром снимок «Местечка Камчатка» или «Края Вулканов»', () => {
     for (const a of CHRONICLE_ARTICLES) {
       if (!a.hero) continue;
-      expect(a.hero.key, a.slug).not.toMatch(/mestechko/);
-      expect(a.hero.author, a.slug).not.toBe('Местечко Камчатка');
+      expect(a.hero.key, a.slug).not.toMatch(/mestechko|kraj-vulkanov|volcanoesland/);
+      expect(['Местечко Камчатка', 'Край Вулканов'], a.slug).not.toContain(a.hero.author);
     }
   });
 
-  it('«Налычево» и «Вилючинский» — снимки владельца: те же байты, что его исходники, и они в хранилище', () => {
+  it('«Налычево», «Вилючинский» и заказник — снимки владельца: те же байты, что его исходники, и они в хранилище', () => {
     const marker = JSON.parse(readFileSync(join(ROOT, '.github/triggers/media-to-s3.json'), 'utf-8')) as {
       items: Array<{ file: string; key: string }>;
     };
-    // Исходники владельца — снимки миграций 985 (Корякская сопка вечером) и
-    // 979 (Вилючинский с облачным поясом); их ключ в хранилище — хэш байтов.
+    // Исходники владельца — снимки миграций 985 (Корякская сопка вечером),
+    // 979 (Вилючинский с облачным поясом) и 958 (Курильское озеро); их ключ в
+    // хранилище — хэш байтов.
     const cases = [
       { slug: 'nalychevo', key: 'photos/nalychevo/vladelec-koryakskaya-sopka-vecherom.jpg', original: '804cf57c49320b6be83b40eaf2e7052a14ef08afda5e98abd950b6ed1a015ee2', from: '985_koryaksky_evening_gallery.sql' },
       { slug: 'vilyuchinskij-park', key: 'photos/vilyuchinsky/vladelec-oblachnyj-poyas.jpg', original: '853153582f366d4ae158232755482abd3a1aeab87588ba3817c862d10ffe82cc', from: '979_vilyuchinsky_owner_photos.sql' },
+      { slug: 'yuzhno-kamchatskij-zakaznik', key: 'photos/yuzhno-kamchatskij-zakaznik/vladelec-kurilskoe-ozero.jpg', original: '84b7294d8bc4892a9aefd9c649ad207cf4f94b4cb5d79cdb6dc6770d8b2bc750', from: '958_owner_photos_seven_places.sql' },
     ];
     for (const c of cases) {
       const a = CHRONICLE_ARTICLES.find((x) => x.slug === c.slug);
