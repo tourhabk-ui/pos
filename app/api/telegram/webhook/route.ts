@@ -30,7 +30,7 @@ import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
-import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
+import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -601,8 +601,12 @@ export async function POST(request: NextRequest) {
   if (verdict === 'forbidden') {
     return NextResponse.json({ ok: false }, { status: 403 });
   }
+  // Без секрета — отказ, а не работа «без проверки» (аудит 15.10, P3-03): ниже
+  // админ-ветка верит from.id из тела, и без секрета её открывал любой, кто
+  // знает числовой id владельца. Почему это не глушит бота — в шапке
+  // refuseUnconfiguredWebhook.
   if (verdict === 'not_configured') {
-    console.error('[telegram/webhook] TELEGRAM_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
+    return refuseUnconfiguredWebhook('telegram/webhook', 'TELEGRAM_WEBHOOK_SECRET');
   }
 
   let update: TelegramUpdate;

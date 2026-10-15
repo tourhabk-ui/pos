@@ -76,13 +76,10 @@ describe('POST админ-бота: ответ уходит владельцу, 
     expect(POST_BODY).toMatch(/verdict === 'forbidden'\) return new NextResponse\(null, \{ status: 401 \}\)/);
   });
 
-  it('незаданный секрет не роняет бота, но и не молчит', () => {
-    // Fail-closed здесь превратил бы защиту данных в отказ сервиса: бот
-    // владельца замолчал бы до правки окружения. Поэтому — работаем и говорим.
-    expect(POST_BODY).toMatch(/verdict === 'not_configured'/);
-    expect(POST_BODY).toMatch(/console\.error\('\[telegram\/admin\]/);
-    expect(POST_BODY).not.toMatch(/not_configured'\)\s*return new NextResponse\(null, \{ status: 5/);
-  });
+  // Незаданный секрет: прежде здесь стоял сторож «не роняет бота» — работа без
+  // проверки при not_configured (#1168). Аудит 15.10 (P3-03) снял это решение
+  // замером с прода: без секрета роут отказывает 503 и не начинает обработку.
+  // Держится вызовом обработчиков, а не текстом: tests/unit/telegram-webhook-fail-closed.test.ts.
 });
 
 describe('вторая дверь: тот же дефект в Кузьмиче', () => {

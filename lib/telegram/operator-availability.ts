@@ -129,6 +129,17 @@ export async function checkAndRestoreWebhook(): Promise<WebhookCheckResult> {
 
   const expectedUrl = `${publicWebhookBase()}/api/telegram/webhook`;
 
+  // Без секрета обработчик отказывает каждому обновлению (503, аудит 15.10,
+  // P3-03): адрес может быть верным, а бот — молчать. Ответить здесь «ok» по
+  // одному адресу значило бы выдать молчащего бота за живого, а ставить вебхук
+  // с пустым secret_token — завести адрес, который всё равно ответит отказом.
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) {
+    const error = 'TELEGRAM_WEBHOOK_SECRET не задан — /api/telegram/webhook отклоняет обновления (503), бот не отвечает';
+    await notifyOwner(`<b>Бот Telegram не принимает обновления</b>\n\n${error}. Завести переменную в панели Timeweb.`);
+    return { status: 'failed', current_url: null, expected_url: expectedUrl, pending_update_count: 0, error };
+  }
+
   let webhookInfo: { url: string; pending_update_count: number };
   try {
     const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getWebhookInfo`);
@@ -156,7 +167,6 @@ export async function checkAndRestoreWebhook(): Promise<WebhookCheckResult> {
 
   // Попытка восстановить
   try {
-    const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
     const setRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
