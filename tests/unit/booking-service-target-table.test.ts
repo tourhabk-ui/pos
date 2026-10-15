@@ -160,7 +160,8 @@ describe('rescheduleBooking — пишет реальные колонки opera
       .mockResolvedValueOnce({
         rows: [{ id: '9', operator_id: 'op-9', max_participants: 20, base_price: '5000', title: 'Новый тур', is_active: true }],
       }) // targetTourResult
-      .mockResolvedValueOnce({ rows: [{ booked: '0' }] }) // bookedResult
+      // Дни целевого тура — общим гейтом (readTourDays, аудит 15.10, RESCHEDULE-GATE).
+      .mockResolvedValueOnce({ rows: [{ date: '2026-12-15', occupied: '0', available_slots: null, is_cancelled: null }] })
       .mockResolvedValueOnce({ rows: [] }) // UPDATE
       .mockResolvedValueOnce({ rows: [] }) // INSERT booking_logs
       .mockResolvedValueOnce({ rows: [selectRow({ status: 'confirmed' })] }); // финальный SELECT

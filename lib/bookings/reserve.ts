@@ -248,13 +248,24 @@ export interface TourDay {
  *
  * Вызывать — клиентом транзакции, взявшей `FOR UPDATE` на строке тура:
  * иначе два одновременных запроса прочитают одну и ту же занятость.
+ *
+ * `excludeBookingId` — бронь, которую ПЕРЕНОСЯТ (аудит 15.10,
+ * RESCHEDULE-GATE): её собственные места не занятость для её же новых дней,
+ * иначе перенос на соседний день отказал бы из-за самой переносимой группы.
+ * Новая бронь его не передаёт — ей исключать нечего.
  */
 export async function readTourDays(
   exec: BookingExecutor,
   tourId: number | string,
   startDate: string,
   endDate: string,
+  opts: { excludeBookingId?: number | string } = {},
 ): Promise<TourDay[]> {
+  // Условие исключения — только когда исключать есть кого: запрос новой
+  // брони (форма, Кузьмич, агент, OCTO) остаётся прежним до знака.
+  const exclude = opts.excludeBookingId ?? null;
+  const params: Array<number | string> = [tourId, startDate, endDate];
+  if (exclude != null) params.push(exclude);
   const days = await exec.query<TourDay>(
     `SELECT d.day::date AS date,
             COALESCE(occ.occupied, 0) AS occupied,
@@ -270,11 +281,12 @@ export async function readTourDays(
           WHERE b.operator_tour_id = $1
             AND b.booking_status NOT IN ('cancelled', 'rejected')
             AND b.deleted_at IS NULL
+            ${exclude != null ? 'AND b.id <> $4::bigint' : ''}
             AND d.day::date BETWEEN b.booking_date
                                 AND COALESCE(b.end_date, b.booking_date)
        ) occ ON true
       ORDER BY d.day`,
-    [tourId, startDate, endDate],
+    params,
   );
   return days.rows;
 }
