@@ -16,14 +16,14 @@
  *   - перевозчики (`category = 'transfer'`) в список «Операторы Камчатки» не
  *     входят: перевозчик не туроператор, его страница — /transfers/[slug]
  *     (CLAUDE.md §14).
- * Живой тур — то же условие, что у каталога и MCP get_tours
- * (`LIVE_TOUR_CONDITIONS`), своего здесь нет.
+ * Живой тур — то же условие, что у каталога и MCP get_tours (шлюз витрины
+ * `publicTourSql`), своего здесь нет.
  */
 
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { query } from '@/lib/database';
-import { LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { sqlState } from '@/lib/guides/db-failure';
 import type { OperatorListRow } from '@/lib/types/db-rows';
 import { ACTIVITY_ALIASES, canonicalActivity } from '@/lib/tours/labels';
@@ -87,7 +87,7 @@ function listedPartner(alias: string): string[] {
   ];
 }
 
-const LIVE = LIVE_TOUR_CONDITIONS.join(' AND ');
+const LIVE = publicTourSql('ot');
 
 /**
  * Порядок витрины — одно правило для всех, и оно названо туристу на странице

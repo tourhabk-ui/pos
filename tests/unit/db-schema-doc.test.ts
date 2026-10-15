@@ -41,11 +41,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
-import {
-  BASELINE_TAKEN_ON,
-  FIRST_MIGRATION_AFTER_BASELINE,
-  migrationNumber,
-} from '@/lib/database/migration-order';
+import { migrationNumber } from '@/lib/database/migration-order';
+import { parseBaselineHeader } from '@/lib/database/baseline-header';
 import {
   changesSchema,
   judgeFreshness,
@@ -218,18 +215,24 @@ describe('сброс отметок новее baseline — на поддель�
 });
 
 describe('граница baseline — одна и сверена со снимком', () => {
-  it('baseline снят в тот день, к которому привязана граница', () => {
-    // Переснят baseline (db-baseline.yml) — шапка назовёт другой день. Тогда
-    // FIRST_MIGRATION_AFTER_BASELINE устарела: сборка справочника сняла бы
-    // отметки не с тех миграций. Сверить границу и обновить обе константы.
-    const head = read('lib/database/baseline/schema-baseline.sql').split('\n').slice(0, 8).join('\n');
-    expect(head, `шапка baseline не называет ${BASELINE_TAKEN_ON} — граница baseline не сверена`).toContain(BASELINE_TAKEN_ON);
+  // Граница — строка шапки baseline, та же, что у шаблона pg-тестов
+  // (tests/helpers/pg-schema.ts): reset-after-baseline читает её тем же
+  // разбором. Второй константы рядом нет — две границы разошлись бы при
+  // первом пересъёме снимка.
+  const firstAfter = parseBaselineHeader(read('lib/database/baseline/schema-baseline.sql')).firstAfter;
+
+  it('шапка baseline называет границу', () => {
+    expect(firstAfter, 'нет строки «-- Последняя миграция в снимке:» — reset-after-baseline откажется').not.toBeNull();
   });
 
   it('граница стоит на каталоге, а не в пустоте', () => {
     const numbers = new Set(migrationFiles().map(migrationNumber));
-    expect(numbers.has(FIRST_MIGRATION_AFTER_BASELINE - 1), 'нет последней миграции baseline').toBe(true);
-    expect(numbers.has(FIRST_MIGRATION_AFTER_BASELINE), 'нет первой миграции после baseline').toBe(true);
+    expect(numbers.has(firstAfter! - 1), 'нет последней миграции baseline').toBe(true);
+    expect(numbers.has(firstAfter!), 'нет первой миграции после baseline').toBe(true);
+  });
+
+  it('запрет: граница в вызове reset-after-baseline — не число', () => {
+    expect(read('scripts/schema-doc.ts')).not.toMatch(/resetAfterBaseline\([^)]*\b\d{3,4}\b/);
   });
 });
 

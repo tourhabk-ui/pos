@@ -22,6 +22,7 @@ import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lea
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { hashPayload } from '@/lib/safety/ledger';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -32,17 +33,40 @@ function healthDebounceKey(text: string): string {
 
 export const dynamic = 'force-dynamic';
 
-// ── Telegram helper ───────────────────────────────────────────────────────────
+// ── Telegram ─────────────────────────────────────────────────────────────────
 
-async function tgAlert(text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-  }).catch(() => {});
+/**
+ * Отправить сводку и, ТОЛЬКО если Telegram её принял, записать дебаунс WARN.
+ *
+ * Находка аудита 15.10 (P4-01): здесь стоял свой `tgAlert` с
+ * `.catch(() => {})`, ответ Telegram не читался, а `alert_sent` писался после
+ * него безусловно. При 403 «bot was blocked», смене токена или сетевом отказе
+ * предупреждение о мёртвом провайдере не доходило — и следующие 12 часов не
+ * повторялось, потому что память считала его отправленным. «Решили
+ * тревожить» выдавалось за «доставлено» — та же болезнь, что у Watchdog 30.08
+ * (шапка lib/notifications/tg-send.ts).
+ *
+ * Теперь недоставка оставляет память пустой: следующий прогон попробует
+ * снова. Цена — возможный повтор, если Telegram принял, а ответ потерялся;
+ * повтор дешевле молчания о мёртвом провайдере.
+ */
+export async function deliverHealthAlert(
+  text: string,
+  warnTextsDue: readonly string[],
+): Promise<TgSendOutcome> {
+  const outcome = await tgSend('cron/health', text);
+  if (!outcome.ok) return outcome;
+  const expires = new Date(Date.now() + HEALTH_WARN_DEBOUNCE_HOURS * 3_600_000);
+  await Promise.all(warnTextsDue.map((t) => agentMemory.remember({
+    agent_id: 'health',
+    memory_type: 'alert_sent',
+    key: healthDebounceKey(t),
+    value: { sent_at: new Date().toISOString() },
+    expires_at: expires,
+  }).catch((err: unknown) => {
+    console.error('[cron/health] память дебаунса не записана:', err instanceof Error ? err.message : err);
+  })));
+  return outcome;
 }
 
 // ── AI probe ──────────────────────────────────────────────────────────────────
@@ -662,6 +686,9 @@ export async function GET(request: NextRequest) {
     (seen ? warnsRepeated : warnsDue).push(w);
   }
 
+  // null — слать было нечего; иначе исход доставки, и он уходит в ответ:
+  // недоставленная тревога видна в логе прогона, а не только в логе сервера.
+  let alertDelivery: TgSendOutcome | null = null;
   if (crits.length > 0 || warnsDue.length > 0) {
     const lines: string[] = [
       crits.length > 0
@@ -677,17 +704,7 @@ export async function GET(request: NextRequest) {
       `Проверено: ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' })} (KMT)`,
     ];
 
-    await tgAlert(lines.join('\n'));
-    const expires = new Date(Date.now() + HEALTH_WARN_DEBOUNCE_HOURS * 3_600_000);
-    await Promise.all(warnsDue.map((w) => agentMemory.remember({
-      agent_id: 'health',
-      memory_type: 'alert_sent',
-      key: healthDebounceKey(w.text),
-      value: { sent_at: new Date().toISOString() },
-      expires_at: expires,
-    }).catch((err: unknown) => {
-      console.error('[cron/health] память дебаунса не записана:', err instanceof Error ? err.message : err);
-    })));
+    alertDelivery = await deliverHealthAlert(lines.join('\n'), warnsDue.map((w) => w.text));
   }
 
   recordCronRun('health', started, 'success', { items: issues.length });
@@ -700,6 +717,7 @@ export async function GET(request: NextRequest) {
     known_states: known.map(i => i.text),
     // Повторы, не ушедшие в Telegram, остаются видны здесь (§4.0).
     warns_repeated: warnsRepeated.map(i => i.text),
+    alert: alertDelivery,
     ai: { qwen: qwenOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     openrouter_key_diag: orKeyDiag,
     integrations: {

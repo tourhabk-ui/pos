@@ -8,10 +8,11 @@
  *   npx tsx scripts/schema-doc.ts stamp                  имя миграции из шапки — для сообщения коммита
  *
  * Аудит 15.10 (AR-schema-doc): справочник снимается после влития, а не в
- * каждом PR. Правило свежести и граница baseline живут в `lib/database/`,
- * чтобы job и сторож судили одним предикатом, а граница не была числом в
- * workflow (`lib/database/schema-doc-freshness.ts`,
- * `lib/database/migration-order.ts`).
+ * каждом PR. Правило свежести живёт в `lib/database/schema-doc-freshness.ts`,
+ * чтобы job и сторож судили одним предикатом. Граница baseline — строка шапки
+ * самого снимка («Последняя миграция в снимке:», разбор —
+ * `lib/database/baseline-header.ts`), та же, что у шаблона pg-тестов: не
+ * число в workflow и не вторая константа рядом.
  *
  * `check` пишет `stale=true|false` в `$GITHUB_OUTPUT`. «Не знаю» (нет файла,
  * нет подписи) — это `stale=true`: лекарство от сломанной шапки то же, что
@@ -21,7 +22,7 @@
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
-import { FIRST_MIGRATION_AFTER_BASELINE } from '../lib/database/migration-order';
+import { parseBaselineHeader } from '../lib/database/baseline-header';
 import {
   changesSchema,
   judgeFreshness,
@@ -32,6 +33,7 @@ import {
 const ROOT = process.cwd();
 const DOC = join(ROOT, 'docs', 'DB_SCHEMA.md');
 const MIGRATIONS = join(ROOT, 'migrations');
+const BASELINE = join(ROOT, 'lib', 'database', 'baseline', 'schema-baseline.sql');
 
 function migrationFiles(): string[] {
   return readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql'));
@@ -82,11 +84,17 @@ async function reset(): Promise<void> {
     connectionString: url,
     ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
   });
+  // Граница — из шапки baseline. Строки нет — стоп: снимать отметки по
+  // выдуманной границе значит подписать справочник чужой схемой (§4.0).
+  const firstAfter = parseBaselineHeader(readFileSync(BASELINE, 'utf-8')).firstAfter;
+  if (firstAfter === null) {
+    throw new Error('в шапке baseline нет строки «-- Последняя миграция в снимке: NNN_имя.sql» — граница не установлена');
+  }
   await client.connect();
   try {
-    const reset = await resetAfterBaseline(client, migrationFiles(), FIRST_MIGRATION_AFTER_BASELINE);
+    const reset = await resetAfterBaseline(client, migrationFiles(), firstAfter);
     console.log(
-      `Снято отметок новее baseline (с ${FIRST_MIGRATION_AFTER_BASELINE}): ${reset.length}, ` +
+      `Снято отметок новее baseline (с ${firstAfter}): ${reset.length}, ` +
         `от ${reset[0]} до ${reset[reset.length - 1]}.`,
     );
   } finally {

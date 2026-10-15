@@ -40,7 +40,7 @@ describe('tourService.publish/unpublish (lib/services/tours/tour.service.ts) —
 
   it('publish() и unpublish() пишут operator_tours — их реально зовёт /api/discovery/tours/[id]/publish', () => {
     const publishBody = SRC.slice(SRC.indexOf('async publish('), SRC.indexOf('async unpublish('));
-    const unpublishBody = SRC.slice(SRC.indexOf('async unpublish('), SRC.indexOf('async getStats('));
+    const unpublishBody = SRC.slice(SRC.indexOf('async unpublish('), SRC.indexOf('async delete('));
     expect(publishBody).toMatch(/UPDATE\s+operator_tours\s+SET\s+is_active\s*=\s*TRUE/);
     expect(unpublishBody).toMatch(/UPDATE\s+operator_tours\s+SET\s+is_active\s*=\s*FALSE/);
   });

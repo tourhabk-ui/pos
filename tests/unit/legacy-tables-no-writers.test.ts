@@ -17,6 +17,11 @@
  *   отзывы о туре не читает никто (их читают из `operator_tour_reviews`);
  * - `tourService.update()` — `UPDATE tours`, сирота.
  *
+ * Волна 2 (п. 1.12) сняла остаток: `reviewService` целиком (правка, одобрение,
+ * ответ и удаление отзыва по `reviews.tour_id` → tours) с его роутом
+ * `/api/discovery/reviews/[id]` и `GET /api/discovery/tours/[id]/stats`
+ * вместе с `tourService.getStats` — у обоих не было ни одного вызывающего.
+ *
  * Живой путь починен, мёртвые сняты. Здесь — вызовом, а не поиском по тексту
  * (CLAUDE.md §4, «Сторож судит поведение»): маршрут зовётся с данными, весь
  * SQL, ушедший в пул, записывается и судится. Запрет на появление нового
@@ -179,10 +184,14 @@ describe('мёртвые писатели сняты', () => {
   });
 
   it('у сервисов нет методов, писавших в tours и в reviews.tour_id', async () => {
-    const { tourService } = await import('@/lib/services/tours/tour.service');
-    const { reviewService } = await import('@/lib/services/operators/review.service');
+    const services = (await import('@/lib/services')) as Record<string, unknown>;
+    const tourService = services.tourService as Record<string, unknown>;
     expect('update' in tourService, 'tourService.update писал UPDATE tours').toBe(false);
-    expect('create' in reviewService, 'reviewService.create писал отзыв о туре в reviews.tour_id → tours').toBe(false);
+    // Волна 2 (п. 1.12): reviewService снят целиком — правка, одобрение и
+    // удаление отзыва по reviews.tour_id → tours; getStats тура считал
+    // отзывы тем же несовместимым соединением uuid = bigint.
+    expect('reviewService' in services, 'reviewService писал отзыв о туре в reviews.tour_id → tours').toBe(false);
+    expect('getStats' in tourService, 'tourService.getStats читал reviews.tour_id = bigint и падал на любом туре').toBe(false);
   });
 
   it.each([
@@ -190,7 +199,10 @@ describe('мёртвые писатели сняты', () => {
     // Отзыв о туре пишет только POST /api/reviews/tour/[tourId] в
     // operator_tour_reviews — там, где его читают карточка и GET /api/reviews.
     'app/api/discovery/reviews/route.ts',
-  ])('роута %s нет', (file) => {
+    'app/api/discovery/reviews/[id]/route.ts',
+    'app/api/discovery/tours/[id]/stats/route.ts',
+    'lib/services/operators/review.service.ts',
+  ])('файла %s нет', (file) => {
     expect(existsSync(join(ROOT, file))).toBe(false);
   });
 });

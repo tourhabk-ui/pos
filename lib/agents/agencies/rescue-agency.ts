@@ -171,11 +171,12 @@ export class RescueAgency {
       if (activeTotal > activeEvents.length) {
         lines.push(`Показаны первые ${activeEvents.length} из ${activeTotal}.`);
       }
-
-      // Notify via SOS alert tool when active incidents exist
-      if (this.tools.sendSosAlert) {
-        this.tools.sendSosAlert(`${activeTotal} active SOS`).catch(() => {});
-      }
+      // Здесь стояла ветка `this.tools.sendSosAlert(...).catch(() => {})`.
+      // Снята по аудиту 15.10 (P4-03): инструмент `sendSosAlert` не
+      // регистрирует никто — `AgentContext.tools` не заполняет ни один
+      // вызывающий, — то есть это была не отправка, а объявленный исход без
+      // производителя (CLAUDE.md, правило 10.09), к тому же с глухим `catch`.
+      // Тревогу о неразрешённых SOS ведёт Watchdog (SOS-таймаут >15 мин).
     } else {
       lines.push('', 'Активных SOS-инцидентов нет.');
     }

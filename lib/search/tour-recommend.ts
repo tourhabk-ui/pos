@@ -4,9 +4,18 @@
  *
  * Часть движка «Поиск» (`lib/search`). Консолидация июль 2026: перемещено из
  * `lib/recommendations/engine.ts` без изменения поведения.
+ *
+ * Рекомендуемый тур — тур ВИТРИНЫ: каждая стратегия отбирает кандидатов
+ * шлюзом `publicTourSql` (находка аудита 15.10 P1-04). Своя копия держала
+ * `is_active` и `deleted_at`, но не `is_published` — снятый с витрины тур
+ * (миграции 807/808/837 снимают именно этим флагом) рекомендовался туристу,
+ * а его карточка отвечала 404. Чтения истории самого туриста (профиль
+ * предпочтений по его броням) шлюз не спрашивают: это его прошлое, а не
+ * предложение.
  */
 
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // ── Типы ──────────────────────────────────────────────────────
 export type RecommendationStrategy =
@@ -72,8 +81,7 @@ async function getSimilarUsersRecommendations(
                                 AND b3.deleted_at IS NULL
        JOIN operator_tours t ON t.id = b3.operator_tour_id
                             AND t.id != ALL($2::bigint[])
-                            AND t.is_active = true
-                            AND t.deleted_at IS NULL
+                            AND ${publicTourSql('t')}
                             AND ($4::text IS NULL OR t.activity_type = $4)
        WHERE b1.user_id = $1
          AND b1.booking_status IN ('confirmed', 'completed')
@@ -152,8 +160,7 @@ async function getContentBasedRecommendations(
          photos AS images
        FROM operator_tours
        WHERE id != ALL($1::bigint[])
-         AND is_active = true
-         AND deleted_at IS NULL
+         AND ${publicTourSql('')}
          AND (
            activity_type = $2
            OR difficulty = $3
@@ -223,8 +230,7 @@ async function getEcoOptimizedRecommendations(
          photos AS images, eco_points_reward
        FROM operator_tours
        WHERE id != ALL($1::bigint[])
-         AND is_active = true
-         AND deleted_at IS NULL
+         AND ${publicTourSql('')}
          AND eco_points_reward IS NOT NULL
          AND eco_points_reward > 0
          AND ($3::text IS NULL OR activity_type = $3)
@@ -303,7 +309,7 @@ export async function getRecommendations(
               location_name  AS location,
               rating, photos AS images
        FROM operator_tours
-       WHERE is_active = true AND deleted_at IS NULL
+       WHERE ${publicTourSql('')}
          AND ($2::text IS NULL OR activity_type = $2)
        ORDER BY rating DESC NULLS LAST, created_at DESC
        LIMIT $1`,

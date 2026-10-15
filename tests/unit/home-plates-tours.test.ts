@@ -27,7 +27,9 @@ describe('главная: платы = туры операторов', () => {
     // Прежняя проверка `toContain('is_published = true')` требовала именно
     // своей копии условия — снята, вместо неё требуется общий фрагмент.
     expect(plates).toContain('${hasAvailabilitySql()}');
-    expect(plates).toContain("${LIVE_TOUR_CONDITIONS.join(' AND ')}");
+    // Живой тур — шлюз витрины publicTourSql; второй канон того же правила
+    // (LIVE_TOUR_CONDITIONS) снят находкой аудита 15.10 P1-04.
+    expect(plates).toContain("${publicTourSql('ot')}");
     expect(data, 'главная считает свободные даты сама').not.toContain('FROM tour_availability');
     expect(data, 'главная считает занятость сама').not.toMatch(/occupiedOnDaySql\(/);
     expect(plates, 'свой список условий живого тура').not.toMatch(/is_published\s*=\s*true/);

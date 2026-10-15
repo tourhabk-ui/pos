@@ -222,73 +222,11 @@ export const tourService = {
     );
     return this.normalize(result.rows[0] ?? null);
   },
-  async getStats(id: string) {
-    await this.getById(id);
-
-    const bookingsStatsResult = await pool.query(
-      `SELECT
-         COUNT(*)::int AS total_bookings,
-         COUNT(*) FILTER (WHERE booking_status = 'confirmed')::int AS confirmed_bookings,
-         COUNT(*) FILTER (WHERE booking_status = 'completed')::int AS completed_bookings,
-         COUNT(*) FILTER (WHERE booking_status = 'cancelled')::int AS cancelled_bookings,
-         COALESCE(SUM(COALESCE(final_price, base_total_price)) FILTER (
-           WHERE booking_status IN ('confirmed', 'completed') AND payment_status = 'paid'
-         ), 0) AS total_revenue,
-         COALESCE(AVG(COALESCE(final_price, base_total_price)) FILTER (
-           WHERE booking_status IN ('confirmed', 'completed')
-         ), 0) AS average_booking_value
-       FROM operator_bookings
-       -- operator_bookings адресует тур колонкой operator_tour_id (040).
-       WHERE operator_tour_id = $1 AND deleted_at IS NULL`,
-      [id]
-    );
-
-    const reviewsStatsResult = await pool.query(
-      `SELECT
-         COUNT(*)::int AS total_reviews,
-         COALESCE(AVG(rating), 0) AS average_rating,
-         COUNT(*) FILTER (WHERE is_verified = TRUE)::int AS approved_reviews,
-         COUNT(*) FILTER (WHERE is_verified = FALSE)::int AS pending_reviews
-       FROM reviews
-       -- ЗАПРОС НЕ РАБОТАЕТ и не работал никогда: reviews.tour_id объявлен
-       -- uuid (измерено переписью 19.08), а $1 здесь — id тура, bigint.
-       -- Оператора uuid = bigint в Postgres нет, запрос падает целиком.
-       --
-       -- Не чинится здесь намеренно. Отзывы о турах УЖЕ имеют свою таблицу:
-       -- operator_tour_reviews (tour_id bigint, миграция 087), и по ней
-       -- работает карточка тура. Добавить туру третье место для отзывов
-       -- значило бы завести ещё одно расхождение смысла вместо того, чтобы
-       -- убрать существующее.
-       --
-       -- Правильная починка — перевести операторскую и админскую модерацию на
-       -- operator_tour_reviews, добавив ей поля модерации (is_verified,
-       -- operator_reply). Это отдельная работа, а не правка одной строки.
-       WHERE tour_id = $1`,
-      [id]
-    );
-
-    const bookingStats = bookingsStatsResult.rows[0] ?? {};
-    const reviewStats = reviewsStatsResult.rows[0] ?? {};
-
-    return {
-      bookings: {
-        total: Number(bookingStats.total_bookings ?? 0),
-        confirmed: Number(bookingStats.confirmed_bookings ?? 0),
-        completed: Number(bookingStats.completed_bookings ?? 0),
-        cancelled: Number(bookingStats.cancelled_bookings ?? 0),
-      },
-      revenue: {
-        total: Number(bookingStats.total_revenue ?? 0),
-        averageBookingValue: Number(bookingStats.average_booking_value ?? 0),
-      },
-      reviews: {
-        total: Number(reviewStats.total_reviews ?? 0),
-        averageRating: Number(reviewStats.average_rating ?? 0),
-        approved: Number(reviewStats.approved_reviews ?? 0),
-        pending: Number(reviewStats.pending_reviews ?? 0),
-      },
-    };
-  },
+  // `getStats()` снят (аудит 15.10, P2-02, п. 1.12) вместе с единственным
+  // вызывающим — `GET /api/discovery/tours/[id]/stats`, у которого не было
+  // ни одного вызова из интерфейса. Запрос отзывов в нём не выполнялся
+  // никогда (`reviews.tour_id` uuid против bigint id тура), и роут отвечал
+  // 500 на любой тур.
   async delete(id: string) {
     const result = await pool.query(`DELETE FROM operator_tours WHERE id = $1 RETURNING id`, [id]);
     if (!result.rows[0]) {

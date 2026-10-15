@@ -26,7 +26,10 @@ import React from 'react';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { catalogAvailability, isInSeason, tourDays, AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
-import { summarizeCatalogRows } from '@/lib/search/tour-search';
+import {
+  summarizeCatalogRows, queryMarketplaceTours, queryCatalogSummary, MarketplaceToursQuerySchema,
+} from '@/lib/search/tour-search';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { activityLabel } from '@/lib/tours/labels';
 
@@ -37,6 +40,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => '/catalog',
 }));
+const poolQuery = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
 // Гость: избранное с сервера не грузится (аудит 01.10), сердце отвечает 401.
 vi.mock('@/lib/auth/session-state', () => ({ sessionState: () => Promise.resolve(false) }));
 
@@ -268,9 +273,18 @@ describe('сводка витрины: направления только с т
   it('туров нет — цены «от» нет (null, не 0)', () => {
     expect(summarizeCatalogRows([])).toEqual({ total: 0, minPrice: null, byActivity: [] });
   });
-  it('листинг и сводка считают «живой тур» одним условием', () => {
-    expect(SEARCH).toMatch(/const conditions: string\[\] = \[\.\.\.LIVE_TOUR_CONDITIONS\]/);
-    expect(SEARCH).toMatch(/WHERE \$\{LIVE_TOUR_CONDITIONS\.join\(' AND '\)\}/);
+  it('листинг и сводка считают «живой тур» одним условием — шлюзом витрины', async () => {
+    // Поведением, а не литералом: в SQL, который листинг и сводка реально
+    // отправляют, стоит publicTourSql('ot'). До 15.10 тут сравнивалась строка
+    // `[...LIVE_TOUR_CONDITIONS]` — второго канона того же правила, снятого
+    // находкой аудита P1-04.
+    poolQuery.mockReset();
+    poolQuery.mockResolvedValue({ rows: [{ total: 0 }], rowCount: 0 });
+    await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({}));
+    await queryCatalogSummary();
+    const sent = poolQuery.mock.calls.map((c) => String(c[0]));
+    expect(sent).toHaveLength(3);
+    for (const sql of sent) expect(sql).toContain(publicTourSql('ot'));
   });
   it('чипы — из сводки, подписи словами из единого словаря, со счётчиком, aria-pressed и целью 44px', () => {
     storefront();

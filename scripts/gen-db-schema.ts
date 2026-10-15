@@ -26,9 +26,13 @@
  *   DATABASE_URL=postgresql://.../schema_doc npm run migrate
  *   DATABASE_URL=postgresql://.../schema_doc npm run db:schema-doc
  *
- * Граница baseline — `FIRST_MIGRATION_AFTER_BASELINE` в
- * lib/database/migration-order.ts (baseline снят 2026-08-15, последней в нём
- * была 862), а не число в команде.
+ * Граница «после baseline» — не число в этой инструкции, а строка шапки
+ * baseline «Последняя миграция в снимке:»: её пишет сборщик снимка
+ * (scripts/assemble-db-baseline.py), а читают и `schema-doc.ts
+ * reset-after-baseline`, и интеграционные тесты (tests/helpers/pg-schema.ts),
+ * одним разбором — lib/database/baseline-header.ts. До 15.10 здесь стояло 863
+ * литералом — верное ровно до первого пересъёма (аудит 15.10, P2-10). Строки
+ * нет — стоп, а не DELETE без условия.
  *
  * Генератор отказывается писать, если в базе применены не все миграции
  * каталога: шапка подписывает снимок именем последней миграции, и снимок с

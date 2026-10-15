@@ -25,8 +25,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET not set — skipping"
-            exit 0
+            echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"
+            exit 1
           fi
 
           HTTP=$(curl -s -o /tmp/repo_scan_resp.json -w "%{http_code}" \
@@ -42,8 +42,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET not set — skipping"
-            exit 0
+            echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"
+            exit 1
           fi
 
           HTTP=$(curl -s -o /tmp/intel_resp.json -w "%{http_code}" \
@@ -58,7 +58,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then exit 0; fi
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
 
           sleep 10
 

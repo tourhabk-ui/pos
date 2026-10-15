@@ -75,7 +75,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET не задан — перепись каталога не снята, блок README не тронут"
+            echo "::warning::CRON_SECRET не задан — перепись каталога не снята, блок README не тронут"
             exit 0
           fi
           HTTP=$(curl -s -o /tmp/catalog.json -w '%{http_code}' --max-time 60 \

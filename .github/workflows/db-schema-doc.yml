@@ -53,7 +53,7 @@ jobs:
     # справочник и pg-тесты обязаны видеть одну и ту же схему.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: schema_doc
           POSTGRES_PASSWORD: schema_doc
@@ -93,8 +93,8 @@ jobs:
         if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
         run: node scripts/bootstrap-from-baseline.js
 
-      # Граница baseline — FIRST_MIGRATION_AFTER_BASELINE в
-      # lib/database/migration-order.ts, не число здесь. Ноль снятых — отказ.
+      # Граница baseline — строка шапки снимка «Последняя миграция в снимке:»
+      # (lib/database/baseline-header.ts), не число здесь. Ноль снятых — отказ.
       - name: Снять отметки миграций новее baseline
         if: steps.fresh.outputs.stale == 'true' || github.event_name == 'workflow_dispatch'
         run: npx tsx scripts/schema-doc.ts reset-after-baseline

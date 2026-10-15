@@ -90,24 +90,6 @@ export function unnumberedMigrations(files: readonly string[]): string[] {
 }
 
 /**
- * Граница baseline — одна на всех, кто собирает базу «baseline + миграции».
- *
- * Baseline (`lib/database/baseline/schema-baseline.sql`) снят с прода
- * 2026-08-15; последней миграцией того дня была 862
- * (`migrations/MIGRATION_ORDER.md`). Значит всё с 863 в снимке прода ещё нет,
- * и такие отметки в `_migrations` после bootstrap снимаются, чтобы штатный
- * раннер их применил.
- *
- * Аудит 15.10 (AR-schema-doc): справочник `docs/DB_SCHEMA.md` теперь снимает
- * job после влития, и граница, вписанная числом в шаг workflow, разошлась бы
- * с baseline молча при первом пересъёме. Дата держит связку: переснят
- * baseline (`db-baseline.yml`) — его шапка называет другой день, и сторож
- * `tests/unit/db-schema-doc.test.ts` краснеет, пока граница не сверена.
- */
-export const BASELINE_TAKEN_ON = '2026-08-15';
-export const FIRST_MIGRATION_AFTER_BASELINE = 863;
-
-/**
  * Миграция новее baseline?
  *
  * Заменяет строковое `name >= '863'`, которое на четырёхзначном номере даёт

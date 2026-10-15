@@ -148,7 +148,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // Перепись по-прежнему только читает и в сеть сама не ходит.
   'funnel-census': ['db_read', 'db_write'],
   'guide-readiness': ['db_read', 'pd_direct'],
-  'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
+  // 15.10 (аудит, P4-01): pd_direct снят — его давал не ПД, а адрес
+  // `api.telegram.org` в своём fetch (признак ловит «.telegram»). Отправка ушла
+  // в общий tgSend, адреса в роуте больше нет; telegram остаётся по вызову tgSend.
+  'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money'],
   'hidden-tracks-census': ['db_read'],
   'images-generated': ['db_read', 'db_write'],
   // Перепись перевезённого: только чтение базы. Ни записи, ни сети — снимки
@@ -232,7 +235,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'passport-flag-census': ['db_read', 'pd_direct'],
   'payment-config': [],
   'payment-test-setup': ['db_read', 'db_write', 'money'],
-  'payouts': ['db_read', 'db_write', 'net_out', 'telegram', 'money', 'pd_direct'],
+  // 15.10: pd_direct снят — см. запись 'health' (адрес Telegram ушёл в tgSend).
+  'payouts': ['db_read', 'db_write', 'net_out', 'telegram', 'money'],
   'place-activity-census': ['db_read'],
   'place-audit': ['db_read'],
   'place-coords': ['db_read', 'db_write'],
@@ -255,7 +259,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-routes-census': ['db_read'],
   'places-unmerge': ['db_read', 'db_write'],
   'planner-material-census': ['db_read'],
-  'prod-errors': ['db_read'],
+  // 15.10, аудит P4-17: ?notify=1 — суточный дайджест серверных ошибок
+  // владельцу через tgSend. База по-прежнему только читается.
+  'prod-errors': ['db_read', 'net_out', 'telegram'],
   'prospect-scan': ['net_out', 'pd_direct'],
   'pwa-installs-census': ['db_read'],
   'relief-coverage': ['db_read'],
@@ -301,7 +307,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // 14.10: о сломанном ядре безопасности сообщает сама, в Telegram — её зовёт и
   // супервизор start.js, а красный прогон GitHub в окне супервизора не наступает.
   'safety-check': ['db_read', 'db_write', 'net_out', 'telegram'],
-  'safety-ingest': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
+  // 15.10: pd_direct снят — см. запись 'health' (адрес Telegram ушёл в tgSend).
+  'safety-ingest': ['db_read', 'db_write', 'net_out', 'telegram'],
   'safety-ledger-check': ['db_read', 'db_write'],
   'safety-profile-census': ['db_read'],
   'schema-audit': ['db_read'],

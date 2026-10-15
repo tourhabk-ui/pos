@@ -120,6 +120,23 @@ describe('POST /api/ai/chat — мозг Кузьмича для туристо�
     expect(json.data.answer).toBe('LEGACY_ANSWER');
   });
 
+  it('loop бросил исключение → отказ назван в логе с областью ai-chat, а не проглочен (аудит 15.10, P4-03)', async () => {
+    // Ступень, упавшая молча, неотличима от ступени, которая ответила
+    // одиночным вызовом: снаружи весь веб-чат «работает», а мозг Кузьмича
+    // с обязательной сверкой безопасности не включался ни разу.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    aiChatAgentLoopMock.mockRejectedValue(new Error('openrouter down'));
+
+    const res = await POST(postReq({ message: 'Привет' }));
+    expect(res.status).toBe(200);
+
+    const named = errSpy.mock.calls.filter(([first]) => typeof first === 'string' && first.startsWith('[ai-chat]'));
+    expect(named, 'отказ цикла инструментов не попал в лог').toHaveLength(1);
+    expect(String(named[0][0])).toContain('цикл инструментов Кузьмича');
+    expect(named[0][1]).toMatchObject({ message: 'openrouter down' });
+    errSpy.mockRestore();
+  });
+
   it('не-tourist роль (guide) → loop не вызывается, legacy как раньше', async () => {
     const res = await POST(postReq({ message: 'Привет', role: 'guide' }));
     const json = await res.json();

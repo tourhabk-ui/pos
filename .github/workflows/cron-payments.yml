@@ -20,8 +20,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET not set — skipping"
-            exit 0
+            echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"
+            exit 1
           fi
 
           HTTP=$(curl -s -o /tmp/abandoned_resp.json -w "%{http_code}" \

@@ -280,7 +280,12 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16
+        # Мажор — как у прода (шапка lib/database/baseline/schema-baseline.sql,
+        # «Сервер: PostgreSQL 18.1»). До 15.10 здесь стоял 16: форму SQL судил
+        # сервер другой версии, чем тот, что её исполняет. Аудит 15.10, P2-10;
+        # сторож — tests/unit/db-baseline.test.ts. Весь набор pg-тестов прогнан
+        # на 18.6 локально до замены: 28 файлов, 262 теста, зелёные.
+        image: postgres:18
         env:
           POSTGRES_USER: kernel_test
           POSTGRES_PASSWORD: kernel_test

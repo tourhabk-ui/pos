@@ -40,6 +40,7 @@ import {
   isAfterBaseline,
   lastMigration,
 } from '@/lib/database/migration-order';
+import { baselineBoundary } from '../helpers/pg-schema';
 
 const ROOT = process.cwd();
 
@@ -196,11 +197,19 @@ describe('связка: никто не сортирует имена мигра
   // вызовом `tests/unit/migrations-deploy-only.test.ts`.
 
   it('пороги baseline в pg-тестах сравниваются числом', () => {
+    // С 15.10 порог один — в tests/helpers/pg-schema.ts (аудит P2-10): файлы
+    // своих DELETE по `_migrations` больше не пишут. Судится вызовом: каждая
+    // четырёхзначная миграция каталога новее снимка и обязана доиграться в
+    // шаблоне — строковое `'1000_' >= '863'` её бы потеряло.
+    const all = require('node:fs').readdirSync(join(ROOT, 'migrations'))
+      .filter((f: string) => f.endsWith('.sql') && (migrationNumber(f) ?? 0) >= 1000) as string[];
+    expect(all.length).toBeGreaterThan(0);
+    const { replay } = baselineBoundary();
+    expect(replay.filter((f) => (migrationNumber(f) ?? 0) >= 1000)).toEqual(sortMigrations(all));
     for (const rel of ['tests/integration/tourist-cabinet.pg.test.ts',
                        'tests/integration/operator-screens.pg.test.ts']) {
       const src = readFileSync(join(ROOT, rel), 'utf-8');
       expect(src, `${rel}: строковое сравнение порога`).not.toMatch(/name >= \$1/);
-      expect(src, `${rel}: номер должен извлекаться из имени`).toMatch(/substring\(name from/);
     }
   });
 });

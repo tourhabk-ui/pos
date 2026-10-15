@@ -14,6 +14,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -28,18 +29,34 @@ export async function GET(request: NextRequest) {
   const lease = await claimCronWindow('leads-process', 30, 'external');
   if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('leads-process', 30));
 
+  // Отметка прогона в agent_run_history под ключом реестра 'leads' (аудит
+  // 15.10, P4-07): до этого Watchdog видел только след — лиды старше 2 ч, —
+  // а не то, что сам крон перестал запускаться. Пропуск по аренде отметки
+  // не пишет: окно отрабатывает другой планировщик, и отметит он.
+  const t0 = Date.now();
+
   // Лиды 'new' старше 2 минут, без processed_at, с достаточным качеством
-  const { rows } = await pool.query<{ id: string; name: string }>(
-    `SELECT id, name FROM leads
-     WHERE status = 'new'
-       AND created_at < NOW() - INTERVAL '2 minutes'
-       AND processed_at IS NULL
-       AND (ai_score IS NULL OR ai_score >= 30)
-     ORDER BY created_at ASC
-     LIMIT 10`
-  );
+  let rows: Array<{ id: string; name: string }>;
+  try {
+    ({ rows } = await pool.query<{ id: string; name: string }>(
+      `SELECT id, name FROM leads
+       WHERE status = 'new'
+         AND created_at < NOW() - INTERVAL '2 minutes'
+         AND processed_at IS NULL
+         AND (ai_score IS NULL OR ai_score >= 30)
+       ORDER BY created_at ASC
+       LIMIT 10`
+    ));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string })?.code ?? 'нет';
+    console.error(`[leads-process] выборка лидов не выполнилась (SQLSTATE ${code}):`, message);
+    recordCronRun('leads', t0, 'failed', { error: `выборка лидов: ${code} ${message}`.slice(0, 300) });
+    return NextResponse.json({ ok: false, error: 'Выборка лидов не выполнилась' }, { status: 500 });
+  }
 
   if (rows.length === 0) {
+    recordCronRun('leads', t0, 'success', { items: 0 });
     return NextResponse.json({ ok: true, processed: 0, message: 'Нет необработанных лидов' });
   }
 
@@ -61,6 +78,13 @@ export async function GET(request: NextRequest) {
 
   const processed = results.filter(r => r.ok).length;
   const failed    = results.filter(r => !r.ok).length;
+
+  // Ни одного разобранного при непустой выборке — отказ, а не успех (§4.0).
+  // Частичный разбор — успех с названным остатком.
+  recordCronRun('leads', t0, processed === 0 ? 'failed' : 'success', {
+    items: processed,
+    error: failed > 0 ? `не обработано ${failed} из ${rows.length}` : undefined,
+  });
 
   return NextResponse.json({ ok: true, processed, failed, results });
 }

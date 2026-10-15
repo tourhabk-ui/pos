@@ -18,9 +18,20 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
 import { priceFromUnit } from '@/lib/tours/price-label';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
+
+/**
+ * Тур, который Кузьмич называет, раскрывает, проверяет и сравнивает, — тур
+ * ВИТРИНЫ: условие — шлюз publicTourSql (находка аудита 15.10 P1-04). Здесь
+ * стояли четыре своих копии, и все разные: поиск не смотрел deleted_at,
+ * подробности, даты и сравнение — ни is_active, ни deleted_at. Удалённый тур
+ * находился поиском, а выключенный — по прямому id раскрывался со свободными
+ * датами.
+ */
+const ON_SHOWCASE = publicTourSql('t');
 
 // ── Search Tours ──────────────────────────────────────────────────
 
@@ -61,7 +72,7 @@ const searchTours: SDKTool = {
     },
   },
   execute: async (args) => {
-    const conditions: string[] = ['t.is_published = true', 't.is_active = true'];
+    const conditions: string[] = [ON_SHOWCASE];
     const params: unknown[] = [];
     let idx = 1;
 
@@ -184,7 +195,7 @@ const getTourDetails: SDKTool = {
                p.contacts->>'phone' AS operator_phone
         FROM operator_tours t
         JOIN partners p ON p.id = t.operator_id
-        WHERE t.id = $1 AND t.is_published = true
+        WHERE t.id = $1 AND ${ON_SHOWCASE}
       `, [Number(args.tour_id)]);
 
       if (result.rows.length === 0) {
@@ -238,7 +249,7 @@ const checkAvailability: SDKTool = {
       const result = await pool.query(`
         SELECT t.id, t.title, t.season_start, t.season_end, t.base_price
         FROM operator_tours t
-        WHERE t.id = $1 AND t.is_published = true
+        WHERE t.id = $1 AND ${ON_SHOWCASE}
       `, [Number(args.tour_id)]);
 
       if (result.rows.length === 0) {
@@ -324,7 +335,7 @@ const compareTours: SDKTool = {
                t.review_count AS review_count
         FROM operator_tours t
         JOIN partners p ON p.id = t.operator_id
-        WHERE t.id IN (${placeholders}) AND t.is_published = true
+        WHERE t.id IN (${placeholders}) AND ${ON_SHOWCASE}
       `, ids);
 
       return JSON.stringify({
