@@ -120,8 +120,12 @@ export const UNDECLARED_TABLES = [
   // из списка ушли иначе — их читателей больше нет: роуты без единого
   // экрана-потребителя удалены, сводка кабинета считается по operator_bookings,
   // operator_tour_reviews, user_achievements и user_trips (lib/tourist/cabinet).
-  // Согласия и аудит согласий (152-ФЗ) — тем более странно не иметь схемы.
-  'user_agreements', 'agreement_audit_log', 'content_consents',
+  // Согласия и аудит согласий (user_agreements, agreement_audit_log,
+  // content_consents) вычеркнуты 15.10 (аудит архитектуры, P2-16): таблиц нет
+  // на проде (перепись реестра схемы, прогон 3; baseline 15.08; DB_SCHEMA
+  // 15.10), а их единственные писатели — /api/agreements/accept и
+  // /api/operator-agreements/content-consent — не звал ни один экран и
+  // отвечали 500. Роуты удалены; живое согласие — pd_consent_* (lib/legal).
   // Прочее.
   // weather_cache вычеркнута 08.09: её не заводила ни одна миграция и не
   // писала ни одна строка кода — читал её только SDK-инструмент погоды,

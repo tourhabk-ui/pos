@@ -1,8 +1,9 @@
 /**
  * Записанный адрес — доверенным порядком (P3-02 аудита 15.10).
  *
- * Три роута читали адрес руками, X-Forwarded-For ПЕРВЫМ, раньше x-real-ip:
- *   - запись согласия (`/api/agreements/accept`) — вся цепочка XFF целиком;
+ * Роуты читали адрес руками, X-Forwarded-For ПЕРВЫМ, раньше x-real-ip.
+ * Третий из них — запись согласия `/api/agreements/accept` — удалён 15.10
+ * (P2-16: его таблиц нет на проде, экрана-вызывающего не было). Остались:
  *   - журнал подборки (`/api/p/[code]/event`) — первый элемент XFF;
  *   - клики партнёрских ссылок (`/api/analytics/affiliate-clicks`) — вся
  *     цепочка, а колонка `ip_addr varchar(45)`, и длинная цепочка роняла
@@ -23,7 +24,6 @@ vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: async () => ({ userId: 'user-1', email: 'u@example.ru', role: 'tourist' }),
 }));
 
-import { POST as acceptAgreement } from '@/app/api/agreements/accept/route';
 import { POST as selectionEvent } from '@/app/api/p/[code]/event/route';
 import { POST as affiliateClick } from '@/app/api/analytics/affiliate-clicks/route';
 
@@ -49,30 +49,7 @@ beforeEach(() => {
   queryMock.mockReset();
   queryMock.mockImplementation((sql: string) => {
     if (sql.includes('FROM tour_selections')) return Promise.resolve({ rows: [{ id: 'sel-1' }] });
-    if (sql.includes('INSERT INTO user_agreements')) return Promise.resolve({ rows: [{ id: 'a-1' }] });
     return Promise.resolve({ rows: [] });
-  });
-});
-
-describe('/api/agreements/accept: адрес в записи согласия', () => {
-  const body = { agreement_type: 'privacy', document_version: 1, accepted: true };
-  const url = 'http://localhost/api/agreements/accept';
-
-  it('x-real-ip приоритетнее X-Forwarded-For', async () => {
-    const res = await acceptAgreement(post(url, { 'x-real-ip': PROXY_IP, 'x-forwarded-for': CLIENT_CHAIN }, body));
-    expect(res.status).toBe(200);
-    expect(paramOf('INSERT INTO user_agreements', 5)).toBe(PROXY_IP);
-    expect(paramOf('INSERT INTO agreement_audit_log', 4)).toBe(PROXY_IP);
-  });
-
-  it('без x-real-ip — один адрес из XFF, не вся цепочка', async () => {
-    await acceptAgreement(post(url, { 'x-forwarded-for': CLIENT_CHAIN }, body));
-    expect(paramOf('INSERT INTO user_agreements', 5)).toBe('198.51.100.9');
-  });
-
-  it('адреса нет вовсе — «unknown», не выдуманный 127.0.0.1', async () => {
-    await acceptAgreement(post(url, {}, body));
-    expect(paramOf('INSERT INTO user_agreements', 5)).toBe('unknown');
   });
 });
 
