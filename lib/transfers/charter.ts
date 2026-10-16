@@ -40,10 +40,12 @@ interface PartnerRow {
   video_clips: unknown;
   legal_info: unknown;
   contacts: unknown;
+  /** Вместимости парка без привязки к машине (1292); NULL — не записаны. */
+  fleet_seat_classes: unknown;
 }
 
 /** Колонки партнёра, которые разбирает toCharterCarrier; один список на оба загрузчика. */
-const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.legal_info, p.contacts`;
+const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.legal_info, p.contacts, p.fleet_seat_classes`;
 
 interface PriceRow {
   partner_id: string;
@@ -163,6 +165,17 @@ export function parseLicense(legalInfo: unknown): CarrierLicense | null {
 }
 
 /**
+ * Вместимости парка без привязки к машине (partners.fleet_seat_classes, 1292):
+ * «есть на 12 и на 24 места». Только целые больше нуля, без повторов, по
+ * возрастанию; не массив или мусор — [] («не записаны»), а не выдуманная цифра.
+ */
+export function parseSeatClasses(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const seats = raw.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0);
+  return [...new Set(seats)].sort((a, b) => a - b);
+}
+
+/**
  * Страхование пассажиров из legal_info.passengerInsurance. Записано только
  * «со слов перевозчика» (1292) — это и узнаётся; полиса с номером платформа
  * не видела, и другого исхода, кроме «не записано», здесь нет.
@@ -230,6 +243,7 @@ function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRo
     vehicles: vehicles
       .filter((v) => v.partner_id === p.id)
       .map((v) => ({ kind: v.kind, title: v.title, seats: v.seats })),
+    seatClasses: parseSeatClasses(p.fleet_seat_classes),
     destinations: mine
       .filter((r) => r.line_kind === 'destination' && r.from_text && r.to_text)
       .map((r) => ({

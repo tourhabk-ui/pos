@@ -189,7 +189,7 @@ describe('трансфер: машина целиком под заказ (вл�
       { from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый', priceRub: 75000, note: null, conditions: null, validYear: 2026, place: null },
       { from: 'Петропавловск-Камчатский', to: 'Вулкан Авачинский', priceRub: 65000, note: null, conditions: null, validYear: 2026, place: null },
     ],
-    extraDay: null, rates: [], photos: [], clips: [], legal: null, video: null,
+    extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: null,
     phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: 'https://wa.me/79294560102',
     ...over,
   });
@@ -215,6 +215,8 @@ describe('трансфер: машина целиком под заказ (вл�
     charterMock.mockResolvedValue([carrier({
       slug: 'zheltukhin', name: 'ИП Желтухин', destinations: [],
       vehicles: [{ kind: 'minibus', title: 'Sprinter', seats: null }],
+      // Вместимости парка без привязки к машине (1292): строка их и называет.
+      seatClasses: [12, 24],
       rates: [
         { unit: 'hour', priceRub: 4500, note: null, conditions: null, validYear: null },
         { unit: 'day', priceRub: 45000, note: null, conditions: null, validYear: null },
@@ -224,7 +226,7 @@ describe('трансфер: машина целиком под заказ (вл�
     expect(r).toEqual({
       state: 'ok',
       items: [{
-        slug: 'zheltukhin', name: 'ИП Желтухин', fleet: '1 × микроавтобус, число мест не записано',
+        slug: 'zheltukhin', name: 'ИП Желтухин', fleet: '1 × микроавтобус: на 12 и на 24 места',
         priceFromRub: null, destinations: 0, hourRub: 4500, dayRub: 45000,
       }],
     });

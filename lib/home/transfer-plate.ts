@@ -44,7 +44,7 @@ export function toTransferPlate(c: CharterCarrier): TransferPlate | null {
     kind: 'transfer',
     id: `transfer-${c.partnerId}`,
     title: c.name,
-    fleet: describeFleet(c.vehicles),
+    fleet: describeFleet(c.vehicles, c.seatClasses),
     price: Number.isFinite(min) ? `от ${formatRub(min)} за машину` : null,
     destinations: [...new Set(c.destinations.map((d) => d.to))].slice(0, DESTINATIONS_SHOWN),
     imageUrl: c.photos[0]?.url ?? null,

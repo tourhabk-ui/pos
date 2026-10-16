@@ -144,6 +144,12 @@ export interface CharterCarrier {
   name: string;
   shortDescription: string | null;
   vehicles: CharterVehicle[];
+  /**
+   * Вместимости машин парка без привязки к машине (1292): [12, 24] — «есть на
+   * 12 и на 24 места». Сколько машин каждого размера, отсюда не следует.
+   * [] — не записаны.
+   */
+  seatClasses: number[];
   destinations: CharterPriceLine[];
   /** Доплата за день работы машины на месте; null — не назначена. */
   extraDay: CharterExtraDay | null;
@@ -282,14 +288,34 @@ export function vehicleKindWord(kind: CharterVehicleKind): string {
   return KIND_FORM[kind];
 }
 
+/** «место / места / мест» по последнему числу. */
+function seatsNoun(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'место';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'места';
+  return 'мест';
+}
+
+/** Вместимости парка словами: «на 12 и на 24 места», «на 8, на 12 и на 24 места». */
+export function seatClassesWords(classes: readonly number[]): string | null {
+  if (classes.length === 0) return null;
+  const parts = classes.map((n) => `на ${n}`);
+  const head = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} и ${parts[parts.length - 1]}` : parts[0]!;
+  return `${head} ${seatsNoun(classes[classes.length - 1]!)}`;
+}
+
 /**
  * «2 × вахтовка, 26 мест»: парк одной строкой; пусто, если машин не записано.
- * Число мест не записано — так и сказано: «3 × микроавтобус, число мест не
- * записано», а не выдуманная цифра и не молчание, которое читалось бы как
- * «мест сколько угодно».
+ * Число мест у машины не записано — так и сказано: «3 × микроавтобус, число
+ * мест не записано», а не выдуманная цифра и не молчание, которое читалось бы
+ * как «мест сколько угодно». Если известны вместимости парка без привязки к
+ * машине (1292), они и называются: «3 × микроавтобус: на 12 и на 24 места» —
+ * какая машина на сколько, не утверждается.
  */
-export function describeFleet(vehicles: CharterVehicle[]): string | null {
-  if (vehicles.length === 0) return null;
+export function describeFleet(vehicles: CharterVehicle[], seatClasses: readonly number[] = []): string | null {
+  const classes = seatClassesWords(seatClasses);
+  if (vehicles.length === 0) return classes ? `машины ${classes}` : null;
   const groups = new Map<string, { kind: CharterVehicleKind; seats: number | null; n: number }>();
   for (const v of vehicles) {
     const key = `${v.kind}/${v.seats ?? '?'}`;
@@ -297,9 +323,14 @@ export function describeFleet(vehicles: CharterVehicle[]): string | null {
     if (g) g.n += 1;
     else groups.set(key, { kind: v.kind, seats: v.seats, n: 1 });
   }
-  return [...groups.values()]
-    .map((g) => `${g.n} × ${KIND_FORM[g.kind]}, ${g.seats === null ? 'число мест не записано' : `${g.seats} мест`}`)
+  const unknownSeats = vehicles.some((v) => v.seats === null);
+  const text = [...groups.values()]
+    .map((g) => {
+      if (g.seats !== null) return `${g.n} × ${KIND_FORM[g.kind]}, ${g.seats} мест`;
+      return classes ? `${g.n} × ${KIND_FORM[g.kind]}` : `${g.n} × ${KIND_FORM[g.kind]}, число мест не записано`;
+    })
     .join('; ');
+  return unknownSeats && classes ? `${text}: ${classes}` : text;
 }
 
 /**

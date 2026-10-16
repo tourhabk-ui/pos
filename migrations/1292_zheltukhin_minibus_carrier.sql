@@ -27,10 +27,18 @@
 --     «уточняется у перевозчика» (§4.0).
 --   • Год прайса не назван — valid_year NULL («не записан»).
 --   • Парк — три машины со снимков перевозчика: два Mercedes-Benz Sprinter и
---     Ford Transit (вахтовок нет, слово владельца). Число мест не названо, и
---     `transfer_fleet_vehicles.seats` перестаёт быть обязательным: NULL —
---     «не записано», экраны так и говорят, вместо придуманной цифры. Проверка
---     `seats > 0` остаётся для записанного числа.
+--     Ford Transit (вахтовок нет, слово владельца).
+--   • Места. Перевозчик в переписке ответил «От 12 до 20»; владелец 16.10
+--     уточнил: «есть автобусы по 12 мест и есть по 24 места» — записано его
+--     слово. Какая машина на сколько мест, не сказано (на вопрос о привязке
+--     владелец ответа не выбрал), и сколько машин каждого размера — тоже.
+--     Поэтому у каждой машины `transfer_fleet_vehicles.seats` — NULL («не
+--     записано»; колонка перестаёт быть обязательной, проверка `seats > 0`
+--     остаётся для записанного числа), а вместимости парка без привязки к
+--     машине — новая колонка `partners.fleet_seat_classes` = {12,24}.
+--     Экран говорит «на 12 и на 24 места», полоса фактов — «12 или 24 в
+--     машине»; отказа «мест в парке не хватит» нет: сколько машин каждого
+--     размера, неизвестно, и сумма была бы догадкой.
 --
 -- ── Исполнитель и лицензия ────────────────────────────────────────────────
 --
@@ -71,6 +79,19 @@ BEGIN;
 
 -- Машина без записанного числа мест: NULL — «не записано», а не ноль.
 ALTER TABLE transfer_fleet_vehicles ALTER COLUMN seats DROP NOT NULL;
+
+-- Вместимости машин перевозчика без привязки к машине: «есть на 12 и на 24
+-- места». NULL — не записаны. Пустой массив и не положительное число — не
+-- факт, а мусор: их не пускает проверка.
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS fleet_seat_classes INTEGER[];
+ALTER TABLE partners DROP CONSTRAINT IF EXISTS partners_fleet_seat_classes_shape;
+ALTER TABLE partners
+  ADD CONSTRAINT partners_fleet_seat_classes_shape CHECK (
+    fleet_seat_classes IS NULL
+    OR (cardinality(fleet_seat_classes) >= 1 AND 0 < ALL (fleet_seat_classes))
+  );
+COMMENT ON COLUMN partners.fleet_seat_classes IS
+  'Перевозчик: вместимости машин парка без привязки к машине (1292); NULL — не записаны';
 
 ALTER TABLE transfer_charter_prices DROP CONSTRAINT IF EXISTS transfer_charter_prices_line_kind_check;
 ALTER TABLE transfer_charter_prices
@@ -130,6 +151,12 @@ SELECT
   0, 0, FALSE, TRUE, NOW()
 WHERE NOT EXISTS (SELECT 1 FROM partners WHERE slug = 'zheltukhin');
 
+-- «Есть автобусы по 12 мест и есть по 24 места» (владелец 16.10) — только в
+-- пустое: вместимости, записанные администратором раньше, не перетираются.
+UPDATE partners
+   SET fleet_seat_classes = ARRAY[12, 24]
+ WHERE slug = 'zheltukhin' AND fleet_seat_classes IS NULL;
+
 -- Номер на табличке — чтобы различать две одинаковые модели в кабинете; он и
 -- так виден на снимках. На публичных страницах парк называется видом машин.
 INSERT INTO transfer_fleet_vehicles (partner_id, kind, title, seats)
@@ -161,20 +188,22 @@ SELECT p.id, 'minibus', v.line_kind, v.price_rub,
       WHERE c.partner_id::text = p.id::text AND c.vehicle_kind = 'minibus' AND c.line_kind = v.line_kind
    );
 
--- Исход называется вслух: ровно один партнёр, три машины, две строки прайса.
+-- Исход называется вслух: ровно один партнёр с вместимостями {12,24}, три
+-- машины, две строки прайса.
 DO $$
 DECLARE
   v_partner int;
   v_cars    int;
   v_prices  int;
 BEGIN
-  SELECT count(*) INTO v_partner FROM partners WHERE slug = 'zheltukhin' AND category = 'transfer';
+  SELECT count(*) INTO v_partner FROM partners
+   WHERE slug = 'zheltukhin' AND category = 'transfer' AND fleet_seat_classes = ARRAY[12, 24];
   SELECT count(*) INTO v_cars FROM transfer_fleet_vehicles f JOIN partners p ON p.id::text = f.partner_id::text
    WHERE p.slug = 'zheltukhin' AND f.is_active;
   SELECT count(*) INTO v_prices FROM transfer_charter_prices c JOIN partners p ON p.id::text = c.partner_id::text
    WHERE p.slug = 'zheltukhin' AND c.is_active;
   IF v_partner <> 1 OR v_cars <> 3 OR v_prices <> 2 THEN
-    RAISE WARNING '[1292] «ИП Желтухин»: партнёров %, машин % (нужно 3), строк прайса % (нужно 2); запись могла быть заведена раньше из админки', v_partner, v_cars, v_prices;
+    RAISE WARNING '[1292] «ИП Желтухин»: партнёров с вместимостями {12,24} %, машин % (нужно 3), строк прайса % (нужно 2); запись могла быть заведена раньше из админки', v_partner, v_cars, v_prices;
   END IF;
 END $$;
 

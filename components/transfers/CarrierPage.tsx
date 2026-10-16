@@ -60,7 +60,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
   const linked = c.destinations.filter((d) => d.place);
-  const fleet = describeFleet(c.vehicles);
+  const fleet = describeFleet(c.vehicles, c.seatClasses);
   const destinations = c.destinations.map((d) => d.to);
   const preselected = orderDestinationFromQuery(destinations, orderTo);
 

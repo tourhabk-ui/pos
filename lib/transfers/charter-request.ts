@@ -217,7 +217,7 @@ export function charterAcceptedText(f: CharterRequestFacts, phone: string, baseU
       ? ` Цена у перевозчика — за время работы машины, направление задаёт заказчик: ${f.plan.rates.map(rateWords).join('; ')}. Сколько часов займёт поездка и что входит в цену, прайс не говорит — это уточняется у перевозчика; итоговой суммы платформа не называет.`
       : ` Направления «${f.destination}» в прайсе нет — это заказ вне прайса, цену называет перевозчик. Прайс: ${c.destinations.map(priceWords).join('; ')}.${extra}`;
   const cars = f.plan.vehicles && f.plan.vehicles > 1
-    ? ` По числу мест нужно не меньше ${f.plan.vehicles} машин (в парке ${describeFleet(c.vehicles)}); цена в прайсе — за одну машину.`
+    ? ` По числу мест нужно не меньше ${f.plan.vehicles} машин (в парке ${describeFleet(c.vehicles, c.seatClasses)}); цена в прайсе — за одну машину.`
     : '';
   const note = charterFootnote(c);
   return `${head}${price}${cars}`

@@ -22,7 +22,7 @@ import {
  * Кузьмича и MCP не уходит (pd-guard) — им даётся ссылка на карточку.
  */
 export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
-  const fleet = describeFleet(carrier.vehicles);
+  const fleet = describeFleet(carrier.vehicles, carrier.seatClasses);
   const phoneLabel = formatContactPhone(carrier.phone);
   const hasContacts = Boolean(carrier.phone || carrier.telegramHref || carrier.whatsappHref);
 

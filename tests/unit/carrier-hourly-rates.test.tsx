@@ -10,8 +10,10 @@
  *   · прайс называет цену за час и за день за МАШИНУ, «Заказать» у неё ведёт
  *     к форме без выбранного направления, «направления нет в прайсе» нигде не
  *     говорится — прайс не про направления;
- *   · число мест не записано — так и сказано; «мест не хватит» не говорится,
- *     «до N в машине» не рисуется;
+ *   · сколько мест в какой машине, не записано — так и сказано; вместимости
+ *     парка без привязки к машине (владелец 16.10: «есть автобусы по 12 мест
+ *     и есть по 24 места») — «на 12 и на 24 места», «12 или 24 в машине»;
+ *     «мест не хватит» не говорится: сколько машин каждого размера, неизвестно;
  *   · лицензия — по выписке, со статусом на ДАТУ выписки; страхование — «со
  *     слов перевозчика, полис не показан»; «Проверенный перевозчик» нет;
  *   · Кузьмич, MCP и заявка менеджеру называют ту же цену теми же словами;
@@ -37,10 +39,12 @@ import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
 import { TransfersPage } from '@/components/transfers/TransfersPage';
 import {
   charterFootnote, describeFleet, fleetCapacity, fleetKindTitle, licenseLine, priceUnknownsText,
-  rateOnScreen, rateWords, sortRates, vehiclesNeeded,
+  rateOnScreen, rateWords, seatClassesWords, sortRates, vehiclesNeeded,
   type CarrierProfile, type CharterCarrier, type CharterRate,
 } from '@/lib/transfers/charter-format';
-import { loadCarrierBySlug, loadCharterCarriers, parseLicense, parsePassengerInsurance } from '@/lib/transfers/charter';
+import {
+  loadCarrierBySlug, loadCharterCarriers, parseLicense, parsePassengerInsurance, parseSeatClasses,
+} from '@/lib/transfers/charter';
 import { carrierInstrument, carrierJsonLd } from '@/lib/transfers/carrier-view';
 import { charterAnswer } from '@/lib/kuzmich/transfer-search';
 import {
@@ -66,7 +70,7 @@ const ZH: CarrierProfile = {
     { kind: 'minibus', title: 'Mercedes-Benz Sprinter, В333АС41', seats: null },
     { kind: 'minibus', title: 'Ford Transit, К002ОВ41', seats: null },
   ],
-  destinations: [], extraDay: null, rates: RATES,
+  destinations: [], extraDay: null, rates: RATES, seatClasses: [12, 24],
   photos: [{ url: '/images/zheltukhin/zheltukhin-01.jpg', credit: null }, { url: '/images/zheltukhin/zheltukhin-02.jpg', credit: null }],
   clips: [], video: null,
   legal: { name: 'ИП Желтухин Михаил Анатольевич', inn: '410209072036', ogrn: '313417727300072' },
@@ -83,7 +87,7 @@ const SHATUN: CharterCarrier = {
   partnerId: 'p-sh', slug: 'shatun', name: 'Шатун', shortDescription: null,
   vehicles: [{ kind: 'vahtovka', title: 'КамАЗ-1', seats: 26 }, { kind: 'vahtovka', title: 'КамАЗ-2', seats: 26 }],
   destinations: [{ from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый', priceRub: 75000, note: null, conditions: 'при расчёте наличными', validYear: 2026, place: null }],
-  extraDay: null, rates: [], photos: [], clips: [], legal: null, video: null,
+  extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: null,
   phone: '+79294560102', telegramHref: null, whatsappHref: null,
 };
 
@@ -107,8 +111,13 @@ describe('правила прайса и парка', () => {
     expect(sortRates([RATES[1]!, RATES[0]!]).map((r) => r.unit)).toEqual(['hour', 'day']);
   });
 
-  it('число мест не записано — так и сказано; вместимости и «сколько машин нужно» нет', () => {
+  it('число мест у машины не записано — так и сказано; вместимости и «сколько машин нужно» нет', () => {
     expect(describeFleet(ZH.vehicles)).toBe('3 × микроавтобус, число мест не записано');
+    // Вместимости парка без привязки к машине — названы, а какая машина на сколько, нет.
+    expect(describeFleet(ZH.vehicles, ZH.seatClasses)).toBe('3 × микроавтобус: на 12 и на 24 места');
+    expect(describeFleet([], [12, 24])).toBe('машины на 12 и на 24 места');
+    // У машин места записаны — вместимости парка не нужны и не подмешиваются.
+    expect(describeFleet(SHATUN.vehicles, [12])).toBe('2 × вахтовка, 26 мест');
     expect(fleetCapacity(ZH.vehicles)).toBeNull();
     expect(vehiclesNeeded(ZH.vehicles, 8)).toBeNull();
     // Записано не у всех — сумма по части машин соврала бы.
@@ -117,6 +126,14 @@ describe('правила прайса и парка', () => {
     expect(describeFleet(mixed)).toBe('1 × микроавтобус, 18 мест; 1 × микроавтобус, число мест не записано');
     // Записано у всех — как прежде.
     expect(fleetCapacity(SHATUN.vehicles)).toEqual({ total: 52, largest: 26, count: 2 });
+  });
+
+  it('вместимости словами: падеж по последнему числу', () => {
+    expect(seatClassesWords([12, 24])).toBe('на 12 и на 24 места');
+    expect(seatClassesWords([12, 20])).toBe('на 12 и на 20 мест');
+    expect(seatClassesWords([21])).toBe('на 21 место');
+    expect(seatClassesWords([8, 12, 24])).toBe('на 8, на 12 и на 24 места');
+    expect(seatClassesWords([])).toBeNull();
   });
 
   it('вид машины в заголовке заявки — из парка, а не «вахтовка» для всех', () => {
@@ -151,6 +168,13 @@ describe('разбор legal_info', () => {
     expect(parseLicense(null)).toBeNull();
   });
 
+  it('вместимости парка: только целые больше нуля, без повторов, по возрастанию; мусор — «не записаны»', () => {
+    expect(parseSeatClasses([24, 12, 24])).toEqual([12, 24]);
+    expect(parseSeatClasses([12, 0, -3, 2.5, '20', null])).toEqual([12]);
+    expect(parseSeatClasses(null)).toEqual([]);
+    expect(parseSeatClasses('12,24')).toEqual([]);
+  });
+
   it('страхование — только «со слов перевозчика»; иное не выдаётся за полис', () => {
     expect(parsePassengerInsurance({ passengerInsurance: 'со слов перевозчика' })).toBe('words');
     expect(parsePassengerInsurance({ passengerInsurance: 'полис № 1' })).toBeNull();
@@ -164,6 +188,7 @@ describe('загрузчик: строки per_hour/per_day и машины бе
     gallery: ['/images/zheltukhin/zheltukhin-02.jpg'], video_url: null, video_poster_url: null, gallery_credits: null, video_clips: null,
     legal_info: { companyName: 'ИП Желтухин Михаил Анатольевич', inn: '410209072036', ogrn: '313417727300072', license: { number: 'Л022-00112-41/00927020' }, passengerInsurance: 'со слов перевозчика' },
     contacts: { phone: '+79619620826' }, is_verified: false, description: 'Перевозчик',
+    fleet_seat_classes: [24, 12],
   };
   const price = (line_kind: string, price_rub: number) => ({
     partner_id: 'p-zh', vehicle_kind: 'minibus', line_kind, from_text: null, to_text: null, price_rub,
@@ -180,6 +205,8 @@ describe('загрузчик: строки per_hour/per_day и машины бе
     expect(c?.destinations).toEqual([]);
     expect(c?.extraDay).toBeNull();
     expect(c?.vehicles).toEqual([{ kind: 'minibus', title: 'Ford Transit', seats: null }]);
+    expect(c?.seatClasses).toEqual([12, 24]);
+    expect(String(dbQuery.mock.calls[0]?.[0])).toContain('p.fleet_seat_classes');
     expect(c?.license).toMatchObject({ kind: 'registry', number: 'Л022-00112-41/00927020' });
     expect(c?.passengerInsurance).toBe('words');
     expect(c?.verified).toBe(false);
@@ -209,14 +236,18 @@ describe('страница перевозчика с ценой за час и �
     expect(text).not.toMatch(/в прайсе нет/);
   });
 
-  it('полоса фактов: вид машины, сколько машин, «за час или за день»; ячейки «Мест» нет — число не записано', () => {
+  it('полоса фактов: вид машины, места — вместимостями парка, сколько машин, «за час или за день»', () => {
     render(<CarrierPage data={DATA} />);
     const strip = screen.getByLabelText('Факты о перевозчике');
-    expect([...strip.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Машина', 'Машин', 'Цена']);
+    expect([...strip.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Машина', 'Мест', 'Машин', 'Цена']);
+    expect(strip.textContent).toContain('12 или 24 в машине');
     expect(strip.textContent).toContain('Микроавтобус');
     expect(strip.textContent).toContain('3');
     expect(strip.textContent).toContain('за час или за день');
-    expect(carrierInstrument({ vehicles: ZH.vehicles, destinations: [], rates: [RATES[0]!] }).at(-1)).toEqual({ k: 'Цена', v: 'за час' });
+    expect(carrierInstrument({ vehicles: ZH.vehicles, destinations: [], rates: [RATES[0]!], seatClasses: [] }).at(-1)).toEqual({ k: 'Цена', v: 'за час' });
+    // Не записаны ни места машин, ни вместимости парка — ячейки «Мест» нет вовсе.
+    expect(carrierInstrument({ vehicles: ZH.vehicles, destinations: [], rates: RATES, seatClasses: [] }).map((c) => c.k))
+      .toEqual(['Машина', 'Машин', 'Цена']);
   });
 
   it('что входит в цену — минимальный заказ, часы дня, топливо и подача: не записано и сказано так', () => {
@@ -233,7 +264,7 @@ describe('страница перевозчика с ценой за час и �
     expect(who.textContent).toContain('Лицензия № Л022-00112-41/00927020 от 29.11.2023');
     expect(who.textContent).toContain('статус по выписке из реестра лицензий на 04.05.2026 — «действует»');
     expect(who.textContent).toContain('Страхование пассажиров — со слов перевозчика; полис на платформе не показан.');
-    expect(who.textContent).toContain('3 × микроавтобус, число мест не записано');
+    expect(who.textContent).toContain('3 × микроавтобус: на 12 и на 24 места');
     expect(who.textContent).not.toContain('Проверенный перевозчик');
     expect(who.querySelector('a[href="tel:+79619620826"]')).not.toBeNull();
   });
@@ -303,7 +334,7 @@ describe('Кузьмич, MCP и заявка менеджеру — одна ц
   it('ответ: цена за время работы, направление задаёт заказчик; «направления нет в прайсе» — только у прайса по направлениям', () => {
     const text = charterAnswer([ZH, SHATUN], 'Паратунка', base, { surface: 'mcp' });
     const [zh, sh] = text.split('\n').slice(1, 3);
-    expect(zh).toContain('ИП Желтухин — 3 × микроавтобус, число мест не записано.');
+    expect(zh).toContain('ИП Желтухин — 3 × микроавтобус: на 12 и на 24 места.');
     expect(zh).toContain('Цена за машину целиком — за время работы, направление задаёт заказчик: 4500 руб за час работы машины; 45000 руб за полный день работы машины.');
     expect(zh).not.toContain('в прайсе нет');
     expect(zh).toContain(`${base}/transfers/zheltukhin`);
@@ -315,7 +346,7 @@ describe('Кузьмич, MCP и заявка менеджеру — одна ц
     expect(text).not.toContain('9619620826');
   });
 
-  it('заявка: план «за время работы», мест не хватает — не говорится (число мест не записано)', () => {
+  it('заявка: план «за время работы»; «мест не хватит» не говорится — сколько машин каждого размера, неизвестно', () => {
     const plan = planCharterRequest(ZH, 'Аэропорт — Паратунка', 60);
     expect(plan).toEqual({ kind: 'rated', rates: RATES, vehicles: null });
     expect(planCharterRequest(SHATUN, 'Паратунка', 8).kind).toBe('custom');
@@ -364,6 +395,14 @@ describe('миграция 1292: только факты', () => {
     expect(CODE).toMatch(/ALTER TABLE transfer_fleet_vehicles ALTER COLUMN seats DROP NOT NULL/);
     expect(CODE).toMatch(/SELECT p\.id, 'minibus', v\.title, NULL/);
     expect(CODE).not.toMatch(/vahtovka/);
+  });
+
+  it('вместимости парка «12 и 24» — колонкой перевозчика, без привязки к машине и только в пустое', () => {
+    expect(CODE).toMatch(/ALTER TABLE partners ADD COLUMN IF NOT EXISTS fleet_seat_classes INTEGER\[\]/);
+    expect(CODE).toMatch(/0 < ALL \(fleet_seat_classes\)/);
+    expect(CODE).toMatch(/SET fleet_seat_classes = ARRAY\[12, 24\]\s+WHERE slug = 'zheltukhin' AND fleet_seat_classes IS NULL/);
+    // У машин места не выдумываются из вместимостей: каждая — NULL.
+    expect(CODE).not.toMatch(/INSERT INTO transfer_fleet_vehicles[\s\S]*?\b(12|24)\b[\s\S]*?FROM partners/);
   });
 
   it('«проверено» не ставится; лицензия — номер и статус на дату выписки; страхование — со слов', () => {

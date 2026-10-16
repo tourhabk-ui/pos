@@ -44,10 +44,11 @@ export function includedUnknowns(c: Pick<CharterCarrier, 'destinations' | 'rates
 /**
  * Полоса фактов под заголовком: вид машины, места, сколько машин, откуда, за
  * что цена. Ячейка без данных не рисуется вовсе — пустая ячейка «—» читалась
- * бы как «ноль». Число мест не записано хоть у одной машины — ячейки «Мест»
- * нет, а «Машин» остаётся: машины записаны, их число известно.
+ * бы как «ноль». Число мест не записано хоть у одной машины — «Мест» берётся
+ * из вместимостей парка («12 или 24 в машине», 1292), а нет и их — ячейки нет;
+ * «Машин» остаётся: машины записаны, их число известно.
  */
-export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinations' | 'rates'>): InstrumentCell[] {
+export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinations' | 'rates' | 'seatClasses'>): InstrumentCell[] {
   const cells: InstrumentCell[] = [];
   const kinds = [...new Set(c.vehicles.map((v) => v.kind))];
   if (kinds.length === 1) {
@@ -56,12 +57,18 @@ export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinat
   }
   const cap = fleetCapacity(c.vehicles);
   if (cap) cells.push({ k: 'Мест', v: cap.count > 1 ? `до ${cap.largest} в машине` : `${cap.largest}` });
+  else if (c.seatClasses.length > 0) cells.push({ k: 'Мест', v: `${orWords(c.seatClasses)} в машине` });
   if (c.vehicles.length > 1) cells.push({ k: 'Машин', v: String(c.vehicles.length) });
   const origins = carrierOrigins(c);
   if (origins.length > 0) cells.push({ k: 'Откуда', v: origins.join(', ') });
   if (c.destinations.length > 0) cells.push({ k: 'Цена', v: 'за машину' });
   else if (c.rates.length > 0) cells.push({ k: 'Цена', v: rateCellWords(c.rates) });
   return cells;
+}
+
+/** «12 или 24», «8, 12 или 24» — вместимости без привязки к машине. */
+function orWords(ns: readonly number[]): string {
+  return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} или ${ns[ns.length - 1]}` : String(ns[0]);
 }
 
 /** «за час или за день» — за какое время берёт цену перевозчик без направлений. */

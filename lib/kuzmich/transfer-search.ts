@@ -45,7 +45,7 @@ export function charterAnswer(
   }
   const needle = (place ?? '').trim().toLowerCase();
   const blocks = carriers.map(c => {
-    const fleet = describeFleet(c.vehicles);
+    const fleet = describeFleet(c.vehicles, c.seatClasses);
     const note = charterFootnote(c);
     const head = `${c.name}${fleet ? ` — ${fleet}` : ''}.`;
     const tail = `${note ? ` ${note}` : ''} Связь, фото и заявка на машину — на странице перевозчика: ${base}${carrierPagePath(c.slug)}`;

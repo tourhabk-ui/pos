@@ -53,7 +53,7 @@ const CARRIER: CarrierProfile = {
     { kind: 'vahtovka', title: 'КамАЗ-2', seats: 26 },
   ],
   destinations: [line('Вулкан Горелый', 75000), line('Курильское озеро', 450000, 'плюс переправы')],
-  extraDay: null, rates: [], photos: [], clips: [], legal: null, video: null,
+  extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: null,
   phone: '+79001112233', telegramHref: null, whatsappHref: null,
 };
 

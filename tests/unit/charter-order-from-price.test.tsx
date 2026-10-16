@@ -47,7 +47,7 @@ const CARRIER: CarrierProfile = {
   partnerId: 'p-1', slug: 'shatun', name: 'Шатун', shortDescription: null, description: null, verified: true,
   vehicles: [{ kind: 'vahtovka', title: 'КамАЗ-1', seats: 26 }],
   destinations: [line('Вулкан Авачинский', 65000), line('Вулкан Горелый', 75000), line('Курильское озеро', 450000, 'плюс переправы')],
-  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: null, validYear: 2026 }, rates: [],
+  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: null, validYear: 2026 }, rates: [], seatClasses: [],
   photos: [], clips: [], legal: null, video: null,
   phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: null,
 };
