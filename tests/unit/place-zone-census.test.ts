@@ -75,6 +75,16 @@ describe('перепись охвата мест тревогами', () => {
     expect(census.routes.by_zone).toEqual([{ zone: 'mutnovsky', alert_zone: false, count: 1, reached: { krai_wide: 0, meteo_south: 0, meteo_north: 0 } }]);
   });
 
+  // 16.10, проба 977: «avachinsky,eastern» у 12 маршрутов стояло alert_zone:false,
+  // хотя тревоги доходили до всех двенадцати.
+  it('маршрут с несколькими зонами тревожен, если тревожна хоть одна из них', () => {
+    const route = (id: string, zone: string): ZoneCensusRow =>
+      ({ target: 'route', id, name: id, lat: null, lng: null, zone, location_type: null, has_status: null, reached_by: [] });
+    const census = summarizeZoneCensus([route('a', 'avachinsky,eastern'), route('b', 'mutnovsky,nalychevo')], zoneProbes());
+    expect(census.routes.by_zone.find((z) => z.zone === 'avachinsky,eastern')?.alert_zone).toBe(true);
+    expect(census.routes.by_zone.find((z) => z.zone === 'mutnovsky,nalychevo')?.alert_zone).toBe(false);
+  });
+
   // 16.10: строки мест берёт перепись районов на раннере (place-district-census.yml).
   it('?rows=places — точки и районы всех мест тем же запросом; без параметра строк нет', async () => {
     const plain = await call();

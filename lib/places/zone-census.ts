@@ -163,7 +163,8 @@ export interface ZoneCensusPart {
   count: number;
   /**
    * По районам: сколько записей, назван ли район зоной хоть одной пробы (иначе
-   * зональная ветка его не видит) и сколько записей накрыла каждая проба.
+   * зональная ветка его не видит; у маршрута с несколькими зонами — хоть одна
+   * из них) и сколько записей накрыла каждая проба.
    */
   by_zone: Array<{ zone: string | null; alert_zone: boolean; count: number; reached: Record<string, number> }>;
   /** По пробам: записи, до которых проба НЕ дошла (у мест — только со строкой реалтайма). */
@@ -193,10 +194,14 @@ function part(rows: ZoneCensusRow[], probes: readonly ZoneProbe[]): ZoneCensusPa
     byZone.set(r.zone, z);
     if (r.has_status !== false) for (const k of kinds) if (!r.reached_by.includes(k)) unreached[k].push(ref(r));
   }
+  // У маршрута зона — список через запятую (своя и районы мест на пути):
+  // зональная ветка находит его, если тревожна хоть одна из них.
+  const isAlertZone = (zone: string | null) =>
+    zone !== null && zone.split(',').some((z) => probes.some((p) => p.zones.includes(z)));
   return {
     count: rows.length,
     by_zone: [...byZone.entries()]
-      .map(([zone, v]) => ({ zone, alert_zone: zone !== null && probes.some((p) => p.zones.includes(zone)), ...v }))
+      .map(([zone, v]) => ({ zone, alert_zone: isAlertZone(zone), ...v }))
       .sort((a, b) => b.count - a.count),
     unreached,
     commander_box: rows.filter(inCommanderBox).map(ref),
