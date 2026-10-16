@@ -175,6 +175,8 @@ withPg('кого накрывает предупреждение', () => {
     type: string; title: string; zones: string[];
     lat?: number; lng?: number; volcanoName?: string; volcanoArk?: string;
     parks?: string[] | null; magnitude?: number;
+    /** Охват вулканической тревоги (1301); не задан — по умолчанию колонки, ring. */
+    volcanoScope?: 'ring' | 'named';
   }): Promise<string> {
     const { rows } = await pool.query<{ id: string }>(
       // external_id отдельным параметром, а не `$2 || '-' || ...`: у параметра
@@ -184,9 +186,11 @@ withPg('кого накрывает предупреждение', () => {
       // выполнялся никогда.
       `INSERT INTO external_alerts
          (alert_type, severity, title, description, affected_zones, created_at, expires_at,
-          source_url, external_id, lat, lng, volcano_name, volcano_ark_id, affected_parks, magnitude)
+          source_url, external_id, lat, lng, volcano_name, volcano_ark_id, affected_parks, magnitude,
+          volcano_scope)
        VALUES ($1, 2, $2, $9, $3, NOW(), NOW() + INTERVAL '1 day',
-               'https://example.test', $8, $4, $5, $6, $7, $10, $11)
+               'https://example.test', $8, $4, $5, $6, $7, $10, $11,
+               COALESCE($12::text, 'ring'))
        RETURNING id::text AS id`,
       [fields.type, fields.title, fields.zones, fields.lat ?? null, fields.lng ?? null,
         fields.volcanoName ?? null, fields.volcanoArk ?? null,
@@ -195,7 +199,8 @@ withPg('кого накрывает предупреждение', () => {
         // description text, и один $2 на оба даёт тот же 42P08.
         fields.title,
         fields.parks ?? null,
-        fields.magnitude ?? null],
+        fields.magnitude ?? null,
+        fields.volcanoScope ?? null],
     );
     return rows[0].id;
   }
@@ -324,6 +329,119 @@ withPg('кого накрывает предупреждение', () => {
     expect(covered).not.toContain(KLYUCHEVSKOY.id);
     // Дальнее место той же зоны без связи с вулканом.
     expect(covered).not.toContain(FAR_NORTH.id);
+  });
+
+  /**
+   * Запрет подходить к вулкану — только сам вулкан и места, привязанные к нему
+   * поимённо (слово владельца 16.10, миграция 1301). Кольцо 25 км остаётся
+   * извержению: проба 144 — кольцо запрета Мутновского дошло до мыса на берегу
+   * в 24,6 км, кольцо Крашенинникова — до Долины гейзеров в 19,8 км.
+   */
+  describe('запрет подходить к вулкану: охват named (16.10)', () => {
+    const ROUTE_THROUGH = 'd0000000-0000-4000-8000-0000000000b1';
+    const ROUTE_LINKED = 'd0000000-0000-4000-8000-0000000000b2';
+    const ROUTE_NEAR = 'd0000000-0000-4000-8000-0000000000b3';
+    const ROUTE_NEARBY_LINK = 'd0000000-0000-4000-8000-0000000000b4';
+    const q: QueryFn = (sql, params) => pool.query(sql, params) as never;
+    const titlesOf = async (routeId: string): Promise<string[]> => {
+      const s = await collectRouteSignals(routeId, { query: q, month: 10 });
+      expect(s.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
+      return s.alerts!.map((a) => a.title);
+    };
+
+    beforeAll(async () => {
+      // Без своей координаты: опора маршрута — только путевая точка.
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible) VALUES
+           ($1, 'trekking', 'Восхождение к подножию Шивелуча (тест)', 'northern', TRUE),
+           ($2, 'trekking', 'Тропа через привязанное место (тест)', 'northern', TRUE)`,
+        [ROUTE_THROUGH, ROUTE_LINKED],
+      );
+      // Своя координата в 6 км от вулкана, путевой точки у вулкана нет.
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, lat, lng, is_visible)
+         VALUES ($1, 'trekking', 'Маршрут рядом с Шивелучем (тест)', 'northern', $2, $3, TRUE)`,
+        [ROUTE_NEAR, NEAR_SHIVELUCH.lat, NEAR_SHIVELUCH.lng],
+      );
+      // Вулкан у маршрута — связью «рядом», опора маршрута за 150 км.
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, lat, lng, is_visible)
+         VALUES ($1, 'trekking', 'Маршрут с вулканом «рядом» (тест)', 'northern', $2, $3, TRUE)`,
+        [ROUTE_NEARBY_LINK, FAR_NORTH.lat, FAR_NORTH.lng],
+      );
+      await pool.query(
+        `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES
+           ($1, $4, 0, 'waypoint'),
+           ($2, $5, 0, 'waypoint'),
+           ($3, $4, 0, 'nearby')`,
+        [ROUTE_THROUGH, ROUTE_LINKED, ROUTE_NEARBY_LINK, SHIVELUCH.id, LINKED_FAR.id],
+      );
+    });
+
+    it('место: сам вулкан и привязанное поимённо — да; ближе 25 км без связи — нет', async () => {
+      const id = await insertAlert({
+        type: 'volcanic_eruption',
+        title: 'Вулкан Шивелуч: не ближе 10 км к вершине (тест)',
+        zones: ['northern'],
+        volcanoName: 'Шивелуч',
+        volcanoArk: SHIVELUCH.ark,
+        volcanoScope: 'named',
+      });
+      const covered = await coveredBy(id);
+      expect(covered).toContain(SHIVELUCH.id);
+      // Привязано к Шивелучу поимённо (1029), хотя лежит за 120 км.
+      expect(covered).toContain(LINKED_FAR.id);
+      // Ближе 25 км, но связи нет: кольцо — правило извержения, не запрета.
+      expect(covered).not.toContain(NEAR_SHIVELUCH.id);
+      expect(covered).not.toContain(KLYUCHEVSKOY.id);
+      expect(covered).not.toContain(FAR_NORTH.id);
+    });
+
+    it('маршрут: через вулкан или привязанное место — да; рядом или связью «рядом» — нет', async () => {
+      const t = 'Вулкан Шивелуч: приближаться не рекомендуется (тест маршрута)';
+      await insertAlert({
+        type: 'volcanic_eruption', title: t, zones: ['northern'],
+        volcanoName: 'Шивелуч', volcanoArk: SHIVELUCH.ark, volcanoScope: 'named',
+      });
+      expect(await titlesOf(ROUTE_THROUGH)).toContain(t);
+      expect(await titlesOf(ROUTE_LINKED)).toContain(t);
+      expect(await titlesOf(ROUTE_NEAR)).not.toContain(t);
+      expect(await titlesOf(ROUTE_NEARBY_LINK)).not.toContain(t);
+    });
+
+    it('извержение (охват по умолчанию) маршрут рядом по-прежнему накрывает кольцом', async () => {
+      const t = 'Извержение вулкана Шивелуч — высота 6.0 км (тест маршрута)';
+      await insertAlert({
+        type: 'volcanic_eruption', title: t, zones: ['northern'],
+        volcanoName: 'Шивелуч', volcanoArk: SHIVELUCH.ark,
+      });
+      expect(await titlesOf(ROUTE_NEAR)).toContain(t);
+      expect(await titlesOf(ROUTE_THROUGH)).toContain(t);
+    });
+
+    it('охват — только ring или named: опечатку база не примет', async () => {
+      await expect(pool.query(
+        `INSERT INTO external_alerts (alert_type, title, volcano_scope) VALUES ('volcanic_eruption', 'тест охвата', 'radius')`,
+      )).rejects.toMatchObject({ code: '23514' });
+    });
+
+    it('1301: вулканические записи сводки 1298 — named, Крашенинникова — уровень 2, прочие — ring', async () => {
+      const { rows } = await pool.query<{ external_id: string; severity: number; volcano_scope: string }>(
+        `SELECT external_id, severity::int AS severity, volcano_scope
+           FROM external_alerts
+          WHERE external_id LIKE 'manual-mintur-2026-10-16-%'
+          ORDER BY external_id`,
+      );
+      const by = new Map(rows.map((r) => [r.external_id.replace('manual-mintur-2026-10-16-', ''), r]));
+      for (const v of ['mutnovsky', 'bezymianny', 'klyuchevskoy', 'krasheninnikov', 'shiveluch']) {
+        expect(by.get(v)?.volcano_scope, v).toBe('named');
+      }
+      expect(by.get('krasheninnikov')?.severity).toBe(2);
+      expect(by.get('shiveluch')?.severity).toBe(1);
+      // Дороги и парк — не вулканы: их охват не тронут.
+      expect(by.get('klyuchevskoy-park')?.volcano_scope).toBe('ring');
+      expect(by.get('levashov-cape')?.volcano_scope).toBe('ring');
+    });
   });
 
   it('дорожный алерт без координаты не красит места (решение владельца 27.09)', async () => {

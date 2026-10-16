@@ -43,6 +43,7 @@ interface ScopeRow {
   has_coords: boolean;
   volcano_name: string | null;
   volcano_anchored: boolean;
+  volcano_scope: string | null;
   zones: string[] | null;
   places_covered: string;
   farthest_km: string | null;
@@ -94,6 +95,10 @@ export async function GET(req: NextRequest) {
               (ea.lat IS NOT NULL AND ea.lng IS NOT NULL)     AS has_coords,
               ea.volcano_name,
               (ea.volcano_ark_id IS NOT NULL)                 AS volcano_anchored,
+              -- Охват вулканической тревоги (1301): ring — кольцо 25 км у
+              -- извержения, named — запрет подходить, только вулкан и его
+              -- поимённые связи. Без него «23 места» не отличить от «8».
+              ea.volcano_scope,
               ea.affected_zones                               AS zones,
               COALESCE(agg.places_covered, '0')               AS places_covered,
               ROUND(agg.farthest_km::numeric, 1)::text        AS farthest_km,
@@ -113,6 +118,7 @@ export async function GET(req: NextRequest) {
       has_coords: r.has_coords,
       volcano_name: r.volcano_name,
       volcano_anchored: r.volcano_anchored,
+      volcano_scope: r.volcano_scope,
       zones: r.zones ?? [],
       places_covered: Number(r.places_covered),
       farthest_km: r.farthest_km != null ? Number(r.farthest_km) : null,

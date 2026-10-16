@@ -95,7 +95,7 @@ export const PLACE_SCOPED_SQL = `ea.alert_type IN (${PLACE_SCOPED_TYPES.map((t) 
 /**
  * Вулканическое событие накрывает то, что связано с ВУЛКАНОМ, а не зону.
  *
- * Три честных способа быть «при этом вулкане», и ни одного придуманного:
+ * Честных способов быть «при этом вулкане» четыре, и ни одного придуманного:
  *   1. место и есть этот вулкан;
  *   2. место привязано к нему поимённо — `place_volcano_links`, миграция 1029,
  *      решение владельца 26.09 («Скитур на Мутновский» зелёный при жёлтом
@@ -103,6 +103,24 @@ export const PLACE_SCOPED_SQL = `ea.alert_type IN (${PLACE_SCOPED_TYPES.map((t) 
  *      по шкалам вулкана;
  *   3. место ближе `CORRIDOR_VOLCANO_KM` к вулкану — число не новое, оно уже
  *      решено для вулканов на коридоре маршрута (lib/routes/collect-signals).
+ *      Только у события с охватом `ring` (ниже);
+ *   4. маршрут идёт через сам вулкан или через место, привязанное к нему
+ *      поимённо (путевая точка, связь не «рядом», §4.1). Только у охвата
+ *      `named`: у `ring` маршрут у вулкана уже накрыт кольцом.
+ *
+ * Охват — `external_alerts.volcano_scope` (миграция 1301):
+ *   ring  — событие у вулкана: извержение, пепел, лахары расходятся от него во
+ *           все стороны, и кольцо 25 км это и описывает. По умолчанию — так
+ *           пишут разбор КБГС, ЕГС и KVERT;
+ *   named — запрет подходить к вулкану («не рекомендуется приближаться», «не
+ *           ближе 10 км»). Решение владельца 16.10: «запретов министерства
+ *           красить только сам вулкан и места, привязанные к нему поимённо».
+ *           Проба 144: кольцо Мутновского из сводки 16.10 (1298) покрасило 23
+ *           места, вплоть до мыса Кекурного на берегу в 24,6 км, а запись о
+ *           Крашенинникова пришлось держать уровнем 1, чтобы кольцо не
+ *           написало «Сегодня там опасно» Долине гейзеров в 19,8 км.
+ * Пустое значение (проба переписи зон строит тревогу без колонки) судится как
+ * `ring`: прежнее правило, а не тихо суженное.
  *
  * Зона в этой ветке не участвует: северная зона — это Шивелуч, Ключевской,
  * Безымянный и Толбачик разом, и именно так пепел одного получал красный
@@ -121,13 +139,37 @@ export const VOLCANO_SCOPED_SQL = `
        WHERE vp.ark_id = ea.volcano_ark_id
          AND lp.ark_id = ark.id
     )
-    OR EXISTS (
-      SELECT 1
-        FROM places vp
-       WHERE vp.ark_id = ea.volcano_ark_id
-         AND vp.lat IS NOT NULL AND vp.lng IS NOT NULL
-         AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
-         AND ${distanceKmSql('ark.lat', 'ark.lng', 'vp.lat', 'vp.lng')} <= ${CORRIDOR_VOLCANO_KM}
+    OR (
+      ea.volcano_scope IS DISTINCT FROM 'named'
+      AND EXISTS (
+        SELECT 1
+          FROM places vp
+         WHERE vp.ark_id = ea.volcano_ark_id
+           AND vp.lat IS NOT NULL AND vp.lng IS NOT NULL
+           AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+           AND ${distanceKmSql('ark.lat', 'ark.lng', 'vp.lat', 'vp.lng')} <= ${CORRIDOR_VOLCANO_KM}
+      )
+    )
+    OR (
+      ea.volcano_scope = 'named'
+      AND EXISTS (
+        SELECT 1
+          FROM kamchatka_routes kr
+          JOIN route_waypoints rw ON rw.route_id = kr.id
+          JOIN places wp ON wp.id = rw.place_id
+         WHERE COALESCE(kr.ark_id, kr.id) = ark.id
+           AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+           AND (
+             wp.ark_id = ea.volcano_ark_id
+             OR EXISTS (
+               SELECT 1
+                 FROM places vp
+                 JOIN place_volcano_links pvl ON pvl.volcano_place_id = vp.id::text
+                WHERE vp.ark_id = ea.volcano_ark_id
+                  AND pvl.place_id = wp.id::text
+             )
+           )
+      )
     )
   )
 `;
