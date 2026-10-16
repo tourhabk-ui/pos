@@ -439,6 +439,13 @@ export const WRITE_TOOL_NAMES = new Set(
   PUBLIC_MCP_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name),
 );
 
+/**
+ * Лимит чтения с одного адреса в минуту. Один источник для сервера
+ * (app/api/mcp) и для текста на /mcp: число на странице не может разойтись
+ * с тем, что сервер делает на самом деле.
+ */
+export const MCP_READ_PER_MINUTE = 30;
+
 export const MCP_SERVER_INFO = {
   name: 'vedar-mcp',
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым

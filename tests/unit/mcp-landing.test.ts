@@ -28,7 +28,7 @@ describe('страница /mcp', () => {
   });
 
   it('инструменты — из единого реестра, свой список запрещён', () => {
-    expect(PAGE).toMatch(/import \{ PUBLIC_MCP_TOOLS, MCP_SERVER_INFO \} from '@\/lib\/mcp\/public-tools'/);
+    expect(PAGE).toMatch(/import \{ PUBLIC_MCP_TOOLS, MCP_SERVER_INFO[^}]*\} from '@\/lib\/mcp\/public-tools'/);
     expect(PAGE).toMatch(/PUBLIC_MCP_TOOLS\.map/);
     // Ни одного захардкоженного имени инструмента в разметке.
     expect(PAGE).not.toMatch(/'get_tours'|'make_trip_plan'|'create_lead'/);

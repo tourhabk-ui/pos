@@ -60,7 +60,10 @@ describe('пороги владельца', () => {
   });
 
   it('счётчик в памяти роута — то же окно в час', () => {
-    expect(ROUTE).toMatch(/const writeLimiter = createRateLimiter\(\{ windowMs: 3_600_000, max: 5 \}\)/);
+    // Окно и порог — константы стража (16.10), одни для роута и для /mcp.
+    expect(CLIENT_WINDOW_MINUTES).toBe(60);
+    expect(CLIENT_MAX_PER_WINDOW).toBe(5);
+    expect(ROUTE).toMatch(/const writeLimiter = createRateLimiter\(\{ windowMs: CLIENT_WINDOW_MINUTES \* 60_000, max: CLIENT_MAX_PER_WINDOW \}\)/);
     expect(ROUTE).not.toMatch(/подождите 10 минут/);
   });
 

@@ -34,10 +34,57 @@ describe('варианты подключения — все на один ад�
     expect(MCP_ENDPOINT).toBe(`${CANONICAL_BASE_URL}/api/mcp`);
   });
 
-  it('девять вариантов: четыре deeplink, две команды, YAML, шаги, JSON', () => {
-    expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual(['claude_ai', 'claude_code', 'cursor', 'deepseek_harness', 'json', 'qwen_code', 'trae', 'trae_cn', 'vscode']);
-    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'command').length).toBe(2);
-    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => o.id).sort()).toEqual(['cursor', 'trae', 'trae_cn', 'vscode']);
+  it('двадцать вариантов: пять ссылок, пять команд, три чата шагами, JSON и YAML конфигов', () => {
+    expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual([
+      'chatbox', 'chatgpt', 'cherry_studio', 'claude_ai', 'claude_code', 'cline', 'codebuddy', 'cursor',
+      'deepseek_harness', 'devin_desktop', 'gemini_cli', 'goose', 'json', 'kilo', 'mistral', 'qwen_code',
+      'trae', 'trae_cn', 'vscode', 'zed',
+    ]);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'command').map((o) => o.id).sort())
+      .toEqual(['claude_code', 'codebuddy', 'devin_desktop', 'gemini_cli', 'qwen_code']);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => o.id).sort()).toEqual(['chatbox', 'cursor', 'trae', 'trae_cn', 'vscode']);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'steps').map((o) => o.id).sort()).toEqual(['chatgpt', 'claude_ai', 'mistral']);
+    expect(new Set(MCP_CONNECT_OPTIONS.map((o) => o.id)).size).toBe(MCP_CONNECT_OPTIONS.length);
+  });
+
+  // Сверка клиентов 16.10 (документация и исходники): у каждого своё написание
+  // Streamable HTTP, чужое уводит в старый SSE — а у нас на GET-поток 405.
+  it('Chatbox: chatbox://mcp/install, server — base64 имени и нашего адреса', () => {
+    const cb = MCP_CONNECT_OPTIONS.find((o) => o.id === 'chatbox')!;
+    const url = new URL(cb.value);
+    expect(url.protocol).toBe('chatbox:');
+    expect(url.host + url.pathname).toBe('mcp/install');
+    expect(JSON.parse(Buffer.from(url.searchParams.get('server')!, 'base64').toString('utf-8'))).toEqual({ name: MCP_SERVER_KEY, url: MCP_ENDPOINT });
+  });
+
+  it('конфиги: Cline — streamableHttp, Cherry — streamableHttp, Kilo — mcp/remote, Zed — context_servers', () => {
+    const json = (id: string) => JSON.parse(MCP_CONNECT_OPTIONS.find((o) => o.id === id)!.value);
+    expect(json('cline').mcpServers[MCP_SERVER_KEY]).toMatchObject({ type: 'streamableHttp', url: MCP_ENDPOINT });
+    expect(json('cherry_studio').mcpServers[MCP_SERVER_KEY]).toEqual({ type: 'streamableHttp', url: MCP_ENDPOINT });
+    expect(json('kilo').mcp[MCP_SERVER_KEY]).toEqual({ type: 'remote', url: MCP_ENDPOINT, enabled: true });
+    expect(json('zed').context_servers[MCP_SERVER_KEY]).toEqual({ url: MCP_ENDPOINT });
+  });
+
+  it('Goose: streamable_http и поле uri, не url', () => {
+    const g = MCP_CONNECT_OPTIONS.find((o) => o.id === 'goose')!;
+    expect(g.kind).toBe('yaml');
+    expect(g.value).toContain('type: streamable_http');
+    expect(g.value).toContain(`uri: ${MCP_ENDPOINT}`);
+    expect(g.value).not.toMatch(/^\s*url:/m);
+  });
+
+  it('команды Gemini CLI, CodeBuddy и Devin — HTTP-транспорт и scope пользователя', () => {
+    const v = (id: string) => MCP_CONNECT_OPTIONS.find((o) => o.id === id)!.value;
+    expect(v('gemini_cli')).toBe(`gemini mcp add --transport http -s user ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`);
+    expect(v('codebuddy')).toBe(`codebuddy mcp add --scope user --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`);
+    expect(v('devin_desktop')).toBe(`devin mcp add -s user ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`);
+  });
+
+  it('непроверенное названо: Devin, Trae и ChatGPT несут оговорку', () => {
+    for (const id of ['devin_desktop', 'trae', 'trae_cn', 'chatgpt']) {
+      const o = MCP_CONNECT_OPTIONS.find((x) => x.id === id)!;
+      expect(o.note, id).toMatch(/не проверен|не полностью|не говорит/);
+    }
   });
 
   // Аудит 15.10, CN-zh: схема из документации Trae (docs.trae.cn и docs.trae.ai,
@@ -103,16 +150,19 @@ describe('варианты подключения — все на один ад�
     expect(parsed.mcpServers[MCP_SERVER_KEY]).toEqual({ type: 'streamable-http', url: MCP_ENDPOINT });
   });
 
-  it('шаги для Claude.ai называют адрес и «без авторизации»', () => {
+  it('шаги для Claude.ai: Customize → Connectors, адрес и «без авторизации»', () => {
     const steps = MCP_CONNECT_OPTIONS.find((o) => o.id === 'claude_ai')!;
     expect(steps.value).toContain(MCP_ENDPOINT);
     expect(steps.value).toMatch(/без авторизации/);
+    expect(steps.value).toMatch(/^Customize → Connectors/);
   });
 
   it('ни один вариант не содержит другого адреса', () => {
     for (const o of MCP_CONNECT_OPTIONS) {
-      // Ссылки с config в base64 (Cursor, Trae) судятся по раскодированному конфигу.
-      const b64 = o.kind === 'link' ? new URL(o.value).searchParams.get('config') : null;
+      // Ссылки с конфигом в base64 (Cursor, Trae — config, Chatbox — server)
+      // судятся по раскодированному конфигу.
+      const params = o.kind === 'link' ? new URL(o.value).searchParams : null;
+      const b64 = params ? (params.get('config') ?? params.get('server')) : null;
       const decoded = b64
         ? Buffer.from(b64, 'base64').toString('utf-8')
         : decodeURIComponent(o.value);
