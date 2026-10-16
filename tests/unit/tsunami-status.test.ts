@@ -30,6 +30,8 @@ import {
   classifyMessage,
   classifyMchsItem,
 } from '@/lib/services/safety/seismic-parser';
+import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
+import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 
 const AT = '2026-09-24T05:00:00Z';
 
@@ -111,6 +113,29 @@ describe('классификатор МЧС', () => {
     expect(e?.alert_type).toBe('info');
     expect(e?.severity).toBe(0);
   });
+
+  // 16.10: угроза без округа шла с пустыми зонами — пуш уходил всем, а
+  // карточки мест и вердикт маршрута писали «предупреждений нет». Округ
+  // назван — по округу; не назван — весь край, как у КБГС.
+  it('угроза без округа — весь край, с округом — по округу, отбой — так же', () => {
+    const all = classifyMchsItem('mchs/t2', 'Угроза цунами', 'Объявлена угроза цунами на побережье.', AT, 'https://x');
+    expect(all?.alert_type).toBe('tsunami_warning');
+    expect([...(all?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+
+    const ust = classifyMchsItem('mchs/t3', 'Угроза цунами',
+      'Объявлена угроза цунами для побережья Усть-Камчатского муниципального округа.', AT, 'https://x');
+    expect(ust?.alert_type).toBe('tsunami_warning');
+    expect(ust?.affected_zones).toEqual(['northern']);
+
+    const clear = classifyMchsItem('mchs/c2', 'Отбой', 'Угроза цунами отменена.', AT, 'https://x');
+    expect([...(clear?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+  });
+
+  it('прочие рода без округа — по-прежнему без зон («не установлено» ≠ «везде»)', () => {
+    const e = classifyMchsItem('mchs/w', 'Сильный ветер', 'Ожидается сильный ветер до 25 м/с.', AT, 'https://x');
+    expect(e?.alert_type).toBe('weather');
+    expect(e?.affected_zones).toEqual([]);
+  });
 });
 
 describe('классификатор КБГС', () => {
@@ -129,6 +154,16 @@ describe('классификатор КБГС', () => {
     const e = classifyMessage('t.me/kbgsras/3', 'Объявлена угроза цунами для восточного побережья Камчатки.', AT);
     expect(e?.alert_type).toBe('tsunami_warning');
     expect(e?.severity).toBe(3);
+  });
+
+  // 16.10: четыре зоны стояли буквами — Командоры и Корякский округ угрозу
+  // не получали. Весь край — тот же список, что у «по всему краю» МЧС.
+  it('угроза и отбой — весь край, с метками Командор и Корякского округа', () => {
+    const w = classifyMessage('t.me/kbgsras/4', 'Объявлена угроза цунами для восточного побережья Камчатки.', AT);
+    const c = classifyMessage('t.me/kbgsras/5', 'Угроза цунами отменена.', AT);
+    expect([...(w?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+    expect(w?.affected_zones).toEqual(expect.arrayContaining([KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE]));
+    expect([...(c?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
   });
 });
 

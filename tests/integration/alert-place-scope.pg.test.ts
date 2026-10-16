@@ -35,7 +35,7 @@ import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals'
 import { ACTIVE_ZONE_ALERTS_SQL, UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alerts';
 import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { MARINE_ALERT_SQL, isMarineAlert } from '@/lib/safety/marine-alert';
-import { mchs_zones } from '@/lib/services/safety/seismic-parser';
+import { classifyMchsItem, classifyMessage, mchs_zones } from '@/lib/services/safety/seismic-parser';
 import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
 import { ZONE_CENSUS_SQL, summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/places/zone-census';
 import { readFileSync } from 'node:fs';
@@ -83,6 +83,10 @@ withPg('кого накрывает предупреждение', () => {
     // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
     const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
+    // Мир теста — только его места. Миграции заводят и настоящие (Кроноцкий
+    // заповедник, Каньон на Шивелуче…), а 1293 даёт строку реалтайма каждому
+    // видимому месту — без чистки они попадали бы в счёт охвата.
+    await pool.query(`DELETE FROM location_real_time_status`);
 
     for (const [p, type, zone] of [
       [SHIVELUCH, 'volcano', 'northern'],
@@ -411,6 +415,28 @@ withPg('кого накрывает предупреждение', () => {
     const covered = await coveredBy(id);
     expect(covered).toContain(COMMANDER.id);
     expect(covered).toContain(CITY.id);
+  });
+
+  // 16.10: угроза цунами КБГС несла четыре зоны буквами, и Командоры с
+  // районом «commander» (Арка Стеллера с 1288) её не получали. Зоны — из
+  // настоящего разбора.
+  it('угроза цунами КБГС доходит до Командор, Корякского округа и города', async () => {
+    const e = classifyMessage('t.me/kbgsras/test', 'Объявлена угроза цунами для восточного побережья Камчатки.', new Date().toISOString());
+    expect(e?.alert_type).toBe('tsunami_warning');
+    const id = await insertAlert({ type: 'tsunami_warning', title: `${e!.title} (тест)`, zones: [...e!.affected_zones] });
+    const covered = await coveredBy(id);
+    for (const p of [COMMANDER, FAR_NORTH, CITY, SHIVELUCH]) expect(covered, p.id).toContain(p.id);
+  });
+
+  // 16.10: угроза цунами МЧС без округа шла с пустыми зонами — пуш всем
+  // подписчикам, а карточки «предупреждений по месту нет».
+  it('угроза цунами МЧС без округа доходит до карточек всего края', async () => {
+    const e = classifyMchsItem('mchs/test-tsunami', 'Угроза цунами', 'Объявлена угроза цунами на побережье.',
+      new Date().toISOString(), 'https://example.test');
+    expect(e?.alert_type).toBe('tsunami_warning');
+    const id = await insertAlert({ type: 'tsunami_warning', title: `${e!.title} (тест МЧС)`, zones: [...e!.affected_zones] });
+    const covered = await coveredBy(id);
+    for (const p of [COMMANDER, FAR_NORTH, CITY, SHIVELUCH]) expect(covered, p.id).toContain(p.id);
   });
 
   it('«по всему краю» МЧС доходит до Командор и до Корякского округа', async () => {

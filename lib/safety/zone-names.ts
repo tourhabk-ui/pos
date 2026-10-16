@@ -16,8 +16,10 @@ import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 export const ZONE_NAMES: Record<string, string> = {
   avachinsky: 'Авачинско-Петропавловский',
   northern:   'Северная Камчатка',
-  eastern:    'Восточное побережье',
-  western:    'Западное побережье',
+  // «Камчатка», а не «побережье» (16.10): в западную зону приём кладёт и
+  // Быстринский округ (Эссо), в восточную — Карымский и Узон вдали от берега.
+  eastern:    'Восточная Камчатка',
+  western:    'Западная Камчатка',
 };
 
 /**

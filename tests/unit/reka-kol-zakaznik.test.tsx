@@ -54,11 +54,11 @@ const PARK = Object.fromEntries(
 ) as Record<string, string | null>;
 
 describe('Лососевый заказник «Река Коль» — новая карточка', () => {
-  it('новый id, тип «Заказник», западное побережье, точка на русле Коли', () => {
+  it('новый id, тип «Заказник», западная Камчатка, точка на русле Коли', () => {
     expect(CARD_ROW.id).toBe(CARD);
     expect(CARD_ROW.name).toBe('Лососевый заказник «Река Коль»');
     expect(locationTypeLabel(CARD_ROW.location_type!)).toBe('Заказник');
-    expect(placeZoneLabel(CARD_ROW.zone)).toBe('Западное побережье');
+    expect(placeZoneLabel(CARD_ROW.zone)).toBe('Западная Камчатка');
     expect([CARD_ROW.lat, CARD_ROW.lng]).toEqual(['53.7738832', '156.3963188']);
     expect(CARD_ROW.coord_source).toBe('external');
     expect(CARD_ROW.kuzmich_review).toBe('');

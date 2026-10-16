@@ -261,7 +261,12 @@ export function classifyMessage(id: string, text: string, datetime: string): Sei
         ? 'Отбой угрозы цунами — Камчатка'
         : 'УГРОЗА ЦУНАМИ — официальное предупреждение КБГС',
       description: text.slice(0, 600),
-      affected_zones: ['avachinsky', 'eastern', 'western', 'northern'],
+      // Весь край, с метками дальних округов (16.10, #83). Четыре зоны здесь
+      // стояли буквами, и угроза цунами не доходила до Командор: Арка
+      // Стеллера с 1288 в районе «commander», а он зоной не назван, —
+      // и до Корякского берега, если у места район вне четвёрки. Отбой —
+      // тем же местам, что и угроза.
+      affected_zones: [...ALL_ZONES],
       expires_hours: isAllClear ? 1 : 48,
     };
   }
@@ -360,6 +365,20 @@ export function classifyMessage(id: string, text: string, datetime: string): Sei
 // цунами дороже ложного.
 
 export type TsunamiStatus = 'warning' | 'all_clear' | 'no_threat';
+
+/**
+ * Зоны угрозы цунами от МЧС (16.10, #83): названный округ — по округу, не
+ * назван — весь край, как у КБГС. Правило цунами одно на оба источника и
+ * при сомнении ошибается в сторону тревоги (выше). Пустые зоны здесь значили
+ * бы, что пуш «Уходите вверх» пришёл всем подписчикам (рассылка зон не
+ * смотрит), а карточка места и вердикт маршрута в ту же минуту пишут
+ * «предупреждений нет»: зональная ветка ALERT_MATCH_SQL пустоту не
+ * совпадает ни с кем. Для остальных родов «не установлено» по-прежнему
+ * не «везде» (mchs_zones).
+ */
+export function tsunamiAlertZones(textZones: readonly string[]): string[] {
+  return textZones.length > 0 ? [...textZones] : [...ALL_ZONES];
+}
 
 const NEG_VERB = 'не\\s+(?:ожида|прогноз|угрожа|зарегистр|зафиксир|предвид|возник|объявл|будет)';
 
@@ -2180,7 +2199,13 @@ export function classifyMchsItem(
     description:   description.slice(0, 800),
     // Закрытие парка привязывается ПАРКОМ, не зоной (#2133): зона
     // «avachinsky» — это и Налычево, и город. Пустые зоны совпадают ни с кем.
-    affected_zones: parkClosure && alert_type === 'park_closure' ? [] : mchs_zones(`${title} ${description}`),
+    // Угроза цунами и её отбой — по названному округу, а без него весь край
+    // (tsunamiAlertZones).
+    affected_zones: parkClosure && alert_type === 'park_closure'
+      ? []
+      : alert_type === 'tsunami_warning' || (alert_type === 'info' && tsunami === 'all_clear')
+        ? tsunamiAlertZones(mchs_zones(`${title} ${description}`))
+        : mchs_zones(`${title} ${description}`),
     ...(parkClosure && alert_type === 'park_closure' ? { affected_parks: parkClosure.parks } : {}),
     expires_hours,
   };

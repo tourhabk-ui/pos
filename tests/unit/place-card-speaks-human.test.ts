@@ -45,6 +45,7 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { placeZoneLabel } from '@/lib/places/zone-labels';
 
 const ROOT = process.cwd();
 const PLACES = join(ROOT, 'components', 'places');
@@ -324,8 +325,11 @@ describe('район называется словами, а не кодом (а
   const LABELS = readFileSync(join(process.cwd(), 'lib/places/zone-labels.ts'), 'utf-8');
   it('коды сейсмо-зон подписаны', () => {
     expect(FACTS).toContain("from '@/lib/places/zone-labels'");
-    expect(LABELS).toMatch(/eastern:\s*'Восточное побережье'/);
-    expect(LABELS).toMatch(/western:\s*'Западное побережье'/);
+    // Вызовом подписи, не текстом файла. «Камчатка», а не «побережье»
+    // (16.10): в западную зону входит и Быстринский округ, Эссо.
+    expect(placeZoneLabel('eastern')).toBe('Восточная Камчатка');
+    expect(placeZoneLabel('western')).toBe('Западная Камчатка');
+    expect(LABELS).not.toMatch(/побережье'/);
   });
   it('неподписанный код не выводится как есть', () => {
     expect(FACTS).not.toMatch(/ZONE_LABELS\[zone\] \?\? zone/);

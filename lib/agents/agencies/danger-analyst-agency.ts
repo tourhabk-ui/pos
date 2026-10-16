@@ -9,8 +9,8 @@
  * Зоны Камчатки:
  *   avachinsky — Авачинско-Петропавловский кластер
  *   northern   — Северная Камчатка (Шивелуч, Ключевская группа)
- *   eastern    — Восточное побережье (Карымский, Кроноцкий)
- *   western    — Западное побережье
+ *   eastern    — Восточная Камчатка (Карымский, Кроноцкий)
+ *   western    — Западная Камчатка (берег Охотского моря и Быстринский округ)
  */
 
 import { query } from '@/lib/database';
@@ -35,8 +35,9 @@ export type Zone = typeof ZONES[number];
 export const ZONE_NAMES: Record<Zone, string> = {
   avachinsky: 'Авачинско-Петропавловский район',
   northern:   'Северная Камчатка',
-  eastern:    'Восточное побережье',
-  western:    'Западное побережье',
+  // Те же имена, что у ленты /safety (lib/safety/zone-names.ts, 16.10).
+  eastern:    'Восточная Камчатка',
+  western:    'Западная Камчатка',
 };
 
 // Вулканы зоны
