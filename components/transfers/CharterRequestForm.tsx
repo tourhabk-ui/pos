@@ -17,7 +17,7 @@
 import { useState, type FormEvent } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
-import { formatRub } from '@/lib/transfers/charter-format';
+import { formatRub, rateOnScreen, type CharterRate } from '@/lib/transfers/charter-format';
 
 /** Своё направление вместо строки прайса. */
 const OTHER = '__other__';
@@ -29,6 +29,12 @@ interface Props {
   destinations: string[];
   /** Строка прайса, с которой пришли («Заказать» у строки); null — первая. */
   initialDestination?: string | null;
+  /**
+   * Цена за час и за день (1292): у такого перевозчика направлений нет, куда
+   * ехать — пишет заказчик, и ответ после отправки называет эту цену, а не
+   * «направления нет в прайсе».
+   */
+  rates?: Array<Pick<CharterRate, 'unit' | 'priceRub'>>;
 }
 
 interface Sent {
@@ -64,7 +70,7 @@ export function charterMissing(f: {
   return missing;
 }
 
-export function CharterRequestForm({ carrierSlug, carrierName, destinations, initialDestination }: Props) {
+export function CharterRequestForm({ carrierSlug, carrierName, destinations, initialDestination, rates = [] }: Props) {
   const [pick, setPick] = useState(
     initialDestination && destinations.includes(initialDestination) ? initialDestination : destinations[0] ?? OTHER,
   );
@@ -156,6 +162,11 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
               По прайсу: {sent.priceLine.to} — {formatRub(sent.priceLine.price_rub)} за машину
               {sent.priceLine.note ? ` (${sent.priceLine.note})` : ''}. Сколько дней входит в цену, уточнит перевозчик.
             </p>
+          ) : rates.length > 0 ? (
+            <p className="text-sm text-[var(--text-secondary)]">
+              По прайсу: {rates.map(rateOnScreen).join(' · ')} за машину. Сколько часов займёт поездка и итоговую сумму
+              назовёт перевозчик.
+            </p>
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">Этого направления нет в прайсе — цену назовёт перевозчик.</p>
           )}
@@ -192,7 +203,7 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
             aria-label={destinations.length > 0 ? 'Своё направление' : undefined}
             type="text"
             className={`ds-input w-full${destinations.length > 0 ? ' mt-2' : ''}`}
-            placeholder="Например, Мутновский"
+            placeholder={destinations.length > 0 ? 'Например, Мутновский' : 'Откуда и куда — например, из аэропорта в город'}
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
             maxLength={200}

@@ -5,7 +5,9 @@ import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierVideo } from '@/components/transfers/CarrierVideo';
-import { carrierPagePath, charterOrderPath, charterRequisitesLine, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
+import {
+  carrierPagePath, charterOrderPath, charterRequisitesLine, describeFleet, priceUnknownsText, type CharterCarrier,
+} from '@/lib/transfers/charter-format';
 
 /**
  * Перевозчик «под заказ»: парк, прайс на целую машину, связь, фото.
@@ -20,12 +22,12 @@ import { carrierPagePath, charterOrderPath, charterRequisitesLine, describeFleet
  * Кузьмича и MCP не уходит (pd-guard) — им даётся ссылка на карточку.
  */
 export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
-  const fleet = describeFleet(carrier.vehicles);
+  const fleet = describeFleet(carrier.vehicles, carrier.seatClasses);
   const phoneLabel = formatContactPhone(carrier.phone);
   const hasContacts = Boolean(carrier.phone || carrier.telegramHref || carrier.whatsappHref);
 
   return (
-    <section className="ds-card p-5 space-y-4" aria-label={`${carrier.name}: вахтовки под заказ`}>
+    <section className="ds-card p-5 space-y-4" aria-label={`${carrier.name}: машина под заказ`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="ds-label mb-1">Под заказ · целая машина</p>
@@ -47,8 +49,8 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
       <CharterPriceList carrier={carrier} orderSlug={carrier.slug} />
 
       <p className="text-xs text-[var(--text-muted)]">
-        Сколько дней в поездке и что входит в цену — в прайсе не указано, уточняйте у перевозчика при заказе. Расчёт —
-        напрямую с ним: через платформу вахтовки под заказ не оплачиваются.
+        {priceUnknownsText(carrier)} — в прайсе не указано, уточняйте у перевозчика при заказе. Расчёт —
+        напрямую с ним: через платформу машина под заказ не оплачивается.
       </p>
 
       {/* Заявка — главное действие карточки (владелец 14.10: «это сложно

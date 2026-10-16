@@ -66,7 +66,7 @@ function carrier(over: Partial<CharterCarrier> = {}): CharterCarrier {
       line('Курильское озеро', 450000, 'плюс переправы'),
       line('Толбачик (Мёртвый лес)', 360000),
     ],
-    extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 },
+    extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 }, rates: [], seatClasses: [],
     photos: [], clips: [], legal: null, video: null,
     phone: '+79001112233', telegramHref: null, whatsappHref: null,
     ...over,

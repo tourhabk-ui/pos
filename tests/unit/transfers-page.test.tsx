@@ -58,7 +58,7 @@ describe('витрина: только машина целиком', () => {
     expect(screen.getByText('Перевозчиков с прайсом под заказ пока нет.')).toBeTruthy();
     unmount();
     render(<TransfersPage charter={{ state: 'failed' }} />);
-    expect(screen.getByText('Не смогли проверить вахтовки под заказ')).toBeTruthy();
+    expect(screen.getByText('Не смогли проверить машины под заказ')).toBeTruthy();
     expect(screen.getByText(/Это не значит, что их нет/)).toBeTruthy();
   });
 
@@ -81,7 +81,7 @@ describe('страница: данные и прежние ссылки', () => 
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     carriers.load.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '57P01' }));
     render(await TransfersRoute());
-    expect(screen.getByText('Не смогли проверить вахтовки под заказ')).toBeTruthy();
+    expect(screen.getByText('Не смогли проверить машины под заказ')).toBeTruthy();
     expect(err).toHaveBeenCalledWith('[transfers/charter]', '57P01', 'boom');
     err.mockRestore();
   });

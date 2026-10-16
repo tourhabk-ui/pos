@@ -23,7 +23,7 @@ const carrier = (over: Partial<CharterCarrier> = {}): CharterCarrier => ({
   partnerId: 'p1', slug: 'shatun', name: 'Шатун', shortDescription: null,
   vehicles: [{ kind: 'vahtovka', title: 'Вахтовка', seats: 26 }, { kind: 'vahtovka', title: 'Вахтовка 2', seats: 26 }],
   destinations: [line('Мутновский', 90000), line('Вилючинский перевал', 65000), line('Мутновский', 95000), line('Налычево', 120000)],
-  extraDay: null, photos: [{ url: '/images/shatun.jpg', credit: null }], clips: [], legal: null, video: null,
+  extraDay: null, rates: [], seatClasses: [], photos: [{ url: '/images/shatun.jpg', credit: null }], clips: [], legal: null, video: null,
   phone: '+79000000000', telegramHref: null, whatsappHref: null,
   ...over,
 });

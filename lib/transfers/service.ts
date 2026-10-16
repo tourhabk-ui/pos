@@ -41,7 +41,8 @@ export interface TransferVehicleRow {
   partner_id: string;
   kind: TransferVehicleKind;
   title: string;
-  seats: number;
+  /** null — число мест не записано (1292); машину с перевозчиком всё равно заказывают целиком. */
+  seats: number | null;
   notes: string | null;
   is_active: boolean;
 }
@@ -158,7 +159,7 @@ export interface CreateTripInput {
 }
 
 export async function createTrip(input: CreateTripInput): Promise<TransferResult<TransferTripRow>> {
-  const vehicle = await pool.query<{ seats: number; is_active: boolean; partner_id: string }>(
+  const vehicle = await pool.query<{ seats: number | null; is_active: boolean; partner_id: string }>(
     `SELECT seats, is_active, partner_id FROM transfer_fleet_vehicles WHERE id = $1`,
     [input.vehicleId],
   );
@@ -171,6 +172,15 @@ export async function createTrip(input: CreateTripInput): Promise<TransferResult
   }
   if (!v.is_active) {
     return { ok: false, code: 'vehicle_inactive', message: 'Машина снята с линии' };
+  }
+  // Число мест машины не записано (1292) — выставить места нельзя: сверять
+  // не с чем, а «сколько угодно» было бы выдумкой (§4.0).
+  if (v.seats === null) {
+    return {
+      ok: false,
+      code: 'seats_over_capacity',
+      message: 'У машины не записано число мест — выставить места в ней нельзя',
+    };
   }
   // Ограничение связывает две таблицы и в CHECK не выражается. Сообщение
   // называет обе цифры: иначе перевозчик не знает, уменьшать выставленное или

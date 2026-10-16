@@ -53,7 +53,7 @@ const CARRIER: CarrierProfile = {
     { kind: 'vahtovka', title: 'КамАЗ-2', seats: 26 },
   ],
   destinations: [line('Вулкан Горелый', 75000), line('Курильское озеро', 450000, 'плюс переправы')],
-  extraDay: null, photos: [], clips: [], legal: null, video: null,
+  extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: null,
   phone: '+79001112233', telegramHref: null, whatsappHref: null,
 };
 
@@ -114,6 +114,25 @@ describe('POST /api/charter-requests: заявка ложится перевоз
     const lead = createLeadMock.mock.calls[0]![0] as Record<string, unknown>;
     expect(lead.source_data).toMatchObject({ in_price_list: false });
     expect(String(lead.comment)).toContain('в прайсе такого направления нет');
+  });
+
+  it('цена за час и за день (1292): заявка с любым направлением, заголовок — вид машины, мест не хватает — не говорится', async () => {
+    carrierBySlug.mockResolvedValue({
+      ...CARRIER, partnerId: 'p-zh', slug: 'zheltukhin', name: 'ИП Желтухин', destinations: [],
+      vehicles: [{ kind: 'minibus', title: 'Sprinter', seats: null }, { kind: 'minibus', title: 'Transit', seats: null }],
+      rates: [
+        { unit: 'hour', priceRub: 4500, note: null, conditions: null, validYear: null },
+        { unit: 'day', priceRub: 45000, note: null, conditions: null, validYear: null },
+      ],
+    });
+    // 60 человек: вместимость не записана — отказа «мест в парке всего N» нет, решает перевозчик.
+    const json = await (await post(body({ carrier: 'zheltukhin', destination: 'Аэропорт — Паратунка', passengers: 60 }))).json();
+    expect(json).toMatchObject({ success: true, data: { carrier: 'ИП Желтухин', price_line: null, vehicles_needed: null } });
+    const lead = createLeadMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(lead).toMatchObject({ operator_id: 'p-zh', route_title: 'Микроавтобус: Аэропорт — Паратунка' });
+    expect(lead.source_data).toMatchObject({ in_price_list: false, price_line_rub: null, rates_rub: { hour: 4500, day: 45000 } });
+    expect(String(lead.comment)).toContain('цена за время работы машины: 4500 руб за час работы машины, 45000 руб за полный день работы машины');
+    expect(String(lead.comment)).not.toContain('в прайсе такого направления нет');
   });
 });
 

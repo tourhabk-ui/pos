@@ -13,7 +13,8 @@ export type CharterVehicleKind = 'jeep' | 'vahtovka' | 'minibus' | 'other';
 export interface CharterVehicle {
   kind: CharterVehicleKind;
   title: string;
-  seats: number;
+  /** null — число мест не записано (миграция 1292): не ноль и не догадка. */
+  seats: number | null;
 }
 
 /** Место справочника, куда ведёт строка прайса (миграция 1232). */
@@ -48,6 +49,50 @@ export interface CharterExtraDay {
   note: string | null;
   conditions: string | null;
   validYear: number | null;
+}
+
+/** За какое время берёт цену перевозчик, у которого нет направлений (миграция 1292). */
+export type CharterRateUnit = 'hour' | 'day';
+
+/**
+ * Цена за машину за время работы: час или полный день (миграция 1292). Куда
+ * ехать, задаёт заказчик. Сколько часов в «полном дне» и есть ли минимальный
+ * заказ, перевозчик не называл — поэтому здесь ни того, ни другого (§4.0).
+ */
+export interface CharterRate {
+  unit: CharterRateUnit;
+  priceRub: number;
+  note: string | null;
+  conditions: string | null;
+  validYear: number | null;
+}
+
+const RATE_WORDS: Record<CharterRateUnit, { label: string; per: string; agent: string; order: number }> = {
+  hour: { label: 'Час работы машины', per: 'в час', agent: 'за час работы машины', order: 0 },
+  day: { label: 'Полный день', per: 'за день', agent: 'за полный день работы машины', order: 1 },
+};
+
+/** Подпись строки прайса: «Час работы машины», «Полный день». */
+export function rateLabel(unit: CharterRateUnit): string {
+  return RATE_WORDS[unit].label;
+}
+
+/** Цена тарифа на экране: «4 500 ₽ в час», «45 000 ₽ за день». */
+export function rateOnScreen(r: Pick<CharterRate, 'unit' | 'priceRub'>): string {
+  return `${formatRub(r.priceRub)} ${RATE_WORDS[r.unit].per}`;
+}
+
+/**
+ * Тариф словами для ответа агенту и менеджеру — «4500 руб за час работы
+ * машины», в той же форме денег, что строки направлений («75000 руб»).
+ */
+export function rateWords(r: Pick<CharterRate, 'unit' | 'priceRub' | 'note'>): string {
+  return `${r.priceRub} руб ${RATE_WORDS[r.unit].agent}${r.note ? ` (${r.note})` : ''}`;
+}
+
+/** Порядок тарифов: сначала час, потом день — как их называет перевозчик. */
+export function sortRates<T extends { unit: CharterRateUnit }>(rates: readonly T[]): T[] {
+  return [...rates].sort((a, b) => RATE_WORDS[a.unit].order - RATE_WORDS[b.unit].order);
 }
 
 /** Снимок с подписью: credit — автор, если он назван; null — подписывается самим перевозчиком. */
@@ -99,9 +144,17 @@ export interface CharterCarrier {
   name: string;
   shortDescription: string | null;
   vehicles: CharterVehicle[];
+  /**
+   * Вместимости машин парка без привязки к машине (1292): [12, 24] — «есть на
+   * 12 и на 24 места». Сколько машин каждого размера, отсюда не следует.
+   * [] — не записаны.
+   */
+  seatClasses: number[];
   destinations: CharterPriceLine[];
   /** Доплата за день работы машины на месте; null — не назначена. */
   extraDay: CharterExtraDay | null;
+  /** Цена за час и за полный день (1292), час первым; [] — такой цены нет. */
+  rates: CharterRate[];
   /** Герой первым, затем галерея; без повторов. */
   photos: CharterPhoto[];
   /** Короткие петли для ленивого показа; [] — клипов нет. */
@@ -117,14 +170,66 @@ export interface CharterCarrier {
 }
 
 /**
+ * Лицензия перевозчика — как записана в legal_info.license, двумя формами:
+ *   · `registry` — по выписке из реестра лицензий: номер, дата, орган и статус
+ *     НА ДАТУ ВЫПИСКИ (1292). Статус на сегодня платформа не проверяла, и
+ *     страница называет дату выписки;
+ *   · `words` — «есть» со слов, без номера (1187): так и говорится.
+ */
+export type CarrierLicense =
+  | {
+    kind: 'registry';
+    number: string;
+    /** YYYY-MM-DD; null — дата предоставления не записана. */
+    issuedOn: string | null;
+    authority: string | null;
+    /** Статус словами выписки («действует»); null — не записан. */
+    status: string | null;
+    /** На какую дату выписка; null — дата не записана. */
+    checkedOn: string | null;
+  }
+  | { kind: 'words' };
+
+/** «2023-11-29» → «29.11.2023»; не дата — null (кривая запись не выглядит датой). */
+export function ruDate(iso: string | null): string | null {
+  const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : null;
+}
+
+/**
+ * Лицензия одной строкой для страницы перевозчика. Орган — с маленькой буквы
+ * внутри фразы; статус — с датой выписки, потому что это статус на ту дату.
+ */
+export function licenseLine(l: CarrierLicense): string {
+  if (l.kind === 'words') return 'Лицензия: есть — номер на платформе не записан, по реестру не сверялась';
+  const issued = ruDate(l.issuedOn);
+  const parts = [`Лицензия № ${l.number}${issued ? ` от ${issued}` : ''}`];
+  if (l.authority) parts.push(`лицензирующий орган — ${l.authority.charAt(0).toLowerCase()}${l.authority.slice(1)}`);
+  const checked = ruDate(l.checkedOn);
+  if (l.status) parts.push(checked ? `статус по выписке из реестра лицензий на ${checked} — «${l.status}»` : `статус по выписке — «${l.status}»`);
+  return parts.join('; ');
+}
+
+/** Страхование пассажиров со слов перевозчика: источник назван, полиса нет — так и сказано. */
+export const INSURANCE_WORDS_LINE = 'Страхование пассажиров — со слов перевозчика; полис на платформе не показан';
+
+/**
  * Перевозчик для его страницы /transfers/[slug] (стандарт 13.10). Тот же
- * разбор, что у прайса, плюс то, что нужно только странице: отметка проверки
- * и описание. Прайса может не быть: тогда destinations пуст, extraDay null.
+ * разбор, что у прайса, плюс то, что нужно только странице: отметка проверки,
+ * описание, лицензия и страхование. Прайса может не быть: тогда destinations
+ * и rates пусты, extraDay null.
  */
 export interface CarrierProfile extends CharterCarrier {
   /** partners.is_verified: true — проверен платформой, иначе отметки нет. */
   verified: boolean;
   description: string | null;
+  /** null — о лицензии ничего не записано. */
+  license: CarrierLicense | null;
+  /**
+   * Страхование пассажиров: 'words' — со слов перевозчика, полиса платформа не
+   * видела (legal_info.passengerInsurance, 1292); null — не записано.
+   */
+  passengerInsurance: 'words' | null;
 }
 
 /**
@@ -183,19 +288,60 @@ export function vehicleKindWord(kind: CharterVehicleKind): string {
   return KIND_FORM[kind];
 }
 
-/** «2 × вахтовка, 26 мест»: парк одной строкой; пусто, если машин не записано. */
-export function describeFleet(vehicles: CharterVehicle[]): string | null {
-  if (vehicles.length === 0) return null;
-  const groups = new Map<string, { kind: CharterVehicleKind; seats: number; n: number }>();
+/** «место / места / мест» по последнему числу. */
+function seatsNoun(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'место';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'места';
+  return 'мест';
+}
+
+/** Вместимости парка словами: «на 12 и на 24 места», «на 8, на 12 и на 24 места». */
+export function seatClassesWords(classes: readonly number[]): string | null {
+  if (classes.length === 0) return null;
+  const parts = classes.map((n) => `на ${n}`);
+  const head = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} и ${parts[parts.length - 1]}` : parts[0]!;
+  return `${head} ${seatsNoun(classes[classes.length - 1]!)}`;
+}
+
+/**
+ * «2 × вахтовка, 26 мест»: парк одной строкой; пусто, если машин не записано.
+ * Число мест у машины не записано — так и сказано: «3 × микроавтобус, число
+ * мест не записано», а не выдуманная цифра и не молчание, которое читалось бы
+ * как «мест сколько угодно». Если известны вместимости парка без привязки к
+ * машине (1292), они и называются: «3 × микроавтобус: на 12 и на 24 места» —
+ * какая машина на сколько, не утверждается.
+ */
+export function describeFleet(vehicles: CharterVehicle[], seatClasses: readonly number[] = []): string | null {
+  const classes = seatClassesWords(seatClasses);
+  if (vehicles.length === 0) return classes ? `машины ${classes}` : null;
+  const groups = new Map<string, { kind: CharterVehicleKind; seats: number | null; n: number }>();
   for (const v of vehicles) {
-    const key = `${v.kind}/${v.seats}`;
+    const key = `${v.kind}/${v.seats ?? '?'}`;
     const g = groups.get(key);
     if (g) g.n += 1;
     else groups.set(key, { kind: v.kind, seats: v.seats, n: 1 });
   }
-  return [...groups.values()]
-    .map((g) => `${g.n} × ${KIND_FORM[g.kind]}, ${g.seats} мест`)
+  const unknownSeats = vehicles.some((v) => v.seats === null);
+  const text = [...groups.values()]
+    .map((g) => {
+      if (g.seats !== null) return `${g.n} × ${KIND_FORM[g.kind]}, ${g.seats} мест`;
+      return classes ? `${g.n} × ${KIND_FORM[g.kind]}` : `${g.n} × ${KIND_FORM[g.kind]}, число мест не записано`;
+    })
     .join('; ');
+  return unknownSeats && classes ? `${text}: ${classes}` : text;
+}
+
+/**
+ * Вид машины для заголовка заявки: один вид в парке — он («Вахтовка»,
+ * «Микроавтобус»), разные или парк не записан — «Машина».
+ */
+export function fleetKindTitle(vehicles: CharterVehicle[]): string {
+  const kinds = [...new Set(vehicles.map((v) => v.kind))];
+  if (kinds.length !== 1) return 'Машина';
+  const w = KIND_FORM[kinds[0]!];
+  return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
 export function formatRub(n: number): string {
@@ -208,8 +354,8 @@ export function formatRub(n: number): string {
  * Общая сноска прайса: условия и год, одинаковые у всех строк, называются один
  * раз; различающиеся — перечисляются, а не склеиваются в одно «для всех».
  */
-export function charterFootnote(c: Pick<CharterCarrier, 'destinations' | 'extraDay'>): string | null {
-  const lines = [...c.destinations, ...(c.extraDay ? [c.extraDay] : [])];
+export function charterFootnote(c: Pick<CharterCarrier, 'destinations' | 'extraDay' | 'rates'>): string | null {
+  const lines = [...c.destinations, ...(c.extraDay ? [c.extraDay] : []), ...c.rates];
   if (lines.length === 0) return null;
   const years = [...new Set(lines.map((l) => l.validYear).filter((y): y is number => y !== null))];
   const conds = [...new Set(lines.map((l) => l.conditions).filter((x): x is string => !!x))];
@@ -221,6 +367,21 @@ export function charterFootnote(c: Pick<CharterCarrier, 'destinations' | 'extraD
   if (parts.length === 0) return null;
   const text = parts.join(', ');
   return text.charAt(0).toUpperCase() + text.slice(1) + '.';
+}
+
+/**
+ * Чего прайс не говорит — началом фразы «… — в прайсе не указано», чтобы
+ * карточка не додумывала. У прайса по направлениям — сколько дней в поездке;
+ * у цены за час и за день (1292) — минимальный заказ и сколько часов в полном
+ * дне. Что входит в цену, не записал ни один перевозчик.
+ */
+export function priceUnknownsText(c: Pick<CharterCarrier, 'destinations' | 'rates'>): string {
+  if (c.destinations.length > 0 || c.rates.length === 0) return 'Сколько дней в поездке и что входит в цену';
+  const parts: string[] = [];
+  if (c.rates.some((r) => r.unit === 'hour')) parts.push('минимальный заказ');
+  if (c.rates.some((r) => r.unit === 'day')) parts.push('сколько часов в полном дне');
+  const text = `${parts.join(', ')} и что входит в цену`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 // ── Сопоставление направления с прайсом ─────────────────────────────────────
@@ -272,23 +433,35 @@ export function matchDestinations<T extends { from: string; to: string }>(
   });
 }
 
-/** Вместимость парка: сколько мест в самой большой машине и во всех вместе; null — машин не записано. */
+/** Места всех машин — только если записаны у каждой; иначе null: сумма без части машин соврала бы. */
+function knownSeats(vehicles: CharterVehicle[]): number[] | null {
+  const seats = vehicles.map((v) => v.seats);
+  return seats.every((s): s is number => s !== null) ? seats : null;
+}
+
+/**
+ * Вместимость парка: сколько мест в самой большой машине и во всех вместе.
+ * null — машин не записано или хоть у одной не записано число мест: тогда
+ * вместимость неизвестна, и ни «мест не хватит», ни «до N в машине» не говорится.
+ */
 export function fleetCapacity(vehicles: CharterVehicle[]): { total: number; largest: number; count: number } | null {
-  if (vehicles.length === 0) return null;
+  const seats = knownSeats(vehicles);
+  if (!seats || seats.length === 0) return null;
   return {
-    total: vehicles.reduce((n, v) => n + v.seats, 0),
-    largest: Math.max(...vehicles.map((v) => v.seats)),
-    count: vehicles.length,
+    total: seats.reduce((n, s) => n + s, 0),
+    largest: Math.max(...seats),
+    count: seats.length,
   };
 }
 
 /**
  * Сколько машин нужно ПО ЧИСЛУ МЕСТ: берём самые вместительные, пока не хватит.
- * null — парк не записан или людей больше, чем мест во всех машинах. Это арифметика
- * по вместимости, а не обещание: свободны ли машины в эти дни, система не знает.
+ * null — парк не записан, число мест записано не у всех машин или людей больше,
+ * чем мест во всех машинах. Это арифметика по вместимости, а не обещание:
+ * свободны ли машины в эти дни, система не знает.
  */
 export function vehiclesNeeded(vehicles: CharterVehicle[], passengers: number): number | null {
-  const seats = vehicles.map((v) => v.seats).sort((a, b) => b - a);
+  const seats = (knownSeats(vehicles) ?? []).sort((a, b) => b - a);
   let sum = 0;
   for (let i = 0; i < seats.length; i++) {
     sum += seats[i]!;

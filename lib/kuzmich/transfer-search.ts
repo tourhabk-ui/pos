@@ -20,7 +20,7 @@
  */
 import { loadCharterCarriers, charterFootnote, describeFleet, matchDestinations, type CharterCarrier } from '@/lib/transfers/charter';
 import { getPublicBaseUrl } from '@/lib/config';
-import { carrierPagePath } from '@/lib/transfers/charter-format';
+import { carrierPagePath, rateWords } from '@/lib/transfers/charter-format';
 
 export interface TransferSearchArgs {
   /** Куда или откуда — слово из вопроса человека. */
@@ -45,6 +45,17 @@ export function charterAnswer(
   }
   const needle = (place ?? '').trim().toLowerCase();
   const blocks = carriers.map(c => {
+    const fleet = describeFleet(c.vehicles, c.seatClasses);
+    const note = charterFootnote(c);
+    const head = `${c.name}${fleet ? ` — ${fleet}` : ''}.`;
+    const tail = `${note ? ` ${note}` : ''} Связь, фото и заявка на машину — на странице перевозчика: ${base}${carrierPagePath(c.slug)}`;
+    // Цена за время работы (1292): направлений нет, куда ехать — задаёт
+    // заказчик. «Направления нет в прайсе» тут было бы неправдой: прайс не
+    // про направления, и любое направление считается по часам или дням.
+    const rates = c.rates.length > 0 ? `${c.rates.map(rateWords).join('; ')}` : '';
+    if (c.destinations.length === 0 && rates) {
+      return `${head} Цена за машину целиком — за время работы, направление задаёт заказчик: ${rates}.${tail}`;
+    }
     const hit = needle
       ? matchDestinations(c.destinations, needle, { includeFrom: true })
       : c.destinations;
@@ -54,9 +65,8 @@ export function charterAnswer(
     const extra = c.extraDay
       ? `; доплата ${c.extraDay.priceRub} руб в день${c.extraDay.note ? ` (${c.extraDay.note})` : ''}`
       : '';
-    const fleet = describeFleet(c.vehicles);
-    const note = charterFootnote(c);
-    return `${c.name}${fleet ? ` — ${fleet}` : ''}. ${miss}Цена за машину целиком: ${prices}${extra}.${note ? ` ${note}` : ''} Связь, фото и заявка на машину — на странице перевозчика: ${base}${carrierPagePath(c.slug)}`;
+    const byTime = rates ? `; или за время работы: ${rates}` : '';
+    return `${head} ${miss}Цена за машину целиком: ${prices}${extra}${byTime}.${tail}`;
   });
   // Инструмент заявки на машину есть только у внешнего агента (MCP): у
   // Кузьмича в чате его нет, и отсылать к request_charter значило бы обещать
@@ -70,7 +80,7 @@ export function charterAnswer(
     ? '\nОставить заявку на машину: request_charter (куда, даты выезда, сколько человек, имя, телефон, согласие). Машина этим не закрепляется — подтверждает менеджер с перевозчиком.'
       + ` Параметр carrier — ${ids}${carriers.length === 1 ? '; пока перевозчик один, его можно не передавать' : ''}.`
     : '';
-  return `Трансфер — машина целиком под заказ: цена за машину, не за место; дату и направление задаёт заказчик. Сколько дней и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую с ним, через платформу не оплачивается.\n${blocks.join('\n')}${order}`;
+  return `Трансфер — машина целиком под заказ: цена за машину, не за место; дату и направление задаёт заказчик. Сколько дней или часов и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую с ним, через платформу не оплачивается.\n${blocks.join('\n')}${order}`;
 }
 
 export async function searchTransfersForKuzmich(args: TransferSearchArgs, opts: { surface?: 'chat' | 'mcp' } = {}): Promise<string> {

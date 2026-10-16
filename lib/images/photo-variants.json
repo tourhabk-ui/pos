@@ -2059,5 +2059,35 @@
       320,
       640
     ]
+  },
+  {
+    "src": "/images/zheltukhin/zheltukhin-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/zheltukhin/zheltukhin-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/zheltukhin/zheltukhin-03.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/images/zheltukhin/zheltukhin-04.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
   }
 ]

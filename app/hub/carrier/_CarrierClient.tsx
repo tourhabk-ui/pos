@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Truck, Inbox, Plus, Check, X, AlertCircle } from 'lucide-react';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
-interface Vehicle { id: string; kind: string; title: string; seats: number; notes: string | null; is_active: boolean }
+interface Vehicle { id: string; kind: string; title: string; seats: number | null; notes: string | null; is_active: boolean }
 interface SeatRequest {
   id: string; trip_id: string; seats: number; price: string | null; status: string; comment: string | null;
   contact_phone: string | null; trip_date: string; from_text: string; to_text: string; vehicle_title: string;
@@ -141,7 +141,7 @@ function Fleet({ vehicles, onChanged, say }: { vehicles: Load<Vehicle>; onChange
             <li key={v.id} className="ds-card p-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{v.title}</p>
-                <p className="text-xs text-[var(--text-secondary)]">{KIND_LABEL[v.kind] ?? v.kind} · мест: {v.seats}{v.notes ? ` · ${v.notes}` : ''}</p>
+                <p className="text-xs text-[var(--text-secondary)]">{KIND_LABEL[v.kind] ?? v.kind} · мест: {v.seats ?? 'не записано'}{v.notes ? ` · ${v.notes}` : ''}</p>
               </div>
               {!v.is_active && <span className="ds-badge">не активна</span>}
             </li>

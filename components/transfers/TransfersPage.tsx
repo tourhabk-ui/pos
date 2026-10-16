@@ -12,12 +12,19 @@
  * (три исхода: есть / нет — словами / не прочитались — «сбой, это не значит,
  * что их нет») → как заказать. Компонент без хуков: страница рисуется на
  * сервере.
+ *
+ * Порядок перевозчиков — по алфавиту, одно правило для всех, и оно названо
+ * на странице: место в списке не продаётся (CLAUDE.md §0, владелец 15.10).
+ * Перевозчиков стало двое — у «ИП Желтухин» цена за час и за день, а не по
+ * направлениям, поэтому и «Как заказать» говорит о прайсе, а не только о
+ * направлении.
  */
 
 import { AlertCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { CharterCard } from '@/components/transfers/CharterCard';
+import { CARRIERS_ORDER_NOTE } from '@/lib/operators/order-note';
 import type { CharterState } from '@/lib/transfers/charter-format';
 
 export function TransfersPage({ charter }: { charter: CharterState }) {
@@ -45,14 +52,18 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
             <div className="ds-card p-4 flex items-start gap-2 border-[var(--warning)]">
               <AlertCircle size={16} className="text-[var(--warning)] shrink-0 mt-0.5" aria-hidden />
               <div>
-                <p className="text-sm text-[var(--text-primary)]">Не смогли проверить вахтовки под заказ</p>
+                <p className="text-sm text-[var(--text-primary)]">Не смогли проверить машины под заказ</p>
                 <p className="text-xs text-[var(--text-secondary)] mt-1">Сбой на нашей стороне. Это не значит, что их нет — загляните позже.</p>
               </div>
             </div>
           ) : charter.carriers.length > 0 ? (
-            <div className="flex flex-col gap-4">
-              {charter.carriers.map(c => <CharterCard key={c.partnerId} carrier={c} />)}
-            </div>
+            <>
+              {/* Правило порядка — словами (§0): по алфавиту, одно для всех. */}
+              <p className="text-xs text-[var(--text-muted)] mb-3">{CARRIERS_ORDER_NOTE}</p>
+              <div className="flex flex-col gap-4">
+                {charter.carriers.map(c => <CharterCard key={c.partnerId} carrier={c} />)}
+              </div>
+            </>
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">Перевозчиков с прайсом под заказ пока нет.</p>
           )}
@@ -61,8 +72,8 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
         <section aria-labelledby="how-title" className="mb-10">
           <h2 id="how-title" className="ds-h2 mb-3">Как заказать</h2>
           <ol className="space-y-2 text-sm text-[var(--text-secondary)] list-decimal pl-5">
-            <li>Нажмите «Заказать» у направления в прайсе — цена за машину целиком, сколько бы вас ни было в пределах мест.</li>
-            <li>Оставьте заявку на машину на странице перевозчика: дата выезда, сколько человек, телефон — направление уже выбрано.</li>
+            <li>Нажмите «Заказать» у направления в прайсе или у цены за час и за день — цена за машину целиком, сколько бы вас ни было в пределах мест.</li>
+            <li>Оставьте заявку на машину на странице перевозчика: дата выезда, сколько человек, телефон — направление уже выбрано, а у цены за время работы его пишете вы.</li>
             <li>Менеджер Ведара подтвердит машину с перевозчиком. Расчёт — напрямую с ним: через платформу машина не оплачивается.</li>
           </ol>
         </section>

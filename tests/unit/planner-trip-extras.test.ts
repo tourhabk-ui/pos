@@ -189,7 +189,7 @@ describe('трансфер: машина целиком под заказ (вл�
       { from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый', priceRub: 75000, note: null, conditions: null, validYear: 2026, place: null },
       { from: 'Петропавловск-Камчатский', to: 'Вулкан Авачинский', priceRub: 65000, note: null, conditions: null, validYear: 2026, place: null },
     ],
-    extraDay: null, photos: [], clips: [], legal: null, video: null,
+    extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: null,
     phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: 'https://wa.me/79294560102',
     ...over,
   });
@@ -199,7 +199,7 @@ describe('трансфер: машина целиком под заказ (вл�
     const r = await findCharterOffers();
     expect(r).toEqual({
       state: 'ok',
-      items: [{ slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 2 }],
+      items: [{ slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 2, hourRub: null, dayRub: null }],
     });
     expect(JSON.stringify(r)).not.toMatch(/9294560102|t\.me|wa\.me|phone/);
   });
@@ -207,8 +207,36 @@ describe('трансфер: машина целиком под заказ (вл�
   it('направлений в прайсе нет — цена не выдумывается', async () => {
     charterMock.mockResolvedValue([carrier({ destinations: [], vehicles: [] })]);
     expect(await findCharterOffers()).toEqual({
-      state: 'ok', items: [{ slug: 'shatun', name: 'Шатун', fleet: null, priceFromRub: null, destinations: 0 }],
+      state: 'ok', items: [{ slug: 'shatun', name: 'Шатун', fleet: null, priceFromRub: null, destinations: 0, hourRub: null, dayRub: null }],
     });
+  });
+
+  it('цена за час и за день (1292) — числами, без «от» и без направлений; строка плана называет её, а не «назовёт перевозчик»', async () => {
+    charterMock.mockResolvedValue([carrier({
+      slug: 'zheltukhin', name: 'ИП Желтухин', destinations: [],
+      vehicles: [{ kind: 'minibus', title: 'Sprinter', seats: null }],
+      // Вместимости парка без привязки к машине (1292): строка их и называет.
+      seatClasses: [12, 24],
+      rates: [
+        { unit: 'hour', priceRub: 4500, note: null, conditions: null, validYear: null },
+        { unit: 'day', priceRub: 45000, note: null, conditions: null, validYear: null },
+      ],
+    })]);
+    const r = await findCharterOffers();
+    expect(r).toEqual({
+      state: 'ok',
+      items: [{
+        slug: 'zheltukhin', name: 'ИП Желтухин', fleet: '1 × микроавтобус: на 12 и на 24 места',
+        priceFromRub: null, destinations: 0, hourRub: 4500, dayRub: 45000,
+      }],
+    });
+    const { charterOfferPrice } = await import('@/app/planner/TripExtrasSection');
+    if (r.state !== 'ok') throw new Error('ожидался прайс');
+    // Intl ставит неразрывный пробел между разрядами — сравнение по смыслу, не по байту пробела.
+    expect(charterOfferPrice(r.items[0]!).replace(/\u00a0/g, ' ')).toBe('4 500 ₽ в час · 45 000 ₽ за день за машину · направление — ваше');
+    expect(charterOfferPrice({ priceFromRub: null, destinations: 0, hourRub: null, dayRub: null })).toBe('Цену машины назовёт перевозчик');
+    // План, сохранённый офлайн до 1292, приходит без полей — это «цены нет», а не «не число ₽ в час».
+    expect(charterOfferPrice({ priceFromRub: null, destinations: 0 })).toBe('Цену машины назовёт перевозчик');
   });
 
   it('роут: от дат и состава не зависит, витрину мест не читает', async () => {

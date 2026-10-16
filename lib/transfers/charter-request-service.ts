@@ -18,6 +18,7 @@ import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { isRealDate } from '@/lib/seat-requests/core';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
+import { fleetKindTitle } from '@/lib/transfers/charter-format';
 import {
   CHARTER_MAX_DAYS_AHEAD,
   CHARTER_MAX_TRIP_DAYS,
@@ -101,7 +102,9 @@ export async function saveCharterLead(i: SaveCharterLeadInput): Promise<string |
     name: i.name,
     phone: i.phone,
     comment: i.lead.comment,
-    route_title: `Вахтовка: ${i.facts.destination}`,
+    // Вид машины из парка: «Вахтовка: …» у «Шатуна», «Микроавтобус: …» у
+    // «ИП Желтухин» (1292) — заголовок лида не называет чужую машину.
+    route_title: `${fleetKindTitle(i.facts.carrier.vehicles)}: ${i.facts.destination}`,
     operator_id: i.facts.carrier.partnerId,
     source_url: i.sourceUrl,
     source_data: i.lead.sourceData,

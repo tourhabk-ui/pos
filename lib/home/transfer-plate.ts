@@ -9,7 +9,9 @@
  * Карточка честная тем же правилом, что прайс перевозчика: цена — за МАШИНУ,
  * а не за место (делить на число мест значило бы придумать цифру), и только
  * «от» наименьшей строки прайса. Нет цен — нет и карточки: перевозчик без
- * прайса в ленту не попадает (его и loadCharterCarriers не отдаёт).
+ * прайса в ленту не попадает (его и loadCharterCarriers не отдаёт). Нет
+ * направлений — тоже: плитка называет, куда возит, а цена за час и за день
+ * (1292) направления не называет; такой перевозчик — на /transfers.
  *
  * Модуль без базы — его читают и сервер, и клиент главной.
  * Сторож: tests/unit/home-transfer-plate.test.ts.
@@ -42,7 +44,7 @@ export function toTransferPlate(c: CharterCarrier): TransferPlate | null {
     kind: 'transfer',
     id: `transfer-${c.partnerId}`,
     title: c.name,
-    fleet: describeFleet(c.vehicles),
+    fleet: describeFleet(c.vehicles, c.seatClasses),
     price: Number.isFinite(min) ? `от ${formatRub(min)} за машину` : null,
     destinations: [...new Set(c.destinations.map((d) => d.to))].slice(0, DESTINATIONS_SHOWN),
     imageUrl: c.photos[0]?.url ?? null,
