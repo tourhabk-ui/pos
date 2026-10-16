@@ -15,7 +15,9 @@ import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
-import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from '@/lib/mcp/write-guard';
+// Числа лимитов — из модуля без базы: страница пререндерится на сборке, где
+// DATABASE_URL нет, а write-guard тянет lib/db-pool (no-build-time-db).
+import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from '@/lib/mcp/write-limits';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU, MCP_TRANSPORT_SPELLINGS } from '@/lib/mcp/connect';

@@ -58,6 +58,7 @@ import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { tgSend } from '@/lib/notifications/tg-send';
+import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from './write-limits';
 
 /**
  * Квота записи — решение владельца 01.10 (разбор публичного аудита): «квота на
@@ -65,11 +66,12 @@ import { tgSend } from '@/lib/notifications/tg-send';
  * подключены без авторизации. Пороги: 5 заявок в час и 20 в сутки с адреса,
  * дедуп по телефону за сутки. До 01.10 окно было 10 минут, а на номер
  * пускалось три заявки.
+ *
+ * Сами числа живут в `./write-limits` — их называет и страница /mcp, которой
+ * база на сборке недоступна; здесь они только ре-экспортированы, чтобы
+ * источник порога остался один.
  */
-export const CLIENT_WINDOW_MINUTES = 60;
-export const CLIENT_MAX_PER_WINDOW = 5;
-/** Суточный потолок на клиента — от медленного равномерного потока. */
-export const CLIENT_MAX_PER_DAY = 20;
+export { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY };
 /**
  * Дедуп по телефону: одна ПРИНЯТАЯ заявка на номер за сутки — в пределах
  * одного инструмента. Подбор (create_lead), а потом бронь конкретной даты
