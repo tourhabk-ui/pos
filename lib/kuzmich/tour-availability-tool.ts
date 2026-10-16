@@ -16,7 +16,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
-import { containsPattern } from '@/lib/db/like';
+import { containsPattern, escapeLike } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
@@ -49,6 +49,30 @@ export interface ResolvedTour {
  * логом): до 29.09 он тоже был null, и внешний агент получал ложный факт
  * «тур не найден среди активных» на месте «не смог проверить» (§4.0).
  */
+/**
+ * Ранг совпадения названия (17.10): точное название → начинается с запроса →
+ * содержит запрос → совпало только описание или место. Затем короче название:
+ * «Долина гейзеров (вертолёт)» начинается с запроса и обходит «Дачные источники
+ * (Малая Долина гейзеров)», а «Авачинский перевал» — его же вариант «(снегоход)».
+ * До этого побеждал самый дешёвый из всех, где запрос встречается в названии.
+ */
+const TITLE_RANK_SQL = `(CASE WHEN lower(title) = lower($2) THEN 0 WHEN title ILIKE $3 THEN 1 WHEN title ILIKE $1 THEN 2 ELSE 3 END)`;
+
+function startsPattern(q: string): string {
+  return `${escapeLike(q)}%`;
+}
+
+/** Основы значимых слов запроса (от 4 букв), не больше пяти. */
+export function tourQueryStems(q: string): string[] {
+  const words = q.toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/i).filter((w) => w.length >= 4);
+  const out: string[] = [];
+  for (const w of words) {
+    const stem = w.length >= 5 ? w.slice(0, Math.max(4, w.length - 2)) : w;
+    if (!out.includes(stem)) out.push(stem);
+  }
+  return out.slice(0, 5);
+}
+
 export async function resolveTourByQuery(query: string): Promise<ResolvedTour | null> {
   const q = query.trim();
   if (!q) return null;
@@ -70,11 +94,26 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
                duration_type, season_start::text, season_end::text FROM operator_tours
         WHERE ${publicTourSql('')}
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
-        ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
+        ORDER BY ${TITLE_RANK_SQL}, length(title) ASC, base_price ASC NULLS LAST
         LIMIT 1`,
-      [containsPattern(q)],
+      [containsPattern(q), q, startsPattern(q)],
     );
-    return rows[0] ?? null;
+    if (rows[0]) return rows[0];
+    // Фраза целиком не нашлась («Авачинский восхождение» — слова из перевода
+    // запроса стоят не подряд): по основам слов, побеждает больше совпадений
+    // в названии и месте. Раньше здесь был «тура нет».
+    const stems = tourQueryStems(q);
+    if (stems.length < 2) return null;
+    const hits = stems.map((_, i) => `(CASE WHEN title ILIKE $${i + 1} OR location_name ILIKE $${i + 1} THEN 1 ELSE 0 END)`).join(' + ');
+    const { rows: byWords } = await pool.query<ResolvedTour>(
+      `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours,
+               duration_type, season_start::text, season_end::text FROM operator_tours
+        WHERE ${publicTourSql('')} AND (${hits}) > 0
+        ORDER BY (${hits}) DESC, length(title) ASC, base_price ASC NULLS LAST
+        LIMIT 1`,
+      stems.map((t) => containsPattern(t)),
+    );
+    return byWords[0] ?? null;
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[tour-availability] тур не прочитан', { sqlstate: e?.code, message: e?.message });
