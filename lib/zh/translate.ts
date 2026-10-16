@@ -79,6 +79,24 @@ function messagesFor(system: string, segments: readonly string[]): ChatMessage[]
 export type ParsedSegments = { ok: true; segs: string[] } | { ok: false; why: string };
 
 /**
+ * Одна известная поломка ответа: массив закрыт дважды — `{"segments":["…"]]}`.
+ * Прогон 7 (16.10) показал её у тура 11 (short_description) — тот же отказ
+ * «не JSON» шёл в прогонах 3, 5 и 6, а перевод внутри был верным. Чинится
+ * только этот вид и только когда ответ иначе не разбирается; содержимое
+ * дальше судит та же сверка, что и всякий перевод. null — починить нечего.
+ */
+function repairDoubleClose(body: string): unknown {
+  const fixed = body.replace(/\]\s*\]\s*\}$/, ']}');
+  if (fixed === body) return null;
+  try {
+    return JSON.parse(fixed);
+  } catch {
+    // Не та поломка — отказ назовёт исходную ошибку разбора.
+    return null;
+  }
+}
+
+/**
  * Ответ модели → сегменты, а при отказе — чем именно ответ не той формы.
  * Прогоны 3, 5 и 6 (15–16.10) трижды отвергли одно и то же поле одной
  * строкой «не JSON», и по ней нельзя было отличить мусор от лишнего
@@ -88,11 +106,16 @@ export function parseSegmentsDetailed(answer: string, n: number): ParsedSegments
   const start = answer.indexOf('{');
   const end = answer.lastIndexOf('}');
   if (start < 0 || end <= start) return { ok: false, why: 'в ответе нет JSON-объекта' };
+  const body = answer.slice(start, end + 1);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(answer.slice(start, end + 1));
+    parsed = JSON.parse(body);
   } catch (err) {
-    return { ok: false, why: `JSON не разобран: ${err instanceof Error ? err.message : String(err)}`.slice(0, 120) };
+    const repaired = repairDoubleClose(body);
+    if (repaired === null) {
+      return { ok: false, why: `JSON не разобран: ${err instanceof Error ? err.message : String(err)}`.slice(0, 120) };
+    }
+    parsed = repaired;
   }
   const segs = (parsed as { segments?: unknown } | null)?.segments;
   if (!Array.isArray(segs)) return { ok: false, why: 'нет массива segments' };
