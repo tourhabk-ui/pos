@@ -110,6 +110,22 @@ describe('скрипт переписи на выгрузке', () => {
     expect(r.stdout).not.toMatch(/Камчатский край/);
   }, 60_000);
 
+  it('маршрут без своей зоны — своим разделом, с зонами, по которым его находит тревога', () => {
+    const r = run([
+      feature('a2469', { boundary: 'administrative', admin_level: '6', name: 'Быстринский муниципальный округ' }, DISTRICTS[1]),
+    ], {
+      ok: true,
+      place_rows: [P('эссо', 55.93, 158.70, 'western')],
+      route_rows: [{ ...P('тропа-эссо', 55.92, 158.69, null), effective_zones: null }],
+    });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/Округов в выгрузке: 1; мест: 1; маршрутов: 1/);
+    const routes = r.stdout.split('══ МАРШРУТЫ')[1] ?? '';
+    expect(routes).toMatch(/— без района → western \(Быстринский муниципальный округ\): 1/);
+    expect(routes).toMatch(/тропа-эссо .*тревоги по зонам: ни одной/);
+    expect(r.stdout.split('══ МАРШРУТЫ')[0]).toMatch(/Совпало 1, расходится 0/);
+  }, 60_000);
+
   it('ноль округов или ноль мест — выход 1: поломка, а не «расхождений нет»', () => {
     const noDistricts = run([], { ok: true, place_rows: [P('эссо', 55.93, 158.70, 'avachinsky')] });
     expect(noDistricts.code).toBe(1);

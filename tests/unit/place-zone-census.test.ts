@@ -19,10 +19,11 @@ import { summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/place
 const sent: Array<{ sql: string; params: unknown[] }> = [];
 let fail: { code: string } | null = null;
 const ROWS: ZoneCensusRow[] = [
-  { target: 'place', id: 'a', name: 'Арка (тест)', lat: 54.94, lng: 166.2, zone: 'commander', location_type: 'rock', has_status: true, reached_by: ['krai_wide', 'meteo_south'] },
-  { target: 'place', id: 'm', name: 'Плато (тест)', lat: 52.45, lng: 158.2, zone: 'mutnovsky', location_type: 'plateau', has_status: true, reached_by: [] },
-  { target: 'place', id: 'n', name: 'Без реалтайма (тест)', lat: 53.05, lng: 158.6, zone: 'avachinsky', location_type: null, has_status: false, reached_by: [] },
-  { target: 'route', id: 'r', name: 'Маршрут (тест)', lat: 52.5, lng: 158.2, zone: 'mutnovsky', location_type: null, has_status: null, reached_by: [] },
+  { target: 'place', id: 'a', name: 'Арка (тест)', lat: 54.94, lng: 166.2, zone: 'commander', own_zone: 'commander', location_type: 'rock', has_status: true, reached_by: ['krai_wide', 'meteo_south'] },
+  { target: 'place', id: 'm', name: 'Плато (тест)', lat: 52.45, lng: 158.2, zone: 'mutnovsky', own_zone: 'mutnovsky', location_type: 'plateau', has_status: true, reached_by: [] },
+  { target: 'place', id: 'n', name: 'Без реалтайма (тест)', lat: 53.05, lng: 158.6, zone: 'avachinsky', own_zone: 'avachinsky', location_type: null, has_status: false, reached_by: [] },
+  // Своей зоны нет, «mutnovsky» — район места на пути (collect-signals).
+  { target: 'route', id: 'r', name: 'Маршрут (тест)', lat: 52.5, lng: 158.2, zone: 'mutnovsky', own_zone: null, location_type: null, has_status: null, reached_by: [] },
 ];
 
 vi.mock('@/lib/db-pool', () => ({
@@ -79,7 +80,7 @@ describe('перепись охвата мест тревогами', () => {
   // хотя тревоги доходили до всех двенадцати.
   it('маршрут с несколькими зонами тревожен, если тревожна хоть одна из них', () => {
     const route = (id: string, zone: string): ZoneCensusRow =>
-      ({ target: 'route', id, name: id, lat: null, lng: null, zone, location_type: null, has_status: null, reached_by: [] });
+      ({ target: 'route', id, name: id, lat: null, lng: null, zone, own_zone: null, location_type: null, has_status: null, reached_by: [] });
     const census = summarizeZoneCensus([route('a', 'avachinsky,eastern'), route('b', 'mutnovsky,nalychevo')], zoneProbes());
     expect(census.routes.by_zone.find((z) => z.zone === 'avachinsky,eastern')?.alert_zone).toBe(true);
     expect(census.routes.by_zone.find((z) => z.zone === 'mutnovsky,nalychevo')?.alert_zone).toBe(false);
@@ -97,6 +98,15 @@ describe('перепись охвата мест тревогами', () => {
       { id: 'm', name: 'Плато (тест)', lat: 52.45, lng: 158.2, zone: 'mutnovsky', location_type: 'plateau' },
       { id: 'n', name: 'Без реалтайма (тест)', lat: 53.05, lng: 158.6, zone: 'avachinsky', location_type: null },
     ]);
+  });
+
+  it('?rows=all — ещё и маршруты: своя зона отдельно от зон, по которым их находит тревога', async () => {
+    const { body } = await call('Bearer test-secret', '?rows=all');
+    expect((body.place_rows as unknown[]).length).toBe(3);
+    expect(body.route_rows).toEqual([
+      { id: 'r', name: 'Маршрут (тест)', lat: 52.5, lng: 158.2, zone: null, effective_zones: 'mutnovsky' },
+    ]);
+    expect((await call('Bearer test-secret', '?rows=places')).body.route_rows).toBeUndefined();
   });
 
   it('отказ базы — 500 с SQLSTATE, а не пустая перепись', async () => {

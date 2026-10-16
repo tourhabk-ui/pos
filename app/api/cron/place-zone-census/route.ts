@@ -15,7 +15,8 @@
  *
  * `?rows=places` (16.10) — ещё и строки всех видимых мест (точка и район):
  * их кладёт на контуры муниципальных округов перепись районов на раннере
- * (place-district-census.yml). Тот же запрос, без второго чтения.
+ * (place-district-census.yml). `?rows=all` — и строки маршрутов: своя зона и
+ * зоны, по которым маршрут находит тревога. Тот же запрос, без второго чтения.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,7 +35,9 @@ export async function GET(req: NextRequest) {
   }
 
   const probes = zoneProbes();
-  const withPlaceRows = req.nextUrl.searchParams.get('rows') === 'places';
+  const rowsParam = req.nextUrl.searchParams.get('rows');
+  const withPlaceRows = rowsParam === 'places' || rowsParam === 'all';
+  const withRouteRows = rowsParam === 'all';
   try {
     const { rows } = await pool.query<ZoneCensusRow>(ZONE_CENSUS_SQL, [JSON.stringify(probes)]);
     return NextResponse.json({
@@ -47,6 +50,15 @@ export async function GET(req: NextRequest) {
             place_rows: rows
               .filter((r) => r.target === 'place')
               .map(({ id, name, lat, lng, zone, location_type }) => ({ id, name, lat, lng, zone, location_type })),
+          }
+        : {}),
+      // Маршрут: своя зона (её и правит миграция) и зоны, по которым его
+      // находит тревога (своя и районы мест на пути, collect-signals).
+      ...(withRouteRows
+        ? {
+            route_rows: rows
+              .filter((r) => r.target === 'route')
+              .map(({ id, name, lat, lng, own_zone, zone }) => ({ id, name, lat, lng, zone: own_zone, effective_zones: zone })),
           }
         : {}),
     });

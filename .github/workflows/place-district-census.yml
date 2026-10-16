@@ -8,8 +8,8 @@ name: Места × муниципальные округа OSM — перепи
 #
 # Контуры округов (admin_level=6) — из выгрузки Geofabrik, не из Overpass:
 # 15.10 overpass-api.de не отдал даже пакет из восьми is_in (проба 961), а
-# Nominatim на десятках точек отвечает 429 (проба 975). Точки и районы мест —
-# из прод-переписи охвата (`?rows=places`), только чтение. Ответ — улика для
+# Nominatim на десятках точек отвечает 429 (проба 975). Точки и районы мест и
+# маршрутов — из прод-переписи охвата (`?rows=all`), только чтение. Ответ — улика для
 # человека, а не правка: район ставится миграцией, сверенной глазами.
 #
 # Запуск: push в main, меняющий .github/triggers/place-district-census.json,
@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # `?rows=places` едет ТЕМ ЖЕ коммитом, что маркер: без ожидания первый
+      # `?rows=all` едет ТЕМ ЖЕ коммитом, что маркер: без ожидания первый
       # прогон спросил бы вчерашний прод и получил свод без строк мест.
       - name: Wait for fresh deploy
         if: github.event_name == 'push'
@@ -79,14 +79,14 @@ jobs:
             -o /tmp/adm6.geojsonseq --overwrite
           wc -l /tmp/adm6.geojsonseq
 
-      - name: Точки и районы мест — перепись охвата прода
+      - name: Точки и районы мест и маршрутов — перепись охвата прода
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
           CODE=$(curl -sS -o /tmp/census.json -w '%{http_code}' --max-time 90 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
-            "https://vedarai.ru/api/cron/place-zone-census?rows=places")
+            "https://vedarai.ru/api/cron/place-zone-census?rows=all")
           echo "HTTP: $CODE"
           if [ "$CODE" != "200" ]; then
             echo "Перепись не ответила — это «не смогли спросить», а не «расхождений нет»."

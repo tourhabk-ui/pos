@@ -118,16 +118,16 @@ export const ZONE_CENSUS_SQL = `
       JOIN probe ea ON (${ALERT_MATCH_SQL})
   ),
   targets AS (
-    SELECT pa.target, pa.rid, pa.title, pa.lat, pa.lng, pa.zone, pa.location_type,
+    SELECT pa.target, pa.rid, pa.title, pa.lat, pa.lng, pa.zone, pa.zone AS own_zone, pa.location_type,
            EXISTS (SELECT 1 FROM location_real_time_status s WHERE s.agent_route_id = pa.id) AS has_status
       FROM place_ark pa
     UNION ALL
     SELECT 'route'::text, b.id::text, b.title, b.lat, b.lng,
-           NULLIF(array_to_string(rz.zones, ','), ''), NULL::text, NULL::boolean
+           NULLIF(array_to_string(rz.zones, ','), ''), b.zone, NULL::text, NULL::boolean
       FROM route_base b
       JOIN route_zones rz ON rz.id = b.id
   )
-  SELECT t.target, t.rid AS id, t.title AS name, t.lat, t.lng, t.zone, t.location_type, t.has_status,
+  SELECT t.target, t.rid AS id, t.title AS name, t.lat, t.lng, t.zone, t.own_zone, t.location_type, t.has_status,
          COALESCE((SELECT array_agg(m.kind ORDER BY m.kind) FROM matched m
                     WHERE m.target = t.target AND m.rid = t.rid), '{}') AS reached_by
     FROM targets t
@@ -144,6 +144,12 @@ export interface ZoneCensusRow {
    * collect-signals (своя и районы мест на пути), или null.
    */
   zone: string | null;
+  /**
+   * Своя колонка zone записи: у места совпадает с `zone`, у маршрута —
+   * kamchatka_routes.zone без районов мест на пути. Её правит миграция, когда
+   * перепись районов находит расхождение с округом точки.
+   */
+  own_zone: string | null;
   location_type: string | null;
   /** Только у места: есть ли строка реалтайма. У маршрута — null. */
   has_status: boolean | null;
