@@ -1,0 +1,100 @@
+name: Ведар в ответах ИИ-ассистентов — панель
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Владелец 16.10: «чтобы турист, который планирует Камчатку через
+# ИИ-ассистента, получал в ответе Ведар и верные данные». Критерии успеха
+# записаны ДО первого прогона — docs/agents/AI_VISIBILITY.md; проверка через
+# 8 недель — повтор тем же скриптом.
+#
+# Спрашивает С РАННЕРА через OpenRouter: ChatGPT, Perplexity Sonar, Gemini
+# Flash и Grok — каждый своим поиском. YandexGPT с раннера не измерить (нет
+# ключа и нет поиска) — это называется в сводке, а не пропадает.
+#
+# Режим — поле "mode" маркера .github/triggers/ai-visibility-panel.json:
+#   dry    — план и цена без единого вызова;
+#   apply  — один день панели под потолком "max_usd" (деньги: только по слову
+#            владельца);
+#   report — доли, карта источников и вердикт по сырью прогонов из
+#            "baseline_runs" / "followup_runs".
+# Сырьё дня — артефакт на 90 дней: повтор через 8 недель (56 дней) сравнивает
+# с ним, и раньше оно истечь не должно.
+#
+# Секреты: OPENROUTER_API_KEY (вопросы), CRON_SECRET (расход — в книги через
+# lib/ai/usage-sink).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/ai-visibility-panel.json'
+
+permissions:
+  contents: read
+  actions: read   # report: скачать сырьё прошлых прогонов
+
+# Два прогона подряд спрашивали бы дважды и дважды платили бы — по очереди.
+concurrency:
+  group: ai-visibility-panel-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  panel:
+    runs-on: ubuntu-latest
+    # Сто вопросов × пять повторов × четыре ассистента — 2000 вызовов, шесть
+    # параллельно, до 120 с каждый. При меньшем потолке отмена стёрла бы день.
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Режим из маркера
+        id: mode
+        run: |
+          set -euo pipefail
+          M=.github/triggers/ai-visibility-panel.json
+          if [ ! -f "$M" ]; then echo "::error::маркера $M нет"; exit 1; fi
+          echo "mode=$(jq -r '.mode // "dry"' "$M")" >> "$GITHUB_OUTPUT"
+          echo "run=$(jq -r '.run // 0' "$M")" >> "$GITHUB_OUTPUT"
+          echo "day=$(jq -j '.day // "day"' "$M" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Сырьё прошлых прогонов
+        if: steps.mode.outputs.mode == 'report'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          M=.github/triggers/ai-visibility-panel.json
+          IDS=$(jq -r '((.baseline_runs // []) + (.followup_runs // []))[] | tostring' "$M")
+          # Сначала все номера, потом скачивание: негодный номер не оставляет полсырья.
+          for id in $IDS; do
+            case "$id" in (*[!0-9]*|'') echo "::error::номер прогона «$id» — не число"; exit 1;; esac
+          done
+          for id in $IDS; do
+            gh run download "$id" -R "$GITHUB_REPOSITORY" -D "panel-in/$id"
+          done
+
+      - name: Панель
+        env:
+          # Ключ уходит только на openrouter.ai: адрес зашит в lib/ai/visibility-ask.ts.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Расход — в книги платформы: БД Timeweb с раннера закрыта (llm-usage-reaches-books).
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: npx tsx scripts/ai-visibility-panel.ts .github/triggers/ai-visibility-panel.json panel-out panel-in
+
+      - name: Сырьё — в артефакт
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-visibility-run${{ steps.mode.outputs.run }}-${{ steps.mode.outputs.mode }}-${{ steps.mode.outputs.day }}
+          path: panel-out
+          if-no-files-found: warn
+          retention-days: 90
