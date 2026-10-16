@@ -37,13 +37,13 @@ describe('варианты подключения — все на один ад�
   it('двадцать вариантов: пять ссылок, пять команд, три чата шагами, JSON и YAML конфигов', () => {
     expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual([
       'chatbox', 'chatgpt', 'cherry_studio', 'claude_ai', 'claude_code', 'cline', 'codebuddy', 'cursor',
-      'deepseek_harness', 'devin_desktop', 'gemini_cli', 'goose', 'json', 'kilo', 'mistral', 'qwen_code',
+      'deepseek_harness', 'devin_desktop', 'gemini_app', 'gemini_cli', 'goose', 'json', 'kilo', 'mistral', 'qwen_code',
       'trae', 'trae_cn', 'vscode', 'zed',
     ]);
     expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'command').map((o) => o.id).sort())
       .toEqual(['claude_code', 'codebuddy', 'devin_desktop', 'gemini_cli', 'qwen_code']);
     expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => o.id).sort()).toEqual(['chatbox', 'cursor', 'trae', 'trae_cn', 'vscode']);
-    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'steps').map((o) => o.id).sort()).toEqual(['chatgpt', 'claude_ai', 'mistral']);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'steps').map((o) => o.id).sort()).toEqual(['chatgpt', 'claude_ai', 'gemini_app', 'mistral']);
     expect(new Set(MCP_CONNECT_OPTIONS.map((o) => o.id)).size).toBe(MCP_CONNECT_OPTIONS.length);
   });
 
@@ -81,7 +81,7 @@ describe('варианты подключения — все на один ад�
   });
 
   it('непроверенное названо: Devin, Trae и ChatGPT несут оговорку', () => {
-    for (const id of ['devin_desktop', 'trae', 'trae_cn', 'chatgpt']) {
+    for (const id of ['devin_desktop', 'trae', 'trae_cn', 'chatgpt', 'gemini_app']) {
       const o = MCP_CONNECT_OPTIONS.find((x) => x.id === id)!;
       expect(o.note, id).toMatch(/не проверен|не полностью|не говорит/);
     }
@@ -205,5 +205,21 @@ describe('первоисточники читают модуль, а не дер
     expect(page).toMatch(/MCP_CONNECT_OPTIONS\.filter\(\(o\) => o\.kind === 'link'\)/);
     const llms = read('app/llms.txt/route.ts');
     expect(llms).toMatch(/System prompt line for hosts: \$\{MCP_SYSTEM_PROMPT_LINE_EN\}/);
+  });
+
+  it('ChatGPT — текущий путь через Plugins и legacy Apps → Create, с источником OpenAI', () => {
+    const c = MCP_CONNECT_OPTIONS.find((o) => o.id === 'chatgpt')!;
+    expect(c.value).toContain('Add custom MCP server');
+    expect(c.value).toContain('Apps → Create');
+    expect(c.note).toContain('help.openai.com/en/articles/12584461');
+    expect(c.note).toMatch(/Business, Enterprise и Edu/);
+  });
+
+  it('Gemini Connected Apps — URL вручную, вызов через @, ограничения и источник Google', () => {
+    const g = MCP_CONNECT_OPTIONS.find((o) => o.id === 'gemini_app')!;
+    expect(g.value).toContain(MCP_ENDPOINT);
+    expect(g.value).toContain('@');
+    expect(g.note).toContain('support.google.com/gemini/answer/17209137');
+    expect(g.note).toMatch(/США/);
   });
 });

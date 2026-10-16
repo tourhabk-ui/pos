@@ -28,7 +28,7 @@ export interface McpConnectOption {
   /** Устойчивый ключ для разметки и сторожей. */
   id:
     | 'cursor' | 'vscode' | 'trae_cn' | 'trae' | 'chatbox'
-    | 'claude_ai' | 'chatgpt' | 'mistral'
+    | 'claude_ai' | 'chatgpt' | 'gemini_app' | 'mistral'
     | 'claude_code' | 'gemini_cli' | 'qwen_code' | 'codebuddy' | 'devin_desktop'
     | 'cline' | 'kilo' | 'zed' | 'goose' | 'cherry_studio' | 'deepseek_harness' | 'json';
   /** Клиент, как его называет человек. */
@@ -159,8 +159,19 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     client: 'ChatGPT',
     kind: 'steps',
     label: 'ChatGPT (веб)',
-    value: `chatgpt.com/plugins → + → Add custom MCP server → Server URL: ${MCP_ENDPOINT} → Authentication: No authentication → Create as a plugin`,
-    note: 'Тарифы подтверждены не полностью: полный доступ с заявками — Business, Enterprise и Edu (публикует админ); на Pro, по справке OpenAI, только чтение. В России ChatGPT официально недоступен.',
+    // Справка OpenAI 12584461, сверено 17.10: в текущем разделе Plugins сервер
+    // добавляется прямо оттуда, Developer Mode включать не нужно; старый путь
+    // «Apps → Create» остался как legacy для воркспейсов.
+    value: `chatgpt.com → Plugins → + → Add custom MCP server → Connection: ${MCP_ENDPOINT} → Authentication: No authentication → отметить риск → Create as a plugin → в чате @ и выбрать плагин. Если раздела Plugins нет (legacy): Workspace settings → Apps → Create (админ) или Settings → Apps → Create → URL → Scan Tools → Create`,
+    note: 'По справке OpenAI (help.openai.com/en/articles/12584461, 17.10): полный MCP с заявками — Business, Enterprise и Edu, создаёт и публикует админ или владелец воркспейса; на Pro — только чтение; только веб, не телефон. Набор инструментов «замораживается» при публикации — после обновления Ведара админ жмёт Refresh. Живьём не проверено; в России ChatGPT официально недоступен.',
+  },
+  {
+    id: 'gemini_app',
+    client: 'Gemini (веб и телефон)',
+    kind: 'steps',
+    label: 'Gemini — Connected Apps',
+    value: `gemini.google.com → Settings & help → Connected Apps (или Personal Intelligence → Connected Apps) → Custom apps → Add a custom app → MCP server URL: ${MCP_ENDPOINT} → Next → в чате @ и выбрать Ведар`,
+    note: 'По справке Google (support.google.com/gemini/answer/17209137, 17.10): добавлять только на сайте, потом работает и в телефоне; только 18+, США, личный аккаунт Google (не рабочий и не учебный), на английском, с включённой Keep Activity. Живьём не проверено.',
   },
   {
     id: 'mistral',
