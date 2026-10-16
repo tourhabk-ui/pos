@@ -8,17 +8,20 @@
  * каждый клиент, оговорку там, где способ не проверен, таблицу написаний и
  * правду о записях: их четыре, каждую подтверждает человек, лимиты — те же
  * числа, что у сервера (CLAUDE.md §4: сторож судит рендер, не исходник).
+ *
+ * Пул базы не подменён: страница базу не читает и не импортирует — числа
+ * лимитов берёт из write-limits. Импорт базы ловит сторож no-build-time-db,
+ * а не этот рендер (пул создаётся лениво).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(), connect: vi.fn() } }));
 
 import McpLandingPage from '@/app/mcp/page';
 import { MCP_CONNECT_OPTIONS, MCP_TRANSPORT_SPELLINGS, MCP_ENDPOINT } from '@/lib/mcp/connect';
 import { MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
-import { CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, CLIENT_WINDOW_MINUTES } from '@/lib/mcp/write-guard';
+import { CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, CLIENT_WINDOW_MINUTES } from '@/lib/mcp/write-limits';
 
 function page() {
   return render(McpLandingPage());
