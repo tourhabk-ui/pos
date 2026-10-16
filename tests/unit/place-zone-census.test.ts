@@ -37,10 +37,10 @@ vi.mock('@/lib/db-pool', () => ({
 
 beforeEach(() => { sent.length = 0; fail = null; process.env.CRON_SECRET = 'test-secret'; });
 
-async function call(auth = 'Bearer test-secret') {
+async function call(auth = 'Bearer test-secret', query = '') {
   const { GET } = await import('@/app/api/cron/place-zone-census/route');
   const { NextRequest } = await import('next/server');
-  const res = await GET(new NextRequest('http://localhost/api/cron/place-zone-census', { headers: { authorization: auth } }));
+  const res = await GET(new NextRequest(`http://localhost/api/cron/place-zone-census${query}`, { headers: { authorization: auth } }));
   return { status: res.status, body: await res.json() as Record<string, unknown> };
 }
 
@@ -73,6 +73,20 @@ describe('перепись охвата мест тревогами', () => {
     expect(census.places.by_zone.find((z) => z.zone === 'avachinsky')).toMatchObject({ alert_zone: true });
     expect(census.routes.unreached.krai_wide.map((p) => p.id)).toEqual(['r']);
     expect(census.routes.by_zone).toEqual([{ zone: 'mutnovsky', alert_zone: false, count: 1, reached: { krai_wide: 0, meteo_south: 0, meteo_north: 0 } }]);
+  });
+
+  // 16.10: строки мест берёт перепись районов на раннере (place-district-census.yml).
+  it('?rows=places — точки и районы всех мест тем же запросом; без параметра строк нет', async () => {
+    const plain = await call();
+    expect(plain.body.place_rows).toBeUndefined();
+    const { status, body } = await call('Bearer test-secret', '?rows=places');
+    expect(status).toBe(200);
+    expect(sent).toHaveLength(2);
+    expect(body.place_rows).toEqual([
+      { id: 'a', name: 'Арка (тест)', lat: 54.94, lng: 166.2, zone: 'commander', location_type: 'rock' },
+      { id: 'm', name: 'Плато (тест)', lat: 52.45, lng: 158.2, zone: 'mutnovsky', location_type: 'plateau' },
+      { id: 'n', name: 'Без реалтайма (тест)', lat: 53.05, lng: 158.6, zone: 'avachinsky', location_type: null },
+    ]);
   });
 
   it('отказ базы — 500 с SQLSTATE, а не пустая перепись', async () => {

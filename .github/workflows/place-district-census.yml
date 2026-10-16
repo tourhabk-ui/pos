@@ -1,0 +1,107 @@
+name: Места × муниципальные округа OSM — перепись районов (вручную)
+
+# Перепись районов (16.10, #83). `places.zone` — адрес тревоги без своей
+# координаты: тревога МЧС об округе находит место, только если район назван
+# той же зоной, что получает она (lib/places/district-census.ts). Перепись
+# охвата 15.10 нашла кластер Эссо с районом «avachinsky» при Быстринском
+# округе и места Курильского озера с «avachinsky» при Усть-Большерецком.
+#
+# Контуры округов (admin_level=6) — из выгрузки Geofabrik, не из Overpass:
+# 15.10 overpass-api.de не отдал даже пакет из восьми is_in (проба 961), а
+# Nominatim на десятках точек отвечает 429 (проба 975). Точки и районы мест —
+# из прод-переписи охвата (`?rows=places`), только чтение. Ответ — улика для
+# человека, а не правка: район ставится миграцией, сверенной глазами.
+#
+# Запуск: push в main, меняющий .github/triggers/place-district-census.json,
+# или кнопка (workflow_dispatch).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/place-district-census.json'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+# Новый маркер отменяет прежний прогон: перепись только читает.
+concurrency:
+  group: place-district-census
+  cancel-in-progress: true
+
+jobs:
+  districts:
+    runs-on: ubuntu-latest
+    # Ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh), выгрузка
+    # округа и сборка полигонов — минуты; потолок строго больше суммы.
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v7
+
+      # `?rows=places` едет ТЕМ ЖЕ коммитом, что маркер: без ожидания первый
+      # прогон спросил бы вчерашний прод и получил свод без строк мест.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+        run: bash scripts/wait-for-deploy.sh
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Рамка — весь край: округа тянутся до 65° с. ш. и 174° в. д. (Олюторский,
+      # Пенжинский). --strategy smart с types=multipolygon,boundary держит
+      # отношения-границы целыми и на краю рамки — иначе контур округа, часть
+      # которого вне рамки, не собрался бы. Без рамки в выгрузку шли бы округа
+      # всего Дальнего Востока — десятки миллионов вершин береговых линий.
+      - name: Контуры муниципальных округов — выгрузка Geofabrik
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+          curl -fsSL --retry 3 -o /tmp/fe.osm.pbf \
+            https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf
+          ls -lh /tmp/fe.osm.pbf
+          osmium extract --strategy smart -S types=multipolygon,boundary -b 155,50,180,66 \
+            /tmp/fe.osm.pbf -o /tmp/kam.osm.pbf --overwrite
+          osmium tags-filter /tmp/kam.osm.pbf r/admin_level=6 -o /tmp/adm6.osm.pbf --overwrite
+          osmium export /tmp/adm6.osm.pbf -f geojsonseq -u type_id --geometry-types=polygon \
+            -o /tmp/adm6.geojsonseq --overwrite
+          wc -l /tmp/adm6.geojsonseq
+
+      - name: Точки и районы мест — перепись охвата прода
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          CODE=$(curl -sS -o /tmp/census.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/place-zone-census?rows=places")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Перепись не ответила — это «не смогли спросить», а не «расхождений нет»."
+            head -c 2000 /tmp/census.json 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Места против округов
+        run: |
+          set -euo pipefail
+          npx tsx scripts/place-districts.ts /tmp/adm6.geojsonseq /tmp/census.json /tmp/districts-result.json \
+            | tee /tmp/districts-report.txt
+          {
+            echo '## Места × муниципальные округа OSM'
+            echo '```'
+            cat /tmp/districts-report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

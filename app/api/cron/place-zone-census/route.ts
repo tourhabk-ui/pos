@@ -12,6 +12,10 @@
  * Пробы — тем же разбором, каким их сохраняет приём: «по всему краю» —
  * mchs_zones, «юг» и «север» Росгидромета — METEOALERT_REGIONS. Предикат —
  * ALERT_MATCH_SQL крона, без копии (lib/places/zone-census.ts).
+ *
+ * `?rows=places` (16.10) — ещё и строки всех видимых мест (точка и район):
+ * их кладёт на контуры муниципальных округов перепись районов на раннере
+ * (place-district-census.yml). Тот же запрос, без второго чтения.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,6 +34,7 @@ export async function GET(req: NextRequest) {
   }
 
   const probes = zoneProbes();
+  const withPlaceRows = req.nextUrl.searchParams.get('rows') === 'places';
   try {
     const { rows } = await pool.query<ZoneCensusRow>(ZONE_CENSUS_SQL, [JSON.stringify(probes)]);
     return NextResponse.json({
@@ -37,6 +42,13 @@ export async function GET(req: NextRequest) {
       checked_at: new Date().toISOString(),
       probes,
       ...summarizeZoneCensus(rows, probes),
+      ...(withPlaceRows
+        ? {
+            place_rows: rows
+              .filter((r) => r.target === 'place')
+              .map(({ id, name, lat, lng, zone, location_type }) => ({ id, name, lat, lng, zone, location_type })),
+          }
+        : {}),
     });
   } catch (err) {
     const code = (err as { code?: string }).code ?? null;

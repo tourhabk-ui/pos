@@ -18,7 +18,7 @@
  * или маркера, а не «ни одной охраняемой территории» (§4.0).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { containingAreas, geometryArea, isProtectedArea, type Area, type AreaGeometry } from '@/lib/geo/point-in-area';
+import { containingAreas, geometryArea, isProtectedArea, osmIdOfArea, type Area, type AreaGeometry } from '@/lib/geo/point-in-area';
 
 interface AreaInfo {
   osm: string;
@@ -31,18 +31,6 @@ interface AreaInfo {
 }
 
 interface MarkerPlace { id: string; name: string; lat: number | null; lng: number | null; zone?: string | null }
-
-/**
- * Номер объекта OSM по номеру площади osmium: у площадей из линии номер —
- * удвоенный номер линии, из отношения — удвоенный плюс один. «a5600379» —
- * отношение 2800189; так его и ищут на openstreetmap.org.
- */
-function osmIdOfArea(id: string): string {
-  const m = /^a(\d+)$/.exec(id);
-  if (!m) return id;
-  const n = Number(m[1]);
-  return n % 2 === 1 ? `relation ${(n - 1) / 2}` : `way ${n / 2}`;
-}
 
 function main(): number {
   const [input, markerPath, out] = process.argv.slice(2);

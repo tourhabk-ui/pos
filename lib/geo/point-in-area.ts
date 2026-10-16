@@ -39,6 +39,20 @@ export interface Area<T = unknown> {
 }
 
 /**
+ * Номер объекта OSM по номеру площади osmium: у площадей из линии номер —
+ * удвоенный номер линии, из отношения — удвоенный плюс один. «a5600379» —
+ * отношение 2800189; так его и ищут на openstreetmap.org. Один на сверку
+ * охраняемых территорий и перепись округов (scripts/oopt-contours.ts,
+ * scripts/place-districts.ts).
+ */
+export function osmIdOfArea(id: string): string {
+  const m = /^a(\d+)$/.exec(id);
+  if (!m) return id;
+  const n = Number(m[1]);
+  return n % 2 === 1 ? `relation ${(n - 1) / 2}` : `way ${n / 2}`;
+}
+
+/**
  * Что считаем охраняемой территорией — те же теги, что спрашивались у
  * Overpass в пробах is_in: `boundary=protected_area`, `boundary=national_park`,
  * `leisure=nature_reserve`.
@@ -101,6 +115,25 @@ export function geometryArea(g: AreaGeometry): number {
  * тесный контур. Пустой список — законный ответ: «ни в одном контуре OSM»,
  * что НЕ значит «не на охраняемой территории» (не всё нанесено на карту).
  */
+/**
+ * Рамка контура [запад, юг, восток, север] — по внешним кольцам. Отсев «точка
+ * вне рамки» дешевле обхода колец: у округов края береговые линии на сотни
+ * тысяч вершин.
+ */
+export function geometryBbox(g: AreaGeometry): [number, number, number, number] {
+  let w = Infinity; let s = Infinity; let e = -Infinity; let n = -Infinity;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  for (const rings of polys) {
+    for (const [x, y] of rings[0] ?? []) {
+      if (x < w) w = x;
+      if (x > e) e = x;
+      if (y < s) s = y;
+      if (y > n) n = y;
+    }
+  }
+  return [w, s, e, n];
+}
+
 export function containingAreas<T>(lng: number, lat: number, areas: readonly Area<T>[]): T[] {
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return [];
   return areas

@@ -15,7 +15,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  containingAreas, geometryArea, isProtectedArea, pointInGeometry, pointInPolygon,
+  containingAreas, geometryArea, geometryBbox, isProtectedArea, osmIdOfArea, pointInGeometry, pointInPolygon,
   type AreaGeometry, type Ring,
 } from '@/lib/geo/point-in-area';
 
@@ -66,6 +66,14 @@ describe('контуры точки — от тесного к широкому'
 
   it('точки нет — пустой список', () => {
     expect(containingAreas(Number.NaN, 53, areas)).toEqual([]);
+  });
+
+  it('рамка контура — по внешним кольцам всех частей; номер OSM — по номеру площади osmium', () => {
+    expect(geometryBbox(ISLANDS)).toEqual([165.5, 54.5, 168, 55.5]);
+    expect(geometryBbox(PARK)).toEqual([158, 53, 160, 55]);
+    expect(osmIdOfArea('a5600379')).toBe('relation 2800189');
+    expect(osmIdOfArea('a818737572')).toBe('way 409368786');
+    expect(osmIdOfArea('r3')).toBe('r3');
   });
 
   it('охраняемая территория — по тем же тегам, что у проб is_in', () => {
