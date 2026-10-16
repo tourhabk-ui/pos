@@ -9,7 +9,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { composeAccessText, type AccessFacts } from '@/lib/places/access-text';
-import { placeZoneLabel, routeDifficultyLabel } from '@/lib/places/zone-labels';
+import {
+  placeZoneLabel, routeDifficultyLabel, placeAreaWords, routeSeasonLabel, routeTypeLabel,
+} from '@/lib/places/zone-labels';
+import { placeCardTypeLine, placeCardMchsPhone } from '@/lib/pdf/place-card-generator';
 import { placeDescription, routeDescription } from '@/lib/seo/place-meta';
 
 const base: AccessFacts = {
@@ -67,5 +70,32 @@ describe('сниппет для поиска — тоже словами', () =>
       elevationGainM: null, difficulty: 'easy', season: null, mchsRequired: false, description: null,
     });
     expect(r).not.toContain('zzz_code');
+  });
+});
+
+describe('коды из данных за пределами карточки — словами или никак (16.10)', () => {
+  it('район для промптов агентов и их журнала: подпись зоны и записанный район', () => {
+    expect(placeAreaWords('krai_koryak', null)).toBe('Корякский округ');
+    expect(placeAreaWords('avachinsky', 'Елизовский район')).toBe('Авачинский, Елизовский район');
+    expect(placeAreaWords('zzz_unknown', null)).toBeNull();
+    expect(placeAreaWords(null, '  ')).toBeNull();
+  });
+
+  it('сезон и вид маршрута — словарь; записанное по-русски — как есть; незнакомый код — молчит', () => {
+    expect(routeSeasonLabel('summer, autumn')).toBe('лето, осень');
+    expect(routeSeasonLabel('лето')).toBe('лето');
+    expect(routeSeasonLabel('xx')).toBeNull();
+    expect(routeTypeLabel('radial')).toBe('радиальный');
+    expect(routeTypeLabel('zigzag')).toBeNull();
+    expect(routeDifficultyLabel('средняя')).toBe('средняя');
+  });
+
+  it('PDF карточки: строка типа без кода зоны, номер МЧС — только проверенный', () => {
+    expect(placeCardTypeLine('вулкан', 'krai_koryak')).toBe('ВУЛКАН · Корякский округ');
+    expect(placeCardTypeLine('вулкан', 'zzz_unknown')).toBe('ВУЛКАН');
+    expect(placeCardTypeLine('озеро', null)).toBe('ОЗЕРО');
+    expect(placeCardMchsPhone('+7 (415) 123-45-67')).toBe('101');
+    expect(placeCardMchsPhone(null)).toBe('101');
+    expect(placeCardMchsPhone('8 (4152) 30-10-89')).toBe('+7 (4152) 30-10-89');
   });
 });

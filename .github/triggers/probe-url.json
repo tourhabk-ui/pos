@@ -1,32 +1,30 @@
 {
   "timeout": 60,
-  "run": 982,
-  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Проверка решений по карт-бланшу владельца (1299–1300 и разбор приёма): у мест — метка Корякского округа у 26, Северных Курил у 12, «Северная» 73 (было 98); карточка Эбеко — метка Курил и признак «вне сводок края» (один запрос: карточка засчитывает просмотр); рубрика «История Камчатки» среди маршрутов — 404. Карточка маршрута (западный «Вулкан Ильинский», северный «Вулкан Удина»): какие «экстренные контакты» отдаёт /api/safety/warnings — до правки, снимок как есть. Датчик свежести — 26 корякских мест в переписи.",
+  "run": 983,
+  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. После выката партии «экстренные номера и коды словами»: /api/safety/warnings отдаёт единый проверенный список (112, 101–103, дежурная смена МЧС 30-10-89 / 20-01-12 / 30-10-91), номеров сида 0645/070 (123-45-67, 444-20-77, 223-00-11, 111-22-33) быть не должно — для тура 27 и двух маршрутов (западный «Вулкан Ильинский», северный «Вулкан Удина»; route_id — тот же параметр, что шлёт карточка). Срез «Вулканы: Северная Камчатка» — число с корякскими вулканами (до правки они выпали из среза меткой 1299). Датчик свежести — проверенный номер в ответе для тура.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-zone-census",
-    "https://vedarai.ru/api/places/1eed3971-5265-44a5-b42c-9457e49e30df",
-    "https://vedarai.ru/api/routes/5b8d6bb5-4044-47f7-8525-25d49a63d4db",
-    "https://vedarai.ru/api/safety/warnings?routeId=45010ef9-f3aa-4c7b-8549-4c0933e3925c",
-    "https://vedarai.ru/api/safety/warnings?routeId=ed8a075c-432e-482b-9bf5-d55fa3ca3bde"
+    "https://vedarai.ru/api/safety/warnings?tour_id=27",
+    "https://vedarai.ru/api/safety/warnings?route_id=45010ef9-f3aa-4c7b-8549-4c0933e3925c",
+    "https://vedarai.ru/api/safety/warnings?route_id=ed8a075c-432e-482b-9bf5-d55fa3ca3bde",
+    "https://vedarai.ru/routes/vulkani/northern"
   ],
-  "gone": [
-    "https://vedarai.ru/api/routes/5b8d6bb5-4044-47f7-8525-25d49a63d4db"
-  ],
-  "until": "\"zone\":\"krai_koryak\",\"alert_zone\":true,\"count\":26,",
+  "until": "\"phone\":\"+7 (4152) 30-10-89\"",
   "retries": 60,
   "retryDelay": 40,
   "grep": [
-    "\"zone\":\"krai_koryak\",\"alert_zone\":true,\"count\":26,",
-    "\"zone\":\"kuril_north\",\"alert_zone\":false,\"count\":12,\"reached\":{\"krai_wide\":0,\"meteo_south\":0,\"meteo_north\":0}",
-    "\"zone\":\"northern\",\"alert_zone\":true,\"count\":73,",
-    "\"zone\":\"kuril_north\",\"district\"",
-    "\"outsideKraiSources\":true"
+    "\"phone\":\"+7 (4152) 30-10-89\"",
+    "\"phone\":\"112\"",
+    "123-45-67",
+    "444-20-77",
+    "223-00-11",
+    "111-22-33",
+    "\"route_title\""
   ],
   "around": [
-    "\"by_zone\"",
-    "\"emergency_contacts\""
+    "\"emergency_contacts\"",
+    "маршрутов</span>"
   ],
-  "aroundLines": 70,
+  "aroundLines": 12,
   "aroundHits": 4,
   "bytes": 300
 }

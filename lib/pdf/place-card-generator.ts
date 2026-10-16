@@ -13,6 +13,8 @@ import QRCode from 'qrcode';
 import { getPublicBaseUrl } from '@/lib/config';
 import { hazardLabel } from '@/lib/safety/hazard-labels';
 import { locationTypeLabel } from '@/lib/places/location-types';
+import { placeZoneLabel } from '@/lib/places/zone-labels';
+import { verifiedRegionalNumber } from '@/lib/safety/emergency-numbers';
 
 
 
@@ -34,6 +36,21 @@ export interface PlaceCardData {
   nearestMedicalKm: number | null;
   satCommunicatorRequired: boolean | null;
   description: string | null;
+}
+
+/** Строка типа под заголовком: «ВУЛКАН · Авачинский». Код зоны без подписи не печатается. */
+export function placeCardTypeLine(typeLabel: string, zone: string | null): string {
+  const zoneLabel = placeZoneLabel(zone);
+  return `${typeLabel.toUpperCase()}${zoneLabel ? ` · ${zoneLabel}` : ''}`;
+}
+
+/**
+ * Номер МЧС на карточке: проверенный владельцем, иначе федеральный 101
+ * (lib/safety/emergency-numbers.ts). Номер из данных места сам по себе не
+ * сверен никем — колонку не пишет ни один путь в коде (16.10).
+ */
+export function placeCardMchsPhone(phone: string | null): string {
+  return verifiedRegionalNumber(phone)?.phone ?? '101';
 }
 
 async function buildQRCodeBuffer(url: string): Promise<Buffer> {
@@ -98,13 +115,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
     doc.fillColor('#000000')
        .fontSize(10)
        .font(FONT_BOLD)
-       .text(typeLabel.toUpperCase(), 52, y, { characterSpacing: 1.5 });
-
-    if (place.zone) {
-      doc.fillColor('#444444')
-         .font(FONT_BODY)
-         .text(` · ${place.zone}`, { continued: false });
-    }
+       .text(placeCardTypeLine(typeLabel, place.zone), 52, y, { characterSpacing: 1.5 });
 
     y = doc.y + 10;
 
@@ -236,10 +247,10 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
     doc.fontSize(9).font(FONT_BODY).fillColor('#444444').text('Единый экстренный', 60, doc.y + 2);
 
     const col2x = 52 + W / 2;
-    // Без выдуманных номеров: если у точки нет верифицированного номера в БД —
-    // показываем федеральный короткий 101 (см. lib/safety/emergency-numbers.ts).
+    // Без выдуманных номеров: номер точки — только проверенный владельцем,
+    // иначе федеральный короткий 101 (placeCardMchsPhone).
     doc.fontSize(14).font(FONT_BOLD).fillColor('#000000')
-       .text(place.phoneRangerMches ?? '101', col2x, y);
+       .text(placeCardMchsPhone(place.phoneRangerMches), col2x, y);
     doc.fontSize(9).font(FONT_BODY).fillColor('#444444')
        .text('МЧС · пожарные и спасатели', col2x, doc.y + 2);
 

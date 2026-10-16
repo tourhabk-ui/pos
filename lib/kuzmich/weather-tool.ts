@@ -24,6 +24,7 @@ import { containsPattern } from '@/lib/db/like';
 import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
 import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { KURIL_NORTH_NOTE, inKurilNorthBox } from '@/lib/safety/kuril-north';
 
 export const DEFAULT_WEATHER_PLACE = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 } as const;
 export const WEATHER_DAYS_DEFAULT = 3;
@@ -211,7 +212,14 @@ export function alertZonesForPoint(lat: number): string[] {
  * (не «предупреждений нет»: приём мог молчать, и это утверждение было бы
  * без источника); не смогли прочитать — так и сказано.
  */
-export async function officialWarningLines(lat: number): Promise<string[]> {
+export async function officialWarningLines(lat: number, lng?: number): Promise<string[]> {
+  // Северные Курилы — Сахалинская область: Росгидромет Камчатки о них не
+  // говорит, а граница по одной широте отнесла бы Парамушир к «югу края» и
+  // подставила чужие предупреждения (16.10, lib/safety/kuril-north.ts).
+  // Пустота тоже была бы неправдой — «предупреждений нет» без источника.
+  if (lng !== undefined && inKurilNorthBox(lat, lng)) {
+    return [`${KURIL_NORTH_NOTE} Предупреждения Росгидромета Камчатки к этой точке не относятся — не утверждай, что предупреждений нет.`];
+  }
   try {
     const { rows } = await pool.query<{ title: string; description: string | null }>(
       `SELECT title, description
@@ -265,7 +273,7 @@ export async function weatherForKuzmich(args: { place?: string; lat?: string; ln
     const head = `Прогноз Open-Meteo для «${point.name}» (${point.lat.toFixed(2)}, ${point.lng.toFixed(2)})`
       + `${elevationNote(forecast.elevationM)}, дней: ${forecast.days.length}.${note}`
       + `${forecast.staleSince ? ` ВНИМАНИЕ: источник сейчас не отвечает — это последний полученный прогноз, от ${kamchatkaTime(forecast.staleSince)} по Камчатке; так и скажи.` : ''}`;
-    const warnings = await officialWarningLines(point.lat);
+    const warnings = await officialWarningLines(point.lat, point.lng);
     return [head, ...forecast.days.map(forecastLine), ...warnings].join('\n');
   } catch (err) {
     logSwallowedFailure('kuzmich', 'прогноз погоды по месту', err);

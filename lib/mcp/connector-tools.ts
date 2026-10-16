@@ -59,6 +59,7 @@ import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
+import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -443,13 +444,16 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
   );
   if (!r) throw notFound(id);
   const text = joinLines([
-    `Маршрут «${r.title}»${r.zone ? `, ${r.zone}` : ''}.`,
-    line('Тип', r.route_type),
-    line('Сложность', r.difficulty),
+    // Район, вид, сложность и сезон — словами: код из данных агенту не
+    // печатается («avachinsky», «radial», «medium», «summer»), молчание лучше
+    // латиницы (lib/places/zone-labels).
+    `Маршрут «${r.title}»${placeZoneLabel(r.zone) ? `, ${placeZoneLabel(r.zone)}` : ''}.`,
+    line('Тип', routeTypeLabel(r.route_type)),
+    line('Сложность', routeDifficultyLabel(r.difficulty)),
     r.distance_km ? `Дистанция: ${Number(r.distance_km)} км` : null,
     r.duration_days ? `Длительность: ${r.duration_days} дн.` : (r.duration_hours ? `Длительность: ${Number(r.duration_hours)} ч` : null),
     r.elevation_gain_m ? `Набор высоты: ${r.elevation_gain_m} м` : null,
-    line('Сезон', r.season),
+    line('Сезон', routeSeasonLabel(r.season)),
     // Сырая выдача модели (VS-JSON) вместо описания — не текст о маршруте
     // (14.10: «Восхождение на Корякскую сопку» отдавалось JSON с «probability»).
     r.description && !garbageSignature(r.description) ? r.description : null,

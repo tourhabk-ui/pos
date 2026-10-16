@@ -20,6 +20,7 @@ vi.mock('@/lib/db-pool', () => ({
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 import { generateMetadata } from '@/app/routes/[id]/[zone]/page';
 import CategoryPage from '@/components/routes/CategoryPage';
+import { ZONE_PAGES, catalogZoneOf, catalogZoneSql } from '@/lib/routes/zone-meta';
 
 beforeEach(() => {
   poolQueryMock.mockReset();
@@ -138,5 +139,34 @@ describe('зонная страница — метаданные', () => {
     });
     expect(meta.title).toBe('Страница не найдена');
     expect(meta.alternates?.canonical).toBeUndefined();
+  });
+});
+
+describe('Корякский округ в срезах каталога — «Северная Камчатка» (16.10)', () => {
+  it('метка округа читается северной зоной; Северные Курилы и Командоры среза не получают', () => {
+    expect(catalogZoneOf('krai_koryak')).toBe('northern');
+    expect(catalogZoneOf('northern')).toBe('northern');
+    expect(catalogZoneOf(null)).toBeNull();
+    for (const z of ['kuril_north', 'commander']) {
+      expect(ZONE_PAGES[catalogZoneOf(z) ?? '']).toBeUndefined();
+    }
+    // SQL — та же замена (на настоящей базе выражение проверено при правке).
+    expect(catalogZoneSql('zone')).toBe("(CASE zone WHEN 'krai_koryak' THEN 'northern' ELSE zone END)");
+  });
+
+  it('sitemap группирует по зоне среза, а не по сырой метке', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [] });
+    await getCatalogPages();
+    const sql = String(poolQueryMock.mock.calls[0][0]);
+    expect(sql).toContain(`${catalogZoneSql('zone')} AS zone`);
+    expect(sql).toMatch(/GROUP BY 1, 2/);
+  });
+
+  it('страница категории фильтрует и считает по зоне среза', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{ count: '0' }] });
+    await CategoryPage({ category: 'vulkani', zone: 'northern' }).catch(() => undefined);
+    const sqls = poolQueryMock.mock.calls.map((c) => String(c[0]));
+    expect(sqls.filter((q) => q.includes(`${catalogZoneSql('zone')} = $2`))).toHaveLength(2);
+    expect(sqls.some((q) => q.includes(`SELECT ${catalogZoneSql('zone')} AS zone, COUNT(*)`))).toBe(true);
   });
 });

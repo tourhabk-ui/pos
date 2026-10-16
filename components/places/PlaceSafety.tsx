@@ -4,6 +4,7 @@ import { HAZARD_LABELS } from './types';
 import type { PlaceSafety as SafetyData } from './types';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
+import { telHref, verifiedRegionalNumber } from '@/lib/safety/emergency-numbers';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import type { OwnPermit } from '@/lib/places/own-permit';
 
@@ -47,12 +48,15 @@ interface Props {
  * (непрозрачная, `--danger`, §5 языка) и ссылка на офлайн-инструкции.
  */
 export default function PlaceSafety({ safety, placeId: _, ownPermit = null, permitFree = false }: Props) {
+  // Номер из данных места — только проверенный владельцем (16.10): колонку
+  // не пишет ни один путь в коде, и что в ней лежит, никем не сверено.
+  const regional = verifiedRegionalNumber(safety.phoneRangerMches);
   const hasAnyData =
     safety.requiredGear.length > 0 ||
     safety.satCommunicatorRequired ||
     Boolean(safety.emergencyAccess) ||
     safety.registrationRequired ||
-    Boolean(safety.phoneRangerMches);
+    Boolean(regional);
 
   return (
     <section className="space-y-4">
@@ -151,16 +155,17 @@ export default function PlaceSafety({ safety, placeId: _, ownPermit = null, perm
           <Phone className="h-3.5 w-3.5" aria-hidden /> 112
         </EmergencyAction>
 
-        {/* Региональный номер МЧС — ТОЛЬКО если он задан для точки в БД.
-            Никаких выдуманных fallback: неверный номер в ЧП опаснее его
-            отсутствия. Единый источник — 112 выше. */}
-        {safety.phoneRangerMches && (
+        {/* Региональный номер МЧС — ТОЛЬКО проверенный владельцем
+            (lib/safety/emergency-numbers.ts), даже если в данных точки
+            записан другой. Неверный номер в ЧП опаснее его отсутствия.
+            Единый источник — 112 выше. */}
+        {regional && (
           <a
-            href={`tel:${safety.phoneRangerMches.replace(/[^\d+]/g, '')}`}
+            href={telHref(regional.phone)}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--accent)]"
           >
             <Phone className="h-3.5 w-3.5" aria-hidden />
-            {safety.phoneRangerMches} МЧС
+            {regional.phone} МЧС
           </a>
         )}
 

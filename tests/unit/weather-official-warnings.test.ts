@@ -14,12 +14,19 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
-import { readFileSync } from 'node:fs';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
+vi.mock('@/lib/planner/intelligence', () => ({
+  fetchForecastDays: vi.fn(async () => ({
+    ok: true,
+    elevationM: 20,
+    days: [{ date: '2026-10-16', tempMax: 6, tempMin: 1, precipMm: 2, windKmh: 30, weatherCode: 61, description: 'дождь' }],
+  })),
+}));
 
 const { pool } = await import('@/lib/db-pool');
-const { officialWarningLines, alertZonesForPoint } = await import('@/lib/kuzmich/weather-tool');
+const { officialWarningLines, alertZonesForPoint, weatherForKuzmich } = await import('@/lib/kuzmich/weather-tool');
+const { KURIL_NORTH_NOTE } = await import('@/lib/safety/kuril-north');
 const q = pool.query as unknown as ReturnType<typeof vi.fn>;
 
 afterEach(() => { q.mockReset(); });
@@ -63,9 +70,35 @@ describe('три исхода', () => {
 });
 
 describe('ответ о погоде их несёт', () => {
-  it('weatherForKuzmich добавляет строки предупреждений к прогнозу', () => {
-    const src = readFileSync('lib/kuzmich/weather-tool.ts', 'utf-8');
-    expect(src).toMatch(/const warnings = await officialWarningLines\(point\.lat\);\s*return \[head, \.\.\.forecast\.days\.map\(forecastLine\), \.\.\.warnings\]/);
-    expect(src).toMatch(/import \{ METEOALERT_PREFIX \} from '@\/lib\/services\/safety\/meteoalert'/);
+  it('weatherForKuzmich добавляет строки предупреждений к прогнозу', async () => {
+    q.mockResolvedValueOnce({ rows: [{ title: 'Росгидромет: ветер — оранжевый уровень (юг края)', description: 'Ветер 25 м/с.' }] });
+    const text = await weatherForKuzmich({ lat: '53.02', lng: '158.65' });
+    expect(text).toMatch(/^Прогноз Open-Meteo для «точка 53\.02, 158\.65»/);
+    expect(text).toContain('16.10: +1…+6°C');
+    expect(text).toContain('- Росгидромет: ветер — оранжевый уровень (юг края). Ветер 25 м/с.');
+  });
+});
+
+describe('Северные Курилы — Сахалинская область (16.10)', () => {
+  it('точке Парамушира камчатские предупреждения не подставляются, и это сказано словами', async () => {
+    const lines = await officialWarningLines(50.68, 156.12);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(KURIL_NORTH_NOTE);
+    expect(lines[0]).toMatch(/не утверждай, что предупреждений нет/);
+    // В базу за камчатскими сводками не ходили вовсе.
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('ответ о погоде по координатам Северо-Курильска несёт ту же записку', async () => {
+    const text = await weatherForKuzmich({ lat: '50.68', lng: '156.12' });
+    expect(text).toContain(KURIL_NORTH_NOTE);
+    expect(text).not.toMatch(/ДЕЙСТВУЮЩИЕ ПРЕДУПРЕЖДЕНИЯ РОСГИДРОМЕТА/);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('мыс Лопатка — край: предупреждения спрашиваются, как у всей Камчатки', async () => {
+    q.mockResolvedValueOnce({ rows: [] });
+    expect(await officialWarningLines(50.877, 156.681)).toEqual([]);
+    expect(q).toHaveBeenCalledTimes(1);
   });
 });

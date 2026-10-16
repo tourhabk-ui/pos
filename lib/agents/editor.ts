@@ -18,6 +18,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
 import { sanitizeGarbageDescriptions } from '@/lib/agents/evo/content-sanitizer';
 import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
+import { placeZoneLabel } from '@/lib/places/zone-labels';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
 // (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
@@ -150,7 +151,7 @@ export function buildFacts(route: RouteRow): string[] {
   put('род записи', route.kind === 'place' ? 'точка на карте' : route.kind === 'route' ? 'маршрут' : null);
   put('тип объекта', route.location_type);
   put('вид активности', route.activity_type);
-  put('зона', route.zone);
+  put('зона', placeZoneLabel(route.zone));
   if (route.lat !== null && route.lng !== null) f.push(`координаты: ${route.lat}, ${route.lng}`);
   put('высота над уровнем моря, м', route.altitude_m);
   put('рельеф', route.terrain_type);

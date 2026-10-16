@@ -24,7 +24,7 @@ import type { PlaceRealtime } from '@/components/places/types';
 import { placeDayStatus } from '@/lib/safety/place-day-status';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { classifyMessage, mchs_zones, tsunamiAlertZones, TSUNAMI_WIDE_ZONES } from '@/lib/services/safety/seismic-parser';
-import { KURIL_NORTH_BOX, KURIL_NORTH_NOTE, KURIL_NORTH_ZONE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
+import { KURIL_NORTH_BOX, KURIL_NORTH_BOX_SQL, KURIL_NORTH_NOTE, KURIL_NORTH_ZONE, inKurilNorthBox, isOutsideKraiSources } from '@/lib/safety/kuril-north';
 import { KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
 import { placeZoneLabel } from '@/lib/places/zone-labels';
@@ -70,13 +70,13 @@ describe('2. Северные Курилы — Сахалинская облас
   });
 
   it('прямоугольник — Парамушир и Шумшу внутри, мыс Лопатка снаружи', () => {
-    const inBox = (lat: number, lng: number) =>
-      lat >= KURIL_NORTH_BOX.minLat && lat <= KURIL_NORTH_BOX.maxLat && lng >= KURIL_NORTH_BOX.minLng && lng <= KURIL_NORTH_BOX.maxLng;
-    expect(inBox(50.678, 156.125)).toBe(true);   // Северо-Курильск
-    expect(inBox(50.840, 156.428)).toBe(true);   // Шумшу, танк
-    expect(inBox(50.858, 155.557)).toBe(true);   // Алаид
-    expect(inBox(50.877, 156.681)).toBe(false);  // мыс Лопатка
-    expect(inBox(51.507, 157.693)).toBe(false);  // остров Уташуд
+    expect(inKurilNorthBox(50.678, 156.125)).toBe(true);   // Северо-Курильск
+    expect(inKurilNorthBox(50.840, 156.428)).toBe(true);   // Шумшу, танк
+    expect(inKurilNorthBox(50.858, 155.557)).toBe(true);   // Алаид
+    expect(inKurilNorthBox(50.877, 156.681)).toBe(false);  // мыс Лопатка
+    expect(inKurilNorthBox(51.507, 157.693)).toBe(false);  // остров Уташуд
+    // SQL-пара судит теми же числами.
+    expect(KURIL_NORTH_BOX_SQL).toContain(`BETWEEN ${KURIL_NORTH_BOX.minLng} AND ${KURIL_NORTH_BOX.maxLng}`);
   });
 
   it('подпись района — словами, с областью', () => {

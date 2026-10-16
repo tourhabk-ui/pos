@@ -169,6 +169,18 @@ describe('журнал записывает то, что реально дали
     expect(rich.length).toBeGreaterThan(bare.length);
   });
 
+  it('незнакомый код зоны районом не считается: в промпт он не уходит (16.10)', () => {
+    const coded = factsGiven({
+      description: null, location_type: 'volcano',
+      zone: 'zzz_unknown', district: null, eco_zone: null, altitude_m: null,
+    });
+    expect(coded).not.toContain('район');
+    expect(factsGiven({
+      description: null, location_type: 'volcano',
+      zone: 'krai_koryak', district: null, eco_zone: null, altitude_m: null,
+    })).toContain('район');
+  });
+
   it('высота ниже порога фактом не считается — её не дают и модели', () => {
     const low = factsGiven({
       description: null, location_type: 'lake',

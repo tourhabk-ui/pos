@@ -50,6 +50,9 @@ describe('в промпт уходит то, что есть, и только о
 
   it('пустой массив опасностей не превращается в факт', () => {
     expect(buildFacts({ ...bare, hazard_types: [] })).toEqual([]);
+    // Зона — подписью; незнакомый код фактом не идёт (16.10).
+    expect(buildFacts({ ...bare, zone: 'krai_koryak' })).toEqual(['зона: Корякский округ']);
+    expect(buildFacts({ ...bare, zone: 'zzz_unknown' })).toEqual([]);
     expect(buildFacts({ ...bare, hazard_types: ['камнепад'] }).join(' ')).toContain('камнепад');
   });
 

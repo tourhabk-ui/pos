@@ -48,6 +48,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { z } from 'zod';
 import { stripTags } from '@/lib/html/text';
 import { notOwnerDecidedSql } from '@/lib/places/owner-decided';
+import { placeAreaWords } from '@/lib/places/zone-labels';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -99,7 +100,7 @@ export function factsGiven(p: {
   eco_zone: string | null; altitude_m: number | null;
 }): string[] {
   const facts: string[] = ['тип объекта', 'координаты'];
-  if (p.zone || p.district) facts.push('район');
+  if (placeAreaWords(p.zone, p.district)) facts.push('район');
   if (p.altitude_m && p.altitude_m > 100) facts.push('высота');
   if (p.eco_zone && ECO_NOTE[p.eco_zone]) facts.push('охранный статус');
   if (stripTags(p.description ?? '').trim()) facts.push('прежнее описание');
@@ -134,7 +135,7 @@ function buildPrompt(p: {
       role: 'user',
       content:
         `Объект: ${p.name}\nТип: ${type}\n` +
-        `Район: ${[p.zone, p.district].filter(Boolean).join(', ') || 'Камчатка'}\n` +
+        `Район: ${placeAreaWords(p.zone, p.district) ?? 'Камчатка'}\n` +
         `Координаты: ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}\n` +
         (altNote ? altNote + '\n' : '') +
         (ecoNote ? ecoNote + '\n' : '') +

@@ -151,8 +151,11 @@ export function matchOfficialAlerts(
       // «Юг до Петропавловска», Корякский округ и Командоры — охват по
       // координатам, а не зона (04.10, 09.10; lib/safety/krai-south.ts,
       // krai-far.ts); зоны брони с ними не сравнить, координаты тура здесь
-      // нет — судим как неразмещённое, а не молча мимо.
-      const zones = (alert.affected_zones ?? []).filter((z) => z !== KRAI_SOUTH_ZONE && !KRAI_FAR_ZONES.includes(z));
+      // нет — судим как неразмещённое, а не молча мимо. Исключение — та же
+      // метка у самой брони: с 16.10 корякские маршруты несут район
+      // krai_koryak (1299), и сводка о Корякском округе к ним прямо относится.
+      const zones = (alert.affected_zones ?? []).filter((z) =>
+        z !== KRAI_SOUTH_ZONE && (!KRAI_FAR_ZONES.includes(z) || z === booking.zone));
       const flood = alert.alert_type === 'flood';
       if (zones.length === 0) {
         if (flood && water && alert.severity >= 2) matches.push({ booking, alert, unplaced: true });

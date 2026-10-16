@@ -42,11 +42,49 @@ export function placeZoneLabel(code: string | null | undefined): string | null {
   return PLACE_ZONE_LABELS[c] ?? (/[а-яё]/i.test(c) ? c : null);
 }
 
+/**
+ * Район места словами — подпись зоны и записанный район через запятую; ничего
+ * не записано или только незнакомый код — null. Для промптов агентов и их
+ * журнала: «Район: krai_koryak» в промпте — заказ на слаг в публичном тексте.
+ */
+export function placeAreaWords(zone: string | null | undefined, district: string | null | undefined): string | null {
+  const words = [placeZoneLabel(zone), district?.trim() || null].filter((x): x is string => Boolean(x));
+  return words.length ? words.join(', ') : null;
+}
+
 export const ROUTE_DIFFICULTY_RU: Record<string, string> = {
   easy: 'лёгкий', medium: 'средней сложности', hard: 'сложный', extreme: 'экстремальный',
 };
 
+/** Код — подписью; записанное словами — как есть (как у района); прочее — null. */
 export function routeDifficultyLabel(code: string | null | undefined): string | null {
   const c = code?.trim();
-  return c ? ROUTE_DIFFICULTY_RU[c] ?? null : null;
+  if (!c) return null;
+  return ROUTE_DIFFICULTY_RU[c] ?? (/[а-яё]/i.test(c) ? c : null);
+}
+
+/**
+ * Сезон маршрута (kamchatka_routes.season): код или список через запятую
+ * («summer, autumn»). Один словарь со сниппетом поиска (lib/seo/place-meta).
+ */
+export const ROUTE_SEASON_RU: Record<string, string> = {
+  summer: 'лето', winter: 'зима', all: 'круглый год', spring: 'весна', autumn: 'осень',
+};
+
+export function routeSeasonLabel(code: string | null | undefined): string | null {
+  const words = (code ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+    .map((x) => ROUTE_SEASON_RU[x] ?? (/[а-яё]/i.test(x) ? x : null))
+    .filter((x): x is string => x !== null);
+  return words.length ? words.join(', ') : null;
+}
+
+/** Вид маршрута (kamchatka_routes.route_type): паспорта пишут его кодом (lib/import/passport-fields). */
+export const ROUTE_TYPE_RU: Record<string, string> = {
+  radial: 'радиальный', linear: 'линейный', loop: 'кольцевой',
+};
+
+export function routeTypeLabel(code: string | null | undefined): string | null {
+  const c = code?.trim();
+  if (!c) return null;
+  return ROUTE_TYPE_RU[c] ?? (/[а-яё]/i.test(c) ? c : null);
 }

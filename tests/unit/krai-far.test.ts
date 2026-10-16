@@ -104,4 +104,14 @@ describe('метки у читателей зон', () => {
     const r = matchOfficialAlerts([booking] as never, [flood(['avachinsky', KRAI_KORYAK_ZONE])] as never);
     expect(r.matches.map((m) => m.unplaced)).toEqual([false]);
   });
+
+  it('Rescue: бронь на корякском маршруте (район — метка округа, 1299) — сводка о нём прямо её касается', () => {
+    const koryak = { ...booking, id: 8, tour_title: 'Дранкинские источники', activity_type: 'hiking', location_type: 'hot_spring', zone: KRAI_KORYAK_ZONE };
+    const storm = { ...flood([KRAI_KORYAK_ZONE]), alert_type: 'weather', title: 'Шторм в Тигильском округе' };
+    const r = matchOfficialAlerts([koryak] as never, [storm] as never);
+    expect(r.matches.map((m) => [m.booking.id, m.unplaced])).toEqual([[8, false]]);
+    expect(r.unassessed).toEqual([]);
+    // Чужой брони метка по-прежнему не зона: тур под Петропавловском не задет.
+    expect(matchOfficialAlerts([booking] as never, [storm] as never).matches).toEqual([]);
+  });
 });

@@ -82,6 +82,25 @@ export const EMERGENCY_NUMBERS: EmergencyNumber[] = [
   ...VERIFIED_REGIONAL,
 ];
 
+/**
+ * Номер из данных места — только если он среди проверенных владельцем.
+ *
+ * Колонку location_safety_profile.phone_ranger_mches не пишет ни один путь в
+ * коде (16.10): что в ней лежит, никем не сверено, а карточка места и её PDF
+ * печатали её кнопкой «МЧС». Номер вне VERIFIED_REGIONAL не показывается —
+ * правило то же, что у всех экранов: проверенный номер добавляется сюда, и
+ * тогда он появится везде разом.
+ */
+export function verifiedRegionalNumber(phone: string | null | undefined): EmergencyNumber | null {
+  const norm = (p: string) => {
+    const d = p.replace(/\D/g, '');
+    return d.length === 11 && (d.startsWith('7') || d.startsWith('8')) ? d.slice(1) : d;
+  };
+  const want = norm(phone ?? '');
+  if (!want) return null;
+  return VERIFIED_REGIONAL.find((n) => norm(n.phone) === want) ?? null;
+}
+
 /** Только цифры для tel:/sms: (short-номера уже чистые). */
 export function telHref(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, '')}`;

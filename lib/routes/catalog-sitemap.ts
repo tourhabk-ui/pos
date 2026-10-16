@@ -8,7 +8,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { CATEGORY_SLUGS } from '@/lib/routes/category-meta';
-import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
+import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE, catalogZoneSql } from '@/lib/routes/zone-meta';
 
 export interface CatalogSitemapEntry {
   /** Путь относительно /routes: 'vulkani' или 'vulkani/avachinsky' */
@@ -31,10 +31,10 @@ export async function getCatalogPages(): Promise<CatalogSitemapEntry[]> {
     count: string;
     last: Date | null;
   }>(
-    `SELECT category, zone, COUNT(*) AS count, MAX(updated_at) AS last
+    `SELECT category, ${catalogZoneSql('zone')} AS zone, COUNT(*) AS count, MAX(updated_at) AS last
      FROM agent_route_knowledge
      WHERE is_visible = TRUE AND category IS NOT NULL
-     GROUP BY category, zone`
+     GROUP BY 1, 2`
   );
 
   const byCategory = new Map<string, { count: number; last: Date | null }>();

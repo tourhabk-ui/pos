@@ -19,7 +19,7 @@
  */
 import { TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { metaDescription, META_DESCRIPTION_MAX } from '@/lib/seo/meta-description';
-import { placeZoneLabel } from '@/lib/places/zone-labels';
+import { placeZoneLabel, ROUTE_SEASON_RU } from '@/lib/places/zone-labels';
 
 export interface PlaceMetaFacts {
   name: string;
@@ -158,9 +158,7 @@ const DIFFICULTY_RU: Record<string, string> = {
   easy: 'лёгкая', medium: 'средняя', hard: 'сложная', extreme: 'экстремальная',
 };
 
-const SEASON_RU: Record<string, string> = {
-  summer: 'лето', winter: 'зима', all: 'круглый год', spring: 'весна', autumn: 'осень',
-};
+const SEASON_RU = ROUTE_SEASON_RU;
 
 function fmtNum(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ',');

@@ -130,6 +130,10 @@ describe('агент заметок', () => {
     const r = await runKuzmichPlaceEnricher(1);
     expect(r).toMatchObject({ enriched: 1, rejected: 0 });
     expect(saves()).toHaveLength(1);
+    // Район в промпте — словами: «, western» был заказом на слаг в заметке (16.10).
+    const prompt = JSON.stringify(waterfallMock.mock.calls[0]);
+    expect(prompt).toContain('Западная Камчатка');
+    expect(prompt).not.toMatch(/, western/);
   });
 
   it('место с описанием-дневником в партию не берётся — модель зовётся только для справочного', async () => {

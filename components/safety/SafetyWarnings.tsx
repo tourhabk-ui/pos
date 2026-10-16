@@ -6,6 +6,7 @@ import {
   Ship, Plane, Anchor, ChevronDown, ChevronUp, Shield, Phone,
   ThermometerSnowflake, Skull, CloudFog,
 } from 'lucide-react';
+import { telHref } from '@/lib/safety/emergency-numbers';
 
 interface HazardSignal {
   hazard: string;
@@ -285,7 +286,7 @@ export default function SafetyWarnings({ tourId, routeId, compact = false }: Saf
                 {data.emergency_contacts.map((c, i) => (
                   <a
                     key={i}
-                    href={`tel:${c.phone.replace(/\s/g, '')}`}
+                    href={telHref(c.phone)}
                     className="flex items-center gap-2 px-2 py-1.5 rounded bg-[var(--bg-hover)] text-xs hover:[background-color:color-mix(in_srgb,var(--accent)_10%,transparent)] transition-colors"
                   >
                     <Phone className="w-3 h-3 text-[var(--accent)]" />

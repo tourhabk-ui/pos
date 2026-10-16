@@ -33,6 +33,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { descriptionVoice } from '@/lib/places/description-voice';
 import { reviewClaims, reviewRewriteReason, type RewriteReason } from '@/lib/kuzmich/review-claims';
+import { placeZoneLabel } from '@/lib/places/zone-labels';
 
 export interface KuzmichPlaceEnricherResult {
   processed: number;
@@ -231,7 +232,7 @@ async function generateKuzmichReview(place: PlaceRow, extraContext: string | nul
     },
     {
       role: 'user',
-      content: `Место: ${place.name} (${typeLabel})${place.zone ? ', ' + place.zone : ''}${safetyLine}${extraLine}
+      content: `Место: ${place.name} (${typeLabel})${placeZoneLabel(place.zone) ? ', ' + placeZoneLabel(place.zone) : ''}${safetyLine}${extraLine}
 
 Описание (единственный источник фактов вместе с блоком "Безопасность" выше; внешние данные могут быть неточными — не переноси из них конкретные числа и советы по безопасности):
 ${descSnippet}

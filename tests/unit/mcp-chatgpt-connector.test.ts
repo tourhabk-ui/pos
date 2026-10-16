@@ -247,6 +247,21 @@ describe('fetch', () => {
     expect(route.url).toBe('https://vedarai.ru/routes/vulkan-gorelyy');
     expect(route.text).toContain('регистрация в МЧС');
     expect(route.text).toContain('Дистанция: 12.5 км');
+    // Коды из данных — словами или никак (16.10): «south» словаря не знает.
+    expect(route.text).toContain('Маршрут «Вулкан Горелый».');
+    expect(route.text).toContain('Тип: радиальный');
+    expect(route.text).toContain('Сложность: средней сложности');
+    expect(route.text).toContain('Сезон: лето');
+    expect(route.text).not.toMatch(/\b(south|radial|medium|summer)\b/);
+
+    query.mockResolvedValueOnce({ rows: [{
+      key: 'zimnik', title: 'Зимник Анавгай - Тигиль', description: null, difficulty: null, distance_km: null, duration_hours: null,
+      duration_days: null, elevation_gain_m: null, season: null, route_type: null, hazards: null, equipment: null,
+      mchs_registration_required: null, park_name: null, zone: 'krai_koryak',
+    }] });
+    const far = await fetchDocument('route:zimnik', BASE);
+    expect(far.text).toContain('Маршрут «Зимник Анавгай - Тигиль», Корякский округ.');
+    expect(far.text).not.toContain('krai_koryak');
   });
 
   it('нет на витрине — отказ по входу с объяснением; кривой id — отказ без запроса; сбой базы — исключение, не «не найдено»', async () => {

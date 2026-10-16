@@ -1,7 +1,7 @@
 import { pool } from '@/lib/db-pool';
 import { notFound } from 'next/navigation';
 import { CATEGORY_PAGES, categoryListingHref } from '@/lib/routes/category-meta';
-import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
+import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE, catalogZoneSql } from '@/lib/routes/zone-meta';
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
 import { arkUrlSlugSql, catalogHref } from '@/lib/routes/url-slug';
@@ -45,7 +45,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
               source_name
        FROM agent_route_knowledge
        WHERE category = $1 AND is_visible = TRUE
-         AND ($2::text IS NULL OR zone = $2)
+         AND ($2::text IS NULL OR ${catalogZoneSql('zone')} = $2)
        -- Порядок по НАПОЛНЕННОСТИ карточки, а не по тому, с чьего сайта она
        -- скачана (07.09). Прежде первыми шли записи с source_name
        -- 'idilesom.com', вторыми 'kamchatintour.ru' — то есть витрина
@@ -63,14 +63,14 @@ export default async function CategoryPage({ category, zone }: { category: strin
     pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM agent_route_knowledge
        WHERE category = $1 AND is_visible = TRUE
-         AND ($2::text IS NULL OR zone = $2)`,
+         AND ($2::text IS NULL OR ${catalogZoneSql('zone')} = $2)`,
       [category, zone ?? null]
     ),
     // Живые зонные срезы этой категории — для перелинковки (только ≥3)
     pool.query<{ zone: string; count: string }>(
-      `SELECT zone, COUNT(*) AS count FROM agent_route_knowledge
+      `SELECT ${catalogZoneSql('zone')} AS zone, COUNT(*) AS count FROM agent_route_knowledge
        WHERE category = $1 AND is_visible = TRUE AND zone IS NOT NULL
-       GROUP BY zone`,
+       GROUP BY 1`,
       [category]
     ),
     // Парки-согласователи зоны — для блока «Разрешения» на зонном срезе

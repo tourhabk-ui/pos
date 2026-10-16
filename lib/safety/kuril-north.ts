@@ -43,6 +43,12 @@ export const KURIL_NORTH_BOX = { minLat: 49.5, maxLat: 51.0, minLng: 154.0, maxL
 export const KURIL_NORTH_NOTE =
   'Это Сахалинская область: камчатские сводки сюда не относятся, а сахалинских у нас нет. Обстановку перед выходом уточните в МЧС Сахалинской области или по 112.';
 
+/** Точка в прямоугольнике Северных Курил — пара к KURIL_NORTH_BOX_SQL для кода без базы. */
+export function inKurilNorthBox(lat: number, lng: number): boolean {
+  return lat >= KURIL_NORTH_BOX.minLat && lat <= KURIL_NORTH_BOX.maxLat
+    && lng >= KURIL_NORTH_BOX.minLng && lng <= KURIL_NORTH_BOX.maxLng;
+}
+
 /** Точка `ark` лежит в прямоугольнике Северных Курил. */
 export const KURIL_NORTH_BOX_SQL = `(
   ark.lat IS NOT NULL AND ark.lng IS NOT NULL

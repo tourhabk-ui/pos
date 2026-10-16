@@ -3,6 +3,8 @@ import { query } from '@/lib/database';
 import { getHazardSignals, getOverallDangerLevel } from '@/lib/safety/hazard-signals';
 import { activeAlertsForZone, type SafetyAlert } from '@/lib/safety/alerts';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
+import { EMERGENCY_NUMBERS, FEDERAL_EMERGENCY } from '@/lib/safety/emergency-numbers';
+import { isOutsideKraiSources } from '@/lib/safety/kuril-north';
 
 /** Опасности точки без того, что выдумал шаблон 070 (см. profile-source.ts). */
 function honestHazards(row: { hazard_types: string[] | null; profile_source: string | null }): string[] | null {
@@ -187,22 +189,18 @@ export async function GET(req: Request) {
       console.error('[safety-warnings] предупреждения зоны не прочитаны:', err instanceof Error ? err.message : err);
     }
 
-    // Контакты МЧС для зоны
-    let emergencyContacts: Array<{ name: string; phone: string; type: string }> = [];
-    if (routeInfo.zone) {
-      const contactsRes = await query<{ name: string; phone: string; contact_type: string }>(
-        `SELECT name, phone, contact_type
-         FROM emergency_contacts
-         WHERE zone = $1 OR zone = 'all'
-         ORDER BY contact_type`,
-        [routeInfo.zone]
-      );
-      emergencyContacts = contactsRes.rows.map(c => ({
-        name: c.name,
-        phone: c.phone,
-        type: c.contact_type,
-      }));
-    }
+    // Экстренные контакты — единый проверенный список, как на всех экранах
+    // безопасности (lib/safety/emergency-numbers.ts): 112 и федеральные
+    // короткие, плюс номера дежурной смены МЧС, подтверждённые владельцем.
+    // До 16.10 здесь читалась таблица emergency_contacts по зоне маршрута, а
+    // она — верстак сверки (#366): в ней сид 0645/070 с номерами, чьё
+    // происхождение неизвестно (722, «похожи на выдуманные»), — код 415 вместо
+    // камчатского 4152. Карточка отдавала их кнопкой «позвонить». Неверный
+    // номер в ЧП опаснее его отсутствия. Северные Курилы — Сахалинская
+    // область: дежурная смена МЧС Камчатки их не ведёт, там только
+    // федеральные номера (lib/safety/kuril-north.ts).
+    const emergencyContacts = (isOutsideKraiSources(routeInfo.zone) ? FEDERAL_EMERGENCY : EMERGENCY_NUMBERS)
+      .map((n) => ({ name: n.name, phone: n.phone, type: n.type }));
 
     return NextResponse.json({
       route_title: routeInfo.title,
