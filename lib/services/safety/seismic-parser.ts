@@ -22,6 +22,7 @@ import { warningSystemTest, warningTestHours } from '@/lib/safety/warning-system
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 import { KRAI_COMMANDER_ZONE, KRAI_FAR_ZONES, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
+import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
@@ -65,15 +66,8 @@ export interface ParseResult {
 
 // ── Карта вулканов → зоны Камчатки ───────────────────────────────────────
 
-/**
- * Весь край — для предупреждений, которые сами говорят «по краю»: четыре
- * тревожные зоны и метки дальних округов (15.10). Без меток «по всему краю»
- * не доходило до мест Командор и Корякского округа, чей район не входит в
- * четвёрку: у Арки Стеллера с её районом «commander» — ни одной тревоги
- * (проба 968). Метка накрывает место по координате (lib/safety/krai-far.ts),
- * а не по району.
- */
-const ALL_ZONES = ['avachinsky', 'eastern', 'western', 'northern', ...KRAI_FAR_ZONES] as const;
+/** Весь край — четыре зоны и метки дальних округов (lib/safety/alert-zones.ts). */
+const ALL_ZONES = KRAI_WIDE_ZONES;
 
 /**
  * Текст, который САМ объявляет себя общекраевым. Это данные, а не умолчание:

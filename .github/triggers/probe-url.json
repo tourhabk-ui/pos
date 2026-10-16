@@ -1,14 +1,36 @@
 {
   "timeout": 60,
-  "run": 972,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись ООПТ (#60): что за два контура Командор в OpenStreetMap — r5576397 и r1962840 (оба с тегом национального парка); постройки Никольского и лежбища лежат только во втором. Теги отношений, два зеркала Overpass. Конфиг записан целиком.",
+  "run": 975,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись районов (#83): муниципальный округ мест без района (zone NULL) — обратным геокодированием Nominatim (OSM, zoom 8). Округ → тревожная зона по карте округов МЧС. Конфиг записан целиком. Точки: Апапельские горячие источники 56.3194/159.2408; Бухта Пионерская 52.94049/158.74055; Водопад Бабий камень 52.8325554/158.1193542; Водопад Снежный барс 52.6485811/157.9147504; Вулкан Арик 53.370266/158.674797; Зеленовские озерки 53.287721/158.348899; Камчатский камень 52.9744271/158.7355304; Камчатский краевой объединённый музей (ККОМ) 53.012/158.652; Камчатский медведь (Здесь начинается Россия) 53.1883258/158.4255164; Кекур Чёртов палец 52.9116357/158.6794059; Кенотаф крейсера «Ниитака» 51.5/156.483333; Кордон «Авачинский» 53.26/158.74027778; Корякский заповедник 59.8865406/166.2616559; Памятник Витусу Берингу 53.011/158.653; Река Амчигача 52.8562884/156.3300371; Старт маршрута Вачкажец (лыжный) 53.11/157.84694444; Старт маршрута Вачкажец (снегоходный) 53.17516667/157.91233333; Урочище Аквариум 53.53067/158.236604; Халактырское озеро 53.0235704/158.7455782; Чёртов мост 53.5204782/158.1273643; стоянка «Столик» гора Копыто 55.96055556/160.24416667",
   "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28rel%281962840%29%3Brel%285576397%29%3B%29%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28rel%281962840%29%3Brel%285576397%29%3B%29%3Bout%20tags%3B"
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=56.3194&lon=159.2408&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.94049&lon=158.74055&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.8325554&lon=158.1193542&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.6485811&lon=157.9147504&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.370266&lon=158.674797&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.287721&lon=158.348899&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.9744271&lon=158.7355304&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.012&lon=158.652&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.1883258&lon=158.4255164&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.9116357&lon=158.6794059&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=51.5&lon=156.483333&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.26&lon=158.74027778&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=59.8865406&lon=166.2616559&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.011&lon=158.653&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.8562884&lon=156.3300371&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.11&lon=157.84694444&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.17516667&lon=157.91233333&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.53067&lon=158.236604&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.0235704&lon=158.7455782&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.5204782&lon=158.1273643&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=55.96055556&lon=160.24416667&zoom=8&accept-language=ru"
   ],
-  "retries": 2,
-  "retryDelay": 20,
+  "retries": 1,
+  "retryDelay": 5,
   "allowStale": true,
-  "bytes": 6000
+  "grep": [
+    "county"
+  ],
+  "bytes": 900
 }

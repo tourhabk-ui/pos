@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { verifyAuth } from '@/lib/auth'
 import { rescheduleBooking } from '@/lib/bookings/booking.service'
+import { ReserveError } from '@/lib/bookings/reserve'
 import { ApiResponse } from '@/types'
 
 const payloadSchema = z.object({
@@ -57,6 +58,16 @@ export async function PATCH(
       message: 'Бронирование перенесено на новую дату/тур',
     } as ApiResponse<typeof booking>)
   } catch (error) {
+    // Отказ общего гейта брони (аудит 15.10, RESCHEDULE-GATE): закрытая
+    // оператором дата, потолок группы, нет мест на каком-то из дней тура.
+    // Текст гейта уже человеческий и называет день — отдаём его как есть.
+    if (error instanceof ReserveError) {
+      return NextResponse.json(
+        { success: false, error: error.message } as ApiResponse<null>,
+        { status: 409 }
+      )
+    }
+
     const message = error instanceof Error ? error.message : 'Внутренняя ошибка сервера'
     const normalized = message.toLowerCase()
 

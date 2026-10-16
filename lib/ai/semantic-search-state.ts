@@ -60,6 +60,13 @@ interface ModelRecord {
   load_ms: number | null;
   /** Почему не загрузилась — первые 200 знаков; null — не падала. */
   error: string | null;
+  /**
+   * Род отказа без текста: код ошибки Node (`MODULE_NOT_FOUND`,
+   * `ERR_DLOPEN_FAILED`) или имя класса ошибки. Его можно показать в открытом
+   * /api/health: путей, адресов и данных в нём нет, а «модель не грузится
+   * из-за нативного модуля» отличить от «упала на скачивании» уже можно.
+   */
+  error_code: string | null;
 }
 
 // Состояние живёт на globalThis, а не в переменной модуля: /api/health и
@@ -73,23 +80,40 @@ function modelRecord(): ModelRecord {
   const g = globalThis as Holder;
   let r = g[MODEL_KEY];
   if (!r) {
-    r = { phase: 'not_loaded', since: null, load_ms: null, error: null };
+    r = { phase: 'not_loaded', since: null, load_ms: null, error: null, error_code: null };
     g[MODEL_KEY] = r;
   }
   return r;
 }
 
 export function markModelLoading(at: Date = new Date()): void {
-  Object.assign(modelRecord(), { phase: 'loading', since: at.toISOString(), load_ms: null, error: null });
+  Object.assign(modelRecord(), { phase: 'loading', since: at.toISOString(), load_ms: null, error: null, error_code: null });
 }
 
 export function markModelLoaded(loadMs: number, at: Date = new Date()): void {
-  Object.assign(modelRecord(), { phase: 'loaded', since: at.toISOString(), load_ms: loadMs, error: null });
+  Object.assign(modelRecord(), { phase: 'loaded', since: at.toISOString(), load_ms: loadMs, error: null, error_code: null });
+}
+
+/**
+ * Род отказа загрузки без текста ошибки. Код берётся, только если он похож на
+ * код (заглавные буквы, цифры, подчёркивание), имя класса — только буквы:
+ * всё прочее — «unknown», а не кусок сообщения.
+ */
+export function loadFailureCode(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,59}$/.test(code)) return code;
+    const name = (err as { name?: unknown }).name;
+    if (typeof name === 'string' && /^[A-Za-z]{1,40}$/.test(name)) return name;
+  }
+  return 'unknown';
 }
 
 export function markModelLoadFailed(err: unknown, loadMs: number, at: Date = new Date()): void {
   const message = (err instanceof Error ? err.message : String(err)).slice(0, 200);
-  Object.assign(modelRecord(), { phase: 'load_failed', since: at.toISOString(), load_ms: loadMs, error: message });
+  Object.assign(modelRecord(), {
+    phase: 'load_failed', since: at.toISOString(), load_ms: loadMs, error: message, error_code: loadFailureCode(err),
+  });
 }
 
 export interface EmbeddingModelStatus {
@@ -98,6 +122,7 @@ export interface EmbeddingModelStatus {
   since: string | null;
   load_ms: number | null;
   error: string | null;
+  error_code: string | null;
 }
 
 /**
@@ -107,8 +132,8 @@ export interface EmbeddingModelStatus {
 export function embeddingModelStatus(env: NodeJS.ProcessEnv = process.env): EmbeddingModelStatus {
   const enabled = semanticSearchEnabled(env);
   const r = modelRecord();
-  if (!enabled) return { enabled, state: 'disabled', since: null, load_ms: null, error: null };
-  return { enabled, state: r.phase, since: r.since, load_ms: r.load_ms, error: r.error };
+  if (!enabled) return { enabled, state: 'disabled', since: null, load_ms: null, error: null, error_code: null };
+  return { enabled, state: r.phase, since: r.since, load_ms: r.load_ms, error: r.error, error_code: r.error_code };
 }
 
 // ── Строка в лог при выключенном флаге ───────────────────────────────────

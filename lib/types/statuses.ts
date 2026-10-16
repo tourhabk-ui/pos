@@ -21,8 +21,13 @@
  * (`pending_payment`). У `rejected` писателя нет — он остаётся только в
  * защитных WHERE (`FREEING_BOOKING_STATUSES` в lib/bookings/occupancy.ts), где
  * лишнее значение безвредно. Есть ли на проде строки вне словаря — отвечает
- * перепись `GET /api/cron/booking-status-census`; CHECK на колонку —
- * следующий шаг, после её замера, не раньше.
+ * перепись `GET /api/cron/booking-status-census`.
+ *
+ * CHECK на колонку стоит по этому словарю (аудит 15.10, BOOKING-CHECK:
+ * миграция operator_bookings_status_check, после замера переписи). Новое
+ * слово сюда — только вместе с миграцией, переставляющей
+ * `operator_bookings_booking_status_check`; иначе писатель получит 23514.
+ * Сторож связки: tests/unit/booking-status-check.test.ts.
  */
 export const BOOKING_STATUSES = [
   'new',

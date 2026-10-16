@@ -32,10 +32,13 @@ export async function GET(request: NextRequest) {
     );
 
     // Get bookings stats
+    // `pending` в ответе — «ждёт подтверждения», то есть словарное `new`
+    // (аудит 15.10, RESCHEDULE-GATE). Слова `pending` у броней нет вовсе
+    // (lib/types/statuses.ts, CHECK в базе), и счётчик был нулём всегда.
     const bookingsResult = await query<OpStatsBookingsRow>(
       `SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN b.booking_status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN b.booking_status = 'new' THEN 1 ELSE 0 END) as pending,
         SUM(CASE WHEN b.booking_status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
         SUM(CASE WHEN b.booking_status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN b.booking_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled

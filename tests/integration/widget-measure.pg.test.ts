@@ -19,7 +19,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
-import { createTestDatabase } from '../helpers/pg-schema';
+import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 import {
   recordWidgetServed, recordWidgetOpened, WIDGET_CHAT_SESSION_SQL,
 } from '@/lib/embed/widget-telemetry';
@@ -56,11 +56,9 @@ withPg('виджеты на настоящем PostgreSQL', () => {
 
   afterAll(async () => {
     await pool?.end();
-    const admin = new Pool({ connectionString: PG_URL, max: 1 });
-    await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch((e: unknown) => {
+    await dropTestDatabase(PG_URL, TEST_DB).catch((e: unknown) => {
       console.warn('[widget-measure] тестовая база не удалена:', e instanceof Error ? e.message : e);
     });
-    await admin.end();
   });
 
   const rows = async () => (await pool.query(

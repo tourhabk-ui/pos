@@ -237,3 +237,35 @@ export async function createTestDatabase(adminUrl: string, db: string): Promise<
   }
   return withDatabase(adminUrl, db);
 }
+
+/**
+ * Удалить базу файла после прогона.
+ *
+ * `pool.end()` снимает клиентов из пула, не дожидаясь, пока закроются их
+ * сокеты. `DROP DATABASE … WITH (FORCE)` сразу следом обрывал ещё
+ * закрывающееся соединение: сервер отвечал ему FATAL 57P01, и клиент без
+ * слушателя ошибок выбрасывал её необработанной. Прогон краснел «ошибкой вне
+ * тестов» при зелёных тестах — видно при параллельном полном прогоне
+ * (widget-measure, 15.10). Поэтому сначала ждём, пока у базы не останется
+ * сеансов, и только потом удаляем; FORCE остаётся на случай, если сеанс не
+ * ушёл за срок, — это уже утечка соединения в самом тесте.
+ */
+export async function dropTestDatabase(adminUrl: string, db: string, waitMs = 5_000): Promise<void> {
+  assertDbName(db);
+  const admin = new Client({ connectionString: adminUrl });
+  await admin.connect();
+  try {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      const { rows } = await admin.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1',
+        [db],
+      );
+      if (rows[0]!.n === 0 || Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+  } finally {
+    await admin.end();
+  }
+}
