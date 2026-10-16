@@ -1,0 +1,136 @@
+name: Как нас видят ChatGPT и Grok — проба с раннера
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Владелец 16.10: «как нас видят грок джипити чат». Ежемесячная проба знания
+# (model-knowledge-probe.yml) спрашивает модели С ПРОДА: DeepSeek, Qwen, Kimi,
+# GLM, YandexGPT. OpenAI и xAI с прода закрыты гео-блоком, поэтому эта проба
+# идёт С РАННЕРА через OpenRouter — ключ из секретов репозитория (§8, «Два
+# ключа»). Вопросы и классификация — те же, что у пробы с прода
+# (lib/ai/west-probe.ts импортирует их из её роута), модели — сильнейшие
+# общие модели OpenAI и xAI из каталога OpenRouter, если маркер не задал их
+# явно (поле "models").
+#
+# Четыре вопроса каждой модели: о сайте без поиска, о сайте с поиском, по
+# теме по-русски с поиском, по теме по-английски с поиском. Исходы — знает /
+# не знает / не искала / спросить не удалось (с причиной). Прогон КРАСНЫЙ
+# только когда спросить не удалось никого: «не знает» — законный замер.
+#
+# Второй шаг — перепись с прода за 30 дней: приходят ли обходчики OpenAI,
+# Anthropic, Perplexity к входам для агентов и зовёт ли кто-то MCP. Она
+# вспомогательная: не ответила — предупреждение, а не красный прогон.
+#
+# Секреты: OPENROUTER_API_KEY (вопросы), CRON_SECRET (расход — в книги
+# платформы через lib/ai/usage-sink, и перепись с прода).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/west-knowledge-probe.json'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+# Два прогона подряд (маркер и ручной запуск) спрашивали бы модели дважды и
+# дважды платили бы — идут по очереди.
+concurrency:
+  group: west-knowledge-probe-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # Вопросы — до восьми параллельных запросов по 90 с (у поисковой ноги
+    # до двух: повтор без движка) плюс npm ci; затем ожидание своей сборки
+    # перед переписью (до 70 мин и одной попытки сверх, scripts/wait-for-deploy.sh)
+    # и два curl по 60 с. При меньшем потолке отмена стёрла бы исход (14.09).
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh, когда запись выката не прочитана.
+          fetch-depth: 200
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Вопросы идут С РАННЕРА, не с прода, — свою сборку они не ждут.
+      - name: Спросить ChatGPT и Grok, знают ли они vedarai.ru
+        env:
+          # Ключ уходит только на openrouter.ai: адрес зашит в lib/ai/west-probe.ts.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Расход — в книги платформы (POST /api/admin/llm-usage/report): БД
+          # Timeweb с раннера закрыта, и без секрета строки не попадут никуда
+          # (llm-usage-reaches-books, 20.09).
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: npx tsx scripts/west-knowledge-probe.ts .github/triggers/west-knowledge-probe.json
+
+      # Перепись читает прод, поэтому ждёт СВОЮ сборку — только когда менялся
+      # код самих переписей (CODE_PATHS); иначе проходит по записи выката сразу.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          CODE_PATHS: 'app/api/cron/agent-entry-census app/api/cron/mcp-census lib/analytics lib/mcp'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: 'Перепись с прода: обходчики и MCP'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — перепись с прода не спросить, и расход пробы в книги не попал."
+            exit 1
+          fi
+
+          # Обходчики у входов для агентов (robots.txt, llms.txt, /.well-known/*, /zh, …).
+          CODE=$(curl -sS -o /tmp/agent-entry.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/agent-entry-census?days=30") || true
+          echo "agent-entry-census: HTTP $CODE"
+          if [ "$CODE" = "200" ]; then
+            jq '.' /tmp/agent-entry.json || cat /tmp/agent-entry.json
+            # Нет семейства в by_family — за окно ноль; с какого дня счётчик
+            # ведётся, сказано рядом: ноль с только что заведённой таблицы —
+            # не «не ходят».
+            LINE=$(jq -r '"обходчики за \(.window_days) дн.: " + ([("openai", "anthropic", "perplexity") as $f | "\($f) \(([.by_family[]? | select(.family == $f) | .hits] | add) // 0)"] | join(" · ")) + "; счётчик ведётся с \(.counter_first_day // "—")"' /tmp/agent-entry.json)
+            echo "$LINE"
+            { echo ""; echo "### Перепись с прода"; echo ""; echo "- $LINE"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::agent-entry-census не ответила (HTTP $CODE) — это «не смог прочитать», а не «обходчиков нет»"
+            head -c 2000 /tmp/agent-entry.json 2>/dev/null || true
+            echo
+          fi
+
+          # Вызовы MCP: клиенты, назвавшиеся именами OpenAI / Anthropic / Perplexity.
+          CODE=$(curl -sS -o /tmp/mcp.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/mcp-census?days=30") || true
+          echo "mcp-census: HTTP $CODE"
+          if [ "$CODE" = "200" ]; then
+            jq '.' /tmp/mcp.json || cat /tmp/mcp.json
+            # clients null — перепись клиентов не прочиталась, а не «никого не было».
+            LINE=$(jq -r 'if .clients == null then "MCP: перепись клиентов не прочиталась — \(.failed_measures)" else "MCP за \(.window_days) дн., клиенты openai/anthropic/perplexity: " + ([.clients[] | select(.client | test("openai|chatgpt|anthropic|claude|perplexity"; "i")) | "\(.client) (\(.origin), \(.calls))"] | if length == 0 then "ни одного" else join(", ") end) end' /tmp/mcp.json)
+            echo "$LINE"
+            echo "- $LINE" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(jq -r '.ok' /tmp/mcp.json)" != "true" ]; then
+              echo "::warning::mcp-census прочитала не всё: $(jq -c '.failed_measures' /tmp/mcp.json)"
+            fi
+          else
+            echo "::warning::mcp-census не ответила (HTTP $CODE) — это «не смог прочитать», а не «вызовов нет»"
+            head -c 2000 /tmp/mcp.json 2>/dev/null || true
+            echo
+          fi

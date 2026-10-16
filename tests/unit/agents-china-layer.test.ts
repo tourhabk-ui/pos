@@ -41,6 +41,7 @@ import { readEntries } from '@/app/api/admin/analytics/a2a/route';
 import { agentLabel } from '@/lib/a2a/journal';
 import robots from '@/app/robots';
 import { NextRequest } from 'next/server';
+import { loadWorkflow, stepByName } from '../helpers/workflow-semantics';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 import { pool } from '@/lib/db-pool';
@@ -350,10 +351,16 @@ describe('перепись входов для агентов', () => {
     expect(robots).toMatch(/export default async function robots\(\): Promise<MetadataRoute\.Robots>/);
   });
 
-  it('перепись: только чтение, объявлена manual, называет не считаемое и семейства КНР', () => {
+  it('перепись: только чтение, зовёт её workflow, называет не считаемое и семейства КНР', () => {
     const src = read('app/api/cron/agent-entry-census/route.ts');
     expect(src).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
-    expect(MANUAL_ENDPOINTS['agent-entry-census']).toMatchObject({ kind: 'manual', writes: false });
+    // С 16.10 её зовёт west-knowledge-probe.yml (обходчики OpenAI, Anthropic,
+    // Perplexity рядом с вопросом ChatGPT и Grok) — объявление manual было бы
+    // вторым ответом на вопрос «кто запускает» (cron-scheduler-declared).
+    expect(MANUAL_ENDPOINTS['agent-entry-census']).toBeUndefined();
+    const census = stepByName(loadWorkflow('.github/workflows/west-knowledge-probe.yml').jobs.probe, 'Перепись с прода: обходчики и MCP');
+    expect(census.run ?? '').toMatch(/https:\/\/vedarai\.ru\/api\/cron\/agent-entry-census\?days=30/);
+    expect(census.env?.CRON_SECRET).toBe('${{ secrets.CRON_SECRET }}');
     expect(CRON_CAPABILITIES['agent-entry-census']).toEqual(['db_read']);
     expect(NOT_COUNTED.length).toBeGreaterThanOrEqual(3);
     // С 15.10 sitemap и /zh считаются; люди на /zh — нет, и это названо.

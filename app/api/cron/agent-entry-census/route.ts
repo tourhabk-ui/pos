@@ -14,7 +14,9 @@
  * не читался как «никто не ходит»; и «не прочиталось» — 503 с SQLSTATE в логе.
  * Что НЕ считается, названо в ответе (`not_counted`), а не подразумевается.
  *
- * Запуск — рукой или из prod-check.json (род manual в cron-schedulers).
+ * Запуск — west-knowledge-probe.yml по маркеру (с 16.10: обходчики OpenAI,
+ * Anthropic и Perplexity рядом с вопросом ChatGPT и Grok), рукой или из
+ * prod-check.json. Раз её зовёт workflow, в cron-schedulers она не объявляется.
  * Сторож: tests/unit/agents-china-layer.test.ts.
  */
 
