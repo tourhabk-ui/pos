@@ -245,6 +245,18 @@ export function numbersOf(s: string): Set<string> {
 //     «двухместный» — 双人, «в первой половине дня» — 上午, «в первую
 //     очередь» — 首先, и цифры там нет. Требовать её значило бы завести новые
 //     ложные отказы, которых прогон не мерил.
+//
+// Прогон 5 (16.10, ZH-MONTHS) принял 48 полей и отверг 12, и одиннадцать
+// отказов из двенадцати — снова одно число в двух записях (двенадцатый —
+// ответ модели не JSON):
+//   - месяц: «с декабря по март» → 12月至3月, «сезон июнь — сентябрь» →
+//     6月至9月. Название месяца — это число 1–12, и цифра перевода им
+//     оправдана (девять полей туров 4, 5, 36, 37, 38, 52, 54, 57);
+//   - множитель: «до 6 миллионов нерки» → 600万 (万 — десять тысяч), «от 1,5
+//     до 6 миллионов» → 150万至600万. Число с множителем сравнивается
+//     величиной: 6 миллионов и 600万 — одно и то же 6 000 000 (тур 67 и
+//     место 630819da). Величина считается с обеих сторон, и правило то же:
+//     цифра перевода оправдана, только если та же величина есть в исходнике.
 
 /** Количественные числительные во всех падежах (ё → е). «Полтора» — нет: это не целое. */
 const RU_CARDINALS: ReadonlyMap<string, number> = (() => {
@@ -320,6 +332,40 @@ function compoundNumber(word: string): number | null {
   return null;
 }
 
+/** Месяцы во всех падежах (ё → е): «с декабря по март» — это 12 и 3. */
+const RU_MONTHS: ReadonlyMap<string, number> = (() => {
+  const m = new Map<string, number>();
+  const soft: Array<[string, number]> = [
+    ['январ', 1], ['феврал', 2], ['апрел', 4], ['июн', 6], ['июл', 7],
+    ['сентябр', 9], ['октябр', 10], ['ноябр', 11], ['декабр', 12],
+  ];
+  for (const [stem, n] of soft) for (const e of ['ь', 'я', 'е', 'ем', 'ю']) m.set(stem + e, n);
+  for (const [stem, n] of [['март', 3], ['август', 8]] as const) for (const e of ['', 'а', 'е', 'ом', 'у']) m.set(stem + e, n);
+  for (const f of ['май', 'мая', 'мае', 'маем', 'маю']) m.set(f, 5);
+  return m;
+})();
+
+/**
+ * Множители величины: «6 миллионов», «50 тыс.». Полные слова — во всех
+ * падежах; сокращения отдельно, потому что одно сокращение без числа перед
+ * ним величины не называет.
+ */
+const RU_MULTIPLIER_ABBR: ReadonlyMap<string, number> = new Map([['тыс', 1e3], ['млн', 1e6], ['млрд', 1e9]]);
+const RU_MULTIPLIER_WORDS: ReadonlyMap<string, number> = (() => {
+  const m = new Map<string, number>();
+  for (const f of ['тысяча', 'тысячи', 'тысяч', 'тысяче', 'тысячам', 'тысячами', 'тысячах', 'тысячу', 'тысячей', 'тысячею']) m.set(f, 1e3);
+  for (const e of ['', 'а', 'ов', 'у', 'ам', 'ом', 'ами', 'е', 'ах']) {
+    m.set('миллион' + e, 1e6);
+    m.set('миллиард' + e, 1e9);
+  }
+  return m;
+})();
+
+/** Величина строкой без хвоста плавающей точки: 0.7 × 10 000 → «7000», 1.5 × 10⁶ → «1500000». */
+function magnitude(v: number): string {
+  return String(Math.round(v * 1000) / 1000);
+}
+
 /** Разряд числительного: 0 — единицы, 1 — десять…девятнадцать, 2 — десятки, 3 — сотни. */
 function rankOf(n: number): number {
   if (n >= 100) return 3;
@@ -338,7 +384,9 @@ function joins(prevRank: number, nextRank: number): boolean {
 /**
  * Числа, записанные в русском тексте словами. Соседние числительные через
  * пробел складываются по разрядам («двадцать пять» → 25); через дефис или
- * запятую — нет («два-три дня» — это 2 и 3).
+ * запятую — нет («два-три дня» — это 2 и 3). Месяц — его номер («марта» → 3);
+ * числительное перед множителем даёт ещё и величину («шесть миллионов» →
+ * 6 и 6000000).
  */
 export function russianWordNumbersOf(s: string): Set<string> {
   const out = new Set<string>();
@@ -352,6 +400,21 @@ export function russianWordNumbersOf(s: string): Set<string> {
   for (const tok of tokens) {
     if (!/[а-я]/.test(tok)) {
       if (!/^[ \t ]+$/.test(tok)) flush();
+      continue;
+    }
+    const month = RU_MONTHS.get(tok);
+    if (month !== undefined) {
+      flush();
+      out.add(String(month));
+      continue;
+    }
+    const mult = RU_MULTIPLIER_WORDS.get(tok) ?? RU_MULTIPLIER_ABBR.get(tok);
+    if (mult !== undefined) {
+      // «тысяча километров» — 1000; одно сокращение без числительного перед
+      // ним величины не называет: «50 тыс.» разбирает scaledRussianOf.
+      if (acc !== null) out.add(magnitude(acc * mult));
+      else if (RU_MULTIPLIER_WORDS.has(tok)) out.add(magnitude(mult));
+      flush();
       continue;
     }
     const n = RU_CARDINALS.get(tok) ?? RU_ORDINALS.get(tok);
@@ -374,6 +437,53 @@ export function russianWordNumbersOf(s: string): Set<string> {
   return out;
 }
 
+/** Число цифрами с множителем: какие цифровые записи оно занимает и какую величину называет. */
+export interface ScaledNumber {
+  tokens: string[];
+  value: string;
+}
+
+/** Цифровые записи числа «1,5» / «1.5» — те же, что видит numbersOf: 1 и 5. */
+function digitTokens(num: string): string[] {
+  return num.match(/\d+/g) ?? [];
+}
+
+function scaledFrom(re: RegExp, text: string, multOf: (unit: string) => number): ScaledNumber[] {
+  const out: ScaledNumber[] = [];
+  for (const m of text.matchAll(re)) {
+    const unit = multOf(m[3]);
+    for (const num of [m[1], m[2]]) {
+      if (num === undefined) continue;
+      out.push({ tokens: digitTokens(num), value: magnitude(Number(num.replace(',', '.')) * unit) });
+    }
+  }
+  return out;
+}
+
+const RU_SCALED = /(\d+(?:[.,]\d+)?)(?:\s*(?:[–—-]|до)\s*(\d+(?:[.,]\d+)?))?\s*(тыс(?:яч[а-я]*)?|млн|миллион[а-я]*|млрд|миллиард[а-я]*)(?![а-я])/g;
+
+/**
+ * Числа цифрами с русским множителем: «6 миллионов» → 6000000, «50 тыс.» →
+ * 50000. Множитель после диапазона относится к обоим концам: «1,5–3,5
+ * миллиона», «от 1,5 до 6 миллионов».
+ */
+export function scaledRussianOf(s: string): ScaledNumber[] {
+  const text = normalizeDigits(s).toLowerCase().replace(/ё/g, 'е');
+  return scaledFrom(RU_SCALED, text, (unit) => {
+    if (unit.startsWith('тыс')) return 1e3;
+    if (unit.startsWith('млрд') || unit.startsWith('миллиард')) return 1e9;
+    return 1e6;
+  });
+}
+
+// 千 перед мерой — часть слова: 千米 «километр», 千克 «килограмм», 千瓦 «киловатт».
+const ZH_SCALED = /(\d+(?:\.\d+)?)(?:\s*[-–—~～至到]\s*(\d+(?:\.\d+)?))?\s*(万|亿|千(?![米克瓦卡焦]))/g;
+
+/** Числа цифрами с китайским множителем: 600万 → 6000000, 1.5万 → 15000, 3千 → 3000. */
+export function scaledChineseOf(s: string): ScaledNumber[] {
+  return scaledFrom(ZH_SCALED, normalizeDigits(s), (unit) => (unit === '亿' ? 1e8 : unit === '万' ? 1e4 : 1e3));
+}
+
 const ZH_DIGITS: Readonly<Record<string, number>> = {
   '〇': 0, '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
 };
@@ -386,25 +496,53 @@ const ZH_DIGITS: Readonly<Record<string, number>> = {
  */
 const ZH_NOT_NUMBERS = [
   '一起', '一些', '一直', '一样', '一定', '一般', '一切', '一同', '一旦', '一下', '一边', '一路', '一流',
-  '一致', '一带', '万一', '统一', '十分', '十足', '三文鱼', '四周', '四处', '四季', '五颜六色', '五彩', '百分之',
+  '一致', '一带', '统一', '十足', '三文鱼', '四周', '四处', '四季', '五颜六色', '五彩', '百分之',
+  // С 千/万 в разборе (ZH-MONTHS): 万分 «крайне», 成千上万 «тысячи и тысячи» —
+  // не величина; 一望无际 «без края».
+  '万分', '成千上万', '千姿百态', '千奇百怪', '万里无云', '一望无际',
 ];
 
-/** Значение записи с разрядами: 十二 → 12, 二十五 → 25, 一百零五 → 105, 百 → 100. */
+/**
+ * Слова, которые после цифры становятся частью числа, и потому вырезаются
+ * только без цифры перед ними: 千万不要 «ни в коем случае» — но 六千万 —
+ * 60 000 000; 万一 «на случай» — но 一万一千 — 11 000; 十分美丽 «очень
+ * красиво» — но 三十分钟 — 30 минут, а 十分钟 — 10 минут.
+ */
+const ZH_IDIOMS_UNLESS_COUNTED: readonly RegExp[] = [
+  /(?<![〇零一二两三四五六七八九十百千])千万/g,
+  /(?<![〇零一二两三四五六七八九十百千])万一/g,
+  /(?<![〇零一二两三四五六七八九十百千])十分(?!钟)/g,
+];
+
+const ZH_SMALL_UNITS: Readonly<Record<string, number>> = { '十': 10, '百': 100, '千': 1000 };
+
+/**
+ * Значение записи с разрядами: 十二 → 12, 二十五 → 25, 一百零五 → 105,
+ * 一千五百 → 1500, 六百万 → 6000000, 一万五千 → 15000.
+ */
 function zhWithUnits(run: string): number {
   let total = 0;
+  let section = 0;
   let cur = 0;
   for (const ch of run) {
-    if (ch === '十') {
-      total += (cur || 1) * 10;
+    const small = ZH_SMALL_UNITS[ch];
+    if (small !== undefined) {
+      section += (cur || 1) * small;
       cur = 0;
-    } else if (ch === '百') {
-      total += (cur || 1) * 100;
+    } else if (ch === '万') {
+      // 万 умножает только свою секцию: 三亿六千万 — 3·10⁸ + 6000·10⁴.
+      total += (section + cur || 1) * 1e4;
+      section = 0;
+      cur = 0;
+    } else if (ch === '亿') {
+      total = (total + section + cur || 1) * 1e8;
+      section = 0;
       cur = 0;
     } else {
       cur = ZH_DIGITS[ch] ?? 0;
     }
   }
-  return total + cur;
+  return total + section + cur;
 }
 
 /**
@@ -414,9 +552,12 @@ function zhWithUnits(run: string): number {
 export function chineseNumeralsOf(s: string): Set<string> {
   let text = s;
   for (const w of ZH_NOT_NUMBERS) text = text.split(w).join(' ');
+  for (const re of ZH_IDIOMS_UNLESS_COUNTED) text = text.replace(re, ' ');
+  // 千 перед мерой — «кило-»: 五千米 — это 5 км, а не 5000 м.
+  text = text.replace(/千(?=[米克瓦卡焦])/g, ' ');
   const out = new Set<string>();
-  for (const [run] of text.matchAll(/[〇零一二两三四五六七八九十百]+/g)) {
-    if (/[十百]/.test(run)) {
+  for (const [run] of text.matchAll(/[〇零一二两三四五六七八九十百千万亿]+/g)) {
+    if (/[十百千万亿]/.test(run)) {
       out.add(String(zhWithUnits(run)));
     } else if (run.length === 2 && !/[〇零]/.test(run)) {
       // 三四天 — «три-четыре дня»: два числа подряд, а не 34.
@@ -445,12 +586,18 @@ export function checkSegment(source: string, zh: string): string | null {
   if (CYRILLIC.test(source) && !HAN.test(t)) return 'в переводе нет иероглифов — вернулся не перевод';
   // Одно число в разных записях — шапка раздела «Одно число в разных записях».
   const srcDigits = numbersOf(source);
-  const srcAny = new Set([...srcDigits, ...russianWordNumbersOf(source)]);
+  const srcScaled = scaledRussianOf(source);
+  const srcAny = new Set([...srcDigits, ...russianWordNumbersOf(source), ...srcScaled.map((q) => q.value)]);
   const zhDigits = numbersOf(t);
-  const zhAny = new Set([...zhDigits, ...chineseNumeralsOf(t)]);
-  const lost = [...srcDigits].filter((n) => !zhAny.has(n));
+  const zhScaled = scaledChineseOf(t);
+  const zhAny = new Set([...zhDigits, ...chineseNumeralsOf(t), ...zhScaled.map((q) => q.value)]);
+  // Цифры числа с множителем сохранены, если в переводе есть его величина: «6 миллионов» — 600万.
+  const keptByValue = new Set(srcScaled.filter((q) => zhAny.has(q.value)).flatMap((q) => q.tokens));
+  const lost = [...srcDigits].filter((n) => !zhAny.has(n) && !keptByValue.has(n));
   if (lost.length) return `в переводе нет чисел исходника: ${lost.slice(0, 5).join(', ')}`;
-  const added = [...zhDigits].filter((n) => !srcAny.has(n));
+  // Цифры перевода с множителем оправданы, если в исходнике есть та же величина.
+  const allowedByValue = new Set(zhScaled.filter((q) => srcAny.has(q.value)).flatMap((q) => q.tokens));
+  const added = [...zhDigits].filter((n) => !srcAny.has(n) && !allowedByValue.has(n));
   if (added.length) return `в переводе появились числа, которых нет в исходнике: ${added.slice(0, 5).join(', ')}`;
   const zhLower = t.toLowerCase();
   const lostLatin = [...latinWordsOf(source)].filter((w) => !zhLower.includes(w));
