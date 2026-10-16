@@ -31,6 +31,8 @@ const DISTRICTS = [
   square('Быстринский муниципальный округ', 55.5, 56.5, 158.0, 159.5),
   square('Алеутский муниципальный округ', 54.3, 55.6, 165.5, 168.2),
   square('городской округ Палана', 59.0, 59.2, 159.9, 160.2),
+  // Парамушир — Сахалинская область: тревоги МЧС Камчатки его не называют.
+  square('Северо-Курильский муниципальный округ', 50.0, 51.0, 155.0, 156.5),
 ];
 
 const P = (id: string, lat: number | null, lng: number | null, zone: string | null): DistrictPlace => ({ id, name: id, lat, lng, zone });
@@ -43,6 +45,7 @@ describe('сличение района с округом точки', () => {
     P('апапель', 56.32, 159.24, null),
     P('беринг', 55.20, 166.00, 'commander'),
     P('палана', 59.08, 159.95, 'northern'),
+    P('эбеко', 50.69, 156.01, 'avachinsky'),
     P('в-море', 52.00, 160.50, 'avachinsky'),
     P('без-точки', null, null, 'avachinsky'),
   ], DISTRICTS, mchs_zones);
@@ -62,19 +65,19 @@ describe('сличение района с округом точки', () => {
     expect(r.mismatch_blocks[0].count).toBe(2);
   });
 
-  it('Командоры — дальний округ: тревоги по координате, район их не решает', () => {
-    expect(r.far.map((p) => p.id)).toEqual(['беринг']);
+  it('Командоры и Палана — дальний округ: тревоги по координате, район их не решает', () => {
+    expect(r.far.map((p) => p.id)).toEqual(['беринг', 'палана']);
   });
 
   it('округ, которого не знает карта МЧС, называется отдельно — не «совпало» и не «расходится»', () => {
-    expect(r.district_unmapped.map((p) => [p.id, p.district])).toEqual([['палана', 'городской округ Палана']]);
+    expect(r.district_unmapped.map((p) => [p.id, p.district])).toEqual([['эбеко', 'Северо-Курильский муниципальный округ']]);
   });
 
   it('вне округов и без точки — свои исходы, а не «совпало»', () => {
     expect(r.no_district.map((p) => p.id)).toEqual(['в-море']);
     expect(r.no_point.map((p) => p.id)).toEqual(['без-точки']);
-    expect(r.places).toBe(8);
-    expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(8);
+    expect(r.places).toBe(9);
+    expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(9);
   });
 });
 

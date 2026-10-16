@@ -345,6 +345,14 @@ describe('mchs_zones', () => {
     expect(mchs_zones('паводок в Усть-Камчатском районе')).toEqual(['northern']);
   });
 
+  // 16.10, перепись районов по контурам OSM: Палана — свой городской округ
+  // в Корякском округе. Елизовский остаётся авачинской зоной (решение 09.10,
+  // #2293: паводок «на реках Елизовского округа» не красит Кроноцкий).
+  it('Палана — Корякский округ; Елизовский — только авачинская зона', () => {
+    expect(mchs_zones('Подъём воды на реках городского округа Палана')).toEqual(['krai_koryak']);
+    expect(mchs_zones('Сильный ветер в Елизовском районе до 25 м/с')).toEqual(['avachinsky']);
+  });
+
   it('a text that says «по краю» itself covers the whole krai — four zones and the far districts, by the source\'s word', () => {
     expect(new Set(mchs_zones('погодное предупреждение по краю')))
       .toEqual(new Set(['avachinsky', 'eastern', 'western', 'northern', 'krai_koryak', 'krai_commander']));
