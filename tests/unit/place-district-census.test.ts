@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { districtCensus, type DistrictInfo, type DistrictPlace } from '@/lib/places/district-census';
+import { districtCensus, NEAR_SHORE_KM, type DistrictInfo, type DistrictPlace } from '@/lib/places/district-census';
 import type { Area } from '@/lib/geo/point-in-area';
 import { mchs_zones } from '@/lib/services/safety/seismic-parser';
 
@@ -47,6 +47,8 @@ describe('сличение района с округом точки', () => {
     P('палана', 59.08, 159.95, 'northern'),
     P('эбеко', 50.69, 156.01, 'avachinsky'),
     P('в-море', 52.00, 160.50, 'avachinsky'),
+    // Бухта в 3,4 км от восточного края елизовского квадрата.
+    P('бухта', 52.98, 159.55, null),
     P('без-точки', null, null, 'avachinsky'),
   ], DISTRICTS, mchs_zones);
 
@@ -74,10 +76,34 @@ describe('сличение района с округом точки', () => {
   });
 
   it('вне округов и без точки — свои исходы, а не «совпало»', () => {
-    expect(r.no_district.map((p) => p.id)).toEqual(['в-море']);
+    expect(r.no_district.map((p) => p.id)).toEqual(['в-море', 'бухта']);
     expect(r.no_point.map((p) => p.id)).toEqual(['без-точки']);
-    expect(r.places).toBe(9);
-    expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(9);
+    expect(r.places).toBe(10);
+    expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(10);
+  });
+
+  it('точка в воде у берега называет ближайший округ и расстояние; в открытом море — берега нет', () => {
+    const bay = r.no_district.find((p) => p.id === 'бухта');
+    expect(bay?.nearest?.district).toBe('Елизовский район');
+    expect(bay?.nearest?.km).toBeGreaterThan(3.2);
+    expect(bay?.nearest?.km).toBeLessThan(3.5);
+    // Зона ближайшего округа — по тому же разбору приёма, своей карты нет.
+    expect(bay?.nearest?.expected).toEqual(mchs_zones('Елизовский район'));
+    // До елизовского квадрата отсюда ~88 км — дальше радиуса берега.
+    expect(r.no_district.find((p) => p.id === 'в-море')?.nearest).toBeNull();
+    expect(NEAR_SHORE_KM).toBe(15);
+    // У точки внутри округа ближайшего берега не спрашивают.
+    expect(r.mismatch_blocks.flatMap((b) => b.places).every((p) => p.nearest === null)).toBe(true);
+  });
+
+  it('два берега в радиусе — называется ближайший, а не первый в выгрузке', () => {
+    const strait = districtCensus([P('пролив', 53.2, 158.57, null)], [
+      square('Елизовский район', 53.0, 53.5, 158.0, 158.5),
+      square('городской округ Петропавловск-Камчатский', 53.0, 53.5, 158.6, 159.0),
+    ], mchs_zones);
+    // До первого 0,07° по долготе (~4,7 км), до второго 0,03° (~2 км).
+    expect(strait.no_district[0].nearest?.district).toBe('городской округ Петропавловск-Камчатский');
+    expect(strait.no_district[0].nearest?.km).toBeLessThan(2.1);
   });
 });
 
@@ -105,9 +131,11 @@ describe('скрипт переписи на выгрузке', () => {
       // osmium нумерует площади сам: из отношения 1234 — a2469.
       feature('a2469', { boundary: 'administrative', admin_level: '6', name: 'Быстринский муниципальный округ' }, DISTRICTS[1]),
       feature('a11', { boundary: 'administrative', admin_level: '4', name: 'Камчатский край' }, square('край', 50, 65, 155, 175)),
-    ], { ok: true, place_rows: [P('эссо', 55.93, 158.70, 'avachinsky'), P('море', 52.0, 160.5, 'avachinsky')] });
+    ], { ok: true, place_rows: [P('эссо', 55.93, 158.70, 'avachinsky'), P('море', 52.0, 160.5, 'avachinsky'), P('озеро-у-края', 56.0, 159.6, null)] });
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/Округов в выгрузке: 1; мест: 2/);
+    expect(r.stdout).toMatch(/Округов в выгрузке: 1; мест: 3/);
+    expect(r.stdout).toMatch(/море .*берега в 15 км нет/);
+    expect(r.stdout).toMatch(/озеро-у-края .*берег: округ «Быстринский муниципальный округ» \(relation 1234\) в 6\.\d км → зона western/);
     expect(r.stdout).toMatch(/— avachinsky → western \(Быстринский муниципальный округ\): 1/);
     expect(r.stdout).toMatch(/эссо .*округ «Быстринский муниципальный округ» \(relation 1234\)/);
     expect(r.stdout).not.toMatch(/Камчатский край/);

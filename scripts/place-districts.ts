@@ -21,7 +21,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { osmIdOfArea, type Area, type AreaGeometry } from '@/lib/geo/point-in-area';
-import { districtCensus, type DistrictCensus, type DistrictInfo, type DistrictPlace, type DistrictRow } from '@/lib/places/district-census';
+import { districtCensus, NEAR_SHORE_KM, type DistrictCensus, type DistrictInfo, type DistrictPlace, type DistrictRow } from '@/lib/places/district-census';
 import { mchs_zones } from '@/lib/services/safety/seismic-parser';
 
 type RouteRow = DistrictPlace & { effective_zones?: string | null };
@@ -84,8 +84,13 @@ function main(): number {
     say('ОКРУГ НЕ ЗНАЕТ КАРТА МЧС (тревога о нём зоны не получит):');
     for (const p of r.district_unmapped) say(line(p));
     say('');
-    say('ВНЕ ОКРУГОВ (вода или край выгрузки):');
-    for (const p of r.no_district) say(line(p));
+    say(`ВНЕ ОКРУГОВ (вода или край выгрузки; берег — ближайший округ не дальше ${NEAR_SHORE_KM} км):`);
+    for (const p of r.no_district) {
+      const shore = p.nearest
+        ? `  берег: округ «${p.nearest.district}» (${p.nearest.district_osm}) в ${p.nearest.km.toFixed(1)} км → зона ${p.nearest.expected.join(',') || 'нет в карте МЧС'}`
+        : `  берега в ${NEAR_SHORE_KM} км нет`;
+      say(line(p) + shore);
+    }
     say('');
     say('БЕЗ ТОЧКИ:');
     for (const p of r.no_point) say(line(p));

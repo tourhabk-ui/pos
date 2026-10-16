@@ -134,6 +134,36 @@ export function geometryBbox(g: AreaGeometry): [number, number, number, number] 
   return [w, s, e, n];
 }
 
+/**
+ * Расстояние от точки до границы контура, км — для точек, не попавших ни в
+ * один контур: бухта, остров, морская прогулка лежат в воде, и округ суши их
+ * не содержит, но берег рядом есть (перепись районов 16.10, #83). Плоская
+ * проекция вокруг широты точки: на десятках километров ошибка меньше
+ * процента, а большего здесь не спрашивают. Точку внутри контура функция не
+ * отличает — зовут её только для тех, кто снаружи.
+ */
+export function distanceToGeometryKm(lng: number, lat: number, g: AreaGeometry): number {
+  const kx = 111.32 * Math.cos((lat * Math.PI) / 180);
+  const ky = 110.574;
+  let best = Infinity;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  for (const rings of polys) {
+    for (const ring of rings) {
+      for (let i = 0; i + 1 < ring.length; i++) {
+        const ax = (ring[i][0] - lng) * kx; const ay = (ring[i][1] - lat) * ky;
+        const bx = (ring[i + 1][0] - lng) * kx; const by = (ring[i + 1][1] - lat) * ky;
+        const dx = bx - ax; const dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        // Проекция начала координат (сама точка) на отрезок, зажатая в [0, 1].
+        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2));
+        const d = Math.hypot(ax + t * dx, ay + t * dy);
+        if (d < best) best = d;
+      }
+    }
+  }
+  return best;
+}
+
 export function containingAreas<T>(lng: number, lat: number, areas: readonly Area<T>[]): T[] {
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return [];
   return areas

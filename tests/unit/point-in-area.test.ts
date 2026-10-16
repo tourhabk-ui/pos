@@ -15,7 +15,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  containingAreas, geometryArea, geometryBbox, isProtectedArea, osmIdOfArea, pointInGeometry, pointInPolygon,
+  containingAreas, distanceToGeometryKm, geometryArea, geometryBbox, isProtectedArea, osmIdOfArea, pointInGeometry, pointInPolygon,
   type AreaGeometry, type Ring,
 } from '@/lib/geo/point-in-area';
 
@@ -74,6 +74,16 @@ describe('контуры точки — от тесного к широкому'
     expect(osmIdOfArea('a5600379')).toBe('relation 2800189');
     expect(osmIdOfArea('a818737572')).toBe('way 409368786');
     expect(osmIdOfArea('r3')).toBe('r3');
+  });
+
+  it('расстояние до контура: до ближайшего отрезка, а не до вершины; у мультиполигона — до ближайшей части', () => {
+    // Полградуса к северу от верхней кромки парка — 0,5 × 110,574 км.
+    expect(distanceToGeometryKm(159, 55.5, PARK)).toBeCloseTo(55.29, 1);
+    // Десятая градуса к востоку на широте 54 — 0,1 × 111,32 × cos 54°.
+    expect(distanceToGeometryKm(160.1, 54, PARK)).toBeCloseTo(6.54, 1);
+    // Между островами ближе восточный: до него 0,4° по долготе против 0,5°.
+    const between = distanceToGeometryKm(167, 54.7, ISLANDS);
+    expect(between).toBeCloseTo(0.4 * 111.32 * Math.cos((54.7 * Math.PI) / 180), 1);
   });
 
   it('охраняемая территория — по тем же тегам, что у проб is_in', () => {

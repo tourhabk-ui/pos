@@ -17,7 +17,7 @@
  * потому что у некоторых районов своя причина (Кроноцкий заповедник —
  * eastern по текстам о нём, см. 1293).
  */
-import { containingAreas, geometryBbox, type Area } from '@/lib/geo/point-in-area';
+import { containingAreas, distanceToGeometryKm, geometryBbox, type Area } from '@/lib/geo/point-in-area';
 import { ALERT_ZONES } from '@/lib/safety/alert-zones';
 import { KRAI_FAR_ZONES } from '@/lib/safety/krai-far';
 
@@ -57,7 +57,21 @@ export interface DistrictRow extends DistrictPlace {
   district_osm: string | null;
   /** Зона, которую получает тревога МЧС о его округе. */
   expected: string[];
+  /**
+   * Только у точки вне всех округов: ближайший округ суши не дальше
+   * NEAR_SHORE_KM и расстояние до его границы. null — берега в этом радиусе
+   * нет. Это улика для человека, а не округ точки: вода ничьему округу не
+   * принадлежит, а зону ей решает миграция, сверенная глазами.
+   */
+  nearest: { district: string; district_osm: string; km: number; expected: string[] } | null;
 }
+
+/**
+ * Дальше этого от берега точка — уже не бухта и не прибрежная прогулка, а
+ * открытое море или округлённая до градуса координата («54/162»): ближайший
+ * округ о ней ничего не говорит.
+ */
+export const NEAR_SHORE_KM = 15;
 
 export interface DistrictCensus {
   places: number;
@@ -84,7 +98,7 @@ export function districtCensus(
   // Рамки — один раз: точек сотни, вершин у береговых округов сотни тысяч.
   const boxed = districts.map((d) => ({ d, box: geometryBbox(d.geometry) }));
   const rows: DistrictRow[] = places.map((p) => {
-    const base = { ...p, district: null, district_osm: null, expected: [] as string[] };
+    const base = { ...p, district: null, district_osm: null, expected: [] as string[], nearest: null };
     if (p.lat === null || p.lng === null) return { ...base, verdict: 'no_point' as const };
     const { lat, lng } = p;
     const near = boxed
@@ -92,7 +106,7 @@ export function districtCensus(
       .map(({ d }) => d);
     // Самый мелкий содержащий контур — округ, а не что-то крупнее с тем же уровнем.
     const [d] = containingAreas(lng, lat, near);
-    if (!d) return { ...base, verdict: 'no_district' as const };
+    if (!d) return { ...base, verdict: 'no_district' as const, nearest: nearestShore(lng, lat, boxed, zonesOfDistrict) };
     const expected = zonesOfDistrict(d.name);
     const found = { ...base, district: d.name, district_osm: d.osm, expected };
     if (expected.length === 0) return { ...found, verdict: 'district_unmapped' as const };
@@ -126,4 +140,24 @@ export function districtCensus(
     no_district: rows.filter((r) => r.verdict === 'no_district'),
     no_point: rows.filter((r) => r.verdict === 'no_point'),
   };
+}
+
+/** Ближайший округ суши в радиусе NEAR_SHORE_KM: отсев по рамке, раздутой на радиус. */
+function nearestShore(
+  lng: number,
+  lat: number,
+  boxed: ReadonlyArray<{ d: Area<DistrictInfo>; box: [number, number, number, number] }>,
+  zonesOfDistrict: (name: string) => string[],
+): DistrictRow['nearest'] {
+  const dLat = NEAR_SHORE_KM / 110.574;
+  const dLng = NEAR_SHORE_KM / (111.32 * Math.cos((lat * Math.PI) / 180));
+  let best: DistrictRow['nearest'] = null;
+  for (const { d, box: [w, s, e, n] } of boxed) {
+    if (lng < w - dLng || lng > e + dLng || lat < s - dLat || lat > n + dLat) continue;
+    const km = distanceToGeometryKm(lng, lat, d.geometry);
+    if (km <= NEAR_SHORE_KM && (best === null || km < best.km)) {
+      best = { district: d.info.name, district_osm: d.info.osm, km, expected: zonesOfDistrict(d.info.name) };
+    }
+  }
+  return best;
 }
