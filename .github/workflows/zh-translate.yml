@@ -19,9 +19,16 @@ name: Китайские конспекты — машинный перевод 
 # весь прогон), а skip копится на число непереведённых: поле, которое модель
 # стабильно не переводит, не держит за собой следующие партии.
 #
-# Исходы: секрета нет — красный до запроса; сухой прогон — зелёный со счётом;
-# партия, где не переведено ничего, — красный (502 роута) с причинами по
-# полям; отказ базы — красный (500) с SQLSTATE.
+# Исходы: секрета нет — красный до запроса; сухой прогон — зелёный со счётом.
+# Партия, где не принято ни одно поле (502 роута при attempted > 0), прогон НЕ
+# обрывает (аудит 15.10, ZH-NUMERALS: прогон 4 вышел на первой же такой
+# партии, и 11 следующих не шли): её поля уходят в skip, следующая партия
+# берёт поля за ними. Красный — если хоть одна партия ответила не 200 и не
+# 502, или 502 без attempted (это не роут, а шлюз перед ним), или запрос не
+# дошёл (000); отказ базы — 500 с SQLSTATE; и если за весь боевой прогон не
+# принято ни одного поля при непустой очереди — ноль при ненулевом входе
+# не «хорошо» (§4.0). Итог по всем партиям — принято / отклонено / осталось —
+# в сводке шага.
 
 on:
   workflow_dispatch:
@@ -84,7 +91,21 @@ jobs:
           if [ "$MODE" = "apply" ]; then APPLY=1; else BATCHES=1; fi
           # Один порядок очереди на весь прогон, даже если он перейдёт полночь.
           SEED=$(TZ=Asia/Kamchatka date +%F)
+          OUT="${RUNNER_TEMP:-/tmp}/zh.json"
+          # Целое из ответа роута; не JSON или не число — пусто (шлюз перед
+          # роутом отвечает HTML, и это не «0 полей»).
+          num() {
+            local v
+            v=$(jq -r "$1" "$OUT" 2>/dev/null || true)
+            if [[ "$v" =~ ^[0-9]+$ ]]; then echo "$v"; else echo ""; fi
+          }
           SKIP=0
+          ACCEPTED=0
+          REJECTED=0
+          PENDING=""
+          LEFT=""
+          RED=""
+          DONE=0
           echo "mode=$MODE batches=$BATCHES seed=$SEED"
           {
             echo "## Китайские конспекты — $MODE"
@@ -92,31 +113,66 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           for i in $(seq 1 "$BATCHES"); do
-            HTTP=$(curl -sS -o /tmp/zh.json -w "%{http_code}" --max-time 600 \
+            rm -f "$OUT"
+            HTTP=$(curl -sS -o "$OUT" -w "%{http_code}" --max-time 600 \
               -H "Authorization: Bearer $CRON_SECRET" \
               "https://vedarai.ru/api/cron/zh-translate?apply=$APPLY&limit=5&seed=$SEED&skip=$SKIP") || HTTP="000"
+            DONE=$i
             echo "партия $i: HTTP $HTTP"
-            python3 -m json.tool /tmp/zh.json || cat /tmp/zh.json || true
+            python3 -m json.tool "$OUT" || cat "$OUT" || true
             {
               echo "### Партия $i — HTTP $HTTP"
               echo ''
               echo '```json'
-              python3 -m json.tool /tmp/zh.json || cat /tmp/zh.json || true
+              python3 -m json.tool "$OUT" || cat "$OUT" || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            if [ "$HTTP" != "200" ]; then
-              echo "::error::перевод не прошёл (HTTP $HTTP) — причины по полям в теле ответа выше"
-              exit 1
+            ATTEMPTED=$(num '.attempted')
+            # 502 роута при attempted > 0 — партия, где ни одно поле не прошло
+            # сверку: не обрыв прогона (аудит 15.10, ZH-NUMERALS). Всё прочее
+            # не 200 — роут партию не отработал: 500 базы, 401, шлюз, сеть.
+            if [ "$HTTP" = "502" ] && [ -n "$ATTEMPTED" ] && [ "$ATTEMPTED" -gt 0 ]; then
+              echo "::warning::партия $i: не принято ни одно из $ATTEMPTED полей — причины по полям в теле ответа выше; прогон идёт дальше"
+            elif [ "$HTTP" != "200" ]; then
+              RED="партия $i: HTTP $HTTP — роут партию не отработал, причина в теле ответа выше"
+              echo "::error::$RED"
+              break
+            elif [ -z "$(num '.pending')" ]; then
+              RED="партия $i: HTTP 200, но в ответе нет счёта очереди — отвечал не роут перевода"
+              echo "::error::$RED"
+              break
             fi
-            LEFT=$(jq -r '.pending_left // .pending // 0' /tmp/zh.json)
+            [ -n "$PENDING" ] || PENDING=$(num '.pending')
+            T=$(num '.translated | length')
+            N=$(num '.not_translated | length')
+            ACCEPTED=$((ACCEPTED + ${T:-0}))
+            REJECTED=$((REJECTED + ${N:-0}))
+            LEFT=$(num '.pending_left // .pending')
             if [ "$LEFT" = "0" ]; then echo "переводить больше нечего"; break; fi
             [ "$MODE" = "apply" ] || break
-            ATTEMPTED=$(jq -r '.attempted // 0' /tmp/zh.json)
-            if [ "$ATTEMPTED" = "0" ]; then
+            if [ "${ATTEMPTED:-0}" = "0" ]; then
               echo "::warning::в очереди остались только поля, которые в этом прогоне не перевелись ($LEFT) — причины в партиях выше"
               break
             fi
             # Непереведённые остаются в очереди — следующая партия берёт поля за ними.
-            FAILED=$(jq -r '.not_translated | length' /tmp/zh.json)
-            SKIP=$((SKIP + FAILED))
+            SKIP=$((SKIP + ${N:-0}))
           done
+
+          if [ "$MODE" = "apply" ]; then
+            TOTAL="Итог: партий $DONE из $BATCHES; принято полей $ACCEPTED, отклонено $REJECTED, осталось в очереди ${LEFT:-неизвестно}"
+          else
+            TOTAL="Итог сухого прогона: в очереди ${LEFT:-неизвестно} полей, модель не звалась"
+          fi
+          echo "$TOTAL"
+          {
+            echo "### Итог"
+            echo ''
+            echo "$TOTAL"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$RED" ]; then exit 1; fi
+          # Боевой прогон с работой, где не принято ни одно поле, — отказ, а не
+          # «хорошо» (§4.0): поля отклонены во всех партиях подряд.
+          if [ "$MODE" = "apply" ] && [ "$ACCEPTED" = "0" ] && [ -n "$PENDING" ] && [ "$PENDING" != "0" ]; then
+            echo "::error::за прогон не принято ни одного поля из очереди $PENDING — причины по полям в партиях выше"
+            exit 1
+          fi
