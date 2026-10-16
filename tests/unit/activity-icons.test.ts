@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { Anchor, Car, Camera, Droplets, Fish, Flame, Helicopter, MapPin, PawPrint, Ticket, TreePine, Wind } from 'lucide-react';
-import { ACTIVITY_ICONS, LOCATION_ICONS, FALLBACK_ACTIVITY_ICON, activityIcon, locationIcon, anyTypeIcon } from '@/lib/tours/activity-icons';
+import { ACTIVITY_ICONS, LOCATION_ICONS, FALLBACK_ACTIVITY_ICON, activityIcon, locationIcon, anyTypeIcon, iconSpeaksInRow } from '@/lib/tours/activity-icons';
 import { ACTIVITY_LABELS, LOCATION_LABELS, ACTIVITY_ALIASES, activityLabel, anyTypeLabel } from '@/lib/tours/labels';
 
 const ROOT = process.cwd();
@@ -84,6 +84,25 @@ describe('значки активностей и мест', () => {
     expect(activityIcon(undefined)).toBe(Ticket);
     expect(locationIcon('zzz')).toBe(Ticket);
     expect(activityIcon('other')).toBe(MapPin);
+  });
+
+  it('ряд каталога: значок без слова — только свой и единственный в ряду (владелец 16.10)', () => {
+    // Рыбалка, джип, вертолёт — у каждого свой значок: хватит значка.
+    expect([...iconSpeaksInRow(['fishing', 'jeep_safari', 'helicopter'])]).toEqual(['fishing', 'jeep_safari', 'helicopter']);
+    // Сплав и сёрфинг — обе волны: рядом не различить, оба словом; рыбалка — значком.
+    expect([...iconSpeaksInRow(['rafting', 'surf', 'fishing'])]).toEqual(['fishing']);
+    // Морская прогулка и дайвинг — оба якоря.
+    expect(iconSpeaksInRow(['boat_trip', 'diving']).size).toBe(0);
+    // Один из пары в ряду — значок свой и единственный.
+    expect([...iconSpeaksInRow(['rafting'])]).toEqual(['rafting']);
+    // Общий значок (конная прогулка, неизвестный вид) и «маршрут» — словом, даже в одиночку.
+    expect(iconSpeaksInRow(['horseback']).size).toBe(0);
+    expect(iconSpeaksInRow(['zzz']).size).toBe(0);
+    expect(iconSpeaksInRow(['other']).size).toBe(0);
+    expect([...iconSpeaksInRow(['horseback', 'fishing', 'other'])]).toEqual(['fishing']);
+    // Синонимы одного вида — два одинаковых значка: словом оба.
+    expect(iconSpeaksInRow(['jeep', 'jeep_safari']).size).toBe(0);
+    expect(iconSpeaksInRow([]).size).toBe(0);
   });
 
   it('корзина: сначала активность, затем место — как anyTypeLabel', () => {

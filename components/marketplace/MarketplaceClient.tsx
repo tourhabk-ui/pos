@@ -12,7 +12,7 @@ import {
   X, ChevronDown, Mountain, ArrowRight, Send,
 } from 'lucide-react';
 import type { CatalogSummary } from '@/lib/search/tour-search';
-import { activityIcon } from '@/lib/tours/activity-icons';
+import { activityIcon, iconSpeaksInRow } from '@/lib/tours/activity-icons';
 import {
   catalogAvailability, isInSeason, AVAILABILITY_LABEL, type CatalogAvailability,
 } from '@/lib/tours/catalog-availability';
@@ -604,6 +604,8 @@ export default function MarketplaceClient({
     if (activityFilter && !list.some(c => c.value === activityFilter)) list.push({ value: activityFilter, count: 0 });
     return list;
   }, [summary, activityFilter]);
+  /** Виды, которым в ряду хватит значка без слова (iconSpeaksInRow, владелец 16.10). */
+  const iconOnly = useMemo(() => iconSpeaksInRow(chips.map(c => c.value)), [chips]);
 
   const getPriceParams = useCallback(() => {
     const range = PRICE_RANGES.find(r => r.value === priceRange);
@@ -819,7 +821,12 @@ export default function MarketplaceClient({
               прогон 14: heading-order). Видимого заголовка здесь нет намеренно —
               герой над списком уже называет страницу. */}
           <h2 className="sr-only">Список туров</h2>
-          {/* Направления — одна строка чипов со счётчиком */}
+          {/* Направления — одна строка чипов со счётчиком. Вид — значком из
+              единого словаря и числом (владелец 16.10: «заменим надписи на
+              иконки»): ряд словами не помещался в экран и обрезался посреди
+              слова. Слово видно у выбранного вида — чтобы было ясно, что
+              выбрано, — и там, где значок сам не скажет (iconSpeaksInRow).
+              Полное название — в доступном имени и подсказке. */}
           {chips.length > 0 && (
             <div className="flex gap-2 overflow-x-auto pb-1 mb-3 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0" role="group" aria-label="Направления">
               <button
@@ -830,17 +837,26 @@ export default function MarketplaceClient({
               >
                 Все{summary ? ` · ${summary.total}` : ''}
               </button>
-              {chips.map(c => (
-                <button
-                  key={c.value}
-                  type="button"
-                  aria-pressed={activityFilter === c.value}
-                  onClick={() => setActivityFilter(activityFilter === c.value ? '' : c.value)}
-                  className={`flex-shrink-0 ${CHIP_BASE} ${activityFilter === c.value ? CHIP_ON : CHIP_OFF}`}
-                >
-                  {activityLabel(c.value, true)} · {c.count}
-                </button>
-              ))}
+              {chips.map(c => {
+                const on = activityFilter === c.value;
+                const label = activityLabel(c.value, true);
+                const Icon = activityIcon(c.value);
+                const speaks = iconOnly.has(c.value);
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={`${label} — ${c.count} ${plural(c.count, 'тур', 'тура', 'туров')}`}
+                    title={label}
+                    onClick={() => setActivityFilter(on ? '' : c.value)}
+                    className={`flex-shrink-0 gap-1.5 ${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+                  >
+                    {speaks && <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden />}
+                    <span className="tabular-nums">{speaks && !on ? c.count : `${label} · ${c.count}`}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 

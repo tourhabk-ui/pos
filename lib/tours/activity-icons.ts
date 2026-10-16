@@ -92,6 +92,34 @@ export function activityIcon(type: string | null | undefined): LucideIcon {
   return ACTIVITY_ICONS[canonicalActivity(type)] ?? FALLBACK_ACTIVITY_ICON;
 }
 
+/**
+ * Каким видам в ряду кнопок каталога хватит значка без слова (владелец 16.10,
+ * снимок /catalog: «заменим надписи на иконки будет интересней» — ряд
+ * «Рыбалка · 10 · Джип-сафари · 8 · Вертолё…» не помещался в экран и
+ * обрезался посреди слова).
+ *
+ * Значок говорит сам, когда он свой у этого вида и единственный в ряду. Слово
+ * остаётся там, где значок ничего не скажет: общий значок вида, которого нет в
+ * словаре (у конной прогулки — билет), «маршрут» без вида (точка на карте) и
+ * два одинаковых значка в одном ряду (сплав и сёрфинг — обе волны, морская
+ * прогулка и дайвинг — оба якоря): их рядом не различить. Синонимы одного
+ * вида (jeep и jeep_safari) — тоже два одинаковых значка, и тоже словом.
+ */
+export function iconSpeaksInRow(types: readonly string[]): Set<string> {
+  const icons = types.map((t) => activityIcon(t));
+  const seen = new Map<LucideIcon, number>();
+  for (const icon of icons) seen.set(icon, (seen.get(icon) ?? 0) + 1);
+  const speaks = new Set<string>();
+  types.forEach((t, i) => {
+    const icon = icons[i]!;
+    if (icon === FALLBACK_ACTIVITY_ICON) return;
+    if (canonicalActivity(t) === 'other') return;
+    if ((seen.get(icon) ?? 0) > 1) return;
+    speaks.add(t);
+  });
+  return speaks;
+}
+
 /** Значок типа места; неизвестное и пустота — общий значок. */
 export function locationIcon(type: string | null | undefined): LucideIcon {
   if (!type) return FALLBACK_ACTIVITY_ICON;
