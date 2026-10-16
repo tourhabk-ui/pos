@@ -1,16 +1,24 @@
 {
   "timeout": 60,
-  "run": 973,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись охвата тревогами после выката bfb24cc7 (CI main снова зелёный): места и маршруты, до которых не доходит тревога без своей координаты — «по всему краю» МЧС, «юг» и «север» Росгидромета — тем же предикатом, что красит крон; места без строки реалтайма; Командоры и Корякский округ с районами. Датчик — раздел маршрутов: до выката адрес отвечает 404. Конфиг записан целиком.",
+  "run": 974,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись районов (#83): муниципальный округ шести карточек с районом вне тревожных зон (central, southern, kronotsky, south) и двух контрольных точек — обратным геокодированием Nominatim (OSM, zoom 8 = округ). Район места → тревожная зона по карте округов МЧС (mchs_zones). Конфиг записан целиком. Точки: Кроноцкий заповедник 54.624573/160.879232; Шаманская поляна у Эссо 55.927/158.68; Природный парк «Быстринский» 56.058389/158.2561944; Парк «Южно-Камчатский» 52.4198252/158.2210454; Южно-Камчатский заказник 51.27264/156.97941; Вулкан Ходутка 52.062/157.711; Эссовские горячие источники (контроль) 55.9265/158.6966; Курильское озеро (контроль) 51.45/157.08",
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://vedarai.ru/api/cron/place-zone-census"
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=54.624573&lon=160.879232&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=55.927&lon=158.68&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=56.058389&lon=158.2561944&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.4198252&lon=158.2210454&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=51.27264&lon=156.97941&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.062&lon=157.711&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=55.9265&lon=158.6966&zoom=8&accept-language=ru",
+    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=51.45&lon=157.08&zoom=8&accept-language=ru"
   ],
-  "until": "\"routes\"",
-  "retries": 45,
-  "retryDelay": 60,
+  "retries": 1,
+  "retryDelay": 5,
+  "allowStale": true,
   "grep": [
-    "\"ok\":true",
-    "\"krai_commander\""
+    "county",
+    "state"
   ],
-  "bytes": 60000
+  "bytes": 1500
 }
