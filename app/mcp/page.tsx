@@ -14,10 +14,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from '@/lib/mcp/write-guard';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
-import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU } from '@/lib/mcp/connect';
+import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU, MCP_TRANSPORT_SPELLINGS } from '@/lib/mcp/connect';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -186,6 +187,11 @@ export default function McpLandingPage() {
                 </a>
               ))}
             </div>
+            {MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link' && o.note).map((o) => (
+              <p key={o.id} className="text-xs" style={{ color: 'var(--text-secondary)' }} data-connect-note={o.id}>
+                {o.client}: {o.note}
+              </p>
+            ))}
             <div className="space-y-2">
               {MCP_CONNECT_OPTIONS.filter((o) => o.kind !== 'link').map((o) => (
                 <div key={o.id} className="ds-card p-4 space-y-1" data-connect={o.id}>
@@ -196,8 +202,48 @@ export default function McpLandingPage() {
                   >
                     {o.value}
                   </pre>
+                  {o.note && (
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }} data-connect-note={o.id}>
+                      {o.note}
+                    </p>
+                  )}
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* Написание транспорта у клиентов разное (сверка 16.10): чужое уводит в
+              старый SSE, а наш сервер на GET-поток отвечает 405. */}
+          <section className="space-y-3">
+            <h2 className="ds-h2">Как клиенты называют Streamable HTTP</h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Общего написания нет. Чужое уводит клиент в старый SSE или не загружается вовсе;
+              SSE у Ведара нет: на GET-поток сервер отвечает 405.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-transport-table>
+                <thead>
+                  <tr style={{ color: 'var(--text-secondary)' }}>
+                    <th className="text-left font-semibold py-2 pr-4">Клиенты</th>
+                    <th className="text-left font-semibold py-2">Как писать</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {MCP_TRANSPORT_SPELLINGS.map((t) => (
+                    <tr key={t.clients} style={{ borderTop: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+                      <td className="py-2 pr-4 align-top">
+                        {t.clients}
+                        {t.unverified && (
+                          <span className="block text-xs" style={{ color: 'var(--text-secondary)' }}>
+                            транспорт по url не документирован — проверьте, что инструменты появились
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 align-top"><code>{t.spelling}</code></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
 
@@ -224,12 +270,16 @@ export default function McpLandingPage() {
               Как подключить вручную
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              В любом MCP-клиенте (Yandex AI Studio и других без кнопки выше)
+              В любом MCP-клиенте (Yandex AI Studio и других без готового способа выше)
               укажите тип подключения Streamable HTTP, адрес
               {' '}<code>https://vedarai.ru/api/mcp</code> и «без авторизации».
-              Чтение анонимно; записи две — заявка на подбор тура и заявка оператору на тур и дату,
-              обе подтверждает живой оператор по телефону. Мгновенной оплаты через
-              MCP нет сознательно. Действует rate-limit по IP.
+              Чтение анонимно. Записей четыре — заявка на подбор тура, заявка оператору на тур
+              и дату, заявка на машину целиком и заявка владельцу жилья; для каждой нужны согласие
+              и телефон, подтверждает её человек. Мгновенной брони и оплаты через MCP нет.
+              Лимиты с одного IP: чтение — {MCP_READ_PER_MINUTE} вызовов в минуту, заявки — {CLIENT_MAX_PER_WINDOW} за
+              {' '}{CLIENT_WINDOW_MINUTES} минут и {CLIENT_MAX_PER_DAY} в сутки.
+              Клиент умеет только stdio или уходит в SSE — мост:
+              {' '}<code>npx -y mcp-remote https://vedarai.ru/api/mcp --transport http-only</code>.
             </p>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               Данные — из живой базы платформы: та же занятость туров и тот же

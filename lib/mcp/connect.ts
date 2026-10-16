@@ -26,7 +26,11 @@ export const MCP_SERVER_KEY = 'vedar';
 
 export interface McpConnectOption {
   /** Устойчивый ключ для разметки и сторожей. */
-  id: 'cursor' | 'vscode' | 'trae_cn' | 'trae' | 'claude_code' | 'qwen_code' | 'deepseek_harness' | 'claude_ai' | 'json';
+  id:
+    | 'cursor' | 'vscode' | 'trae_cn' | 'trae' | 'chatbox'
+    | 'claude_ai' | 'chatgpt' | 'mistral'
+    | 'claude_code' | 'gemini_cli' | 'qwen_code' | 'codebuddy' | 'devin_desktop'
+    | 'cline' | 'kilo' | 'zed' | 'goose' | 'cherry_studio' | 'deepseek_harness' | 'json';
   /** Клиент, как его называет человек. */
   client: string;
   /** Что это: ссылка-установка, команда терминала, JSON конфига или шаги в интерфейсе. */
@@ -35,6 +39,12 @@ export interface McpConnectOption {
   label: string;
   /** Ссылка, команда, JSON или шаги — одной строкой. */
   value: string;
+  /**
+   * Что про этот способ НЕ проверено или где ловушка — словами для человека.
+   * Нет оговорки — способ сверен с документацией клиента 16.10 (§4.0: чего не
+   * знаем, так и говорим, а не прячем за готовой кнопкой).
+   */
+  note?: string;
 }
 
 /** Конфиг одного удалённого сервера — та форма, что понимают Cursor и Claude Code. */
@@ -46,6 +56,31 @@ export const MCP_JSON_CONFIG = JSON.stringify(
   null,
   2,
 );
+
+/**
+ * Как разные клиенты называют Streamable HTTP — для таблицы на /mcp. Общего
+ * написания нет, и чужое в одних клиентах уводит в старый SSE (наш сервер на
+ * GET с Accept: text/event-stream отвечает 405), а в других не загружается.
+ * Сверено по документации и исходникам клиентов 16.10; `unverified` — где
+ * выбор транспорта по `url` документация не описывает.
+ */
+export interface TransportSpelling {
+  clients: string;
+  spelling: string;
+  unverified?: true;
+}
+
+export const MCP_TRANSPORT_SPELLINGS: readonly TransportSpelling[] = [
+  { clients: 'Claude Code, VS Code, Continue (JSON), Qoder CN, CodeBuddy, LobeHub', spelling: '"type": "http"' },
+  { clients: 'Zoo Code (Roo Code закрыт 15.05.2026), Continue (YAML)', spelling: '"type": "streamable-http"' },
+  { clients: 'Cline, Cherry Studio', spelling: '"type": "streamableHttp"' },
+  { clients: 'Goose (config.yaml, поле uri), ModelScope', spelling: 'type: streamable_http' },
+  { clients: 'Kilo Code 7.x', spelling: 'ключ mcp, "type": "remote"' },
+  { clients: 'Qwen Code, Gemini CLI', spelling: 'поле "httpUrl" (поле url там — SSE)' },
+  { clients: 'Devin Desktop (бывший Windsurf)', spelling: '"url" и "transport": "http"' },
+  { clients: 'Cursor, Zed, JetBrains AI Assistant, Chatbox', spelling: 'только "url"' },
+  { clients: 'Warp, JetBrains Junie, Kiro, Trae, LM Studio', spelling: 'только "url"', unverified: true },
+];
 
 function base64(s: string): string {
   return Buffer.from(s, 'utf-8').toString('base64');
@@ -89,6 +124,7 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     kind: 'link',
     label: 'Добавить в Trae CN',
     value: traeInstallLink('trae-cn'),
+    note: 'Ссылка живым кликом в Trae не проверена. Какой транспорт Trae пробует первым, документация не говорит.',
   },
   {
     id: 'trae',
@@ -96,6 +132,42 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     kind: 'link',
     label: 'Добавить в Trae',
     value: traeInstallLink('trae'),
+    note: 'Ссылка живым кликом в Trae не проверена. Какой транспорт Trae пробует первым, документация не говорит.',
+  },
+  {
+    // Chatbox: ссылка установки `chatbox://mcp/install?server=<base64 JSON>`
+    // (docs.chatboxai.app/en/guides/mcp, сверено 16.10). Клиент идёт по
+    // Streamable HTTP и на SSE откатывается только при 404/405.
+    id: 'chatbox',
+    client: 'Chatbox',
+    kind: 'link',
+    label: 'Добавить в Chatbox',
+    value: `chatbox://mcp/install?server=${encodeURIComponent(base64(JSON.stringify({ name: MCP_SERVER_KEY, url: MCP_ENDPOINT })))}`,
+  },
+  {
+    id: 'claude_ai',
+    client: 'Claude.ai, Claude Desktop и мобильный Claude',
+    kind: 'steps',
+    label: 'Claude.ai, Claude Desktop и мобильный Claude',
+    // Путь по докам Anthropic 16.10 (claude.com/docs/connectors/custom/add-unlisted):
+    // Customize, а не Settings, как писали до осени.
+    value: `Customize → Connectors → Add custom connector → URL: ${MCP_ENDPOINT} → Authentication: No sign-in (без авторизации)`,
+    note: 'Коннектор хранится в аккаунте: добавленный на сайте, он есть в Desktop и в телефоне. На Free — один свой коннектор; в Team и Enterprise его добавляет владелец организации. Через claude_desktop_config.json Claude Desktop к удалённому серверу напрямую не подключается.',
+  },
+  {
+    id: 'chatgpt',
+    client: 'ChatGPT',
+    kind: 'steps',
+    label: 'ChatGPT (веб)',
+    value: `chatgpt.com/plugins → + → Add custom MCP server → Server URL: ${MCP_ENDPOINT} → Authentication: No authentication → Create as a plugin`,
+    note: 'Тарифы подтверждены не полностью: полный доступ с заявками — Business, Enterprise и Edu (публикует админ); на Pro, по справке OpenAI, только чтение. В России ChatGPT официально недоступен.',
+  },
+  {
+    id: 'mistral',
+    client: 'Mistral Le Chat (Vibe)',
+    kind: 'steps',
+    label: 'Mistral Le Chat (теперь Vibe)',
+    value: `chat.mistral.ai → Connectors → + Add Connector → Custom MCP Connector → Connector name: ${MCP_SERVER_KEY} → Server URL: ${MCP_ENDPOINT} → Connect`,
   },
   {
     id: 'claude_code',
@@ -103,6 +175,17 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     kind: 'command',
     label: 'Команда для Claude Code',
     value: `claude mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+  },
+  {
+    // Gemini CLI: `-s user` — для всех проектов (по умолчанию scope project).
+    // В settings.json Streamable HTTP — поле httpUrl; `url` без `type: http`
+    // старые версии читают как SSE (сверено по исходникам main 16.10).
+    id: 'gemini_cli',
+    client: 'Gemini CLI',
+    kind: 'command',
+    label: 'Команда для Gemini CLI',
+    value: `gemini mcp add --transport http -s user ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+    note: 'Вручную в ~/.gemini/settings.json — поле httpUrl, не url: url без "type": "http" старые версии читают как SSE.',
   },
   {
     id: 'qwen_code',
@@ -115,6 +198,77 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     // 12.10). Ответ самого Qwen в чате владельца предлагал "type": "http" с
     // url — это форма Claude Code, не Qwen Code.
     value: `qwen mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+    note: 'Вручную в ~/.qwen/settings.json — поле httpUrl. Поле url в Qwen Code означает SSE, а SSE у Ведара нет.',
+  },
+  {
+    // Tencent CodeBuddy Code (codebuddy.cn/docs/cli/mcp, 16.10).
+    id: 'codebuddy',
+    client: 'Tencent CodeBuddy',
+    kind: 'command',
+    label: 'Команда для CodeBuddy Code',
+    value: `codebuddy mcp add --scope user --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+    note: 'В IDE и плагине CodeBuddy — тот же сервер JSON-записью с "type": "http"; это значение взято из документации их CLI.',
+  },
+  {
+    // Windsurf переименован в Devin Desktop 02.06.2026; путь к файлу настроек
+    // за год менялся трижды, поэтому — команда, она сама выбирает файл.
+    id: 'devin_desktop',
+    client: 'Devin Desktop (бывший Windsurf)',
+    kind: 'command',
+    label: 'Команда для Devin Desktop (бывший Windsurf)',
+    value: `devin mcp add -s user ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+    note: 'Живьём не проверено. Устаревший агент Cascade, если включён, ждёт в mcp_config.json поле serverUrl.',
+  },
+  {
+    // Cline: без type запись уходит в legacy SSE (docs.cline.bot, 16.10).
+    id: 'cline',
+    client: 'Cline',
+    kind: 'json',
+    label: 'Cline: cline_mcp_settings.json',
+    value: JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { type: 'streamableHttp', url: MCP_ENDPOINT, disabled: false } } }, null, 2),
+    note: 'Или в панели Cline: MCP Servers → Remote Servers → Transport Type: Streamable HTTP. Без поля type Cline берёт старый SSE и получает отказ.',
+  },
+  {
+    // Kilo Code 7.x (kilo.ai/docs/automate/mcp, 16.10): ключ mcp, type remote.
+    id: 'kilo',
+    client: 'Kilo Code',
+    kind: 'json',
+    label: 'Kilo Code 7.x: ~/.config/kilo/kilo.jsonc',
+    value: JSON.stringify({ mcp: { [MCP_SERVER_KEY]: { type: 'remote', url: MCP_ENDPOINT, enabled: true } } }, null, 2),
+    note: 'Формат сменился в апреле 2026: старые инструкции с mcpServers и .kilocode/mcp.json к версии 7 не подходят.',
+  },
+  {
+    id: 'zed',
+    client: 'Zed',
+    kind: 'json',
+    label: 'Zed: settings.json',
+    value: JSON.stringify({ context_servers: { [MCP_SERVER_KEY]: { url: MCP_ENDPOINT } } }, null, 2),
+  },
+  {
+    // Goose (goose-docs.ai, 16.10): поле адреса — uri, не url.
+    id: 'goose',
+    client: 'Goose',
+    kind: 'yaml',
+    label: 'Goose: ~/.config/goose/config.yaml',
+    value: [
+      'extensions:',
+      `  ${MCP_SERVER_KEY}:`,
+      `    name: ${MCP_SERVER_KEY}`,
+      '    type: streamable_http',
+      `    uri: ${MCP_ENDPOINT}`,
+      '    enabled: true',
+      '    timeout: 300',
+    ].join('\n'),
+  },
+  {
+    // Cherry Studio (исходник main 2.1.6, 16.10): каноническое значение —
+    // streamableHttp; импорт сервера создаёт его выключенным.
+    id: 'cherry_studio',
+    client: 'Cherry Studio',
+    kind: 'json',
+    label: 'Cherry Studio: Настройки → MCP → Импорт из JSON',
+    value: JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { type: 'streamableHttp', url: MCP_ENDPOINT } } }, null, 2),
+    note: 'Импортированный сервер создаётся выключенным — включите его переключателем.',
   },
   {
     id: 'deepseek_harness',
@@ -138,13 +292,6 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
       '        transport: streamable-http',
       '        url: ' + MCP_ENDPOINT,
     ].join('\n'),
-  },
-  {
-    id: 'claude_ai',
-    client: 'Claude.ai и Claude Desktop',
-    kind: 'steps',
-    label: 'Claude.ai и Claude Desktop',
-    value: `Settings → Connectors → Add custom connector → URL: ${MCP_ENDPOINT} (без авторизации)`,
   },
   {
     id: 'json',

@@ -17,7 +17,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOL_NAMES, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOL_NAMES, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
 
 const ROOT = process.cwd();
 const ROUTE = readFileSync(join(ROOT, 'app/api/mcp/route.ts'), 'utf-8');
@@ -74,9 +75,14 @@ describe('п.4: заявка на бронь — не бронь и не опл�
 
 describe('п.4: rate-limit по IP', () => {
   it('чтение и запись тормозятся раздельно, запись жёстче', () => {
-    expect(ROUTE).toMatch(/readLimiter = createRateLimiter\(\{ windowMs: 60_000, max: 30 \}\)/);
+    // Числа живут константами (16.10): их же показывает /mcp, и страница не
+    // может разойтись с сервером. Чтение — 30 в минуту.
+    expect(MCP_READ_PER_MINUTE).toBe(30);
+    expect(ROUTE).toMatch(/readLimiter = createRateLimiter\(\{ windowMs: 60_000, max: MCP_READ_PER_MINUTE \}\)/);
     // Окно записи — час (решение владельца 01.10: 5 заявок в час с адреса).
-    expect(ROUTE).toMatch(/writeLimiter = createRateLimiter\(\{ windowMs: 3_600_000, max: 5 \}\)/);
+    expect(CLIENT_WINDOW_MINUTES * 60_000).toBe(3_600_000);
+    expect(CLIENT_MAX_PER_WINDOW).toBe(5);
+    expect(ROUTE).toMatch(/writeLimiter = createRateLimiter\(\{ windowMs: CLIENT_WINDOW_MINUTES \* 60_000, max: CLIENT_MAX_PER_WINDOW \}\)/);
     // С 17.09 состав пишущих задаёт аннотация `readOnlyHint: false` в
     // lib/mcp/public-tools.ts, а роут берёт готовое множество: свой список из
     // двух имён здесь разошёлся бы с подсказкой хосту. Что множество — ровно

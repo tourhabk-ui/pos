@@ -29,7 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
@@ -40,7 +40,7 @@ import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
-import { checkMcpWrite } from '@/lib/mcp/write-guard';
+import { checkMcpWrite, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
 import { buildConsentRecord, type PdConsentPurpose } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
@@ -73,10 +73,10 @@ export const dynamic = 'force-dynamic';
 // Вход анонимный, поэтому лимит — единственный тормоз для абьюза. Чтение
 // щедрое (агент в диалоге дёргает несколько инструментов подряд), запись
 // жёсткая: заявки создают работу живому менеджеру.
-const readLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
+const readLimiter = createRateLimiter({ windowMs: 60_000, max: MCP_READ_PER_MINUTE });
 // Окно — то же, что у стража в базе (lib/mcp/write-guard, решение владельца
 // 01.10: 5 заявок в час); этот счётчик — первый, дешёвый рубеж до базы.
-const writeLimiter = createRateLimiter({ windowMs: 3_600_000, max: 5 });
+const writeLimiter = createRateLimiter({ windowMs: CLIENT_WINDOW_MINUTES * 60_000, max: CLIENT_MAX_PER_WINDOW });
 // Какие инструменты пишущие, знает аннотация (`readOnlyHint: false`) — один
 // источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
 const WRITE_TOOLS = WRITE_TOOL_NAMES;
