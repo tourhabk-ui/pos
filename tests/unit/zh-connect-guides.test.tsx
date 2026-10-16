@@ -44,7 +44,7 @@ describe('/zh: как подключить в китайском клиенте'
     expect(MCP_ENDPOINT).toBe(ENDPOINT);
   });
 
-  it('шесть клиентов из разведки 15.10, у каждого своя карточка', async () => {
+  it('девять клиентов из разведок 15.10 и 17.10, у каждого своя карточка', async () => {
     const section = await renderZh();
     expect(section.id).toBe('connect');
     const shown = [...section.querySelectorAll('[data-zh-client]')].map((el) => el.getAttribute('data-zh-client')).sort();
@@ -60,7 +60,9 @@ describe('/zh: как подключить в китайском клиенте'
       expect(within(card).getByRole('heading', { level: 3 }).textContent, g.id).toBe(g.client);
       expect(text, `${g.id}: адрес`).toContain(ENDPOINT);
       expect(text, `${g.id}: пометка`).toMatch(/据(平台文档|第三方指南)整理，界面可能不同/);
-      expect(text, `${g.id}: дата`).toMatch(/（2026-10-15 查阅）/);
+      // Дата — своя у каждой записи (разведки 15.10 и 17.10), а не одна замороженная.
+      expect(g.checkedOn, `${g.id}: дата прочтения`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(text, `${g.id}: дата`).toContain(`（${g.checkedOn} 查阅）`);
       expect(g.sources.length, g.id).toBeGreaterThan(0);
       const hrefs = within(card).getAllByRole('link').map((a) => a.getAttribute('href'));
       for (const s of g.sources) {
@@ -128,7 +130,7 @@ describe('README и llms.txt называют то же', () => {
       const line = s.split('\n').find((l) => l.startsWith(`  - ${g.client}：`)) ?? '';
       expect(line, g.id).not.toBe('');
       expect(line, g.id).toContain('界面可能不同');
-      expect(line, g.id).toContain('2026-10-15 查阅');
+      expect(line, g.id).toContain(`${g.checkedOn} 查阅`);
       for (const src of g.sources) expect(line, g.id).toContain(src.url);
     }
     expect(s).toContain(traeValue('trae_cn'));
