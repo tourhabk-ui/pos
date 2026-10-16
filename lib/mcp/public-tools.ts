@@ -217,21 +217,21 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
 export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // Пары, которые оценщик путал (Glama TDQS 18.09, Disambiguation 4/5):
   // каждая фраза говорит, когда брать этот инструмент, а когда соседний.
-  get_tours:             { title: 'Tour catalogue',        lead: 'Kamchatka tour catalogue: list operator tours with prices and dates; live availability via get_tour_availability. For one tour in depth use get_tour_details.' },
+  get_tours:             { title: 'Tour catalogue',        lead: 'Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details.' },
   get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours.' },
-  get_tour_availability: { title: 'Tour availability',     lead: 'Kamchatka tour live availability by date: free seats and nearest open dates.' },
+  get_tour_availability: { title: 'Tour availability',     lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.' },
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
   get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context.' },
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source and dates, plus elevated volcanoes (KVERT, KB GS RAS).' },
   get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
-  get_volcano_status:    { title: 'Volcano status',        lead: 'Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context.' },
-  search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
-  search_transfers:      { title: 'Transfers',             lead: 'Kamchatka transfers are whole-vehicle charters (vakhtovka trucks, minibuses, jeeps): price per vehicle by destination or per hour/day, not per seat. To request a vehicle: request_charter.' },
+  get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
+  search_accommodations: { title: 'Stays',                 lead: 'Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
+  search_transfers:      { title: 'Transfers',             lead: 'Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter.' },
-  create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
+  create_booking_request: { title: 'Booking request',      lead: 'Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead.' },
   create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Needs consent: true, otherwise refused. For tours use create_booking_request.' },
   request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers.' },
   // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
@@ -451,6 +451,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.4.0',
+  version: '2.5.0',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи четыре: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter) и заявка владельцу жилья на даты (create_stay_request) — все подтверждает человек.',
 } as const;
