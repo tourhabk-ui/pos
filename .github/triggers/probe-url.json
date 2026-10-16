@@ -1,23 +1,17 @@
 {
   "timeout": 60,
-  "run": 978,
-  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Проверка 1294 на проде (район по округу точки, 87 мест): Курильское озеро и Эссо — western, Долина великанов и Паланские пороги — northern, Горячереченские (Налычево) — avachinsky, Паужетские — western; перепись охвата — места по районам (ожидание: avachinsky 171, western 70, northern 98, eastern 32, commander 10, без района 3). Датчик свежести — район Курильского озера. Конфиг записан целиком.",
+  "run": 979,
+  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Проверка 1295–1296 на проде через перепись охвата (карточки мест не спрашиваются: каждый запрос к ним засчитывается просмотром, а проба 978 повторила датчик 22 раза). Ожидание: маршрутов без единой зоны 47 (было 118), у мест восточная 31 и авачинская 172 (Дзендзур вернулся в «Налычево»). Датчик свежести — число маршрутов без зоны. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
-    "https://vedarai.ru/api/places/36d5d094-5ab0-4f06-a0de-da62bd3ab0a1",
-    "https://vedarai.ru/api/places/852465ed-60f2-4db7-9715-6e3e8018af1f",
-    "https://vedarai.ru/api/places/8ed1e7c5-df06-4bae-9c48-3be6c2890aa0",
-    "https://vedarai.ru/api/places/7f5284b0-8862-4b11-8a68-2241d359832c",
-    "https://vedarai.ru/api/places/f54589e0-031e-4fa6-bfee-4c73401bb8f2",
     "https://vedarai.ru/api/cron/place-zone-census"
   ],
-  "until": "\"zone\":\"western\",\"district\"",
-  "retries": 45,
+  "until": "\"zone\":null,\"alert_zone\":false,\"count\":47",
+  "retries": 50,
   "retryDelay": 40,
   "grep": [
-    "\"zone\":\"western\",\"district\"",
-    "\"zone\":\"northern\",\"district\"",
-    "\"zone\":\"avachinsky\",\"district\""
+    "\"zone\":null,\"alert_zone\":false,\"count\":47",
+    "\"zone\":\"eastern\",\"alert_zone\":true,\"count\":31",
+    "\"zone\":\"avachinsky\",\"alert_zone\":true,\"count\":172"
   ],
   "around": [
     "\"by_zone\""
