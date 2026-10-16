@@ -1,36 +1,29 @@
 {
   "timeout": 60,
-  "run": 975,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись районов (#83): муниципальный округ мест без района (zone NULL) — обратным геокодированием Nominatim (OSM, zoom 8). Округ → тревожная зона по карте округов МЧС. Конфиг записан целиком. Точки: Апапельские горячие источники 56.3194/159.2408; Бухта Пионерская 52.94049/158.74055; Водопад Бабий камень 52.8325554/158.1193542; Водопад Снежный барс 52.6485811/157.9147504; Вулкан Арик 53.370266/158.674797; Зеленовские озерки 53.287721/158.348899; Камчатский камень 52.9744271/158.7355304; Камчатский краевой объединённый музей (ККОМ) 53.012/158.652; Камчатский медведь (Здесь начинается Россия) 53.1883258/158.4255164; Кекур Чёртов палец 52.9116357/158.6794059; Кенотаф крейсера «Ниитака» 51.5/156.483333; Кордон «Авачинский» 53.26/158.74027778; Корякский заповедник 59.8865406/166.2616559; Памятник Витусу Берингу 53.011/158.653; Река Амчигача 52.8562884/156.3300371; Старт маршрута Вачкажец (лыжный) 53.11/157.84694444; Старт маршрута Вачкажец (снегоходный) 53.17516667/157.91233333; Урочище Аквариум 53.53067/158.236604; Халактырское озеро 53.0235704/158.7455782; Чёртов мост 53.5204782/158.1273643; стоянка «Столик» гора Копыто 55.96055556/160.24416667",
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
+  "run": 976,
+  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. После выката 1293 (район места по округу точки) и угрозы цунами на весь край: район Бакланьих камней (commander), Кроноцкого заповедника (eastern), строка реалтайма у Корякского заповедника (её не было), перепись охвата мест и маршрутов тем же предикатом, что красит крон, и подпись «Западная Камчатка» на карточке парка «Быстринский». Датчик — район Бакланьих камней: до выката он avachinsky. HTML-карточка последней: её разметка длинная. Конфиг записан целиком.",
   "urls": [
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=56.3194&lon=159.2408&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.94049&lon=158.74055&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.8325554&lon=158.1193542&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.6485811&lon=157.9147504&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.370266&lon=158.674797&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.287721&lon=158.348899&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.9744271&lon=158.7355304&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.012&lon=158.652&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.1883258&lon=158.4255164&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.9116357&lon=158.6794059&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=51.5&lon=156.483333&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.26&lon=158.74027778&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=59.8865406&lon=166.2616559&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.011&lon=158.653&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=52.8562884&lon=156.3300371&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.11&lon=157.84694444&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.17516667&lon=157.91233333&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.53067&lon=158.236604&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.0235704&lon=158.7455782&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=53.5204782&lon=158.1273643&zoom=8&accept-language=ru",
-    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=55.96055556&lon=160.24416667&zoom=8&accept-language=ru"
+    "https://vedarai.ru/api/places/ac0321fc-eae0-4919-9c7c-256bbc927a1a",
+    "https://vedarai.ru/api/places/4f1217e7-31a4-4d21-bc98-3d46aaba122e",
+    "https://vedarai.ru/api/places/b9c4e312-6d8f-4a5b-9c71-3e2f1d0b7a46",
+    "https://vedarai.ru/api/cron/place-zone-census",
+    "https://vedarai.ru/places/c35c5024-238f-44ec-85f6-c31127fdfffb"
   ],
-  "retries": 1,
-  "retryDelay": 5,
-  "allowStale": true,
+  "until": "\"zone\":\"commander\"",
+  "retries": 70,
+  "retryDelay": 45,
   "grep": [
-    "county"
+    "\"zone\":\"commander\"",
+    "\"zone\":\"eastern\"",
+    "\"realtime\":null",
+    "\"ok\":true",
+    "Западная Камчатка",
+    "Западное побережье"
   ],
-  "bytes": 900
+  "around": [
+    "\"zone\"",
+    "\"realtime\"",
+    "Район"
+  ],
+  "bytes": 30000
 }
