@@ -36,17 +36,22 @@ export const A2A_OUTPUT_MODES = ['text/plain', 'application/json'] as const;
 /** Навык свободного разговора — мозг Кузьмича с инструментами. */
 export const CHAT_SKILL_ID = 'kuzmich-chat';
 
+// Английский абзац первым (17.10): каталоги и реестры агентов (a2aregistry,
+// awesome-a2a) показывают начало описания, а читают его англоязычные агенты.
+// Русский текст — следом, без сокращений; китайский хвост — последним.
 export const A2A_DESCRIPTION =
-  'Агент платформы Ведар о Камчатке: туры операторов с живой занятостью, безопасность мест и обстановка в крае, '
+  'Vedar Kamchatka travel agent (Russia): live operator tours and availability, safety alerts and conditions, '
+  + 'places, weather, volcano status, stays, gear, transfers and trip plans. Free-text questions (Russian or English) '
+  + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
+  + 'four human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, '
+  + 'consent: true required), no instant booking, no payment through the agent, no auth. '
+  + 'Русский: агент платформы Ведар о Камчатке: туры операторов с живой занятостью, безопасность мест и обстановка в крае, '
   + 'жильё, снаряжение, трансферы, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
   + 'отвечает Кузьмич, хранитель Камчатки, с теми же инструментами, что у MCP-сервера. Точный вызов инструмента — '
   + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записи четыре и все — '
   + 'заявки, которые подтверждает человек: create_lead, create_booking_request, create_stay_request, request_charter '
   + '(нужен consent: true — согласие человека на обработку имени и телефона). Брони и оплаты через агента нет. '
   + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
-  + 'English: Vedar Kamchatka travel agent — live tours and availability, safety alerts, places, weather, stays, '
-  + 'trip plans. Free-text questions (Russian or English) or exact tool calls via DataPart {"tool", "arguments"}; '
-  + 'four human-confirmed requests, no payment, no auth. '
   // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
   + A2A_DESCRIPTION_ZH;
 
