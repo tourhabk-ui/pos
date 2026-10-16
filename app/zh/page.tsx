@@ -118,7 +118,9 @@ export default async function ZhEntryPage() {
               <p>
                 A2A 代理卡：<a className="underline" style={{ color: 'var(--ocean)' }} href="/.well-known/agent-card.json">/.well-known/agent-card.json</a>
                 {' · '}OpenAPI：<a className="underline" style={{ color: 'var(--ocean)' }} href="/openapi.json">/openapi.json</a>
-                {' · '}LLM 说明：<a className="underline" style={{ color: 'var(--ocean)' }} href="/llms.txt">/llms.txt</a>
+                {' · '}LLM 说明：<a className="underline" style={{ color: 'var(--ocean)' }} href="/llms-zh.txt" hrefLang="zh-CN">/llms-zh.txt</a>
+                {'（中文）· '}<a className="underline" style={{ color: 'var(--ocean)' }} href="/llms.txt">/llms.txt</a>
+                {'（俄文完整版）'}
               </p>
               {qwen && <p>Qwen Code：<code>{qwen}</code></p>}
             </div>
