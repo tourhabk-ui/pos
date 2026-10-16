@@ -212,6 +212,39 @@ describe('перевод и запись', () => {
     err.mockRestore();
   });
 
+  // Прогон 7 (16.10): тур 11 short_description в прогонах 3, 5, 6 и 7 модель
+  // отдавала с лишней скобкой — {"segments":["…"]]} — при верном переводе.
+  it('массив, закрытый дважды, чинится; другие поломки JSON — нет', async () => {
+    const SRC = '7 дней рыбалки: все виды рыб, выезды с базы.';
+    tourRows = [{ ...TOUR, title: 'Долина гейзеров', short_description: SRC, description: null, included: null }];
+    let broken = '{"segments":["7天钓鱼：各种鱼类，从基地出发。"]]}';
+    quality.mockImplementation(async (messages: Array<{ content: string }>) => {
+      const { segments } = JSON.parse(messages[1].content) as { segments: string[] };
+      return segments[0] === SRC ? broken : JSON.stringify({ segments: ['间歇泉谷'] });
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fieldsOf = (list: Array<{ field: string }>) => list.map((x) => x.field).sort();
+
+    const ok = await (await call('?kind=tour&apply=1')).json();
+    expect(fieldsOf(ok.translated)).toEqual(['short_description', 'title']);
+    const written = writes.find((w) => w.includes('short_description'));
+    expect(written).toBeDefined();
+    expect(written?.some((v) => v === '7天钓鱼：各种鱼类，从基地出发。')).toBe(true);
+
+    // Скобка лишняя дважды — это уже не та поломка: отказ с ошибкой разбора.
+    writes = [];
+    broken = '{"segments":["7天钓鱼：各种鱼类，从基地出发。"]]]}';
+    const twice = await (await call('?kind=tour&apply=1')).json();
+    expect(twice.not_translated.find((x: { field: string }) => x.field === 'short_description')?.reason)
+      .toMatch(/JSON не разобран/);
+    // Починка не отменяет сверку: исправленный ответ с лишним числом отвергнут.
+    broken = '{"segments":["8天钓鱼：各种鱼类，从基地出发。"]]}';
+    const wrong = await (await call('?kind=tour&apply=1')).json();
+    expect(wrong.not_translated.find((x: { field: string }) => x.field === 'short_description')?.reason)
+      .toMatch(/нет чисел исходника: 7/);
+    err.mockRestore();
+  });
+
   it('модель дописала число — перевод отвергнут с причиной', async () => {
     tourRows = [{ ...TOUR, title: 'Долина гейзеров', description: null, included: null }];
     quality.mockResolvedValue(JSON.stringify({ segments: ['间歇泉谷 3天'] }));
