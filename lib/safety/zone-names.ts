@@ -12,6 +12,7 @@
  */
 import { KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
 import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
+import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
 
 export const ZONE_NAMES: Record<string, string> = {
   avachinsky: 'Авачинско-Петропавловский',
@@ -33,5 +34,6 @@ export function zoneName(slug: string): string {
   if (slug === KRAI_SOUTH_ZONE) return 'Юг Камчатки до Петропавловска';
   if (slug === KRAI_KORYAK_ZONE) return 'Корякский округ (север края)';
   if (slug === KRAI_COMMANDER_ZONE) return 'Командорские острова';
+  if (slug === KURIL_NORTH_ZONE) return 'Северные Курилы (Сахалинская область)';
   return ZONE_NAMES[slug] ?? slug;
 }

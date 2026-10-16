@@ -31,8 +31,10 @@ const DISTRICTS = [
   square('Быстринский муниципальный округ', 55.5, 56.5, 158.0, 159.5),
   square('Алеутский муниципальный округ', 54.3, 55.6, 165.5, 168.2),
   square('городской округ Палана', 59.0, 59.2, 159.9, 160.2),
-  // Парамушир — Сахалинская область: тревоги МЧС Камчатки его не называют.
+  // Парамушир — Сахалинская область; с 16.10 у него своя метка в карте
+  // округов (lib/safety/kuril-north.ts), а Итуруп карта не знает вовсе.
   square('Северо-Курильский муниципальный округ', 50.0, 51.0, 155.0, 156.5),
+  square('Курильский городской округ', 45.0, 46.0, 147.5, 148.9),
 ];
 
 const P = (id: string, lat: number | null, lng: number | null, zone: string | null): DistrictPlace => ({ id, name: id, lat, lng, zone });
@@ -46,6 +48,7 @@ describe('сличение района с округом точки', () => {
     P('беринг', 55.20, 166.00, 'commander'),
     P('палана', 59.08, 159.95, 'northern'),
     P('эбеко', 50.69, 156.01, 'avachinsky'),
+    P('итуруп', 45.25, 148.0, null),
     P('в-море', 52.00, 160.50, 'avachinsky'),
     // Бухта в 3,4 км от восточного края елизовского квадрата.
     P('бухта', 52.98, 159.55, null),
@@ -62,7 +65,9 @@ describe('сличение района с округом точки', () => {
     expect(essoBlock?.places.map((p) => p.id).sort()).toEqual(['эссо-1', 'эссо-2']);
     const nullBlock = r.mismatch_blocks.find((b) => b.from === null);
     expect(nullBlock?.places.map((p) => p.id)).toEqual(['апапель']);
-    expect(r.counts.mismatch).toBe(3);
+    expect(r.counts.mismatch).toBe(4);
+    // Парамушир с камчатским районом — расхождение с меткой Северных Курил.
+    expect(r.mismatch_blocks.find((b) => b.district === 'Северо-Курильский муниципальный округ')?.to).toBe('kuril_north');
     // Крупный блок — первым.
     expect(r.mismatch_blocks[0].count).toBe(2);
   });
@@ -72,14 +77,14 @@ describe('сличение района с округом точки', () => {
   });
 
   it('округ, которого не знает карта МЧС, называется отдельно — не «совпало» и не «расходится»', () => {
-    expect(r.district_unmapped.map((p) => [p.id, p.district])).toEqual([['эбеко', 'Северо-Курильский муниципальный округ']]);
+    expect(r.district_unmapped.map((p) => [p.id, p.district])).toEqual([['итуруп', 'Курильский городской округ']]);
   });
 
   it('вне округов и без точки — свои исходы, а не «совпало»', () => {
     expect(r.no_district.map((p) => p.id)).toEqual(['в-море', 'бухта']);
     expect(r.no_point.map((p) => p.id)).toEqual(['без-точки']);
-    expect(r.places).toBe(10);
-    expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(10);
+    expect(r.places).toBe(11);
+    expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(11);
   });
 
   it('точка в воде у берега называет ближайший округ и расстояние; в открытом море — берега нет', () => {

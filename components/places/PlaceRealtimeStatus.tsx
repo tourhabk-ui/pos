@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle, XCircle, AlertOctagon, HelpCircle, Users } 
 import type { PlaceRealtime } from './types';
 import { crowdsOnScale } from '@/lib/safety/profile-source';
 import { kamchatkaStamp, placeDayStatus, type PlaceDayLevel } from '@/lib/safety/place-day-status';
+import { KURIL_NORTH_NOTE } from '@/lib/safety/kuril-north';
 
 interface Props {
   realtime: PlaceRealtime;
@@ -95,7 +96,7 @@ function raisedWithoutAlerts(rt: PlaceRealtime, isVolcano: boolean, volcanoColor
 }
 
 export default function PlaceRealtimeStatus({ realtime, isVolcano = false, volcanoColor, now }: Props) {
-  const { level, stale } = placeDayStatus(realtime, now);
+  const { level, stale, outsideSources } = placeDayStatus(realtime, now);
   const cfg = LEVEL_CONFIG[level];
   const { Icon } = cfg;
   const isSticky = level === 'red' || level === 'closed';
@@ -125,14 +126,17 @@ export default function PlaceRealtimeStatus({ realtime, isVolcano = false, volca
   if (level === 'closed') {
     lines.push(note ?? 'Причина не записана — уточните у МЧС.');
   } else if (level === 'unknown') {
-    lines.push(stale
-      ? 'Пересчёт по сводкам давно не обновлялся — цвет не показываем: он может быть уже не про сегодня.'
-      : 'Пересчёта обстановки по этому месту у нас нет.');
+    lines.push(outsideSources
+      ? KURIL_NORTH_NOTE
+      : stale
+        ? 'Пересчёт по сводкам давно не обновлялся — цвет не показываем: он может быть уже не про сегодня.'
+        : 'Пересчёта обстановки по этому месту у нас нет.');
     if (note) lines.push(note);
     // Тихо уронить, возможно, ещё действующее предупреждение опаснее, чем
     // показать его с рамкой давности.
     if (alerts.length > 0) lines.push(`В последнем пересчёте: ${alerts.slice(0, 3).join('; ')}`);
-    lines.push('Перед выходом уточните обстановку сами.');
+    // У Северных Курил совет — в самой записке, с адресом: второй раз не нужен.
+    if (!outsideSources) lines.push('Перед выходом уточните обстановку сами.');
   } else {
     if (note) lines.push(note);
     if (alerts.length > 0) {

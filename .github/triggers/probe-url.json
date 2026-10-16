@@ -1,24 +1,32 @@
 {
   "timeout": 60,
-  "run": 981,
-  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Перед решениями по карт-бланшу владельца: все места вида «пещера» с координатами и районом (морская тревога не ложится на горные виды — добавлять ли пещеры) и есть ли тексты рубрик-«маршрутов» в разделе статей (их прячем из маршрутов). Без ожидания выката: код не менялся.",
+  "run": 982,
+  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Проверка решений по карт-бланшу владельца (1299–1300 и разбор приёма): у мест — метка Корякского округа у 26, Северных Курил у 12, «Северная» 73 (было 98); карточка Эбеко — метка Курил и признак «вне сводок края» (один запрос: карточка засчитывает просмотр); рубрика «История Камчатки» среди маршрутов — 404. Карточка маршрута (западный «Вулкан Ильинский», северный «Вулкан Удина»): какие «экстренные контакты» отдаёт /api/safety/warnings — до правки, снимок как есть. Датчик свежести — 26 корякских мест в переписи.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-zone-census?rows=places",
-    "https://vedarai.ru/articles"
+    "https://vedarai.ru/api/cron/place-zone-census",
+    "https://vedarai.ru/api/places/1eed3971-5265-44a5-b42c-9457e49e30df",
+    "https://vedarai.ru/api/routes/5b8d6bb5-4044-47f7-8525-25d49a63d4db",
+    "https://vedarai.ru/api/safety/warnings?routeId=45010ef9-f3aa-4c7b-8549-4c0933e3925c",
+    "https://vedarai.ru/api/safety/warnings?routeId=ed8a075c-432e-482b-9bf5-d55fa3ca3bde"
   ],
+  "gone": [
+    "https://vedarai.ru/api/routes/5b8d6bb5-4044-47f7-8525-25d49a63d4db"
+  ],
+  "until": "\"zone\":\"krai_koryak\",\"alert_zone\":true,\"count\":26,",
+  "retries": 60,
+  "retryDelay": 40,
   "grep": [
-    "\"location_type\":\"cave\"",
-    "История Камчатки",
-    "Флора Камчатки",
-    "Когда лучше ехать на Камчатку",
-    "Нижнекамчатск",
-    "Экологические проблемы Камчатки"
+    "\"zone\":\"krai_koryak\",\"alert_zone\":true,\"count\":26,",
+    "\"zone\":\"kuril_north\",\"alert_zone\":false,\"count\":12,\"reached\":{\"krai_wide\":0,\"meteo_south\":0,\"meteo_north\":0}",
+    "\"zone\":\"northern\",\"alert_zone\":true,\"count\":73,",
+    "\"zone\":\"kuril_north\",\"district\"",
+    "\"outsideKraiSources\":true"
   ],
   "around": [
-    "\"location_type\":\"cave\""
+    "\"by_zone\"",
+    "\"emergency_contacts\""
   ],
-  "aroundBefore": 5,
-  "aroundLines": 0,
-  "aroundHits": 20,
-  "bytes": 200
+  "aroundLines": 70,
+  "aroundHits": 4,
+  "bytes": 300
 }

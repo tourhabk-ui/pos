@@ -34,6 +34,7 @@ import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/t
 import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals';
 import { ACTIVE_ZONE_ALERTS_SQL, UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alerts';
 import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
+import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
 import { MARINE_ALERT_SQL, isMarineAlert } from '@/lib/safety/marine-alert';
 import { classifyMchsItem, classifyMessage, mchs_zones } from '@/lib/services/safety/seismic-parser';
 import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
@@ -437,6 +438,76 @@ withPg('кого накрывает предупреждение', () => {
     const id = await insertAlert({ type: 'tsunami_warning', title: `${e!.title} (тест МЧС)`, zones: [...e!.affected_zones] });
     const covered = await coveredBy(id);
     for (const p of [COMMANDER, FAR_NORTH, CITY, SHIVELUCH]) expect(covered, p.id).toContain(p.id);
+  });
+
+  // 16.10, карт-бланш владельца: Северные Курилы — Сахалинская область.
+  // Камчатская погода и «юг края» по широте их не касаются, угроза цунами —
+  // касается, тревога об Эбеко — их метка (lib/safety/kuril-north.ts).
+  // Место заводится и убирается здесь же: соседние проверки сверяют охват
+  // точным списком.
+  it('Северные Курилы: «юг края» по широте — нет, цунами КБГС — да, Эбеко — их метка', async () => {
+    const KURIL = { id: 'Северо-Курильск (тест)', ark: 'c0000000-0000-4000-8000-000000000021', lat: 50.678, lng: 156.125 };
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+       VALUES ($1, $1, $2, $3, $4, 'settlement', $5, TRUE)`,
+      [KURIL.id, KURIL.lat, KURIL.lng, KURIL.ark, KURIL_NORTH_ZONE],
+    );
+    await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [KURIL.ark]);
+    try {
+      const south = await insertAlert({ type: 'flood', title: 'Паводок в южной половине края (тест Курил)', zones: mchs_zones('паводок в южной половине края') });
+      const southCovered = await coveredBy(south);
+      expect(southCovered).toContain(CITY.id);
+      expect(southCovered).not.toContain(KURIL.id);
+
+      const [e96] = meteoalertEvents(
+        [{ regionId: '96', key: '31', level: 2, phenomenon: 'Ветер', text: 'местами 15-20 м/с', startUnix: Math.floor(Date.now() / 1000) - 60, minutes: 600 }],
+        Date.now(),
+      );
+      const meteo = await insertAlert({ type: 'weather', title: `${e96.title} (тест Курил)`, zones: [...e96.affected_zones] });
+      expect(await coveredBy(meteo)).not.toContain(KURIL.id);
+
+      const t = classifyMessage('t.me/kbgsras/test-kuril', 'Объявлена угроза цунами для восточного побережья Камчатки.', new Date().toISOString());
+      const tsunami = await insertAlert({ type: 'tsunami_warning', title: `${t!.title} (тест Курил)`, zones: [...t!.affected_zones] });
+      expect(await coveredBy(tsunami)).toContain(KURIL.id);
+
+      const ebeko = await insertAlert({ type: 'weather', title: 'Пепловый шлейф вулкана Эбеко (тест)', zones: mchs_zones('пепловые выбросы вулкана Эбеко') });
+      const ebekoCovered = await coveredBy(ebeko);
+      expect(ebekoCovered).toContain(KURIL.id);
+      for (const p of [SHIVELUCH, KLYUCHEVSKOY, FAR_NORTH]) expect(ebekoCovered, p.id).not.toContain(p.id);
+    } finally {
+      await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = $1`, [KURIL.ark]);
+      await pool.query(`DELETE FROM places WHERE id = $1`, [KURIL.id]);
+    }
+  });
+
+  // 16.10, карт-бланш владельца: район корякских мест — метка округа, а не
+  // «северная». Место южнее широтной черты 57° доходит по метке; сводка об
+  // Усть-Камчатском округе — нет.
+  it('Корякский округ меткой района: южнее 57° — тоже; Усть-Камчатский — нет; север края — да', async () => {
+    const KYTEPANA = { id: 'Большая Кытэпана (тест)', ark: 'c0000000-0000-4000-8000-000000000022', lat: 56.929, lng: 158.258 };
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+       VALUES ($1, $1, $2, $3, $4, 'volcano', $5, TRUE)`,
+      [KYTEPANA.id, KYTEPANA.lat, KYTEPANA.lng, KYTEPANA.ark, KRAI_KORYAK_ZONE],
+    );
+    await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [KYTEPANA.ark]);
+    try {
+      const koryak = await insertAlert({ type: 'flood', title: 'Подъём воды на реках Тигильского района (тест)', zones: mchs_zones('подъём воды на реках Тигильского района') });
+      expect(await coveredBy(koryak)).toContain(KYTEPANA.id);
+
+      const uk = await insertAlert({ type: 'flood', title: 'Паводок в Усть-Камчатском районе (тест Корякского)', zones: mchs_zones('паводок в Усть-Камчатском районе') });
+      expect(await coveredBy(uk)).not.toContain(KYTEPANA.id);
+
+      const [e95] = meteoalertEvents(
+        [{ regionId: '95', key: '41', level: 2, phenomenon: 'Метель', text: 'местами', startUnix: Math.floor(Date.now() / 1000) - 60, minutes: 600 }],
+        Date.now(),
+      );
+      const north = await insertAlert({ type: 'weather', title: `${e95.title} (тест Корякского)`, zones: [...e95.affected_zones] });
+      expect(await coveredBy(north)).toContain(KYTEPANA.id);
+    } finally {
+      await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = $1`, [KYTEPANA.ark]);
+      await pool.query(`DELETE FROM places WHERE id = $1`, [KYTEPANA.id]);
+    }
   });
 
   it('«по всему краю» МЧС доходит до Командор и до Корякского округа', async () => {

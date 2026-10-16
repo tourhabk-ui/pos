@@ -48,6 +48,11 @@ export interface PlaceRealtime {
   /** Вулканы, к которым место привязано поимённо (1029): их шкалы поднимают статус места. */
   linkedVolcanoes: string | null;
   updatedAt: string | null;
+  /**
+   * Место вне сводок края — Северные Курилы (lib/safety/kuril-north.ts):
+   * зелёный пересчёт там значит «камчатских сводок нет», а не «предупреждений нет».
+   */
+  outsideKraiSources?: boolean;
 }
 
 export interface VolcanoAccStatus {

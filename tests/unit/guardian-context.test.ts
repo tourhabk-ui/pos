@@ -572,3 +572,37 @@ describe('getGuardianContext — сам вулкан: цвет места не �
     expect(ctx).not.toContain(NOTE);
   });
 });
+
+// 16.10, карт-бланш владельца: Северные Курилы — Сахалинская область.
+// Зелёный пересчёт там значит «камчатских сводок нет», а не «предупреждений
+// нет», и Кузьмич говорит это словами, как полоса «Сейчас» на карточке.
+describe('getGuardianContext — Северные Курилы вне сводок края', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const row = {
+    name: 'Эбеко', description: null, location_type: 'volcano', lat: 50.686, lng: 156.014,
+    hazard_types: null, difficulty_level: null, altitude_m: null, nearest_medical_km: null,
+    sat_communicator_required: null, capacity_per_day: null, open_from_date: null, open_to_date: null,
+    is_open: true, current_crowds: null, active_alerts: null, recommender_status: 'green',
+    alert_message: null, alert_severity: null, tourists_today: null,
+    volcano_acc: null, volcano_ash_height_m: null, volcano_observed_at: null,
+    status_updated_at: new Date(Date.now() - 600_000).toISOString(),
+  };
+
+  it('зелёный на Курилах — без цвета и с причиной', async () => {
+    mockQuery.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: sql.includes('FROM places') ? [{ ...row, zone: 'kuril_north' }] : [] }));
+    const ctx = (await getGuardianContext('Эбеко')) ?? '';
+    expect(ctx).toContain('Сахалинская область');
+    expect(ctx).not.toContain('ЗЕЛЁНЫЙ значит');
+    expect(ctx).not.toMatch(/Эбеко \(вулкан\) \[/);
+  });
+
+  it('то же место с камчатским районом — зелёный, как раньше', async () => {
+    mockQuery.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: sql.includes('FROM places') ? [{ ...row, zone: 'northern' }] : [] }));
+    const ctx = (await getGuardianContext('Эбеко')) ?? '';
+    expect(ctx).toContain('ЗЕЛЁНЫЙ значит');
+    expect(ctx).not.toContain('Сахалинская область');
+  });
+});

@@ -31,6 +31,7 @@
  *
  *   закрыто администратором            → closed
  *   пересчёта не было / он старше 3 ч  → unknown (цвет не показывается)
+ *   зелёный у места вне сводок края    → unknown (Северные Курилы, 16.10)
  *   иначе                              → red / yellow / green пересчёта
  *
  * Зелёный значит ровно то, что посчитано: в сводках нет предупреждений,
@@ -53,12 +54,19 @@ export interface PlaceDayInput {
   status: string | null;
   /** Время пересчёта в ISO с поясом (isoUtcSql), не стенное время базы. */
   updatedAt: string | null;
+  /** Место вне сводок края — Северные Курилы (lib/safety/kuril-north.ts). */
+  outsideKraiSources?: boolean;
 }
 
 export interface PlaceDay {
   level: PlaceDayLevel;
   /** Пересчёт был, но давно: цвет не показываем и говорим почему. */
   stale: boolean;
+  /**
+   * Пересчёт зелёный, но место вне сводок края: «предупреждений нет» там
+   * значило бы «камчатских сводок о нём нет». Цвет не показываем (16.10).
+   */
+  outsideSources?: boolean;
 }
 
 export function placeDayStatus(rt: PlaceDayInput, now: number = Date.now()): PlaceDay {
@@ -67,6 +75,12 @@ export function placeDayStatus(rt: PlaceDayInput, now: number = Date.now()): Pla
   const at = rt.updatedAt ? Date.parse(rt.updatedAt) : NaN;
   if (!Number.isFinite(at)) return { level: 'unknown', stale: false };
   if (now - at > PLACE_STATUS_FRESH_MS) return { level: 'unknown', stale: true };
+  // Северные Курилы: жёлтый и красный пересчёта — от цунами, землетрясения
+  // или вулкана, они настоящие и показываются. Зелёный — нет: сахалинских
+  // сводок у нас нет, и «предупреждений нет» было бы неправдой (16.10).
+  if (rt.status === 'green' && rt.outsideKraiSources) {
+    return { level: 'unknown', stale: false, outsideSources: true };
+  }
   if (rt.status === 'red' || rt.status === 'yellow' || rt.status === 'green') {
     return { level: rt.status, stale: false };
   }

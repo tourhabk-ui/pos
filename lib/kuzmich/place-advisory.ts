@@ -14,6 +14,7 @@ import {
   isVolcanoObservationStale, volcanoObservationAgeDays, formatObservationAge,
 } from '@/lib/services/safety/kvert-vona';
 import type { PlaceDay, PlaceDayLevel } from '@/lib/safety/place-day-status';
+import { KURIL_NORTH_NOTE } from '@/lib/safety/kuril-north';
 
 export type AdvisoryTone = 'ok' | 'caution' | 'danger' | 'unknown';
 
@@ -76,14 +77,17 @@ export function buildPlaceAdvisory(p: AdvisoryInput, now: number = Date.now()): 
   let dayUnknown = false;
   const alerts = (p.realtime?.activeAlerts ?? []).map((a) => a.trim()).filter(Boolean);
   if (p.realtime) {
-    const { level, stale } = p.realtime;
+    const { level, stale, outsideSources } = p.realtime;
     tone = worst(tone, DAY_TONE[level]);
     if (level === 'closed') lines.push('Сейчас закрыто для посещения');
     if (level === 'unknown') {
       dayUnknown = true;
-      lines.push(stale
-        ? 'Пересчёт обстановки по сводкам давно не обновлялся — сверься перед выходом'
-        : 'Пересчёта обстановки по этому месту у нас нет — сверься перед выходом');
+      // Северные Курилы — та же фраза, что у полосы «Сейчас» (16.10).
+      lines.push(outsideSources
+        ? KURIL_NORTH_NOTE
+        : stale
+          ? 'Пересчёт обстановки по сводкам давно не обновлялся — сверься перед выходом'
+          : 'Пересчёта обстановки по этому месту у нас нет — сверься перед выходом');
       if (alerts.length > 0) lines.push(`В последнем пересчёте было: ${alerts[0]}`);
     } else if (alerts.length > 0) {
       // Под зелёным предупреждения слабее уровня места: они есть, но не

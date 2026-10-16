@@ -31,6 +31,10 @@ import {
   classifyMchsItem,
 } from '@/lib/services/safety/seismic-parser';
 import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
+import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
+
+/** Цунами — весь край и Северные Курилы (16.10, lib/safety/kuril-north.ts). */
+const TSUNAMI_ZONES = [...KRAI_WIDE_ZONES, KURIL_NORTH_ZONE];
 import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 
 const AT = '2026-09-24T05:00:00Z';
@@ -120,7 +124,7 @@ describe('классификатор МЧС', () => {
   it('угроза без округа — весь край, с округом — по округу, отбой — так же', () => {
     const all = classifyMchsItem('mchs/t2', 'Угроза цунами', 'Объявлена угроза цунами на побережье.', AT, 'https://x');
     expect(all?.alert_type).toBe('tsunami_warning');
-    expect([...(all?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+    expect([...(all?.affected_zones ?? [])].sort()).toEqual([...TSUNAMI_ZONES].sort());
 
     const ust = classifyMchsItem('mchs/t3', 'Угроза цунами',
       'Объявлена угроза цунами для побережья Усть-Камчатского муниципального округа.', AT, 'https://x');
@@ -128,7 +132,7 @@ describe('классификатор МЧС', () => {
     expect(ust?.affected_zones).toEqual(['northern']);
 
     const clear = classifyMchsItem('mchs/c2', 'Отбой', 'Угроза цунами отменена.', AT, 'https://x');
-    expect([...(clear?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+    expect([...(clear?.affected_zones ?? [])].sort()).toEqual([...TSUNAMI_ZONES].sort());
   });
 
   it('прочие рода без округа — по-прежнему без зон («не установлено» ≠ «везде»)', () => {
@@ -158,12 +162,12 @@ describe('классификатор КБГС', () => {
 
   // 16.10: четыре зоны стояли буквами — Командоры и Корякский округ угрозу
   // не получали. Весь край — тот же список, что у «по всему краю» МЧС.
-  it('угроза и отбой — весь край, с метками Командор и Корякского округа', () => {
+  it('угроза и отбой — весь край, с метками Командор и Корякского округа, и Северные Курилы', () => {
     const w = classifyMessage('t.me/kbgsras/4', 'Объявлена угроза цунами для восточного побережья Камчатки.', AT);
     const c = classifyMessage('t.me/kbgsras/5', 'Угроза цунами отменена.', AT);
-    expect([...(w?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+    expect([...(w?.affected_zones ?? [])].sort()).toEqual([...TSUNAMI_ZONES].sort());
     expect(w?.affected_zones).toEqual(expect.arrayContaining([KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE]));
-    expect([...(c?.affected_zones ?? [])].sort()).toEqual([...KRAI_WIDE_ZONES].sort());
+    expect([...(c?.affected_zones ?? [])].sort()).toEqual([...TSUNAMI_ZONES].sort());
   });
 });
 

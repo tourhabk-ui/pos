@@ -23,6 +23,7 @@ import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 import { KRAI_COMMANDER_ZONE, KRAI_FAR_ZONES, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
+import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
@@ -70,6 +71,14 @@ export interface ParseResult {
 const ALL_ZONES = KRAI_WIDE_ZONES;
 
 /**
+ * Охват угрозы цунами без названного округа — весь край и Северные Курилы
+ * (16.10, lib/safety/kuril-north.ts). Погодные сводки края о Парамушире не
+ * говорят, а волна от камчатского землетрясения — да: Северо-Курильск в
+ * 1952-м. Пропущенное цунами дороже ложного (правило цунами ниже).
+ */
+export const TSUNAMI_WIDE_ZONES: readonly string[] = [...ALL_ZONES, KURIL_NORTH_ZONE];
+
+/**
  * Текст, который САМ объявляет себя общекраевым. Это данные, а не умолчание:
  * «по Камчатскому краю ожидается штормовой ветер» накрывает и город, и
  * вулканы — по слову источника, не по нашей догадке. Проверяется ПОСЛЕ
@@ -95,13 +104,20 @@ const VOLCANO_ZONES: Record<string, string[]> = {
   'малый семячик': ['eastern'],
   'кроноцкий':  ['eastern'],
   'узон':       ['eastern'],
-  'жупановский':['eastern'],
+  // Жупановский — вулкан парка «Налычево» (1248), у его места и у всего
+  // Налычева район «Авачинская», а пепел и паводки сходят и на восток, к
+  // Кроноцкому заливу. Только «eastern» значило, что сводка о вулкане не
+  // доходит до его же карточки (карт-бланш владельца 16.10).
+  'жупановский':['eastern', 'avachinsky'],
   // Кроноцкий заповедник: сводка Минтура 06.08 не рекомендовала «район вулкана
   // Крашенинникова» — имени не было в карте, зона терялась.
   'крашенинникова': ['eastern'],
   'ичинский':   ['western'],
-  'алаид':      ['northern'],
-  'эбеко':      ['northern'],
+  // Алаид и Эбеко — Северные Курилы (Сахалинская область), а не «северная»
+  // зона края: сводка о них красила бы Ключи и Усть-Камчатск
+  // (lib/safety/kuril-north.ts, 16.10).
+  'алаид':      [KURIL_NORTH_ZONE],
+  'эбеко':      [KURIL_NORTH_ZONE],
 };
 
 // ── Парсер Telegram-канала ────────────────────────────────────────────────
@@ -266,7 +282,8 @@ export function classifyMessage(id: string, text: string, datetime: string): Sei
       // Стеллера с 1288 в районе «commander», а он зоной не назван, —
       // и до Корякского берега, если у места район вне четвёрки. Отбой —
       // тем же местам, что и угроза.
-      affected_zones: [...ALL_ZONES],
+      // Северные Курилы — тоже (TSUNAMI_WIDE_ZONES, 16.10).
+      affected_zones: [...TSUNAMI_WIDE_ZONES],
       expires_hours: isAllClear ? 1 : 48,
     };
   }
@@ -377,7 +394,7 @@ export type TsunamiStatus = 'warning' | 'all_clear' | 'no_threat';
  * не «везде» (mchs_zones).
  */
 export function tsunamiAlertZones(textZones: readonly string[]): string[] {
-  return textZones.length > 0 ? [...textZones] : [...ALL_ZONES];
+  return textZones.length > 0 ? [...textZones] : [...TSUNAMI_WIDE_ZONES];
 }
 
 const NEG_VERB = 'не\\s+(?:ожида|прогноз|угрожа|зарегистр|зафиксир|предвид|возник|объявл|будет)';
@@ -1210,7 +1227,9 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   // #83). Восточная зона сюда НЕ добавлена: паводок 7–12.10 «на реках
   // Елизовского округа» лёг бы на Кроноцкий заповедник — то, что владелец
   // снял 09.10 (#2293); у сводок МЧС «Елизовский» — обжитая часть округа с
-  // гидропостами. Вопрос владельцу, а не правка по контуру.
+  // гидропостами. Решение 16.10 по карт-бланшу владельца — оставить так:
+  // сводки о названных объектах востока (Кроноцкий, Узон, Карымский) зону
+  // «eastern» и так получают картой вулканов выше.
   [/елизов/i,       ['avachinsky']],
   [/петропавловск/i,['avachinsky']],
   [/быстринск/i,    ['western']],
@@ -1223,6 +1242,10 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   // тревога МЧС, назвавшая Палану, не получила бы зоны.
   [/тигильск|карагинск|пенжинск|олюторск|палан/i, [KRAI_KORYAK_ZONE]],
   [/алеутск/i,      [KRAI_COMMANDER_ZONE]],
+  // Северо-Курильский округ — Сахалинская область, своя метка
+  // (lib/safety/kuril-north.ts, 16.10): сводка, назвавшая его, ложится на
+  // Парамушир и Шумшу, а не на камчатскую зону.
+  [/северо-курильск|парамушир|шумшу/i, [KURIL_NORTH_ZONE]],
   [/усть-камчатск/i,['northern']],
   // Мильковский округ — центральная долина реки Камчатки, дорога на север.
   // Своей зоны у центра в нашей четвёрке нет; ближайшая по географии и по

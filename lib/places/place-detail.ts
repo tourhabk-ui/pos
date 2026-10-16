@@ -21,6 +21,7 @@ import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety
 import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { asCoordSource } from '@/lib/places/coord-source';
 import { descriptionWrittenByModel, type LastDescriptionWrite } from '@/lib/places/description-by-model';
+import { isOutsideKraiSources } from '@/lib/safety/kuril-north';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { descriptionVoice } from '@/lib/places/description-voice';
@@ -534,6 +535,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           status: (r.recommender_status as string | null) ?? null,
           linkedVolcanoes: (r.linked_volcanoes as string | null) ?? null,
           updatedAt: r.realtime_updated_at as string | null,
+          outsideKraiSources: isOutsideKraiSources(r.zone as string | null),
         } : null,
 
         routes: routesResult.rows.map(rt => ({

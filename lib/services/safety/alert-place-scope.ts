@@ -27,6 +27,7 @@ import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
 import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 import { KRAI_SOUTH_MAX_LAT, KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
+import { KURIL_NORTH_BOX_SQL } from '@/lib/safety/kuril-north';
 import { KRAI_FAR_MATCH_SQL } from '@/lib/safety/krai-far';
 import { MARINE_ALERT_SQL, MOUNTAIN_PLACE_SQL } from '@/lib/safety/marine-alert';
 
@@ -250,7 +251,10 @@ export const ALERT_MATCH_SQL = `
       -- (решение владельца 04.10, lib/safety/krai-south.ts). Без широты не
       -- накрывает: «не измерили» ≠ «южнее».
       OR ('${KRAI_SOUTH_ZONE}' = ANY(ea.affected_zones)
-          AND ark.lat IS NOT NULL AND ark.lat::float8 <= ${KRAI_SOUTH_MAX_LAT})
+          AND ark.lat IS NOT NULL AND ark.lat::float8 <= ${KRAI_SOUTH_MAX_LAT}
+          -- Парамушир и Шумшу южнее этой широты, но это Сахалинская
+          -- область: «юг края» о них не говорит (16.10, lib/safety/kuril-north.ts).
+          AND NOT ${KURIL_NORTH_BOX_SQL})
       -- Дальние округа — Корякский округ и Командоры — тоже по координатам
       -- места (решение владельца 09.10, #2293, lib/safety/krai-far.ts).
       OR ${KRAI_FAR_MATCH_SQL}

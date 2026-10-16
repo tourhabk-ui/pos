@@ -19,6 +19,7 @@ import { placeRoutesFor, placeRoutesLines, type PlaceRouteRow } from '@/lib/plac
 import { routeFacts } from '@/lib/ai/route-knowledge';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { PLACE_STATUS_FRESH_MS, kamchatkaStamp } from '@/lib/safety/place-day-status';
+import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
 
 interface GuardianPlaceRow {
   /** id места — для ссылки на его карточку (только в чате, см. pageLinks). */
@@ -28,6 +29,8 @@ interface GuardianPlaceRow {
   name: string;
   description: string | null;
   location_type: string | null;
+  /** Район места: метка Северных Курил значит «вне сводок края» (lib/safety/kuril-north.ts). */
+  zone?: string | null;
   lat: number | null;
   lng: number | null;
   hazard_types: string[] | null;
@@ -452,7 +455,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     pool.query<GuardianPlaceRow>(
       `SELECT
          p.id::text AS id, p.is_visible,
-         p.name, p.description, p.location_type, p.lat, p.lng,
+         p.name, p.description, p.location_type, p.lat, p.lng, p.zone,
          lsp.hazard_types, lsp.difficulty_level, lsp.altitude_m, lsp.profile_source,
          lsp.nearest_medical_km, lsp.sat_communicator_required,
          lsp.capacity_per_day, lsp.open_from_date, lsp.open_to_date,
@@ -584,7 +587,10 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // вставшем. Устарел — цвет не показываем и говорим почему.
     const updatedMs = p.status_updated_at ? Date.parse(p.status_updated_at) : NaN;
     const statusStale = rawStatus !== null && Number.isFinite(updatedMs) && Date.now() - updatedMs > STATUS_FRESH_MS;
-    const status = statusStale ? null : rawStatus;
+    // Северные Курилы: зелёный значит «камчатских сводок нет», а не
+    // «предупреждений нет» — цвет не печатаем, как и у карточки (16.10).
+    const outsideGreen = p.recommender_status === 'green' && isOutsideKraiSources(p.zone);
+    const status = statusStale || outsideGreen ? null : rawStatus;
     // Раздел каталога — в заголовке, рядом с именем. До 17.09 location_type
     // выбирался этим же запросом и не печатался: тип был виден только на
     // бейдже карточки и маркере карты, а в MCP — единственном канале, которым
@@ -600,6 +606,8 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     parts.push(header);
     if (statusStale) {
       parts.push(`Статус места не пересчитывался с ${kamchatkaStamp(p.status_updated_at!)} (по Камчатке) — цвет не показываю: он может быть уже не про сегодня.`);
+    } else if (outsideGreen) {
+      parts.push(KURIL_NORTH_NOTE);
     } else if (p.recommender_status === 'green') {
       const when = Number.isFinite(updatedMs) ? `, пересчёт ${kamchatkaStamp(p.status_updated_at!)} по Камчатке` : '';
       parts.push(`ЗЕЛЁНЫЙ значит: активных предупреждений по месту не найдено${when}. Это не гарантия безопасности.`);
