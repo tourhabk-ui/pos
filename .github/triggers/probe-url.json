@@ -1,24 +1,28 @@
 {
   "timeout": 60,
-  "run": 977,
-  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Хвост переписи охвата после выката 1293 (проба 976 подтвердила районы: avachinsky 237, northern 72, western 32, eastern 29, commander 10, без района 4): места без строки реалтайма, Командоры и Корякский округ с районами, раздел маршрутов. В пробе 976 их съел список «север края не дошёл» по южным местам — здесь только контекст вокруг ключей. И строка реалтайма у Корякского заповедника. Конфиг записан целиком.",
+  "run": 978,
+  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. Проверка 1294 на проде (район по округу точки, 87 мест): Курильское озеро и Эссо — western, Долина великанов и Паланские пороги — northern, Горячереченские (Налычево) — avachinsky, Паужетские — western; перепись охвата — места по районам (ожидание: avachinsky 171, western 70, northern 98, eastern 32, commander 10, без района 3). Датчик свежести — район Курильского озера. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-zone-census",
-    "https://vedarai.ru/api/places/b9c4e312-6d8f-4a5b-9c71-3e2f1d0b7a46"
+    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
+    "https://vedarai.ru/api/places/36d5d094-5ab0-4f06-a0de-da62bd3ab0a1",
+    "https://vedarai.ru/api/places/852465ed-60f2-4db7-9715-6e3e8018af1f",
+    "https://vedarai.ru/api/places/8ed1e7c5-df06-4bae-9c48-3be6c2890aa0",
+    "https://vedarai.ru/api/places/7f5284b0-8862-4b11-8a68-2241d359832c",
+    "https://vedarai.ru/api/places/f54589e0-031e-4fa6-bfee-4c73401bb8f2",
+    "https://vedarai.ru/api/cron/place-zone-census"
   ],
-  "retries": 2,
-  "retryDelay": 30,
+  "until": "\"zone\":\"western\",\"district\"",
+  "retries": 45,
+  "retryDelay": 40,
   "grep": [
-    "\"no_status\":[]",
-    "\"realtime\":null"
+    "\"zone\":\"western\",\"district\"",
+    "\"zone\":\"northern\",\"district\"",
+    "\"zone\":\"avachinsky\",\"district\""
   ],
   "around": [
-    "\"no_status\"",
-    "\"commander_box\"",
-    "\"routes\":{\"count\"",
-    "\"realtime\""
+    "\"by_zone\""
   ],
-  "aroundLines": 140,
-  "aroundHits": 1,
-  "bytes": 400
+  "aroundLines": 70,
+  "aroundHits": 2,
+  "bytes": 300
 }
