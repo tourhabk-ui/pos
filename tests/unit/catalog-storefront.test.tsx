@@ -32,6 +32,7 @@ import {
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { activityLabel } from '@/lib/tours/labels';
+import { activityIcon } from '@/lib/tours/activity-icons';
 
 vi.mock('next/image', () => ({
   default: (p: { src: string; alt: string }) => React.createElement('img', { src: p.src, alt: p.alt }),
@@ -128,6 +129,13 @@ const SUMMARY = { total: 37, minPrice: 7000, byActivity: [{ activity_type: 'fish
 
 function storefront(tours: Tour[] = TOURS) {
   return render(<MarketplaceClient initialTours={tours} initialTotal={tours.length} initialKey={KEY} summary={SUMMARY} />);
+}
+/** Класс значка вида из единого словаря (lucide-fish и т.п.) — им ряд и сверяется. */
+function iconToken(type: string): string {
+  const { container, unmount } = render(React.createElement(activityIcon(type)));
+  const token = [...(container.querySelector('svg')?.classList ?? [])].find((c) => c.startsWith('lucide-')) ?? '';
+  unmount();
+  return token;
 }
 /** Карточка — родитель ссылки-слоя, у которой доступное имя = название тура. */
 const card = (title: string) => screen.getByRole('link', { name: title }).parentElement as HTMLElement;
@@ -286,17 +294,72 @@ describe('сводка витрины: направления только с т
     expect(sent).toHaveLength(3);
     for (const sql of sent) expect(sql).toContain(publicTourSql('ot'));
   });
-  it('чипы — из сводки, подписи словами из единого словаря, со счётчиком, aria-pressed и целью 44px', () => {
+  it('чипы — из сводки: вид значком из единого словаря и числом, название — в доступном имени; aria-pressed и цель 44px', () => {
+    // Владелец 16.10: «заменим надписи на иконки будет интересней» — ряд словами
+    // обрезался посреди слова («Вертолё…»).
+    const fish = iconToken('fishing');
+    const car = iconToken('jeep_safari');
     storefront();
     const group = screen.getByRole('group', { name: 'Направления' });
     const chips = within(group).getAllByRole('button');
-    expect(chips.map((b) => b.textContent)).toEqual([
-      'Все · 37',
-      `${activityLabel('fishing', true)} · 7`,
-      `${activityLabel('jeep_safari', true)} · 8`,
+    expect(chips.map((b) => b.textContent)).toEqual(['Все · 37', '7', '8']);
+    expect(chips[1]!.querySelector('svg')?.classList.contains(fish)).toBe(true);
+    expect(chips[2]!.querySelector('svg')?.classList.contains(car)).toBe(true);
+    expect(chips.slice(1).map((b) => b.getAttribute('aria-label'))).toEqual([
+      `${activityLabel('fishing', true)} — 7 туров`,
+      `${activityLabel('jeep_safari', true)} — 8 туров`,
+    ]);
+    expect(chips.slice(1).map((b) => b.getAttribute('title'))).toEqual([
+      activityLabel('fishing', true),
+      activityLabel('jeep_safari', true),
     ]);
     expect(chips.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
     for (const b of chips) expect(b.className).toMatch(/min-h-\[44px\]/);
+  });
+  it('выбранный вид — значок и слово: видно, что выбрано (вход по ?activity_type=)', async () => {
+    window.history.replaceState({}, '', '/catalog?activity_type=fishing');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ tours: [], total: 0 }) } as unknown as Response);
+    try {
+      storefront();
+      await flush();
+      const chips = within(screen.getByRole('group', { name: 'Направления' })).getAllByRole('button');
+      expect(chips.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
+      expect(chips[1]!.textContent).toBe(`${activityLabel('fishing', true)} · 7`);
+      expect(chips[1]!.querySelector('svg')?.classList.contains(iconToken('fishing'))).toBe(true);
+      expect(chips[2]!.textContent).toBe('8');
+    } finally {
+      window.history.replaceState({}, '', '/catalog');
+    }
+  });
+  it('где значок сам не скажет — слово: общий значок вида и два одинаковых значка в ряду', () => {
+    render(
+      <MarketplaceClient
+        initialTours={TOURS}
+        initialTotal={TOURS.length}
+        initialKey={KEY}
+        summary={{
+          total: 6,
+          minPrice: 7000,
+          byActivity: [
+            { activity_type: 'horseback', count: 1 },
+            { activity_type: 'rafting', count: 2 },
+            { activity_type: 'surf', count: 1 },
+            { activity_type: 'helicopter', count: 2 },
+          ],
+        }}
+      />,
+    );
+    const chips = within(screen.getByRole('group', { name: 'Направления' })).getAllByRole('button');
+    expect(chips.map((b) => b.textContent)).toEqual([
+      'Все · 6',
+      `${activityLabel('horseback', true)} · 1`,
+      `${activityLabel('rafting', true)} · 2`,
+      `${activityLabel('surf', true)} · 1`,
+      '2',
+    ]);
+    // Общий билет и две одинаковые волны значком не рисуются; вертолёт — свой и один.
+    for (const b of chips.slice(1, 4)) expect(b.querySelector('svg')).toBeNull();
+    expect(chips[4]!.querySelector('svg')?.classList.contains(iconToken('helicopter'))).toBe(true);
   });
 });
 
