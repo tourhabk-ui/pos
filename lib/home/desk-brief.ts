@@ -47,7 +47,11 @@ export interface PlanChange {
 const KIND: Record<string, { kind: ChangeKind; label: string }> = {
   road_closure: { kind: 'road', label: 'дороги' },
   volcano: { kind: 'volcano', label: 'вулкан' },
-  volcanic_eruption: { kind: 'volcano', label: 'извержение' },
+  // Не «извержение»: тем же типом идут запреты подходить к вулкану — разбор
+  // МЧС и Минтура («не рекомендуется приближаться», «риск обвалов») и ручная
+  // запись сводки (1298). Мутновский по KVERT зелёный, и подпись «извержение»
+  // у его записи была бы неправдой. Об извержении скажет сам заголовок.
+  volcanic_eruption: { kind: 'volcano', label: 'вулкан' },
   ash_cloud: { kind: 'volcano', label: 'пепел' },
   tsunami_warning: { kind: 'water', label: 'цунами' },
   flood: { kind: 'water', label: 'паводок' },
