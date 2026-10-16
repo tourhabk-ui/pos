@@ -48,7 +48,7 @@ describe('/zh: как подключить в китайском клиенте'
     const section = await renderZh();
     expect(section.id).toBe('connect');
     const shown = [...section.querySelectorAll('[data-zh-client]')].map((el) => el.getAttribute('data-zh-client')).sort();
-    expect(shown).toEqual(['cherry_studio', 'coze', 'doubao_desktop', 'qoder_cn', 'step_code', 'trae']);
+    expect(shown).toEqual(['cherry_studio', 'coze', 'doubao_desktop', 'glm_api', 'kimi_code', 'qoder_cn', 'qwen_desktop', 'step_code', 'trae']);
     expect(shown).toEqual(ZH_CLIENT_GUIDES.map((g) => g.id).sort());
   });
 

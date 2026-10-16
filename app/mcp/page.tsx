@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   // До 160 знаков — длиннее выдача обрезает (аудит vedarai.ru 01.10).
   description:
     'Публичный MCP-сервер Ведара для ИИ-агентов: vedarai.ru/api/mcp, без авторизации. Туры, доступность, безопасность Камчатки, заявки с подтверждением человеком.',
-  alternates: { canonical: `${SITE}/mcp` },
+  alternates: { canonical: `${SITE}/mcp`, languages: { 'zh-CN': `${SITE}/zh` } },
   openGraph: {
     images: defaultOgImages(),
     title: 'MCP-сервер Ведара для ИИ-агентов',
@@ -89,6 +89,7 @@ export default function McpLandingPage() {
               {/* Китайский слой (12.10): текст в lib/mcp/zh-layer, тот же, что в манифесте и llms.txt. */}
               <p lang="zh-CN" style={{ color: 'var(--text-secondary)' }}>
                 {MCP_TITLE_ZH}。{MCP_DESCRIPTION_ZH}
+                {' '}<a href="/zh#connect" hrefLang="zh-CN">中文接入说明（Qwen、Kimi、扣子、GLM 等）</a>{' · '}<a href="/llms-zh.txt" hrefLang="zh-CN">llms-zh.txt</a>
               </p>
             </div>
           </header>
