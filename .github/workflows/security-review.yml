@@ -10,8 +10,16 @@ name: Security Review — AI-ревью диффа (Claude)
 # - Триггер обычного pull_request (без -target варианта): форки не получают
 #   секрет — на недоверенных PR ревью просто не запускается (экшен не защищён
 #   от prompt-injection, гонять только на доверенных диффах — реком. Anthropic).
-# - Нужен секрет CLAUDE_API_KEY (Settings → Secrets → Actions). Нет ключа —
-#   шаг мягко пропускается, workflow НЕ краснеет (не блокирует мерж).
+# - Ключ — секрет ANTHROPIC_API_KEY, тот же, что у рук Claude (claude.yml,
+#   ci-sweeper, issue-triage, weekly-chronicle). Решение владельца 16.10
+#   «перевести ревью на основной ключ»: прежний отдельный CLAUDE_API_KEY
+#   отвечал 401 «Invalid API key» (PR #2537, run 38855757474), а проверка
+#   оставалась зелёной. Цена решения названа владельцу: каждое ревью тратит
+#   купленный баланс API (промокредиты запрос Claude Code не берёт, #2396).
+#   Нет ключа — шаг мягко пропускается, workflow НЕ краснеет.
+# - Ключ есть, а ревью не состоялось (отказ API, пустой итог) — КРАСНЫЙ
+#   (§4.0: «не смог проверить» не равно «находок нет»). Экшен сам на отказ
+#   API отвечает зелёным и пишет {"error": …} в claudecode-results.json.
 # - Ревью совещательное: постит комментарии на PR, не является required-чеком.
 
 # Триггер сужен по разбору расходов 06.09.
@@ -61,24 +69,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - name: Checkout (с базой для диффа)
-        if: ${{ env.CLAUDE_API_KEY != '' }}
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
         uses: actions/checkout@v7
         with:
           fetch-depth: 2
 
       - name: Claude security review
-        if: ${{ env.CLAUDE_API_KEY != '' }}
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
         uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
         with:
-          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           comment-pr: true
           claudecode-timeout: '15'
           # Шум вне нашего кода — не гоняем ревью по зависимостям и билд-артефактам.
           exclude-directories: 'node_modules,.next,public,migrations'
 
+      # Экшен на отказ API завершается зелёным, оставляя в рабочем каталоге
+      # claudecode-results.json вида {"error": "…"} — так 16.10 ревью PR #2537
+      # «прошло» с ответом 401. Здесь «не смог» становится красным, а не
+      # «находок нет». Текст ошибки — одной строкой: перевод строки в нём
+      # начал бы новую команду workflow.
+      - name: Ревью состоялось
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: |
+          F=claudecode-results.json
+          if [ ! -s "$F" ]; then
+            echo "::error::Ревью безопасности не оставило итога ($F пуст или его нет) — проверка не состоялась, это не «находок нет»."
+            exit 1
+          fi
+          if jq -e 'type == "object" and has("error")' "$F" >/dev/null 2>&1; then
+            MSG=$(jq -r '.error | tostring' "$F" | tr '\r\n' '  ' | head -c 400)
+            echo "::error::Ревью безопасности не состоялось: $MSG"
+            exit 1
+          fi
+          if ! jq -e 'type == "object"' "$F" >/dev/null 2>&1; then
+            echo "::error::Итог ревью ($F) не разобран как JSON-объект — проверка не состоялась."
+            exit 1
+          fi
+          echo "Ревью состоялось, находок: $(jq '.findings // [] | length' "$F")"
+
       - name: Ключ не задан — пропуск
-        if: ${{ env.CLAUDE_API_KEY == '' }}
-        run: echo "CLAUDE_API_KEY не задан в секретах — AI-ревью безопасности пропущено (не ошибка). Добавьте секрет, чтобы включить."
+        if: ${{ env.ANTHROPIC_API_KEY == '' }}
+        run: echo "ANTHROPIC_API_KEY не задан в секретах — AI-ревью безопасности пропущено (не ошибка). Добавьте секрет, чтобы включить."
