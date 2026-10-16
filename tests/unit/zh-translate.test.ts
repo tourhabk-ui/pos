@@ -187,6 +187,31 @@ describe('перевод и запись', () => {
     err.mockRestore();
   });
 
+  // Прогоны 3, 5 и 6 трижды отвергли одно поле строкой «не JSON» без
+  // подробностей — по ней нельзя было отличить мусор от лишнего сегмента.
+  it('ответ не той формы — причина называет, чем именно, и начало ответа', async () => {
+    tourRows = [{ ...TOUR, title: 'Долина гейзеров', description: null, included: null }];
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reasonFor = async (answer: string) => {
+      quality.mockResolvedValue(answer);
+      const body = await (await call('?kind=tour&apply=1')).json();
+      return String(body.not_translated[0].reason);
+    };
+    expect(await reasonFor(JSON.stringify({ segments: ['间歇泉谷', '多余'] })))
+      .toMatch(/не JSON из 1 сегментов: сегментов 2 вместо 1; начало ответа: «\{"segments":\["间歇泉谷"/);
+    expect(await reasonFor('间歇泉谷')).toMatch(/в ответе нет JSON-объекта; начало ответа: «间歇泉谷»/);
+    expect(await reasonFor('{"segments": ["间歇泉谷"')).toMatch(/в ответе нет JSON-объекта/);
+    expect(await reasonFor('{"segments": ["间歇泉谷",]}')).toMatch(/JSON не разобран/);
+    expect(await reasonFor('{"translation": "间歇泉谷"}')).toMatch(/нет массива segments/);
+    expect(await reasonFor('{"segments": [1]}')).toMatch(/в segments не только строки/);
+    // Длинный ответ режется до 100 знаков и одной строкой.
+    const long = await reasonFor(`мусор\n${'谷'.repeat(300)}`);
+    expect(long).toMatch(/начало ответа: «мусор 谷+»$/);
+    expect(long.split('начало ответа: «')[1].length).toBeLessThanOrEqual(101);
+    expect(writes).toEqual([]);
+    err.mockRestore();
+  });
+
   it('модель дописала число — перевод отвергнут с причиной', async () => {
     tourRows = [{ ...TOUR, title: 'Долина гейзеров', description: null, included: null }];
     quality.mockResolvedValue(JSON.stringify({ segments: ['间歇泉谷 3天'] }));

@@ -76,20 +76,40 @@ function messagesFor(system: string, segments: readonly string[]): ChatMessage[]
   ];
 }
 
-/** Ответ модели → сегменты. null — не JSON нужной формы или не той длины. */
-export function parseSegments(answer: string, n: number): string[] | null {
+export type ParsedSegments = { ok: true; segs: string[] } | { ok: false; why: string };
+
+/**
+ * Ответ модели → сегменты, а при отказе — чем именно ответ не той формы.
+ * Прогоны 3, 5 и 6 (15–16.10) трижды отвергли одно и то же поле одной
+ * строкой «не JSON», и по ней нельзя было отличить мусор от лишнего
+ * сегмента: «не смог» обязан называть причину (§4.0).
+ */
+export function parseSegmentsDetailed(answer: string, n: number): ParsedSegments {
   const start = answer.indexOf('{');
   const end = answer.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start) return { ok: false, why: 'в ответе нет JSON-объекта' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(answer.slice(start, end + 1));
-  } catch {
-    return null;
+  } catch (err) {
+    return { ok: false, why: `JSON не разобран: ${err instanceof Error ? err.message : String(err)}`.slice(0, 120) };
   }
   const segs = (parsed as { segments?: unknown } | null)?.segments;
-  if (!Array.isArray(segs) || segs.length !== n || !segs.every((s) => typeof s === 'string')) return null;
-  return segs as string[];
+  if (!Array.isArray(segs)) return { ok: false, why: 'нет массива segments' };
+  if (segs.length !== n) return { ok: false, why: `сегментов ${segs.length} вместо ${n}` };
+  if (!segs.every((s) => typeof s === 'string')) return { ok: false, why: 'в segments не только строки' };
+  return { ok: true, segs: segs as string[] };
+}
+
+/** Ответ модели → сегменты. null — не JSON нужной формы или не той длины. */
+export function parseSegments(answer: string, n: number): string[] | null {
+  const parsed = parseSegmentsDetailed(answer, n);
+  return parsed.ok ? parsed.segs : null;
+}
+
+/** Начало ответа модели для причины отказа: одной строкой, без переносов. */
+function answerHead(answer: string): string {
+  return answer.replace(/\s+/g, ' ').trim().slice(0, 100);
 }
 
 /** Потолок ответа по длине входа: китайский короче русского, плюс запас на JSON. */
@@ -120,8 +140,11 @@ export async function translateFieldValue(kind: ZhFieldKind, source: ZhFieldValu
   }
   if (answer === null) return { ok: false, reason: 'модель не ответила: отказали все провайдеры водопада' };
 
-  const zhSegs = parseSegments(answer, segments.length);
-  if (!zhSegs) return { ok: false, reason: `ответ модели не JSON из ${segments.length} сегментов` };
+  const parsed = parseSegmentsDetailed(answer, segments.length);
+  if (!parsed.ok) {
+    return { ok: false, reason: `ответ модели не JSON из ${segments.length} сегментов: ${parsed.why}; начало ответа: «${answerHead(answer)}»` };
+  }
+  const zhSegs = parsed.segs;
   for (let i = 0; i < segments.length; i++) {
     const why = checkSegment(segments[i], zhSegs[i]);
     if (why) return { ok: false, reason: `сегмент ${i + 1}: ${why}` };
