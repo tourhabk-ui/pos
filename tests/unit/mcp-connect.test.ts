@@ -34,16 +34,16 @@ describe('варианты подключения — все на один ад�
     expect(MCP_ENDPOINT).toBe(`${CANONICAL_BASE_URL}/api/mcp`);
   });
 
-  it('двадцать вариантов: пять ссылок, пять команд, три чата шагами, JSON и YAML конфигов', () => {
+  it('двадцать шесть вариантов: пять ссылок, пять команд, шесть чатов шагами, JSON и YAML конфигов', () => {
     expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual([
-      'chatbox', 'chatgpt', 'cherry_studio', 'claude_ai', 'claude_code', 'cline', 'codebuddy', 'cursor',
-      'deepseek_harness', 'devin_desktop', 'gemini_cli', 'goose', 'json', 'kilo', 'mistral', 'qwen_code',
-      'trae', 'trae_cn', 'vscode', 'zed',
+      'chatbox', 'chatgpt', 'cherry_studio', 'claude_ai', 'claude_code', 'cline', 'codebuddy', 'coze', 'cursor',
+      'deepseek_harness', 'devin_desktop', 'gemini_cli', 'gemini_settings', 'goose', 'grok', 'json', 'kilo', 'kimi', 'mistral',
+      'qwen_chat', 'qwen_code', 'trae', 'trae_cn', 'vscode', 'zed', 'zhipu_glm',
     ]);
     expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'command').map((o) => o.id).sort())
       .toEqual(['claude_code', 'codebuddy', 'devin_desktop', 'gemini_cli', 'qwen_code']);
     expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => o.id).sort()).toEqual(['chatbox', 'cursor', 'trae', 'trae_cn', 'vscode']);
-    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'steps').map((o) => o.id).sort()).toEqual(['chatgpt', 'claude_ai', 'mistral']);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'steps').map((o) => o.id).sort()).toEqual(['chatgpt', 'claude_ai', 'coze', 'grok', 'kimi', 'mistral']);
     expect(new Set(MCP_CONNECT_OPTIONS.map((o) => o.id)).size).toBe(MCP_CONNECT_OPTIONS.length);
   });
 
