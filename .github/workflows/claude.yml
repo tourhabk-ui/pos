@@ -72,7 +72,7 @@ jobs:
 
       - name: Run Claude
         id: hand
-        uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
         with:
           # Ключ Console из репозиторного секрета — решение владельца 13.10:
           # «я пополню лучше баланс», после того как выпуск токена подписки
@@ -241,7 +241,7 @@ jobs:
       # HAND_EXECUTION_FILE, а не этот шаг.
       - name: Счётчики расхода руки — из работы руки
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: hand-usage
           path: ${{ runner.temp }}/hand
