@@ -30,7 +30,8 @@ export interface McpConnectOption {
     | 'cursor' | 'vscode' | 'trae_cn' | 'trae' | 'chatbox'
     | 'claude_ai' | 'chatgpt' | 'gemini_app' | 'mistral'
     | 'claude_code' | 'gemini_cli' | 'qwen_code' | 'codebuddy' | 'devin_desktop'
-    | 'cline' | 'kilo' | 'zed' | 'goose' | 'cherry_studio' | 'deepseek_harness' | 'json';
+    | 'cline' | 'kilo' | 'zed' | 'goose' | 'cherry_studio' | 'deepseek_harness'
+    | 'qwen_chat' | 'kimi' | 'grok' | 'coze' | 'zhipu_glm' | 'gemini_settings' | 'json';
   /** Клиент, как его называет человек. */
   client: string;
   /** Что это: ссылка-установка, команда терминала, JSON конфига или шаги в интерфейсе. */
@@ -303,6 +304,63 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
       '        transport: streamable-http',
       '        url: ' + MCP_ENDPOINT,
     ].join('\n'),
+  },
+  {
+    // Гемини CLI вручную: Streamable HTTP — поле httpUrl (см. gemini_cli).
+    id: 'gemini_settings',
+    client: 'Gemini CLI',
+    kind: 'json',
+    label: 'Gemini CLI: ~/.gemini/settings.json',
+    value: JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { httpUrl: MCP_ENDPOINT } } }, null, 2),
+  },
+  {
+    // Qwen Chat Desktop: Настройки → MCP → Add MCP (16.10, по описанию
+    // приложения; в веб-версии chat.qwen.ai своего MCP нет).
+    id: 'qwen_chat',
+    client: 'Qwen Chat Desktop',
+    kind: 'json',
+    label: 'Qwen Chat Desktop: Настройки → MCP → Add MCP → Streamable HTTP',
+    value: JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { type: 'streamable-http', url: MCP_ENDPOINT } } }, null, 2),
+    note: 'Живьём не проверено. Только в десктопном приложении; в форме выберите тип Streamable HTTP и вставьте адрес или этот JSON.',
+  },
+  {
+    // Kimi: персональный плагин из MCP (kimi.com/en/help/plugins-and-skills/create).
+    id: 'kimi',
+    client: 'Kimi',
+    kind: 'steps',
+    label: 'Kimi (kimi.com): персональный плагин',
+    value: `kimi.com → Plugins → Create plugin → MCP Server URL: ${MCP_ENDPOINT} (или импорт из MCP Registry: ru.vedarai/mcp) → Auth: None → Save`,
+    note: 'Живьём не проверено: названия пунктов меню могут отличаться.',
+  },
+  {
+    id: 'grok',
+    client: 'Grok',
+    kind: 'steps',
+    label: 'Grok (grok.com и xAI API)',
+    value: `grok.com → Settings → Connectors → Add custom connector → URL: ${MCP_ENDPOINT} → без авторизации. В xAI API: tools: [{ "type": "mcp", "server_label": "${MCP_SERVER_KEY}", "server_url": "${MCP_ENDPOINT}" }]`,
+    note: 'Путь в веб-интерфейсе живьём не проверен; доступность своих коннекторов зависит от тарифа.',
+  },
+  {
+    // Coze: плагин на основе MCP (docs.coze.cn/guides_create_a_plugin_based_on_mcp).
+    id: 'coze',
+    client: 'Coze (ByteDance)',
+    kind: 'steps',
+    label: 'Coze: плагин из MCP',
+    value: `coze.com → Workspace → Resources → + Plugin → Create based on MCP → URL: ${MCP_ENDPOINT} → Streamable HTTP, без авторизации → Publish`,
+    note: 'Живьём не проверено; нужен вход в Coze (Google или телефон).',
+  },
+  {
+    // Zhipu GLM Chat Completions: инструмент типа mcp (docs.bigmodel.cn).
+    id: 'zhipu_glm',
+    client: 'Zhipu GLM API',
+    kind: 'json',
+    label: 'Zhipu GLM API: tools типа mcp',
+    value: JSON.stringify({
+      model: 'glm-4.6',
+      messages: [{ role: 'user', content: 'Какие туры на Камчатке есть на этой неделе?' }],
+      tools: [{ type: 'mcp', mcp: { server_label: MCP_SERVER_KEY, server_url: MCP_ENDPOINT, transport_type: 'streamable-http' } }],
+    }, null, 2),
+    note: 'Живьём не проверено: имя модели и поля mcp сверьте с документацией BigModel.',
   },
   {
     id: 'json',

@@ -369,8 +369,11 @@ const nextConfig = {
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
       },
+      // Публичный MCP (/api/mcp и его server-card) — витрина для ИИ-каталогов
+      // и поисковиков, noindex с него снят. Остальное /api, включая
+      // /api/mcp/partner, по-прежнему закрыто.
       {
-        source: '/api/:path*',
+        source: '/api/:path((?!mcp(?:/server-card)?$).*)',
         headers: [
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],

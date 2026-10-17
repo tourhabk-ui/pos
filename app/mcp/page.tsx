@@ -22,7 +22,9 @@ import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalo
 import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU, MCP_TRANSPORT_SPELLINGS } from '@/lib/mcp/connect';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { CopyButton } from '@/components/mcp/CopyButton';
 
+const REGISTRY_NAME = MCP_CATALOGS.find((c) => c.catalog.startsWith('MCP Registry'))?.name ?? '';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
@@ -30,7 +32,8 @@ export const metadata: Metadata = {
   // До 160 знаков — длиннее выдача обрезает (аудит vedarai.ru 01.10).
   description:
     'Публичный MCP-сервер Ведара для ИИ-агентов: vedarai.ru/api/mcp, без авторизации. Туры, доступность, безопасность Камчатки, заявки с подтверждением человеком.',
-  alternates: { canonical: `${SITE}/mcp` },
+  alternates: { canonical: `${SITE}/mcp`, languages: { ru: `${SITE}/mcp`, en: `${SITE}/mcp#en`, 'x-default': `${SITE}/mcp` } },
+  keywords: ['MCP', 'Model Context Protocol', 'Камчатка', 'Kamchatka', 'Qwen', 'Kimi', 'Claude', 'ChatGPT', 'Cursor', 'Grok', 'Coze', 'GLM'],
   openGraph: {
     images: defaultOgImages(),
     title: 'MCP-сервер Ведара для ИИ-агентов',
@@ -59,9 +62,26 @@ export default function McpLandingPage() {
     provider: { '@type': 'Organization', name: 'Ведар', url: SITE },
   };
 
+  // HowTo: шаги подключения по клиентам — для поисковых и чат-ответов.
+  const howToLd = {
+    '@context': 'https://schema.org',
+    '@type': 'HowTo',
+    name: 'Как подключить MCP-сервер Ведара к ИИ-чату',
+    inLanguage: ['ru', 'en'],
+    tool: { '@type': 'HowToTool', name: 'https://vedarai.ru/api/mcp' },
+    step: MCP_CONNECT_OPTIONS.map((o, i) => ({
+      '@type': 'HowToStep',
+      position: i + 1,
+      name: o.label,
+      text: o.value,
+      url: `${SITE}/mcp#connect-${o.id}`,
+    })),
+  };
+
   return (
     <>
       <JsonLd data={jsonLd} />
+      <JsonLd data={howToLd} />
       <Header />
       <main className="ds-page">
         <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
@@ -71,7 +91,11 @@ export default function McpLandingPage() {
               У Ведара есть публичный MCP-сервер для ИИ-агентов
             </h1>
             <div className="ds-card p-5 space-y-1.5 text-sm" style={{ color: 'var(--text-primary)' }}>
-              <p>Endpoint: <code className="font-semibold">https://vedarai.ru/api/mcp</code></p>
+              <p className="flex flex-wrap items-center gap-2">
+                Endpoint: <code className="font-semibold">https://vedarai.ru/api/mcp</code>
+                <CopyButton text="https://vedarai.ru/api/mcp" />
+              </p>
+              <p className="text-xs"><a className="underline" style={{ color: 'var(--ocean)' }} href="#en">English instructions ↓</a></p>
               <p>Transport: Streamable HTTP (JSON-RPC 2.0) · Auth: не требуется</p>
               <p>
                 Возможности: туры, реальная доступность мест, безопасность маршрутов,
@@ -181,12 +205,15 @@ export default function McpLandingPage() {
           {/* Рычаг номер один — «человек добавил Vedar»: ссылка, команда или
               JSON под каждый клиент, без ручного набора адреса. */}
           <section className="space-y-3">
-            <h2 className="ds-h2">Подключить одним касанием</h2>
+            <h2 className="ds-h2" id="connect">Подключить одним касанием</h2>
             <div className="flex flex-wrap gap-2">
               {MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => (
-                <a key={o.id} className="ds-btn ds-btn-primary" href={o.value} data-connect={o.id}>
-                  {o.label}
-                </a>
+                <span key={o.id} id={`connect-${o.id}`} className="inline-flex items-center gap-1">
+                  <a className="ds-btn ds-btn-primary" href={o.value} data-connect={o.id}>
+                    {o.label}
+                  </a>
+                  <CopyButton text={o.value} label="Ссылка" />
+                </span>
               ))}
             </div>
             {MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link' && o.note).map((o) => (
@@ -196,8 +223,11 @@ export default function McpLandingPage() {
             ))}
             <div className="space-y-2">
               {MCP_CONNECT_OPTIONS.filter((o) => o.kind !== 'link').map((o) => (
-                <div key={o.id} className="ds-card p-4 space-y-1" data-connect={o.id}>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{o.label}</p>
+                <div key={o.id} id={`connect-${o.id}`} className="ds-card p-4 space-y-1" data-connect={o.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{o.label}</p>
+                    <CopyButton text={o.value} />
+                  </div>
                   <pre
                     className="text-xs overflow-x-auto rounded-lg p-3"
                     style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
@@ -265,6 +295,28 @@ export default function McpLandingPage() {
                 {MCP_SYSTEM_PROMPT_LINE_RU}
               </pre>
             </div>
+          </section>
+
+          {/* English section: the same options, short steps for non-Russian readers. */}
+          <section id="en" lang="en" className="ds-card p-5 space-y-2">
+            <h2 className="font-playfair text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Connect Vedar MCP (English)
+            </h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Endpoint <code>https://vedarai.ru/api/mcp</code> · transport Streamable HTTP · no authentication (no legacy SSE).
+              Registry name: <code>{REGISTRY_NAME}</code>. Ready-made configs are above; copy them with the buttons.
+            </p>
+            <ul className="text-sm list-disc pl-5 space-y-1" style={{ color: 'var(--text-secondary)' }}>
+              <li><b>Qwen Chat Desktop:</b> Settings → MCP → Add MCP → Streamable HTTP → paste the URL.</li>
+              <li><b>Kimi:</b> Plugins → Create plugin → MCP server URL (or import <code>{REGISTRY_NAME}</code> from the MCP Registry).</li>
+              <li><b>Claude:</b> Customize → Connectors → Add custom connector → URL, no sign-in.</li>
+              <li><b>ChatGPT:</b> developer mode → Add custom MCP server → URL, no authentication.</li>
+              <li><b>Cursor / VS Code:</b> one-click install buttons above.</li>
+              <li><b>Gemini CLI:</b> <code>~/.gemini/settings.json</code> → <code>{'"httpUrl"'}</code> field.</li>
+              <li><b>Grok:</b> custom connector by URL; xAI API — tool <code>{'{"type":"mcp"}'}</code> with <code>server_url</code>.</li>
+              <li><b>Coze:</b> + Plugin → Create based on MCP → URL.</li>
+              <li><b>Zhipu GLM API:</b> <code>tools: [{'{ "type": "mcp", ... }'}]</code> with the server URL.</li>
+            </ul>
           </section>
 
           <section className="ds-card p-5 space-y-2">
