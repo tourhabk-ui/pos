@@ -368,6 +368,7 @@ export function llmsZhFile(base: string): string {
     `- 中文主页：${base}/zh`,
     `- MCP 接入说明：${base}/mcp`,
     `- 堪察加编年史（俄文，附出处的历史文章）：${base}/letopis`,
+    `- 自然公园与保护区（俄文）：${base}/park/<slug>，列表见 ${base}/llms.txt`,
     `- 俄文完整版：${base}/llms.txt`,
     '',
   ].join('\n');

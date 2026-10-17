@@ -7,6 +7,8 @@ import { loadParkPage, type ParkPageData } from '@/lib/parks/park-page';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { chronicleForPark } from '@/lib/chronicle/articles';
 import ParkClient from './_ParkClient';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { parkJsonLd } from '@/lib/parks/park-jsonld';
 
 // Карточка парка собирается на сервере (аудит 01.10): прежде страница была
 // оболочкой, а содержимое клиент тянул из API в браузере — поисковик видел
@@ -66,12 +68,15 @@ export default async function ParkPage({ params }: { params: Promise<{ slug: str
           <p className="text-[var(--text-secondary)]">Не удалось загрузить карточку парка. Обновите страницу.</p>
         </div>
       ) : (
-        // В карточку уходят только заголовок, годы и лид: тексты статей
-        // летописи в клиентский бандл не нужны.
+        <>
+        <JsonLd data={parkJsonLd(park, process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru')} />
+        {/* В карточку уходят только заголовок, годы и лид: тексты статей
+            летописи в клиентский бандл не нужны. */}
         <ParkClient
           park={park}
           chronicle={chronicleForPark(slug).map(({ slug: s, title, period, lead }) => ({ slug: s, title, period, lead }))}
         />
+        </>
       )}
     </>
   );

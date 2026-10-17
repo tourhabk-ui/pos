@@ -42,3 +42,35 @@ describe('поверхности летописи', () => {
     expect(llmsZhFile('https://vedarai.ru')).toContain('https://vedarai.ru/letopis');
   });
 });
+
+import { parksForTopic } from '@/lib/seo/query-landings-parks';
+import { parkJsonLd } from '@/lib/parks/park-jsonld';
+
+describe('парки', () => {
+  const park = (slug: string, displayName: string, description: string | null) => ({ slug, displayName, description, zone: null });
+  it('по теме — словом целиком; «все туры» — без подборки', () => {
+    const list = [
+      park('yuzhno-kamchatsky-zakaznik', 'Южно-Камчатский заказник', 'Курильское озеро, нерка'),
+      park('nalychevo', 'Налычево', 'долина в амфитеатре вулканов'),
+      park('x', 'Парк', 'вулканические почвы, Медвежья сопка'),
+    ];
+    expect(parksForTopic('bears', list).map((p) => p.slug)).toEqual(['yuzhno-kamchatsky-zakaznik']);
+    expect(parksForTopic('volcano', list).map((p) => p.slug)).toEqual(['nalychevo']);
+    expect(parksForTopic('all', list)).toEqual([]);
+  });
+  it('разметка парка: Park + TouristAttraction, без выдуманного geo', () => {
+    const ld = parkJsonLd({ slug: 'nalychevo', displayName: 'Налычево', description: null }, 'https://vedarai.ru');
+    expect(ld['@type']).toEqual(['Park', 'TouristAttraction']);
+    expect(ld.url).toBe('https://vedarai.ru/park/nalychevo');
+    expect(ld).not.toHaveProperty('geo');
+    expect(ld).not.toHaveProperty('description');
+  });
+  it('карточка парка ставит разметку и canonical; sitemap и llms называют парки', () => {
+    const page = read('app/park/[slug]/page.tsx');
+    expect(page).toContain('parkJsonLd');
+    expect(page).toContain('canonical');
+    expect(read('lib/seo/sitemap-entries.ts')).toContain('/park/${row.slug}');
+    expect(read('app/llms.txt/route.ts')).toContain('## Природные парки');
+    expect(llmsZhFile('https://vedarai.ru')).toContain('/park/');
+  });
+});

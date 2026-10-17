@@ -1,4 +1,5 @@
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
+import { listActiveParks } from '@/lib/parks/list';
 import { NextResponse } from 'next/server';
 import { tourPath } from '@/lib/tours/tour-url';
 import { pool } from '@/lib/db-pool';
@@ -103,6 +104,15 @@ export async function GET(request?: Request) {
   } catch (e) {
     degraded.push('трансферы');
     console.error('[llms.txt] перевозчики не прочитаны:', e instanceof Error ? e.message : e);
+  }
+
+  // Справочник парков (/park/<slug>) — названия из базы, без пересказа описаний.
+  let parks: Array<{ slug: string; displayName: string }> = [];
+  try {
+    parks = await listActiveParks();
+  } catch (e) {
+    degraded.push('парки');
+    console.error('[llms.txt] парки не прочитаны:', e instanceof Error ? e.message : e);
   }
 
   const byType: Record<string, typeof routes> = {};
@@ -272,6 +282,12 @@ ${planLines}
 Оглавление: ${BASE}/letopis. У каждой статьи — список источников внизу страницы; цитируй статью, а не пересказывай по памяти.
 
 ${chronicleLines}
+
+## Природные парки и заказники Камчатки
+
+Карточка парка: маршруты из базы, как получить разрешение на посещение, регистрация в МЧС.
+
+${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`).join('\n') : '- список парков сейчас не прочитался'}
 
 ## Для AI-агентов: MCP-сервер
 
