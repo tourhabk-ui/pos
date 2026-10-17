@@ -9,37 +9,43 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { zhTourPath } from '@/lib/zh/pages';
 import { siblingLandings, type LandingLang, type QueryLanding } from '@/lib/seo/query-landings';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
+import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
+import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { landingDates, landingDuration, landingJsonLd, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 const UI: Record<LandingLang, {
   tours: string; unavailable: string; empty: string; order: string; operator: string; card: string;
-  how: string; howText: string; cta: string; ai: string; aiText: string; faq: string; more: string; noPrice: string;
+  how: string; howText: string; cta: string; ai: string; aiText: string; faq: string; more: string; noPrice: string; chronicle: string; chronicleNote: string; chronicleAll: string;
 }> = {
   'zh-CN': {
     tours: '团队游', unavailable: '目录暂时不可用：数据库未响应。请稍后再试。', empty: '目前没有符合条件的已发布团队游。',
     order: '排序：按旅行社名称，再按团队游名称；位置不出售。', operator: '旅行社', card: '俄文原页（预订）',
     how: '如何预订', howText: '打开团队游的俄文原页，提交预订申请。申请由人工确认；无在线支付，款项直接付给旅行社。',
     cta: '提交选团申请', ai: 'AI 助手接入', aiText: 'AI 助手可通过 MCP 服务器查询本页同一数据库中的团队游：', faq: '常见问题', more: '更多页面', noPrice: '价格以旅行社确认为准',
+    chronicle: '堪察加编年史', chronicleNote: '有出处的历史文章（俄文）：', chronicleAll: '全部文章（俄文）',
   },
   ru: {
     tours: 'Туры', unavailable: 'Список не загрузился: база не ответила. Попробуйте позже или откройте каталог.', empty: 'Сейчас нет опубликованных туров по этой теме.',
     order: 'Порядок: по названию компании, затем тура. Место в списке не продаётся.', operator: 'Оператор', card: 'Карточка и заявка',
     how: 'Как проходит бронирование', howText: 'Откройте карточку тура и оставьте заявку. Её получает оператор, подтверждает человек. Онлайн-оплаты нет — оплата оператору напрямую.',
     cta: 'Оставить заявку на подбор тура', ai: 'Ведар для ИИ-ассистентов', aiText: 'Те же туры доступны ИИ-ассистентам через открытый MCP-сервер:', faq: 'Частые вопросы', more: 'Ещё по теме', noPrice: 'цена не указана',
+    chronicle: 'Летопись Камчатки', chronicleNote: 'Статьи с источниками:', chronicleAll: 'Все статьи летописи',
   },
   en: {
     tours: 'Tours', unavailable: 'The list did not load: the database did not respond. Please try again later.', empty: 'No published tours on this topic right now.',
     order: 'Order: by company name, then tour name. Positions are not for sale.', operator: 'Operator', card: 'Tour card & request (Russian)',
     how: 'How booking works', howText: 'Open the tour card and send a request. The operator receives it and a person confirms it. No online payment — you pay the operator directly.',
     cta: 'Send a tour request', ai: 'For AI assistants', aiText: 'The same tours are available to AI assistants via an open MCP server:', faq: 'FAQ', more: 'See also', noPrice: 'price not specified',
+    chronicle: 'Kamchatka Chronicle', chronicleNote: 'Sourced history articles (in Russian):', chronicleAll: 'All chronicle articles (in Russian)',
   },
 };
 
 export function QueryLandingView({ landing, tours }: { landing: QueryLanding; tours: LandingTourRow[] | null }) {
   const ui = UI[landing.lang];
   const zh = landing.lang === 'zh-CN';
+  const chronicle = chronicleForTopic(landing.topic);
   return (
     <main className="ds-page" lang={landing.lang} data-landing={landing.key}>
       <JsonLd data={landingJsonLd(landing, tours, SITE)} />
@@ -97,6 +103,21 @@ export function QueryLandingView({ landing, tours }: { landing: QueryLanding; to
             {ui.aiText} <code>{SITE}/api/mcp</code>{' · '}
             <Link className="underline" style={{ color: 'var(--ocean)' }} href={zh ? '/zh#connect' : '/mcp'}>{zh ? '接入说明' : landing.lang === 'ru' ? 'как подключить' : 'how to connect'}</Link>
           </p>
+        </section>
+
+        <section className="space-y-3" data-landing-chronicle>
+          <h2 className="ds-h2">{ui.chronicle}</h2>
+          <div className="ds-card p-4 text-sm space-y-2" style={{ color: 'var(--text-primary)' }}>
+            <p>{ui.chronicleNote}</p>
+            {chronicle.length > 0 && (
+              <ul className="list-disc list-inside space-y-1">
+                {chronicle.map((a) => (
+                  <li key={a.slug}><Link className="underline" style={{ color: 'var(--ocean)' }} href={`/letopis/${a.slug}`} lang="ru">{a.title}</Link></li>
+                ))}
+              </ul>
+            )}
+            <Link className="underline" style={{ color: 'var(--ocean)' }} href="/letopis">{ui.chronicleAll} ({CHRONICLE_ARTICLES.length})</Link>
+          </div>
         </section>
 
         <section className="space-y-3">

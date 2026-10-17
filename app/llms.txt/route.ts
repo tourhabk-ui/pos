@@ -1,3 +1,4 @@
+import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { NextResponse } from 'next/server';
 import { tourPath } from '@/lib/tours/tour-url';
 import { pool } from '@/lib/db-pool';
@@ -152,6 +153,9 @@ export async function GET(request?: Request) {
   const carrierLines = carriers
     .map((c) => `- [${c.name}](${BASE}${carrierPagePath(c.slug)})`)
     .join('\n');
+  const chronicleLines = CHRONICLE_ARTICLES
+    .map((a) => `- [${a.title}](${BASE}/letopis/${a.slug}) — ${a.period}; источников: ${a.sources.length}`)
+    .join('\n');
   const planLines = PLAN_PRESETS
     .map((p) => `- [${p.title}](${BASE}/plans/${p.slug})`)
     .join('\n');
@@ -262,6 +266,12 @@ human (operator, owner or manager); there is no payment through the platform.
 ## Готовые планы поездок (по дням, с погодой и заявкой оператору)
 
 ${planLines}
+
+## Летопись Камчатки (статьи с источниками)
+
+Оглавление: ${BASE}/letopis. У каждой статьи — список источников внизу страницы; цитируй статью, а не пересказывай по памяти.
+
+${chronicleLines}
 
 ## Для AI-агентов: MCP-сервер
 

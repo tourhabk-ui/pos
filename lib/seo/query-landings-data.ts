@@ -42,12 +42,16 @@ export interface TopicInput { activity_type: string | null; title: string; locat
  * в названии и месте назначения (не в описании: там «видели медведя» и
  * «вулканический песок» встречаются у чего угодно).
  */
+export function matchesTopicText(text: string, topic: Exclude<LandingTopic, 'all'>): boolean {
+  return topic === 'bears' ? BEAR_WORD.test(text) || BEAR_PLACE.test(text) : VOLCANO_WORD.test(text) || VOLCANO_NAME.test(text);
+}
+
 export function matchesTopic(t: TopicInput, topic: LandingTopic): boolean {
   const text = `${t.title} ${t.location_name ?? ''}`;
   switch (topic) {
     case 'all': return true;
-    case 'bears': return BEAR_TYPES.has(t.activity_type ?? '') || BEAR_WORD.test(text) || BEAR_PLACE.test(text);
-    case 'volcano': return t.activity_type === 'volcano' || VOLCANO_WORD.test(text) || VOLCANO_NAME.test(text);
+    case 'bears': return BEAR_TYPES.has(t.activity_type ?? '') || matchesTopicText(text, 'bears');
+    case 'volcano': return t.activity_type === 'volcano' || matchesTopicText(text, 'volcano');
     default: throw new Error(`matchesTopic: неизвестная тема ${String(topic)}`);
   }
 }
