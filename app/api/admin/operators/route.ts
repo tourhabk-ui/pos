@@ -1,6 +1,13 @@
 /**
  * GET /api/admin/operators — очередь заявок операторов
  * Возвращает partners с profile_status + данные из operator_applications
+ *
+ * Поиск — здесь, а не в браузере (16.10, владелец: «где Камчатская
+ * рыбалка?»). Экран брал первые 100 партнёров по дате заявки и заведения и
+ * искал только среди них: партнёров больше сотни (одних гидов 112), и давняя
+ * карточка в выборку не попадала — поиск отвечал «ничего», хотя партнёр есть.
+ * `q` ищет по всем подходящим строкам; `meta.total` — сколько их всего с тем же
+ * условием, чтобы экран мог сказать «показаны N из M».
  */
 
 import { lastPartnerDeliveries } from '@/lib/leads/delivery-outcome';
@@ -9,6 +16,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { PARTNER_CATEGORIES } from '@/lib/partners/categories';
+import { containsPattern } from '@/lib/db/like';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +24,8 @@ const QuerySchema = z.object({
   status: z.enum(['all', 'pending', 'approved', 'rejected']).default('pending'),
   limit:  z.coerce.number().min(1).max(200).default(50),
   offset: z.coerce.number().min(0).default(0),
+  // Вводит администратор; % и _ ищутся буквально (lib/db/like).
+  q:      z.string().trim().max(100).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -27,11 +37,11 @@ export async function GET(request: NextRequest) {
     status: sp.get('status') ?? 'pending',
     limit:  sp.get('limit')  ?? 50,
     offset: sp.get('offset') ?? 0,
+    q:      sp.get('q') ?? undefined,
   });
   if (!parsed.success) return NextResponse.json({ error: 'Неверные параметры' }, { status: 400 });
 
-  const { status, limit, offset } = parsed.data;
-  const hasStatusFilter = status !== 'all';
+  const { status, limit, offset, q } = parsed.data;
 
   // Отбор по КАТЕГОРИИ партнёрской записи, а не по роли пользователя.
   // Прежнее `u.role = 'operator'` прятало от администратора всех, кроме
@@ -39,12 +49,27 @@ export async function GET(request: NextRequest) {
   // появлялся — заявка молча уходила в никуда. У одного человека роль одна, а
   // партнёрских записей может быть несколько.
   const cats = [...PARTNER_CATEGORIES];
-  const params: (string | number | string[])[] = hasStatusFilter
-    ? [cats, status, limit, offset]
-    : [cats, limit, offset];
-  const statusClause = hasStatusFilter ? 'AND p.profile_status = $2' : '';
-  const limitIdx  = hasStatusFilter ? 3 : 2;
-  const offsetIdx = hasStatusFilter ? 4 : 3;
+  // Условие отбора — одно на список и на счёт: иначе «показаны N из M»
+  // сравнивал бы страницу одного запроса с итогом другого.
+  const where: string[] = ['p.category = ANY($1)'];
+  const params: (string | number | string[])[] = [cats];
+  if (status !== 'all') {
+    params.push(status);
+    where.push(`p.profile_status = $${params.length}`);
+  }
+  if (q) {
+    params.push(containsPattern(q));
+    const n = params.length;
+    // Название, адрес страницы, контакт и обе почты — то, что администратор
+    // видит на карточке и чем ищет партнёра.
+    where.push(`(p.name ILIKE $${n} OR p.slug ILIKE $${n} OR u.name ILIKE $${n}
+             OR u.email ILIKE $${n} OR oa.contact_email ILIKE $${n})`);
+  }
+  const whereSql = where.join('\n      AND ');
+  const filterParams = [...params];
+  params.push(limit, offset);
+  const limitIdx  = params.length - 1;
+  const offsetIdx = params.length;
 
   const rows = await query(`
     SELECT
@@ -86,18 +111,18 @@ export async function GET(request: NextRequest) {
     FROM partners p
     LEFT JOIN users u ON u.id = p.user_id
     LEFT JOIN operator_applications oa ON oa.partner_id = p.id
-    WHERE p.category = ANY($1)
-      ${statusClause}
+    WHERE ${whereSql}
     ORDER BY p.applied_at DESC NULLS LAST, p.created_at DESC
     LIMIT $${limitIdx} OFFSET $${offsetIdx}
   `, params);
 
   const countRow = await query(`
-    SELECT COUNT(*) AS total
+    SELECT COUNT(DISTINCT p.id) AS total
     FROM partners p
-    WHERE p.category = ANY($1)
-      ${statusClause}
-  `, hasStatusFilter ? [cats, status] : [cats]);
+    LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN operator_applications oa ON oa.partner_id = p.id
+    WHERE ${whereSql}
+  `, filterParams);
 
   // Последний итог личной доставки заявки (lib/leads/delivery-outcome).
   // null у оператора — записей нет; карта null — прочитать не удалось, и
