@@ -26,6 +26,7 @@
  * нажатием «Есть места» в мессенджере.
  */
 
+import { localizeToolArgs, langNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
@@ -661,20 +662,27 @@ async function executeTool(
   }
   // Пара коннекторов ChatGPT (search/fetch, ступень 2): не из реестра
   // Кузьмича, свои схемы и свой исполнитель (lib/mcp/connector-tools).
-  if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, rawArgs);
+  // Английский и китайский запрос → русские слова словаря до поиска в базе
+  // (lib/mcp/query-lang, прогон 17.10: zh 0/10, en 10/15). Содержимое базы не
+  // переводится; клиенту — пометка о языке в конце текстового ответа.
+  const localized = localizeToolArgs(name, rawArgs as Record<string, unknown>);
+  if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, localized.args as typeof rawArgs);
   // Состояние заявки по ключу (ступень 1 контура): свой исполнитель, JSON как у пары.
   if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
   // trim, обрезка длины), затем тот же исполнитель.
-  const validation = validateToolArgs(name, rawArgs as Record<string, string>);
+  const validation = validateToolArgs(name, localized.args as Record<string, string>);
   if (!validation.ok) {
     // Пусто, «не объект» и «не те поля» — разные отказы и в тексте агенту,
     // и в журнале (lib/mcp/tool-arguments, перепись 08.10).
     const refusal = argsRefusal(read, validation.error);
     throw new McpUserError(refusal.message, refusal.code);
   }
-  return executeKuzmichTool(name, validation.args, { surface: 'mcp' });
+  const text = await executeKuzmichTool(name, validation.args, { surface: 'mcp' });
+  // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
+  if (text === TOOL_EXECUTION_FAILED) return text;
+  return text + langNote(localized.lang, localized.mapped);
 }
 
 /**
