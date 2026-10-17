@@ -80,7 +80,7 @@ export async function loadZhTours(): Promise<ZhTourRow[] | null> {
 }
 
 /** Китайские названия к строкам списка; отказ чтения переводов — строки без них и лог. */
-async function withZhTitles(rows: ZhTourRow[]): Promise<ZhTourRow[]> {
+export async function withZhTitles<T extends ZhTourRow>(rows: T[]): Promise<T[]> {
   let stored: Awaited<ReturnType<typeof loadTranslations>>;
   try {
     stored = await loadTranslations('tour', rows.map((r) => r.id));

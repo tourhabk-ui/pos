@@ -16,7 +16,8 @@
 export const ZH_CONTENT_LANGUAGE = 'zh-CN';
 
 /** Индексируемые китайские страницы, пути от корня. */
-export const ZH_PAGE_PATHS: readonly string[] = ['/zh'];
+// Посадочные под запросы (lib/seo/query-landings) — тоже здесь, чтобы попасть в IndexNow.
+export const ZH_PAGE_PATHS: readonly string[] = ['/zh', '/zh/booking', '/zh/volcano-tours'];
 
 /**
  * Абсолютные адреса китайских страниц — для sitemap и IndexNow: статичные из

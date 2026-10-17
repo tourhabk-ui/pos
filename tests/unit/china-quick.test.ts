@@ -180,7 +180,7 @@ describe('2. Content-Language на китайском разделе', () => {
 describe('3. IndexNow для /zh', () => {
   it('один список китайских страниц на sitemap и пинг', async () => {
     expect(ZH_PAGE_PATHS).toContain('/zh');
-    expect(zhPageUrls('https://vedarai.ru/')).toEqual(['https://vedarai.ru/zh']);
+    expect(zhPageUrls('https://vedarai.ru/')).toEqual(ZH_PAGE_PATHS.map((p) => `https://vedarai.ru${p}`));
     const { entries } = await collectSitemapEntriesWithStatus();
     const urls = entries.map((e) => e.url);
     for (const u of zhPageUrls(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru')) expect(urls).toContain(u);
