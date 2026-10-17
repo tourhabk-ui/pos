@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   // До 160 знаков — длиннее выдача обрезает (аудит vedarai.ru 01.10).
   description:
     'Публичный MCP-сервер Ведара для ИИ-агентов: vedarai.ru/api/mcp, без авторизации. Туры, доступность, безопасность Камчатки, заявки с подтверждением человеком.',
-  alternates: { canonical: `${SITE}/mcp`, languages: { 'zh-CN': `${SITE}/zh` } },
+  alternates: { canonical: `${SITE}/mcp` },
   openGraph: {
     images: defaultOgImages(),
     title: 'MCP-сервер Ведара для ИИ-агентов',
