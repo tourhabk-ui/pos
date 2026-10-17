@@ -59,6 +59,10 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
     title: 'Поездка',
     links: [
       { label: 'Туры',                    href: '/catalog',        icon: Ticket },
+      { label: 'Как забронировать тур',   href: '/bronirovanie-turov-kamchatka', icon: Ticket },
+      { label: 'Туры к медведям',         href: '/tury-medvedi-kamchatka', icon: Ticket },
+      { label: 'Kamchatka tours (English)', href: '/en/kamchatka-tours', icon: Languages },
+      { label: 'Bear watching (English)', href: '/en/bear-watching', icon: Languages },
       { label: 'Календарь туров',         href: '/calendar',       icon: CalendarDays },
       { label: 'Популярное',              href: '/trending',       icon: Flame },
       { label: 'Подборки маршрутов',      href: '/collections',    icon: Layers },

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { JsonLd } from '@/components/seo/JsonLd';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -57,14 +58,16 @@ export default async function ChronicleArticlePage({ params }: Props) {
     url: `https://vedarai.ru/letopis/${a.slug}`,
     inLanguage: 'ru',
     dateModified: a.checkedAt,
-    citation: a.sources.map((s) => s.url),
+    citation: a.sources.map((s) => ({ '@type': 'CreativeWork', name: s.title, url: s.url })),
+    author: { '@type': 'Organization', name: 'Ведар', url: 'https://vedarai.ru' },
+    mainEntityOfPage: `https://vedarai.ru/letopis/${a.slug}`,
     ...(a.hero ? { image: `https://vedarai.ru${photoPath(a.hero.key)}` } : {}),
     publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://vedarai.ru' },
   };
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <JsonLd data={jsonLd} />
       <Header />
       {/* px-4: ds-page даёт только отступ сверху, без полей текст на телефоне
           лежал вплотную к краю экрана (снимок 14.10, 390 px). */}

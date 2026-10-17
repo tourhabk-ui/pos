@@ -1,3 +1,5 @@
+import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
+import { listActiveParks } from '@/lib/parks/list';
 import { NextResponse } from 'next/server';
 import { tourPath } from '@/lib/tours/tour-url';
 import { pool } from '@/lib/db-pool';
@@ -104,6 +106,15 @@ export async function GET(request?: Request) {
     console.error('[llms.txt] перевозчики не прочитаны:', e instanceof Error ? e.message : e);
   }
 
+  // Справочник парков (/park/<slug>) — названия из базы, без пересказа описаний.
+  let parks: Array<{ slug: string; displayName: string }> = [];
+  try {
+    parks = await listActiveParks();
+  } catch (e) {
+    degraded.push('парки');
+    console.error('[llms.txt] парки не прочитаны:', e instanceof Error ? e.message : e);
+  }
+
   const byType: Record<string, typeof routes> = {};
   for (const r of routes) {
     const t = r.location_type ?? 'other';
@@ -151,6 +162,9 @@ export async function GET(request?: Request) {
     .join('\n');
   const carrierLines = carriers
     .map((c) => `- [${c.name}](${BASE}${carrierPagePath(c.slug)})`)
+    .join('\n');
+  const chronicleLines = CHRONICLE_ARTICLES
+    .map((a) => `- [${a.title}](${BASE}/letopis/${a.slug}) — ${a.period}; источников: ${a.sources.length}`)
     .join('\n');
   const planLines = PLAN_PRESETS
     .map((p) => `- [${p.title}](${BASE}/plans/${p.slug})`)
@@ -262,6 +276,18 @@ human (operator, owner or manager); there is no payment through the platform.
 ## Готовые планы поездок (по дням, с погодой и заявкой оператору)
 
 ${planLines}
+
+## Летопись Камчатки (статьи с источниками)
+
+Оглавление: ${BASE}/letopis. У каждой статьи — список источников внизу страницы; цитируй статью, а не пересказывай по памяти.
+
+${chronicleLines}
+
+## Природные парки и заказники Камчатки
+
+Карточка парка: маршруты из базы, как получить разрешение на посещение, регистрация в МЧС.
+
+${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`).join('\n') : '- список парков сейчас не прочитался'}
 
 ## Для AI-агентов: MCP-сервер
 
