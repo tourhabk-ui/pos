@@ -26,6 +26,7 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { kmToNearestTouristArea } from '@/lib/services/safety/seismic-zones';
 import { shakingIntensity } from '@/lib/services/safety/shaking';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { actionLabel } from '@/lib/safety/action-label';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -604,7 +605,7 @@ export async function getFullDangerSummary(): Promise<string> {
 
   const lines = result.rows.map(r =>
     `[${r.zone.toUpperCase()} | Риск: ${r.risk_score}/100 | ${r.risk_level.toUpperCase()}] ` +
-    `Туристов под угрозой: ${r.tourists_at_risk}. Действие: ${r.recommended_action}.\n` +
+    `Туристов под угрозой: ${r.tourists_at_risk}. Действие: ${actionLabel(r.recommended_action) || 'штатный режим'}.\n` +
     `${r.analysis_text}`
   );
 

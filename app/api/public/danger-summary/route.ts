@@ -19,6 +19,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { zoneName } from '@/lib/safety/zone-names';
+import { displayRecommendedAction } from '@/lib/safety/action-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,9 @@ export async function GET() {
 
     const zones = rows.map(r => ({
       ...r,
+      // Оценки здесь расчётные: эвакуацию наружу отдаёт только официальный
+      // источник, расчёт показывается контролем маршрутов (18.10.2026).
+      recommended_action: displayRecommendedAction(r.recommended_action),
       // Прежнее имя поля оставлено: им пользуются готовые клиенты.
       updated_at: r.assessed_at,
       zone_name: zoneName(r.zone),
