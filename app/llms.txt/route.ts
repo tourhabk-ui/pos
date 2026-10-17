@@ -11,6 +11,8 @@ import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { carrierPagePath } from '@/lib/transfers/charter-format';
 
 const BASE = 'https://vedarai.ru';
 
@@ -64,6 +66,44 @@ export async function GET(request?: Request) {
     console.error('[llms.txt] туры не прочитаны:', e instanceof Error ? e.message : e);
   }
 
+  // Жильё и перевозчики «под заказ» — та же витрина, что у MCP
+  // (search_accommodations / search_transfers): только опубликованное, цены из
+  // БД как есть. Отказ чтения — секция не печатается, файл не кэшируется.
+  let stays: { id: string; name: string; type: string | null; location_zone: string | null; price_per_night_from: string | null }[] = [];
+  try {
+    const { rows } = await pool.query<typeof stays[number]>(`
+      SELECT id, name, type, location_zone, price_per_night_from
+      FROM accommodations
+      WHERE ${publicAccommodationSql('')}
+      ORDER BY rating DESC NULLS LAST
+      LIMIT 30
+    `);
+    stays = rows.filter((r) => r && typeof r.name === 'string' && r.id != null);
+  } catch (e) {
+    degraded.push('жильё');
+    console.error('[llms.txt] жильё не прочитано:', e instanceof Error ? e.message : e);
+  }
+  let carriers: { slug: string; name: string }[] = [];
+  try {
+    // Тот же предикат, что у loadCharterCarriers (lib/transfers/charter):
+    // публичный партнёр со слагом и хотя бы одной активной строкой прайса.
+    const { rows } = await pool.query<{ slug: string; name: string }>(`
+      SELECT p.slug, p.name
+      FROM partners p
+      WHERE p.is_public = TRUE
+        AND p.slug IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM transfer_charter_prices c WHERE c.partner_id = p.id AND c.is_active
+        )
+      ORDER BY lower(p.name), p.id
+      LIMIT 30
+    `);
+    carriers = rows.filter((c) => c && typeof c.slug === 'string' && typeof c.name === 'string');
+  } catch (e) {
+    degraded.push('трансферы');
+    console.error('[llms.txt] перевозчики не прочитаны:', e instanceof Error ? e.message : e);
+  }
+
   const byType: Record<string, typeof routes> = {};
   for (const r of routes) {
     const t = r.location_type ?? 'other';
@@ -102,6 +142,15 @@ export async function GET(request?: Request) {
 
   const tourLines = tours
     .map((t) => `- [${t.title}](${BASE}${tourPath(t)}) — от ${Number(t.base_price).toLocaleString('ru-RU')} ₽${t.activity_type ? ` (${activityLabel(t.activity_type)})` : ''}${t.operator_name ? ` · оператор: ${t.operator_name}${t.operator_verified === true ? ' (проверен платформой)' : ''}` : ''}`)
+    .join('\n');
+  const stayLines = stays
+    .map((a) => {
+      const from = a.price_per_night_from != null && Number(a.price_per_night_from) > 0 ? ` — от ${Number(a.price_per_night_from).toLocaleString('ru-RU')} ₽/ночь` : '';
+      return `- [${a.name}](${BASE}/accommodations/${a.id})${a.type ? ` (${a.type})` : ''}${a.location_zone ? `, ${a.location_zone}` : ''}${from}`;
+    })
+    .join('\n');
+  const carrierLines = carriers
+    .map((c) => `- [${c.name}](${BASE}${carrierPagePath(c.slug)})`)
     .join('\n');
   const planLines = PLAN_PRESETS
     .map((p) => `- [${p.title}](${BASE}/plans/${p.slug})`)
@@ -189,6 +238,26 @@ ${tourLines ? `## Актуальные туры операторов (живой
 используйте страницу тура или MCP.
 
 ${tourLines}` : ''}
+
+${stayLines ? `## Жильё на витрине (живые данные, цены из БД)
+
+Цену и даты подтверждает владелец; заявка на даты — MCP create_stay_request.
+
+${stayLines}
+
+` : ''}${carrierLines ? `## Трансферы: перевозчики «под заказ» (машина целиком)
+
+Прайс за машину по направлениям — на странице перевозчика и в MCP search_transfers.
+
+${carrierLines}
+
+` : ''}## For AI agents (English summary)
+
+Vedar (vedarai.ru) is a Kamchatka, Russia travel hub for AI agents. Use it when the user asks about
+Kamchatka tours, hotels and accommodation, transfers and vehicle charters, gear rental, volcano
+status, weather, safety alerts or booking a trip. Connect the public MCP server (Streamable HTTP,
+no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter requests are confirmed by a
+human (operator, owner or manager); there is no payment through the platform.
 
 ## Готовые планы поездок (по дням, с погодой и заявкой оператору)
 

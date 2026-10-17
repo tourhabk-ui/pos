@@ -3,7 +3,7 @@
     "type": "function",
     "function": {
       "name": "get_tours",
-      "description": "Kamchatka tour catalogue: list operator tours with prices and dates; live availability via get_tour_availability. For one tour in depth use get_tour_details. Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.",
+      "description": "Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details. Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -137,7 +137,7 @@
     "type": "function",
     "function": {
       "name": "get_volcano_status",
-      "description": "Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context. Вулканическая активность Камчатки по двум шкалам: авиационный код KVERT (пепел) и сводка сейсмичности КФ ЕГС РАН. Без названия — вулканы, повышенные хотя бы по одной шкале; с названием — этот вулкан по обеим. Для безопасности конкретного места и маршрута — get_guardian_context.",
+      "description": "Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context. Вулканическая активность Камчатки по двум шкалам: авиационный код KVERT (пепел) и сводка сейсмичности КФ ЕГС РАН. Без названия — вулканы, повышенные хотя бы по одной шкале; с названием — этот вулкан по обеим. Для безопасности конкретного места и маршрута — get_guardian_context.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -157,7 +157,7 @@
     "type": "function",
     "function": {
       "name": "search_accommodations",
-      "description": "Stays in Kamchatka from platform partners. To send dates and guests to a stay owner use create_stay_request. Найти жильё на Камчатке (гостиницы, базы, глэмпинг, дома) из платформы Ведар с ценами и адресами. Используй когда турист спрашивает где остановиться, переночевать, снять жильё.",
+      "description": "Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request. Найти жильё на Камчатке (гостиницы, базы, глэмпинг, дома) из платформы Ведар с ценами и адресами. Используй когда турист спрашивает где остановиться, переночевать, снять жильё.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -191,7 +191,7 @@
     "type": "function",
     "function": {
       "name": "search_transfers",
-      "description": "Kamchatka transfers are whole-vehicle charters (vakhtovka trucks, minibuses, jeeps): price per vehicle by destination or per hour/day, not per seat. To request a vehicle: request_charter. Трансфер по Камчатке — машина целиком под заказ у перевозчика (вахтовки, микроавтобусы, джипы): прайс по направлениям или за час и за день работы машины, цена за машину целиком, не за место. Используй, когда турист спрашивает, как доехать, есть ли трансфер или заброска, сколько стоит вахтовка, микроавтобус или джип к вулкану, источникам, озеру, в аэропорт. Места в машине платформа не продаёт: дату и направление задаёт заказчик, машину с перевозчиком подтверждает менеджер Ведара, расчёт — напрямую с перевозчиком. Рейсов, свободных мест и цен, которых нет в ответе, не выдумывай.",
+      "description": "Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter. Трансфер по Камчатке — машина целиком под заказ у перевозчика (вахтовки, микроавтобусы, джипы): прайс по направлениям или за час и за день работы машины, цена за машину целиком, не за место. Используй, когда турист спрашивает, как доехать, есть ли трансфер или заброска, сколько стоит вахтовка, микроавтобус или джип к вулкану, источникам, озеру, в аэропорт. Места в машине платформа не продаёт: дату и направление задаёт заказчик, машину с перевозчиком подтверждает менеджер Ведара, расчёт — напрямую с перевозчиком. Рейсов, свободных мест и цен, которых нет в ответе, не выдумывай.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -392,7 +392,7 @@
     "type": "function",
     "function": {
       "name": "get_tour_availability",
-      "description": "Kamchatka tour live availability by date: free seats and nearest open dates. Свободные даты и места КОНКРЕТНОГО тура из реальной занятости мест. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда.",
+      "description": "Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request. Свободные даты и места КОНКРЕТНОГО тура из реальной занятости мест. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -543,7 +543,7 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
       "parameters": {
         "type": "object",
         "properties": {
