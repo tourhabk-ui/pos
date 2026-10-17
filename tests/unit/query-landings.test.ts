@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { QUERY_LANDINGS, landingAlternates, landingByKey } from '@/lib/seo/query-landings';
 import { landingMetadata } from '@/lib/seo/query-landing-meta';
-import { landingToursSql, topicSql, type LandingTourRow } from '@/lib/seo/query-landings-data';
+import { landingToursSql, matchesTopic, type LandingTourRow } from '@/lib/seo/query-landings-data';
 import { landingDates, landingJsonLd, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
 import { ZH_PAGE_PATHS } from '@/lib/zh/pages';
 
@@ -90,12 +90,30 @@ describe('sitemap и хабы', () => {
 });
 
 describe('данные', () => {
-  it('SQL под гейтом витрины, тема — фиксированное условие', () => {
-    const sql = landingToursSql('bears');
+  it('SQL под гейтом витрины', () => {
+    const sql = landingToursSql();
     expect(sql).toContain('is_published = true');
     expect(sql).toContain('tour_availability');
-    expect(topicSql('all')).toBe('TRUE');
-    expect(topicSql('volcano')).toContain('вулкан');
+    expect(sql).toContain('activity_type');
+  });
+  const t = (title: string, activity_type: string | null = 'jeep_safari', location_name: string | null = null) => ({ title, activity_type, location_name });
+  it('медведи: тип и слово целиком; «Медвежья чаша» и сплав — нет', () => {
+    expect(matchesTopic(t('Медведи Камчатки', 'bears'), 'bears')).toBe(true); // ID47
+    expect(matchesTopic(t('Курильское озеро на вертолёте', 'helicopter'), 'bears')).toBe(true); // ID67
+    expect(matchesTopic(t('Озеро Толмачёва', 'jeep_safari', 'маар Медвежья чаша'), 'bears')).toBe(false); // ID60
+    expect(matchesTopic(t('Сплав по реке Быстрая', 'rafting'), 'bears')).toBe(false); // ID27
+    expect(matchesTopic(t('Тур к медведю'), 'bears')).toBe(true);
+  });
+  it('вулканы: тип, слово «вулкан», именованный вулкан; «вулканический песок» — нет', () => {
+    expect(matchesTopic(t('Восхождение', 'volcano'), 'volcano')).toBe(true); // ID46
+    expect(matchesTopic(t('Вулкан Горелый'), 'volcano')).toBe(true); // ID61
+    expect(matchesTopic(t('Авачинский перевал'), 'volcano')).toBe(true); // ID62
+    expect(matchesTopic(t('Халактырский пляж', 'jeep_safari', 'чёрный вулканический песок'), 'volcano')).toBe(false); // ID53
+    expect(matchesTopic(t('Снегоходный тур по лесу', 'snowmobile'), 'volcano')).toBe(false);
+    // ID52: то же место, что ID62, — правило одно для обоих (у подножия Авачинского и Корякского).
+    expect(matchesTopic(t('Авачинский перевал (снегоход)', 'snowmobile', 'Авачинский перевал'), 'volcano')).toBe(true);
+    expect(matchesTopic(t('Дачные источники (Малая Долина гейзеров)', 'jeep_safari', 'Дачные горячие источники, вулкан Мутновский'), 'volcano')).toBe(true); // ID57
+    expect(matchesTopic(t('Долина гейзеров', 'helicopter'), 'all')).toBe(true);
   });
   it('цены из базы; нет цены — null, а не 0', () => {
     expect(landingPrice(row(), 'ru')).toMatch(/^от 45\s000 ₽\/чел\.$/);
