@@ -8,6 +8,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import { Header } from '@/components/layout/Header';
 import { zoneName } from '@/lib/safety/zone-names';
+import { actionLabel } from '@/lib/safety/action-label';
 import { plural } from '@/lib/home/data-freshness';
 import {
   manualRefreshNote,
@@ -164,13 +165,6 @@ export function zoneBanner(
     : worstZone;
   return { state: worst === 'low' ? 'calm' : 'alarm', level: worst };
 }
-
-const ACTION_LABELS: Record<string, string> = {
-  NORMAL:                 '',
-  WATCH:                  'Наблюдение',
-  EVACUATE_PRIORITY_2:    'Эвакуация (P2)',
-  EVACUATE_IMMEDIATE:     'Немедленная эвакуация',
-};
 
 function magColor(mag: number): string {
   if (mag >= 5.5) return 'var(--danger)';
@@ -637,7 +631,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
           {zones.map(z => {
             const color = RISK_COLORS[z.risk_level] ?? 'var(--text-secondary)';
-            const action = ACTION_LABELS[z.recommended_action];
+            const action = actionLabel(z.recommended_action);
             return (
               <div key={z.zone} className="ds-card" style={{ padding: '12px 14px' }}>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{z.zone_name}</div>
