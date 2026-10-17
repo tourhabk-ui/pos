@@ -11,7 +11,7 @@ const PUBLIC_HUBS = ['/hub/safety', '/hub/fishing'];
 // именно там: агент, уважающий robots.txt, отказался бы его вызвать. Более
 // длинное правило Allow перебивает общий Disallow.
 const AGENT_ENTRYPOINTS = [
-  '/api/mcp', '/llms.txt', '/.well-known/mcp.json',
+  '/api/mcp', '/llms.txt', '/llms-zh.txt', '/.well-known/mcp.json',
   // A2A (12.10): визитки обеих версий и оба биндинга.
   '/api/a2a', '/.well-known/agent-card.json', '/.well-known/agent.json',
 ];

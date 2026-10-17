@@ -286,9 +286,12 @@ describe('Kimi и пауки 360 — по первоисточникам (ауд
 });
 
 describe('перепись входов для агентов', () => {
-  it('двенадцать входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
+  it('тринадцать входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
     expect([...AGENT_ENTRY_PATHS]).toEqual([
-      '/robots.txt', '/llms.txt', '/.well-known/mcp.json', '/.well-known/agent-card.json', '/.well-known/agent.json',
+      '/robots.txt', '/llms.txt',
+      // 17.10: китайский llms-файл — своей строкой, иначе его читателей не отличить от читателей русского.
+      '/llms-zh.txt',
+      '/.well-known/mcp.json', '/.well-known/agent-card.json', '/.well-known/agent.json',
       '/api/mcp/server-card', '/.well-known/ai-catalog.json',
       // Ступень 3 (12.10): OpenAPI для агентов без MCP и A2A и каталог API RFC 9727.
       '/openapi.json', '/.well-known/api-catalog',
@@ -324,6 +327,9 @@ describe('перепись входов для агентов', () => {
     const sources: Record<string, [string, string]> = {
       '/robots.txt': ['app/robots.ts', "recordAgentEntryHit('/robots.txt'"],
       '/llms.txt': ['app/llms.txt/route.ts', "recordAgentEntryHit('/llms.txt'"],
+      // 17.10: поведение китайского файла — вызовом в llms-zh-txt.test.ts
+      // (путь и семейство в параметрах SQL); здесь — что вход назван.
+      '/llms-zh.txt': ['app/llms-zh.txt/route.ts', "recordAgentEntryHit('/llms-zh.txt'"],
       '/.well-known/mcp.json': ['app/.well-known/mcp.json/route.ts', "recordAgentEntryHit('/.well-known/mcp.json'"],
       '/.well-known/agent-card.json': ['app/.well-known/agent-card.json/route.ts', "recordAgentEntryHit('/.well-known/agent-card.json'"],
       '/.well-known/agent.json': ['app/.well-known/agent.json/route.ts', "recordAgentEntryHit('/.well-known/agent.json'"],

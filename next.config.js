@@ -275,7 +275,7 @@ const nextConfig = {
       // кэш (та же болезнь, что у sitemap 29.09). Личных данных в них нет.
       // Сторож: tests/unit/openapi-agents.test.ts.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },

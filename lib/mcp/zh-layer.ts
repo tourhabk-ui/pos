@@ -62,7 +62,7 @@ export const A2A_CHAT_EXAMPLE_ZH = '八月去堪察加，哪里能看到棕熊�
  */
 export interface ZhClientGuide {
   /** Устойчивый ключ для разметки и сторожа. */
-  id: 'doubao_desktop' | 'coze' | 'cherry_studio' | 'qoder_cn' | 'step_code' | 'trae';
+  id: 'doubao_desktop' | 'coze' | 'cherry_studio' | 'qoder_cn' | 'step_code' | 'trae' | 'qwen_desktop' | 'kimi_code' | 'glm_api';
   /** Клиент, как его называет человек. */
   client: string;
   /** Шаги по-китайски; адрес сервера — в шагах, в коде или в окне подтверждения. */
@@ -95,6 +95,8 @@ function connectLink(id: McpConnectOption['id'], label: string): ZhClientGuide['
 }
 
 const CHECKED_ON = '2026-10-15';
+/** Qwen, Kimi Code, GLM — разведка 17.10 (запрос владельца: китайские клиенты). */
+const CHECKED_ON_ZH2 = '2026-10-17';
 
 export const ZH_CONNECT = {
   heading: '如何在中文客户端中接入',
@@ -199,6 +201,48 @@ export const ZH_CLIENT_GUIDES: readonly ZhClientGuide[] = [
     ],
     checkedOn: CHECKED_ON,
   },
+  {
+    id: 'qwen_desktop',
+    client: 'Qwen Chat 桌面版（通义千问）',
+    steps: [
+      '在 Qwen Chat 桌面版（macOS / Windows）的对话框下方点击「MCP」→「MCP 设置」→「添加 MCP」。',
+      '选择 JSON 方式，粘贴下方配置并保存，然后启用 vedar。',
+    ],
+    code: JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { type: 'streamable-http', url: MCP_ENDPOINT } } }),
+    links: [],
+    caveat: '网页版没有 MCP，仅桌面版；最多同时启用 5 个 MCP 服务器。',
+    basis: 'third_party',
+    sources: [
+      { url: 'https://docs.platform.statista.ai/mcp-server/connection-qwen', published: null },
+      { url: 'https://mp.weixin.qq.com/s/7Oee00r7SdRPvt2-HdFqZA', published: null },
+    ],
+    checkedOn: CHECKED_ON_ZH2,
+  },
+  {
+    id: 'kimi_code',
+    client: 'Kimi Code（月之暗面）',
+    steps: ['在终端运行下方命令；新会话中即可使用 Vedar 工具。'],
+    code: `kimi mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+    links: [],
+    caveat: '适用于 Kimi Code CLI 与 VS Code 插件；kimi.com 网页聊天暂无自定义 MCP 入口。',
+    basis: 'platform_docs',
+    sources: [{ url: 'https://moonshotai.github.io/kimi-cli/zh/customization/mcp.html', published: null }],
+    checkedOn: CHECKED_ON_ZH2,
+  },
+  {
+    id: 'glm_api',
+    client: '智谱 GLM API（chat/completions）',
+    steps: [
+      '在调用 GLM 的 chat/completions 请求中，把下方对象加入 tools 数组，tool_choice 设为 auto。',
+      'Vedar 无需认证，不用填写 headers。',
+    ],
+    code: JSON.stringify({ type: 'mcp', mcp: { server_label: MCP_SERVER_KEY, server_url: MCP_ENDPOINT, transport_type: 'streamable-http' } }),
+    links: [],
+    caveat: null,
+    basis: 'platform_docs',
+    sources: [{ url: 'https://docs.z.ai/guides/capabilities/mcp-call', published: null }],
+    checkedOn: CHECKED_ON_ZH2,
+  },
 ];
 
 /** Источник одной строкой: адрес, дата материала, если есть, и дата прочтения. */
@@ -232,6 +276,7 @@ export function llmsSectionZh(base: string): string {
   return [
     '## 中文说明（面向中文 AI 助手）',
     '',
+    `- 中文版全文：${base}/llms-zh.txt`,
     `- Vedar（${base}，俄文名 Ведар）是堪察加半岛的旅游平台：地点与路线目录、安全信息（火山活动、地震、天气预警）、本地旅行社的团队游及真实余位、住宿、接送、行程规划。`,
     '- 平台内容为俄文；引用时请链接本文件中的页面地址。堪察加：俄罗斯远东半岛，联合国教科文组织世界遗产“堪察加火山群”，300 多座火山（29 座活火山），旅游季 6–9 月，时区 UTC+12。',
     `- AI 代理接口：MCP 服务器 ${base}/api/mcp（JSON-RPC 2.0，Streamable HTTP，无需认证），清单 ${base}/.well-known/mcp.json；A2A 代理卡片 ${base}/.well-known/agent-card.json，JSON-RPC ${base}/api/a2a。`,
@@ -277,3 +322,52 @@ export const OPENAPI_DESCRIPTION_ZH =
   '中文：Vedar（维达尔，vedarai.ru）是俄罗斯堪察加半岛旅游平台的公开 API，面向无法使用 MCP 或 A2A 客户端的代理。无需认证；'
   + '写操作仅限四种申请（create_lead、create_booking_request、create_stay_request、request_charter），均由人工确认，无即时预订与支付。'
   + '数据为俄文。堪察加紧急电话 112。';
+
+/**
+ * /llms-zh.txt (17.10): отдельный китайский файл для агентов, которые берут
+ * файл по языку. Темы — только типы активностей, которые есть в
+ * lib/tours/labels (volcano, thermal, bears, …); цены и наличие — живые, в
+ * /llms.txt и через MCP, здесь не дублируются (§4.0: без выдуманных цифр).
+ */
+export const LLMS_ZH_TOPICS: readonly { key: string; zh: string }[] = [
+  { key: 'volcano', zh: '火山徒步与登顶' },
+  { key: 'thermal', zh: '温泉' },
+  { key: 'bears', zh: '观熊（棕熊）' },
+  { key: 'helicopter', zh: '直升机游览' },
+  { key: 'boat_trip', zh: '海上游船' },
+  { key: 'fishing', zh: '钓鱼' },
+  { key: 'rafting', zh: '漂流' },
+  { key: 'snowmobile', zh: '雪地摩托' },
+  { key: 'trekking', zh: '徒步' },
+];
+
+export function llmsZhFile(base: string): string {
+  return [
+    `# ${MCP_TITLE_ZH}`,
+    '',
+    `> ${MCP_DESCRIPTION_ZH}`,
+    '',
+    '关键词：堪察加 旅游、堪察加 火山、堪察加 温泉、堪察加 观熊、堪察加 住宿、堪察加 接送、堪察加 包车、堪察加 预订、彼得罗巴甫洛夫斯克-堪察加斯基。',
+    '',
+    '## 可查询的旅游类型（团队游目录中的活动类型）',
+    '',
+    ...LLMS_ZH_TOPICS.map((t) => `- ${t.zh}（${t.key}）`),
+    '',
+    '价格与余位为实时数据，请通过 MCP 工具 get_tours / get_tour_availability 查询，或查看俄文完整版 ' + `${base}/llms.txt。`,
+    '',
+    '## 如何预订',
+    '',
+    `- ${ZH_PAGE.booking}`,
+    '- 住宿：search_accommodations 查询，create_stay_request 提交住宿申请。',
+    '- 接送与包车：search_transfers 查询，request_charter 提交包车申请。',
+    '',
+    llmsSectionZh(base),
+    '',
+    '## 页面',
+    '',
+    `- 中文主页：${base}/zh`,
+    `- MCP 接入说明：${base}/mcp`,
+    `- 俄文完整版：${base}/llms.txt`,
+    '',
+  ].join('\n');
+}
