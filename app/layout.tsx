@@ -260,7 +260,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   "экотуризм Камчатки"
                 ],
                 "sameAs": [
-                  "https://t.me/kamchatka_real"
+                  "https://t.me/kamchatka_real",
+                  "https://github.com/tourhabk-ui/pos",
+                  "https://registry.modelcontextprotocol.io/v0.1/servers?search=ru.vedarai%2Fmcp",
+                  "https://smithery.ai/servers/tourhabk/vedar"
                 ]
               }
             ])
