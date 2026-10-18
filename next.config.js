@@ -306,6 +306,13 @@ const nextConfig = {
         source: '/zh/:path*',
         headers: [{ key: 'Content-Language', value: 'zh-CN' }],
       },
+      // Английский раздел — тот же сигнал, что у /zh (19.10): вдобавок к
+      // <html lang="en">, который теперь ставит корневой layout по первому
+      // сегменту (lib/i18n/root-lang, заголовок пути от middleware).
+      {
+        source: '/en/:path*',
+        headers: [{ key: 'Content-Language', value: 'en' }],
+      },
       {
         source: '/widget/:path*',
         headers: [

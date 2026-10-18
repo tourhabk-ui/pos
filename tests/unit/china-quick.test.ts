@@ -172,8 +172,11 @@ describe('2. Content-Language на китайском разделе', () => {
     for (const p of ['/', '/catalog', '/zhuk', '/operators/zh']) expect(await contentLanguageFor(p), p).toEqual([]);
   });
 
-  it('корневой <html lang="ru"> не тронут — язык раздела объявлен заголовком и meta, не переездом layout', () => {
-    expect(read('app/layout.tsx')).toMatch(/<html lang="ru"/);
+  it('корневой layout ставит <html lang> по первому сегменту (вариант А, 19.10)', () => {
+    const layout = read('app/layout.tsx');
+    expect(layout).toMatch(/<html lang=\{lang\}/);
+    expect(layout).toContain('htmlLangForPath');
+    expect(read('lib/i18n/root-lang.ts')).toContain("first === 'zh'");
   });
 });
 
