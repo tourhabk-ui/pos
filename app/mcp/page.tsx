@@ -44,6 +44,7 @@ export const metadata: Metadata = {
 };
 
 export default function McpLandingPage() {
+  const deepseekHarness = MCP_CONNECT_OPTIONS.find((o) => o.id === 'deepseek_harness');
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'WebAPI',
@@ -244,6 +245,69 @@ export default function McpLandingPage() {
               ))}
             </div>
           </section>
+
+          {/* DeepSeek: в обычном чате MCP-клиента нет; путь — Harness
+              (developer preview, сборка из исходников, комментарий в
+              lib/mcp/connect.ts и integrations/dsh-vedar/README.md).
+              YAML не дублируем текстом: берём опубликованный вариант
+              deepseek_harness из того же реестра подключения. */}
+          {deepseekHarness && (
+            <section id="deepseek" className="space-y-3">
+              <h2 className="ds-h2">DeepSeek Harness за 4 шага</h2>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Обычный веб-чат DeepSeek сам MCP не подключает. MCP у DeepSeek живёт в
+                DeepSeek Harness — developer preview, нужна сборка из исходников.
+                API-доступ к DeepSeek для Harness вы получаете сами; для Vedar MCP
+                авторизация не требуется.
+              </p>
+              <ol className="text-sm list-decimal pl-5 space-y-2" style={{ color: 'var(--text-primary)' }}>
+                <li>Соберите и запустите DeepSeek Harness по его инструкции.</li>
+                <li>
+                  Установите плагин одной командой:{' '}
+                  <code>dsh plugin --profile web add github:tourhabk-ui/dsh-vedar</code>{' '}
+                  (для установки нужен <code>pnpm</code> на PATH). Или вручную вставьте
+                  YAML ниже в <code>~/.dsh/profiles/web/cordis.patch.yml</code>.
+                </li>
+                <li>
+                  Перезапустите <code>dsh web</code>. Инструменты появляются до первого
+                  хода как <code>mcp__vedar__&lt;tool&gt;</code>, например{' '}
+                  <code>mcp__vedar__get_tours</code>.
+                </li>
+                <li>
+                  Проверочный промпт: «Какие туры на Камчатку сейчас доступны?» Живая
+                  связка вызовет <code>get_tours</code>; ответ только «из общих знаний»
+                  без вызова инструмента означает, что подключение не сработало.
+                </li>
+              </ol>
+              <div className="ds-card p-4 space-y-1" data-connect="deepseek_harness">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{deepseekHarness.label}</p>
+                  <CopyButton text={deepseekHarness.value} />
+                </div>
+                <pre className="text-xs overflow-x-auto rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
+                  {deepseekHarness.value}
+                </pre>
+              </div>
+              <div className="ds-card p-4 space-y-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>Если не заработало</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>
+                    Нет <code>mcp__vedar__*</code>: проверьте, что YAML вставлен с точными
+                    отступами и <code>serverName: vedar</code>, затем перезапустите <code>dsh web</code>.
+                  </li>
+                  <li>
+                    Установка остановилась на «pnpm was not found»: поставьте{' '}
+                    <code>pnpm</code> на PATH (в README плагина: <code>npm i -g pnpm</code>) и повторите команду.
+                  </li>
+                  <li>
+                    Таймаут: проверьте доступность сервера до Harness командой{' '}
+                    <code>curl -s https://vedarai.ru/api/mcp -H &quot;Content-Type: application/json&quot; -H &quot;Accept: application/json, text/event-stream&quot; -d &apos;{`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`}&apos;</code>{' '}
+                    — в ответе должен быть JSON со списком инструментов, включая <code>get_tours</code>.
+                  </li>
+                </ul>
+              </div>
+            </section>
+          )}
 
           {/* Написание транспорта у клиентов разное (сверка 16.10): чужое уводит в
               старый SSE, а наш сервер на GET-поток отвечает 405. */}
