@@ -38,6 +38,8 @@ import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { notifyPartnerNewLeadPersonally } from '@/lib/notifications/lead-notify';
+import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
@@ -260,6 +262,38 @@ async function requestSeatsFromOperator(a: {
     + keyLine(statusKey);
 }
 
+/**
+ * Новая MCP-заявка на бронь — ЛИЧНО оператору тура, а не только в рабочий
+ * чат платформы (тот уходит из createLead). До этого вызова заявка из
+ * внешнего ИИ ложилась оператору в кабинет молча: он узнавал о ней, только
+ * зайдя сам (аудит партнёрского пути 18.10, блокер пилота). Механика — та же,
+ * что у формы на сайте: notifyPartnerNewLeadPersonally + исход доставки в
+ * журнал заявки (recordPartnerDelivery), чтобы «дошла ли» отвечалось данными.
+ *
+ * Ответ агенту уведомления не ждёт (fire-and-forget, как в /api/leads), а
+ * отказ не глушится: исход назван функцией доставки, сбой записи — здесь.
+ * Повтор за 24 ч и свой заход владельца оператора не будят: заявка уже
+ * доставлена первым вызовом, а self-лид — проверка, не спрос.
+ */
+function notifyPartnerPersonallyAboutMcpLead(params: {
+  operatorId: string;
+  leadId: string;
+  name: string;
+  phone: string;
+  comment?: string;
+  routeTitle?: string;
+}): void {
+  void (async () => {
+    const outcome = await notifyPartnerNewLeadPersonally({
+      ...params,
+      origin: 'заявка через ИИ-ассистента (MCP)',
+    });
+    await recordPartnerDelivery(params.leadId, params.operatorId, outcome);
+  })().catch((e: unknown) => {
+    console.error(`[mcp] личное уведомление оператора о заявке ${params.leadId} не отправлено:`, e instanceof Error ? e.message : e);
+  });
+}
+
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
@@ -383,6 +417,17 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  }
+  // Оператор тура известен, и заявка — ему: лично, как с формы на сайте.
+  if (!existing && !ctx.self && tour.operator_id) {
+    notifyPartnerPersonallyAboutMcpLead({
+      operatorId: tour.operator_id,
+      leadId,
+      name,
+      phone,
+      comment: leadComment,
+      routeTitle: tour.title,
+    });
   }
   return accepted + keyLine(await issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name));
 }
