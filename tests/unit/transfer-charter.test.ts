@@ -490,6 +490,8 @@ describe('нижний ролик — медведи, а не повтор кл�
     const strip = read('components/transfers/CharterPhotos.tsx');
     expect(strip).toMatch(/PhotoLightbox/);
     expect(strip).not.toMatch(/target="_blank"/);
-    expect(read('components/transfers/CharterCard.tsx')).toMatch(/<CharterPhotos name=\{carrier\.name\} photos=\{carrier\.photos\} \/>/);
+    // Первое фото — главное сверху карточки; лента несёт остальные и по-прежнему
+    // открывает их на весь экран, а не сырым файлом.
+    expect(read('components/transfers/CharterCard.tsx')).toMatch(/<CharterPhotos name=\{carrier\.name\} photos=\{carrier\.photos\.slice\(1\)\} \/>/);
   });
 });
