@@ -124,11 +124,11 @@ describe('таб-бар публикует свою высоту', () => {
     expect(document.documentElement.style.getPropertyValue(BOTTOM_NAV_HEIGHT_VAR)).toBe('');
   });
 
-  it('неактивные пункты — --text-secondary и не мельче 11px', () => {
+  it('неактивные пункты — --text-secondary и не мельче 12px (вариант А)', () => {
     render(<BottomNav activePath="/menu" />);
     const tury = screen.getByRole('link', { name: 'Туры' });
     expect(tury.style.color, '«Туры» снова плейсхолдерного цвета (1.84:1)').toBe('var(--text-secondary)');
-    expect(parseFloat(tury.style.fontSize)).toBeGreaterThanOrEqual(11);
+    expect(parseFloat(tury.style.fontSize)).toBeGreaterThanOrEqual(12);
     // 11.5px без запрета переноса ломал «На маршруте» в две строки и
     // раздувал бар с 77 до 93px (снимок p1-after-menu390, 24.09).
     expect(tury.style.whiteSpace).toBe('nowrap');

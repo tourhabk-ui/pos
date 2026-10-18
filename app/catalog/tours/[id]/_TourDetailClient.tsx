@@ -361,7 +361,7 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2.5 mb-3">
       <span className="w-4 h-px bg-[var(--accent)]" />
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--accent)]" style={{ fontFamily: FM }}>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]" style={{ fontFamily: FM }}>
         {children}
       </span>
     </div>
@@ -618,7 +618,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
           <div className="absolute left-4 right-4 z-[2] flex items-start" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 72px)' }}>
             <Link
               href="/safety"
-              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
+              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
               style={{ fontFamily: FM, minHeight: 44 }}
             >
               <span
@@ -698,8 +698,8 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               >
                 {instrument.map((c, i) => (
                   <div key={c.k} className="min-w-0 px-2.5 sm:px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
-                    <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
-                    <div className="text-[13px] sm:text-[14px] font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
+                    <div className="text-xs uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
+                    <div className="text-sm font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
                   </div>
                 ))}
               </div>
