@@ -80,12 +80,12 @@ describe('баннер обстановки не выдаёт незнание �
   });
 
   it('спокойно — только когда все зоны реально посчитаны спокойными', () => {
-    expect(zoneBanner(true, ['low', 'low'])).toEqual({ state: 'calm', level: 'low' });
+    expect(zoneBanner(true, ['low', 'low'])).toEqual({ state: 'calm', level: 'low', scope: null });
   });
 
   it('худшая зона поднимает тревогу и называется', () => {
-    expect(zoneBanner(true, ['low', 'critical', 'moderate'])).toEqual({ state: 'alarm', level: 'critical' });
-    expect(zoneBanner(true, ['low', 'moderate'])).toEqual({ state: 'alarm', level: 'moderate' });
+    expect(zoneBanner(true, ['low', 'critical', 'moderate'])).toEqual({ state: 'alarm', level: 'critical', scope: null });
+    expect(zoneBanner(true, ['low', 'moderate'])).toEqual({ state: 'alarm', level: 'moderate', scope: null });
   });
 
   it('действующее предупреждение не даёт объявить норму', () => {
@@ -102,7 +102,7 @@ describe('баннер обстановки не выдаёт незнание �
   it('тревога слышна и когда зоны неизвестны', () => {
     // Про зоны не знаем ничего, про циклон знаем. «Недоступно» здесь было бы
     // не скромностью, а умолчанием.
-    expect(zoneBanner(false, [], [{ severity: 3 }])).toEqual({ state: 'alarm', level: 'critical' });
+    expect(zoneBanner(false, [], [{ severity: 3 }])).toEqual({ state: 'alarm', level: 'critical', scope: 'по предупреждениям ниже' });
   });
 
   it('худшее из двух источников, а не последнее посчитанное', () => {
@@ -110,6 +110,41 @@ describe('баннер обстановки не выдаёт незнание �
     expect(zoneBanner(true, ['critical'], [{ severity: 1 }]).level).toBe('critical');
     // Тревога хуже зоны — побеждает тревога.
     expect(zoneBanner(true, ['moderate'], [{ severity: 3 }]).level).toBe('critical');
+  });
+
+  it('локальный алерт при низких зонах называет место, а не весь полуостров', () => {
+    // Скриншот владельца 19.10: зоны 0–3 Normal, а шапка — голая «Высокая»
+    // из-за запретов у отдельных вулканов. Уровень не занижаем, место называем.
+    const volcanoes = [
+      { severity: 2, title: 'Вулкан Мутновский: приближаться не рекомендуется' },
+      { severity: 2, title: 'Вулкан Безымянный: приближаться не рекомендуется' },
+      { severity: 2, title: 'Вулкан Ключевской: приближаться не рекомендуется' },
+      { severity: 2, title: 'Мыс Левашова (п. Октябрьский): проезд запрещён' },
+    ];
+    const b = zoneBanner(true, ['low', 'low', 'low', 'low'], volcanoes);
+    expect(b.state).toBe('alarm');
+    expect(b.level).toBe('high');
+    expect(b.scope).toContain('Мутновский');
+    expect(b.scope).toContain('Безымянный');
+    expect(b.scope).toContain('и ещё 2');
+  });
+
+  it('без алертов и при низких зонах баннер спокойный и без места', () => {
+    expect(zoneBanner(true, ['low', 'low'], [])).toEqual({ state: 'calm', level: 'low', scope: null });
+  });
+
+  it('зональный высокий сигнал не теряется и называет зону', () => {
+    const b = zoneBanner(
+      true,
+      ['low', 'critical'],
+      [{ severity: 1, title: 'Вулкан Мутновский: приближаться не рекомендуется' }],
+      ['Авачинско-Петропавловский', 'Северная Камчатка'],
+    );
+    expect(b).toEqual({ state: 'alarm', level: 'critical', scope: 'Северная Камчатка' });
+    // severity 3 по предупреждению — тоже критический, с местом предупреждения.
+    const ev = zoneBanner(true, ['low'], [{ severity: 3, title: 'Вулкан Шивелуч: эвакуация' }]);
+    expect(ev.level).toBe('critical');
+    expect(ev.scope).toContain('Шивелуч');
   });
 
   it('информационная тревога нормы не отменяет', () => {
