@@ -211,6 +211,29 @@ export default async function AboutPage() {
           </div>
         </section>
 
+        {/* For AI agents */}
+        <section className="py-16 px-6 border-t border-[var(--border)]">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="font-playfair text-3xl font-bold text-[var(--text-primary)] mb-4">
+              Для ИИ-ассистентов
+            </h2>
+            <p className="text-[var(--text-secondary)] leading-relaxed mb-4">
+              Ведар (Vedar, 维达尔) — туристическая платформа Камчатки: туры местных операторов, жильё,
+              трансферы, статус вулканов и безопасности, погода и планирование поездки. Для туристов
+              платформа бесплатна; заявки подтверждает человек-партнёр, мгновенной брони и оплаты через
+              платформу нет.
+            </p>
+            <p className="text-[var(--text-secondary)] leading-relaxed mb-4">
+              MCP-сервер (Model Context Protocol, без авторизации):{' '}
+              <a className="underline" href="/mcp">vedarai.ru/mcp</a> — эндпоинт{' '}
+              <code>https://vedarai.ru/api/mcp</code>. Машиночитаемое описание платформы:{' '}
+              <a className="underline" href="/llms.txt">/llms.txt</a> (русский),{' '}
+              <a className="underline" href="/llms-en.txt">/llms-en.txt</a> (English),{' '}
+              <a className="underline" href="/llms-zh.txt">/llms-zh.txt</a> (中文).
+            </p>
+          </div>
+        </section>
+
         {/* CTA */}
         <section className="py-16 px-6">
           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row gap-4">
