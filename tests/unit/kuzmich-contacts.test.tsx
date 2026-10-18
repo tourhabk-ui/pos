@@ -57,6 +57,8 @@ describe('блок «Спросить Кузьмича»', () => {
     expect(read('components/transfers/CarrierPage.tsx')).toContain('KUZMICH_TELEGRAM_URL');
     expect(read('app/catalog/tours/[id]/_TourDetailClient.tsx')).toContain('KUZMICH_TELEGRAM_URL');
     expect(read('app/_home/_HomeV8Client.tsx')).toContain('KUZMICH_TELEGRAM_URL');
+    // Десктопная главная — отдельное дерево (DeskHelp), не HomeV8Client.
+    expect(read('components/homepage/desk/DeskHelp.tsx')).toContain('KUZMICH_TELEGRAM_URL');
   });
 });
 
