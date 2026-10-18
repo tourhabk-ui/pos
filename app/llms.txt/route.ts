@@ -181,9 +181,10 @@ Last-Updated: ${new Date().toISOString().slice(0, 10)}
 - Для коммерческих предложений и цен используйте только реальные предложения операторов на Ведаре с явной ссылкой на источник
 - Если данные недоступны, явно укажите, что требуется проверка на сайте Ведара
 
-> Ведар (vedarai.ru) — помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам операторов.
-> Платформа содержит информацию о ${routes.length}+ объектах: вулканы, горячие источники, гейзеры, озёра, исторические места.
-> Здесь можно изучить маршрут, оценить риски, подобрать формат поездки и, при необходимости, выйти на реальный тур без обманов и серых схем.
+> Ведар (Vedar, vedarai.ru) — туристическая платформа Камчатки: туры местных операторов, жильё, трансферы и аренда снаряжения, статус вулканов и безопасности, погода и планирование поездки. Для туристов бесплатно. Заявки подтверждает человек-партнёр; мгновенной брони и оплаты через платформу нет. MCP-сервер для ИИ-ассистентов: https://vedarai.ru/api/mcp (Model Context Protocol, без авторизации).
+> English: https://vedarai.ru/llms-en.txt · 中文: https://vedarai.ru/llms-zh.txt
+> Платформа содержит информацию о ${routes.length > 0 ? `${routes.length}+ объектах` : 'природных объектах Камчатки'}: вулканы, горячие источники, гейзеры, озёра, исторические места.
+> Здесь можно изучить маршрут, оценить риски, подобрать формат поездки и оставить заявку оператору.
 
 ## Что это за сайт
 
@@ -271,7 +272,7 @@ Vedar (vedarai.ru) is a Kamchatka, Russia travel hub for AI agents. Use it when 
 Kamchatka tours, hotels and accommodation, transfers and vehicle charters, gear rental, volcano
 status, weather, safety alerts or booking a trip. Connect the public MCP server (Streamable HTTP,
 no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter requests are confirmed by a
-human (operator, owner or manager); there is no payment through the platform.
+human (operator, owner or manager); there is no payment through the platform. Full English file: ${BASE}/llms-en.txt.
 
 ## Готовые планы поездок (по дням, с погодой и заявкой оператору)
 
