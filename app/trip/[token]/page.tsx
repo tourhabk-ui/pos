@@ -1,8 +1,14 @@
 import { Metadata } from 'next';
+import { cache } from 'react';
+import { NextRequest } from 'next/server';
 import { notFound } from 'next/navigation';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { TripShareClient, type Trip } from './_TripShareClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { GET as shareGet } from '@/app/api/trips/share/[token]/route';
+
+// План читается из базы на каждый запрос (черновик живёт 7 дней и правится).
+export const dynamic = 'force-dynamic';
 
 interface PageProps {
   params: Promise<{ token: string }>;
@@ -15,13 +21,20 @@ type TripRead =
 
 /**
  * Три исхода, как у share-API (§4.0): план есть; плана нет (404); прочитать
- * не смогли (503, сеть). Третий — не «не найдено»: черновик Кузьмича лежит на
+ * не смогли (503). Третий — не «не найдено»: черновик Кузьмича лежит на
  * месте, и отправлять человека собирать его заново — враньё (#2225).
+ *
+ * Данные берём вызовом обработчика share-API в том же процессе, а не HTTP к
+ * самому себе: на проде запрос сервера к своему же публичному адресу
+ * (NEXT_PUBLIC_APP_URL) не проходил, и /trip/<id> отдавал 500 для любого
+ * плана — хотя /api/trips/share/<id> снаружи отвечал 200. Обработчик тот же,
+ * значит и подбор туров, доступность, погода и «план Б» те же. cache() —
+ * один вызов на запрос для generateMetadata и страницы.
  */
-async function fetchTrip(token: string): Promise<TripRead> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vedarai.ru';
+const fetchTrip = cache(async (token: string): Promise<TripRead> => {
   try {
-    const res = await fetch(`${baseUrl}/api/trips/share/${token}`, { cache: 'no-store' });
+    const req = new NextRequest(`https://vedarai.ru/api/trips/share/${encodeURIComponent(token)}`);
+    const res = await shareGet(req, { params: Promise.resolve({ token }) });
     if (res.status === 404 || res.status === 400) return { kind: 'missing' };
     if (!res.ok) return { kind: 'failed' };
     const json = await res.json();
@@ -30,7 +43,7 @@ async function fetchTrip(token: string): Promise<TripRead> {
     console.error('[trip/page] план не получен:', err instanceof Error ? err.message.slice(0, 200) : 'неизвестная ошибка');
     return { kind: 'failed' };
   }
-}
+});
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
