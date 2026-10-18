@@ -49,7 +49,7 @@ import { tourDurationDays } from '@/lib/bookings/duration';
 import { planTourPrice, PRICE_UNREAD_TEXT } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
-import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
+import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, slotOnTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 
@@ -172,8 +172,9 @@ export interface DayPlan {
   slotsRemaining?: number;
   /**
    * Чем кончилось чтение занятости тура дня (только у дня с `realTour`):
-   * `open` — свободная дата есть (`availableDate`), `none` — прочитано, в окне
-   * поездки свободных дат нет, `unread` — прочитать не смогли. Нет поля —
+   * `open` — на дату этого дня есть свободные места (`availableDate` — дата
+   * этого дня), `none` — прочитано, на дату этого дня свободных мест нет,
+   * `unread` — прочитать не смогли. Нет поля —
    * занятость не читалась (продолжение многодневного тура, нет дат поездки).
    * Без него «дат нет» и «не смогли проверить» снаружи неотличимы (§4.0, #2241).
    */
@@ -1496,21 +1497,24 @@ async function generateDayPlans(
           lodgingIncluded: lodgingIncluded(realTour.included),
         };
 
-        // Check availability for this tour
+        // Check availability for this tour — на дату именно этого дня, а не
+        // первым слотом диапазона поездки: остаток соседней даты дню не принадлежит.
+        const dayDate = profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null;
         if (profile.arrivalDate && profile.departureDate) {
           // Отказ чтения — даты и остатка не называем вовсе (не «0 мест»).
           const slots = await fetchAvailabilityForTour(
             realTour.tourId, profile.arrivalDate, profile.departureDate, cache
           ).catch(availabilityUnread(realTour.tourId));
-          availability = slots === null ? 'unread' : slots.length > 0 ? 'open' : 'none';
-          if (slots && slots.length > 0) {
-            availableDate = slots[0].date;
-            slotsRemaining = slots[0].remaining;
+          const daySlot = slots === null ? null : slotOnTripDay(slots, profile.arrivalDate, dayNum);
+          availability = slots === null ? 'unread' : daySlot ? 'open' : 'none';
+          if (daySlot) {
+            availableDate = daySlot.date;
+            slotsRemaining = daySlot.remaining;
             const gs = groupSize(profile);
-            if (slots[0].remaining < gs) {
-              capacityWarning = `Свободно ${slots[0].remaining} из ${realTour.maxParticipants} мест, вас ${gs}. Возможно, придётся выбрать другую дату.`;
-            } else if (slots[0].remaining <= 3) {
-              capacityWarning = `Осталось ${slots[0].remaining} мест — высокий спрос`;
+            if (daySlot.remaining < gs) {
+              capacityWarning = `Свободно ${daySlot.remaining} из ${realTour.maxParticipants} мест, вас ${gs}. Возможно, придётся выбрать другую дату.`;
+            } else if (daySlot.remaining <= 3) {
+              capacityWarning = `Осталось ${daySlot.remaining} мест — высокий спрос`;
             }
           }
         }
@@ -1524,7 +1528,7 @@ async function generateDayPlans(
           participants: groupSize(profile),
           multiDayCount: realTour.multiDayCount,
           durationHours: realTour.durationHours === null ? null : Number(realTour.durationHours),
-          tourDate: availableDate ?? (profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null),
+          tourDate: dayDate,
         });
         if (priced.kind === 'priced' && priced.unitPrice > 0) {
           realPrice = priced.unitPrice;

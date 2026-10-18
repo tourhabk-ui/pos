@@ -127,3 +127,18 @@ export function dateOfTripDay(arrivalDate: string, dayNum: number): string | nul
   if (Number.isNaN(t) || dayNum < 1) return null;
   return new Date(t + (dayNum - 1) * 86_400_000).toISOString().slice(0, 10);
 }
+
+/**
+ * Слот занятости именно на дату N-го дня поездки, а не первый слот диапазона.
+ * `fetchAvailabilityForTour` отдаёт только даты со свободными местами, поэтому
+ * отсутствие слота на дату дня значит «на этот день мест нет» (или у тура нет
+ * слота на эту дату), а остаток соседней даты дню приписывать нельзя.
+ */
+export function slotOnTripDay<T extends { date: string }>(
+  slots: readonly T[],
+  arrivalDate: string,
+  dayNum: number,
+): T | null {
+  const date = dateOfTripDay(arrivalDate, dayNum);
+  return date ? slots.find((slot) => slot.date === date) ?? null : null;
+}
