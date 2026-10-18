@@ -58,3 +58,17 @@ describe('старые адреса: правило в next.config, папки �
     expect(page).toMatch(/from '\.\/_OperatorsClient'/);
   });
 });
+
+describe('дизайн-аудит 18.10, вариант А: короткие адреса', () => {
+  it('/en → /en/kamchatka-tours и /booking → страница заявок, без папок-редиректов', () => {
+    expect(CONFIG).toMatch(/source:\s*'\/en',\s*destination:\s*'\/en\/kamchatka-tours',\s*permanent:\s*true/);
+    expect(CONFIG).toMatch(/source:\s*'\/booking',\s*destination:\s*'\/bronirovanie-turov-kamchatka',\s*permanent:\s*true/);
+  });
+
+  it('404 ведёт в туры, карту и SOS, а не только на главную', () => {
+    const notFound = readFileSync(join(ROOT, 'app/not-found.tsx'), 'utf-8');
+    expect(notFound).toContain("href: '/catalog'");
+    expect(notFound).toContain("href: '/map'");
+    expect(notFound).toContain("href: '/sos'");
+  });
+});

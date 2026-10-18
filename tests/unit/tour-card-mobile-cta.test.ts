@@ -26,7 +26,7 @@ const FAB = readFileSync(join(ROOT, 'components/shared/StickyLeadButton.tsx'), '
 
 describe('карточка решения на мобильном', () => {
   it('стоит выше секции «О туре» и скрыта на desktop', () => {
-    const decision = CARD.indexOf('Выбрать дату и оставить заявку');
+    const decision = CARD.indexOf('Узнать свободные даты');
     const about = CARD.indexOf('<Eyebrow>О туре</Eyebrow>');
     expect(decision, 'карточка решения не найдена').toBeGreaterThan(0);
     expect(about, 'секция «О туре» не найдена').toBeGreaterThan(0);
@@ -50,7 +50,7 @@ describe('контекстная нижняя панель', () => {
   it('непрозрачная: действие, не контекст (§5)', () => {
     const panelStart = CARD.indexOf('Контекстная нижняя панель');
     expect(panelStart, 'панель не найдена').toBeGreaterThan(0);
-    const panel = CARD.slice(panelStart, CARD.indexOf('Выбрать дату\n', panelStart) + 40);
+    const panel = CARD.slice(panelStart, CARD.indexOf('Узнать свободные даты\n', panelStart) + 40);
     expect(panel).toContain("background: 'var(--bg-card)'");
     expect(panel).not.toContain('backdrop-blur');
     expect(panel).toContain('safe-area-inset-bottom');

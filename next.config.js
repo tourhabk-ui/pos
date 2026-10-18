@@ -236,6 +236,11 @@ const nextConfig = {
       // 02.10 (внутренний аудит): не рендерился нигде и держал выдуманные
       // статусы («Вулканы: норма», «Связь: 3G», прилив по часам).
       { source: '/dashboard',          destination: '/',                               permanent: true },
+      // Дизайн-аудит 18.10 (вариант А): /en и /booking попадали в rewrite
+      // короткого адреса оператора и отдавали 404. Ведар — информационный
+      // портал: /booking ведёт на страницу заявок операторам, а не на оплату.
+      { source: '/en',                 destination: '/en/kamchatka-tours',             permanent: true },
+      { source: '/booking',            destination: '/bronirovanie-turov-kamchatka',   permanent: true },
     ];
   },
 
