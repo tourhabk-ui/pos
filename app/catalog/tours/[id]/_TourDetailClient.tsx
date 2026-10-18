@@ -730,7 +730,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     : 'Дату и детали подтверждает оператор. Оплата — ему напрямую, после подтверждения: Ведар платежи не принимает.'}
                 </p>
                 <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
-                  Выбрать дату и оставить заявку
+                  Узнать свободные даты
                 </a>
               </div>
             </div>
@@ -1157,7 +1157,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     роль играет карточка решения (lg:hidden), поэтому здесь —
                     только lg. */}
                 <a href="#booking" data-testid="aside-cta" className="hidden lg:flex ds-btn ds-btn-primary w-full mb-4 justify-center text-sm" style={{ minHeight: 44 }}>
-                  Выбрать дату и оставить заявку
+                  Узнать свободные даты
                 </a>
 
                 {/* Щит — НАД формой: главная гарантия стоит до действия, а не
@@ -1236,7 +1236,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             </div>
           </div>
           <a href="#booking" tabIndex={barShown ? undefined : -1} className="ds-btn ds-btn-primary text-sm shrink-0" style={{ minHeight: 44 }}>
-            Выбрать дату
+            Узнать свободные даты
           </a>
         </div>
       </div>
