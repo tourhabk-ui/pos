@@ -18,6 +18,7 @@ import { render, cleanup } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
+import { renderToString } from 'react-dom/server';
 
 afterEach(cleanup);
 
@@ -49,13 +50,19 @@ describe('фото героя главной', () => {
     expect(img.getAttribute('alt')).toBe('');
   });
 
-  it('предзагрузка — тот же srcset и тот же приоритет: второй загрузки нет', () => {
-    const img = hero(LIGHT);
-    const link = document.querySelector('link[rel="preload"][as="image"]');
-    expect(link, 'предзагрузки нет').not.toBeNull();
-    expect(link?.getAttribute('imagesrcset')).toBe(img.getAttribute('srcset'));
-    expect(link?.getAttribute('imagesizes')).toBe('100vw');
-    expect(link?.getAttribute('fetchpriority')).toBe('high');
+  it('ручного <link rel="preload"> в компоненте нет — его давал дубль на проде', () => {
+    hero(LIGHT);
+    expect(document.querySelector('link[rel="preload"]')).toBeNull();
+    const src = readFileSync(join(process.cwd(), 'components/homepage/HeroBackdrop.tsx'), 'utf-8');
+    expect(src).not.toContain('<link');
+  });
+
+  it('SSR: React сам отдаёт ровно один preload — тот же srcset, что у картинки', () => {
+    const html = renderToString(<HeroBackdrop src={LIGHT} />);
+    const links = html.match(/<link[^>]*rel="preload"[^>]*>/g) ?? [];
+    expect(links).toHaveLength(1);
+    expect(links[0]).toContain('/images/hero/hero-light.1024.webp 1024w');
+    expect(links[0]).toContain('fetchPriority="high"');
   });
 
   it('тёмная тема — своё фото, тоже WebP родной ширины', () => {

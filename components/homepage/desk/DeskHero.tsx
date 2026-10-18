@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight, CalendarDays, Compass, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { clip } from '@/lib/safety/alert-clip';
@@ -9,6 +8,7 @@ import { alertSeverityWord } from '@/lib/safety/severity-words';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import type { DeskBrief } from '@/lib/home/desk-brief';
 import { keepDailyDescription } from '@/lib/weather/day-parts';
+import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 
 /**
  * Первый экран десктопной главной — «сводка дня поверх фото» (доска
@@ -27,7 +27,11 @@ import { keepDailyDescription } from '@/lib/weather/day-parts';
  *
  * Фото — снимок владельца (Три Брата и вулканы, выбор 30.09). Исходник
  * 600 px по ширине: на широком экране он мягкий, резкость вернёт только
- * оригинал в полном размере.
+ * оригинал в полном размере. Большего исходника в репозитории нет (проверено
+ * 19.10: все IMG_20260316_* — 600–800 px), поэтому ширин 1280+ не выдумываем:
+ * отдаём только реальные нарезанные WebP (320 и вариант 640, фактическая
+ * ширина файла — 600), а не растянутый оптимизатором JPEG. Как только владелец
+ * даст оригинал, ширины появятся нарезкой `npm run images` — без правки кода.
  */
 
 function signed(n: number): string {
@@ -150,13 +154,18 @@ function AlertCard({ brief }: { brief: DeskBrief }) {
 export function DeskHero({ brief }: { brief: DeskBrief }) {
   return (
     <section className="relative isolate overflow-hidden" aria-label="Сводка дня">
-      <Image
-        src="/images/hero/IMG_20260316_133142.jpg"
+      {/* Не next/image: оптимизатор отключён (images.unoptimized), и он отдавал
+          оригинал JPEG 600 px без srcset. Обычный <img> берёт нарезанные WebP
+          из манифеста ширин, а fetchPriority="high" даёт React отдать preload
+          ровно этого srcset — как у мобильного героя (HeroBackdrop). */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={photoSrc('/images/hero/IMG_20260316_133142.jpg', 1280)}
+        srcSet={photoSrcSet('/images/hero/IMG_20260316_133142.jpg')}
         alt="Скалы Три Брата в Авачинской бухте, на горизонте вулканы"
-        fill
-        priority
+        fetchPriority="high"
         sizes="100vw"
-        className="-z-20 object-cover object-[50%_30%]"
+        className="absolute inset-0 h-full w-full -z-20 object-cover object-[50%_30%]"
       />
       {/* Слева плотнее — там текст; справа фото дышит. Снизу — переход к странице. */}
       <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/90 via-black/65 to-black/25" aria-hidden />
