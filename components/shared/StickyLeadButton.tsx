@@ -67,7 +67,11 @@ export default function StickyLeadButton() {
   // /transfers/ — страница перевозчика (владелец 14.10: заказать вахтовку
   // «сложно получается»): у неё своя заявка на машину, а кнопка ложилась на
   // галочку согласия этой заявки. Список /transfers не задет.
-  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/watch', '/return', '/checkin-ok', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/booking-success', '/planning', '/field-check', '/kuzmich', '/auth', '/oauth', '/places/', '/routes/', '/map', '/transfers/'];
+  // /catalog — список туров (владелец 19.10, скрин мобильного каталога):
+  // плавающая «Подобрать тур» там больше не актуальна. Подбор не теряется:
+  // в каталоге есть баннер планировщика (/planner) и заявка на каждой
+  // карточке, а сама кнопка живёт на остальных страницах как раньше.
+  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/watch', '/return', '/checkin-ok', '/safety', '/offline', '/marketplace/tours/', '/catalog', '/booking-success', '/planning', '/field-check', '/kuzmich', '/auth', '/oauth', '/places/', '/routes/', '/map', '/transfers/'];
   // /widget/* — iframe на чужом сайте: там кнопка ложилась поверх отправки
   // в чате и полей формы (примерка на fishingkam.ru 29.09, lib/embed/widget-frame).
   if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/' || isWidgetPath(pathname)) return null;
@@ -172,7 +176,7 @@ export default function StickyLeadButton() {
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-muted)' }} />
                   <input
-                    type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    type="tel" inputMode="tel" autoComplete="tel" aria-label="Телефон" value={phone} onChange={e => setPhone(e.target.value)}
                     placeholder="+7 900 000 00 00" autoFocus required
                     className="ds-input w-full pl-8 pr-3 py-2 text-sm"
                   />
@@ -180,7 +184,7 @@ export default function StickyLeadButton() {
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
                   <input
-                    type="text" value={name} onChange={e => setName(e.target.value)}
+                    type="text" autoComplete="name" aria-label="Имя" value={name} onChange={e => setName(e.target.value)}
                     placeholder="Ваше имя (необязательно)"
                     className="ds-input w-full pl-8 pr-3 py-2 text-sm"
                   />

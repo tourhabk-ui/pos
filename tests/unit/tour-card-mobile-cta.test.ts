@@ -58,11 +58,10 @@ describe('контекстная нижняя панель', () => {
 });
 
 describe('глобальная «Хочу тур» уступает контекстному CTA', () => {
-  it('скрыта на детальных страницах тура, списки не задеты', () => {
+  it('скрыта на детальных страницах тура и на каталоге (владелец 19.10)', () => {
     expect(FAB).toContain("'/marketplace/tours/'");
-    expect(FAB).toContain("'/catalog/tours/'");
-    // Именно подпути /tours/: сами витрины остаются с кнопкой.
+    // Каталог — префикс '/catalog': прячет и список, и карточки под ним.
+    expect(FAB).toContain("'/catalog',");
     expect(FAB).not.toContain("'/marketplace',");
-    expect(FAB).not.toContain("'/catalog',");
   });
 });
