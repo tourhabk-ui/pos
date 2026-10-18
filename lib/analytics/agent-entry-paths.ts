@@ -19,6 +19,7 @@ export const AGENT_ENTRY_PATHS = [
   // вопрос, ради которого заведён китайский слой, — ходят ли китайские
   // агенты, — отвечается только раздельным счётом.
   '/llms-zh.txt',
+  '/llms-en.txt',
   '/.well-known/mcp.json',
   '/.well-known/agent-card.json',
   '/.well-known/agent.json',
