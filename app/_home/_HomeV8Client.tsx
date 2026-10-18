@@ -852,10 +852,16 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               ))}
             </div>
             <div className="field2">
-              <input id="lead-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
-              <div className="field">
-                <input id="lead-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Телефон или Telegram" aria-label="Контакт" />
-                <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
+              <div className="lfield">
+                <label htmlFor="lead-name">Имя</label>
+                <input id="lead-name" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
+              </div>
+              <div className="lfield">
+                <label htmlFor="lead-phone">Телефон или Telegram</label>
+                <div className="field">
+                  <input id="lead-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон или Telegram" aria-label="Контакт" />
+                  <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
+                </div>
               </div>
             </div>
             <div className="fine">
@@ -1417,13 +1423,15 @@ const CSS = `
 .v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);border:1px solid var(--border);background:none;padding:0 13px;cursor:pointer;transition:.15s}
 .v7 .lead .chip[aria-pressed="true"]{background:var(--text-primary);color:var(--bg-primary);border-color:var(--text-primary)}
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
-.v7 .lead .field2>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
+.v7 .lead .lfield{display:flex;flex-direction:column;gap:6px;min-width:0}
+.v7 .lead .lfield>label{font:600 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .lead .lfield>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field{display:flex;border:1px solid var(--border);background:var(--bg-card)}
 /* min-width:0 (аудит 24.09, #3/#35): без него поле не ужималось ниже своей
    встроенной ширины, и «Отправить» выезжала за рамку (на 360px — за экран,
    scrollWidth 367). */
 .v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
-.v7 .lead .field input::placeholder,.v7 .lead .field2>input::placeholder{color:var(--text-muted)}
+.v7 .lead .field input::placeholder,.v7 .lead .lfield>input::placeholder{color:var(--text-muted)}
 .v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
 .v7 .lead .field button:disabled{opacity:.6}
 .v7 .lead .err{margin-top:6px;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
@@ -1502,8 +1510,8 @@ const CSS = `
   .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
   .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}
-  .v7 .lead .field2>input{flex:1;min-width:200px}
-  .v7 .lead .field{flex:2;min-width:260px}
+  .v7 .lead .lfield{flex:1;min-width:200px}
+  .v7 .lead .lfield:has(>.field){flex:2;min-width:260px}
     /* Сетки используют ширину: стихии в 3 колонки (5 плиток ложатся без дыры —
      последняя span 2), платы показывают по три, цифры по центру */
   .v7 .elements{grid-template-columns:repeat(3,1fr)}

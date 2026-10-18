@@ -103,13 +103,16 @@ describe('кнопка «Хочу тур»', () => {
     }
   });
 
-  it('списки туров не задеты', () => {
-    for (const p of ['/catalog', '/marketplace']) {
+  it('на каталоге кнопки нет (владелец 19.10), подбор там — баннер планировщика и карточки', () => {
+    for (const p of ['/catalog', '/catalog/tours/mestechko-kurilskoe-ozero']) {
       pathname = p;
       const { container, unmount } = render(<StickyLeadButton />);
-      expect(container.innerHTML, `кнопка пропала на ${p}`).not.toBe('');
+      expect(container.innerHTML, `плавающая кнопка снова на ${p}`).toBe('');
       unmount();
     }
+    // Сама кнопка и её форма на других страницах живут как раньше.
+    pathname = '/marketplace';
+    expect(render(<StickyLeadButton />).container.innerHTML, 'кнопка пропала везде, а не только на каталоге').not.toBe('');
   });
 });
 

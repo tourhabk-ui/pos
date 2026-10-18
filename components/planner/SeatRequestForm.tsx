@@ -290,7 +290,7 @@ export function SeatRequestForm({
             </label>
             <label className="block">
               <span className="ds-label">Телефон</span>
-              <input required type="tel" minLength={10} maxLength={20} value={phone} onChange={e => setPhone(e.target.value)} className="ds-input w-full" autoComplete="tel" placeholder="+7 900 000-00-00" />
+              <input required type="tel" inputMode="tel" minLength={10} maxLength={20} value={phone} onChange={e => setPhone(e.target.value)} className="ds-input w-full" autoComplete="tel" placeholder="+7 900 000-00-00" />
             </label>
             <fieldset>
               <legend className="ds-label">Где получить ответ</legend>
