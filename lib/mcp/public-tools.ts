@@ -184,7 +184,12 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   // доходит, в отличие от заявки. Поэтому «только чтение» по смыслу хоста и
   // лимит чтения, а не пять записей в час. Не идемпотентен: повтор
   // add_day добавит ещё один день.
-  edit_trip_plan:        { ...READ, idempotentHint: false },
+  // edit_trip_plan persists an anonymous draft plan (7 days, by plan_id):
+  // it writes server-side state, so readOnlyHint is false. It does NOT
+  // reach a human or operator and creates no request — that is why it is
+  // not in WRITE_TOOL_NAMES below (consent/human-work writes) and keeps
+  // the generous read-side rate limit.
+  edit_trip_plan:        { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   // Пара для коннекторов ChatGPT (ступень 2, 12.10): поиск по витрине и
   // чтение записи по id — только чтение, повтор даёт то же.
   search:                READ,
@@ -430,14 +435,22 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
 
 /**
- * Пишущие инструменты — те, чья аннотация говорит `readOnlyHint: false`.
- * Одно правило на лимит записи в роуте и на подсказку хосту: раньше роут
- * держал свой список из двух имён, и третий пишущий инструмент получил бы
- * щедрый лимит чтения, пока кто-то не вспомнил бы про второй список.
+ * Human-work write tools (see below). Kept explicit, not derived from
+ * annotations: edit_trip_plan writes only an anonymous draft, so deriving
+ * this set from readOnlyHint would put plan editing under the strict
+ * 5-per-hour request limit and label it as sending data to a human.
  */
-export const WRITE_TOOL_NAMES = new Set(
-  PUBLIC_MCP_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name),
-);
+// Human-work writes: the four request tools. They send a traveller's
+// name/phone to the platform/operator and therefore need explicit consent
+// and the strict write rate limit. edit_trip_plan is a write by annotation
+// (it persists an anonymous draft) but is deliberately not in this set:
+// no human receives it, no personal data is required.
+export const WRITE_TOOL_NAMES = new Set([
+  'create_lead',
+  'create_booking_request',
+  'create_stay_request',
+  'request_charter',
+]);
 
 /**
  * Лимит чтения с одного адреса в минуту. Один источник для сервера
