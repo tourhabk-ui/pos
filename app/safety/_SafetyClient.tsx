@@ -126,6 +126,21 @@ function severityToLevel(severity: number): string {
   return 'low';
 }
 
+/** Место из заголовка предупреждения: часть до двоеточия («Вулкан Мутновский: …» → «Мутновский»). */
+function alertPlace(title: string | null | undefined): string | null {
+  if (!title?.trim()) return null;
+  const head = title.split(':')[0].trim().replace(/^Вулкан\s+/i, '');
+  return head || null;
+}
+
+/** Компактный список мест для мобильного баннера: первые два + «и ещё N». */
+function compactPlaces(places: string[]): string | null {
+  const uniq = [...new Set(places.filter(Boolean))];
+  if (uniq.length === 0) return null;
+  if (uniq.length <= 2) return uniq.join(', ');
+  return `${uniq.slice(0, 2).join(', ')} и ещё ${uniq.length - 2}`;
+}
+
 export function zoneBanner(
   known: boolean,
   levels: string[],
@@ -144,26 +159,53 @@ export function zoneBanner(
    *
    * Отсюда правило: заголовок страницы не может быть спокойнее худшего
    * сигнала, который она сама показывает.
+   *
+   * Скриншот 19.10 — обратная сторона того же правила: локальные запреты у
+   * отдельных вулканов (severity 2) поднимали шапку до голого «Опасность:
+   * Высокая» на весь полуостров, хотя все зоны были 0–3 Normal. Уровень не
+   * занижаем, но баннер обязан называть место худшего сигнала (`scope`):
+   * места предупреждений — из их заголовков, зоны — из её имени. Без места
+   * в заголовке честный запасной вариант — «по предупреждениям ниже».
    */
-  alerts: Array<{ severity: number }> = [],
-): { state: 'unknown' | 'calm' | 'alarm'; level: string | null } {
+  alerts: Array<{ severity: number; title?: string | null }> = [],
+  /** Имена зон, параллельные `levels` (та же выборка, `zone_name`). */
+  zoneNames: string[] = [],
+): { state: 'unknown' | 'calm' | 'alarm'; level: string | null; scope: string | null } {
   const worstAlert = alerts.reduce((max, a) => Math.max(max, a.severity ?? 0), 0);
   const alertLevel = alerts.length > 0 ? severityToLevel(worstAlert) : null;
+  const alertScope = alertLevel && alertLevel !== 'low'
+    ? compactPlaces(
+        alerts
+          .filter((a) => severityToLevel(a.severity ?? 0) === alertLevel)
+          .map((a) => alertPlace(a.title))
+          .filter((x): x is string => Boolean(x)),
+      ) ?? 'по предупреждениям ниже'
+    : null;
 
   // Про зоны не знаем ничего — но про тревоги знаем: молчать нельзя.
   if (!known || levels.length === 0) {
-    if (alertLevel && alertLevel !== 'low') return { state: 'alarm', level: alertLevel };
-    return { state: 'unknown', level: null };
+    if (alertLevel && alertLevel !== 'low') return { state: 'alarm', level: alertLevel, scope: alertScope };
+    return { state: 'unknown', level: null, scope: null };
   }
 
   const worstZone = levels.reduce(
     (max, l) => (RISK_ORDER.indexOf(l) > RISK_ORDER.indexOf(max) ? l : max),
     'low',
   );
+  const zoneScope = worstZone !== 'low'
+    ? compactPlaces(levels.flatMap((l, i) => (l === worstZone && zoneNames[i] ? [zoneNames[i]] : [])))
+    : null;
   const worst = alertLevel && RISK_ORDER.indexOf(alertLevel) > RISK_ORDER.indexOf(worstZone)
     ? alertLevel
     : worstZone;
-  return { state: worst === 'low' ? 'calm' : 'alarm', level: worst };
+  if (worst === 'low') return { state: 'calm', level: worst, scope: null };
+  // Кто поднял баннер, того место и называем; при равенстве — оба места.
+  const scope = alertLevel === worstZone && zoneScope && alertScope
+    ? `${zoneScope}; ${alertScope}`
+    : RISK_ORDER.indexOf(alertLevel ?? 'low') > RISK_ORDER.indexOf(worstZone)
+      ? alertScope
+      : zoneScope ?? alertScope;
+  return { state: 'alarm', level: worst, scope };
 }
 
 function magColor(mag: number): string {
@@ -410,7 +452,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
 
   // Тревоги в баннер обязательны: иначе шапка страницы объявляет норму над
   // собственной лентой предупреждений (полевой скриншот 10.08).
-  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? []);
+  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? [], zones.map(z => z.zone_name));
   // Считаем оба потока (см. комментарий у VolcanoStatusRow): новость МЧС и
   // живой код KVERT — разные сигналы, даже если про один и тот же вулкан.
   // Занижать сумму дедупом по имени значило бы решить за читателя, что один
@@ -484,7 +526,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     ? 'Оценка по зонам сейчас недоступна'
     : banner.state === 'calm'
       ? 'Обстановка нормальная'
-      : `Опасность: ${RISK_LABELS[banner.level ?? 'low']}`;
+      : `Опасность: ${RISK_LABELS[banner.level ?? 'low']}${banner.scope ? ` — ${banner.scope}` : ''}`;
 
   return (
     // paddingBottom — под фиксированный таб-бар: без него последняя карточка
