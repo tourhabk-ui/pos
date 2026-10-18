@@ -13,16 +13,15 @@
  *  - это не вторая форма: переход на единственный #booking, не свой POST;
  *  - контекстная нижняя панель — действие, значит непрозрачная (§5), без
  *    backdrop-blur;
- *  - глобальный StickyLeadButton на детальных страницах тура скрыт, списки
- *    /marketplace и /catalog не задеты.
+ *  - глобальной плавающей кнопки больше нет нигде (владелец 19.10).
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const CARD = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
-const FAB = readFileSync(join(ROOT, 'components/shared/StickyLeadButton.tsx'), 'utf-8');
+const LAYOUT = readFileSync(join(ROOT, 'app/layout.tsx'), 'utf-8');
 
 describe('карточка решения на мобильном', () => {
   it('стоит выше секции «О туре» и скрыта на desktop', () => {
@@ -57,11 +56,9 @@ describe('контекстная нижняя панель', () => {
   });
 });
 
-describe('глобальная «Хочу тур» уступает контекстному CTA', () => {
-  it('скрыта на детальных страницах тура и на каталоге (владелец 19.10)', () => {
-    expect(FAB).toContain("'/marketplace/tours/'");
-    // Каталог — префикс '/catalog': прячет и список, и карточки под ним.
-    expect(FAB).toContain("'/catalog',");
-    expect(FAB).not.toContain("'/marketplace',");
+describe('глобальной плавающей кнопки больше нет (владелец 19.10)', () => {
+  it('StickyLeadButton удалён и layout его не монтирует — ни на турах, ни где-либо', () => {
+    expect(LAYOUT).not.toContain('StickyLeadButton');
+    expect(existsSync(join(ROOT, 'components/shared/StickyLeadButton.tsx'))).toBe(false);
   });
 });

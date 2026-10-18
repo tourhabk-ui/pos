@@ -30,6 +30,7 @@ import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
+import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
 import { CarrierReviews } from '@/components/transfers/CarrierReviews';
 import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
@@ -248,6 +249,16 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                   краю — спросите, например: «сколько стоит машина на Горелый и что взять».
                 </span>
               </Link>
+              {/* Тот же Кузьмич в мессенджерах — в потоке под карточкой, не
+                  плавающей кнопкой поверх «Как заказать» (владелец 19.10). */}
+              <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                <a href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--telegram)' }}>
+                  <Send className="w-4 h-4" aria-hidden /> Кузьмич в Telegram
+                </a>
+                <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--purple)' }}>
+                  <MessageCircle className="w-4 h-4" aria-hidden /> Кузьмич в MAX
+                </a>
+              </div>
             </section>
           </div>
 

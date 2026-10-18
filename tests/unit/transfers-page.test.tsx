@@ -34,7 +34,7 @@ const CHARTER = { state: 'ok', carriers: [{ partnerId: 'p-1', name: 'Шатун'
 describe('витрина: только машина целиком', () => {
   it('перевозчики с прайсом и «как заказать»; мест в поездках, формы дат и моих заказов мест нет', () => {
     const { container } = render(<TransfersPage charter={CHARTER} />);
-    expect([...container.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Машина под заказ', 'Как заказать']);
+    expect([...container.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Машина под заказ', 'Как заказать', 'Спросить Кузьмича']);
     expect(screen.getByText('Карточка: Шатун')).toBeTruthy();
     expect(container.querySelector('input')).toBeNull();
     expect(container.textContent).not.toMatch(/Найти места|Места в поездках|Мои заказы мест|за место/);
