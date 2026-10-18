@@ -30,8 +30,8 @@ vi.mock('@/hooks/useMyReferralCode', () => ({ useMyReferralCode: () => null }));
 vi.mock('@/lib/funnel/beacon', () => ({ funnelBeacon: vi.fn() }));
 
 import { PlannerClient } from '@/app/planner/_PlannerClient';
-import { PAGE_ACTION_BAR_VAR } from '@/components/shared/StickyLeadButton';
-import { PLANNER_HEADER_OFFSET } from '@/app/planner/planner-layout';
+
+import { PLANNER_HEADER_OFFSET, PAGE_ACTION_BAR_VAR } from '@/app/planner/planner-layout';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -227,15 +227,14 @@ describe('шапка сайта и кнопка заявки', () => {
     }
   });
 
-  it('панель шагов публикует свою высоту, кнопка «Подобрать тур» её учитывает', () => {
+  it('панель шагов публикует свою высоту (--page-action-bar-h из BottomNav)', () => {
     const { unmount } = render(<PlannerClient />);
     expect(document.documentElement.style.getPropertyValue(PAGE_ACTION_BAR_VAR)).toMatch(/^\d+(\.\d+)?px$/);
     unmount();
     expect(document.documentElement.style.getPropertyValue(PAGE_ACTION_BAR_VAR)).toBe('');
-    const fab = read('components/shared/StickyLeadButton.tsx');
-    expect(fab).toMatch(/const FAB_BOTTOM = `calc\([^`]*var\(\$\{PAGE_ACTION_BAR_VAR\}, 0px\)/);
-    // Кнопку на /planner не прячут — владелец её оставил.
-    expect(fab).not.toMatch(/HIDDEN_PATHS = \[[^\]]*'\/planner'/);
+    // Плавающей кнопки, ради которой высота публиковалась, больше нет (19.10):
+    // переменная живёт в planner-layout, StickyLeadButton удалён.
+    expect(read('app/layout.tsx')).not.toContain('StickyLeadButton');
   });
 
   it('последнее поле шага прокручивается выше полосы и кнопки «Подобрать тур»', () => {

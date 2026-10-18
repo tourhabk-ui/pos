@@ -468,8 +468,8 @@ describe('экран согласия и возврат после входа', 
     expect(console.error).toHaveBeenCalled();
   });
 
-  it('кнопка «Подобрать тур» на экране согласия не показывается', () => {
-    expect(read('components/shared/StickyLeadButton.tsx')).toMatch(/HIDDEN_PATHS = \[[^\]]*'\/oauth'/);
+  it('плавающей кнопки на экране согласия нет — её нет нигде (владелец 19.10)', () => {
+    expect(read('app/layout.tsx')).not.toContain('StickyLeadButton');
   });
 
   it('middleware.ts этим не тронут: /api/mcp пропускается целиком, /oauth — вне matcher', () => {

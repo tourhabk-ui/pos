@@ -18,6 +18,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
+import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -213,10 +214,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     setPlateIdx(i);
   };
 
-  const jumpToLead = () => {
-    leadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
   const submitLead = async () => {
     setErr(null);
     // Кнопка не выключается галочкой (аудит 24.09, #3/#5): бледная кнопка
@@ -320,8 +317,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             сломанным. Прятать overflow нельзя, это спрятало бы действие
             целиком. Смысл: по решению владельца 29.07 тур — не первое
             обещание главной, а следующий шаг после ответа «куда мне можно».
-            Действие не потеряно: «Подобрать тур» в блоке Кузьмича зовёт тот
-            же jumpToLead. */}
+            Действие не потеряно: в блоке Кузьмича стоят ссылки на его
+            Telegram и MAX (владелец 19.10, вместо устаревшей кнопки). */}
       </div></div>
 
       {/* ГЕРОЙ — фото-первый, композиция north-star макета (31.07): вордмарк
@@ -794,9 +791,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <div className="acts">
               <Link href="/kuzmich">Спросить</Link>
               {/* Класс НЕ «lead»: на ссылку каскадом падало правило ФОРМЫ
-                  .v7 .lead (border+padding 20px) — «Подобрать тур» раздувался
-                  в короб и ломал ряд (полевой скриншот 01.08, 17:17). */}
-              <a className="golead" onClick={(e) => { e.preventDefault(); jumpToLead(); }} href="#lead">Подобрать тур</a>
+                  .v7 .lead (border+padding 20px) — кнопка действия раздувалась
+                  в короб и ломала ряд (полевой скриншот 01.08, 17:17). */}
+              <a className="golead" href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">Кузьмич в Telegram</a>
+              <a className="golead" href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer">Кузьмич в MAX</a>
             </div>
           </div>
         </section>
@@ -840,7 +838,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
             блок проводника выше, и добавлял главной ещё один вход в то же
             самое. Форма и её POST /api/leads остались нетронутыми, ссылка
-            «Подобрать тур» у Кузьмича по-прежнему ведёт сюда. */}
+            Ссылки у Кузьмича выше ведут в его Telegram и MAX. */}
         <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
@@ -1364,8 +1362,8 @@ const CSS = `
 .v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
 .v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
 .v7 .guide .acts{margin-top:14px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-/* Цели 44px (#127). «Подобрать тур» — единственный переход к лид-форме,
-   поэтому кнопка-заливка, а не подпись. */
+/* Цели 44px (#127). Ссылки на Telegram/MAX Кузьмича — кнопки-заливки,
+   а не подписи. */
 .v7 .guide .acts a{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--success);cursor:pointer}
 .v7 .guide .acts a.golead{padding:0 16px;border-radius:12px;background:var(--accent);color:var(--on-accent);letter-spacing:.04em;text-transform:none;font-size:13px;font-weight:700}
 /* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */

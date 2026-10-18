@@ -155,7 +155,6 @@ import { Providers } from '@/components/Providers'
 // состав и право на загрузку решает lib/legal/third-party-registry, а данные
 // не уходят раньше согласия посетителя (разбор права 11.09, docs/LEGAL.md).
 import ThirdPartyScripts from '@/components/legal/ThirdPartyScripts'
-import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { themeBootScript } from '@/lib/theme'
@@ -282,7 +281,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           }}
         />
         <ThirdPartyScripts />
-        <StickyLeadButton />
         <KuzmichWidget />
         <InstallPrompt />
         <InstallTracker />

@@ -5,7 +5,7 @@
  * и label, поэтому сторож читает разметку форм как контракт браузера.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -13,7 +13,6 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const HOME = read('app/_home/_HomeV8Client.tsx');
 const BOOKING = read('components/marketplace/BookingFormClient.tsx');
 const SEAT = read('components/planner/SeatRequestForm.tsx');
-const STICKY = read('components/shared/StickyLeadButton.tsx');
 
 describe('лид-форма главной', () => {
   it('телефон: type tel + inputMode tel + autoComplete tel; имя: autoComplete name', () => {
@@ -43,9 +42,9 @@ describe('заявка на карточке тура', () => {
   });
 });
 
-describe('попап плавающей кнопки (где она осталась)', () => {
-  it('телефон и имя — с клавиатурой и автоподстановкой', () => {
-    expect(STICKY).toMatch(/type="tel" inputMode="tel" autoComplete="tel"/);
-    expect(STICKY).toContain('autoComplete="name"');
+describe('плавающей кнопки больше нет (владелец 19.10)', () => {
+  it('StickyLeadButton удалён, layout его не монтирует', () => {
+    expect(existsSync(join(ROOT, 'components/shared/StickyLeadButton.tsx'))).toBe(false);
+    expect(read('app/layout.tsx')).not.toContain('StickyLeadButton');
   });
 });

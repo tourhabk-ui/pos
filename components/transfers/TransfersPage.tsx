@@ -24,6 +24,7 @@ import { AlertCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { CharterCard } from '@/components/transfers/CharterCard';
+import KuzmichContacts from '@/components/shared/KuzmichContacts';
 import { CARRIERS_ORDER_NOTE } from '@/lib/operators/order-note';
 import type { CharterState } from '@/lib/transfers/charter-format';
 
@@ -77,6 +78,10 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
             <li>Менеджер Ведара подтвердит машину с перевозчиком. Расчёт — напрямую с ним: через платформу машина не оплачивается.</li>
           </ol>
         </section>
+
+        {/* В потоке, после «Как заказать» — там, где плавающая кнопка
+            ложилась на текст (скрин владельца 19.10). Не плавает. */}
+        <KuzmichContacts className="mb-10" />
       </main>
       <BottomNav activePath="/transfers" />
     </div>

@@ -83,7 +83,7 @@ describe('глобальные компоненты молчат внутри в
 
   it('layout монтирует то, что сторож ожидает увидеть (перепись не пуста)', () => {
     const tags = mounted.map(m => m.tag);
-    for (const t of ['ThirdPartyScripts', 'StickyLeadButton', 'ServiceWorkerRegistrar', 'PageViewTracker']) {
+    for (const t of ['ThirdPartyScripts', 'ServiceWorkerRegistrar', 'PageViewTracker']) {
       expect(tags).toContain(t);
     }
   });

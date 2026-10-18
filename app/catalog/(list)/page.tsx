@@ -11,6 +11,7 @@ import { Header } from '@/components/layout/Header';
 import MarketplaceClient from '@/components/marketplace/MarketplaceClient';
 import BottomNav from '@/components/shared/BottomNav';
 import { CatalogFooter } from '@/components/marketplace/CatalogFooter';
+import KuzmichContacts from '@/components/shared/KuzmichContacts';
 import {
   queryMarketplaceToursForPage,
   queryCatalogSummaryForPage,
@@ -100,6 +101,9 @@ export default async function CatalogPage() {
         initialKey={initial === null ? null : initialKey}
         summary={summary}
       />
+      <div className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 pb-10">
+        <KuzmichContacts />
+      </div>
       <CatalogFooter />
       {/* Таб-бар с активным «Туры»: пункт объявлен activeOn для этих путей
           (BottomNav.tsx), а страницы его не рендерили — подсветка не

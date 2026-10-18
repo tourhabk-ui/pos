@@ -31,6 +31,7 @@ import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // карточка шапки не имела и ставила EmergencyAction в герой — кнопка уезжала
 // при прокрутке вместе с фото (аудит П6, #29/#31).
 import { Header } from '@/components/layout/Header';
+import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
 import { Footer } from '@/components/layout/Footer';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
@@ -1188,6 +1189,17 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               </div>
               <ChevronRight className="w-4 h-4 text-[var(--ocean)] shrink-0" />
             </Link>
+
+            {/* Тот же Кузьмич в мессенджерах, в потоке под блоком выше —
+                не плавающей кнопкой поверх карточки (владелец 19.10). */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <a href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--telegram)' }}>
+                Кузьмич в Telegram
+              </a>
+              <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--purple)' }}>
+                Кузьмич в MAX
+              </a>
+            </div>
           </div>
 
           {/* ─── Липкая бронь ─── */}
@@ -1268,7 +1280,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
       {/* ═══ Контекстная нижняя панель — только мобайл (аудит мобильной
           компоновки, этап 2). Заменяет на карточке тура глобальную кнопку
-          «Хочу тур» (StickyLeadButton здесь скрыт): безадресная заявка рядом
+          «Хочу тур» (плавающей кнопки больше нет, 19.10): безадресная заявка рядом
           с заявкой на конкретный тур — два контура бронирования. Панель —
           ДЕЙСТВИЕ, поэтому непрозрачная (§5), и учитывает safe-area.
           Нижней навигации под ней нет (развилка 5, решение владельца 24.09),
