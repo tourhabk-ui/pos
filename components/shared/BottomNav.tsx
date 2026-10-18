@@ -109,7 +109,7 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             // мелкой технической подписью. Обычный регистр + активная точка под
             // подписью вместо пилюли-подложки.
             //
-            // Неактивный пункт — --text-secondary, не --text-muted, и 11px в одну строку, не
+            // Неактивный пункт — --text-secondary, не --text-muted, и 12px в одну строку, не
             // 10.5: muted давал 1.84:1 в тёмной теме и 2.97:1 в светлой, и
             // «Туры» — единственный постоянный вход в коммерцию на телефоне —
             // почти не читался (аудит П1, #41/#110/#117). Сторож:
@@ -124,7 +124,7 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
               color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
               textDecoration: 'none',
               fontFamily: FO,
-              fontSize: '11px',
+              fontSize: '12px',
               whiteSpace: 'nowrap',
               fontWeight: 600,
               letterSpacing: '0.01em',
