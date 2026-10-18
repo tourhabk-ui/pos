@@ -85,3 +85,30 @@ describe('диагностика формы данных прода', () => {
     expect(INSPECT).not.toMatch(/Object\.values/);
   });
 });
+
+describe('дизайн-аудит 18.10, вариант А: контакты свёрнуты до двух главных', () => {
+  it('приоритет: первый телефон, затем личный Telegram / MAX / WhatsApp', () => {
+    expect(CARD).toContain('splitOperatorContacts');
+    expect(CARD).toMatch(/contacts\.find\(c => c\.icon === 'phone'\)/);
+    expect(CARD).toMatch(/c\.icon === 'telegram' && c\.label === 'Написать в Telegram'/);
+    expect(CARD).toMatch(/contacts\.find\(c => c\.icon === 'max'\)/);
+    expect(CARD).toMatch(/contacts\.find\(c => c\.icon === 'whatsapp'\)/);
+  });
+
+  it('остальные контакты не удалены, а уходят за «Другие контакты»', () => {
+    expect(CARD).toContain('Другие контакты');
+    expect(CARD).toMatch(/aria-expanded=\{contactsOpen\}/);
+    expect(CARD).toMatch(/id="operator-more-contacts"/);
+    expect(CARD).toMatch(/contactsOpen && moreContacts\.length > 0/);
+    expect(CARD).toMatch(/moreContacts\.map/);
+    // Все каналы по-прежнему строятся в toContacts — сворачивание только в показе.
+    for (const label of ['WhatsApp', 'Написать в Telegram', 'Telegram-канал', 'TikTok', 'Написать в MAX', 'Сайт оператора']) {
+      expect(CARD, `канал «${label}» должен остаться в toContacts`).toContain(label);
+    }
+  });
+
+  it('главных кнопок ровно две: первичный срез ограничен', () => {
+    expect(CARD).toMatch(/picked\.slice\(0, 2\)/);
+    expect(CARD).toMatch(/primaryContacts\.map/);
+  });
+});
