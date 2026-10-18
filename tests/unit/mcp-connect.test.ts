@@ -200,6 +200,11 @@ describe('первоисточники читают модуль, а не дер
       expect(src, `${f}: схема deeplink захардкожена`).not.toMatch(/cursor:\/\/|vscode:mcp/);
     }
     const page = read('app/mcp/page.tsx');
+    expect(page).toMatch(/id="deepseek"/);
+    expect(page).toMatch(/DeepSeek Harness за 4 шага/);
+    expect(page).toMatch(/mcp__vedar__get_tours/);
+    expect(page).toMatch(/Какие туры на Камчатку сейчас доступны/);
+    expect(page).not.toMatch(/deepseek-reasoner/);
     expect(page).toMatch(/Подключить одним касанием/);
     expect(page).toMatch(/Строка для системного промпта/);
     expect(page).toMatch(/MCP_CONNECT_OPTIONS\.filter\(\(o\) => o\.kind === 'link'\)/);
