@@ -70,7 +70,10 @@ describe('правила о морских млекопитающих', () => {
     expect(block).toContain('MARINE_DISTANCES.map');
     expect(block).toContain('MARINE_PROHIBITIONS.map');
     expect(block).not.toMatch(/\b(1500|1 500|1000|1 000)\b/);
-    expect(read('app/safety/page.tsx')).toContain('<MarineMammalRules />');
-    expect(read('app/safety/_SafetyClient.tsx')).toContain('{rules}');
+    // Блок живёт в правилах поведения рядом с медведем, на /safety его нет (владелец 20.10)
+    const offline = read('app/safety/offline/page.tsx');
+    expect(offline).toContain("section.id === 'bear' && <MarineMammalRules />");
+    expect(read('app/safety/page.tsx')).not.toContain('MarineMammalRules');
+    expect(read('app/safety/_SafetyClient.tsx')).not.toContain('{rules}');
   });
 });
