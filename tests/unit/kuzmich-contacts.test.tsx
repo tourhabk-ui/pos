@@ -47,19 +47,25 @@ describe('блок «Спросить Кузьмича»', () => {
   it('цели не ниже 44px', () => {
     render(<KuzmichContacts />);
     for (const name of [/Кузьмич в Telegram/, /Кузьмич в MAX/]) {
-      expect(screen.getByRole('link', { name }).className).toContain('min-h-[44px]');
+      expect(screen.getByRole('link', { name }).className).toContain('min-h-[48px]');
     }
+    const site = screen.getByRole('link', { name: 'Спросить на сайте' });
+    expect(site.getAttribute('href')).toBe('/kuzmich');
+    expect(site.querySelector('[data-vedar-chat-icon="true"]')).not.toBeNull();
   });
 
   it('стоит в потоке /transfers, каталога и карточек', () => {
     expect(read('components/transfers/TransfersPage.tsx')).toContain('KuzmichContacts');
     expect(read('app/catalog/(list)/page.tsx')).toContain('KuzmichContacts');
-    expect(read('components/transfers/CarrierPage.tsx')).toContain('KUZMICH_TELEGRAM_URL');
-    expect(read('app/catalog/tours/[id]/_TourDetailClient.tsx')).toContain('KUZMICH_TELEGRAM_URL');
+    expect(read('components/transfers/CarrierPage.tsx')).toContain('KuzmichActions');
+    expect(read('app/catalog/tours/[id]/_TourDetailClient.tsx')).toContain('KuzmichActions');
     expect(read('app/_home/_HomeV8Client.tsx')).toContain('KuzmichGuideActions');
-    expect(read('components/homepage/KuzmichGuideActions.tsx')).toContain('KUZMICH_TELEGRAM_URL');
+    expect(read('components/homepage/KuzmichGuideActions.tsx')).toContain('KuzmichActions');
     // Десктопная главная — отдельное дерево (DeskHelp), не HomeV8Client.
-    expect(read('components/homepage/desk/DeskHelp.tsx')).toContain('KUZMICH_TELEGRAM_URL');
+    expect(read('components/homepage/desk/DeskHelp.tsx')).toContain('KuzmichActions');
+    // Единая система и её адреса живут в одном месте.
+    expect(read('components/shared/KuzmichActions.tsx')).toContain('KUZMICH_TELEGRAM_URL');
+    expect(read('components/shared/KuzmichActions.tsx')).toContain('VedarChatIcon');
   });
 });
 

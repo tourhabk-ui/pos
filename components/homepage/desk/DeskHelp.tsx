@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { ArrowRight, MessageCircle, Send, WifiOff } from 'lucide-react';
-import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
+import { ArrowRight, WifiOff } from 'lucide-react';
+import { KuzmichActions } from '@/components/shared/KuzmichActions';
 
 /**
  * Кузьмич и подготовка без связи — последний ряд десктопной главной (доска
@@ -21,20 +21,12 @@ export function DeskHelp() {
           «Про ваши даты скажу по сводке. Чего не знаю — так и скажу».
         </span>
         <span className="fx-dark-muted text-sm">Кузьмич · помощник Ведара · на сайте, в Telegram и MAX</span>
-        {/* Тот же Кузьмич в мессенджерах, что и на мобильной главной
-            (PR #2580): десктопное дерево главной — отдельное, и внешних
-            ссылок на бота здесь не было вовсе. Цели от 44px. */}
-        <div className="mt-auto flex flex-col sm:flex-row gap-2">
-          <a href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--telegram)' }}>
-            <Send size={16} aria-hidden /> Кузьмич в Telegram
-          </a>
-          <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--purple)' }}>
-            <MessageCircle size={16} aria-hidden /> Кузьмич в MAX
-          </a>
+        {/* Единая система действий Кузьмича, как на мобильной главной:
+            «Спросить на сайте» с фирменным знаком чата и равные
+            Telegram/MAX с официальными знаками. Цели не ниже 48px. */}
+        <div className="mt-auto">
+          <KuzmichActions primaryHref="/kuzmich" tone="dark" />
         </div>
-        <Link href="/kuzmich" className="inline-flex items-center gap-1.5 text-sm font-semibold text-white/90 hover:text-white">
-          Спросить на сайте <ArrowRight size={16} aria-hidden />
-        </Link>
       </div>
 
       <Link

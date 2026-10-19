@@ -8,6 +8,9 @@ import React from 'react';
 
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
+import { VedarChatIcon, VEDAR_CHAT_MARK_PATH } from '@/components/shared/MessengerIcons';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 afterEach(() => cleanup());
 
@@ -16,7 +19,9 @@ describe('действия блока «Проводник Кузьмич»', ()
     render(<KuzmichGuideActions />);
     const site = screen.getByRole('link', { name: 'Спросить на сайте' });
     expect(site.getAttribute('href')).toBe('/kuzmich');
-    expect(site.className).toContain('ask-site');
+    expect(site.className).toContain('min-h-[52px]');
+    // Фирменный знак чата Ведара слева от подписи, не generic-иконка.
+    expect(site.querySelector('[data-vedar-chat-icon="true"]')).not.toBeNull();
   });
 
   it('мессенджеры: короткие подписи, прежние адреса, официальные знаки', () => {
@@ -30,11 +35,27 @@ describe('действия блока «Проводник Кузьмич»', ()
     for (const link of [tg, max]) {
       expect(link.getAttribute('target')).toBe('_blank');
       expect(link.querySelector('svg')).not.toBeNull();
-      expect(link.className).toContain('msg');
+      expect(link.className).toContain('min-h-[48px]');
     }
     const fills = Array.from(container.querySelectorAll('svg path')).map((n) => n.getAttribute('fill') ?? '');
     expect(fills.some((f) => f.includes('#2AABEE'))).toBe(true);
     expect(fills.some((f) => f.startsWith('url(#'))).toBe(true);
+    expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+describe('фирменный знак чата Ведара', () => {
+  it('силуэт Камчатки из логотипа внутри речевого пузыря', () => {
+    const { container } = render(<VedarChatIcon size={24} />);
+    const svg = container.querySelector('[data-vedar-chat-icon="true"]');
+    expect(svg).not.toBeNull();
+    const paths = Array.from(container.querySelectorAll('path'));
+    // Контур силуэта — тот же, что в знаке Ведара (Logo), без перерисовки.
+    expect(paths.some((n) => n.getAttribute('d') === VEDAR_CHAT_MARK_PATH)).toBe(true);
+    const master = readFileSync(join(process.cwd(), 'public/brand/vedar-mark.svg'), 'utf-8').match(/d="([^"]+)"/)?.[1];
+    expect(VEDAR_CHAT_MARK_PATH).toBe(master);
+    // Пузырь — белый с акцентной обводкой: читается на акцентной кнопке и на тёмной панели.
+    expect(paths.some((n) => n.getAttribute('fill') === '#FFFFFF' && (n.getAttribute('stroke') ?? '').includes('--accent'))).toBe(true);
     expect(container.querySelector('img')).toBeNull();
   });
 });

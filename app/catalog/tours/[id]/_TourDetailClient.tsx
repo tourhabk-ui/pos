@@ -31,7 +31,7 @@ import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // карточка шапки не имела и ставила EmergencyAction в герой — кнопка уезжала
 // при прокрутке вместе с фото (аудит П6, #29/#31).
 import { Header } from '@/components/layout/Header';
-import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
+import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { Footer } from '@/components/layout/Footer';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
@@ -1176,29 +1176,16 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             {/* Оттенки — через color-mix: классы вида border-[var(--x)]/25
                 Tailwind 3 не собирает, и карточка получала белую рамку
                 preflight вместо цвета (аудит П6, #139). */}
-            <Link
-              href={`/planner?hint=${encodeURIComponent(tour.activity_type)}`}
-              className="flex items-center gap-4 p-5 rounded-lg border no-underline hover:no-underline transition-colors [border-color:color-mix(in_srgb,var(--ocean)_25%,transparent)] [background-color:color-mix(in_srgb,var(--ocean)_5%,transparent)] hover:[background-color:color-mix(in_srgb,var(--ocean)_10%,transparent)]"
-            >
-              <div className="w-11 h-11 rounded-full bg-[var(--ocean)] flex items-center justify-center shrink-0 text-white" style={{ fontFamily: FD, fontWeight: 700 }}>К</div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-[var(--text-primary)] text-sm">Спросить Кузьмича</p>
-                {/* Обещания про погоду на выбранную дату здесь нет: планировщик, куда ведёт карточка, о туре
-                    и выбранной дате не знает (аудит П6, #63). */}
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Подходит ли детям, как одеться, что взять — Кузьмич знает Камчатку.</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-[var(--ocean)] shrink-0" />
-            </Link>
-
-            {/* Тот же Кузьмич в мессенджерах, в потоке под блоком выше —
-                не плавающей кнопкой поверх карточки (владелец 19.10). */}
-            <div className="flex flex-col sm:flex-row gap-2">
-              <a href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--telegram)' }}>
-                Кузьмич в Telegram
-              </a>
-              <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--purple)' }}>
-                Кузьмич в MAX
-              </a>
+            <div>
+              {/* Обещания про погоду на выбранную дату здесь нет: планировщик, куда ведёт главная кнопка, о туре
+                  и выбранной дате не знает (аудит П6, #63). Цель и подпись главной дороги — прежние,
+                  изменился только вид: единая система KuzmichActions в компактной плотности. */}
+              <p className="text-xs text-[var(--text-secondary)] mb-3">Подходит ли детям, как одеться, что взять — Кузьмич знает Камчатку.</p>
+              <KuzmichActions
+                primaryHref={`/planner?hint=${encodeURIComponent(tour.activity_type)}`}
+                primaryLabel="Спросить Кузьмича"
+                compact
+              />
             </div>
           </div>
 

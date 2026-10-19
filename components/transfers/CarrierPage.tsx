@@ -21,7 +21,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, AlertTriangle, MessageSquare } from 'lucide-react';
+import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, AlertTriangle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { LazyClip } from '@/components/media/LazyClip';
@@ -30,7 +30,7 @@ import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
-import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
+import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { CarrierReviews } from '@/components/transfers/CarrierReviews';
 import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
@@ -242,23 +242,14 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
 
             <section aria-labelledby="carrier-kuzmich">
               <H2 id="carrier-kuzmich">Спросить Кузьмича</H2>
-              <Link href="/kuzmich" className="ds-card p-5 flex items-start gap-3 hover:bg-[var(--bg-hover)] transition-colors">
-                <MessageSquare className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" aria-hidden />
-                <span className="text-sm text-[var(--text-secondary)]">
-                  Как доехать, что взять с собой, какая обстановка на месте. Кузьмич знает прайс перевозчиков и сводку по
-                  краю — спросите, например: «сколько стоит машина на Горелый и что взять».
-                </span>
-              </Link>
-              {/* Тот же Кузьмич в мессенджерах — в потоке под карточкой, не
-                  плавающей кнопкой поверх «Как заказать» (владелец 19.10). */}
-              <div className="flex flex-col sm:flex-row gap-2 mt-3">
-                <a href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--telegram)' }}>
-                  <Send className="w-4 h-4" aria-hidden /> Кузьмич в Telegram
-                </a>
-                <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--purple)' }}>
-                  <MessageCircle className="w-4 h-4" aria-hidden /> Кузьмич в MAX
-                </a>
-              </div>
+              <p className="text-sm text-[var(--text-secondary)] mb-4">
+                Как доехать, что взять с собой, какая обстановка на месте. Кузьмич знает прайс перевозчиков и сводку по
+                краю — спросите, например: «сколько стоит машина на Горелый и что взять».
+              </p>
+              {/* Единая система действий Кузьмича — в потоке, не плавающей
+                  кнопкой поверх «Как заказать» (владелец 19.10). Главная
+                  дорога по-прежнему ведёт на /kuzmich, как прежняя карточка. */}
+              <KuzmichActions primaryHref="/kuzmich" />
             </section>
           </div>
 
