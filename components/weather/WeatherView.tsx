@@ -322,8 +322,9 @@ function DetailTiles({ w, today }: { w: OkWeather; today: string }) {
   }
   const humidity = w.now?.humidity ?? hour?.humidity ?? null;
   if (humidity !== null) tiles.push({ icon: <Droplets size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Влажность', value: `${Math.round(humidity)}%` });
+  // Оба поля — pressure_msl (приведённое к уровню моря); surface_pressure сюда не попадает, при отсутствии приведённого плитки нет.
   const pressure = w.now?.pressureHpa ?? hour?.pressureHpa ?? null;
-  if (pressure !== null) tiles.push({ icon: <Gauge size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Давление', value: pressureLine(pressure) });
+  if (pressure !== null) tiles.push({ icon: <Gauge size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Давление', value: pressureLine(pressure), hint: 'к уровню моря' });
   if (day) {
     tiles.push({
       icon: <Umbrella size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Осадки сегодня',
