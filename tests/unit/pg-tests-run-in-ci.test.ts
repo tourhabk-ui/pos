@@ -356,7 +356,12 @@ describe('pg-тесты доходят до CI', () => {
     // Замер при сведении третьей волны, не память: scripts/ci/run-pg-tests.sh
     // локально на PostgreSQL 16 — 32 файла, 292 теста, весь шаг 43 с вместе с
     // выборкой файлов. При таймауте job в 15 минут размен честен.
-    const SEQUENTIAL_BUDGET = 32;
+    // Тридцать третий (20.10) — `register`: регистрация на схеме прода. Строка
+    // сессии не влезала в user_sessions.token varchar(255) (SQLSTATE 22001),
+    // регистрация отвечала 500 всем; мок ответил бы на любой INSERT. Схема —
+    // копия шаблона. Замер, не память: файл локально — 3 теста, 5 с вместе с
+    // копией шаблона. При таймауте job в 15 минут размен честен.
+    const SEQUENTIAL_BUDGET = 33;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,
