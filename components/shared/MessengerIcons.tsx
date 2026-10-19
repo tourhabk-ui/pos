@@ -55,15 +55,25 @@ export const VEDAR_CHAT_MARK_PATH =
  * перерисован: контур — VEDAR_CHAT_MARK_PATH, тест сверяет его с мастер-файлом.
  *
  * Обыгран как чат так: силуэт помещён внутрь речевого пузыря с хвостиком
- * внизу слева. Пузырь — белый с фирменной акцентной обводкой
- * (var(--accent), в мастер-файле #E86A06), силуэт — тем же акцентом.
- * Белый пузырь поэтому читается и на акцентной кнопке «Спросить на сайте»,
- * и на светлой карточке, и на тёмной панели; силуэт внутри остаётся
- * фирменным знаком, а не generic-«конвертом». На 30–32px (размер в кнопках действий
- * Кузьмича) силуэт сохраняет вытянутую форму полуострова, пузырь и хвостик
- * не теряются, а знак читается первым.
+ * внизу слева. По умолчанию (accent-bubble, для белой стеклянной кнопки)
+ * пузырь — фирменный акцент (var(--accent), в мастер-файле #E86A06),
+ * силуэт внутри — белый: знак читается на белом стекле светлой темы и на
+ * полупрозрачном стекле тёмной панели. Вариант white-bubble (белый пузырь,
+ * акцентный силуэт) сохранён для акцентной подложки. Силуэт внутри остаётся
+ * фирменным знаком, а не generic-«конвертом». На 30–32px (размер в кнопках
+ * действий Кузьмича) силуэт сохраняет вытянутую форму полуострова, пузырь
+ * и хвостик не теряются, а знак читается первым.
  */
-export function VedarChatIcon({ size = 24, className = '' }: { size?: number; className?: string }) {
+export function VedarChatIcon({
+  size = 24,
+  className = '',
+  variant = 'accent-bubble',
+}: {
+  size?: number;
+  className?: string;
+  variant?: 'accent-bubble' | 'white-bubble';
+}) {
+  const accentBubble = variant === 'accent-bubble';
   return (
     <svg
       width={size}
@@ -74,16 +84,17 @@ export function VedarChatIcon({ size = 24, className = '' }: { size?: number; cl
       aria-hidden="true"
       focusable="false"
       data-vedar-chat-icon="true"
+      data-vedar-chat-variant={variant}
     >
       <path
         d="M24 4.5c-10.8 0-19.5 7.9-19.5 17.6 0 5.4 2.8 10.3 7.2 13.7v6.1c0 1.3 1.4 2.1 2.5 1.4l7.4-4.6c.8.1 1.6.2 2.4.2 10.8 0 19.5-7.9 19.5-17.6S34.8 4.5 24 4.5Z"
-        fill="#FFFFFF"
+        fill={accentBubble ? 'var(--accent)' : '#FFFFFF'}
         stroke="var(--accent)"
         strokeWidth="2.6"
         strokeLinejoin="round"
       />
       <g transform="translate(16.1 9.2) scale(0.069)">
-        <path d={VEDAR_CHAT_MARK_PATH} fill="var(--accent)" />
+        <path d={VEDAR_CHAT_MARK_PATH} fill={accentBubble ? '#FFFFFF' : 'var(--accent)'} />
       </g>
     </svg>
   );
