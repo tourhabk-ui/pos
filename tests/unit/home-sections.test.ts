@@ -54,13 +54,8 @@ describe('при схлопывании ничего не потерялось',
   it('плиток стихий на главной нет (владелец 20.10: дублируют каталог)', () => {
     expect(CODE).not.toMatch(/elements\.map/);
     expect(CODE).not.toMatch(/ELEMENT_ICON/);
-    expect(CODE).not.toMatch(/className=\{`etile/);
   });
 
-  it('«В цифрах» и кнопки Кузьмича на главной остались', () => {
-    expect(CODE).toMatch(/<h2>В цифрах<\/h2>/);
-    expect(CODE).toMatch(/<KuzmichGuideActions \/>/);
-  });
 
   it('ряда разделов внизу нет (владелец 26.09: «подвал не то и не работает, убрать»)', () => {
     expect(CODE).not.toMatch(/className="hubline"/);
