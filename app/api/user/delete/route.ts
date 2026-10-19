@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { eraseUser, findEraseBlockers, ERASE_PHRASE } from '@/lib/account/erase';
 
 export const dynamic = 'force-dynamic';
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
     res.cookies.set('auth_token', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 0, path: '/' });
     return res;
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch((err) => logSwallowedFailure('user/delete', 'ROLLBACK', err));
     const e = error as { message?: string; code?: string };
     console.error('[user/delete] не выполнено:', e?.message ?? 'ошибка', `SQLSTATE=${e?.code ?? 'нет'}`);
     return NextResponse.json({ success: false, error: 'Не удалось удалить аккаунт. Попробуйте позже.' }, { status: 500 });

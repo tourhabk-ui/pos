@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ShieldOff, Loader2, AlertCircle } from 'lucide-react';
 import { ERASE_PHRASE } from '@/lib/account/erase';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 type Mode = 'delete' | 'revoke_consent';
 
@@ -34,7 +35,7 @@ export default function DeleteAccount() {
         setError(json.error ?? 'Не удалось удалить аккаунт. Попробуйте позже.');
         return;
       }
-      try { localStorage.removeItem('user'); } catch { /* приватный режим */ }
+      try { localStorage.removeItem('user'); } catch (err) { logSwallowedFailure('delete-account', 'очистка localStorage', err); }
       window.location.href = '/?account=deleted';
     } catch {
       setError('Нет связи с сервером. Попробуйте позже.');

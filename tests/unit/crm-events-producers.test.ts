@@ -51,6 +51,9 @@ const KNOWN_WITHOUT_EVENT: Readonly<Record<string, Known>> = {
   'app/api/payments/tochka/webhook/route.ts': {
     reason: 'приёмник оплаты СБП (§7 НЕ ТРОГАТЬ); см. app/api/payments/webhook',
   },
+  'lib/account/erase.ts': {
+    reason: 'удаление аккаунта по 152-ФЗ: состояние источника не меняется, стираются только имя, телефон и почта',
+  },
   'app/api/cron/sql-shape-check/route.ts': {
     reason: 'только PREPARE: вывод типов на разборе, ни одна строка не меняется',
   },

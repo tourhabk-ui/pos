@@ -88,6 +88,8 @@ const ANSWERS: Record<string, 'releases' | string> = {
 
   // ── Статус только читают, а пишут другое ────────────────────────────────
   'app/api/cron/tour-review-request/route.ts': 'читает booking_status = completed в WHERE',
+  'lib/account/erase.ts':
+    'статус брони не меняет: читает его в отборе блокирующих заявок, пишет только обезличенные контакты',
   'lib/guides/team-queries.ts':
     'статус брони не меняет: читает booking_status только в WHERE (активные брони гида), пишет лишь guide_partner_id',
   'lib/agents/execution/initiative-executor.ts': 'читает booking_status = confirmed в WHERE',
