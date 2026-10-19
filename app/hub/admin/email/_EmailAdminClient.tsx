@@ -261,11 +261,11 @@ export default function EmailAdminClient() {
           <Send className="w-4 h-4 text-[var(--text-muted)]" />
           <span className="text-sm font-semibold text-[var(--text-primary)]">Тестовое письмо</span>
         </div>
-        <form onSubmit={handleSendTest} className="flex gap-2">
+        <form onSubmit={handleSendTest} className="flex flex-col gap-2 sm:flex-row">
           <input type="email" placeholder="email@example.com" value={testTo}
-                 onChange={e => setTestTo(e.target.value)} className="ds-input flex-1 text-sm" required />
+                 onChange={e => setTestTo(e.target.value)} className="ds-input min-w-0 flex-1 text-sm" required />
           <button type="submit" disabled={sending || !testTo.trim()}
-                  className="ds-btn ds-btn-primary text-sm px-4 flex items-center gap-1.5 disabled:opacity-50">
+                  className="ds-btn ds-btn-primary min-h-[44px] shrink-0 justify-center text-sm px-4 flex items-center gap-1.5 disabled:opacity-50">
             {sending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
             {sending ? 'Отправляю…' : 'Отправить'}
           </button>

@@ -138,7 +138,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="inline-flex items-center gap-1 text-xs text-[var(--ocean)] hover:underline"
+      className="inline-flex min-h-[40px] shrink-0 items-center gap-1 text-xs text-[var(--ocean)] hover:underline"
     >
       {copied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
       {copied ? 'Скопировано' : 'Копировать'}
@@ -199,10 +199,10 @@ export function ChannelsDashboardClient({
             Готово к регистрации
           </span>
         </div>
-        <div className="bg-[var(--bg-hover)] rounded-lg p-4 flex items-center justify-between gap-3">
-          <div>
+        <div className="bg-[var(--bg-hover)] rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <p className="text-xs text-[var(--text-muted)] mb-1">URL для регистрации в Авито:</p>
-            <code className="text-sm text-[var(--text-primary)] font-mono">
+            <code className="text-sm text-[var(--text-primary)] font-mono break-all">
               https://vedarai.ru/api/channels/avito/feed
             </code>
           </div>
@@ -237,10 +237,10 @@ export function ChannelsDashboardClient({
             Готово к регистрации
           </span>
         </div>
-        <div className="bg-[var(--bg-hover)] rounded-lg p-4 flex items-center justify-between gap-3">
-          <div>
+        <div className="bg-[var(--bg-hover)] rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <p className="text-xs text-[var(--text-muted)] mb-1">URL для регистрации в Яндексе:</p>
-            <code className="text-sm text-[var(--text-primary)] font-mono">
+            <code className="text-sm text-[var(--text-primary)] font-mono break-all">
               https://vedarai.ru/api/channels/yandex/feed
             </code>
           </div>
@@ -341,8 +341,8 @@ export function ChannelsDashboardClient({
               </div>
 
               {ch.feedUrl && (
-                <div className="mt-3 bg-[var(--bg-hover)] rounded p-3 flex items-center justify-between gap-2">
-                  <code className="text-xs font-mono text-[var(--text-secondary)]">{ch.feedUrl}</code>
+                <div className="mt-3 bg-[var(--bg-hover)] rounded p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <code className="min-w-0 break-all text-xs font-mono text-[var(--text-secondary)]">{ch.feedUrl}</code>
                   <CopyButton text={ch.feedUrl} />
                 </div>
               )}

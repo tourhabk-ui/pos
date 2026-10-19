@@ -559,13 +559,13 @@ export function LeadsClient() {
             <p className="text-sm text-[var(--accent)] font-medium mt-1">{newCount} новых заявок</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Список / Канбан — только ручные статусы дают повод переключаться:
               AI-статусы видны только в списке (вкладка «Все»). */}
           <div className="flex items-center rounded-lg border border-[var(--border)] p-0.5">
             <button
               onClick={() => setViewPersist('list')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-sm transition-colors ${
+              className={`flex min-h-[40px] items-center gap-1 px-2.5 py-1 rounded-md text-sm transition-colors ${
                 view === 'list' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)]'
               }`}
               title="Список"
@@ -574,7 +574,7 @@ export function LeadsClient() {
             </button>
             <button
               onClick={() => setViewPersist('kanban')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-sm transition-colors ${
+              className={`flex min-h-[40px] items-center gap-1 px-2.5 py-1 rounded-md text-sm transition-colors ${
                 view === 'kanban' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)]'
               }`}
               title="Канбан"
@@ -585,14 +585,14 @@ export function LeadsClient() {
           <button
             onClick={scoreLeads}
             disabled={scoringLeads || loading}
-            className="ds-btn ds-btn-secondary flex items-center gap-1 text-sm"
+            className="ds-btn ds-btn-secondary flex min-h-[40px] items-center gap-1 text-sm"
             title="Быстрый скоринг без AI"
           >
             <Zap size={14} /> {scoringLeads ? 'Оцениваю...' : 'Оценить лиды'}
           </button>
           <button
             onClick={() => { load(tab); loadCounts(); }}
-            className="ds-btn ds-btn-secondary flex items-center gap-1 text-sm"
+            className="ds-btn ds-btn-secondary flex min-h-[40px] items-center gap-1 text-sm"
           >
             <RefreshCw size={14} /> Обновить
           </button>

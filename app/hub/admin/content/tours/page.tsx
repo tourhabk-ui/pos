@@ -221,7 +221,7 @@ function EditModal({ tour, onClose, onSave }: {
             <p className="text-[10px] text-[var(--text-muted)]">{tour.operator_name} · #{tour.id}</p>
             <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-0.5">{tour.title}</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors">
+          <button onClick={onClose} className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 hover:bg-[var(--bg-hover)] rounded transition-colors">
             <X className="w-4 h-4 text-[var(--text-muted)]" />
           </button>
         </div>
@@ -709,7 +709,7 @@ export default function ToursManagement() {
                   <th className="px-3 py-2 text-left font-medium text-[var(--text-muted)]">Цена</th>
                   <th className="px-3 py-2 text-left font-medium text-[var(--text-muted)]">Участники</th>
                   <th className="px-3 py-2 text-left font-medium text-[var(--text-muted)]">Статус</th>
-                  <th className="px-3 py-2 text-right font-medium text-[var(--text-muted)]">Действия</th>
+                  <th className="sticky right-0 bg-[var(--bg-hover)] px-3 py-2 text-right font-medium text-[var(--text-muted)]">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
@@ -756,14 +756,14 @@ export default function ToursManagement() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className="sticky right-0 bg-[var(--bg-card)] px-3 py-2.5">
                       <div className="flex items-center justify-end gap-1">
                         {/* Публикация */}
                         <button
                           onClick={() => handleToggle(tour, 'is_published')}
                           disabled={actionLoading === `is_published-${tour.id}`}
                           title={tour.is_published ? 'Снять с публикации' : 'Опубликовать'}
-                          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
+                          className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
                         >
                           {tour.is_published
                             ? <EyeOff className="w-3.5 h-3.5 text-[var(--text-muted)]" />
@@ -774,7 +774,7 @@ export default function ToursManagement() {
                           onClick={() => handleToggle(tour, 'is_active')}
                           disabled={actionLoading === `is_active-${tour.id}`}
                           title={tour.is_active ? 'Деактивировать' : 'Активировать'}
-                          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
+                          className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
                         >
                           {tour.is_active
                             ? <XCircle className="w-3.5 h-3.5 text-[var(--warning)]" />
@@ -784,7 +784,7 @@ export default function ToursManagement() {
                         <button
                           onClick={() => setEditingTour(tour)}
                           title="Редактировать"
-                          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
+                          className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
                         >
                           <Edit2 className="w-3.5 h-3.5 text-[var(--ocean)]" />
                         </button>
@@ -793,7 +793,7 @@ export default function ToursManagement() {
                           onClick={() => handleDelete(tour)}
                           disabled={actionLoading === `del-${tour.id}`}
                           title="Удалить"
-                          className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
+                          className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-[var(--danger)]" />
                         </button>

@@ -68,8 +68,8 @@ export default function TaaftClient() {
   return (
     <div className="p-5 lg:p-6 space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 min-w-0">
           <Globe className="w-4 h-4 text-[var(--text-muted)]" />
           <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">AI-инструменты</h1>
           {stats && (
@@ -81,7 +81,7 @@ export default function TaaftClient() {
         <button
           onClick={() => load()}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] transition-colors"
+          className="flex min-h-[40px] items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] transition-colors"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           Обновить
@@ -126,7 +126,7 @@ export default function TaaftClient() {
             className="ds-input pl-8 w-full text-xs"
           />
         </div>
-        <button type="submit" className="ds-btn ds-btn-primary text-xs px-4">
+        <button type="submit" className="ds-btn ds-btn-primary min-h-[40px] shrink-0 text-xs px-4">
           Поиск
         </button>
       </form>
@@ -204,12 +204,12 @@ export default function TaaftClient() {
                         {tool.use_count}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="sticky right-0 bg-[var(--bg-card)] px-4 py-3">
                       <a
                         href={tool.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-[11px] text-[var(--ocean)] hover:underline"
+                        className="flex min-h-[40px] items-center gap-1 whitespace-nowrap text-[11px] text-[var(--ocean)] hover:underline"
                       >
                         <ExternalLink className="w-3 h-3" />
                         Открыть

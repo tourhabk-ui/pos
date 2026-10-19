@@ -194,8 +194,8 @@ export default function VolcanoClient() {
 
   return (
     <div className="ds-page p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="ds-h1">Работа Volcano OS</h1>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
             Только просмотр: задачи и события ядра. Решения по agent-PR принимаются в GitHub.
@@ -414,7 +414,7 @@ export default function VolcanoClient() {
                       <th className="py-2 pr-3">Состояние</th>
                       <th className="py-2 pr-3">Итог</th>
                       <th className="py-2 pr-3">Обновлена</th>
-                      <th className="py-2" aria-label="раскрыть" />
+                      <th className="sticky right-0 bg-[var(--bg-card)] py-2" aria-label="раскрыть" />
                     </tr>
                   </thead>
                   <tbody>
@@ -508,8 +508,8 @@ function TaskLine({ task, open, detail, detailError, onToggle }: {
         <td className="py-2 pr-3"><StateBadge state={task.state} /></td>
         <td className="py-2 pr-3 text-[var(--text-secondary)] max-w-[24rem] truncate">{task.summary ?? '—'}</td>
         <td className="py-2 pr-3 text-[var(--text-muted)] whitespace-nowrap">{fmtTime(task.updated_at)}</td>
-        <td className="py-2">
-          <button type="button" onClick={onToggle} className="text-[var(--ocean)]" aria-label="цепочка событий">
+        <td className="sticky right-0 bg-[var(--bg-card)] py-2">
+          <button type="button" onClick={onToggle} className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center text-[var(--ocean)]" aria-label="цепочка событий">
             <Chevron className="w-4 h-4" />
           </button>
         </td>
