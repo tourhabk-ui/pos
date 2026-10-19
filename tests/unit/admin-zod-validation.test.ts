@@ -61,14 +61,15 @@ describe('POST /api/admin/finance — выплата (деньги)', () => {
     expect(queryMock).not.toHaveBeenCalled();
   });
 
-  it('валидная выплата → INSERT с параметрами', async () => {
-    queryMock.mockResolvedValue({ rows: [{ id: 'pay1', status: 'pending', created_at: 'now' }] });
+  it('валидная выплата → 410 без INSERT (создание живёт в /finance/payouts)', async () => {
     const res = await financePost(req('http://l/api/admin/finance', {
       partnerId: 'p1', bookingId: 42, amount: 15000,
     }));
-    expect(res.status).toBe(201);
-    const [, params] = queryMock.mock.calls[0];
-    expect(params).toEqual(['p1', 42, 15000, 'RUB', 'Выплата оператору']);
+    // operator_payouts — батч по payment_ids за период, а не выплата по одной
+    // брони на произвольную сумму: честной записи из этих полей нет, поэтому
+    // роут не выдумывает период/состав батча и ничего не пишет.
+    expect(res.status).toBe(410);
+    expect(queryMock).not.toHaveBeenCalled();
   });
 });
 
