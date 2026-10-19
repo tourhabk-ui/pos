@@ -41,3 +41,47 @@ export function MaxIcon({ size = 22, className = '' }: { size?: number; classNam
     </svg>
   );
 }
+
+import { VEDAR_MARK_PATH } from '@/components/shared/Logo';
+
+/**
+ * Фирменный знак официального чата Ведара.
+ *
+ * Исходник — официальный знак Ведара: силуэт Камчатки из шапки сайта
+ * (components/shared/Logo, мастер-файл public/brand/vedar-mark.svg, тот же
+ * знак, что на иконке приложения public/brand/vedar-icon.svg). Знак не
+ * перерисован: контур берётся из VEDAR_MARK_PATH без изменений.
+ *
+ * Обыгран как чат так: силуэт помещён внутрь речевого пузыря с хвостиком
+ * внизу слева. Пузырь — белый с фирменной акцентной обводкой
+ * (var(--accent), в мастер-файле #E86A06), силуэт — тем же акцентом.
+ * Белый пузырь поэтому читается и на акцентной кнопке «Спросить на сайте»,
+ * и на светлой карточке, и на тёмной панели; силуэт внутри остаётся
+ * фирменным знаком, а не generic-«конвертом». На 20–28px силуэт сохраняет
+ * вытянутую форму полуострова, пузырь и хвостик не теряются.
+ */
+export function VedarChatIcon({ size = 24, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+      data-vedar-chat-icon="true"
+    >
+      <path
+        d="M24 4.5c-10.8 0-19.5 7.9-19.5 17.6 0 5.4 2.8 10.3 7.2 13.7v6.1c0 1.3 1.4 2.1 2.5 1.4l7.4-4.6c.8.1 1.6.2 2.4.2 10.8 0 19.5-7.9 19.5-17.6S34.8 4.5 24 4.5Z"
+        fill="#FFFFFF"
+        stroke="var(--accent)"
+        strokeWidth="2.6"
+        strokeLinejoin="round"
+      />
+      <g transform="translate(16.1 9.2) scale(0.069)">
+        <path d={VEDAR_MARK_PATH} fill="var(--accent)" />
+      </g>
+    </svg>
+  );
+}
