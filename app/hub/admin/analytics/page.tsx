@@ -169,7 +169,7 @@ export default function AdminAnalytics() {
   const summaryItems = [
     { label: 'Выручка', value: fmtRub(metrics.totalRevenue.value), change: metrics.totalRevenue.change, trend: metrics.totalRevenue.trend },
     { label: 'Бронирования', value: String(metrics.totalBookings.value), change: metrics.totalBookings.change, trend: metrics.totalBookings.trend },
-    { label: 'Пользователи', value: String(metrics.activeUsers.value), change: metrics.activeUsers.change, trend: metrics.activeUsers.trend },
+    { label: 'Новые пользователи', value: String(metrics.activeUsers.value), change: metrics.activeUsers.change, trend: metrics.activeUsers.trend },
     { label: 'Конверсия', value: `${metrics.conversionRate.value.toFixed(1)}%`, change: metrics.conversionRate.change, trend: metrics.conversionRate.trend },
     { label: 'Ср. чек', value: fmtRub(metrics.averageOrderValue?.value ?? 0), change: metrics.averageOrderValue?.change ?? 0, trend: metrics.averageOrderValue?.trend ?? 'neutral' },
   ];

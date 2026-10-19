@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { PARTNER_CATEGORIES } from '@/lib/partners/categories';
 import {
   DashboardMetricsRow, TopTourRow, ActivityRow,
   RevenueChartRow, CategoryCountRow, UserGrowthRow,
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
             FILTER (WHERE created_at >= NOW() - ($1::int * 2 || ' days')::INTERVAL
                      AND created_at <  NOW() - ($1::int || ' days')::INTERVAL AND booking_status = 'confirmed'), 0) AS previous_revenue
         FROM operator_bookings
+        WHERE deleted_at IS NULL
       ),
       user_stats AS (
         SELECT
@@ -63,9 +65,23 @@ export async function GET(request: NextRequest) {
         FROM users
       ),
       conversion AS (
-        SELECT COUNT(DISTINCT u.id) AS users_with_bookings
-        FROM users u
-        WHERE EXISTS (SELECT 1 FROM operator_bookings b WHERE b.metadata->>'user_id' = u.id::text)
+        -- Снимок на начало периода для честного тренда: те же числитель и
+        -- знаменатель, но только по данным, существовавшим на тот момент.
+        SELECT
+          (SELECT COUNT(*) FROM users u
+            WHERE EXISTS (SELECT 1 FROM operator_bookings b
+                           WHERE b.deleted_at IS NULL AND b.metadata->>'user_id' = u.id::text)
+          ) AS users_with_bookings,
+          (SELECT COUNT(*) FROM users
+            WHERE created_at < NOW() - ($1::int || ' days')::INTERVAL
+          ) AS previous_total_users,
+          (SELECT COUNT(*) FROM users u
+            WHERE u.created_at < NOW() - ($1::int || ' days')::INTERVAL
+              AND EXISTS (SELECT 1 FROM operator_bookings b
+                           WHERE b.deleted_at IS NULL
+                             AND b.created_at < NOW() - ($1::int || ' days')::INTERVAL
+                             AND b.metadata->>'user_id' = u.id::text)
+          ) AS previous_users_with_bookings
       )
       SELECT
         cp.current_bookings, cp.previous_bookings,
@@ -75,7 +91,11 @@ export async function GET(request: NextRequest) {
         CASE WHEN us.total_users > 0
           THEN ROUND((cv.users_with_bookings::numeric / us.total_users) * 100, 2)
           ELSE 0
-        END AS conversion_rate
+        END AS conversion_rate,
+        CASE WHEN cv.previous_total_users > 0
+          THEN ROUND((cv.previous_users_with_bookings::numeric / cv.previous_total_users) * 100, 2)
+          ELSE 0
+        END AS previous_conversion_rate
       FROM current_period cp, user_stats us, conversion cv
     `, [period]);
     return r.rows[0] ?? null;
@@ -89,7 +109,7 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(COALESCE(b.final_price, b.base_total_price))
           FILTER (WHERE b.booking_status = 'confirmed'), 0) AS revenue
       FROM operator_tours t
-      LEFT JOIN operator_bookings b ON b.operator_tour_id = t.id
+      LEFT JOIN operator_bookings b ON b.operator_tour_id = t.id AND b.deleted_at IS NULL
         AND b.created_at >= NOW() - ($1::int || ' days')::INTERVAL
       GROUP BY t.id, t.title
       ORDER BY bookings DESC
@@ -109,7 +129,7 @@ export async function GET(request: NextRequest) {
         to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
         COALESCE(SUM(COALESCE(final_price, base_total_price)), 0)::text AS revenue
       FROM operator_bookings
-      WHERE booking_status = 'confirmed'
+      WHERE deleted_at IS NULL AND booking_status = 'confirmed'
         AND created_at >= NOW() - ($1::int || ' days')::INTERVAL
       GROUP BY 1
       ORDER BY 1
@@ -126,7 +146,7 @@ export async function GET(request: NextRequest) {
         COUNT(b.id)::text AS count
       FROM operator_bookings b
       JOIN operator_tours t ON t.id = b.operator_tour_id
-      WHERE b.created_at >= NOW() - ($1::int || ' days')::INTERVAL
+      WHERE b.deleted_at IS NULL AND b.created_at >= NOW() - ($1::int || ' days')::INTERVAL
       GROUP BY 1
       ORDER BY COUNT(b.id) DESC
     `, [period]);
@@ -156,6 +176,7 @@ export async function GET(request: NextRequest) {
         b.created_at::text AS timestamp
       FROM operator_bookings b
       JOIN operator_tours t ON t.id = b.operator_tour_id
+      WHERE b.deleted_at IS NULL
       ORDER BY b.created_at DESC
       LIMIT 10
     `);
@@ -185,10 +206,15 @@ export async function GET(request: NextRequest) {
     return parseInt(r.rows[0]?.c ?? '0', 10);
   });
 
+  // Тот же критерий, что у очереди /api/admin/operators (status=pending):
+  // profile_status='pending' по партнёрским категориям. Прежнее
+  // is_verified=false AND is_public=false считало не поданные на проверку
+  // карточки и давало число, которого в очереди не было.
   const pendingPartners = await safeQuery<number>('pendingPartners', errors, 0, async () => {
     const r = await pool.query<{ c: string }>(`
-      SELECT COUNT(*)::text AS c FROM partners WHERE is_verified = false AND is_public = false
-    `);
+      SELECT COUNT(*)::text AS c FROM partners
+      WHERE profile_status = 'pending' AND category = ANY($1)
+    `, [[...PARTNER_CATEGORIES]]);
     return parseInt(r.rows[0]?.c ?? '0', 10);
   });
 
@@ -200,6 +226,7 @@ export async function GET(request: NextRequest) {
   const curUsers     = parseInt(m?.current_users     ?? '0', 10);
   const prevUsers    = parseInt(m?.previous_users    ?? '0', 10);
   const convRate     = parseFloat(m?.conversion_rate ?? '0');
+  const prevConvRate = parseFloat(m?.previous_conversion_rate ?? '0');
   const pwaTotal     = parseInt(pwa.total    ?? '0', 10);
   const pwaCurrent   = parseInt(pwa.current  ?? '0', 10);
   const pwaPrevious  = parseInt(pwa.previous ?? '0', 10);
@@ -211,7 +238,7 @@ export async function GET(request: NextRequest) {
         totalRevenue:   { value: curRevenue,  ...calcTrend(curRevenue,  prevRevenue)  },
         totalBookings:  { value: curBookings, ...calcTrend(curBookings, prevBookings) },
         activeUsers:    { value: curUsers,    ...calcTrend(curUsers,    prevUsers)    },
-        conversionRate: { value: convRate, change: 0, trend: 'neutral' as const },
+        conversionRate: { value: convRate, ...calcTrend(convRate, prevConvRate) },
         // Установки PWA — накопленный итог (устройства); тренд по новым за период.
         pwaInstalls:    { value: pwaTotal,    ...calcTrend(pwaCurrent,  pwaPrevious)  },
       },
