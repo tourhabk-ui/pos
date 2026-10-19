@@ -117,19 +117,19 @@ function Warnings({ warnings }: { warnings: WarningsRead }) {
 
 function PlaceSwitcher({ current, scene = false }: { current: string; scene?: boolean }) {
   return (
-    <nav aria-label="Места" className="flex flex-col gap-3">
+    <nav aria-label="Места" className="flex flex-col gap-2">
       {GROUPS.map((g) => (
-        <div key={g} className="flex flex-col gap-2">
+        <div key={g} className="flex flex-col gap-1.5">
           <span className="ds-label">{WEATHER_GROUP_LABELS[g]}</span>
-          <ul className="flex flex-wrap gap-2">
+          <ul className="flex gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {WEATHER_PLACES.filter((p) => p.group === g).map((p) => {
               const active = p.slug === current;
               return (
-                <li key={p.slug}>
+                <li key={p.slug} className="shrink-0">
                   <Link
                     href={weatherPlaceHref(p)}
                     aria-current={active ? 'page' : undefined}
-                    className={`inline-flex min-h-[44px] items-center rounded-full border px-4 text-sm no-underline transition-colors duration-200 ${
+                    className={`inline-flex min-h-[40px] items-center rounded-full border px-3 text-sm no-underline transition-colors duration-200 ${
                       scene
                         ? active
                           ? 'border-[var(--wx-icon)] bg-[var(--wx-glass-2)] font-semibold text-[var(--wx-fg)]'
@@ -227,7 +227,7 @@ function Hero({ w, today }: { w: OkWeather; today: string }) {
   const elevation = elevationLine(w.elevationM);
   const stale = kamchatkaTime(w.staleSince);
   return (
-    <section aria-labelledby="weather-now" className="pt-2 text-center sm:pt-4">
+    <section aria-labelledby="weather-now" className="pt-1 text-center sm:pt-2">
       <div className="flex flex-col items-center gap-1">
         <h2 id="weather-now" className="flex items-center justify-center gap-2 text-xl font-semibold sm:text-2xl">
           <MapPin size={22} aria-hidden className="text-[var(--wx-icon)]" />
@@ -236,20 +236,20 @@ function Hero({ w, today }: { w: OkWeather; today: string }) {
         <p className="text-sm text-[var(--wx-fg-2)]">
           <span className="tabular-nums">{w.lat.toFixed(2)}, {w.lng.toFixed(2)}</span>
           {elevation ? ` · ${elevation}` : ''}
+          {day ? <span className="text-[var(--wx-fg-3)]"> · {dayLabel(day.date, today)}</span> : null}
         </p>
-        {day && <p className="text-sm text-[var(--wx-fg-3)]">{dayLabel(day.date, today)}</p>}
       </div>
 
       {stale && (
-        <p className="wx-glass-soft mx-auto mt-4 max-w-xl rounded-2xl border-l-2 px-4 py-3 text-left text-sm" style={{ borderLeftColor: 'var(--wx-icon)' }}>
+        <p className="wx-glass-soft mx-auto mt-3 max-w-xl rounded-2xl border-l-2 px-3 py-2 text-left text-sm" style={{ borderLeftColor: 'var(--wx-icon)' }}>
           Источник прогноза сейчас не отвечает. Это последний полученный прогноз — от {stale} по Камчатке.
         </p>
       )}
 
-      <p className="mt-5 text-[6.5rem] font-light leading-[0.95] tabular-nums sm:text-[10rem]" aria-label={nowTemp !== null ? `Сейчас ${fmtTemp(nowTemp)} градусов` : undefined}>
+      <p className="mt-2 text-[5.5rem] font-light leading-[0.95] tabular-nums sm:text-[7.5rem]" aria-label={nowTemp !== null ? `Сейчас ${fmtTemp(nowTemp)} градусов` : undefined}>
         {nowTemp !== null ? `${fmtTemp(nowTemp)}°` : '—'}
       </p>
-      <div className="mt-3 flex flex-col items-center gap-1.5">
+      <div className="mt-2 flex flex-col items-center gap-1">
         <span className="flex items-center justify-center gap-2 text-xl font-medium sm:text-2xl">
           <ConditionIcon code={code} isDay={w.now?.isDay ?? undefined} size={32} wx />
           {description ?? 'Условия — нет данных'}
@@ -280,14 +280,14 @@ function HourlyStrip({ w }: { w: OkWeather }) {
   const hours = (w.hours ?? []).slice(from < 0 ? 0 : from, (from < 0 ? 0 : from) + 24);
   if (hours.length === 0) return null;
   return (
-    <section aria-labelledby="weather-hourly" className="flex flex-col gap-3">
+    <section aria-labelledby="weather-hourly" className="flex flex-col gap-2">
       <h2 id="weather-hourly" className="ds-h2">По часам</h2>
       <div className="wx-glass overflow-x-auto rounded-[1.75rem]" tabIndex={0} aria-label="Почасовой прогноз, прокручивается вбок">
         <ol className="flex min-w-max">
           {hours.map((h, i) => (
             <li
               key={h.time}
-              className={`flex w-[76px] shrink-0 flex-col items-center gap-1.5 px-2 py-4 text-center ${i === 0 ? 'bg-[var(--wx-glass-2)]' : ''}`}
+              className={`flex w-[76px] shrink-0 flex-col items-center gap-1 px-2 py-3 text-center ${i === 0 ? 'bg-[var(--wx-glass-2)]' : ''}`}
             >
               <span className="text-sm font-medium tabular-nums">{i === 0 ? 'Сейчас' : (hhmm(h.time) ?? '')}</span>
               <ConditionIcon code={h.weatherCode} size={22} wx />
@@ -358,11 +358,11 @@ function DetailTiles({ w, today }: { w: OkWeather; today: string }) {
   }
   if (tiles.length === 0) return null;
   return (
-    <section aria-labelledby="weather-details" className="flex flex-col gap-3">
+    <section aria-labelledby="weather-details" className="flex flex-col gap-2">
       <h2 id="weather-details" className="ds-h2">Сейчас в деталях</h2>
-      <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <ul className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {tiles.map((t) => (
-          <li key={t.label} className="wx-glass flex min-h-[104px] flex-col gap-2 rounded-[1.75rem] p-4">
+          <li key={t.label} className="wx-glass flex min-h-[88px] flex-col gap-1 rounded-[1.5rem] p-3">
             <span className="flex items-center gap-2 text-sm text-[var(--wx-fg-2)]">{t.icon}{t.label}</span>
             <span className="text-base font-semibold leading-snug">{t.value}</span>
             {t.hint && <span className="text-sm text-[var(--wx-fg-3)]">{t.hint}</span>}
@@ -379,11 +379,11 @@ function DayPartsBlock({ d }: { d: ForecastDay }) {
   const parts = d.parts ?? [];
   if (parts.length === 0) return null;
   return (
-    <details className="mt-3">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-sm font-medium text-[var(--wx-icon)]">По частям дня</summary>
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+    <details className="mt-1">
+      <summary className="flex min-h-[40px] cursor-pointer items-center text-sm font-medium text-[var(--wx-icon)]">По частям дня</summary>
+      <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
         {parts.map((p) => (
-          <div key={p.label} className="wx-glass-soft flex flex-col gap-0.5 rounded-2xl p-3">
+          <div key={p.label} className="wx-glass-soft flex flex-col gap-0.5 rounded-2xl p-2.5">
             <dt className="ds-label">{p.label}</dt>
             <dd className="text-sm tabular-nums">{tempRange(p.tempMin, p.tempMax) ?? 'нет данных'}</dd>
             <dd className="text-sm text-[var(--wx-fg-2)]">{partPrecip(p)}</dd>
@@ -401,14 +401,14 @@ function WeekForecast({ w, today }: { w: OkWeather; today: string }) {
   const weekMin = mins.length ? Math.min(...mins) : null;
   const weekMax = maxs.length ? Math.max(...maxs) : null;
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="weather-week">
+    <section className="flex flex-col gap-2" aria-labelledby="weather-week">
       <h2 id="weather-week" className="ds-h2">На 7 дней</h2>
-      <ol className="wx-glass flex flex-col divide-y divide-[var(--wx-glass-border)] rounded-[1.75rem] px-4 sm:px-5">
+      <ol className="wx-glass flex flex-col divide-y divide-[var(--wx-glass-border)] rounded-[1.5rem] px-3 sm:px-4">
         {w.days.map((d) => {
           const bar = rangeBar(d.tempMin, d.tempMax, weekMin, weekMax);
           const sky = skyWords(d);
           return (
-            <li key={d.date} className="py-4 first:pt-5 last:pb-5">
+            <li key={d.date} className="py-2.5 first:pt-3 last:pb-3">
               <div className="flex items-center gap-3">
                 <span className="w-24 shrink-0 font-semibold sm:w-32">{dayLabel(d.date, today)}</span>
                 <ConditionIcon code={d.weatherCode} size={22} wx />
@@ -428,7 +428,7 @@ function WeekForecast({ w, today }: { w: OkWeather; today: string }) {
                   <span className="font-semibold">{d.tempMax !== null ? `${fmtTemp(d.tempMax)}°` : '—'}</span>
                 </span>
               </div>
-              <p className="mt-1 pl-[108px] text-sm text-[var(--wx-fg-2)] sm:hidden">
+              <p className="mt-0.5 pl-[108px] text-sm text-[var(--wx-fg-2)] sm:hidden">
                 {[sky, precipLine(d.precipMm), windLine(d.windKmh)].filter(Boolean).join(' · ')}
               </p>
               <p className="sr-only">{tempRange(d.tempMin, d.tempMax) ?? 'температура — нет данных'}</p>
@@ -455,12 +455,12 @@ function shortDay(d: ForecastDay | undefined): string {
 function Overview({ all, today, current }: { all: PlaceWeather[]; today: string; current: string }) {
   const tomorrow = addDays(today, 1);
   return (
-    <section className="ds-section flex flex-col gap-3" aria-labelledby="weather-all">
+    <section className="ds-section flex flex-col gap-2" aria-labelledby="weather-all">
       <h2 id="weather-all" className="ds-h2 flex items-center gap-2">
         <CloudSun size={20} aria-hidden className="text-[var(--ocean)]" />
         Все места: сегодня и завтра
       </h2>
-      <ul className="grid gap-3 sm:grid-cols-2">
+      <ul className="grid gap-2 sm:grid-cols-2">
         {all.map((w) => {
           const todayDay = w.kind === 'ok' ? w.days.find((d) => d.date === today) : undefined;
           return (
@@ -538,8 +538,8 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
   const selected = data.selected;
   const scene = selected.kind === 'ok' ? weatherScene(selected, data.today) : null;
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 sm:gap-8">
-      <header className="flex flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 sm:gap-6">
+      <header className="flex flex-col gap-2">
         <p className="ds-label">Камчатка · прогноз на 7 дней</p>
         <h1 className="ds-h1" style={{ fontFamily: 'var(--font-playfair)' }}>
           {isDefault ? 'Погода на Камчатке' : `Погода ${place.where}`}
@@ -553,7 +553,7 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
 
       {selected.kind === 'ok' ? (
         <div
-          className="wx-scene flex flex-col gap-6 p-4 sm:gap-7 sm:p-6"
+          className="wx-scene flex flex-col gap-4 p-3 sm:gap-5 sm:p-5"
           data-wx-scene={scene?.name}
           data-wx-period={scene?.period}
           data-wx-sky={scene?.sky}
