@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import SignOutButton from '@/components/auth/SignOutButton';
+import DeleteAccount from './_DeleteAccount';
 import { User, Loader2, Save, Lock, AlertCircle, CheckCircle, Send, ExternalLink } from 'lucide-react';
 
 const INPUT_CLASS =
@@ -459,6 +460,8 @@ export default function ProfileClient() {
                 {pwdSaving ? 'Сохранение...' : 'Изменить пароль'}
               </button>
             </form>
+
+            <DeleteAccount />
           </div>
         )}
       </div>
