@@ -5,7 +5,7 @@ import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
   Briefcase, UserCheck, BarChart3, DollarSign, Footprints, Coins,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
-  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin,
+  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
   Trash2, Webhook, Gauge, Package, BookUser, Bot,} from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
@@ -49,7 +49,6 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/kuzmich-safety', label: 'Кузьмич: безопасность', icon: ShieldCheck, section: 'Контент' },
   { href: '/hub/admin/content/partners', label: 'Партнёры', icon: Briefcase, section: 'Контент' },
   { href: '/hub/admin/guide-certifications', label: 'Сертификаты гидов', icon: Award, section: 'Контент' },
-  { href: '/hub/admin/content/places-import', label: 'Импорт мест', icon: MapPin, section: 'Контент' },
   { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sprout, section: 'Контент' },
   { href: '/hub/admin/places-photos', label: 'Редактор мест', icon: ImageIcon, section: 'Контент' },
   // Очередь снятых в поле треков (15.09). До неё посмотреть свою запись было
