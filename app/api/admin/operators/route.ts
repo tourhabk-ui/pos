@@ -9,11 +9,16 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { PARTNER_CATEGORIES } from '@/lib/partners/categories';
+import { PARTNER_GROUP_SQL, isPartnerGroup } from '@/lib/partners/partner-groups';
 
 export const dynamic = 'force-dynamic';
 
 const QuerySchema = z.object({
-  status: z.enum(['all', 'pending', 'approved', 'rejected']).default('pending'),
+  status: z.enum(['all', 'pending', 'approved', 'rejected', 'none']).default('pending'),
+  // Группа по участию, а не по происхождению (lib/partners/partner-groups):
+  // partners — вошли в поток заявок, potential — карточки без заявки.
+  // Умолчание 'all' сохраняет прежнее поведение для прочих вызывающих.
+  group:  z.enum(['all', 'partners', 'potential']).default('all'),
   limit:  z.coerce.number().min(1).max(200).default(50),
   offset: z.coerce.number().min(0).default(0),
 });
@@ -25,12 +30,13 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const parsed = QuerySchema.safeParse({
     status: sp.get('status') ?? 'pending',
+    group:  sp.get('group')  ?? 'all',
     limit:  sp.get('limit')  ?? 50,
     offset: sp.get('offset') ?? 0,
   });
   if (!parsed.success) return NextResponse.json({ error: 'Неверные параметры' }, { status: 400 });
 
-  const { status, limit, offset } = parsed.data;
+  const { status, group, limit, offset } = parsed.data;
   const hasStatusFilter = status !== 'all';
 
   // Отбор по КАТЕГОРИИ партнёрской записи, а не по роли пользователя.
@@ -39,12 +45,16 @@ export async function GET(request: NextRequest) {
   // появлялся — заявка молча уходила в никуда. У одного человека роль одна, а
   // партнёрских записей может быть несколько.
   const cats = [...PARTNER_CATEGORIES];
-  const params: (string | number | string[])[] = hasStatusFilter
-    ? [cats, status, limit, offset]
-    : [cats, limit, offset];
-  const statusClause = hasStatusFilter ? 'AND p.profile_status = $2' : '';
-  const limitIdx  = hasStatusFilter ? 3 : 2;
-  const offsetIdx = hasStatusFilter ? 4 : 3;
+  const params: (string | number | string[])[] = [cats];
+  let statusClause = '';
+  if (hasStatusFilter) {
+    params.push(status);
+    statusClause = `AND p.profile_status = $${params.length}`;
+  }
+  const groupClause = isPartnerGroup(group) ? `AND ${PARTNER_GROUP_SQL[group]}` : '';
+  params.push(limit, offset);
+  const limitIdx  = params.length - 1;
+  const offsetIdx = params.length;
 
   const rows = await query(`
     SELECT
@@ -88,16 +98,34 @@ export async function GET(request: NextRequest) {
     LEFT JOIN operator_applications oa ON oa.partner_id = p.id
     WHERE p.category = ANY($1)
       ${statusClause}
+      ${groupClause}
     ORDER BY p.applied_at DESC NULLS LAST, p.created_at DESC
     LIMIT $${limitIdx} OFFSET $${offsetIdx}
   `, params);
 
+  const countParams: (string | string[])[] = hasStatusFilter ? [cats, status] : [cats];
   const countRow = await query(`
     SELECT COUNT(*) AS total
     FROM partners p
     WHERE p.category = ANY($1)
       ${statusClause}
-  `, hasStatusFilter ? [cats, status] : [cats]);
+      ${groupClause}
+  `, countParams);
+
+  // Счётчики обеих групп — без фильтров статуса и группы: переключатель в
+  // админке показывает «партнёры / потенциальные» всегда, а не только по
+  // текущему срезу. Критерий — тот же фрагмент, что режет список.
+  const groupCountsRow = await query(`
+    SELECT
+      COUNT(*) FILTER (WHERE ${PARTNER_GROUP_SQL.partners})::text  AS partners,
+      COUNT(*) FILTER (WHERE ${PARTNER_GROUP_SQL.potential})::text AS potential
+    FROM partners p
+    WHERE p.category = ANY($1)
+  `, [cats]);
+  const groupCounts = {
+    partners:  parseInt(String(groupCountsRow.rows[0]?.partners  ?? '0'), 10) || 0,
+    potential: parseInt(String(groupCountsRow.rows[0]?.potential ?? '0'), 10) || 0,
+  };
 
   // Последний итог личной доставки заявки (lib/leads/delivery-outcome).
   // null у оператора — записей нет; карта null — прочитать не удалось, и
@@ -117,6 +145,7 @@ export async function GET(request: NextRequest) {
       total:  parseInt((countRow.rows[0]?.total as string) ?? '0', 10),
       limit,
       offset,
+      group_counts: groupCounts,
     },
   });
 }

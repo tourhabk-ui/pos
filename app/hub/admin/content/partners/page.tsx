@@ -17,6 +17,8 @@ import {
   AlertCircle, CheckCircle, Upload, ImageIcon,
 } from 'lucide-react';
 import TildaPanel from '@/components/admin/TildaPanel';
+import { PARTNER_GROUP_LABELS } from '@/lib/partners/partner-groups';
+import type { PartnerGroup } from '@/lib/partners/partner-groups';
 
 interface EditFormData {
   name: string;
@@ -66,6 +68,11 @@ export default function PartnersManagement() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [verifiedFilter, setVerifiedFilter] = useState('all');
+  // Группа по участию (lib/partners/partner-groups): тот же критерий, что
+  // на экране «Операторы». Умолчание «все» — этот экран правит карточки,
+  // включая импортные, и прятать их по умолчанию нельзя.
+  const [kindFilter, setKindFilter] = useState<'all' | PartnerGroup>('all');
+  const [groupCounts, setGroupCounts] = useState<Record<PartnerGroup, number>>({ partners: 0, potential: 0 });
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   /* Edit state */
@@ -86,6 +93,7 @@ export default function PartnersManagement() {
       if (search) params.append('search', search);
       if (categoryFilter) params.append('category', categoryFilter);
       if (verifiedFilter !== 'all') params.append('verified', verifiedFilter);
+      if (kindFilter !== 'all') params.append('kind', kindFilter);
 
       const response = await fetch(`/api/admin/content/partners?${params}`);
       const result = await response.json();
@@ -93,6 +101,7 @@ export default function PartnersManagement() {
         setPartners(result.data.data);
         setTotalPages(result.data.pagination.totalPages);
         setTotalCount(result.data.pagination.total);
+        if (result.data.groups) setGroupCounts(result.data.groups);
       } else {
         setFetchError(result.error ?? 'Ошибка загрузки партнёров');
       }
@@ -101,7 +110,7 @@ export default function PartnersManagement() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, search, categoryFilter, verifiedFilter]);
+  }, [currentPage, search, categoryFilter, verifiedFilter, kindFilter]);
 
   useEffect(() => { fetchPartners(); }, [fetchPartners]);
 
@@ -369,6 +378,36 @@ export default function PartnersManagement() {
         </button>
       </div>
 
+      {/* Группы по участию — то же разделение, что на экране «Операторы».
+          Очередь заявок и работа с потенциальными живут там; здесь это
+          фильтр каталога с честными счётчиками. */}
+      <div className="flex flex-wrap items-center gap-1">
+        {([
+          { key: 'all', label: 'Все карточки' },
+          { key: 'partners', label: PARTNER_GROUP_LABELS.partners },
+          { key: 'potential', label: PARTNER_GROUP_LABELS.potential },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => { setKindFilter(t.key); setCurrentPage(1); }}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              kindFilter === t.key
+                ? 'bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+            }`}
+          >
+            {t.label}
+            {t.key !== 'all' && (
+              <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">({groupCounts[t.key]})</span>
+            )}
+          </button>
+        ))}
+        <a href="/hub/admin/operators" className="ml-2 text-[11px] text-[var(--ocean)] hover:underline">
+          Заявки и подключение — в «Операторах»
+        </a>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
         <div className="flex-1 relative">
@@ -415,7 +454,9 @@ export default function PartnersManagement() {
       ) : (
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-[var(--text-muted)] font-mono">{totalCount} партнёров всего</span>
+            <span className="text-[10px] text-[var(--text-muted)] font-mono">
+              {totalCount} в текущем срезе · партнёров: {groupCounts.partners} · потенциальных: {groupCounts.potential}
+            </span>
           </div>
           {/* Вся строка открывает карточку: на телефоне колонка с карандашом
               уезжает за край экрана, и открыть партнёра было нечем (06.08). */}
