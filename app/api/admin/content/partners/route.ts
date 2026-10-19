@@ -6,6 +6,7 @@ import { PartnerAdminRow, CountRow } from '@/lib/types/db-rows';
 import { z } from 'zod';
 import { slugify } from '@/lib/text/slugify';
 import { safeMsg } from '@/lib/errors/sanitize';
+import { PARTNER_GROUP_SQL, isPartnerGroup } from '@/lib/partners/partner-groups';
 
 export const dynamic = 'force-dynamic';
 const ALLOWED_SORT_FIELDS = new Set(['created_at', 'updated_at', 'name', 'category', 'rating', 'review_count', 'is_verified']);
@@ -29,6 +30,10 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category');
     const verified = searchParams.get('verified');
     const search = searchParams.get('search');
+    // Группа по участию (lib/partners/partner-groups) — тот же критерий,
+    // что на экране «Операторы»: без него список называет партнёрами все
+    // карточки подряд, включая импортные без заявки.
+    const kind = searchParams.get('kind');
     const requestedSortBy = searchParams.get('sortBy') || 'created_at';
     const sortBy = ALLOWED_SORT_FIELDS.has(requestedSortBy) ? requestedSortBy : 'created_at';
     const sortOrder = (searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -53,6 +58,10 @@ export async function GET(request: NextRequest) {
       whereConditions.push(`(p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`);
       queryParams.push(`%${search}%`);
       paramIndex++;
+    }
+
+    if (isPartnerGroup(kind)) {
+      whereConditions.push(PARTNER_GROUP_SQL[kind]);
     }
 
     const whereClause = whereConditions.length > 0 
@@ -115,6 +124,20 @@ export async function GET(request: NextRequest) {
       updatedAt: new Date(row.updated_at)
     }));
 
+    // Счётчики групп — по всей таблице, без текущих фильтров: вкладки
+    // «Партнёры / Потенциальные» показывают разделение целиком, а список
+    // под ними может быть уже.
+    const groupsResult = await query<{ partners: string; potential: string }>(`
+      SELECT
+        COUNT(*) FILTER (WHERE ${PARTNER_GROUP_SQL.partners})::text  AS partners,
+        COUNT(*) FILTER (WHERE ${PARTNER_GROUP_SQL.potential})::text AS potential
+      FROM partners p
+    `);
+    const groups = {
+      partners:  parseInt(groupsResult.rows[0]?.partners  ?? '0', 10) || 0,
+      potential: parseInt(groupsResult.rows[0]?.potential ?? '0', 10) || 0,
+    };
+
     const response: PaginatedResponse<Partner> = {
       data: partners,
       pagination: {
@@ -127,7 +150,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: response
+      data: { ...response, groups }
     } as ApiResponse<PaginatedResponse<Partner>>);
 
   } catch (error) {

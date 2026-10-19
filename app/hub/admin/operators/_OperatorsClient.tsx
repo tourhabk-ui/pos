@@ -9,6 +9,8 @@ import {
   UserPlus, KeyRound,
 } from 'lucide-react';
 import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
+import { PARTNER_GROUP_LABELS, PARTNER_GROUP_HINTS } from '@/lib/partners/partner-groups';
+import type { PartnerGroup } from '@/lib/partners/partner-groups';
 import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
@@ -1487,6 +1489,10 @@ function ScraperPanel() {
 
 export default function OperatorsClient() {
   const [tab, setTab]             = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  // Группа по участию (lib/partners/partner-groups): сначала настоящие
+  // партнёры, потенциальные — отдельной вкладкой, а не в общей куче.
+  const [group, setGroup]         = useState<PartnerGroup>('partners');
+  const [groupCounts, setGroupCounts] = useState<Record<PartnerGroup, number>>({ partners: 0, potential: 0 });
   const [operators, setOperators] = useState<OperatorRow[]>([]);
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');
@@ -1494,13 +1500,18 @@ export default function OperatorsClient() {
   const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
   const [counts, setCounts]       = useState<Record<string, number>>({});
 
-  const load = useCallback(async (status: string) => {
+  const load = useCallback(async (status: string, grp: PartnerGroup) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/operators?status=${status}&limit=100`);
+      // У потенциальных статус один ('none' без заявки) — режет сама группа.
+      const res = await fetch(`/api/admin/operators?status=${grp === 'potential' ? 'all' : status}&group=${grp}&limit=100`);
       const j: unknown = await res.json();
       if (typeof j === 'object' && j !== null && 'data' in j) {
         setOperators((j as { data: OperatorRow[] }).data);
+      }
+      if (typeof j === 'object' && j !== null && 'meta' in j) {
+        const gc = (j as { meta: { group_counts?: Record<PartnerGroup, number> } }).meta.group_counts;
+        if (gc) setGroupCounts(gc);
       }
     } finally {
       setLoading(false);
@@ -1526,7 +1537,7 @@ export default function OperatorsClient() {
     setCounts(Object.fromEntries(results));
   }, []);
 
-  useEffect(() => { load(tab); }, [load, tab]);
+  useEffect(() => { load(tab, group); }, [load, tab, group]);
   useEffect(() => { loadCounts(); }, [loadCounts]);
 
   async function approve(id: string) {
@@ -1603,12 +1614,36 @@ export default function OperatorsClient() {
 
         {/* Ручное заведение партнёра — до импорта: чаще нужен один живой
             партнёр, а не пачка из внешнего источника. */}
-        <CreatePartnerPanel onCreated={() => { void load(tab); void loadCounts(); }} />
+        <CreatePartnerPanel onCreated={() => { void load(tab, group); void loadCounts(); }} />
 
         {/* Scraper panel */}
         <ScraperPanel />
 
-        {/* Tabs */}
+        {/* Группы по участию: партнёры против потенциальных. Счётчики —
+            из meta.group_counts того же запроса, что режет список. */}
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-1 bg-[var(--bg-primary)] rounded-lg p-1 w-fit">
+            {(['partners', 'potential'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setGroup(g)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  group === g
+                    ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                {PARTNER_GROUP_LABELS[g]}
+                <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">({groupCounts[g]})</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">{PARTNER_GROUP_HINTS[group]}</p>
+        </div>
+
+        {/* Tabs по статусу заявки — только у партнёров: у потенциальных
+            статус один, «без заявки». */}
+        {group === 'partners' && (
         <div className="flex gap-1 mb-4 bg-[var(--bg-primary)] rounded-lg p-1 w-fit">
           {TABS.map(t => (
             <button
@@ -1627,6 +1662,7 @@ export default function OperatorsClient() {
             </button>
           ))}
         </div>
+        )}
 
         {/* Search */}
         <div className="relative mb-4">
@@ -1648,7 +1684,13 @@ export default function OperatorsClient() {
           <div className="text-center py-16">
             <Clock className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3" />
             <p className="text-[var(--text-secondary)]">
-              {tab === 'pending' ? 'Нет заявок на проверке' : 'Ничего не найдено'}
+              {group === 'potential'
+                ? 'Потенциальных карточек нет'
+                : tab === 'pending'
+                  ? 'Нет заявок на проверке'
+                  : tab === 'all'
+                    ? 'Партнёров пока нет — карточки без заявки лежат во вкладке «Потенциальные»'
+                    : 'Ничего не найдено'}
             </p>
           </div>
         ) : (
