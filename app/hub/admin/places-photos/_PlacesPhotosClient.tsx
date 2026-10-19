@@ -138,6 +138,7 @@ export default function PlacesPhotosClient() {
   const [mergedLoaded, setMergedLoaded] = useState(false);
   const [loadingMerged, setLoadingMerged] = useState(false);
   const [mergedPlaces, setMergedPlaces] = useState<MergedPlace[]>([]);
+  const [mergedError, setMergedError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
@@ -366,16 +367,19 @@ export default function PlacesPhotosClient() {
 
   const fetchMergedPlaces = useCallback(async () => {
     setLoadingMerged(true);
+    setMergedError(null);
     try {
       const res = await fetch('/api/admin/places/merged?limit=200');
-      if (!res.ok) throw new Error('Не удалось загрузить список объединённых мест');
+      if (!res.ok) throw new Error('load_failed');
       const data = await res.json() as { items: MergedPlace[] };
+      if (!Array.isArray(data.items)) throw new Error('load_failed');
       setMergedPlaces(data.items);
+      setMergedLoaded(true);
     } catch (err) {
       console.error(err);
+      setMergedError('Не удалось загрузить объединённые места');
     } finally {
       setLoadingMerged(false);
-      setMergedLoaded(true);
     }
   }, []);
 
@@ -746,8 +750,19 @@ export default function PlacesPhotosClient() {
         {showMerged && (
           <div className="p-4 border-t space-y-3" style={{ borderColor: 'var(--border)' }}>
             {loadingMerged && <p className="text-sm text-[var(--text-muted)]">Загружаю список…</p>}
-            {!loadingMerged && mergedLoaded && mergedPlaces.length === 0 && (
-              <p className="text-sm text-[var(--text-muted)]">Нет объединённых записей — сначала подтвердите слияние выше.</p>
+            {!loadingMerged && mergedError && (
+              <div className="rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/10 p-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-[var(--danger)]">Не удалось загрузить объединённые места</p>
+                <button
+                  onClick={() => void fetchMergedPlaces()}
+                  className="ds-btn ds-btn-secondary text-xs px-3 py-1.5 flex-shrink-0"
+                >
+                  Повторить
+                </button>
+              </div>
+            )}
+            {!loadingMerged && !mergedError && mergedLoaded && mergedPlaces.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)]">Объединённых мест нет</p>
             )}
             {mergedPlaces.map((p) => {
               if (deletedIds.has(p.id)) return null;
