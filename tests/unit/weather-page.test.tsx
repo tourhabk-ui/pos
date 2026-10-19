@@ -46,7 +46,7 @@ import { insideKrai } from '@/lib/geo/krai-envelope';
 import { settlementByName } from '@/lib/kuzmich/weather-tool';
 import { SVODKA_WEATHER_PLACES } from '@/lib/svodka/svodka';
 import { WeatherView, weatherScene, weatherSky } from '@/components/weather/WeatherView';
-import type { ForecastDay } from '@/lib/planner/intelligence';
+import { parseForecastNow, type ForecastDay } from '@/lib/planner/intelligence';
 import { PLATFORM_LINKS } from '@/lib/navigation/platform-links';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -353,6 +353,33 @@ describe('4b. виджет: шкала, ветер, давление', () => {
     expect(pressureLine(1000)).toBe('750 мм рт. ст.');
     expect(visibilityLine(25000)).toBe('25 км');
     expect(uvWords(2.4)).toContain('низкий');
+  });
+  it('давление «сейчас» — приведённое к уровню моря, а не на высоте точки', () => {
+    // Авачинский: surface_pressure ~715 гПа (536 мм) при pressure_msl ~1015 гПа (761 мм).
+    expect(parseForecastNow({ pressure_msl: 1015, surface_pressure: 715 })?.pressureHpa).toBe(1015);
+    expect(parseForecastNow({ surface_pressure: 715 })?.pressureHpa).toBeNull();
+    expect(parseForecastNow({ pressure_msl: 1015 })).toBeTruthy();
+  });
+  it('плитка давления: нет приведённого — нет плитки, а не подстановка surface', () => {
+    const mk = (now: unknown) => {
+      const base = {
+        kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+        days: [day('2026-10-08')], hours: [], now, fetchedAt: null, staleSince: null,
+      };
+      return {
+        selected: base, all: [base],
+        warnings: { kind: 'ok' as const, checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+        today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+      } as WeatherPageData;
+    };
+    const noPressure = { time: '2026-10-08T06:00', temp: 1, apparent: null, humidity: null, weatherCode: 3, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: true };
+    const { unmount } = render(<WeatherView data={mk(noPressure)} />);
+    expect(screen.queryByText('Давление')).toBeNull();
+    unmount();
+    render(<WeatherView data={mk({ ...noPressure, pressureHpa: 1015 })} />);
+    expect(screen.getByText('Давление')).toBeTruthy();
+    expect(screen.getByText('761 мм рт. ст.')).toBeTruthy();
+    expect(screen.getByText('к уровню моря')).toBeTruthy();
   });
   it('пустые предупреждения — одна строка, а не карточка с заголовком', () => {
     render(<WeatherView data={(function () {
