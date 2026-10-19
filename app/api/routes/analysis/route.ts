@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
 
       if (alerts?.alert_severity === 'critical') {
         status = 'closed';
-        recs.push(`КРИТИЧНО: ${alerts.active_alerts.join(', ')}`);
+        recs.push(`КРИТИЧНО: ${(alerts.active_alerts ?? []).join(', ')}`);
       } else if (utilizationPct > 80) {
         status = 'crowded';
         recs.push(`Перегруз ${utilizationPct}% вместимости — рекомендуем поднять цены или добавить слоты`);
@@ -143,8 +143,8 @@ export async function GET(req: NextRequest) {
         total_bookings: parseInt(row.total_bookings),
         capacity_per_day: parseInt(row.capacity_per_day),
         utilization_pct: utilizationPct,
-        difficulty_levels: row.difficulty_levels.filter((x: string) => x),
-        activity_types: row.activity_types.filter((x: string) => x),
+        difficulty_levels: (row.difficulty_levels ?? []).filter((x: string) => x),
+        activity_types: (row.activity_types ?? []).filter((x: string) => x),
         operators_count: parseInt(row.operators_count),
         avg_price: parseInt(row.avg_price),
         safety_alerts: alerts?.active_alerts ?? [],
@@ -155,15 +155,15 @@ export async function GET(req: NextRequest) {
 
     // ─── 4. Generate summary ──────────────────────────────────────────
 
-    const mostPopular = locations.reduce((a, b) =>
-      a.total_bookings > b.total_bookings ? a : b
-    );
-    const mostCrowded = locations.reduce((a, b) =>
-      a.utilization_pct > b.utilization_pct ? a : b
-    );
-    const mostExpensive = locations.reduce((a, b) =>
-      a.avg_price > b.avg_price ? a : b
-    );
+    const mostPopular = locations.length
+      ? locations.reduce((a, b) => (a.total_bookings > b.total_bookings ? a : b))
+      : null;
+    const mostCrowded = locations.length
+      ? locations.reduce((a, b) => (a.utilization_pct > b.utilization_pct ? a : b))
+      : null;
+    const mostExpensive = locations.length
+      ? locations.reduce((a, b) => (a.avg_price > b.avg_price ? a : b))
+      : null;
 
     const needsOperators = locations
       .filter(l => l.tours_count === 0 && l.location_type)
@@ -182,9 +182,9 @@ export async function GET(req: NextRequest) {
       total_bookings: locations.reduce((sum, l) => sum + l.total_bookings, 0),
       locations,
       summary: {
-        most_popular: `${mostPopular.location_name} (${mostPopular.total_bookings} брони)`,
-        most_crowded: `${mostCrowded.location_name} (${mostCrowded.utilization_pct}% занято)`,
-        most_expensive: `${mostExpensive.location_name} (${mostExpensive.avg_price}₽ в среднем)`,
+        most_popular: mostPopular ? `${mostPopular.location_name} (${mostPopular.total_bookings} брони)` : 'Нет данных',
+        most_crowded: mostCrowded ? `${mostCrowded.location_name} (${mostCrowded.utilization_pct}% занято)` : 'Нет данных',
+        most_expensive: mostExpensive ? `${mostExpensive.location_name} (${mostExpensive.avg_price}₽ в среднем)` : 'Нет данных',
         needs_operators: needsOperators,
         critical_alerts: criticalAlerts,
       },
@@ -193,10 +193,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, data: result });
 
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    console.error('Routes analysis error:', error);
+    console.error('Routes analysis error:', err);
     return NextResponse.json(
-      { success: false, error },
+      { success: false, error: 'Не удалось загрузить анализ маршрутов' },
       { status: 500 }
     );
   }

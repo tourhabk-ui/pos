@@ -55,10 +55,10 @@ export default function RoutesAnalysisClient() {
     try {
       const res = await fetch('/api/routes/analysis');
       const json = await res.json();
-      if (!json.success) throw new Error(json.error);
+      if (!json.success) throw new Error('load_failed');
       setData(json.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка загрузки');
+    } catch {
+      setError('Не удалось загрузить анализ маршрутов. Попробуйте обновить страницу.');
     } finally {
       setLoading(false);
     }
@@ -235,6 +235,12 @@ export default function RoutesAnalysisClient() {
           </button>
         ))}
       </div>
+
+      {data.locations.length === 0 && (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 text-sm text-[var(--text-muted)]">
+          Данных по маршрутам пока нет.
+        </div>
+      )}
 
       {/* Locations Table */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
