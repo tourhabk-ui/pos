@@ -80,7 +80,6 @@ const KNOWN_JSX_LITERAL_GUARDS: Record<string, number> = {
   'kutha-photos.test.ts': 2,
   'legal-disclosure.test.ts': 1,
   'map-threat-summary.test.ts': 1,
-  'marine-mammals.test.ts': 1,
   'mcp-landing.test.ts': 1,
   'mobile-two-taps.test.ts': 3,
   'no-external-navigators.test.ts': 2,
