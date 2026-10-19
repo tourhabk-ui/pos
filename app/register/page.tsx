@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2, Search, ChevronDown } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
@@ -131,6 +132,27 @@ export default function RegisterRoutePage() {
   const [emergencyTelegram, setEmergencyTelegram] = useState('');
   const [emergencyEmail, setEmergencyEmail] = useState('');
   const [contactConsent, setContactConsent] = useState(false);
+
+  // Экстренный контакт из профиля туриста (/hub/tourist/profile): заполнен там —
+  // подставляется сюда, если человек вошёл и поле ещё пустое. Не вошёл или
+  // профиля нет — форма как была, всё вводится руками.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/tourist/profile', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: { profile?: Record<string, string | null> } } | null) => {
+        const pr = j?.data?.profile;
+        if (cancelled || !pr) return;
+        const name = (pr.emergency_contact_name ?? '').trim();
+        const phone = (pr.emergency_contact_phone ?? '').trim();
+        const relation = (pr.emergency_contact_relation ?? '').trim();
+        if (name) setEmergencyName((v) => v || name);
+        if (phone) setEmergencyPhone((v) => v || phone);
+        if (relation) setEmergencyRelation((v) => v || relation);
+      })
+      .catch((err) => logSwallowedFailure('register', 'экстренный контакт из профиля', err));
+    return () => { cancelled = true; };
+  }, []);
 
   // Шаг 4: Disclaimer
   const [accepted, setAccepted] = useState(false);
