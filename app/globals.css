@@ -700,3 +700,144 @@ body {
 .fx-dark-dim { color: #6B7280; }
 .fx-dark-ocean { color: #00A8CC; }
 .fx-dark-danger { color: #F85149; }
+
+/* ── Погода: герой-сцена (/weather, карт-бланш владельца на этот раздел) ──
+   Сцена сама задаёт палитру по времени суток и условию из прогноза,
+   поэтому читаемость не зависит от светлой/тёмной темы сайта. Текст —
+   только парами --wx-fg* на --wx-bg: контраст держится за счёт тёмных
+   ночных/штормовых градиентов и тёмного текста на светлых дневных. */
+.wx-scene {
+  --wx-fg: #f7fbff;
+  --wx-fg-2: #d9e9f8;
+  --wx-fg-3: #bdd6ee;
+  --wx-icon: #9fd8f2;
+  --wx-bg: linear-gradient(180deg, #0a1830 0%, #20344f 55%, #324e6d 100%);
+  --wx-glass: rgba(8, 26, 50, 0.44);
+  --wx-glass-2: rgba(255, 255, 255, 0.12);
+  --wx-glass-border: rgba(191, 224, 248, 0.30);
+  --wx-track: rgba(255, 255, 255, 0.24);
+  --wx-chip: rgba(8, 26, 50, 0.36);
+  --wx-silhouette: rgba(3, 14, 32, 0.50);
+  --wx-scene-border: rgba(160, 205, 240, 0.28);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--wx-scene-border);
+  border-radius: 2rem;
+  background: var(--wx-bg);
+  color: var(--wx-fg);
+  box-shadow: 0 18px 50px rgba(6, 24, 48, 0.20);
+}
+.wx-scene[data-wx-scene="night-clear"] {
+  --wx-bg: linear-gradient(180deg, #06142e 0%, #0d2a55 46%, #1d4a7a 78%, #2a5d8f 100%);
+}
+.wx-scene[data-wx-scene="night-cloud"] {
+  --wx-bg: linear-gradient(180deg, #0a1830 0%, #1d3049 52%, #2e4a66 100%);
+  --wx-icon: #a8c8de;
+}
+.wx-scene[data-wx-scene="night-fog"] {
+  --wx-bg: linear-gradient(180deg, #131e2b 0%, #28384a 55%, #41576c 100%);
+  --wx-icon: #b9d2de;
+}
+.wx-scene[data-wx-scene="night-rain"] {
+  --wx-bg: linear-gradient(180deg, #051824 0%, #0e3243 52%, #1c5266 100%);
+  --wx-icon: #8fd4d8;
+}
+.wx-scene[data-wx-scene="night-snow"] {
+  --wx-bg: linear-gradient(180deg, #0e1a3d 0%, #26356a 52%, #3f528a 100%);
+  --wx-icon: #c3d7ff;
+}
+.wx-scene[data-wx-scene="night-storm"],
+.wx-scene[data-wx-scene="day-storm"] {
+  --wx-bg: linear-gradient(180deg, #060b1a 0%, #131d35 52%, #253350 100%);
+  --wx-icon: #ffd28a;
+}
+.wx-scene[data-wx-scene="day-clear"],
+.wx-scene[data-wx-scene="day-cloud"],
+.wx-scene[data-wx-scene="day-fog"],
+.wx-scene[data-wx-scene="day-rain"],
+.wx-scene[data-wx-scene="day-snow"] {
+  --wx-fg: #0d2f4d;
+  --wx-fg-2: #224a69;
+  --wx-fg-3: #3d6484;
+  --wx-icon: #1769a8;
+  --wx-glass: rgba(255, 255, 255, 0.54);
+  --wx-glass-2: rgba(255, 255, 255, 0.40);
+  --wx-glass-border: rgba(255, 255, 255, 0.72);
+  --wx-track: rgba(13, 47, 77, 0.18);
+  --wx-chip: rgba(255, 255, 255, 0.44);
+  --wx-silhouette: rgba(35, 86, 128, 0.26);
+  --wx-scene-border: rgba(110, 170, 220, 0.45);
+}
+.wx-scene[data-wx-scene="day-clear"] {
+  --wx-bg: linear-gradient(180deg, #6fb2e6 0%, #9cccf0 48%, #d3ecf9 100%);
+}
+.wx-scene[data-wx-scene="day-cloud"] {
+  --wx-bg: linear-gradient(180deg, #8fb0cb 0%, #b4c9da 52%, #d0dfe9 100%);
+}
+.wx-scene[data-wx-scene="day-fog"] {
+  --wx-bg: linear-gradient(180deg, #93a7b1 0%, #b9c8cd 52%, #d9e3e5 100%);
+  --wx-icon: #33677e;
+}
+.wx-scene[data-wx-scene="day-rain"] {
+  --wx-bg: linear-gradient(180deg, #7498b4 0%, #a3bccf 52%, #c2d5e1 100%);
+}
+.wx-scene[data-wx-scene="day-snow"] {
+  --wx-bg: linear-gradient(180deg, #a3c2dd 0%, #c6dcee 52%, #e4f0f8 100%);
+}
+/* Звёзды ночью и мягкое солнце ясным днём — только CSS, без картинок. */
+.wx-scene[data-wx-period="night"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.9) 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.35) 1.5px, transparent 2px);
+  background-position: 24px 32px, 96px 120px, 180px 64px;
+  background-size: 210px 170px, 260px 220px, 340px 260px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.wx-scene[data-wx-period="day"][data-wx-sky="clear"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 86% 6%, rgba(255, 246, 190, 0.75) 0, rgba(255, 246, 190, 0) 34%);
+  pointer-events: none;
+}
+.wx-scene > * {
+  position: relative;
+  z-index: 1;
+}
+.wx-scene .ds-h2,
+.wx-scene .ds-label {
+  color: var(--wx-fg);
+}
+.wx-glass {
+  background: var(--wx-glass);
+  border: 1px solid var(--wx-glass-border);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  box-shadow: 0 8px 28px rgba(4, 20, 40, 0.12);
+}
+.wx-glass-soft {
+  background: var(--wx-glass-2);
+  border: 1px solid var(--wx-glass-border);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+}
+.wx-silhouette-svg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 0;
+  width: 100%;
+  height: 320px;
+  color: var(--wx-silhouette);
+  pointer-events: none;
+}
+@media (min-width: 640px) {
+  .wx-silhouette-svg { height: 360px; }
+}

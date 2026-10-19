@@ -20,7 +20,10 @@ import { PRECIP_DRY_MM } from '@/lib/weather/day-parts';
  * Страница погоды — виджет уровня погодных приложений внутри раздела
  * /weather (карт-бланш владельца на дизайн только этого раздела):
  * крупное «сейчас», почасовая лента, неделя со шкалой температур,
- * плитки деталей, части дня. Серверный рендер без скриптов: места
+ * плитки деталей, части дня. Герой, часы, детали и неделя живут в одной
+ * сцене: её градиент выбирается по is_day/восходу-закату и WMO-коду из
+ * того же прогноза, плашки — полупрозрачное «стекло» поверх градиента.
+ * Серверный рендер без скриптов: места
  * переключаются ссылками, части дня у дней — нативным details.
  * Показываются только поля, которые реально отдал Open-Meteo:
  * нет поля — нет плитки, а не выдуманный ноль.
@@ -38,8 +41,8 @@ function addDays(iso: string, n: number): string {
   return new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 }
 
-function ConditionIcon({ code, isDay, size = 22 }: { code: number | null; isDay?: boolean; size?: number }) {
-  const cls = 'shrink-0 text-[var(--ocean)]';
+function ConditionIcon({ code, isDay, size = 22, wx = false }: { code: number | null; isDay?: boolean; size?: number; wx?: boolean }) {
+  const cls = wx ? 'shrink-0 text-[var(--wx-icon)]' : 'shrink-0 text-[var(--ocean)]';
   if (code === null) return <Cloud size={size} aria-hidden className={cls} />;
   if (code === 0) return isDay === false ? <Moon size={size} aria-hidden className={cls} /> : <Sun size={size} aria-hidden className={cls} />;
   if (code <= 2) return isDay === false ? <CloudMoon size={size} aria-hidden className={cls} /> : <CloudSun size={size} aria-hidden className={cls} />;
@@ -112,7 +115,7 @@ function Warnings({ warnings }: { warnings: WarningsRead }) {
 
 /* ── Переключатель мест ───────────────────────────────────────────────── */
 
-function PlaceSwitcher({ current }: { current: string }) {
+function PlaceSwitcher({ current, scene = false }: { current: string; scene?: boolean }) {
   return (
     <nav aria-label="Места" className="flex flex-col gap-3">
       {GROUPS.map((g) => (
@@ -127,9 +130,13 @@ function PlaceSwitcher({ current }: { current: string }) {
                     href={weatherPlaceHref(p)}
                     aria-current={active ? 'page' : undefined}
                     className={`inline-flex min-h-[44px] items-center rounded-full border px-4 text-sm no-underline transition-colors duration-200 ${
-                      active
-                        ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-semibold text-[var(--text-primary)]'
-                        : 'border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                      scene
+                        ? active
+                          ? 'border-[var(--wx-icon)] bg-[var(--wx-glass-2)] font-semibold text-[var(--wx-fg)]'
+                          : 'border-[var(--wx-glass-border)] bg-[var(--wx-chip)] text-[var(--wx-fg-2)] hover:bg-[var(--wx-glass-2)] hover:text-[var(--wx-fg)]'
+                        : active
+                          ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-semibold text-[var(--text-primary)]'
+                          : 'border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {p.name}
@@ -158,6 +165,58 @@ function currentHour(w: OkWeather): ForecastHour | null {
   return w.hours[0];
 }
 
+/* ── Сцена героя: период и небо из уже имеющихся данных ───────────────── */
+
+export type WeatherSky = 'clear' | 'cloud' | 'fog' | 'rain' | 'snow' | 'storm';
+
+export function weatherSky(code: number | null): WeatherSky {
+  if (code === null) return 'cloud';
+  if (code === 0 || code === 1) return 'clear';
+  if (code === 2 || code === 3) return 'cloud';
+  if (code <= 48) return 'fog';
+  if (code >= 95) return 'storm';
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
+  return 'rain';
+}
+
+/**
+ * День или ночь для сцены: сначала is_day источника; если его нет —
+ * местное время прогноза между восходом и закатом этого дня; дальше —
+ * час того же местного времени. Новых данных сцена не просит.
+ */
+export function weatherScene(w: OkWeather, today: string): { name: string; period: 'day' | 'night'; sky: WeatherSky } {
+  const day = w.days.find((d) => d.date === today) ?? w.days[0];
+  const hour = currentHour(w);
+  const code = w.now?.weatherCode ?? hour?.weatherCode ?? day?.weatherCode ?? null;
+  const sky = weatherSky(code);
+  let period: 'day' | 'night' | null = null;
+  if (w.now?.isDay === true) period = 'day';
+  else if (w.now?.isDay === false) period = 'night';
+  if (period === null) {
+    const nowHm = hhmm(w.now?.time ?? hour?.time);
+    const sunrise = hhmm(day?.sunrise);
+    const sunset = hhmm(day?.sunset);
+    if (nowHm && sunrise && sunset) period = nowHm >= sunrise && nowHm < sunset ? 'day' : 'night';
+    else if (nowHm) {
+      const h = Number(nowHm.slice(0, 2));
+      period = h >= 7 && h < 20 ? 'day' : 'night';
+    }
+  }
+  const resolved = period ?? 'day';
+  return { name: `${resolved}-${sky}`, period: resolved, sky };
+}
+
+/** Силуэт Камчатки одним слоем: дальняя гряда и конус вулкана. */
+function SceneSilhouette() {
+  return (
+    <svg className="wx-silhouette-svg" viewBox="0 0 1440 340" preserveAspectRatio="none" aria-hidden focusable="false">
+      <path fill="currentColor" opacity="0.55" d="M0 258 L180 208 L360 244 L560 188 L760 240 L980 204 L1180 250 L1440 214 L1440 340 L0 340 Z" />
+      <path fill="currentColor" opacity="0.85" d="M848 340 L1112 108 L1168 70 L1206 94 L1242 70 L1302 114 L1440 258 L1440 340 Z" />
+      <path fill="currentColor" opacity="0.8" d="M0 340 L0 286 L238 250 L428 300 L624 340 Z" />
+    </svg>
+  );
+}
+
 function Hero({ w, today }: { w: OkWeather; today: string }) {
   const day = w.days.find((d) => d.date === today) ?? w.days[0];
   const hour = currentHour(w);
@@ -168,48 +227,45 @@ function Hero({ w, today }: { w: OkWeather; today: string }) {
   const elevation = elevationLine(w.elevationM);
   const stale = kamchatkaTime(w.staleSince);
   return (
-    <section
-      aria-labelledby="weather-now"
-      className="overflow-hidden rounded-3xl border border-[var(--border)] p-5 sm:p-7"
-      style={{ background: 'linear-gradient(150deg, var(--bg-card) 0%, var(--bg-secondary) 58%, var(--accent-muted) 130%)' }}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 id="weather-now" className="flex items-center gap-2 text-lg font-semibold">
-            <MapPin size={20} aria-hidden className="text-[var(--ocean)]" />
-            {w.place.name}
-          </h2>
-          <p className="text-sm text-[var(--text-secondary)]">
-            <span className="tabular-nums">{w.lat.toFixed(2)}, {w.lng.toFixed(2)}</span>
-            {elevation ? ` · ${elevation}` : ''}
-          </p>
-        </div>
-        {day && <p className="text-sm text-[var(--text-secondary)]">{dayLabel(day.date, today)}</p>}
+    <section aria-labelledby="weather-now" className="pt-2 text-center sm:pt-4">
+      <div className="flex flex-col items-center gap-1">
+        <h2 id="weather-now" className="flex items-center justify-center gap-2 text-xl font-semibold sm:text-2xl">
+          <MapPin size={22} aria-hidden className="text-[var(--wx-icon)]" />
+          {w.place.name}
+        </h2>
+        <p className="text-sm text-[var(--wx-fg-2)]">
+          <span className="tabular-nums">{w.lat.toFixed(2)}, {w.lng.toFixed(2)}</span>
+          {elevation ? ` · ${elevation}` : ''}
+        </p>
+        {day && <p className="text-sm text-[var(--wx-fg-3)]">{dayLabel(day.date, today)}</p>}
       </div>
 
       {stale && (
-        <p className="mt-4 border-l-2 border-[var(--warning)] pl-3 text-sm">
+        <p className="wx-glass-soft mx-auto mt-4 max-w-xl rounded-2xl border-l-2 px-4 py-3 text-left text-sm" style={{ borderLeftColor: 'var(--wx-icon)' }}>
           Источник прогноза сейчас не отвечает. Это последний полученный прогноз — от {stale} по Камчатке.
         </p>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
-        <p className="text-7xl font-semibold leading-none tabular-nums sm:text-8xl" aria-label={nowTemp !== null ? `Сейчас ${fmtTemp(nowTemp)} градусов` : undefined}>
-          {nowTemp !== null ? `${fmtTemp(nowTemp)}°` : '—'}
-        </p>
-        <div className="flex flex-col gap-1">
-          <span className="flex items-center gap-2 text-lg font-medium">
-            <ConditionIcon code={code} isDay={w.now?.isDay ?? undefined} size={28} />
-            {description ?? 'Условия — нет данных'}
+      <p className="mt-5 text-[6.5rem] font-light leading-[0.95] tabular-nums sm:text-[10rem]" aria-label={nowTemp !== null ? `Сейчас ${fmtTemp(nowTemp)} градусов` : undefined}>
+        {nowTemp !== null ? `${fmtTemp(nowTemp)}°` : '—'}
+      </p>
+      <div className="mt-3 flex flex-col items-center gap-1.5">
+        <span className="flex items-center justify-center gap-2 text-xl font-medium sm:text-2xl">
+          <ConditionIcon code={code} isDay={w.now?.isDay ?? undefined} size={32} wx />
+          {description ?? 'Условия — нет данных'}
+        </span>
+        {apparent !== null && <span className="text-[var(--wx-fg-2)]">Ощущается как {fmtTemp(apparent)}°</span>}
+        {day && (day.tempMin !== null || day.tempMax !== null) && (
+          <span className="tabular-nums text-[var(--wx-fg-2)]" aria-label={`Сегодня ${tempRange(day.tempMin, day.tempMax) ?? 'температура — нет данных'}`}>
+            {day.tempMax !== null ? <span aria-hidden>↑{fmtTemp(day.tempMax)}°</span> : null}
+            {day.tempMax !== null && day.tempMin !== null ? <span aria-hidden> · </span> : null}
+            {day.tempMin !== null ? <span aria-hidden>↓{fmtTemp(day.tempMin)}°</span> : null}
           </span>
-          {apparent !== null && <span className="text-[var(--text-secondary)]">Ощущается как {fmtTemp(apparent)}°</span>}
-          {day && (
-            <span className="tabular-nums text-[var(--text-secondary)]">
-              Сегодня {tempRange(day.tempMin, day.tempMax) ?? 'температура — нет данных'}
-            </span>
-          )}
-          {w.now?.time && <span className="text-sm text-[var(--text-muted)]">По прогнозу на {hhmm(w.now.time) ?? ''} местного времени</span>}
-        </div>
+        )}
+        {day && day.tempMin === null && day.tempMax === null && (
+          <span className="tabular-nums text-[var(--wx-fg-2)]">Сегодня температура — нет данных</span>
+        )}
+        {w.now?.time && <span className="text-sm text-[var(--wx-fg-3)]">По прогнозу на {hhmm(w.now.time) ?? ''} местного времени</span>}
       </div>
     </section>
   );
@@ -226,21 +282,21 @@ function HourlyStrip({ w }: { w: OkWeather }) {
   return (
     <section aria-labelledby="weather-hourly" className="flex flex-col gap-3">
       <h2 id="weather-hourly" className="ds-h2">По часам</h2>
-      <div className="overflow-x-auto rounded-3xl border border-[var(--border)] bg-[var(--bg-card)]" tabIndex={0} aria-label="Почасовой прогноз, прокручивается вбок">
+      <div className="wx-glass overflow-x-auto rounded-[1.75rem]" tabIndex={0} aria-label="Почасовой прогноз, прокручивается вбок">
         <ol className="flex min-w-max">
           {hours.map((h, i) => (
             <li
               key={h.time}
-              className={`flex w-[76px] shrink-0 flex-col items-center gap-1.5 px-2 py-4 text-center ${i === 0 ? 'bg-[var(--accent-muted)]' : ''}`}
+              className={`flex w-[76px] shrink-0 flex-col items-center gap-1.5 px-2 py-4 text-center ${i === 0 ? 'bg-[var(--wx-glass-2)]' : ''}`}
             >
               <span className="text-sm font-medium tabular-nums">{i === 0 ? 'Сейчас' : (hhmm(h.time) ?? '')}</span>
-              <ConditionIcon code={h.weatherCode} size={22} />
+              <ConditionIcon code={h.weatherCode} size={22} wx />
               <span className="text-base font-semibold tabular-nums">{h.temp !== null ? `${fmtTemp(h.temp)}°` : '—'}</span>
-              <span className="flex items-center gap-0.5 text-xs tabular-nums text-[var(--ocean)]">
+              <span className="flex items-center gap-0.5 text-xs tabular-nums text-[var(--wx-icon)]">
                 <Droplets size={12} aria-hidden />
                 {h.precipProb !== null ? `${Math.round(h.precipProb)}%` : '—'}
               </span>
-              <span className="text-xs tabular-nums text-[var(--text-muted)]">
+              <span className="text-xs tabular-nums text-[var(--wx-fg-3)]">
                 {h.precipMm !== null && h.precipMm >= PRECIP_DRY_MM ? `${fmtNumber(h.precipMm)} мм` : ''}
               </span>
             </li>
@@ -258,46 +314,46 @@ function DetailTiles({ w, today }: { w: OkWeather; today: string }) {
   const hour = currentHour(w);
   const tiles: Array<{ icon: ReactNode; label: string; value: string; hint?: string }> = [];
   const apparent = w.now?.apparent ?? hour?.apparent ?? null;
-  if (apparent !== null) tiles.push({ icon: <Thermometer size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Ощущается как', value: `${fmtTemp(apparent)}°` });
+  if (apparent !== null) tiles.push({ icon: <Thermometer size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Ощущается как', value: `${fmtTemp(apparent)}°` });
   const wind = windDetail(w.now?.windKmh ?? hour?.windKmh, w.now?.windGustKmh ?? hour?.windGustKmh, w.now?.windDirDeg ?? hour?.windDirDeg);
   if (wind !== 'нет данных') {
     const dir = windDirectionWords(w.now?.windDirDeg ?? hour?.windDirDeg);
-    tiles.push({ icon: <Wind size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Ветер', value: wind, hint: dir ? `Ветер ${dir}` : undefined });
+    tiles.push({ icon: <Wind size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Ветер', value: wind, hint: dir ? `Ветер ${dir}` : undefined });
   }
   const humidity = w.now?.humidity ?? hour?.humidity ?? null;
-  if (humidity !== null) tiles.push({ icon: <Droplets size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Влажность', value: `${Math.round(humidity)}%` });
+  if (humidity !== null) tiles.push({ icon: <Droplets size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Влажность', value: `${Math.round(humidity)}%` });
   const pressure = w.now?.pressureHpa ?? hour?.pressureHpa ?? null;
-  if (pressure !== null) tiles.push({ icon: <Gauge size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Давление', value: pressureLine(pressure) });
+  if (pressure !== null) tiles.push({ icon: <Gauge size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Давление', value: pressureLine(pressure) });
   if (day) {
     tiles.push({
-      icon: <Umbrella size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Осадки сегодня',
+      icon: <Umbrella size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Осадки сегодня',
       value: precipLine(day.precipMm),
       hint: day.precipProbMax !== null && day.precipProbMax !== undefined ? `вероятность до ${Math.round(day.precipProbMax)}%` : undefined,
     });
   }
   if (hour?.cloudCover !== null && hour?.cloudCover !== undefined) {
-    tiles.push({ icon: <Cloud size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Облачность', value: `${Math.round(hour.cloudCover)}%` });
+    tiles.push({ icon: <Cloud size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Облачность', value: `${Math.round(hour.cloudCover)}%` });
   }
   if (hour?.visibilityM !== null && hour?.visibilityM !== undefined) {
-    tiles.push({ icon: <Eye size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Видимость', value: visibilityLine(hour.visibilityM) });
+    tiles.push({ icon: <Eye size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Видимость', value: visibilityLine(hour.visibilityM) });
   }
   const uv = day?.uvIndexMax ?? hour?.uvIndex ?? null;
   if (uv !== null && uv !== undefined) {
-    tiles.push({ icon: <Sun size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'УФ-индекс', value: uvWords(uv), hint: day?.uvIndexMax ? 'максимум за день' : undefined });
+    tiles.push({ icon: <Sun size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'УФ-индекс', value: uvWords(uv), hint: day?.uvIndexMax ? 'максимум за день' : undefined });
   }
   const sunrise = hhmm(day?.sunrise);
   const sunset = hhmm(day?.sunset);
   if (sunrise || sunset) {
     tiles.push({
-      icon: <Sunrise size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Световой день',
+      icon: <Sunrise size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Световой день',
       value: [sunrise ? `восход ${sunrise}` : null, sunset ? `закат ${sunset}` : null].filter(Boolean).join(' · '),
       hint: undefined,
     });
   }
-  if (sunset && !sunrise) tiles[tiles.length - 1].icon = <Sunset size={20} aria-hidden className="text-[var(--ocean)]" />;
+  if (sunset && !sunrise) tiles[tiles.length - 1].icon = <Sunset size={20} aria-hidden className="text-[var(--wx-icon)]" />;
   const dirNow = windDirectionWords(w.now?.windDirDeg ?? hour?.windDirDeg);
   if (dirNow && wind === 'нет данных') {
-    tiles.push({ icon: <Compass size={20} aria-hidden className="text-[var(--ocean)]" />, label: 'Направление ветра', value: dirNow });
+    tiles.push({ icon: <Compass size={20} aria-hidden className="text-[var(--wx-icon)]" />, label: 'Направление ветра', value: dirNow });
   }
   if (tiles.length === 0) return null;
   return (
@@ -305,10 +361,10 @@ function DetailTiles({ w, today }: { w: OkWeather; today: string }) {
       <h2 id="weather-details" className="ds-h2">Сейчас в деталях</h2>
       <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {tiles.map((t) => (
-          <li key={t.label} className="flex min-h-[104px] flex-col gap-2 rounded-3xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
-            <span className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">{t.icon}{t.label}</span>
+          <li key={t.label} className="wx-glass flex min-h-[104px] flex-col gap-2 rounded-[1.75rem] p-4">
+            <span className="flex items-center gap-2 text-sm text-[var(--wx-fg-2)]">{t.icon}{t.label}</span>
             <span className="text-base font-semibold leading-snug">{t.value}</span>
-            {t.hint && <span className="text-sm text-[var(--text-muted)]">{t.hint}</span>}
+            {t.hint && <span className="text-sm text-[var(--wx-fg-3)]">{t.hint}</span>}
           </li>
         ))}
       </ul>
@@ -323,14 +379,14 @@ function DayPartsBlock({ d }: { d: ForecastDay }) {
   if (parts.length === 0) return null;
   return (
     <details className="mt-3">
-      <summary className="flex min-h-[44px] cursor-pointer items-center text-sm font-medium text-[var(--ocean)]">По частям дня</summary>
+      <summary className="flex min-h-[44px] cursor-pointer items-center text-sm font-medium text-[var(--wx-icon)]">По частям дня</summary>
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
         {parts.map((p) => (
-          <div key={p.label} className="flex flex-col gap-0.5 rounded-2xl bg-[var(--bg-secondary)] p-3">
+          <div key={p.label} className="wx-glass-soft flex flex-col gap-0.5 rounded-2xl p-3">
             <dt className="ds-label">{p.label}</dt>
             <dd className="text-sm tabular-nums">{tempRange(p.tempMin, p.tempMax) ?? 'нет данных'}</dd>
-            <dd className="text-sm text-[var(--text-secondary)]">{partPrecip(p)}</dd>
-            <dd className="text-xs text-[var(--text-muted)]">{windLine(p.windKmh)}</dd>
+            <dd className="text-sm text-[var(--wx-fg-2)]">{partPrecip(p)}</dd>
+            <dd className="text-xs text-[var(--wx-fg-3)]">{windLine(p.windKmh)}</dd>
           </div>
         ))}
       </dl>
@@ -346,7 +402,7 @@ function WeekForecast({ w, today }: { w: OkWeather; today: string }) {
   return (
     <section className="flex flex-col gap-3" aria-labelledby="weather-week">
       <h2 id="weather-week" className="ds-h2">На 7 дней</h2>
-      <ol className="flex flex-col divide-y divide-[var(--border)] rounded-3xl border border-[var(--border)] bg-[var(--bg-card)] px-4 sm:px-5">
+      <ol className="wx-glass flex flex-col divide-y divide-[var(--wx-glass-border)] rounded-[1.75rem] px-4 sm:px-5">
         {w.days.map((d) => {
           const bar = rangeBar(d.tempMin, d.tempMax, weekMin, weekMax);
           const sky = skyWords(d);
@@ -354,24 +410,24 @@ function WeekForecast({ w, today }: { w: OkWeather; today: string }) {
             <li key={d.date} className="py-4 first:pt-5 last:pb-5">
               <div className="flex items-center gap-3">
                 <span className="w-24 shrink-0 font-semibold sm:w-32">{dayLabel(d.date, today)}</span>
-                <ConditionIcon code={d.weatherCode} size={22} />
-                <span className="hidden min-w-0 flex-1 truncate text-sm text-[var(--text-secondary)] sm:block">
+                <ConditionIcon code={d.weatherCode} size={22} wx />
+                <span className="hidden min-w-0 flex-1 truncate text-sm text-[var(--wx-fg-2)] sm:block">
                   {[sky, precipLine(d.precipMm), windLine(d.windKmh)].filter(Boolean).join(' · ')}
                 </span>
                 <span className="ml-auto flex shrink-0 items-center gap-2 tabular-nums sm:ml-0">
-                  <span className="text-[var(--text-secondary)]">{d.tempMin !== null ? `${fmtTemp(d.tempMin)}°` : '—'}</span>
-                  <span className="relative h-2 w-20 overflow-hidden rounded-full bg-[var(--bg-hover)] sm:w-28" aria-hidden>
+                  <span className="text-[var(--wx-fg-2)]">{d.tempMin !== null ? `${fmtTemp(d.tempMin)}°` : '—'}</span>
+                  <span className="relative h-2 w-20 overflow-hidden rounded-full bg-[var(--wx-track)] sm:w-28" aria-hidden>
                     {bar && (
                       <span
                         className="absolute top-0 h-full rounded-full"
-                        style={{ left: `${bar.left}%`, width: `${bar.width}%`, background: 'linear-gradient(90deg, var(--ocean), var(--warning))' }}
+                        style={{ left: `${bar.left}%`, width: `${bar.width}%`, background: 'linear-gradient(90deg, var(--wx-icon), var(--accent))' }}
                       />
                     )}
                   </span>
                   <span className="font-semibold">{d.tempMax !== null ? `${fmtTemp(d.tempMax)}°` : '—'}</span>
                 </span>
               </div>
-              <p className="mt-1 pl-[108px] text-sm text-[var(--text-secondary)] sm:hidden">
+              <p className="mt-1 pl-[108px] text-sm text-[var(--wx-fg-2)] sm:hidden">
                 {[sky, precipLine(d.precipMm), windLine(d.windKmh)].filter(Boolean).join(' · ')}
               </p>
               <p className="sr-only">{tempRange(d.tempMin, d.tempMax) ?? 'температура — нет данных'}</p>
@@ -479,6 +535,7 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
   const place = data.selected.place;
   const isDefault = place.slug === DEFAULT_WEATHER_SLUG;
   const selected = data.selected;
+  const scene = selected.kind === 'ok' ? weatherScene(selected, data.today) : null;
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 sm:gap-8">
       <header className="flex flex-col gap-3">
@@ -494,13 +551,19 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
       <Warnings warnings={data.warnings} />
 
       {selected.kind === 'ok' ? (
-        <>
+        <div
+          className="wx-scene flex flex-col gap-6 p-4 sm:gap-7 sm:p-6"
+          data-wx-scene={scene?.name}
+          data-wx-period={scene?.period}
+          data-wx-sky={scene?.sky}
+        >
+          <SceneSilhouette />
           <Hero w={selected} today={data.today} />
-          <PlaceSwitcher current={place.slug} />
+          <PlaceSwitcher current={place.slug} scene />
           <HourlyStrip w={selected} />
           <DetailTiles w={selected} today={data.today} />
           <WeekForecast w={selected} today={data.today} />
-        </>
+        </div>
       ) : (
         <>
           <PlaceSwitcher current={place.slug} />
