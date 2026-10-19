@@ -28,6 +28,7 @@ import SafetyClient from '@/app/safety/_SafetyClient';
 // рендер падает вне App Router контекста.
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/safety',
 }));
 
 const KVERT_ELEVATED = {

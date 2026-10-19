@@ -7,6 +7,7 @@ import { Activity, Flame, Thermometer, RefreshCw, ChevronDown, ChevronUp, Phone,
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { zoneName } from '@/lib/safety/zone-names';
 import { actionLabel } from '@/lib/safety/action-label';
 import { plural } from '@/lib/home/data-freshness';
@@ -612,6 +613,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
         оставались пустые 64px отступа под хедер без логотипа (скрин владельца). */}
     <Header />
     <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
+      <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" className="-mx-4" />
       {/* Заголовок. На телефоне — 1.6rem: в 2.25rem он занимал три строки и
           треть первого экрана, выталкивая радар вниз (скрин владельца 03.10). */}
       <div style={{ marginBottom: 16 }}>

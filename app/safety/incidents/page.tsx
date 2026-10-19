@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AlertTriangle, Phone, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
@@ -118,10 +119,11 @@ export default async function IncidentsPage() {
   return (
     <>
       <Header />
-      <main className="bg-[var(--bg-primary)] min-h-screen">
+      <main className="bg-[var(--bg-primary)] min-h-screen pt-16">
+        <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
 
         {/* Hero */}
-        <section className="pt-24 pb-10 px-6">
+        <section className="pt-6 pb-10 px-6">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center gap-2 mb-6">
               <AlertTriangle className="w-4 h-4 text-[var(--danger)]" />
