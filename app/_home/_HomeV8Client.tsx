@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 
@@ -35,7 +35,7 @@ import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
-  dataFreshness, freshnessDot, freshnessShort, plural,
+  dataFreshness, freshnessDot, freshnessShort,
 } from '@/lib/home/data-freshness';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -52,9 +52,6 @@ import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
 import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
 
-const ELEMENT_ICON: Record<string, LucideIcon> = {
-  fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
-};
 
 const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан', 'Термы', 'Хели-ски'];
 
@@ -100,7 +97,7 @@ interface ActiveTrip {
 }
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, radar, plates, explore, feed, stats, elements } = data;
+  const { safety, seismic, radar, plates, explore, feed, stats } = data;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
   // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
@@ -792,29 +789,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* Второй слой той же двери: выбор по стихии. Отдельной секцией это
-            было третьим входом в тот же каталог. */}
-        {elements.length > 0 && (
-          <section className="sub">
-            <div className="elements">
-              {elements.map((el, i) => {
-                const Icon = ELEMENT_ICON[el.key] ?? Flame;
-                const wide = elements.length % 2 === 1 && i === elements.length - 1;
-                return (
-                  <Link className={`etile et-${el.key}`} href={el.href} key={el.key}
-                    style={wide ? { gridColumn: 'span 2' } : undefined}>
-                    <span className="glass">
-                      <Icon className="eicon" size={24} strokeWidth={1.6} aria-hidden />
-                      <b>{el.label}</b>
-                      <span className="ecnt">{el.count} {plural(el.count, 'место', 'места', 'мест')}</span>
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
         {/* V. ЦИФРЫ */}
         <section>
           <div className="shead"><h2>В цифрах</h2><span className="line" /></div>
@@ -1368,37 +1342,6 @@ const CSS = `
   .v7 .guide .acts a.ask-site:hover{background:var(--accent-hover)}
   .v7 .guide .acts a.msg:hover{background:var(--bg-hover)}
 }
-/* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
-.v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;
-  box-shadow:0 6px 20px rgba(0,0,0,.14);transition:transform .18s,box-shadow .28s}
-.v7 .etile::before{content:"";position:absolute;inset:0;z-index:-1}
-.v7 .et-fire::before{background:radial-gradient(120% 90% at 30% 15%,#D46A3E 0%,#8A3B28 45%,#3E1710 100%)}
-.v7 .et-snow::before{background:radial-gradient(120% 90% at 30% 15%,#DCEAF3 0%,#8FB4CC 45%,#3E5C72 100%)}
-.v7 .et-ocean::before{background:radial-gradient(120% 90% at 30% 15%,#7FC1D2 0%,#2E8CA3 45%,#123E4C 100%)}
-.v7 .et-therm::before{background:radial-gradient(120% 90% at 30% 15%,#E4CE9E 0%,#B4761F 48%,#5A3B0E 100%)}
-.v7 .et-nature::before{background:radial-gradient(120% 90% at 30% 15%,#8FBE6E 0%,#4E8C5B 45%,#234A31 100%)}
-.v7 .etile .glass{position:absolute;inset:7px;border-radius:16px;padding:13px 14px;display:flex;flex-direction:column;gap:3px;
-  justify-content:flex-end;color:#fff;background:rgba(12,16,15,.24);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
-  border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
-.v7 .etile .eicon{color:#fff;margin-bottom:auto;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
-.v7 .etile b{font:600 14.5px/1.15 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
-.v7 .etile .ecnt{font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
-.v7 .etile:active{transform:scale(.97)}
-/* подсветка-свечение по стихии */
-.v7 .et-fire{box-shadow:0 8px 24px rgba(180,72,46,.42)}
-.v7 .et-snow{box-shadow:0 8px 24px rgba(120,160,190,.42)}
-.v7 .et-ocean{box-shadow:0 8px 24px rgba(46,140,163,.45)}
-.v7 .et-therm{box-shadow:0 8px 24px rgba(180,118,31,.42)}
-.v7 .et-nature{box-shadow:0 8px 24px rgba(78,140,91,.42)}
-@media (hover:hover){
-  .v7 .etile:hover{transform:translateY(-2px)}
-  .v7 .et-fire:hover{box-shadow:0 12px 34px rgba(180,72,46,.62)}
-  .v7 .et-snow:hover{box-shadow:0 12px 34px rgba(120,160,190,.62)}
-  .v7 .et-ocean:hover{box-shadow:0 12px 34px rgba(46,140,163,.65)}
-  .v7 .et-therm:hover{box-shadow:0 12px 34px rgba(180,118,31,.62)}
-  .v7 .et-nature:hover{box-shadow:0 12px 34px rgba(78,140,91,.62)}
-}
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
 .v7 .dataline::-webkit-scrollbar{display:none}
@@ -1514,7 +1457,6 @@ const CSS = `
   .v7 .lead .lfield:has(>.field){flex:2;min-width:260px}
     /* Сетки используют ширину: стихии в 3 колонки (5 плиток ложатся без дыры —
      последняя span 2), платы показывают по три, цифры по центру */
-  .v7 .elements{grid-template-columns:repeat(3,1fr)}
   .v7 .plate{width:320px}
   .v7 .dataline{justify-content:center;gap:8px}
   .v7 .shead h2{font-size:22px}
