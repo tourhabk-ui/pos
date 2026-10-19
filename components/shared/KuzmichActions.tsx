@@ -20,12 +20,16 @@ export const KUZMICH_MAX_URL = 'https://max.ru/id4101147649_bot';
  * знаками (28/26px). Имя каждой цели живёт в aria-label и title, цели —
  * не ниже 48px, адреса — те же константы выше, байт-в-байт.
  *
- * Стекло: главная кнопка сохраняет фирменный оранжевый акцент, но как
- * градиент с бликом и внутренней кромкой, а не плоскую заливку;
- * мессенджеры — полупрозрачная поверхность с backdrop-blur и мягкой
- * границей. primaryHref/primaryLabel задаёт место: цель и доступное имя
- * главной дороги не меняются от переодевания (на карточке тура это
- * по-прежнему планировщик с именем «Спросить Кузьмича»).
+ * Стекло: все три кнопки — одна белая стеклянная семья (слово владельца
+ * 20.10: «нашу кнопку тоже белой, инвертируй цвета»): тот же полупрозрачный
+ * фон, backdrop-blur и граница, что у Telegram/MAX. Фирменный цвет живёт
+ * только в знаке главной кнопки — VedarChatIcon инвертирован в акцентный
+ * пузырь с белым силуэтом (accent-bubble), поэтому на тёмной панели знак
+ * остаётся читаемым сам по себе. Выделение главной — только размером
+ * знака (32/30px против 28/26px у мессенджеров), не цветом подложки.
+ * primaryHref/primaryLabel задаёт место: цель и доступное имя главной
+ * дороги не меняются от переодевания (на карточке тура это по-прежнему
+ * планировщик с именем «Спросить Кузьмича»).
  * tone="dark" — для тёмной панели DeskHelp.
  */
 export function KuzmichActions({
@@ -40,7 +44,7 @@ export function KuzmichActions({
   compact?: boolean;
 }) {
   const height = compact ? 'min-h-[48px]' : 'min-h-[52px]';
-  const messengerClass =
+  const glassClass =
     tone === 'dark'
       ? `${height} inline-flex flex-1 items-center justify-center rounded-[16px] border border-white/30 bg-white/10 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_20px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors hover:bg-white/15`
       : `${height} inline-flex flex-1 items-center justify-center rounded-[16px] border border-[var(--border-strong)] bg-[color-mix(in_srgb,var(--bg-card)_62%,transparent)] px-3 shadow-[inset_0_1px_0_color-mix(in_srgb,#ffffff_45%,transparent),0_8px_20px_rgba(0,0,0,0.07)] backdrop-blur-md transition-colors hover:bg-[var(--bg-hover)]`;
@@ -51,18 +55,12 @@ export function KuzmichActions({
         aria-label={primaryLabel}
         title={primaryLabel}
         data-kuzmich-action="site"
-        className={`${height} inline-flex flex-1 items-center justify-center rounded-[16px] border border-white/40 backdrop-blur-md transition-opacity hover:opacity-95`}
-        style={{
-          background:
-            'linear-gradient(135deg, color-mix(in srgb, var(--accent) 76%, #ffffff 24%) 0%, var(--accent) 52%, color-mix(in srgb, var(--accent) 84%, #000000 16%) 100%)',
-          boxShadow:
-            'inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -1px 0 rgba(0,0,0,0.14), 0 10px 24px color-mix(in srgb, var(--accent) 32%, transparent)',
-        }}
+        className={glassClass}
       >
-        <VedarChatIcon size={compact ? 30 : 32} />
+        <VedarChatIcon size={compact ? 30 : 32} variant="accent-bubble" />
       </Link>
       <a
-        className={messengerClass}
+        className={glassClass}
         href={KUZMICH_TELEGRAM_URL}
         target="_blank"
         rel="noopener noreferrer"
@@ -73,7 +71,7 @@ export function KuzmichActions({
         <TelegramIcon size={compact ? 26 : 28} />
       </a>
       <a
-        className={messengerClass}
+        className={glassClass}
         href={KUZMICH_MAX_URL}
         target="_blank"
         rel="noopener noreferrer"

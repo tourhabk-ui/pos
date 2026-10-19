@@ -9,6 +9,7 @@ import React from 'react';
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
 import { VedarChatIcon, VEDAR_CHAT_MARK_PATH } from '@/components/shared/MessengerIcons';
+import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -60,6 +61,36 @@ describe('ряд стеклянных иконок Кузьмича', () => {
       expect(l.className).toContain('rounded-[16px]');
     }
   });
+
+  it('главная кнопка — белое стекло как у соседей, без оранжевой подложки', () => {
+    render(<KuzmichGuideActions />);
+    const site = screen.getByRole('link', { name: 'Спросить на сайте' });
+    const tg = screen.getByRole('link', { name: 'Telegram' });
+    const max = screen.getByRole('link', { name: 'MAX' });
+    // Одна стеклянная семья: класс у главной байт-в-байт как у мессенджеров.
+    expect(site.className).toBe(tg.className);
+    expect(site.className).toBe(max.className);
+    // Никакого инлайн-градиента акцента на подложке не осталось.
+    expect(site.getAttribute('style')).toBeNull();
+    // Фирменность — в инвертированном знаке: акцентный пузырь, белый силуэт.
+    const mark = site.querySelector('[data-vedar-chat-icon="true"]');
+    expect(mark?.getAttribute('data-vedar-chat-variant')).toBe('accent-bubble');
+    const fills = Array.from(site.querySelectorAll('path')).map((n) => n.getAttribute('fill'));
+    expect(fills).toContain('var(--accent)');
+    expect(fills).toContain('#FFFFFF');
+  });
+
+  it('на тёмной теме (DeskHelp) семья остаётся белым стеклом, знак читаем', () => {
+    render(<KuzmichActions primaryHref="/kuzmich" tone="dark" />);
+    const links = screen.getAllByRole('link');
+    for (const l of links) {
+      expect(l.className).toContain('bg-white/10');
+      expect(l.className).toContain('border-white/30');
+      expect(l.className).toContain('backdrop-blur-md');
+    }
+    expect(links[0].className).toBe(links[1].className);
+    expect(links[0].querySelector('[data-vedar-chat-variant="accent-bubble"]')).not.toBeNull();
+  });
 });
 
 describe('фирменный знак чата Ведара', () => {
@@ -72,8 +103,9 @@ describe('фирменный знак чата Ведара', () => {
     expect(paths.some((n) => n.getAttribute('d') === VEDAR_CHAT_MARK_PATH)).toBe(true);
     const master = readFileSync(join(process.cwd(), 'public/brand/vedar-mark.svg'), 'utf-8').match(/d="([^"]+)"/)?.[1];
     expect(VEDAR_CHAT_MARK_PATH).toBe(master);
-    // Пузырь — белый с акцентной обводкой: читается на акцентной кнопке и на тёмной панели.
-    expect(paths.some((n) => n.getAttribute('fill') === '#FFFFFF' && (n.getAttribute('stroke') ?? '').includes('--accent'))).toBe(true);
+    // Инверсия для белой стеклянной кнопки: пузырь — акцентный, силуэт внутри — белый.
+    expect(paths.some((n) => (n.getAttribute('fill') ?? '').includes('--accent') && (n.getAttribute('stroke') ?? '').includes('--accent'))).toBe(true);
+    expect(paths.some((n) => n.getAttribute('d') === VEDAR_CHAT_MARK_PATH && n.getAttribute('fill') === '#FFFFFF')).toBe(true);
     expect(container.querySelector('img')).toBeNull();
   });
 });
