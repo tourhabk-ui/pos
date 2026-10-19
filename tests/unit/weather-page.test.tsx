@@ -45,7 +45,7 @@ import {
 import { insideKrai } from '@/lib/geo/krai-envelope';
 import { settlementByName } from '@/lib/kuzmich/weather-tool';
 import { SVODKA_WEATHER_PLACES } from '@/lib/svodka/svodka';
-import { WeatherView } from '@/components/weather/WeatherView';
+import { WeatherView, weatherScene, weatherSky } from '@/components/weather/WeatherView';
 import type { ForecastDay } from '@/lib/planner/intelligence';
 import { PLATFORM_LINKS } from '@/lib/navigation/platform-links';
 
@@ -368,6 +368,47 @@ describe('4b. виджет: шкала, ветер, давление', () => {
     })()} />);
     expect(screen.getByText(/Действующих предупреждений нет/)).toBeTruthy();
     expect(screen.queryByRole('heading', { name: /Предупреждения Росгидромета/ })).toBeNull();
+  });
+});
+
+describe('4c. сцена героя: период и небо из прогноза', () => {
+  const base = (over: Record<string, unknown> = {}) => ({
+    kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+    days: [day('2026-10-08', { sunrise: '2026-10-08T07:00', sunset: '2026-10-08T18:30' })],
+    hours: [], now: null, fetchedAt: null, staleSince: null, ...over,
+  });
+  it('небо — по WMO-коду, пропуск кода не становится ясным', () => {
+    expect(weatherSky(0)).toBe('clear');
+    expect(weatherSky(3)).toBe('cloud');
+    expect(weatherSky(45)).toBe('fog');
+    expect(weatherSky(61)).toBe('rain');
+    expect(weatherSky(71)).toBe('snow');
+    expect(weatherSky(85)).toBe('snow');
+    expect(weatherSky(95)).toBe('storm');
+    expect(weatherSky(null)).toBe('cloud');
+  });
+  it('ночь и день — сначала is_day источника', () => {
+    expect(weatherScene(base({ now: { time: '2026-10-08T13:00', temp: 1, apparent: null, humidity: null, weatherCode: 3, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: false } }) as never, '2026-10-08').name).toBe('night-cloud');
+    expect(weatherScene(base({ now: { time: '2026-10-08T01:00', temp: 1, apparent: null, humidity: null, weatherCode: 0, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: true } }) as never, '2026-10-08').name).toBe('day-clear');
+  });
+  it('без is_day период — между восходом и закатом дня', () => {
+    const now = { time: '2026-10-08T23:10', temp: 1, apparent: null, humidity: null, weatherCode: 71, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: null };
+    expect(weatherScene(base({ now }) as never, '2026-10-08').name).toBe('night-snow');
+  });
+  it('рендер: герой, часы и неделя — в одной сцене со стеклянными плашками', () => {
+    const selected = base({ now: { time: '2026-10-08T13:00', temp: 1, apparent: null, humidity: null, weatherCode: 3, description: 'Пасмурно', windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: false } });
+    const d: WeatherPageData = {
+      selected: selected as WeatherPageData['selected'],
+      all: [selected as WeatherPageData['selected']],
+      warnings: { kind: 'ok', checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+      today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+    };
+    const { container } = render(<WeatherView data={d} />);
+    const scene = container.querySelector('.wx-scene');
+    expect(scene).toBeTruthy();
+    expect(scene?.getAttribute('data-wx-scene')).toBe('night-cloud');
+    expect(scene?.querySelectorAll('.wx-glass').length).toBeGreaterThanOrEqual(2);
+    expect(scene?.querySelector('svg.wx-silhouette-svg')).toBeTruthy();
   });
 });
 
