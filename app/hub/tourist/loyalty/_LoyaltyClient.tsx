@@ -71,6 +71,12 @@ interface LoyaltyStats {
   };
 }
 
+// До марта 2027 Ведар — информационный портал, оплат нет: суммы заказов,
+// рубли до следующего уровня и пороги уровней в рублях туристу не
+// показываются. Расчёт уровней (lib/loyalty) не тронут — включить обратно
+// одной константой, когда появятся оплаты.
+export const SHOW_MONEY = false;
+
 const LEVEL_ORDER = ['Новичок', 'Бронза', 'Серебро', 'Золото', 'Платина'];
 
 const TX_CONFIG: Record<string, { icon: typeof ArrowUpRight; label: string; sign: string; cls: string }> = {
@@ -217,7 +223,9 @@ export default function LoyaltyClient() {
                 </div>
               </div>
 
-              {nextLevel && (
+              {/* Уровни считаются от суммы заказов, а оплат до марта 2027 нет: рубли
+                  до следующего уровня не показываем, логика уровней не тронута. */}
+              {SHOW_MONEY && nextLevel && (
                 <div className="mt-5">
                   <div className="flex justify-between text-xs mb-1.5">
                     <span className="text-[var(--text-secondary)]">
@@ -238,11 +246,10 @@ export default function LoyaltyClient() {
             </div>
 
             {/* ── Stats grid ── */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[
                 { label: 'Заработано', value: fmtPoints(stats?.totalEarned ?? 0), sub: 'баллов' },
                 { label: 'Потрачено', value: fmtPoints(stats?.totalRedeemed ?? 0), sub: 'баллов' },
-                { label: 'Сумма заказов', value: fmtMoney(stats?.totalSpent ?? 0), sub: '' },
               ].map(s => (
                 <div key={s.label} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-3.5">
                   <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">{s.label}</p>
@@ -278,7 +285,7 @@ export default function LoyaltyClient() {
                           </p>
                         </div>
                         <span className="text-sm font-medium text-[var(--success)] flex-shrink-0">
-                          {w.amount === null ? 'от суммы заказа' : `+${w.amount}`}
+                          {w.amount === null ? 'за заказ' : `+${w.amount}`}
                         </span>
                       </div>
                     );
@@ -357,7 +364,7 @@ export default function LoyaltyClient() {
                     <thead>
                       <tr className="border-t border-[var(--border)] bg-[var(--bg-primary)]">
                         <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Уровень</th>
-                        <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">От (расходов)</th>
+                        {SHOW_MONEY && <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">От (расходов)</th>}
                         <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Баллы за заявку</th>
                       </tr>
                     </thead>
@@ -382,9 +389,11 @@ export default function LoyaltyClient() {
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 py-3 text-[var(--text-secondary)]">
-                                {lvl.minSpent === 0 ? '---' : fmtMoney(lvl.minSpent)}
-                              </td>
+                              {SHOW_MONEY && (
+                                <td className="px-4 py-3 text-[var(--text-secondary)]">
+                                  {lvl.minSpent === 0 ? '---' : fmtMoney(lvl.minSpent)}
+                                </td>
+                              )}
                               <td className="px-4 py-3 text-[var(--text-secondary)]">
                                 ×{lvl.earnMultiplier}
                               </td>
