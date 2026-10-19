@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import type { Metadata } from 'next';
 import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Eye, Clock, CheckCircle, Activity, Waves, type LucideIcon } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import MarineMammalRules from '@/components/safety/MarineMammalRules';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
@@ -175,6 +176,7 @@ export default function OfflineSurvivalPage() {
       <Header />
 
       <main className="pt-16 pb-24">
+        <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
         {/* Hero */}
         <section className="ds-section border-b border-[var(--border)]">
           <div className="flex items-start gap-4 max-w-3xl">
