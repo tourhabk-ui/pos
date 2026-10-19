@@ -95,7 +95,7 @@ export default function CommunicationPage() {
     <div className="ds-page min-h-screen">
       <Header />
 
-      <main className="pt-16 pb-20">
+      <main className="pb-20">
         <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
         {/* Hero */}
         <section className="max-w-3xl mx-auto px-4 pt-6 pb-10">
