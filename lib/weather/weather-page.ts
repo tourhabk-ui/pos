@@ -16,7 +16,7 @@
  * факт, а неизвестность); не прочитаны вовсе.
  */
 import { pool } from '@/lib/db-pool';
-import { fetchForecastDays, type ForecastDay } from '@/lib/planner/intelligence';
+import { fetchForecastDays, type ForecastDay, type ForecastHour, type ForecastNow } from '@/lib/planner/intelligence';
 import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
 import { SAFETY_SOURCE_EXPECTATIONS } from '@/lib/services/safety/source-health';
@@ -34,6 +34,8 @@ export type PlaceWeather =
       lng: number;
       elevationM: number | null;
       days: ForecastDay[];
+      hours: ForecastHour[];
+      now: ForecastNow | null;
       /** Когда прогноз получен от источника; null — источник момент не дал. */
       fetchedAt: string | null;
       /** Источник не отвечает, это последний удачный прогноз — от этого момента. */
@@ -71,6 +73,8 @@ export async function loadPlaceWeather(place: WeatherPlace): Promise<PlaceWeathe
     lng: point.lng,
     elevationM: f.elevationM ?? null,
     days: f.days,
+    hours: f.hours ?? [],
+    now: f.now ?? null,
     fetchedAt: f.fetchedAt ?? null,
     staleSince: f.staleSince ?? null,
   };

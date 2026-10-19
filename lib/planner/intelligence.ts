@@ -45,6 +45,49 @@ export interface ForecastDay {
    * почасовых данных не пришло, остаётся суточная строка.
    */
   parts?: DayPart[];
+  /** Вероятность осадков за сутки, % (Open-Meteo). */
+  precipProbMax?: number | null;
+  windGustKmh?: number | null;
+  /** Направление преобладающего ветра, градусы (0 — север, 90 — восток). */
+  windDirDeg?: number | null;
+  /** Восход/закат местного времени, ISO без пояса («2026-10-20T07:59»). */
+  sunrise?: string | null;
+  sunset?: string | null;
+  uvIndexMax?: number | null;
+}
+
+/** Один час прогноза для ленты и плиток страницы погоды. */
+export interface ForecastHour {
+  time: string;
+  temp: number | null;
+  apparent: number | null;
+  humidity: number | null;
+  precipMm: number | null;
+  precipProb: number | null;
+  windKmh: number | null;
+  windGustKmh: number | null;
+  windDirDeg: number | null;
+  weatherCode: number | null;
+  description: string | null;
+  cloudCover: number | null;
+  visibilityM: number | null;
+  pressureHpa: number | null;
+  uvIndex: number | null;
+}
+
+/** Текущий момент по блоку current Open-Meteo; null-поля — источник не дал. */
+export interface ForecastNow {
+  time: string | null;
+  temp: number | null;
+  apparent: number | null;
+  humidity: number | null;
+  weatherCode: number | null;
+  description: string | null;
+  windKmh: number | null;
+  windGustKmh: number | null;
+  windDirDeg: number | null;
+  pressureHpa: number | null;
+  isDay: boolean | null;
 }
 
 /** Три исхода загрузки сведены к двум: прогноз есть — или «не смог», с причиной. */
@@ -70,6 +113,8 @@ export type ForecastResult =
        * сборки страницы: прогноз из кэша бывает старше на три часа.
        */
       fetchedAt?: string;
+      hours?: ForecastHour[];
+      now?: ForecastNow | null;
     }
   | { ok: false; reason: string };
 
@@ -137,9 +182,9 @@ function finite(v: unknown): number | null {
 export const PRECIP_MODEL = 'gfs_seamless';
 export const BASE_MODEL = 'best_match';
 const PRECIP_DAILY = ['precipitation_sum', 'weather_code'];
-const BASE_DAILY = ['temperature_2m_max', 'temperature_2m_min', 'wind_speed_10m_max'];
+const BASE_DAILY = ['temperature_2m_max', 'temperature_2m_min', 'wind_speed_10m_max', 'precipitation_probability_max', 'wind_gusts_10m_max', 'wind_direction_10m_dominant', 'sunrise', 'sunset', 'uv_index_max'];
 const PRECIP_HOURLY = ['precipitation', 'snowfall'];
-const BASE_HOURLY = ['temperature_2m', 'wind_speed_10m'];
+const BASE_HOURLY = ['temperature_2m', 'wind_speed_10m', 'apparent_temperature', 'relative_humidity_2m', 'wind_direction_10m', 'wind_gusts_10m', 'weather_code', 'cloud_cover', 'visibility', 'pressure_msl', 'precipitation_probability', 'uv_index'];
 
 type ForecastBlock = Record<string, unknown[] | undefined>;
 
@@ -235,6 +280,52 @@ export function openMeteoFailureReason(status: number, body: string): string {
   return base;
 }
 
+
+/** Почасовой ряд из сводного блока; время — местное ISO без пояса. */
+export function parseForecastHours(hourly: ForecastBlock | undefined): ForecastHour[] {
+  if (!hourly || !Array.isArray(hourly.time)) return [];
+  return hourly.time.flatMap((t, i) => {
+    if (typeof t !== 'string') return [];
+    const code = finite(hourly.weather_code?.[i]);
+    return [{
+      time: t,
+      temp: finite(hourly.temperature_2m?.[i]),
+      apparent: finite(hourly.apparent_temperature?.[i]),
+      humidity: finite(hourly.relative_humidity_2m?.[i]),
+      precipMm: finite(hourly.precipitation?.[i]),
+      precipProb: finite(hourly.precipitation_probability?.[i]),
+      windKmh: finite(hourly.wind_speed_10m?.[i]),
+      windGustKmh: finite(hourly.wind_gusts_10m?.[i]),
+      windDirDeg: finite(hourly.wind_direction_10m?.[i]),
+      weatherCode: code,
+      description: code === null ? null : wmoDescription(code),
+      cloudCover: finite(hourly.cloud_cover?.[i]),
+      visibilityM: finite(hourly.visibility?.[i]),
+      pressureHpa: finite(hourly.pressure_msl?.[i]),
+      uvIndex: finite(hourly.uv_index?.[i]),
+    }];
+  });
+}
+
+/** Блок current Open-Meteo; поля без суффикса модели. */
+export function parseForecastNow(current: Record<string, unknown> | undefined): ForecastNow | null {
+  if (!current || typeof current !== 'object') return null;
+  const code = finite(current.weather_code);
+  return {
+    time: typeof current.time === 'string' ? current.time : null,
+    temp: finite(current.temperature_2m),
+    apparent: finite(current.apparent_temperature),
+    humidity: finite(current.relative_humidity_2m),
+    weatherCode: code,
+    description: code === null ? null : wmoDescription(code),
+    windKmh: finite(current.wind_speed_10m),
+    windGustKmh: finite(current.wind_gusts_10m),
+    windDirDeg: finite(current.wind_direction_10m),
+    pressureHpa: finite(current.surface_pressure),
+    isDay: typeof current.is_day === 'number' ? current.is_day === 1 : null,
+  };
+}
+
 /**
  * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
  * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
@@ -247,7 +338,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
 
   let result: ForecastResult;
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m&forecast_days=${horizon}&timezone=Asia/Kamchatka&models=${BASE_MODEL},${PRECIP_MODEL}`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code,precipitation_probability_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m,apparent_temperature,relative_humidity_2m,wind_direction_10m,wind_gusts_10m,weather_code,cloud_cover,visibility,pressure_msl,precipitation_probability,uv_index&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,is_day&forecast_days=${horizon}&timezone=Asia/Kamchatka&models=${BASE_MODEL},${PRECIP_MODEL}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -257,6 +348,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
         elevation?: unknown;
         hourly?: ForecastBlock;
         daily?: ForecastBlock;
+        current?: Record<string, unknown>;
       };
       const d = mergeForecastModels(json.daily, PRECIP_DAILY, BASE_DAILY);
       const hourly = mergeForecastModels(json.hourly, PRECIP_HOURLY, BASE_HOURLY) as HourlySeries | undefined;
@@ -269,6 +361,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
           elevationM: finite(json.elevation) === null ? null : Math.round(finite(json.elevation) as number),
           days: d.time.map((date, i) => {
             const code = finite(d.weather_code?.[i]);
+            const str = (v: unknown) => (typeof v === 'string' ? v : null);
             return {
               date: String(date),
               tempMax: finite(d.temperature_2m_max?.[i]),
@@ -278,8 +371,16 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
               weatherCode: code,
               description: code === null ? null : wmoDescription(code),
               parts: buildDayParts(hourly, String(date)),
+              precipProbMax: finite(d.precipitation_probability_max?.[i]),
+              windGustKmh: finite(d.wind_gusts_10m_max?.[i]),
+              windDirDeg: finite(d.wind_direction_10m_dominant?.[i]),
+              sunrise: str(d.sunrise?.[i]),
+              sunset: str(d.sunset?.[i]),
+              uvIndexMax: finite(d.uv_index_max?.[i]),
             };
           }),
+          hours: parseForecastHours(hourly as unknown as ForecastBlock | undefined),
+          now: parseForecastNow(json.current),
         };
       }
     }
