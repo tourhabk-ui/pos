@@ -20,27 +20,45 @@ describe('действия блока «Проводник Кузьмич»', ()
     const site = screen.getByRole('link', { name: 'Спросить на сайте' });
     expect(site.getAttribute('href')).toBe('/kuzmich');
     expect(site.className).toContain('min-h-[52px]');
-    // Фирменный знак чата Ведара слева от подписи, не generic-иконка.
-    expect(site.querySelector('[data-vedar-chat-icon="true"]')).not.toBeNull();
+    // Подписи нет совсем: имя живёт только в aria-label (20.10).
+    expect(site.textContent?.trim()).toBe('');
+    // Фирменный знак чата Ведара увеличен до 32px, не generic-иконка.
+    const mark = site.querySelector('[data-vedar-chat-icon="true"]');
+    expect(mark).not.toBeNull();
+    expect(mark?.getAttribute('width')).toBe('32');
   });
 
-  it('мессенджеры: короткие подписи, прежние адреса, официальные знаки', () => {
+  it('мессенджеры: без подписей, прежние адреса, официальные знаки', () => {
     const { container } = render(<KuzmichGuideActions />);
-    const tg = screen.getByRole('link', { name: 'Кузьмич в Telegram' });
-    const max = screen.getByRole('link', { name: 'Кузьмич в MAX' });
+    const tg = screen.getByRole('link', { name: 'Telegram' });
+    const max = screen.getByRole('link', { name: 'MAX' });
     expect(tg.getAttribute('href')).toBe(KUZMICH_TELEGRAM_URL);
     expect(max.getAttribute('href')).toBe(KUZMICH_MAX_URL);
-    expect(tg.textContent).toContain('Telegram');
-    expect(max.textContent).toContain('MAX');
+    expect(tg.textContent?.trim()).toBe('');
+    expect(max.textContent?.trim()).toBe('');
+    expect(tg.querySelector('svg')?.getAttribute('width')).toBe('28');
+    expect(max.querySelector('svg')?.getAttribute('width')).toBe('28');
     for (const link of [tg, max]) {
       expect(link.getAttribute('target')).toBe('_blank');
       expect(link.querySelector('svg')).not.toBeNull();
-      expect(link.className).toContain('min-h-[48px]');
+      expect(link.className).toContain('min-h-[52px]');
     }
     const fills = Array.from(container.querySelectorAll('svg path')).map((n) => n.getAttribute('fill') ?? '');
     expect(fills.some((f) => f.includes('#2AABEE'))).toBe(true);
     expect(fills.some((f) => f.startsWith('url(#'))).toBe(true);
     expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+describe('ряд стеклянных иконок Кузьмича', () => {
+  it('три иконки-кнопки в один ряд, в порядке сайт — Telegram — MAX', () => {
+    render(<KuzmichGuideActions />);
+    const links = screen.getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('aria-label'))).toEqual(['Спросить на сайте', 'Telegram', 'MAX']);
+    for (const l of links) {
+      expect(l.className).toContain('backdrop-blur-md');
+      expect(l.className).toContain('rounded-[16px]');
+    }
   });
 });
 

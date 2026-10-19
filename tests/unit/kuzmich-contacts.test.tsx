@@ -7,7 +7,7 @@
  *  - плавающего StickyLeadButton нет нигде: файл удалён, layout не монтирует;
  *  - блок — в потоке (без fixed), две ссылки Кузьмича с реальными URL из
  *    проекта (Telegram @kuzmichai_bot?start=lead, MAX id4101147649_bot),
- *    цели не ниже 44px, подписи на русском;
+ *    цели не ниже 44px, видимых подписей нет, имена — в aria-label;
  *  - старой формулировки «Подобрать тур» в публичной разметке нет.
  */
 import { describe, it, expect, afterEach } from 'vitest';
@@ -32,8 +32,8 @@ describe('блок «Спросить Кузьмича»', () => {
     expect(KUZMICH_TELEGRAM_URL).toBe('https://t.me/kuzmichai_bot?start=lead');
     expect(KUZMICH_MAX_URL).toBe('https://max.ru/id4101147649_bot');
     render(<KuzmichContacts />);
-    const tg = screen.getByRole('link', { name: /Кузьмич в Telegram/ });
-    const max = screen.getByRole('link', { name: /Кузьмич в MAX/ });
+    const tg = screen.getByRole('link', { name: 'Telegram' });
+    const max = screen.getByRole('link', { name: 'MAX' });
     expect(tg.getAttribute('href')).toBe(KUZMICH_TELEGRAM_URL);
     expect(max.getAttribute('href')).toBe(KUZMICH_MAX_URL);
   });
@@ -46,8 +46,10 @@ describe('блок «Спросить Кузьмича»', () => {
 
   it('цели не ниже 44px', () => {
     render(<KuzmichContacts />);
-    for (const name of [/Кузьмич в Telegram/, /Кузьмич в MAX/]) {
-      expect(screen.getByRole('link', { name }).className).toContain('min-h-[48px]');
+    for (const name of ['Telegram', 'MAX']) {
+      const link = screen.getByRole('link', { name });
+      expect(link.className).toContain('min-h-[52px]');
+      expect(link.textContent?.trim()).toBe('');
     }
     const site = screen.getByRole('link', { name: 'Спросить на сайте' });
     expect(site.getAttribute('href')).toBe('/kuzmich');
