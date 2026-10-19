@@ -19,6 +19,7 @@ import Image from 'next/image';
 import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
+import { TelegramIcon, MaxIcon } from '@/components/shared/MessengerIcons';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -789,12 +790,17 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </div>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
             <div className="acts">
-              <Link href="/kuzmich">Спросить</Link>
-              {/* Класс НЕ «lead»: на ссылку каскадом падало правило ФОРМЫ
-                  .v7 .lead (border+padding 20px) — кнопка действия раздувалась
-                  в короб и ломала ряд (полевой скриншот 01.08, 17:17). */}
-              <a className="golead" href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">Кузьмич в Telegram</a>
-              <a className="golead" href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer">Кузьмич в MAX</a>
+              <Link className="ask-site" href="/kuzmich">Спросить на сайте</Link>
+              <div className="messengers">
+                <a className="msg" href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Кузьмич в Telegram">
+                  <TelegramIcon size={22} />
+                  <span>Telegram</span>
+                </a>
+                <a className="msg" href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" aria-label="Кузьмич в MAX">
+                  <MaxIcon size={22} />
+                  <span>MAX</span>
+                </a>
+              </div>
             </div>
           </div>
         </section>
@@ -1361,11 +1367,20 @@ const CSS = `
 .v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
 .v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
 .v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
-.v7 .guide .acts{margin-top:14px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-/* Цели 44px (#127). Ссылки на Telegram/MAX Кузьмича — кнопки-заливки,
-   а не подписи. */
-.v7 .guide .acts a{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--success);cursor:pointer}
-.v7 .guide .acts a.golead{padding:0 16px;border-radius:12px;background:var(--accent);color:var(--on-accent);letter-spacing:.04em;text-transform:none;font-size:13px;font-weight:700}
+.v7 .guide .acts{margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
+/* Одна система вместо трёх разных стилей: главная кнопка сайта на всю
+   ширину, под ней — две равные кнопки мессенджеров с официальными знаками.
+   Цели не ниже 48px. */
+.v7 .guide .acts a{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none}
+.v7 .guide .acts a.ask-site{min-height:52px;padding:0 20px;border-radius:14px;background:var(--accent);color:var(--on-accent);font:700 15px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em;box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 32%,transparent);transition:background .15s,transform .15s}
+.v7 .guide .acts a.ask-site:active{transform:scale(.99)}
+.v7 .guide .messengers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.v7 .guide .acts a.msg{min-height:48px;padding:0 12px;gap:8px;border:1px solid var(--border-strong);border-radius:14px;background:var(--bg-card);color:var(--text-primary);font:600 14px/1 var(--font-outfit),system-ui,sans-serif;transition:border-color .15s,background .15s}
+.v7 .guide .acts a.msg svg{flex:none;display:block}
+@media (hover:hover){
+  .v7 .guide .acts a.ask-site:hover{background:var(--accent-hover)}
+  .v7 .guide .acts a.msg:hover{background:var(--bg-hover)}
+}
 /* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
 .v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;
