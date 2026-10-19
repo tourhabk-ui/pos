@@ -40,7 +40,7 @@ import {
   loadMeteoWarnings, loadPlaceWeather, loadWeatherPage, type WeatherPageData,
 } from '@/lib/weather/weather-page';
 import {
-  dayLabel, fmtTemp, partPrecip, precipLine, skyWords, tempRange, windLine,
+  dayLabel, fmtTemp, partPrecip, precipLine, pressureLine, rangeBar, skyWords, tempRange, uvWords, visibilityLine, windDetail, windLine,
 } from '@/lib/weather/weather-format';
 import { insideKrai } from '@/lib/geo/krai-envelope';
 import { settlementByName } from '@/lib/kuzmich/weather-tool';
@@ -247,6 +247,7 @@ describe('4. разметка', () => {
     const ok = {
       kind: 'ok' as const, place: avacha, lat: 53.255, lng: 158.83, elevationM: 2710,
       days: [day('2026-10-08'), day('2026-10-09', { precipMm: 0, weatherCode: 3, description: 'Пасмурно' })],
+      hours: [], now: null,
       fetchedAt: '2026-10-08T03:05:00.000Z', staleSince: null,
     };
     return {
@@ -266,7 +267,7 @@ describe('4. разметка', () => {
     render(<WeatherView data={data()} />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Погода на Авачинском вулкане');
     expect(screen.getByText(/Высота точки ~2710 м — прогноз для этой высоты/)).toBeTruthy();
-    expect(screen.getByText('Сегодня')).toBeTruthy();
+    expect(screen.getAllByText('Сегодня').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/осадки 0,8 мм · ветер до 13 м\/с/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('снег 0,5 мм').length).toBeGreaterThan(0);
     // Пропуск части дня — словами, а не нулём.
@@ -335,6 +336,38 @@ describe('4. разметка', () => {
     expect(existsSync(join(process.cwd(), 'app/weather/(list)/loading.tsx'))).toBe(true);
     expect(existsSync(join(process.cwd(), 'app/weather/loading.tsx'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'app/weather/[place]/loading.tsx'))).toBe(false);
+  });
+});
+
+describe('4b. виджет: шкала, ветер, давление', () => {
+  it('шкала недели: отрезок дня внутри общей недели, пропуск — null', () => {
+    expect(rangeBar(0, 10, 0, 20)).toEqual({ left: 0, width: 50 });
+    expect(rangeBar(10, 20, 0, 20)).toEqual({ left: 50, width: 50 });
+    expect(rangeBar(null, 5, 0, 20)).toBeNull();
+    expect(rangeBar(0, 5, null, 20)).toBeNull();
+  });
+  it('ветер с направлением и порывами, давление в мм рт. ст., видимость и УФ', () => {
+    expect(windDetail(36, 72, 315)).toContain('10 м/с');
+    expect(windDetail(36, 72, 315)).toContain('северо-западный');
+    expect(windDetail(null, null, null)).toBe('нет данных');
+    expect(pressureLine(1000)).toBe('750 мм рт. ст.');
+    expect(visibilityLine(25000)).toBe('25 км');
+    expect(uvWords(2.4)).toContain('низкий');
+  });
+  it('пустые предупреждения — одна строка, а не карточка с заголовком', () => {
+    render(<WeatherView data={(function () {
+      const base = {
+        kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+        days: [day('2026-10-08')], hours: [], now: null, fetchedAt: null, staleSince: null,
+      };
+      return {
+        selected: base, all: [base],
+        warnings: { kind: 'ok' as const, checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+        today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+      };
+    })()} />);
+    expect(screen.getByText(/Действующих предупреждений нет/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Предупреждения Росгидромета/ })).toBeNull();
   });
 });
 
