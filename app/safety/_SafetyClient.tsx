@@ -126,11 +126,84 @@ function severityToLevel(severity: number): string {
   return 'low';
 }
 
-/** Место из заголовка предупреждения: часть до двоеточия («Вулкан Мутновский: …» → «Мутновский»). */
-function alertPlace(title: string | null | undefined): string | null {
-  if (!title?.trim()) return null;
-  const head = title.split(':')[0].trim().replace(/^Вулкан\s+/i, '');
-  return head || null;
+/**
+ * Заголовки, которые местом не являются, даже если источник поставил их
+ * первой строкой поста. Прод 19.10: дорожный алерт из канала автодорог
+ * пришёл с title «Доброе утро!» (приветствие поста, место — Октябрьский —
+ * только в описании), и баннер напечатал приветствие как место.
+ */
+const NON_PLACE_HEADS = new Set([
+  'доброе утро', 'добрый день', 'добрый вечер', 'привет', 'здравствуйте',
+  'внимание', 'срочно', 'важно', 'информация', 'объявление', 'предупреждение',
+  'уважаемые', 'дорогие', 'новости', 'сводка',
+]);
+
+/** Роды географических объектов, с которых честно начинается место. */
+const GEO_HEAD_PREFIX = /^(вулкан|мыс|перевал|дорога|проезд|река|озеро|бухта|залив|остров|полуостров|долина|хребет|парк|посёлок|поселок|село|город|трасса|маршрут|сопка|вул\.|п\.|г\.)(?=\s|\(|$)/i;
+
+/** Похоже ли слово на имя собственное (Мутновский, Левашова, Октябрьский). */
+function isProperWord(word: string): boolean {
+  const clean = word.replace(/^[()«»"']+|[()«»"',.]+$/g, '');
+  return /^[А-ЯЁA-Z][а-яёa-zА-ЯЁA-Z-]*$/.test(clean) && /[А-ЯЁA-Z]/.test(clean[0] ?? '');
+}
+
+/**
+ * Место предупреждения — только если оно названо явно и географически.
+ *
+ * Явное поле места (`location`/`place`, если источник его когда-нибудь
+ * отдаст) важнее заголовка. Из заголовка место берётся лишь в форме
+ * «Место: что случилось»: часть до двоеточия обязана выглядеть как
+ * география — род объекта («Вулкан…», «Мыс…», «Дорога…») или имя
+ * собственное. Заголовок без двоеточия, приветствие, восклицание или
+ * фраза-предложение местом не являются: такой алерт в баннере не
+ * называется никак (честный fallback «по предупреждениям ниже»),
+ * а не выдумывается из первой строки поста.
+ */
+function alertPlace(alert: { title?: string | null; location?: string | null; place?: string | null }): string | null {
+  const explicit = (alert.location ?? alert.place)?.trim();
+  if (explicit) {
+    if (explicit.length <= 60 && !/[!?\n]/.test(explicit) && !NON_PLACE_HEADS.has(explicit.toLowerCase())) return explicit;
+    return null;
+  }
+  const title = alert.title?.trim();
+  if (!title) return null;
+  const colon = title.indexOf(':');
+  if (colon <= 0) return null;
+  const rawHead = title.slice(0, colon).trim();
+  if (!rawHead || rawHead.length > 60 || /[!?…;\n]/.test(rawHead)) return null;
+  if (NON_PLACE_HEADS.has(rawHead.toLowerCase())) return null;
+  if (/^(доброе утро|добрый день|добрый вечер|привет|здравствуйте|внимание|срочно)(?=\s|:|!|$)/i.test(rawHead)) return null;
+  const words = rawHead.split(/\s+/);
+  if (words.length > 5) return null;
+  const head = rawHead.replace(/^Вулкан\s+/i, '');
+  if (!head) return null;
+  if (GEO_HEAD_PREFIX.test(rawHead)) {
+    // Род объекта — ещё не место: «Дорога на Октябрьский остаётся закрытой» —
+    // предложение с глаголом, а «Дорога к Авачинскому перевалу» — название.
+    // В названии после рода стоят только имена, короткие предлоги и
+    // родовые существительные (перевалу, сопка, район…), но не глаголы.
+    const GENERIC_NOUN = /^(перевал[а-яё]*|сопк[а-яё]*|район[а-яё]*|округ[а-яё]*|пос[её]л[а-яё]*|сел[а-яё]*|дорог[а-яё]*|проезд[а-яё]*|рек[а-яё]*|озер[а-яё]*|бухт[а-яё]*|залив[а-яё]*|остров[а-яё]*|долин[а-яё]*|парк[а-яё]*|трасс[а-яё]*|маршрут[а-яё]*|мыс[а-яё]*|вулкан[а-яё]*)$/i;
+    const tailOk = words.every((w) => {
+      const clean = w.replace(/^[()«»"']+|[()«»"',.]+$/g, '');
+      if (!clean) return true;
+      if (isProperWord(w)) return true;
+      if (/^(п|пос|г|им)\.?$/i.test(clean)) return true;
+      if (clean.length <= 2) return true; // к, на, в, у, до, от
+      return GENERIC_NOUN.test(clean);
+    });
+    if (tailOk) return head;
+    return null;
+  }
+  // Имя собственное: каждое значимое слово — с заглавной («Безымянный»,
+  // «Мыс Левашова» покрыт выше, «Южно-Камчатский»). Фразы вида «Дорога на
+  // Октябрьский остаётся закрытой» сюда не проходят: в них есть строчные
+  // служебные/глагольные слова, и это предложение, а не название.
+  const content = words.filter((w) => {
+    const clean = w.replace(/^[()«»"']+|[()«»"',]+$/g, '');
+    return !/^(п|пос|г|им)\.?$/i.test(clean);
+  });
+  if (content.length > 0 && content.every(isProperWord)) return head;
+  return null;
 }
 
 /** Компактный список мест для мобильного баннера: первые два + «и ещё N». */
@@ -167,7 +240,7 @@ export function zoneBanner(
    * места предупреждений — из их заголовков, зоны — из её имени. Без места
    * в заголовке честный запасной вариант — «по предупреждениям ниже».
    */
-  alerts: Array<{ severity: number; title?: string | null }> = [],
+  alerts: Array<{ severity: number; title?: string | null; location?: string | null; place?: string | null }> = [],
   /** Имена зон, параллельные `levels` (та же выборка, `zone_name`). */
   zoneNames: string[] = [],
 ): { state: 'unknown' | 'calm' | 'alarm'; level: string | null; scope: string | null } {
@@ -177,7 +250,7 @@ export function zoneBanner(
     ? compactPlaces(
         alerts
           .filter((a) => severityToLevel(a.severity ?? 0) === alertLevel)
-          .map((a) => alertPlace(a.title))
+          .map((a) => alertPlace(a))
           .filter((x): x is string => Boolean(x)),
       ) ?? 'по предупреждениям ниже'
     : null;
