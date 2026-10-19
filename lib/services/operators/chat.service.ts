@@ -1,6 +1,5 @@
 import { query } from '@/lib/database';
 import { recordChatMessageQuietly } from '@/lib/crm/chat-events';
-import { notifyPartnerOfChatMessageQuietly } from '@/lib/notifications/chat-message';
 import {
   ConversationRow,
   ConversationParticipantRow,
@@ -194,8 +193,16 @@ class ChatService {
 
     // Уведомление партнёру в его привязанный MAX/Telegram: без этого
     // сообщение лежало в базе молча, пока партнёр сам не зайдёт в кабинет.
-    // Никогда не роняет отправку (отказ — в лог внутри).
-    await notifyPartnerOfChatMessageQuietly(conversationId, senderId, content, messageType);
+    // Импорт динамический намеренно: этот сервис статически достижим из
+    // клиентского InboxScreen (lib/crm/inbox), а цепочка уведомления тянет
+    // node:https (MAX-канал) — браузерная сборка такого графа не переживёт
+    // (сторож client-no-node-builtins). Никогда не роняет отправку.
+    try {
+      const { notifyPartnerOfChatMessageQuietly } = await import('@/lib/notifications/chat-message');
+      await notifyPartnerOfChatMessageQuietly(conversationId, senderId, content, messageType);
+    } catch (err) {
+      console.error('[chat-notify] уведомление о сообщении чата не отправлено:', err instanceof Error ? err.message : err);
+    }
 
     return result.rows[0];
   }
