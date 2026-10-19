@@ -115,19 +115,19 @@ export function SystemSettings() {
   return (
     <div className="space-y-6">
       {/* Заголовок */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <h3 className="text-xl font-bold text-[var(--text-primary)]">Системные настройки</h3>
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <button
             onClick={fetchSettings}
-            className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
+            className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
           >
             Обновить
           </button>
           <button
             onClick={saveSettings}
             disabled={!hasChanges || saving}
-            className="px-6 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--text-primary)] font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="min-h-[44px] w-full sm:w-auto px-6 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--text-primary)] font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Сохранение...' : 'Сохранить изменения'}
           </button>
@@ -152,8 +152,8 @@ export function SystemSettings() {
               const hasChange = changes[settingKey] !== undefined;
 
               return (
-                <div key={key} className="flex items-start gap-4 p-4 bg-[var(--bg-card)] rounded-lg">
-                  <div className="flex-1">
+                <div key={key} className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4 p-4 bg-[var(--bg-card)] rounded-lg">
+                  <div className="flex-1 min-w-0">
                     <label className="block text-[var(--text-primary)] font-medium mb-1">
                       {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       {hasChange && <span className="text-[var(--accent)] ml-2">•</span>}

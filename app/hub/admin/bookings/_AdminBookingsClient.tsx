@@ -76,14 +76,14 @@ export default function AdminBookingsClient() {
   return (
     <Protected roles={['admin']}>
       <div className="max-w-6xl mx-auto p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div className="flex items-center gap-3">
             <Calendar className="w-6 h-6 text-[var(--accent)]" />
             <h1 className="text-2xl font-bold text-[var(--text-primary)]">Все бронирования</h1>
             {!loading && <span className="text-sm text-[var(--text-muted)]">{total}</span>}
           </div>
           <button
-            className="min-h-[44px] px-4 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-secondary)] text-sm inline-flex items-center gap-2 hover:border-[var(--border-strong)]"
+            className="min-h-[44px] w-full sm:w-auto justify-center px-4 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-secondary)] text-sm inline-flex items-center gap-2 hover:border-[var(--border-strong)]"
             onClick={() => {
               const csv = ['Тур,Турист,Email,Дата,Цена,Статус',
                 ...filtered.map(b =>
@@ -109,7 +109,7 @@ export default function AdminBookingsClient() {
               className="w-full min-h-[44px] pl-10 pr-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
             />
           </div>
-          <div className="flex gap-2 overflow-x-auto">
+          <div className="flex flex-wrap gap-2">
             {(['all', ...BOOKING_STATUSES] as const).map(s => (
               <button
                 key={s}

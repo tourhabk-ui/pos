@@ -144,6 +144,7 @@ export function DataTable<T extends { id: string | number }>({
                     'text-[10px] uppercase tracking-[0.06em] font-semibold text-[var(--text-muted)]',
                     col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left',
                     col.sortable && 'cursor-pointer select-none hover:text-[var(--text-secondary)] transition-colors',
+                    col.key === 'actions' && 'sticky right-0 bg-[var(--bg-card)]',
                     col.width,
                   )}
                 >
@@ -177,6 +178,7 @@ export function DataTable<T extends { id: string | number }>({
                       cellPx, cellPy, textSize,
                       'text-[var(--text-secondary)]',
                       col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left',
+                      col.key === 'actions' && 'sticky right-0 bg-[var(--bg-card)]',
                     )}
                   >
                     {col.render

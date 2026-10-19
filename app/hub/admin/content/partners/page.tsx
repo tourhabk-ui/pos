@@ -334,7 +334,7 @@ export default function PartnersManagement() {
         <div className="flex items-center gap-1">
           <button
             onClick={(e) => { e.stopPropagation(); openEdit(partner.id); }}
-            className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+            className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
             title="Редактировать"
           >
             <Pencil className="w-3.5 h-3.5" />
@@ -342,7 +342,7 @@ export default function PartnersManagement() {
           {!partner.isVerified && (
             <button
               onClick={(e) => { e.stopPropagation(); handleVerify(partner.id); }}
-              className="p-1.5 rounded-md hover:bg-[var(--success)]/10 text-[var(--text-muted)] hover:text-[var(--success)] transition-colors"
+              className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2.5 rounded-md hover:bg-[var(--success)]/10 text-[var(--text-muted)] hover:text-[var(--success)] transition-colors"
               title="Верифицировать"
             >
               <Shield className="w-3.5 h-3.5" />
