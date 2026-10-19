@@ -8,8 +8,9 @@ import React from 'react';
 
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
-import { VedarChatIcon } from '@/components/shared/MessengerIcons';
-import { VEDAR_MARK_PATH } from '@/components/shared/Logo';
+import { VedarChatIcon, VEDAR_CHAT_MARK_PATH } from '@/components/shared/MessengerIcons';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 afterEach(() => cleanup());
 
@@ -50,7 +51,9 @@ describe('фирменный знак чата Ведара', () => {
     expect(svg).not.toBeNull();
     const paths = Array.from(container.querySelectorAll('path'));
     // Контур силуэта — тот же, что в знаке Ведара (Logo), без перерисовки.
-    expect(paths.some((n) => n.getAttribute('d') === VEDAR_MARK_PATH)).toBe(true);
+    expect(paths.some((n) => n.getAttribute('d') === VEDAR_CHAT_MARK_PATH)).toBe(true);
+    const master = readFileSync(join(process.cwd(), 'public/brand/vedar-mark.svg'), 'utf-8').match(/d="([^"]+)"/)?.[1];
+    expect(VEDAR_CHAT_MARK_PATH).toBe(master);
     // Пузырь — белый с акцентной обводкой: читается на акцентной кнопке и на тёмной панели.
     expect(paths.some((n) => n.getAttribute('fill') === '#FFFFFF' && (n.getAttribute('stroke') ?? '').includes('--accent'))).toBe(true);
     expect(container.querySelector('img')).toBeNull();
