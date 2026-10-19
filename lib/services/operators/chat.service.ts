@@ -1,5 +1,6 @@
 import { query } from '@/lib/database';
 import { recordChatMessageQuietly } from '@/lib/crm/chat-events';
+import { notifyPartnerOfChatMessageQuietly } from '@/lib/notifications/chat-message';
 import {
   ConversationRow,
   ConversationParticipantRow,
@@ -190,6 +191,11 @@ class ChatService {
 
     // Лента клиента партнёра (CRM #2325): факт и направление, не текст.
     await recordChatMessageQuietly(conversationId, senderId);
+
+    // Уведомление партнёру в его привязанный MAX/Telegram: без этого
+    // сообщение лежало в базе молча, пока партнёр сам не зайдёт в кабинет.
+    // Никогда не роняет отправку (отказ — в лог внутри).
+    await notifyPartnerOfChatMessageQuietly(conversationId, senderId, content, messageType);
 
     return result.rows[0];
   }

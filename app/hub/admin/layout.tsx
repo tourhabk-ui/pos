@@ -10,7 +10,6 @@ import {
   Trash2, Webhook, Gauge, Package, BookUser, Bot,} from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
-import { ChatWidget } from '@/components/chat/ChatWidget';
 
 // Меню разбито на разделы (section). HubSidebar группирует пункты под
 // заголовками разделов на десктопе и метками-разделителями на мобиле.
@@ -134,7 +133,6 @@ export default function AdminHubLayout({ children }: { children: ReactNode }) {
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Администрирование" requiredRole="admin" showSensitiveMaskToggle>
       {children}
       <AiAssistant />
-      <ChatWidget />
     </HubLayout>
   );
 }
