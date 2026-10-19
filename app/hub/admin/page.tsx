@@ -110,7 +110,7 @@ interface KpiDef {
 
 const KPI_DEFS: KpiDef[] = [
   {
-    key: 'activeUsers', label: 'Пользователи', icon: Users,
+    key: 'activeUsers', label: 'Новые пользователи', icon: Users,
     color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
     format: fmt,
   },
@@ -255,10 +255,10 @@ export default function AdminDashboard() {
     { icon: Calendar, label: 'Бронирования', href: '/hub/admin/bookings', badge: 0 },
     { icon: Users, label: 'Пользователи', href: '/hub/admin/users', badge: 0 },
     { icon: FileText, label: 'Модерация', href: '/hub/admin/content/tours', badge: data.pendingTours ?? 0 },
-    { icon: Briefcase, label: 'Партнёры', href: '/hub/admin/content/partners', badge: data.pendingPartners ?? 0 },
+    { icon: Briefcase, label: 'Партнёры', href: '/hub/admin/content/partners', badge: 0 },
     { icon: MessageSquareText, label: 'Отзывы', href: '/hub/admin/content/reviews', badge: 0 },
     { icon: BedDouble, label: 'Отзывы жилья', href: '/hub/admin/content/accommodation-reviews', badge: 0 },
-    { icon: UserCheck, label: 'Операторы', href: '/hub/admin/operators', badge: 0 },
+    { icon: UserCheck, label: 'Операторы', href: '/hub/admin/operators', badge: data.pendingPartners ?? 0 },
     { icon: BarChart3, label: 'Аналитика', href: '/hub/admin/analytics', badge: 0 },
     { icon: DollarSign, label: 'Финансы', href: '/hub/admin/finance', badge: 0 },
     { icon: Activity, label: 'Активность', href: '/hub/admin/activity', badge: 0 },
@@ -327,7 +327,7 @@ export default function AdminDashboard() {
           )}
           {(data.pendingPartners ?? 0) > 0 && (
             <button
-              onClick={() => router.push('/hub/admin/content/partners')}
+              onClick={() => router.push('/hub/admin/operators')}
               className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-[var(--ocean)] bg-[var(--ocean)]/8 border border-[var(--ocean)]/15 rounded-lg hover:bg-[var(--ocean)]/12 transition-colors"
             >
               <UserCheck className="w-3.5 h-3.5" />

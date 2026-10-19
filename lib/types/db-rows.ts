@@ -70,6 +70,7 @@ export interface DashboardMetricsRow {
   total_users: string;
   users_with_bookings: string;
   conversion_rate: string;
+  previous_conversion_rate: string;
 }
 
 // Графики аналитики. Даты приходят строками (to_char в SQL), а не Date:
