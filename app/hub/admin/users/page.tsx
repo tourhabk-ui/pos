@@ -138,8 +138,8 @@ export default function UsersManagement() {
         const changed = draft !== user.role;
         const saving = savingUserId === user.id;
         return (
-          <div className="flex flex-col gap-1.5 min-w-[190px]">
-            <div className="flex items-center gap-1.5">
+          <div className="flex flex-col gap-1.5 min-w-[150px] sm:min-w-[190px]">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
               <select
                 aria-label={`Роль пользователя ${user.email}`}
                 value={draft}
@@ -149,7 +149,7 @@ export default function UsersManagement() {
                   setRoleErrors((prev) => ({ ...prev, [user.id]: '' }));
                   setRoleNotices((prev) => ({ ...prev, [user.id]: '' }));
                 }}
-                className="h-10 px-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-50"
+                className="h-10 min-h-[40px] w-full sm:w-auto px-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-50"
               >
                 {!ROLE_OPTIONS.includes(user.role) && (
                   <option value={user.role}>{getRoleLabel(user.role)}</option>
@@ -162,7 +162,7 @@ export default function UsersManagement() {
                 type="button"
                 onClick={() => void saveRole(user)}
                 disabled={!changed || saving}
-                className="h-10 px-3 text-xs font-medium bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] rounded-md hover:border-[var(--accent)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                className="h-10 min-h-[40px] w-full sm:w-auto px-3 text-xs font-medium bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] rounded-md hover:border-[var(--accent)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 {saving ? 'Сохраняю…' : 'Сохранить'}
               </button>
