@@ -1,6 +1,8 @@
+import { Fragment } from 'react';
 import type { Metadata } from 'next';
 import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Eye, Clock, CheckCircle, Activity, Waves, type LucideIcon } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import MarineMammalRules from '@/components/safety/MarineMammalRules';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 export const metadata: Metadata = {
@@ -344,8 +346,8 @@ export default function OfflineSurvivalPage() {
             {SECTIONS.map((section) => {
               const Icon = section.icon;
               return (
+                <Fragment key={section.id}>
                 <div
-                  key={section.id}
                   className="rounded-xl border overflow-hidden"
                   style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}
                 >
@@ -384,6 +386,9 @@ export default function OfflineSurvivalPage() {
                     </p>
                   )}
                 </div>
+                {/* Лежбища — правила поведения со зверями, рядом с медведем */}
+                {section.id === 'bear' && <MarineMammalRules />}
+                </Fragment>
               );
             })}
           </div>

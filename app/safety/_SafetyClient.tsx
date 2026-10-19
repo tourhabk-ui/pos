@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Activity, Flame, Thermometer, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
@@ -314,7 +314,7 @@ function stampLabel(at: string | null | undefined): string {
   return at ? `обновлено ${fmtAgo(at)}` : 'время обновления неизвестно';
 }
 
-export default function SafetyClient({ live, rules }: { live: SafetyLiveData | null; rules?: ReactNode }) {
+export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
   // Отдельно от самого списка: «зон нет» и «оценку не посчитали» — разные
   // сообщения, и второе нельзя показывать зелёным.
@@ -732,7 +732,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         <BookOpen className="w-6 h-6" style={{ color: 'var(--ocean)', flexShrink: 0 }} />
         <span style={{ flex: 1 }}>
           <span style={{ display: 'block', fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>Что делать при ЧП</span>
-          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Медведь · холод · вулкан · потерялся. Работает без интернета.</span>
+          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Медведь · лежбища · холод · вулкан · потерялся. Работает без интернета.</span>
         </span>
         <span style={{ color: 'var(--ocean)', fontSize: 18, fontWeight: 700 }}>→</span>
       </Link>
@@ -965,8 +965,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         </div>
       </div>
 
-      {/* Правила для мест со зверями — серверный блок из страницы */}
-      {rules}
 
       {/* AI Спасатель — общий с /sos (components/safety/RescueChat, 04.10). */}
       <RescueChat style={{ marginBottom: 32 }} />
