@@ -18,8 +18,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
-import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
-import { TelegramIcon, MaxIcon } from '@/components/shared/MessengerIcons';
+import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -789,19 +788,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам оператору.</q>
             </div>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
-            <div className="acts">
-              <Link className="ask-site" href="/kuzmich">Спросить на сайте</Link>
-              <div className="messengers">
-                <a className="msg" href={KUZMICH_TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Кузьмич в Telegram">
-                  <TelegramIcon size={22} />
-                  <span>Telegram</span>
-                </a>
-                <a className="msg" href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer" aria-label="Кузьмич в MAX">
-                  <MaxIcon size={22} />
-                  <span>MAX</span>
-                </a>
-              </div>
-            </div>
+            <KuzmichGuideActions />
           </div>
         </section>
 
