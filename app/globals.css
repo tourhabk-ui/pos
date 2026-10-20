@@ -900,3 +900,23 @@ body {
 .section-swipebar__chip:focus-visible { outline: none; }
 .section-swipebar__chip:focus-visible .section-swipebar__pill { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .section-swipebar__pill { transition: none; } }
+
+/* Админ-дашборд: стекло в том же ключе, что SectionSwipeBar и стеклянный ряд
+   (#2604) — полупрозрачная подложка от --bg-primary, blur, тонкая граница.
+   Один спокойный тон вместо цветных полосок; работает в обеих темах, т.к.
+   всё считается от токенов темы. */
+.admin-glass {
+  background: color-mix(in srgb, var(--bg-card) 62%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+}
+.admin-glass--press { transition: background-color .2s, border-color .2s, transform .15s; }
+.admin-glass--press:hover { border-color: color-mix(in srgb, var(--text-primary) 22%, transparent); }
+.admin-glass--press:active { transform: scale(.98); }
+.admin-glass-chip {
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  border: 1px solid var(--border);
+}
+@media (prefers-reduced-motion: reduce) { .admin-glass--press { transition: none; } .admin-glass--press:active { transform: none; } }
