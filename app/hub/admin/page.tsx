@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AccessDeniedCard } from '@/components/hub/AccessDeniedCard';
 import {
@@ -106,31 +107,33 @@ interface KpiDef {
   iconBg: string;
   format: (v: number) => string;
   suffix?: string;
+  /** Существующий раздел админки, куда ведёт плитка (новых экранов не заводим). */
+  href: string;
 }
 
 const KPI_DEFS: KpiDef[] = [
   {
-    key: 'activeUsers', label: 'Новые пользователи', icon: Users,
+    key: 'activeUsers', href: '/hub/admin/users', label: 'Новые пользователи', icon: Users,
     color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
     format: fmt,
   },
   {
-    key: 'totalBookings', label: 'Бронирования', icon: CalendarDays,
+    key: 'totalBookings', href: '/hub/admin/bookings', label: 'Бронирования', icon: CalendarDays,
     color: 'text-[var(--accent)]', borderColor: 'border-l-[var(--accent)]', iconBg: 'bg-[var(--accent)]/12',
     format: fmt,
   },
   {
-    key: 'totalRevenue', label: 'Выручка', icon: DollarSign,
+    key: 'totalRevenue', href: '/hub/admin/finance', label: 'Выручка', icon: DollarSign,
     color: 'text-[var(--success)]', borderColor: 'border-l-[var(--success)]', iconBg: 'bg-[var(--success)]/12',
     format: fmtRub, suffix: ' \u20BD',
   },
   {
-    key: 'conversionRate', label: 'Конверсия', icon: Percent,
+    key: 'conversionRate', href: '/hub/admin/analytics', label: 'Конверсия', icon: Percent,
     color: 'text-[var(--warning)]', borderColor: 'border-l-[var(--warning)]', iconBg: 'bg-[var(--warning)]/12',
     format: (v) => v.toFixed(1), suffix: '%',
   },
   {
-    key: 'pwaInstalls', label: 'Установки PWA', icon: Smartphone,
+    key: 'pwaInstalls', href: '/hub/admin/analytics', label: 'Установки PWA', icon: Smartphone,
     color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
     format: fmt,
   },
@@ -378,9 +381,11 @@ export default function AdminDashboard() {
           if (!m) return null;
           const Icon = kpi.icon;
           return (
-            <div
+            <Link
               key={kpi.key}
-              className={`bg-[var(--bg-card)] border border-[var(--border)] ${kpi.borderColor} border-l-[3px] rounded-lg px-4 py-4 relative overflow-hidden group hover:bg-[var(--bg-hover)] transition-colors`}
+              href={kpi.href}
+              aria-label={`${kpi.label}: открыть раздел`}
+              className={`block bg-[var(--bg-card)] border border-[var(--border)] ${kpi.borderColor} border-l-[3px] rounded-lg px-4 py-4 relative overflow-hidden group hover:bg-[var(--bg-hover)] transition-colors`}
             >
               {/* Icon top-right — цветная плашка на полной непрозрачности.
                   Раньше был нейтральный bg + opacity-60 с доводкой до 100% только
@@ -404,7 +409,7 @@ export default function AdminDashboard() {
               <div className="mt-2">
                 <Trend change={m.change} trend={m.trend} />
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
@@ -431,8 +436,9 @@ export default function AdminDashboard() {
               {data.charts.topTours.map((tour, idx) => {
                 const bookingPct = (tour.bookings / maxBookings) * 100;
                 return (
-                  <div
+                  <Link
                     key={tour.id}
+                    href={`/hub/admin/content/tours?tour=${encodeURIComponent(tour.id)}&q=${encodeURIComponent(tour.title)}`}
                     className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors group"
                   >
                     {/* Rank */}
@@ -471,7 +477,7 @@ export default function AdminDashboard() {
                         <p className="text-xs font-semibold text-[var(--text-primary)] font-mono">{fmtRub(tour.revenue)} &#8381;</p>
                       </div>
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>

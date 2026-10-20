@@ -607,7 +607,23 @@ export default function ToursManagement() {
     }
   }, [page, search, activityFilter, locationFilter, publishedFilter]);
 
+  // Переход с дашборда («Популярные туры»): ?q=название подставляет поиск,
+  // ?tour=id открывает карточку тура, как только он пришёл в списке.
+  const [deepLinkTourId, setDeepLinkTourId] = useState<string | null>(null);
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const q = sp.get('q');
+    if (q) setSearch(q);
+    setDeepLinkTourId(sp.get('tour'));
+  }, []);
+
   useEffect(() => { fetchTours(); }, [fetchTours]);
+
+  useEffect(() => {
+    if (!deepLinkTourId || loading) return;
+    const t = tours.find(x => String(x.id) === deepLinkTourId);
+    if (t) { setEditingTour(t); setDeepLinkTourId(null); }
+  }, [deepLinkTourId, tours, loading]);
 
   async function handleSave(id: string, data: Partial<OperatorTour>) {
     const res = await fetch(`/api/admin/operator-tours/${id}`, {
