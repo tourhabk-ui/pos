@@ -29,6 +29,7 @@ vi.mock('@/lib/database', () => ({
 vi.mock('@/lib/rate-limit', () => ({
   createRateLimiter: () => ({ check: () => true }),
   getClientIp: () => '10.0.0.1',
+  getTrustedClientIp: () => '10.0.0.1',
 }));
 vi.mock('@/lib/auth/password', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/password')>()),

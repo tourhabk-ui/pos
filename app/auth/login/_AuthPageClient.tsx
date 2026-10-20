@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Logo from '@/components/shared/Logo';
@@ -12,6 +12,7 @@ import MaxLoginButton from './_MaxLoginButton';
 import { loadReferral, forgetReferral } from '@/lib/referral/link';
 import { safePartnerOAuthReturn } from '@/lib/crm/partner-oauth-public';
 import { safeTeamJoinReturn } from '@/lib/operators/team-join-path';
+import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -64,6 +65,12 @@ export default function AuthPageClient() {
   const [phone, setPhone] = useState('');
   const [partnerRoles, setPartnerRoles] = useState<string[]>([]);
   const [pdConsent, setPdConsent] = useState(false);
+  // Ошибка регистрации у своего поля + ссылка на блок ошибки у кнопки. Общая
+  // плашка сверху формы на телефоне уезжала за экран: «Зарегистрироваться»
+  // жали, сервер отвечал 400, а человек видел, что «ничего не происходит».
+  const [passwordError, setPasswordError] = useState('');
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const regErrorRef = useRef<HTMLDivElement>(null);
 
   const toggleRole = (roleId: string) => {
     setPartnerRoles(prev =>
@@ -71,12 +78,21 @@ export default function AuthPageClient() {
     );
   };
 
+  // Шкала следует правилу сервера: пока правило не выполнено, жёлтой «почти
+  // хорошо» не бывает — только красная.
   const getPasswordStrength = (pwd: string) => {
     if (!pwd) return { level: 0, color: '' };
-    if (pwd.length < 6) return { level: 1, color: 'bg-[var(--danger)]' };
-    if (pwd.length < 8) return { level: 2, color: 'bg-[var(--warning)]' };
+    if (!validatePassword(pwd).valid) return { level: 1, color: 'bg-[var(--danger)]' };
     if (pwd.length < 12) return { level: 3, color: 'bg-[var(--success)]' };
     return { level: 4, color: 'bg-[var(--accent)]' };
+  };
+
+  /** Показать ошибку регистрации там, где её видно, — у кнопки, со скроллом. */
+  const showRegisterError = (message: string) => {
+    setError(message);
+    requestAnimationFrame(() => {
+      regErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   };
 
   const strength = getPasswordStrength(password);
@@ -133,28 +149,35 @@ export default function AuthPageClient() {
     setError('');
 
     // Валидация
+    setPasswordError('');
+
     if (!email || !password || !name) {
-      setError('Заполните все обязательные поля');
+      showRegisterError('Заполните все обязательные поля');
       setLoading(false);
       return;
     }
-    if (password.length < 6) {
-      setError('Пароль должен быть минимум 6 символов');
+    const pw = validatePassword(password);
+    if (!pw.valid) {
+      const msg = pw.errors.join('. ');
+      setPasswordError(msg);
+      showRegisterError(msg);
       setLoading(false);
+      passwordRef.current?.focus();
+      passwordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     if (password !== passwordConfirm) {
-      setError('Пароли не совпадают');
+      showRegisterError('Пароли не совпадают');
       setLoading(false);
       return;
     }
     if (userType === 'partner' && partnerRoles.length === 0) {
-      setError('Выберите хотя бы одно направление деятельности');
+      showRegisterError('Выберите хотя бы одно направление деятельности');
       setLoading(false);
       return;
     }
     if (!pdConsent) {
-      setError('Необходимо согласие на обработку персональных данных');
+      showRegisterError('Необходимо согласие на обработку персональных данных');
       setLoading(false);
       return;
     }
@@ -182,9 +205,12 @@ export default function AuthPageClient() {
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Ошибка регистрации');
+      // Не-JSON (502 от прокси, HTML-страница) раньше ронял разбор молча.
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.error || `Ошибка регистрации (код ${response.status}). Попробуйте ещё раз.`
+        );
       }
       // Код израсходован. Не стираем при неудачной регистрации: человек
       // поправит пароль и попробует снова, приглашение при этом не должно
@@ -208,7 +234,11 @@ export default function AuthPageClient() {
       const primaryRole = userType === 'tourist' ? 'tourist' : partnerRoles[0] ?? 'operator';
       router.push(safeTeamJoinReturn(returnTo) ?? ROLE_HUB[primaryRole] ?? '/hub/tourist');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка регистрации');
+      showRegisterError(
+        err instanceof TypeError
+          ? 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.'
+          : err instanceof Error ? err.message : 'Ошибка регистрации'
+      );
     } finally {
       setLoading(false);
     }
@@ -299,8 +329,8 @@ export default function AuthPageClient() {
           ))}
         </div>
 
-        {/* Error */}
-        {error && (
+        {/* Error (у регистрации — свой блок у кнопки) */}
+        {error && mode !== 'register' && (
           <div className="mb-4 px-4 py-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-md text-sm text-[var(--danger)]">
             {error}
           </div>
@@ -524,13 +554,16 @@ export default function AuthPageClient() {
                 <div className="relative">
                   <input
                     id="reg-password"
+                    ref={passwordRef}
                     type={showPassword ? 'text' : 'password'}
                     required
                     value={password}
-                    onChange={e => setPassword(e.target.value)}
+                    onChange={e => { setPassword(e.target.value); setPasswordError(''); }}
                     className={INPUT}
-                    placeholder="Минимум 6 символов"
+                    placeholder="Минимум 8 символов"
                     autoComplete="new-password"
+                    aria-invalid={passwordError ? true : undefined}
+                    aria-describedby="reg-password-hint"
                   />
                   <button
                     type="button"
@@ -552,6 +585,12 @@ export default function AuthPageClient() {
                     ))}
                   </div>
                 )}
+                <p
+                  id="reg-password-hint"
+                  className={`text-xs mt-1 ${passwordError ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]'}`}
+                >
+                  {passwordError || PASSWORD_RULE_HINT}
+                </p>
               </div>
 
               {/* Повторите пароль */}
@@ -589,9 +628,22 @@ export default function AuthPageClient() {
                 </span>
               </label>
 
+              {error && (
+                <div
+                  ref={regErrorRef}
+                  role="alert"
+                  data-testid="register-error"
+                  className="px-4 py-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-md text-sm text-[var(--danger)]"
+                >
+                  {error}
+                </div>
+              )}
+
+              {/* Кнопка не гасится без галочки: нажатие всегда даёт ответ —
+                  ошибку про согласие рядом с кнопкой. */}
               <button
                 type="submit"
-                disabled={loading || !pdConsent}
+                disabled={loading}
                 className="w-full py-2.5 bg-[var(--accent)] text-white text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {loading ? 'Регистрация...' : 'Зарегистрироваться'}

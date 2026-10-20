@@ -30,6 +30,7 @@ vi.mock('@/lib/database', () => ({
 vi.mock('@/lib/rate-limit', () => ({
   createRateLimiter: () => ({ check: () => true }),
   getClientIp: () => '10.0.0.1',
+  getTrustedClientIp: () => '10.0.0.1',
 }));
 
 // Подменяется только хеширование. `passwordSchema` берётся настоящая:
