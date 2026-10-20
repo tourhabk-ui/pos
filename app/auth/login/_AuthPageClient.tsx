@@ -232,7 +232,10 @@ export default function AuthPageClient() {
       // сразу. Экран согласия OAuth новому аккаунту без кабинета ничего не
       // даст — туда, как раньше, не ведём.
       const primaryRole = userType === 'tourist' ? 'tourist' : partnerRoles[0] ?? 'operator';
-      router.push(safeTeamJoinReturn(returnTo) ?? ROLE_HUB[primaryRole] ?? '/hub/tourist');
+      // Полная загрузка, а не router.push: AuthContext держит user=null и
+      // закэшированное «гость» — клиентский переход приводил в кабинет, и
+      // его страж тут же отправлял на /auth/login?from=… (20.10, прод).
+      window.location.assign(safeTeamJoinReturn(returnTo) ?? ROLE_HUB[primaryRole] ?? '/hub/tourist');
     } catch (err) {
       showRegisterError(
         err instanceof TypeError

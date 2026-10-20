@@ -70,8 +70,11 @@ describe('кнопка регистрации', () => {
 
   it('успех — переход в кабинет', async () => {
     fill('Vulkan2026x');
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ success: true, user: { id: '1' }, token: 't' }) });
     submit();
-    await waitFor(() => expect(push).toHaveBeenCalledWith('/hub/tourist'));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/hub/tourist'));
+    expect(push).not.toHaveBeenCalled();
   });
 });
