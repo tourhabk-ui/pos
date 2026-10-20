@@ -177,7 +177,7 @@ describe('один поток, а не две двери (владелец 25.09
 });
 
 describe('верхний ряд компактный (владелец 20.10)', () => {
-  const H = require('fs').readFileSync('app/_home/_HomeV8Client.tsx', 'utf8');
+  const H = HOME;
   it('пилюли тонкие, подписи скрыты, свежесть радара видна', () => {
     expect(H).toMatch(/\.v7 nav\.qt-top > \.qt\{min-height:44px/);
     expect(H).toMatch(/\.v7 nav\.qt-top \.qt-plan \.qt-tx > span,[^{]*\.qt-stay \.qt-tx > span\{display:none\}/);
