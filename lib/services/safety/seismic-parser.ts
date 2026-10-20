@@ -476,12 +476,27 @@ export function tsunamiStatus(text: string): TsunamiStatus | null {
       sawNoThreat = true;
       continue;
     }
+    // Слово «цунами» без признака угрозы/оповещения — не тревога (12.10:
+    // «МЧС России и КНДР укрепляют партнёрство…», где цунами упомянуто в
+    // перечне «наводнения, оползни и цунами», ушло пушем цунами). Список
+    // признаков нарочно широкий: лишний пуш дешевле пропущенного цунами.
+    if (!TSUNAMI_THREAT_CUE.test(s)) continue;
     return 'warning';
   }
   if (sawAllClear) return 'all_clear';
   if (sawNoThreat) return 'no_threat';
-  return 'warning';
+  return null;
 }
+
+/** Признак угрозы рядом со словом «цунами»: объявление, оповещение, волна, уход с берега. */
+const TSUNAMI_THREAT_CUE = /угроз|опасн|оповещ|предупрежд|объявл|ожида|прогноз|волн|эвакуа|эвакуир|уйдит|уход|покиньт|поднимит|подним|возвышен|сирен|прибыт|высот|подход|вероятн|возможн|не исключ|внимание|тревог|alert|advisory|warning|threat|wave/;
+
+/**
+ * Явное боевое оповещение о цунами: такое не глушится словами «учения» или
+ * «тренировка» в том же тексте («Это не учения!»). Лучше лишний пуш, чем
+ * пропущенное цунами (решение владельца 20.10).
+ */
+const TSUNAMI_REAL_ALARM = /объявлен[аоы]?\s+(?:угроз[аы]?|опасност[ьи])\s+цунами|угроз[аы]\s+цунами\s+объявл|оповещени[ея]\s+о\s+(?:угрозе\s+)?цунами|предупреждени[ея]\s+о\s+цунами|это\s+не\s+учени|не\s+учебн/;
 
 /**
  * Важность землетрясения по магнитуде. ОДНО правило на все источники.
@@ -1374,7 +1389,9 @@ export function titleFingerprint(title: string): string {
  * как сокращение. Полный текст остаётся в описании.
  */
 export function titleFromText(text: string): string {
-  const clean = cleanPostText(text);
+  const raw = cleanPostText(text);
+  const noGreeting = stripGreeting(raw).trim();
+  const clean = noGreeting.length >= 10 ? noGreeting : raw;
   const first = (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
   if (first.length <= ALERT_TITLE_MAX) return first;
   // Место под многоточие; последнее слово, не влезшее целиком, и висящая
@@ -1934,9 +1951,26 @@ export function isHydrometWarning(text: string): boolean {
  * вообще. Настоящее ограничение из неё остаётся в ленте (severity ≤ 1) — под
  * своей фразой, а не под отчётом о пожарах.
  */
+export function stripGreeting(text: string): string {
+  let t = text;
+  for (let i = 0; i < 3; i++) {
+    const m = GREETING_RE.exec(t);
+    if (!m) break;
+    t = t.slice(m[0].length);
+  }
+  return t;
+}
+
+/** Приветствие в начале поста: «Доброе утро!», «Друзья!», «Уважаемые жители…». */
+const GREETING_RE = /^[\s\p{P}\p{S}]*(?:доброе\s+утро|добрый\s+(?:день|вечер)|друзья|здравствуйте|привет[а-яё]*|уважаемые\s+[а-яё]+(?:\s+и\s+[а-яё]+)*)[^.!?\n]{0,80}?(?:[.!?]+|\n)/iu;
+
 export function isRoutineDailySummary(text: string): boolean {
-  const head = text.trim().toLowerCase().slice(0, 200);
-  if (/^(?:[^\p{L}]*)за\s+(?:прошедш|минувш)[а-яё]*\s+сутк/u.test(head)) return true;
+  // 19.10: «Доброе утро!» перед сводкой ломало узнавание и сводка ушла пушем
+  // «Ограничение проезда» с заголовком-приветствием. То же «Друзья! Началась
+  // новая трудовая неделя… за семь дней…» (06.09) — недельные итоги.
+  const head = stripGreeting(text.trim()).trim().toLowerCase().slice(0, 300);
+  if (/^(?:[^\p{L}]*)за\s+(?:прошедш|минувш)[а-яё]*\s+(?:сутк|недел)/u.test(head)) return true;
+  if (/(?:началась\s+новая\s+(?:трудовая\s+)?неделя|подвест?и?\s+итоги|подвел[аи]?\s+итоги|за\s+(?:семь|7)\s+дней)/u.test(head)) return true;
   const first = head.split(/(?<=[.!?])\s|\n/)[0] ?? '';
   return first !== '' && isServiceStatistics(first);
 }
@@ -2000,7 +2034,8 @@ export function classifyMchsItem(
   // 2026-07-17). Алерт = действующая опасность, не отчёт о тренировке.
   // Граница слова руками ((^|не-буква)): JS \b не знает кириллицу, а без неё
   // «учени» матчит «полУЧЕНИе пропусков» — реальный алерт был бы отброшен.
-  if (!warningTest && /(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
+  const realTsunamiAlarm = TSUNAMI_REAL_ALARM.test(text.replace(/ё/g, 'е')) && tsunamiStatus(text) === 'warning';
+  if (!warningTest && !realTsunamiAlarm && /(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
     return null;
   }
 
