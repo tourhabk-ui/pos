@@ -8,7 +8,11 @@ describe('карточка тура на главной', () => {
     expect(src).toMatch(/\.v7 \.plate \.dur-chip\{position:absolute[^}]*backdrop-filter/);
   });
   it('цена — цветом бренда, крупнее', () => {
-    expect(src).toMatch(/\.v7 \.plate \.facts \.price\{font:700 19px[^}]*color:var\(--accent\)\}/);
+    expect(src).toMatch(/\.v7 \.plate \.facts \.price\{font:800 22px[^}]*tabular-nums[^}]*color:var\(--accent\)\}/);
+  });
+  it('описание в 2 строки, дни в чипе жирно', () => {
+    expect(src).toMatch(/\.v7 \.plate \.cap\{[^}]*-webkit-line-clamp:2/);
+    expect(src).toMatch(/\.v7 \.plate \.dur-chip\{[^}]*font:800 14px[^}]*tabular-nums/);
   });
   it('карточки не растягиваются до самой высокой, кнопка сразу за текстом', () => {
     expect(src).toMatch(/\.v7 \.plates\{[^}]*align-items:flex-start/);

@@ -1303,19 +1303,19 @@ const CSS = `
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 12px 0}
-.v7 .plate .row b{font:600 14px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
-.v7 .plate .cap{padding:5px 12px 0;font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .row b{font:600 13px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
+.v7 .plate .cap{padding:4px 12px 0;font:400 11px/1.45 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:calc(11px*1.45*2)}
 /* Факты карточки: цена с единицей, длительность и оператор (#39/#122). */
-.v7 .plate .facts{margin-top:9px;padding:9px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
-.v7 .plate .facts .price{font:700 19px/1.2 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;color:var(--accent)}
-.v7 .plate .dur-chip{position:absolute;left:14px;bottom:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:999px;background:rgba(14,17,22,.48);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:1px solid rgba(255,255,255,.28);color:#fff;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em}
+.v7 .plate .facts{margin-top:8px;padding:8px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
+.v7 .plate .facts .price{font:800 22px/1.15 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:-.02em;color:var(--accent)}
+.v7 .plate .dur-chip{position:absolute;left:14px;bottom:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:999px;background:rgba(14,17,22,.48);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:1px solid rgba(255,255,255,.28);color:#fff;font:800 14px/1 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:.01em}
 .v7 .plate .facts .price.muted{color:var(--text-secondary);font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif}
-.v7 .plate .facts .meta{font:500 12px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .plate .cancel,.v7 .plate .avail{padding:5px 12px 0;font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .facts .meta{font:500 11px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .cancel,.v7 .plate .avail{padding:4px 12px 0;font:400 11px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Текст «сезон кончился» — --text-secondary: --warning (#D29922) на белой
    карточке даёт ~2.5:1 при 12px, ниже AA. Предупреждение несёт иконка. */
 .v7 .plate .avail{display:flex;align-items:center;gap:6px}
-.v7 .plate .buy{padding:12px}
+.v7 .plate .buy{padding:10px 12px 12px}
 /* CTA — кнопка 44px, 13px (была текст-ссылка 9.5px, 91×14px, #38/#127). */
 .v7 .plate .buy-cta{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
