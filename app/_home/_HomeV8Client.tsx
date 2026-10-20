@@ -1340,7 +1340,7 @@ const CSS = `
    Кремовый круг вшит в сам PNG, поэтому подложка не нужна ни в одной теме. */
 .v7 .guide .face{width:72px;height:72px;flex:none;border-radius:50%;object-fit:cover}
 .v7 .guide q{display:block;font:500 15px/1.5 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;quotes:"«" "»"}
-.v7 .guide .sig{margin-top:10px;display:flex;align-items:center;gap:10px}
+.v7 .guide .sig{margin-top:10px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
 .v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
 .v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
 .v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
