@@ -1197,6 +1197,18 @@ const CSS = `
 .v7 .qt-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
 .v7 .qt-tx b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .qt-tx > span{font:500 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Верхний ряд компактный (владелец 20.10: «тут тоже можно покомпактней»): две тонкие строки стеклянных пилюль, подписи туров/трансфера/жилья скрыты (смысл — в aria-label), у радара остаётся свежесть. */
+.v7 nav.qt-top{gap:6px;margin-bottom:18px}
+.v7 nav.qt-top > .qt{min-height:44px;gap:7px;padding:5px 10px 5px 6px;border-radius:14px;background:color-mix(in srgb,var(--bg-card) 78%,transparent);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
+.v7 nav.qt-top > .qt-radar{background:color-mix(in srgb,var(--success) 10%,color-mix(in srgb,var(--bg-card) 78%,transparent))}
+.v7 nav.qt-top > .qt-tours,.v7 nav.qt-top > .qt-transfer,.v7 nav.qt-top > .qt-stay{flex-direction:row;justify-content:center;min-height:40px;padding:4px 6px;gap:6px}
+.v7 nav.qt-top .qt-ic{width:28px;height:28px;border-radius:9px}
+.v7 nav.qt-top .qt-ic svg{width:16px;height:16px}
+.v7 nav.qt-top .qt-tx{gap:1px}
+.v7 nav.qt-top .qt-tx b{font-size:12.5px}
+.v7 nav.qt-top .qt-tx > span{font-size:11px}
+.v7 nav.qt-top .qt-plan .qt-tx > span,.v7 nav.qt-top .qt-tours .qt-tx > span,.v7 nav.qt-top .qt-transfer .qt-tx > span,.v7 nav.qt-top .qt-stay .qt-tx > span{display:none}
+.v7 nav.qt-top .qt-badge{width:9px;height:9px}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
 @media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}
