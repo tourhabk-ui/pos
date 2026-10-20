@@ -7,11 +7,11 @@
  * deep-link в бота → пользователь подтверждает «Старт» в MAX → бот отмечает
  * сессию → сайт опросом ловит подтверждение и логинит. Телефон не требуем.
  *
- * Env (public): NEXT_PUBLIC_MAX_LOGIN_ENABLED — 'true' чтобы показать кнопку.
+ * Env (public): NEXT_PUBLIC_MAX_LOGIN_ENABLED — 'false' чтобы спрятать кнопку (по умолчанию видна, решение владельца 20.10).
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { MaxIcon } from '@/components/shared/MessengerIcons';
 
 interface MaxAuthResult {
   id: string;
@@ -95,7 +95,7 @@ export default function MaxLoginButton({ onAuth, onError }: Props) {
     }
   }, [poll, stop, onError]);
 
-  if (process.env.NEXT_PUBLIC_MAX_LOGIN_ENABLED !== 'true') return null;
+  if (process.env.NEXT_PUBLIC_MAX_LOGIN_ENABLED === 'false') return null;
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -103,9 +103,10 @@ export default function MaxLoginButton({ onAuth, onError }: Props) {
         type="button"
         onClick={handleClick}
         disabled={waiting}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-[var(--ocean)] hover:opacity-90 transition-all duration-200 disabled:opacity-60"
+        data-auth-action="max"
+        className="w-full h-11 inline-flex items-center justify-center gap-2 rounded-[16px] border border-[var(--border-strong)] bg-[color-mix(in_srgb,var(--bg-card)_62%,transparent)] px-4 text-sm font-medium text-[var(--text-primary)] shadow-[inset_0_1px_0_color-mix(in_srgb,#ffffff_45%,transparent),0_8px_20px_rgba(0,0,0,0.07)] backdrop-blur-md transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
       >
-        <MessageCircle size={16} />
+        <MaxIcon size={20} />
         {waiting ? 'Подтвердите вход в MAX…' : 'Войти через MAX'}
       </button>
       {waiting && deepLink && (
