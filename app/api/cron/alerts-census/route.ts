@@ -191,6 +191,32 @@ export async function GET(request: NextRequest) {
       [INGEST_AGENTS],
     );
 
+    // История разосланных пушей (20.10): ложный пуш «Ограничение проезда»
+    // с телом суточной сводки ушёл, а запись тревоги потом снесла чистка
+    // жанров — в `live` его уже не видно. След остаётся в журнале решений
+    // (traveller_notified): сколько пушей ушло, скольким, и жива ли запись.
+    // Только чтение; при сбое запроса — null, а не «пушей не было».
+    let pushed: Array<{ alert_id: string; occurred_at: string; sent: number | null; total: number | null;
+      alert_type: string | null; severity: number | null; title: string | null; row_gone: boolean }> | null = null;
+    try {
+      const { rows: pr } = await pool.query<{ alert_id: string; occurred_at: string; sent: string | null; total: string | null;
+        alert_type: string | null; severity: number | null; title: string | null; row_gone: boolean }>(
+        `SELECT e.entity_id AS alert_id, e.occurred_at::text,
+                e.details->>'sent' AS sent, e.details->>'total' AS total,
+                a.alert_type, a.severity::int AS severity, a.title,
+                (a.id IS NULL) AS row_gone
+           FROM safety_decision_events e
+           LEFT JOIN external_alerts a ON a.id::text = e.entity_id
+          WHERE e.event_type = 'traveller_notified'
+            AND e.occurred_at > NOW() - INTERVAL '60 days'
+          ORDER BY e.occurred_at DESC
+          LIMIT 200`,
+      );
+      pushed = pr.map((r) => ({ ...r, sent: r.sent == null ? null : Number(r.sent), total: r.total == null ? null : Number(r.total) }));
+    } catch {
+      pushed = null;
+    }
+
     const ingestRanRecently = runs.some((r) => r.age_min <= 25 * 60);
     const verdict = w.last_25h > 0
       ? 'flowing'
@@ -198,6 +224,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       probe: 'alerts_census_v1',
+      pushed_60d: pushed,
       checked_at: new Date().toISOString(),
       alerts: {
         last_25h: w.last_25h,

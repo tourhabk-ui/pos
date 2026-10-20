@@ -1470,9 +1470,11 @@ export function classifyMchsItems(
   // Тема = тип + зоны. Совпали — оставляем строгую: пеплопад с рекомендацией
   // «не приближаться» не должен теряться за нейтральным упоминанием той же горы.
   const byTopic = new Map<string, SeismicEvent>();
+  const routineSummary = title.trim() === '' && isRoutineDailySummary(description);
   for (const item of items) {
-    const ev = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
-    if (!ev) continue;
+    const raw = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
+    if (!raw) continue;
+    const ev = routineSummary ? demoteRoutine(raw, item) : raw;
     const key = `${ev.alert_type}|${[...ev.affected_zones].sort().join(',')}`;
     const prev = byTopic.get(key);
     if (!prev || ev.severity > prev.severity) byTopic.set(key, ev);
@@ -1920,6 +1922,51 @@ export function isHydrometWarning(text: string): boolean {
   return forecast || addressesTouristsWithBan(lower);
 }
 
+/**
+ * Рутинная суточная сводка МЧС: пост открывается отчётом службы о работе за
+ * сутки («За прошедшие сутки к тушению техногенных пожаров сотрудники МЧС
+ * России привлекались 1 раз…»). Случай 20.10: такая сводка с упоминанием
+ * ограничения ниже по тексту ушла пушем «Ограничение проезда — Камчатка» с
+ * первой фразой про пожары в теле. Страж isServiceStatistics отступил, потому
+ * что в тексте было «ограничен»/«закрыт», а заголовок взялся из первой фразы.
+ *
+ * Решение владельца 20.10: рутинная сводка и бытовые пожары пушем не уходят
+ * вообще. Настоящее ограничение из неё остаётся в ленте (severity ≤ 1) — под
+ * своей фразой, а не под отчётом о пожарах.
+ */
+export function isRoutineDailySummary(text: string): boolean {
+  const head = text.trim().toLowerCase().slice(0, 200);
+  if (/^(?:[^\p{L}]*)за\s+(?:прошедш|минувш)[а-яё]*\s+сутк/u.test(head)) return true;
+  const first = head.split(/(?<=[.!?])\s|\n/)[0] ?? '';
+  return first !== '' && isServiceStatistics(first);
+}
+
+/** Явное упоминание дороги/проезда: только оно даёт «Ограничение проезда» в сводке. */
+const ROAD_WORD_RE = /дорог|автодорог|проезд|движени|трасс|перевал|переправ|пропуск/i;
+
+/** Фраза сводки, которая сама говорит о закрытии/ограничении проезда. */
+export function roadSentenceOf(text: string): string | null {
+  const parts = text.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+  for (const part of parts) {
+    if (ROAD_WORD_RE.test(part) && ROAD_RESTRICTION_RE.test(part) && !isServiceStatistics(part)) return part;
+  }
+  return null;
+}
+
+/** Потолок для рутинной сводки: в ленту — да, в пуш — нет (порог пуша 2).
+ *  Только дорога, пожарная тема и info; природные опасности — как были. */
+const ROUTINE_DEMOTED: ReadonlyArray<SeismicEvent['alert_type']> = ['road_closure', 'fire_danger', 'info'];
+
+function demoteRoutine(ev: SeismicEvent, item: string): SeismicEvent {
+  // Природная опасность из сводки (вулкан, паводок, лавина) — не рутина:
+  // «не приближаться к Мутновскому» из сводки 29.07 остаётся красной.
+  if (!ROUTINE_DEMOTED.includes(ev.alert_type)) return ev;
+  const t = item.toLowerCase();
+  if (addressesTouristsWithBan(t) || declaresHazardGrade(t)) return ev;
+  if (ev.severity > 1) ev.severity = 1 as SeismicEvent['severity'];
+  return ev;
+}
+
 export function classifyMchsItem(
   id: string,
   title: string,
@@ -2073,7 +2120,7 @@ export function classifyMchsItem(
     // Пока сохраняем как info-сводку (текст объектов — в description);
     // построчный разбор статусов — следующий шаг, когда накопятся образцы.
     alert_type = 'info'; severity = 0; expires_hours = 48;
-  } else if (detectRoadRestriction(text)) {
+  } else if (detectRoadRestriction(text) && (!isRoutineDailySummary(description || title) || roadSentenceOf(description || title))) {
     // Дорожные ограничения: пропускной режим, закрытие/перекрытие проезда
     // к туристическим местам (пропущенный кейс: Вилючинский перевал/Вачкажец)
     alert_type = 'road_closure';
@@ -2202,7 +2249,13 @@ export function classifyMchsItem(
   //   2. Пустой заголовок уезжал в active_alerts пустой строкой на карточках.
   // Отсюда — заголовок из первой фразы и отпечаток по нему же.
   const hadTitle = title.trim() !== '';
-  const effectiveTitle = hadTitle ? title : titleFromText(description);
+  const routine = !hadTitle && isRoutineDailySummary(description);
+  // Прямой запрет тургруппам или объявленный разряд ОЯ в сводке — уже не
+  // рутина (сводка 29.07 «не приближаться к Мутновскому» остаётся красной).
+  const genuine = addressesTouristsWithBan(text) || declaresHazardGrade(text);
+  if (routine && !genuine && ROUTINE_DEMOTED.includes(alert_type)) severity = Math.min(severity, 1) as typeof severity;
+  const routineTitle = routine && alert_type === 'road_closure' ? roadSentenceOf(description) : null;
+  const effectiveTitle = hadTitle ? title : routineTitle ? titleFromText(routineTitle) : titleFromText(description);
   // Отпечаток поста без заголовка — по прежнему ключу, а не по заголовку:
   // см. titleKeyFromText (смена обрезки не должна менять external_id).
   const fingerprint = titleFingerprint(hadTitle ? effectiveTitle : titleKeyFromText(description));
