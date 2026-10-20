@@ -1201,7 +1201,7 @@ const CSS = `
 .v7 nav.qt-top{gap:6px;margin-bottom:18px}
 .v7 nav.qt-top > .qt{min-height:44px;gap:7px;padding:5px 10px 5px 6px;border-radius:14px;background:color-mix(in srgb,var(--bg-card) 78%,transparent);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
 .v7 nav.qt-top > .qt-radar{background:color-mix(in srgb,var(--success) 10%,color-mix(in srgb,var(--bg-card) 78%,transparent))}
-.v7 nav.qt-top > .qt-tours,.v7 nav.qt-top > .qt-transfer,.v7 nav.qt-top > .qt-stay{flex-direction:row;justify-content:center;min-height:40px;padding:4px 6px;gap:6px}
+.v7 nav.qt-top > .qt-tours,.v7 nav.qt-top > .qt-transfer,.v7 nav.qt-top > .qt-stay{flex-direction:row;justify-content:center;min-height:44px;padding:4px 6px;gap:6px}
 .v7 nav.qt-top .qt-ic{width:28px;height:28px;border-radius:9px}
 .v7 nav.qt-top .qt-ic svg{width:16px;height:16px}
 .v7 nav.qt-top .qt-tx{gap:1px}
