@@ -593,7 +593,8 @@ export default function ToursManagement() {
       if (search) params.set('search', search);
       if (activityFilter) params.set('activity_type', activityFilter);
       if (locationFilter) params.set('location_type', locationFilter);
-      if (publishedFilter) params.set('is_published', publishedFilter);
+      if (publishedFilter === 'pending') params.set('pending', 'true');
+      else if (publishedFilter) params.set('is_published', publishedFilter);
 
       const res = await fetch(`/api/admin/operator-tours?${params}`);
       const json: unknown = await res.json();
@@ -614,6 +615,7 @@ export default function ToursManagement() {
     const sp = new URLSearchParams(window.location.search);
     const q = sp.get('q');
     if (q) setSearch(q);
+    if (sp.get('pending') === '1') setPublishedFilter('pending');
     setDeepLinkTourId(sp.get('tour'));
   }, []);
 
@@ -700,6 +702,7 @@ export default function ToursManagement() {
           <option value="">Все статусы</option>
           <option value="true">Опубликованные</option>
           <option value="false">Черновики</option>
+          <option value="pending">Ожидают модерации</option>
         </select>
       </div>
 

@@ -320,7 +320,7 @@ export default function AdminDashboard() {
         <div className="flex flex-wrap gap-2">
           {(data.pendingTours ?? 0) > 0 && (
             <button
-              onClick={() => router.push('/hub/admin/content/tours')}
+              onClick={() => router.push('/hub/admin/content/tours?pending=1')}
               className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-[var(--warning)] bg-[var(--warning)]/8 border border-[var(--warning)]/15 rounded-lg hover:bg-[var(--warning)]/12 transition-colors"
             >
               <AlertTriangle className="w-3.5 h-3.5" />

@@ -18,6 +18,8 @@ const QuerySchema = z.object({
   activity_type: z.string().optional(),
   location_type: z.string().optional(),
   is_published: z.enum(['true', 'false']).optional(),
+  // Ожидают модерации: тот же критерий, что у счётчика на дашборде.
+  pending: z.enum(['true']).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
   if (!parseResult.success) {
     return NextResponse.json({ error: 'Неверные параметры запроса' }, { status: 400 });
   }
-  const { limit, offset, search, operator_id, activity_type, location_type, is_published } = parseResult.data;
+  const { limit, offset, search, operator_id, activity_type, location_type, is_published, pending } = parseResult.data;
 
   const conditions: string[] = ['ot.deleted_at IS NULL'];
   const values: unknown[] = [];
@@ -56,6 +58,8 @@ export async function GET(request: NextRequest) {
     conditions.push(`ot.is_published = $${idx++}`);
     values.push(is_published === 'true');
   }
+
+  if (pending) conditions.push('ot.is_active = false');
 
   const where = conditions.join(' AND ');
 
