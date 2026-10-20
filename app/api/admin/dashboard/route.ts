@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
 
   const pendingTours = await safeQuery<number>('pendingTours', errors, 0, async () => {
     const r = await pool.query<{ c: string }>(`
-      SELECT COUNT(*)::text AS c FROM operator_tours WHERE is_active = false
+      SELECT COUNT(*)::text AS c FROM operator_tours WHERE is_active = false AND deleted_at IS NULL
     `);
     return parseInt(r.rows[0]?.c ?? '0', 10);
   });
