@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 
@@ -547,6 +547,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: тур`} aria-hidden={clone || undefined}>
                     <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
+                      {/* Длительность — стеклянным чипом на фото (владелец 20.10):
+                          видна до чтения текста. Ссылка-обёртка aria-hidden,
+                          поэтому та же длительность есть ниже для чтеца. */}
+                      {pf.duration && <span className="dur-chip"><Clock aria-hidden size={13} />{pf.duration}</span>}
                     </div></Link>
                     <div className="row"><b>{p.title}</b></div>
                     {p.description && <div className="cap">{p.description}</div>}
@@ -554,8 +558,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                       {pf.price ? <span className="price">{pf.price}</span> : <span className="price muted">Цена по запросу</span>}
                       {(pf.duration || pf.operator) && (
                         <span className="meta">
-                          {pf.duration}
-                          {pf.duration && pf.operator ? ' · ' : ''}
+                          {pf.duration && <span className="sr-only">{pf.duration}{pf.operator ? ', ' : ''}</span>}
                           {/* Имя — ссылка на страницу оператора (владелец 13.10);
                               тач-зона 44px — отступами без сдвига строки. */}
                           {pf.operator && <OperatorNameLink name={pf.operator} slug={p.operatorSlug} isPublic={p.operatorPublic} className="inline-block py-[15px] -my-[15px]" />}
@@ -1273,7 +1276,7 @@ const CSS = `
 /* scroll-padding-inline = отступ страницы (аудит 24.09, #38): без него точка
    привязки прижимала карточку к x=0, и текст начинался в 2px от кромки.
    position:relative — чтобы offsetLeft карточек считался от ленты (goPlate). */
-.v7 .plates{position:relative;display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;scrollbar-width:none;margin:0 -20px;padding:0 20px}
+.v7 .plates{position:relative;display:flex;align-items:flex-start;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
 /* Точка остаётся 6px, а нажимается зона 26x44: сама точка рисуется вложенным
@@ -1304,14 +1307,15 @@ const CSS = `
 .v7 .plate .cap{padding:5px 12px 0;font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Факты карточки: цена с единицей, длительность и оператор (#39/#122). */
 .v7 .plate .facts{margin-top:9px;padding:9px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
-.v7 .plate .facts .price{font:600 15px/1.2 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
+.v7 .plate .facts .price{font:700 19px/1.2 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;color:var(--accent)}
+.v7 .plate .dur-chip{position:absolute;left:14px;bottom:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:999px;background:rgba(14,17,22,.48);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:1px solid rgba(255,255,255,.28);color:#fff;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em}
 .v7 .plate .facts .price.muted{color:var(--text-secondary);font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif}
 .v7 .plate .facts .meta{font:500 12px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .plate .cancel,.v7 .plate .avail{padding:5px 12px 0;font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Текст «сезон кончился» — --text-secondary: --warning (#D29922) на белой
    карточке даёт ~2.5:1 при 12px, ниже AA. Предупреждение несёт иконка. */
 .v7 .plate .avail{display:flex;align-items:center;gap:6px}
-.v7 .plate .buy{margin-top:auto;padding:12px}
+.v7 .plate .buy{padding:12px}
 /* CTA — кнопка 44px, 13px (была текст-ссылка 9.5px, 91×14px, #38/#127). */
 .v7 .plate .buy-cta{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
