@@ -10,6 +10,7 @@ import { planForLead } from '@/lib/planner/plan-for-lead';
 import { dayPriceLine } from '@/lib/planner/day-price';
 import type { TripChoices, TripDayPlan, TripParty } from '@/lib/trips/trip-schema';
 import { stayLink } from '@/lib/stay/stay-link';
+import { TripActions } from '@/components/trips/TripActions';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
@@ -293,6 +294,8 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             </p>
           ))}
         </div>
+
+        <TripActions trip={trip} />
 
         {trip.choices && <ChoicesBlock choices={trip.choices} party={trip.party} />}
 
