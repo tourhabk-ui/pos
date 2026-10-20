@@ -16,6 +16,9 @@ interface TouristProfile {
   full_name: string | null;
   phone: string | null;
   bio: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  emergency_contact_relation?: string | null;
 }
 
 interface ApiSuccess<T> {
@@ -66,6 +69,9 @@ export default function ProfileClient() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
+  const [emName, setEmName] = useState('');
+  const [emPhone, setEmPhone] = useState('');
+  const [emRelation, setEmRelation] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -113,6 +119,9 @@ export default function ProfileClient() {
         setName(profile.full_name ?? '');
         setPhone(profile.phone ?? '');
         setBio(profile.bio ?? '');
+        setEmName(profile.emergency_contact_name ?? '');
+        setEmPhone(profile.emergency_contact_phone ?? '');
+        setEmRelation(profile.emergency_contact_relation ?? '');
         setEmail(meResult.data.email ?? '');
 
         // Загружаем статус Telegram
@@ -153,6 +162,10 @@ export default function ProfileClient() {
           full_name: name.trim() || null,
           phone: phone.trim() || null,
           bio: bio.trim() || null,
+          // Пустая строка — «контакт не указан»: схема PUT принимает строку, не null.
+          emergency_contact_name: emName.trim(),
+          emergency_contact_phone: emPhone.trim(),
+          emergency_contact_relation: emRelation.trim(),
         }),
       });
 
@@ -299,6 +312,29 @@ export default function ProfileClient() {
                   className={`${INPUT_CLASS} resize-y py-3`}
                 />
               </div>
+
+              <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+                <legend className="px-1 text-sm font-medium text-[var(--text-primary)]">Экстренный контакт</legend>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Человек, которому платформа сообщит, если вы не отметите возвращение с маршрута
+                  в «Контрольном сроке». Подставляется в регистрацию маршрута автоматически.
+                </p>
+                <div>
+                  <label htmlFor="em-name" className="block text-sm mb-1 text-[var(--text-secondary)]">Имя</label>
+                  <input id="em-name" value={emName} onChange={(e) => setEmName(e.target.value)}
+                    placeholder="Мария Петрова" autoComplete="off" className={INPUT_CLASS} />
+                </div>
+                <div>
+                  <label htmlFor="em-phone" className="block text-sm mb-1 text-[var(--text-secondary)]">Телефон</label>
+                  <input id="em-phone" type="tel" value={emPhone} onChange={(e) => setEmPhone(e.target.value)}
+                    placeholder="+7 900 000-00-00" autoComplete="off" className={INPUT_CLASS} />
+                </div>
+                <div>
+                  <label htmlFor="em-relation" className="block text-sm mb-1 text-[var(--text-secondary)]">Кем приходится</label>
+                  <input id="em-relation" value={emRelation} onChange={(e) => setEmRelation(e.target.value)}
+                    placeholder="Мама, друг, коллега" autoComplete="off" className={INPUT_CLASS} />
+                </div>
+              </fieldset>
 
               {saveSuccess && (
                 <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/30">

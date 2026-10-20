@@ -11,9 +11,14 @@ import { query } from '@/lib/database';
 export async function getTouristProfile(userId: string): Promise<Record<string, unknown> | null> {
   try {
     let result = await query(
+      // Экстренный контакт читает форма «Контрольного срока» (/register):
+      // заполнен в профиле — подставляется в регистрацию маршрута.
       // phone и bio — поля формы профиля: без них форма после каждой загрузки
       // показывала их пустыми, хотя в базе они лежали.
-      `SELECT id, user_id, full_name, phone, bio, avatar_url, total_trips, total_spent, loyalty_points, created_at, updated_at FROM tourist_profiles WHERE user_id = $1`,
+      `SELECT id, user_id, full_name, phone, bio, avatar_url, total_trips, total_spent, loyalty_points,
+              emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+              created_at, updated_at
+         FROM tourist_profiles WHERE user_id = $1`,
       [userId]
     );
 

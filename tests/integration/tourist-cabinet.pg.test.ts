@@ -396,4 +396,15 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(r.status).toBe(409);
     expect(r.json.blockers).toEqual(['active_route_registration']);
   });
+
+  it('экстренный контакт из tourist_profiles читается профилем (его подставляет «Контрольный срок»)', async () => {
+    const uid = await freshTourist('emergency');
+    await pool.query(
+      `INSERT INTO tourist_profiles (user_id, full_name, emergency_contact_name, emergency_contact_phone, emergency_contact_relation)
+       VALUES ($1, 'Иван', 'Мама', '+79990001122', 'мать')`, [uid],
+    );
+    const { getTouristProfile } = await import('@/lib/auth/tourist-helpers');
+    const pr = await getTouristProfile(uid);
+    expect(pr).toMatchObject({ emergency_contact_name: 'Мама', emergency_contact_phone: '+79990001122', emergency_contact_relation: 'мать' });
+  });
 });
