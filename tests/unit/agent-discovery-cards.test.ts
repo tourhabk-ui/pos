@@ -171,7 +171,9 @@ describe('поверхности называют карточку, катало
     const text = await (await GET()).text();
     expect(text).toContain(`${BASE}/api/mcp/server-card`);
     expect(text).toContain(`${BASE}/.well-known/ai-catalog.json`);
-    expect(text).toContain(A2A_CATALOGS[0].url);
+    expect(text).toContain(A2A_CATALOGS[0].id);
+    // Пока запись на проверке, страницы реестра нет (404) — ссылку не публикуем.
+    expect(text).not.toContain(A2A_CATALOGS[0].url);
     expect(text).toMatch(/MCP Server Card/);
   });
 

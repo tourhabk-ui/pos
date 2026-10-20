@@ -337,8 +337,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   push-уведомлений нет, задача завершается в ответе и хранится час
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
-- В реестре A2A: ${A2A_CATALOGS.map((c) => `${c.catalog}: ${c.url}`).join('; ')} (регистрация 12.10;
-  запись появляется после проверки реестром)
+- Реестр A2A: ${A2A_CATALOGS.map((c) => `${c.catalog} — заявка подана ${c.registered_at.split('-').reverse().join('.')}, id ${c.id}`).join('; ')};
+  запись на проверке реестром, публичной страницы пока нет
 
 ## Для AI-агентов: REST и OpenAPI (без MCP и A2A)
 
