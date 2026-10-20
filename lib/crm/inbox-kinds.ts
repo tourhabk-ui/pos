@@ -41,7 +41,7 @@ export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxK
  */
 export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>> = {
   operator: [
-    'Заявки без оператора — в разделе «AI Заявки»: здесь только заявки, отданные вам.',
+    'Заявки без оператора — в разделе «Заявки с сайта»: здесь только заявки, отданные вам.',
   ],
   stay: [],
   gear: [],

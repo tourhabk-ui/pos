@@ -213,11 +213,11 @@ export default function OperatorHelpClient() {
         </div>
       </div>
 
-      {/* Кузьмич — AI помощник */}
+      {/* Кузьмич — помощник */}
       <div className="ds-card p-5 mb-8">
         <div className="flex items-center gap-2 mb-4">
           <Bot size={18} className="text-[var(--accent)]" />
-          <h2 className="font-semibold text-[var(--text-primary)]">Кузьмич — ваш AI помощник в мессенджере</h2>
+          <h2 className="font-semibold text-[var(--text-primary)]">Кузьмич — ваш помощник в мессенджере</h2>
         </div>
         <p className="text-sm text-[var(--text-secondary)] mb-4">
           Кузьмич знает ваши туры, бронирования и статистику. Пишите ему напрямую в Telegram или MAX —

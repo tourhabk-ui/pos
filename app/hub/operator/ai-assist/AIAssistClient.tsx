@@ -75,7 +75,7 @@ export function AIAssistClient() {
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-6 h-6 text-[var(--accent)]" />
-            <h1 className="ds-h1">AI Помощник</h1>
+            <h1 className="ds-h1">Помощник</h1>
           </div>
           <p className="text-[var(--text-secondary)]">
             Голосовые команды для управления турами и бронированиями

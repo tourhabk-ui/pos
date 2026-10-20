@@ -38,8 +38,7 @@ export const OPERATOR_COMMAND_EXAMPLES: Array<{
 }> = [
   { label: 'Сводка туров',        message: 'Покажи мои туры',                                              intent: 'op_tours_summary',  group: 'read' },
   { label: 'Бронирования сегодня', message: 'Бронирования сегодня',                                        intent: 'op_bookings_today', group: 'read' },
-  { label: 'Выручка за 7 дней',   message: 'Выручка за последние 7 дней',                                  intent: 'op_revenue',        group: 'read' },
   { label: 'Создать тур',         message: 'Создай тур «Рыбалка на Авачинской бухте»',                     intent: 'op_create_tour',    group: 'write' },
-  { label: 'AI заполнить тур',    message: 'Заполни тур 1',                                                intent: 'op_fill_ai',        group: 'write' },
+  { label: 'Заполнить тур',       message: 'Заполни тур 1',                                                intent: 'op_fill_ai',        group: 'write' },
   { label: 'Добавить слоты',      message: 'Добавь слоты туру 1 с 2026-07-01 по 2026-07-31, 10 мест',      intent: 'op_add_slots',      group: 'write' },
 ];

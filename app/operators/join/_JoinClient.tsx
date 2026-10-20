@@ -19,7 +19,6 @@ const LBL = 'block text-[10px] uppercase tracking-widest text-[var(--text-muted)
 
 export default function JoinClient({ routesLine }: { routesLine?: string | null }) {
   const perks = routesLine ? [PERKS[0], PERKS[1], routesLine, ...PERKS.slice(2)] : PERKS;
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -81,7 +80,9 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
       }));
 
       setDone(true);
-      setTimeout(() => router.push('/hub/operator'), 1500);
+      // Полная загрузка, а не router.push: мягкий переход брал закэшированный
+      // ответ без cookie и уводил на /auth/login. Как во входе.
+      setTimeout(() => window.location.assign('/hub/operator'), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     } finally {
@@ -228,16 +229,15 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
 
             {/* PD consent */}
             <label className="flex items-start gap-3 cursor-pointer">
-              <div
-                onClick={() => set('pd_consent', !form.pd_consent)}
-                className="w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors"
-                style={{
-                  borderColor: form.pd_consent ? 'var(--accent)' : 'var(--border)',
-                  background: form.pd_consent ? 'var(--accent)' : 'transparent',
-                }}
-              >
-                {form.pd_consent && <Check className="w-2.5 h-2.5 text-white" />}
-              </div>
+              <input
+                type="checkbox"
+                name="pd_consent"
+                required
+                checked={form.pd_consent}
+                onChange={(e) => set('pd_consent', e.target.checked)}
+                className="w-4 h-4 shrink-0 mt-0.5 rounded cursor-pointer"
+                style={{ accentColor: 'var(--accent)' }}
+              />
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 Я согласен на{' '}
                 <Link href="/legal/privacy" className="hover:underline" style={{ color: 'var(--ocean)' }}>

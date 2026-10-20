@@ -98,7 +98,7 @@ export default function BookingIntakeClient() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Bot className="w-6 h-6 text-[var(--accent)]" />
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">AI Приём заявок</h1>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">Приём заявок</h1>
         {provider && (
           <span className="text-xs px-2 py-1 rounded-full bg-[var(--bg-hover)] text-[var(--text-muted)] border border-[var(--border)]">
             {provider}

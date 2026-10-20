@@ -15,6 +15,7 @@ import {
   Settings, Bell, HelpCircle, CheckCircle, Inbox, User,
   Download, BookMarked, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star, UsersRound, Code2,
 } from 'lucide-react';
+import { paymentsOpen } from '@/lib/payments/launch';
 import { isManagerSeat, type OperatorSeat } from '@/components/operator/use-operator-seat';
 
 /**
@@ -35,7 +36,7 @@ export interface OperatorMenuItem {
 // Пункты сгруппированы по section: на мобиле HubSidebar тогда рендерит
 // сворачиваемую сетку иконок по разделам вместо горизонтальной ленты, в
 // которую 17 пунктов не влезали — всё после четвёртого жило за правым краем.
-export const OPERATOR_MENU: OperatorMenuItem[] = [
+const ALL_OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator', label: 'Обзор', icon: BarChart3, access: 'team' },
 
   { href: '/hub/operator/tours', label: 'Туры', icon: Map, section: 'Продажи', access: 'team' },
@@ -45,8 +46,8 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи', access: 'team' },
   // Сирота-аудит 27.07: страница жила без пункта меню — разбор входящего
   // текста заявки через AI, отличен от списка лидов ниже.
-  { href: '/hub/operator/booking-intake', label: 'AI Приём', icon: MessageSquareText, section: 'Продажи', access: 'team' },
-  { href: '/hub/operator/leads', label: 'AI Заявки', icon: Inbox, section: 'Продажи', access: 'team' },
+  { href: '/hub/operator/booking-intake', label: 'Приём заявок', icon: MessageSquareText, section: 'Продажи', access: 'team' },
+  { href: '/hub/operator/leads', label: 'Заявки с сайта', icon: Inbox, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/inbox', label: 'Входящие', icon: BellDot, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи', access: 'team' },
@@ -74,13 +75,18 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator/guides', label: 'Гиды', icon: Contact, section: 'Логистика', access: 'team' },
 
   // Сирота-аудит 27.07: AI-помощник оператора жил без пункта меню.
-  { href: '/hub/operator/ai-assist', label: 'AI Помощник', icon: Bot, section: 'Кабинет', access: 'team' },
+  { href: '/hub/operator/ai-assist', label: 'Помощник', icon: Bot, section: 'Кабинет', access: 'team' },
   { href: '/hub/operator/notifications', label: 'Уведомления', icon: Bell, section: 'Кабинет', access: 'team' },
   { href: '/hub/operator/integrations', label: 'Интеграции', icon: Settings, section: 'Кабинет', access: 'owner' },
   { href: '/hub/operator/team', label: 'Команда', icon: UsersRound, section: 'Кабинет', access: 'owner' },
   { href: '/hub/operator/help', label: 'Справка', icon: HelpCircle, section: 'Кабинет', access: 'team' },
   { href: '/hub/operator/profile', label: 'Профиль', icon: User, section: 'Кабинет', access: 'owner' },
 ];
+
+/** Финансы — вместе с оплатами, не раньше 03.2027. */
+export const OPERATOR_MENU: OperatorMenuItem[] = ALL_OPERATOR_MENU.filter(
+  (i) => paymentsOpen() || i.href !== '/hub/operator/finance',
+);
 
 /** Пункт виден менеджеру с такими правами. */
 export function managerSees(item: OperatorMenuItem, perms: { can_edit_prices: boolean }): boolean {
