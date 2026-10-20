@@ -414,7 +414,8 @@ describe('экран согласия и возврат после входа', 
     // Пароль, MFA, Telegram, MAX.
     expect(src.match(/router\.push\(returnTo \?\? /g)?.length).toBe(4);
     // После регистрации — только на приглашение в команду, экран согласия OAuth не трогается.
-    expect(src).toMatch(/router\.push\(safeTeamJoinReturn\(returnTo\) \?\? ROLE_HUB\[primaryRole\]/);
+    // Полной загрузкой: router.push оставлял AuthContext гостем и страж кабинета уводил на вход (20.10).
+    expect(src).toMatch(/window\.location\.assign\(safeTeamJoinReturn\(returnTo\) \?\? ROLE_HUB\[primaryRole\]/);
   });
 
   it('экран — вне /hub, вход проверяется с живой сессией, отказ — ссылкой, запись по умолчанию выключена, адрес кода показан', () => {
