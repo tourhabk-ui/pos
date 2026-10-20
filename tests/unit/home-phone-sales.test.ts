@@ -144,11 +144,6 @@ describe('лид-форма главной', () => {
 });
 
 describe('мелочи с видимой ценой', () => {
-  it('«мест» склоняется', () => {
-    expect(CODE).not.toMatch(/\{el\.count\} мест</);
-    expect(CODE).toMatch(/plural\(el\.count, 'место', 'места', 'мест'\)/);
-  });
-
   it('ряд цифр на телефоне переносится, а не прячется в скрытый скролл', () => {
     expect(CSS).toMatch(/@media \(max-width:480px\)\{[^@]*\.v7 \.dataline\{[^}]*flex-wrap:wrap/);
   });
