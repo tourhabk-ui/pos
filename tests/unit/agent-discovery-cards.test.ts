@@ -163,7 +163,10 @@ describe('поверхности называют карточку, катало
     const json = await (await GET()).json();
     expect(json.serverCard).toMatch(/\/api\/mcp\/server-card$/);
     expect(json.aiCatalog).toMatch(/\/\.well-known\/ai-catalog\.json$/);
-    expect(json.a2a.catalogs).toEqual(A2A_CATALOGS);
+    expect(json.a2a.catalogs).toEqual(
+      A2A_CATALOGS.map(({ url: _url, ...c }) => ({ ...c, listing: 'pending_review' })),
+    );
+    expect(JSON.stringify(json)).not.toContain(A2A_CATALOGS[0].url);
   });
 
   it('llms.txt: карточка, каталог и реестр', async () => {
