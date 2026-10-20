@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { ShieldCheck, Share2, Copy, Check, Backpack, Download, ChevronRight, Loader, Send, MessageCircle, ExternalLink } from 'lucide-react';
 import { MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 import { planGpxPoints } from '@/lib/trips/plan-gpx';
+import { shareLink } from '@/lib/share';
 
 export interface TripActionsDay {
   day: number;
@@ -130,9 +131,9 @@ export function TripActions({ trip }: { trip: TripActionsTrip }) {
   async function onShare() {
     const url = await ensureShareUrl();
     if (!url) return;
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      try { await navigator.share({ title: trip.title, text: shareText, url }); } catch { /* закрыли окно */ }
-    }
+    const outcome = await shareLink({ title: trip.title, text: shareText, url });
+    if (outcome === 'copied') { setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    else if (outcome === 'unavailable') setShareError('Не удалось поделиться — скопируйте ссылку ниже');
   }
 
   async function onCopy() {
