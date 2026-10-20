@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { DEFAULT_BOT_USERNAME, envBotUsername } from '@/lib/telegram/bot-username';
 
 export interface TelegramUser {
   id:          number;
@@ -39,12 +40,19 @@ interface Props {
   onAuth: (user: TelegramUser) => void;
 }
 
+/**
+ * Имя бота для виджета: переменная сборки, если она похожа на username,
+ * иначе @kuzmichai_bot (домен vedarai.ru выставлен в BotFather 20.10).
+ * Раньше без переменной кнопка не рисовалась вовсе.
+ */
+const LOGIN_BOT = envBotUsername() ?? DEFAULT_BOT_USERNAME;
+
 export default function TelegramLoginButton({ onAuth }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
-    if (!botUsername || !ref.current) return;
+    const botUsername = LOGIN_BOT;
+    if (!ref.current) return;
 
     // Register global callback (required by TG widget)
     window.onTelegramAuth = onAuth;
@@ -67,9 +75,6 @@ export default function TelegramLoginButton({ onAuth }: Props) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // If bot username isn't configured, render nothing
-  if (!process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME) return null;
 
   return <div ref={ref} className="flex justify-center" />;
 }
