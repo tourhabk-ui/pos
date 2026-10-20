@@ -5,13 +5,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AccessDeniedCard } from '@/components/hub/AccessDeniedCard';
 import {
-  Shield, Users, FileText, DollarSign, Settings,
+  Shield, Users, FileText, Settings,
   TrendingUp, TrendingDown, Percent,
   Briefcase, Calendar, BarChart3, AlertCircle,
   ArrowUpRight, RefreshCw, AlertTriangle, UserCheck,
   Bell, Activity, MessageSquareText, CalendarDays,
   UserPlus, ShoppingCart, XCircle, Star, MapPin, BedDouble,
-  Smartphone,
+  Smartphone, RussianRuble,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -73,17 +73,25 @@ function fmtRub(value: number) {
   return new Intl.NumberFormat('ru-RU').format(value);
 }
 
+function plural(n: number, one: string, few: string, many: string) {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b === 1) return one;
+  if (b >= 2 && b <= 4) return few;
+  return many;
+}
+
 /* ═══════════════════════════════════════════
    Sub-components
    ═══════════════════════════════════════════ */
 
 function Trend({ change, trend }: { change: number; trend: string }) {
   if (trend === 'neutral' || change === 0) {
-    return <span className="text-[11px] text-[var(--text-muted)] font-mono">0.0%</span>;
+    return <span className="text-[11px] text-[var(--text-muted)] tabular-nums">0.0%</span>;
   }
   const up = trend === 'up';
   return (
-    <span className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-medium ${
+    <span className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums font-medium ${
       up ? 'text-[var(--success)]' : 'text-[var(--danger)]'
     }`}>
       {up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
@@ -93,18 +101,15 @@ function Trend({ change, trend }: { change: number; trend: string }) {
 }
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
-  { value: 7, label: '7 дней' },
-  { value: 30, label: '30 дней' },
-  { value: 90, label: '90 дней' },
+  { value: 7, label: '7 дн' },
+  { value: 30, label: '30 дн' },
+  { value: 90, label: '90 дн' },
 ];
 
 interface KpiDef {
   key: string;
   label: string;
   icon: LucideIcon;
-  color: string;
-  borderColor: string;
-  iconBg: string;
   format: (v: number) => string;
   suffix?: string;
   /** Существующий раздел админки, куда ведёт плитка (новых экранов не заводим). */
@@ -114,27 +119,22 @@ interface KpiDef {
 const KPI_DEFS: KpiDef[] = [
   {
     key: 'activeUsers', href: '/hub/admin/users', label: 'Новые пользователи', icon: Users,
-    color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
     format: fmt,
   },
   {
     key: 'totalBookings', href: '/hub/admin/bookings', label: 'Бронирования', icon: CalendarDays,
-    color: 'text-[var(--accent)]', borderColor: 'border-l-[var(--accent)]', iconBg: 'bg-[var(--accent)]/12',
     format: fmt,
   },
   {
-    key: 'totalRevenue', href: '/hub/admin/finance', label: 'Выручка', icon: DollarSign,
-    color: 'text-[var(--success)]', borderColor: 'border-l-[var(--success)]', iconBg: 'bg-[var(--success)]/12',
+    key: 'totalRevenue', href: '/hub/admin/finance', label: 'Выручка', icon: RussianRuble,
     format: fmtRub, suffix: ' \u20BD',
   },
   {
     key: 'conversionRate', href: '/hub/admin/analytics', label: 'Конверсия', icon: Percent,
-    color: 'text-[var(--warning)]', borderColor: 'border-l-[var(--warning)]', iconBg: 'bg-[var(--warning)]/12',
     format: (v) => v.toFixed(1), suffix: '%',
   },
   {
     key: 'pwaInstalls', href: '/hub/admin/analytics', label: 'Установки PWA', icon: Smartphone,
-    color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
     format: fmt,
   },
 ];
@@ -231,7 +231,7 @@ export default function AdminDashboard() {
   if (error) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <div className="max-w-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 text-center">
+        <div className="max-w-sm admin-glass rounded-2xl p-6 text-center">
           <div className="w-10 h-10 rounded-full bg-[var(--danger)]/10 flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-5 h-5 text-[var(--danger)]" />
           </div>
@@ -263,20 +263,20 @@ export default function AdminDashboard() {
     { icon: BedDouble, label: 'Отзывы жилья', href: '/hub/admin/content/accommodation-reviews', badge: 0 },
     { icon: UserCheck, label: 'Операторы', href: '/hub/admin/operators', badge: data.pendingPartners ?? 0 },
     { icon: BarChart3, label: 'Аналитика', href: '/hub/admin/analytics', badge: 0 },
-    { icon: DollarSign, label: 'Финансы', href: '/hub/admin/finance', badge: 0 },
+    { icon: RussianRuble, label: 'Финансы', href: '/hub/admin/finance', badge: 0 },
     { icon: Activity, label: 'Активность', href: '/hub/admin/activity', badge: 0 },
     { icon: Bell, label: 'Уведомления', href: '/hub/admin/notifications', badge: 0 },
     { icon: Settings, label: 'Настройки', href: '/hub/admin/settings', badge: 0 },
   ];
 
   return (
-    <div className="p-5 lg:p-6 space-y-5 max-w-[1400px]">
+    <div className="p-4 lg:p-6 space-y-4 max-w-[1400px]">
 
       {/* ─── Header ─── */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-[var(--accent)]" />
+          <div className="w-8 h-8 rounded-full admin-glass-chip flex items-center justify-center">
+            <Shield className="w-4 h-4 text-[var(--text-secondary)]" />
           </div>
           <div>
             <h1 className="text-lg font-semibold text-[var(--text-primary)] tracking-tight leading-none">
@@ -290,14 +290,14 @@ export default function AdminDashboard() {
 
         <div className="flex items-center gap-2">
           {/* Period tabs */}
-          <div className="flex bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-0.5">
+          <div className="flex admin-glass rounded-full p-0.5">
             {PERIOD_OPTIONS.map(opt => (
               <button
                 key={opt.value}
                 onClick={() => handlePeriod(opt.value)}
-                className={`px-3 py-1.5 text-[11px] font-medium rounded-md transition-all ${
+                className={`px-2.5 py-1.5 text-[11px] font-medium rounded-full whitespace-nowrap transition-colors ${
                   period === opt.value
-                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                 }`}
               >
@@ -307,7 +307,7 @@ export default function AdminDashboard() {
           </div>
           <button
             onClick={() => fetchData(period)}
-            className="p-2 text-[var(--text-muted)] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors"
+            className="p-2 text-[var(--text-muted)] admin-glass rounded-2xl hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors"
             title="Обновить"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -321,20 +321,20 @@ export default function AdminDashboard() {
           {(data.pendingTours ?? 0) > 0 && (
             <button
               onClick={() => router.push('/hub/admin/content/tours?pending=1')}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-[var(--warning)] bg-[var(--warning)]/8 border border-[var(--warning)]/15 rounded-lg hover:bg-[var(--warning)]/12 transition-colors"
+              className="admin-glass admin-glass--press flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-[var(--text-primary)] rounded-full"
             >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {data.pendingTours} туров ожидают модерации
+              <AlertTriangle className="w-3.5 h-3.5 text-[var(--warning)]" />
+              {data.pendingTours} {plural(data.pendingTours ?? 0, 'тур', 'тура', 'туров')} {(data.pendingTours ?? 0) % 10 === 1 && (data.pendingTours ?? 0) % 100 !== 11 ? 'ожидает' : 'ожидают'} модерации
               <ArrowUpRight className="w-3 h-3 opacity-60" />
             </button>
           )}
           {(data.pendingPartners ?? 0) > 0 && (
             <button
               onClick={() => router.push('/hub/admin/operators')}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-[var(--ocean)] bg-[var(--ocean)]/8 border border-[var(--ocean)]/15 rounded-lg hover:bg-[var(--ocean)]/12 transition-colors"
+              className="admin-glass admin-glass--press flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-[var(--text-primary)] rounded-full"
             >
-              <UserCheck className="w-3.5 h-3.5" />
-              {data.pendingPartners} партнёров на верификации
+              <UserCheck className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+              {data.pendingPartners} {plural(data.pendingPartners ?? 0, 'партнёр', 'партнёра', 'партнёров')} на верификации
               <ArrowUpRight className="w-3 h-3 opacity-60" />
             </button>
           )}
@@ -374,7 +374,7 @@ export default function AdminDashboard() {
       )}
 
       {/* ─── KPI Cards ─── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
         {KPI_DEFS.map((kpi) => {
           const m = metrics[kpi.key as keyof typeof metrics];
           // Метрика может отсутствовать (старый ответ API) — не роняем дашборд.
@@ -385,23 +385,23 @@ export default function AdminDashboard() {
               key={kpi.key}
               href={kpi.href}
               aria-label={`${kpi.label}: открыть раздел`}
-              className={`block bg-[var(--bg-card)] border border-[var(--border)] ${kpi.borderColor} border-l-[3px] rounded-lg px-4 py-4 relative overflow-hidden group hover:bg-[var(--bg-hover)] transition-colors`}
+              className="admin-glass admin-glass--press block no-underline rounded-2xl px-3.5 py-3 relative overflow-hidden [&:last-child:nth-child(odd)]:col-span-2 lg:[&:last-child:nth-child(odd)]:col-span-1"
             >
               {/* Icon top-right — цветная плашка на полной непрозрачности.
                   Раньше был нейтральный bg + opacity-60 с доводкой до 100% только
                   по hover: на тач-экране hover не срабатывает → значки почти не
                   видны (фидбэк владельца). Теперь тинт по цвету метрики. */}
-              <div className={`absolute top-3 right-3 w-8 h-8 rounded-lg ${kpi.iconBg} flex items-center justify-center ${kpi.color}`}>
-                <Icon className="w-4 h-4" strokeWidth={2} />
+              <div className={`absolute top-3 right-3 w-7 h-7 rounded-full admin-glass-chip flex items-center justify-center text-[var(--text-secondary)]`}>
+                <Icon className="w-3.5 h-3.5" strokeWidth={1.75} />
               </div>
 
               {/* Label */}
-              <p className="text-[10px] uppercase tracking-[0.08em] font-medium text-[var(--text-muted)] mb-2">
+              <p className="text-[11px] font-medium text-[var(--text-secondary)] mb-2 pr-8 leading-tight">
                 {kpi.label}
               </p>
 
               {/* Value */}
-              <p className="text-2xl lg:text-[28px] font-semibold text-[var(--text-primary)] font-mono leading-none tracking-tight">
+              <p className="text-[26px] lg:text-[28px] font-semibold text-[var(--text-primary)] tabular-nums leading-none tracking-tight">
                 {kpi.format(m.value)}{kpi.suffix && <span className="text-base font-normal text-[var(--text-muted)] ml-0.5">{kpi.suffix}</span>}
               </p>
 
@@ -418,13 +418,13 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
         {/* Top tours — 3 cols */}
-        <div className="lg:col-span-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
+        <div className="lg:col-span-3 admin-glass rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
               <span className="text-xs font-semibold text-[var(--text-primary)]">Популярные туры</span>
             </div>
-            <span className="text-[10px] text-[var(--text-muted)] font-mono">{data.charts.topTours.length} шт</span>
+            <span className="text-[10px] text-[var(--text-muted)] tabular-nums">{data.charts.topTours.length} шт</span>
           </div>
           {data.charts.topTours.length === 0 ? (
             <div className="px-4 py-16 text-center">
@@ -439,12 +439,12 @@ export default function AdminDashboard() {
                   <Link
                     key={tour.id}
                     href={`/hub/admin/content/tours?tour=${encodeURIComponent(tour.id)}&q=${encodeURIComponent(tour.title)}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors group"
+                    className="flex items-center gap-3 px-4 py-3 no-underline [&_*]:no-underline text-inherit hover:bg-[var(--bg-hover)] transition-colors group"
                   >
                     {/* Rank */}
-                    <span className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold font-mono shrink-0 ${
+                    <span className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold tabular-nums shrink-0 ${
                       idx === 0
-                        ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
+                        ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]'
                         : idx < 3
                           ? 'bg-[var(--bg-hover)] text-[var(--text-secondary)]'
                           : 'text-[var(--text-muted)]'
@@ -454,13 +454,13 @@ export default function AdminDashboard() {
 
                     {/* Tour info + bar */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-[var(--text-primary)] truncate mb-1.5 group-hover:text-[var(--accent)] transition-colors">
+                      <p className="text-xs font-medium text-[var(--text-primary)] truncate mb-1.5">
                         {tour.title}
                       </p>
                       {/* Inline bar */}
                       <div className="h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-[var(--accent)]/40 rounded-full transition-all duration-500"
+                          className="h-full bg-[var(--text-primary)]/35 rounded-full transition-all duration-500"
                           style={{ width: `${bookingPct}%` }}
                         />
                       </div>
@@ -470,11 +470,11 @@ export default function AdminDashboard() {
                     <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
                         <p className="text-[10px] text-[var(--text-muted)] leading-none mb-0.5">Броней</p>
-                        <p className="text-xs font-semibold text-[var(--text-primary)] font-mono">{tour.bookings}</p>
+                        <p className="text-xs font-semibold text-[var(--text-primary)] tabular-nums">{tour.bookings}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-[10px] text-[var(--text-muted)] leading-none mb-0.5">Выручка</p>
-                        <p className="text-xs font-semibold text-[var(--text-primary)] font-mono">{fmtRub(tour.revenue)} &#8381;</p>
+                        <p className="text-xs font-semibold text-[var(--text-primary)] tabular-nums">{fmtRub(tour.revenue)} &#8381;</p>
                       </div>
                     </div>
                   </Link>
@@ -485,13 +485,13 @@ export default function AdminDashboard() {
         </div>
 
         {/* Activity — 2 cols */}
-        <div className="lg:col-span-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden flex flex-col">
+        <div className="lg:col-span-2 admin-glass rounded-2xl overflow-hidden flex flex-col">
           <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Activity className="w-3.5 h-3.5 text-[var(--text-muted)]" />
               <span className="text-xs font-semibold text-[var(--text-primary)]">Лента активности</span>
             </div>
-            <span className="text-[10px] text-[var(--text-muted)] font-mono">24ч</span>
+            <span className="text-[10px] text-[var(--text-muted)] tabular-nums">24ч</span>
           </div>
           <div className="flex-1 max-h-80 overflow-y-auto">
             {data.recentActivities.length === 0 ? (
@@ -512,7 +512,7 @@ export default function AdminDashboard() {
                       {/* Content */}
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-[var(--text-primary)] leading-snug">{act.description}</p>
-                        <p className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">
+                        <p className="text-[10px] text-[var(--text-muted)] mt-1 tabular-nums">
                           {new Date(act.timestamp).toLocaleString('ru-RU', {
                             hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short',
                           })}
@@ -541,18 +541,14 @@ export default function AdminDashboard() {
               <button
                 key={s.href}
                 onClick={() => router.push(s.href)}
-                className={`relative bg-[var(--bg-card)] border rounded-lg px-3 py-3 flex flex-col items-center gap-2 text-center transition-all group ${
-                  hasBadge
-                    ? 'border-[var(--danger)]/20 hover:border-[var(--danger)]/40'
-                    : 'border-[var(--border)] hover:border-[var(--accent)]/30'
-                } hover:bg-[var(--bg-hover)]`}
+                className="admin-glass admin-glass--press relative rounded-2xl px-2 py-2.5 flex flex-col items-center gap-1.5 text-center group"
               >
-                <div className="w-8 h-8 rounded-lg bg-[var(--bg-hover)] group-hover:bg-[var(--accent)]/10 flex items-center justify-center transition-colors">
-                  <Icon className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
+                <div className="w-8 h-8 rounded-full admin-glass-chip flex items-center justify-center">
+                  <Icon className="w-4 h-4 text-[var(--text-secondary)]" />
                 </div>
                 <span className="text-[11px] text-[var(--text-secondary)] leading-tight font-medium">{s.label}</span>
                 {hasBadge && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--danger)] text-[var(--text-primary)] text-[10px] font-bold flex items-center justify-center shadow-sm">
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] text-[10px] font-bold flex items-center justify-center shadow-sm">
                     {s.badge}
                   </span>
                 )}
