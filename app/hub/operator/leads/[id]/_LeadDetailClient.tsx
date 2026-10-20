@@ -103,8 +103,8 @@ const fetcher = (url: string) => fetch(url).then(r => {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   new:              { label: 'Новый',                color: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
-  ai_processing:    { label: 'AI обрабатывает',      color: 'text-[var(--warning)] bg-[var(--warning)]/10' },
-  ai_qualified:     { label: 'AI квалифицирован',    color: 'text-[var(--success)] bg-[var(--success)]/10' },
+  ai_processing:    { label: 'В разборе',      color: 'text-[var(--warning)] bg-[var(--warning)]/10' },
+  ai_qualified:     { label: 'Разобрана',    color: 'text-[var(--success)] bg-[var(--success)]/10' },
   proposal_sent:    { label: 'Предложение отправлено',color: 'text-[var(--accent)] bg-[var(--accent)]/10' },
   awaiting_confirm: { label: 'Ждёт подтверждения',   color: 'text-[var(--warning)] bg-[var(--warning)]/10' },
   contacted:        { label: 'Контакт установлен',   color: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
@@ -138,7 +138,7 @@ function StatusBadge({ status }: { status: string }) {
 function ScoreMeter({ score }: { score: number | null }) {
   if (score === null) {
     // Честное «не оценено»: ИИ не дал оценку. Не ноль и не заглушка.
-    return <p className="text-sm text-[var(--text-muted)]">AI-оценка: не оценено</p>;
+    return <p className="text-sm text-[var(--text-muted)]">Оценка: не оценено</p>;
   }
   const color = score >= 80 ? 'bg-[var(--success)]' : score >= 50 ? 'bg-[var(--warning)]' : 'bg-[var(--danger)]';
   const textColor = score >= 80 ? 'text-[var(--success)]' : score >= 50 ? 'text-[var(--warning)]' : 'text-[var(--danger)]';
@@ -315,7 +315,7 @@ export default function LeadDetailClient({ leadId }: Props) {
         {/* Хлебные крошки */}
         <Link href="/hub/operator/leads" className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
           <ArrowLeft className="w-4 h-4" />
-          AI Lead Processor
+          Заявка с сайта
         </Link>
 
         {/* Заголовок */}
@@ -340,12 +340,12 @@ export default function LeadDetailClient({ leadId }: Props) {
               onClick={handleProcess}
               disabled={processingAI}
               className="ds-btn-primary gap-2"
-              aria-label="Запустить AI-обработку"
+              aria-label="Обработать заявку"
             >
               {processingAI ? (
                 <><RefreshCw className="w-4 h-4 animate-spin" />Обрабатываю...</>
               ) : (
-                <><Zap className="w-4 h-4" />AI-обработать</>
+                <><Zap className="w-4 h-4" />Обработать</>
               )}
             </button>
           )}
@@ -412,7 +412,7 @@ export default function LeadDetailClient({ leadId }: Props) {
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <h2 className="ds-h2 text-base flex items-center gap-2">
                 <Brain className="w-5 h-5 text-[var(--accent)]" />
-                AI-предложение
+                Предложение
               </h2>
               <div className="flex items-center gap-2">
                 {lead?.status !== 'proposal_sent' && lead?.status !== 'converted' && (
@@ -582,7 +582,7 @@ export default function LeadDetailClient({ leadId }: Props) {
             <div className="ds-card p-8 text-center flex flex-col items-center gap-3">
               <Brain className="w-10 h-10 text-[var(--text-muted)] opacity-30" />
               <p className="text-[var(--text-muted)] text-sm">
-                AI-предложение не сформировано.<br />Нажмите «AI-обработать» выше.
+                Предложение не сформировано.<br />Нажмите «Обработать» выше.
               </p>
             </div>
           ) : null
