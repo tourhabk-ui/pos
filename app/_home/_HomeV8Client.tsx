@@ -1146,6 +1146,8 @@ const CSS = `
 .v7 .hero-share:hover{background:rgba(0,0,0,.55)}
 .v7 .hb-word{font:700 24px/1 var(--font-playfair),Georgia,serif;color:rgba(255,255,255,.95)}
 .v7 .hero-sp{flex:1;min-height:28px}
+/* Телефон (владелец 20.10): плитки сразу под строкой KVERT, без пустого фото снизу. */
+@media (max-width:767px){.v7 .hero-photo{min-height:38vh;min-height:38dvh}.v7 .hero-in{padding-bottom:34px}.v7 .hero-sp{min-height:14px}.v7 .hero-fade{height:64px}}
 /* Display-типографика — главный визуальный удар макета. clamp: на 320px не
    рвёт слова, на 480px не превращается в плакат. */
 .v7 .hero-photo h1{font:600 clamp(38px,11.6vw,48px)/1.06 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 28px rgba(0,0,0,.45)}
