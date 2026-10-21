@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-21 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1303_a2a_dialogs_client.sql`.
+> Снято 2026-10-21 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1304_page_views_device.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 279 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3735 |
+| Колонок | 3736 |
 | Внешних ключей | 330 |
 | Таблиц без единого FK в обе стороны | 82 |
 
@@ -1303,9 +1303,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `user_id uuid!` `type varchar!` `title varchar!` `message text!` `data jsonb=` `is_read boolean=` `is_archived boolean=` `priority varchar=` `action_url text` `created_at timestamptz=` `read_at timestamptz` `expires_at timestamptz` `updated_at timestamptz=`
 
-**page_views** · 11 кол. · PK id · индексов 6
+**page_views** · 12 кол. · PK id · индексов 6
 
-`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=`
+`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=` `device text`
 
 **platform_settings** · 3 кол. · PK key · индексов 1
 
