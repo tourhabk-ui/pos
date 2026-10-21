@@ -17,11 +17,11 @@ export default function GlobalError({
       <head>
         <style>{`
           :root {
-            --bg-primary: #F5F0EB;
-            --text-primary: #1A1714;
-            --text-secondary: #6B6560;
-            --text-muted: #736D68;
-            --accent: #C2410A;
+            --bg-primary: #F5F5F5;
+            --text-primary: #1A1A1A;
+            --text-secondary: #595959;
+            --text-muted: #6B6B6B;
+            --accent: #006CE4;
           }
         `}</style>
       </head>
