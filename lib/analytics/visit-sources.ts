@@ -12,6 +12,7 @@
  * — только класс (mobile / tablet / desktop) из UA, сам UA не хранится.
  */
 import { pool } from '@/lib/db-pool';
+import { isOwnReferrer } from '@/lib/analytics/bot-detect';
 import { WINDOW_SQL, windowParams, measure, type FunnelWindow, type FunnelExecutor } from '@/lib/analytics/funnel-window';
 
 export type Device = 'mobile' | 'tablet' | 'desktop';
@@ -37,7 +38,6 @@ export const SOURCE_GROUP_LABEL: Record<SourceGroup, string> = {
   other: 'Другие сайты',
 };
 
-const OWN = ['vedarai.ru', 'tourhab.ru', 'tourhabk.ru', 'localhost'];
 const SEARCH = ['yandex.', 'ya.ru', 'google.', 'bing.com', 'duckduckgo.com', 'mail.ru', 'rambler.ru', 'yahoo.', 'ecosia.org', 'baidu.com'];
 const AI = ['chatgpt.com', 'chat.openai.com', 'openai.com', 'perplexity.ai', 'claude.ai', 'gemini.google.com', 'bard.google.com',
   'copilot.microsoft.com', 'chat.deepseek.com', 'deepseek.com', 'alice.yandex.ru', 'giga.chat', 'gigachat', 'grok.com',
@@ -57,7 +57,8 @@ const hit = (host: string, list: string[]) =>
 /** Группа источника по хосту реферера. ИИ проверяется раньше поиска: gemini.google.com — не поиск. */
 export function sourceGroup(host: string | null): SourceGroup {
   if (!host) return 'direct';
-  if (OWN.some((d) => host === d || host.endsWith(`.${d}`))) return 'internal';
+  // Свои домены — тот же список, что у счётчика переходов (bot-detect).
+  if (isOwnReferrer(`https://${host}/`)) return 'internal';
   if (hit(host, AI)) return 'ai';
   if (hit(host, MESSENGER)) return 'messenger';
   if (hit(host, SEARCH)) return 'search';
