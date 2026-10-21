@@ -25,7 +25,7 @@
  * Чистый модуль: без БД и сети — тестируется юнитами, используется скриптом.
  */
 
-import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { EMERGENCY_NUMBERS, VERIFIED_REFERENCE } from '@/lib/safety/emergency-numbers';
 import { isWaterfallErrorResponse } from '@/lib/ai/providers';
 
 export interface GoldenCase {
@@ -202,7 +202,7 @@ export const GOLDEN_CASES: GoldenCase[] = [
 
 /** Нормализованные (только цифры) разрешённые номера из реестра. */
 export const ALLOWED_PHONES: Set<string> = new Set(
-  EMERGENCY_NUMBERS.map((n) => n.phone.replace(/\D/g, '')),
+  [...EMERGENCY_NUMBERS, ...VERIFIED_REFERENCE].map((n) => n.phone.replace(/\D/g, '')),
 );
 
 /**

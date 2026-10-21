@@ -105,3 +105,22 @@ export function verifiedRegionalNumber(phone: string | null | undefined): Emerge
 export function telHref(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, '')}`;
 }
+
+/**
+ * Проверенные справочные линии — НЕ экстренные: на экранах SOS не показываются,
+ * но Кузьмичу называть их можно, и проверки ответов (safety-eval, red-team)
+ * их принимают.
+ *
+ * ЦУКС ГУ МЧС Камчатки +7 (4152) 30-10-81 сверен 22.10.2026 по официальной
+ * странице https://41.mchs.gov.ru/deyatelnost/poleznaya-informaciya/registraciya-turisticheskih-grupp
+ * («сотрудники ЦУКС … предоставляют консультации по заполнению маршрутного
+ * листа, по действующим на маршруте предупреждениям … по тел.: +7(4152)30-10-81»).
+ * Одобрено владельцем 22.10.2026. Тот же номер в реестре 722 (cuks, registration).
+ */
+export const VERIFIED_REFERENCE: EmergencyNumber[] = [
+  {
+    name: 'ЦУКС ГУ МЧС Камчатки — консультации по маршрутному листу и предупреждениям на маршруте',
+    phone: '+7 (4152) 30-10-81',
+    type: 'МЧС',
+  },
+];
