@@ -61,6 +61,7 @@ export default function TelegramLoginButton({ onAuth }: Props) {
       size: 'large',
       radius: '8',
       request_access: 'write',
+      lang: 'ru',
     });
     setSrc(`${WIDGET_ORIGIN}/embed/${LOGIN_BOT}?${q.toString()}`);
 
