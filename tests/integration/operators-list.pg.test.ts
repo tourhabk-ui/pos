@@ -290,7 +290,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       const btn = await leadJsButton('mestechko');
       expect(btn.status).toBe(200);
       expect(btn.text).toBe('Заявка на тур');
-      expect(btn.accent).toBe('#C2410A');
+      expect(btn.accent).toBe('#006CE4');
     });
 
     it('/api/widget/partner/mestechko отдаёт форме вступление, а не приветствие чата', async () => {
@@ -301,7 +301,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       const body = await res.json() as { data: { formIntro: string; greeting: string; accentColor: string } };
       expect(body.data.formIntro).toContain('«Местечко Камчатка» свяжется с вами');
       expect(body.data.formIntro).not.toBe(body.data.greeting);
-      expect(body.data.accentColor).toBe('#C2410A');
+      expect(body.data.accentColor).toBe('#006CE4');
     });
 
     it('1280 не перетирает выбор партнёра и повтор ничего не меняет', async () => {
@@ -348,7 +348,7 @@ withPg('витрина /operators: факты о живых турах, кноп
         const btn = await leadJsButton(slug);
         expect(btn.status).toBe(200);
         expect(btn.text).toBe('Заявка на тур');
-        expect(btn.accent).toBe('#C2410A');
+        expect(btn.accent).toBe('#006CE4');
       }
     });
 
