@@ -34,6 +34,7 @@ const STATE_COLUMN: Readonly<Record<string, string>> = {
   transfer_seat_bookings: 'status',
   leads: 'status',
   agent_clients: 'status',
+  tour_seat_requests: 'status',
 };
 
 type Known =

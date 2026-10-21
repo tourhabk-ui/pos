@@ -53,6 +53,47 @@ import {
 } from '@/lib/seat-requests/core';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { notifyTeam } from '@/lib/operators/team-notify';
+import { recordJournalEventQuietly, type ActorKind, type EventKind } from '@/lib/crm/events';
+
+const SEAT_STATUS_WORD: Record<SeatRequestStatus, string> = {
+  pending: 'ждёт ответа', confirmed: 'места есть', declined: 'мест нет',
+  other_date: 'предложена другая дата', expired: 'оператор не ответил', failed: 'не доведён',
+};
+
+/**
+ * Событие запроса в журнал партнёра (crm_events, 1306; пилот «Камчатская
+ * рыбалка» 22.10). Клиентом запрос не становится — до «Есть места» оператор
+ * туриста не знает, поэтому без контакта. Payload — без имени и телефона.
+ * Никогда не роняет запрос.
+ */
+async function seatJournal(
+  requestId: string,
+  operatorId: string | null | undefined,
+  kind: EventKind,
+  actorKind: ActorKind,
+  title: string,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  let partnerId = operatorId ?? null;
+  if (!partnerId) {
+    try {
+      partnerId = (await pool.query<{ operator_id: string }>(
+        `SELECT operator_id FROM tour_seat_requests WHERE id = $1::uuid`, [requestId],
+      ))?.rows?.[0]?.operator_id ?? null;
+    } catch (err) { logFail(`оператор запроса ${requestId} для журнала не прочитан`, err); }
+  }
+  if (!partnerId) return;
+  await recordJournalEventQuietly({ partnerId, sourceKind: 'seat_request', sourceId: requestId, kind, actorKind, title, payload });
+}
+
+function seatStatusEvent(
+  requestId: string, operatorId: string | null | undefined,
+  from: SeatRequestStatus | null, to: SeatRequestStatus, actorKind: ActorKind,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  const title = `Запрос мест: ${from ? `${SEAT_STATUS_WORD[from]} → ` : ''}${SEAT_STATUS_WORD[to]}`;
+  return seatJournal(requestId, operatorId, 'status_change', actorKind, title, { from, to, ...payload });
+}
 
 // ── Потолки ───────────────────────────────────────────────────────────────
 // Публичная запись без аккаунта: без потолков один скрипт заваливал бы
@@ -205,13 +246,15 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     // уникальный индекс держит любую строку 'pending' независимо от срока, а
     // уборщик приходит раз в полчаса. Без этого турист, которому страница уже
     // сказала «отправьте ещё раз», получал бы ложное «уже отправлен».
-    await pool.query(
+    const staleExpired = await pool.query<{ id: string }>(
       `UPDATE tour_seat_requests
           SET status = 'expired', updated_at = NOW()
         WHERE tour_id = $1 AND tour_date = $2::date AND tourist_phone = $3
-          AND status = 'pending' AND answered_at IS NULL AND deadline_at <= NOW()`,
+          AND status = 'pending' AND answered_at IS NULL AND deadline_at <= NOW()
+        RETURNING id`,
       [input.tourId, input.date, phone],
     );
+    for (const row of staleExpired?.rows ?? []) await seatStatusEvent(row.id, tour.operator_id, 'pending', 'expired', 'system');
 
     const { rows: [dup] } = await pool.query<{ status: SeatRequestStatus }>(
       `SELECT r.status
@@ -270,6 +313,10 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     return { ok: false, reason: 'check_failed' };
   }
 
+  await seatStatusEvent(requestId, tour.operator_id, null, 'pending', input.source === 'mcp' ? 'mcp' : 'tourist', {
+    tour_date: input.date, participants: input.participants, source: input.source ?? 'planner',
+  });
+
   const answerUrl = operatorAnswerUrl(requestId);
   const what = `«${escapeHtml(tour.title)}», ${input.date}, ${input.participants} чел.`;
   const deadlineLocal = deadlineAt.toLocaleTimeString('ru-RU', { timeZone: 'Asia/Kamchatka', hour: '2-digit', minute: '2-digit' });
@@ -307,6 +354,12 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
       [requestId, delivery.channel, failed, `запрос не доставлен оператору: ${delivery.reason}`],
     );
   } catch (err) { logFail('исход доставки оператору не записан', err); }
+
+  await (failed
+    ? seatStatusEvent(requestId, tour.operator_id, 'pending', 'failed', 'system', { failure_kind: 'delivery', channel: delivery.channel })
+    : seatJournal(requestId, tour.operator_id, 'change', 'system',
+        delivery.channel === 'max' ? 'Запрос мест отправлен оператору в MAX' : 'Запрос мест отправлен оператору в Telegram (без контактов)',
+        { channel: delivery.channel }));
 
   if (failed) {
     console.error(`[seat-requests] запрос ${requestId} не доставлен оператору: ${delivery.reason}`);
@@ -535,6 +588,10 @@ export async function answerSeatRequest(
       // исход уже записан им, второй раз не пишем и не уведомляем.
       return { ok: false, reason: 'already_answered', status: finalStatus };
     }
+    await seatStatusEvent(claimed.id, claimed.operator_id, 'pending', finalStatus, 'partner_user', {
+      via, ...(altDate ? { alt_date: altDate } : {}), ...(failureKind ? { failure_kind: failureKind } : {}),
+      ...(bookingId ? { booking_id: String(bookingId) } : {}),
+    });
   } catch (err) {
     logFail(`исход запроса ${claimed.id} не записан`, err);
     // Ответ принят, бронь могла завестись. Оператору нельзя говорить «нажмите
@@ -618,6 +675,9 @@ export async function notifyTourist(
   try {
     await pool.query(`UPDATE tour_seat_requests SET tourist_notified_at = NOW() WHERE id = $1::uuid`, [row.id]);
   } catch (err) { logFail('отметка об уведомлении туриста не записана', err); }
+  await seatJournal(row.id, null, 'change', 'system',
+    row.reply_channel === 'max' ? 'Ответ отправлен туристу в MAX' : 'Ответ отправлен туристу в Telegram',
+    { channel: row.reply_channel, status });
   return 'sent';
 }
 
@@ -782,6 +842,7 @@ export async function recoverUnfinished(): Promise<{ recovered: number; failed: 
         [r.id, status, b?.id ?? null, kind, reason, tokenEnc],
       );
       if ((upd.rowCount ?? 0) === 0) continue;
+      await seatStatusEvent(r.id, r.operator_id, 'pending', status, 'system', { recovered: true, ...(kind ? { failure_kind: kind } : {}) });
       if (status === 'confirmed') {
         recovered++;
         // Уведомление оператору могло не успеть уйти; дубль безвреден, тишина — нет.
@@ -814,6 +875,7 @@ export async function expireOverdue(): Promise<{
       WHERE status = 'pending' AND answered_at IS NULL AND deadline_at <= NOW()
       RETURNING id`,
   );
+  for (const r of expired ?? []) await seatStatusEvent(r.id, null, 'pending', 'expired', 'system');
   const rec = await recoverUnfinished();
 
   const { rows: unnotified } = await pool.query<{ id: string }>(
