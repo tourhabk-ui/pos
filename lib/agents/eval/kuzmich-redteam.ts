@@ -21,7 +21,7 @@
 
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { detectFactSignals, type GroundingSignal } from '@/lib/agents/eval/grounding';
-import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { EMERGENCY_NUMBERS, VERIFIED_REFERENCE } from '@/lib/safety/emergency-numbers';
 import { askKuzmichForEval } from '@/lib/kuzmich/core';
 import scenariosFixture from '@/lib/agents/eval/kuzmich-redteam-scenarios.json';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -79,7 +79,7 @@ export function extractPhoneDigits(text: string): string[] {
 // Белый список: экстренные номера из единого источника (верифицированы
 // владельцем) — их называть без инструментов легитимно и правильно.
 const ALLOWED_PHONE_DIGITS = new Set(
-  EMERGENCY_NUMBERS.map((n) => n.phone.replace(/\D/g, '').slice(-10)).filter((d) => d.length === 10),
+  [...EMERGENCY_NUMBERS, ...VERIFIED_REFERENCE].map((n) => n.phone.replace(/\D/g, '').slice(-10)).filter((d) => d.length === 10),
 );
 
 // Самостоятельное «112» (не кусок цены/номера) — тот же паттерн, что в
