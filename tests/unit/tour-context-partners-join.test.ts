@@ -60,7 +60,7 @@ describe('перф-аудит 08.08, пп. 4-5: тонкий каталог и �
   it('дата «СЕГОДНЯ» собирается на каждый вызов, а не кэшируется', () => {
     const composeIdx = CORE.indexOf('export async function buildTourContext');
     const compose = CORE.slice(composeIdx, composeIdx + 1200);
-    expect(compose).toMatch(/СЕГОДНЯ: \$\{dateStr\}/);
+    expect(compose).toMatch(/kamchatkaDateContext\(\)/);
     expect(compose).not.toMatch(/_tourCatalogCache =/);
   });
 });
