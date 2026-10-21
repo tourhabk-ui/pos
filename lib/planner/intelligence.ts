@@ -341,7 +341,9 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
   let result: ForecastResult;
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code,precipitation_probability_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m,apparent_temperature,relative_humidity_2m,wind_direction_10m,wind_gusts_10m,weather_code,cloud_cover,visibility,pressure_msl,precipitation_probability,uv_index&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,is_day&forecast_days=${horizon}&timezone=Asia/Kamchatka&models=${BASE_MODEL},${PRECIP_MODEL}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    // 12 с (было 8): 21.10 с прода Open-Meteo отвечал дольше 8 с, и вся погода
+    // падала в «Прогноз не получили» (страница, «Обстановка», Кузьмич).
+    const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       result = { ok: false, reason: openMeteoFailureReason(res.status, body.slice(0, 2000)) };
