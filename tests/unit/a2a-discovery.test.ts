@@ -95,12 +95,11 @@ describe('одно исполнение на MCP и A2A', () => {
     }
   });
 
-  it('ответ Кузьмича агенту проходит те же страховки, что в веб-чате: сверка утверждений о безопасности и блок 112', () => {
+  it('ответ Кузьмича агенту — тем же мозгом, что у туриста', () => {
     const chat = read('lib/a2a/chat.ts');
     expect(chat).toMatch(/aiChatAgentLoop\(/);
     expect(chat).toMatch(/KUZMICH_SYSTEM \+ A2A_AGENT_NOTE/);
-    expect(chat).toMatch(/guardSafetyClaims\(answer, toolRuns\)/);
-    expect(chat).toMatch(/withSosBlock\(/);
-    expect(chat).toMatch(/recordSafetyReview\('other'/);
+    // Страховки ответа (километраж, безопасность, доставка, 112) судятся
+    // вызовом: tests/unit/kuzmich-guards-all-surfaces.test.ts (аудит 1.14).
   });
 });

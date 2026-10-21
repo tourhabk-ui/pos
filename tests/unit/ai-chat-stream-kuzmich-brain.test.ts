@@ -29,7 +29,8 @@ vi.mock('@/lib/rate-limit', () => ({
   createRateLimiter: () => ({ check: () => true }),
   getClientIp: () => '10.0.0.1',
 }));
-vi.mock('@/lib/auth/jwt', () => ({ getUserFromRequest: vi.fn().mockResolvedValue(null) }));
+const getUserMock = vi.fn().mockResolvedValue(null);
+vi.mock('@/lib/auth/jwt', () => ({ getUserFromRequest: (...a: unknown[]) => getUserMock(...a) }));
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => 'test-model' }));
 const callAIWithModelDirectMock = vi.fn().mockResolvedValue('LEGACY_ANSWER');
 vi.mock('@/lib/ai/providers', () => ({
@@ -75,6 +76,7 @@ async function readSSE(res: Response): Promise<Array<{ type: string; content?: s
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getUserMock.mockResolvedValue(null);
   queryMock.mockResolvedValue({ rows: [] });
   callAIWithModelDirectMock.mockResolvedValue('LEGACY_ANSWER');
 });
@@ -119,5 +121,47 @@ describe('POST /api/ai/chat-stream — мозг Кузьмича', () => {
     expect(aiChatAgentLoopMock).not.toHaveBeenCalled();
     const end = events.find(e => e.type === 'end');
     expect(end?.finalResponse).toBe('LEGACY_ANSWER');
+  });
+});
+
+/**
+ * Чужая сессия в стриме (аудит 15.10, 1.14 — найдено при сведении выходов).
+ * /api/ai/chat чужую сессию не читал и не писал, стрим — читал и писал: зная
+ * id сессии другого аккаунта, можно было получить его переписку в контекст
+ * ответа и затереть её своей. Правило то же, что у сайта.
+ */
+describe('POST /api/ai/chat-stream — чужая сессия', () => {
+  const OWNER = 'user-owner';
+  function sessionOf(userId: string | null) {
+    queryMock.mockImplementation(async (sql: string) => (/FROM chat_sessions/.test(sql)
+      ? { rows: [{ messages: [{ role: 'user', content: 'ЧУЖАЯ ПЕРЕПИСКА: мой маршрут и даты' }], user_message_count: 1, interests_encrypted: null, user_id: userId }] }
+      : { rows: [] }));
+  }
+  const historySent = () => JSON.stringify(aiChatAgentLoopMock.mock.calls[0]?.[2] ?? []);
+  const savedSession = () => queryMock.mock.calls.some(([sql]) => /INSERT INTO chat_sessions/.test(String(sql)));
+
+  it('сессия чужого аккаунта: переписка не уходит в модель, сессия не перезаписывается', async () => {
+    sessionOf(OWNER);
+    aiChatAgentLoopMock.mockResolvedValue('Ответ');
+    await readSSE(await POST(postReq({ message: 'Что там у меня?', sessionId: 'sess-owner' })));
+    expect(historySent()).not.toContain('ЧУЖАЯ ПЕРЕПИСКА');
+    expect(savedSession()).toBe(false);
+  });
+
+  it('своя сессия: переписка в контексте, сессия сохраняется', async () => {
+    sessionOf(OWNER);
+    getUserMock.mockResolvedValue({ userId: OWNER, role: 'tourist' });
+    aiChatAgentLoopMock.mockResolvedValue('Ответ');
+    await readSSE(await POST(postReq({ message: 'Что там у меня?', sessionId: 'sess-owner' })));
+    expect(historySent()).toContain('ЧУЖАЯ ПЕРЕПИСКА');
+    expect(savedSession()).toBe(true);
+  });
+
+  it('анонимная сессия (без аккаунта) остаётся общей для того, кто знает id', async () => {
+    sessionOf(null);
+    aiChatAgentLoopMock.mockResolvedValue('Ответ');
+    await readSSE(await POST(postReq({ message: 'Продолжим', sessionId: 'sess-anon' })));
+    expect(historySent()).toContain('ЧУЖАЯ ПЕРЕПИСКА');
+    expect(savedSession()).toBe(true);
   });
 });

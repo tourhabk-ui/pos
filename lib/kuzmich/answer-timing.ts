@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { KUZMICH_ANSWER_ACTION, KUZMICH_ANSWER_CEILING_MS } from '@/lib/kuzmich/answer-ceiling';
 
 /** Где прозвучал ответ. */
-export type AnswerSurface = 'web' | 'telegram' | 'max' | 'widget' | 'other';
+export type AnswerSurface = 'web' | 'web-stream' | 'telegram' | 'max' | 'widget' | 'a2a' | 'other';
 
 /**
  * Каким путём произведён ответ: цикл инструментов, запасной водопад после

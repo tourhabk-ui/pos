@@ -41,7 +41,7 @@ export function buildExecutors(request: NextRequest): A2AExecutors {
       // запросов, а его текст дал бы спамеру писать в базу без предела.
       if (!chatLimiter.check(`a2a-chat:${ip}`)) return { ok: false, text: CHAT_RATE_LIMITED_TEXT, rejected: true };
       const startedAt = Date.now();
-      const answer = await answerAgentMessage(text, history);
+      const answer = await answerAgentMessage(text, history, { conversationKey: contextId ?? null, self });
       // Журнал общения (решение владельца 13.10): что спросили и что ответили,
       // после redactPII и на 90 суток — lib/a2a/dialog-log.
       logA2aDialog({

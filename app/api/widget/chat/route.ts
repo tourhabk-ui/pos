@@ -11,11 +11,12 @@
  *    (телефон, согласие, operator_id партнёра), её открывает кнопка
  *    «Оставить заявку» в окне чата. Записанные до 15.10 псевдолиды исключены
  *    из добивки и счёта сторожа — lib/leads/widget-chat-pseudo.
- * 2. Безопасность — та же дверь, что у веб-Кузьмича и A2A: ответ модели
- *    сверяется со сводкой платформы (`guardSafetyClaims`), слова о доставке —
- *    с тем, что отправлять было нечем (`guardDeliveryClaims`), а при признаках
- *    ЧП в вопросе сервер ставит блок 112 (`withSosBlock`) — в том числе к
- *    отказу модели.
+ * 2. Безопасность — та же дверь, что у Кузьмича на всех поверхностях
+ *    (`finishKuzmichAnswer`, lib/kuzmich/answer-guards): километраж «от
+ *    Петропавловска» сверяется с данными хода, утверждения о безопасности —
+ *    со сводкой платформы, слова о доставке — с тем, что отправлять было
+ *    нечем, а при признаках ЧП в вопросе сервер ставит блок 112 — в том числе
+ *    к отказу модели (`withSosBlock`).
  * 3. Туры — только туры этого партнёра (lib/embed/widget-chat): виджет стоит
  *    на его сайте, это его витрина (§0).
  * 4. Модель — водопадом (`callAIWaterfallOrNull`, CLAUDE.md §4). Прежде первой
@@ -42,9 +43,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { buildRAGContext } from '@/lib/ai/rag-context';
 import { getCurrentSafetyStatus, formatSafetyStatusForAgent } from '@/lib/safety/current-status';
-import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
-import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
-import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { getPublicBaseUrl } from '@/lib/config';
 import { logText } from '@/lib/log/log-text';
@@ -216,13 +215,15 @@ export async function POST(request: NextRequest) {
       { name: 'safety_status', producedData: safetyStatus !== null, output: safetyText },
     ];
 
+    // Данные хода: туры партнёра, сводка, маршруты. Ими же сверяется
+    // километраж в ответе (аудит 15.10, 1.14).
+    const widgetContext = partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
+      + safetyBlock(safetyText)
+      + routesCtx;
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildWidgetSystemPrompt(partner, lang)
-          + partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
-          + safetyBlock(safetyText)
-          + routesCtx,
+        content: buildWidgetSystemPrompt(partner, lang) + widgetContext,
       },
       { role: 'user', content: widgetUserContent(history, message) },
     ];
@@ -233,30 +234,26 @@ export async function POST(request: NextRequest) {
     const answerStartedAt = Date.now();
     const modelAnswer = await callAIWaterfallOrNull(messages);
     const modelFailed = modelAnswer === null || !modelAnswer.trim();
-    let answer: string;
+    // Один выход ответа (аудит 15.10, 1.14): расстояния → безопасность →
+    // доставка → блок 112, как у Кузьмича на всех поверхностях. Блок 112 — и
+    // к ответу, и к отказу модели: человеку в беде он нужнее всего именно
+    // тогда, когда помощник не ответил. На языке окна: русский блок
+    // китайскому туристу в беде не поможет (WID-lang).
+    let sos: { text: string; emergency: boolean };
     if (modelFailed) {
       console.error('[widget-chat] ни одна модель не ответила', { partner: partnerId });
-      answer = t.chatFailed;
+      sos = withSosBlock(t.chatFailed, message, lang);
     } else {
-      const guard = guardSafetyClaims(modelAnswer, toolRuns);
-      if (guard.flagged.length > 0) {
-        console.error('[kuzmich-safety-claim-guard] widget: утверждение о безопасности без опоры', {
-          verdict: guard.verdict, flagged: guard.flagged.map((c) => c.phrase),
-        });
-      }
-      void recordSafetyReview('other', guard, toolRuns);
-      const delivery = guardDeliveryClaims(guard.text, toolRuns);
-      if (delivery.verdict === 'unbacked') {
-        console.error('[kuzmich-delivery-claim-guard] widget: отчёт о доставке без инструмента заявки', {
-          phrases: delivery.phrases,
-        });
-      }
-      answer = delivery.text;
+      const finished = finishKuzmichAnswer({
+        surface: 'widget',
+        answer: modelAnswer,
+        question: message,
+        toolRuns,
+        context: widgetContext,
+        lang,
+      });
+      sos = { text: finished.text, emergency: finished.emergency };
     }
-    // Блок 112 — и к ответу, и к отказу модели: человеку в беде он нужнее
-    // всего именно тогда, когда помощник не ответил. На языке окна: русский
-    // блок китайскому туристу в беде не поможет (WID-lang).
-    const sos = withSosBlock(answer, message, lang);
 
     void recordKuzmichAnswer({
       surface: 'widget',

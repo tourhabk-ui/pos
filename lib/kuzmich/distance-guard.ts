@@ -54,7 +54,8 @@ const CITY_REF_RE = /петропавловск|от\s+города(?![а-яё])
 // Продолжение claim'а: способ добраться, а не новая самостоятельная тема.
 const ROUTE_ELABORATION_RE = /час[а-яё]*\s+на\s+машине|минут[а-яё]*\s+на\s+машине|на\s+машине(?![а-яё])|через\s+[А-ЯЁ][а-яё]+|грунтов[а-яё]*/i;
 
-const HONEST_FALLBACK =
+/** Строка вместо вырезанного километража; она же — поправка к уже отданному стриму. */
+export const DISTANCE_HONEST_LINE =
   'Точных данных о расстоянии и дороге сюда у меня нет — уточни у оператора или посмотри на карте.';
 
 function escapeForRegex(s: string): string {
@@ -119,7 +120,7 @@ export function stripUngroundedDistanceClaims(answer: string, context: string): 
     for (let i = 0; i < sentences.length; i++) {
       if (flagged.has(i)) {
         if (!inserted) {
-          kept.push(HONEST_FALLBACK);
+          kept.push(DISTANCE_HONEST_LINE);
           inserted = true;
         }
         continue;

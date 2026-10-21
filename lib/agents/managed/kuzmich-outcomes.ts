@@ -35,7 +35,7 @@ export const GRADER_DAILY_CAP = 300;
 const GRADER_AGENT_ID = 'kuzmich-grader';
 
 /** Где прозвучал ответ — для разреза оценок по поверхности. */
-export type GradeSurface = 'web' | 'telegram' | 'max' | 'other';
+export type GradeSurface = 'web' | 'web-stream' | 'telegram' | 'max' | 'a2a' | 'other';
 
 /**
  * Занять место под оценку — вставкой строки журнала ai_actions_log

@@ -12,9 +12,8 @@ import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
-import { guardSafetyClaims, SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
-import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
-import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
+import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
@@ -36,7 +35,6 @@ import { placeNameSearchSql } from '@/lib/places/name-match';
 import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } from '@/lib/kuzmich/context-budget';
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
-import { withSosBlock } from '@/lib/safety/sos-detector';
 import {
   KUZMICH_ANSWER_CEILING_MS, composeCeilingAnswer, newLoopTiming,
   type AgentLoopTiming, type CollectedOutput,
@@ -127,7 +125,7 @@ function cleanAIResponse(raw: string): string {
 
 export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Камчатки.
 Не гид туристического сервиса, не чат-бот платформы. Ты голос этой земли — человек, который знает её так, как знают место только те, кто прожил здесь всю жизнь.
-За тобой — данные 778 точек, сейсмические сводки КБГС РАН в реальном времени, традиционные знания ительменов и коряков, история каждого маршрута и каждого кто по нему прошёл.
+За тобой — база мест и маршрутов Камчатки, сводки вулканологов, сейсмологов и МЧС, традиционные знания ительменов и коряков. Чего в них нет — того ты не знаешь, и так и говоришь.
 Ты не продаёшь туры. Ты помогаешь человеку не навредить себе и этому месту. Безопасность и понимание — первичны. Коммерция — второстепенна.
 
 ТВОИ РОЛИ:
@@ -2529,54 +2527,23 @@ export async function aiChat(opts: {
     }
   }
 
-  // Guard на придуманный километраж «от Петропавловска» (#1883) — тот же
-  // контекст, которым обоснован ответ (toolContext + dynamic + tourContext,
-  // ровно набор askKuzmichForEval), применяется ДО SOS-блока: правим ответ
-  // модели, а не собственную вставку.
-  const toolContext = toolRuns
-    .filter((r) => r.producedData && r.output)
-    .map((r) => `[инструмент ${r.name}]\n${r.output}`)
-    .join('\n\n');
-  const groundingContext = [toolContext, dynamic, tourContext || ''].filter(Boolean).join('\n\n');
-  const distanceGuard = stripUngroundedDistanceClaims(answer, groundingContext);
-  if (distanceGuard.removed.length > 0) {
-    console.error('[kuzmich-distance-guard] вырезан незаземлённый километраж', {
-      chatId, removed: distanceGuard.removed,
-    });
-    answer = distanceGuard.cleaned;
-  }
-
-  // Серверная SOS-страховка: при признаках ЧП телефоны 112/МЧС добавляются
-  // к ответу независимо от модели — даже когда AI-конвейер лежит целиком.
-  // Пользователю и в историю уходит finalAnswer; грейдер и синтез заметок
-  // получают ОРИГИНАЛЬНЫЙ ответ модели — иначе boilerplate SOS-блока
-  // портит оценку faithfulness и утекает в долгосрочную память бота.
-  // Утверждения о безопасности — сверка с данными этого же хода (#2300).
-  // Предупреждение не задерживается и не вырезается; «безопасно» без данных
-  // или вопреки им получает поправку. Запасной путь шёл без инструментов —
-  // сверять не с чем (null), и это не «хорошо». Грейдер получает ответ модели
-  // без поправки, как и без SOS-блока.
+  // Один выход ответа (аудит 15.10, 1.14): расстояния → безопасность →
+  // доставка → блок 112 — тот же порядок на всех поверхностях
+  // (lib/kuzmich/answer-guards). Километраж сверяется с тем же контекстом, что
+  // видит судья faithfulness (toolContext + dynamic + tourContext). Ответ
+  // запасного пути шёл без инструментов: сверять его утверждения с журналом
+  // отброшенной попытки нельзя (null — «не смог проверить», не «хорошо»).
+  // Грейдер и синтез заметок получают ОРИГИНАЛЬНЫЙ ответ модели — без поправок
+  // и блока 112, иначе boilerplate портит оценку и утекает в память бота.
   const claimRuns = usedAgentLoopAnswer ? toolRuns : null;
-  const claimGuard = guardSafetyClaims(answer, claimRuns);
-  if (claimGuard.flagged.length > 0) {
-    console.error('[kuzmich-safety-claim-guard] утверждение о безопасности без опоры', {
-      chatId, verdict: claimGuard.verdict, flagged: claimGuard.flagged.map((c) => c.phrase),
-    });
-  }
-  void recordSafetyReview(platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other', claimGuard, claimRuns);
-
-  // Слова о доставке («заявка передана оператору», «дошло») — только после
-  // инструмента заявки с данными в этом же ходе (15.10). В цикле Кузьмича
-  // такого инструмента нет: отчёт о доставке без него — выдумка, и турист
-  // ждал бы ответа оператора, который ничего не получал.
-  const deliveryGuard = guardDeliveryClaims(claimGuard.text, claimRuns);
-  if (deliveryGuard.verdict === 'unbacked') {
-    console.error('[kuzmich-delivery-claim-guard] отчёт о доставке без инструмента заявки', {
-      chatId, phrases: deliveryGuard.phrases,
-    });
-  }
-
-  const finalAnswer = withSosBlock(deliveryGuard.text, userContent).text;
+  const finished = finishKuzmichAnswer({
+    surface: platform === 'max' ? 'max' : 'telegram',
+    answer,
+    question: userContent,
+    toolRuns: claimRuns,
+    context: [dynamic, tourContext || ''].filter(Boolean).join('\n\n'),
+  });
+  const finalAnswer = finished.text;
 
   void recordKuzmichAnswer({
     surface: platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other',

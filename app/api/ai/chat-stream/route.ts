@@ -40,9 +40,12 @@ import {
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
-import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
-import { guardDeliveryClaims, DELIVERY_HONEST_LINE } from '@/lib/kuzmich/delivery-claim-guard';
-import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
+import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
+import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
+import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
+import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
 import { openRouterAttribution } from '@/lib/ai/attribution';
@@ -77,13 +80,24 @@ interface SessionRow {
   messages: ChatMessage[];
   user_message_count: number;
   interests_encrypted: string | null;
+  user_id: string | null;
+}
+
+/**
+ * Сессия ЧУЖАЯ, если за ней закреплён аккаунт, а спрашивает не он — то же
+ * правило, что в /api/ai/chat. Стрим его не применял: зная id чужой сессии,
+ * можно было получить её переписку в контекст ответа и затереть её своей
+ * (аудит 15.10, 1.14 — найдено при сведении выходов Кузьмича).
+ */
+function isForeignSession(session: SessionRow | null, requesterId: string | null): boolean {
+  return !!session && session.user_id !== null && session.user_id !== requesterId;
 }
 
 async function loadSession(sessionId: string): Promise<SessionRow | null> {
   if (!sessionId) return null;
   try {
     const result = await query<SessionRow>(
-      `SELECT messages, user_message_count, interests_encrypted
+      `SELECT messages, user_message_count, interests_encrypted, user_id
        FROM chat_sessions WHERE session_id = $1 LIMIT 1`,
       [sessionId],
     );
@@ -175,7 +189,11 @@ export async function POST(request: NextRequest) {
     const user = await getUserFromRequest(request);
     const isAuthenticated = !!user;
 
-    const session = sessionId ? await loadSession(sessionId) : null;
+    const loaded = sessionId ? await loadSession(sessionId) : null;
+    // Чужую сессию не читаем и не перезаписываем (см. isForeignSession).
+    const foreign = isForeignSession(loaded, user?.userId ?? null);
+    const session = foreign ? null : loaded;
+    const storableSessionId = foreign ? null : (sessionId ?? null);
     const history: ChatMessage[] = (session?.messages?.length ? session.messages : null)
       ?? (clientHistory as ChatMessage[] | undefined)
       ?? [];
@@ -259,9 +277,9 @@ export async function POST(request: NextRequest) {
           const newCount = currentCount + 1;
           const interestsEncrypted = extractAndEncryptInterests(message, session?.interests_encrypted ?? null);
 
-          if (sessionId) {
+          if (storableSessionId) {
             await saveSession(
-              sessionId,
+              storableSessionId,
               user?.userId ?? null,
               safeRole,
               history,
@@ -288,32 +306,39 @@ export async function POST(request: NextRequest) {
           // get_guardian_context и персона Хранителя, как в Telegram/MAX и
           // /api/ai/chat (PR #333). Ответ приходит целиком — отдаём по словам.
           // Журнал инструментов хода — для сверки утверждений о безопасности (#2300).
+          // Замер ответа (A19): от входа в цикл до готового ответа со сторожами.
+          const answerStartedAt = Date.now();
           const streamToolRuns: ToolRun[] = [];
+          const streamProvenance: { provider?: string } = {};
+          const streamTiming = newLoopTiming();
           if (safeRole === 'tourist') {
             try {
-              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [], streamToolRuns)) ?? '';
-            } catch { fullAnswer = ''; /* фолбэк на прежний стрим ниже */ }
+              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [], streamToolRuns, streamProvenance, streamTiming)) ?? '';
+            } catch (err) {
+              // Фолбэк на прежний стрим ниже; отказ цикла — в лог, не молча (§4.0).
+              logSwallowedFailure('ai-chat-stream', 'цикл инструментов Кузьмича', err);
+              fullAnswer = '';
+            }
           }
+          const loopAnswered = fullAnswer !== '';
+          // Ответ модели до сторожей — его оценивает грейдер, как на сайте.
+          let modelAnswer = fullAnswer;
+          // Данные хода, которыми обосновывается километраж.
+          const turnContext = geoContext + ragContext + memContext + agentInsights;
 
           if (fullAnswer) {
-            // Сверка ДО отправки по словам: после flushWords текст уже у
-            // человека, и поправить его было бы нечем.
-            const claimGuard = guardSafetyClaims(fullAnswer, streamToolRuns);
-            if (claimGuard.flagged.length > 0) {
-              console.error('[kuzmich-safety-claim-guard] веб-стрим: утверждение о безопасности без опоры', {
-                verdict: claimGuard.verdict, flagged: claimGuard.flagged.map((c) => c.phrase),
-              });
-            }
-            void recordSafetyReview('web-stream', claimGuard, streamToolRuns);
-            fullAnswer = claimGuard.text;
-            // Слова о доставке — только после инструмента заявки с данными (15.10).
-            const deliveryGuard = guardDeliveryClaims(fullAnswer, streamToolRuns);
-            if (deliveryGuard.verdict === 'unbacked') {
-              console.error('[kuzmich-delivery-claim-guard] веб-стрим: отчёт о доставке без инструмента заявки', {
-                phrases: deliveryGuard.phrases,
-              });
-            }
-            fullAnswer = deliveryGuard.text;
+            // Один выход ответа (аудит 15.10, 1.14) ДО отправки по словам:
+            // после flushWords текст уже у человека. Блок 112 уже ушёл
+            // первыми токенами — второй под ответом не ставится.
+            const finished = finishKuzmichAnswer({
+              surface: 'web-stream',
+              answer: fullAnswer,
+              question: message.trim(),
+              toolRuns: streamToolRuns,
+              context: turnContext,
+              sos: false,
+            });
+            fullAnswer = finished.text;
             flushWords(fullAnswer);
           } else {
             // OpenRouter-стрим открываем ЛЕНИВО — только когда мозг не ответил,
@@ -360,27 +385,44 @@ export async function POST(request: NextRequest) {
               fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
               flushWords(fullAnswer);
             }
-            // Запасной стрим шёл без инструментов: текст уже у человека, и
-            // поправка к «безопасно» уходит хвостом (#2300). Предупреждения
-            // без опоры здесь не помечаются — сверять было не с чем.
-            const fallbackGuard = guardSafetyClaims(fullAnswer, null);
-            void recordSafetyReview('web-stream', fallbackGuard, null);
-            if (fallbackGuard.text !== fullAnswer) {
-              const tail = fallbackGuard.text.slice(fullAnswer.length);
-              flushWords(tail);
-              fullAnswer = fallbackGuard.text;
+            modelAnswer = fullAnswer;
+            // Запасной стрим шёл без инструментов, и текст уже у человека:
+            // вырезать нечем, поправки (километраж, «безопасно», «дошло»)
+            // уходят хвостом в том же порядке (аудит 15.10, 1.14).
+            const correction = correctShownAnswer({
+              surface: 'web-stream',
+              answer: fullAnswer,
+              question: message.trim(),
+              toolRuns: null,
+              context: turnContext,
+            });
+            if (correction.tail) {
+              flushWords(correction.tail);
+              fullAnswer += correction.tail;
             }
-            // Запасной путь шёл без инструментов — отправить было нечем. Предложение
-            // с «дошло» уже у человека, вырезать его нечем: поправка уходит хвостом.
-            const fallbackDelivery = guardDeliveryClaims(fullAnswer, null);
-            if (fallbackDelivery.verdict === 'unbacked') {
-              console.error('[kuzmich-delivery-claim-guard] веб-стрим (запасной путь): отчёт о доставке без инструмента заявки', {
-                phrases: fallbackDelivery.phrases,
-              });
-              const deliveryTail = `\n\n${DELIVERY_HONEST_LINE}`;
-              flushWords(deliveryTail);
-              fullAnswer += deliveryTail;
-            }
+          }
+
+          if (safeRole === 'tourist') {
+            void recordKuzmichAnswer({
+              surface: 'web-stream',
+              elapsedMs: Date.now() - answerStartedAt,
+              turns: loopAnswered ? streamTiming.turns : null,
+              toolRounds: loopAnswered ? streamTiming.toolRounds : null,
+              path: loopAnswered ? 'tools' : 'single',
+              provider: loopAnswered ? (streamProvenance.provider ?? null) : null,
+              ceilingHit: streamTiming.ceilingHit,
+            });
+            // Исход ответа в стриме — грейдеру, как с сайта (аудит 15.10, 1.14):
+            // ключ сессии грейдер хэширует сам, ПД чистит сам, потолок в сутки
+            // общий. У запасного стрима инструментов не было — журнал пуст ([]).
+            void gradeKuzmichResponse(message.trim(), modelAnswer, storableSessionId, {
+              surface: 'web-stream',
+              toolRuns: loopAnswered ? streamToolRuns : [],
+              promptFingerprint: loopAnswered ? fingerprintPrompt(KUZMICH_SYSTEM) : undefined,
+              provider: loopAnswered ? (streamProvenance.provider ?? null) : null,
+              answerPath: loopAnswered ? 'tools' : null,
+              toolsOffered: loopAnswered ? KUZMICH_TOOLS.map((t) => t.function.name) : undefined,
+            });
           }
 
           await persistState();
