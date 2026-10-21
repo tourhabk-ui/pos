@@ -19,8 +19,9 @@
  * по СОХРАНЁННЫМ оценкам, а сохраняется не всё: оценка ниже 7, незаземлённый
  * ответ или каждый десятый хороший (kuzmich-outcomes, shouldSave). Поэтому
  * абсолютный средний занижен, а сравнивать можно доли МЕЖДУ днями и путями,
- * не баллы с внешним миром. Пишут только Telegram и MAX (aiChat): веб-чат,
- * стрим и A2A происхождение не передают — это сказано в ответе словами.
+ * не баллы с внешним миром. Пишут Telegram, MAX и сайт, а с 22.10 (один выход
+ * ответа, аудит 1.14) — стрим сайта и A2A; виджет партнёра оценке не
+ * отдаётся. Это сказано в ответе словами, разрез — by_surface.
  *
  * Сторож: tests/unit/kuzmich-quality-census-route.test.ts.
  */
@@ -40,9 +41,10 @@ function clampInt(raw: string | null, def: number, min: number, max: number): nu
   return Math.min(max, Math.max(min, n));
 }
 
-/** Строка свода: день или итог по пути и провайдеру. */
+/** Строка свода: день или итог по пути и провайдеру (или по поверхности). */
 export interface QualityRow {
   day?: string;
+  surface?: string;
   answer_path: string;
   provider: string;
   outcomes: number;
@@ -64,6 +66,7 @@ const BASE = `
     SELECT created_at,
            COALESCE(metadata->>'answer_path', 'не записан') AS answer_path,
            COALESCE(metadata->>'provider', 'не записан')    AS provider,
+           COALESCE(metadata->>'surface', 'не записана')    AS surface,
            metadata->>'outcome_kind'                         AS outcome_kind,
            metadata->>'grounding'                            AS grounding,
            metadata->>'prompt_fingerprint'                   AS prompt_fingerprint,
@@ -95,7 +98,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Интервал — параметром с приведением, не конкатенацией (sql-interval-not-concatenated).
-    const [byDay, totals] = await Promise.all([
+    const [byDay, totals, bySurface] = await Promise.all([
       pool.query<QualityRow>(
         `${BASE}
          SELECT to_char((created_at AT TIME ZONE 'Asia/Kamchatka')::date, 'YYYY-MM-DD') AS day,
@@ -113,6 +116,17 @@ export async function GET(request: NextRequest) {
           ORDER BY outcomes DESC`,
         [days],
       ),
+      // Разрез по поверхности (аудит 15.10, 1.14): сайт, стрим, A2A и
+      // мессенджеры пишут оценки в одно место, и «на сайте хуже» без разреза
+      // не увидеть. Записи до 16.10 поверхность не несут — «не записана».
+      pool.query<QualityRow>(
+        `${BASE}
+         SELECT surface, 'все' AS answer_path, 'все' AS provider, ${AGG}
+           FROM o
+          GROUP BY 1
+          ORDER BY outcomes DESC`,
+        [days],
+      ),
     ]);
     const total = totals.rows.reduce((s, r) => s + r.outcomes, 0);
     const waterfall = totals.rows.filter((r) => r.answer_path === 'waterfall').reduce((s, r) => s + r.outcomes, 0);
@@ -122,12 +136,13 @@ export async function GET(request: NextRequest) {
       outcomes_total: total,
       // Ноль записей за окно — не «Кузьмич хорош», а «оценивать было нечего»
       // (§4.0): словами, а не нулями в таблице.
-      empty_reason: total === 0 ? 'за окно ни одной записи оценки: в Telegram и MAX не было оцениваемых вопросов или оценщик не отвечал' : null,
+      empty_reason: total === 0 ? 'за окно ни одной записи оценки: оцениваемых вопросов не было, потолок оценок исчерпан или оценщик не отвечал' : null,
       waterfall_share: total > 0 ? Math.round((waterfall / total) * 1000) / 1000 : null,
       totals: totals.rows,
+      by_surface: bySurface.rows,
       by_day: byDay.rows,
       caveats: [
-        'Пишут только Telegram и MAX (aiChat): веб-чат, стрим и A2A происхождение ответа не передают.',
+        'Пишут Telegram, MAX и сайт, а с 22.10 — стрим сайта и A2A; виджет партнёра оценке не отдаётся. Поверхность — в by_surface; записи до 16.10 её не несут.',
         'Сохраняется не всё: оценка ниже 7, незаземлённый ответ или каждый десятый хороший — абсолютный средний балл занижен, сравнимы доли между днями и путями.',
         'answer_path: tools — цикл с инструментами; waterfall — запасной путь без инструментов (гонка водопада).',
       ],

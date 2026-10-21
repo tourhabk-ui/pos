@@ -16,7 +16,7 @@ import { redactPII } from '@/lib/security/pii-redact';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import type { GuardResult } from './safety-claim-guard';
 
-export type ReviewSurface = 'telegram' | 'max' | 'other' | 'web' | 'web-stream';
+export type ReviewSurface = 'telegram' | 'max' | 'other' | 'web' | 'web-stream' | 'widget' | 'a2a';
 
 const EXCERPT_MAX = 1500;
 

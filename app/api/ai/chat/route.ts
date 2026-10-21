@@ -5,9 +5,7 @@
  * Encrypted interest collection from user messages.
  */
 
-import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
-import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
-import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
@@ -39,7 +37,7 @@ import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
-import { withSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
+import { detectEmergency } from '@/lib/safety/sos-detector';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
@@ -421,34 +419,21 @@ export async function POST(request: NextRequest) {
     // Проверка — по ответу ДО SOS-префикса.
     const answerIsError = isAIErrorResponse(answer);
 
-    // Утверждения о безопасности — сверка с данными хода (#2300), до SOS-блока:
-    // правим ответ модели, а не собственную вставку. Ответ не из цикла
-    // инструментов (SDK, одиночный вызов) сверять не с чем — null.
-    const claimGuard = guardSafetyClaims(answer, loopAnswered ? webToolRuns : null);
-    if (claimGuard.flagged.length > 0) {
-      console.error('[kuzmich-safety-claim-guard] веб: утверждение о безопасности без опоры', {
-        verdict: claimGuard.verdict, flagged: claimGuard.flagged.map((c) => c.phrase),
-      });
-    }
-    void recordSafetyReview('web', claimGuard, loopAnswered ? webToolRuns : null);
-    answer = claimGuard.text;
-
-    // Слова о доставке («заявка отправлена оператору», «дошло») — только после
-    // инструмента заявки с данными в этом же ходе (15.10). В цикле Кузьмича
-    // такого инструмента нет, и отчёт о доставке без него — выдумка.
-    const deliveryGuard = guardDeliveryClaims(answer, loopAnswered ? webToolRuns : null);
-    if (deliveryGuard.verdict === 'unbacked') {
-      console.error('[kuzmich-delivery-claim-guard] веб: отчёт о доставке без инструмента заявки', {
-        phrases: deliveryGuard.phrases,
-      });
-    }
-    answer = deliveryGuard.text;
-
-    // Серверная SOS-страховка: при признаках ЧП в вопросе телефоны 112/МЧС
-    // добавляются к ответу независимо от модели — в том числе когда весь
-    // AI-конвейер лежит и answer — фолбэк-ошибка.
-    const sos = withSosBlock(answer, rawMessage);
-    answer = sos.text;
+    // Один выход ответа (аудит 15.10, 1.14): расстояния → безопасность →
+    // доставка → блок 112, как в Telegram и MAX (lib/kuzmich/answer-guards).
+    // Правим ответ модели, а не собственную вставку. Ответ не из цикла
+    // инструментов (SDK, одиночный вызов) сверять не с чем — null. Блок 112
+    // ставится и к фолбэк-ошибке: человеку в беде он нужнее всего, когда
+    // конвейер лежит. Километраж — против данных хода: вывода инструментов и
+    // контекста, положенного в промпт.
+    const finished = finishKuzmichAnswer({
+      surface: 'web',
+      answer,
+      question: rawMessage,
+      toolRuns: loopAnswered ? webToolRuns : null,
+      context: geoContext + ragContext + memContext + agentInsights,
+    });
+    answer = finished.text;
 
     if (safeRole === 'tourist') {
       // Агент брони ходов не считает — null («не записано»), а не ноль.
@@ -537,7 +522,7 @@ export async function POST(request: NextRequest) {
         remainingFree: remaining,
         isAuthenticated,
         ...(tourSuggestions.length > 0 ? { tours: tourSuggestions } : {}),
-        ...(sos.emergency ? { emergency: true } : {}),
+        ...(finished.emergency ? { emergency: true } : {}),
         ...(visionDescription ? { visionDescription } : {}),
         ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, priceUnit: bookingFormTour.price_unit, duration: { multi_day_count: bookingFormTour.multi_day_count, duration_hours: bookingFormTour.duration_hours }, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name } } : {}),
       },
