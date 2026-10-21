@@ -1063,8 +1063,13 @@ async function lens<T>(
 }
 
 async function scanFunnel(): Promise<GrowthIssue[]> {
-  // Ретенция журнала маяка — той же рукой, что его читает.
-  await pool.query(`DELETE FROM funnel_events WHERE created_at < NOW() - INTERVAL '90 days'`).catch(() => {});
+  // Ретенция журнала маяка — той же рукой, что его читает. Отказ чистки не
+  // роняет разбор воронки, но и не глушится (аудит 15.10, 1.15, P3-17): иначе
+  // журнал растёт без срока, а узнать об этом нечем.
+  await pool.query(`DELETE FROM funnel_events WHERE created_at < NOW() - INTERVAL '90 days'`).catch((err: unknown) => {
+    const e = err as { code?: string } | null;
+    console.error('[growth-scan] чистка funnel_events старше 90 суток не сделана', `SQLSTATE=${e?.code ?? 'нет'}`);
+  });
 
   const [{ rows: views }, { rows: starts }, { rows: leadRows }, { rows: bookingRows }] = await Promise.all([
     // Просмотры — из собственной метрики: люди (не краулеры) и открытые
