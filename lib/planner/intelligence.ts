@@ -5,6 +5,7 @@
 
 import { SEA_ACTIVITIES, HARD_ACTIVITIES } from '@/lib/planner-constants';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { loadLastGood, saveLastGood } from '@/lib/weather/last-good-store';
 import { buildDayParts, type DayPart, type HourlySeries } from '@/lib/weather/day-parts';
 
 // ── Weather Forecast ─────────────────────────────────────────────────────────
@@ -332,6 +333,18 @@ export function parseForecastNow(current: Record<string, unknown> | undefined): 
  * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
  * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
  */
+/**
+ * Причина отказа прогноза для людей. Сырая строка («The operation was aborted
+ * due to timeout», «fetch failed») уходит в лог, на страницу — по-русски.
+ */
+export function forecastReasonRu(raw: string): string {
+  if (/abort|timeout|timed out|ETIMEDOUT/i.test(raw)) return 'источник прогноза не ответил вовремя';
+  if (/fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|socket|network/i.test(raw)) return 'нет связи с источником прогноза';
+  if (/[\u0400-\u04FF]/.test(raw)) return raw;
+  const http = /HTTP (\d{3})/.exec(raw);
+  return http ? `источник прогноза ответил ошибкой (HTTP ${http[1]})` : 'источник прогноза ответил ошибкой';
+}
+
 export async function fetchForecastDays(lat: number, lng: number, days: number): Promise<ForecastResult> {
   const horizon = Math.max(1, Math.min(16, Math.round(days)));
   const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)},${horizon}`;
@@ -394,6 +407,8 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
 
   if (!result.ok) {
     logSwallowedFailure('weather', `прогноз Open-Meteo (${lat.toFixed(2)}, ${lng.toFixed(2)})`, new Error(result.reason));
+    // Людям — по-русски; сырая причина уже в логе строкой выше.
+    result = { ok: false, reason: forecastReasonRu(result.reason) };
     // Последний удачный прогноз — с отметкой, а не за свежий. Отказ при этом
     // уже записан в лог строкой выше: «отдали старое» не прячет «не ответил».
     const good = lastGoodForecast.get(cacheKey);
@@ -402,7 +417,16 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
       rememberForecast(cacheKey, stale, FORECAST_FAIL_TTL);
       return stale;
     }
+    // Памяти нет (перезапуск) — запас из базы, тоже с отметкой.
+    const stored = await loadLastGood<Extract<ForecastResult, { ok: true }>>(cacheKey);
+    if (stored && stored.result && Array.isArray(stored.result.days)) {
+      const stale: ForecastResult = { ...stored.result, staleSince: new Date(stored.at).toISOString() };
+      lastGoodForecast.set(cacheKey, { result: stored.result, at: stored.at });
+      rememberForecast(cacheKey, stale, FORECAST_FAIL_TTL);
+      return stale;
+    }
   } else {
+    void saveLastGood(cacheKey, result, new Date());
     lastGoodForecast.delete(cacheKey); // свежая запись — в конец порядка вытеснения
     lastGoodForecast.set(cacheKey, { result, at: Date.now() });
     if (lastGoodForecast.size > FORECAST_CACHE_MAX) {
