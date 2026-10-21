@@ -97,10 +97,9 @@ describe('оборванный хвост', () => {
 });
 
 describe('подвал с реферальными ссылками', () => {
-  it('три ссылки владельца, ровно как он их дал', () => {
+  it('две ссылки владельца (Claude Pro снята 21.10), ровно как он их дал', () => {
     expect(AI_CHANNEL_REFERRALS.map((r) => r.url)).toEqual([
       'https://telegram.me/WantToPayBot?start=w17851188--XYBXD',
-      'https://claude.ai/referral/PzwnMtcV4A?s=android',
       'https://manus.im/invitation/ZPITNRPMOEFT?utm_source=invitation&utm_medium=social&utm_campaign=system_share',
     ]);
   });
@@ -112,8 +111,9 @@ describe('подвал с реферальными ссылками', () => {
     expect(footer).not.toMatch(/\p{Extended_Pictographic}/u);
     // Одна строка (решение владельца 26.09): три строки читались рекламой.
     expect(footer.split('\n')).toHaveLength(1);
-    expect(footer.match(/<a href=/g)).toHaveLength(3);
-    expect(footer.replace(/<[^>]+>/g, '')).toBe('Карта для оплаты AI · Claude Pro на неделю · Manus');
+    expect(footer.match(/<a href=/g)).toHaveLength(2);
+    expect(footer).not.toContain('claude.ai/referral');
+    expect(footer.replace(/<[^>]+>/g, '')).toBe('Карта для оплаты AI · Manus');
   });
 
   it('длинная подпись к фото: ужимается тело, подвал цел и влезает в 1024', () => {

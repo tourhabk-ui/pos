@@ -18,6 +18,9 @@
  * «подпись: открыть» занимали почти столько же места, сколько сам выпуск, и
  * пост читался рекламой. Ссылка теперь — само название, `short`; ссылки и их
  * параметры не изменились.
+ *
+ * 21.10 владелец: «убрал https://claude.ai/referral/PzwnMtcV4A?s=android акции
+ * больше нет» — ссылка Claude Pro снята, в подвале две ссылки.
  */
 
 export interface ChannelReferral {
@@ -30,7 +33,6 @@ export interface ChannelReferral {
 
 export const AI_CHANNEL_REFERRALS: readonly ChannelReferral[] = [
   { label: 'Карта для оплаты AI', link: 'открыть бота', short: 'Карта для оплаты AI', url: 'https://telegram.me/WantToPayBot?start=w17851188--XYBXD' },
-  { label: 'Неделя Claude Pro в подарок', link: 'забрать', short: 'Claude Pro на неделю', url: 'https://claude.ai/referral/PzwnMtcV4A?s=android' },
   { label: 'Manus по приглашению', link: 'открыть', short: 'Manus', url: 'https://manus.im/invitation/ZPITNRPMOEFT?utm_source=invitation&utm_medium=social&utm_campaign=system_share' },
 ];
 
