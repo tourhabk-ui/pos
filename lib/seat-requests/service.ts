@@ -51,7 +51,6 @@ import {
   type FailureKind, type OperatorAnswer, type ReplyChannel, type SeatRequestStatus,
   type TouristMessageState,
 } from '@/lib/seat-requests/core';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { recordJournalEventQuietly, type ActorKind, type EventKind } from '@/lib/crm/events';
 
@@ -322,11 +321,13 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   const deadlineLocal = deadlineAt.toLocaleTimeString('ru-RU', { timeZone: 'Asia/Kamchatka', hour: '2-digit', minute: '2-digit' });
   // Текст БЕЗ ПД: сообщение уходит и в MAX, и в Telegram-заглушку. Через дверь
   // pd-alert он идёт ради кнопок MAX и строгой доставки названному адресату.
+  // Коротко — под слабую связь на базе (пилот «Камчатская рыбалка» 22.10):
+  // тур, дата, люди, срок и одно правило кнопки. Подробности о брони и
+  // контактах туриста оператор получает следующим сообщением, уже после ответа.
   const text = [
-    '<b>Запрос свободных мест</b>',
+    '<b>Запрос мест</b>',
     what,
-    '',
-    `Ответьте до ${deadlineLocal} (по Камчатке). «Есть места» — бронь сразу заводится и подтверждается, ${platformAcceptsPayments() ? 'турист получает ссылку на оплату' : 'оплату турист вносит вам напрямую'}, а вам придёт обычное уведомление о брони с его контактами (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).`,
+    `Ответ до ${deadlineLocal} (Камчатка). «Есть места» — бронь сразу.`,
   ].join('\n');
   const delivery = await sendPdAlert({
     text,

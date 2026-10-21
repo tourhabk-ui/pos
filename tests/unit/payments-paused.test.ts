@@ -76,7 +76,6 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     'app/seat-request/answer/[id]/_OperatorAnswerClient.tsx',
     'app/api/hub/operator/bookings/[id]/route.ts',
     'app/p/[code]/_SelectionClient.tsx',
-    'lib/seat-requests/service.ts',
   ])('%s говорит о платеже по выключателю, а не безусловно', (f) => {
     expect(read(f)).toMatch(/platformAcceptsPayments\(\)/);
   });
