@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-19 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1302_user_sessions_token_text.sql`.
+> Снято 2026-10-21 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1303_a2a_dialogs_client.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 279 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3733 |
+| Колонок | 3735 |
 | Внешних ключей | 330 |
 | Таблиц без единого FK в обе стороны | 82 |
 
@@ -1377,9 +1377,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `context_key varchar!` `turns jsonb!` `updated_at timestamptz!=` `expires_at timestamptz!`
 
-**a2a_dialogs** · 12 кол. · PK id · индексов 2
+**a2a_dialogs** · 14 кол. · PK id · индексов 2
 
-`id bigint!=` `created_at timestamptz!=` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `turn integer!=` `question text!` `answer text!` `state varchar!` `duration_ms integer` `is_self boolean!=`
+`id bigint!=` `created_at timestamptz!=` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `turn integer!=` `question text!` `answer text!` `state varchar!` `duration_ms integer` `is_self boolean!=` `client_ip varchar` `user_agent varchar`
 
 **a2a_requests** · 18 кол. · PK id · индексов 3
 
