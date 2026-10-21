@@ -116,7 +116,7 @@ export async function loadMeteoWarnings(now: Date = new Date()): Promise<Warning
       pool.query<{ title: string; description: string | null; severity: number | null; expires_at: Date | string | null }>(
         `SELECT title, description, severity, expires_at
            FROM external_alerts
-          WHERE external_id LIKE $1
+          WHERE (external_id LIKE $1 OR alert_type = 'weather')
             AND expires_at > ${UTC_WALL_NOW_SQL}
           ORDER BY severity DESC NULLS LAST, created_at DESC
           LIMIT 10`,
