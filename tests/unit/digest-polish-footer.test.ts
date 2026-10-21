@@ -97,23 +97,20 @@ describe('оборванный хвост', () => {
 });
 
 describe('подвал с реферальными ссылками', () => {
-  it('две ссылки владельца (Claude Pro снята 21.10), ровно как он их дал', () => {
+  it('одна ссылка владельца (Claude Pro и Manus сняты 21.10), ровно как он их дал', () => {
     expect(AI_CHANNEL_REFERRALS.map((r) => r.url)).toEqual([
       'https://telegram.me/WantToPayBot?start=w17851188--XYBXD',
-      'https://manus.im/invitation/ZPITNRPMOEFT?utm_source=invitation&utm_medium=social&utm_campaign=system_share',
     ]);
   });
 
-  it('подвал — валидный Telegram HTML, & экранирован, без эмодзи', () => {
+  it('подвал — валидный Telegram HTML, у карты эмодзи (владелец 21.10)', () => {
     const footer = aiChannelFooter();
     expect(telegramHtmlIssue(footer)).toBeNull();
-    expect(footer).toContain('utm_source=invitation&amp;utm_medium=social&amp;utm_campaign=system_share');
-    expect(footer).not.toMatch(/\p{Extended_Pictographic}/u);
     // Одна строка (решение владельца 26.09): три строки читались рекламой.
     expect(footer.split('\n')).toHaveLength(1);
-    expect(footer.match(/<a href=/g)).toHaveLength(2);
-    expect(footer).not.toContain('claude.ai/referral');
-    expect(footer.replace(/<[^>]+>/g, '')).toBe('Карта для оплаты AI · Manus');
+    expect(footer.match(/<a href=/g)).toHaveLength(1);
+    expect(footer).not.toMatch(/claude\.ai\/referral|manus\.im/);
+    expect(footer.replace(/<[^>]+>/g, '')).toBe('💳 Карта для оплаты AI');
   });
 
   it('длинная подпись к фото: ужимается тело, подвал цел и влезает в 1024', () => {
