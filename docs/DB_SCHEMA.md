@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-21 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1306_crm_seat_request_journal.sql`.
+> Снято 2026-10-21 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1308_agent_run_history_ended_at.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -1157,7 +1157,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `key_hash character!` `lead_id uuid` `seat_request_id uuid` `tool_name text!` `created_at timestamptz!=` `expires_at timestamptz!` `last_read_at timestamptz` `read_count integer!=` `stay_request_id uuid`
 
-**agent_run_history** · 16 кол. · PK id · индексов 3
+**agent_run_history** · 16 кол. · PK id · индексов 4
 
 `id uuid!=` `agent_id varchar!` `status varchar!` `started_at timestamptz!=` `ended_at timestamptz!=` `duration_ms integer` `items_processed integer` `items_created integer` `errors_count integer!=` `error_msg text` `metadata jsonb` `created_at timestamptz!=` `prompt_tokens integer` `completion_tokens integer` `llm_calls integer` `estimated_cost_usd numeric`
 
