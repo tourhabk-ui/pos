@@ -2045,6 +2045,18 @@ const GUARDIAN_EMPTY_MCP = 'Данные о месте не найдены в с
   + 'Это не значит, что там безопасно — уточните название места; экстренный вызов на Камчатке — 112.';
 
 
+/** Строки каталога туров, где упомянуто место (по основе слова, от 5 букв). */
+async function toursMentioningPlace(place: string | undefined): Promise<string> {
+  const stems = (place ?? '').toLowerCase().split(/[^а-яёa-z]+/u).filter((w) => w.length >= 5).map((w) => w.slice(0, 6));
+  if (stems.length === 0) return '';
+  const catalog = await loadTourCatalog();
+  if (!catalog) return '';
+  const hits = catalog.split('\n').filter((l) => /^ID\d+:/.test(l) && stems.some((st) => l.toLowerCase().includes(st))).slice(0, 3);
+  if (hits.length === 0) return '';
+  return 'ТУРЫ С ЭТИМ МЕСТОМ (это туры операторов, не аренда машины; детали — get_tour_details):\n'
+    + hits.map((l) => l.replace(/\s*\[есть детали[^\]]*\]/, '').slice(0, 220)).join('\n');
+}
+
 const NO_TOUR_HEAD = 'Тур на платформе не найден.';
 const NO_DATA = new Set<string>([...NO_DATA_TEXTS, TOOL_EXECUTION_FAILED, GUARDIAN_EMPTY_CHAT, GUARDIAN_EMPTY_MCP]);
 const NO_PLACE_HEAD = 'Места нет в справочнике платформы.';
@@ -2167,7 +2179,12 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // загрузчиком, что у /transfers. Отказ базы возвращается словами «не смог
       // проверить», а не «перевозчиков нет».
       const { searchTransfersForKuzmich } = await import('@/lib/kuzmich/transfer-search');
-      return await searchTransfersForKuzmich({ place: args.place }, { surface: opts.surface });
+      const charter = await searchTransfersForKuzmich({ place: args.place }, { surface: opts.surface });
+      // Экзамен 22.10: на «джип-тур на Халактырский пляж» модель звала только
+      // прайс машин и отвечала «тура нет», хотя tour:53 есть. Туры с этим
+      // местом едут рядом с прайсом — из того же каталога, что get_tours.
+      const tours = await toursMentioningPlace(args.place).catch(() => '');
+      return tours ? `${charter}\n\n${tours}` : charter;
     }
     if (name === 'search_gear') {
       const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');
