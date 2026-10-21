@@ -90,6 +90,7 @@ interface BoundsRow { since: string | null; total: number }
 interface DialogRow {
   at: string; agent: string; ua_family: string; is_self: boolean; context_key: string | null;
   turn: number; question: string; answer: string; state: string; duration_ms: number | null;
+  client_ip: string | null; user_agent: string | null;
 }
 interface McpClientRow { client_name: string | null; ua_family: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
 interface EntryFamilyRow { family: string; hits: number; paths: number; last_day: string }
@@ -186,7 +187,8 @@ export async function readDialogs() {
     pool.query<BoundsRow>(`SELECT to_char(MIN(created_at) ${KAM}, 'YYYY-MM-DD') AS since, COUNT(*)::int AS total FROM a2a_dialogs`),
     pool.query<DialogRow>(
       `SELECT to_char(created_at ${KAM}, 'YYYY-MM-DD HH24:MI:SS') AS at,
-              agent, ua_family, is_self, context_key, turn, question, answer, state, duration_ms
+              agent, ua_family, is_self, context_key, turn, question, answer, state, duration_ms,
+              client_ip, user_agent
          FROM a2a_dialogs
         ORDER BY created_at DESC
         LIMIT $1::int`,
@@ -209,6 +211,8 @@ export async function readDialogs() {
       answer: r.answer,
       state: r.state,
       duration_ms: r.duration_ms,
+      ip: r.client_ip ?? null,
+      user_agent: r.user_agent ?? null,
     })),
   };
 }
@@ -289,7 +293,7 @@ export async function GET(request: NextRequest) {
     degraded,
     note:
       'Самоназвание агента — из заголовка User-Agent (имя программы, не строка целиком); ' +
-      'клиент MCP — из его рукопожатия. Сырых User-Agent и IP не хранит ни один журнал. ' +
+      'клиент MCP — из его рукопожатия. Сырых User-Agent и IP не хранят журналы запросов; с 21.10 они есть только в журнале общения A2A, 90 суток. ' +
       `Текст есть только в журнале общения A2A: вопрос и ответ с вычищенными телефонами и почтами, ${RETENTION_DAYS} суток. ` +
       'Аргументы инструментов не хранятся. Сутки — камчатские.',
   });

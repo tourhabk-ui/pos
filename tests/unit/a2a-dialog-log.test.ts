@@ -61,7 +61,7 @@ describe('писатель журнала общения', () => {
     expect(dialogText('  ответ  ', ANSWER_MAX)).toBe('ответ');
   });
 
-  it('INSERT: фиксированные колонки, текст вычищен, вместо contextId — hash; IP и заголовка целиком нет', async () => {
+  it('INSERT: фиксированные колонки, текст вычищен, вместо contextId — hash; IP и User-Agent — с 1303', async () => {
     logA2aDialog({
       question: 'Позвоните +79141112233, что на Горелом?',
       answer: 'Пишите на guide@example.com',
@@ -70,13 +70,14 @@ describe('писатель журнала общения', () => {
       turn: 2,
       durationMs: 8085.4,
       ip: '203.0.113.7',
+      clientIp: '203.0.113.7',
       userAgent: 'brick.blue-proxy/1.0 (+https://brick.blue)',
       self: false,
     });
     await flush();
     const [ins] = inserts();
     expect(ins).toBeDefined();
-    expect(ins!.sql).toMatch(/\(agent, ua_family, caller_hash, context_key, turn, question, answer, state, duration_ms, is_self\)/);
+    expect(ins!.sql).toMatch(/\(agent, ua_family, caller_hash, context_key, turn, question, answer, state, duration_ms, is_self, client_ip, user_agent\)/);
     const p = ins!.params;
     expect(p[0]).toBe('brick.blue-proxy');
     expect(p[3]).toBe(contextKey('ctx-secret'));
@@ -85,8 +86,21 @@ describe('писатель журнала общения', () => {
     expect(p[6]).toBe('Пишите на [email]');
     expect(p[7]).toBe('completed');
     expect(p[8]).toBe(8085);
+    expect(p[10]).toBe('203.0.113.7');
+    expect(p[11]).toBe('brick.blue-proxy/1.0 (+https://brick.blue)');
     const flat = JSON.stringify(p);
-    expect(flat).not.toMatch(/203\.0\.113|ctx-secret|brick\.blue\)|79141112233|guide@/);
+    expect(flat).not.toMatch(/ctx-secret|79141112233|guide@/);
+  });
+
+  it('1303: адрес без доверенного заголовка — NULL, мусор вместо адреса — NULL', async () => {
+    logA2aDialog({ question: 'q', answer: 'a', state: 'completed', turn: 1, ip: '127.0.0.1', clientIp: null, userAgent: '', self: false });
+    logA2aDialog({ question: 'q', answer: 'a', state: 'completed', turn: 1, ip: 'x', clientIp: '<script>', userAgent: 'u'.repeat(900), self: false });
+    await flush();
+    const [a, b] = inserts();
+    expect(a!.params[10]).toBeNull();
+    expect(a!.params[11]).toBeNull();
+    expect(b!.params[10]).toBeNull();
+    expect(String(b!.params[11])).toHaveLength(512);
   });
 
   it(`старше ${RETENTION_DAYS} суток удаляется ПЕРЕД каждой записью; окно — параметром`, async () => {

@@ -41,6 +41,7 @@ interface A2aBlock {
 interface DialogItem {
   at: string; agent: string; kind: AgentKind; dialog: string | null; turn: number;
   question: string; answer: string; state: string; duration_ms: number | null;
+  ip?: string | null; user_agent?: string | null;
 }
 interface DialogsBlock { since: string | null; total: number; retention_days: number; limit: number; items: DialogItem[] }
 interface McpClientRow { client: string; kind: string; origin: 'probe' | 'external'; region?: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
@@ -105,6 +106,14 @@ function DialogEntry({ d }: { d: DialogItem }) {
         <span className={d.state === 'completed' ? '' : 'text-[var(--warning)]'}>{STATE_LABEL[d.state] ?? d.state}</span>
         {d.duration_ms !== null ? ` · ${d.duration_ms} мс` : ''}
       </p>
+      {(d.ip || d.user_agent) && (
+        <p className="text-[11px] text-[var(--text-muted)] break-all">
+          {d.ip ? (
+            <>IP <a className="text-[var(--ocean)] underline" href={`https://ipinfo.io/${encodeURIComponent(d.ip)}`} target="_blank" rel="noopener noreferrer">{d.ip}</a></>
+          ) : 'IP —'}
+          {d.user_agent ? ` · ${d.user_agent}` : ''}
+        </p>
+      )}
       <p className="mt-1 text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
         <span className="text-[var(--text-muted)]">Вопрос: </span>{d.question}
       </p>
