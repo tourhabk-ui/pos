@@ -13,7 +13,7 @@ const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
  * нём даёт 4,39:1, ниже AA 4,5; светлый акцент затемнён аудитом 02.10, а
  * виджет остался на старом (находка аудита 15.10 WID-config, W10).
  */
-export const WIDGET_DEFAULT_ACCENT = '#C2410A';
+export const WIDGET_DEFAULT_ACCENT = '#006CE4';
 
 /** Подпись кнопки формы заявки, если партнёр своей не выбрал. */
 export const LEAD_BUTTON_DEFAULT_TEXT = 'Заявка на тур';

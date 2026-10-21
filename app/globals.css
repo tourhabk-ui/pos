@@ -35,6 +35,10 @@
   /* Текст на заливке --accent: на светлой лаве тёмной темы белый даёт ≈3:1,
      тёмный ≈6:1; на тёмной лаве светлой темы — наоборот (белый ≈4.8:1). */
   --on-accent: #0D1117;
+  --header-bg: #0D1117;
+  --on-header: #F0F6FC;
+  --badge: #FEBB02;
+  --on-badge: #1A1A1A;
   --ocean: #00A8CC;        /* ocean -- ссылки, иконки */
   --telegram: #2AABEE;     /* Telegram brand color */
   --success: #3FB950;      /* moss -- успех, эко */
@@ -57,26 +61,30 @@
 
 :root[data-theme="light"] {
   /* Light = кремовая основа (документированный язык, CLAUDE.md §2) */
-  --bg-primary: #F5F0EB;
-  --bg-secondary: #EDE9E3;
+  --bg-primary: #F5F5F5;
+  --bg-secondary: #EBEBEB;
   --bg-card: #FFFFFF;
-  --bg-hover: #F0ECE7;
+  --bg-hover: #EEF3FB;
 
-  --text-primary: #1A1714;
-  --text-secondary: #6B6560;
+  --text-primary: #1A1A1A;
+  --text-secondary: #595959;
   /* 4,5:1 на фоне страницы, 5,1:1 на карточке (WCAG AA). Прежний #9A9590 —
      2,6 и 3,0 (аудит 01.10, решение владельца). */
-  --text-muted: #736D68;
+  --text-muted: #6B6B6B;
 
-  --accent: #C2410A;
-  --accent-hover: #B83E0A;
-  --accent-muted: rgba(194,65,10,0.1);
+  --accent: #006CE4;
+  --accent-hover: #0057B8;
+  --accent-muted: rgba(0,108,228,0.1);
   --on-accent: #FFFFFF;
-  --ocean: #2568B0;
+  --header-bg: #003580;
+  --on-header: #FFFFFF;
+  --badge: #FEBB02;
+  --on-badge: #1A1A1A;
+  --ocean: #003580;
   /* До 24.09 светлого --telegram не было: кнопка Telegram в «Хочу тур»
      становилась прозрачной с белым текстом на белой карточке (аудит П1, #102). */
   --telegram: #2AABEE;     /* Telegram brand color */
-  --success: #1A7A34;
+  --success: #008234;
   --warning: #876316;
   --danger: #B91C1C;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
@@ -96,20 +104,24 @@
 
 /* Fallback: light theme */
 :root:not([data-theme]) {
-  --bg-primary: #F5F0EB;
-  --bg-secondary: #EDE9E3;
+  --bg-primary: #F5F5F5;
+  --bg-secondary: #EBEBEB;
   --bg-card: #FFFFFF;
-  --bg-hover: #F0ECE7;
-  --text-primary: #1A1714;
-  --text-secondary: #6B6560;
-  --text-muted: #736D68;
-  --accent: #C2410A;
-  --accent-hover: #B83E0A;
-  --accent-muted: rgba(194,65,10,0.1);
+  --bg-hover: #EEF3FB;
+  --text-primary: #1A1A1A;
+  --text-secondary: #595959;
+  --text-muted: #6B6B6B;
+  --accent: #006CE4;
+  --accent-hover: #0057B8;
+  --accent-muted: rgba(0,108,228,0.1);
   --on-accent: #FFFFFF;
-  --ocean: #2568B0;
+  --header-bg: #003580;
+  --on-header: #FFFFFF;
+  --badge: #FEBB02;
+  --on-badge: #1A1A1A;
+  --ocean: #003580;
   --telegram: #2AABEE;
-  --success: #1A7A34;
+  --success: #008234;
   --warning: #876316;
   --danger: #B91C1C;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
