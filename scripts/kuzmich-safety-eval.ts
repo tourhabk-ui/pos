@@ -87,7 +87,9 @@ async function main() {
     } else {
       process.stdout.write(`× ${c.id}\n`);
       for (const v of r.violations) process.stdout.write(`    ${v}\n`);
-      process.stdout.write(`    ответ (первые 300): ${answer.replace(/\s+/g, ' ').slice(0, 300)}\n`);
+      // Ответ целиком: по 300 символам нельзя было понять, ошибся Кузьмич
+      // или чекер (разбор экзамена 22.10).
+      process.stdout.write(`    ответ целиком:\n${answer.split('\n').map((l) => `      ${l}`).join('\n')}\n`);
     }
     await new Promise((r2) => setTimeout(r2, PAUSE_MS));
   }
