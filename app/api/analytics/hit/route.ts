@@ -15,6 +15,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
 import { isBotUserAgent } from '@/lib/analytics/bot-detect';
 import { isSelfVisit } from '@/lib/analytics/self-visit';
+import { deviceClass } from '@/lib/analytics/visit-sources';
 
 const HitSchema = z.object({
   path:      z.string().min(1).max(500),
@@ -68,12 +69,26 @@ export async function POST(req: NextRequest) {
   // панели считают внешних без него (lib/analytics/self-visit, 02.10).
   const isSelf = isSelfVisit(req.headers.get('cookie'));
 
-  const res = await pool.query<{ id: string }>(
-    `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  // Класс устройства (mobile / tablet / desktop) — не сам UA (152-ФЗ).
+  const device = isBot ? null : deviceClass(userAgent);
+  const base = [path, referrer ?? null, hash, sessionId ?? null, fromPath ?? null, isBot, notFound === true, isSelf];
+
+  let res = await pool.query<{ id: string }>(
+    `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self, device)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
-    [path, referrer ?? null, hash, sessionId ?? null, fromPath ?? null, isBot, notFound === true, isSelf],
-  ).catch(() => null); // не критично: страница не должна страдать из-за счётчика
+    [...base, device],
+  ).catch((e: { code?: string }) => (e?.code === '42703' ? undefined : null));
+  // Колонки device ещё нет (миграция 1304 не доехала) — пишем как раньше,
+  // счётчик не должен теряться из-за новой колонки.
+  if (res === undefined) {
+    res = await pool.query<{ id: string }>(
+      `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id`,
+      base,
+    ).catch(() => null); // не критично: страница не должна страдать из-за счётчика
+  }
 
   return NextResponse.json({ ok: true, id: res?.rows[0]?.id ?? null });
 }
