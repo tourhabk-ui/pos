@@ -234,6 +234,27 @@ export type OperatorReplyInput =
       status?: SeatRequestStatus;
     };
 
+/** Что уже записано по запросу — словами для повторного нажатия. */
+const ANSWERED_WORD: Partial<Record<SeatRequestStatus, string>> = {
+  confirmed: 'места есть, бронь заведена',
+  declined: 'мест нет',
+  other_date: 'предложена другая дата',
+  failed: 'запрос не доведён, им занимается администратор',
+};
+
+/**
+ * Повторное нажатие (связь слабая, кнопку жмут ещё раз): ничего не меняется,
+ * и оператору сказано, ЧТО уже записано. 'pending' здесь — первый ответ
+ * принят и ещё обрабатывается.
+ */
+function alreadyAnsweredText(status: SeatRequestStatus | undefined): string {
+  if (status === 'pending') return 'Ваш ответ уже принят и обрабатывается. Нажимать ещё раз не нужно.';
+  const word = status ? ANSWERED_WORD[status] : undefined;
+  return word
+    ? `Ответ уже записан: ${word}. Нажимать ещё раз не нужно.`
+    : 'На этот запрос уже ответили. Нажимать ещё раз не нужно.';
+}
+
 /**
  * Ответ оператору после нажатия. Говорит только то, что известно.
  *
@@ -267,7 +288,7 @@ export function operatorReplyText(result: OperatorReplyInput, opts: { html?: boo
   switch (result.reason) {
     case 'expired': return 'Срок ответа (2 часа) вышел — туристу уже сказано, что ответа не было. Он может отправить запрос снова.';
     case 'date_past': return 'Дата запроса уже прошла — ответ не принимается. Турист может отправить новый запрос на другую дату.';
-    case 'already_answered': return 'На этот запрос уже ответили.';
+    case 'already_answered': return alreadyAnsweredText(result.status);
     case 'not_found': return 'Запрос не найден.';
     case 'not_yours': return 'Этот запрос адресован другому оператору.';
     case 'bad_date': return 'Дата должна быть не раньше сегодняшней.';
