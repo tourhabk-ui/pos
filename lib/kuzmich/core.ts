@@ -17,6 +17,7 @@ import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { reachForTour } from '@/lib/partners/reach';
 import { notifyTeamOfTour } from '@/lib/operators/team-notify';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -626,15 +627,12 @@ async function buildEnrichment(): Promise<string> {
  *  отставать на весь TTL. */
 export async function buildTourContext(): Promise<string> {
   const catalog = await buildTourCatalog();
-  if (!catalog) return '';
+  // Дата нужна и без каталога: раньше пустой каталог убирал и «СЕГОДНЯ».
+  if (!catalog) return kamchatkaDateContext();
   const enrichment = await buildEnrichment().catch(() => '');
 
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kamchatka' });
-  const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
-
   return [
-    `СЕГОДНЯ: ${dateStr}, ${timeStr} (Камчатка, UTC+12)`,
+    kamchatkaDateContext(),
     '',
     catalog,
     '',

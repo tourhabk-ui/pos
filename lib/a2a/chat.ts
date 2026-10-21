@@ -19,6 +19,7 @@
  */
 
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
+import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { buildRAGContext } from '@/lib/ai/rag-context';
 import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
 import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
@@ -60,7 +61,7 @@ export async function answerAgentMessage(text: string, history: ChatTurn[]): Pro
     // про то, что видел в подсказке (пробы 764–766, журнал общения A2A).
     answer = await aiChatAgentLoop(
       text,
-      KUZMICH_SYSTEM + A2A_AGENT_NOTE + rag,
+      KUZMICH_SYSTEM + A2A_AGENT_NOTE + '\n\n' + kamchatkaDateContext() + '\n\n' + rag,
       history.map((t) => ({ role: t.role, content: t.content })),
       [{ role: 'user', content: text }],
       toolRuns,
