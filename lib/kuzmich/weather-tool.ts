@@ -274,7 +274,11 @@ export async function weatherForKuzmich(args: { place?: string; lat?: string; ln
       + `${elevationNote(forecast.elevationM)}, дней: ${forecast.days.length}.${note}`
       + `${forecast.staleSince ? ` ВНИМАНИЕ: источник сейчас не отвечает — это последний полученный прогноз, от ${kamchatkaTime(forecast.staleSince)} по Камчатке; так и скажи.` : ''}`;
     const warnings = await officialWarningLines(point.lat, point.lng);
-    return [head, ...forecast.days.map(forecastLine), ...warnings].join('\n');
+    // Экзамен 22.10: для Мутновского (−13…−10 °C, снег) Кузьмич назвал «+1…+4, дождь»
+    // и «прогноз на 7 дней» при 3 днях в ответе. Правило едет вместе с цифрами.
+    const honesty = `Погоду для «${point.name}» называй ТОЛЬКО по строкам выше, с их датами; `
+      + `прогноза дальше ${forecast.days.length} дн. нет — так и скажи. Цифры других мест и блоков сюда не подставляй.`;
+    return [head, ...forecast.days.map(forecastLine), honesty, ...warnings].join('\n');
   } catch (err) {
     logSwallowedFailure('kuzmich', 'прогноз погоды по месту', err);
     return 'ПОГОДА НЕДОСТУПНА: свериться с прогнозом не удалось — не называй погоду по памяти.';
