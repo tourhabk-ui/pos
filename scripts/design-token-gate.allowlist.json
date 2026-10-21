@@ -6,6 +6,7 @@
     "#1a3a1a": "components/routes/RouteGradientPlaceholder.tsx — тёмно-зелёный градиент заглушки маршрута",
     "#60a5fa": "public/emergency.html — офлайн-страница экстренной помощи, статический HTML вне Tailwind и токенов",
     "#86efac": "public/emergency.html — там же",
-    "#1e3a5f": "public/emergency.html, app/planning/_PlanningClient.tsx, map-preview-placeholder.svg"
+    "#1e3a5f": "public/emergency.html, app/planning/_PlanningClient.tsx, map-preview-placeholder.svg",
+    "#9ca3af": "public/emergency.html — офлайн-страница экстренной помощи (серый gray-400 подписей и иконок), статический HTML вне токенов; красный гейт с 20.10, к палитре букинга не относится"
   }
 }
