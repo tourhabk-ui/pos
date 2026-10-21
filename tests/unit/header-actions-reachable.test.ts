@@ -101,6 +101,6 @@ describe('шапка: меню не лежит поверх кнопок', () =>
     // С 24.09 (приёмка П6) шапка передаёт overPhoto — вид пилюли поверх фото
     // (сплошная --danger). Это проп вида, а не своя копия: className/style/
     // children по-прежнему запрещены — они и были бы своей кнопкой.
-    expect(src, 'SOS в шапке больше не EmergencyAction').toMatch(/<EmergencyAction(\s+overPhoto=\{onPhoto\})?\s*\/>/);
+    expect(src, 'SOS в шапке больше не EmergencyAction').toMatch(/<EmergencyAction(\s+overPhoto(=\{onPhoto\})?)?\s*\/>/);
   });
 });

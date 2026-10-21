@@ -37,7 +37,7 @@ describe('знак Ведара — один', () => {
 
   it('футер и шапка берут компонент, разметка для поисковиков — иконку', () => {
     expect(read('components/layout/Footer.tsx')).toMatch(/<Logo size=\{32\}/);
-    expect(read('components/layout/Header.tsx')).toMatch(/<Logo size=\{28\} mono=\{onPhoto\} \/>/);
+    expect(read('components/layout/Header.tsx')).toMatch(/<Logo size=\{28\} mono \/>/);
     // Рядом со знаком в шапке — слово (силуэт один читается хуже ломаной).
     expect(read('components/layout/Header.tsx')).toMatch(/fontFamily: 'var\(--font-playfair\)'[^>]*>Ведар</);
     const layout = read('app/layout.tsx');
