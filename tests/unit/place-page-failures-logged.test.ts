@@ -74,3 +74,23 @@ describe('JSON-LD места: отказ базы назван в логе, ст
     expect(errSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('проверка слияния места: отказ базы не роняет страницу (#2613)', () => {
+  it('резолв слияния упал по таймауту подключения — страница отдана, отказ в логе', async () => {
+    const { resolveMergedTarget } = await import('@/lib/places/aliases');
+    vi.mocked(resolveMergedTarget).mockRejectedValueOnce(new Error('timeout exceeded when trying to connect'));
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT ark_id::text AS ark_id, slug FROM places')) {
+        return { rows: [{ ark_id: ARK, slug: 'vulkan-ksudach' }] };
+      }
+      return { rows: [] };
+    });
+    const { default: PlaceDetailPage } = await import('@/app/places/[id]/page');
+    const page = await PlaceDetailPage({ params: Promise.resolve({ id: 'vulkan-ksudach' }) });
+    expect(page).toBeTruthy();
+    expect(errSpy).toHaveBeenCalledWith('[places/page] проверка слияния места не удалась', {
+      id: 'vulkan-ksudach',
+      message: 'timeout exceeded when trying to connect',
+    });
+  });
+});
