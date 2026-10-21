@@ -81,7 +81,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
   const scrolled = scrollY > 60;
   const { isDark, toggleTheme } = useTheme();
   const onPhoto = overPhoto && !scrolled;
-  const iconColor = onPhoto ? 'rgba(255,255,255,0.85)' : 'var(--text-secondary)';
+  const iconColor = onPhoto ? 'rgba(255,255,255,0.85)' : 'var(--on-header)';
   const iconBtn: React.CSSProperties = {
     ...iconBtnBase,
     color: iconColor,
@@ -133,11 +133,11 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
         transition: 'background 0.3s, box-shadow 0.3s',
         // Градиент — только вместе с белыми иконками поверх фото; без фото
         // он давал мутную серую полосу на кремовом фоне (#104).
-        background: scrolled
-          ? 'var(--bg-card)'
-          : onPhoto
-            ? 'linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%)'
-            : 'transparent',
+        // Палитра букинга (владелец 22.10): вне фото шапка — сплошная
+        // --header-bg (тёмно-синяя в светлой теме) с --on-header.
+        background: onPhoto
+          ? 'linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%)'
+          : 'var(--header-bg)',
         boxShadow: scrolled ? '0 1px 0 var(--border)' : 'none',
       }}
     >
@@ -152,12 +152,12 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           gridColumn: 1,
           // Поверх фото — белый, как иконки: тёмный знак на тёмном небе героя
           // сливался (приёмка П6, 24.09).
-          color: onPhoto ? 'rgba(255,255,255,0.9)' : 'var(--text-primary)',
+          color: onPhoto ? 'rgba(255,255,255,0.9)' : 'var(--on-header)',
           textDecoration: 'none',
           flexShrink: 0,
         }}
       >
-        <Logo size={28} mono={onPhoto} />
+        <Logo size={28} mono />
         {/* Слово рядом со знаком (решение владельца 30.09): вертикальный силуэт
             один читается хуже прежней широкой ломаной. Место у навигации не
             отнимает — ширину боковых дорожек задаёт правый ряд кнопок; ниже
@@ -210,7 +210,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
               textDecoration: 'none',
               transition: 'color 0.2s, background 0.2s',
             }}
-            className="hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            className="hover:bg-white/10"
           >
             {item.label}
           </Link>
@@ -242,14 +242,14 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
             // сам текст 14px/600 не проходит AA в светлой теме: #D44A0C на
             // кремовом 3.88:1, на --bg-card 4.39:1 (нужно 4.5). Сторож:
             // tests/unit/header-over-photo.test.tsx.
-            color: onPhoto ? 'rgba(255,255,255,0.95)' : 'var(--text-primary)',
+            color: onPhoto ? 'rgba(255,255,255,0.95)' : 'var(--on-header)',
             textDecoration: 'none',
           }}
         >
           <span
             aria-hidden
             data-accent-dot
-            style={{ width: '6px', height: '6px', borderRadius: '9999px', background: 'var(--accent)', flexShrink: 0 }}
+            style={{ width: '6px', height: '6px', borderRadius: '9999px', background: 'var(--badge)', flexShrink: 0 }}
           />
           Туры
         </Link>
@@ -259,7 +259,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           onClick={() => window.dispatchEvent(new Event('open-search'))}
           aria-label="Поиск (Ctrl+K)"
           style={iconBtn}
-          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="hover:bg-white/10"
         >
           <Search size={18} />
         </button>
@@ -272,7 +272,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           onClick={toggleTheme}
           aria-label={isDark ? 'Светлая тема' : 'Тёмная тема'}
           style={iconBtn}
-          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="hover:bg-white/10"
         >
           {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </button>
@@ -285,7 +285,8 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           вспомнил положить её рядом с заголовком. Одна кнопка — в одной
           шапке; экран со своей копией рядом с заголовком показывал бы две.
         */}
-        <EmergencyAction overPhoto={onPhoto} />
+        {/* Сплошная красная: на синей шапке контурная SOS не читается (22.10). */}
+        <EmergencyAction overPhoto />
 
         {/*
           Вход. Значок аккаунта стоял здесь ВСЕГДА — и у вошедшего, и у
@@ -304,7 +305,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           href={authed === false ? '/auth/login' : '/profile'}
           aria-label={authed === false ? 'Войти' : 'Личный кабинет'}
           style={iconBtn}
-          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="hover:bg-white/10"
         >
           {authed === false ? <LogIn size={18} /> : <UserCircle size={18} />}
         </Link>
@@ -320,7 +321,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           href="/menu"
           aria-label="Ещё — все разделы"
           style={iconBtn}
-          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="hover:bg-white/10"
         >
           <Menu size={18} />
         </Link>

@@ -59,7 +59,7 @@ export const viewport: Viewport = {
    * работал, предупреждение шло — и разбирающий консоль видел шум, за
    * которым легко пропустить настоящую ошибку.
    */
-  themeColor: '#0f172a',
+  themeColor: '#003580',
 };
 
 export const metadata: Metadata = {
