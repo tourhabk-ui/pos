@@ -44,7 +44,7 @@ describe('загрузчик прогноза', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ETIMEDOUT')));
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await fetchForecastDays(51.11, 157.11, 5);
-    expect(r).toEqual({ ok: false, reason: 'ETIMEDOUT' });
+    expect(r).toEqual({ ok: false, reason: 'источник прогноза не ответил вовремя' });
     expect(err).toHaveBeenCalled();
   });
 
