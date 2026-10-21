@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { processMemoryMb } from '@/lib/observability/process-memory';
 import { embeddingModelStatus } from '@/lib/ai/semantic-search-state';
+import { poolStats } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -77,6 +78,10 @@ export async function GET() {
     // load_failed за 1 мс, а тело крона с причиной не печаталось (окно health
     // занимал внешний планировщик), и узнать, почему, было нечем.
     memory: processMemoryMb(),
+    // Пул базы рядом с памятью (аудит 15.10, 1.15): тесен ли пул на 2 ядрах
+    // и 4 ГБ — по waiting (запросы в очереди за соединением) и total, а не
+    // по догадке. Соединения здесь не открываются: только счётчики pg.
+    db_pool: poolStats(),
     semantic_search: {
       enabled: model.enabled, model: model.state, since: model.since, load_ms: model.load_ms, error_code: model.error_code,
     },

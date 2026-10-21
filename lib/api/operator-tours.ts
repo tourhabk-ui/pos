@@ -289,21 +289,35 @@ export async function addAvailability(
   dates: Array<{ date: string; available_slots: number; price_override?: number }>,
   mayPrice: boolean,
 ) {
+  // Одним выражением, а не запросом на дату (аудит 15.10, 1.15, P3-14): цикл
+  // без транзакции оставлял при отказе на середине половину дат открытой, и
+  // каждая дата занимала соединение общего пула. Повтор даты во входе — берётся
+  // последний: так вёл себя цикл, а ON CONFLICT одной строки дважды не правит.
+  const byDate = new Map<string, { slots: number; price: number | null }>();
   for (const slot of dates) {
-    await query(
-      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, base_price_override)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (operator_tour_id, date) DO UPDATE
-       SET available_slots = $3,
-           base_price_override = CASE WHEN $5::boolean THEN $4 ELSE tour_availability.base_price_override END,
-           -- Повторно открытая дата открывается и туристу: до 25.09 upsert
-           -- оставлял is_cancelled/deleted_at, ответ был 201, а /slots
-           -- дату по-прежнему скрывал.
-           is_cancelled = FALSE, cancellation_reason = NULL, deleted_at = NULL,
-           updated_at = NOW()`,
-      [tourId, slot.date, slot.available_slots, slot.price_override || null, mayPrice]
-    );
+    byDate.set(slot.date, { slots: slot.available_slots, price: slot.price_override || null });
   }
+  const days = [...byDate.keys()];
+  await query(
+    `INSERT INTO tour_availability (operator_tour_id, date, available_slots, base_price_override)
+     SELECT $1::bigint, d.date, d.slots, d.price
+       FROM unnest($2::date[], $3::int[], $4::numeric[]) AS d(date, slots, price)
+     ON CONFLICT (operator_tour_id, date) DO UPDATE
+     SET available_slots = EXCLUDED.available_slots,
+         base_price_override = CASE WHEN $5::boolean THEN EXCLUDED.base_price_override ELSE tour_availability.base_price_override END,
+         -- Повторно открытая дата открывается и туристу: до 25.09 upsert
+         -- оставлял is_cancelled/deleted_at, ответ был 201, а /slots
+         -- дату по-прежнему скрывал.
+         is_cancelled = FALSE, cancellation_reason = NULL, deleted_at = NULL,
+         updated_at = NOW()`,
+    [
+      tourId.toString(),
+      days,
+      days.map((d) => byDate.get(d)!.slots),
+      days.map((d) => byDate.get(d)!.price),
+      mayPrice,
+    ]
+  );
 }
 
 export async function getAvailability(tourId: bigint, fromDate: string, toDate: string) {
