@@ -1292,7 +1292,7 @@ const CSS = `
    position:relative — чтобы offsetLeft карточек считался от ленты (goPlate). */
 .v7 .plates{position:relative;display:flex;align-items:flex-start;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
-.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-md);overflow:hidden}
 /* Точка остаётся 6px, а нажимается зона 26x44: сама точка рисуется вложенным
    ::after, кнопка вокруг неё прозрачная. Иначе переключатель плат — цель
    размером с крупинку, и в перчатке в него не попасть вовсе.
@@ -1321,8 +1321,8 @@ const CSS = `
 .v7 .plate .cap{padding:4px 12px 0;font:400 11px/1.45 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:calc(11px*1.45*2)}
 /* Факты карточки: цена с единицей, длительность и оператор (#39/#122). */
 .v7 .plate .facts{margin-top:8px;padding:8px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
-.v7 .plate .facts .price{font:800 22px/1.15 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:-.02em;color:var(--accent)}
-.v7 .plate .dur-chip{position:absolute;left:14px;bottom:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:999px;background:rgba(14,17,22,.48);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:1px solid rgba(255,255,255,.28);color:#fff;font:800 14px/1 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:.01em}
+.v7 .plate .facts .price{font:800 22px/1.15 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:-.02em;color:var(--text-primary)}
+.v7 .plate .dur-chip{position:absolute;left:14px;bottom:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:4px;background:var(--badge);border:0;color:var(--on-badge);font:800 14px/1 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:.01em}
 .v7 .plate .facts .price.muted{color:var(--text-secondary);font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif}
 .v7 .plate .facts .meta{font:500 11px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .plate .cancel,.v7 .plate .avail{padding:4px 12px 0;font:400 11px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}

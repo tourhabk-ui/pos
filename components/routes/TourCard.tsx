@@ -44,7 +44,7 @@ export default function TourCard({ route }: { route: RouteItem }) {
   // живут в одном месте (диалекты карточек ломали кнопку до 09.08).
   const fav = useWishlist('route', route.id);
   return (
-    <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
+    <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3 shadow-[var(--shadow-sm)]">
       <div className="mb-2 flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--bg-hover)] text-[var(--text-primary)]">
           <Icon className="w-3 h-3" style={{ color: meta.color }} />
@@ -95,7 +95,7 @@ export default function TourCard({ route }: { route: RouteItem }) {
         )}
 
         {price != null && price > 0 && (
-          <span className="inline-flex text-xs font-semibold text-[var(--text-primary)] bg-[var(--bg-hover)] px-2 py-1 rounded">
+          <span className="inline-flex text-xs font-semibold text-[var(--on-badge)] bg-[var(--badge)] px-2 py-1 rounded">
             от {price.toLocaleString('ru-RU')} ₽
           </span>
         )}
