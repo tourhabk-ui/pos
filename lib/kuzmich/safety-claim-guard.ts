@@ -24,6 +24,7 @@
  * выходе. Сторож: tests/unit/kuzmich-safety-claim-guard.test.ts.
  */
 
+import { stripBannedAdvice } from '@/lib/kuzmich/banned-advice';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { isNegated } from './safety-eval';
 
@@ -122,7 +123,14 @@ export function unbackedHazardNote(keys: string[]): string {
  * Сверить утверждения ответа с данными хода. `toolRuns === null` — ответ
  * пришёл без инструментов (запасной путь): сверять не с чем.
  */
-export function guardSafetyClaims(answer: string, toolRuns: readonly ToolRun[] | null): GuardResult {
+export function guardSafetyClaims(rawAnswer: string, toolRuns: readonly ToolRun[] | null): GuardResult {
+  // Опасный совет вырезается до сверки утверждений: этот сторож стоит на всех
+  // поверхностях (чат, поток, виджет, Telegram/MAX, A2A), поэтому и запрет здесь.
+  const banned = stripBannedAdvice(rawAnswer);
+  if (banned.removed.length > 0) {
+    console.error('[kuzmich-banned-advice] вырезан опасный совет', { count: banned.removed.length });
+  }
+  const answer = banned.text;
   const claims = findSafetyClaims(answer);
   if (claims.length === 0) return { text: answer, verdict: 'none', claims, flagged: [] };
 
