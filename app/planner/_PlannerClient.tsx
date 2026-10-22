@@ -30,8 +30,11 @@ import { frameReason, tourGroup, insertIndex, orderProblem } from '@/lib/planner
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
-import type { MapMarker } from '@/components/shared/leaflet-types';
-import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
+import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID } from '@/lib/planner/map-markers';
+import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
+import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
+import { placeTypeLabel } from '@/lib/places/type-label';
+import { PlannerMapOverlay, type PlannerMapStatus } from '@/components/planner/PlannerMapOverlay';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
@@ -84,20 +87,13 @@ const ACTIVITIES: SelectItem[] = [
   { id: 'boat_trip',  label: 'Морская прогулка', Icon: activityIcon('boat_trip') },
 ];
 
-const ZONE_LABELS: Record<string, string> = {
-  avachinsky: 'Авачинская — вулканы и ПКК',
-  western:    'Мильковская — озёра и рыбалка',
-  eastern:    'Карагинская — медведи и остров',
-  northern:   'Тигильская — гейзеры и север',
-};
-
-const ZONE_COLORS: Record<string, string> = {
-  avachinsky: 'var(--accent)',
-  eastern:    'var(--ocean)',
-  northern:   'var(--success)',
-  western:    'var(--purple)',
-};
-
+// Имена и цвета зон — lib/planner/zone-style (22.10): одно имя с движком и
+// один цвет с пином карты. Своих словарей зон здесь больше нет: прежние
+// «Мильковская — озёра и рыбалка» и «Тигильская — гейзеры и север» спорили с
+// базой, а цвета-токены — с пинами.
+//
+// Центры зон остались только для логистики нового дня из маршрута, у
+// которого зона в базе не записана (routeToDayPlan), — не для цвета точки.
 const ZONE_COORDS: Record<string, [number, number]> = {
   avachinsky: [52.80, 158.80],
   western:    [55.33, 157.12],
@@ -192,7 +188,8 @@ function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
   const activity = route.activity_type ?? 'trekking';
   const [priceFrom, priceTo] = INTEREST_PRICE[activity] ?? DEFAULT_PRICE;
   const transport = ACTIVITY_DEFAULT_TRANSPORT[activity] ?? 'walking';
-  const zone = guessZone(route.lat, route.lng);
+  // Зона дня — записанная в базе; угадывать по расстоянию только если её нет.
+  const zone = route.plannerZone ?? guessZone(route.lat, route.lng);
   const zoneTransports = ZONE_TRANSPORTS[zone] ?? ['walking', 'jeep'];
   return {
     day: dayNum,
@@ -438,7 +435,8 @@ function DayCard({
             className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 transition-all ${
               isEditing ? 'ring-2 ring-[var(--accent)]/40' : ''
             }`}
-            style={{ background: ZONE_COLORS[day.zone] ?? 'var(--accent)' }}
+            // Кружок дня — тем же цветом, что его пин с номером на карте.
+            style={{ background: planDayHex() }}
           >
             {idx + 1}
           </div>
@@ -473,7 +471,8 @@ function DayCard({
               )}
             </div>
             <p className="text-[10px] text-[var(--text-muted)]">
-              {ZONE_LABELS[day.zone] ?? day.zone}
+              <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(day.zone) }} />
+              {zoneName(day.zone)}
               {isEditing && (
                 <span className="ml-1.5 text-[var(--accent)] font-medium">— редактирование</span>
               )}
@@ -568,7 +567,7 @@ function DayCard({
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                 <MapPin className="w-3 h-3" />
-                <span>{ZONE_LABELS[day.zone] ?? day.zone}</span>
+                <span>{zoneName(day.zone)}</span>
               </div>
               {day.type === 'activity' && (
                 <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
@@ -646,6 +645,11 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
   }, [editingDayId]);
 
   const editingIdx = days.findIndex(d => d.day === editingDayId);
+  const typeLabel = placeTypeLabel(route.location_type);
+  // Плана ещё нет (идут шаги анкеты): день, добавленный сейчас, сборка плана
+  // перезапишет, а на экране шагов его не видно вовсе. Предлагать
+  // «Добавить в план» тут — обещать то, что не случится.
+  const hasPlan = days.length > 0;
 
   return (
     <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg overflow-hidden">
@@ -659,14 +663,14 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
                 {actLabel}
               </span>
             )}
-            {route.location_type && (
+            {typeLabel && (
               <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[var(--ocean)]/10 text-[var(--ocean)]">
-                {route.location_type}
+                {typeLabel}
               </span>
             )}
           </div>
         </div>
-        <button onClick={onClose}
+        <button onClick={onClose} aria-label="Закрыть карточку маршрута"
           className="w-6 h-6 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors shrink-0">
           <X className="w-3.5 h-3.5" />
         </button>
@@ -712,15 +716,25 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
           </div>
         )}
 
+        {!hasPlan && (
+          <p className="text-[11px] leading-snug text-[var(--text-secondary)]">
+            Сначала соберите маршрут — потом эту точку можно поставить в день плана.
+          </p>
+        )}
+
         <div className="flex items-center gap-2">
-          <button onClick={onAddDay}
-            className="ds-btn ds-btn-secondary flex-1 py-1.5 text-xs font-medium flex items-center justify-center gap-1">
-            <Plus className="w-3.5 h-3.5" />
-            Добавить в план
-          </button>
+          {hasPlan && (
+            <button onClick={onAddDay}
+              className="ds-btn ds-btn-secondary flex-1 py-1.5 text-xs font-medium flex items-center justify-center gap-1">
+              <Plus className="w-3.5 h-3.5" />
+              Добавить в план
+            </button>
+          )}
           <a href={`/routes/${route.id}`} target="_blank" rel="noopener noreferrer"
-            className="ds-btn ds-btn-secondary py-1.5 px-2 text-xs flex items-center gap-1">
+            aria-label="Открыть страницу маршрута"
+            className={`ds-btn ds-btn-secondary py-1.5 px-2 text-xs flex items-center justify-center gap-1 ${hasPlan ? '' : 'flex-1'}`}>
             <ExternalLink className="w-3.5 h-3.5" />
+            {!hasPlan && 'Открыть маршрут'}
           </a>
         </div>
       </div>
@@ -1185,9 +1199,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Запрос мест у оператора (29.09): тур дня и дата дня, если прилёт известен.
   const [seatModal, setSeatModal] = useState<{ tour: TourPreview; date: string } | null>(null);
 
-  // Background route markers
-  const [bgRoutes, setBgRoutes] = useState<RoutePoint[]>([]);
+  // Фоновые маршруты карты — три исхода (lib/planner/bg-routes): null — ещё
+  // не загружали. Пока идёт перезагрузка, на карте остаются прежние точки.
+  const [bgResult, setBgResult] = useState<BgRoutesResult | null>(null);
   const [bgLoading, setBgLoading] = useState(false);
+  const [bgRetry, setBgRetry] = useState(0);
+  const bgRoutes = useMemo<RoutePoint[]>(() => (bgResult?.state === 'ok' ? bgResult.routes : []), [bgResult]);
 
   // Selected route on map (clicked suggestion)
   const [selectedRoute, setSelectedRoute] = useState<RoutePoint | null>(null);
@@ -1464,81 +1481,18 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setTimeout(() => setShareCopied(false), 2000);
   }, [shareUrl]);
 
-  // Map: plan markers (numbered) + polyline + background route dots (colored by zone)
-  const mapMarkers = useMemo((): MapMarker[] => {
-    const result: MapMarker[] = [];
-
-    // Zone → Yandex preset color mapping for suggestion dots
-    const ZONE_DOT_PRESET: Record<string, string> = {
-      avachinsky: 'islands#orangeDotIcon',
-      eastern:    'islands#blueDotIcon',
-      northern:   'islands#greenDotIcon',
-      western:    'islands#violetDotIcon',
-    };
-
-    // Background route dots — colored by zone, bright in edit mode
-    const editingDay = editingDayId !== null ? days.find(d => d.day === editingDayId) : null;
-
-    bgRoutes.forEach(r => {
-      const routeZone = r.zone ?? guessZone(r.lat, r.lng);
-      const isNearEditZone = editingDay && routeZone === editingDay.zone;
-
-      // In edit mode: matching zone bright, others gray
-      // In overview: colored by zone
-      let preset: string;
-      if (editingDay) {
-        preset = isNearEditZone
-          ? (ZONE_DOT_PRESET[routeZone] ?? 'islands#orangeDotIcon')
-          : 'islands#grayDotIcon';
-      } else {
-        preset = ZONE_DOT_PRESET[routeZone] ?? 'islands#grayDotIcon';
-      }
-
-      result.push({
-        id: r.id,
-        coords: [r.lat, r.lng],
-        title: r.title,
-        description: trunc(r.description, 80) || undefined,
-        preset,
-        suppressBalloon: true,
-      });
-    });
-
-    if (days.length === 0) return result;
-
-    // Unique zones for polyline
-    const seen = new Set<string>();
-    const zoneOrder: DayPlan[] = [];
-    days.forEach(d => { if (!seen.has(d.zone)) { seen.add(d.zone); zoneOrder.push(d); } });
-
-    // Plan day markers (numbered pins)
-    days.forEach((d, i) => {
-      const isEditing = d.day === editingDayId;
-      result.push({
-        id: `day_${d.day}`,
-        coords: d.coords,
-        title: `${i + 1}. ${d.title}`,
-        description: ZONE_LABELS[d.zone] ?? d.zone,
-        color: isEditing ? 'orange' : i === 0 ? 'red' : 'blue',
-        suppressBalloon: true,
-      });
-    });
-
-    // Линия между днями плана — ПОСТРОЕНИЕ, а не путь (lib/map/line-standard).
-    // Она соединяет центры зон, между которыми бывает триста километров и
-    // хребет. Сплошная оранжевая под словом «Маршрут» читалась как проход:
-    // и вид, и подпись обещали то, чего никто не снимал.
-    if (zoneOrder.length >= 2) {
-      result.push({
-        id: 'route_line',
-        coords: zoneOrder[0].coords,
-        title: CONNECTOR_TITLES.planOrder,
-        geometry: { type: 'polyline', coordinates: zoneOrder.map(d => d.coords), ...connectorLine() },
-      });
-    }
-
-    return result;
-  }, [days, bgRoutes, editingDayId]);
+  // Карта: фоновые точки цветом своей зоны, дни плана — кружками с номером,
+  // линия между зонами — построение. Правило — lib/planner/map-markers.
+  const mapMarkers = useMemo(
+    () => buildPlannerMarkers({ routes: bgRoutes, days, editingDayId }),
+    [days, bgRoutes, editingDayId],
+  );
+  const mapLegend = useMemo(() => plannerLegend(bgRoutes), [bgRoutes]);
+  // Перезагрузка после отказа или пустоты — снова «загружаем», а не прежний
+  // отказ; после успеха прежние точки остаются, пока не придут новые.
+  const mapStatus: PlannerMapStatus = bgResult === null || (bgLoading && bgResult.state !== 'ok')
+    ? 'loading'
+    : bgResult.state;
 
   // Handle map marker click
   const handleMarkerClick = useCallback((id: string) => {
@@ -1555,45 +1509,27 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       }
       return;
     }
-    if (id === 'route_line') return;
+    if (id === ROUTE_LINE_ID) return;
     // Click on suggestion route
     const route = bgRoutes.find(r => r.id === id);
     if (route) setSelectedRoute(route);
   }, [bgRoutes, toggleEditDay]);
 
 
-  // Fetch background routes whenever interests change; defaults on mount
+  // Фоновые маршруты по интересам (по умолчанию — три интереса). Отказ —
+  // это отказ, а не «маршрутов нет» (lib/planner/bg-routes).
   useEffect(() => {
-    const types = allInterests.length > 0
-      ? [...new Set(allInterests)]
-      : ['trekking', 'volcano', 'fishing'];
+    const types = allInterests.length > 0 ? allInterests : [...BG_DEFAULT_TYPES];
     let cancelled = false;
-
     setBgLoading(true);
-
-    const fetches = types.map(actType =>
-      fetch(`/api/routes?activity_type=${encodeURIComponent(actType)}&hasCoords=true&limit=30`)
-        .then(r => r.json())
-        .then(data => (data.success && Array.isArray(data.data) ? data.data as RoutePoint[] : [] as RoutePoint[]))
-        .catch(() => [] as RoutePoint[])
-    );
-
-    Promise.all(fetches).then(results => {
+    void loadBackgroundRoutes(types).then(result => {
       if (cancelled) return;
-      const seen = new Set<string>();
-      const deduped: RoutePoint[] = [];
-      for (const batch of results) {
-        for (const route of batch) {
-          if (!seen.has(route.id)) { seen.add(route.id); deduped.push(route); }
-        }
-      }
-      setBgRoutes(deduped);
+      setBgResult(result);
       setBgLoading(false);
     });
-
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [places.join(','), activities.join(',')])
+  }, [places.join(','), activities.join(','), bgRetry])
 
   // Clear edit mode when days change (e.g. day deleted)
   useEffect(() => {
@@ -1669,7 +1605,7 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
     <span class="day-price">${escapeHtml(dayPriceLine(d))}</span>
   </div>
   ${d.description ? `<div class="day-desc">${d.description}</div>` : ''}
-  <div class="day-meta">${ZONE_LABELS[d.zone] ?? d.zone}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>
+  <div class="day-meta">${escapeHtml(zoneName(d.zone))}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>
   ${d.dayWarnings.map(w => `<div class="day-warn">${w}</div>`).join('')}
 </div>`).join('\n')}
 ${estimate ? `<div class="footer">
@@ -2592,8 +2528,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             <div className="flex flex-wrap gap-1.5">
               {recommendation.zones.map(z => (
                 <div key={z.zone} className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--bg-hover)] rounded-full border border-[var(--border)]">
-                  <div className="w-2 h-2 rounded-full" style={{ background: ZONE_COLORS[z.zone] ?? 'var(--accent)' }} />
-                  <span className="text-xs font-medium text-[var(--text-primary)]">{ZONE_LABELS[z.zone] ?? z.zone}</span>
+                  <div className="w-2 h-2 rounded-full" style={{ background: zoneHex(z.zone) }} />
+                  <span className="text-xs font-medium text-[var(--text-primary)]">{zoneName(z.zone)}</span>
                   <span className="text-[10px] text-[var(--text-muted)]">{z.score}%</span>
                   {/* Загрузка зоны — из реальных броней на даты поездки
                       (27.09). До этого движок отдавал захардкоженный ноль, и
@@ -2890,58 +2826,25 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         onMarkerClick={handleMarkerClick}
       />
 
-      {/* Hint / Loading */}
-      {bgLoading && bgRoutes.length === 0 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-xs text-[var(--text-muted)] flex items-center gap-2 shadow-sm">
-            <Loader className="w-3.5 h-3.5 animate-spin text-[var(--accent)]" />
-            Загружаем маршруты...
-          </div>
-        </div>
-      )}
+      {/* Что на карте — словами: замена дня, загрузка/отказ/пусто, легенда зон
+          тем же цветом, что пины, и что делать с точкой. */}
+      <PlannerMapOverlay
+        status={mapStatus}
+        refreshing={bgLoading && bgResult?.state === 'ok'}
+        legend={mapLegend}
+        total={bgRoutes.length}
+        partial={bgResult?.state === 'ok' && bgResult.failedTypes.length > 0}
+        hasPlan={days.length > 0}
+        editing={editingDayInfo ? { number: editingDayInfo.idx + 1, title: editingDayInfo.title } : null}
+        onRetry={() => setBgRetry(n => n + 1)}
+        onStopEditing={() => setEditingDayId(null)}
+      />
 
-      {/* Edit mode banner on map */}
-      {editingDayInfo && (
-        <div className="absolute top-4 left-4 right-4 lg:right-auto lg:max-w-sm pointer-events-auto z-10">
-          <div className="bg-[var(--bg-card)] border border-[var(--accent)] rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-3">
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-              style={{ background: 'var(--accent)' }}>
-              {editingDayInfo.idx + 1}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[var(--text-primary)] truncate">
-                Замена: {editingDayInfo.title}
-              </p>
-              <p className="text-[10px] text-[var(--text-muted)]">
-                Кликните любую точку на карте
-              </p>
-            </div>
-            <button onClick={() => setEditingDayId(null)}
-              className="w-6 h-6 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors shrink-0">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Background routes count badge (when not in edit mode) */}
-      {bgRoutes.length > 0 && !editingDayInfo && (
-        <div className="absolute top-4 left-4 pointer-events-none">
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-[var(--text-secondary)] flex items-center gap-2 shadow-sm">
-            <div className="flex gap-0.5">
-              <div className="w-2 h-2 rounded-full" style={{ background: 'var(--accent)' }} />
-              <div className="w-2 h-2 rounded-full" style={{ background: 'var(--ocean)' }} />
-              <div className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
-              <div className="w-2 h-2 rounded-full" style={{ background: 'var(--purple)' }} />
-            </div>
-            {bgRoutes.length} маршрутов по зонам
-          </div>
-        </div>
-      )}
-
-      {/* Route detail card overlay */}
+      {/* Карточка маршрута по нажатию на точку. На телефоне — выше подписи
+          OpenStreetMap в правом нижнем углу: её закрывать нельзя (лицензия
+          тайлов требует, чтобы она была видна). */}
       {selectedRoute && (
-        <div className="absolute bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10">
+        <div className="absolute bottom-8 lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10">
           <RouteDetailCard
             route={selectedRoute}
             days={days}

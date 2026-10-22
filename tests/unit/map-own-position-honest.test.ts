@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fitDecision } from '@/lib/map/fit-when-sized';
 
 const MAP = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
 
@@ -218,10 +219,19 @@ describe('маркеры рисуются на живой карте, а не п
   });
 
   it('подгонка вида — один раз на инстанс, а не на каждый набор маркеров', () => {
+    // Правило «когда подгонять» — функция (22.10: на скрытом контейнере 0×0
+    // подгонка откладывается до размера, а не помечается сделанной), и
+    // проверяется вызовом: после подгонки — больше никогда.
+    expect(fitDecision({ fitDone: true, points: 50, width: 800, height: 600 })).toBe('done');
+    expect(fitDecision({ fitDone: false, points: 1, width: 800, height: 600 })).toBe('too_few');
+    expect(fitDecision({ fitDone: false, points: 50, width: 800, height: 600 })).toBe('fit');
+    // Эффект маркеров спрашивает именно её и помечает подгонку ДО fitBounds.
     const at = MAP.indexOf('}, [markers, mapEpoch]);');
     const body = MAP.slice(MAP.lastIndexOf('useEffect(() => {', at), at);
-    expect(body).toMatch(/if \(fitDoneRef\.current \|\| allCoords\.length < 2\) return;/);
-    expect(body).toMatch(/fitDoneRef\.current = true;/);
+    expect(body).toMatch(/fitDecision\(\{\s*fitDone: fitDoneRef\.current, points: allCoords\.length/);
+    expect(body).toMatch(/if \(decision !== 'fit'\) return;/);
+    expect(body.indexOf('fitDoneRef.current = true;'))
+      .toBeGreaterThan(body.indexOf("if (decision !== 'fit') return;"));
     expect(body.indexOf('fitDoneRef.current = true;'))
       .toBeLessThan(body.indexOf('map.fitBounds('));
   });

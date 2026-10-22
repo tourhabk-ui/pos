@@ -127,6 +127,14 @@ export interface CatalogItem {
    * открывается «местами с маршрутом». null — не место.
    */
   onRoute: boolean | null;
+  /**
+   * Зона записи как она стоит в базе (kamchatka_routes.zone / places.zone):
+   * одна из четырёх зон планировщика или метка района вне них
+   * (`krai_koryak`, `kuril_north`…); null — не записана. Добавлено 22.10 для
+   * карты планировщика: без поля точки красились зоной, угаданной по
+   * расстоянию, а движок подбирает дни по этой, записанной.
+   */
+  zone: string | null;
 }
 
 export interface CatalogResult {
@@ -352,6 +360,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          ark.category,
          ark.location_type,
          ark.activity_type,
+         ark.zone,
          ark.title,
          ark.description,
          ark.lat,
@@ -476,6 +485,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
           )
         : null,
       onRoute: r.on_route == null ? null : Boolean(r.on_route),
+      zone:    typeof r.zone === 'string' && r.zone.trim() !== '' ? r.zone.trim() : null,
     };
   });
 

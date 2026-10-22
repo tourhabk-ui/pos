@@ -130,6 +130,7 @@ export function buildOpenApiDocument(base: string): Json {
         isOpen: nullable('boolean', { description: 'false — место закрыто администратором. true — значение по умолчанию у всех мест («никто не закрыл»), не проверка, что место открыто' }),
         lineGrade: nullable('string', { enum: ['surveyed', 'sketch', 'unknown', 'points_only', 'none', null], description: 'Только у kind=route: откуда линия' }),
         onRoute: nullable('boolean', { description: 'Только у kind=place' }),
+        zone: nullable('string', { description: 'Зона записи в базе: avachinsky, western, eastern, northern или метка района вне них; null — не записана' }),
       },
     },
     CatalogResponse: {

@@ -3,6 +3,7 @@
  */
 
 import type { StayPrice } from '@/lib/planner/trip-extras';
+import type { PlannerRoute } from '@/lib/planner/bg-routes';
 
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
@@ -86,16 +87,13 @@ export interface Recommendation {
   };
 }
 
-export interface RoutePoint {
-  id: string;
-  title: string;
-  description: string | null;
-  lat: number;
-  lng: number;
-  activity_type: string | null;
-  location_type: string | null;
-  zone: string | null;
-}
+/**
+ * Маршрут фоновой точки карты. Форма — разбор ответа каталога
+ * (lib/planner/bg-routes, toPlannerRoute): до 22.10 здесь была своя копия
+ * со snake_case полями, а ответ приводился к ней вслепую, и поля, которых
+ * каталог так не называет, были пустыми всегда.
+ */
+export type RoutePoint = PlannerRoute;
 
 export interface Partner {
   id: string;

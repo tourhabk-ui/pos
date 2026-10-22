@@ -10,6 +10,11 @@ export { MarkerType } from '@/components/shared/leaflet-types';
 export type { MapMarkerGeometry, MapMarker } from '@/components/shared/leaflet-types';
 import { LEAFLET_ATTRIBUTION, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
+// Цвета пинов — общая таблица (22.10): из неё же берёт цвет легенда
+// планировщика, и легенда показывает ровно тот цвет, каким нарисован пин.
+import { resolveMarkerColor } from '@/lib/map/marker-colors';
+import { labelPinHtml, labelPinSize } from '@/lib/map/label-pin';
+import { fitDecision } from '@/lib/map/fit-when-sized';
 
 interface LeafletMapProps {
   markers?: MapMarker[];
@@ -99,43 +104,6 @@ export interface LeafletZoomHandle {
   onZoom(cb: (zoom: number) => void): () => void;
 }
 
-const COLOR_MAP: Record<string, string> = {
-  red:       '#DC2626',
-  blue:      '#2568B0',
-  green:     '#3FB950',
-  orange:    '#D44A0C',
-  purple:    '#8B5CF6',
-  darkBlue:  '#1E40AF',
-  darkCyan:  '#0891B2',
-  lightBlue: '#38BDF8',
-  darkGreen: '#15803D',
-  teal:      '#0D9488',
-  brown:     '#92400E',
-  gray:      '#6B7280',
-  darkOrange:'#C2410C',
-  cyan:      '#06B6D4',
-};
-
-/**
- * Цвет маркера/линии — из COLOR_MAP по имени либо хекс как есть.
- *
- * `lib/map/line-standard.ts` (`trackLine()`/`connectorLine()`) отдаёт цвет
- * УЖЕ хексом (`#4ade80`, `#9A9590` — §12 «линия называет своё
- * происхождение»). Прежний код искал этот хекс в COLOR_MAP как ключ, не
- * находил и всегда откатывался на дефолт: набросок и снятый трек, зелёный и
- * серый по стандарту, рисовались одинаковым teal — стандарт был мёртв на
- * каждом экране, который через LeafletMap его применял (карточка маршрута,
- * планер, паспорт маршрута).
- */
-function resolveColor(color: string | undefined | null, fallback: string): string {
-  if (color) {
-    if (color.startsWith('#')) return color;
-    const named = COLOR_MAP[color];
-    if (named) return named;
-  }
-  return COLOR_MAP[fallback] ?? fallback;
-}
-
 /** Попап собирается строкой — любой текст из БД обязан быть экранирован. */
 function escapeHtml(s: string): string {
   return s
@@ -154,7 +122,7 @@ function ageLabel(ts: number): string {
 }
 
 function buildPopupHtml(marker: MapMarker): string {
-  const hex = resolveColor(marker.color, 'blue');
+  const hex = resolveMarkerColor(marker.color, 'blue');
   let html = `<div style="font-family:sans-serif;max-width:220px">`;
   html += `<strong style="font-size:13px;color:#111;display:block;margin-bottom:4px">${escapeHtml(marker.title)}</strong>`;
   // Ограничения — ПЕРЕД описанием: в поле «дорога закрыта» важнее рассказа
@@ -282,6 +250,8 @@ export default function LeafletMap({
   const LRef = useRef<typeof import('leaflet') | null>(null);
   const drawnRef = useRef<Array<{ remove: () => void }>>([]);
   const fitDoneRef = useRef(false);
+  /** Точки для подгонки, отложенной до размера контейнера (см. lib/map/fit-when-sized). */
+  const pendingFitRef = useRef<[number, number][] | null>(null);
   // Обработчики — через ref: инлайновая стрелка у вызывающего меняет identity
   // на каждом рендере, и будь она в зависимостях, карта пересоздавалась бы
   // вообще на каждый рендер родителя, независимо от маркеров.
@@ -611,6 +581,7 @@ export default function LeafletMap({
       // нельзя: fitBounds отменил бы восстановление. Отмечаем подгонку
       // сделанной, чтобы эффект маркеров её не повторил.
       fitDoneRef.current = Boolean(restoredView);
+      pendingFitRef.current = null;
       if (!cancelled) setMapEpoch((n) => n + 1);
 
       // Fix «пустая карта» в модалке/боттом-шите: контейнер к моменту init мог
@@ -624,7 +595,20 @@ export default function LeafletMap({
       requestAnimationFrame(kick);
       setTimeout(kick, 250);
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-        resizeObserver = new ResizeObserver(() => map.invalidateSize());
+        resizeObserver = new ResizeObserver(() => {
+          map.invalidateSize();
+          // Отложенная подгонка: маркеры пришли, пока контейнер был скрыт
+          // (см. эффект маркеров). Подгоняется один раз — как и обычная.
+          const pending = pendingFitRef.current;
+          if (!pending) return;
+          const size = map.getSize();
+          if (fitDecision({
+            fitDone: fitDoneRef.current, points: pending.length, width: size.x, height: size.y,
+          }) !== 'fit') return;
+          pendingFitRef.current = null;
+          fitDoneRef.current = true;
+          map.fitBounds(pending as unknown as import('leaflet').LatLngBoundsExpression, { padding: [50, 50] });
+        });
         resizeObserver.observe(containerRef.current);
       }
 
@@ -822,13 +806,13 @@ export default function LeafletMap({
     const toCluster: unknown[] = [];
 
     markers.forEach((marker, idx) => {
-      const hex = resolveColor(marker.color, 'blue');
+      const hex = resolveMarkerColor(marker.color, 'blue');
       const markerId = marker.id ?? `mk_${idx}`;
       allCoords.push(marker.coords);
 
       // Геометрия маршрута (линии/полигоны) — добавляем НА карту, не в кластер
       if (marker.geometry && marker.geometry.coordinates.length >= 2) {
-        const geomHex = resolveColor(marker.geometry.color ?? marker.color, 'teal');
+        const geomHex = resolveMarkerColor(marker.geometry.color ?? marker.color, 'teal');
         const coords = marker.geometry.coordinates as [number, number][];
         // Трек участвует в fitBounds — иначе линия длиннее вьюпорта обрезается
         allCoords.push(...coords);
@@ -869,16 +853,34 @@ export default function LeafletMap({
       // ставить точку там, где точки нет.
       if (marker.geometryOnly) return;
 
-      const svgIcon = placeMarkerSvg(hex, marker.category);
-      const icon = L.divIcon({
-        html: svgIcon,
-        className: 'kh-marker',
-        iconSize: [24, 28],
-        iconAnchor: [12, 26],
-        popupAnchor: [0, -26],
-      });
+      // Пин с подписью (день плана, 22.10) — кружок с числом, крупнее точки
+      // и поверх неё. Без подписи — прежний пин по виду места.
+      const labelled = typeof marker.label === 'string' && marker.label.length > 0;
+      let icon: import('leaflet').DivIcon;
+      if (labelled) {
+        const d = labelPinSize(marker.emphasis === true);
+        icon = L.divIcon({
+          html: labelPinHtml(marker.label as string, hex, marker.emphasis === true),
+          className: 'kh-label-pin',
+          iconSize: [d, d],
+          iconAnchor: [d / 2, d / 2],
+          popupAnchor: [0, -d / 2],
+        });
+      } else {
+        const svgIcon = placeMarkerSvg(hex, marker.category);
+        icon = L.divIcon({
+          html: svgIcon,
+          className: 'kh-marker',
+          iconSize: [24, 28],
+          iconAnchor: [12, 26],
+          popupAnchor: [0, -26],
+        });
+      }
 
-      const m = L.marker(marker.coords, { icon });
+      const m = L.marker(
+        marker.coords,
+        labelled ? { icon, title: marker.title, zIndexOffset: 1000 } : { icon },
+      );
 
       if (!marker.suppressBalloon) {
         // HTML попапа — при открытии, а не для всех маркеров заранее:
@@ -889,7 +891,9 @@ export default function LeafletMap({
       // Через ref: обработчик мог смениться без перерисовки маркеров.
       m.on('click', () => onMarkerClickRef.current?.(markerId));
 
-      if (cluster) {
+      // Пин с подписью — мимо кластера: номер дня, спрятанный в «12»
+      // кластера, не читается, а день плана не должен растворяться в фоне.
+      if (cluster && !labelled) {
         toCluster.push(m);
       } else {
         drawn.push(m.addTo(map));
@@ -904,7 +908,24 @@ export default function LeafletMap({
     // восстановлен. Подгонять на каждый набор нельзя: набор меняется на
     // каждом GPS-фиксе, и карта уезжала бы из-под руки ровно так же, как
     // уезжала от пересоздания (владелец 31.08).
-    if (fitDoneRef.current || allCoords.length < 2) return;
+    //
+    // Скрытый контейнер (0×0, колонка карты `hidden` на телефоне) — подгонка
+    // ОТКЛАДЫВАЕТСЯ до первого настоящего размера, а не помечается сделанной:
+    // fitBounds на нулевом размере уводил карту на 17-й зум над пустым
+    // местом, и вкладка «Карта» открывалась без единой точки (22.10).
+    // Догоняет её ResizeObserver эффекта жизненного цикла.
+    const size = map.getSize();
+    const decision = fitDecision({
+      fitDone: fitDoneRef.current, points: allCoords.length, width: size.x, height: size.y,
+    });
+    if (decision === 'wait_for_size') {
+      pendingFitRef.current = allCoords;
+      return;
+    }
+    // Отложенная подгонка больше не нужна: либо делаем её сейчас, либо
+    // подгонять уже не по чему (набор опустел) или поздно (вид задан).
+    pendingFitRef.current = null;
+    if (decision !== 'fit') return;
     fitDoneRef.current = true;
     const fit = () => {
       map.invalidateSize();
@@ -921,7 +942,13 @@ export default function LeafletMap({
   }, [markers, mapEpoch]);
 
   return (
-    <div style={{ height, position: 'relative' }} className={`overflow-hidden ${className}`}>
+    // isolation: слои Leaflet (тайлы и маркеры — z-index 400 и 1000, углы
+    // контролов — 1000) остаются ВНУТРИ карты. Без неё они спорили со всей
+    // страницей: легенда и карточка маршрута планировщика рисовались под
+    // тайлами (их не было видно вовсе), согласие на cookie и модалки
+    // резались картой, а на странице маршрута при прокрутке тайлы ложились
+    // поверх шапки сайта с кнопкой SOS (замер 22.10).
+    <div style={{ height, position: 'relative', isolation: 'isolate' }} className={`overflow-hidden ${className}`}>
       <div ref={containerRef} style={{ height: '100%' }} />
       {showUserLocation && geoDenied && !initFailed && (
         <div
