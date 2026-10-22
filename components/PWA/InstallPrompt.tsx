@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { isWidgetPath } from '@/lib/embed/widget-frame';
+import { isForeignSurface } from '@/lib/embed/widget-frame';
 
 /**
  * Где приглашение установить приложение НЕ показывается: путь покупки.
@@ -18,8 +18,8 @@ export const INSTALL_PROMPT_HIDDEN_PREFIXES = ['/catalog', '/marketplace', '/boo
 
 export function installPromptHiddenOn(pathname: string | null): boolean {
   if (!pathname) return true;
-  // Внутри iframe виджета на чужом сайте приложение Ведара не предлагают.
-  if (isWidgetPath(pathname)) return true;
+  // Внутри iframe виджета и на сайте партнёра приложение Ведара не предлагают.
+  if (isForeignSurface(pathname)) return true;
   return INSTALL_PROMPT_HIDDEN_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
 }
 

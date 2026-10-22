@@ -17,6 +17,72 @@ const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
  * (scripts/write-version.js, commit + built_at); его читает и /api/health,
  * и scripts/wait-for-deploy.sh. Второй штамп заводить не нужно.
  */
+/**
+ * Сайты партнёров, которые Ведар отдаёт со своего приложения (слово владельца
+ * 22.10: fishingkam.ru «под нашим управлением», DNS на REG.RU). Тот же список —
+ * lib/partner-sites/registry.ts; CommonJS отсюда TypeScript не читает, и что
+ * списки совпадают, держит tests/unit/partner-site-routing.test.ts.
+ *
+ * Пока DNS домена смотрит на старый хостинг, правила ниже не срабатывают ни
+ * разу: запросов с этим Host к приложению нет.
+ */
+const PARTNER_SITE_HOSTS = [
+  { host: 'fishingkam.ru', slug: 'kamchatskaya-rybalka' },
+];
+
+/** Условия «запрос пришёл на домен»: по Host и по X-Forwarded-Host (за прокси Timeweb Host подменяется — см. tourhab.ru в redirects). */
+function hostConditions(hostPattern) {
+  return [
+    [{ type: 'host', value: hostPattern }],
+    [{ type: 'header', key: 'x-forwarded-host', value: hostPattern }],
+  ];
+}
+
+const escapeHost = (host) => host.replace(/\./g, '\\.');
+
+/**
+ * Домен партнёра → его страница: главная, robots.txt и sitemap.xml. Это
+ * beforeFiles: afterFiles не перекрыл бы app/page.tsx, и на fishingkam.ru
+ * открылась бы главная Ведара. Каждое правило — только с условием домена:
+ * без него оно подменило бы главную самого Ведара.
+ */
+function partnerSiteRewrites() {
+  return PARTNER_SITE_HOSTS.flatMap(({ host, slug }) =>
+    hostConditions(`(www\\.)?${escapeHost(host)}`).flatMap((has) => [
+      { source: '/', has, destination: `/partner-site/${slug}` },
+      { source: '/robots.txt', has, destination: `/partner-site/${slug}/robots.txt` },
+      { source: '/sitemap.xml', has, destination: `/partner-site/${slug}/sitemap.xml` },
+    ]));
+}
+
+/**
+ * Адреса домена партнёра, которые должны вести не туда, где их найдёт
+ * приложение:
+ *  - www → голый домен, одним хопом (как www.vedarai.ru);
+ *  - страницы документов прежнего сайта на Tilda (/pol, /soglasie, /reklama,
+ *    /cookie — перепись ссылок 22.10, проба 987) — на политику Ведара: заявки
+ *    на новом сайте собирает Ведар, и документ о них — наш;
+ *  - /legal/* (ссылка «политика» в согласии формы относительная) — на
+ *    vedarai.ru, а не страница Ведара под адресом партнёра;
+ *  - /tproduct/* (карточки магазина Tilda) — на главную, где туры.
+ * /api исключён, как в правилах tourhab.ru: заявка с формы — POST /api/leads.
+ */
+function partnerSiteRedirects() {
+  return PARTNER_SITE_HOSTS.flatMap(({ host }) => [
+    ...hostConditions(`www\\.${escapeHost(host)}`).flatMap((has) => [
+      { source: '/', has, destination: `https://${host}/`, permanent: true },
+      { source: '/:path((?!api/).*)', has, destination: `https://${host}/:path`, permanent: true },
+    ]),
+    ...hostConditions(escapeHost(host)).flatMap((has) => [
+      ...['/pol', '/soglasie', '/reklama', '/cookie'].map((source) => (
+        { source, has, destination: 'https://vedarai.ru/legal/privacy', permanent: true }
+      )),
+      { source: '/legal/:path*', has, destination: 'https://vedarai.ru/legal/:path*', permanent: true },
+      { source: '/tproduct/:path*', has, destination: '/', permanent: true },
+    ]),
+  ]);
+}
+
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
@@ -105,6 +171,8 @@ const nextConfig = {
 
   async redirects() {
     return [
+      // Домен партнёра — первым: его адреса не должны дойти до общих правил.
+      ...partnerSiteRedirects(),
       // ── Канон домена ────────────────────────────────────────────────────
       // tourhab.ru и vedarai.ru отдавали один и тот же сайт. Для поисковика и
       // для ИИ-агента это два разных сайта с одинаковым содержимым: ссылки,
@@ -257,10 +325,15 @@ const nextConfig = {
   // Форма slug — латиница, цифры, дефис, от двух знаков, без точек: опечатки
   // и /favicon.ico в базу не ходят; неизвестный slug — notFound самой
   // страницы оператора. Сторож: tests/unit/partner-short-address.
+  // Сайт партнёра на его домене — beforeFiles (см. partnerSiteRewrites выше);
+  // короткий адрес по-прежнему afterFiles.
   async rewrites() {
-    return [
-      { source: '/:slug([a-z0-9][a-z0-9-]+)', destination: '/operators/:slug' },
-    ];
+    return {
+      beforeFiles: partnerSiteRewrites(),
+      afterFiles: [
+        { source: '/:slug([a-z0-9][a-z0-9-]+)', destination: '/operators/:slug' },
+      ],
+    };
   },
 
   async headers() {

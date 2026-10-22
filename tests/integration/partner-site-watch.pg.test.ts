@@ -251,4 +251,15 @@ withPg('сайты партнёров: изменения против прош�
     );
     expect(Object.fromEntries(rows.map((r) => [r.id, r.m]))).toEqual({ [FISHINGKAM]: true, [ONE_PAGE]: false, [KRAI]: false });
   });
+  it('сайт партнёра на его домене (loadPartnerSite): профиль и только живые туры, скрытый партнёр — нет', async () => {
+    const { loadPartnerSite } = await import('@/lib/partner-sites/load');
+    const site = await loadPartnerSite(`test-${KRAI.slice(0, 4)}`);
+    expect(site?.profile.name).toBe('Край Тест');
+    expect(site?.profile.id).toBe(KRAI);
+    expect(site?.tours.map((t) => t.title).sort()).toEqual(['Восхождение на Ключевскую', 'Сплав по Быстрой', 'Чужой источник']);
+    expect(site?.tours[0]).toMatchObject({ base_price: '1000.00', max_participants: 10 });
+    expect(await loadPartnerSite('no-such-partner')).toBeNull();
+    await pool.query('UPDATE partners SET is_public = FALSE WHERE id = $1', [DIRECTORY]);
+    expect(await loadPartnerSite(`test-${DIRECTORY.slice(0, 4)}`)).toBeNull();
+  });
 });

@@ -222,7 +222,8 @@ export async function POST(req: NextRequest) {
   const sourceKind = typeof source_data?.source === 'string' ? source_data.source : '';
   const origin = sourceKind === 'operator_page'
     ? 'форма на вашей странице на Ведаре'
-    : sourceKind === 'partner_widget' ? 'виджет на вашем сайте' : 'форма на Ведаре';
+    : sourceKind === 'partner_widget' ? 'виджет на вашем сайте'
+      : sourceKind === 'partner_site' ? 'форма на вашем сайте' : 'форма на Ведаре';
   const partner = operator;
   void (async () => {
     const personal = partner

@@ -30,7 +30,7 @@ import { ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
 import { readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
-import { isWidgetPath } from '@/lib/embed/widget-frame';
+import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { metrikaHit, metrikaInitScript, muteWebvisorFields, shouldTrackPath } from '@/lib/analytics/metrika';
 
 const ALL_DENIED: ConsentChoice = { analytics: false, advertising: false };
@@ -59,8 +59,9 @@ export default function ThirdPartyScripts() {
   // Виджет партнёра (iframe на его сайте): посетитель пришёл к партнёру, а не
   // к Ведару. Ни баннера — он закрывал имя и телефон в форме заявки, — ни
   // счётчиков: Метрика в iframe писала визит Ведару за каждый просмотр
-  // чужой страницы (примерка на fishingkam.ru 29.09).
-  if (isWidgetPath(pathname)) return null;
+  // чужой страницы (примерка на fishingkam.ru 29.09). Сайт партнёра на его
+  // домене — так же: счётчик Ведара на чужом сайте считал бы чужие визиты.
+  if (isForeignSurface(pathname)) return null;
 
   const allowed = THIRD_PARTIES.filter((tp) => loadDecision(tp, choice).load);
 

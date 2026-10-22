@@ -4,14 +4,14 @@ import { useEffect } from 'react';
 import { installSOSFlush } from '@/lib/offline/pending-queue';
 import { installFieldQueuesFlush } from '@/lib/offline/field-queues';
 import { reportSwRegistration } from '@/lib/offline/sw-status';
-import { isWidgetPath } from '@/lib/embed/widget-frame';
+import { isForeignSurface } from '@/lib/embed/widget-frame';
 
 export function ServiceWorkerRegistrar() {
   useEffect(() => {
     // Виджет в iframe на сайте партнёра: service worker Ведара ставился
     // каждому посетителю партнёра (кэш ~1,8 МБ) без визита на Ведар. Офлайн-
     // контур и дослыв SOS там не нужны — это форма заявки и чат.
-    if (isWidgetPath(window.location.pathname)) return;
+    if (isForeignSurface(window.location.pathname)) return;
     // Судьба регистрации попадает в sw-status: раньше отказ глотался
     // `.catch(() => {})`, и офлайн-контур молча не существовал — карта «не
     // сохранялась» без объяснения. Продукт от ошибки не падает, но полевой

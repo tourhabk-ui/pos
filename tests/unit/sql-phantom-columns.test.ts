@@ -51,6 +51,10 @@ const ROOT = process.cwd();
 // getGuideExpertiseZones (operator_tours.guide_id/location/difficulty_level —
 // карта без экрана), «Мои туры» гида больше не читают несуществующие
 // includes_guide/includes_equipment.
+// 22.10 — минус пять: partners.features, faq, season_info, reviews_data живут
+// на проде с базового снимка, а миграции их не объявляли. 1316 объявляет
+// (ADD COLUMN IF NOT EXISTS — на проде пустая операция); повод — сайт партнёра
+// на его домене (lib/partner-sites/load) читает те же колонки.
 const BASELINE = new Set<string>([
   "app/api/ai/knowledge-base/route.ts → partners.contact_info",
   "app/api/ai/knowledge-base/route.ts → partners.specialization",
@@ -59,17 +63,12 @@ const BASELINE = new Set<string>([
   "app/api/eco-points/route.ts → eco_points.trees_equivalent",
   "app/api/eco-points/route.ts → eco_points.updated_at",
   "app/api/hub/operator/notifications/route.ts → users.full_name",
-  "app/api/hub/operator/profile/route.ts → partners.features",
   "app/api/import/asset/route.ts → assets.bytes",
   "app/api/import/asset/route.ts → assets.key",
   "app/api/import/asset/route.ts → assets.mime",
   "app/api/import/asset/route.ts → assets.source_url",
   "app/api/operator/tours/[id]/generate-tags/route.ts → operator_tours.images",
-  "app/api/operators/[slug]/route.ts → partners.faq",
-  "app/api/operators/[slug]/route.ts → partners.features",
   "app/api/operators/[slug]/route.ts → partners.gallery",
-  "app/api/operators/[slug]/route.ts → partners.reviews_data",
-  "app/api/operators/[slug]/route.ts → partners.season_info",
   "app/api/payments/webhook/route.ts → operator_bookings.booking_type",
   "app/api/payments/webhook/route.ts → transfer_schedules.from_location",
   "app/api/payments/webhook/route.ts → transfer_schedules.to_location",

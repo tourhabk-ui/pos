@@ -20,6 +20,8 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 interface Props {
   partnerSlug: string;
   partnerName: string;
+  /** Откуда заявка: страница оператора на Ведаре (по умолчанию) или сайт партнёра, который отдаёт Ведар. */
+  source?: LeadFormSource;
 }
 
 type Outcome =
@@ -28,8 +30,11 @@ type Outcome =
   | { kind: 'error'; message: string };
 
 export const LEAD_FORM_SOURCE = 'operator_page';
+/** Форма на сайте партнёра на его домене (lib/partner-sites): канал лида — сайт партнёра, а не Ведар. */
+export const PARTNER_SITE_LEAD_SOURCE = 'partner_site';
+export type LeadFormSource = typeof LEAD_FORM_SOURCE | typeof PARTNER_SITE_LEAD_SOURCE;
 
-export function OperatorLeadForm({ partnerSlug, partnerName }: Props) {
+export function OperatorLeadForm({ partnerSlug, partnerName, source = LEAD_FORM_SOURCE }: Props) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [comment, setComment] = useState('');
@@ -58,7 +63,7 @@ export function OperatorLeadForm({ partnerSlug, partnerName }: Props) {
           comment: comment.trim() || undefined,
           partner_slug: partnerSlug,
           source_url: typeof window !== 'undefined' ? window.location.href.slice(0, 500) : undefined,
-          source_data: { source: LEAD_FORM_SOURCE, partner_slug: partnerSlug },
+          source_data: { source, partner_slug: partnerSlug },
           pd_consent: true,
         }),
       });
