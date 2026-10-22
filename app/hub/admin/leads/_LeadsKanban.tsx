@@ -9,6 +9,7 @@ import {
 } from '@dnd-kit/core';
 import { Phone, AlertTriangle } from 'lucide-react';
 import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
+import { LEADS_PAGE_MAX, leadsPageUrl } from '@/lib/leads/list-page';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { STATUS_META, ScoreBadge, formatDate, type Lead } from './_LeadsClient';
 
@@ -53,11 +54,20 @@ export const OPERATOR_COLUMNS: readonly KanbanColumnSpec[] = [
   { key: 'lost',      members: ['lost'] },
 ];
 
+/**
+ * Лиды статуса целиком — страницами по потолку роута (lib/leads/list-page.ts).
+ * Конец — неполная страница или набранный счёт `total`; пустая страница тоже
+ * конец, даже если счёт успел вырасти, иначе цикл ждал бы лида, которого нет.
+ */
 export async function fetchColumn(status: LeadStatus): Promise<Lead[]> {
-  const res = await fetch(`/api/leads?status=${status}&limit=200`);
-  if (!res.ok) throw new Error(`status ${status}: HTTP ${res.status}`);
-  const data = await res.json() as { leads: Lead[] };
-  return data.leads;
+  const leads: Lead[] = [];
+  for (;;) {
+    const res = await fetch(leadsPageUrl(status, leads.length));
+    if (!res.ok) throw new Error(`status ${status}: HTTP ${res.status}`);
+    const data = await res.json() as { leads: Lead[]; total?: number };
+    leads.push(...data.leads);
+    if (data.leads.length < LEADS_PAGE_MAX || leads.length >= (data.total ?? 0)) return leads;
+  }
 }
 
 /** Лиды колонки — по всем её статусам, свежие сверху. */

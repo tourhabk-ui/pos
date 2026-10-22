@@ -47,7 +47,7 @@ export async function POST(
     return applyOctoRateLimitHeaders(response, authResult);
   }
 
-  const full = await getBookingByUuid(uuid);
+  const full = await getBookingByUuid(uuid, authResult.id);
   if (!full) {
     const response = NextResponse.json(
       { error: 'INTERNAL_ERROR', errorMessage: 'Cancelled but failed to retrieve booking' },

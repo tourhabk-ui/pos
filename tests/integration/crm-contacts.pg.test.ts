@@ -675,7 +675,10 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(b.waiting_minutes).toBeGreaterThanOrEqual(179);
     const seat = o.items.find((i) => i.kind === 'seat_request')!;
     expect(seat).toMatchObject({ people: 3, contact_id: null, contact_name: null });
-    expect(JSON.stringify(o)).not.toMatch(/Скрытое Имя|7788/);
+    // Хвост телефона — не внутри hex и дефисов: голое «7788» совпадало со
+    // случайным UUID контакта («0e287b86-7788-…», замер 22.10) и красило
+    // прогон без утечки.
+    expect(JSON.stringify(o)).not.toMatch(/Скрытое Имя|0007788|(?<![0-9a-f-])7788(?![0-9a-f-])/);
     expect(o.items.find((i) => i.kind === 'lead')).toMatchObject({ title: 'Мутновский' });
     expect(o.response).toMatchObject({ enough: true, responded: 5, median_minutes: 30, complete: true });
 

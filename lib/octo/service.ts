@@ -214,6 +214,8 @@ export async function createBooking(data: {
   contactPhone?: string;
   notes?: string;
   apiKeyId: string;
+  /** Оператор, под которого выдан ключ; NULL — ключ на всех операторов. */
+  operatorId: string | null;
   resellerReference?: string;
 }) {
   const client = await pool.connect();
@@ -230,7 +232,7 @@ export async function createBooking(data: {
     const { rows: existing } = await client.query(idempotencyQuery, [idempotencyParam, data.apiKeyId]);
     if (existing.length > 0) {
       await client.query('ROLLBACK');
-      const full = await getBookingByUuid(existing[0].octo_uuid);
+      const full = await getBookingByUuid(existing[0].octo_uuid, data.apiKeyId);
       return { booking: full, idempotent: true };
     }
 
@@ -238,12 +240,18 @@ export async function createBooking(data: {
     // берёт reserveBooking: холд реселлера и бронь туриста с сайта на ту же
     // дату идут друг за другом, а не читают одну и ту же занятость (аудит
     // 15.10, P2-01).
+    //
+    // Ключ, выданный под оператора, видит в списке только его туры
+    // (getProducts) — и холд ставит только на них. Без этого условия ключ
+    // оператора А держал по 30 минут даты оператора Б: холд занимает места
+    // наравне с бронью (аудит 22.10). Чужой тур — как несуществующий.
     const { rows: tourRows } = await client.query(
       `SELECT id, base_price, title, max_participants, multi_day_count, duration_hours
          FROM operator_tours
         WHERE id = $1 AND ${publicTourSql('')}
+          AND ($2::uuid IS NULL OR operator_id = $2::uuid)
         FOR UPDATE`,
-      [data.tourId]
+      [data.tourId, data.operatorId]
     );
     if (tourRows.length === 0) {
       await client.query('ROLLBACK');
@@ -344,7 +352,7 @@ export async function createBooking(data: {
     await linkContactQuietly('operator_booking', booking.id as string | number);
 
     // Webhook notification (fire-and-forget)
-    const fullBooking = await getBookingByUuid(booking.octo_uuid);
+    const fullBooking = await getBookingByUuid(booking.octo_uuid, data.apiKeyId);
     notifyOctoWebhooks('booking:created', booking.id, fullBooking ?? {}).catch(() => {});
 
     return { booking };
@@ -356,7 +364,17 @@ export async function createBooking(data: {
   }
 }
 
-export async function getBookingByUuid(octoUuid: string) {
+/**
+ * Бронь глазами ключа, который её создал. Чужая — как несуществующая (404).
+ *
+ * `octo_uuid` проставляется умолчанием КАЖДОЙ строке operator_bookings (050),
+ * включая брони туристов с сайта. Пока выборка шла по одному номеру, любой
+ * действующий ключ читал по нему имя, почту и телефон туриста, а в соседних
+ * функциях подтверждал, отменял и отмечал неявку — у чужой брони, у брони
+ * другого реселлера и у брони с сайта, где ключа нет вовсе (аудит 22.10).
+ * Номер — не пропуск: доступ даёт ключ, записанный в бронь при создании.
+ */
+export async function getBookingByUuid(octoUuid: string, apiKeyId: string) {
   const { rows } = await pool.query(
     `SELECT ob.id, ob.octo_uuid, ob.booking_status, ob.booking_date::text AS booking_date,
             ob.participants, ob.adult_count, ob.child_count,
@@ -370,8 +388,8 @@ export async function getBookingByUuid(octoUuid: string) {
      FROM operator_bookings ob
      JOIN operator_tours ot ON ot.id = ob.operator_tour_id
      LEFT JOIN tour_options topt ON topt.id = ob.option_id
-     WHERE ob.octo_uuid = $1 AND ob.deleted_at IS NULL`,
-    [octoUuid]
+     WHERE ob.octo_uuid = $1 AND ob.octo_api_key_id = $2 AND ob.deleted_at IS NULL`,
+    [octoUuid, apiKeyId]
   );
   return rows[0] ?? null;
 }
@@ -381,24 +399,27 @@ export async function confirmBooking(octoUuid: string, apiKeyId: string) {
   try {
     await client.query('BEGIN');
 
-    // Only confirm if ON_HOLD (new) and hold not yet expired
+    // Only confirm if ON_HOLD (new) and hold not yet expired.
+    // Только бронь этого ключа — см. getBookingByUuid.
     const { rows } = await client.query(
       `UPDATE operator_bookings
        SET booking_status = 'confirmed', hold_expires_at = NULL, updated_at = NOW()
-       WHERE octo_uuid = $1 AND booking_status = 'new' AND deleted_at IS NULL
+       WHERE octo_uuid = $1 AND octo_api_key_id = $2
+         AND booking_status = 'new' AND deleted_at IS NULL
          AND (hold_expires_at IS NULL OR hold_expires_at > NOW())
        RETURNING id, octo_uuid`,
-      [octoUuid]
+      [octoUuid, apiKeyId]
     );
 
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      // Differentiate: expired hold vs not found vs already confirmed
+      // Differentiate: expired hold vs not found vs already confirmed.
+      // Чужая бронь — «не найдена»: её статус ключу не сообщается.
       const { rows: check } = await client.query(
         `SELECT booking_status, hold_expires_at
          FROM operator_bookings
-         WHERE octo_uuid = $1 AND deleted_at IS NULL`,
-        [octoUuid]
+         WHERE octo_uuid = $1 AND octo_api_key_id = $2 AND deleted_at IS NULL`,
+        [octoUuid, apiKeyId]
       );
       if (check.length > 0 && check[0].booking_status === 'new') {
         return { error: 'HOLD_EXPIRED' as const };
@@ -424,7 +445,7 @@ export async function confirmBooking(octoUuid: string, apiKeyId: string) {
     });
 
     const confirmed = rows[0];
-    const fullBooking = await getBookingByUuid(octoUuid);
+    const fullBooking = await getBookingByUuid(octoUuid, apiKeyId);
     notifyOctoWebhooks('booking:confirmed', confirmed.id, fullBooking ?? {}).catch(() => {});
 
     return confirmed;
@@ -441,13 +462,16 @@ export async function cancelBooking(octoUuid: string, apiKeyId: string, reason?:
   try {
     await client.query('BEGIN');
 
+    // Только бронь этого ключа — см. getBookingByUuid. Без условия по ключу
+    // любой реселлер отменял по номеру и брони туристов с сайта.
     const { rows } = await client.query(
       `UPDATE operator_bookings
        SET booking_status = 'cancelled', cancellation_reason = $2,
            cancelled_at = NOW(), updated_at = NOW()
-       WHERE octo_uuid = $1 AND booking_status IN ('new', 'confirmed') AND deleted_at IS NULL
+       WHERE octo_uuid = $1 AND octo_api_key_id = $3
+         AND booking_status IN ('new', 'confirmed') AND deleted_at IS NULL
        RETURNING id, octo_uuid, operator_tour_id, booking_date, participants`,
-      [octoUuid, reason ?? null]
+      [octoUuid, reason ?? null, apiKeyId]
     );
 
     if (rows.length === 0) {
@@ -485,7 +509,7 @@ export async function cancelBooking(octoUuid: string, apiKeyId: string, reason?:
       payload: { to: 'cancelled', channel: 'octo', reason: reason ?? null },
     });
 
-    const fullBooking = await getBookingByUuid(octoUuid);
+    const fullBooking = await getBookingByUuid(octoUuid, apiKeyId);
     notifyOctoWebhooks('booking:cancelled', booking.id, fullBooking ?? {}).catch(() => {});
 
     return booking;

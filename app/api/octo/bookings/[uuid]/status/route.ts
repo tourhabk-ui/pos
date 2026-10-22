@@ -10,51 +10,33 @@ import { z } from 'zod';
 import { requireOctoAuth, octoError, applyOctoRateLimitHeaders } from '@/lib/octo/auth';
 import { pool } from '@/lib/db-pool';
 import { mapBooking } from '@/lib/octo/mappers';
+import { getBookingByUuid } from '@/lib/octo/service';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
-
-interface OctoBookingRow {
-  id: string;
-  octo_uuid: string;
-  booking_status: string;
-  operator_tour_id: string;
-  booking_date: string;
-  participants: number;
-  adult_count: number | null;
-  child_count: number | null;
-  final_price: string | null;
-  currency: string;
-  tourist_name: string | null;
-  tourist_email: string | null;
-  tourist_phone: string | null;
-  special_requests: string | null;
-  hold_expires_at: string | null;
-  created_at: string;
-  updated_at: string | null;
-  tour_title: string;
-  option_name: string | null;
-  option_id: string | null;
-}
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // Status transition schema
 const StatusTransitionSchema = z.object({
   status: z.enum(['REDEEMED', 'NO_SHOW']),
 });
 
-type StatusTransition = z.infer<typeof StatusTransitionSchema>;
-
 export async function PATCH(
   request: NextRequest,
-  context: { params: { uuid: string } }
+  { params }: { params: Promise<{ uuid: string }> }
 ) {
-  try {
-    // Authenticate OCTO request
-    const authResult = await requireOctoAuth(request);
-    if (authResult instanceof NextResponse) {
-      return authResult;
-    }
+  const authResult = await requireOctoAuth(request);
+  if (authResult instanceof NextResponse) {
+    return authResult;
+  }
 
-    const { uuid } = context.params;
+  // Неявка и «пришёл» меняют бронь — то же право, что отмена и подтверждение.
+  if (!authResult.canCreateBookings) {
+    const err = octoError(403, 'FORBIDDEN', 'API key lacks booking permission');
+    return applyOctoRateLimitHeaders(err, authResult);
+  }
+
+  try {
+    const { uuid } = await params;
 
     // Validate request body
     let body;
@@ -77,14 +59,14 @@ export async function PATCH(
     const internalStatus = status === 'REDEEMED' ? 'completed' : 'no_show';
     const webhookEvent = status === 'REDEEMED' ? 'booking:redeemed' : 'booking:no_show';
 
-    // Find booking by octo_uuid
-    const bookingResult = await pool.query<OctoBookingRow>(
-      `SELECT id, octo_uuid, booking_status, operator_tour_id, booking_date,
-              participants, adult_count, child_count, final_price, currency,
-              tourist_name, tourist_email, tourist_phone, special_requests
+    // Бронь — только этого ключа (lib/octo/service.ts, getBookingByUuid):
+    // по одному номеру любой ключ отмечал неявку у чужой брони и у брони
+    // туриста с сайта (аудит 22.10). Чужая отвечает тем же 404.
+    const bookingResult = await pool.query<{ id: string; booking_status: string }>(
+      `SELECT id, booking_status
        FROM operator_bookings
-       WHERE octo_uuid = $1 AND deleted_at IS NULL`,
-      [uuid]
+       WHERE octo_uuid = $1 AND octo_api_key_id = $2 AND deleted_at IS NULL`,
+      [uuid, authResult.id]
     );
 
     if (bookingResult.rows.length === 0) {
@@ -104,16 +86,24 @@ export async function PATCH(
       return applyOctoRateLimitHeaders(err, authResult);
     }
 
-    // Update booking status
-    const updateResult = await pool.query<OctoBookingRow>(
+    // Переход условием в самом UPDATE: между чтением и записью бронь могли
+    // отменить, и отменённая не должна стать «пришёл».
+    const updateResult = await pool.query<{ id: string }>(
       `UPDATE operator_bookings
        SET booking_status = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING *`,
-      [internalStatus, booking.id]
+       WHERE id = $2 AND octo_api_key_id = $3 AND booking_status = 'confirmed'
+       RETURNING id`,
+      [internalStatus, booking.id, authResult.id]
     );
 
-    const updatedBooking = updateResult.rows[0];
+    if (updateResult.rows.length === 0) {
+      const err = octoError(
+        409,
+        'INVALID_STATE_TRANSITION',
+        'Booking status changed while processing. Fetch the booking and retry.'
+      );
+      return applyOctoRateLimitHeaders(err, authResult);
+    }
 
     await recordSourceEventQuietly({
       kind: 'status_change', sourceKind: 'operator_booking', sourceId: booking.id as string | number,
@@ -133,18 +123,28 @@ export async function PATCH(
       ]
     );
 
-    // Send webhook notification
-    const mappedBooking = mapBooking(updatedBooking);
-    notifyOctoWebhooks(webhookEvent, booking.id, mappedBooking).catch(() => {});
+    // Ответ той же формы, что у чтения брони: с названием тура и опции.
+    const full = await getBookingByUuid(uuid, authResult.id);
+    if (!full) {
+      const err = octoError(500, 'INTERNAL_ERROR', 'Status updated but failed to retrieve booking');
+      return applyOctoRateLimitHeaders(err, authResult);
+    }
+    const mappedBooking = mapBooking(full);
+
+    notifyOctoWebhooks(webhookEvent, booking.id, mappedBooking).catch((err) =>
+      logSwallowedFailure('octo/status', 'notifyOctoWebhooks', err),
+    );
 
     const response = NextResponse.json(mappedBooking, { status: 200 });
     return applyOctoRateLimitHeaders(response, authResult);
   } catch (error) {
-    const authResult = await requireOctoAuth(request);
+    // Отказ называется в логе: имя и SQLSTATE, без строки брони (§4.0).
+    const e = error as { code?: string; message?: string };
+    console.error('[octo/status] смена статуса не выполнилась', {
+      sqlstate: e?.code ?? null,
+      message: e?.message,
+    });
     const err = octoError(500, 'INTERNAL_ERROR', 'Internal server error');
-    if (authResult instanceof NextResponse) {
-      return err;
-    }
     return applyOctoRateLimitHeaders(err, authResult);
   }
 }

@@ -18,7 +18,8 @@ export async function GET(
   if (authResult instanceof NextResponse) return authResult;
 
   const { uuid } = await params;
-  const booking = await getBookingByUuid(uuid);
+  // Чужая бронь отвечает тем же 404, что несуществующая: номер не пропуск.
+  const booking = await getBookingByUuid(uuid, authResult.id);
 
   if (!booking) {
     const response = NextResponse.json(

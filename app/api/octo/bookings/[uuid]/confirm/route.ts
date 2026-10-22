@@ -46,7 +46,7 @@ export async function POST(
     }
     if (result.error === 'ALREADY_CONFIRMED') {
       // Idempotent: return current booking state
-      const existing = await getBookingByUuid(uuid);
+      const existing = await getBookingByUuid(uuid, authResult.id);
       if (existing) {
         const response = NextResponse.json(mapBooking(existing));
         return applyOctoRateLimitHeaders(response, authResult);
@@ -59,7 +59,7 @@ export async function POST(
     }
   }
 
-  const full = await getBookingByUuid(uuid);
+  const full = await getBookingByUuid(uuid, authResult.id);
   if (!full) {
     const response = NextResponse.json(
       { error: 'INTERNAL_ERROR', errorMessage: 'Confirmed but failed to retrieve booking' },

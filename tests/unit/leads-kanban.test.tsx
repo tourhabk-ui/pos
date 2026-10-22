@@ -22,6 +22,7 @@ import React from 'react';
 import { MANUAL_LEAD_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
 import { COLUMNS, moveBetweenColumns, type Lead as _Lead } from '@/app/hub/admin/leads/_LeadsKanban';
 import { LeadsKanban } from '@/app/hub/admin/leads/_LeadsKanban';
+import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 
 function lead(id: string, status: (typeof MANUAL_LEAD_STATUSES)[number], name = id): _Lead {
   return {
@@ -88,13 +89,16 @@ describe('LeadsKanban рендерит лидов по фактическому 
     vi.unstubAllGlobals();
   });
 
-  it('запрашивает ровно 5 колонок (не 9) с limit=200', async () => {
+  it('запрашивает ровно 5 колонок (не 9) с потолком роута', async () => {
+    // Было limit=200 при потолке схемы 100: на проде каждая колонка получала
+    // 400, а этот мок отвечал 200 (аудит 22.10). Совпадение с настоящей
+    // схемой держит вызов роута в leads-kanban-pages.test.ts.
     render(<LeadsKanban />);
     await waitFor(() => expect(screen.getByText('Иван')).toBeTruthy());
     const fetchMock = vi.mocked(fetch);
     expect(fetchMock).toHaveBeenCalledTimes(5);
     for (const call of fetchMock.mock.calls) {
-      expect(String(call[0])).toMatch(/limit=200/);
+      expect(String(call[0])).toMatch(new RegExp(`limit=${LEADS_PAGE_MAX}&`));
     }
   });
 
