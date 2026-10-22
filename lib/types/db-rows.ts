@@ -1380,6 +1380,14 @@ export interface OperatorPageTourRow {
   tour_image: string | null;
 }
 
+/** Тур на сайте партнёра, который отдаёт Ведар (lib/partner-sites/load): то же, что на странице оператора, плюс состав и группа. */
+export interface PartnerSiteTourRow extends OperatorPageTourRow {
+  included: string[] | null;
+  not_included: string[] | null;
+  min_participants: number | null;
+  max_participants: number | null;
+}
+
 /** Строка снимка официального реестра (official_registry_operators, migration 742) */
 export interface OfficialRegistryOperatorRow {
   id: string;

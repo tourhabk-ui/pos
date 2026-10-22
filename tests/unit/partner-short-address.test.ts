@@ -9,8 +9,9 @@
  *    сегмент делает «страницей» любой односегментный адрес, и правило Next
  *    no-html-link-for-pages краснит все жёсткие <a href="/…"> проекта
  *    (17 ошибок lint на #2414), включая намеренные (field-nav-hard);
- *  - rewrite отдаётся массивом (afterFiles): статические страницы и файлы
- *    public старше него, /catalog и /robots.txt он не перехватывает;
+ *  - rewrite стоит в afterFiles: статические страницы и файлы public старше
+ *    него, /catalog и /robots.txt он не перехватывает (beforeFiles с 22.10 —
+ *    только правила домена партнёра, каждое с условием домена);
  *  - форма slug в rewrite пускает slug партнёров и не пускает точку,
  *    кириллицу, заглавные и подчёркивание — опечатки в базу не ходят;
  *  - canonical остаётся /operators/<slug>: короткий адрес — для людей и QR,
@@ -38,12 +39,21 @@ function shortAddressRewrite(): { pattern: string; destination: string } {
 }
 
 describe('короткий адрес — rewrite на страницу оператора', () => {
-  it('ведёт на /operators/:slug и объявлен внутри async rewrites() массивом', () => {
+  it('ведёт на /operators/:slug и стоит в afterFiles, а не перед файлами', async () => {
     const { destination } = shortAddressRewrite();
     expect(destination).toBe('/operators/:slug');
-    const body = CONFIG.slice(CONFIG.indexOf('async rewrites()'));
-    expect(body).toMatch(/async rewrites\(\) \{\s*return \[/);
-    expect(body.slice(0, body.indexOf('async headers()'))).not.toMatch(/beforeFiles|fallback/);
+    // Исполнением, а не по тексту: с 22.10 rewrites() — объект, beforeFiles у
+    // него — домен партнёра (fishingkam.ru). Короткий адрес обязан остаться
+    // afterFiles: в beforeFiles он перехватил бы /catalog, /about, /robots.txt.
+    const config = require(join(ROOT, 'next.config.js')) as { rewrites: () => Promise<unknown> };
+    const r = await config.rewrites() as { beforeFiles?: Array<{ source: string; has?: unknown[] }>; afterFiles?: Array<{ source: string; destination: string }>; fallback?: unknown[] };
+    const after = Array.isArray(r) ? r as Array<{ source: string; destination: string }> : r.afterFiles ?? [];
+    expect(after.map((x) => x.destination)).toContain('/operators/:slug');
+    const before = Array.isArray(r) ? [] : r.beforeFiles ?? [];
+    expect(before.some((x) => x.source.startsWith('/:slug'))).toBe(false);
+    // Правило перед файлами без условия домена подменило бы страницы Ведара.
+    for (const x of before) expect(x.has?.length ?? 0, x.source).toBeGreaterThan(0);
+    expect(Array.isArray(r) ? [] : r.fallback ?? []).toEqual([]);
   });
 
   it('форма slug: slug партнёров проходят, точка, кириллица, заглавные и подчёркивание — нет', () => {

@@ -5,6 +5,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
 import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
+import { partnerSiteOfRequest } from '@/lib/partner-sites/request';
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin', 'cyrillic'],
@@ -175,7 +176,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // по запросу. Прежде (аудит 15.10) ради статики держали lang="ru" везде и
   // объявляли язык раздела только заголовком Content-Language — теперь
   // корректный <html lang> важнее, заголовки разделов при этом сохранены.
-  const lang = htmlLangForPath((await headers()).get(ROOT_LANG_HEADER));
+  const requestHeaders = await headers();
+  const lang = htmlLangForPath(requestHeaders.get(ROOT_LANG_HEADER));
+  // Сайт партнёра на его домене (fishingkam.ru, 22.10): разметка «Ведар —
+  // организация, сайт vedarai.ru» на чужом домене приписала бы сайт партнёра
+  // Ведару. Свою разметку организации ставит сама страница партнёра.
+  const onPartnerSite = partnerSiteOfRequest(requestHeaders) !== null;
   return (
     <html lang={lang} suppressHydrationWarning>
       <head>
@@ -205,7 +211,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {/* Приглашение приземляется на любую страницу, не только на главную. */}
           <ReferralCapture />
         </Providers>
-        <script
+        {!onPartnerSite && <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify([
@@ -279,7 +285,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               }
             ])
           }}
-        />
+        />}
         <ThirdPartyScripts />
         <KuzmichWidget />
         <InstallPrompt />

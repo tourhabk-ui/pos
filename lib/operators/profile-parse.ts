@@ -204,6 +204,24 @@ export function extractFaq(items: unknown): FaqItem[] {
   });
 }
 
+export interface SeasonInfoItem {
+  season: string;
+  months: string;
+  fish: string;
+}
+
+/** Календарь улова по месяцам (`partners.season_info`, 1106): строка без месяцев или рыбы — не строка. */
+export function extractSeasonInfo(items: unknown): SeasonInfoItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item): SeasonInfoItem[] => {
+    const r = asRecord(item);
+    if (!r) return [];
+    const months = str(r.months);
+    const fish = str(r.fish);
+    return months && fish ? [{ season: str(r.season), months, fish }] : [];
+  });
+}
+
 export function extractGallery(items: unknown): string[] {
   if (!Array.isArray(items)) return [];
   return items.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);

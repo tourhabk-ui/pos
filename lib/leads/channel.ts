@@ -51,6 +51,10 @@ export function normalizeLeadChannel(s: ChannelSignals): LeadChannel {
   // source: согласие 'widget' пишет и форма на странице оператора на Ведаре
   // (source 'operator_page', тот же partner_slug), а она не виджет.
   if (data.type === 'widget' || src === 'partner_widget') return 'widget';
+  // Сайт партнёра, который отдаёт Ведар (fishingkam.ru, 22.10): заявка пришла
+  // с сайта партнёра, как и из виджета, — не с Ведара. Без этой строки адрес
+  // https://fishingkam.ru/ уводил её ниже в 'site', то есть в спрос Ведара.
+  if (src === 'partner_site') return 'widget';
   if (src === 'booking_intake_bot' || url.includes('/api/ai/booking-intake')) return 'site_chat';
 
   // Форма сайта: source_url — адрес страницы, откуда отправлена заявка.

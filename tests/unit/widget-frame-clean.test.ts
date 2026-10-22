@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { isWidgetPath } from '@/lib/embed/widget-frame';
+import { isWidgetPath, isForeignSurface } from '@/lib/embed/widget-frame';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -68,6 +68,27 @@ describe('isWidgetPath', () => {
   });
 });
 
+describe('isForeignSurface: виджет и сайт партнёра на его домене', () => {
+  it('виджет — по пути, где бы ни был открыт', () => {
+    expect(isForeignSurface('/widget/fishingkam', 'vedarai.ru')).toBe(true);
+  });
+  it('сайт партнёра — по домену окна: на fishingkam.ru путь «/»', () => {
+    expect(isForeignSurface('/', 'fishingkam.ru')).toBe(true);
+    expect(isForeignSurface('/', 'www.fishingkam.ru')).toBe(true);
+    expect(isForeignSurface('/', 'FishingKam.ru')).toBe(true);
+  });
+  it('предпросмотр сайта партнёра на vedarai.ru — по пути', () => {
+    expect(isForeignSurface('/partner-site/kamchatskaya-rybalka', 'vedarai.ru')).toBe(true);
+  });
+  it('Ведар остаётся Ведаром', () => {
+    expect(isForeignSurface('/', 'vedarai.ru')).toBe(false);
+    expect(isForeignSurface('/operators/kamchatskaya-rybalka', 'vedarai.ru')).toBe(false);
+    expect(isForeignSurface('/', 'fishingkam.ru.evil.example')).toBe(false);
+    expect(isForeignSurface('/partner-sites', 'vedarai.ru')).toBe(false);
+    expect(isForeignSurface('/', null)).toBe(false);
+  });
+});
+
 describe('глобальные компоненты молчат внутри виджета', () => {
   const layout = read('app/layout.tsx');
   const providers = read('components/Providers.tsx');
@@ -89,13 +110,15 @@ describe('глобальные компоненты молчат внутри в
   });
 
   for (const { tag, file } of mounted) {
-    it(`${tag}: спрашивает isWidgetPath или записан безвредным с причиной`, () => {
+    it(`${tag}: спрашивает isForeignSurface или записан безвредным с причиной`, () => {
       if (HARMLESS_IN_WIDGET[tag]) {
         expect(HARMLESS_IN_WIDGET[tag].length).toBeGreaterThan(20);
         return;
       }
       const src = read(file);
-      expect(src, `${file} должен спрашивать isWidgetPath`).toMatch(/isWidgetPath\(/);
+      // Не isWidgetPath: с 22.10 чужая поверхность — ещё и сайт партнёра на
+      // его домене (fishingkam.ru), где путь «/» и виджетом его не узнать.
+      expect(src, `${file} должен спрашивать isForeignSurface`).toMatch(/isForeignSurface\(/);
       expect(src).toMatch(/from '@\/lib\/embed\/widget-frame'/);
     });
   }
@@ -107,15 +130,15 @@ describe('глобальные компоненты молчат внутри в
     }
   });
 
-  it('счётчики и баннер согласия не рендерятся в виджете', () => {
+  it('счётчики и баннер согласия не рендерятся в виджете и на сайте партнёра', () => {
     const tps = read('components/legal/ThirdPartyScripts.tsx');
-    expect(tps).toMatch(/if \(isWidgetPath\(pathname\)\) return null;/);
+    expect(tps).toMatch(/if \(isForeignSurface\(pathname\)\) return null;/);
     const pv = read('components/shared/PageViewTracker.tsx');
-    expect(pv).toMatch(/if \(isWidgetPath\(pathname\)\) return;[\s\S]*\/api\/analytics\/hit/);
+    expect(pv).toMatch(/if \(isForeignSurface\(pathname\)\) return;[\s\S]*\/api\/analytics\/hit/);
   });
 
-  it('service worker в виджете не регистрируется', () => {
+  it('service worker в виджете и на сайте партнёра не регистрируется', () => {
     const sw = read('components/PWA/ServiceWorkerRegistrar.tsx');
-    expect(sw).toMatch(/if \(isWidgetPath\(window\.location\.pathname\)\) return;[\s\S]*serviceWorker[\s\S]*\.register\(/);
+    expect(sw).toMatch(/if \(isForeignSurface\(window\.location\.pathname\)\) return;[\s\S]*serviceWorker[\s\S]*\.register\(/);
   });
 });

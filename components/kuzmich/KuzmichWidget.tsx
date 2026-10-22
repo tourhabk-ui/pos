@@ -3,7 +3,7 @@
 import ChatText from '@/components/kuzmich/ChatText';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
-import { isWidgetPath } from '@/lib/embed/widget-frame';
+import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { Sparkles, Send, Loader2, X, MessageCircle, Camera, ExternalLink, Fish, Mountain, Droplets, Waves, CheckCircle, Minus, Plus } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -340,7 +340,7 @@ export default function KuzmichWidget() {
   }, [loading, sessionId, messages, imageFile, imagePreview, location, mode, permissionState]);
 
   // Скрываем на определённых страницах
-  if (isWidgetPath(pathname) || HIDDEN_PATHS.some(p => pathname?.startsWith(p))) return null;
+  if (isForeignSurface(pathname) || HIDDEN_PATHS.some(p => pathname?.startsWith(p))) return null;
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
