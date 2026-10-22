@@ -84,13 +84,20 @@ describe('enrich-routes ведёт журнал происхождения', () 
 
 describe('перепись писателей описаний судит той же функцией, что карточка', () => {
   it('модель с той же длиной, модель и правка после, владелец, без журнала', async () => {
-    queryMock.mockResolvedValue({
-      rows: [
-        { last_write: { by: 'editor-ai', chars: 10 }, chars: 10 },
-        { last_write: { by: 'enrich-routes-ai', chars: 10 }, chars: 12 },
-        { last_write: { by: 'owner-decision', chars: 10 }, chars: 10 },
-        { last_write: null, chars: 30 },
-      ],
+    queryMock.mockImplementation(async (sql: string) => {
+      if (/FROM place_text_archive/.test(sql)) return { rows: [{ field: 'description', n: '2' }, { field: 'kuzmich_review', n: '3' }] };
+      if (/COUNT\(\*\) FILTER/.test(sql)) {
+        return { rows: [{ essence: '1', access_info: '0', best_season: '0', seasonal_notes: '0', kuzmich_review: '0' }] };
+      }
+      return {
+        rows: [
+          { last_write: { by: 'editor-ai', chars: 10 }, chars: 10, gvp: false },
+          { last_write: { by: 'enrich-routes-ai', chars: 10 }, chars: 12, gvp: false },
+          { last_write: { by: 'owner-decision', chars: 10 }, chars: 10, gvp: false },
+          { last_write: null, chars: 30, gvp: false },
+          { last_write: null, chars: 40, gvp: true },
+        ],
+      };
     });
     const prev = process.env.CRON_SECRET;
     process.env.CRON_SECRET = 'test-secret';
@@ -99,6 +106,12 @@ describe('перепись писателей описаний судит той
     const res = await GET(new NextRequest('http://localhost/x', { headers: { authorization: 'Bearer test-secret' } }));
     process.env.CRON_SECRET = prev;
     const body = await res.json() as Record<string, unknown>;
-    expect(body).toMatchObject({ ok: true, visible_with_description: 4, by_model: 1, model_then_edited: 1, owner_or_other_writer: 1, no_journal: 1 });
+    expect(body).toMatchObject({
+      ok: true, visible_with_description: 5, by_model: 1, model_then_edited: 1, owner_or_other_writer: 1,
+      // Без журнала двое; у одного перевод ГВП слово в слово — источник есть.
+      no_journal: 2, gvp_source: 1, no_journal_without_source: 1,
+      archived_1310: { description: 2, kuzmich_review: 3 },
+      visible_with_field: { essence: 1, access_info: 0, best_season: 0, seasonal_notes: 0, kuzmich_review: 0 },
+    });
   });
 });

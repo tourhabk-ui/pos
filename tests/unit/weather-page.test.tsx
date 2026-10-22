@@ -40,7 +40,8 @@ import {
   loadMeteoWarnings, loadPlaceWeather, loadWeatherPage, type WeatherPageData,
 } from '@/lib/weather/weather-page';
 import {
-  dayLabel, fmtTemp, partPrecip, precipLine, pressureLine, skyWords, tempRange, uvWords, visibilityLine, windDetail, windLine,
+  dayLabel, fmtTemp, partPrecip, precipLine, pressureLine, skyWords, tempRange, uvWords, visibilityLine, warningsSummary,
+  windDetail, windLine,
 } from '@/lib/weather/weather-format';
 import {
   arcPoint, daylightFraction, ringDash, tempCurve, uvMarkerPercent, windArrowRotation,
@@ -293,7 +294,7 @@ describe('4. разметка', () => {
 
   it('предупреждения — цветом уровня и сроком; «не прочитаны» не выдаётся за «нет»', () => {
     const { container, unmount } = render(<WeatherView data={data()} />);
-    const items = container.querySelectorAll('#weather-warnings ~ ul li');
+    const items = container.querySelectorAll('section[aria-labelledby="weather-warnings"] ul li');
     expect((items[0] as HTMLElement).style.borderLeftColor).toBe('var(--warning)');
     expect((items[1] as HTMLElement).style.borderLeftColor).toBe('var(--danger)');
     expect(screen.getByText(/Действует до 9 октября/)).toBeTruthy();
@@ -522,6 +523,61 @@ describe('4d. стиль Samsung Weather: приборы', () => {
     expect(section.classList.contains('wx-glass')).toBe(true);
     expect(section.style.borderLeftColor).toBe('var(--warning)');
     expect(section.style.borderLeftWidth).toBe('4px');
+  });
+
+  // Владелец 22.10 (снимок телефона): «этот блок нужно свернуть а то пока до
+  // погоды долистать не у всех терпение хватит» — три оранжевых предупреждения
+  // занимали весь экран. Свёрнут текст, не сигнал.
+  const ORANGE = [
+    { title: 'Ветер — оранжевый уровень (север края)', text: '15-20 м/с, местами 25-30 м/с.', severity: 2 as const, until: '2026-10-23T09:00:00.000Z' },
+    { title: 'Дождь — оранжевый уровень (север края)', text: 'Сильный дождь со снегом.', severity: 2 as const, until: null },
+    { title: 'Ветер — оранжевый уровень (юг края)', text: '17-22 м/с.', severity: 2 as const, until: null },
+  ];
+  const withWarnings = (items: typeof ORANGE | Array<{ title: string; text: string; severity: 1 | 2 | 3; until: string | null }>, kind: 'ok' | 'silent' = 'ok') =>
+    render(<WeatherView data={{ ...page({}), warnings: { kind, checkedAt: '2026-10-08T05:55:00.000Z', items } }} />);
+
+  it('сводка предупреждений: число, высший уровень, явления без повторов', () => {
+    expect(warningsSummary(ORANGE)).toEqual({
+      line: '3 предупреждения · высший уровень — оранжевый', phenomena: 'Ветер, дождь', highest: 2,
+    });
+    expect(warningsSummary([{ title: 'Метель — красный уровень', severity: 3 }, { title: 'Ветер — жёлтый уровень', severity: 1 }])?.line)
+      .toBe('2 предупреждения · высший уровень — красный');
+    expect(warningsSummary([{ title: 'Туман — жёлтый уровень', severity: 1 }])?.line).toBe('1 предупреждение · высший уровень — жёлтый');
+    expect(warningsSummary([])).toBeNull();
+  });
+
+  it('предупреждения свёрнуты: на виду сводка, текст — по касанию', () => {
+    const { container } = withWarnings(ORANGE);
+    const details = container.querySelector('section[aria-labelledby="weather-warnings"] details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    const summary = details.querySelector('summary')!;
+    expect(summary.textContent).toContain('Предупреждения Росгидромета');
+    expect(summary.textContent).toContain('3 предупреждения · высший уровень — оранжевый');
+    expect(summary.textContent).toContain('Ветер, дождь');
+    // Подробности — внутри свёрнутого, а не в сводке.
+    expect(summary.textContent).not.toContain('15-20 м/с');
+    expect(details.querySelectorAll('ul li').length).toBe(3);
+  });
+
+  it('оранжевый уровень — оранжевой кромкой, а не синим --accent светлой темы', () => {
+    const { container } = withWarnings(ORANGE);
+    const li = container.querySelector('section[aria-labelledby="weather-warnings"] ul li') as HTMLElement;
+    expect(li.style.borderLeftColor).toBe('var(--wx-level-orange)');
+    expect(container.querySelector('section[aria-labelledby="weather-warnings"]')!.classList.contains('wx-alerts')).toBe(true);
+    const css = readFileSync(join(process.cwd(), 'app/globals.css'), 'utf-8');
+    expect(css).toMatch(/\.wx-alerts\s*\{\s*--wx-level-orange:\s*#[0-9A-Fa-f]{6};/);
+  });
+
+  it('красный уровень — «опасно для жизни» — раскрыт сразу', () => {
+    const { container } = withWarnings([...ORANGE, { title: 'Метель — красный уровень (север края)', text: 'Метель.', severity: 3, until: null }]);
+    const details = container.querySelector('section[aria-labelledby="weather-warnings"] details') as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+  });
+
+  it('источник молчит — это видно и в свёрнутом виде', () => {
+    const { container } = withWarnings(ORANGE, 'silent');
+    const summary = container.querySelector('section[aria-labelledby="weather-warnings"] summary')!;
+    expect(summary.textContent).toMatch(/Источник предупреждений не отвечает/);
   });
 
   it('лента часов: линия температуры рвётся на пропуске, подписи у точек', () => {

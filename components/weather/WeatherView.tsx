@@ -12,7 +12,7 @@ import {
 import type { MeteoWarningItem, PlaceWeather, WarningsRead, WeatherPageData } from '@/lib/weather/weather-page';
 import {
   dayLabel, elevationLine, fmtNumber, fmtTemp, hhmm, kamchatkaTime, partPrecip, precipLine, pressureMm,
-  skyWords, tempRange, uvWords, visibilityLine, windDirectionWords, windLine,
+  skyWords, tempRange, uvWords, visibilityLine, warningsSummary, windDirectionWords, windLine,
 } from '@/lib/weather/weather-format';
 import { PRECIP_DRY_MM } from '@/lib/weather/day-parts';
 import {
@@ -38,7 +38,8 @@ import {
 
 const LEVEL_COLOR: Record<MeteoWarningItem['severity'], string> = {
   1: 'var(--warning)',
-  2: 'var(--accent)',
+  // Не --accent: в светлой теме он синий (globals.css, .wx-alerts).
+  2: 'var(--wx-level-orange)',
   3: 'var(--danger)',
 };
 
@@ -98,57 +99,95 @@ function Warnings({ warnings, scene = false }: { warnings: WarningsRead; scene?:
       </p>
     );
   }
-  return (
-    <section
-      className={`flex flex-col gap-3 p-4 sm:p-5 ${
-        scene ? 'wx-glass rounded-[1.5rem]' : 'rounded-3xl border border-[var(--border)] bg-[var(--bg-card)]'
-      }`}
-      // Предупреждение на стекле узнаётся кромкой цвета предупреждения (§2). Ширина — здесь же:
-      // рамка .wx-glass в globals.css перебивает утилиту border-l-4.
-      style={scene ? { borderLeftColor: 'var(--warning)', borderLeftWidth: 4 } : undefined}
-      aria-labelledby="weather-warnings"
-    >
-      <h2 id="weather-warnings" className="flex items-center gap-2 text-base font-semibold">
-        <AlertTriangle size={20} aria-hidden className="text-[var(--warning)]" />
-        Предупреждения Росгидромета
-      </h2>
-      {warnings.kind === 'failed' ? (
-        <p className={muted}>
-          Предупреждения прочитать не удалось. Это не «предупреждений нет» — проверьте их на сайте Гидрометцентра.
-        </p>
-      ) : (
-        <>
-          {warnings.kind === 'silent' && (
-            <p className="border-l-2 border-[var(--warning)] pl-3 text-sm">
-              Источник предупреждений не отвечает{checked ? ` с ${checked}` : ''}. Список ниже может быть неполным —
-              сверьтесь с сайтом Гидрометцентра.
-            </p>
-          )}
-          {warnings.items.length === 0 ? (
+  const sectionClass = `wx-alerts flex flex-col gap-3 p-4 sm:p-5 ${
+    scene ? 'wx-glass rounded-[1.5rem]' : 'rounded-3xl border border-[var(--border)] bg-[var(--bg-card)]'
+  }`;
+  // Предупреждение на стекле узнаётся кромкой цвета предупреждения (§2). Ширина — здесь же:
+  // рамка .wx-glass в globals.css перебивает утилиту border-l-4.
+  const sectionStyle = scene ? { borderLeftColor: 'var(--warning)', borderLeftWidth: 4 } : undefined;
+  const silentNote = warnings.kind === 'silent' ? (
+    <span className="block border-l-2 border-[var(--warning)] pl-3 text-sm">
+      Источник предупреждений не отвечает{checked ? ` с ${checked}` : ''}. Список ниже может быть неполным —
+      сверьтесь с сайтом Гидрометцентра.
+    </span>
+  ) : null;
+  const source = (
+    <p className={`text-sm ${muted}`}>
+      {warnings.kind === 'ok' && checked ? `Проверено ${checked}. ` : ''}
+      Источник —{' '}
+      <a href={METEOALERT_PAGE} target="_blank" rel="noopener noreferrer" className={link}>Гидрометцентр</a>.
+      Все предупреждения края, включая МЧС, — на странице{' '}
+      <Link href="/safety" className={link}>Безопасность</Link>.
+    </p>
+  );
+  const heading = (
+    <h2 id="weather-warnings" className="flex items-center gap-2 text-base font-semibold">
+      <AlertTriangle size={20} aria-hidden className="text-[var(--warning)]" />
+      Предупреждения Росгидромета
+    </h2>
+  );
+
+  const summary = warnings.kind !== 'failed' ? warningsSummary(warnings.items) : null;
+  if (!summary) {
+    return (
+      <section className={sectionClass} style={sectionStyle} aria-labelledby="weather-warnings">
+        {heading}
+        {warnings.kind === 'failed' ? (
+          <p className={muted}>
+            Предупреждения прочитать не удалось. Это не «предупреждений нет» — проверьте их на сайте Гидрометцентра.
+          </p>
+        ) : (
+          <>
+            {silentNote}
             <p>{warnings.kind === 'ok' ? 'Действующих предупреждений нет.' : 'Других предупреждений у нас нет, но это не значит, что их нет.'}</p>
-          ) : (
-            <ul className="flex flex-col gap-3">
-              {warnings.items.map((w) => {
-                const until = kamchatkaTime(w.until);
-                return (
-                  <li key={`${w.title}|${w.until}`} className="flex flex-col gap-1 border-l-4 pl-3" style={{ borderLeftColor: LEVEL_COLOR[w.severity] }}>
-                    <span className="font-semibold">{w.title}</span>
-                    {w.text && <span className={`text-sm ${muted}`}>{w.text}</span>}
-                    {until && <span className={`text-sm ${faint}`}>Действует до {until} по Камчатке</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </>
-      )}
-      <p className={`text-sm ${muted}`}>
-        {warnings.kind === 'ok' && checked ? `Проверено ${checked}. ` : ''}
-        Источник —{' '}
-        <a href={METEOALERT_PAGE} target="_blank" rel="noopener noreferrer" className={link}>Гидрометцентр</a>.
-        Все предупреждения края, включая МЧС, — на странице{' '}
-        <Link href="/safety" className={link}>Безопасность</Link>.
-      </p>
+          </>
+        )}
+        {source}
+      </section>
+    );
+  }
+
+  // Свёрнуто (владелец 22.10: «пока до погоды долистать не у всех терпение
+  // хватит»): три оранжевых предупреждения занимали экран телефона целиком.
+  // Свёрнут текст, не сигнал — сводка в шапке называет число, высший уровень
+  // и явления, а цвет кромки остаётся. Красный уровень — «опасно для жизни» —
+  // открыт сразу: прятать его за касание платформа безопасности не вправе.
+  const items = warnings.kind !== 'failed' ? warnings.items : [];
+  return (
+    <section className={sectionClass} style={sectionStyle} aria-labelledby="weather-warnings">
+      <details className="group" open={summary.highest === 3}>
+        <summary className="flex cursor-pointer list-none items-start gap-3 [&::-webkit-details-marker]:hidden">
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            {heading}
+            <span className={`flex items-center gap-2 text-sm font-medium ${strong}`}>
+              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: LEVEL_COLOR[summary.highest] }} />
+              {summary.line}
+            </span>
+            <span className={`text-sm ${muted}`}>{summary.phenomena}</span>
+            {silentNote}
+          </span>
+          <span className={`mt-0.5 flex shrink-0 items-center gap-1 text-sm ${muted}`}>
+            <span className="group-open:hidden">Подробно</span>
+            <span className="hidden group-open:inline">Свернуть</span>
+            <ChevronDown size={16} aria-hidden className="transition-transform duration-200 group-open:rotate-180" />
+          </span>
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <ul className="flex flex-col gap-3">
+            {items.map((w) => {
+              const until = kamchatkaTime(w.until);
+              return (
+                <li key={`${w.title}|${w.until}`} className="flex flex-col gap-1 border-l-4 pl-3" style={{ borderLeftColor: LEVEL_COLOR[w.severity] }}>
+                  <span className="font-semibold">{w.title}</span>
+                  {w.text && <span className={`text-sm ${muted}`}>{w.text}</span>}
+                  {until && <span className={`text-sm ${faint}`}>Действует до {until} по Камчатке</span>}
+                </li>
+              );
+            })}
+          </ul>
+          {source}
+        </div>
+      </details>
     </section>
   );
 }
