@@ -1,30 +1,20 @@
 {
   "timeout": 60,
-  "run": 983,
-  "note": "16.10. ТОЛЬКО ЧТЕНИЕ. После выката партии «экстренные номера и коды словами»: /api/safety/warnings отдаёт единый проверенный список (112, 101–103, дежурная смена МЧС 30-10-89 / 20-01-12 / 30-10-91), номеров сида 0645/070 (123-45-67, 444-20-77, 223-00-11, 111-22-33) быть не должно — для тура 27 и двух маршрутов (западный «Вулкан Ильинский», северный «Вулкан Удина»; route_id — тот же параметр, что шлёт карточка). Срез «Вулканы: Северная Камчатка» — число с корякскими вулканами (до правки они выпали из среза меткой 1299). Датчик свежести — проверенный номер в ответе для тура.",
+  "run": 984,
+  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «http://fishingkam.ru/ теперь под нашим управлением», сайт передан платформе целиком. Снять текст главной fishingkam.ru (цены, сезоны, туры, контакты, есть ли наш виджет), robots.txt и sitemap — и сверить с нашими карточками туров партнёра (/api/tours-feed?operator=fishingkam). Ничего не пишет.",
   "urls": [
-    "https://vedarai.ru/api/safety/warnings?tour_id=27",
-    "https://vedarai.ru/api/safety/warnings?route_id=45010ef9-f3aa-4c7b-8549-4c0933e3925c",
-    "https://vedarai.ru/api/safety/warnings?route_id=ed8a075c-432e-482b-9bf5-d55fa3ca3bde",
-    "https://vedarai.ru/routes/vulkani/northern"
+    "https://fishingkam.ru/",
+    "https://fishingkam.ru/robots.txt",
+    "https://fishingkam.ru/sitemap.xml",
+    "https://vedarai.ru/api/tours-feed?operator=fishingkam"
   ],
-  "until": "\"phone\":\"+7 (4152) 30-10-89\"",
-  "retries": 60,
-  "retryDelay": 40,
+  "text": true,
+  "bytes": 30000,
   "grep": [
-    "\"phone\":\"+7 (4152) 30-10-89\"",
-    "\"phone\":\"112\"",
-    "123-45-67",
-    "444-20-77",
-    "223-00-11",
-    "111-22-33",
-    "\"route_title\""
-  ],
-  "around": [
-    "\"emergency_contacts\"",
-    "маршрутов</span>"
-  ],
-  "aroundLines": 12,
-  "aroundHits": 4,
-  "bytes": 300
+    "vedarai.ru/api/widget/lead.js",
+    "vedarai.ru/widget/embed.js",
+    "vedarai.ru",
+    "tilda",
+    "Ведар"
+  ]
 }
