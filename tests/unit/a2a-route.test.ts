@@ -24,6 +24,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a
 
 import { POST, GET, OPTIONS } from '@/app/api/a2a/route';
 import { POST as restPost, GET as restGet, DELETE as restDelete } from '@/app/api/a2a/v1/[[...path]]/route';
+import { buildAgentCard, buildLegacyAgentCard, A2A_REST_PATH } from '@/lib/a2a/agent-card';
 
 let ipCounter = 0;
 function req(path: string, init: { method: string; body?: unknown; headers?: Record<string, string> }) {
@@ -191,6 +192,34 @@ describe('HTTP+JSON биндинг', () => {
     expect((await list.json()).error.details[0].reason).toBe('UNSUPPORTED_OPERATION');
     const unknown = await restGet(req('/api/a2a/v1/whatever', { method: 'GET' }), restCtx('whatever'));
     expect(unknown.status).toBe(404);
+    // POST в корень (внешняя проверка 22.10): отказ называет пути, а не только «нет такого».
+    const root = await restPost(req('/api/a2a/v1', { method: 'POST', body: {} }), restCtx(''));
+    expect(root.status).toBe(404);
+    const rootErr = (await root.json()).error;
+    expect(rootErr.message).toContain('POST /message:send');
+    expect(rootErr.message).toContain('GET /tasks/{id}');
+  });
+
+  it('клиент по любой карточке доходит до SendMessage: 1.0 — url + /message:send, 0.3 — url + /v1/message:send', async () => {
+    // Пути 0.3 несут /v1 сами (раздел 3.2.3 спецификации 0.3.0), пути 1.0 — нет
+    // (раздел 11.3). До 22.10 карточка 0.3 давала url /api/a2a/v1, и клиент 0.3
+    // стучался в /api/a2a/v1/v1/message:send — 404.
+    const BASE = 'https://vedarai.ru';
+    const restOf = (ifaces: unknown, key: 'protocolBinding' | 'transport') =>
+      (ifaces as Array<Record<string, string>>).find(i => i[key] === 'HTTP+JSON')!.url;
+    const calls: Array<[string, Record<string, string>]> = [
+      [`${restOf(buildAgentCard(BASE).supportedInterfaces, 'protocolBinding')}/message:send`, { 'A2A-Version': '1.0' }],
+      [`${restOf(buildLegacyAgentCard(BASE).additionalInterfaces, 'transport')}/v1/message:send`, {}],
+    ];
+    for (const [url, headers] of calls) {
+      const path = new URL(url).pathname;
+      expect(path.startsWith(`${A2A_REST_PATH}/`), path).toBe(true);
+      const res = await restPost(
+        req(path, { method: 'POST', body: { message: { parts: [{ data: { tool: 'get_tours' } }] } }, headers }),
+        restCtx(path.slice(A2A_REST_PATH.length + 1)),
+      );
+      expect(res.status, path).toBe(200);
+    }
   });
 
   it('POST /tasks/{id}:cancel завершённой — 400 TASK_NOT_CANCELABLE; корень — визитка', async () => {

@@ -19,7 +19,7 @@ import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { MCP_INTERNAL_ERROR_TEXT } from '@/lib/mcp/jsonrpc';
 import { handleA2A } from '@/lib/a2a/handle';
 import { a2aTaskStore } from '@/lib/a2a/durable-store';
-import { buildAgentCard } from '@/lib/a2a/agent-card';
+import { buildAgentCard, A2A_REST_PATH } from '@/lib/a2a/agent-card';
 import { a2aError, httpErrorBody, A2A_SUPPORTED_VERSIONS, type A2AError, type A2AOperation, type VersionRead } from '@/lib/a2a/wire';
 import { logText } from '@/lib/log/log-text';
 import { buildExecutors, CORS_HEADERS, journalA2a, optionsResponse, publicBase, versionOf } from '../../_shared';
@@ -64,11 +64,18 @@ function refuse(request: NextRequest, startedAt: number, version: VersionRead, e
   return restError(err);
 }
 
-/** Пути нет: в журнал — что прислали («ГЛАГОЛ /путь»), агенту — то же, что прежде. */
+/**
+ * Пути, которые биндинг понимает, — их и называет отказ: агент, постучавший в
+ * корень POST-ом (внешняя проверка 22.10), из «нет такого пути» не узнал бы,
+ * куда идти.
+ */
+const REST_PATHS_HINT = 'POST /message:send, GET /tasks/{id}, POST /tasks/{id}:cancel';
+
+/** Пути нет: в журнал — что прислали («ГЛАГОЛ /путь»), агенту — что прислал и какие пути есть. */
 function noSuchPath(request: NextRequest, startedAt: number, version: VersionRead, path: string): NextResponse {
   const method = `${request.method} /${path.slice(0, 80)}`;
   journalA2a(request, 'rest', startedAt, { op: 'invalid', version, errorCode: 'MethodNotFound', method });
-  return restError(a2aError('MethodNotFound', `Нет такого пути: ${method}`));
+  return restError(a2aError('MethodNotFound', `Нет такого пути: ${method}. Пути от ${A2A_REST_PATH}: ${REST_PATHS_HINT}`));
 }
 
 function versionOr400(request: NextRequest, startedAt: number): { ok: true; read: VersionOk } | { ok: false; res: NextResponse } {
