@@ -47,10 +47,51 @@ function expectedWebhookUrl(): string {
 }
 
 /**
- * Снять НАШИ старые подписки: тот же адрес /api/max/kuzmich, но не тот, что
- * ждём (обычно — без секрета, заведённый до MAX_WEBHOOK_SECRET). Без этого MAX
- * шлёт каждое сообщение на оба адреса: человек получает два ответа, а
- * незаверенная копия идёт мимо проверки источника. Чужие адреса не трогаем.
+ * Хосты, на которых живёт этот же сайт: хост адреса подписки, канон
+ * vedarai.ru и прежний tourhab.ru (с www). tourhab.ru отдаёт /api того же
+ * приложения без переадресации (next.config.js, «Канон домена»), а прежняя
+ * подписка при старте контейнера брала его запасным хостом — без ключа.
+ */
+const OWN_HOSTS = ['vedarai.ru', 'www.vedarai.ru', 'tourhab.ru', 'www.tourhab.ru'];
+const WEBHOOK_PATH = '/api/max/kuzmich';
+
+function parsedUrl(url: string): URL | null {
+  try {
+    return new URL(url);
+  } catch (err) {
+    // Неразборчивый адрес — не наш: снимать его нечем доказать.
+    console.warn('[cron/max-webhook] адрес подписки не разобран:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** Наш ли это адрес вебхука: наш хост и путь вебхука, ключ — любой или никакой. */
+function isOwnWebhookUrl(url: string, webhookUrl: string): boolean {
+  const u = parsedUrl(url);
+  if (!u) return false;
+  const own = new Set(OWN_HOSTS);
+  const expectedHost = parsedUrl(webhookUrl)?.hostname;
+  if (expectedHost) own.add(expectedHost);
+  return own.has(u.hostname.toLowerCase()) && u.pathname.replace(/\/+$/, '') === WEBHOOK_PATH;
+}
+
+/**
+ * Подписка для ответа крона: хост и путь, без query — в чужом адресе свои
+ * ключи, а в нашем ключ подписки. Что query был, сказано словами.
+ */
+function describeSubscription(url: string): string {
+  const u = parsedUrl(url);
+  if (!u) return 'адрес не разобран';
+  return `${u.host}${u.pathname}${u.search ? ' (параметры скрыты)' : ''}`;
+}
+
+/**
+ * Снять НАШИ старые подписки: путь /api/max/kuzmich на любом из наших хостов,
+ * но не тот адрес, что ждём (обычно — без секрета, заведённый до
+ * MAX_WEBHOOK_SECRET или прежним стартом контейнера на tourhab.ru). Без этого
+ * MAX шлёт каждое сообщение на оба адреса: незаверенную копию вебхук при
+ * заданном ключе отбрасывает, но она по-прежнему тратит запрос на каждый
+ * апдейт. Чужие адреса не трогаем, их показываем хостом и путём.
  * Зовётся только когда ожидаемый адрес уже точно зарегистрирован — иначе
  * бот остался бы без подписки вовсе.
  */
@@ -58,11 +99,10 @@ async function removeStale(
   current: MaxSubscription[],
   webhookUrl: string,
   headers: Record<string, string>,
-): Promise<{ removed: string[]; failed: string[] }> {
-  const ours = webhookUrl.split('?')[0];
-  const stale = current
-    .map((s) => s.url ?? '')
-    .filter((u) => u !== webhookUrl && u.split('?')[0] === ours);
+): Promise<{ removed: string[]; failed: string[]; others: string[] }> {
+  const urls = current.map((s) => s.url ?? '').filter((u) => u !== webhookUrl);
+  const stale = urls.filter((u) => isOwnWebhookUrl(u, webhookUrl));
+  const others = urls.filter((u) => !isOwnWebhookUrl(u, webhookUrl)).map(describeSubscription);
   const removed: string[] = [];
   const failed: string[] = [];
   for (const url of stale) {
@@ -73,7 +113,7 @@ async function removeStale(
       failed.push(redactWebhookUrl(url));
     }
   }
-  return { removed, failed };
+  return { removed, failed, others };
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
@@ -146,6 +186,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       subscriptions: current.length,
       stale_removed: stale.removed,
       stale_failed: stale.failed,
+      other_subscriptions: stale.others,
     }, stale.failed.length === 0 ? 200 : 502);
   }
 
@@ -178,6 +219,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     ok: stale.failed.length === 0,
     stale_removed: stale.removed,
     stale_failed: stale.failed,
+    other_subscriptions: stale.others,
     action: 'registered',
     reason: listOk ? 'subscription_missing' : 'list_unavailable',
     webhook_url: redactWebhookUrl(webhookUrl),

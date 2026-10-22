@@ -100,6 +100,40 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
     }
   });
 
+  it('вторая подписка на прежнем хосте tourhab.ru (без ключа) снимается; чужая показана хостом и путём, без ключей', async () => {
+    process.env.MAX_WEBHOOK_SECRET = 'sec';
+    const keyed = `${WEBHOOK}?s=sec`;
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string, opts?: { method?: string }) => {
+      calls.push(`${opts?.method ?? 'GET'} ${url}`);
+      if (opts?.method === 'DELETE') return new Response(JSON.stringify({ success: true }), { status: 200 });
+      return new Response(JSON.stringify({ subscriptions: [
+        { url: keyed },
+        { url: 'https://tourhab.ru/api/max/kuzmich' },
+        { url: 'https://www.vedarai.ru/api/max/kuzmich/?s=old-key' },
+        { url: 'https://staging.example/api/max/kuzmich?token=foreign-secret' },
+      ] }), { status: 200 });
+    });
+    vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
+    try {
+      const res = await callRoute();
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.action).toBe('removed_stale');
+      const deleted = calls.filter((c) => c.startsWith('DELETE')).map((c) => decodeURIComponent(c.split('url=')[1] ?? ''));
+      expect(deleted.sort()).toEqual(['https://tourhab.ru/api/max/kuzmich', 'https://www.vedarai.ru/api/max/kuzmich/?s=old-key'].sort());
+      // Ожидаемый адрес и чужой хост не тронуты.
+      expect(deleted).not.toContain(keyed);
+      expect(body.other_subscriptions).toEqual(['staging.example/api/max/kuzmich (параметры скрыты)']);
+      const printed = JSON.stringify(body);
+      expect(printed).not.toContain('foreign-secret');
+      expect(printed).not.toContain('old-key');
+      expect(printed).not.toContain('s=sec');
+    } finally {
+      delete process.env.MAX_WEBHOOK_SECRET;
+    }
+  });
+
   it('нет MAX_BOT_TOKEN → 500, не молчит зелёным', async () => {
     delete process.env.MAX_BOT_TOKEN;
     const res = await callRoute();

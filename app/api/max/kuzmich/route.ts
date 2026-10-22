@@ -8,11 +8,14 @@
  *
  * Заверенный апдейт и прочие (план мини-приложения, §6.5, этап 0; слово
  * владельца 22.10 «а да»). Адрес публичный, тело апдейта пришлёт кто угодно.
- * Вопросы Кузьмичу и кнопки тем обрабатываются из любого источника. Всё, что
- * меняет что-то за пределами ответа в чат, — вход, подключение чата по
- * ссылке, ответ на запрос мест, кнопки лида, заявка из присланного номера,
- * помощник кабинета, бронь в чате, /reset, — только по заверенному апдейту;
- * на прочие бот отвечает «не смог проверить» и ничего не меняет
+ * Ключ подписки задан — запрос без него не обрабатывается вовсе (в лог —
+ * хост и путь, не ответ человеку): MAX зовёт адрес с ключом, без ключа
+ * приходят подделка или старая подписка. Ключа нет — вопросы Кузьмичу и
+ * кнопки тем из любого источника, по одному апдейту на запрос и без записи
+ * истории; всё, что меняет что-то за пределами ответа в чат, — вход,
+ * подключение чата по ссылке, ответ на запрос мест, кнопки лида, заявка из
+ * присланного номера, помощник кабинета, бронь в чате, /reset, — только по
+ * заверенному апдейту; на прочие бот говорит, что это не засчитано
  * (lib/max/verified-press). Чат кнопки-действия — только из сообщения с
  * кнопкой, без отката на user_id тела.
  *
@@ -34,8 +37,8 @@ import { handleMemberStart } from '@/lib/operators/member-channel';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 import {
-  type MaxPressAction, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY, UNVERIFIED_START_REPLY,
-  pressActionOf, startActionOf,
+  type MaxPressAction, PRESS_WITHOUT_MESSAGE_REPLY, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY,
+  UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf,
 } from '@/lib/max/verified-press';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
@@ -89,6 +92,18 @@ function updateKind(update: unknown): string {
   return typeof t === 'string' && /^[a-z_]{1,40}$/.test(t) ? t : 'неизвестного вида';
 }
 
+/**
+ * Откуда пришёл запрос, для лога: хост и путь адреса и X-Forwarded-Host (прокси
+ * Timeweb подменяет Host своим, исходное имя кладёт туда — next.config.js,
+ * «Канон домена»). Без query: в нём ключ подписки. Заголовок присылает кто
+ * угодно, поэтому — только узнаваемая форма имени хоста.
+ */
+function requestOrigin(request: NextRequest): string {
+  const hostLike = (v: string | null): string => (v && /^[a-z0-9.:-]{1,100}$/i.test(v) ? v : '—');
+  const forwarded = hostLike(request.headers.get('x-forwarded-host'));
+  return `хост ${hostLike(request.nextUrl.host)}, путь ${request.nextUrl.pathname.slice(0, 100)}, x-forwarded-host ${forwarded}`;
+}
+
 // ── Reply via MAX API ─────────────────────────────────────────────────────────
 
 async function maxReply(chatId: number, text: string): Promise<void> {
@@ -99,6 +114,17 @@ async function maxReply(chatId: number, text: string): Promise<void> {
   } catch (err) {
     // Ответ не блокирует обработку, но отказ доставки виден в логе.
     logFailure('ответ в чат MAX', err);
+  }
+}
+
+/** Ответ в личный чат человека по его user_id — только из заверенного апдейта. */
+async function maxReplyToUser(userId: number, text: string): Promise<void> {
+  const api = getApi();
+  if (!api) return;
+  try {
+    await api.sendMessageToUser(userId, text, { format: 'html' });
+  } catch (err) {
+    logFailure('ответ в личный чат MAX', err);
   }
 }
 
@@ -337,7 +363,9 @@ interface MaxUpdate {
  * Нажатие кнопки, которая что-то меняет: ответ оператора на запрос мест
  * (`sr:`) и кнопки лида (`lead_`). Три ворот, по порядку:
  *  1. чат — только из сообщения с кнопкой; нет его — право нажатия не
- *     проверить, нажатие не применяется;
+ *     проверить, нажатие не применяется. Заверенному нажатию об этом
+ *     говорится в личном чате нажавшего (его user_id прислал MAX), а
+ *     незаверенному не говорится ничего: его user_id прислал кто угодно;
  *  2. апдейт заверен (серверный флаг, не поле тела); нет — отвечаем «не смог
  *     проверить» и ничего не меняем;
  *  3. чат вправе нажимать: для мест — MAX-чат оператора запроса, для лида —
@@ -348,9 +376,11 @@ async function handleActionPress(
   payload: string,
   chatId: number | null,
   verified: boolean,
+  presserId: number | null,
 ): Promise<void> {
   if (!chatId) {
     console.error(`[max/kuzmich] нажатие (${action}) без чата сообщения — не применено`);
+    if (verified && presserId) await maxReplyToUser(presserId, PRESS_WITHOUT_MESSAGE_REPLY[action]);
     return;
   }
   if (!verified) {
@@ -653,14 +683,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // Кнопки-действия: ответ на запрос мест и кнопки лида.
     const pressAction = pressActionOf(payload);
     if (pressAction !== null) {
-      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true);
+      const presserId = typeof update.callback.user?.user_id === 'number' ? update.callback.user.user_id : null;
+      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true, presserId);
       return;
     }
 
     // Кнопки без последствий — только ответ в чат. Сообщения нет (его успели
-    // удалить) — отвечаем в личный чат нажавшего (DM = user_id в MAX).
-    const resolvedChatId = messageChatId ?? update.callback.user.user_id;
-    if (!resolvedChatId) return;
+    // удалить) — заверенному отвечаем в личный чат нажавшего (DM = user_id в
+    // MAX); у незаверенного user_id прислал кто угодно, отвечать некуда.
+    // Группы и каналы (отрицательный чат) — мимо, как у сообщений выше: темы
+    // и заявка — разговор в личном чате.
+    const resolvedChatId = messageChatId ?? (opts?.verifiedOrigin === true ? update.callback.user.user_id : null);
+    if (!resolvedChatId || resolvedChatId < 0) return;
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
@@ -732,10 +766,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // Источник заверен, если запрос пришёл на адрес подписки с ключом, который
-  // знаем только мы и MAX (см. lib/max/webhook-url). Вопросы Кузьмичу
-  // обрабатываем в любом случае; всё, что меняет что-то за пределами ответа в
-  // чат, — только по заверенному (lib/max/verified-press).
+  // знаем только мы и MAX (см. lib/max/webhook-url).
   const verifiedOrigin = isVerifiedMaxWebhook(request.url);
+
+  if (!verifiedOrigin) {
+    const kind = updates.length > 0 ? updateKind(updates[0]) : 'пусто';
+    // Ключ задан: MAX зовёт адрес с ним, и настоящая копия этого апдейта
+    // пришла по ключу. Без ключа приходят только подделка или старая подписка
+    // без ключа (вторая, которую крон видит с 30.09). Её копия не делает
+    // ничего: ни ответа (он спорил бы с ответом настоящей копии), ни записи,
+    // ни вызова модели. В лог — откуда пришла, чтобы подписку было видно.
+    if (maxWebhookKeyConfigured()) {
+      console.error(
+        `[max/kuzmich] запрос без ключа подписки при заданном ключе — не обработан (${requestOrigin(request)}; `
+        + `апдейтов ${updates.length}, первый — ${kind})`,
+      );
+      return NextResponse.json({ ok: true });
+    }
+    // Ключа нет — вопросы Кузьмичу из любого источника, но по одному апдейту
+    // на запрос: MAX шлёт апдейты по одному, а пачку в тысячи апдейтов
+    // прислала бы только подделка, и каждый из них — ход модели на наши ключи.
+    if (updates.length !== 1) {
+      console.error(
+        `[max/kuzmich] пачка из ${updates.length} апдейтов без ключа подписки — не обработана (первый — ${kind})`,
+      );
+      return NextResponse.json({ ok: true });
+    }
+  }
 
   // Каждый апдейт — в своей обёртке: сбой одного не съедает остальные.
   for (const update of updates) {
