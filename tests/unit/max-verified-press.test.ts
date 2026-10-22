@@ -43,6 +43,8 @@ const m = vi.hoisted(() => ({
   partnerMessage: vi.fn(),
   createLead: vi.fn(),
   login: vi.fn(),
+  loginConfirm: vi.fn(),
+  loginReject: vi.fn(),
   partnerStart: vi.fn(),
   memberStart: vi.fn(),
   bindTourist: vi.fn(),
@@ -65,7 +67,13 @@ vi.mock('@/lib/kuzmich/operator-chat', () => ({
   processPartnerMessage: m.partnerMessage,
 }));
 vi.mock('@/lib/leads/create', () => ({ createLead: m.createLead }));
-vi.mock('@/lib/auth/max-login', () => ({ authenticateMaxLoginSession: m.login }));
+// «Старт» по ссылке входа закрепляет сессию (m.login), вход выдаёт кнопка
+// «Да, это я» (m.loginConfirm), «Нет, не я» гасит (m.loginReject) — аудит 22.10.
+vi.mock('@/lib/auth/max-login', () => ({
+  claimMaxLoginSession: m.login,
+  confirmMaxLoginSession: m.loginConfirm,
+  rejectMaxLoginSession: m.loginReject,
+}));
 vi.mock('@/lib/partners/bind-channel', () => ({ handlePartnerStart: m.partnerStart }));
 vi.mock('@/lib/operators/member-channel', () => ({ handleMemberStart: m.memberStart }));
 vi.mock('@/lib/seat-requests/service', () => ({
@@ -85,6 +93,7 @@ const KEY = 'test-webhook-key-22-10';
 const OPERATOR_CHAT = 555;
 const LEAD = '11111111-2222-4333-8444-555555555555';
 const SEAT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const NONCE = 'abcdefgh12345678abcdefgh';
 
 /** Заверенный адрес — с ключом подписки; незаверенный — без него или с чужим. */
 const VERIFIED = `http://localhost/api/max/kuzmich?s=${KEY}`;
@@ -124,7 +133,8 @@ const repliesTo = (chatId: number) =>
 /** Обработчики действий — ни один не должен быть вызван на незаверенном. */
 const ACTION_HANDLERS = [
   m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal,
-  m.login, m.partnerStart, m.memberStart, m.bindTourist, m.createLead, m.partnerMessage,
+  m.login, m.loginConfirm, m.loginReject,
+  m.partnerStart, m.memberStart, m.bindTourist, m.createLead, m.partnerMessage,
 ];
 
 function expectNothingChanged(): void {
@@ -147,6 +157,8 @@ beforeEach(() => {
   m.leadProcess.mockResolvedValue({ lead_id: LEAD });
   m.sendProposal.mockResolvedValue({ ok: true, message: 'Ушло в Telegram.' });
   m.login.mockResolvedValue(true);
+  m.loginConfirm.mockResolvedValue(true);
+  m.loginReject.mockResolvedValue(true);
   m.partnerStart.mockResolvedValue(true);
   m.memberStart.mockResolvedValue(true);
   m.bindTourist.mockResolvedValue({ ok: true, notified: false });
@@ -160,7 +172,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 // ── Кнопки-действия ─────────────────────────────────────────────────────────
 
-const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead'; applied: () => unknown }> = [
+const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login'; applied: () => unknown }> = [
   { payload: `sr:y:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'yes' }, 'max') },
   { payload: `sr:n:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'no' }, 'max') },
   ...['lead_contacted', 'lead_qualified', 'lead_converted', 'lead_lost'].map((p) => ({
@@ -169,6 +181,11 @@ const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead'; applied: () => un
   })),
   { payload: `lead_ai:${LEAD}`, kind: 'lead', applied: () => expect(m.leadProcess).toHaveBeenCalledWith(LEAD) },
   { payload: `lead_send:${LEAD}`, kind: 'lead', applied: () => expect(m.sendProposal).toHaveBeenCalledWith(LEAD) },
+  // Вопрос о входе на сайт: право нажатия — пользователь, нажавший «Старт»
+  // (условие в SQL); здесь — что нажатие доходит с его user_id и только
+  // заверенным.
+  { payload: `maxlogin_ok:${NONCE}`, kind: 'login', applied: () => expect(m.loginConfirm).toHaveBeenCalledWith(NONCE, OPERATOR_CHAT) },
+  { payload: `maxlogin_no:${NONCE}`, kind: 'login', applied: () => expect(m.loginReject).toHaveBeenCalledWith(NONCE, OPERATOR_CHAT) },
 ];
 
 describe('кнопки-действия: только из заверенного апдейта', () => {

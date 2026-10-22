@@ -52,7 +52,27 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead';
+export type MaxPressAction = 'seat' | 'lead' | 'login';
+
+/**
+ * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
+ * не выдаёт, бот спрашивает, и вход подтверждает только «Да» того, кто нажал
+ * «Старт» (`lib/auth/max-login`). «Нет» гасит сессию.
+ */
+export const LOGIN_CONFIRM_PREFIX = 'maxlogin_ok:';
+export const LOGIN_REJECT_PREFIX = 'maxlogin_no:';
+
+/** Вопрос о входе и ответы бота на кнопки. */
+export const MAX_LOGIN_TEXT = {
+  ask:
+    '<b>Вход на сайт Ведар (vedarai.ru)</b>\n\n'
+    + 'Нажмите «Да, это я», только если вы сами сейчас нажали «Войти через MAX» на сайте.\n\n'
+    + 'Если ссылку на этот вход вам прислали — нажмите «Нет, не я»: '
+    + 'иначе тот, кто её прислал, войдёт в ваш аккаунт.',
+  confirmed: 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.',
+  rejected: 'Вход отменён — сайт его не получит. Ссылки входа, присланные другими людьми, не открывайте.',
+  stale: 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
+} as const;
 
 /** Ссылка старта бота, по которой что-то меняется. */
 export type MaxStartAction = 'login' | 'link';
@@ -63,12 +83,14 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
 /**
  * Вид кнопки-действия по payload. `sr:` — ответ оператора на запрос мест
  * (`lib/seat-requests/core`, `answerPayload`), `lead_` — кнопки лида
- * (`lib/leads/status-action`, `lead_ai`, `lead_send`). Прочие кнопки (темы,
+ * (`lib/leads/status-action`, `lead_ai`, `lead_send`), `maxlogin_` — ответ на
+ * вопрос о входе на сайт (`lib/auth/max-login`). Прочие кнопки (темы,
  * «Оформить заявку», «Другой вариант») только отвечают в чат.
  */
 export function pressActionOf(payload: string): MaxPressAction | null {
   if (payload.startsWith('sr:')) return 'seat';
   if (payload.startsWith('lead_')) return 'lead';
+  if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
   return null;
 }
 
@@ -91,6 +113,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Ответьте по ссылке «ответить на сайте» в том же сообщении или во «Входящих» кабинета.',
   lead: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Откройте заявку по ссылке из того же сообщения или в кабинете.',
+  login: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Войдите на сайте другим способом.',
 };
 
 /**
@@ -102,6 +126,7 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
   seat: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. '
     + 'Ответьте по ссылке «ответить на сайте» или во «Входящих» кабинета.',
   lead: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Откройте заявку в кабинете.',
+  login: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Начните вход на сайте заново.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */

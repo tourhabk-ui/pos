@@ -109,6 +109,13 @@ export default function MaxLoginButton({ onAuth, onError }: Props) {
         <MaxIcon size={20} />
         {waiting ? 'Подтвердите вход в MAX…' : 'Войти через MAX'}
       </button>
+      {waiting && (
+        // Вход подтверждается в боте двумя нажатиями (22.10): «Старт» сам по
+        // себе вход не выдаёт — бот спрашивает, вы ли входите.
+        <p className="text-xs text-[var(--text-secondary)] text-center">
+          В MAX нажмите «Старт», затем «Да, это я».
+        </p>
+      )}
       {waiting && deepLink && (
         <a
           href={deepLink}

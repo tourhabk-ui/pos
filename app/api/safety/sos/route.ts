@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { verifyAuth } from '@/lib/auth';
 import { classifySosOrigin } from '@/lib/safety/sos-origin';
+import { escapeHtml } from '@/lib/text/escape-html';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +27,18 @@ const SOSSchema = z.object({
   source:         z.enum(['direct', 'mesh_relay']).optional(),
   relayed_by:     z.string().max(64).optional(),
 });
+
+/**
+ * Тот же текст без разметки — для повтора, если Telegram её не принял.
+ * Ссылка на карту остаётся адресом: «Открыть на карте» без href бесполезно.
+ */
+function htmlToPlain(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<a href="([^"]*)">([^<]*)<\/a>/g, '$2: $1')
+      .replace(/<\/?(?:b|i)>/g, ''),
+  );
+}
 
 function isRateLimited(key: string): boolean {
   const last = rateLimitMap.get(key);
@@ -159,39 +173,50 @@ export async function POST(request: NextRequest) {
     const mapsLink = finalLat && finalLng
       ? `https://www.google.com/maps?q=${finalLat},${finalLng}`
       : '';
+    // Всё, что прислал человек или его сеть, — через escapeHtml: сообщение
+    // уходит с parse_mode HTML, и «<» или «&» в тексте («до лагеря < 2 км»,
+    // «Q&A»), в имени или в заголовке X-Forwarded-For ломали разметку.
+    // Telegram отвечал 400, и тревога не доходила вовсе (аудит 22.10).
+    const h = escapeHtml;
     const text = [
       '<b>🆘 SOS! ЭКСТРЕННЫЙ СИГНАЛ</b>',
-      finalSource === 'mesh_relay' ? `<i>(ретрансляция через меш, узел: ${relayed_by ?? '?'})</i>` : '',
+      finalSource === 'mesh_relay' ? `<i>(ретрансляция через меш, узел: ${h(relayed_by ?? '?')})</i>` : '',
       eventId ? '' : '<b>ВНИМАНИЕ: запись в БД не удалась — сигнал НЕ виден Watchdog</b>',
       '',
-      tourist_name  ? `👤 Имя: ${tourist_name}`   : '👤 Имя: не указано',
-      tourist_phone ? `📞 Тел: ${tourist_phone}`   : '📞 Тел: не указан',
+      tourist_name  ? `👤 Имя: ${h(tourist_name)}`   : '👤 Имя: не указано',
+      tourist_phone ? `📞 Тел: ${h(tourist_phone)}`   : '📞 Тел: не указан',
       '',
       `📍 Координаты: ${loc}`,
       mapsLink ? `🗺 <a href="${mapsLink}">Открыть на карте</a>` : '',
-      `⚠️ Тип: ${emergency_type ?? 'не указан'}`,
-      message       ? `💬 Сообщение: ${message}`   : '',
-      `🌐 IP: ${ip}`,
+      `⚠️ Тип: ${h(emergency_type ?? 'не указан')}`,
+      message       ? `💬 Сообщение: ${h(message)}`   : '',
+      `🌐 IP: ${h(ip)}`,
       // Без этой строки тревога про слепую пробу эндпоинта выглядит ровно
       // как тревога про человека в беде, и человек приучается пролистывать
       // обе. Класс — не приговор: сигнал принят и остаётся висеть в любом
       // случае, но получатель имеет право знать, на что смотрит.
       '',
+      // Слова класса — наши постоянные; признаки несут заголовок
+      // Sec-Fetch-Site от клиента, и их — через экранирование.
       `🔎 ${origin.words}`,
-      origin.signals.length ? `<i>Признаки: ${origin.signals.join(', ')}</i>` : '',
+      origin.signals.length ? `<i>Признаки: ${h(origin.signals.join(', '))}</i>` : '',
     ].filter(Boolean).join('\n');
 
-    try {
-      const tgRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
+    const send = (payload: Record<string, unknown>) =>
+      fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          disable_web_page_preview: false,
-        }),
+        body: JSON.stringify({ chat_id: chatId, ...payload }),
       });
+    try {
+      let tgRes = await send({ text, parse_mode: 'HTML', disable_web_page_preview: false });
+      // 400 — Telegram не разобрал разметку. Повтор тем же текстом без
+      // разметки: тревога без жирного шрифта лучше, чем никакой. Остальные
+      // отказы (сеть, токен, 429) повтором той же формы не лечатся.
+      if (tgRes.status === 400) {
+        console.error('[safety/sos] Telegram не разобрал разметку — повтор без неё');
+        tgRes = await send({ text: htmlToPlain(text), disable_web_page_preview: false });
+      }
       notified = tgRes.ok;
       if (!tgRes.ok) console.error('[safety/sos] Telegram отказал:', tgRes.status);
     } catch (err) {
