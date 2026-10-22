@@ -6,14 +6,16 @@
  *  - Telegram: `/start om_…` в личном чате уходит в привязку менеджера с ЭТИМ
  *    чатом, ответ — в этот же чат; ссылка кабинета `op_` в неё не попадает;
  *  - MAX: привязка — только из заверенного апдейта (verifiedOrigin — серверный
- *    флаг по секрету вебхука, не поле тела). Незаверенный `om_` — обычный
- *    /start, чат не назначается.
+ *    флаг по секрету вебхука, не поле тела). Незаверенный `om_` чат не
+ *    назначает, и человек слышит «не смог проверить», а не приветствие
+ *    (lib/max/verified-press, план мини-приложения §6.5).
  *
  * Модули обоих роутов подменены целиком: проверяется маршрутизация /start, а
  * не Кузьмич, поддержка и лиды, которые живут в тех же файлах.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { UNVERIFIED_START_REPLY } from '@/lib/max/verified-press';
 
 const m = vi.hoisted(() => ({
   memberStart: vi.fn(),
@@ -140,10 +142,11 @@ describe('MAX: /start om_ — только из заверенного апде�
     expect(m.processMessage).not.toHaveBeenCalled();
   });
 
-  it('незаверенный апдейт — чат не назначается, это обычный /start', async () => {
+  it('незаверенный апдейт — чат не назначается, ответ «не смог проверить», а не приветствие', async () => {
     m.verifiedMax.mockReturnValue(false);
     await max.POST(maxUpdate('om_tok'));
     expect(m.memberStart).not.toHaveBeenCalled();
-    expect(m.processMessage).toHaveBeenCalledTimes(1);
+    expect(m.processMessage).not.toHaveBeenCalled();
+    expect(m.maxSend).toHaveBeenCalledWith(77, UNVERIFIED_START_REPLY.link, expect.anything());
   });
 });

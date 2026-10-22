@@ -6,6 +6,16 @@
  *   POST — обработка webhook-апдейтов от MAX
  *   GET  — long-polling: забирает апдейты и обрабатывает (для cron / dev)
  *
+ * Заверенный апдейт и прочие (план мини-приложения, §6.5, этап 0; слово
+ * владельца 22.10 «а да»). Адрес публичный, тело апдейта пришлёт кто угодно.
+ * Вопросы Кузьмичу и кнопки тем обрабатываются из любого источника. Всё, что
+ * меняет что-то за пределами ответа в чат, — вход, подключение чата по
+ * ссылке, ответ на запрос мест, кнопки лида, заявка из присланного номера,
+ * помощник кабинета, бронь в чате, /reset, — только по заверенному апдейту;
+ * на прочие бот отвечает «не смог проверить» и ничего не меняет
+ * (lib/max/verified-press). Чат кнопки-действия — только из сообщения с
+ * кнопкой, без отката на user_id тела.
+ *
  * Env vars: MAX_BOT_TOKEN
  */
 
@@ -23,6 +33,12 @@ import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
+import {
+  type MaxPressAction, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY, UNVERIFIED_START_REPLY,
+  pressActionOf, startActionOf,
+} from '@/lib/max/verified-press';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { scrubErrorText } from '@/lib/client-errors/scrub';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -51,6 +67,28 @@ function getApi(): Api | null {
   return _api;
 }
 
+// ── Отказы называются в логе ────────────────────────────────────────────────
+
+/**
+ * Пойманный отказ пишется в лог (§4.0): что не выполнено, код (SQLSTATE или
+ * код сети) и текст ошибки. Без ПД: ни телефона, ни имени, ни текста
+ * сообщения — текст ошибки чистится той же функцией, что ошибки сервера
+ * (телефоны, почты, ключи и query адресов вырезаются).
+ */
+function logFailure(source: string, err: unknown): void {
+  const safe = new Error(scrubErrorText(err instanceof Error ? err.message : String(err), 200));
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    Object.assign(safe, { code: (err as { code: unknown }).code });
+  }
+  logSwallowedFailure('max/kuzmich', source, safe);
+}
+
+/** Вид апдейта для лога: поле тела, поэтому только узнаваемая форма. */
+function updateKind(update: unknown): string {
+  const t = typeof update === 'object' && update !== null ? (update as { update_type?: unknown }).update_type : null;
+  return typeof t === 'string' && /^[a-z_]{1,40}$/.test(t) ? t : 'неизвестного вида';
+}
+
 // ── Reply via MAX API ─────────────────────────────────────────────────────────
 
 async function maxReply(chatId: number, text: string): Promise<void> {
@@ -58,7 +96,10 @@ async function maxReply(chatId: number, text: string): Promise<void> {
   if (!api) return;
   try {
     await api.sendMessageToChat(chatId, text, { format: 'html' });
-  } catch { /* не блокируем */ }
+  } catch (err) {
+    // Ответ не блокирует обработку, но отказ доставки виден в логе.
+    logFailure('ответ в чат MAX', err);
+  }
 }
 
 async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxButton[][]): Promise<void> {
@@ -69,7 +110,9 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
       format: 'html',
       attachments: [{ type: 'inline_keyboard', payload: { buttons } }],
     });
-  } catch { /* не блокируем */ }
+  } catch (err) {
+    logFailure('ответ с кнопками в чат MAX', err);
+  }
 }
 
 // ── Кнопки по лиду ────────────────────────────────────────────────────────────
@@ -190,15 +233,16 @@ function parsePhoneFromVcf(vcf: string): string | null {
   return match[1].trim().replace(/\s+/g, '');
 }
 
-// Создать лид из MAX-контакта
+// Создать лид из MAX-контакта. Исход честный: «номер получен» человек
+// слышит только тогда, когда заявка записана (createLead вернул id).
 async function createLeadFromContact(
   chatId: number,
   phone: string,
   name: string,
   comment: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await createLead({
+    const id = await createLead({
       name: name || 'Турист',
       phone,
       comment,
@@ -206,7 +250,12 @@ async function createLeadFromContact(
       source_data: { source: 'max_bot', max_chat_id: chatId, timestamp: new Date().toISOString() },
       status: 'new',
     });
-  } catch { /* не блокируем */ }
+    if (!id) console.error('[max/kuzmich] заявка из присланного номера не записана: createLead вернул пусто');
+    return id !== null;
+  } catch (err) {
+    logFailure('заявка из присланного номера', err);
+    return false;
+  }
 }
 
 // ── Скачивание медиа по URL → base64 ─────────────────────────────────────────
@@ -230,11 +279,17 @@ async function downloadMedia(url: string): Promise<{ base64: string; mimeType: s
   if (!isAllowedMediaUrl(url)) return null;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[max/kuzmich] медиа не скачано: HTTP ${res.status}`);
+      return null;
+    }
     const ct = res.headers.get('content-type') ?? 'application/octet-stream';
     const buf = await res.arrayBuffer();
     return { base64: Buffer.from(buf).toString('base64'), mimeType: ct.split(';')[0].trim() };
-  } catch { return null; }
+  } catch (err) {
+    logFailure('скачивание медиа', err);
+    return null;
+  }
 }
 
 // ── Типы апдейтов MAX ────────────────────────────────────────────────────────
@@ -276,6 +331,61 @@ interface MaxUpdate {
   // message уже есть выше для message_created, переиспользуем структуру
 }
 
+// ── Кнопки-действия ───────────────────────────────────────────────────────────
+
+/**
+ * Нажатие кнопки, которая что-то меняет: ответ оператора на запрос мест
+ * (`sr:`) и кнопки лида (`lead_`). Три ворот, по порядку:
+ *  1. чат — только из сообщения с кнопкой; нет его — право нажатия не
+ *     проверить, нажатие не применяется;
+ *  2. апдейт заверен (серверный флаг, не поле тела); нет — отвечаем «не смог
+ *     проверить» и ничего не меняем;
+ *  3. чат вправе нажимать: для мест — MAX-чат оператора запроса, для лида —
+ *     рабочий MAX_OPERATOR_CHAT_ID.
+ */
+async function handleActionPress(
+  action: MaxPressAction,
+  payload: string,
+  chatId: number | null,
+  verified: boolean,
+): Promise<void> {
+  if (!chatId) {
+    console.error(`[max/kuzmich] нажатие (${action}) без чата сообщения — не применено`);
+    return;
+  }
+  if (!verified) {
+    console.error(`[max/kuzmich] нажатие (${action}) из незаверенного апдейта — не применено`);
+    await maxReply(chatId, UNVERIFIED_PRESS_REPLY[action]);
+    return;
+  }
+
+  if (action === 'seat') {
+    const seat = parseAnswerPayload(payload);
+    if (!seat) {
+      await maxReply(chatId, 'Кнопка не распознана, ответ не принят. Ответьте по ссылке «ответить на сайте» в том же сообщении.');
+      return;
+    }
+    const mine = await requestBelongsToMaxChat(seat.requestId, chatId);
+    if (mine !== true) {
+      await maxReply(chatId, operatorReplyText({ ok: false, reason: mine === 'db_error' ? 'db_error' : 'not_yours' }));
+      return;
+    }
+    const result = await answerSeatRequest(seat.requestId, { kind: seat.kind }, 'max');
+    await maxReply(chatId, operatorReplyText(result));
+    return;
+  }
+
+  // Кнопки по лиду. Право нажатия — рабочий чат MAX_OPERATOR_CHAT_ID: чат
+  // сообщения с кнопкой из заверенного апдейта подделать нельзя. Тот же
+  // принцип, что в Telegram-вебхуке.
+  const operatorChat = process.env.MAX_OPERATOR_CHAT_ID?.trim() ?? '';
+  if (!operatorChat || String(chatId) !== operatorChat) {
+    await maxReply(chatId, 'Действие по лиду доступно только в рабочем чате.');
+    return;
+  }
+  await handleLeadCallback(payload, chatId);
+}
+
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
 
 async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean }): Promise<void> {
@@ -305,7 +415,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     return;
   }
 
-  // bot_started → обычный /start (в т.ч. незаверенный login-payload — без входа)
+  // bot_started → обычный /start; ссылка старта — только по заверенному апдейту
   if (update.update_type === 'bot_started' && update.chat_id) {
     // ── ПОДКЛЮЧЕНИЕ ОПЕРАТОРА И ТУРИСТА ────────────────────────────────────
     // Чат, куда пойдут имена и телефоны туристов и ссылка на бронь,
@@ -327,6 +437,16 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
       // Менеджер команды оператора — свой чат к уведомлениям кабинета (2г-4).
       if (await handleMemberStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
+    } else {
+      // Незаверенная ссылка входа или подключения: ничего не подключаем и не
+      // молчим приветствием — человек нажал ссылку ради действия и должен
+      // узнать, что оно не прошло (§4.0). Обычный /start — ниже, как раньше.
+      const startAction = startActionOf(update.payload);
+      if (startAction !== null) {
+        console.error(`[max/kuzmich] ссылка старта (${startAction}) из незаверенного апдейта — не применена`);
+        await maxReply(update.chat_id, UNVERIFIED_START_REPLY[startAction]);
+        return;
+      }
     }
 
     let capturedStart = '';
@@ -407,7 +527,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           if (outcome.ok) transcription = outcome.text;
           else voiceFailure = outcome.reason;
         }
-      } catch { /* не критично */ }
+      } catch (err) {
+        // Человеку — «распознавание недоступно», в лог — причина.
+        logFailure('распознавание голосового', err);
+      }
 
       if (!transcription) {
         await maxReply(chatId, voiceFailure === 'unintelligible'
@@ -433,9 +556,16 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       return;
     }
 
-    // Контакт → создаём лид
+    // Контакт → создаём лид. Заявка с телефоном уходит менеджерам вместе с
+    // ПД — только по заверенному апдейту, иначе её создал бы кто угодно с
+    // чужими именем и номером.
     const contactAtt = attachments.find(a => a.type === 'contact');
     if (contactAtt) {
+      if (opts?.verifiedOrigin !== true) {
+        console.error('[max/kuzmich] номер из незаверенного апдейта — заявка не создана');
+        await maxReply(chatId, UNVERIFIED_CHAT_REPLY.contact);
+        return;
+      }
       const vcf = contactAtt.payload?.vcf_info ?? '';
       const phone = parsePhoneFromVcf(vcf)
         ?? contactAtt.payload?.tam_info?.user_id?.toString()
@@ -443,9 +573,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       const contactName = contactAtt.payload?.tam_info?.name ?? userName ?? 'Турист';
 
       if (phone) {
-        await createLeadFromContact(chatId, phone, contactName, 'Заявка из MAX бота');
-        await maxReply(chatId,
-          `Отлично, ${contactName}! Номер получен.\n\nОператор свяжется с вами в течение <b>1-2 часов</b> по номеру <b>${phone}</b>.`,
+        const saved = await createLeadFromContact(chatId, phone, contactName, 'Заявка из MAX бота');
+        await maxReply(chatId, saved
+          ? `Отлично, ${contactName}! Номер получен.\n\nОператор свяжется с вами в течение <b>1-2 часов</b> по номеру <b>${phone}</b>.`
+          : 'Номер не сохранился — сбой на нашей стороне. Попробуйте ещё раз через минуту.',
         );
       } else {
         await maxReply(chatId, 'Не удалось получить номер. Напишите его текстом, пожалуйста.');
@@ -469,6 +600,13 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // поток — как в Telegram.
       const lookup = await findPartnerByChat('max', chatId);
       if (lookup.outcome === 'found') {
+        // Помощник кабинета пишет в CRM партнёра (касания, задачи) — только по
+        // заверенному апдейту: чат партнёра в теле прислал бы кто угодно.
+        if (opts?.verifiedOrigin !== true) {
+          console.error('[max/kuzmich] сообщение в чат партнёра из незаверенного апдейта — помощник не запущен');
+          await maxReply(chatId, UNVERIFIED_CHAT_REPLY.partner);
+          return;
+        }
         const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
         await processPartnerMessage({ chatId, text, fromName: userName, partner: lookup.partner, reply: maxReply });
         return;
@@ -498,8 +636,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (!api) return;
 
     const payload = update.callback.payload ?? '';
-    // В callback-апдейте chat_id берётся из message.recipient.chat_id
-    const callbackChatId: number | null | undefined = update.message?.recipient.chat_id;
+    // Чат сообщения с кнопкой. Для кнопки-действия — единственный источник
+    // чата: user_id из тела прислал бы кто угодно.
+    const messageChatId: number | null = update.message?.recipient.chat_id ?? null;
 
     // Подтверждаем получение. Без второго аргумента намеренно: раньше сюда
     // передавалось `notification: ''` — пустое всплывающее уведомление, то
@@ -508,43 +647,23 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // упиралось ровно в эту строку: 19 пакетов ждали одного поля, которого
     // больше нет. Вызов без extra делает то же самое — подтверждает callback
     // и ничего не показывает — и компилируется в обеих версиях.
-    await api.answerOnCallback(update.callback.callback_id).catch(() => {});
+    await api.answerOnCallback(update.callback.callback_id)
+      .catch((err: unknown) => logFailure('подтверждение нажатия', err));
 
-    // callbackChatId may be null if callback update has no message — fall back to user_id (DM = user_id in MAX)
-    const resolvedChatId = callbackChatId ?? update.callback.user.user_id;
+    // Кнопки-действия: ответ на запрос мест и кнопки лида.
+    const pressAction = pressActionOf(payload);
+    if (pressAction !== null) {
+      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true);
+      return;
+    }
+
+    // Кнопки без последствий — только ответ в чат. Сообщения нет (его успели
+    // удалить) — отвечаем в личный чат нажавшего (DM = user_id в MAX).
+    const resolvedChatId = messageChatId ?? update.callback.user.user_id;
     if (!resolvedChatId) return;
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
-
-    // Ответ оператора на запрос свободных мест (lib/seat-requests). Право
-    // нажатия — чат сообщения совпадает с MAX-чатом оператора запроса, и
-    // только по заверенному источнику апдейта.
-    const seat = parseAnswerPayload(payload);
-    if (seat) {
-      if (opts?.verifiedOrigin !== true) return;
-      const mine = await requestBelongsToMaxChat(seat.requestId, resolvedChatId);
-      if (mine !== true) {
-        await maxReply(resolvedChatId, operatorReplyText({ ok: false, reason: mine === 'db_error' ? 'db_error' : 'not_yours' }));
-        return;
-      }
-      const result = await answerSeatRequest(seat.requestId, { kind: seat.kind }, 'max');
-      await maxReply(resolvedChatId, operatorReplyText(result));
-      return;
-    }
-
-    // Кнопки по лиду. Право нажатия — принадлежность чата рабочему
-    // MAX_OPERATOR_CHAT_ID: user_id прислал бы кто угодно, а чат сообщения с
-    // кнопкой подделать нельзя. Тот же принцип, что в Telegram-вебхуке.
-    if (payload.startsWith('lead_')) {
-      const operatorChat = process.env.MAX_OPERATOR_CHAT_ID?.trim() ?? '';
-      if (!operatorChat || String(resolvedChatId) !== operatorChat) {
-        await maxReply(resolvedChatId, 'Действие по лиду доступно только в рабочем чате.');
-        return;
-      }
-      await handleLeadCallback(payload, resolvedChatId);
-      return;
-    }
 
     // Топик-кнопки → шлём как обычный запрос
     if (payload in TOPIC_TEXTS) {
@@ -600,22 +719,32 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 // ── POST: Webhook endpoint ────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Ответ MAX — всегда 200, как и раньше: после серии ошибок MAX может снять
+  // подписку (шапка /api/cron/max-webhook). Отказ при этом не глушится — он в логе.
+  let updates: MaxUpdate[] = [];
   try {
-    const body = await request.json();
-
+    const body: unknown = await request.json();
     // MAX может отправить один апдейт или массив
-    const updates: MaxUpdate[] = Array.isArray(body) ? body : [body];
+    updates = (Array.isArray(body) ? body : [body]) as MaxUpdate[];
+  } catch (err) {
+    logFailure('разбор тела апдейта', err);
+    return NextResponse.json({ ok: true });
+  }
 
-    // Источник заверен, если запрос пришёл на URL с webhook-секретом,
-    // который знаем только мы и MAX (см. lib/max/webhook-url). Обычные
-    // сообщения обрабатываем в любом случае, а вот подтверждение ВХОДА
-    // требует заверенного источника (защита от захвата аккаунта).
-    const verifiedOrigin = isVerifiedMaxWebhook(request.url);
+  // Источник заверен, если запрос пришёл на адрес подписки с ключом, который
+  // знаем только мы и MAX (см. lib/max/webhook-url). Вопросы Кузьмичу
+  // обрабатываем в любом случае; всё, что меняет что-то за пределами ответа в
+  // чат, — только по заверенному (lib/max/verified-press).
+  const verifiedOrigin = isVerifiedMaxWebhook(request.url);
 
-    for (const update of updates) {
+  // Каждый апдейт — в своей обёртке: сбой одного не съедает остальные.
+  for (const update of updates) {
+    try {
       await handleUpdate(update, { verifiedOrigin });
+    } catch (err) {
+      logFailure(`обработка апдейта ${updateKind(update)}`, err);
     }
-  } catch { /* всегда 200 OK */ }
+  }
 
   return NextResponse.json({ ok: true });
 }

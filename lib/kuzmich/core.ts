@@ -58,6 +58,7 @@ import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
+import { UNVERIFIED_CHAT_REPLY } from '@/lib/max/verified-press';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
@@ -2682,6 +2683,12 @@ export async function processMessage(opts: {
 }): Promise<void> {
   const { chatId, text, userName, userId, mode, createdVia, pending: pendingMap, reply: replyFn, visionDescription, platform, afterReply, verifiedOrigin } = opts;
   const cmd = text.split(' ')[0]?.toLowerCase() ?? '';
+  // Вебхук MAX принимает вопросы от кого угодно. Действия с последствием —
+  // /reset и бронь в чате — только по заверенному апдейту
+  // (lib/max/verified-press): поддельный апдейт с чужим чатом стёр бы его
+  // историю и черновик контроля выхода или оформил бы бронь с чужими именем
+  // и телефоном. Вопросы Кузьмичу это не трогает.
+  const maxUnverified = platform === 'max' && verifiedOrigin !== true;
 
   // /start
   if (cmd === '/start') {
@@ -2731,6 +2738,10 @@ export async function processMessage(opts: {
 
   // /reset
   if (cmd === '/reset') {
+    if (maxUnverified) {
+      await replyFn(chatId, UNVERIFIED_CHAT_REPLY.reset);
+      return;
+    }
     await deleteBookingFlow(chatId, mode, pendingMap);
     if (platform === 'max') {
       await deleteWatchDraft(platform, chatId).catch((err) =>
@@ -2774,6 +2785,13 @@ export async function processMessage(opts: {
 
   // Active booking flow — проверяем память И базу данных
   const activeBooking = !isMediaMessage ? await loadBookingFlow(chatId, mode, pendingMap) : null;
+  // Бронь из незаверенного апдейта MAX не начинается и не продвигается: шаг
+  // «да» создал бы бронь оператору и разослал бы ПД. Человек слышит, где
+  // оформить заявку, а не тишину (§4.0).
+  if (maxUnverified && (activeBooking || isBookingTrigger(text))) {
+    await replyFn(chatId, UNVERIFIED_CHAT_REPLY.booking);
+    return;
+  }
   if (activeBooking) {
     // Auto-expire: если booking flow старше 30 минут — удаляем
     if (activeBooking.started_at < Date.now() - 30 * 60 * 1000) {

@@ -1,0 +1,334 @@
+/**
+ * Приём нажатий MAX (план мини-приложения, §6.5, этап 0; слово владельца
+ * 22.10 «а да») — вызовом вебхука POST /api/max/kuzmich, а не поиском строки
+ * в файле (CLAUDE.md §4, «Сторож судит поведение»).
+ *
+ * Что держит:
+ *  - каждое действие с последствием — кнопки мест (`sr:`) и лида (`lead_*`),
+ *    ссылки старта (`login-`, `sr_`, `op_`, `om_`), присланный номер, чат
+ *    партнёра — применяется только по заверенному апдейту: адрес подписки с
+ *    ключом, который сверяет настоящий `isVerifiedMaxWebhook`;
+ *  - на незаверенное бот не молчит: отвечает «не смог проверить» и ничего не
+ *    меняет — ни обработчик действия, ни запись в базу не зовутся;
+ *  - чат кнопки-действия — только из сообщения с кнопкой: без сообщения
+ *    нажатие не применяется, даже если `user_id` равен рабочему чату;
+ *  - вопросы Кузьмичу и кнопки тем доступны из любого источника;
+ *  - сбой одного апдейта не роняет ответ 200 и не съедает остальные.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
+import {
+  UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY, UNVERIFIED_START_REPLY,
+} from '@/lib/max/verified-press';
+
+const m = vi.hoisted(() => ({
+  maxSend: vi.fn(),
+  answerCb: vi.fn(),
+  pool: vi.fn(),
+  processMessage: vi.fn(),
+  findPartner: vi.fn(),
+  partnerMessage: vi.fn(),
+  createLead: vi.fn(),
+  login: vi.fn(),
+  partnerStart: vi.fn(),
+  memberStart: vi.fn(),
+  bindTourist: vi.fn(),
+  seatMine: vi.fn(),
+  seatAnswer: vi.fn(),
+  applyLead: vi.fn(),
+  leadProcess: vi.fn(),
+  notifyProposal: vi.fn(),
+  sendProposal: vi.fn(),
+}));
+
+vi.mock('@/lib/max/max-fetch', () => ({
+  maxBot: () => ({ api: { sendMessageToChat: m.maxSend, answerOnCallback: m.answerCb } }),
+}));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: m.pool } }));
+vi.mock('@/lib/kuzmich/core', () => ({ processMessage: m.processMessage, cleanupPending: vi.fn() }));
+vi.mock('@/lib/kuzmich/operator-chat', () => ({
+  PARTNER_EMAIL_BIND_CLOSED: 'привязка по почте закрыта',
+  findPartnerByChat: m.findPartner,
+  processPartnerMessage: m.partnerMessage,
+}));
+vi.mock('@/lib/leads/create', () => ({ createLead: m.createLead }));
+vi.mock('@/lib/auth/max-login', () => ({ authenticateMaxLoginSession: m.login }));
+vi.mock('@/lib/partners/bind-channel', () => ({ handlePartnerStart: m.partnerStart }));
+vi.mock('@/lib/operators/member-channel', () => ({ handleMemberStart: m.memberStart }));
+vi.mock('@/lib/seat-requests/service', () => ({
+  bindTouristChat: m.bindTourist, requestBelongsToMaxChat: m.seatMine, answerSeatRequest: m.seatAnswer,
+}));
+vi.mock('@/lib/leads/status-action', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/leads/status-action')>()),
+  applyLeadStatus: m.applyLead,
+}));
+vi.mock('@/lib/services/operators/lead-processor.service', () => ({ leadProcessor: { process: m.leadProcess } }));
+vi.mock('@/lib/notifications/lead-notify', () => ({ notifyOperatorProposal: m.notifyProposal }));
+vi.mock('@/lib/leads/proposal-delivery', () => ({ sendProposalToClient: m.sendProposal }));
+
+const max = await import('@/app/api/max/kuzmich/route');
+
+const KEY = 'test-webhook-key-22-10';
+const OPERATOR_CHAT = 555;
+const LEAD = '11111111-2222-4333-8444-555555555555';
+const SEAT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
+/** Заверенный адрес — с ключом подписки; незаверенный — без него или с чужим. */
+const VERIFIED = `http://localhost/api/max/kuzmich?s=${KEY}`;
+const UNVERIFIED = ['http://localhost/api/max/kuzmich', 'http://localhost/api/max/kuzmich?s=guess'];
+
+const post = (url: string, body: unknown) =>
+  max.POST(new NextRequest(url, { method: 'POST', body: JSON.stringify(body) }));
+
+const press = (payload: string, chatId: number | null = OPERATOR_CHAT, userId = OPERATOR_CHAT) => ({
+  update_type: 'message_callback',
+  timestamp: 1,
+  callback: { timestamp: 1, callback_id: 'cb-1', payload, user: { user_id: userId, name: 'Оператор' } },
+  ...(chatId === null ? {} : { message: { recipient: { chat_id: chatId, chat_type: 'chat' }, body: { mid: 'm', seq: 1, text: 'x' } } }),
+});
+
+const started = (payload: string) => ({
+  update_type: 'bot_started', timestamp: 1, chat_id: 77, payload, user: { user_id: 77, name: 'Анна' },
+});
+
+const message = (text: string, attachments: unknown[] = []) => ({
+  update_type: 'message_created',
+  timestamp: 1,
+  message: {
+    sender: { user_id: 77, name: 'Анна' },
+    recipient: { chat_id: 77, chat_type: 'dialog' },
+    body: { mid: 'm', seq: 1, text, attachments },
+  },
+});
+
+/** Что бот ответил в чат chatId (тексты по порядку). */
+const repliesTo = (chatId: number) =>
+  m.maxSend.mock.calls.filter((c) => c[0] === chatId).map((c) => String(c[1]));
+
+/** Обработчики действий — ни один не должен быть вызван на незаверенном. */
+const ACTION_HANDLERS = [
+  m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal,
+  m.login, m.partnerStart, m.memberStart, m.bindTourist, m.createLead, m.partnerMessage,
+];
+
+function expectNothingChanged(): void {
+  for (const f of ACTION_HANDLERS) expect(f).not.toHaveBeenCalled();
+  const writes = m.pool.mock.calls.filter((c) => /\b(INSERT|UPDATE|DELETE)\b/i.test(String(c[0])));
+  expect(writes).toEqual([]);
+}
+
+let errorLog: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  for (const f of Object.values(m)) f.mockReset();
+  m.maxSend.mockResolvedValue({});
+  m.answerCb.mockResolvedValue({});
+  m.pool.mockResolvedValue({ rows: [] });
+  m.findPartner.mockResolvedValue({ outcome: 'none' });
+  m.seatMine.mockResolvedValue(true);
+  m.seatAnswer.mockResolvedValue({ ok: true, status: 'declined', tourTitle: 'Рыбалка', date: '2026-11-01' });
+  m.applyLead.mockResolvedValue({ outcome: 'updated', status: 'contacted', label: 'Связались', name: 'Турист' });
+  m.leadProcess.mockResolvedValue({ lead_id: LEAD });
+  m.sendProposal.mockResolvedValue({ ok: true, message: 'Ушло в Telegram.' });
+  m.login.mockResolvedValue(true);
+  m.partnerStart.mockResolvedValue(true);
+  m.memberStart.mockResolvedValue(true);
+  m.bindTourist.mockResolvedValue({ ok: true, notified: false });
+  m.createLead.mockResolvedValue('lead-id-1');
+  vi.stubEnv('MAX_BOT_TOKEN', 'test-token');
+  vi.stubEnv('MAX_WEBHOOK_SECRET', KEY);
+  vi.stubEnv('MAX_OPERATOR_CHAT_ID', String(OPERATOR_CHAT));
+  errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
+// ── Кнопки-действия ─────────────────────────────────────────────────────────
+
+const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead'; applied: () => unknown }> = [
+  { payload: `sr:y:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'yes' }, 'max') },
+  { payload: `sr:n:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'no' }, 'max') },
+  ...['lead_contacted', 'lead_qualified', 'lead_converted', 'lead_lost'].map((p) => ({
+    payload: `${p}:${LEAD}`, kind: 'lead' as const,
+    applied: () => expect(m.applyLead).toHaveBeenCalledWith(p, LEAD),
+  })),
+  { payload: `lead_ai:${LEAD}`, kind: 'lead', applied: () => expect(m.leadProcess).toHaveBeenCalledWith(LEAD) },
+  { payload: `lead_send:${LEAD}`, kind: 'lead', applied: () => expect(m.sendProposal).toHaveBeenCalledWith(LEAD) },
+];
+
+describe('кнопки-действия: только из заверенного апдейта', () => {
+  for (const { payload, kind, applied } of PRESSES) {
+    const name = payload.split(':').slice(0, 2).join(':');
+
+    it(`${name}: незаверенное нажатие ничего не меняет и отвечает «не смог проверить»`, async () => {
+      for (const url of UNVERIFIED) {
+        m.maxSend.mockClear();
+        const res = await post(url, press(payload));
+        expect(await res.json()).toEqual({ ok: true });
+        expectNothingChanged();
+        expect(repliesTo(OPERATOR_CHAT)).toEqual([UNVERIFIED_PRESS_REPLY[kind]]);
+        expect(UNVERIFIED_PRESS_REPLY[kind]).toMatch(/^Не смог проверить/);
+      }
+    });
+
+    it(`${name}: заверенное нажатие из чата сообщения применяется`, async () => {
+      await post(VERIFIED, press(payload));
+      applied();
+      expect(repliesTo(OPERATOR_CHAT).join('\n')).not.toContain('Не смог проверить');
+    });
+
+    it(`${name}: без сообщения не применяется — user_id тела не заменяет чат`, async () => {
+      // user_id совпадает с рабочим чатом и с чатом оператора запроса — прежний
+      // откат на него пропустил бы нажатие.
+      await post(VERIFIED, press(payload, null, OPERATOR_CHAT));
+      expectNothingChanged();
+      expect(m.maxSend).not.toHaveBeenCalled();
+      expect(errorLog.mock.calls.some((c) => String(c[0]).includes('без чата сообщения'))).toBe(true);
+    });
+  }
+
+  it('лид: заверенное нажатие не из рабочего чата не применяется', async () => {
+    await post(VERIFIED, press(`lead_contacted:${LEAD}`, 9_000));
+    expect(m.applyLead).not.toHaveBeenCalled();
+    expect(repliesTo(9_000)).toEqual(['Действие по лиду доступно только в рабочем чате.']);
+  });
+
+  it('места: заверенное нажатие из чужого чата не применяется', async () => {
+    m.seatMine.mockResolvedValue(false);
+    await post(VERIFIED, press(`sr:y:${SEAT}`, 9_000));
+    expect(m.seatMine).toHaveBeenCalledWith(SEAT, 9_000);
+    expect(m.seatAnswer).not.toHaveBeenCalled();
+  });
+
+  it('без ключа в окружении не заверено ничего, даже адрес с ?s=', async () => {
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    await post(VERIFIED, press(`lead_lost:${LEAD}`));
+    expectNothingChanged();
+    expect(repliesTo(OPERATOR_CHAT)).toEqual([UNVERIFIED_PRESS_REPLY.lead]);
+  });
+});
+
+// ── Ссылки старта ───────────────────────────────────────────────────────────
+
+const STARTS: Array<{ payload: string; kind: 'login' | 'link'; applied: () => unknown }> = [
+  { payload: 'login-abcdefgh12345678', kind: 'login', applied: () => expect(m.login).toHaveBeenCalledTimes(1) },
+  { payload: `sr_${'a'.repeat(32)}`, kind: 'link', applied: () => expect(m.bindTourist).toHaveBeenCalledWith('a'.repeat(32), 'max', 77) },
+  { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function)) },
+  { payload: 'om_signed-token', kind: 'link', applied: () => expect(m.memberStart).toHaveBeenCalledWith('om_signed-token', 'max', 77, expect.any(Function)) },
+];
+
+describe('ссылки старта: вход и подключение чата — только из заверенного апдейта', () => {
+  for (const { payload, kind, applied } of STARTS) {
+    const name = payload.slice(0, 3);
+
+    it(`${name}: незаверенная ссылка ничего не подключает и называет это, а не здоровается`, async () => {
+      await post(UNVERIFIED[0]!, started(payload));
+      expectNothingChanged();
+      expect(m.processMessage).not.toHaveBeenCalled();
+      expect(repliesTo(77)).toEqual([UNVERIFIED_START_REPLY[kind]]);
+    });
+
+    it(`${name}: заверенная ссылка применяется`, async () => {
+      // op_ не узнан разборщиком партнёра — дальше идёт разборщик менеджера.
+      if (name === 'om_') m.partnerStart.mockResolvedValue(false);
+      await post(VERIFIED, started(payload));
+      applied();
+    });
+  }
+
+  it('обычный /start без ссылки — приветствие из любого источника', async () => {
+    await post(UNVERIFIED[0]!, started(''));
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ text: '/start', verifiedOrigin: false }));
+  });
+});
+
+// ── Действия в чате ─────────────────────────────────────────────────────────
+
+const CONTACT = { type: 'contact', payload: { vcf_info: 'BEGIN:VCARD\nTEL:+79140000000\nEND:VCARD', tam_info: { user_id: 77, name: 'Анна' } } };
+
+describe('присланный номер: заявка — только из заверенного апдейта', () => {
+  it('незаверенный номер — заявки нет, ответ «не смог проверить»', async () => {
+    await post(UNVERIFIED[0]!, message('', [CONTACT]));
+    expectNothingChanged();
+    expect(repliesTo(77)).toEqual([UNVERIFIED_CHAT_REPLY.contact]);
+  });
+
+  it('заверенный номер — заявка создана, человеку «номер получен»', async () => {
+    await post(VERIFIED, message('', [CONTACT]));
+    expect(m.createLead).toHaveBeenCalledWith(expect.objectContaining({ phone: '+79140000000' }));
+    expect(repliesTo(77).join('\n')).toContain('Номер получен');
+  });
+
+  it('заявка не записалась — «номер получен» не говорим', async () => {
+    m.createLead.mockResolvedValue(null);
+    await post(VERIFIED, message('', [CONTACT]));
+    const said = repliesTo(77).join('\n');
+    expect(said).not.toContain('Номер получен');
+    expect(said).toContain('не сохранился');
+  });
+
+  it('createLead упал — отказ в логе без телефона и имени', async () => {
+    m.createLead.mockRejectedValue(Object.assign(new Error('сбой для +79140000000'), { code: '23505' }));
+    await post(VERIFIED, message('', [CONTACT]));
+    const line = errorLog.mock.calls.find((c) => String(c[0]).includes('заявка из присланного номера'));
+    expect(line).toBeDefined();
+    expect(JSON.stringify(line)).toContain('23505');
+    expect(JSON.stringify(line)).not.toContain('79140000000');
+    expect(JSON.stringify(line)).not.toContain('Анна');
+  });
+});
+
+describe('чат партнёра: помощник кабинета — только из заверенного апдейта', () => {
+  const partner = { partnerId: 'p1', partnerName: 'Оператор', category: 'operator', crmCategory: 'operator', userId: 'u1' };
+
+  it('незаверенное сообщение в чат партнёра — помощник не запущен, ответ «не смог проверить»', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner });
+    await post(UNVERIFIED[0]!, message('запиши касание с Иваном'));
+    expectNothingChanged();
+    expect(m.processMessage).not.toHaveBeenCalled();
+    expect(repliesTo(77)).toEqual([UNVERIFIED_CHAT_REPLY.partner]);
+  });
+
+  it('заверенное — помощник кабинета запущен', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner });
+    await post(VERIFIED, message('запиши касание с Иваном'));
+    expect(m.partnerMessage).toHaveBeenCalledWith(expect.objectContaining({ chatId: 77, partner }));
+  });
+});
+
+describe('вопросы Кузьмичу и кнопки тем — из любого источника', () => {
+  it('вопрос туриста из незаверенного апдейта доходит до Кузьмича с флагом «не заверено»', async () => {
+    await post(UNVERIFIED[0]!, message('Когда идти на Авачинский?'));
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: 77, text: 'Когда идти на Авачинский?', verifiedOrigin: false,
+    }));
+  });
+
+  it('кнопка темы из незаверенного апдейта отвечает', async () => {
+    await post(UNVERIFIED[0]!, press('topic_volcanoes', 77, 77));
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ chatId: 77, text: 'Вулканы Камчатки', verifiedOrigin: false }));
+  });
+});
+
+describe('POST: всегда 200, отказ — в логе', () => {
+  it('сбой одного апдейта не съедает следующий в пачке', async () => {
+    m.processMessage.mockRejectedValueOnce(Object.assign(new Error('нет соединения'), { code: '08006' }));
+    const res = await post(VERIFIED, [message('первый'), message('второй')]);
+    expect(res.status).toBe(200);
+    expect(m.processMessage).toHaveBeenCalledTimes(2);
+    const line = errorLog.mock.calls.find((c) => String(c[0]).includes('обработка апдейта message_created'));
+    expect(line).toBeDefined();
+    expect(JSON.stringify(line)).toContain('08006');
+  });
+
+  it('битое тело — 200 и строка в логе', async () => {
+    const res = await max.POST(new NextRequest(VERIFIED, { method: 'POST', body: '{не json' }));
+    expect(res.status).toBe(200);
+    expect(errorLog.mock.calls.some((c) => String(c[0]).includes('разбор тела апдейта'))).toBe(true);
+  });
+
+  it('отказ доставки ответа в MAX назван в логе', async () => {
+    m.maxSend.mockRejectedValue(Object.assign(new Error('chat.not.found'), { code: 'not.found' }));
+    await post(UNVERIFIED[0]!, press(`lead_lost:${LEAD}`));
+    expect(errorLog.mock.calls.some((c) => String(c[0]).includes('ответ в чат MAX'))).toBe(true);
+  });
+});
