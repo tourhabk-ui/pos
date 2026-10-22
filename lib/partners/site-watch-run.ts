@@ -3,13 +3,15 @@
  * сообщение владельцу. Правила сравнения — в `site-watch.ts`.
  *
  * Кого читаем (ответ владельца 22.10 «всех с сайтом, сами»): партнёра, у
- * которого записан сайт и чьи туры стоят у нас на витрине (шлюз
+ * которого записан сайт и чей хоть один тур стоит у нас на витрине (шлюз
  * `publicTourSql`: черновик туриста не обманывает) или который проверен
- * владельцем. Без этого условия в очередь попал бы весь справочник
- * операторов, импортированный с visitkamchatka, — чужие сайты, к нашим
- * карточкам отношения не имеющие. Страницы — главная сайта и страницы-
- * источники его туров на витрине (`operator_tours.source_url`) на его же
- * домене.
+ * владельцем. Записан ли у тура адрес страницы-источника, для отбора не
+ * важно: у «Камчатской рыбалки» его нет (1106 сверяла туры с одностраничным
+ * сайтом), а сайт её — тот, с которого собраны карточки. Без условия витрины
+ * в очередь попал бы весь справочник операторов, импортированный с
+ * visitkamchatka, — чужие сайты, к нашим карточкам отношения не имеющие.
+ * Страницы — главная сайта и страницы-источники его туров на витрине
+ * (`operator_tours.source_url`) на его же домене.
  *
  * Как читаем: `safeFetchText` — каждый адрес и каждое перенаправление
  * судятся заново (SSRF: адрес сайта оператор вписывает в кабинете сам),
@@ -49,7 +51,7 @@ export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]>
      ), live AS (
        SELECT t.operator_id, t.title::text AS title, btrim(t.source_url) AS url
          FROM operator_tours t
-        WHERE ${publicTourSql('t')} AND t.source_url ~* '^https?://'
+        WHERE ${publicTourSql('t')}
      ), watched AS (
        SELECT s.id, s.name,
               CASE WHEN s.website ~* '^https?://' THEN s.website ELSE 'https://' || s.website END AS home,
@@ -61,7 +63,8 @@ export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]>
        SELECT w.id AS partner_id, w.name AS partner_name, l.url, array_agg(DISTINCT l.title) AS tours
          FROM watched w
          JOIN live l ON l.operator_id = w.id
-        WHERE lower(regexp_replace(substring(l.url from '^[a-zA-Z]+://([^/:?#]+)'), '^www\\.', '')) = w.host
+        WHERE l.url ~* '^https?://'
+          AND lower(regexp_replace(substring(l.url from '^[a-zA-Z]+://([^/:?#]+)'), '^www\\.', '')) = w.host
         GROUP BY w.id, w.name, l.url
        UNION ALL
        SELECT w.id, w.name, w.home, ARRAY[]::text[] FROM watched w

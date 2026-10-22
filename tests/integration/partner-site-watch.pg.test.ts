@@ -55,6 +55,10 @@ const FISH = '22222222-2222-4222-8222-222222222222';
 const VERIFIED = '33333333-3333-4333-8333-333333333333';
 const DIRECTORY = '44444444-4444-4444-8444-444444444444';
 const ARRAY_CONTACTS = '55555555-5555-4555-8555-555555555555';
+// Как «Камчатская рыбалка»: туры сверены с одностраничным сайтом (1106), адреса
+// страниц у туров нет, отметки «проверен» нет — главная всё равно под наблюдением.
+const ONE_PAGE = '66666666-6666-4666-8666-666666666666';
+const DRAFT_ONLY = '77777777-7777-4777-8777-777777777777';
 
 const page = (title: string, price: string) =>
   `<html><body><h1>${title}</h1><p>Цена: ${price} ₽</p><p>Программа на 5 дней</p><script>t=${Math.random()}</script></body></html>`;
@@ -83,6 +87,8 @@ withPg('сайты партнёров: изменения против прош�
     await partner(VERIFIED, 'Проверенный Тест', { website: 'https://verified-test.ru', verified: true });
     await partner(DIRECTORY, 'Справочник Тест', { website: 'https://dir-test.ru' });
     await partner(ARRAY_CONTACTS, 'Массив Тест', { contacts: ['+7 900 000-00-00'] });
+    await partner(ONE_PAGE, 'Одностраничный Тест', { contacts: { website: 'https://onepage-test.ru' } });
+    await partner(DRAFT_ONLY, 'Только черновик Тест', { website: 'https://draft-only-test.ru' });
 
     let n = 0;
     const tour = async (op: string, title: string, url: string | null, state: 'live' | 'inactive' | 'deleted' | 'draft' = 'live') => {
@@ -102,6 +108,8 @@ withPg('сайты партнёров: изменения против прош�
     await tour(KRAI, 'Черновик', 'https://krai-test.ru/tours/draft/', 'draft');
     await tour(FISH, 'Рыбалка на Жупанове', 'https://fish-test.ru/t/1');
     await tour(ARRAY_CONTACTS, 'Тур без сайта', null);
+    await tour(ONE_PAGE, 'Зимняя рыбалка', null);
+    await tour(DRAFT_ONLY, 'Ещё не выложен', 'https://draft-only-test.ru/t/', 'draft');
   }, 120_000);
 
   afterAll(async () => {
@@ -119,12 +127,14 @@ withPg('сайты партнёров: изменения против прош�
       'https://fish-test.ru/t/1',
       'https://krai-test.ru/tours/a/',
       'https://krai-test.ru/tours/b/',
+      'https://onepage-test.ru',
       'https://verified-test.ru',
       'https://www.krai-test.ru',
     ]);
     const a = pages.find((p) => p.url === 'https://krai-test.ru/tours/a/');
     expect(a).toMatchObject({ partnerName: 'Край Тест', tours: ['Восхождение на Ключевскую'], partnerId: KRAI });
     expect(pages.find((p) => p.url === 'https://verified-test.ru')?.tours).toEqual([]);
+    expect(pages.find((p) => p.url === 'https://onepage-test.ru')).toMatchObject({ partnerId: ONE_PAGE, tours: [] });
   });
 
   async function snapshots(url: string) {
@@ -141,10 +151,11 @@ withPg('сайты партнёров: изменения против прош�
     net.pages.set('https://fish-test.ru', { status: 200, body: page('Рыбалка', '1') });
     net.pages.set('https://fish-test.ru/t/1', { status: 200, body: page('Жупанова', '150 000') });
     net.pages.set('https://verified-test.ru', { status: 200, body: page('Проверенный', '1') });
+    net.pages.set('https://onepage-test.ru', { status: 200, body: page('Зимняя рыбалка', '22 000') });
     const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
     const r = await runSiteWatch({ sleep: noSleep });
-    expect(r.pages).toBe(6);
-    expect(r.events).toEqual({ baseline: 5, quiet: 1 });
+    expect(r.pages).toBe(7);
+    expect(r.events).toEqual({ baseline: 6, quiet: 1 });
     expect(net.calls.some((c) => c.url === 'https://krai-test.ru/tours/b/')).toBe(false);
     expect(net.calls.every((c) => c.ua?.startsWith('VedarSiteWatch/'))).toBe(true);
     expect((await snapshots('https://krai-test.ru/tours/b/'))[0]).toMatchObject({ outcome: 'robots', text: null });
@@ -152,7 +163,9 @@ withPg('сайты партнёров: изменения против прош�
     expect(net.sent[0]).toContain('наблюдение начато');
     expect(net.sent[0]).toContain('Край Тест — страниц: 3');
     expect(net.sent[0]).toContain('Рыбалка Тест — страниц: 2');
+    expect(net.sent[0]).toContain('Одностраничный Тест — страниц: 1');
     expect(net.sent[0]).not.toContain('Справочник Тест');
+    expect(net.sent[0]).not.toContain('Только черновик Тест');
   });
 
   it('прогон 2 — цена сменилась, страница тура пропала: владельцу «было/стало» и «пропала»', async () => {
@@ -162,7 +175,7 @@ withPg('сайты партнёров: изменения против прош�
     net.pages.set('https://verified-test.ru', { status: 0 });
     const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
     const r = await runSiteWatch({ sleep: noSleep });
-    expect(r.events).toMatchObject({ changed: 1, gone: 1, same: 2, quiet: 2 });
+    expect(r.events).toMatchObject({ changed: 1, gone: 1, same: 3, quiet: 2 });
     const a = await snapshots('https://krai-test.ru/tours/a/');
     expect(a[1]).toMatchObject({ outcome: 'ok', event: 'changed', diff: { removed: ['Цена: 320 000 ₽'], added: ['Цена: 340 000 ₽'] } });
     expect(a[1].text).toContain('340 000');
@@ -180,7 +193,7 @@ withPg('сайты партнёров: изменения против прош�
     net.sent.length = 0;
     const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
     const r = await runSiteWatch({ sleep: noSleep });
-    expect(r.events).toMatchObject({ same: 3, quiet: 2, failing: 1 });
+    expect(r.events).toMatchObject({ same: 4, quiet: 2, failing: 1 });
     const a = await snapshots('https://krai-test.ru/tours/a/');
     expect(a.map((s) => s.event)).toEqual(['baseline', 'changed', 'same']);
     expect(a.map((s) => s.text !== null)).toEqual([true, true, false]);
@@ -205,6 +218,6 @@ withPg('сайты партнёров: изменения против прош�
     expect((await GET(new NextRequest('http://localhost/x'))).status).toBe(401);
     const res = await GET(new NextRequest('http://localhost/x', { headers: { authorization: 'Bearer test-secret' } }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ success: true, pages: 6 });
+    expect(await res.json()).toMatchObject({ success: true, pages: 7 });
   });
 });
