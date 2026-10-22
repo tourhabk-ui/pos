@@ -5,6 +5,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// С 22.10 модель тексты мест не пишет — слово владельца
+// (model-place-text-paused.test.ts держит выключенное). Здесь судится путь
+// записи на день, когда его включат снова: проверки после модели должны
+// стоять на месте.
+vi.mock('@/lib/places/model-place-text', () => ({ MODEL_WRITES_PLACE_TEXT: true, MODEL_PLACE_TEXT_PAUSED_MESSAGE: '' }));
 vi.mock('@/lib/auth/middleware', () => ({
   requireAdmin: vi.fn(async () => ({ userId: 'admin' })),
 }));

@@ -452,7 +452,9 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     key: 'enrich-routes', label: 'Enrich Routes',
-    description: 'Обогащение описаний маршрутов (20/запуск).',
+    // С 15.10 пишет только местам и только по названию; с 22.10 выключен —
+    // слово владельца (lib/places/model-place-text.ts), отвечает paused.
+    description: 'Описания мест моделью по названию. Выключено словом владельца 22.10.',
     workflow: 'cron-enrich-routes.yml', cron: '0 23 * * *', schedule: 'ежедневно · 23:00 UTC (off-peak)',
     everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
   },

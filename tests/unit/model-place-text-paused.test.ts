@@ -8,7 +8,10 @@
  *  - агент заметок «Кузьмич о месте» модель не зовёт и в базу заметок не
  *    пишет, а перепроверка стоящих работает дальше и снимает выдумку;
  *  - ручная партия описаний мест отвечает отказом раньше разбора тела, и
- *    `force` его не обходит.
+ *    `force` его не обходит;
+ *  - писатель enrich-routes (с 15.10 — только места, по одному названию)
+ *    не зовёт модель ни ночным кроном, ни ручным POST, и крон отвечает 200:
+ *    решение человека не должно будить его каждую ночь.
  * Очередь Editor (прод и раннер) — на настоящем PostgreSQL:
  * tests/integration/editor-places-paused.pg.test.ts.
  *
@@ -22,9 +25,11 @@ const queryMock = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 const waterfallMock = vi.fn();
 const fastMock = vi.fn();
+const qualityMock = vi.fn();
 vi.mock('@/lib/ai/providers', () => ({
   callAIWaterfall: (...a: unknown[]) => waterfallMock(...a),
   callAIFast: (...a: unknown[]) => fastMock(...a),
+  callAIQualityOrNull: (...a: unknown[]) => qualityMock(...a),
   isWaterfallErrorResponse: () => false,
 }));
 vi.mock('@/lib/scraping/brightdata', () => ({ fetchViaBrightData: async () => null }));
@@ -33,6 +38,8 @@ vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: vi.fn(async () => null) 
 import { MODEL_WRITES_PLACE_TEXT, MODEL_PLACE_TEXT_PAUSED_MESSAGE } from '@/lib/places/model-place-text';
 import { runKuzmichPlaceEnricher } from '@/lib/agents/kuzmich-place-enricher';
 import { POST as enrichPlaces } from '@/app/api/admin/enrich-places/route';
+import { POST as enrichRoutesAdmin } from '@/app/api/admin/enrich-routes/route';
+import { GET as enrichRoutesCron } from '@/app/api/cron/enrich-routes/route';
 
 /** Стоящая заметка с выдумкой: медведи и часы пути, которых в данных места нет. */
 const STOOD = {
@@ -46,6 +53,7 @@ beforeEach(() => {
   queryMock.mockReset();
   waterfallMock.mockReset();
   fastMock.mockReset();
+  qualityMock.mockReset();
 });
 
 describe('выключатель', () => {
@@ -107,6 +115,38 @@ describe('ручная партия описаний мест', () => {
       expect(await res.json()).toEqual({ error: MODEL_PLACE_TEXT_PAUSED_MESSAGE, paused: true });
       expect(queryMock).not.toHaveBeenCalled();
       expect(fastMock).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe('ночной писатель enrich-routes (с 15.10 — только места)', () => {
+  const paused = { success: true, paused: true, processed: 0, improved: 0, errors: 0 };
+
+  it('крон: 200 с paused, без базы и без модели', async () => {
+    const prev = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = 'test-cron-secret';
+    try {
+      const res = await enrichRoutesCron(new NextRequest('http://localhost/api/cron/enrich-routes', {
+        headers: { authorization: 'Bearer test-cron-secret' },
+      }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ...paused, message: MODEL_PLACE_TEXT_PAUSED_MESSAGE });
+    } finally {
+      if (prev === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prev;
+    }
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(qualityMock).not.toHaveBeenCalled();
+  });
+
+  for (const body of [{ mode: 'description' }, { mode: 'description', force: true, dryRun: true }]) {
+    it(`ручной POST ${JSON.stringify(body)}: то же — модель не зовётся`, async () => {
+      const res = await enrichRoutesAdmin(new NextRequest('http://localhost/api/admin/enrich-routes', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject(paused);
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(qualityMock).not.toHaveBeenCalled();
     });
   }
 });

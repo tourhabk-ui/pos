@@ -21,6 +21,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const poolQuery = vi.fn();
+// С 22.10 модель тексты мест не пишет — слово владельца
+// (model-place-text-paused.test.ts держит выключенное). Здесь судится путь
+// записи на день, когда его включат снова: проверки после модели должны
+// стоять на месте.
+vi.mock('@/lib/places/model-place-text', () => ({ MODEL_WRITES_PLACE_TEXT: true, MODEL_PLACE_TEXT_PAUSED_MESSAGE: '' }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => poolQuery(...a) } }));
 const dbQuery = vi.fn();
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
