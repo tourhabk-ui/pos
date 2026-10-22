@@ -13,19 +13,8 @@ import Link from 'next/link';
 import { Users, Plug, Network, MessageCircle, AlertTriangle, ArrowUpRight } from 'lucide-react';
 import type { DaySummary, Metric } from '@/lib/analytics/day-summary-types';
 
-const SURFACE_LABELS: Record<string, string> = {
-  web: 'сайт', 'web-stream': 'сайт', telegram: 'Telegram', max: 'MAX', widget: 'виджет', a2a: 'A2A', other: 'прочее',
-};
-
-/** Ответы по поверхностям одной строкой: «сайт 5 · Telegram 3». Сайт и его потоковый вход — вместе. */
-export function surfaceLine(by: Record<string, number>): string {
-  const merged = new Map<string, number>();
-  for (const [k, n] of Object.entries(by)) {
-    const label = SURFACE_LABELS[k] ?? k;
-    merged.set(label, (merged.get(label) ?? 0) + n);
-  }
-  return [...merged.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([l, n]) => `${l} ${n}`).join(' · ');
-}
+export { surfaceLine } from '@/lib/kuzmich/chat-source';
+import { surfaceLine } from '@/lib/kuzmich/chat-source';
 
 interface Tile {
   key: string;
@@ -54,7 +43,9 @@ function TileView({ t }: { t: Tile }) {
         <>
           <span className="block text-2xl font-semibold text-[var(--text-primary)] mt-1 tabular-nums">{v.today}</span>
           <span className="block text-[11px] text-[var(--text-secondary)]">вчера {v.yesterday}</span>
-          {v.sub && <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">{v.sub}</span>}
+          {v.sub && v.sub.split('\n').map((line) => (
+            <span key={line} className="block text-[10px] text-[var(--text-muted)] mt-0.5">{line}</span>
+          ))}
         </>
       ) : (
         <span className="flex items-center gap-1 text-xs text-[var(--text-secondary)] mt-2">
@@ -131,7 +122,14 @@ export default function DaySummaryStrip() {
       key: 'kuzmich', label: 'Кузьмич', href: '/hub/admin/ai-usage?tab=kuzmich', Icon: MessageCircle, metric: data.kuzmich,
       value: (m) => {
         const x = m as Extract<DaySummary['kuzmich'], { ok: true }>;
-        return { today: x.today.answers, yesterday: x.yesterday.answers, sub: surfaceLine(x.today.by_surface) || 'ответов' };
+        // Где были ответы — и сегодня, и вчера (вопрос владельца 22.10: «вчера 3
+        // ответа а в переписках нету кто откуда»).
+        const today = surfaceLine(x.today.by_surface);
+        const yesterday = surfaceLine(x.yesterday.by_surface);
+        return {
+          today: x.today.answers, yesterday: x.yesterday.answers,
+          sub: [today || 'ответов', yesterday ? `вчера: ${yesterday}` : ''].filter(Boolean).join('\n'),
+        };
       },
     },
   ];

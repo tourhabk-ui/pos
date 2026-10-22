@@ -1211,7 +1211,12 @@ export async function getHistory(chatId: number, mode: string): Promise<ChatMess
       [chatId, mode],
     );
     return trimHistoryToBudget(rows.reverse() as ChatMessage[]);
-  } catch { return []; }
+  } catch (err) {
+    // Без истории Кузьмич отвечает, будто разговор только начался, — отказ
+    // чтения обязан быть виден в логе, а не выглядеть пустой историей (§4.0).
+    console.error('[getHistory] история не прочитана:', `mode=${mode}`, pgCode(err));
+    return [];
+  }
 }
 
 /**
@@ -1245,9 +1250,27 @@ export async function saveMsg(
     await pool.query(
       `INSERT INTO tg_conversations (chat_id, mode, role, content, user_id, user_name, platform)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [chatId, mode, role, content, userId ?? null, userName ?? null, mode === 'max' ? 'max' : 'telegram'],
+      [chatId, mode, role, content, userId ?? null, userName ?? null, platformOfMode(mode)],
     );
-  } catch { /* не блокируем */ }
+  } catch (err) {
+    // Ответ человеку отказ записи не блокирует, но и не глушится: до 1314 так
+    // молча терялась вся переписка партнёров и WhatsApp (род вне CHECK, 23514),
+    // и Кузьмич партнёра не помнил прошлой реплики. Текст сообщения в лог не
+    // пишется — только род и SQLSTATE.
+    console.error('[saveMsg] сообщение не записано:', `mode=${mode}`, `role=${role}`, pgCode(err));
+  }
+}
+
+/** Площадка переписки по роду разговора: по ней «Переписки» в админке находят чат. */
+export function platformOfMode(mode: string): 'max' | 'whatsapp' | 'telegram' {
+  if (mode === 'max') return 'max';
+  if (mode === 'whatsapp') return 'whatsapp';
+  return 'telegram';
+}
+
+function pgCode(err: unknown): string {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? `SQLSTATE ${code}` : (err instanceof Error ? err.message.slice(0, 200) : 'нет SQLSTATE');
 }
 
 export async function findTour(keywords: string[]): Promise<TourRow | null> {
