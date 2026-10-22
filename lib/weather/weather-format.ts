@@ -89,3 +89,62 @@ export function elevationLine(elevationM: number | null): string | null {
   const note = elevationNote(elevationM).replace(/^,\s*/, '');
   return note ? note.charAt(0).toUpperCase() + note.slice(1) : null;
 }
+
+/** Направление ветра словами по градусам: «северо-западный». null — нет данных. */
+export function windDirectionWords(deg: number | null | undefined): string | null {
+  if (deg === null || deg === undefined || !Number.isFinite(deg)) return null;
+  const dirs = ['северный', 'северо-восточный', 'восточный', 'юго-восточный', 'южный', 'юго-западный', 'западный', 'северо-западный'];
+  return dirs[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+}
+
+/** Ветер одной строкой: «3 м/с, порывы 6 м/с, северо-западный». */
+export function windDetail(windKmh: number | null | undefined, gustKmh: number | null | undefined, dirDeg: number | null | undefined): string {
+  const parts: string[] = [];
+  if (windKmh !== null && windKmh !== undefined) parts.push(`${Math.round(windKmh / 3.6)} м/с`);
+  if (gustKmh !== null && gustKmh !== undefined) parts.push(`порывы ${Math.round(gustKmh / 3.6)} м/с`);
+  const dir = windDirectionWords(dirDeg);
+  if (dir) parts.push(dir);
+  return parts.length ? parts.join(' · ') : 'нет данных';
+}
+
+/** Видимость: метры в километры, «25 км» / «800 м». */
+export function visibilityLine(m: number | null | undefined): string {
+  if (m === null || m === undefined || !Number.isFinite(m)) return 'нет данных';
+  if (m >= 1000) return `${fmtNumber(m / 1000, m >= 10000 ? 0 : 1)} км`;
+  return `${Math.round(m)} м`;
+}
+
+/** Давление гПа → мм рт. ст. одной строкой. */
+export function pressureLine(hpa: number | null | undefined): string {
+  if (hpa === null || hpa === undefined || !Number.isFinite(hpa)) return 'нет данных';
+  return `${Math.round(hpa * 0.75006)} мм рт. ст.`;
+}
+
+/** УФ-индекс словами уровня. */
+export function uvWords(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return 'нет данных';
+  const label = v < 3 ? 'низкий' : v < 6 ? 'умеренный' : v < 8 ? 'высокий' : v < 11 ? 'очень высокий' : 'экстремальный';
+  return `${fmtNumber(v, 1)} · ${label}`;
+}
+
+/** Время из местного ISO «2026-10-20T07:59» → «07:59». */
+export function hhmm(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const m = /T(\d{2}:\d{2})/.exec(iso);
+  return m ? m[1] : null;
+}
+
+/**
+ * Положение отрезка дня на общей шкале недели (Apple-стиль): проценты
+ * left/width от мин. до макс. недели. Нет данных — null.
+ */
+export function rangeBar(
+  dayMin: number | null, dayMax: number | null, weekMin: number | null, weekMax: number | null,
+): { left: number; width: number } | null {
+  if (dayMin === null || dayMax === null || weekMin === null || weekMax === null) return null;
+  const span = weekMax - weekMin;
+  if (!(span > 0)) return { left: 0, width: 100 };
+  const left = Math.max(0, Math.min(100, ((dayMin - weekMin) / span) * 100));
+  const right = Math.max(0, Math.min(100, ((dayMax - weekMin) / span) * 100));
+  return { left, width: Math.max(4, right - left) };
+}

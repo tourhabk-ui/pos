@@ -26,6 +26,7 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { kmToNearestTouristArea } from '@/lib/services/safety/seismic-zones';
 import { shakingIntensity } from '@/lib/services/safety/shaking';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { actionLabel, ROUTE_CONTROL_ACTION } from '@/lib/safety/action-label';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -64,6 +65,8 @@ export interface SeismicInput {
   magnitude?: number;
   /** До ближайшего туристического района, км; null — координат у события нет. */
   distance_km: number | null;
+  /** Глубина очага, км; null — источник глубину не назвал. */
+  depth_km?: number | null;
   published_at: string;
   severity: number;
 }
@@ -140,6 +143,7 @@ async function loadZoneData(zone: Zone): Promise<ZoneRawData> {
     title: a.title,
     description: a.description.slice(0, 300),
     magnitude: a.magnitude ?? extractMagnitude(a.title),
+    depth_km: extractDepthKm(`${a.title} ${a.description}`),
     distance_km: a.lat !== null && a.lng !== null ? kmToNearestTouristArea(a.lat, a.lng) : null,
     published_at: a.created_at,
     severity: a.severity,
@@ -224,11 +228,36 @@ function extractMagnitude(title: string): number | undefined {
   return m ? parseFloat(m[1]) : undefined;
 }
 
-function extractAshHeight(title: string): number | undefined {
-  const m = title.match(/(\d+\.?\d*)\s*км/);
-  if (m) return Math.round(parseFloat(m[1]) * 1000);
-  const m2 = title.match(/(\d[\d\s]+)\s*м/);
-  return m2 ? parseInt(m2[1].replace(/\s/g, '')) : undefined;
+/**
+ * Глубина очага из текста сводки («глубина 127,8 км»), если она там названа.
+ * Отдельной колонки у external_alerts нет — глубина живёт только в тексте.
+ */
+export function extractDepthKm(text: string): number | null {
+  const m = text.match(/глубин\w*[^0-9]{0,10}(\d+[.,]?\d*)\s*км/i);
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
+}
+
+/**
+ * Высота пепла из заголовка — только в пепловом контексте.
+ *
+ * 18.10.2026 прежний вариант брал ПЕРВОЕ «N км» в заголовке, и сводка
+ * минтуризма «Вулкан Шивелуч: не ближе 10 км к вершине» читалась как пепел
+ * на 10 км (+50 баллов). Расстояние до вулкана — не высота пепла: без слов
+ * про пепел/выброс высоты в заголовке нет.
+ */
+export function extractAshHeight(title: string): number | undefined {
+  const kw = title.match(/пеп|выброс/i);
+  if (!kw || kw.index === undefined) return undefined;
+  const rest = title.slice(kw.index);
+  // «не ближе / не приближаться» после слова про пепел — это дистанция
+  // запрета, а не высота: такой заголовок высоты не называет.
+  const km = rest.match(/(\d+[.,]?\d*)\s*км/);
+  if (km && !/не\s+(?:ближе|приближаться)/i.test(rest.slice(0, km.index))) {
+    return Math.round(parseFloat(km[1].replace(',', '.')) * 1000);
+  }
+  if (km) return undefined;
+  const m = rest.match(/(\d[\d\s]*)\s*м(?![а-яa-z])/i);
+  return m ? parseInt(m[1].replace(/\s/g, ''), 10) : undefined;
 }
 
 // ── Быстрый расчёт риска (до AI) ─────────────────────────────────────────
@@ -259,7 +288,7 @@ const SWARM_BONUS_MAX = 5;
 export { shakingIntensity };
 
 /** Баллы риска за одно событие. */
-export function seismicEventPoints(magnitude: number | undefined, km: number | null): number {
+export function seismicEventPoints(magnitude: number | undefined, km: number | null, depth_km?: number | null): number {
   const mag = magnitude ?? 0;
   if (km === null) {
     // Координат нет — расстояние неизвестно. Прежняя шкала по одной
@@ -267,7 +296,12 @@ export function seismicEventPoints(magnitude: number | undefined, km: number | n
     // (40) ниже «высокой» — неизвестное расстояние эвакуацию не объявляет.
     return mag >= 7 ? 40 : mag >= 6 ? 25 : mag >= 5 ? 15 : mag >= 4 ? 8 : 3;
   }
-  const i = shakingIntensity(mag, km);
+  // Глубина, когда источник её назвал: трясёт по гипоцентральному
+  // расстоянию, а не по эпицентральному. 18.10.2026 ML 6.5 в 161 км от
+  // Петропавловска на глубине 128 км посчитался как мелкий близкий толчок
+  // (55 баллов) именно потому, что глубину игнорировали.
+  const r = depth_km != null && depth_km > 0 ? Math.hypot(km, depth_km) : km;
+  const i = shakingIntensity(mag, r);
   if (i >= 8) return 70; // разрушения
   if (i >= 7) return 55; // повреждения, обвалы на склонах
   if (i >= 6) return 45; // испуг, лёгкие повреждения, камнепады возможны
@@ -278,26 +312,42 @@ export function seismicEventPoints(magnitude: number | undefined, km: number | n
 
 /** Ощутимое там, где туристы, — то, что вообще идёт в счёт роя. */
 function isFelt(e: SeismicInput): boolean {
-  return seismicEventPoints(e.magnitude, e.distance_km) >= 8;
+  return seismicEventPoints(e.magnitude, e.distance_km, e.depth_km) >= 8;
 }
 
 export function seismicScore(events: SeismicInput[]): number {
   if (events.length === 0) return 0;
-  const strongest = Math.max(...events.map(e => seismicEventPoints(e.magnitude, e.distance_km)));
+  const strongest = Math.max(...events.map(e => seismicEventPoints(e.magnitude, e.distance_km, e.depth_km)));
   const others = Math.max(events.filter(isFelt).length - 1, 0);
   const swarm = Math.min(others * SWARM_BONUS_PER_EVENT, SWARM_BONUS_MAX);
   return Math.min(strongest + swarm, SEISMIC_MAX);
 }
 
+/** Баллы одного вулканического алерта. */
+export function volcanicEventPoints(v: { ash_height?: number }): number {
+  const h = v.ash_height ?? 0;
+  return h >= 10000 ? 50 : h >= 7000 ? 35 : h >= 4000 ? 20 : 15;
+}
+
+const VOLCANIC_BONUS_PER_ALERT = 2;
+const VOLCANIC_BONUS_MAX = 5;
+
+/**
+ * Вклад вулканов в зону — как у сейсмики после 02.10: по САМОМУ СИЛЬНОМУ
+ * алерту, а не суммой. 18.10.2026 три рутинных «не приближаться» (Шивелуч,
+ * Безымянный, Ключевской) сложились в 80 и «немедленную эвакуацию» при
+ * нуле туристов. Остальные алерты добавляют не больше VOLCANIC_BONUS_MAX.
+ */
+export function volcanicScore(alerts: Array<{ ash_height?: number }>): number {
+  if (alerts.length === 0) return 0;
+  const strongest = Math.max(...alerts.map(volcanicEventPoints));
+  const bonus = Math.min(Math.max(alerts.length - 1, 0) * VOLCANIC_BONUS_PER_ALERT, VOLCANIC_BONUS_MAX);
+  return strongest + bonus;
+}
+
 export function quickRiskScore(data: Pick<ZoneRawData, 'seismic_events' | 'volcanic_alerts' | 'tourists_in_zone'>): number {
   const seismic = seismicScore(data.seismic_events);
-  let score = seismic;
-
-  // Вулканы
-  for (const v of data.volcanic_alerts) {
-    const h = v.ash_height ?? 0;
-    score += h >= 10000 ? 50 : h >= 7000 ? 35 : h >= 4000 ? 20 : 15;
-  }
+  let score = seismic + volcanicScore(data.volcanic_alerts);
 
   // Туристы умножают риск
   if (data.tourists_in_zone > 100) score += 15;
@@ -317,13 +367,27 @@ export function riskLevel(score: number): 'low' | 'moderate' | 'high' | 'critica
   return 'low';
 }
 
-function recommendedAction(level: 'low' | 'moderate' | 'high' | 'critical'): string {
-  return {
+/**
+ * Действие зоны. EVACUATE_* расчёт вправе назначить только когда в зоне
+ * есть кого эвакуировать (туристы > 0) или эвакуацию объявил официальный
+ * источник. При нуле туристов потолок — контроль маршрутов: 18.10.2026
+ * «немедленная эвакуация» ушла зоне, где туристов не было вовсе.
+ */
+export function recommendedAction(
+  level: 'low' | 'moderate' | 'high' | 'critical',
+  touristsInZone = 0,
+  officialEvacuation = false,
+): string {
+  const action = {
     low:      'NORMAL',
     moderate: 'WATCH',
     high:     'EVACUATE_PRIORITY_2',
     critical: 'EVACUATE_IMMEDIATE',
   }[level];
+  if (action.startsWith('EVACUATE') && touristsInZone <= 0 && !officialEvacuation) {
+    return ROUTE_CONTROL_ACTION;
+  }
+  return action;
 }
 
 // ── AI-анализ зоны ────────────────────────────────────────────────────────
@@ -506,7 +570,7 @@ export async function runDangerAnalysis(): Promise<{
         active_tours_count: data.active_tours,
         confidence: hasEvents ? 0.85 : 0.60,
         similar_event: null,
-        recommended_action: recommendedAction(level),
+        recommended_action: recommendedAction(level, data.tourists_in_zone),
         analysis_text: analysisText,
         max_magnitude: maxMag,
         max_ash_height_m: maxAsh,
@@ -604,7 +668,7 @@ export async function getFullDangerSummary(): Promise<string> {
 
   const lines = result.rows.map(r =>
     `[${r.zone.toUpperCase()} | Риск: ${r.risk_score}/100 | ${r.risk_level.toUpperCase()}] ` +
-    `Туристов под угрозой: ${r.tourists_at_risk}. Действие: ${r.recommended_action}.\n` +
+    `Туристов под угрозой: ${r.tourists_at_risk}. Действие: ${actionLabel(r.recommended_action) || 'штатный режим'}.\n` +
     `${r.analysis_text}`
   );
 

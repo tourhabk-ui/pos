@@ -40,13 +40,13 @@ import {
   loadMeteoWarnings, loadPlaceWeather, loadWeatherPage, type WeatherPageData,
 } from '@/lib/weather/weather-page';
 import {
-  dayLabel, fmtTemp, partPrecip, precipLine, skyWords, tempRange, windLine,
+  dayLabel, fmtTemp, partPrecip, precipLine, pressureLine, rangeBar, skyWords, tempRange, uvWords, visibilityLine, windDetail, windLine,
 } from '@/lib/weather/weather-format';
 import { insideKrai } from '@/lib/geo/krai-envelope';
 import { settlementByName } from '@/lib/kuzmich/weather-tool';
 import { SVODKA_WEATHER_PLACES } from '@/lib/svodka/svodka';
-import { WeatherView } from '@/components/weather/WeatherView';
-import type { ForecastDay } from '@/lib/planner/intelligence';
+import { WeatherView, weatherScene, weatherSky } from '@/components/weather/WeatherView';
+import { parseForecastNow, type ForecastDay } from '@/lib/planner/intelligence';
 import { PLATFORM_LINKS } from '@/lib/navigation/platform-links';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -247,6 +247,7 @@ describe('4. разметка', () => {
     const ok = {
       kind: 'ok' as const, place: avacha, lat: 53.255, lng: 158.83, elevationM: 2710,
       days: [day('2026-10-08'), day('2026-10-09', { precipMm: 0, weatherCode: 3, description: 'Пасмурно' })],
+      hours: [], now: null,
       fetchedAt: '2026-10-08T03:05:00.000Z', staleSince: null,
     };
     return {
@@ -266,7 +267,7 @@ describe('4. разметка', () => {
     render(<WeatherView data={data()} />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Погода на Авачинском вулкане');
     expect(screen.getByText(/Высота точки ~2710 м — прогноз для этой высоты/)).toBeTruthy();
-    expect(screen.getByText('Сегодня')).toBeTruthy();
+    expect(screen.getAllByText('Сегодня').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/осадки 0,8 мм · ветер до 13 м\/с/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('снег 0,5 мм').length).toBeGreaterThan(0);
     // Пропуск части дня — словами, а не нулём.
@@ -335,6 +336,106 @@ describe('4. разметка', () => {
     expect(existsSync(join(process.cwd(), 'app/weather/(list)/loading.tsx'))).toBe(true);
     expect(existsSync(join(process.cwd(), 'app/weather/loading.tsx'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'app/weather/[place]/loading.tsx'))).toBe(false);
+  });
+});
+
+describe('4b. виджет: шкала, ветер, давление', () => {
+  it('шкала недели: отрезок дня внутри общей недели, пропуск — null', () => {
+    expect(rangeBar(0, 10, 0, 20)).toEqual({ left: 0, width: 50 });
+    expect(rangeBar(10, 20, 0, 20)).toEqual({ left: 50, width: 50 });
+    expect(rangeBar(null, 5, 0, 20)).toBeNull();
+    expect(rangeBar(0, 5, null, 20)).toBeNull();
+  });
+  it('ветер с направлением и порывами, давление в мм рт. ст., видимость и УФ', () => {
+    expect(windDetail(36, 72, 315)).toContain('10 м/с');
+    expect(windDetail(36, 72, 315)).toContain('северо-западный');
+    expect(windDetail(null, null, null)).toBe('нет данных');
+    expect(pressureLine(1000)).toBe('750 мм рт. ст.');
+    expect(visibilityLine(25000)).toBe('25 км');
+    expect(uvWords(2.4)).toContain('низкий');
+  });
+  it('давление «сейчас» — приведённое к уровню моря, а не на высоте точки', () => {
+    // Авачинский: surface_pressure ~715 гПа (536 мм) при pressure_msl ~1015 гПа (761 мм).
+    expect(parseForecastNow({ pressure_msl: 1015, surface_pressure: 715 })?.pressureHpa).toBe(1015);
+    expect(parseForecastNow({ surface_pressure: 715 })?.pressureHpa).toBeNull();
+    expect(parseForecastNow({ pressure_msl: 1015 })).toBeTruthy();
+  });
+  it('плитка давления: нет приведённого — нет плитки, а не подстановка surface', () => {
+    const mk = (now: unknown) => {
+      const base = {
+        kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+        days: [day('2026-10-08')], hours: [], now, fetchedAt: null, staleSince: null,
+      };
+      return {
+        selected: base, all: [base],
+        warnings: { kind: 'ok' as const, checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+        today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+      } as WeatherPageData;
+    };
+    const noPressure = { time: '2026-10-08T06:00', temp: 1, apparent: null, humidity: null, weatherCode: 3, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: true };
+    const { unmount } = render(<WeatherView data={mk(noPressure)} />);
+    expect(screen.queryByText('Давление')).toBeNull();
+    unmount();
+    render(<WeatherView data={mk({ ...noPressure, pressureHpa: 1015 })} />);
+    expect(screen.getByText('Давление')).toBeTruthy();
+    expect(screen.getByText('761 мм рт. ст.')).toBeTruthy();
+    expect(screen.getByText('к уровню моря')).toBeTruthy();
+  });
+  it('пустые предупреждения — одна строка, а не карточка с заголовком', () => {
+    render(<WeatherView data={(function () {
+      const base = {
+        kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+        days: [day('2026-10-08')], hours: [], now: null, fetchedAt: null, staleSince: null,
+      };
+      return {
+        selected: base, all: [base],
+        warnings: { kind: 'ok' as const, checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+        today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+      };
+    })()} />);
+    expect(screen.getByText(/Действующих предупреждений нет/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Предупреждения Росгидромета/ })).toBeNull();
+  });
+});
+
+describe('4c. сцена героя: период и небо из прогноза', () => {
+  const base = (over: Record<string, unknown> = {}) => ({
+    kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+    days: [day('2026-10-08', { sunrise: '2026-10-08T07:00', sunset: '2026-10-08T18:30' })],
+    hours: [], now: null, fetchedAt: null, staleSince: null, ...over,
+  });
+  it('небо — по WMO-коду, пропуск кода не становится ясным', () => {
+    expect(weatherSky(0)).toBe('clear');
+    expect(weatherSky(3)).toBe('cloud');
+    expect(weatherSky(45)).toBe('fog');
+    expect(weatherSky(61)).toBe('rain');
+    expect(weatherSky(71)).toBe('snow');
+    expect(weatherSky(85)).toBe('snow');
+    expect(weatherSky(95)).toBe('storm');
+    expect(weatherSky(null)).toBe('cloud');
+  });
+  it('ночь и день — сначала is_day источника', () => {
+    expect(weatherScene(base({ now: { time: '2026-10-08T13:00', temp: 1, apparent: null, humidity: null, weatherCode: 3, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: false } }) as never, '2026-10-08').name).toBe('night-cloud');
+    expect(weatherScene(base({ now: { time: '2026-10-08T01:00', temp: 1, apparent: null, humidity: null, weatherCode: 0, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: true } }) as never, '2026-10-08').name).toBe('day-clear');
+  });
+  it('без is_day период — между восходом и закатом дня', () => {
+    const now = { time: '2026-10-08T23:10', temp: 1, apparent: null, humidity: null, weatherCode: 71, description: null, windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: null };
+    expect(weatherScene(base({ now }) as never, '2026-10-08').name).toBe('night-snow');
+  });
+  it('рендер: герой, часы и неделя — в одной сцене со стеклянными плашками', () => {
+    const selected = base({ now: { time: '2026-10-08T13:00', temp: 1, apparent: null, humidity: null, weatherCode: 3, description: 'Пасмурно', windKmh: null, windGustKmh: null, windDirDeg: null, pressureHpa: null, isDay: false } });
+    const d: WeatherPageData = {
+      selected: selected as WeatherPageData['selected'],
+      all: [selected as WeatherPageData['selected']],
+      warnings: { kind: 'ok', checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+      today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+    };
+    const { container } = render(<WeatherView data={d} />);
+    const scene = container.querySelector('.wx-scene');
+    expect(scene).toBeTruthy();
+    expect(scene?.getAttribute('data-wx-scene')).toBe('night-cloud');
+    expect(scene?.querySelectorAll('.wx-glass').length).toBeGreaterThanOrEqual(2);
+    expect(scene?.querySelector('svg.wx-silhouette-svg')).toBeTruthy();
   });
 });
 

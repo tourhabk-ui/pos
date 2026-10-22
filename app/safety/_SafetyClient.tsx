@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Activity, Flame, Thermometer, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { zoneName } from '@/lib/safety/zone-names';
+import { actionLabel } from '@/lib/safety/action-label';
 import { plural } from '@/lib/home/data-freshness';
 import {
   manualRefreshNote,
@@ -125,6 +127,94 @@ function severityToLevel(severity: number): string {
   return 'low';
 }
 
+/**
+ * Заголовки, которые местом не являются, даже если источник поставил их
+ * первой строкой поста. Прод 19.10: дорожный алерт из канала автодорог
+ * пришёл с title «Доброе утро!» (приветствие поста, место — Октябрьский —
+ * только в описании), и баннер напечатал приветствие как место.
+ */
+const NON_PLACE_HEADS = new Set([
+  'доброе утро', 'добрый день', 'добрый вечер', 'привет', 'здравствуйте',
+  'внимание', 'срочно', 'важно', 'информация', 'объявление', 'предупреждение',
+  'уважаемые', 'дорогие', 'новости', 'сводка',
+]);
+
+/** Роды географических объектов, с которых честно начинается место. */
+const GEO_HEAD_PREFIX = /^(вулкан|мыс|перевал|дорога|проезд|река|озеро|бухта|залив|остров|полуостров|долина|хребет|парк|посёлок|поселок|село|город|трасса|маршрут|сопка|вул\.|п\.|г\.)(?=\s|\(|$)/i;
+
+/** Похоже ли слово на имя собственное (Мутновский, Левашова, Октябрьский). */
+function isProperWord(word: string): boolean {
+  const clean = word.replace(/^[()«»"']+|[()«»"',.]+$/g, '');
+  return /^[А-ЯЁA-Z][а-яёa-zА-ЯЁA-Z-]*$/.test(clean) && /[А-ЯЁA-Z]/.test(clean[0] ?? '');
+}
+
+/**
+ * Место предупреждения — только если оно названо явно и географически.
+ *
+ * Явное поле места (`location`/`place`, если источник его когда-нибудь
+ * отдаст) важнее заголовка. Из заголовка место берётся лишь в форме
+ * «Место: что случилось»: часть до двоеточия обязана выглядеть как
+ * география — род объекта («Вулкан…», «Мыс…», «Дорога…») или имя
+ * собственное. Заголовок без двоеточия, приветствие, восклицание или
+ * фраза-предложение местом не являются: такой алерт в баннере не
+ * называется никак (честный fallback «по предупреждениям ниже»),
+ * а не выдумывается из первой строки поста.
+ */
+function alertPlace(alert: { title?: string | null; location?: string | null; place?: string | null }): string | null {
+  const explicit = (alert.location ?? alert.place)?.trim();
+  if (explicit) {
+    if (explicit.length <= 60 && !/[!?\n]/.test(explicit) && !NON_PLACE_HEADS.has(explicit.toLowerCase())) return explicit;
+    return null;
+  }
+  const title = alert.title?.trim();
+  if (!title) return null;
+  const colon = title.indexOf(':');
+  if (colon <= 0) return null;
+  const rawHead = title.slice(0, colon).trim();
+  if (!rawHead || rawHead.length > 60 || /[!?…;\n]/.test(rawHead)) return null;
+  if (NON_PLACE_HEADS.has(rawHead.toLowerCase())) return null;
+  if (/^(доброе утро|добрый день|добрый вечер|привет|здравствуйте|внимание|срочно)(?=\s|:|!|$)/i.test(rawHead)) return null;
+  const words = rawHead.split(/\s+/);
+  if (words.length > 5) return null;
+  const head = rawHead.replace(/^Вулкан\s+/i, '');
+  if (!head) return null;
+  if (GEO_HEAD_PREFIX.test(rawHead)) {
+    // Род объекта — ещё не место: «Дорога на Октябрьский остаётся закрытой» —
+    // предложение с глаголом, а «Дорога к Авачинскому перевалу» — название.
+    // В названии после рода стоят только имена, короткие предлоги и
+    // родовые существительные (перевалу, сопка, район…), но не глаголы.
+    const GENERIC_NOUN = /^(перевал[а-яё]*|сопк[а-яё]*|район[а-яё]*|округ[а-яё]*|пос[её]л[а-яё]*|сел[а-яё]*|дорог[а-яё]*|проезд[а-яё]*|рек[а-яё]*|озер[а-яё]*|бухт[а-яё]*|залив[а-яё]*|остров[а-яё]*|долин[а-яё]*|парк[а-яё]*|трасс[а-яё]*|маршрут[а-яё]*|мыс[а-яё]*|вулкан[а-яё]*)$/i;
+    const tailOk = words.every((w) => {
+      const clean = w.replace(/^[()«»"']+|[()«»"',.]+$/g, '');
+      if (!clean) return true;
+      if (isProperWord(w)) return true;
+      if (/^(п|пос|г|им)\.?$/i.test(clean)) return true;
+      if (clean.length <= 2) return true; // к, на, в, у, до, от
+      return GENERIC_NOUN.test(clean);
+    });
+    if (tailOk) return head;
+    return null;
+  }
+  // Имя собственное: каждое значимое слово — с заглавной («Безымянный»,
+  // «Мыс Левашова» покрыт выше, «Южно-Камчатский»). Фразы вида «Дорога на
+  // Октябрьский остаётся закрытой» сюда не проходят: в них есть строчные
+  // служебные/глагольные слова, и это предложение, а не название.
+  const content = words.filter((w) => {
+    const clean = w.replace(/^[()«»"']+|[()«»"',]+$/g, '');
+    return !/^(п|пос|г|им)\.?$/i.test(clean);
+  });
+  if (content.length > 0 && content.every(isProperWord)) return head;
+  return null;
+}
+
+/** Компактный список мест для мобильного баннера: первые два + «и ещё N». */
+function compactPlaces(places: string[]): string | null {
+  const uniq = [...new Set(places.filter(Boolean))];
+  if (uniq.length === 0) return null;
+  if (uniq.length <= 2) return uniq.join(', ');
+  return `${uniq.slice(0, 2).join(', ')} и ещё ${uniq.length - 2}`;
+}
+
 export function zoneBanner(
   known: boolean,
   levels: string[],
@@ -143,34 +233,54 @@ export function zoneBanner(
    *
    * Отсюда правило: заголовок страницы не может быть спокойнее худшего
    * сигнала, который она сама показывает.
+   *
+   * Скриншот 19.10 — обратная сторона того же правила: локальные запреты у
+   * отдельных вулканов (severity 2) поднимали шапку до голого «Опасность:
+   * Высокая» на весь полуостров, хотя все зоны были 0–3 Normal. Уровень не
+   * занижаем, но баннер обязан называть место худшего сигнала (`scope`):
+   * места предупреждений — из их заголовков, зоны — из её имени. Без места
+   * в заголовке честный запасной вариант — «по предупреждениям ниже».
    */
-  alerts: Array<{ severity: number }> = [],
-): { state: 'unknown' | 'calm' | 'alarm'; level: string | null } {
+  alerts: Array<{ severity: number; title?: string | null; location?: string | null; place?: string | null }> = [],
+  /** Имена зон, параллельные `levels` (та же выборка, `zone_name`). */
+  zoneNames: string[] = [],
+): { state: 'unknown' | 'calm' | 'alarm'; level: string | null; scope: string | null } {
   const worstAlert = alerts.reduce((max, a) => Math.max(max, a.severity ?? 0), 0);
   const alertLevel = alerts.length > 0 ? severityToLevel(worstAlert) : null;
+  const alertScope = alertLevel && alertLevel !== 'low'
+    ? compactPlaces(
+        alerts
+          .filter((a) => severityToLevel(a.severity ?? 0) === alertLevel)
+          .map((a) => alertPlace(a))
+          .filter((x): x is string => Boolean(x)),
+      ) ?? 'по предупреждениям ниже'
+    : null;
 
   // Про зоны не знаем ничего — но про тревоги знаем: молчать нельзя.
   if (!known || levels.length === 0) {
-    if (alertLevel && alertLevel !== 'low') return { state: 'alarm', level: alertLevel };
-    return { state: 'unknown', level: null };
+    if (alertLevel && alertLevel !== 'low') return { state: 'alarm', level: alertLevel, scope: alertScope };
+    return { state: 'unknown', level: null, scope: null };
   }
 
   const worstZone = levels.reduce(
     (max, l) => (RISK_ORDER.indexOf(l) > RISK_ORDER.indexOf(max) ? l : max),
     'low',
   );
+  const zoneScope = worstZone !== 'low'
+    ? compactPlaces(levels.flatMap((l, i) => (l === worstZone && zoneNames[i] ? [zoneNames[i]] : [])))
+    : null;
   const worst = alertLevel && RISK_ORDER.indexOf(alertLevel) > RISK_ORDER.indexOf(worstZone)
     ? alertLevel
     : worstZone;
-  return { state: worst === 'low' ? 'calm' : 'alarm', level: worst };
+  if (worst === 'low') return { state: 'calm', level: worst, scope: null };
+  // Кто поднял баннер, того место и называем; при равенстве — оба места.
+  const scope = alertLevel === worstZone && zoneScope && alertScope
+    ? `${zoneScope}; ${alertScope}`
+    : RISK_ORDER.indexOf(alertLevel ?? 'low') > RISK_ORDER.indexOf(worstZone)
+      ? alertScope
+      : zoneScope ?? alertScope;
+  return { state: 'alarm', level: worst, scope };
 }
-
-const ACTION_LABELS: Record<string, string> = {
-  NORMAL:                 '',
-  WATCH:                  'Наблюдение',
-  EVACUATE_PRIORITY_2:    'Эвакуация (P2)',
-  EVACUATE_IMMEDIATE:     'Немедленная эвакуация',
-};
 
 function magColor(mag: number): string {
   if (mag >= 5.5) return 'var(--danger)';
@@ -205,7 +315,7 @@ function stampLabel(at: string | null | undefined): string {
   return at ? `обновлено ${fmtAgo(at)}` : 'время обновления неизвестно';
 }
 
-export default function SafetyClient({ live, rules }: { live: SafetyLiveData | null; rules?: ReactNode }) {
+export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
   // Отдельно от самого списка: «зон нет» и «оценку не посчитали» — разные
   // сообщения, и второе нельзя показывать зелёным.
@@ -416,7 +526,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
 
   // Тревоги в баннер обязательны: иначе шапка страницы объявляет норму над
   // собственной лентой предупреждений (полевой скриншот 10.08).
-  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? []);
+  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? [], zones.map(z => z.zone_name));
   // Считаем оба потока (см. комментарий у VolcanoStatusRow): новость МЧС и
   // живой код KVERT — разные сигналы, даже если про один и тот же вулкан.
   // Занижать сумму дедупом по имени значило бы решить за читателя, что один
@@ -490,7 +600,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     ? 'Оценка по зонам сейчас недоступна'
     : banner.state === 'calm'
       ? 'Обстановка нормальная'
-      : `Опасность: ${RISK_LABELS[banner.level ?? 'low']}`;
+      : `Опасность: ${RISK_LABELS[banner.level ?? 'low']}${banner.scope ? ` — ${banner.scope}` : ''}`;
 
   return (
     // paddingBottom — под фиксированный таб-бар: без него последняя карточка
@@ -503,6 +613,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         оставались пустые 64px отступа под хедер без логотипа (скрин владельца). */}
     <Header />
     <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
+      <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" className="-mx-4" />
       {/* Заголовок. На телефоне — 1.6rem: в 2.25rem он занимал три строки и
           треть первого экрана, выталкивая радар вниз (скрин владельца 03.10). */}
       <div style={{ marginBottom: 16 }}>
@@ -623,7 +734,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         <BookOpen className="w-6 h-6" style={{ color: 'var(--ocean)', flexShrink: 0 }} />
         <span style={{ flex: 1 }}>
           <span style={{ display: 'block', fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>Что делать при ЧП</span>
-          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Медведь · холод · вулкан · потерялся. Работает без интернета.</span>
+          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Медведь · лежбища · холод · вулкан · потерялся. Работает без интернета.</span>
         </span>
         <span style={{ color: 'var(--ocean)', fontSize: 18, fontWeight: 700 }}>→</span>
       </Link>
@@ -637,7 +748,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
           {zones.map(z => {
             const color = RISK_COLORS[z.risk_level] ?? 'var(--text-secondary)';
-            const action = ACTION_LABELS[z.recommended_action];
+            const action = actionLabel(z.recommended_action);
             return (
               <div key={z.zone} className="ds-card" style={{ padding: '12px 14px' }}>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{z.zone_name}</div>
@@ -856,8 +967,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         </div>
       </div>
 
-      {/* Правила для мест со зверями — серверный блок из страницы */}
-      {rules}
 
       {/* AI Спасатель — общий с /sos (components/safety/RescueChat, 04.10). */}
       <RescueChat style={{ marginBottom: 32 }} />

@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { ArrowRight, MessageCircle, WifiOff } from 'lucide-react';
+import { ArrowRight, WifiOff } from 'lucide-react';
+import { KuzmichActions } from '@/components/shared/KuzmichActions';
 
 /**
  * Кузьмич и подготовка без связи — последний ряд десктопной главной (доска
@@ -15,25 +16,18 @@ import { ArrowRight, MessageCircle, WifiOff } from 'lucide-react';
 export function DeskHelp() {
   return (
     <section className="grid grid-cols-1 items-stretch gap-10 lg:grid-cols-12 lg:gap-14" aria-label="Помощь в поездке">
-      <Link
-        href="/kuzmich"
-        className="fx-dark-panel group flex flex-col gap-4 rounded-2xl p-8 no-underline transition-all duration-200 hover:-translate-y-0.5 hover:no-underline hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)] lg:col-span-7"
-      >
+      <div className="fx-dark-panel flex flex-col gap-4 rounded-2xl p-8 lg:col-span-7">
         <span className="font-playfair text-[28px] italic leading-snug">
           «Про ваши даты скажу по сводке. Чего не знаю — так и скажу».
         </span>
         <span className="fx-dark-muted text-sm">Кузьмич · помощник Ведара · на сайте, в Telegram и MAX</span>
-        <span
-          className="mt-auto flex h-14 items-center gap-3 rounded-lg border px-4 text-base transition-colors duration-200 group-hover:border-white/30"
-          style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.15)' }}
-        >
-          <MessageCircle size={18} className="fx-dark-muted flex-shrink-0" aria-hidden />
-          <span className="fx-dark-muted min-w-0 flex-1 truncate">Можно ли в эти выходные на Авачинский?</span>
-          <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-white transition-transform duration-200 group-hover:translate-x-0.5" style={{ background: 'var(--accent)' }}>
-            <ArrowRight size={16} aria-hidden />
-          </span>
-        </span>
-      </Link>
+        {/* Единая система действий Кузьмича, как на мобильной главной:
+            «Спросить на сайте» с фирменным знаком чата и равные
+            Telegram/MAX с официальными знаками. Цели не ниже 48px. */}
+        <div className="mt-auto">
+          <KuzmichActions primaryHref="/kuzmich" tone="dark" />
+        </div>
+      </div>
 
       <Link
         href="/prepare"

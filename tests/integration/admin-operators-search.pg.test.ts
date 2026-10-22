@@ -101,6 +101,15 @@ withPg('админка «Операторы»: поиск по всем парт
     expect(found.meta.total).toBe(1);
   });
 
+  it('поиск идёт внутри группы: давняя карточка без заявки — среди потенциальных', async () => {
+    const potential = await list({ status: 'all', group: 'potential', limit: '100', q: 'камчатская рыб' });
+    expect(potential.data.map((r) => r.id)).toContain(OLD_ID);
+    expect(potential.meta.total).toBe(potential.data.length);
+    const partners = await list({ status: 'all', group: 'partners', limit: '100', q: 'камчатская рыб' });
+    expect(partners.data.map((r) => r.id)).not.toContain(OLD_ID);
+    expect(partners.meta.total).toBe(partners.data.length);
+  });
+
   it('% и _ ищутся буквально, а не как «всё подряд»', async () => {
     const percent = await list({ status: 'all', limit: '100', q: '%' });
     expect(percent.meta.total).toBe(0);

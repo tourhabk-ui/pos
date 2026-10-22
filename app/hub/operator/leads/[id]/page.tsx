@@ -6,7 +6,7 @@ interface Props {
 }
 
 export const metadata: Metadata = {
-  title: 'Лид | AI Lead Processor',
+  title: 'Заявка | Кабинет оператора',
 };
 
 export default async function LeadDetailPage({ params }: Props) {

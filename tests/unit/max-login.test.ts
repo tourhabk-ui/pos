@@ -129,8 +129,8 @@ describe('max-login: интеграция', () => {
     expect(status).toContain("cookies.set('auth_token'");
   });
 
-  it('кнопка входа под фиче-флагом', () => {
+  it('кнопка входа видна по умолчанию, флаг только выключает', () => {
     const btn = read('app/auth/login/_MaxLoginButton.tsx');
-    expect(btn).toContain("NEXT_PUBLIC_MAX_LOGIN_ENABLED !== 'true'");
+    expect(btn).toContain("NEXT_PUBLIC_MAX_LOGIN_ENABLED === 'false'");
   });
 });

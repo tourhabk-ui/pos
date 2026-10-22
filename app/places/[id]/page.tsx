@@ -188,7 +188,18 @@ export default async function PlaceDetailPage({ params }: Props) {
   // одного вулкана с разными данными, а админка при этом уверяла, что дубль
   // «скрыт из публички». Редирект постоянный: ссылки и выдача поисковиков на
   // старый адрес существуют и должны вести к живому месту.
-  const mergedTo = await resolveMergedTarget(id);
+  // Отказ БД здесь (таймаут подключения) раньше ронял всю страницу в 500
+  // (#2613: 222 ошибки за сутки). Как и резолв выше — «не смогли спросить»
+  // не равно «не слито»: пишем отказ и рисуем страницу как есть (§4.0).
+  let mergedTo: Awaited<ReturnType<typeof resolveMergedTarget>> = null;
+  try {
+    mergedTo = await resolveMergedTarget(id);
+  } catch (err) {
+    console.error('[places/page] проверка слияния места не удалась', {
+      id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
   if (mergedTo) {
     permanentRedirect(`/places/${mergedTo.canonical}`);
   }

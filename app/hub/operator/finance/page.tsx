@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import FinancePageClient from './_FinancePageClient';
+import FinanceGate from './_FinanceGate';
 
 export const metadata: Metadata = {
   title: 'Финансы | Оператор',
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function FinancePage() {
-  return <FinancePageClient />;
+  return <FinanceGate />;
 }

@@ -236,6 +236,11 @@ const nextConfig = {
       // 02.10 (внутренний аудит): не рендерился нигде и держал выдуманные
       // статусы («Вулканы: норма», «Связь: 3G», прилив по часам).
       { source: '/dashboard',          destination: '/',                               permanent: true },
+      // Дизайн-аудит 18.10 (вариант А): /en и /booking попадали в rewrite
+      // короткого адреса оператора и отдавали 404. Ведар — информационный
+      // портал: /booking ведёт на страницу заявок операторам, а не на оплату.
+      { source: '/en',                 destination: '/en/kamchatka-tours',             permanent: true },
+      { source: '/booking',            destination: '/bronirovanie-turov-kamchatka',   permanent: true },
     ];
   },
 
@@ -275,7 +280,7 @@ const nextConfig = {
       // кэш (та же болезнь, что у sitemap 29.09). Личных данных в них нет.
       // Сторож: tests/unit/openapi-agents.test.ts.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },
@@ -301,6 +306,13 @@ const nextConfig = {
         source: '/zh/:path*',
         headers: [{ key: 'Content-Language', value: 'zh-CN' }],
       },
+      // Английский раздел — тот же сигнал, что у /zh (19.10): вдобавок к
+      // <html lang="en">, который теперь ставит корневой layout по первому
+      // сегменту (lib/i18n/root-lang, заголовок пути от middleware).
+      {
+        source: '/en/:path*',
+        headers: [{ key: 'Content-Language', value: 'en' }],
+      },
       {
         source: '/widget/:path*',
         headers: [
@@ -323,7 +335,7 @@ const nextConfig = {
           // Честный апгрейд — nonce через middleware (next docs: CSP with nonces),
           // но middleware у нас Edge JWT + rate-limit (§7 CLAUDE.md, не трогать
           // без отдельного решения). Ужесточать только вместе с этим решением.
-          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob:; media-src 'self' https://s3.twcstorage.ru;` },
+          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://telegram.org; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; frame-src 'self' https://oauth.telegram.org; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob:; media-src 'self' https://s3.twcstorage.ru;` },
           // worker-src (01.09): MapLibre GL поднимает воркеры из blob:-URL
           // собственного бандла. Без явного worker-src браузер берёт
           // default-src 'self' и запрещает blob: — воркера нет, тайлы не
@@ -369,8 +381,11 @@ const nextConfig = {
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
       },
+      // Публичный MCP (/api/mcp и его server-card) — витрина для ИИ-каталогов
+      // и поисковиков, noindex с него снят. Остальное /api, включая
+      // /api/mcp/partner, по-прежнему закрыто.
       {
-        source: '/api/:path*',
+        source: '/api/:path((?!mcp(?:/server-card)?$).*)',
         headers: [
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],

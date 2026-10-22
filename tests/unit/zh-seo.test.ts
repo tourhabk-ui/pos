@@ -72,7 +72,7 @@ describe('sitemap: китайские конспекты — только с п�
   it('переведённые тур и место — в sitemap с датой перевода; без перевода и с половиной перевода — нет', async () => {
     const { entries, degraded } = await collectSitemapEntriesWithStatus();
     expect(degraded).toEqual([]);
-    const zh = entries.filter((e) => e.url.includes('/zh/'));
+    const zh = entries.filter((e) => e.url.includes('/zh/tours/') || e.url.includes('/zh/places/'));
     expect(zh.map((e) => e.url).sort()).toEqual([
       `${BASE}/zh/places/kronotskij-zapovednik`,
       `${BASE}/zh/tours/52`,

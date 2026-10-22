@@ -22,6 +22,7 @@ const VERDICT_LABEL: Record<string, string> = {
 
 const SURFACE_LABEL: Record<string, string> = {
   telegram: 'Telegram', max: 'MAX', other: 'Мессенджер', web: 'Сайт', 'web-stream': 'Сайт',
+  widget: 'Виджет партнёра', a2a: 'Агент A2A',
 };
 
 /**

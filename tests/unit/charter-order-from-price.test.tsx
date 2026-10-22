@@ -226,6 +226,35 @@ describe('чего не хватает для отправки — словам�
   });
 });
 
+describe('витрина: карточка тем же языком, что карточка тура', () => {
+  it('оболочка rounded-2xl, главное фото 4:3 сверху, в ленте — остальные фото; цена — основным текстом', () => {
+    const withPhotos = {
+      ...CARRIER,
+      photos: [
+        { url: '/images/shatun/shatun-01.jpg', credit: 'Автор Один' },
+        { url: '/images/shatun/shatun-02.jpg', credit: null },
+      ],
+    };
+    const { container } = render(<CharterCard carrier={withPhotos} />);
+    const card = container.querySelector('section') as HTMLElement;
+    expect(card.className).toContain('rounded-2xl');
+    expect(card.className).not.toContain('ds-card');
+    const hero = screen.getByAltText('Шатун: фото машины') as HTMLImageElement;
+    expect(hero.closest('div')?.className).toContain('aspect-[4/3]');
+    expect(card.textContent).toContain('Фото: Автор Один');
+    // В ленте под карточкой первое фото не повторяется: одна кнопка просмотра.
+    expect(screen.getAllByRole('button', { name: /Открыть фото/ })).toHaveLength(1);
+    const price = screen.getByText(/65\s?000/) as HTMLElement;
+    expect(price.className).toContain('text-[var(--text-primary)]');
+    expect(price.className).not.toContain('text-[var(--accent)]');
+  });
+
+  it('без фото главного кадра нет — чужой снимок не подставляется', () => {
+    render(<CharterCard carrier={CARRIER} />);
+    expect(screen.queryByAltText('Шатун: фото машины')).toBeNull();
+  });
+});
+
 describe('без JS', () => {
   it('ссылки «Заказать» — обычные адреса: работают и без клиентского перехода', () => {
     const html = renderToStaticMarkup(<CharterCard carrier={CARRIER} />);

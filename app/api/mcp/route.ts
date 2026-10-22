@@ -26,6 +26,7 @@
  * нажатием «Есть места» в мессенджере.
  */
 
+import { localizeToolArgs, langNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
@@ -37,6 +38,8 @@ import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { notifyPartnerNewLeadPersonally } from '@/lib/notifications/lead-notify';
+import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
@@ -259,6 +262,38 @@ async function requestSeatsFromOperator(a: {
     + keyLine(statusKey);
 }
 
+/**
+ * Новая MCP-заявка на бронь — ЛИЧНО оператору тура, а не только в рабочий
+ * чат платформы (тот уходит из createLead). До этого вызова заявка из
+ * внешнего ИИ ложилась оператору в кабинет молча: он узнавал о ней, только
+ * зайдя сам (аудит партнёрского пути 18.10, блокер пилота). Механика — та же,
+ * что у формы на сайте: notifyPartnerNewLeadPersonally + исход доставки в
+ * журнал заявки (recordPartnerDelivery), чтобы «дошла ли» отвечалось данными.
+ *
+ * Ответ агенту уведомления не ждёт (fire-and-forget, как в /api/leads), а
+ * отказ не глушится: исход назван функцией доставки, сбой записи — здесь.
+ * Повтор за 24 ч и свой заход владельца оператора не будят: заявка уже
+ * доставлена первым вызовом, а self-лид — проверка, не спрос.
+ */
+function notifyPartnerPersonallyAboutMcpLead(params: {
+  operatorId: string;
+  leadId: string;
+  name: string;
+  phone: string;
+  comment?: string;
+  routeTitle?: string;
+}): void {
+  void (async () => {
+    const outcome = await notifyPartnerNewLeadPersonally({
+      ...params,
+      origin: 'заявка через ИИ-ассистента (MCP)',
+    });
+    await recordPartnerDelivery(params.leadId, params.operatorId, outcome);
+  })().catch((e: unknown) => {
+    console.error(`[mcp] личное уведомление оператора о заявке ${params.leadId} не отправлено:`, e instanceof Error ? e.message : e);
+  });
+}
+
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
@@ -382,6 +417,17 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  }
+  // Оператор тура известен, и заявка — ему: лично, как с формы на сайте.
+  if (!existing && !ctx.self && tour.operator_id) {
+    notifyPartnerPersonallyAboutMcpLead({
+      operatorId: tour.operator_id,
+      leadId,
+      name,
+      phone,
+      comment: leadComment,
+      routeTitle: tour.title,
+    });
   }
   return accepted + keyLine(await issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name));
 }
@@ -661,20 +707,27 @@ async function executeTool(
   }
   // Пара коннекторов ChatGPT (search/fetch, ступень 2): не из реестра
   // Кузьмича, свои схемы и свой исполнитель (lib/mcp/connector-tools).
-  if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, rawArgs);
+  // Английский и китайский запрос → русские слова словаря до поиска в базе
+  // (lib/mcp/query-lang, прогон 17.10: zh 0/10, en 10/15). Содержимое базы не
+  // переводится; клиенту — пометка о языке в конце текстового ответа.
+  const localized = localizeToolArgs(name, rawArgs as Record<string, unknown>);
+  if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, localized.args as typeof rawArgs);
   // Состояние заявки по ключу (ступень 1 контура): свой исполнитель, JSON как у пары.
   if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
   // trim, обрезка длины), затем тот же исполнитель.
-  const validation = validateToolArgs(name, rawArgs as Record<string, string>);
+  const validation = validateToolArgs(name, localized.args as Record<string, string>);
   if (!validation.ok) {
     // Пусто, «не объект» и «не те поля» — разные отказы и в тексте агенту,
     // и в журнале (lib/mcp/tool-arguments, перепись 08.10).
     const refusal = argsRefusal(read, validation.error);
     throw new McpUserError(refusal.message, refusal.code);
   }
-  return executeKuzmichTool(name, validation.args, { surface: 'mcp' });
+  const text = await executeKuzmichTool(name, validation.args, { surface: 'mcp' });
+  // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
+  if (text === TOOL_EXECUTION_FAILED) return text;
+  return text + langNote(localized.lang, localized.mapped);
 }
 
 /**

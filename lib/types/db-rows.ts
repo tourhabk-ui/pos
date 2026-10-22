@@ -70,6 +70,7 @@ export interface DashboardMetricsRow {
   total_users: string;
   users_with_bookings: string;
   conversion_rate: string;
+  previous_conversion_rate: string;
 }
 
 // Графики аналитики. Даты приходят строками (to_char в SQL), а не Date:
@@ -212,10 +213,11 @@ export interface PayoutAdminRow {
   id: string;
   partner_id: string;
   partner_name: string;
-  partner_email: string;
-  booking_id: string;
+  partner_email: string | null;
+  // У батча operator_payouts нет одной брони/услуги — честно null.
+  booking_id: string | number | null;
   booking_type: string;
-  service_name: string;
+  service_name: string | null;
   amount: string;
   currency: string;
   status: string;

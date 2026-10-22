@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import LeadsClient from './_LeadsClient';
 
 export const metadata: Metadata = {
-  title: 'AI Lead Processor | Operator Hub',
+  title: 'Заявки с сайта | Кабинет оператора',
 };
 
 export default function LeadsPage() {

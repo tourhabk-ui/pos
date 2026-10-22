@@ -16,8 +16,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
+import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -34,7 +35,7 @@ import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
-  dataFreshness, freshnessDot, freshnessShort, plural,
+  dataFreshness, freshnessDot, freshnessShort,
 } from '@/lib/home/data-freshness';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -51,9 +52,6 @@ import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
 import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
 
-const ELEMENT_ICON: Record<string, LucideIcon> = {
-  fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
-};
 
 const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан', 'Термы', 'Хели-ски'];
 
@@ -99,7 +97,7 @@ interface ActiveTrip {
 }
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, radar, plates, explore, feed, stats, elements } = data;
+  const { safety, seismic, radar, plates, explore, feed, stats } = data;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
   // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
@@ -213,10 +211,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     setPlateIdx(i);
   };
 
-  const jumpToLead = () => {
-    leadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
   const submitLead = async () => {
     setErr(null);
     // Кнопка не выключается галочкой (аудит 24.09, #3/#5): бледная кнопка
@@ -320,8 +314,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             сломанным. Прятать overflow нельзя, это спрятало бы действие
             целиком. Смысл: по решению владельца 29.07 тур — не первое
             обещание главной, а следующий шаг после ответа «куда мне можно».
-            Действие не потеряно: «Подобрать тур» в блоке Кузьмича зовёт тот
-            же jumpToLead. */}
+            Действие не потеряно: в блоке Кузьмича стоят ссылки на его
+            Telegram и MAX (владелец 19.10, вместо устаревшей кнопки). */}
       </div></div>
 
       {/* ГЕРОЙ — фото-первый, композиция north-star макета (31.07): вордмарк
@@ -553,6 +547,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: тур`} aria-hidden={clone || undefined}>
                     <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
+                      {/* Длительность — стеклянным чипом на фото (владелец 20.10):
+                          видна до чтения текста. Ссылка-обёртка aria-hidden,
+                          поэтому та же длительность есть ниже для чтеца. */}
+                      {pf.duration && <span className="dur-chip"><Clock aria-hidden size={13} />{pf.duration}</span>}
                     </div></Link>
                     <div className="row"><b>{p.title}</b></div>
                     {p.description && <div className="cap">{p.description}</div>}
@@ -560,8 +558,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                       {pf.price ? <span className="price">{pf.price}</span> : <span className="price muted">Цена по запросу</span>}
                       {(pf.duration || pf.operator) && (
                         <span className="meta">
-                          {pf.duration}
-                          {pf.duration && pf.operator ? ' · ' : ''}
+                          {pf.duration && <span className="sr-only">{pf.duration}{pf.operator ? ', ' : ''}</span>}
                           {/* Имя — ссылка на страницу оператора (владелец 13.10);
                               тач-зона 44px — отступами без сдвига строки. */}
                           {pf.operator && <OperatorNameLink name={pf.operator} slug={p.operatorSlug} isPublic={p.operatorPublic} className="inline-block py-[15px] -my-[15px]" />}
@@ -791,38 +788,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам оператору.</q>
             </div>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
-            <div className="acts">
-              <Link href="/kuzmich">Спросить</Link>
-              {/* Класс НЕ «lead»: на ссылку каскадом падало правило ФОРМЫ
-                  .v7 .lead (border+padding 20px) — «Подобрать тур» раздувался
-                  в короб и ломал ряд (полевой скриншот 01.08, 17:17). */}
-              <a className="golead" onClick={(e) => { e.preventDefault(); jumpToLead(); }} href="#lead">Подобрать тур</a>
-            </div>
+            <KuzmichGuideActions />
           </div>
         </section>
-
-        {/* Второй слой той же двери: выбор по стихии. Отдельной секцией это
-            было третьим входом в тот же каталог. */}
-        {elements.length > 0 && (
-          <section className="sub">
-            <div className="elements">
-              {elements.map((el, i) => {
-                const Icon = ELEMENT_ICON[el.key] ?? Flame;
-                const wide = elements.length % 2 === 1 && i === elements.length - 1;
-                return (
-                  <Link className={`etile et-${el.key}`} href={el.href} key={el.key}
-                    style={wide ? { gridColumn: 'span 2' } : undefined}>
-                    <span className="glass">
-                      <Icon className="eicon" size={24} strokeWidth={1.6} aria-hidden />
-                      <b>{el.label}</b>
-                      <span className="ecnt">{el.count} {plural(el.count, 'место', 'места', 'мест')}</span>
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        )}
 
         {/* V. ЦИФРЫ */}
         <section>
@@ -840,7 +808,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
             блок проводника выше, и добавлял главной ещё один вход в то же
             самое. Форма и её POST /api/leads остались нетронутыми, ссылка
-            «Подобрать тур» у Кузьмича по-прежнему ведёт сюда. */}
+            Ссылки у Кузьмича выше ведут в его Telegram и MAX. */}
         <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
@@ -852,10 +820,16 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               ))}
             </div>
             <div className="field2">
-              <input id="lead-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
-              <div className="field">
-                <input id="lead-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Телефон или Telegram" aria-label="Контакт" />
-                <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
+              <div className="lfield">
+                <label htmlFor="lead-name">Имя</label>
+                <input id="lead-name" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Как вас зовут" aria-label="Имя" />
+              </div>
+              <div className="lfield">
+                <label htmlFor="lead-phone">Телефон или Telegram</label>
+                <div className="field">
+                  <input id="lead-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон или Telegram" aria-label="Контакт" />
+                  <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
+                </div>
               </div>
             </div>
             <div className="fine">
@@ -1090,7 +1064,7 @@ const CSS = `
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
 .v7 a{color:inherit;text-decoration:none}
-.v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .ptag{font:400 12px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg-primary) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
 /* Перенос в шапке ЗАПРЕЩЁН (владелец 02.09, скрин «шапка съехала»).
    Страховка #893 (flex-wrap:wrap) на узком экране уносила ЛК на вторую
@@ -1130,7 +1104,7 @@ const CSS = `
    вторую строку). flex:0 1 auto и min-width:0 — чтобы ужаться могла именно
    она, а не зоны нажатия (те держат flex:none, #893); текст — в .pt с
    многоточием: у анонимного текстового флекс-ребёнка обрезки нет. */
-.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:44px;padding:0 9px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
+.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:44px;padding:0 9px;border-radius:999px;text-decoration:none;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
 .v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
 .v7 .pill-calm i{background:var(--success)}
 /* Незнание — не спокойствие: приглушённый серый, а не зелёный. */
@@ -1172,6 +1146,8 @@ const CSS = `
 .v7 .hero-share:hover{background:rgba(0,0,0,.55)}
 .v7 .hb-word{font:700 24px/1 var(--font-playfair),Georgia,serif;color:rgba(255,255,255,.95)}
 .v7 .hero-sp{flex:1;min-height:28px}
+/* Телефон (владелец 20.10): плитки сразу под строкой KVERT, без пустого фото снизу. */
+@media (max-width:767px){.v7 .hero-photo{min-height:38vh;min-height:38dvh}.v7 .hero-in{padding-bottom:34px}.v7 .hero-sp{min-height:14px}.v7 .hero-fade{height:64px}}
 /* Display-типографика — главный визуальный удар макета. clamp: на 320px не
    рвёт слова, на 480px не превращается в плакат. */
 .v7 .hero-photo h1{font:600 clamp(38px,11.6vw,48px)/1.06 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 28px rgba(0,0,0,.45)}
@@ -1181,7 +1157,7 @@ const CSS = `
    меньше прежнего, чтобы над «Турами сезона» встал ряд «Своя поездка / Радар»
    и цена первого тура осталась в первом экране над таб-баром (П4б, 24.09). */
 .v7 .hero-photo h1.h1-home{font-size:clamp(34px,10.4vw,44px);line-height:1.04}
-.v7 .hero-kick{margin-bottom:10px;font:600 10px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
+.v7 .hero-kick{margin-bottom:10px;font:600 12px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
@@ -1195,7 +1171,7 @@ const CSS = `
    входят, а столбиком входят — 56px вместо двух рядов по 44. Колонок столько,
    сколько чипов: grid-auto-flow:column, числа в CSS нет. */
 .v7 .hero-chips{margin-top:10px;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
-.v7 .hchip{min-height:56px;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:6px 2px;border-radius:14px;text-decoration:none;color:var(--text-primary);font:600 10.5px/1.15 var(--font-outfit),system-ui,sans-serif;text-align:center;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
+.v7 .hchip{min-height:56px;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:6px 2px;border-radius:14px;text-decoration:none;color:var(--text-primary);font:600 12px/1.15 var(--font-outfit),system-ui,sans-serif;text-align:center;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .hchip .hc-l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .hchip{background:color-mix(in srgb,var(--hc,var(--text-secondary)) 14%,var(--bg-card));border-color:color-mix(in srgb,var(--hc,var(--text-secondary)) 45%,transparent)}
 .v7 .hchip svg{color:var(--hc,var(--text-secondary))}
@@ -1222,7 +1198,19 @@ const CSS = `
 .v7 .qt-badge{position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;box-sizing:border-box;outline:2px solid var(--bg-card)}
 .v7 .qt-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
 .v7 .qt-tx b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
-.v7 .qt-tx > span{font:500 10.5px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .qt-tx > span{font:500 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Верхний ряд компактный (владелец 20.10: «тут тоже можно покомпактней»): две тонкие строки стеклянных пилюль, подписи туров/трансфера/жилья скрыты (смысл — в aria-label), у радара остаётся свежесть. */
+.v7 nav.qt-top{gap:6px;margin-bottom:18px}
+.v7 nav.qt-top > .qt{min-height:44px;gap:7px;padding:5px 10px 5px 6px;border-radius:14px;background:color-mix(in srgb,var(--bg-card) 78%,transparent);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
+.v7 nav.qt-top > .qt-radar{background:color-mix(in srgb,var(--success) 10%,color-mix(in srgb,var(--bg-card) 78%,transparent))}
+.v7 nav.qt-top > .qt-tours,.v7 nav.qt-top > .qt-transfer,.v7 nav.qt-top > .qt-stay{flex-direction:row;justify-content:center;min-height:44px;padding:4px 6px;gap:6px}
+.v7 nav.qt-top .qt-ic{width:28px;height:28px;border-radius:9px}
+.v7 nav.qt-top .qt-ic svg{width:16px;height:16px}
+.v7 nav.qt-top .qt-tx{gap:1px}
+.v7 nav.qt-top .qt-tx b{font-size:12.5px}
+.v7 nav.qt-top .qt-tx > span{font-size:11px}
+.v7 nav.qt-top .qt-plan .qt-tx > span,.v7 nav.qt-top .qt-tours .qt-tx > span,.v7 nav.qt-top .qt-transfer .qt-tx > span,.v7 nav.qt-top .qt-stay .qt-tx > span{display:none}
+.v7 nav.qt-top .qt-badge{width:9px;height:9px}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
 @media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}
@@ -1250,11 +1238,11 @@ const CSS = `
 .v7 .shead .line{flex:1;height:1px;background:color-mix(in srgb,var(--border) 55%,transparent)}
 /* Ссылка заголовка — полноценная цель 44px (аудит 24.09, #127: была 10px в
    высоту шрифтом 9.5px). Видимая строка та же, зона нажатия — по высоте. */
-.v7 .shead .all{display:inline-flex;align-items:center;min-height:44px;margin:-14px 0;font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);white-space:nowrap}
+.v7 .shead .all{display:inline-flex;align-items:center;min-height:44px;margin:-14px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);white-space:nowrap}
 /* радар безопасности */
 /* безопасность */
 .v7 .volc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.v7 .vchip{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--font-outfit),system-ui,sans-serif;border:1px solid var(--border);padding:7px 10px;border-radius:999px}
+.v7 .vchip{display:inline-flex;align-items:center;gap:6px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;border:1px solid var(--border);padding:7px 10px;border-radius:999px}
 .v7 .vchip i{width:7px;height:7px;border-radius:50%}
 .v7 .vchip small{font:400 9px/1 var(--fm);color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
 /* Живая лента предупреждений — компактное окно ~4 строки с вертикальной прокруткой */
@@ -1271,7 +1259,7 @@ const CSS = `
 .v7 .ts-tile:active{transform:scale(.97)}
 .v7 .ts-tile svg{color:var(--ocean)}
 .v7 .ts-tile b{font:700 12px/1.2 var(--font-outfit),system-ui,sans-serif;margin-top:auto}
-.v7 .ts-tile span{font:500 9.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .ts-tile span{font:500 12px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Действия безопасности — карточки, а не «поля формы»: заливка --plate +
    семантическая левая грань (МЧС=warning, офлайн-инструменты=tide, наблюдение=
    amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода).
@@ -1286,9 +1274,9 @@ const CSS = `
 .v7 .fp-sec .more-tours{margin-top:14px}
 .v7 .explore-sec{margin-top:32px}
 .v7 .plates.explore .plate{width:62%;max-width:240px;padding-bottom:12px;color:inherit;text-decoration:none}
-.v7 .plate.transfer .kind{display:flex;align-items:center;gap:5px;padding:10px 12px 0;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .plate.transfer .kind{display:flex;align-items:center;gap:5px;padding:10px 12px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .v7 .plate.transfer .row{padding-top:5px}
-.v7 .plate.place .kind{display:block;padding:10px 12px 0;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .plate.place .kind{display:block;padding:10px 12px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .v7 .plate.place .row{padding-top:5px}
 .v7 .plate.place .cap{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .v7 .stools{margin:0}
@@ -1302,9 +1290,9 @@ const CSS = `
 /* scroll-padding-inline = отступ страницы (аудит 24.09, #38): без него точка
    привязки прижимала карточку к x=0, и текст начинался в 2px от кромки.
    position:relative — чтобы offsetLeft карточек считался от ленты (goPlate). */
-.v7 .plates{position:relative;display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;scrollbar-width:none;margin:0 -20px;padding:0 20px}
+.v7 .plates{position:relative;display:flex;align-items:flex-start;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:20px;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
-.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-md);overflow:hidden}
 /* Точка остаётся 6px, а нажимается зона 26x44: сама точка рисуется вложенным
    ::after, кнопка вокруг неё прозрачная. Иначе переключатель плат — цель
    размером с крупинку, и в перчатке в него не попасть вовсе.
@@ -1329,18 +1317,19 @@ const CSS = `
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 12px 0}
-.v7 .plate .row b{font:600 14px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
-.v7 .plate .cap{padding:5px 12px 0;font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .row b{font:600 13px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
+.v7 .plate .cap{padding:4px 12px 0;font:400 11px/1.45 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:calc(11px*1.45*2)}
 /* Факты карточки: цена с единицей, длительность и оператор (#39/#122). */
-.v7 .plate .facts{margin-top:9px;padding:9px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
-.v7 .plate .facts .price{font:600 15px/1.2 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
+.v7 .plate .facts{margin-top:8px;padding:8px 12px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;flex-direction:column;gap:4px}
+.v7 .plate .facts .price{font:800 22px/1.15 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:-.02em;color:var(--text-primary)}
+.v7 .plate .dur-chip{position:absolute;left:14px;bottom:14px;z-index:1;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:4px;background:var(--badge);border:0;color:var(--on-badge);font:800 14px/1 var(--font-outfit),system-ui,sans-serif;font-variant-numeric:tabular-nums lining-nums;letter-spacing:.01em}
 .v7 .plate .facts .price.muted{color:var(--text-secondary);font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif}
-.v7 .plate .facts .meta{font:500 12px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .plate .cancel,.v7 .plate .avail{padding:5px 12px 0;font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .facts .meta{font:500 11px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .cancel,.v7 .plate .avail{padding:4px 12px 0;font:400 11px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Текст «сезон кончился» — --text-secondary: --warning (#D29922) на белой
    карточке даёт ~2.5:1 при 12px, ниже AA. Предупреждение несёт иконка. */
 .v7 .plate .avail{display:flex;align-items:center;gap:6px}
-.v7 .plate .buy{margin-top:auto;padding:12px}
+.v7 .plate .buy{padding:10px 12px 12px}
 /* CTA — кнопка 44px, 13px (была текст-ссылка 9.5px, 91×14px, #38/#127). */
 .v7 .plate .buy-cta{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
@@ -1353,45 +1342,23 @@ const CSS = `
    Кремовый круг вшит в сам PNG, поэтому подложка не нужна ни в одной теме. */
 .v7 .guide .face{width:72px;height:72px;flex:none;border-radius:50%;object-fit:cover}
 .v7 .guide q{display:block;font:500 15px/1.5 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;quotes:"«" "»"}
-.v7 .guide .sig{margin-top:10px;display:flex;align-items:center;gap:10px}
+.v7 .guide .sig{margin-top:10px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
 .v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
 .v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
 .v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
-.v7 .guide .acts{margin-top:14px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-/* Цели 44px (#127). «Подобрать тур» — единственный переход к лид-форме,
-   поэтому кнопка-заливка, а не подпись. */
-.v7 .guide .acts a{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--success);cursor:pointer}
-.v7 .guide .acts a.golead{padding:0 16px;border-radius:12px;background:var(--accent);color:var(--on-accent);letter-spacing:.04em;text-transform:none;font-size:13px;font-weight:700}
-/* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
-.v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;
-  box-shadow:0 6px 20px rgba(0,0,0,.14);transition:transform .18s,box-shadow .28s}
-.v7 .etile::before{content:"";position:absolute;inset:0;z-index:-1}
-.v7 .et-fire::before{background:radial-gradient(120% 90% at 30% 15%,#D46A3E 0%,#8A3B28 45%,#3E1710 100%)}
-.v7 .et-snow::before{background:radial-gradient(120% 90% at 30% 15%,#DCEAF3 0%,#8FB4CC 45%,#3E5C72 100%)}
-.v7 .et-ocean::before{background:radial-gradient(120% 90% at 30% 15%,#7FC1D2 0%,#2E8CA3 45%,#123E4C 100%)}
-.v7 .et-therm::before{background:radial-gradient(120% 90% at 30% 15%,#E4CE9E 0%,#B4761F 48%,#5A3B0E 100%)}
-.v7 .et-nature::before{background:radial-gradient(120% 90% at 30% 15%,#8FBE6E 0%,#4E8C5B 45%,#234A31 100%)}
-.v7 .etile .glass{position:absolute;inset:7px;border-radius:16px;padding:13px 14px;display:flex;flex-direction:column;gap:3px;
-  justify-content:flex-end;color:#fff;background:rgba(12,16,15,.24);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
-  border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
-.v7 .etile .eicon{color:#fff;margin-bottom:auto;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
-.v7 .etile b{font:600 14.5px/1.15 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
-.v7 .etile .ecnt{font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
-.v7 .etile:active{transform:scale(.97)}
-/* подсветка-свечение по стихии */
-.v7 .et-fire{box-shadow:0 8px 24px rgba(180,72,46,.42)}
-.v7 .et-snow{box-shadow:0 8px 24px rgba(120,160,190,.42)}
-.v7 .et-ocean{box-shadow:0 8px 24px rgba(46,140,163,.45)}
-.v7 .et-therm{box-shadow:0 8px 24px rgba(180,118,31,.42)}
-.v7 .et-nature{box-shadow:0 8px 24px rgba(78,140,91,.42)}
+.v7 .guide .acts{margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
+/* Одна система вместо трёх разных стилей: главная кнопка сайта на всю
+   ширину, под ней — две равные кнопки мессенджеров с официальными знаками.
+   Цели не ниже 48px. */
+.v7 .guide .acts a{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none}
+.v7 .guide .acts a.ask-site{min-height:52px;padding:0 20px;border-radius:14px;background:var(--accent);color:var(--on-accent);font:700 15px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em;box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 32%,transparent);transition:background .15s,transform .15s}
+.v7 .guide .acts a.ask-site:active{transform:scale(.99)}
+.v7 .guide .messengers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.v7 .guide .acts a.msg{min-height:48px;padding:0 12px;gap:8px;border:1px solid var(--border-strong);border-radius:14px;background:var(--bg-card);color:var(--text-primary);font:600 14px/1 var(--font-outfit),system-ui,sans-serif;transition:border-color .15s,background .15s}
+.v7 .guide .acts a.msg svg{flex:none;display:block}
 @media (hover:hover){
-  .v7 .etile:hover{transform:translateY(-2px)}
-  .v7 .et-fire:hover{box-shadow:0 12px 34px rgba(180,72,46,.62)}
-  .v7 .et-snow:hover{box-shadow:0 12px 34px rgba(120,160,190,.62)}
-  .v7 .et-ocean:hover{box-shadow:0 12px 34px rgba(46,140,163,.65)}
-  .v7 .et-therm:hover{box-shadow:0 12px 34px rgba(180,118,31,.62)}
-  .v7 .et-nature:hover{box-shadow:0 12px 34px rgba(78,140,91,.62)}
+  .v7 .guide .acts a.ask-site:hover{background:var(--accent-hover)}
+  .v7 .guide .acts a.msg:hover{background:var(--bg-hover)}
 }
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
@@ -1412,18 +1379,20 @@ const CSS = `
 .v7 .lead{border:1px solid var(--border);padding:20px 18px}
 .v7 .lead h3{font:600 20px/1.22 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
 .v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--accent)}
-.v7 .lead p{margin-top:9px;font:400 11.5px/1.6 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .lead p{margin-top:9px;font:400 15px/1.6 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .lead .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
-.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);border:1px solid var(--border);background:none;padding:0 13px;cursor:pointer;transition:.15s}
+.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);border:1px solid var(--border);background:none;padding:0 13px;cursor:pointer;transition:.15s}
 .v7 .lead .chip[aria-pressed="true"]{background:var(--text-primary);color:var(--bg-primary);border-color:var(--text-primary)}
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
-.v7 .lead .field2>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
+.v7 .lead .lfield{display:flex;flex-direction:column;gap:6px;min-width:0}
+.v7 .lead .lfield>label{font:600 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .lead .lfield>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field{display:flex;border:1px solid var(--border);background:var(--bg-card)}
 /* min-width:0 (аудит 24.09, #3/#35): без него поле не ужималось ниже своей
    встроенной ширины, и «Отправить» выезжала за рамку (на 360px — за экран,
    scrollWidth 367). */
-.v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
-.v7 .lead .field input::placeholder,.v7 .lead .field2>input::placeholder{color:var(--text-muted)}
+.v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
+.v7 .lead .field input::placeholder,.v7 .lead .lfield>input::placeholder{color:var(--text-muted)}
 .v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
 .v7 .lead .field button:disabled{opacity:.6}
 .v7 .lead .err{margin-top:6px;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
@@ -1502,11 +1471,10 @@ const CSS = `
   .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
   .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}
-  .v7 .lead .field2>input{flex:1;min-width:200px}
-  .v7 .lead .field{flex:2;min-width:260px}
+  .v7 .lead .lfield{flex:1;min-width:200px}
+  .v7 .lead .lfield:has(>.field){flex:2;min-width:260px}
     /* Сетки используют ширину: стихии в 3 колонки (5 плиток ложатся без дыры —
      последняя span 2), платы показывают по три, цифры по центру */
-  .v7 .elements{grid-template-columns:repeat(3,1fr)}
   .v7 .plate{width:320px}
   .v7 .dataline{justify-content:center;gap:8px}
   .v7 .shead h2{font-size:22px}

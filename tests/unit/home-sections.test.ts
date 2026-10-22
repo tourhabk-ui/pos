@@ -51,10 +51,11 @@ describe('двери в каталог схлопнуты', () => {
 });
 
 describe('при схлопывании ничего не потерялось', () => {
-  it('плитки стихий на месте', () => {
-    expect(CODE).toMatch(/elements\.map/);
-    expect(CODE).toMatch(/ELEMENT_ICON/);
+  it('плиток стихий на главной нет (владелец 20.10: дублируют каталог)', () => {
+    expect(CODE).not.toMatch(/elements\.map/);
+    expect(CODE).not.toMatch(/ELEMENT_ICON/);
   });
+
 
   it('ряда разделов внизу нет (владелец 26.09: «подвал не то и не работает, убрать»)', () => {
     expect(CODE).not.toMatch(/className="hubline"/);

@@ -44,8 +44,8 @@ const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   new:              { label: 'Новый',           color: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
-  ai_processing:    { label: 'AI обрабатывает', color: 'text-[var(--warning)] bg-[var(--warning)]/10' },
-  ai_qualified:     { label: 'AI квалифицирован',color: 'text-[var(--success)] bg-[var(--success)]/10' },
+  ai_processing:    { label: 'В разборе', color: 'text-[var(--warning)] bg-[var(--warning)]/10' },
+  ai_qualified:     { label: 'Разобрана',color: 'text-[var(--success)] bg-[var(--success)]/10' },
   proposal_sent:    { label: 'Предложение отправлено', color: 'text-[var(--accent)] bg-[var(--accent)]/10' },
   awaiting_confirm: { label: 'Ждёт подтверждения', color: 'text-[var(--warning)] bg-[var(--warning)]/10' },
   contacted:        { label: 'Контакт установлен', color: 'text-[var(--ocean)] bg-[var(--ocean)]/10' },
@@ -57,7 +57,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 const FILTER_OPTIONS = [
   { value: 'all',           label: 'Все' },
   { value: 'new',           label: 'Новые' },
-  { value: 'ai_qualified',  label: 'AI готово' },
+  { value: 'ai_qualified',  label: 'Разобраны' },
   { value: 'proposal_sent', label: 'Отправлено' },
   { value: 'converted',     label: 'Конвертированы' },
 ];
@@ -170,7 +170,7 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
             onClick={() => onProcess(lead.id)}
             disabled={processing}
             className="ds-btn-primary text-xs gap-1.5 min-w-[140px] justify-center"
-            aria-label="Запустить AI-обработку лида"
+            aria-label="Обработать заявку"
           >
             {processing ? (
               <>
@@ -180,7 +180,7 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
             ) : (
               <>
                 <Zap className="w-3.5 h-3.5" />
-                AI-обработать
+                Обработать
               </>
             )}
           </button>
@@ -267,10 +267,10 @@ export default function LeadsClient() {
           <div>
             <h1 className="ds-h1 flex items-center gap-2">
               <Brain className="w-7 h-7 text-[var(--accent)]" />
-              AI Lead Processor
+              Заявки с сайта
             </h1>
             <p className="text-[var(--text-muted)] text-sm mt-1">
-              Входящие заявки → AI-квалификация → персональное предложение за 15 сек
+              Заявки туристов с сайта: разбор, подбор тура, ответ
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -325,7 +325,7 @@ export default function LeadsClient() {
             { label: 'Новых',          value: stats.new,       icon: MessageSquare, color: 'text-[var(--ocean)]' },
             { label: 'Квалифицировано',value: stats.qualified, icon: Brain,         color: 'text-[var(--success)]' },
             { label: 'Конвертировано', value: stats.converted, icon: CheckCircle,   color: 'text-[var(--accent)]' },
-            { label: 'AI обработано',  value: stats.withScore, icon: BarChart2,     color: 'text-[var(--warning)]' },
+            { label: 'Разобрано',  value: stats.withScore, icon: BarChart2,     color: 'text-[var(--warning)]' },
           ].map(s => (
             <div key={s.label} className="ds-card p-3 flex items-center gap-3">
               <s.icon className={`w-5 h-5 ${s.color} shrink-0`} />
@@ -411,7 +411,7 @@ export default function LeadsClient() {
           <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-[var(--ocean)]/5 border border-[var(--ocean)]/20 text-sm">
             <FileText className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />
             <span className="text-[var(--text-secondary)]">
-              Нажмите <strong>AI-обработать</strong> — система за ~15 сек квалифицирует заявку,
+              Нажмите <strong>Обработать</strong> — система разберёт заявку,
               подберёт туры и сформирует PDF-предложение. Telegram-уведомление отправится автоматически.
             </span>
           </div>

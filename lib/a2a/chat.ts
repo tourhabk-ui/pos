@@ -7,23 +7,25 @@
  * промпте: отвечаем агенту, а не человеку, без приветствий и без оформления
  * заявок (их агент делает структурированным вызовом с согласием человека).
  *
- * После ответа — те же две страховки, что в веб-чате (одно правило на все
- * каналы): сверка утверждений о безопасности с данными хода
- * (guardSafetyClaims, #2300) и серверный блок 112 при признаках ЧП в вопросе
- * (withSosBlock) — агент может пересказывать слова человека в поле. Третья —
- * сверка слов о доставке («дошло», «передал оператору») с инструментами хода
- * (guardDeliveryClaims, 15.10): отправлять Кузьмичу нечем, и отчёт о доставке
- * без инструмента заявки — выдумка.
+ * После ответа — один выход ответа Кузьмича на всех каналах
+ * (finishKuzmichAnswer, аудит 15.10, 1.14): километраж «от Петропавловска»
+ * сверяется с данными хода, утверждения о безопасности — со сводками
+ * (#2300), слова о доставке («дошло», «передал оператору») — с инструментами
+ * хода (15.10), и при признаках ЧП в вопросе сервер ставит блок 112 — агент
+ * может пересказывать слова человека в поле. Ответ замеряется по времени и
+ * уходит грейдеру, как на сайте и в мессенджерах.
  *
  * Сбой модели — честный отказ («не смог»), не пустой ответ (§4.0).
  */
 
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
+import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { buildRAGContext } from '@/lib/ai/rag-context';
-import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
-import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
-import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
-import { withSosBlock } from '@/lib/safety/sos-detector';
+import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
+import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
+import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
+import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { logText } from '@/lib/log/log-text';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import type { ChatTurn } from './task-store';
@@ -44,7 +46,18 @@ export const A2A_CHAT_FAILED_TEXT =
  */
 export type AgentAnswer = { ok: true; text: string } | { ok: false; text: string; rejected?: boolean };
 
-export async function answerAgentMessage(text: string, history: ChatTurn[]): Promise<AgentAnswer> {
+export interface AgentAnswerOptions {
+  /** Ключ разговора (contextId A2A): грейдер хэширует его сам. */
+  conversationKey?: string | null;
+  /** Свой вызов (метка владельца) — вне оценки: это проба, а не спрос. */
+  self?: boolean;
+}
+
+export async function answerAgentMessage(
+  text: string,
+  history: ChatTurn[],
+  opts: AgentAnswerOptions = {},
+): Promise<AgentAnswer> {
   // RAG тот же, что у веб-чата (роль «турист» — туры и места). Его отказ не
   // отменяет ответ: цикл инструментов добудет данные сам, а отказ виден в логе.
   const rag = await buildRAGContext(text, 'tourist').catch((err: unknown) => {
@@ -53,6 +66,9 @@ export async function answerAgentMessage(text: string, history: ChatTurn[]): Pro
   });
 
   const toolRuns: ToolRun[] = [];
+  const provenance: { provider?: string } = {};
+  const timing = newLoopTiming();
+  const startedAt = Date.now();
   let answer: string | null = null;
   try {
     // Вопрос агента — последним сообщением человека. До 13.10 здесь стоял
@@ -60,10 +76,12 @@ export async function answerAgentMessage(text: string, history: ChatTurn[]): Pro
     // про то, что видел в подсказке (пробы 764–766, журнал общения A2A).
     answer = await aiChatAgentLoop(
       text,
-      KUZMICH_SYSTEM + A2A_AGENT_NOTE + rag,
+      KUZMICH_SYSTEM + A2A_AGENT_NOTE + '\n\n' + kamchatkaDateContext() + '\n\n' + rag,
       history.map((t) => ({ role: t.role, content: t.content })),
       [{ role: 'user', content: text }],
       toolRuns,
+      provenance,
+      timing,
     );
   } catch (err) {
     console.error('[a2a] цикл инструментов упал:', logText(err instanceof Error ? err.message : err, 300));
@@ -72,20 +90,36 @@ export async function answerAgentMessage(text: string, history: ChatTurn[]): Pro
     return { ok: false, text: A2A_CHAT_FAILED_TEXT };
   }
 
-  const guard = guardSafetyClaims(answer, toolRuns);
-  if (guard.flagged.length > 0) {
-    console.error('[kuzmich-safety-claim-guard] a2a: утверждение о безопасности без опоры', {
-      verdict: guard.verdict, flagged: guard.flagged.map((c) => c.phrase),
+  const finished = finishKuzmichAnswer({
+    surface: 'a2a',
+    answer,
+    question: text,
+    toolRuns,
+    context: rag,
+  });
+
+  void recordKuzmichAnswer({
+    surface: 'a2a',
+    elapsedMs: Date.now() - startedAt,
+    turns: timing.turns,
+    toolRounds: timing.toolRounds,
+    path: 'tools',
+    provider: provenance.provider ?? null,
+    ceilingHit: timing.ceilingHit,
+  });
+  // Ответ внешнему агенту — грейдеру, как с сайта и из мессенджеров: «Кузьмич
+  // для агентов» до этого был неизмерим (аудит 15.10, 1.14). Оценивается ответ
+  // модели, без поправок и блока 112; ПД, хэш ключа и потолок — в грейдере.
+  if (!opts.self) {
+    void gradeKuzmichResponse(text, answer, opts.conversationKey ?? null, {
+      surface: 'a2a',
+      toolRuns,
+      promptFingerprint: fingerprintPrompt(KUZMICH_SYSTEM),
+      provider: provenance.provider ?? null,
+      answerPath: 'tools',
+      toolsOffered: KUZMICH_TOOLS.map((t) => t.function.name),
     });
   }
-  void recordSafetyReview('other', guard, toolRuns);
 
-  const delivery = guardDeliveryClaims(guard.text, toolRuns);
-  if (delivery.verdict === 'unbacked') {
-    console.error('[kuzmich-delivery-claim-guard] a2a: отчёт о доставке без инструмента заявки', {
-      phrases: delivery.phrases,
-    });
-  }
-
-  return { ok: true, text: withSosBlock(delivery.text, text).text };
+  return { ok: true, text: finished.text };
 }

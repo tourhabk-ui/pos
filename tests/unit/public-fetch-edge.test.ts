@@ -70,6 +70,7 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/places/X/reviews',
   'POST /api/places/X/photos',      // фото места: форма сама спрашивает вход (PhotoUpload)
   'GET /api/referral/my-code',      // реферальный код вошедшего
+  'GET /api/tourist/profile',       // регистрация маршрута: экстренный контакт из профиля вошедшего, гостю форма как была
   // Карточка места на витрине: кнопка «удалить» рисуется только при роли
   // admin (user_roles в localStorage), вызов несёт Bearer либо cookie. До
   // 01.09 вызов числился публичным, потому что публичным был весь /api/admin.

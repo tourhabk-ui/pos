@@ -7,6 +7,7 @@ import {
   ThermometerSnowflake, Skull, CloudFog,
 } from 'lucide-react';
 import { telHref } from '@/lib/safety/emergency-numbers';
+import { actionLabel } from '@/lib/safety/action-label';
 
 interface HazardSignal {
   hazard: string;
@@ -200,7 +201,7 @@ export default function SafetyWarnings({ tourId, routeId, compact = false }: Saf
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
             <span>
               Зона: уровень риска {data.zone_risk.risk_level} ({data.zone_risk.risk_score}/100).
-              {' '}{data.zone_risk.recommended_action}
+              {actionLabel(data.zone_risk.recommended_action) ? ` ${actionLabel(data.zone_risk.recommended_action)}.` : ''}
             </span>
           </div>
         </div>

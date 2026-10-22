@@ -58,7 +58,7 @@ describe('kuzmich-quality-census', () => {
     expect(json.waterfall_share).toBe(0.3);
     expect(json.empty_reason).toBeNull();
     expect(json.by_day[0]).toMatchObject({ day: '2026-10-13', answer_path: 'waterfall', provider: 'groq' });
-    expect(json.caveats.join(' ')).toMatch(/веб-чат, стрим и A2A/);
+    expect(json.caveats.join(' ')).toMatch(/стрим сайта и A2A/);
     // Окно — параметром с приведением, без склейки строк.
     for (const c of query.mock.calls) {
       expect(String(c[0])).toContain("created_at > NOW() - ($1::int * INTERVAL '1 day')");

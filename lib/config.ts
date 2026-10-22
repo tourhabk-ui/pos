@@ -73,8 +73,11 @@ export const config = {
   database: {
     url: process.env.DATABASE_URL || 'postgresql://localhost:5432/kamchatour',
     ssl: process.env.DATABASE_SSL === 'true',
+    // Читает lib/db-pool (аудит 15.10, 1.15). Умолчания — те, с которыми пул
+    // работал до чтения: 20 соединений, ожидание 5 с, простой 30 с. Прежнее
+    // умолчание ожидания (2000) не читал никто — пул стоял на 5000 литералом.
     maxConnections: parseInt(process.env.DATABASE_MAX_CONNECTIONS || '20'),
-    connectionTimeout: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT || '2000'),
+    connectionTimeout: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT || '5000'),
     idleTimeout: parseInt(process.env.DATABASE_IDLE_TIMEOUT || '30000'),
   },
 

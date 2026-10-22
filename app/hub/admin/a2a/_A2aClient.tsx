@@ -41,6 +41,7 @@ interface A2aBlock {
 interface DialogItem {
   at: string; agent: string; kind: AgentKind; dialog: string | null; turn: number;
   question: string; answer: string; state: string; duration_ms: number | null;
+  ip?: string | null; user_agent?: string | null;
 }
 interface DialogsBlock { since: string | null; total: number; retention_days: number; limit: number; items: DialogItem[] }
 interface McpClientRow { client: string; kind: string; origin: 'probe' | 'external'; region?: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
@@ -55,7 +56,9 @@ interface Payload {
   degraded: string[]; note: string;
 }
 
-const WINDOWS = [7, 30, 90] as const;
+const WINDOWS = [1, 7, 30, 90] as const;
+/** «сутки» для окна в 1 день, иначе «N дн.» — подпись и в переключателе, и в заголовках. */
+const winLabel = (d: number) => (d === 1 ? 'сутки' : `${d} дн.`);
 
 const KIND_LABEL: Record<AgentKind, string> = {
   external: 'внешний',
@@ -103,6 +106,14 @@ function DialogEntry({ d }: { d: DialogItem }) {
         <span className={d.state === 'completed' ? '' : 'text-[var(--warning)]'}>{STATE_LABEL[d.state] ?? d.state}</span>
         {d.duration_ms !== null ? ` · ${d.duration_ms} мс` : ''}
       </p>
+      {(d.ip || d.user_agent) && (
+        <p className="text-[11px] text-[var(--text-muted)] break-all">
+          {d.ip ? (
+            <>IP <a className="text-[var(--ocean)] underline" href={`https://ipinfo.io/${encodeURIComponent(d.ip)}`} target="_blank" rel="noopener noreferrer">{d.ip}</a></>
+          ) : 'IP —'}
+          {d.user_agent ? ` · ${d.user_agent}` : ''}
+        </p>
+      )}
       <p className="mt-1 text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
         <span className="text-[var(--text-muted)]">Вопрос: </span>{d.question}
       </p>
@@ -127,12 +138,13 @@ function RegionBadge({ label }: { label: string }) {
   );
 }
 
-function Th({ children, right = false }: { children: React.ReactNode; right?: boolean }) {
-  return <th className={`px-2 py-1 font-medium text-[var(--text-muted)] ${right ? 'text-right' : 'text-left'}`}>{children}</th>;
+// wide=true — колонка только с 640px: на телефоне «Кто приходит» влезает без горизонтального скролла.
+function Th({ children, right = false, wide = false }: { children: React.ReactNode; right?: boolean; wide?: boolean }) {
+  return <th className={`px-2 py-1 font-medium text-[var(--text-muted)] ${right ? 'text-right' : 'text-left'}${wide ? ' hidden sm:table-cell' : ''}`}>{children}</th>;
 }
 
-function Td({ children, right = false, muted = false }: { children: React.ReactNode; right?: boolean; muted?: boolean }) {
-  return <td className={`px-2 py-1 ${right ? 'text-right tabular-nums' : ''} ${muted ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>{children}</td>;
+function Td({ children, right = false, muted = false, wide = false }: { children: React.ReactNode; right?: boolean; muted?: boolean; wide?: boolean }) {
+  return <td className={`px-2 py-1 ${right ? 'text-right tabular-nums' : ''} ${muted ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}${wide ? ' hidden sm:table-cell' : ''}`}>{children}</td>;
 }
 
 export default function A2aClient() {
@@ -188,16 +200,16 @@ export default function A2aClient() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-md border border-[var(--border)] overflow-hidden" role="group" aria-label="Окно">
+            <div className="admin-glass inline-flex rounded-full p-0.5" role="group" aria-label="Окно">
               {WINDOWS.map((w) => (
                 <button
                   key={w}
                   type="button"
                   onClick={() => changeDays(w)}
                   aria-pressed={days === w}
-                  className={`px-2.5 py-1.5 text-xs transition-colors ${days === w ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
+                  className={`px-2.5 py-1.5 text-[11px] font-medium rounded-full whitespace-nowrap transition-colors ${days === w ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
                 >
-                  {w} дн.
+                  {winLabel(w)}
                 </button>
               ))}
             </div>
@@ -225,7 +237,7 @@ export default function A2aClient() {
         <>
           {/* ── A2A ─────────────────────────────────────────────────────── */}
           <div className="ds-section space-y-3">
-            <h2 className="ds-h2">По A2A, {data.window_days} дн.</h2>
+            <h2 className="ds-h2">По A2A, {winLabel(data.window_days)}</h2>
             {!a2a || !a2a.ok ? (
               <ErrorCard
                 title="Журнал A2A не прочитался"
@@ -243,7 +255,7 @@ export default function A2aClient() {
               </div>
             ) : a2a.total_window === 0 ? (
               <div className="ds-card p-4">
-                <p className="font-medium text-[var(--text-primary)]">За {data.window_days} дн. — ни одного запроса</p>
+                <p className="font-medium text-[var(--text-primary)]">За {winLabel(data.window_days)} — ни одного запроса</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">
                   Журнал ведётся с {a2a.since}; всего записей {a2a.total_all_time}. Расширьте окно, чтобы увидеть прежние.
                 </p>
@@ -274,24 +286,24 @@ export default function A2aClient() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr>
-                        <Th>Агент</Th><Th>Кто это</Th><Th right>Запросов</Th><Th right>Диалогов</Th>
-                        <Th right>Текст / инстр.</Th><Th right>Вып. / отказ / сбой</Th><Th right>Ошибок протокола</Th>
-                        <Th>Версии</Th><Th>Первый раз</Th><Th>Последний раз</Th>
+                        <Th>Агент</Th><Th wide>Кто это</Th><Th right>Запросов</Th><Th right>Диалогов</Th>
+                        <Th right wide>Текст / инстр.</Th><Th right wide>Вып. / отказ / сбой</Th><Th right wide>Ошибок протокола</Th>
+                        <Th wide>Версии</Th><Th wide>Первый раз</Th><Th wide>Последний раз</Th>
                       </tr>
                     </thead>
                     <tbody>
                       {a2a.by_agent.map((r) => (
                         <tr key={`${r.agent}:${r.ua_family}:${r.is_self}`} className="border-t border-[var(--border)]">
                           <Td><span className="font-medium">{r.agent}</span> <span className="text-[var(--text-muted)]">({r.ua_family})</span>{r.region && <RegionBadge label={r.region} />}</Td>
-                          <Td><span className={kindClass(r.kind)}>{KIND_LABEL[r.kind]}</span></Td>
-                          <Td right>{r.requests}{r.card_reads > 0 && <span className="text-[var(--text-muted)]"> (визитка {r.card_reads})</span>}</Td>
+                          <Td wide><span className={kindClass(r.kind)}>{KIND_LABEL[r.kind]}</span></Td>
+                          <Td right>{r.requests}{r.card_reads > 0 && <span className="text-[var(--text-muted)] block sm:inline"> (визитка {r.card_reads})</span>}</Td>
                           <Td right>{r.dialogs}</Td>
-                          <Td right>{r.text_sends} / {r.tool_sends}</Td>
-                          <Td right>{r.completed} / {r.rejected} / {r.failed}</Td>
-                          <Td right muted>{r.protocol_errors}</Td>
-                          <Td muted>{r.versions.join(', ')} · {r.bindings.join(', ')}</Td>
-                          <Td muted>{r.first_seen}</Td>
-                          <Td muted>{r.last_seen}</Td>
+                          <Td right wide>{r.text_sends} / {r.tool_sends}</Td>
+                          <Td right wide>{r.completed} / {r.rejected} / {r.failed}</Td>
+                          <Td right muted wide>{r.protocol_errors}</Td>
+                          <Td muted wide>{r.versions.join(', ')} · {r.bindings.join(', ')}</Td>
+                          <Td muted wide>{r.first_seen}</Td>
+                          <Td muted wide>{r.last_seen}</Td>
                         </tr>
                       ))}
                     </tbody>
@@ -407,12 +419,12 @@ export default function A2aClient() {
 
           {/* ── MCP ─────────────────────────────────────────────────────── */}
           <div className="ds-section space-y-3">
-            <h2 className="ds-h2">По MCP, {data.window_days} дн.</h2>
+            <h2 className="ds-h2">По MCP, {winLabel(data.window_days)}</h2>
             {!data.mcp.ok ? (
               <ErrorCard title="Клиенты MCP не прочитались" error={data.mcp.error} consequence="Это отказ чтения mcp_clients, а не «никто не подключался»." />
             ) : data.mcp.clients.length === 0 ? (
               <div className="ds-card p-4">
-                <p className="text-sm text-[var(--text-secondary)]">За {data.window_days} дн. рукопожатий и вызовов MCP не было.</p>
+                <p className="text-sm text-[var(--text-secondary)]">За {winLabel(data.window_days)} рукопожатий и вызовов MCP не было.</p>
               </div>
             ) : (
               <div className="ds-card p-4 overflow-x-auto">
@@ -442,14 +454,14 @@ export default function A2aClient() {
 
           {/* ── Визитки и манифесты ─────────────────────────────────────── */}
           <div className="ds-section space-y-3">
-            <h2 className="ds-h2">Кто читает визитки и манифесты, {data.window_days} дн.</h2>
+            <h2 className="ds-h2">Кто читает визитки и манифесты, {winLabel(data.window_days)}</h2>
             {!data.entries.ok ? (
               <ErrorCard title="Счётчик входов не прочитался" error={data.entries.error} consequence="Это отказ чтения agent_entry_hits, а не «никто не читает»." />
             ) : data.entries.total_window === 0 ? (
               <div className="ds-card p-4">
                 <p className="text-sm text-[var(--text-secondary)]">
                   {data.entries.since
-                    ? `За ${data.window_days} дн. ни одного запроса к входам; счётчик ведётся с ${data.entries.since}.`
+                    ? `За ${winLabel(data.window_days)} ни одного запроса к входам; счётчик ведётся с ${data.entries.since}.`
                     : 'Счётчик ещё ничего не видел: таблица пуста — считать он начал с этого деплоя.'}
                 </p>
               </div>

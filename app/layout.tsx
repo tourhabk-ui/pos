@@ -3,6 +3,8 @@ import { Inter, Playfair_Display, JetBrains_Mono } from 'next/font/google';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
 import { siteVerification } from '@/lib/seo/site-verification';
+import { headers } from 'next/headers';
+import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin', 'cyrillic'],
@@ -57,7 +59,7 @@ export const viewport: Viewport = {
    * работал, предупреждение шло — и разбирающий консоль видел шум, за
    * которым легко пропустить настоящую ошибку.
    */
-  themeColor: '#0f172a',
+  themeColor: '#003580',
 };
 
 export const metadata: Metadata = {
@@ -153,7 +155,6 @@ import { Providers } from '@/components/Providers'
 // состав и право на загрузку решает lib/legal/third-party-registry, а данные
 // не уходят раньше согласия посетителя (разбор права 11.09, docs/LEGAL.md).
 import ThirdPartyScripts from '@/components/legal/ThirdPartyScripts'
-import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { themeBootScript } from '@/lib/theme'
@@ -164,9 +165,19 @@ import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
 import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
 import { ReferralCapture } from '@/components/shared/ReferralCapture'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Язык документа — по первому сегменту пути (lib/i18n/root-lang): /en/* —
+  // английский, /zh/* — китайский, всё остальное — русский. Путь сообщает
+  // middleware заголовком; нет заголовка — русский, прежнее поведение.
+  // Цена решения известна и принята (вариант А, 19.10): чтение заголовков в
+  // корневом layout делает страницы рендером-на-запрос; HTML у нас и так
+  // отдаётся с no-store, а публичные страницы в массе force-dynamic или ISR
+  // по запросу. Прежде (аудит 15.10) ради статики держали lang="ru" везде и
+  // объявляли язык раздела только заголовком Content-Language — теперь
+  // корректный <html lang> важнее, заголовки разделов при этом сохранены.
+  const lang = htmlLangForPath((await headers()).get(ROOT_LANG_HEADER));
   return (
-    <html lang="ru" suppressHydrationWarning>
+    <html lang={lang} suppressHydrationWarning>
       <head>
         {/* Анти-вспышка темы: красим <html> до отрисовки. Умолчание и ключ —
             lib/theme.ts, те же, что у ThemeProvider (решение владельца 24.09:
@@ -260,14 +271,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   "экотуризм Камчатки"
                 ],
                 "sameAs": [
-                  "https://t.me/kamchatka_real"
+                  "https://t.me/kamchatka_real",
+                  "https://github.com/tourhabk-ui/pos",
+                  "https://registry.modelcontextprotocol.io/v0.1/servers?search=ru.vedarai%2Fmcp",
+                  "https://smithery.ai/servers/tourhabk/vedar"
                 ]
               }
             ])
           }}
         />
         <ThirdPartyScripts />
-        <StickyLeadButton />
         <KuzmichWidget />
         <InstallPrompt />
         <InstallTracker />

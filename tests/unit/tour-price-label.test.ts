@@ -126,10 +126,10 @@ describe('единицы цены не вшиты ни в одну поверх�
     expect(tool).toMatch(/priceFromUnit\(s\.priceOverride \?\? tour\.base_price, tour\.price_unit\)/);
   });
 
-  it('оба запроса резолвера выбирают price_unit', () => {
+  it('все три запроса резолвера (номер, название, запасной по словам) выбирают price_unit', () => {
     // Иначе единица снова «отбрасывается», а не «неизвестна».
     const selects = tool.match(/SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours[,\s\w:]*FROM operator_tours/g) ?? [];
-    expect(selects.length).toBe(2);
+    expect(selects.length).toBe(3);
   });
 
   it('каталог и детали выбирают price_unit', () => {

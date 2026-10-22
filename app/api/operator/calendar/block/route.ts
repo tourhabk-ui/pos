@@ -73,18 +73,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await Promise.all(
-      dates.map(date =>
-        pool.query(
-          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
-           VALUES ($1, $2, 0, true, $3)
-           ON CONFLICT (operator_tour_id, date) DO UPDATE SET
-             is_cancelled        = true,
-             cancellation_reason = EXCLUDED.cancellation_reason,
-             updated_at          = NOW()`,
-          [tourId, date, reason ?? 'Заблокировано оператором']
-        )
-      )
+    // Одно выражение на весь диапазон (аудит 15.10, 1.15, P3-14). Прежде —
+    // запрос на каждую дату разом (Promise.all, до 366): пул на 20 соединений
+    // делят SOS, брони и кроны, и всё остальное ждало соединения дольше 5 с.
+    // Одно выражение ещё и атомарно: отказ не оставляет полдиапазона закрытым.
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
+       SELECT $1::bigint, d, 0, true, $3::text
+         FROM unnest($2::date[]) AS d
+       ON CONFLICT (operator_tour_id, date) DO UPDATE SET
+         is_cancelled        = true,
+         cancellation_reason = EXCLUDED.cancellation_reason,
+         updated_at          = NOW()`,
+      [tourId, dates, reason ?? 'Заблокировано оператором']
     );
 
     return NextResponse.json({
@@ -129,19 +130,33 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE tour_availability
-       SET is_cancelled = false, cancellation_reason = NULL, updated_at = NOW()
-       WHERE operator_tour_id = $1
-         AND date >= $2
-         AND date <= $3`,
+    // Дата с местами открывается снова. Дата без мест появилась только от
+    // блокировки (миграция 1307: ноль мест — у закрытой даты): открыть её
+    // нечем, числа мест у неё нет, — она удаляется, и всё возвращается к
+    // тому, что было до блокировки. Броней на ней быть не может: booked_slots
+    // не больше available_slots (CHECK booked_valid).
+    const { rows } = await pool.query<{ unblocked: number }>(
+      `WITH reopened AS (
+         UPDATE tour_availability
+            SET is_cancelled = false, cancellation_reason = NULL, updated_at = NOW()
+          WHERE operator_tour_id = $1 AND date >= $2::date AND date <= $3::date
+            AND available_slots > 0
+         RETURNING 1
+       ), removed AS (
+         DELETE FROM tour_availability
+          WHERE operator_tour_id = $1 AND date >= $2::date AND date <= $3::date
+            AND available_slots = 0 AND COALESCE(is_cancelled, FALSE)
+         RETURNING 1
+       )
+       SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM removed))::int AS unblocked`,
       [tourId, startDate, endDate]
     );
+    const unblocked = rows[0]?.unblocked ?? 0;
 
     return NextResponse.json({
       success: true,
-      data:    { unblocked: rowCount ?? 0 },
-      message: `Разблокировано ${rowCount ?? 0} дат`,
+      data:    { unblocked },
+      message: `Разблокировано ${unblocked} дат`,
     });
   } catch (err) {
     console.error('[operator/calendar/block] DELETE не выполнен, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');

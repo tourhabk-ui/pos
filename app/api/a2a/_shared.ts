@@ -19,7 +19,7 @@ import type { A2AExecutors, A2AResult } from '@/lib/a2a/handle';
 import { logA2aRequest, sendMessageFacts, type A2aBinding, type A2aJournalOp } from '@/lib/a2a/journal';
 import { logA2aDialog } from '@/lib/a2a/dialog-log';
 import { readVersion, type VersionRead } from '@/lib/a2a/wire';
-import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp, getTrustedClientIpOrNull } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -41,7 +41,7 @@ export function buildExecutors(request: NextRequest): A2AExecutors {
       // запросов, а его текст дал бы спамеру писать в базу без предела.
       if (!chatLimiter.check(`a2a-chat:${ip}`)) return { ok: false, text: CHAT_RATE_LIMITED_TEXT, rejected: true };
       const startedAt = Date.now();
-      const answer = await answerAgentMessage(text, history);
+      const answer = await answerAgentMessage(text, history, { conversationKey: contextId ?? null, self });
       // Журнал общения (решение владельца 13.10): что спросили и что ответили,
       // после redactPII и на 90 суток — lib/a2a/dialog-log.
       logA2aDialog({
@@ -52,6 +52,7 @@ export function buildExecutors(request: NextRequest): A2AExecutors {
         turn: history.filter((t) => t.role === 'user').length + 1,
         durationMs: Date.now() - startedAt,
         ip,
+        clientIp: getTrustedClientIpOrNull(request.headers),
         userAgent,
         self,
       });

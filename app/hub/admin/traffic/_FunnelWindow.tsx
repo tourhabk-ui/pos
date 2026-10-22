@@ -22,6 +22,7 @@ import { internalHref } from '@/lib/analytics/traffic-links';
 import { fmtKamchatka, kamchatkaDate, ruShort } from '@/lib/analytics/kamchatka-day';
 // Подписи статусов заявок — те же, что в CRM: второй словарь разошёлся бы с первым.
 import { STATUS_META } from '@/app/hub/admin/leads/_LeadsClient';
+import VisitsBreakdown from './_VisitsBreakdown';
 
 type Range = 'today' | 'yesterday' | '7d' | '30d';
 type Selection = { range: Range } | { date: string };
@@ -98,6 +99,8 @@ export default function FunnelWindow() {
   const [result, setResult] = useState<{ key: string; error: string | null } | null>(null);
   // Последний удавшийся ответ остаётся на экране, пока грузится следующий.
   const [data, setData] = useState<Payload | null>(null);
+  // Подробно о визитах — по нажатию на «Визиты» (владелец 21.10).
+  const [visitsOpen, setVisitsOpen] = useState(false);
 
   const query = queryOf(sel);
   const key = `${query}#${nonce}`;
@@ -224,17 +227,38 @@ export default function FunnelWindow() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             {steps.map((s) => {
               const v = r.counts[s.key];
-              return (
-                <div key={s.key} className="border border-[var(--border)] rounded-lg px-3 py-2.5">
+              const inner = (
+                <>
                   <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{s.label}</p>
                   <p className={`font-mono font-semibold tabular-nums ${v === null ? 'text-sm text-[var(--text-muted)] pt-1.5' : 'text-xl text-[var(--text-primary)]'}`}>
                     {num(v)}
                   </p>
                   <p className="text-[10px] text-[var(--text-muted)]">{s.hint}</p>
+                </>
+              );
+              if (s.key === 'visits') {
+                return (
+                  <button
+                    key={s.key}
+                    type="button"
+                    aria-expanded={visitsOpen}
+                    onClick={() => setVisitsOpen((o) => !o)}
+                    className={`text-left border rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--bg-hover)] ${visitsOpen ? 'border-[var(--ocean)]/60 bg-[var(--bg-hover)]' : 'border-[var(--border)]'}`}
+                  >
+                    {inner}
+                    <p className="text-[10px] text-[var(--ocean)] mt-0.5">{visitsOpen ? 'свернуть' : 'подробнее →'}</p>
+                  </button>
+                );
+              }
+              return (
+                <div key={s.key} className="border border-[var(--border)] rounded-lg px-3 py-2.5">
+                  {inner}
                 </div>
               );
             })}
           </div>
+
+          {visitsOpen && <VisitsBreakdown query={query} onClose={() => setVisitsOpen(false)} />}
 
           <div className="mt-3 space-y-1">
             <p className="text-xs text-[var(--text-secondary)]">
@@ -313,7 +337,16 @@ export default function FunnelWindow() {
                           title={v === null ? 'не сосчитано' : undefined}
                           className={`py-1.5 text-right font-mono tabular-nums ${v === null ? 'text-[var(--text-muted)]' : v === 0 ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}
                         >
-                          {cell(v)}
+                          {i === 0 && v !== null && v > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => { setSel(d.partial ? { range: 'today' } : { date: d.date }); setVisitsOpen(true); }}
+                              aria-label={`Визиты подробно за ${ruShort(d.date)}`}
+                              className="font-mono tabular-nums text-[var(--ocean)] hover:underline underline-offset-2"
+                            >
+                              {cell(v)}
+                            </button>
+                          ) : cell(v)}
                         </td>
                       ))}
                     </tr>
@@ -323,7 +356,7 @@ export default function FunnelWindow() {
             </table>
           </div>
           <p className="text-[10px] text-[var(--text-muted)] mt-2">
-            Нажмите на дату — воронка откроется за эти сутки. Визиты по дням — люди (суточный хэш), поэтому суммировать столбец нельзя: один человек в два дня даст двух.
+            Нажмите на дату — воронка откроется за эти сутки, на число визитов — откуда пришли и с каких устройств. Визиты по дням — люди (суточный хэш), поэтому суммировать столбец нельзя: один человек в два дня даст двух.
           </p>
         </div>
       )}

@@ -69,7 +69,7 @@ describe('JSON-RPC биндинг', () => {
     expect(body.result.kind).toBe('task');
     expect(body.result.status.state).toBe('completed');
     expect(body.result.status.message.parts[0]).toEqual({ kind: 'text', text: 'Ответ Кузьмича' });
-    expect(answerAgentMessage).toHaveBeenCalledWith('Что на Горелом?', []);
+    expect(answerAgentMessage).toHaveBeenCalledWith('Что на Горелом?', [], expect.objectContaining({ self: false }));
   });
 
   it('GetTask / tasks/get читают сохранённую задачу; незнакомый id — -32001', async () => {

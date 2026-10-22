@@ -124,7 +124,7 @@ describe('отказ источника после удачи', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('rate', { status: 429 })));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await fetchForecastDays(52.12, 158.12, 1);
-    expect(r).toEqual({ ok: false, reason: 'Open-Meteo HTTP 429' });
+    expect(r).toEqual({ ok: false, reason: 'источник прогноза ответил ошибкой (HTTP 429)' });
   });
 
   it('устаревший прогноз назван в ответе инструмента', async () => {

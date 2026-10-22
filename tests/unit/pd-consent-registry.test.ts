@@ -132,7 +132,6 @@ const CONSENT_FORMS = [
   'app/request/_RequestClient.tsx',
   'app/widget/lead-form/[slug]/page.tsx',
   'components/routes/LeadModal.tsx',
-  'components/shared/StickyLeadButton.tsx',
   'components/marketplace/BookingFormClient.tsx',
   'components/planner/SeatRequestForm.tsx',
   'app/trip-group/[id]/_TripGroupClient.tsx',
@@ -168,7 +167,6 @@ const KNOWN_LITERAL_CONSENT = new Set([
   'app/request/_RequestClient.tsx',
   'app/widget/lead-form/[slug]/page.tsx',
   'components/routes/LeadModal.tsx',
-  'components/shared/StickyLeadButton.tsx',
 ]);
 
 describe('проводка согласия в формах', () => {

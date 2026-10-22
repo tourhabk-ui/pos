@@ -137,6 +137,14 @@ describe('описание не обещает лишнего', () => {
     expect(card.description).toMatch(/no payment/);
   });
 
+  it('описание начинается по-английски, русский и китайский текст следом', () => {
+    const d = card.description as string;
+    expect(d.startsWith('Vedar Kamchatka travel agent')).toBe(true);
+    expect(d.slice(0, 300)).not.toMatch(/[А-Яа-яЁё]/);
+    expect(d.indexOf('Русский:')).toBeGreaterThan(0);
+    expect(legacy.description).toBe(d);
+  });
+
   it('ни телефонов, ни почт людей, ни секретов', () => {
     expect(text).not.toMatch(/\+7 ?\d{3}/);
     expect(text).not.toMatch(/@mail\.ru|@gmail\.com|@yandex\.ru/);

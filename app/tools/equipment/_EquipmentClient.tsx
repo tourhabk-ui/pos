@@ -52,7 +52,11 @@ export function EquipmentClient() {
   // человек пришёл с конкретным выходом, не заставляем искать заново.
   // Query читается из window.location (приём формы брони, без Suspense).
   useEffect(() => {
-    const rid = new URLSearchParams(window.location.search).get('routeId');
+    const qs = new URLSearchParams(window.location.search);
+    // ?date= — дата тура из карточки поездки кабинета: прогноз на нужный день.
+    const qd = qs.get('date');
+    if (qd && /^\d{4}-\d{2}-\d{2}$/.test(qd)) setDateFrom(qd);
+    const rid = qs.get('routeId');
     if (!rid || !/^[0-9a-f-]{36}$/.test(rid)) return;
     fetch(`/api/routes/${rid}`)
       .then(r => r.json())

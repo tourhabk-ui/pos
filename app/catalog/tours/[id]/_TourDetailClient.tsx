@@ -31,6 +31,7 @@ import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // карточка шапки не имела и ставила EmergencyAction в герой — кнопка уезжала
 // при прокрутке вместе с фото (аудит П6, #29/#31).
 import { Header } from '@/components/layout/Header';
+import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { Footer } from '@/components/layout/Footer';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
@@ -253,6 +254,33 @@ function toContacts(v: unknown): OperatorContact[] {
   return out;
 }
 
+/**
+ * Дизайн-аудит 18.10 (вариант А): вместо ряда из 7 одинаковых кнопок —
+ * две главные и «Другие контакты». Приоритет: первый телефон, затем первый
+ * прямой мессенджер (личный Telegram, MAX, WhatsApp — что реально есть у
+ * оператора, каналы и сайт прямыми не считаются). Остальные сохраняют
+ * исходный порядок toContacts и никуда не пропадают — они за раскрытием.
+ * Нет телефона или мессенджера — добираем по исходному порядку до двух.
+ */
+function splitOperatorContacts(contacts: OperatorContact[]): { primary: OperatorContact[]; more: OperatorContact[] } {
+  const picked: OperatorContact[] = [];
+  const add = (c: OperatorContact | undefined) => {
+    if (c && !picked.includes(c)) picked.push(c);
+  };
+  add(contacts.find(c => c.icon === 'phone'));
+  add(
+    contacts.find(c => c.icon === 'telegram' && c.label === 'Написать в Telegram')
+    ?? contacts.find(c => c.icon === 'max')
+    ?? contacts.find(c => c.icon === 'whatsapp'),
+  );
+  for (const c of contacts) {
+    if (picked.length >= 2) break;
+    add(c);
+  }
+  const primary = picked.slice(0, 2);
+  return { primary, more: contacts.filter(c => !primary.includes(c)) };
+}
+
 function formatDuration(tour: TourFull): string | null {
   if (tour.duration_type === 'multi_day' && tour.multi_day_count) {
     const d = tour.multi_day_count;
@@ -334,7 +362,7 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2.5 mb-3">
       <span className="w-4 h-px bg-[var(--accent)]" />
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--accent)]" style={{ fontFamily: FM }}>
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]" style={{ fontFamily: FM }}>
         {children}
       </span>
     </div>
@@ -390,6 +418,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
     </div>
   );
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [contactsOpen, setContactsOpen] = useState(false);
   const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
 
@@ -515,6 +544,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
   const program = useMemo(() => toProgram(tour.program), [tour.program]);
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
+  const { primary: primaryContacts, more: moreContacts } = useMemo(() => splitOperatorContacts(contacts), [contacts]);
   // Часы звонков (contacts.phone_hours, миграция 840) — строка из БД как есть.
   const phoneHours = useMemo(() => {
     const h = tour.operator_contacts?.phone_hours;
@@ -589,7 +619,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
           <div className="absolute left-4 right-4 z-[2] flex items-start" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 72px)' }}>
             <Link
               href="/safety"
-              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
+              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
               style={{ fontFamily: FM, minHeight: 44 }}
             >
               <span
@@ -669,8 +699,8 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               >
                 {instrument.map((c, i) => (
                   <div key={c.k} className="min-w-0 px-2.5 sm:px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
-                    <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
-                    <div className="text-[13px] sm:text-[14px] font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
+                    <div className="text-xs uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
+                    <div className="text-sm font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
                   </div>
                 ))}
               </div>
@@ -730,7 +760,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     : 'Дату и детали подтверждает оператор. Оплата — ему напрямую, после подтверждения: Ведар платежи не принимает.'}
                 </p>
                 <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
-                  Выбрать дату и оставить заявку
+                  Узнать свободные даты
                 </a>
               </div>
             </div>
@@ -1016,7 +1046,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 {contacts.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-[var(--border)]">
                     <div className="flex flex-wrap gap-2">
-                      {contacts.map(c => (
+                      {primaryContacts.map(c => (
                         <a
                           key={c.href}
                           href={c.href}
@@ -1027,7 +1057,35 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                           {c.label}
                         </a>
                       ))}
+                      {moreContacts.length > 0 && (
+                        <button
+                          type="button"
+                          aria-expanded={contactsOpen}
+                          aria-controls="operator-more-contacts"
+                          onClick={() => setContactsOpen(v => !v)}
+                          className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2 cursor-pointer"
+                          style={{ minHeight: 44 }}
+                        >
+                          Другие контакты
+                          <ChevronDown className={`w-4 h-4 text-[var(--ocean)] transition-transform ${contactsOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      )}
                     </div>
+                    {contactsOpen && moreContacts.length > 0 && (
+                      <div id="operator-more-contacts" className="flex flex-wrap gap-2 mt-2">
+                        {moreContacts.map(c => (
+                          <a
+                            key={c.href}
+                            href={c.href}
+                            {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                            className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
+                          >
+                            {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'site' ? <Globe className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'whatsapp' ? <MessageCircle className="w-4 h-4 text-[var(--success)]" /> : c.icon === 'max' ? <MessageSquare className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
+                            {c.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     {/* Часы звонков из partners.contacts.phone_hours (840):
                         когда партнёр берёт трубку — факт из БД, не выдумка. */}
                     {phoneHours && (
@@ -1118,19 +1176,17 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             {/* Оттенки — через color-mix: классы вида border-[var(--x)]/25
                 Tailwind 3 не собирает, и карточка получала белую рамку
                 preflight вместо цвета (аудит П6, #139). */}
-            <Link
-              href={`/planner?hint=${encodeURIComponent(tour.activity_type)}`}
-              className="flex items-center gap-4 p-5 rounded-lg border no-underline hover:no-underline transition-colors [border-color:color-mix(in_srgb,var(--ocean)_25%,transparent)] [background-color:color-mix(in_srgb,var(--ocean)_5%,transparent)] hover:[background-color:color-mix(in_srgb,var(--ocean)_10%,transparent)]"
-            >
-              <div className="w-11 h-11 rounded-full bg-[var(--ocean)] flex items-center justify-center shrink-0 text-white" style={{ fontFamily: FD, fontWeight: 700 }}>К</div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-[var(--text-primary)] text-sm">Спросить Кузьмича</p>
-                {/* Обещания про погоду на выбранную дату здесь нет: планировщик, куда ведёт карточка, о туре
-                    и выбранной дате не знает (аудит П6, #63). */}
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Подходит ли детям, как одеться, что взять — Кузьмич знает Камчатку.</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-[var(--ocean)] shrink-0" />
-            </Link>
+            <div>
+              {/* Обещания про погоду на выбранную дату здесь нет: планировщик, куда ведёт главная кнопка, о туре
+                  и выбранной дате не знает (аудит П6, #63). Цель и подпись главной дороги — прежние,
+                  изменился только вид: единая система KuzmichActions в компактной плотности. */}
+              <p className="text-xs text-[var(--text-secondary)] mb-3">Подходит ли детям, как одеться, что взять — Кузьмич знает Камчатку.</p>
+              <KuzmichActions
+                primaryHref={`/planner?hint=${encodeURIComponent(tour.activity_type)}`}
+                primaryLabel="Спросить Кузьмича"
+                compact
+              />
+            </div>
           </div>
 
           {/* ─── Липкая бронь ─── */}
@@ -1157,7 +1213,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     роль играет карточка решения (lg:hidden), поэтому здесь —
                     только lg. */}
                 <a href="#booking" data-testid="aside-cta" className="hidden lg:flex ds-btn ds-btn-primary w-full mb-4 justify-center text-sm" style={{ minHeight: 44 }}>
-                  Выбрать дату и оставить заявку
+                  Узнать свободные даты
                 </a>
 
                 {/* Щит — НАД формой: главная гарантия стоит до действия, а не
@@ -1211,7 +1267,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
       {/* ═══ Контекстная нижняя панель — только мобайл (аудит мобильной
           компоновки, этап 2). Заменяет на карточке тура глобальную кнопку
-          «Хочу тур» (StickyLeadButton здесь скрыт): безадресная заявка рядом
+          «Хочу тур» (плавающей кнопки больше нет, 19.10): безадресная заявка рядом
           с заявкой на конкретный тур — два контура бронирования. Панель —
           ДЕЙСТВИЕ, поэтому непрозрачная (§5), и учитывает safe-area.
           Нижней навигации под ней нет (развилка 5, решение владельца 24.09),
@@ -1236,7 +1292,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             </div>
           </div>
           <a href="#booking" tabIndex={barShown ? undefined : -1} className="ds-btn ds-btn-primary text-sm shrink-0" style={{ minHeight: 44 }}>
-            Выбрать дату
+            Узнать свободные даты
           </a>
         </div>
       </div>

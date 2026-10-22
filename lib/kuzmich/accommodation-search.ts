@@ -45,7 +45,7 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   const conds: string[] = [publicAccommodationSql('')];
   const params: unknown[] = [];
 
-  if (args.zone) { params.push(containsPattern(args.zone)); conds.push(`location_zone ILIKE $${params.length}`); }
+  if (args.zone) { params.push(containsPattern(args.zone)); conds.push(`(location_zone ILIKE $${params.length} OR name ILIKE $${params.length} OR address ILIKE $${params.length})`); }
   if (args.type) { params.push(containsPattern(args.type)); conds.push(`type ILIKE $${params.length}`); }
   const priceMax = Number(args.price_max);
   if (args.price_max && Number.isFinite(priceMax) && priceMax > 0) {

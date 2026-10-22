@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AlertTriangle, Phone, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
@@ -118,10 +119,11 @@ export default async function IncidentsPage() {
   return (
     <>
       <Header />
-      <main className="bg-[var(--bg-primary)] min-h-screen">
+      <main className="bg-[var(--bg-primary)] min-h-screen pt-16">
+        <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
 
         {/* Hero */}
-        <section className="pt-24 pb-10 px-6">
+        <section className="pt-6 pb-10 px-6">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center gap-2 mb-6">
               <AlertTriangle className="w-4 h-4 text-[var(--danger)]" />
@@ -143,7 +145,10 @@ export default async function IncidentsPage() {
         {/* Emergency contacts — always first */}
         <section className="px-6 pb-10">
           <div className="max-w-4xl mx-auto">
-            <div className="bg-[var(--danger)] rounded-lg p-5 text-white">
+            {/* Плашка — постоянный тёмно-красный, а не --danger: в тёмной теме
+                --danger светлеет до #F85149, и белый текст на нём даёт 3,4:1
+                (ниже WCAG AA 4,5:1). #B91C1C с белым — 6,5:1 в обеих темах. */}
+            <div className="bg-[#B91C1C] rounded-lg p-5 text-white">
               <div className="flex items-center gap-2 mb-4">
                 <Phone className="w-5 h-5" />
                 <p className="font-semibold text-sm uppercase tracking-wider">
@@ -155,11 +160,11 @@ export default async function IncidentsPage() {
                   <a
                     key={c.number}
                     href={`tel:${c.number.replace(/[^\d+]/g, '')}`}
-                    className="bg-black/10 hover:bg-black/20 transition-colors rounded-lg p-3 flex flex-col gap-0.5"
+                    className="text-white hover:text-white visited:text-white bg-black/10 hover:bg-black/20 transition-colors rounded-lg p-3 flex flex-col gap-0.5"
                   >
                     <span className="text-xl font-bold font-playfair">{c.number}</span>
                     <span className="text-sm font-medium">{c.label}</span>
-                    <span className="text-xs opacity-70">{c.note}</span>
+                    <span className="text-xs opacity-90">{c.note}</span>
                   </a>
                 ))}
               </div>

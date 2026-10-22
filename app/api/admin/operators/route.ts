@@ -16,12 +16,17 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { PARTNER_CATEGORIES } from '@/lib/partners/categories';
+import { PARTNER_GROUP_SQL, isPartnerGroup } from '@/lib/partners/partner-groups';
 import { containsPattern } from '@/lib/db/like';
 
 export const dynamic = 'force-dynamic';
 
 const QuerySchema = z.object({
-  status: z.enum(['all', 'pending', 'approved', 'rejected']).default('pending'),
+  status: z.enum(['all', 'pending', 'approved', 'rejected', 'none']).default('pending'),
+  // Группа по участию, а не по происхождению (lib/partners/partner-groups):
+  // partners — вошли в поток заявок, potential — карточки без заявки.
+  // Умолчание 'all' сохраняет прежнее поведение для прочих вызывающих.
+  group:  z.enum(['all', 'partners', 'potential']).default('all'),
   limit:  z.coerce.number().min(1).max(200).default(50),
   offset: z.coerce.number().min(0).default(0),
   // Вводит администратор; % и _ ищутся буквально (lib/db/like).
@@ -35,13 +40,14 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const parsed = QuerySchema.safeParse({
     status: sp.get('status') ?? 'pending',
+    group:  sp.get('group')  ?? 'all',
     limit:  sp.get('limit')  ?? 50,
     offset: sp.get('offset') ?? 0,
     q:      sp.get('q') ?? undefined,
   });
   if (!parsed.success) return NextResponse.json({ error: 'Неверные параметры' }, { status: 400 });
 
-  const { status, limit, offset, q } = parsed.data;
+  const { status, group, limit, offset, q } = parsed.data;
 
   // Отбор по КАТЕГОРИИ партнёрской записи, а не по роли пользователя.
   // Прежнее `u.role = 'operator'` прятало от администратора всех, кроме
@@ -50,20 +56,26 @@ export async function GET(request: NextRequest) {
   // партнёрских записей может быть несколько.
   const cats = [...PARTNER_CATEGORIES];
   // Условие отбора — одно на список и на счёт: иначе «показаны N из M»
-  // сравнивал бы страницу одного запроса с итогом другого.
+  // сравнивал бы страницу одного запроса с итогом другого. Фрагменты читают
+  // только `p` и подзапросы EXISTS, поэтому счёту JOIN не нужен, а строка
+  // партнёра не множится.
   const where: string[] = ['p.category = ANY($1)'];
   const params: (string | number | string[])[] = [cats];
   if (status !== 'all') {
     params.push(status);
     where.push(`p.profile_status = $${params.length}`);
   }
+  if (isPartnerGroup(group)) where.push(PARTNER_GROUP_SQL[group]);
   if (q) {
     params.push(containsPattern(q));
     const n = params.length;
     // Название, адрес страницы, контакт и обе почты — то, что администратор
     // видит на карточке и чем ищет партнёра.
-    where.push(`(p.name ILIKE $${n} OR p.slug ILIKE $${n} OR u.name ILIKE $${n}
-             OR u.email ILIKE $${n} OR oa.contact_email ILIKE $${n})`);
+    where.push(`(p.name ILIKE $${n} OR p.slug ILIKE $${n}
+             OR EXISTS (SELECT 1 FROM users uq WHERE uq.id = p.user_id
+                         AND (uq.name ILIKE $${n} OR uq.email ILIKE $${n}))
+             OR EXISTS (SELECT 1 FROM operator_applications oaq WHERE oaq.partner_id = p.id
+                         AND oaq.contact_email ILIKE $${n}))`);
   }
   const whereSql = where.join('\n      AND ');
   const filterParams = [...params];
@@ -117,12 +129,25 @@ export async function GET(request: NextRequest) {
   `, params);
 
   const countRow = await query(`
-    SELECT COUNT(DISTINCT p.id) AS total
+    SELECT COUNT(*) AS total
     FROM partners p
-    LEFT JOIN users u ON u.id = p.user_id
-    LEFT JOIN operator_applications oa ON oa.partner_id = p.id
     WHERE ${whereSql}
   `, filterParams);
+
+  // Счётчики обеих групп — без фильтров статуса и группы: переключатель в
+  // админке показывает «партнёры / потенциальные» всегда, а не только по
+  // текущему срезу. Критерий — тот же фрагмент, что режет список.
+  const groupCountsRow = await query(`
+    SELECT
+      COUNT(*) FILTER (WHERE ${PARTNER_GROUP_SQL.partners})::text  AS partners,
+      COUNT(*) FILTER (WHERE ${PARTNER_GROUP_SQL.potential})::text AS potential
+    FROM partners p
+    WHERE p.category = ANY($1)
+  `, [cats]);
+  const groupCounts = {
+    partners:  parseInt(String(groupCountsRow.rows[0]?.partners  ?? '0'), 10) || 0,
+    potential: parseInt(String(groupCountsRow.rows[0]?.potential ?? '0'), 10) || 0,
+  };
 
   // Последний итог личной доставки заявки (lib/leads/delivery-outcome).
   // null у оператора — записей нет; карта null — прочитать не удалось, и
@@ -142,6 +167,7 @@ export async function GET(request: NextRequest) {
       total:  parseInt((countRow.rows[0]?.total as string) ?? '0', 10),
       limit,
       offset,
+      group_counts: groupCounts,
     },
   });
 }

@@ -29,8 +29,7 @@ import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
 import { frameReason, tourGroup, insertIndex, orderProblem } from '@/lib/planner/plan-ops';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
-import { PAGE_ACTION_BAR_VAR } from '@/components/shared/StickyLeadButton';
-import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE } from './planner-layout';
+import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { funnelBeacon } from '@/lib/funnel/beacon';
@@ -1309,8 +1308,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     funnelBeacon('planner_started');
   }, [places, activities, arrival, departure]);
 
-  // Нижняя панель шагов говорит, сколько места занимает: глобальная кнопка
-  // «Подобрать тур» поднимается над ней, а не ложится на «Дальше».
+  // Нижняя панель шагов публикует свою высоту (--page-action-bar-h):
+  // плавающие элементы страницы учитывают её, а не ложатся на «Дальше».
   const stepBarShown = formOpen || !recommendation;
   useEffect(() => {
     const el = stepBarRef.current;

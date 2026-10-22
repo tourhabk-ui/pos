@@ -21,6 +21,7 @@ import { FISH_SPECIES } from '@/lib/fish-species';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
 import { zhPageUrls } from '@/lib/zh/pages';
+import { QUERY_LANDINGS } from '@/lib/seo/query-landings';
 import { loadZhDetailEntries } from '@/lib/zh/content';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -103,6 +104,10 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // же читает пинг IndexNow, и новая /zh/<…> не разъедется между ними.
     ...zhPageUrls(BASE).map((url) => ({
       url, lastModified: new Date('2026-10-12'), changeFrequency: 'monthly' as const, priority: 0.7,
+    })),
+    // Посадочные под запросы туристов (17.10); китайские — выше, через zhPageUrls.
+    ...QUERY_LANDINGS.filter((l) => l.lang !== 'zh-CN').map((l) => ({
+      url: `${BASE}${l.path}`, lastModified: new Date(), changeFrequency: 'daily' as const, priority: 0.8,
     })),
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.

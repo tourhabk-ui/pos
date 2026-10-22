@@ -9,6 +9,8 @@ import {
   UserPlus, KeyRound, AlertTriangle,
 } from 'lucide-react';
 import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
+import { PARTNER_GROUP_LABELS, PARTNER_GROUP_HINTS } from '@/lib/partners/partner-groups';
+import type { PartnerGroup } from '@/lib/partners/partner-groups';
 import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
@@ -1492,13 +1494,17 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 export default function OperatorsClient() {
   const [tab, setTab]             = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  // Группа по участию (lib/partners/partner-groups): сначала настоящие
+  // партнёры, потенциальные — отдельной вкладкой, а не в общей куче.
+  const [group, setGroup]         = useState<PartnerGroup>('partners');
+  const [groupCounts, setGroupCounts] = useState<Record<PartnerGroup, number>>({ partners: 0, potential: 0 });
   const [operators, setOperators] = useState<OperatorRow[]>([]);
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');
   const [acting, setActing]       = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
   const [counts, setCounts]       = useState<Record<string, number>>({});
-  /** Сколько партнёров подходит под вкладку и поиск — по ответу сервера; null — не знаем. */
+  /** Сколько партнёров подходит под группу, вкладку и поиск — по ответу сервера; null — не знаем. */
   const [total, setTotal]         = useState<number | null>(null);
   /** Список не загрузился — словами; null — загрузился (§4.0: отказ ≠ «ничего не найдено»). */
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1511,10 +1517,16 @@ export default function OperatorsClient() {
    * экран брал первые 100 партнёров и искал только среди них, и давняя
    * карточка за сотней новых не находилась вовсе.
    */
-  const load = useCallback(async (status: string, q: string, offset = 0) => {
+  const load = useCallback(async (status: string, grp: PartnerGroup, q: string, offset = 0) => {
     const request = ++lastRequest.current;
     setLoading(true);
-    const params = new URLSearchParams({ status, limit: String(PAGE_SIZE), offset: String(offset) });
+    // У потенциальных статус один ('none' без заявки) — режет сама группа.
+    const params = new URLSearchParams({
+      status: grp === 'potential' ? 'all' : status,
+      group: grp,
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
     if (q) params.set('q', q);
     const fail = (why: string) => {
       setLoadError(`Список не загрузился: ${why}.`);
@@ -1530,10 +1542,11 @@ export default function OperatorsClient() {
         fail('сервер ответил не списком');
         return;
       }
-      const body = j as { data: OperatorRow[]; meta?: { total?: number } };
+      const body = j as { data: OperatorRow[]; meta?: { total?: number; group_counts?: Record<PartnerGroup, number> } };
       setLoadError(null);
       setOperators(prev => (offset === 0 ? body.data : [...prev, ...body.data]));
       setTotal(typeof body.meta?.total === 'number' ? body.meta.total : null);
+      if (body.meta?.group_counts) setGroupCounts(body.meta.group_counts);
     } catch (e) {
       if (request !== lastRequest.current) return;
       console.error('[admin/operators] список не загрузился:', e instanceof Error ? e.message : e);
@@ -1562,12 +1575,12 @@ export default function OperatorsClient() {
     setCounts(Object.fromEntries(results));
   }, []);
 
-  // Набор текста ждёт паузы, смена вкладки — нет.
+  // Набор текста ждёт паузы, смена группы и вкладки — нет.
   const query = search.trim();
   useEffect(() => {
-    const timer = setTimeout(() => { void load(tab, query); }, query ? SEARCH_DEBOUNCE_MS : 0);
+    const timer = setTimeout(() => { void load(tab, group, query); }, query ? SEARCH_DEBOUNCE_MS : 0);
     return () => clearTimeout(timer);
-  }, [load, tab, query]);
+  }, [load, tab, group, query]);
   useEffect(() => { loadCounts(); }, [loadCounts]);
 
   async function approve(id: string) {
@@ -1640,12 +1653,36 @@ export default function OperatorsClient() {
 
         {/* Ручное заведение партнёра — до импорта: чаще нужен один живой
             партнёр, а не пачка из внешнего источника. */}
-        <CreatePartnerPanel onCreated={() => { void load(tab, query); void loadCounts(); }} />
+        <CreatePartnerPanel onCreated={() => { void load(tab, group, query); void loadCounts(); }} />
 
         {/* Scraper panel */}
         <ScraperPanel />
 
-        {/* Tabs */}
+        {/* Группы по участию: партнёры против потенциальных. Счётчики —
+            из meta.group_counts того же запроса, что режет список. */}
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-1 bg-[var(--bg-primary)] rounded-lg p-1 w-fit">
+            {(['partners', 'potential'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setGroup(g)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  group === g
+                    ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                {PARTNER_GROUP_LABELS[g]}
+                <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">({groupCounts[g]})</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">{PARTNER_GROUP_HINTS[group]}</p>
+        </div>
+
+        {/* Tabs по статусу заявки — только у партнёров: у потенциальных
+            статус один, «без заявки». */}
+        {group === 'partners' && (
         <div className="flex gap-1 mb-4 bg-[var(--bg-primary)] rounded-lg p-1 w-fit">
           {TABS.map(t => (
             <button
@@ -1664,6 +1701,7 @@ export default function OperatorsClient() {
             </button>
           ))}
         </div>
+        )}
 
         {/* Search */}
         <div className="relative mb-4">
@@ -1687,7 +1725,7 @@ export default function OperatorsClient() {
             <p className="text-[var(--text-primary)]">{loadError}</p>
             <button
               type="button"
-              onClick={() => { void load(tab, query); }}
+              onClick={() => { void load(tab, group, query); }}
               className="mt-3 text-sm text-[var(--ocean)] hover:underline"
             >
               Попробовать ещё раз
@@ -1699,7 +1737,13 @@ export default function OperatorsClient() {
             <p className="text-[var(--text-secondary)]">
               {query
                 ? `Ничего не найдено по «${query}»`
-                : tab === 'pending' ? 'Нет заявок на проверке' : 'Ничего не найдено'}
+                : group === 'potential'
+                  ? 'Потенциальных карточек нет'
+                  : tab === 'pending'
+                    ? 'Нет заявок на проверке'
+                    : tab === 'all'
+                      ? 'Партнёров пока нет — карточки без заявки лежат во вкладке «Потенциальные»'
+                      : 'Ничего не найдено'}
             </p>
           </div>
         ) : (
@@ -1722,7 +1766,7 @@ export default function OperatorsClient() {
                 <button
                   type="button"
                   disabled={loading}
-                  onClick={() => { void load(tab, query, operators.length); }}
+                  onClick={() => { void load(tab, group, query, operators.length); }}
                   className="px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
                 >
                   {loading ? 'Загружаю…' : 'Показать ещё'}

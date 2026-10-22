@@ -21,7 +21,7 @@ const iconBtnStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'pointer',
-  color: 'var(--text-secondary)',
+  color: 'var(--on-header)',
   transition: 'color 0.2s, background 0.2s',
   flexShrink: 0,
 };
@@ -36,7 +36,7 @@ const btnStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'pointer',
-  color: 'var(--text-secondary)',
+  color: 'var(--on-header)',
   transition: 'color 0.2s, background 0.2s',
   flexShrink: 0,
 };
@@ -59,10 +59,10 @@ export function GeoToggle() {
       aria-label={isActive ? 'Выйти из режима «На Камчатке»' : 'Включить режим «Я на Камчатке»'}
       style={{
         ...btnStyle,
-        color: isActive ? 'var(--accent)' : undefined,
+        color: isActive ? 'var(--badge)' : undefined,
         background: isActive ? 'var(--accent)/10' : undefined,
       }}
-      className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+      className="hover:bg-white/10"
       title={isActive ? 'Режим: На Камчатке (нажмите для выхода)' : 'Я на Камчатке'}
     >
       <MapPin size={18} />

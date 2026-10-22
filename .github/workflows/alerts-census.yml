@@ -92,6 +92,13 @@ jobs:
           # Спорные — ПРЕДУПРЕЖДЕНИЕ, а не красный: слова отбоя в заголовке
           # записи с severity >= 1 — улика, а не доказательство, и решает по
           # ней человек. Печатаются до приёмки, чтобы красный их не заслонил.
+          pushed = d.get('pushed_60d')
+          print()
+          print('РАЗОСЛАННЫЕ ПУШИ ЗА 60 ДНЕЙ:', 'нет данных' if pushed is None else len(pushed))
+          for p in pushed or []:
+              print(' ', p.get('occurred_at'), '| алерт', p.get('alert_id'), '| доставлено', p.get('sent'), 'из', p.get('total'),
+                    '| запись снесена' if p.get('row_gone') else '| %s sev %s: %s' % (p.get('alert_type'), p.get('severity'), p.get('title')))
+
           contested = [a for a in alerts if a.get('contested') is True]
           unknown = [a for a in alerts if a.get('contested') is None]
           if contested or unknown:

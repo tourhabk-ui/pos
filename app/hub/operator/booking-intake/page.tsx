@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import BookingIntakeClient from './_BookingIntakeClient';
 
 export const metadata: Metadata = {
-  title: 'AI Приём заявок',
+  title: 'Приём заявок',
   robots: 'noindex, nofollow',
 };
 

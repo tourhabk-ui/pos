@@ -2,7 +2,7 @@
 
 ## Visual Identity
 
-Warm, volcanic earth tones grounded in Kamchatka's landscape: lava rock, dried tundra, ash grey, deep ocean. Not cold or minimal. Not tropical. The palette reads like late-afternoon light on a volcanic plateau.
+Light theme (default): clean booking-style palette — navy header `#003580`, light grey page `#F5F5F5`, white cards, primary blue `#006CE4`, success green `#008234`, yellow `#FEBB02` **only for badges** (always with dark text `--on-badge`), text `#1A1A1A`. Owner decision 2026-10-22, migrated gradually. Brand name stays Vedar; no third-party logos.
 
 Dark mode is primary for on-trail use (battery, sunlight readability). Light mode for planning and discovery.
 
@@ -14,23 +14,34 @@ All colors are defined as CSS custom properties in `app/globals.css`. Never use 
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `--bg-primary` | `#F5F0EB` | `#0D1117` | Page background |
+| `--bg-primary` | `#F5F5F5` | `#0D1117` | Page background |
 | `--bg-card` | `#FFFFFF` | `#21262D` | Card surfaces |
-| `--bg-hover` | `#F0ECE7` | `#30363D` | Hover state |
-| `--text-primary` | `#1A1714` | `#F0F6FC` | Headings, body |
-| `--text-secondary` | `#6B6560` | `#8B949E` | Labels, captions |
-| `--text-muted` | `#9A9590` | `#484F58` | Placeholders, disabled |
+| `--bg-hover` | `#EEF3FB` | `#30363D` | Hover state |
+| `--text-primary` | `#1A1A1A` | `#F0F6FC` | Headings, body |
+| `--text-secondary` | `#595959` | `#8B949E` | Labels, captions |
+| `--text-muted` | `#6B6B6B` | `#484F58` | Placeholders, disabled |
 | `--border` | `rgba(0,0,0,0.07)` | `rgba(255,255,255,0.08)` | Borders, dividers |
 
 ### Brand accent tokens
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `--accent` | `#D44A0C` | `#E8734A` | CTA, active states, links |
-| `--ocean` | `#2568B0` | `#00A8CC` | Map, navigation, icons |
-| `--success` | `#3FB950` | `#3FB950` | Eco points, completion |
+| `--accent` | `#006CE4` | `#E8734A` | CTA, active states, links |
+| `--ocean` | `#003580` | `#00A8CC` | Map, navigation, icons |
+| `--success` | `#008234` | `#3FB950` | Eco points, completion |
 | `--warning` | `#D29922` | `#D29922` | Weather alerts, caution |
 | `--danger` | `#DC2626` | `#F85149` | SOS, errors, critical |
+
+### Header & badge tokens
+
+| Token | Light | Dark | Role |
+|---|---|---|---|
+| `--header-bg` | `#003580` | `#0D1117` | Site header background |
+| `--on-header` | `#FFFFFF` | `#F0F6FC` | Text/icons on header |
+| `--badge` | `#FEBB02` | `#FEBB02` | Badges only (price, rating, «хит») |
+| `--on-badge` | `#1A1A1A` | `#1A1A1A` | Text on badge — never white (contrast 1.7:1) |
+
+Yellow is never used as text or icon colour on white. Field / SOS / map screens keep the dark theme (`data-theme="dark"`).
 
 ### Prohibited
 

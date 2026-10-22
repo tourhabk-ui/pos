@@ -88,7 +88,7 @@ describe('роут', () => {
     expect(ok.status).toBe(200);
     const body = await ok.json();
     expect(body.zh_detail).toBe(2);
-    expect(body.urls.filter((u: string) => u.includes('/zh/'))).toEqual([
+    expect(body.urls.filter((u: string) => u.includes('/zh/tours/') || u.includes('/zh/places/'))).toEqual([
       expect.stringMatching(/\/zh\/tours\/dolina-geyzerov$/),
       expect.stringMatching(/\/zh\/places\/kronotskij-zapovednik$/),
     ]);

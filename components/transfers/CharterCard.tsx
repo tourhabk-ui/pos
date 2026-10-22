@@ -1,9 +1,11 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { Bus, ClipboardList, MessageCircle, Phone, Send } from 'lucide-react';
 import { LazyClip } from '@/components/media/LazyClip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
+import { photoSrc } from '@/lib/images/variant';
 import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import {
   carrierPagePath, charterOrderPath, charterRequisitesLine, describeFleet, priceUnknownsText, type CharterCarrier,
@@ -17,20 +19,55 @@ import {
  * прайс, нарисованный двумя вёрстками, разошёлся бы в подписях. Данные —
  * только из lib/transfers/charter (миграция 1185); здесь ничего не считается.
  *
+ * Витринная карточка говорит тем же визуальным языком, что карточка тура
+ * в каталоге (MarketplaceClient.TourCard): та же оболочка rounded-2xl,
+ * главное фото 4:3 во всю ширину сверху, чип над заголовком, текст блоком
+ * p-4 под фото. Отличие сущности сохранено внутри: у перевозчика не одна
+ * цена, а весь прайс строками, поэтому сетки туров и «одной цены» здесь нет.
+ *
  * Цена называется «за машину»: «за место» не пишется нигде, потому что
  * перевозчик её не называл (§4.0). Номер телефона показан здесь и в ответы
  * Кузьмича и MCP не уходит (pd-guard) — им даётся ссылка на карточку.
  */
 export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
+  const hero = carrier.photos[0];
   const fleet = describeFleet(carrier.vehicles, carrier.seatClasses);
   const phoneLabel = formatContactPhone(carrier.phone);
   const hasContacts = Boolean(carrier.phone || carrier.telegramHref || carrier.whatsappHref);
 
+  const chipStyle: React.CSSProperties = {
+    background: 'color-mix(in srgb, currentColor 12%, transparent)',
+    borderColor: 'color-mix(in srgb, currentColor 28%, transparent)',
+  };
+
   return (
-    <section className="ds-card p-5 space-y-4" aria-label={`${carrier.name}: машина под заказ`}>
+    <section
+      className="group relative flex flex-col rounded-2xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border)] shadow-sm hover:shadow-xl transition-all duration-300"
+      aria-label={`${carrier.name}: машина под заказ`}
+    >
+      {hero && (
+        <div className="relative aspect-[4/3] overflow-hidden bg-[var(--bg-hover)]">
+          <Image
+            src={photoSrc(hero.url, 640)}
+            alt={`${carrier.name}: фото машины`}
+            fill
+            sizes="(max-width: 768px) 100vw, 672px"
+            className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
+          />
+          {hero.credit && (
+            <span className="absolute bottom-2 left-2 z-[2] px-2 py-0.5 rounded-full text-[11px] leading-tight text-white backdrop-blur-md bg-black/40 border border-white/15">
+              Фото: {hero.credit}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col flex-1 p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="ds-label mb-1">Под заказ · целая машина</p>
+          <p className="mb-2">
+            <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>Под заказ · целая машина</span>
+          </p>
           <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">{carrier.name}</h3>
           {fleet && (
             <p className="text-xs text-[var(--text-secondary)] mt-1 inline-flex items-center gap-1.5">
@@ -58,7 +95,7 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
           мелкая ссылка «Карточка перевозчика». */}
       <Link
         href={charterOrderPath(carrier.slug)}
-        className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2"
+        className="ds-btn ds-btn-primary px-4 inline-flex items-center justify-center gap-2 self-start"
       >
         <ClipboardList className="w-4 h-4" aria-hidden />
         Заявка на машину
@@ -128,12 +165,15 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
           16:9 не шире своего ролика, без звука, без предзагрузки. */}
       {carrier.video && <CarrierVideo video={carrier.video} name={carrier.name} />}
 
-      {carrier.photos.length > 0 && (
+      {carrier.photos.length > 1 && (
+        // Первое фото уже стоит главным сверху (как фото тура) — в ленте
+        // остаются остальные, чтобы один кадр не повторялся дважды в карточке.
         // Подпись — под каждым снимком: автор назван не у всех, и одна общая
         // строка «Фото: Шатун» приписала бы чужие кадры перевозчику. Снимок
         // открывается на весь экран (CharterPhotos), а не сырым файлом.
-        <CharterPhotos name={carrier.name} photos={carrier.photos} />
+        <CharterPhotos name={carrier.name} photos={carrier.photos.slice(1)} />
       )}
+      </div>
     </section>
   );
 }

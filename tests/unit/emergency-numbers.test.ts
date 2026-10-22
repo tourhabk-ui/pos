@@ -42,3 +42,13 @@ describe('emergency-numbers — единый источник экстренны
     expect(new Set(digits).size).toBe(digits.length);
   });
 });
+
+import { VERIFIED_REFERENCE } from '@/lib/safety/emergency-numbers';
+import { ALLOWED_PHONES } from '@/lib/kuzmich/safety-eval';
+describe('справочные линии МЧС', () => {
+  it('ЦУКС 30-10-81 принимается проверкой ответов, но не попадает в экстренный список', () => {
+    expect(VERIFIED_REFERENCE.map((n) => n.phone)).toContain('+7 (4152) 30-10-81');
+    expect(ALLOWED_PHONES.has('74152301081')).toBe(true);
+    expect(EMERGENCY_NUMBERS.map((n) => n.phone)).not.toContain('+7 (4152) 30-10-81');
+  });
+});

@@ -111,26 +111,29 @@ export function SystemSettings() {
   }
 
   const hasChanges = Object.keys(changes).length > 0;
+  const isEmpty = Object.keys(settings).length === 0;
 
   return (
     <div className="space-y-6">
       {/* Заголовок */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <h3 className="text-xl font-bold text-[var(--text-primary)]">Системные настройки</h3>
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <button
             onClick={fetchSettings}
-            className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
+            className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
           >
             Обновить
           </button>
-          <button
-            onClick={saveSettings}
-            disabled={!hasChanges || saving}
-            className="px-6 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--text-primary)] font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Сохранение...' : 'Сохранить изменения'}
-          </button>
+          {!isEmpty && (
+            <button
+              onClick={saveSettings}
+              disabled={!hasChanges || saving}
+              className="min-h-[44px] w-full sm:w-auto px-6 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--text-primary)] font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Сохранение...' : 'Сохранить изменения'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -152,8 +155,8 @@ export function SystemSettings() {
               const hasChange = changes[settingKey] !== undefined;
 
               return (
-                <div key={key} className="flex items-start gap-4 p-4 bg-[var(--bg-card)] rounded-lg">
-                  <div className="flex-1">
+                <div key={key} className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4 p-4 bg-[var(--bg-card)] rounded-lg">
+                  <div className="flex-1 min-w-0">
                     <label className="block text-[var(--text-primary)] font-medium mb-1">
                       {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       {hasChange && <span className="text-[var(--accent)] ml-2">•</span>}
@@ -200,9 +203,13 @@ export function SystemSettings() {
         </div>
       ))}
 
-      {Object.keys(settings).length === 0 && (
-        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
-          <p className="text-[var(--text-muted)]">Настройки не найдены</p>
+      {isEmpty && (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center space-y-3">
+          <p className="text-[var(--text-primary)] font-medium">Системные настройки пока не используются</p>
+          <p className="text-[var(--text-muted)] text-sm leading-relaxed max-w-xl mx-auto">
+            В базе нет ни одной настройки, и ни один модуль платформы их не читает.
+            Реальные параметры задаются переменными окружения на сервере, поэтому здесь нечего редактировать.
+          </p>
         </div>
       )}
     </div>

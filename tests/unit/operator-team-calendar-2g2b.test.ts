@@ -228,7 +228,9 @@ describe('даты тура (роут 2г-1): та же дыра со сброс
     dbQuery.mockResolvedValue({ rows: [] });
     await real.addAvailability(7n, [{ date: '2026-11-01', available_slots: 5 }], false);
     const [sql, params] = dbQuery.mock.calls[0];
-    expect(sql).toMatch(/base_price_override = CASE WHEN \$5::boolean THEN \$4 ELSE tour_availability\.base_price_override END/);
+    // Цена даты без права не трогается: условие на флаге права. Поведение на
+    // настоящем PostgreSQL — tests/integration/tour-availability-batch.pg.test.ts.
+    expect(sql).toMatch(/base_price_override = CASE WHEN \$5::boolean THEN EXCLUDED\.base_price_override ELSE tour_availability\.base_price_override END/);
     expect(params[4]).toBe(false);
   });
 });

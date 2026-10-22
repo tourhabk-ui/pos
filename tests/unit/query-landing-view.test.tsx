@@ -1,0 +1,37 @@
+// @vitest-environment node
+/** Рендер посадочной: отказ базы ≠ пусто, CTA и MCP на месте, zh-название только из перевода. */
+import { describe, it, expect } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { QueryLandingView } from '@/components/seo/QueryLanding';
+import { landingByKey } from '@/lib/seo/query-landings';
+import type { LandingTourRow } from '@/lib/seo/query-landings-data';
+
+const row: LandingTourRow = {
+  id: '7', slug: 'vulkan-gorelyy', title: 'Вулкан Горелый', base_price: '15000', price_unit: 'per_person',
+  duration_hours: '10', operator_name: 'Компания', operator_slug: null, operator_public: false,
+  season_start: null, season_end: null, next_open_date: null, title_zh: '戈雷利火山',
+};
+
+describe('QueryLandingView', () => {
+  it('отказ базы — «не загрузился», пусто — «нет туров»', () => {
+    const l = landingByKey('ru-bears');
+    expect(renderToStaticMarkup(<QueryLandingView landing={l} tours={null} />)).toContain('Список не загрузился');
+    expect(renderToStaticMarkup(<QueryLandingView landing={l} tours={[]} />)).toContain('нет опубликованных туров');
+  });
+  it('zh: переведённое имя ведёт на конспект, бронь — на русскую карточку; CTA и MCP', () => {
+    const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('zh-volcano')} tours={[row]} />);
+    expect(html).toContain('lang="zh-CN"');
+    expect(html).toContain('href="/zh/tours/vulkan-gorelyy"');
+    expect(html).toContain('href="/catalog/tours/vulkan-gorelyy"');
+    expect(html).toContain('15,000 卢布');
+    expect(html).toContain('/api/mcp');
+    expect(html).toContain('href="/request"');
+    expect(html).toContain('"@type":"TouristTrip"');
+  });
+  it('en: без перевода — русское имя с lang="ru"', () => {
+    const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('en-booking')} tours={[{ ...row, title_zh: undefined }]} />);
+    expect(html).toContain('lang="ru"');
+    expect(html).toContain('dates on request');
+    expect(html).not.toContain('戈雷利火山');
+  });
+});

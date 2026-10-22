@@ -375,7 +375,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // Снимок вшит в код и синтетический: ни чужого фото, ни строки ПД.
   'vision-probe': ['net_out', 'ai', 'db_read', 'db_write'],
   'voice-probe': ['net_out', 'ai', 'db_read', 'db_write'],
-  'weathernext-probe': ['net_out'],
+  'weathernext-probe': ['net_out', 'db_read', 'db_write'], // db: запас прогноза Open-Meteo (weather_forecast_last_good, 21.10)
   'web-routes-census': ['db_read'],
   // Перепись виджетов партнёров (аудит 15.10, WID-measure): чтение базы и,
   // только с ?probe_sites=1, запрос главной каждого домена партнёра — есть ли

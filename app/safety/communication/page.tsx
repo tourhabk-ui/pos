@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import {
   Satellite, MessagesSquare, RadioTower, Smartphone,
   ShieldAlert, ClipboardCheck, MapPinned,
@@ -95,8 +96,9 @@ export default function CommunicationPage() {
       <Header />
 
       <main className="pb-20">
+        <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
         {/* Hero */}
-        <section className="max-w-3xl mx-auto px-4 pt-12 pb-10">
+        <section className="max-w-3xl mx-auto px-4 pt-6 pb-10">
           <div className="flex items-center gap-2 text-[var(--ocean)] mb-4">
             <Satellite className="w-4 h-4" />
             <span className="text-xs font-medium uppercase tracking-wider">Безопасность</span>

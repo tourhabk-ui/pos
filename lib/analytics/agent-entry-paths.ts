@@ -15,6 +15,11 @@
 export const AGENT_ENTRY_PATHS = [
   '/robots.txt',
   '/llms.txt',
+  // 17.10: китайский llms-файл. Своей строкой, а не вместе с /llms.txt:
+  // вопрос, ради которого заведён китайский слой, — ходят ли китайские
+  // агенты, — отвечается только раздельным счётом.
+  '/llms-zh.txt',
+  '/llms-en.txt',
   '/.well-known/mcp.json',
   '/.well-known/agent-card.json',
   '/.well-known/agent.json',

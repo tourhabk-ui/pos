@@ -51,7 +51,7 @@ export default function VolcanoTabs() {
   return (
     <div>
       {/* Кнопки, не ссылки: адрес обновляется replaceState, страница не перезагружается. */}
-      <div role="tablist" className="flex gap-1 border-b border-[var(--border)] px-4 md:px-6 pt-4">
+      <div role="tablist" className="flex flex-wrap gap-1 border-b border-[var(--border)] px-4 md:px-6 pt-4">
         {tabs.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -59,7 +59,7 @@ export default function VolcanoTabs() {
             role="tab"
             aria-selected={tab === id}
             onClick={() => switchTab(id)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+            className={`flex min-h-[40px] items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
               tab === id
                 ? 'border-[var(--accent)] text-[var(--accent)]'
                 : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

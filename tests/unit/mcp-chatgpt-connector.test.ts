@@ -289,7 +289,7 @@ describe('fetch', () => {
 describe('подключение в роут MCP и в A2A', () => {
   it('роут зовёт runConnectorTool для пары и кладёт объект в structuredContent', () => {
     const route = read('app/api/mcp/route.ts');
-    expect(route).toMatch(/if \(CONNECTOR_TOOL_NAMES\.has\(name\)\) return runConnectorTool\(name, rawArgs\)/);
+    expect(route).toMatch(/if \(CONNECTOR_TOOL_NAMES\.has\(name\)\) return runConnectorTool\(name, localized\.args as typeof rawArgs\)/);
     expect(route).toMatch(/structuredContent/);
     expect(route).toMatch(/CONNECTOR_TOOL_NAMES\.has\(toolName\)/);
   });

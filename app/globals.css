@@ -35,6 +35,10 @@
   /* Текст на заливке --accent: на светлой лаве тёмной темы белый даёт ≈3:1,
      тёмный ≈6:1; на тёмной лаве светлой темы — наоборот (белый ≈4.8:1). */
   --on-accent: #0D1117;
+  --header-bg: #0D1117;
+  --on-header: #F0F6FC;
+  --badge: #FEBB02;
+  --on-badge: #1A1A1A;
   --ocean: #00A8CC;        /* ocean -- ссылки, иконки */
   --telegram: #2AABEE;     /* Telegram brand color */
   --success: #3FB950;      /* moss -- успех, эко */
@@ -57,26 +61,30 @@
 
 :root[data-theme="light"] {
   /* Light = кремовая основа (документированный язык, CLAUDE.md §2) */
-  --bg-primary: #F5F0EB;
-  --bg-secondary: #EDE9E3;
+  --bg-primary: #F5F5F5;
+  --bg-secondary: #EBEBEB;
   --bg-card: #FFFFFF;
-  --bg-hover: #F0ECE7;
+  --bg-hover: #EEF3FB;
 
-  --text-primary: #1A1714;
-  --text-secondary: #6B6560;
+  --text-primary: #1A1A1A;
+  --text-secondary: #595959;
   /* 4,5:1 на фоне страницы, 5,1:1 на карточке (WCAG AA). Прежний #9A9590 —
      2,6 и 3,0 (аудит 01.10, решение владельца). */
-  --text-muted: #736D68;
+  --text-muted: #6B6B6B;
 
-  --accent: #C2410A;
-  --accent-hover: #B83E0A;
-  --accent-muted: rgba(194,65,10,0.1);
+  --accent: #006CE4;
+  --accent-hover: #0057B8;
+  --accent-muted: rgba(0,108,228,0.1);
   --on-accent: #FFFFFF;
-  --ocean: #2568B0;
+  --header-bg: #003580;
+  --on-header: #FFFFFF;
+  --badge: #FEBB02;
+  --on-badge: #1A1A1A;
+  --ocean: #003580;
   /* До 24.09 светлого --telegram не было: кнопка Telegram в «Хочу тур»
      становилась прозрачной с белым текстом на белой карточке (аудит П1, #102). */
   --telegram: #2AABEE;     /* Telegram brand color */
-  --success: #1A7A34;
+  --success: #008234;
   --warning: #876316;
   --danger: #B91C1C;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
@@ -96,20 +104,24 @@
 
 /* Fallback: light theme */
 :root:not([data-theme]) {
-  --bg-primary: #F5F0EB;
-  --bg-secondary: #EDE9E3;
+  --bg-primary: #F5F5F5;
+  --bg-secondary: #EBEBEB;
   --bg-card: #FFFFFF;
-  --bg-hover: #F0ECE7;
-  --text-primary: #1A1714;
-  --text-secondary: #6B6560;
-  --text-muted: #736D68;
-  --accent: #C2410A;
-  --accent-hover: #B83E0A;
-  --accent-muted: rgba(194,65,10,0.1);
+  --bg-hover: #EEF3FB;
+  --text-primary: #1A1A1A;
+  --text-secondary: #595959;
+  --text-muted: #6B6B6B;
+  --accent: #006CE4;
+  --accent-hover: #0057B8;
+  --accent-muted: rgba(0,108,228,0.1);
   --on-accent: #FFFFFF;
-  --ocean: #2568B0;
+  --header-bg: #003580;
+  --on-header: #FFFFFF;
+  --badge: #FEBB02;
+  --on-badge: #1A1A1A;
+  --ocean: #003580;
   --telegram: #2AABEE;
-  --success: #1A7A34;
+  --success: #008234;
   --warning: #876316;
   --danger: #B91C1C;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
@@ -700,3 +712,223 @@ body {
 .fx-dark-dim { color: #6B7280; }
 .fx-dark-ocean { color: #00A8CC; }
 .fx-dark-danger { color: #F85149; }
+
+/* ── Погода: герой-сцена (/weather, карт-бланш владельца на этот раздел) ──
+   Сцена сама задаёт палитру по времени суток и условию из прогноза,
+   поэтому читаемость не зависит от светлой/тёмной темы сайта. Текст —
+   только парами --wx-fg* на --wx-bg: контраст держится за счёт тёмных
+   ночных/штормовых градиентов и тёмного текста на светлых дневных. */
+.wx-scene {
+  --wx-fg: #f7fbff;
+  --wx-fg-2: #d9e9f8;
+  --wx-fg-3: #bdd6ee;
+  --wx-icon: #9fd8f2;
+  --wx-bg: linear-gradient(180deg, #0a1830 0%, #20344f 55%, #324e6d 100%);
+  --wx-glass: rgba(8, 26, 50, 0.44);
+  --wx-glass-2: rgba(255, 255, 255, 0.12);
+  --wx-glass-border: rgba(191, 224, 248, 0.30);
+  --wx-track: rgba(255, 255, 255, 0.24);
+  --wx-chip: rgba(8, 26, 50, 0.36);
+  --wx-silhouette: rgba(3, 14, 32, 0.50);
+  --wx-scene-border: rgba(160, 205, 240, 0.28);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--wx-scene-border);
+  border-radius: 2rem;
+  background: var(--wx-bg);
+  color: var(--wx-fg);
+  box-shadow: 0 18px 50px rgba(6, 24, 48, 0.20);
+}
+.wx-scene[data-wx-scene="night-clear"] {
+  --wx-bg: linear-gradient(180deg, #06142e 0%, #0d2a55 46%, #1d4a7a 78%, #2a5d8f 100%);
+}
+.wx-scene[data-wx-scene="night-cloud"] {
+  --wx-bg: linear-gradient(180deg, #0a1830 0%, #1d3049 52%, #2e4a66 100%);
+  --wx-icon: #a8c8de;
+}
+.wx-scene[data-wx-scene="night-fog"] {
+  --wx-bg: linear-gradient(180deg, #131e2b 0%, #28384a 55%, #41576c 100%);
+  --wx-icon: #b9d2de;
+}
+.wx-scene[data-wx-scene="night-rain"] {
+  --wx-bg: linear-gradient(180deg, #051824 0%, #0e3243 52%, #1c5266 100%);
+  --wx-icon: #8fd4d8;
+}
+.wx-scene[data-wx-scene="night-snow"] {
+  --wx-bg: linear-gradient(180deg, #0e1a3d 0%, #26356a 52%, #3f528a 100%);
+  --wx-icon: #c3d7ff;
+}
+.wx-scene[data-wx-scene="night-storm"],
+.wx-scene[data-wx-scene="day-storm"] {
+  --wx-bg: linear-gradient(180deg, #060b1a 0%, #131d35 52%, #253350 100%);
+  --wx-icon: #ffd28a;
+}
+.wx-scene[data-wx-scene="day-clear"],
+.wx-scene[data-wx-scene="day-cloud"],
+.wx-scene[data-wx-scene="day-fog"],
+.wx-scene[data-wx-scene="day-rain"],
+.wx-scene[data-wx-scene="day-snow"] {
+  --wx-fg: #0d2f4d;
+  --wx-fg-2: #224a69;
+  --wx-fg-3: #3d6484;
+  --wx-icon: #1769a8;
+  --wx-glass: rgba(255, 255, 255, 0.54);
+  --wx-glass-2: rgba(255, 255, 255, 0.40);
+  --wx-glass-border: rgba(255, 255, 255, 0.72);
+  --wx-track: rgba(13, 47, 77, 0.18);
+  --wx-chip: rgba(255, 255, 255, 0.44);
+  --wx-silhouette: rgba(35, 86, 128, 0.26);
+  --wx-scene-border: rgba(110, 170, 220, 0.45);
+}
+.wx-scene[data-wx-scene="day-clear"] {
+  --wx-bg: linear-gradient(180deg, #6fb2e6 0%, #9cccf0 48%, #d3ecf9 100%);
+}
+.wx-scene[data-wx-scene="day-cloud"] {
+  --wx-bg: linear-gradient(180deg, #8fb0cb 0%, #b4c9da 52%, #d0dfe9 100%);
+}
+.wx-scene[data-wx-scene="day-fog"] {
+  --wx-bg: linear-gradient(180deg, #93a7b1 0%, #b9c8cd 52%, #d9e3e5 100%);
+  --wx-icon: #33677e;
+}
+.wx-scene[data-wx-scene="day-rain"] {
+  --wx-bg: linear-gradient(180deg, #7498b4 0%, #a3bccf 52%, #c2d5e1 100%);
+}
+.wx-scene[data-wx-scene="day-snow"] {
+  --wx-bg: linear-gradient(180deg, #a3c2dd 0%, #c6dcee 52%, #e4f0f8 100%);
+}
+/* Звёзды ночью и мягкое солнце ясным днём — только CSS, без картинок. */
+.wx-scene[data-wx-period="night"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.9) 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.35) 1.5px, transparent 2px);
+  background-position: 24px 32px, 96px 120px, 180px 64px;
+  background-size: 210px 170px, 260px 220px, 340px 260px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.wx-scene[data-wx-period="day"][data-wx-sky="clear"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 86% 6%, rgba(255, 246, 190, 0.75) 0, rgba(255, 246, 190, 0) 34%);
+  pointer-events: none;
+}
+.wx-scene > * {
+  position: relative;
+  z-index: 1;
+}
+.wx-scene .ds-h2,
+.wx-scene .ds-label {
+  color: var(--wx-fg);
+}
+.wx-glass {
+  background: var(--wx-glass);
+  border: 1px solid var(--wx-glass-border);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  box-shadow: 0 8px 28px rgba(4, 20, 40, 0.12);
+}
+.wx-glass-soft {
+  background: var(--wx-glass-2);
+  border: 1px solid var(--wx-glass-border);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+}
+.wx-silhouette-svg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 0;
+  width: 100%;
+  height: 190px;
+  color: var(--wx-silhouette);
+  pointer-events: none;
+}
+@media (min-width: 640px) {
+  .wx-silhouette-svg { height: 260px; }
+}
+
+/* SectionSwipeBar — полоса подразделов под шапкой. Высота шапки:
+   10px + 44px кнопка + 10px (Header.tsx) + safe-area. */
+:root { --header-h: calc(env(safe-area-inset-top, 0px) + 64px); }
+.section-swipebar {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 40;
+  margin-bottom: 16px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border-bottom: 1px solid var(--border);
+}
+.section-swipebar__list {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 0 16px;
+  margin: 0;
+  list-style: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+.section-swipebar__list::-webkit-scrollbar { display: none; }
+.section-swipebar__chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  scroll-snap-align: center;
+  text-decoration: none;
+  border-radius: 9999px;
+}
+.section-swipebar__pill {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  transition: background-color .2s, color .2s, border-color .2s;
+}
+.section-swipebar__chip:hover .section-swipebar__pill { color: var(--text-primary); border-color: var(--text-muted); }
+.section-swipebar__chip.is-active .section-swipebar__pill {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg-primary);
+}
+.section-swipebar__chip:focus-visible { outline: none; }
+.section-swipebar__chip:focus-visible .section-swipebar__pill { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .section-swipebar__pill { transition: none; } }
+
+/* Админ-дашборд: стекло в том же ключе, что SectionSwipeBar и стеклянный ряд
+   (#2604) — полупрозрачная подложка от --bg-primary, blur, тонкая граница.
+   Один спокойный тон вместо цветных полосок; работает в обеих темах, т.к.
+   всё считается от токенов темы. */
+.admin-glass {
+  background: color-mix(in srgb, var(--bg-card) 62%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+}
+.admin-glass--press { transition: background-color .2s, border-color .2s, transform .15s; }
+.admin-glass--press:hover { border-color: color-mix(in srgb, var(--text-primary) 22%, transparent); }
+.admin-glass--press:active { transform: scale(.98); }
+.admin-glass-chip {
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  border: 1px solid var(--border);
+}
+@media (prefers-reduced-motion: reduce) { .admin-glass--press { transition: none; } .admin-glass--press:active { transform: none; } }

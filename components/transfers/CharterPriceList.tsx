@@ -17,6 +17,10 @@ import {
  * не вело ничего). Доплата за день — не направление, заказать её нельзя.
  * Цена за час и за день (1292) — тоже не направление, но это и есть товар:
  * «Заказать» у неё открывает форму, где направление пишет заказчик.
+ *
+ * Цена строки — тем же голосом, что цена карточки тура: крупный жирный
+ * tabular-nums цветом основного текста, а не мелкой акцентной подписью.
+ * Размер скромнее турного (text-base, не text-lg): строк в прайсе много.
  */
 export function CharterPriceList({ carrier, orderSlug }: {
   carrier: Pick<CharterCarrier, 'destinations' | 'extraDay' | 'rates'>;
@@ -41,7 +45,7 @@ export function CharterPriceList({ carrier, orderSlug }: {
             </dt>
             <dd className="flex items-center gap-3 shrink-0">
               <span className="text-right">
-                <span className="block text-sm font-semibold text-[var(--accent)]">{formatRub(d.priceRub)}</span>
+                <span className="block text-base font-bold tabular-nums text-[var(--text-primary)]">{formatRub(d.priceRub)}</span>
                 {d.note && <span className="block text-xs text-[var(--text-muted)]">{d.note}</span>}
               </span>
               {orderSlug && (
@@ -65,7 +69,7 @@ export function CharterPriceList({ carrier, orderSlug }: {
             <dt className="min-w-0 text-sm text-[var(--text-primary)]">{rateLabel(r.unit)}</dt>
             <dd className="flex items-center gap-3 shrink-0">
               <span className="text-right">
-                <span className="block whitespace-nowrap text-sm font-semibold text-[var(--accent)]">{rateOnScreen(r)}</span>
+                <span className="block whitespace-nowrap text-base font-bold tabular-nums text-[var(--text-primary)]">{rateOnScreen(r)}</span>
                 {r.note && <span className="block text-xs text-[var(--text-muted)]">{r.note}</span>}
               </span>
               {orderSlug && (
@@ -86,7 +90,7 @@ export function CharterPriceList({ carrier, orderSlug }: {
             <dt className="shrink-0 text-sm text-[var(--text-primary)]">Доплата за день</dt>
             {/* min-w-0: длинная подпись перевозчика переносится, а не уезжает за край карточки. */}
             <dd className="min-w-0 text-right">
-              <span className="whitespace-nowrap text-sm font-semibold text-[var(--accent)]">+{formatRub(carrier.extraDay.priceRub)} в день</span>
+              <span className="whitespace-nowrap text-base font-bold tabular-nums text-[var(--text-primary)]">+{formatRub(carrier.extraDay.priceRub)} в день</span>
               {carrier.extraDay.note && (
                 <span className="block text-xs text-[var(--text-muted)]">{carrier.extraDay.note}</span>
               )}

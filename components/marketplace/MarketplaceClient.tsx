@@ -408,7 +408,7 @@ function TourCard({
         className="relative z-[2] flex flex-col flex-1 p-4 text-[var(--text-primary)] pointer-events-none"
         style={{ fontFamily: 'var(--font-outfit)' }}
       >
-        <div className="flex flex-wrap items-center gap-1.5 mb-2 text-[11px] font-semibold text-[var(--text-secondary)]">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2 text-xs font-semibold text-[var(--text-secondary)]">
           <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{activity}</span>
           {diffBadge && <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{diffBadge.label}</span>}
           <span className="inline-flex items-center gap-1">
@@ -431,13 +431,13 @@ function TourCard({
         </h3>
 
         {(tour.short_description || tour.description) && (
-          <p className="text-[13px] leading-snug text-[var(--text-secondary)] line-clamp-2 mb-1.5">
+          <p className="text-[15px] leading-snug text-[var(--text-secondary)] line-clamp-2 mb-1.5">
             {tour.short_description ?? tour.description}
           </p>
         )}
 
         {included.length > 0 && (
-          <ul className="flex flex-nowrap sm:flex-wrap overflow-hidden gap-1 mb-2 text-[11px] text-[var(--text-secondary)]" aria-label="Входит в цену">
+          <ul className="flex flex-nowrap sm:flex-wrap overflow-hidden gap-1 mb-2 text-xs text-[var(--text-secondary)]" aria-label="Входит в цену">
             {included.map(item => (
               <li key={item} className="shrink-0 max-w-[11rem] truncate px-2 py-0.5 rounded-full border" style={chipStyle} title={item}>
                 {item}
@@ -467,10 +467,9 @@ function TourCard({
           )}
         </div>
 
-        {/* Цена строкой выше, кнопка — слева и по своей ширине: правый нижний
-            угол карточки свободен, и плавающая «Подобрать тур» (StickyLeadButton,
-            right-4) при любой прокрутке ложится на пустое место, а не на бронь.
-            mt-auto — низ карточек в ряду сетки выровнен. */}
+        {/* Цена строкой выше, кнопка — слева и по своей ширине. Плавающей
+            кнопки на каталоге больше нет (владелец 19.10) — правый нижний угол
+            свободен сам по себе. mt-auto — низ карточек в ряду выровнен. */}
         <div className="mt-auto flex flex-col items-start gap-1.5 pointer-events-auto">
           <div className="flex flex-col min-w-0">
             {priceOld && priceOld > basePrice && (
@@ -478,7 +477,7 @@ function TourCard({
             )}
             <span className="whitespace-nowrap leading-tight">
               <span className="text-lg font-bold tabular-nums">{rub(basePrice)}</span>{' '}
-              <span className="text-[11px] text-[var(--text-secondary)]">{priceUnitLabel(tour.price_unit, true)}</span>
+              <span className="text-xs text-[var(--text-secondary)]">{priceUnitLabel(tour.price_unit, true)}</span>
             </span>
           </div>
           <Link
@@ -898,7 +897,7 @@ export default function MarketplaceClient({
               <SlidersHorizontal className="w-4 h-4" aria-hidden />
               <span>Фильтры</span>
               {activeFiltersCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[var(--accent)] text-white text-[11px] flex items-center justify-center font-bold">
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[var(--accent)] text-white text-xs flex items-center justify-center font-bold">
                   {activeFiltersCount}
                 </span>
               )}

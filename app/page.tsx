@@ -81,7 +81,7 @@ export default async function Page() {
         <OnSiteBanner />
         <main className="flex-1">
           {/* Новая Главная v8 «Воронка» — фото-герой, радар безопасности,
-              карусель, стеклянные «Стихии», реальная сейсмика. Своя навигация и SOS. */}
+              карусель, реальная сейсмика. Своя навигация и SOS. */}
           <HomeV8Client data={homeData} />
         </main>
       </div>

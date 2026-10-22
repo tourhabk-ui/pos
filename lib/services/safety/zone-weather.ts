@@ -75,7 +75,7 @@ export async function getZoneWeather(key: ZoneKey): Promise<ZoneWeather | null> 
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${zone.lat}&longitude=${zone.lon}`
       + '&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,weather_code'
       + '&wind_speed_unit=kmh&timezone=Asia%2FKamchatka';
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
     if (!res.ok) {
       console.error('[zone-weather] Open-Meteo ответил', res.status, key);
       return null;

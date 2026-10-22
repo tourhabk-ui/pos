@@ -154,7 +154,7 @@ export default function KnowledgeBasePage() {
         </div>
         <button
           onClick={() => { fetchStats(); fetchRoutes(); }}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+          className="flex min-h-[40px] items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
         >
           <RefreshCw className="w-3 h-3" /> Обновить
         </button>
@@ -195,12 +195,12 @@ export default function KnowledgeBasePage() {
               placeholder="Поиск по названию..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+              className="w-full min-h-[40px] pl-9 pr-3 py-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
             />
           </div>
           <button
             type="submit"
-            className="px-3 py-2 text-xs bg-[var(--accent)] text-white rounded-md hover:opacity-90 transition-opacity"
+            className="min-h-[40px] shrink-0 px-3 py-2 text-xs bg-[var(--accent)] text-white rounded-md hover:opacity-90 transition-opacity"
           >
             Найти
           </button>
@@ -208,7 +208,7 @@ export default function KnowledgeBasePage() {
         <select
           value={kind}
           onChange={e => { setKind(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+          className="min-h-[40px] px-3 py-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
         >
           <option value="">Места и маршруты</option>
           <option value="place">Только места</option>
@@ -217,7 +217,7 @@ export default function KnowledgeBasePage() {
         <select
           value={category}
           onChange={e => { setCategory(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+          className="min-h-[40px] px-3 py-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
         >
           <option value="">Все категории</option>
           {stats?.categories?.map(c => (
@@ -283,7 +283,7 @@ export default function KnowledgeBasePage() {
                           href={route.source_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[var(--accent)] hover:underline"
+                          className="flex min-h-[40px] items-center gap-1 break-all text-[var(--accent)] hover:underline"
                         >
                           <Globe className="w-3 h-3" />
                           {route.source_name ?? 'Источник'}

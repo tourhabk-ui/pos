@@ -20,6 +20,10 @@ export default function UsersManagement() {
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>({});
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [roleErrors, setRoleErrors] = useState<Record<string, string>>({});
+  const [roleNotices, setRoleNotices] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchUsers();
@@ -66,10 +70,51 @@ export default function UsersManagement() {
 
   const getRoleLabel = (role: string) => {
     const labels: Record<string, string> = {
-      tourist: 'Турист', operator: 'Оператор', guide: 'Гид',
-      transfer: 'Трансфер', agent: 'Агент', admin: 'Админ'
+      user: 'Пользователь', tourist: 'Турист', operator: 'Оператор', guide: 'Гид',
+      transfer: 'Трансфер', agent: 'Агент', stay: 'Проживание', gear: 'Снаряжение',
+      admin: 'Админ'
     };
     return labels[role] || role;
+  };
+
+  const ROLE_OPTIONS = ['user', 'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin'];
+
+  const saveRole = async (user: AdminUser) => {
+    const newRole = roleDrafts[user.id] ?? user.role;
+    if (newRole === user.role || savingUserId) return;
+    setSavingUserId(user.id);
+    setRoleErrors((prev) => ({ ...prev, [user.id]: '' }));
+    setRoleNotices((prev) => ({ ...prev, [user.id]: '' }));
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.success !== true) {
+        setRoleErrors((prev) => ({
+          ...prev,
+          [user.id]: result?.error ?? `Не удалось сохранить роль (HTTP ${response.status})`,
+        }));
+        return;
+      }
+      const savedRole = result.data?.role ?? newRole;
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, role: savedRole } : u)));
+      setRoleDrafts((prev) => {
+        const next = { ...prev };
+        delete next[user.id];
+        return next;
+      });
+      setRoleNotices((prev) => ({
+        ...prev,
+        [user.id]: 'Роль сохранена. Пользователю нужно выйти и войти снова, чтобы новая роль вступила в силу.',
+      }));
+    } catch {
+      setRoleErrors((prev) => ({ ...prev, [user.id]: 'Сеть недоступна — роль не сохранена' }));
+    } finally {
+      setSavingUserId(null);
+    }
   };
 
   const columns: Column<AdminUser>[] = [
@@ -88,11 +133,49 @@ export default function UsersManagement() {
       key: 'role',
       header: 'Роль',
       sortable: true,
-      render: (user) => (
-        <span className="px-1.5 py-0.5 bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded text-[10px] font-medium">
-          {getRoleLabel(user.role)}
-        </span>
-      )
+      render: (user) => {
+        const draft = roleDrafts[user.id] ?? user.role;
+        const changed = draft !== user.role;
+        const saving = savingUserId === user.id;
+        return (
+          <div className="flex flex-col gap-1.5 min-w-[150px] sm:min-w-[190px]">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
+              <select
+                aria-label={`Роль пользователя ${user.email}`}
+                value={draft}
+                disabled={saving}
+                onChange={(e) => {
+                  setRoleDrafts((prev) => ({ ...prev, [user.id]: e.target.value }));
+                  setRoleErrors((prev) => ({ ...prev, [user.id]: '' }));
+                  setRoleNotices((prev) => ({ ...prev, [user.id]: '' }));
+                }}
+                className="h-10 min-h-[40px] w-full sm:w-auto px-2 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-50"
+              >
+                {!ROLE_OPTIONS.includes(user.role) && (
+                  <option value={user.role}>{getRoleLabel(user.role)}</option>
+                )}
+                {ROLE_OPTIONS.map((role) => (
+                  <option key={role} value={role}>{getRoleLabel(role)}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void saveRole(user)}
+                disabled={!changed || saving}
+                className="h-10 min-h-[40px] w-full sm:w-auto px-3 text-xs font-medium bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border)] rounded-md hover:border-[var(--accent)] focus:outline-none focus:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {saving ? 'Сохраняю…' : 'Сохранить'}
+              </button>
+            </div>
+            {roleErrors[user.id] && (
+              <p role="alert" className="text-[11px] leading-snug text-[var(--danger)]">{roleErrors[user.id]}</p>
+            )}
+            {roleNotices[user.id] && (
+              <p className="text-[11px] leading-snug text-[var(--success)]">{roleNotices[user.id]}</p>
+            )}
+          </div>
+        );
+      }
     },
     // Колонка «Статус» убрана: API/БД не хранят статус пользователя, бейдж
     // показывал бы всем ложное «inactive». Вернуть при появлении поля в users.

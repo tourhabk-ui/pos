@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   quickRiskScore, riskLevel, seismicScore, seismicEventPoints, shakingIntensity,
+  volcanicScore, extractAshHeight, extractDepthKm, recommendedAction,
   SEISMIC_MAX, type SeismicInput,
 } from '@/lib/agents/agencies/danger-analyst-agency';
 
@@ -108,5 +109,69 @@ describe('расстояние неизвестно — не выдумывае�
     const SRC = readFileSync(join(process.cwd(), 'lib/agents/agencies/danger-analyst-agency.ts'), 'utf-8');
     expect(SRC).toMatch(/lat::float8 AS lat, lng::float8 AS lng/);
     expect(SRC).toMatch(/kmToNearestTouristArea\(a\.lat, a\.lng\)/);
+  });
+});
+
+describe('18.10.2026: рутинные вулканы и глубокий толчок эвакуацию не объявляют', () => {
+  const routine = (title: string) => ({
+    title, description: '', ash_height: extractAshHeight(title), published_at: '', severity: 1,
+  });
+
+  it('«не ближе 10 км к вершине» — не пепел на 10 км', () => {
+    expect(extractAshHeight('Вулкан Шивелуч: не ближе 10 км к вершине')).toBeUndefined();
+    expect(extractAshHeight('Вулкан Безымянный: не приближаться')).toBeUndefined();
+  });
+
+  it('настоящий пепел по-прежнему читается', () => {
+    expect(extractAshHeight('Пепел до 12 км')).toBe(12000);
+    expect(extractAshHeight('Выброс пепла на 8 км')).toBe(8000);
+    expect(extractAshHeight('Пепловый выброс до 6 000 м')).toBe(6000);
+  });
+
+  it('северная зона 18.10: три «не приближаться» — не 80 и не критическая', () => {
+    const volcanic_alerts = [
+      routine('Вулкан Шивелуч: не ближе 10 км к вершине'),
+      routine('Вулкан Безымянный: не приближаться'),
+      routine('Вулкан Ключевской: не приближаться'),
+    ];
+    const score = quickRiskScore({ seismic_events: [], volcanic_alerts, tourists_in_zone: 0 });
+    expect(score).toBeLessThan(30);
+    expect(riskLevel(score)).toBe('low');
+    expect(recommendedAction(riskLevel(score), 0)).not.toMatch(/EVACUATE/);
+  });
+
+  it('вулканы складываются по самому сильному, а не суммой', () => {
+    const three = [routine('А'), routine('Б'), routine('В')];
+    expect(volcanicScore(three)).toBeLessThan(30);
+    expect(volcanicScore(three)).toBeLessThan(3 * 15);
+  });
+
+  it('глубина 128 км снижает балл далёкого ML 6.5', () => {
+    expect(extractDepthKm('Землетрясение, глубина 127,8 км')).toBeCloseTo(127.8);
+    const deep = seismicEventPoints(6.5, 41, 128);
+    const shallow = seismicEventPoints(6.5, 41);
+    expect(deep).toBeLessThan(shallow);
+    expect(deep).toBe(35);
+  });
+
+  it('авачинская зона 18.10: глубокий ML 6.5 + Мутновский — умеренная, без эвакуации', () => {
+    const events: SeismicInput[] = [{
+      title: 'Землетрясение ML 6.5', description: 'глубина 127,8 км', magnitude: 6.5,
+      distance_km: 41, depth_km: 128, published_at: '2026-10-16T00:00:00Z', severity: 1,
+    }];
+    const score = quickRiskScore({
+      seismic_events: events,
+      volcanic_alerts: [routine('Вулкан Мутновский: не приближаться')],
+      tourists_in_zone: 0,
+    });
+    expect(riskLevel(score)).toBe('moderate');
+    expect(recommendedAction(riskLevel(score), 0)).not.toMatch(/EVACUATE/);
+  });
+
+  it('EVACUATE_* требует туристов в зоне или официальный источник', () => {
+    expect(recommendedAction('critical', 0)).not.toMatch(/EVACUATE/);
+    expect(recommendedAction('high', 0)).not.toMatch(/EVACUATE/);
+    expect(recommendedAction('critical', 12)).toBe('EVACUATE_IMMEDIATE');
+    expect(recommendedAction('critical', 0, true)).toBe('EVACUATE_IMMEDIATE');
   });
 });

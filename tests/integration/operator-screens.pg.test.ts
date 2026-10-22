@@ -24,6 +24,7 @@ import {
   OPERATOR_CLIENTS_LIST_SQL, OPERATOR_CLIENTS_COUNT_SQL, OPERATOR_CLIENTS_SUMMARY_SQL, listOperatorClients,
 } from '@/lib/crm/operator-clients';
 import { createTestDatabase } from '../helpers/pg-schema';
+import { OPERATOR_DATA_QUALITY_SQL, OPERATOR_INCOMPLETE_SQL } from '@/lib/admin/operator-stats-sql';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -186,6 +187,26 @@ withPg('экраны оператора на настоящем PostgreSQL', () 
     const sum = await pool.query<{ total_revenue: string; total_bookings: string }>(ANALYTICS_SQL.summary, [operatorId, since]);
     expect(Number(sum.rows[0].total_revenue)).toBe(10000);
     expect(Number(sum.rows[0].total_bookings)).toBe(1);
+  });
+
+  it('заполненность операторов (#1428): contact — jsonb, запросы исполняются, пустой {} — «не заполнен»', async () => {
+    // В шаблоне схемы есть операторы из миграций — судим приращение, а не абсолют.
+    const before = (await pool.query(OPERATOR_DATA_QUALITY_SQL)).rows[0];
+    const empty = await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, website, description)
+       VALUES ('Оператор без контактов', 'operator', '{}'::jsonb, FALSE, FALSE, 'scr-op-empty', '  ', NULL) RETURNING id`,
+    );
+    const after = (await pool.query(OPERATOR_DATA_QUALITY_SQL)).rows[0];
+    expect(after.total).toBe(before.total + 1);
+    expect(after.contact_filled).toBe(before.contact_filled);
+    expect(after.website_filled).toBe(before.website_filled);
+    expect(after.description_filled).toBe(before.description_filled);
+    const inc = await pool.query(OPERATOR_INCOMPLETE_SQL);
+    const row = inc.rows.find((r: { id: string }) => r.id === empty.rows[0].id);
+    expect(row).toMatchObject({ contact_missing: true, website_missing: true, description_missing: true });
+    // Контакт (ПД партнёра) из базы не выбирается вовсе.
+    expect(Object.keys(inc.rows[0])).not.toContain('contact');
+    await pool.query('DELETE FROM partners WHERE id = $1', [empty.rows[0].id]);
   });
 
   it('«Гиды»: запрос исполняется, считает подтверждённые аттестации, чужих гидов не показывает', async () => {

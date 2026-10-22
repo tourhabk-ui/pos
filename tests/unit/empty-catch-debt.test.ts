@@ -186,7 +186,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/agents/editor.ts': 2,
   'lib/agents/eval/editor-judge.ts': 3,
   'lib/agents/evo/content-sanitizer.ts': 1,
-  'lib/agents/evo/growth-agent.ts': 5,
+  'lib/agents/evo/growth-agent.ts': 4,
   'lib/agents/evo/intel-bridge.ts': 1,
   'lib/agents/evo/model-watcher.ts': 1,
   'lib/agents/evo/schema-model.ts': 2,

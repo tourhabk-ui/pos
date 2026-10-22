@@ -62,6 +62,15 @@ function fmtRub(v: number) {
   return `${new Intl.NumberFormat('ru-RU').format(v)} ₽`;
 }
 
+// До марта 2027 Ведар — информационный портал, оплат нет: денежная сумма
+// «Потрачено» у туриста не растёт никогда. Вместо неё — дата регистрации.
+function fmtSince(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('ru-RU', { month: 'short', year: 'numeric' }).format(d);
+}
+
 const TIER_LABELS: Record<string, string> = {
   bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина',
 };
@@ -268,12 +277,12 @@ export default function TouristDashboardClient() {
   // выдаётся за второй (§4.0).
   const kpis = ps ? [
     { label: 'Поездок', value: String(ps.total_trips), icon: MapPin },
-    { label: 'Потрачено', value: fmtRub(ps.total_spent), icon: TrendingUp },
+    { label: 'С нами с', value: fmtSince(ps.member_since), icon: TrendingUp },
     { label: 'Эко', value: new Intl.NumberFormat('ru-RU').format(ps.loyalty_points), icon: Award },
-    { label: 'Уровень', value: TIER_LABELS[ps.loyalty_tier] ?? ps.loyalty_tier, icon: Compass },
+    { label: 'Уровень', value: TIER_LABELS[ps.loyalty_tier] || ps.loyalty_tier || 'Новичок', icon: Compass },
   ] : statsFailed ? [
     { label: 'Поездок', value: '—', icon: MapPin },
-    { label: 'Потрачено', value: '—', icon: TrendingUp },
+    { label: 'С нами с', value: '—', icon: TrendingUp },
     { label: 'Эко', value: '—', icon: Award },
     { label: 'Уровень', value: '—', icon: Compass },
   ] : [];

@@ -49,8 +49,10 @@ function parts(overPhoto?: boolean) {
 describe('цвет шапки', () => {
   it('по умолчанию — токены, без градиента', () => {
     const { header, search } = parts();
-    expect(search.style.color, 'белые иконки без фото под шапкой — 1.48:1 на кремовом').toBe('var(--text-secondary)');
-    expect(header.style.background).not.toMatch(/gradient/);
+    // Палитра букинга (владелец 22.10): без фото шапка сплошная --header-bg,
+    // иконки --on-header (контраст проверяется ниже).
+    expect(search.style.color).toBe('var(--on-header)');
+    expect(header.style.background).toBe('var(--header-bg)');
   });
 
   it('поверх фото — белые иконки и градиент под ними', () => {
@@ -68,18 +70,18 @@ describe('цвет шапки', () => {
     expect(sos.style.color).toMatch(/^(#fff|rgb\(255,\s*255,\s*255\))$/);
   });
 
-  it('без фото SOS остаётся тихой пилюлей на токене', () => {
+  it('без фото SOS тоже сплошная: контурная красная на синей шапке не читается', () => {
     const { header } = parts();
     const sos = header.querySelector('[data-emergency-action]') as HTMLElement;
-    expect(sos.style.background).toMatch(/color-mix/);
-    expect(sos.style.color).toBe('var(--danger)');
+    expect(sos.style.background).toBe('var(--danger)');
+    expect(sos.style.color).toMatch(/^(#fff|rgb\(255,\s*255,\s*255\))$/);
   });
 
   it('поверх фото логотип белый, без фото — токеном', () => {
     const logo = (o?: boolean) => (parts(o).header.querySelector('a[aria-label="Ведар"]') as HTMLElement).style.color;
     expect(logo(true), 'тёмный знак на тёмном небе героя сливается').toMatch(/255,\s*255,\s*255/);
     cleanup();
-    expect(logo()).toBe('var(--text-primary)');
+    expect(logo()).toBe('var(--on-header)');
   });
 
   it('карточка места объявляет фото под шапкой', async () => {
@@ -119,7 +121,7 @@ describe('дорожки и путь к турам', () => {
     const token = m![1];
     const dot = short.querySelector('[data-accent-dot]') as HTMLElement | null;
     expect(dot, 'акцент ссылки пропал вместе с цветом текста').toBeTruthy();
-    expect(dot!.style.background).toBe('var(--accent)');
+    expect(dot!.style.background).toBe('var(--badge)');
 
     const { readFileSync } = await import('node:fs');
     const css = readFileSync('app/globals.css', 'utf-8');
@@ -144,8 +146,8 @@ describe('дорожки и путь к турам', () => {
     };
     for (const sel of [':root[data-theme="light"]', ':root[data-theme="dark"]']) {
       const t = block(sel);
-      // Без прокрутки шапка прозрачна над --bg-primary, после — --bg-card.
-      for (const bg of ['--bg-primary', '--bg-card']) {
+      // Без фото шапка сплошная --header-bg (палитра букинга, 22.10).
+      for (const bg of ['--header-bg']) {
         const c = contrast(hex(t, token), hex(t, bg));
         expect(c, `${sel}: ${token} на ${bg} = ${c.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
       }

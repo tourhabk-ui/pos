@@ -5,6 +5,7 @@ import {
   BarChart3, TrendingUp, DollarSign, Users, Target, Calendar,
   RefreshCw, AlertTriangle,
 } from 'lucide-react';
+import { paymentsOpen } from '@/lib/payments/launch';
 import { LoadingSpinner, EmptyState } from '@/components/admin/shared';
 import { SimpleChart } from '@/components/admin/Dashboard/SimpleChart';
 
@@ -39,6 +40,8 @@ const MetricCard = ({ icon: Icon, label, value, subtext }: { icon: React.Element
 );
 
 export default function AnalyticsClient() {
+  // До старта оплат (не раньше 03.2027) выручку и ₽ не показываем.
+  const showMoney = paymentsOpen();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,24 +117,28 @@ export default function AnalyticsClient() {
 
       {/* Summary metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {showMoney && (
         <MetricCard
           icon={DollarSign}
           label="Выручка"
           value={formatRub(data.summary.totalRevenue)}
           subtext={`${data.summary.totalBookings} бронирований`}
         />
+        )}
         <MetricCard
           icon={Users}
           label="Всего бронирований"
           value={data.summary.totalBookings}
           subtext={`Завершено: ${data.summary.completedBookings}`}
         />
+        {showMoney && (
         <MetricCard
           icon={Target}
           label="Средний чек"
           value={formatRub(data.summary.avgBookingValue)}
           subtext="На одно бронирование"
         />
+        )}
         <MetricCard
           icon={TrendingUp}
           label="Конверсия"
@@ -142,10 +149,12 @@ export default function AnalyticsClient() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {showMoney && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Выручка по месяцам (тыс. ₽)</p>
           <SimpleChart data={monthlyRevenue} type="bar" color="var(--accent)" />
         </div>
+        )}
 
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Статусы бронирований</p>
@@ -182,15 +191,17 @@ export default function AnalyticsClient() {
 
       {/* Top tours */}
       <div>
-        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Топ-5 туров по продажам</p>
+        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Топ-5 туров по бронированиям</p>
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="border-b border-[var(--border)] bg-[var(--bg-hover)]">
               <tr>
                 <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Тур</th>
                 <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Бронирований</th>
+{showMoney && (<>
                 <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Выручка</th>
                 <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Ср. чек</th>
+</>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
@@ -199,13 +210,15 @@ export default function AnalyticsClient() {
                   <tr key={tour.id} className="hover:bg-[var(--bg-hover)] transition-colors">
                     <td className="px-4 py-3 text-[var(--text-primary)]">{tour.title}</td>
                     <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{tour.bookings}</td>
+{showMoney && (<>
                     <td className="px-4 py-3 text-right text-[var(--text-primary)] font-medium">{formatRub(tour.revenue)}</td>
                     <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{formatRub(tour.avgPrice)}</td>
+</>)}
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                  <td colSpan={showMoney ? 4 : 2} className="px-4 py-8 text-center text-[var(--text-muted)]">
                     Нет данных за выбранный период
                   </td>
                 </tr>

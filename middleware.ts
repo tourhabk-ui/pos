@@ -206,6 +206,19 @@ const ratelimit = redis
   : null;
 
 export async function middleware(request: NextRequest) {
+  // Языковые разделы (вариант А, 19.10): корневому layout нужен первый сегмент
+  // пути, чтобы поставить <html lang="en"> / lang="zh-CN" вместо общего "ru".
+  // Сюда middleware пускает матчер (только /en/* и /zh/* сверх прежних путей);
+  // дальше этим страницам ничего не нужно — ни rate-limit, ни auth: как раньше,
+  // просто пропускаем, но с заголовком пути для layout. Заголовок внутренний:
+  // клиентский x-vedar-pathname перезаписывается, а не читается.
+  const firstSegment = request.nextUrl.pathname.split('/').filter(Boolean)[0];
+  if (firstSegment === 'en' || firstSegment === 'zh') {
+    const headers = new Headers(request.headers);
+    headers.set('x-vedar-pathname', request.nextUrl.pathname);
+    return applySecurityHeaders(NextResponse.next({ request: { headers } }), request.nextUrl.pathname);
+  }
+
   // ── Redirect legacy /routes?kind=tour → /marketplace ──
   const kind = request.nextUrl.searchParams.get('kind');
   if (request.nextUrl.pathname === '/routes' && kind === 'tour') {
@@ -357,6 +370,10 @@ export const config = {
     '/profile/:path*',
     '/widget/:path*',
     '/routes',
+    // Только чтобы передать layout первый сегмент (см. выше): обработка этих
+    // разделов заканчивается ранним пропуском в начале middleware.
+    '/en/:path*',
+    '/zh/:path*',
   ],
 };
 // Build ID: 1774529925

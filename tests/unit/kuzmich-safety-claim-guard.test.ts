@@ -10,8 +10,6 @@
  *   нет.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
@@ -22,7 +20,6 @@ import {
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 
-const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 const run = (name: string, output: string): ToolRun => ({ name, producedData: true, output });
 const GUARDIAN_ALERTS = run('get_guardian_context', 'Авачинский вулкан [ЖЁЛТЫЙ]\nАктивные алерты: Экстренное предупреждение на 9 октября (сильный ветер).');
 const GUARDIAN_CALM = run('get_guardian_context', 'Авачинский вулкан [ЗЕЛЁНЫЙ]\nОпасности: камнепад на верхнем участке.');
@@ -123,21 +120,7 @@ describe('журнал разбора', () => {
   });
 });
 
-describe('сверка стоит на всех поверхностях до отправки', () => {
-  it('мессенджеры: до SOS-блока, по журналу только ответа из цикла инструментов', () => {
-    const src = read('lib/kuzmich/core.ts');
-    expect(src).toMatch(/const claimRuns = usedAgentLoopAnswer \? toolRuns : null;/);
-    // После сверки безопасности текст может пройти ещё сторожа (доставка, 15.10):
-    // важен порядок «сверка — потом SOS-блок», а не имя переменной между ними.
-    const sosAt = src.search(/withSosBlock\(\w+\.text, userContent\)/);
-    expect(sosAt).toBeGreaterThan(-1);
-    expect(src.indexOf('guardSafetyClaims(answer, claimRuns)')).toBeLessThan(sosAt);
-  });
+// «Сверка стоит на всех поверхностях до отправки» проверяется вызовом каждой
+// поверхности: tests/unit/kuzmich-guards-all-surfaces.test.ts (аудит 1.14).
+// Прежние проверки сравнивали строки исходника и краснели на верной правке.
 
-  it('веб-чат: до SOS-блока; веб-стрим: до отдачи по словам', () => {
-    const chat = read('app/api/ai/chat/route.ts');
-    expect(chat.indexOf('guardSafetyClaims(answer')).toBeLessThan(chat.indexOf('withSosBlock(answer, rawMessage)'));
-    const stream = read('app/api/ai/chat-stream/route.ts');
-    expect(stream.indexOf('guardSafetyClaims(fullAnswer, streamToolRuns)')).toBeLessThan(stream.indexOf('flushWords(fullAnswer);\n          } else {'));
-  });
-});

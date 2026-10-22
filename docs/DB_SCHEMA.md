@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-16 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1292_zheltukhin_minibus_carrier.sql`.
+> Снято 2026-10-21 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1308_agent_run_history_ended_at.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 279 |
+| Таблиц | 280 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3732 |
+| Колонок | 3739 |
 | Внешних ключей | 330 |
-| Таблиц без единого FK в обе стороны | 82 |
+| Таблиц без единого FK в обе стороны | 83 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 22 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `model_catalog` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `widget_daily` |
+| [Прочее](#прочее) | 23 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `model_catalog` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -345,9 +345,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `zone varchar` `contact_type varchar` `name varchar` `phone varchar` `location_lat numeric` `location_lng numeric` `service_hours text` `capabilities text[]` `updated_at timestamp=` `purpose varchar` `source varchar` `source_url text` `verified_at timestamptz` `verified_by text` `notes text`
 
-**external_alerts** · 27 кол. · PK id · индексов 5
+**external_alerts** · 28 кол. · PK id · индексов 5
 
-`id bigint!=` `alert_type varchar` `severity integer` `title varchar` `description text` `affected_zones text[]` `affected_locations uuid[]=` `created_at timestamp=` `expires_at timestamp` `source_url varchar` `external_id varchar` `updated_at timestamp=` `push_sent_at timestamptz` `magnitude numeric` `lat numeric` `lng numeric` `push_suppressed_at timestamptz` `push_suppressed_reason text` `volcano_name text` `volcano_ark_id uuid` `affected_parks text[]` `basis_title text` `basis_url text` `basis_origin text` `basis_valid_until timestamptz` `basis_checked_at timestamptz` `basis_check_outcome text`
+`id bigint!=` `alert_type varchar` `severity integer` `title varchar` `description text` `affected_zones text[]` `affected_locations uuid[]=` `created_at timestamp=` `expires_at timestamp` `source_url varchar` `external_id varchar` `updated_at timestamp=` `push_sent_at timestamptz` `magnitude numeric` `lat numeric` `lng numeric` `push_suppressed_at timestamptz` `push_suppressed_reason text` `volcano_name text` `volcano_ark_id uuid` `affected_parks text[]` `basis_title text` `basis_url text` `basis_origin text` `basis_valid_until timestamptz` `basis_checked_at timestamptz` `basis_check_outcome text` `volcano_scope text!=`
 
 **mchs_group_registrations** · 19 кол. · PK id · operator_partner_id → partners.id, operator_user_id → users.id · индексов 4
 
@@ -795,7 +795,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 **user_sessions** · 5 кол. · PK id · user_id → users.id · индексов 4
 
-`id uuid!=` `user_id uuid` `token varchar!` `expires_at timestamptz!` `created_at timestamptz=`
+`id uuid!=` `user_id uuid` `token text!` `expires_at timestamptz!` `created_at timestamptz=`
 
 **users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, accommodations, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_payout_items, agent_referral_links, audit_logs, board_meeting_sessions, booking_direct_payments, booking_logs, bookings, booking_waivers, carrier_review_invites, carrier_reviews, chat_sessions, client_communications, collections, commission_payouts, content_translations, conversation_messages, conversation_participants, conversations, crm_contacts, crm_events, crm_tasks, gear_items, gear_rentals, guide_certifications, guide_operator_invites, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_client_notes, operator_members, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partner_api_keys, partner_oauth_codes, partners, password_reset_tokens, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tourist_profiles, tour_payments, tour_selections, tracker_links, transfer_reviews, transfers, transfer_seat_bookings, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
 
@@ -1157,7 +1157,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `key_hash character!` `lead_id uuid` `seat_request_id uuid` `tool_name text!` `created_at timestamptz!=` `expires_at timestamptz!` `last_read_at timestamptz` `read_count integer!=` `stay_request_id uuid`
 
-**agent_run_history** · 16 кол. · PK id · индексов 3
+**agent_run_history** · 16 кол. · PK id · индексов 4
 
 `id uuid!=` `agent_id varchar!` `status varchar!` `started_at timestamptz!=` `ended_at timestamptz!=` `duration_ms integer` `items_processed integer` `items_created integer` `errors_count integer!=` `error_msg text` `metadata jsonb` `created_at timestamptz!=` `prompt_tokens integer` `completion_tokens integer` `llm_calls integer` `estimated_cost_usd numeric`
 
@@ -1303,9 +1303,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `user_id uuid!` `type varchar!` `title varchar!` `message text!` `data jsonb=` `is_read boolean=` `is_archived boolean=` `priority varchar=` `action_url text` `created_at timestamptz=` `read_at timestamptz` `expires_at timestamptz` `updated_at timestamptz=`
 
-**page_views** · 11 кол. · PK id · индексов 6
+**page_views** · 12 кол. · PK id · индексов 6
 
-`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=`
+`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=` `device text`
 
 **platform_settings** · 3 кол. · PK key · индексов 1
 
@@ -1377,9 +1377,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `context_key varchar!` `turns jsonb!` `updated_at timestamptz!=` `expires_at timestamptz!`
 
-**a2a_dialogs** · 12 кол. · PK id · индексов 2
+**a2a_dialogs** · 14 кол. · PK id · индексов 2
 
-`id bigint!=` `created_at timestamptz!=` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `turn integer!=` `question text!` `answer text!` `state varchar!` `duration_ms integer` `is_self boolean!=`
+`id bigint!=` `created_at timestamptz!=` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `turn integer!=` `question text!` `answer text!` `state varchar!` `duration_ms integer` `is_self boolean!=` `client_ip varchar` `user_agent varchar`
 
 **a2a_requests** · 18 кол. · PK id · индексов 3
 
@@ -1456,6 +1456,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **volcano_bulletin_kfegs** · 10 кол. · PK id · индексов 3
 
 `id bigint!=` `observed_date date!` `volcano_name text!` `volcano_name_en text` `place_ark_id uuid` `color text` `color_raw text!` `color_unknown_reason text` `seismicity text` `fetched_at timestamptz!=`
+
+**weather_forecast_last_good** · 3 кол. · PK cache_key · индексов 2
+
+`cache_key varchar!` `result jsonb!` `fetched_at timestamptz!`
 
 **widget_daily** · 7 кол. · partner_id → partners.id · индексов 2
 

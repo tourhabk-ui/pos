@@ -232,7 +232,7 @@ function RescueBriefing() {
       </div>
 
       {/* Sub-tabs */}
-      <div className="flex border-b border-[var(--border)]">
+      <div className="flex flex-wrap border-b border-[var(--border)]">
         {TABS.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -527,7 +527,7 @@ export function SafetyDashboardClient() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-6 py-4 text-sm font-medium transition-colors ${
+                className={`min-h-[44px] px-3 py-3 sm:px-6 sm:py-4 text-sm font-medium whitespace-nowrap transition-colors ${
                   tab === t
                     ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

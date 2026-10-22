@@ -37,8 +37,10 @@ describe('getTourDetails', () => {
     expect(sql).toContain('FROM operator_tours');
     expect(sql).toContain('is_active = true');
     expect(sql).toContain('deleted_at IS NULL');
-    expect(sql).toMatch(/CASE WHEN title ILIKE \$1 THEN 0/);
-    expect(params).toEqual(['%сплав%']);
+    // Ранг 17.10: точное название → начинается с запроса → содержит; затем короче.
+    expect(sql).toMatch(/WHEN lower\(title\) = lower\(\$2\) THEN 0 WHEN title ILIKE \$3 THEN 1 WHEN title ILIKE \$1 THEN 2/);
+    expect(sql).toMatch(/length\(title\) ASC, base_price ASC/);
+    expect(params).toEqual(['%сплав%', 'сплав', 'сплав%']);
   });
 
   it('тур не найден → честно говорит «не найден», без выдумок', async () => {

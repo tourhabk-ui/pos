@@ -105,7 +105,7 @@ describe('formatTripPlanForChat: живая дата под днём тура', 
 
 describe('источник один: занятость движка, а не второй метод', () => {
   it('движок записывает исход чтения занятости у дня с туром', () => {
-    expect(ENGINE).toMatch(/availability = slots === null \? 'unread' : slots\.length > 0 \? 'open' : 'none';/);
+    expect(ENGINE).toMatch(/availability = slots === null \? 'unread' : daySlot \? 'open' : 'none';/);
     expect(ENGINE).toMatch(/availableDate,\s*slotsRemaining,\s*availability,/);
   });
 

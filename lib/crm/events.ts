@@ -124,6 +124,41 @@ export async function recordSourceEventQuietly(input: SourceEventInput, db: Even
   }
 }
 
+/**
+ * Журнальные виды: событие пишется в ленту партнёра, но клиентом источник не
+ * становится. Запрос мест (1108) — такой: до «Есть места» оператор туриста не
+ * знает (crm-pd-parity), поэтому связи с контактом нет, contact_id пуст, а
+ * в payload только статусы, дата и канал (1306).
+ */
+export type JournalOnlyKind = 'seat_request';
+
+export interface JournalEventInput {
+  partnerId: string;
+  sourceKind: JournalOnlyKind;
+  sourceId: string;
+  kind: EventKind;
+  actorKind: ActorKind;
+  title: string;
+  /** Без ПД. */
+  payload?: Record<string, unknown>;
+}
+
+/** Событие без клиента. Никогда не бросает: отказ — вид и SQLSTATE в лог. */
+export async function recordJournalEventQuietly(input: JournalEventInput, db: Queryable = pool): Promise<void> {
+  const title = clampTitle(input.title);
+  if (!title) return;
+  try {
+    await db.query(
+      `INSERT INTO crm_events (partner_id, contact_id, source_kind, source_id, kind, actor_kind, title, payload)
+       VALUES ($1, NULL, $2, $3, $4, $5, $6, $7::jsonb)`,
+      [input.partnerId, input.sourceKind, input.sourceId, input.kind, input.actorKind, title,
+       JSON.stringify(input.payload ?? {})],
+    );
+  } catch (err) {
+    console.error('[crm] журнальное событие не записано:', input.sourceKind, input.kind, 'SQLSTATE', sqlstate(err));
+  }
+}
+
 export interface UserEventInput {
   partnerId: string;
   /** Аккаунт туриста — так клиента знает чат, где брони может и не быть. */

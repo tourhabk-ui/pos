@@ -4,7 +4,7 @@ import { pool } from '@/lib/database';
 import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createToken } from '@/lib/auth/jwt';
 import { recordUserSession, SESSION_TTL_DAYS } from '@/lib/auth/session-record';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 
 const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
 // Роли, которым нужен партнёрский профиль (partners.category совпадает с ролью)
@@ -33,31 +33,46 @@ function partnerContacts(phone?: string, telegram?: string): Record<string, stri
   return out;
 }
 
-const registerLimiter = createRateLimiter({ windowMs: 60_000, max: 3 });
+// Лимит считает только попытки, прошедшие проверку полей. До 20.10 он стоял
+// первым и жёг попытку на каждом «пароль короче 8»: человек с телефона трижды
+// получал невидимую ошибку, а на четвёртой — «слишком много попыток».
+// 5 настоящих попыток за 10 минут с одного IP — достаточно человеку и мало боту.
+const REGISTER_WINDOW_MS = 10 * 60_000;
+const registerLimiter = createRateLimiter({ windowMs: REGISTER_WINDOW_MS, max: 5 });
 
 // PUBLIC: Auth entry point — register endpoint intentionally public (no token required).
 export async function POST(request: NextRequest) {
-  const ip = getClientIp(request.headers);
-  if (!registerLimiter.check(ip)) {
-    return NextResponse.json(
-      { success: false, error: 'Слишком много попыток регистрации. Попробуйте позже.' },
-      { status: 429 }
-    );
-  }
-
   let client;
   // Открыта ли транзакция: ранний выход по 409 случается ДО BEGIN, и
   // откатывать там нечего. Флаг отличает «не начинали» от «начали».
   let transactionOpen = false;
 
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ success: false, error: 'Некорректные данные' }, { status: 400 });
+    }
 
     const parsed = RegisterSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' },
         { status: 400 }
+      );
+    }
+
+    const ip = getTrustedClientIp(request.headers);
+    if (!registerLimiter.check(ip)) {
+      const { resetAt } = registerLimiter.getStatus(ip, 5);
+      const waitSec = Math.max(1, Math.ceil((resetAt - Date.now()) / 1000));
+      const waitMin = Math.ceil(waitSec / 60);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Слишком много попыток регистрации. Попробуйте через ${waitMin} мин.`,
+          retryAfter: waitSec,
+        },
+        { status: 429, headers: { 'Retry-After': String(waitSec) } }
       );
     }
     const { email, password, name, role, roles, referralCode, phone, telegram } = parsed.data;

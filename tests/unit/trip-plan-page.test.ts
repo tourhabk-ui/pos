@@ -190,6 +190,12 @@ describe('страница черновика', () => {
     expect(page).toContain("{trip.source !== 'draft' && <JsonLd data={jsonLd} />}");
   });
 
+  it('читает план в процессе, без HTTP к своему публичному адресу (прод отдавал 500)', () => {
+    expect(page).toContain("import { GET as shareGet } from '@/app/api/trips/share/[token]/route';");
+    expect(page).not.toMatch(/fetch\(`\$\{baseUrl\}/);
+    expect(page).not.toContain('NEXT_PUBLIC_APP_URL ||');
+  });
+
   it('«не смог прочитать» — ошибка, а не «не найдено»', () => {
     expect(page).toMatch(/if \(read\.kind === 'missing'\) notFound\(\);/);
     expect(page).toMatch(/if \(read\.kind === 'failed'\) throw new Error/);

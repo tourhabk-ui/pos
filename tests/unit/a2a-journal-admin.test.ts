@@ -399,7 +399,8 @@ describe('срез /api/admin/analytics/a2a', () => {
     const windowSql = query.mock.calls.map((c) => String(c[0])).find((s) => /GROUP BY agent, ua_family, is_self/.test(s)) ?? '';
     expect(windowSql).toContain("created_at >= NOW() - ($1::int * INTERVAL '1 day')");
     expect(query.mock.calls.find((c) => /GROUP BY agent, ua_family, is_self/.test(String(c[0])))?.[1]).toEqual([7]);
-    expect(JSON.stringify(json)).not.toMatch(/user_agent|203\.0\.113/);
+    // Адрес и заголовок целиком — только в журнале общения (1303), не в журнале запросов.
+    expect(JSON.stringify({ ...json, dialogs: undefined })).not.toMatch(/user_agent|203\.0\.113/);
   });
 
   it('отказ одного блока — ok:false с SQLSTATE и строка в degraded; остальные блоки живут', async () => {

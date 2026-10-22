@@ -1,6 +1,9 @@
+import { Fragment } from 'react';
 import type { Metadata } from 'next';
 import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Eye, Clock, CheckCircle, Activity, Waves, type LucideIcon } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
+import MarineMammalRules from '@/components/safety/MarineMammalRules';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 export const metadata: Metadata = {
@@ -173,6 +176,7 @@ export default function OfflineSurvivalPage() {
       <Header />
 
       <main className="pt-16 pb-24">
+        <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
         {/* Hero */}
         <section className="ds-section border-b border-[var(--border)]">
           <div className="flex items-start gap-4 max-w-3xl">
@@ -344,8 +348,8 @@ export default function OfflineSurvivalPage() {
             {SECTIONS.map((section) => {
               const Icon = section.icon;
               return (
+                <Fragment key={section.id}>
                 <div
-                  key={section.id}
                   className="rounded-xl border overflow-hidden"
                   style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}
                 >
@@ -384,6 +388,9 @@ export default function OfflineSurvivalPage() {
                     </p>
                   )}
                 </div>
+                {/* Лежбища — правила поведения со зверями, рядом с медведем */}
+                {section.id === 'bear' && <MarineMammalRules />}
+                </Fragment>
               );
             })}
           </div>

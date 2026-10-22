@@ -328,4 +328,83 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     );
     expect(Array.isArray(r.rows)).toBe(true);
   });
+
+  // ── Удаление аккаунта и отзыв согласия (152-ФЗ, аудит кабинета 20.10) ──
+  // Своя пара туристов: стирание необратимо, общий посев не трогаем.
+  async function freshTourist(tag: string): Promise<string> {
+    const r = await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role, phone, telegram_id)
+       VALUES ($1, 'Стираемый ' || $2, 'x', 'tourist', '+79990000000', $3) RETURNING id`,
+      [`erase-${tag}@example.com`, tag, 900000 + Math.floor(Math.random() * 99999)],
+    );
+    return r.rows[0].id;
+  }
+  async function callDelete(uid: string, body: Record<string, unknown>) {
+    authAs.userId = uid;
+    const { NextRequest } = await import('next/server');
+    const { POST } = await import('@/app/api/user/delete/route');
+    const res = await POST(new NextRequest('http://localhost/api/user/delete', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    }) as unknown as NextRequest);
+    authAs.userId = userId;
+    return { status: res.status, json: await res.json() as { success: boolean; error?: string; blockers?: string[] } };
+  }
+
+  it('удаление: без слова-подтверждения — 422, ничего не стёрто', async () => {
+    const uid = await freshTourist('nophrase');
+    const r = await callDelete(uid, { confirm: true, phrase: 'да' });
+    expect(r.status).toBe(422);
+    const u = await pool.query(`SELECT email FROM users WHERE id = $1`, [uid]);
+    expect(u.rows[0].email).toBe('erase-nophrase@example.com');
+  });
+
+  it('удаление: предстоящая заявка блокирует (409), прошедшая — обезличивается', async () => {
+    const uid = await freshTourist('booked');
+    const b = await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, tourist_phone, tourist_email, booking_status)
+       VALUES ($1, CURRENT_DATE + 10, 2, $2, 'Иван', '+79991112233', 'ivan@example.com', 'confirmed') RETURNING id`,
+      [tourId, uid],
+    );
+    const blocked = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
+    expect(blocked.status).toBe(409);
+    expect(blocked.json.blockers).toEqual(['upcoming_booking']);
+
+    await pool.query(`UPDATE operator_bookings SET booking_date = CURRENT_DATE - 30, booking_status = 'completed' WHERE id = $1`, [b.rows[0].id]);
+    await pool.query(`INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, 'erase-token', NOW() + interval '1 day')`, [uid]);
+    await pool.query(`INSERT INTO tourist_profiles (user_id, full_name, emergency_contact_name, emergency_contact_phone) VALUES ($1, 'Иван', 'Мама', '+79990001122')`, [uid]);
+    const ok = await callDelete(uid, { confirm: true, phrase: 'удалить', mode: 'revoke_consent' });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+
+    const bk = await pool.query(`SELECT tourist_name, tourist_phone, tourist_email, booking_status, user_id::text AS uid FROM operator_bookings WHERE id = $1`, [b.rows[0].id]);
+    expect(bk.rows[0]).toEqual({ tourist_name: 'Удалённый пользователь', tourist_phone: null, tourist_email: null, booking_status: 'completed', uid });
+    const u = await pool.query(`SELECT email, name, phone, telegram_id, is_active, pd_consent_given, metadata->>'erase_reason' AS why FROM users WHERE id = $1`, [uid]);
+    expect(u.rows[0]).toEqual({
+      email: `deleted-${uid}@deleted.invalid`, name: 'Удалённый пользователь', phone: null, telegram_id: null,
+      is_active: false, pd_consent_given: false, why: 'consent_revoked',
+    });
+    expect((await pool.query(`SELECT 1 FROM user_sessions WHERE user_id = $1`, [uid])).rows).toHaveLength(0);
+    expect((await pool.query(`SELECT 1 FROM tourist_profiles WHERE user_id = $1`, [uid])).rows).toHaveLength(0);
+  });
+
+  it('удаление: незакрытая регистрация маршрута блокирует (409)', async () => {
+    const uid = await freshTourist('route');
+    await pool.query(
+      `INSERT INTO route_registrations (user_id, route_name, start_date, end_date, group_size, leader_name, leader_phone, emergency_contact_name, emergency_contact_phone)
+       VALUES ($1, 'Авачинский', CURRENT_DATE, CURRENT_DATE + 1, 1, 'Иван', '+7999', 'Мама', '+7998')`, [uid],
+    );
+    const r = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
+    expect(r.status).toBe(409);
+    expect(r.json.blockers).toEqual(['active_route_registration']);
+  });
+
+  it('экстренный контакт из tourist_profiles читается профилем (его подставляет «Контрольный срок»)', async () => {
+    const uid = await freshTourist('emergency');
+    await pool.query(
+      `INSERT INTO tourist_profiles (user_id, full_name, emergency_contact_name, emergency_contact_phone, emergency_contact_relation)
+       VALUES ($1, 'Иван', 'Мама', '+79990001122', 'мать')`, [uid],
+    );
+    const { getTouristProfile } = await import('@/lib/auth/tourist-helpers');
+    const pr = await getTouristProfile(uid);
+    expect(pr).toMatchObject({ emergency_contact_name: 'Мама', emergency_contact_phone: '+79990001122', emergency_contact_relation: 'мать' });
+  });
 });
