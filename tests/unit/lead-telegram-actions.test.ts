@@ -87,11 +87,9 @@ describe('кнопки под уведомлениями', () => {
 });
 
 describe('право нажатия', () => {
-  it('в MAX гейт по рабочему чату, а не по user_id', () => {
-    const block = MAX_BOT.slice(MAX_BOT.indexOf("payload.startsWith('lead_')"));
-    expect(block).toMatch(/MAX_OPERATOR_CHAT_ID/);
-    expect(block).toMatch(/String\(resolvedChatId\) !== operatorChat/);
-  });
+  // В MAX право нажатия — заверенный апдейт и рабочий чат из сообщения с
+  // кнопкой, не user_id: держит вызов вебхука в
+  // tests/unit/max-verified-press.test.ts.
 
   it('гейт по чату сообщения, а не по from.id', () => {
     const block = BOT.slice(BOT.indexOf("cq.data.startsWith('lead_send:')"));

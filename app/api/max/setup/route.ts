@@ -5,12 +5,18 @@
  *
  * Admin-only. Docs: https://dev.max.ru/docs-api
  * MAX API v2: POST https://platform-api2.max.ru/subscriptions
+ *
+ * Ответы MAX показываются как есть, но без ключа подписки (`scrubMaxSecret`):
+ * адрес подписки несёт `?s=<MAX_WEBHOOK_SECRET>`, а ответ админки пересылают
+ * снимком или текстом в чаты и сессии. С ключом подделанный `bot_started` с
+ * `login-<nonce>` становится «заверенным» — это вход в чужой аккаунт (#961).
  */
 
 import { maxFetch } from '@/lib/max/max-fetch';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
+import { scrubMaxSecret } from '@/lib/max/subscription-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,8 +65,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     ok: res.ok,
-    bot: meData,
-    subscriptions: data,
+    bot: scrubMaxSecret(meData),
+    subscriptions: scrubMaxSecret(data),
     expected_webhook: redactWebhookUrl(maxWebhookUrl()),
   });
 }
@@ -96,7 +102,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     status: res.status,
     webhook_url: redactWebhookUrl(webhookUrl),
     update_types: UPDATE_TYPES,
-    response: data,
+    response: scrubMaxSecret(data),
   });
 }
 
@@ -121,6 +127,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   return NextResponse.json({
     ok: res.ok,
     status: res.status,
-    response: data,
+    response: scrubMaxSecret(data),
   });
 }

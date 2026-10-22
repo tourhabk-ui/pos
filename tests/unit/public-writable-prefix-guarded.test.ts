@@ -22,14 +22,16 @@ const WRITE = /export\s+(async\s+)?function\s+(POST|PUT|PATCH|DELETE)\b/;
 const GUARD = /secret|Secret|SECRET|verifyCronSecret|require(Admin|Auth|Role)\(|x-telegram-bot-api-secret-token|X-Telegram-Bot-Api-Secret-Token/;
 
 /**
- * MAX-вебхук: обычные сообщения обрабатываются из любого источника, а
- * подтверждение ВХОДА требует заверенного адреса с секретом
- * (isVerifiedMaxWebhook, lib/max/webhook-url). Закрыть всё разом можно только
- * после проверки, что подписка MAX переведена на адрес с секретом, иначе
- * бот замолчит. Решение владельца, не этой правки.
+ * MAX-вебхук: вопросы Кузьмичу обрабатываются из любого источника, а всё, что
+ * меняет что-то за пределами ответа в чат (вход, подключение чата, кнопки мест
+ * и лида, заявка из номера, помощник кабинета, бронь, /reset), требует
+ * заверенного адреса с секретом (isVerifiedMaxWebhook, lib/max/webhook-url;
+ * правило — lib/max/verified-press, сторож — max-verified-press). Закрыть всё
+ * разом можно только после проверки, что подписка MAX переведена на адрес с
+ * секретом, иначе бот замолчит. Решение владельца, не этой правки.
  */
 const KNOWN_UNGUARDED: Record<string, string> = {
-  'app/api/max/kuzmich/route.ts': 'вход подтверждается только с заверенного адреса; закрыть сообщения — после проверки подписки MAX',
+  'app/api/max/kuzmich/route.ts': 'действия — только с заверенного адреса; вопросы Кузьмичу — из любого; закрыть их — после проверки подписки MAX',
 };
 
 function routes(dir: string): string[] {
