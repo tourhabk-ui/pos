@@ -10,6 +10,7 @@
 import type { ForecastDay } from '@/lib/planner/intelligence';
 import { PRECIP_DRY_MM, precipWords, keepDailyDescription, type DayPart } from '@/lib/weather/day-parts';
 import { elevationNote } from '@/lib/kuzmich/weather-tool';
+import { pluralWarnings } from '@/lib/home/safety-pill';
 
 const MINUS = '−';
 
@@ -131,6 +132,29 @@ export function uvWords(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return 'нет данных';
   const label = v < 3 ? 'низкий' : v < 6 ? 'умеренный' : v < 8 ? 'высокий' : v < 11 ? 'очень высокий' : 'экстремальный';
   return `${fmtNumber(v, 1)} · ${label}`;
+}
+
+const LEVEL_WORD = { 1: 'жёлтый', 2: 'оранжевый', 3: 'красный' } as const;
+
+/**
+ * Свёрнутые предупреждения одной строкой (владелец 22.10: «этот блок нужно
+ * свернуть, а то пока до погоды долистать не у всех терпение хватит»):
+ * «3 предупреждения · высший уровень — оранжевый» и явления «Ветер, дождь».
+ * Свёрнут текст, а не сигнал: сколько их и насколько опасно — видно сразу.
+ * Список пуст — null: сворачивать нечего.
+ */
+export function warningsSummary(items: ReadonlyArray<{ title: string; severity: 1 | 2 | 3 }>): {
+  line: string; phenomena: string; highest: 1 | 2 | 3;
+} | null {
+  if (items.length === 0) return null;
+  const highest = items.reduce<1 | 2 | 3>((m, w) => (w.severity > m ? w.severity : m), 1);
+  const names = [...new Set(items.map((w) => w.title.split(' — ')[0].trim().toLowerCase()).filter(Boolean))];
+  const phenomena = names.join(', ');
+  return {
+    line: `${items.length} ${pluralWarnings(items.length)} · высший уровень — ${LEVEL_WORD[highest]}`,
+    phenomena: phenomena.charAt(0).toUpperCase() + phenomena.slice(1),
+    highest,
+  };
 }
 
 /** Время из местного ISO «2026-10-20T07:59» → «07:59». */
