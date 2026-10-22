@@ -95,7 +95,7 @@ withPg('даты тура одним выражением (P3-14)', () => {
       { date: '2027-07-01', available_slots: 5, price_override: 7000 },
       { date: '2027-07-02', available_slots: 6 },
       { date: '2027-07-01', available_slots: 8, price_override: 7500 },
-    ], true);
+    ], true, operatorId);
     expect(await rows()).toEqual([
       { date: '2027-07-01', available_slots: 8, price: '7500.00', is_cancelled: false, reason: null },
       { date: '2027-07-02', available_slots: 6, price: null, is_cancelled: false, reason: null },
@@ -104,7 +104,7 @@ withPg('даты тура одним выражением (P3-14)', () => {
 
   it('без права цен повторное открытие места меняет, цену даты — нет', async () => {
     const { addAvailability } = await import('@/lib/api/operator-tours');
-    await addAvailability(BigInt(tourId), [{ date: '2027-07-01', available_slots: 3 }], false);
+    await addAvailability(BigInt(tourId), [{ date: '2027-07-01', available_slots: 3 }], false, operatorId);
     const d = (await rows()).find((r) => r.date === '2027-07-01');
     expect(d).toMatchObject({ available_slots: 3, price: '7500.00' });
   });
@@ -132,13 +132,13 @@ withPg('даты тура одним выражением (P3-14)', () => {
     expect((await rows()).find((r) => r.date === '2027-07-02')).toMatchObject({ is_cancelled: true, reason: 'Заблокировано оператором', available_slots: 6 });
 
     const { addAvailability } = await import('@/lib/api/operator-tours');
-    await addAvailability(BigInt(tourId), [{ date: '2027-07-02', available_slots: 4 }], true);
+    await addAvailability(BigInt(tourId), [{ date: '2027-07-02', available_slots: 4 }], true, operatorId);
     expect((await rows()).find((r) => r.date === '2027-07-02')).toMatchObject({ is_cancelled: false, reason: null, available_slots: 4 });
   });
 
   it('снятие блокировки: дата с местами открыта снова, дата без мест — убрана, как до блокировки', async () => {
     const { addAvailability } = await import('@/lib/api/operator-tours');
-    await addAvailability(BigInt(tourId), [{ date: '2028-03-10', available_slots: 5 }], true);
+    await addAvailability(BigInt(tourId), [{ date: '2028-03-10', available_slots: 5 }], true, operatorId);
     const { POST, DELETE } = await import('@/app/api/operator/calendar/block/route');
     await POST(call('POST', { tourId: Number(tourId), startDate: '2028-03-10', endDate: '2028-03-10' }));
     expect((await rows()).find((r) => r.date === '2028-03-10')).toMatchObject({ is_cancelled: true, available_slots: 5 });

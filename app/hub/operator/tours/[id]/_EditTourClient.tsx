@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { readApiResponse } from '@/lib/http/api-response';
 import MainPlacePicker, { type MainPlaceValue, type MainPlaceSource } from '@/components/operator/Tours/MainPlacePicker';
+import TourDateAdd from '@/components/operator/Tours/TourDateAdd';
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
 
@@ -128,9 +129,6 @@ export default function EditTourClient() {
   interface AvailSlot { id: string; date: string; available_slots: number; booked_slots: number; base_price_override: number | null }
   const [avail, setAvail] = useState<AvailSlot[]>([]);
   const [availLoading, setAvailLoading] = useState(false);
-  const [newDate, setNewDate] = useState('');
-  const [newSlots, setNewSlots] = useState('8');
-  const [addingSlot, setAddingSlot] = useState(false);
 
   const loadAvail = useCallback(async () => {
     setAvailLoading(true);
@@ -141,25 +139,6 @@ export default function EditTourClient() {
     } catch { /* ignore */ }
     finally { setAvailLoading(false); }
   }, [tourId]);
-
-  async function addAvailSlot() {
-    if (!newDate || !newSlots) return;
-    setAddingSlot(true);
-    try {
-      const res = await fetch(`/api/hub/operator/tours/${tourId}/availability`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dates: [{ date: newDate, available_slots: parseInt(newSlots, 10) }] }),
-      });
-      const json = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok) throw new Error(json.error ?? 'Ошибка');
-      setNewDate('');
-      setNewSlots('8');
-      await loadAvail();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка добавления даты');
-    } finally { setAddingSlot(false); }
-  }
 
   async function handleFileUpload(file: File) {
     if (!file) return;
@@ -733,39 +712,8 @@ export default function EditTourClient() {
           </button>
         </div>
 
-        {/* Add new date */}
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
-            <label className={lbl}>Дата</label>
-            <input
-              type="date"
-              className={inp}
-              value={newDate}
-              min={new Date().toISOString().slice(0,10)}
-              onChange={e => setNewDate(e.target.value)}
-            />
-          </div>
-          <div className="w-28">
-            <label className={lbl}>Мест</label>
-            <input
-              type="number"
-              min="1"
-              max="999"
-              className={inp}
-              value={newSlots}
-              onChange={e => setNewSlots(e.target.value)}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={addAvailSlot}
-            disabled={addingSlot || !newDate || !newSlots}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[var(--accent)] text-white rounded-lg font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-40 whitespace-nowrap"
-          >
-            {addingSlot ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-            Добавить
-          </button>
-        </div>
+        {/* Добавить дату — исход «записано, но туристам не видно» назван (TourDateAdd) */}
+        <TourDateAdd tourId={String(tourId)} onAdded={loadAvail} onError={setError} />
 
         {/* Existing slots */}
         {availLoading ? (

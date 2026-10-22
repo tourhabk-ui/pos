@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Sparkles, Loader, Send, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { OPERATOR_COMMAND_EXAMPLES } from '@/lib/agents/operator-commands';
 import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
@@ -32,6 +32,16 @@ export function AIAssistClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showData, setShowData] = useState(false);
+
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /** Образец пишущей команды — в поле, без отправки. */
+  function fillMessage(text: string) {
+    setMessage(text);
+    setError(null);
+    setResult(null);
+    inputRef.current?.focus();
+  }
 
   async function sendMessage(text?: string) {
     const msg = text ?? message;
@@ -88,10 +98,13 @@ export function AIAssistClient() {
             Примеры команд
           </p>
           <div className="flex flex-wrap gap-2">
+            {/* Чтение — сразу ответ; запись — только образец в поле: отправляет
+                человек, поправив номер тура и даты (ревью 22.10: кнопка
+                «Добавить слоты» сама открывала даты туру 1). */}
             {examples.map((ex) => (
               <button
                 key={ex.label}
-                onClick={() => sendMessage(ex.message)}
+                onClick={() => (ex.group === 'write' ? fillMessage(ex.message) : sendMessage(ex.message))}
                 disabled={loading}
                 title={ex.message}
                 className="min-h-[44px] px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
@@ -117,6 +130,8 @@ export function AIAssistClient() {
 
           <div className="flex gap-3">
             <textarea
+              ref={inputRef}
+              aria-label="Команда помощнику"
               placeholder="Напишите команду... (например: покажи мои туры, создай тур, добавь слоты)"
               value={message}
               onChange={(e) => setMessage(e.target.value)}

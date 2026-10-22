@@ -261,8 +261,18 @@ export async function POST(request: NextRequest) {
      * Бронь из лида и «Сделка» лиду — одной транзакцией: ничейный лид
      * становится лидом этого оператора, как при первом действии над ним
      * (app/api/leads/[id]). Без брони лид «Сделкой» не становится.
+     *
+     * Гейта мест нет, но мимо записи дат бронь не проходит: строка тура —
+     * `FOR SHARE` до вставки (ревью 22.10). Запись дат (lib/tours/
+     * availability-open) берёт `FOR NO KEY UPDATE` и с этой блокировкой
+     * конфликтует: пока идёт ручная бронь, места даты не поставить ниже
+     * занятых — запись дождётся брони и увидит её. Без замка внешний ключ брони
+     * брал только `KEY SHARE`, запись дат шла параллельно, и дата получала 5
+     * мест при 7 записанных. `FOR SHARE`, а не `FOR UPDATE`: две ручные брони
+     * друг друга не ждут — гейта мест у них нет.
      */
     const booking = await transaction(async (client) => {
+      await client.query('SELECT 1 FROM operator_tours WHERE id = $1 FOR SHARE', [tourId]);
       const created = await insertBookingRow(client, row, duration);
       if (lead) {
         await client.query(

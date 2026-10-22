@@ -14,10 +14,11 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { formatDateOnly } from '@/lib/dates/date-only';
 import {
-  CalendarDays, ChevronDown, ChevronUp, CheckCircle,
+  CalendarDays, ChevronDown, ChevronUp,
   AlertTriangle, RefreshCw, Zap, X, Plus,
 } from 'lucide-react';
 import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
+import { BulkOpenResult, type BulkResult } from './_BulkOpenResult';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,12 +28,6 @@ interface TourCoverage {
   openDays: number;     // дней с открытыми слотами в ближайшие 90 дней
   totalSlots: number;   // суммарно свободных мест
   nextDate: string | null;
-}
-
-interface BulkResult {
-  opened: number;
-  skipped: number;
-  total: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -467,18 +462,8 @@ export default function FreeDatesPanel() {
               </div>
             )}
 
-            {/* Результат */}
-            {result && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(63,185,80,0.10)', color: 'var(--success)' }}>
-                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                <div className="text-xs">
-                  <span className="font-bold">Открыто {result.opened} дат</span>
-                  {result.skipped > 0 && ` · пропущено ${result.skipped}`}
-                  {' '}из {result.total} в диапазоне
-                </div>
-              </div>
-            )}
+            {/* Результат — строками по исходам (_BulkOpenResult) */}
+            {result && <BulkOpenResult result={result} />}
 
             <button type="submit" disabled={submitting}
               className="w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-opacity"

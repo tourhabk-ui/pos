@@ -373,7 +373,6 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'app/api/cron/tour-describe/route.ts': { n: 1, why: `${NOT_SHOWCASE}: писатель описаний — черновику тоже нужен текст до публикации` },
   'app/api/cron/tour-photos-census/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись снимков туров` },
   'app/api/hub/operator/pricing-rules/route.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет оператора, свои туры` },
-  'app/api/operator/calendar/bulk-open/route.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет оператора, проверка владения своим туром` },
   'app/api/routes/analysis/route.ts': { n: 1, why: `${NOT_SHOWCASE}: аналитика маршрутов, счёт активных среди всех туров места` },
   'app/api/telegram/admin/route.ts': { n: 1, why: `${NOT_SHOWCASE}: статистика админ-бота` },
   'app/api/telegram/webhook/route.ts': { n: 1, why: `${NOT_SHOWCASE}: команда статистики для админа в боте` },

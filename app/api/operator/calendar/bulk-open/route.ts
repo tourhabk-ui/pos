@@ -12,19 +12,37 @@
  *   weekdays?:  number[] (0=пн, 6=вс; пусто = все дни)
  *   priceOverride?: number
  *   skipExisting?:  boolean (не перезаписывать уже открытые даты)
+ *
+ * Запись — общей функцией `openTourDates` (lib/tours/availability-open.ts):
+ * владение и блокировка тура, занятость по броням, исход по каждой дате.
+ * Кабинет открывает и закрытые даты (`closedDates: 'reopen'`), прошлые даты и
+ * сезон не проверяет — как раньше. Скрытому туру даты здесь не открываются, как
+ * и до 22.10 (владение проверялось с `is_active = true`), но ответ теперь
+ * называет причину — «тур скрыт», а не «тур не найден»: тур есть, и он виден
+ * оператору в списке. Новое правило одно: места ниже числа уже записанных не
+ * ставятся — такая дата приходит в `refused` с числом записанных.
+ *
+ * Ответ: `opened` — открыто всего, ВКЛЮЧАЯ открытые снова; `reopenedDates` —
+ * открытые снова поимённо с причиной закрытия (она при открытии снимается, и
+ * панель называет её отдельной строкой). Пустая цена цену уже открытой даты не
+ * трогает (меняется только переданная).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
 import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
+import { countResults, datesInRange, isCalendarDate, openTourDates, tourHiddenText } from '@/lib/tours/availability-open';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
+// Дата, которой нет в календаре (2027-02-31), — неверный ввод: Date перекатил
+// бы её в март, и открылись бы не те дни.
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isCalendarDate, 'Такой даты нет в календаре');
+
 const BulkOpenSchema = z.object({
   tourId:        z.coerce.number().int().positive('tourId обязателен'),
-  startDate:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  endDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startDate:     Day,
+  endDate:       Day,
   slots:         z.number().int().min(1).max(500),
   weekdays:      z.array(z.number().int().min(0).max(6)).optional(),
   priceOverride: z.number().min(0).optional(),
@@ -33,24 +51,6 @@ const BulkOpenSchema = z.object({
 
 // Кабинет — свой у владельца или командный у менеджера (CRM 2г). Даты и места
 // открывает любой из команды, цену на даты — владелец или менеджер с правом.
-
-function datesInRange(start: string, end: string, weekdayFilter?: number[]): string[] {
-  const result: string[] = [];
-  const cur = new Date(start + 'T00:00:00Z');
-  const fin = new Date(end   + 'T00:00:00Z');
-  if (fin < cur || (fin.getTime() - cur.getTime()) > 366 * 86_400_000) return result;
-
-  while (cur <= fin) {
-    // JS getUTCDay(): 0=вс,1=пн,...,6=сб → конвертируем в 0=пн,...,6=вс
-    const jsDay    = cur.getUTCDay();
-    const weekday  = jsDay === 0 ? 6 : jsDay - 1;
-    if (!weekdayFilter || weekdayFilter.length === 0 || weekdayFilter.includes(weekday)) {
-      result.push(cur.toISOString().slice(0, 10));
-    }
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return result;
-}
 
 export async function POST(request: NextRequest) {
   const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
@@ -74,69 +74,59 @@ export async function POST(request: NextRequest) {
   const mayPrice = managerMay(ctx.access, 'can_edit_prices');
   if (priceOverride !== undefined && !mayPrice) return permissionDenied('can_edit_prices');
 
-  // Проверяем владение туром
-  const { rows: ownerRows } = await pool.query(
-    `SELECT 1 FROM operator_tours WHERE id = $1 AND operator_id = $2 AND is_active = true LIMIT 1`,
-    [tourId, operatorId]
-  );
-  if (ownerRows.length === 0) {
-    return NextResponse.json({ success: false, error: 'Тур не найден или нет прав' }, { status: 404 });
-  }
-
   const dates = datesInRange(startDate, endDate, weekdays);
   if (dates.length === 0) {
     return NextResponse.json({ success: false, error: 'Нет дат в выбранном диапазоне/фильтре' }, { status: 400 });
   }
 
-  try {
-    let datesToInsert = dates;
-    let skipped = 0;
-
-    if (skipExisting) {
-      // Один запрос — получаем все уже открытые даты в диапазоне
-      const { rows: existing } = await pool.query<{ date: string }>(
-        `SELECT date::text FROM tour_availability
-         WHERE operator_tour_id = $1
-           AND date = ANY($2::date[])
-           AND is_cancelled = false
-           AND available_slots > 0`,
-        [tourId, dates],
-      );
-      const existingSet = new Set(existing.map(r => r.date));
-      datesToInsert = dates.filter(d => !existingSet.has(d));
-      skipped = dates.length - datesToInsert.length;
+  const outcome = await openTourDates({
+    operatorId,
+    tourId: String(tourId),
+    rows: dates.map((date) => ({ date, slots, price: priceOverride ?? null })),
+    mayPrice,
+    inactiveTour: 'refuse',
+    skipExisting,
+    closedDates: 'reopen',
+  });
+  if (!outcome.ok) {
+    if (outcome.reason === 'tour_not_found') {
+      return NextResponse.json({ success: false, error: 'Тур не найден или нет прав' }, { status: 404 });
     }
-
-    if (datesToInsert.length > 0) {
-      // Один batch INSERT для всех дат через UNNEST. Без права цен повторное
-      // открытие даты цену не трогает ($5 = false), иначе сбросило бы цену
-      // владельца на базовую.
-      await pool.query(
-        `INSERT INTO tour_availability (
-           operator_tour_id, date, day_of_week, available_slots, booked_slots,
-           base_price_override, is_cancelled, weather_status
-         )
-         SELECT $1, d::date, EXTRACT(DOW FROM d::date)::int, $2, 0, $3, false, 'unknown'
-         FROM UNNEST($4::text[]) AS d
-         ON CONFLICT (operator_tour_id, date) DO UPDATE SET
-           available_slots     = EXCLUDED.available_slots,
-           base_price_override = CASE WHEN $5::boolean THEN EXCLUDED.base_price_override
-                                      ELSE tour_availability.base_price_override END,
-           is_cancelled        = false,
-           updated_at          = NOW()`,
-        [tourId, slots, priceOverride ?? null, datesToInsert, mayPrice],
+    if (outcome.reason === 'tour_inactive') {
+      return NextResponse.json(
+        { success: false, error: tourHiddenText(outcome.title) },
+        { status: 409 },
       );
     }
-
-    const opened = datesToInsert.length;
-    return NextResponse.json({
-      success: true,
-      data:    { opened, skipped, total: dates.length },
-      message: `Открыто ${opened} дат${skipped > 0 ? `, пропущено ${skipped}` : ''}`,
-    });
-  } catch (err) {
-    // Текст ошибки базы — в лог, а не человеку: он про колонки, а не про даты.
-    console.error('[operator/calendar/bulk-open] не выполнено, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
+    // Текст ошибки базы — в лог (его пишет openTourDates с SQLSTATE), а не
+    // человеку: он про колонки, а не про даты.
     return NextResponse.json({ success: false, error: 'Не удалось открыть даты — попробуйте позже' }, { status: 500 });
   }
+
+  const n = countResults(outcome.perDate);
+  const refused = outcome.perDate.flatMap((r) => (r.result === 'refused_booked' ? [{ date: r.date, taken: r.taken }] : []));
+  // Открытые СНОВА — поимённо и с причиной закрытия: кабинет открывает и
+  // закрытые оператором даты (например, «Шторм»), а причина при открытии
+  // снимается. Без отдельной строки такая дата растворялась в «Открыто N»
+  // (ревью 22.10).
+  const reopenedDates = outcome.perDate.flatMap((r) => (r.result === 'reopened' ? [{ date: r.date, reason: r.reason }] : []));
+  const opened = n.opened + n.reopened;
+  const parts = [`Открыто ${opened} дат`];
+  if (n.reopened > 0) parts.push(`из них открыто снова ${n.reopened} — были закрыты или сняты`);
+  if (n.updated > 0) parts.push(`обновлено ${n.updated}`);
+  if (n.already_open > 0) parts.push(`пропущено ${n.already_open}`);
+  if (refused.length > 0) parts.push(`не открыто ${refused.length}: уже записано больше мест`);
+  return NextResponse.json({
+    success: true,
+    data: {
+      opened,
+      reopened: n.reopened,
+      reopenedDates,
+      updated: n.updated,
+      skipped: n.already_open,
+      refused,
+      total: dates.length,
+    },
+    message: parts.join(', '),
+  });
 }
