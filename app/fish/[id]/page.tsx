@@ -9,6 +9,7 @@ import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { fishMetaDescription } from '@/lib/seo/fish-description';
@@ -78,7 +79,7 @@ async function getFishingTours(): Promise<FishingTour[]> {
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ot.activity_type = 'fishing'
-        AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
+        AND ${publicTourSql('ot')}
       ORDER BY ot.base_price ASC
       LIMIT 6
     `);

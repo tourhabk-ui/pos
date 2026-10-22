@@ -19,6 +19,7 @@ import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,8 +84,10 @@ export async function GET() {
          p.name AS operator_name
        FROM operator_tours ot
        LEFT JOIN partners p ON p.id = ot.operator_id
-       WHERE ot.is_active = true
-         AND ot.deleted_at IS NULL
+       -- Фид уходит на чужую витрину (Meta): только туры витрины Ведара, тем
+       -- же шлюзом (#2642). Без is_published черновик оператора уезжал в
+       -- Instagram Shopping, а кабинет говорил ему «туристы не видят».
+       WHERE ${publicTourSql('ot')}
        ORDER BY ot.base_price ASC
        LIMIT 500`,
     );
@@ -100,7 +103,8 @@ export async function GET() {
         },
       },
     );
-  } catch {
+  } catch (e) {
+    console.error('[meta/catalog] фид не собран:', e instanceof Error ? e.message : String(e));
     return NextResponse.json(
       { error: 'Не удалось загрузить каталог' },
       { status: 500 },

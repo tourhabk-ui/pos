@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,9 +55,7 @@ export async function GET(req: NextRequest) {
           operator_id,
           ARRAY_AGG(DISTINCT activity_type) FILTER (WHERE activity_type IS NOT NULL) AS activity_types
         FROM operator_tours
-        WHERE is_active = TRUE
-          AND is_published = TRUE
-          AND deleted_at IS NULL
+        WHERE ${publicTourSql('')}
         GROUP BY operator_id
       )
       SELECT
@@ -83,7 +83,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: rows });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка при загрузке операторов';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).
+    // Планер показывает это поле человеку как есть.
+    logSwallowedFailure('planner-partners', 'операторы дня', err);
+    return NextResponse.json(
+      { success: false, error: 'Операторы временно не загружаются, попробуйте позже' },
+      { status: 500 },
+    );
   }
 }

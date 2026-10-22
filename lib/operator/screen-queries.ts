@@ -13,6 +13,8 @@
  * базе из baseline + миграций.
  */
 
+import { publicTourSql } from '@/lib/tours/public-visibility';
+
 // ─── Полнота туров ────────────────────────────────────────────────────────────
 
 /** $1 — partners.id оператора. Без `transportation`: такой колонки в operator_tours нет. */
@@ -25,8 +27,12 @@ export const COMPLETENESS_TOURS_SQL = `
     ot.season_start, ot.season_end, ot.duration_type,
     ot.included, ot.not_included, ot.what_to_bring,
     ot.tour_image, ot.photos, ot.price_old, ot.price_unit,
-    ot.is_published,
-    -- Витринная готовность: те же поля, по которым судят ленты каналов.
+    ot.is_active, ot.is_published,
+    -- Видит ли тур турист в каталоге Ведара — тот же шлюз, что у каталога
+    -- (#2642). Ленты Авито и Яндекса берут только такие туры, и уже из них —
+    -- по правилу missingFields (lib/channels/ready-tours.ts).
+    ${publicTourSql('ot')} AS on_storefront,
+    -- Готовность к лентам: те же поля, по которым судят ленты каналов.
     ot.pickup_type,
     COALESCE(LENGTH(TRIM(ot.pickup_details)), 0) AS pickup_details_chars,
     (ot.meeting_point IS NOT NULL AND LENGTH(TRIM(ot.meeting_point)) > 0) AS has_meeting_point,

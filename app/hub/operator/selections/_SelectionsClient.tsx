@@ -17,6 +17,8 @@ interface Tour {
   duration_hours: number | null;
   duration_days: number | null;
   is_active: boolean;
+  /** Ответ шлюза витрины (publicTourSql) — тот же, что у списка туров. */
+  on_storefront?: boolean;
 }
 
 interface Selection {
@@ -303,7 +305,9 @@ export default function SelectionsClient() {
       try {
         const r = await fetch('/api/hub/operator/tours?limit=100');
         const d = await r.json() as { tours?: Tour[]; data?: Tour[] };
-        setTours((d.tours ?? d.data ?? []).filter((t) => t.is_active));
+        // Только туры с витрины: страница подборки показывает клиенту их одни
+        // (issue 2642), и черновик в подборке выпал бы молча.
+        setTours((d.tours ?? d.data ?? []).filter((t) => t.on_storefront === true));
       } finally {
         setLoadingTours(false);
       }
@@ -460,7 +464,7 @@ export default function SelectionsClient() {
                     ))
                   ) : filteredTours.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '8px 0' }}>
-                      {search ? 'Ничего не найдено' : 'Нет активных туров'}
+                      {search ? 'Ничего не найдено' : 'Нет туров на витрине Ведара — в подборку идут только они'}
                     </p>
                   ) : (
                     filteredTours.map((tour) => (

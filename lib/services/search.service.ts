@@ -5,6 +5,15 @@
 
 import { pool, toStringOrNull, toNumberOrNull } from './_helpers';
 import { tourService } from './tours/tour.service';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+
+/**
+ * Все отборы этого сервиса — для туриста (GET /api/discovery/search/*:
+ * автодополнение, рекомендованные, тренды, теги, похожие), поэтому тур берётся
+ * шлюзом витрины (#2642). Прежнее `is_active AND deleted_at IS NULL` пускало
+ * черновик оператора (is_published = false) в подсказки и подборки.
+ */
+const ON_STOREFRONT = publicTourSql('');
 
 export const searchService = {
   async search(queryOrParams: unknown, maybeParams?: Record<string, unknown>) {
@@ -45,7 +54,7 @@ export const searchService = {
     const result = await pool.query(
       `SELECT DISTINCT title AS name
        FROM operator_tours
-       WHERE is_active = TRUE AND deleted_at IS NULL AND title ILIKE $1
+       WHERE ${ON_STOREFRONT} AND title ILIKE $1
        ORDER BY name ASC
        LIMIT $2`,
       [`%${query.trim()}%`, Math.min(Math.max(limit, 1), 50)]
@@ -56,7 +65,7 @@ export const searchService = {
   },
   async getRecommended(limit = 10, operatorId?: string) {
     const params: unknown[] = [];
-    const conditions: string[] = ['is_active = TRUE'];
+    const conditions: string[] = [ON_STOREFRONT];
 
     if (operatorId) {
       conditions.push(`operator_id = $${params.length + 1}`);
@@ -70,7 +79,7 @@ export const searchService = {
               operator_id, max_participants AS max_group_size, min_participants AS min_group_size,
               rating, review_count, is_active, tour_image, created_at, updated_at
        FROM operator_tours
-       WHERE ${conditions.join(' AND ')} AND deleted_at IS NULL
+       WHERE ${conditions.join(' AND ')}
        ORDER BY COALESCE(rating, 0) DESC, created_at DESC
        LIMIT $${params.length}`,
       params
@@ -84,7 +93,7 @@ export const searchService = {
               operator_id, max_participants AS max_group_size, min_participants AS min_group_size,
               rating, review_count, is_active, tour_image, created_at, updated_at
        FROM operator_tours
-       WHERE is_active = TRUE AND deleted_at IS NULL
+       WHERE ${ON_STOREFRONT}
        ORDER BY COALESCE(review_count, 0) DESC, COALESCE(rating, 0) DESC
        LIMIT $1`,
       [Math.min(Math.max(limit, 1), 50)]
@@ -95,7 +104,7 @@ export const searchService = {
     const result = await pool.query(
       `SELECT activity_type AS category, COUNT(*)::int AS cnt
        FROM operator_tours
-       WHERE is_active = TRUE AND deleted_at IS NULL AND activity_type IS NOT NULL
+       WHERE ${ON_STOREFRONT} AND activity_type IS NOT NULL
        GROUP BY activity_type
        ORDER BY cnt DESC
        LIMIT $1`,
@@ -123,8 +132,7 @@ export const searchService = {
               rating, review_count, is_active, tour_image, created_at, updated_at
        FROM operator_tours
        WHERE
-         is_active = TRUE
-         AND deleted_at IS NULL
+         ${ON_STOREFRONT}
          AND id <> $1
          AND (
            (activity_type IS NOT DISTINCT FROM $2)

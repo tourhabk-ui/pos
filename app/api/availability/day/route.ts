@@ -7,7 +7,11 @@
 
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { badQueryParam, calendarDay, queryInput, queryText } from '@/lib/api/public-query';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,14 +49,34 @@ const ACTIVITY_RU: Record<string, string> = {
   photo: 'Фототур', camping: 'Кемпинг', other: 'Активный отдых',
 };
 
+/**
+ * Вход — проверяется ДО базы (ревью #2642, третий круг). Одной регулярки
+ * мало: `2099-02-30` формой проходит, а база отвечает 22008, и человек читал
+ * «временно не загружаются» про день, которого нет в календаре. Вид
+ * активности — без символа NUL (22021).
+ */
+const DayQuery = z.object({
+  date: calendarDay,
+  activity: queryText.optional(),
+});
+const PARAM_TEXT: Record<keyof z.input<typeof DayQuery>, string> = {
+  date: 'Дата (date) — день календаря в формате ГГГГ-ММ-ДД, например 2027-07-15',
+  activity: 'Вид активности (activity) содержит недопустимый символ',
+};
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const date     = searchParams.get('date');
-  const activity = searchParams.get('activity') ?? null;
-
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ success: false, error: 'Параметр date обязателен (YYYY-MM-DD)' }, { status: 400 });
+  const parsed = DayQuery.safeParse(queryInput(searchParams, ['date', 'activity'] as const));
+  if (!parsed.success) {
+    // Неверный вход — не отказ базы: 400 словами, база не спрашивалась.
+    const bad = badQueryParam(parsed.error, PARAM_TEXT);
+    return NextResponse.json(
+      { success: false, error: bad?.error ?? PARAM_TEXT.date, param: bad?.param ?? null },
+      { status: 400 },
+    );
   }
+  const { date } = parsed.data;
+  const activity = parsed.data.activity ?? null;
 
   // Не показываем прошлое
   const today = new Date().toISOString().slice(0, 10);
@@ -92,7 +116,11 @@ export async function GET(request: NextRequest) {
          p.slug                                                              AS operator_slug,
          p.is_public                                                         AS operator_public,
          p.rating::text                                                      AS operator_rating,
-         t.tags
+         -- Теги — из operator_tour_tags (их пишет кабинет): колонки tags у
+         -- operator_tours нет, и прежнее t.tags роняло роут на 42703 при любом
+         -- запросе — панель дня в /calendar не открывалась (найдено pg-тестом
+         -- шлюза, ревью #2642).
+         ARRAY(SELECT tt.tag::text FROM operator_tour_tags tt WHERE tt.tour_id = t.id ORDER BY tt.tag) AS tags
        FROM tour_availability ta
        JOIN operator_tours t ON ta.operator_tour_id = t.id
        JOIN partners p       ON t.operator_id = p.id
@@ -105,8 +133,8 @@ export async function GET(request: NextRequest) {
          AND ta.is_cancelled = false
          AND ta.deleted_at IS NULL
          AND (ta.available_slots - occ.taken) > 0
-         AND t.is_active = true
-         AND t.is_published = true
+         -- тур — шлюзом витрины (#2642): копия без deleted_at отдавала даты удалённого тура
+         AND ${publicTourSql('t')}
          ${activityFilter}
        ORDER BY
          COALESCE(ta.base_price_override, t.base_price) ASC,
@@ -144,7 +172,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, date, tours });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).
+    logSwallowedFailure('availability-day', 'туры дня', err);
+    return NextResponse.json(
+      { success: false, error: 'Туры на эту дату временно не загружаются, попробуйте позже' },
+      { status: 500 },
+    );
   }
 }

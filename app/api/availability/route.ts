@@ -12,7 +12,11 @@
 
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { badQueryParam, calendarMonth, queryInput, queryText } from '@/lib/api/public-query';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +29,34 @@ interface DayRow {
   operators: string;
 }
 
+/**
+ * Вход — проверяется ДО базы (ревью #2642, третий круг): `?month=2099-13`
+ * или `?month=abc` собирали из себя несуществующую дату, база отвечала 22008
+ * или 22007, и человек читал «календарь временно не загружается». Вид
+ * активности — без символа NUL (22021).
+ */
+const MonthQuery = z.object({
+  month: calendarMonth.optional(),
+  activity: queryText.optional(),
+});
+const PARAM_TEXT: Record<keyof z.input<typeof MonthQuery>, string> = {
+  month: 'Месяц (month) — в формате ГГГГ-ММ, например 2027-07',
+  activity: 'Вид активности (activity) содержит недопустимый символ',
+};
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const monthParam = searchParams.get('month');
-  const activity   = searchParams.get('activity') ?? null;
+  const parsed = MonthQuery.safeParse(queryInput(searchParams, ['month', 'activity'] as const));
+  if (!parsed.success) {
+    // Неверный вход — не отказ базы: 400 словами, база не спрашивалась.
+    const bad = badQueryParam(parsed.error, PARAM_TEXT);
+    return NextResponse.json(
+      { success: false, error: bad?.error ?? PARAM_TEXT.month, param: bad?.param ?? null },
+      { status: 400 },
+    );
+  }
+  const monthParam = parsed.data.month ?? null;
+  const activity   = parsed.data.activity ?? null;
 
   const now = new Date();
   const [year, month] = monthParam
@@ -73,8 +101,8 @@ export async function GET(request: NextRequest) {
          AND ta.is_cancelled = false
          AND ta.deleted_at IS NULL
          AND (ta.available_slots - occ.taken) > 0
-         AND t.is_active = true
-         AND t.is_published = true
+         -- тур — шлюзом витрины (#2642): копия без deleted_at отдавала даты удалённого тура
+         AND ${publicTourSql('t')}
          ${activityFilter}
        GROUP BY ta.date
        ORDER BY ta.date ASC`,
@@ -96,7 +124,12 @@ export async function GET(request: NextRequest) {
       days,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).
+    logSwallowedFailure('availability', 'календарь месяца', err);
+    return NextResponse.json(
+      { success: false, error: 'Календарь временно не загружается, попробуйте позже' },
+      { status: 500 },
+    );
   }
 }

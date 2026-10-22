@@ -7,6 +7,8 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,14 +57,15 @@ export async function GET() {
 
   // Ближайший выезд — из живого календаря tour_availability (свободные места
   // из реальных броней), а не из полу-мёртвой tour_departures, где счётчик
-  // занятости никогда не заполнялся.
+  // занятости никогда не заполнялся. Тур — с витрины (#2642): без
+  // is_published публичная плашка звала на выезд черновика.
   let nextDeparture: { date: string; tourName: string; operatorName: string; slots: number } | null = null;
   try {
     const dRes = await pool.query(
       `SELECT ta.date AS departure_date, t.title AS tour_name, p.name AS operator_name,
               GREATEST(0, LEAST(ta.available_slots, COALESCE(t.max_participants, ta.available_slots)) - occ.taken) AS available_slots
        FROM tour_availability ta
-       JOIN operator_tours t ON t.id = ta.operator_tour_id AND t.is_active = TRUE AND t.deleted_at IS NULL
+       JOIN operator_tours t ON t.id = ta.operator_tour_id AND ${publicTourSql('t')}
        JOIN partners p ON p.id = t.operator_id
        CROSS JOIN LATERAL (
 ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
@@ -83,8 +86,9 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
         slots: Number(r.available_slots),
       };
     }
-  } catch {
-    // БД недоступна
+  } catch (err) {
+    // Плашка без выезда — не «выездов нет»: отказ базы называется в логе (§4.0).
+    logSwallowedFailure('public-now', 'ближайший выезд', err);
   }
 
   return NextResponse.json({

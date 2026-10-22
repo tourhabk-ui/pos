@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 type MetricsRow = {
   routes_total: number | string;
@@ -32,9 +33,7 @@ export async function GET() {
 
         (SELECT COUNT(*)
          FROM operator_tours ot
-         WHERE ot.is_active = TRUE
-           AND ot.is_published = TRUE
-           AND ot.deleted_at IS NULL)::int AS active_tours,
+         WHERE ${publicTourSql('ot')})::int AS active_tours,
 
         (SELECT COUNT(*)
          FROM operator_bookings ob

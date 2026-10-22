@@ -10,6 +10,7 @@ import {
   assertDaysOpen, insertBookingRow, readTourDays, ReserveError, tourDurationOf,
 } from '@/lib/bookings/reserve';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
@@ -20,6 +21,11 @@ import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 // фото. Не звалась, и витрина показывает что есть. Стандарт «настоящего тура»
 // — правило продукта, и жить ему в одном месте с витриной, а не отдельной
 // функцией, о которой витрина не знает.
+
+// Каждый отбор тура здесь — для чужой площадки (реселлер OCTO), поэтому тур
+// берётся шлюзом витрины (#2642), включая дверь холда под FOR UPDATE.
+// Копии смотрели is_published и deleted_at без is_active: выключенный
+// оператором тур продавался каналом, хотя кабинет говорил «Скрыт».
 
 // --- Suppliers ---
 
@@ -37,7 +43,7 @@ export async function getSuppliers(operatorId?: string | null) {
      WHERE p.is_public = true
        AND EXISTS (
          SELECT 1 FROM operator_tours ot
-         WHERE ot.operator_id = p.id AND ot.is_published = true AND ot.deleted_at IS NULL
+         WHERE ot.operator_id = p.id AND ${publicTourSql('ot')}
            AND ot.title IS NOT NULL AND ot.description IS NOT NULL
            AND ot.base_price > 0 AND ot.location_type IS NOT NULL
            AND ot.activity_type IS NOT NULL AND ot.max_participants > 0
@@ -84,7 +90,7 @@ export async function getProducts(operatorId?: string | null) {
             p.company_name AS partner_name, p.id AS partner_id
      FROM operator_tours ot
      LEFT JOIN partners p ON p.id = ot.operator_id
-     WHERE ot.is_published = true AND ot.deleted_at IS NULL
+     WHERE ${publicTourSql('ot')}
        AND ot.operator_id IS NOT NULL
        AND ot.title IS NOT NULL AND ot.description IS NOT NULL
        AND ot.base_price > 0 AND ot.location_type IS NOT NULL
@@ -112,7 +118,7 @@ export async function getProductById(productId: string) {
             p.company_name AS partner_name, p.id AS partner_id
      FROM operator_tours ot
      LEFT JOIN partners p ON p.id = ot.operator_id
-     WHERE ot.id = $1 AND ot.is_published = true AND ot.deleted_at IS NULL
+     WHERE ot.id = $1 AND ${publicTourSql('ot')}
        AND ot.operator_id IS NOT NULL
        AND ot.title IS NOT NULL AND ot.description IS NOT NULL
        AND ot.base_price > 0 AND ot.location_type IS NOT NULL
@@ -177,7 +183,7 @@ export async function checkAvailability(
   const { rows: tourRows } = await pool.query(
     `SELECT base_price, season_start, season_end, max_participants, duration_hours
      FROM operator_tours
-     WHERE id = $1 AND is_published = true AND deleted_at IS NULL`,
+     WHERE id = $1 AND ${publicTourSql('')}`,
     [productId]
   );
 
@@ -235,7 +241,7 @@ export async function createBooking(data: {
     const { rows: tourRows } = await client.query(
       `SELECT id, base_price, title, max_participants, multi_day_count, duration_hours
          FROM operator_tours
-        WHERE id = $1 AND is_published = true AND deleted_at IS NULL
+        WHERE id = $1 AND ${publicTourSql('')}
         FOR UPDATE`,
       [data.tourId]
     );

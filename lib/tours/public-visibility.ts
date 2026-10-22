@@ -18,7 +18,12 @@
  * устроен шлюз витрины жилья и проката (`lib/moderation/gate.ts`) — и по той
  * же причине: условие, размноженное по читателям, однажды забудут в одном.
  *
- * Сторож: `tests/unit/public-tour-gate.test.ts`.
+ * Сторож: `tests/unit/public-tour-gate.test.ts` — там же реестр отборов для
+ * туриста и чужих площадок (`TOURIST_SELECTIONS`) и перепись поверхностей,
+ * открытых без входа: читатель тура без шлюза и без записи краснеет (ревью
+ * #2642 — подпись кабинета «туристы не видят» правдива, только пока шлюз
+ * спрашивает каждый такой отбор). Черновик на настоящей базе —
+ * `tests/integration/public-tour-gate.pg.test.ts`.
  */
 
 /**
@@ -34,3 +39,70 @@ export function publicTourSql(alias = 'ot'): string {
   const p = alias ? `${alias}.` : '';
   return `(${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL)`;
 }
+
+/**
+ * Видит ли турист тур — словами для кабинета оператора (#2642).
+ *
+ * ── Повод ─────────────────────────────────────────────────────────────────
+ *
+ * Новый тур заводится с `is_published = false` (миграция 040, `createTour`),
+ * и каталог его не показывает: отбор идёт шлюзом выше. А список туров в
+ * кабинете ставил бейдж по одному `is_active` — черновик выглядел «Активен»,
+ * и оператор ждал броней от тура, которого туристы не видят. Экран «Чего не
+ * хватает» судил по одному `is_published` и промахивался с другой стороны —
+ * у выключенного тура.
+ *
+ * Исходов три, а не два, потому что лекарства разные: черновик публикуют
+ * отметкой «Опубликован» в редакторе, скрытый — включают («Активен» или глаз
+ * в списке туров). Подписи — одни на оба экрана (`STOREFRONT_LABELS`).
+ *
+ * ── Связь со шлюзом ───────────────────────────────────────────────────────
+ *
+ * «На витрине» здесь — те же три флага, что в `publicTourSql`; NULL флага —
+ * не «да», как и в SQL (`NULL = true` не проходит WHERE). Чтобы копия не
+ * разошлась со шлюзом молча, кабинет получает и ответ самого шлюза —
+ * `on_storefront` из того же запроса (`publicTourSql(...) AS on_storefront`),
+ * и слово шлюза «нет» сильнее флагов: «На витрине» у тура, которого нет в
+ * каталоге, — та самая ложь, ради которой функция заведена. Равенство
+ * «флаги дают on» ⇔ `on_storefront` ⇔ «тур в выдаче каталога» на настоящей
+ * базе держит `tests/integration/public-tour-gate.pg.test.ts`.
+ */
+export type StorefrontState = 'on' | 'draft' | 'hidden';
+
+export interface StorefrontFlags {
+  is_active: boolean | null | undefined;
+  is_published: boolean | null | undefined;
+  deleted_at?: string | Date | null;
+  /** Ответ шлюза `publicTourSql` из того же запроса, если строка его несёт. */
+  on_storefront?: boolean | null;
+}
+
+export function storefrontState(t: StorefrontFlags): StorefrontState {
+  if (t.deleted_at != null || t.is_active !== true) return 'hidden';
+  if (t.is_published !== true) return 'draft';
+  if (t.on_storefront === false) return 'hidden';
+  return 'on';
+}
+
+/**
+ * Какие отметки редактора не стоят у тура — словами, как они названы в
+ * редакторе. Лекарство называется целиком: у выключенного и неопубликованного
+ * тура не хватает ОБЕИХ, и подсказка «включите „Активен“» оставила бы его вне
+ * витрины (ревью #2642). Удалённый тур кабинет не показывает вовсе, поэтому
+ * его здесь нет.
+ */
+export type StorefrontMark = 'Активен' | 'Опубликован';
+
+export function missingStorefrontMarks(t: StorefrontFlags): StorefrontMark[] {
+  const out: StorefrontMark[] = [];
+  if (t.is_active !== true) out.push('Активен');
+  if (t.is_published !== true) out.push('Опубликован');
+  return out;
+}
+
+/** Подпись состояния — одна на список туров и экран «Чего не хватает». */
+export const STOREFRONT_LABELS: Record<StorefrontState, string> = {
+  on: 'На витрине',
+  draft: 'Черновик — туристы не видят',
+  hidden: 'Скрыт',
+};

@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,9 +70,7 @@ export async function GET(req: NextRequest) {
       JOIN partners p ON p.id = ot.operator_id
       LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
       WHERE ot.activity_type = $1
-        AND ot.is_active    = true
-        AND ot.is_published = true
-        AND ot.deleted_at IS NULL
+        AND ${publicTourSql('ot')}
         AND ark.zone = $2
       ORDER BY ot.rating DESC NULLS LAST, ot.base_price ASC
       LIMIT $3
@@ -100,9 +99,7 @@ export async function GET(req: NextRequest) {
     FROM operator_tours ot
     JOIN partners p ON p.id = ot.operator_id
     WHERE ot.activity_type = $1
-      AND ot.is_active    = true
-      AND ot.is_published = true
-      AND ot.deleted_at IS NULL
+      AND ${publicTourSql('ot')}
     ORDER BY ot.rating DESC NULLS LAST, ot.base_price ASC
     LIMIT $2
   `, [activity_type, limit]);

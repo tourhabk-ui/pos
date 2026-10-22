@@ -12,6 +12,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { telegramService } from '@/lib/notifications/telegram';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -66,6 +67,8 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
   try {
     // FOR UPDATE SKIP LOCKED — каждый параллельный cron-запуск берёт свои строки,
     // исключая уже заблокированные другим процессом. Предотвращает двойную отправку.
+    // Тур — шлюзом витрины (#2642): копия смотрела один is_published, и
+    // напоминание звало туриста на выключенный или удалённый тур.
     const { rows } = await pool.query<EngagementRow>(`
       SELECT
         s.id            AS signal_id,
@@ -78,7 +81,7 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
         u.telegram_id::text AS telegram_id,
         s.signal_type
       FROM kuzmich_engagement_signals s
-      JOIN operator_tours t ON t.id = s.tour_id AND t.is_published = true
+      JOIN operator_tours t ON t.id = s.tour_id AND ${publicTourSql('t')}
       JOIN users u ON u.id = s.user_id
       WHERE s.pushed_at IS NULL
         AND s.created_at < NOW() - INTERVAL '23 hours'

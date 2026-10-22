@@ -21,8 +21,11 @@ interface TourCompletenessRow {
   duration_type: string | null; included: string[] | null; not_included: string[] | null;
   what_to_bring: string[] | null; tour_image: string | null; photos: string[] | null;
   price_old: number | null; price_unit: string | null;
-  is_published: boolean;
-  // Поля витринной готовности (04.09): кабинет обязан судить тем же правилом,
+  is_active: boolean | null;
+  is_published: boolean | null;
+  /** Ответ шлюза каталога (publicTourSql) — видит ли тур турист (#2642). */
+  on_storefront: boolean;
+  // Поля готовности к лентам (04.09): кабинет обязан судить тем же правилом,
   // что и ленты на Авито с Яндексом.
   pickup_type: ReadinessRow['pickup_type'];
   pickup_details_chars: number;
@@ -34,7 +37,13 @@ interface TourCompletenessRow {
 interface TourCompletion {
   tour_id: string;
   tour_title: string | null;
-  is_published: boolean;
+  is_active: boolean | null;
+  is_published: boolean | null;
+  /**
+   * Тур в каталоге Ведара — по шлюзу каталога, а не по одному флагу. До #2642
+   * экран судил по `is_published`, и выключенный тур числился «Опубликован».
+   */
+  on_storefront: boolean;
   required_score: number; // 0-100: title, description, price, activity_type, tour_image
   recommended_score: number; // 0-100: short_desc, season, difficulty, included, etc
   total_score: number; // weighted: 70% required, 30% recommended
@@ -48,6 +57,10 @@ interface TourCompletion {
    * есть оператор видел «сто процентов заполнено», а его тур молча не уходил
    * ни на Авито, ни в Яндекс. Экран, который говорит «готово» там, где не
    * готово, хуже отсутствующего.
+   *
+   * Ленты берут только туры с витрины Ведара (lib/channels/ready-tours.ts),
+   * поэтому «готов» — это витрина И пустой список блокеров. Черновик со
+   * всеми полями до #2642 числился «Готов к выкладке», а в ленту не уходил.
    */
   marketplace_ready: boolean;
   marketplace_blockers: Array<{ field: string; label: string }>;
@@ -73,7 +86,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: {
-          stats: { totalTours: 0, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 0 },
+          stats: { totalTours: 0, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0 },
           tours: [],
         },
       });
@@ -148,11 +161,13 @@ export async function GET(request: NextRequest) {
       return {
         tour_id: tour.id,
         tour_title: tour.title,
+        is_active: tour.is_active,
         is_published: tour.is_published,
+        on_storefront: tour.on_storefront === true,
         required_score: Math.round(requiredScore),
         recommended_score: Math.round(recommendedScore),
         total_score: Math.round(totalScore),
-        marketplace_ready: marketplaceBlockers.length === 0,
+        marketplace_ready: tour.on_storefront === true && marketplaceBlockers.length === 0,
         marketplace_blockers: marketplaceBlockers.map((f) => ({ field: f, label: blockerLabel(f) })),
         missing_required: missingRequired,
         missing_recommended: missingRecommended,
@@ -175,7 +190,9 @@ export async function GET(request: NextRequest) {
           avgTotalScore,
           fullyComplete,
           criticallyIncomplete,
-          publishedTours: completions.filter(t => t.is_published).length,
+          // publishedTours снят (ревью #2642): считался по одному is_published
+          // — выключенный тур числился опубликованным, — а читателя у поля не
+          // было ни одного. Экран считает витрину сам, по on_storefront.
         },
         tours: completions,
       },

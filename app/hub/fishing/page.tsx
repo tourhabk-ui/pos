@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { FishingPageClient } from './_FishingPageClient';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
@@ -67,9 +68,7 @@ async function getFishingTours(): Promise<FishingTour[]> {
     FROM operator_tours ot
     JOIN partners p ON p.id = ot.operator_id
     WHERE ot.activity_type = 'fishing'
-      AND ot.is_active  = true
-      AND ot.is_published = true
-      AND ot.deleted_at IS NULL
+      AND ${publicTourSql('ot')}
     ORDER BY ot.base_price ASC
   `);
   return rows;

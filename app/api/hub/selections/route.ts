@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { accessFailure, operatorAccess } from '@/lib/operators/team-access';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -101,15 +102,21 @@ export async function POST(req: NextRequest) {
     operatorId = access.partnerId;
   }
 
-  // Verify all tour_ids belong to this operator (or admin bypasses)
+  // Туры подборки — свои и с витрины Ведара (admin обходит). Подборку
+  // открывает клиент, а публичная страница подборки показывает только туры
+  // витрины (#2642): черновик в ней молча выпал бы, поэтому он не принимается
+  // здесь, словами.
   if (auth.role !== 'admin' && operatorId) {
     const check = await pool.query<{ cnt: string }>(
       `SELECT COUNT(*)::text AS cnt FROM operator_tours
-       WHERE id = ANY($1::int[]) AND operator_id = $2 AND deleted_at IS NULL`,
+       WHERE id = ANY($1::int[]) AND operator_id = $2 AND ${publicTourSql('')}`,
       [data.tour_ids, operatorId],
     );
     if (parseInt(check.rows[0]?.cnt ?? '0', 10) !== data.tour_ids.length) {
-      return NextResponse.json({ error: 'Один или несколько туров не найдены' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'В подборку идут только ваши туры с витрины Ведара: черновик и скрытый тур клиент по ссылке не увидит' },
+        { status: 403 },
+      );
     }
   }
 

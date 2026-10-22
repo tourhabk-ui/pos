@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -53,7 +55,9 @@ export async function GET() {
           p.name AS operator_name,
           ob.created_at::text
         FROM operator_bookings ob
-        JOIN operator_tours ot ON ob.operator_tour_id = ot.id
+        -- Лента главной — витрина: тур называется, только пока он на ней
+        -- (#2642). Снятый после брони тур в ленту больше не попадает.
+        JOIN operator_tours ot ON ob.operator_tour_id = ot.id AND ${publicTourSql('ot')}
         JOIN partners p ON ot.operator_id = p.id
         WHERE ob.booking_status IN ('confirmed', 'new')
           AND ob.created_at > NOW() - '48 hours'::interval
@@ -74,7 +78,12 @@ export async function GET() {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).
+    logSwallowedFailure('live-feed', 'лента главной', err);
+    return NextResponse.json(
+      { ok: false, error: 'Лента временно не загружается, попробуйте позже' },
+      { status: 500 },
+    );
   }
 }

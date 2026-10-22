@@ -61,6 +61,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { config } from '@/lib/config'
 import { requireAdmin } from '@/lib/auth/middleware'
 import { pool } from '@/lib/db-pool'
+import { publicTourSql } from '@/lib/tours/public-visibility'
 import { convertUrlToMarkdown } from '@/lib/ai/markdown-new'
 import fs from 'fs'
 import path from 'path'
@@ -215,6 +216,8 @@ async function collectProjectDocuments(): Promise<KbCollection> {
   // писал «операторы не попали в базу знаний» ДАЖЕ когда падал запрос туров:
   // сообщение об отказе называло не того виноватого, а второй запрос при
   // этом не выполнялся вовсе.
+  // База знаний отвечает туристу через ассистента: туры в неё — только с
+  // витрины (#2642), черновик оператора туда не уходит.
   try {
     const tours = await query(`
       SELECT
@@ -227,7 +230,7 @@ async function collectProjectDocuments(): Promise<KbCollection> {
         location_name AS location,
         activity_type AS category
       FROM operator_tours
-      WHERE is_active = true AND deleted_at IS NULL
+      WHERE ${publicTourSql('')}
       LIMIT 50
     `)
 

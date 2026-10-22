@@ -19,6 +19,7 @@ import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { tourDays } from '@/lib/tours/catalog-availability';
 import { groundIntentNumbers } from '@/lib/leads/intent-grounding';
 import { isVehicleOrder, LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -413,6 +414,10 @@ export class LeadProcessorService {
    * Пустой подбор — честно пустой. Раньше при нуле совпадений подставлялись
    * «любые активные туры» ORDER BY RANDOM() с подписью «рекомендован по
    * популярности» — популярность никто не считал, это была лотерея.
+   *
+   * Предложение уходит клиенту — туристу, — поэтому тур берётся шлюзом
+   * витрины (#2642). Без is_published в PDF попадал черновик, карточка
+   * которого туристу отвечает 404, а кабинет говорил «туристы не видят».
    */
   private async matchTours(
     intent: LeadIntent,
@@ -445,7 +450,7 @@ export class LeadProcessorService {
               ${TOUR_DURATION_COLUMNS},
               activity_type, description
        FROM operator_tours
-       WHERE is_active = true AND deleted_at IS NULL
+       WHERE ${publicTourSql('')}
          ${filters.join('\n         ')}
        ORDER BY id DESC
        LIMIT 30`,

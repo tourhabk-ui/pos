@@ -5,11 +5,18 @@
  * „чего не хватает туру“ в кабинете»).
  *
  * Главный вопрос оператора — «почему моего тура нет на витринах», и ответ
- * стоит первым: готовность по тому же правилу, что отбирает ленты Авито и
- * Яндекса и каталог (lib/tours/readiness, missingFields; считает API
- * /api/operator/completeness). Каждый блокер ведёт туда, где чинится
- * (lib/operator/blocker-targets): якорь в редакторе тура, профиль компании
- * или быстрое поле прямо здесь.
+ * стоит первым. Витрин две, и судятся они разными правилами (issue 2642):
+ *  - каталог Ведара — шлюзом publicTourSql (активен, опубликован, не
+ *    удалён). Бейдж у тура — storefrontState рядом со шлюзом, а API отдаёт
+ *    и ответ самого шлюза (on_storefront). Новый тур — черновик, и каталог
+ *    его не показывает, сколько бы полей ни было заполнено;
+ *  - ленты Авито и Яндекса — туры С ВИТРИНЫ Ведара, прошедшие правило
+ *    missingFields (lib/tours/readiness; отбор — lib/channels/ready-tours).
+ *    Каталог этим правилом НЕ судится: до issue 2642 шапка файла и подпись экрана
+ *    утверждали обратное, а черновик со всеми полями числился «готовым».
+ * Считает API /api/operator/completeness. Каждый блокер ведёт туда, где
+ * чинится (lib/operator/blocker-targets): якорь в редакторе тура, профиль
+ * компании или быстрое поле прямо здесь.
  *
  * До 13.10 экран назывался «Полнота туров» и вёл с процента заполненности
  * (70/30 обязательных и рекомендуемых полей): тур показывал «100%» и при
@@ -31,17 +38,25 @@ import { useRouter } from 'next/navigation';
 import { isQuickFillField } from '@/lib/operator/quick-fill-fields';
 import { BLOCKER_TARGETS, blockerHref, blockerQuickField } from '@/lib/operator/blocker-targets';
 import { plural } from '@/lib/home/data-freshness';
+import { missingStorefrontMarks, storefrontState, type StorefrontState } from '@/lib/tours/public-visibility';
+import { StorefrontBadge } from '@/components/operator/StorefrontBadge';
 
 interface TourCompletion {
   tour_id: string;
   tour_title: string;
-  is_published: boolean;
+  is_active: boolean | null;
+  is_published: boolean | null;
+  /** Ответ шлюза каталога (publicTourSql): видит ли тур турист. */
+  on_storefront: boolean;
   required_score: number;
   recommended_score: number;
   total_score: number;
   missing_required: string[];
   missing_recommended: string[];
-  /** Готовность к чужим витринам — судит то же правило, что и ленты каналов. */
+  /**
+   * Уйдёт ли тур в ленты Авито и Яндекса: он на витрине Ведара И правило
+   * лент (missingFields) не нашло пробелов — так отбирают сами ленты.
+   */
   marketplace_ready: boolean;
   marketplace_blockers: Array<{ field: string; label: string }>;
 }
@@ -52,7 +67,6 @@ interface CompletenessData {
     avgTotalScore: number;
     fullyComplete: number;
     criticallyIncomplete: number;
-    publishedTours: number;
   };
   tours: TourCompletion[];
 }
@@ -111,6 +125,38 @@ function BlockerAction({ field, tourId, tourTitle, onQuick }: {
   );
 }
 
+/**
+ * Почему турист не видит тур — словами, с тем, где это меняется. Лекарство
+ * называется целиком: у выключенного и неопубликованного тура не хватает
+ * обеих отметок, и подсказка про одну «Активен» оставила бы его вне витрины
+ * (ревью issue 2642). Отметки стоят, а каталог тура не отдаёт — так и сказано:
+ * выдумывать причину нельзя (§4.0).
+ */
+function offStorefrontHint(tour: TourCompletion): string {
+  const marks = missingStorefrontMarks(tour).map((m) => `«${m}»`);
+  if (marks.length === 0) {
+    return 'Туристы его не видят: отметки «Активен» и «Опубликован» стоят, а каталог тур не показывает — напишите в поддержку.';
+  }
+  const where = marks.length > 1 ? `в редакторе не отмечены ${marks.join(' и ')}` : `в редакторе не отмечено ${marks[0]}`;
+  const eye = tour.is_active !== true ? ' «Активен» включает и глаз в списке туров.' : '';
+  return `Туристы его не видят: ${where}.${eye}`;
+}
+
+/**
+ * Строка про ленты Авито и Яндекса. Ленты берут только туры с витрины
+ * Ведара, поэтому у тура вне витрины пустой список блокеров — ещё не «готов».
+ */
+function feedLine(tour: TourCompletion, state: StorefrontState): string {
+  const n = tour.marketplace_blockers.length;
+  if (tour.marketplace_ready) return 'Готов к выкладке на Авито и Яндекс';
+  if (state !== 'on') {
+    return n === 0
+      ? 'На Авито и Яндекс уходят только туры с витрины Ведара — поля для лент заполнены'
+      : `На Авито и Яндекс уходят только туры с витрины Ведара; для лент не хватает ещё: ${n}`;
+  }
+  return `Не уйдёт на Авито и Яндекс — не хватает: ${n}`;
+}
+
 function TourCard({ tour, expanded, onToggle, onQuick, onAutoFill }: {
   tour: TourCompletion;
   expanded: boolean;
@@ -120,8 +166,9 @@ function TourCard({ tour, expanded, onToggle, onQuick, onAutoFill }: {
 }) {
   const cardGaps = tour.missing_required.length + tour.missing_recommended.length;
   const title = tour.tour_title?.trim() || 'Без названия';
+  const state = storefrontState(tour);
   return (
-    <div className="ds-card overflow-hidden">
+    <article className="ds-card overflow-hidden" aria-label={title}>
       <div className="px-4 py-3 flex items-start gap-3">
         {tour.marketplace_ready
           ? <CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" aria-hidden />
@@ -131,12 +178,13 @@ function TourCard({ tour, expanded, onToggle, onQuick, onAutoFill }: {
             <Link href={`/hub/operator/tours/${tour.tour_id}`} className="font-medium text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors">
               {title}
             </Link>
-            <span className="ds-badge">{tour.is_published ? 'Опубликован' : 'Черновик'}</span>
+            <StorefrontBadge state={state} />
           </div>
+          {state !== 'on' && (
+            <p className="text-xs mt-0.5 text-[var(--text-secondary)]">{offStorefrontHint(tour)}</p>
+          )}
           <p className={`text-xs mt-0.5 ${tour.marketplace_ready ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}>
-            {tour.marketplace_ready
-              ? 'Готов к выкладке на Авито и Яндекс'
-              : `Не уйдёт на Авито и Яндекс — не хватает: ${tour.marketplace_blockers.length}`}
+            {feedLine(tour, state)}
           </p>
         </div>
         <Link href={`/hub/operator/tours/${tour.tour_id}`} className="ds-btn ds-btn-secondary text-xs px-2.5 py-1.5 shrink-0 inline-flex items-center gap-1">
@@ -144,8 +192,8 @@ function TourCard({ tour, expanded, onToggle, onQuick, onAutoFill }: {
         </Link>
       </div>
 
-      {/* Блокеры витрин — всегда видны, по одному действию на строку. */}
-      {!tour.marketplace_ready && (
+      {/* Блокеры лент — всегда видны, по одному действию на строку. */}
+      {tour.marketplace_blockers.length > 0 && (
         <ul className="border-t border-[var(--border)] divide-y divide-[var(--border)]" aria-label={`Чего не хватает: ${title}`}>
           {tour.marketplace_blockers.map((b) => (
             <li key={b.field} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
@@ -211,7 +259,7 @@ function TourCard({ tour, expanded, onToggle, onQuick, onAutoFill }: {
           )}
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -327,7 +375,12 @@ export default function CompletenessClient() {
   const notReady = tours
     .filter((t) => !t.marketplace_ready)
     .sort((a, b) => b.marketplace_blockers.length - a.marketplace_blockers.length);
-  const drafts = tours.filter((t) => !t.is_published).length;
+  // Витрина Ведара и ленты — разные вопросы (issue 2642), и счёт у них свой.
+  const onVedar = tours.filter((t) => storefrontState(t) === 'on').length;
+  // Счёт по самой отметке, а не по бейджу: выключенный и неопубликованный тур
+  // бейджем «Скрыт», но «Опубликован» ему тоже нужен (ревью issue 2642).
+  const unpublished = tours.filter((t) => t.is_published !== true).length;
+  const lacking = tours.filter((t) => t.marketplace_blockers.length > 0).length;
 
   // Сколько туров спотыкается о каждый блокер — список работ: видно, что
   // чинится одной фразой на все туры, а что поштучно.
@@ -346,8 +399,10 @@ export default function CompletenessClient() {
         <div className="min-w-0">
           <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Чего не хватает турам</h1>
           <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-2xl">
-            Готовность к витринам — каталогу Ведара, Авито и Яндексу — считается одним правилом,
-            тем же, что отбирает ленты. Ниже — что именно заполнить у каждого тура и куда для этого перейти.
+            Каталог Ведара показывает тур, когда он активен и опубликован, — у каждого тура сказано,
+            видят ли его туристы. На Авито и Яндекс уходят только туры с витрины Ведара, и лентам нужно
+            больше полей: их проверяет то же правило, что отбирает ленты. Ниже — что заполнить у каждого
+            тура и куда для этого перейти.
           </p>
         </div>
         <button
@@ -360,21 +415,26 @@ export default function CompletenessClient() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Готовы к витринам</p>
+          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">На витрине Ведара</p>
+          <p className="text-3xl font-bold text-[var(--success)]">{onVedar}</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">из {tours.length} {plural(tours.length, 'тура', 'туров', 'туров')} — их видят туристы</p>
+        </div>
+        <div className="ds-card p-4">
+          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Готовы к Авито и Яндексу</p>
           <p className="text-3xl font-bold text-[var(--success)]">{readyTours.length}</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">из {tours.length} {plural(tours.length, 'тура', 'туров', 'туров')}</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">на витрине Ведара, поля для лент заполнены</p>
         </div>
         <div className="ds-card p-4">
           <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Не хватает данных</p>
-          <p className="text-3xl font-bold text-[var(--warning)]">{notReady.length}</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">{notReady.length === 0 ? 'все туры готовы' : 'ждут правки — список ниже'}</p>
+          <p className="text-3xl font-bold text-[var(--warning)]">{lacking}</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">{lacking === 0 ? 'поля для лент заполнены у всех' : 'для лент — список ниже'}</p>
         </div>
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Черновики</p>
-          <p className="text-3xl font-bold text-[var(--text-primary)]">{drafts}</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">не опубликованы — на витрины не идут</p>
+          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Не опубликованы</p>
+          <p className="text-3xl font-bold text-[var(--text-primary)]">{unpublished}</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">туристы не видят — в редакторе нужна отметка «Опубликован»</p>
         </div>
       </div>
 
@@ -404,8 +464,8 @@ export default function CompletenessClient() {
       ) : (
         <>
           {notReady.length > 0 && (
-            <section className="space-y-2" aria-label="Туры, которым не хватает данных">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Не уйдут на витрины ({notReady.length})</p>
+            <section className="space-y-2" aria-label="Туры, которые не уйдут на Авито и Яндекс">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Не уйдут на Авито и Яндекс ({notReady.length})</p>
               {notReady.map((tour) => (
                 <TourCard
                   key={tour.tour_id}
@@ -419,8 +479,8 @@ export default function CompletenessClient() {
             </section>
           )}
           {readyTours.length > 0 && (
-            <section className="space-y-2" aria-label="Готовые туры">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Готовы ({readyTours.length})</p>
+            <section className="space-y-2" aria-label="Готовы к Авито и Яндексу">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Готовы к Авито и Яндексу ({readyTours.length})</p>
               {readyTours.map((tour) => (
                 <TourCard
                   key={tour.tour_id}
