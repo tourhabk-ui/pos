@@ -1,20 +1,19 @@
 {
   "timeout": 60,
-  "run": 984,
-  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «http://fishingkam.ru/ теперь под нашим управлением», сайт передан платформе целиком. Снять текст главной fishingkam.ru (цены, сезоны, туры, контакты, есть ли наш виджет), robots.txt и sitemap — и сверить с нашими карточками туров партнёра (/api/tours-feed?operator=fishingkam). Ничего не пишет.",
+  "run": 985,
+  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. fishingkam.ru передан платформе (слово владельца 22.10). Проба 984 сняла главную (цены по сезонам, кнопки «Оплатить» магазина Tilda); /api/tours-feed ответил 401 (Edge). Здесь — наши карточки партнёра глазами туриста (/operators/fishingkam) для сверки цен и сезонов, товары магазина Tilda (sitemap-store.xml) и страницы политики и согласия на сайте (кто в них назван оператором ПД).",
   "urls": [
-    "https://fishingkam.ru/",
-    "https://fishingkam.ru/robots.txt",
-    "https://fishingkam.ru/sitemap.xml",
-    "https://vedarai.ru/api/tours-feed?operator=fishingkam"
+    "https://vedarai.ru/operators/fishingkam",
+    "https://fishingkam.ru/sitemap-store.xml",
+    "https://fishingkam.ru/pol",
+    "https://fishingkam.ru/soglasie"
   ],
   "text": true,
-  "bytes": 30000,
+  "bytes": 16000,
   "grep": [
-    "vedarai.ru/api/widget/lead.js",
-    "vedarai.ru/widget/embed.js",
-    "vedarai.ru",
-    "tilda",
-    "Ведар"
+    "ООО «Камчатская рыбалка»",
+    "4100050147",
+    "Ведар",
+    "vedarai"
   ]
 }
