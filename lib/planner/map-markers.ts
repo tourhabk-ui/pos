@@ -6,7 +6,8 @@
  *     базы (lib/planner/zone-style); зона не записана — серая;
  *   • при замене дня яркие только точки той же зоны, что у дня, остальные
  *     серые — заменить день маршрутом из другого конца края можно, но это
- *     уже не «рядом»;
+ *     уже не «рядом». Зона дня — показанная (dayShownZone): у дня, чья зона
+ *     не записана, ярких точек нет вовсе;
  *   • день плана — кружок с номером (MapMarker.label), один цвет на все дни,
  *     не совпадающий ни с одной зоной; день, который правят, крупнее;
  *   • дни в ОДНОЙ точке — один пин со всеми номерами («1·7»). Движок ставит
@@ -51,6 +52,16 @@ export interface PlannerMapDay {
    */
   zoneShown?: string | null;
   coords: [number, number];
+}
+
+/**
+ * Зона дня, которую видит человек: записанная у маршрута (`zoneShown`), а не
+ * угаданная для логистики (`zone`). По ней и подпись пина, и подсветка «та
+ * же зона» при замене дня — иначе догадка, убранная из подписи, вернулась бы
+ * цветом точек (ревью 22.10, третий круг).
+ */
+export function dayShownZone(d: Pick<PlannerMapDay, 'zone' | 'zoneShown'>): string | null {
+  return d.zoneShown !== undefined ? d.zoneShown : d.zone;
 }
 
 /**
@@ -142,7 +153,7 @@ export function groupDaysByPoint(days: readonly PlannerMapDay[]): DayPinGroup[] 
     } else {
       groups.push({
         coords: d.coords, keys: [d.day], numbers: [i + 1], titles: [d.title],
-        zoneLabel: zoneName(d.zoneShown !== undefined ? d.zoneShown : d.zone),
+        zoneLabel: zoneName(dayShownZone(d)),
       });
     }
   });
@@ -173,7 +184,8 @@ export function buildPlannerMarkers(input: {
   const editingDay = editingDayId !== null && editingReplaceable
     ? days.find(d => d.day === editingDayId) ?? null
     : null;
-  const editingZone = editingDay ? asPlannerZone(editingDay.zone) : null;
+  // Зона показанная, а не угаданная: у дня «Зона не записана» ярких точек нет.
+  const editingZone = editingDay ? asPlannerZone(dayShownZone(editingDay)) : null;
   const result: MapMarker[] = [];
 
   for (const r of routes) {

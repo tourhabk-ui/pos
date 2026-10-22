@@ -16,6 +16,15 @@
  *     легенда планировщика);
  *   — отступ верхних углов (topInset) следует за пропом и после
  *     инициализации: вызывающий меряет свою панель уже после монтажа.
+ *
+ * Третий круг ревью 22.10:
+ *   — новый набор маркеров вид не трогает: подгонка одна на инстанс (то, что
+ *     раньше держала сверка строки вызова в map-own-position-honest);
+ *   — угловая панель (легенда на компьютере): точка легла под неё — подгонка
+ *     повторяется с полем по низу панели; под ней пусто — повтора нет;
+ *   — плашка «Своё положение не определено» и нижние углы встают над полосой
+ *     вызывающего (bottomInset): в изолированной карте её z-index больше не
+ *     перекрывает полосу фильтров офлайн-/map.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, waitFor, act } from '@testing-library/react';
@@ -33,6 +42,8 @@ const h = vi.hoisted(() => {
     onMap: [] as unknown[],
     clustered: [] as unknown[],
     roCallbacks: [] as Array<() => void>,
+    /** Где точка ляжет на экране карты после подгонки (подменяется в тесте). */
+    toPixel: ((p: [number, number]) => ({ x: 600 + (p[1] - 158) * 10, y: 400 })) as (p: [number, number]) => { x: number; y: number },
   };
   const layer = () => ({ addTo() { return this; }, remove() {}, on() { return this; }, setUrl() {} });
   const leaflet = {
@@ -40,15 +51,18 @@ const h = vi.hoisted(() => {
     latLng: (lat: number, lng: number) => ({ lat, lng }),
     latLngBounds: () => ({}),
     map: (container: HTMLElement) => {
-      for (const side of ['left', 'right']) {
-        const corner = document.createElement('div');
-        corner.className = `leaflet-top leaflet-${side}`;
-        container.appendChild(corner);
+      for (const v of ['top', 'bottom']) {
+        for (const side of ['left', 'right']) {
+          const corner = document.createElement('div');
+          corner.className = `leaflet-${v} leaflet-${side}`;
+          container.appendChild(corner);
+        }
       }
       return {
         getContainer: () => container,
         getSize: () => ({ x: state.size.x, y: state.size.y }),
         fitBounds: (points: unknown, opts: Record<string, unknown>) => { state.fits.push({ points, opts }); },
+        latLngToContainerPoint: (p: [number, number]) => state.toPixel(p),
         invalidateSize: () => {},
         on: () => {},
         getZoom: () => 6,
@@ -105,6 +119,7 @@ beforeEach(() => {
   h.state.onMap = [];
   h.state.clustered = [];
   h.state.roCallbacks = [];
+  h.state.toPixel = (p) => ({ x: 600 + (p[1] - 158) * 10, y: 400 });
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
   vi.stubGlobal('requestAnimationFrame', () => 0);
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -166,6 +181,85 @@ describe('подгонка вида ждёт размера контейнера
       { top: 12, bottom: 200, left: 12, right: 319 }, { top: 0, bottom: 700, left: 0, right: 375 }, 50,
     ));
     expect(opts.paddingTopLeft?.[1]).toBeGreaterThan(200);
+  });
+});
+
+describe('подгонка одна на инстанс и обходит угловую панель', () => {
+  const rect = (r: { top: number; bottom: number; left: number; right: number }) =>
+    ({ ...r, width: r.right - r.left, height: r.bottom - r.top, x: r.left, y: r.top, toJSON: () => ({}) } as DOMRect);
+
+  it('новый набор маркеров вид не трогает — подгонка уже была', async () => {
+    h.state.size = { x: 375, y: 700 };
+    const { rerender } = await mounted(<LeafletMap markers={MARKERS} height="300px" />);
+    await waitFor(() => expect(h.state.fits.length).toBeGreaterThan(0));
+    const before = h.state.fits.length;
+    rerender(<LeafletMap markers={[...MARKERS, { id: 'gps', coords: [52.9, 158.5], title: 'След', suppressBalloon: true }]} height="300px" />);
+    await waitFor(() => expect(markersOnMap().length + h.state.clustered.length).toBe(4));
+    expect(h.state.fits.length).toBe(before);
+  });
+
+  /** Карта 800×800 на компьютере, легенда в углу 384×116 (замер ревью 22.10). */
+  async function withCornerPanel() {
+    const panel = document.createElement('div');
+    vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue(rect({ top: 88, bottom: 204, left: 12, right: 396 }));
+    const r = await mounted(<LeafletMap markers={MARKERS} height="800px" fitClearOf={{ current: panel }} />);
+    const mapBox = r.container.querySelector('.leaflet-top')?.parentElement as HTMLElement;
+    vi.spyOn(mapBox, 'getBoundingClientRect').mockReturnValue(rect({ top: 76, bottom: 876, left: 0, right: 800 }));
+    await waitFor(() => expect(markersOnMap().length).toBeGreaterThan(0));
+    h.state.size = { x: 800, y: 800 };
+    resize();
+  }
+
+  it('точка легла под угловую панель — подгонка повторена с полем по низу панели', async () => {
+    // Самая северная точка (Долина гейзеров) — под правым краем легенды.
+    h.state.toPixel = (p) => (p[0] > 54 ? { x: 387, y: 94 } : { x: 600, y: 500 });
+    await withCornerPanel();
+    const tops = h.state.fits.map(f => (f.opts as { paddingTopLeft?: [number, number] }).paddingTopLeft?.[1]);
+    expect(tops).toEqual([50, 153]);
+    // Положения точек читаются сразу после подгонки — значит, без анимации.
+    expect(h.state.fits.every(f => f.opts.animate === false)).toBe(true);
+  });
+
+  it('под угловой панелью пусто — подгонка одна, вид не сжат', async () => {
+    h.state.toPixel = () => ({ x: 600, y: 500 });
+    await withCornerPanel();
+    const tops = h.state.fits.map(f => (f.opts as { paddingTopLeft?: [number, number] }).paddingTopLeft?.[1]);
+    expect(tops).toEqual([50]);
+  });
+});
+
+describe('плашка об отказе геолокации — над полосой вызывающего', () => {
+  beforeEach(() => {
+    // Геолокация отвечает отказом: доступа нет.
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        watchPosition: (_ok: unknown, fail: (e: unknown) => void) => { setTimeout(() => fail({ code: 1 }), 0); return 1; },
+        clearWatch: () => {},
+      },
+    });
+  });
+  afterEach(() => {
+    // Сначала размонтировать: карта при уходе снимает слежение (clearWatch).
+    cleanup();
+    Reflect.deleteProperty(navigator, 'geolocation');
+  });
+
+  const plaque = () => document.querySelector('[role="status"]') as HTMLElement | null;
+
+  it('bottomInset поднимает плашку и нижние углы; без него — у самого низа', async () => {
+    const { container, rerender } = await mounted(
+      <LeafletMap markers={[]} height="600px" showUserLocation bottomInset={80} />,
+    );
+    await waitFor(() => expect(plaque()?.textContent).toMatch(/Своё положение не определено/));
+    expect(plaque()?.style.bottom).toBe('92px');
+    const corner = (sel: string) => (container.querySelector(sel) as HTMLElement).style.paddingBottom;
+    expect(corner('.leaflet-bottom.leaflet-left')).toBe('80px');
+    expect(corner('.leaflet-bottom.leaflet-right')).toBe('80px');
+    // Полоса ушла (bottomInset 0) — плашка и углы на прежнем месте.
+    rerender(<LeafletMap markers={[]} height="600px" showUserLocation bottomInset={0} />);
+    expect(plaque()?.style.bottom).toBe('12px');
+    expect(corner('.leaflet-bottom.leaflet-right')).toBe('');
   });
 });
 

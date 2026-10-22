@@ -28,7 +28,7 @@ import {
 import { ZONE_PIN, NO_ZONE_PIN, PLAN_DAY_PIN, zoneName, ZONE_NOT_RECORDED, ZONE_OUTSIDE } from '@/lib/planner/zone-style';
 import { resolveMarkerColor, MARKER_HEX } from '@/lib/map/marker-colors';
 import { labelPinHtml, labelPinSize, labelPinBox, PLAIN_PIN_DIAMETER } from '@/lib/map/label-pin';
-import { fitDecision } from '@/lib/map/fit-when-sized';
+import { fitDecision, fitPaddingTop, cornerRefitTop, PIN_REACH } from '@/lib/map/fit-when-sized';
 import { ZONE_IDS } from '@/lib/planner/constants';
 
 const ROUTES: PlannerMapRoute[] = [
@@ -252,6 +252,23 @@ describe('замена дня, которого не заменяют, и зон
     expect(sameZoneCount(ROUTES.filter(r => r.zone !== 'eastern'), 'eastern')).toBe(0);
   });
 
+  it('замена дня без записанной зоны — ярких точек нет: догадка не красит точки (третий круг)', () => {
+    // zone — догадка по расстоянию для логистики (Авачинская), человеку
+    // показано «Зона не записана». Авачинские точки ярче прочих быть не должны.
+    const noZone: PlannerMapDay[] = [{ day: 1, title: 'Без зоны', zone: 'avachinsky', zoneShown: null, coords: [53.1, 158.4] }];
+    const dots = buildPlannerMarkers({ routes: ROUTES, days: noZone, editingDayId: 1 }).filter(m => !m.label && !m.geometry);
+    expect(dots.map(m => m.color)).toEqual(ROUTES.map(() => NO_ZONE_PIN));
+    // Район вне четырёх зон — так же: «той же зоны» среди точек нет.
+    const far: PlannerMapDay[] = [{ day: 1, title: 'Зимник', zone: 'northern', zoneShown: 'krai_koryak', coords: [57.8, 158.7] }];
+    const farDots = buildPlannerMarkers({ routes: ROUTES, days: far, editingDayId: 1 }).filter(m => !m.label && !m.geometry);
+    expect(farDots.every(m => m.color === NO_ZONE_PIN)).toBe(true);
+    // Записанная зона — как прежде: её точки своим цветом.
+    const kept: PlannerMapDay[] = [{ day: 1, title: 'Авачинский', zone: 'avachinsky', coords: [53.25, 158.83] }];
+    const keptDots = buildPlannerMarkers({ routes: ROUTES, days: kept, editingDayId: 1 });
+    expect(keptDots.find(m => m.id === 'r-ava')?.color).toBe(ZONE_PIN.avachinsky);
+    expect(keptDots.find(m => m.id === 'r-west')?.color).toBe(NO_ZONE_PIN);
+  });
+
   it('день из маршрута без записанной зоны подписан «Зона не записана», а не догадкой', () => {
     const days: PlannerMapDay[] = [{ day: 1, title: 'Без зоны', zone: 'avachinsky', zoneShown: null, coords: [53.1, 158.4] }];
     const pin = buildPlannerMarkers({ routes: [], days, editingDayId: null }).find(m => m.label);
@@ -309,6 +326,39 @@ describe('подгонка вида ждёт размера контейнера
   });
   it('меньше двух точек — не по чему', () => {
     expect(fitDecision({ fitDone: false, points: 1, width: 390, height: 733 })).toBe('too_few');
+  });
+});
+
+describe('панель поверх карты при подгонке вида', () => {
+  // Карта планировщика на компьютере: 800×800, легенда в левом верхнем углу.
+  const MAP = { top: 76, bottom: 876, left: 0, right: 800 };
+  const CORNER = { top: 88, bottom: 204, left: 12, right: 396 };
+
+  it('широкая панель (телефон) — поле по её низу сразу', () => {
+    const phone = { top: 0, bottom: 700, left: 0, right: 375 };
+    expect(fitPaddingTop({ top: 12, bottom: 200, left: 12, right: 319 }, phone, 50)).toBe(225);
+    // Угловая на компьютере сразу поля не получает.
+    expect(fitPaddingTop(CORNER, MAP, 50)).toBe(50);
+  });
+
+  it('угловая панель: точка легла под неё — повтор с полем по низу панели', () => {
+    // Точка (387, 94) в пикселях карты — под правым краем легенды (случай ревью).
+    const refit = cornerRefitTop(CORNER, MAP, 50, [{ x: 600, y: 500 }, { x: 387, y: 94 }]);
+    expect(refit).toBe(fitPaddingTop({ ...CORNER, right: MAP.right }, MAP, 50));
+    expect(refit).toBeGreaterThan(CORNER.bottom - MAP.top);
+  });
+
+  it('пин шире точки: центр рядом с краем панели — тоже «под ней»', () => {
+    const edge = CORNER.right - MAP.left + PIN_REACH - 1;
+    expect(cornerRefitTop(CORNER, MAP, 50, [{ x: edge, y: 60 }])).not.toBeNull();
+    expect(cornerRefitTop(CORNER, MAP, 50, [{ x: edge + 2, y: 60 }])).toBeNull();
+  });
+
+  it('под панелью пусто, панель скрыта или широкая — повторять не нужно', () => {
+    expect(cornerRefitTop(CORNER, MAP, 50, [{ x: 600, y: 500 }, { x: 700, y: 40 }])).toBeNull();
+    expect(cornerRefitTop({ top: 0, bottom: 0, left: 0, right: 0 }, MAP, 50, [{ x: 10, y: 10 }])).toBeNull();
+    const wide = { top: 88, bottom: 204, left: 12, right: 788 };
+    expect(cornerRefitTop(wide, MAP, 50, [{ x: 100, y: 60 }])).toBeNull();
   });
 });
 

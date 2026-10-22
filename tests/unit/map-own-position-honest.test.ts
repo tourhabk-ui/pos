@@ -225,15 +225,12 @@ describe('маркеры рисуются на живой карте, а не п
     expect(fitDecision({ fitDone: true, points: 50, width: 800, height: 600 })).toBe('done');
     expect(fitDecision({ fitDone: false, points: 1, width: 800, height: 600 })).toBe('too_few');
     expect(fitDecision({ fitDone: false, points: 50, width: 800, height: 600 })).toBe('fit');
-    // Эффект маркеров спрашивает именно её и помечает подгонку ДО fitBounds.
-    const at = MAP.indexOf('}, [markers, mapEpoch]);');
-    const body = MAP.slice(MAP.lastIndexOf('useEffect(() => {', at), at);
-    expect(body).toMatch(/fitDecision\(\{\s*fitDone: fitDoneRef\.current, points: allCoords\.length/);
-    expect(body).toMatch(/if \(decision !== 'fit'\) return;/);
-    expect(body.indexOf('fitDoneRef.current = true;'))
-      .toBeGreaterThan(body.indexOf("if (decision !== 'fit') return;"));
-    expect(body.indexOf('fitDoneRef.current = true;'))
-      .toBeLessThan(body.indexOf('map.fitBounds('));
+    expect(fitDecision({ fitDone: false, points: 50, width: 0, height: 0 })).toBe('wait_for_size');
+    // Что карта это правило ПРИМЕНЯЕТ (подгонка одна на инстанс, новый набор
+    // маркеров вид не трогает, скрытый контейнер ждёт размера) — держит рендер
+    // на подменённом Leaflet: tests/unit/leaflet-map-behavior.test.tsx. Сверка
+    // строки вызова здесь ловила бы перестановку аргументов, а не дефект (§4,
+    // «сторож судит поведение»).
   });
 
   it('эпоха карты перерисовывает маркеры на новом инстансе', () => {

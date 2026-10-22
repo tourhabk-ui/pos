@@ -14,7 +14,7 @@ import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
 // планировщика, и легенда показывает ровно тот цвет, каким нарисован пин.
 import { resolveMarkerColor } from '@/lib/map/marker-colors';
 import { labelPinHtml, labelPinBox } from '@/lib/map/label-pin';
-import { fitDecision, fitPaddingTop } from '@/lib/map/fit-when-sized';
+import { fitDecision, fitPaddingTop, cornerRefitTop } from '@/lib/map/fit-when-sized';
 
 interface LeafletMapProps {
   markers?: MapMarker[];
@@ -51,13 +51,28 @@ interface LeafletMapProps {
    */
   topInset?: number;
   /**
+   * Сколько пикселей СНИЗУ занято чужой панелью поверх карты — пара к
+   * `topInset`. Поднимает нижние углы Leaflet и плашку «Своё положение не
+   * определено».
+   *
+   * Зачем (ревью 22.10, третий круг): корень карты изолирует наложение, и
+   * плашка с z-index 1000 больше не всплывает над соседями страницы. На
+   * офлайн-/map её закрывала полоса фильтров (z-500, во всю ширину снизу):
+   * GPS включён, синей точки нет, а единственная фраза об этом лежала под
+   * кнопками «Вулканы 5». Раньше плашка была над полосой только потому, что
+   * её z-index действовал на всю страницу, — теперь карта знает, что у неё
+   * снизу, и встаёт выше.
+   */
+  bottomInset?: number;
+  /**
    * Панель вызывающего, лежащая поверх ВЕРХА карты (легенда планировщика на
    * телефоне). Подгонка вида под маркеры оставляет её нижний край над
    * точками: иначе север края подгонялся ровно под легенду, и точки там
    * были видны только размытыми пятнами за стеклом (ревью 22.10). Размер
    * берётся в момент подгонки, а не заранее: панель растёт с данными.
-   * Узкая панель сбоку (легенда на компьютере) отступа не требует — правило
-   * в lib/map/fit-when-sized (fitPaddingTop).
+   * Узкая панель в углу (легенда на компьютере) отступа заранее не получает:
+   * его дают, только если после подгонки под ней легла точка — правила в
+   * lib/map/fit-when-sized (fitPaddingTop, cornerRefitTop).
    */
   fitClearOf?: { readonly current: HTMLElement | null };
   onMarkerClick?: (id: string) => void;
@@ -182,6 +197,7 @@ export default function LeafletMap({
   attribution = true,
   attributionPosition,
   topInset = 0,
+  bottomInset = 0,
   fitClearOf,
   onMarkerClick,
   onMapClick,
@@ -278,12 +294,36 @@ export default function LeafletMap({
    */
   const fitClearOfRef = useRef(fitClearOf);
   useEffect(() => { fitClearOfRef.current = fitClearOf; });
-  const fitOptionsRef = useRef((): import('leaflet').FitBoundsOptions => {
+  /**
+   * Подгонка вида под точки — ОДНА на оба пути: сразу (эффект маркеров) и
+   * отложенная до размера контейнера (ResizeObserver). Две копии вызова
+   * fitBounds с полями уже расходились бы при первой правке.
+   *
+   * Панель поверх карты (fitClearOf): широкая (легенда на телефоне) даёт
+   * верхнее поле сразу; угловая (легенда на компьютере) — только если после
+   * подгонки под ней оказалась точка (lib/map/fit-when-sized, cornerRefitTop).
+   * Положения точек читаются сразу после fitBounds, поэтому с панелью
+   * подгонка без анимации: анимированный зум отдал бы прежний вид.
+   */
+  const fitViewRef = useRef((map: LMap, points: [number, number][]) => {
+    map.invalidateSize();
+    const bounds = points as unknown as import('leaflet').LatLngBoundsExpression;
     const panel = fitClearOfRef.current?.current ?? null;
     const box = containerRef.current;
-    if (!panel || !box) return { padding: [FIT_PADDING, FIT_PADDING] };
-    const top = fitPaddingTop(panel.getBoundingClientRect(), box.getBoundingClientRect(), FIT_PADDING);
-    return { paddingTopLeft: [FIT_PADDING, top], paddingBottomRight: [FIT_PADDING, FIT_PADDING] };
+    if (!panel || !box) {
+      map.fitBounds(bounds, { padding: [FIT_PADDING, FIT_PADDING] });
+      return;
+    }
+    const panelBox = panel.getBoundingClientRect();
+    const mapBox = box.getBoundingClientRect();
+    const fitWith = (top: number) => map.fitBounds(bounds, {
+      paddingTopLeft: [FIT_PADDING, top], paddingBottomRight: [FIT_PADDING, FIT_PADDING], animate: false,
+    });
+    const top = fitPaddingTop(panelBox, mapBox, FIT_PADDING);
+    fitWith(top);
+    if (top !== FIT_PADDING) return;
+    const refit = cornerRefitTop(panelBox, mapBox, FIT_PADDING, points.map(p => map.latLngToContainerPoint(p)));
+    if (refit !== null) fitWith(refit);
   });
   const onMarkerClickRef = useRef(onMarkerClick);
   const onMapClickRef = useRef(onMapClick);
@@ -626,7 +666,7 @@ export default function LeafletMap({
           }) !== 'fit') return;
           pendingFitRef.current = null;
           fitDoneRef.current = true;
-          map.fitBounds(pending as unknown as import('leaflet').LatLngBoundsExpression, fitOptionsRef.current());
+          fitViewRef.current(map, pending);
         });
         resizeObserver.observe(containerRef.current);
       }
@@ -806,7 +846,12 @@ export default function LeafletMap({
       const corner = root.querySelector(sel);
       if (corner instanceof HTMLElement) corner.style.paddingTop = topInset > 0 ? `${topInset}px` : '';
     }
-  }, [topInset, mapEpoch]);
+    // Низ — тем же приёмом (bottomInset): полоса вызывающего во всю ширину.
+    for (const sel of ['.leaflet-bottom.leaflet-left', '.leaflet-bottom.leaflet-right']) {
+      const corner = root.querySelector(sel);
+      if (corner instanceof HTMLElement) corner.style.paddingBottom = bottomInset > 0 ? `${bottomInset}px` : '';
+    }
+  }, [topInset, bottomInset, mapEpoch]);
 
   /**
    * Отрисовка маркеров НА ЖИВОЙ карте — без пересоздания инстанса.
@@ -973,10 +1018,7 @@ export default function LeafletMap({
     pendingFitRef.current = null;
     if (decision !== 'fit') return;
     fitDoneRef.current = true;
-    const fit = () => {
-      map.invalidateSize();
-      map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, fitOptionsRef.current());
-    };
+    const fit = () => fitViewRef.current(map, allCoords);
     fit();
     // Контейнер мог ещё не устояться в размере (боттом-шит, модалка) — тот же
     // приём, что и у invalidateSize при инициализации.
@@ -998,7 +1040,9 @@ export default function LeafletMap({
         <div
           role="status"
           style={{
-            position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 1000,
+            // Над полосой вызывающего (bottomInset), а не под ней: внутри
+            // изолированной карты z-index не перекрывает соседей страницы.
+            position: 'absolute', left: 12, right: 12, bottom: 12 + Math.max(0, bottomInset), zIndex: 1000,
             padding: '8px 12px', borderRadius: 10, textAlign: 'center',
             background: 'rgba(13,17,23,0.85)', color: '#fff',
             fontSize: 12, lineHeight: 1.35, pointerEvents: 'none',

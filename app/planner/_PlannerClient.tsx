@@ -648,17 +648,23 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
   // предлагает только те дни, где замена сработает, — иначе нажатие уходило
   // в отказ на скрытой вкладке «План», и на карте «ничего не происходило».
   const replaceable = days.filter(d => replaceRefusal(days, d) === null);
-  const defaultTarget = editingDayId ?? replaceable[0]?.day ?? 0;
-  const [targetDay, setTargetDay] = useState<number>(defaultTarget);
-  const actLabel = route.activity_type ? (ACTIVITY_LABEL[route.activity_type] ?? route.activity_type) : null;
-
-  // Auto-update target when editingDayId changes
-  useEffect(() => {
-    if (editingDayId !== null) setTargetDay(editingDayId);
-  }, [editingDayId]);
-
   const editingIdx = days.findIndex(d => d.day === editingDayId);
   const editingReplaceable = editingIdx >= 0 && replaceRefusal(days, days[editingIdx]) === null;
+  // Выбор человека в списке — только среди заменяемых дней. Открытый день,
+  // который не заменяют (прилёт, отъезд), выбором не становится.
+  const [chosenDay, setChosenDay] = useState<number | null>(editingReplaceable ? editingDayId : null);
+  useEffect(() => {
+    if (editingDayId !== null && editingReplaceable) setChosenDay(editingDayId);
+  }, [editingDayId, editingReplaceable]);
+  // День замены — тот, что СЕЙЧАС показан в списке, а не застывшее состояние
+  // (ревью 22.10, третий круг): выбранного дня в списке нет (не заменяют,
+  // удалён) — браузер показывает первый пункт, и заменяется именно он.
+  // Раньше кнопка слала прежний день: прилёт уходил в отказ на скрытой
+  // вкладке «План», удалённый — молча закрывал карточку.
+  const targetDay = chosenDay !== null && replaceable.some(d => d.day === chosenDay)
+    ? chosenDay
+    : (replaceable[0]?.day ?? null);
+  const actLabel = route.activity_type ? (ACTIVITY_LABEL[route.activity_type] ?? route.activity_type) : null;
   const typeLabel = placeTypeLabel(route.location_type);
   // Плана ещё нет (идут шаги анкеты): день, добавленный сейчас, сборка плана
   // перезапишет, а на экране шагов его не видно вовсе. Предлагать
@@ -709,11 +715,11 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
         )}
 
         {/* Select a different day to replace */}
-        {replaceable.length > 0 && editingDayId === null && (
+        {targetDay !== null && editingDayId === null && (
           <div className="flex items-center gap-2">
             <select
               value={targetDay}
-              onChange={e => setTargetDay(Number(e.target.value))}
+              onChange={e => setChosenDay(Number(e.target.value))}
               aria-label="Какой день заменить"
               className="ds-input flex-1 text-xs py-1.5"
             >
@@ -1372,7 +1378,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (editingDayId === null) return null;
     const idx = days.findIndex(d => d.day === editingDayId);
     if (idx < 0) return null;
-    return { idx, title: days[idx].title, refusal: replaceRefusal(days, days[idx]), zone: days[idx].zone };
+    // Зона — показанная человеку (записанная у маршрута), а не угаданная для
+    // логистики: по ней карта красит «ту же зону» (lib/planner/map-markers).
+    return { idx, title: days[idx].title, refusal: replaceRefusal(days, days[idx]), zone: shownZone(days[idx]) };
   }, [editingDayId, days]);
 
   // Transport helpers
@@ -2862,6 +2870,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           title: editingDayInfo.title,
           refusal: editingDayInfo.refusal,
           sameZone: sameZoneCount(bgRoutes, editingDayInfo.zone),
+          dayZone: editingDayInfo.zone,
         } : null}
         onRetry={() => setBgRetry(n => n + 1)}
         onStopEditing={() => setEditingDayId(null)}

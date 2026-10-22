@@ -28,6 +28,9 @@
  *     дня»: плашка говорит почему, и только;
  *   • серые точки при замене — «другая зона или зона не записана»: зона
  *     точки без записи неизвестна, назвать её «другой» было бы догадкой;
+ *   • (третий круг) у дня, чья зона не записана или вне четырёх, «той же
+ *     зоны» нет: ярких точек нет, и плашка говорит это словами, а не
+ *     красит точки зоны, угаданной по расстоянию;
  *   • «Часть маршрутов не загрузилась» — с «Повторить» и вне сворачиваемой
  *     части: свернул легенду — предупреждение осталось;
  *   • на телефоне, когда план появился, легенда сворачивается сама до строки
@@ -38,7 +41,7 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Loader, RotateCw, X } from 'lucide-react';
 import type { LegendEntry } from '@/lib/planner/map-markers';
-import { planDayHex } from '@/lib/planner/zone-style';
+import { asPlannerZone, planDayHex, zoneName, ZONE_OUTSIDE } from '@/lib/planner/zone-style';
 
 export type PlannerMapStatus = 'loading' | 'ok' | 'empty' | 'failed';
 
@@ -57,6 +60,10 @@ export const MAP_TEXT = {
   editAction: 'Нажмите точку на карте — она встанет вместо этого дня.',
   editColors: 'Яркие — та же зона, что у дня; серые — другая зона или зона не записана.',
   editNoSameZone: 'В зоне этого дня точек под ваши интересы нет — все точки серые. Поставить можно любую.',
+  // Зона дня не из четырёх (не записана или район вне их): «та же зона»
+  // не определена, и серость точек — не приговор им (§4.0).
+  editZoneNotRecorded: 'Зона этого дня не записана — все точки серые. Поставить можно любую.',
+  editZoneOutside: 'Этот день вне четырёх зон — все точки серые. Поставить можно любую.',
 } as const;
 
 /** «Замена дня 2» — одно слово на плашке карты и на полосе над вкладками. */
@@ -112,6 +119,19 @@ export interface PlannerMapEditing {
   refusal: string | null;
   /** Сколько точек на карте в той же зоне, что у дня. */
   sameZone: number;
+  /**
+   * Зона дня, как её видит человек (записанная, не угаданная — DayPlan.zoneShown).
+   * Не одна из четырёх — ярких точек нет, и плашка говорит почему.
+   */
+  dayZone: string | null;
+}
+
+/** Что значат цвета точек при замене этого дня — словами. */
+function editColorsText(editing: PlannerMapEditing): string {
+  if (asPlannerZone(editing.dayZone) === null) {
+    return zoneName(editing.dayZone) === ZONE_OUTSIDE ? MAP_TEXT.editZoneOutside : MAP_TEXT.editZoneNotRecorded;
+  }
+  return editing.sameZone > 0 ? MAP_TEXT.editColors : MAP_TEXT.editNoSameZone;
 }
 
 export function PlannerMapOverlay({
@@ -175,7 +195,7 @@ export function PlannerMapOverlay({
               <>
                 <p className="text-[11px] leading-snug text-[var(--glass-fg-muted)]">{MAP_TEXT.editAction}</p>
                 <p className="text-[11px] leading-snug text-[var(--glass-fg-muted)]">
-                  {editing.sameZone > 0 ? MAP_TEXT.editColors : MAP_TEXT.editNoSameZone}
+                  {editColorsText(editing)}
                 </p>
               </>
             )}

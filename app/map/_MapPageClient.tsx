@@ -64,7 +64,7 @@ import { usePlaceProximity } from '@/hooks/usePlaceProximity';
 import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 import { clipAtWord } from '@/lib/text/clip-at-word';
 import { withClosure } from '@/lib/safety/place-closure';
-import { useInsetBelow } from '@/hooks/useInsetBelow';
+import { useInsetAbove, useInsetBelow } from '@/hooks/useInsetBelow';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -242,6 +242,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   // свои верхние углы ниже (hooks/useInsetBelow).
   const [offlineTopRef, offlineTopInset] = useInsetBelow();
   const [gpsButtonRef, gpsButtonInset] = useInsetBelow();
+  // Что лежит поверх НИЗА: офлайн — полоса фильтров во всю ширину, запасная
+  // карта онлайн — счётчик «Точек: N». Плашка «Своё положение не определено»
+  // встаёт над ними (LeafletMap bottomInset), а не под ними.
+  const [offlineBottomRef, offlineBottomInset] = useInsetAbove();
+  const [counterRef, counterInset] = useInsetAbove();
   // Код своей карты качается сразу, как и до 14.10; откладывается только её
   // запуск (IdleMount ниже), поэтому на медленной сети карта не приходит
   // позже. Отказ здесь не последний: смонтированная карта попросит код ещё
@@ -554,10 +559,12 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           // левый угол под ним (ODbL требует, чтобы её было видно).
           topInset={offlineTopInset}
           attributionPosition="topleft"
+          // Плашка об отказе геолокации — над полосой фильтров.
+          bottomInset={offlineBottomInset}
         />
 
         {/* Фильтры — снизу, поверх карты, крупные для перчаток */}
-        <div className="absolute bottom-0 left-0 right-0 z-[500]">
+        <div ref={offlineBottomRef} className="absolute bottom-0 left-0 right-0 z-[500]">
           <div className="bg-black/60  border-t border-white/10 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
               {filters.map(f => {
@@ -844,12 +851,20 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               center={OVERVIEW_CENTER}
               zoom={OVERVIEW_ZOOM_LEAFLET}
               markers={allMarkers}
-              height="calc(100vh - 180px)"
+              // Низ рамки — над таб-баром телефона (--bottom-nav-h, на
+              // компьютере 0). Без вычета рамка уходила под бар на 33 px, и
+              // изолированная карта (LeafletMap, isolation) прятала под ним
+              // подпись OpenStreetMap и плашку об отказе геолокации — до
+              // изоляции их z-index просто рисовал их поверх бара.
+              height="calc(100vh - 180px - var(--bottom-nav-h, 0px))"
               onMarkerClick={handleMarkerClick}
               showUserLocation={showMyLocation}
               locationPriority="highAccuracy"
               // Угол top-right занят кнопкой «моё место» — «+/−» ниже неё.
               topInset={gpsButtonInset}
+              // Низ слева занят счётчиком «Точек: N»: плашка об отказе
+              // геолокации и подпись OpenStreetMap — над ним.
+              bottomInset={counterInset}
             />
           )}
           </MapErrorBoundary>
@@ -891,7 +906,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           {quakesMode && quakeHit && <QuakeCard quake={quakeHit} onClose={() => setQuakeHit(null)} />}
 
           {/* Счётчик */}
-          <div className="absolute bottom-3 left-3 z-[500] bg-[var(--bg-card)] rounded-lg px-3 py-1.5 border border-[var(--border)] shadow-sm">
+          <div ref={vedarReady ? undefined : counterRef} className="absolute bottom-3 left-3 z-[500] bg-[var(--bg-card)] rounded-lg px-3 py-1.5 border border-[var(--border)] shadow-sm">
             <p className="text-sm text-[var(--text-secondary)]">
               {quakesMode
                 // Толчки — числом и честным «не прочитаны» (§4.0).

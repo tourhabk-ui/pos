@@ -21,6 +21,13 @@
  *   — поздний ответ прежнего запроса не затирает свежий; после «Повторить»
  *     — «Загружаем», а не прежний отказ;
  *   — день из маршрута без зоны подписан «Зона не записана», а не догадкой.
+ *
+ * Третий круг ревью 22.10:
+ *   — «Заменить» в карточке маршрута меняет тот день, что показан в списке:
+ *     после «Закрыть день» на прилёте и после удаления открытого дня кнопка
+ *     слала прежний день — отказ на скрытой вкладке или молчаливое закрытие;
+ *   — замена дня без записанной зоны не красит точки угаданной зоны, и
+ *     плашка говорит это словами.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
@@ -51,6 +58,7 @@ import { PlannerClient } from '@/app/planner/_PlannerClient';
 import { PlannerMapOverlay, MAP_TEXT } from '@/components/planner/PlannerMapOverlay';
 import { resolveMarkerColor } from '@/lib/map/marker-colors';
 import { plannerLegend } from '@/lib/planner/map-markers';
+import { NO_ZONE_PIN, ZONE_PIN } from '@/lib/planner/zone-style';
 
 /** Каталог: по маршруту в каждой из четырёх зон и один без зоны. */
 const CATALOG = [
@@ -267,6 +275,59 @@ describe('на настоящем экране планировщика', () => 
     expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['День 2: Курильское озеро']);
   });
 
+  /** Заголовки дней на карте в порядке плана: «1. Прилёт» … */
+  const dayTitles = () => markers().filter(m => m.label).flatMap(m => m.title.split(' · '));
+
+  it('«Заменить» после «Закрыть день» на прилёте меняет показанный день, а не прилёт', async () => {
+    recommendation = FRAMED;
+    render(<PlannerClient />);
+    await buildPlan();
+    // Пин «1·3» открывает прилёт — его не заменяют; точка — карточка без «Заменить».
+    tap(markers().find(m => m.label === '1·3')?.id ?? '');
+    await screen.findByText('Это день прилёта — его не заменяют маршрутом.');
+    tap('r1');
+    await screen.findByRole('button', { name: /Добавить в план/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Закрыть день' }));
+    const select = await screen.findByRole('combobox', { name: 'Какой день заменить' }) as HTMLSelectElement;
+    // В списке — только день 2, и выбран именно он.
+    expect(select.value).toBe('2');
+    fireEvent.click(screen.getByRole('button', { name: 'Заменить' }));
+    await waitFor(() => expect(dayTitles()).toContain('2. Вулкан Авачинский'));
+    expect(dayTitles()).toContain('1. Прилёт');
+    expect(screen.queryByText(/его не заменяют маршрутом/)).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Какой день заменить' })).toBeNull();
+  });
+
+  it('открытый день удалили — «Заменить» меняет день, что показан в списке, а не закрывает карточку молча', async () => {
+    render(<PlannerClient />);
+    await buildPlan();
+    tap('day_2');
+    await screen.findByText(MAP_TEXT.editAction);
+    tap('r4');
+    await screen.findByRole('button', { name: 'Заменить День 2' });
+    // День 2 удалён в плане — правка дня закрылась, карточка точки осталась.
+    fireEvent.click(screen.getAllByTitle('Удалить день')[1]);
+    const select = await screen.findByRole('combobox', { name: 'Какой день заменить' }) as HTMLSelectElement;
+    expect(select.value).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Заменить' }));
+    await waitFor(() => expect(dayTitles()).toEqual(['1. Вулкан Толбачик']));
+  });
+
+  it('замена дня без записанной зоны — точки угаданной зоны не ярче прочих, плашка говорит почему', async () => {
+    render(<PlannerClient />);
+    await buildPlan();
+    tap('r5');
+    fireEvent.click(await screen.findByRole('button', { name: /Добавить в план/ }));
+    await waitFor(() => expect(dayTitles()).toContain('3. Маршрут без зоны'));
+    // До замены авачинская точка — своим цветом.
+    expect(markers().find(m => m.id === 'r1')?.color).toBe(ZONE_PIN.avachinsky);
+    tap(markers().find(m => m.label === '3')?.id ?? '');
+    await screen.findByText(MAP_TEXT.editZoneNotRecorded);
+    const dots = markers().filter(m => CATALOG.some(r => r.id === m.id));
+    expect(dots.map(m => m.color)).toEqual(CATALOG.map(() => NO_ZONE_PIN));
+    expect(screen.queryByText(MAP_TEXT.editColors)).toBeNull();
+  });
+
   it('день из маршрута без зоны — «Зона не записана», а не угаданная зона', async () => {
     render(<PlannerClient />);
     await buildPlan();
@@ -311,8 +372,8 @@ describe('плашка карты сама по себе', () => {
     legend: [], total: 0, partial: false, hasPlan: false, editing: null,
     onRetry: () => {}, onStopEditing: () => {},
   };
-  const editingDay = (over: Partial<{ number: number; title: string; refusal: string | null; sameZone: number }> = {}) =>
-    ({ number: 2, title: 'Курильское озеро', refusal: null, sameZone: 3, ...over });
+  const editingDay = (over: Partial<{ number: number; title: string; refusal: string | null; sameZone: number; dayZone: string | null }> = {}) =>
+    ({ number: 2, title: 'Курильское озеро', refusal: null, sameZone: 3, dayZone: 'western', ...over });
 
   it('загрузка — словами', () => {
     render(<PlannerMapOverlay {...base} status="loading" />);
@@ -386,6 +447,16 @@ describe('плашка карты сама по себе', () => {
     rerender(<PlannerMapOverlay {...base} status="ok" total={3} hasPlan editing={editingDay({ sameZone: 0 })} />);
     expect(screen.queryByText(MAP_TEXT.editColors)).toBeNull();
     expect(screen.getByText(MAP_TEXT.editNoSameZone)).toBeTruthy();
+  });
+
+  it('зона дня не записана или вне четырёх — «той же зоны» нет, сказано словами', () => {
+    const { rerender } = render(<PlannerMapOverlay {...base} status="ok" total={3} hasPlan
+      editing={editingDay({ dayZone: null, sameZone: 0 })} />);
+    expect(screen.getByText(MAP_TEXT.editZoneNotRecorded)).toBeTruthy();
+    expect(screen.queryByText(MAP_TEXT.editNoSameZone)).toBeNull();
+    rerender(<PlannerMapOverlay {...base} status="ok" total={3} hasPlan editing={editingDay({ dayZone: 'krai_koryak', sameZone: 0 })} />);
+    expect(screen.getByText(MAP_TEXT.editZoneOutside)).toBeTruthy();
+    expect(screen.queryByText(MAP_TEXT.editColors)).toBeNull();
   });
 
   it('отказ загрузки зовёт к кнопке, а не к перезагрузке страницы (план не хранится)', () => {
