@@ -19,7 +19,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { CatalogQuerySchema, queryCatalog } from '@/lib/routes/catalog-query';
-import { bgRoutesUrl } from '@/lib/planner/bg-routes';
+import { bgRoutesUrl } from '@/lib/planner/bg-routes-url';
 import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';

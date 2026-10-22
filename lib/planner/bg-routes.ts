@@ -52,7 +52,10 @@
  *     (`truncated`), а не выдаёт тридцать за все.
  */
 import { asPlannerZone } from '@/lib/planner/zone-style';
+import { BG_ROUTES_PER_TYPE, PLACE_TILE_LOCATION_TYPES, bgRoutesUrl } from '@/lib/planner/bg-routes-url';
 import type { ZoneId } from '@/lib/planner/constants';
+
+export { BG_ROUTES_PER_TYPE, PLACE_TILE_LOCATION_TYPES, bgRoutesUrl };
 
 /** Маршрут на карте планировщика — то, что экран читает из каталога. */
 export interface PlannerRoute {
@@ -85,22 +88,6 @@ export type BgRoutesResult =
  */
 export interface TruncatedType { type: string; shown: number; total: number }
 
-/** Сколько маршрутов на один интерес — как было. */
-export const BG_ROUTES_PER_TYPE = 30;
-
-/**
- * Плитка места → виды мест пути (`places.location_type`). Плитки, которых
- * здесь нет, — занятия: ищутся по `activity_type` маршрута.
- */
-export const PLACE_TILE_LOCATION_TYPES: Readonly<Record<string, readonly string[]>> = {
-  volcano:    ['volcano'],
-  hot_spring: ['hot_spring', 'thermal'],
-  geyser:     ['geyser'],
-  sea:        ['bay', 'cape', 'beach'],
-  mountain:   ['mountain', 'pass'],
-  river:      ['river'],
-};
-
 /**
  * Интересы по умолчанию, пока человек ничего не выбрал: только те, что дают
  * точки. Замер 22.10 на проде: треккинг — 28 маршрутов с координатами
@@ -117,22 +104,6 @@ export const PLACE_TILE_LOCATION_TYPES: Readonly<Record<string, readonly string[
  * догадкой.
  */
 export const BG_DEFAULT_TYPES = ['trekking', 'volcano'] as const;
-
-/**
- * Адрес каталога для плитки: место — по месту пути, занятие — по виду
- * маршрута. Только маршруты, с координатами, в порядке для поля, описание
- * первой строкой (см. шапку, шестой круг).
- */
-export function bgRoutesUrl(tile: string): string {
-  const placeTypes = PLACE_TILE_LOCATION_TYPES[tile];
-  const sp = new URLSearchParams(placeTypes ? { place_type: placeTypes.join(',') } : { activity_type: tile });
-  sp.set('kind', 'route');
-  sp.set('hasCoords', 'true');
-  sp.set('sort', 'navigable');
-  sp.set('brief', '1');
-  sp.set('limit', String(BG_ROUTES_PER_TYPE));
-  return `/api/routes?${sp.toString()}`;
-}
 
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v : null;
