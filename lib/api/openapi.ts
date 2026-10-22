@@ -34,6 +34,7 @@ import {
   A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION,
 } from '@/lib/a2a/agent-card';
 import { SERVER_CARD_PATH, AI_CATALOG_PATH, SERVER_CARD_MEDIA_TYPE, AI_CATALOG_MEDIA_TYPE, A2A_CARD_MEDIA_TYPE } from '@/lib/mcp/server-card';
+import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
 
 export const OPENAPI_PATH = '/openapi.json';
 export const API_CATALOG_PATH = '/.well-known/api-catalog';
@@ -130,6 +131,7 @@ export function buildOpenApiDocument(base: string): Json {
         isOpen: nullable('boolean', { description: 'false — место закрыто администратором. true — значение по умолчанию у всех мест («никто не закрыл»), не проверка, что место открыто' }),
         lineGrade: nullable('string', { enum: ['surveyed', 'sketch', 'unknown', 'points_only', 'none', null], description: 'Только у kind=route: откуда линия' }),
         onRoute: nullable('boolean', { description: 'Только у kind=place' }),
+        zone: nullable('string', { description: 'Зона записи в базе: avachinsky, western, eastern, northern или метка района вне них; null — не записана' }),
       },
     },
     CatalogResponse: {
@@ -817,6 +819,12 @@ export function buildOpenApiDocument(base: string): Json {
           query('near_lng', { type: 'number', minimum: -180, maximum: 180 }, 'Центр радиуса'),
           query('radius_km', { type: 'number', minimum: 1, maximum: 1000 }, 'Радиус'),
           query('has_waypoints', { type: 'string', enum: ['true'] }, 'Только маршруты с двумя и более путевыми точками'),
+          query(
+            'place_type',
+            // Правило входа — то же, чем проверяет сервер (lib/routes/place-type-param).
+            { type: 'string', maxLength: 200, pattern: PLACE_TYPE_PARAM.source, examples: ['volcano', 'hot_spring,thermal', 'bay,cape,beach'] },
+            'Только маршруты, чей путь проходит через место этого вида (location_type, до 8 через запятую, например volcano; hot_spring,thermal; bay,cape,beach); места «рядом с маршрутом» не считаются. Отбирает только маршруты: с kind=place выдача пуста',
+          ),
           query('brief', { type: 'string', enum: ['1'] }, 'Описание первой строкой до 200 знаков'),
         ],
         responses: {

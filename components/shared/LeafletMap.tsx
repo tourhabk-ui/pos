@@ -10,6 +10,11 @@ export { MarkerType } from '@/components/shared/leaflet-types';
 export type { MapMarkerGeometry, MapMarker } from '@/components/shared/leaflet-types';
 import { LEAFLET_ATTRIBUTION, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
+// Цвета пинов — общая таблица (22.10): из неё же берёт цвет легенда
+// планировщика, и легенда показывает ровно тот цвет, каким нарисован пин.
+import { resolveMarkerColor } from '@/lib/map/marker-colors';
+import { labelPinHtml, labelPinBox } from '@/lib/map/label-pin';
+import { fitDecision, fitPaddingTop, cornerRefitTop } from '@/lib/map/fit-when-sized';
 
 interface LeafletMapProps {
   markers?: MapMarker[];
@@ -45,6 +50,31 @@ interface LeafletMapProps {
    * Отступ задаёт вызывающий, потому что только он знает, что у него сверху.
    */
   topInset?: number;
+  /**
+   * Сколько пикселей СНИЗУ занято чужой панелью поверх карты — пара к
+   * `topInset`. Поднимает нижние углы Leaflet и плашку «Своё положение не
+   * определено».
+   *
+   * Зачем (ревью 22.10, третий круг): корень карты изолирует наложение, и
+   * плашка с z-index 1000 больше не всплывает над соседями страницы. На
+   * офлайн-/map её закрывала полоса фильтров (z-500, во всю ширину снизу):
+   * GPS включён, синей точки нет, а единственная фраза об этом лежала под
+   * кнопками «Вулканы 5». Раньше плашка была над полосой только потому, что
+   * её z-index действовал на всю страницу, — теперь карта знает, что у неё
+   * снизу, и встаёт выше.
+   */
+  bottomInset?: number;
+  /**
+   * Панель вызывающего, лежащая поверх ВЕРХА карты (легенда планировщика на
+   * телефоне). Подгонка вида под маркеры оставляет её нижний край над
+   * точками: иначе север края подгонялся ровно под легенду, и точки там
+   * были видны только размытыми пятнами за стеклом (ревью 22.10). Размер
+   * берётся в момент подгонки, а не заранее: панель растёт с данными.
+   * Узкая панель в углу (легенда на компьютере) отступа заранее не получает:
+   * его дают, только если после подгонки под ней легла точка — правила в
+   * lib/map/fit-when-sized (fitPaddingTop, cornerRefitTop).
+   */
+  fitClearOf?: { readonly current: HTMLElement | null };
   onMarkerClick?: (id: string) => void;
   /**
    * Тап по свободной точке карты — сырые координаты под пальцем, не
@@ -99,42 +129,11 @@ export interface LeafletZoomHandle {
   onZoom(cb: (zoom: number) => void): () => void;
 }
 
-const COLOR_MAP: Record<string, string> = {
-  red:       '#DC2626',
-  blue:      '#2568B0',
-  green:     '#3FB950',
-  orange:    '#D44A0C',
-  purple:    '#8B5CF6',
-  darkBlue:  '#1E40AF',
-  darkCyan:  '#0891B2',
-  lightBlue: '#38BDF8',
-  darkGreen: '#15803D',
-  teal:      '#0D9488',
-  brown:     '#92400E',
-  gray:      '#6B7280',
-  darkOrange:'#C2410C',
-  cyan:      '#06B6D4',
-};
+/** Сдвиг z-index пинов с подписью: выделенный — над обычными (см. отрисовку маркеров). */
+export const LABEL_Z = { normal: 1000, emphasis: 2000 } as const;
 
-/**
- * Цвет маркера/линии — из COLOR_MAP по имени либо хекс как есть.
- *
- * `lib/map/line-standard.ts` (`trackLine()`/`connectorLine()`) отдаёт цвет
- * УЖЕ хексом (`#4ade80`, `#9A9590` — §12 «линия называет своё
- * происхождение»). Прежний код искал этот хекс в COLOR_MAP как ключ, не
- * находил и всегда откатывался на дефолт: набросок и снятый трек, зелёный и
- * серый по стандарту, рисовались одинаковым teal — стандарт был мёртв на
- * каждом экране, который через LeafletMap его применял (карточка маршрута,
- * планер, паспорт маршрута).
- */
-function resolveColor(color: string | undefined | null, fallback: string): string {
-  if (color) {
-    if (color.startsWith('#')) return color;
-    const named = COLOR_MAP[color];
-    if (named) return named;
-  }
-  return COLOR_MAP[fallback] ?? fallback;
-}
+/** Поля подгонки вида, когда сверху ничего не лежит. */
+const FIT_PADDING = 50;
 
 /** Попап собирается строкой — любой текст из БД обязан быть экранирован. */
 function escapeHtml(s: string): string {
@@ -154,7 +153,7 @@ function ageLabel(ts: number): string {
 }
 
 function buildPopupHtml(marker: MapMarker): string {
-  const hex = resolveColor(marker.color, 'blue');
+  const hex = resolveMarkerColor(marker.color, 'blue');
   let html = `<div style="font-family:sans-serif;max-width:220px">`;
   html += `<strong style="font-size:13px;color:#111;display:block;margin-bottom:4px">${escapeHtml(marker.title)}</strong>`;
   // Ограничения — ПЕРЕД описанием: в поле «дорога закрыта» важнее рассказа
@@ -198,6 +197,8 @@ export default function LeafletMap({
   attribution = true,
   attributionPosition,
   topInset = 0,
+  bottomInset = 0,
+  fitClearOf,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -282,9 +283,48 @@ export default function LeafletMap({
   const LRef = useRef<typeof import('leaflet') | null>(null);
   const drawnRef = useRef<Array<{ remove: () => void }>>([]);
   const fitDoneRef = useRef(false);
+  /** Точки для подгонки, отложенной до размера контейнера (см. lib/map/fit-when-sized). */
+  const pendingFitRef = useRef<[number, number][] | null>(null);
   // Обработчики — через ref: инлайновая стрелка у вызывающего меняет identity
   // на каждом рендере, и будь она в зависимостях, карта пересоздавалась бы
   // вообще на каждый рендер родителя, независимо от маркеров.
+  /**
+   * Поля подгонки — в момент подгонки, а не при рендере: панель поверх карты
+   * (fitClearOf) растёт вместе с данными, и снятый заранее размер устарел бы.
+   */
+  const fitClearOfRef = useRef(fitClearOf);
+  useEffect(() => { fitClearOfRef.current = fitClearOf; });
+  /**
+   * Подгонка вида под точки — ОДНА на оба пути: сразу (эффект маркеров) и
+   * отложенная до размера контейнера (ResizeObserver). Две копии вызова
+   * fitBounds с полями уже расходились бы при первой правке.
+   *
+   * Панель поверх карты (fitClearOf): широкая (легенда на телефоне) даёт
+   * верхнее поле сразу; угловая (легенда на компьютере) — только если после
+   * подгонки под ней оказалась точка (lib/map/fit-when-sized, cornerRefitTop).
+   * Положения точек читаются сразу после fitBounds, поэтому с панелью
+   * подгонка без анимации: анимированный зум отдал бы прежний вид.
+   */
+  const fitViewRef = useRef((map: LMap, points: [number, number][]) => {
+    map.invalidateSize();
+    const bounds = points as unknown as import('leaflet').LatLngBoundsExpression;
+    const panel = fitClearOfRef.current?.current ?? null;
+    const box = containerRef.current;
+    if (!panel || !box) {
+      map.fitBounds(bounds, { padding: [FIT_PADDING, FIT_PADDING] });
+      return;
+    }
+    const panelBox = panel.getBoundingClientRect();
+    const mapBox = box.getBoundingClientRect();
+    const fitWith = (top: number) => map.fitBounds(bounds, {
+      paddingTopLeft: [FIT_PADDING, top], paddingBottomRight: [FIT_PADDING, FIT_PADDING], animate: false,
+    });
+    const top = fitPaddingTop(panelBox, mapBox, FIT_PADDING);
+    fitWith(top);
+    if (top !== FIT_PADDING) return;
+    const refit = cornerRefitTop(panelBox, mapBox, FIT_PADDING, points.map(p => map.latLngToContainerPoint(p)));
+    if (refit !== null) fitWith(refit);
+  });
   const onMarkerClickRef = useRef(onMarkerClick);
   const onMapClickRef = useRef(onMapClick);
   onMarkerClickRef.current = onMarkerClick;
@@ -458,19 +498,8 @@ export default function LeafletMap({
         zoomListenersRef.current.forEach(cb => cb(z));
       });
 
-      // Верх занят чужой панелью — сдвигаем ОБА верхних угла Leaflet вниз.
-      // Иначе контролы честно существуют и честно недостижимы: замер 08.09
-      // на «На маршруте» — «+» целиком под полосой вкладок, атрибуция тоже
-      // (см. topInset в пропсах). Padding на угловом контейнере, а не
-      // margin на кнопках: угол один, а контролов в нём может быть сколько
-      // угодно, и следующий добавленный получит отступ сам.
-      if (topInset > 0) {
-        const root = map.getContainer();
-        for (const sel of ['.leaflet-top.leaflet-left', '.leaflet-top.leaflet-right']) {
-          const corner = root.querySelector(sel);
-          if (corner instanceof HTMLElement) corner.style.paddingTop = `${topInset}px`;
-        }
-      }
+      // Отступ верхних углов (topInset) ставит свой эффект ниже — он
+      // переживает смену высоты чужой панели, а инициализация бежит раз.
 
       // Свой угол атрибуции (см. attributionPosition выше) — заменяет
       // отключённый встроенный контрол, тем же текстом.
@@ -611,6 +640,7 @@ export default function LeafletMap({
       // нельзя: fitBounds отменил бы восстановление. Отмечаем подгонку
       // сделанной, чтобы эффект маркеров её не повторил.
       fitDoneRef.current = Boolean(restoredView);
+      pendingFitRef.current = null;
       if (!cancelled) setMapEpoch((n) => n + 1);
 
       // Fix «пустая карта» в модалке/боттом-шите: контейнер к моменту init мог
@@ -624,7 +654,20 @@ export default function LeafletMap({
       requestAnimationFrame(kick);
       setTimeout(kick, 250);
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-        resizeObserver = new ResizeObserver(() => map.invalidateSize());
+        resizeObserver = new ResizeObserver(() => {
+          map.invalidateSize();
+          // Отложенная подгонка: маркеры пришли, пока контейнер был скрыт
+          // (см. эффект маркеров). Подгоняется один раз — как и обычная.
+          const pending = pendingFitRef.current;
+          if (!pending) return;
+          const size = map.getSize();
+          if (fitDecision({
+            fitDone: fitDoneRef.current, points: pending.length, width: size.x, height: size.y,
+          }) !== 'fit') return;
+          pendingFitRef.current = null;
+          fitDoneRef.current = true;
+          fitViewRef.current(map, pending);
+        });
         resizeObserver.observe(containerRef.current);
       }
 
@@ -784,6 +827,33 @@ export default function LeafletMap({
   }, [center[0], center[1], zoom, attribution, showUserLocation, locationPriority, retry, ownZoomButtons]);
 
   /**
+   * Верх занят чужой панелью — сдвигаем ОБА верхних угла Leaflet вниз.
+   * Иначе контролы честно существуют и честно недостижимы: замер 08.09
+   * на «На маршруте» — «+» целиком под полосой вкладок, атрибуция тоже
+   * (см. topInset в пропсах). Padding на угловом контейнере, а не
+   * margin на кнопках: угол один, а контролов в нём может быть сколько
+   * угодно, и следующий добавленный получит отступ сам.
+   *
+   * Своим эффектом, а не в инициализации: высоту панели вызывающий меряет
+   * после монтажа (офлайн-/map, 22.10), и она меняется с шрифтом и текстом.
+   * Инициализация бежит раз — отступ, снятый в ней, застывал бы нулём.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const root = map.getContainer();
+    for (const sel of ['.leaflet-top.leaflet-left', '.leaflet-top.leaflet-right']) {
+      const corner = root.querySelector(sel);
+      if (corner instanceof HTMLElement) corner.style.paddingTop = topInset > 0 ? `${topInset}px` : '';
+    }
+    // Низ — тем же приёмом (bottomInset): полоса вызывающего во всю ширину.
+    for (const sel of ['.leaflet-bottom.leaflet-left', '.leaflet-bottom.leaflet-right']) {
+      const corner = root.querySelector(sel);
+      if (corner instanceof HTMLElement) corner.style.paddingBottom = bottomInset > 0 ? `${bottomInset}px` : '';
+    }
+  }, [topInset, bottomInset, mapEpoch]);
+
+  /**
    * Отрисовка маркеров НА ЖИВОЙ карте — без пересоздания инстанса.
    *
    * Снимает слои прошлого набора и рисует новый. Кластер чистится своим
@@ -822,13 +892,13 @@ export default function LeafletMap({
     const toCluster: unknown[] = [];
 
     markers.forEach((marker, idx) => {
-      const hex = resolveColor(marker.color, 'blue');
+      const hex = resolveMarkerColor(marker.color, 'blue');
       const markerId = marker.id ?? `mk_${idx}`;
       allCoords.push(marker.coords);
 
       // Геометрия маршрута (линии/полигоны) — добавляем НА карту, не в кластер
       if (marker.geometry && marker.geometry.coordinates.length >= 2) {
-        const geomHex = resolveColor(marker.geometry.color ?? marker.color, 'teal');
+        const geomHex = resolveMarkerColor(marker.geometry.color ?? marker.color, 'teal');
         const coords = marker.geometry.coordinates as [number, number][];
         // Трек участвует в fitBounds — иначе линия длиннее вьюпорта обрезается
         allCoords.push(...coords);
@@ -869,16 +939,39 @@ export default function LeafletMap({
       // ставить точку там, где точки нет.
       if (marker.geometryOnly) return;
 
-      const svgIcon = placeMarkerSvg(hex, marker.category);
-      const icon = L.divIcon({
-        html: svgIcon,
-        className: 'kh-marker',
-        iconSize: [24, 28],
-        iconAnchor: [12, 26],
-        popupAnchor: [0, -26],
-      });
+      // Пин с подписью (день плана, 22.10) — кружок с числом, крупнее точки
+      // и поверх неё. Без подписи — прежний пин по виду места.
+      const labelled = typeof marker.label === 'string' && marker.label.length > 0;
+      let icon: import('leaflet').DivIcon;
+      if (labelled) {
+        const box = labelPinBox(marker.label as string, marker.emphasis === true);
+        icon = L.divIcon({
+          html: labelPinHtml(marker.label as string, hex, marker.emphasis === true),
+          className: 'kh-label-pin',
+          iconSize: [box.width, box.height],
+          iconAnchor: [box.width / 2, box.height / 2],
+          popupAnchor: [0, -box.height / 2],
+        });
+      } else {
+        const svgIcon = placeMarkerSvg(hex, marker.category);
+        icon = L.divIcon({
+          html: svgIcon,
+          className: 'kh-marker',
+          iconSize: [24, 28],
+          iconAnchor: [12, 26],
+          popupAnchor: [0, -26],
+        });
+      }
 
-      const m = L.marker(marker.coords, { icon });
+      // Пины с подписью — поверх точек; выделенный (день, который правят) —
+      // поверх остальных пинов с подписью. Leaflet ставит z-index = y + сдвиг:
+      // при равном сдвиге решала бы лишь высота на экране и порядок в DOM.
+      const m = L.marker(
+        marker.coords,
+        labelled
+          ? { icon, title: marker.title, zIndexOffset: marker.emphasis === true ? LABEL_Z.emphasis : LABEL_Z.normal }
+          : { icon },
+      );
 
       if (!marker.suppressBalloon) {
         // HTML попапа — при открытии, а не для всех маркеров заранее:
@@ -889,7 +982,9 @@ export default function LeafletMap({
       // Через ref: обработчик мог смениться без перерисовки маркеров.
       m.on('click', () => onMarkerClickRef.current?.(markerId));
 
-      if (cluster) {
+      // Пин с подписью — мимо кластера: номер дня, спрятанный в «12»
+      // кластера, не читается, а день плана не должен растворяться в фоне.
+      if (cluster && !labelled) {
         toCluster.push(m);
       } else {
         drawn.push(m.addTo(map));
@@ -904,14 +999,26 @@ export default function LeafletMap({
     // восстановлен. Подгонять на каждый набор нельзя: набор меняется на
     // каждом GPS-фиксе, и карта уезжала бы из-под руки ровно так же, как
     // уезжала от пересоздания (владелец 31.08).
-    if (fitDoneRef.current || allCoords.length < 2) return;
+    //
+    // Скрытый контейнер (0×0, колонка карты `hidden` на телефоне) — подгонка
+    // ОТКЛАДЫВАЕТСЯ до первого настоящего размера, а не помечается сделанной:
+    // fitBounds на нулевом размере уводил карту на 17-й зум над пустым
+    // местом, и вкладка «Карта» открывалась без единой точки (22.10).
+    // Догоняет её ResizeObserver эффекта жизненного цикла.
+    const size = map.getSize();
+    const decision = fitDecision({
+      fitDone: fitDoneRef.current, points: allCoords.length, width: size.x, height: size.y,
+    });
+    if (decision === 'wait_for_size') {
+      pendingFitRef.current = allCoords;
+      return;
+    }
+    // Отложенная подгонка больше не нужна: либо делаем её сейчас, либо
+    // подгонять уже не по чему (набор опустел) или поздно (вид задан).
+    pendingFitRef.current = null;
+    if (decision !== 'fit') return;
     fitDoneRef.current = true;
-    const fit = () => {
-      map.invalidateSize();
-      map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
-        padding: [50, 50],
-      });
-    };
+    const fit = () => fitViewRef.current(map, allCoords);
     fit();
     // Контейнер мог ещё не устояться в размере (боттом-шит, модалка) — тот же
     // приём, что и у invalidateSize при инициализации.
@@ -921,13 +1028,21 @@ export default function LeafletMap({
   }, [markers, mapEpoch]);
 
   return (
-    <div style={{ height, position: 'relative' }} className={`overflow-hidden ${className}`}>
+    // isolation: слои Leaflet (тайлы и маркеры — z-index 400 и 1000, углы
+    // контролов — 1000) остаются ВНУТРИ карты. Без неё они спорили со всей
+    // страницей: легенда и карточка маршрута планировщика рисовались под
+    // тайлами (их не было видно вовсе), согласие на cookie и модалки
+    // резались картой, а на странице маршрута при прокрутке тайлы ложились
+    // поверх шапки сайта с кнопкой SOS (замер 22.10).
+    <div style={{ height, position: 'relative', isolation: 'isolate' }} className={`overflow-hidden ${className}`}>
       <div ref={containerRef} style={{ height: '100%' }} />
       {showUserLocation && geoDenied && !initFailed && (
         <div
           role="status"
           style={{
-            position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 1000,
+            // Над полосой вызывающего (bottomInset), а не под ней: внутри
+            // изолированной карты z-index не перекрывает соседей страницы.
+            position: 'absolute', left: 12, right: 12, bottom: 12 + Math.max(0, bottomInset), zIndex: 1000,
             padding: '8px 12px', borderRadius: 10, textAlign: 'center',
             background: 'rgba(13,17,23,0.85)', color: '#fff',
             fontSize: 12, lineHeight: 1.35, pointerEvents: 'none',

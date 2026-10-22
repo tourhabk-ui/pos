@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fitDecision } from '@/lib/map/fit-when-sized';
 
 const MAP = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
 
@@ -218,12 +219,18 @@ describe('маркеры рисуются на живой карте, а не п
   });
 
   it('подгонка вида — один раз на инстанс, а не на каждый набор маркеров', () => {
-    const at = MAP.indexOf('}, [markers, mapEpoch]);');
-    const body = MAP.slice(MAP.lastIndexOf('useEffect(() => {', at), at);
-    expect(body).toMatch(/if \(fitDoneRef\.current \|\| allCoords\.length < 2\) return;/);
-    expect(body).toMatch(/fitDoneRef\.current = true;/);
-    expect(body.indexOf('fitDoneRef.current = true;'))
-      .toBeLessThan(body.indexOf('map.fitBounds('));
+    // Правило «когда подгонять» — функция (22.10: на скрытом контейнере 0×0
+    // подгонка откладывается до размера, а не помечается сделанной), и
+    // проверяется вызовом: после подгонки — больше никогда.
+    expect(fitDecision({ fitDone: true, points: 50, width: 800, height: 600 })).toBe('done');
+    expect(fitDecision({ fitDone: false, points: 1, width: 800, height: 600 })).toBe('too_few');
+    expect(fitDecision({ fitDone: false, points: 50, width: 800, height: 600 })).toBe('fit');
+    expect(fitDecision({ fitDone: false, points: 50, width: 0, height: 0 })).toBe('wait_for_size');
+    // Что карта это правило ПРИМЕНЯЕТ (подгонка одна на инстанс, новый набор
+    // маркеров вид не трогает, скрытый контейнер ждёт размера) — держит рендер
+    // на подменённом Leaflet: tests/unit/leaflet-map-behavior.test.tsx. Сверка
+    // строки вызова здесь ловила бы перестановку аргументов, а не дефект (§4,
+    // «сторож судит поведение»).
   });
 
   it('эпоха карты перерисовывает маркеры на новом инстансе', () => {

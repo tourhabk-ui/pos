@@ -108,7 +108,12 @@ async function planWithExtras() {
   return screen.getByTestId('trip-extras');
 }
 
-describe('/planner: взять в план', () => {
+// Тесты проходят анкету целиком на настоящем PlannerClient: четыре шага,
+// пауза дополнений в 300 мс, первый рендер холодный. Отдельно первый тест —
+// 3,9 с (после карты планировщика #2689 экран тяжелее: было 2,7 с), под
+// полным набором на занятой машине — 5,4 с, за 5 с по умолчанию. Проверки
+// те же, запас — на время, а не на смысл.
+describe('/planner: взять в план', { timeout: 15_000 }, () => {
   it('жильё в плане — ночь из ориентира уходит, стоянка встаёт своей ценой', async () => {
     const section = await planWithExtras();
     const estimate = screen.getByTestId('price-estimate');
