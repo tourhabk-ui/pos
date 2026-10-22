@@ -62,7 +62,25 @@ describe('три исхода', () => {
       volcano: { ok: true, status: 200, body: { success: true, data: [] } },
       fishing: { ok: true, status: 200, body: { success: true, data: [] } },
     });
-    expect(await loadBackgroundRoutes(['volcano', 'fishing'], impl)).toEqual({ state: 'empty' });
+    expect(await loadBackgroundRoutes(['volcano', 'fishing'], impl)).toEqual({ state: 'empty', emptyTypes: ['volcano', 'fishing'] });
+  });
+
+  it('точки есть, а по одному виду маршрутов нет — этот вид назван пустым, а не отказом', async () => {
+    const { impl } = fakeFetch({
+      trekking: { ok: true, status: 200, body: { success: true, data: [item('a')] } },
+      volcano: { ok: true, status: 200, body: { success: true, data: [] } },
+    });
+    expect(await loadBackgroundRoutes(['volcano', 'trekking'], impl)).toMatchObject({
+      state: 'ok', failedTypes: [], emptyTypes: ['volcano'],
+    });
+  });
+
+  it('вид, чьи маршруты уже пришли по другому виду, — не пустой: маршруты у него есть', async () => {
+    const { impl } = fakeFetch({
+      trekking: { ok: true, status: 200, body: { success: true, data: [item('a')] } },
+      helicopter: { ok: true, status: 200, body: { success: true, data: [item('a')] } },
+    });
+    expect(await loadBackgroundRoutes(['trekking', 'helicopter'], impl)).toMatchObject({ state: 'ok', emptyTypes: [] });
   });
 
   it('один не ответил, второй пуст — «не загрузились», а не «нет»', async () => {
@@ -85,6 +103,8 @@ describe('три исхода', () => {
     if (r.state === 'ok') {
       expect(r.routes.map(x => x.id)).toEqual(['a', 'b']);
       expect(r.failedTypes).toEqual(['fishing']);
+      // Отказ — не «пусто».
+      expect(r.emptyTypes).toEqual([]);
     }
   });
 

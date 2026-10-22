@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
 import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
-import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal } from '@/lib/planner/plan-ops';
+import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal, replaceRefusalShort } from '@/lib/planner/plan-ops';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
@@ -34,7 +34,7 @@ import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextD
 import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
 import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
 import { placeTypeLabel } from '@/lib/places/type-label';
-import { PlannerMapOverlay, editingDayTitle, type PlannerMapStatus } from '@/components/planner/PlannerMapOverlay';
+import { PlannerMapOverlay, editingDayTitle, type PlannerMapStatus, type PlannerMapSearch } from '@/components/planner/PlannerMapOverlay';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
@@ -86,6 +86,12 @@ const ACTIVITIES: SelectItem[] = [
   { id: 'snowmobile', label: 'Снегоходы',        Icon: activityIcon('snowmobile') },
   { id: 'boat_trip',  label: 'Морская прогулка', Icon: activityIcon('boat_trip') },
 ];
+
+/** Подпись плитки по её id — карта называет искомые виды словами анкеты. */
+const TILE_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
+  [...PLACES, ...ACTIVITIES].map(t => [t.id, t.label]),
+);
+const tileLabel = (id: string) => TILE_LABEL[id] ?? id;
 
 // Имена и цвета зон — lib/planner/zone-style (22.10): одно имя с движком и
 // один цвет с пином карты. Своих словарей зон здесь больше нет: прежние
@@ -363,6 +369,12 @@ interface DayCardProps {
   onRef: (el: HTMLElement | null) => void;
   /** Запрос свободных мест у оператора по туру дня (29.09). */
   onAskSeats?: (tour: TourPreview) => void;
+  /**
+   * Открытый день не заменяют — почему, коротко (plan-ops,
+   * replaceRefusalShort); null — заменяют, и строка дня говорит
+   * «редактирование».
+   */
+  editRefusal?: string | null;
 }
 
 /**
@@ -384,6 +396,7 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
+  editRefusal = null,
 }: DayCardProps) {
   const dragControls = useDragControls();
   const { Icon: TransIcon } = TRANSPORT_OPTIONS[transport];
@@ -481,9 +494,9 @@ function DayCard({
             <p className="text-[10px] text-[var(--text-muted)]">
               <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(shownZone(day)) }} />
               {zoneName(shownZone(day))}
-              {isEditing && (
-                <span className="ml-1.5 text-[var(--accent)] font-medium">— редактирование</span>
-              )}
+              {isEditing && (editRefusal
+                ? <span className="ml-1.5 text-[var(--text-secondary)] font-medium">— {editRefusal}</span>
+                : <span className="ml-1.5 text-[var(--accent)] font-medium">— редактирование</span>)}
             </p>
           </div>
           <DayPriceTag day={day} />
@@ -710,7 +723,8 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
             className="w-full ds-btn ds-btn-primary py-2 text-xs font-medium flex items-center justify-center gap-1.5"
           >
             <ArrowRight className="w-3.5 h-3.5" />
-            Заменить День {editingIdx + 1}
+            {/* Те же слова, что в плашке карты (editActionText). */}
+            Заменить день {editingIdx + 1}
           </button>
         )}
 
@@ -1223,6 +1237,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Фоновые маршруты карты — три исхода (lib/planner/bg-routes): null — ещё
   // не загружали. Пока идёт перезагрузка, на карте остаются прежние точки.
   const [bgResult, setBgResult] = useState<BgRoutesResult | null>(null);
+  // На какие виды получен ответ: по умолчанию (интересы не выбраны) карта
+  // говорит «показаны маршруты с пометкой …», а не «по вашим интересам».
+  const [bgAsked, setBgAsked] = useState<{ types: readonly string[]; byDefault: boolean }>({ types: [], byDefault: false });
   const [bgLoading, setBgLoading] = useState(false);
   const [bgRetry, setBgRetry] = useState(0);
   const bgRoutes = useMemo<RoutePoint[]>(() => (bgResult?.state === 'ok' ? bgResult.routes : []), [bgResult]);
@@ -1380,7 +1397,11 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (idx < 0) return null;
     // Зона — показанная человеку (записанная у маршрута), а не угаданная для
     // логистики: по ней карта красит «ту же зону» (lib/planner/map-markers).
-    return { idx, title: days[idx].title, refusal: replaceRefusal(days, days[idx]), zone: shownZone(days[idx]) };
+    return {
+      idx, title: days[idx].title, zone: shownZone(days[idx]),
+      refusal: replaceRefusal(days, days[idx]),
+      refusalShort: replaceRefusalShort(days, days[idx]),
+    };
   }, [editingDayId, days]);
 
   // Transport helpers
@@ -1516,6 +1537,19 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     [days, bgRoutes, editingDayId, editingDayInfo],
   );
   const mapLegend = useMemo(() => plannerLegend(bgRoutes), [bgRoutes]);
+  // Что карта искала — подписями плиток (lib/planner/bg-routes): точки
+  // ищутся по виду маршрута, и вид без маршрутов называется словами.
+  const mapSearch = useMemo<PlannerMapSearch>(() => {
+    const { types, byDefault } = bgAsked;
+    if (bgResult === null || bgResult.state === 'failed') return { byDefault, shown: [], empty: [] };
+    const empty = bgResult.emptyTypes;
+    const failed = bgResult.state === 'ok' ? bgResult.failedTypes : [];
+    return {
+      byDefault,
+      shown: [...new Set(types)].filter(t => !empty.includes(t) && !failed.includes(t)).map(tileLabel),
+      empty: empty.map(tileLabel),
+    };
+  }, [bgResult, bgAsked]);
   // Перезагрузка после отказа или пустоты — снова «загружаем», а не прежний
   // отказ; после успеха прежние точки остаются, пока не придут новые.
   const mapStatus: PlannerMapStatus = bgResult === null || (bgLoading && bgResult.state !== 'ok')
@@ -1550,12 +1584,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Фоновые маршруты по интересам (по умолчанию — три интереса). Отказ —
   // это отказ, а не «маршрутов нет» (lib/planner/bg-routes).
   useEffect(() => {
-    const types = allInterests.length > 0 ? allInterests : [...BG_DEFAULT_TYPES];
+    const byDefault = allInterests.length === 0;
+    const types = byDefault ? [...BG_DEFAULT_TYPES] : allInterests;
     let cancelled = false;
     setBgLoading(true);
     void loadBackgroundRoutes(types).then(result => {
       if (cancelled) return;
       setBgResult(result);
+      setBgAsked({ types, byDefault });
       setBgLoading(false);
     });
     return () => { cancelled = true; };
@@ -2582,7 +2618,10 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   {days.length} {days.length === 1 ? 'день' : days.length < 5 ? 'дня' : 'дней'}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)]">
-                  {editingDayId !== null ? 'кликните карту для замены' : 'кликните день для редактирования'}
+                  {/* Открытый день не заменяют — так и сказано, а не «кликните карту». */}
+                  {editingDayId === null
+                    ? 'кликните день для редактирования'
+                    : (editingDayInfo?.refusalShort ?? 'кликните карту для замены')}
                 </p>
               </div>
 
@@ -2651,6 +2690,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                     onDelete={deleteDay}
                     onShowMap={() => setMobileTab('map')}
                     onConfirm={confirmDay}
+                    editRefusal={day.day === editingDayId ? (editingDayInfo?.refusalShort ?? null) : null}
                     onRef={(el) => {
                       if (el) dayRefs.current.set(day.day, el as HTMLElement);
                       else dayRefs.current.delete(day.day);
@@ -2865,6 +2905,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         total={bgRoutes.length}
         partial={bgResult?.state === 'ok' && bgResult.failedTypes.length > 0}
         hasPlan={days.length > 0}
+        search={mapSearch}
         editing={editingDayInfo ? {
           number: editingDayInfo.idx + 1,
           title: editingDayInfo.title,

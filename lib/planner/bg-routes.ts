@@ -15,6 +15,18 @@
  * точки всегда угадывалась по расстоянию, чипы вида на карточке маршрута не
  * появлялись, а день из маршрута вертолётного тура становился пешим
  * треккингом. Ответ теперь разбирается явно.
+ *
+ * ── Что ищется на самом деле (ревью 22.10, третий круг) ────────────────
+ *
+ * Точки ищутся по ВИДУ МАРШРУТА (`activity_type`). Шесть плиток анкеты —
+ * виды МЕСТ (вулканы, термальные, гейзеры, побережье, хребты, реки), и
+ * маршрутов с таким `activity_type` в каталоге нет: замер 22.10 на проде —
+ * ноль по каждой из шести. Искать маршрут по виду места пути /api/routes не
+ * умеет: фильтр `location_type` во VIEW у маршрутов всегда NULL (миграция
+ * 942), он отдаёт только места. Расширять API в правке текста не стали —
+ * вместо этого исход называет, по каким видам ответ пуст (`emptyTypes`), и
+ * карта говорит словами, что искали, а не «по вашим интересам маршрутов
+ * нет»: маршруты на вулканы есть, они помечены треккингом.
  */
 import { asPlannerZone } from '@/lib/planner/zone-style';
 import type { ZoneId } from '@/lib/planner/constants';
@@ -34,9 +46,13 @@ export interface PlannerRoute {
   plannerZone: ZoneId | null;
 }
 
+/**
+ * `emptyTypes` — виды, по которым каталог ответил, и маршрутов с точкой нет
+ * (у `empty` — все спрошенные). Это не отказ: отказ — `failedTypes`.
+ */
 export type BgRoutesResult =
-  | { state: 'ok'; routes: PlannerRoute[]; failedTypes: string[] }
-  | { state: 'empty' }
+  | { state: 'ok'; routes: PlannerRoute[]; failedTypes: string[]; emptyTypes: string[] }
+  | { state: 'empty'; emptyTypes: string[] }
   | { state: 'failed'; failedTypes: string[] };
 
 /** Сколько маршрутов на один интерес — как было. */
@@ -109,7 +125,8 @@ async function loadType(type: string, fetchImpl: FetchLike): Promise<TypeOutcome
 
 /**
  * Маршруты по интересам. Исходы:
- *   ok     — есть что рисовать (`failedTypes` — интересы, по которым не вышло);
+ *   ok     — есть что рисовать (`failedTypes` — интересы, по которым не вышло,
+ *            `emptyTypes` — по которым маршрутов нет);
  *   empty  — все запросы ответили, и маршрутов с точкой нет;
  *   failed — рисовать нечего, и хотя бы один запрос не ответил: сказать
  *            «маршрутов нет» мы в этом случае не можем.
@@ -121,6 +138,10 @@ export async function loadBackgroundRoutes(
   const unique = [...new Set(types)];
   const outcomes = await Promise.all(unique.map(t => loadType(t, fetchImpl)));
   const failedTypes = unique.filter((_, i) => !outcomes[i].ok);
+  const emptyTypes = unique.filter((_, i) => {
+    const o = outcomes[i];
+    return o.ok && o.routes.length === 0;
+  });
   const seen = new Set<string>();
   const routes: PlannerRoute[] = [];
   for (const o of outcomes) {
@@ -129,7 +150,7 @@ export async function loadBackgroundRoutes(
       if (!seen.has(route.id)) { seen.add(route.id); routes.push(route); }
     }
   }
-  if (routes.length > 0) return { state: 'ok', routes, failedTypes };
+  if (routes.length > 0) return { state: 'ok', routes, failedTypes, emptyTypes };
   if (failedTypes.length > 0 || unique.length === 0) return { state: 'failed', failedTypes };
-  return { state: 'empty' };
+  return { state: 'empty', emptyTypes };
 }

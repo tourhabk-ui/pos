@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal } from '@/lib/planner/plan-ops';
+import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal, replaceRefusalShort } from '@/lib/planner/plan-ops';
 
 type D = { day: number; type: string; title: string; realTour?: { tourId: string } | null };
 const d = (day: number, type: string, title = `д${day}`, tourId?: string): D =>
@@ -36,6 +36,16 @@ describe('правила', () => {
     expect(replaceRefusal(PLAN, PLAN[3])).toMatch(/многодневного тура/);
     expect(replaceRefusal(PLAN, PLAN[1])).toBeNull();
     expect(replaceRefusal(PLAN, PLAN[5])).toBeNull();
+  });
+
+  it('та же причина коротко — для подписей; null у тех же дней, что у полной', () => {
+    expect(replaceRefusalShort(PLAN, PLAN[0])).toBe('день прилёта не заменяют');
+    expect(replaceRefusalShort(PLAN, PLAN[6])).toBe('день отъезда не заменяют');
+    expect(replaceRefusalShort(PLAN, PLAN[2])).toBe('переезд между зонами не заменяют');
+    expect(replaceRefusalShort(PLAN, PLAN[4])).toBe('день тура не заменяют по одному');
+    for (const day of PLAN) {
+      expect(replaceRefusalShort(PLAN, day) === null, day.title).toBe(replaceRefusal(PLAN, day) === null);
+    }
   });
 
   it('многодневный тур — одной группой', () => {

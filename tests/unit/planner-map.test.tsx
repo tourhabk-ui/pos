@@ -28,6 +28,17 @@
  *     слала прежний день — отказ на скрытой вкладке или молчаливое закрытие;
  *   — замена дня без записанной зоны не красит точки угаданной зоны, и
  *     плашка говорит это словами.
+ *
+ * Третий круг, мелкое:
+ *   — «маршрутов нет» называет, что искали: точки ищутся по виду маршрута,
+ *     плитка места («Вулканы») такой пометкой не бывает; без выбора —
+ *     «показаны маршруты с пометкой …», а не «по вашим интересам»;
+ *   — заменяемый день открыт, загрузка отказала — плашка дня говорит
+ *     «Точек нет…», «Повторить» одна;
+ *   — открыт день, который не заменяют, — легенда остаётся свёрнутой, и
+ *     список дней говорит «день прилёта не заменяют», а не «кликните карту»;
+ *   — «что нажать» при замене — слова кнопки карточки точки;
+ *   — пока плана нет, карточка точки не предлагает «Добавить в план».
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
@@ -55,7 +66,9 @@ vi.mock('@/hooks/useMyReferralCode', () => ({ useMyReferralCode: () => null }));
 vi.mock('@/lib/funnel/beacon', () => ({ funnelBeacon: vi.fn() }));
 
 import { PlannerClient } from '@/app/planner/_PlannerClient';
-import { PlannerMapOverlay, MAP_TEXT } from '@/components/planner/PlannerMapOverlay';
+import {
+  PlannerMapOverlay, MAP_TEXT, editActionText, emptyKindsText, byDefaultText, emptyText,
+} from '@/components/planner/PlannerMapOverlay';
 import { resolveMarkerColor } from '@/lib/map/marker-colors';
 import { plannerLegend } from '@/lib/planner/map-markers';
 import { NO_ZONE_PIN, ZONE_PIN } from '@/lib/planner/zone-style';
@@ -101,6 +114,8 @@ const FRAMED = {
 type RoutesReply = 'data' | 'empty' | 'fail';
 let routesReply: RoutesReply = 'data';
 let routesData: unknown[] = CATALOG;
+/** Ответ каталога по виду маршрута (`activity_type`); вида нет в записи — пусто. */
+let routesByType: Record<string, unknown[]> | null = null;
 let routesCalls = 0;
 let recommendation: unknown = RECOMMENDATION;
 /** Пока true — ответы каталога ждут release(data): «медленная связь». */
@@ -112,6 +127,7 @@ const okRoutes = (data: unknown[]) => ({ ok: true, status: 200, json: async () =
 beforeEach(() => {
   routesReply = 'data';
   routesData = CATALOG;
+  routesByType = null;
   routesCalls = 0;
   recommendation = RECOMMENDATION;
   holdRoutes = false;
@@ -126,6 +142,10 @@ beforeEach(() => {
       routesCalls += 1;
       if (holdRoutes) return new Promise<Response>(res => { held.push(data => res(okRoutes(data))); });
       if (routesReply === 'fail') return { ok: false, status: 503, json: async () => ({ success: false }) } as Response;
+      if (routesByType) {
+        const type = new URL(u, 'http://x').searchParams.get('activity_type') ?? '';
+        return okRoutes(routesByType[type] ?? []);
+      }
       return okRoutes(routesReply === 'data' ? routesData : []);
     }
     const json = u.startsWith('/api/planner/recommend')
@@ -172,7 +192,7 @@ describe('на настоящем экране планировщика', () => 
     render(<PlannerClient />);
     const alert = await screen.findByText(MAP_TEXT.failed);
     expect(alert.closest('[role="alert"]')).toBeTruthy();
-    expect(screen.queryByText(MAP_TEXT.empty)).toBeNull();
+    expect(screen.queryByText(/Точки ищутся по виду маршрута/)).toBeNull();
     const before = routesCalls;
     routesReply = 'data';
     fireEvent.click(screen.getByRole('button', { name: MAP_TEXT.retry }));
@@ -183,9 +203,58 @@ describe('на настоящем экране планировщика', () => 
 
   it('каталог ответил пусто — «маршрутов нет», а не отказ и не молчание', async () => {
     routesReply = 'empty';
-    render(<PlannerClient />);
-    await screen.findByText(MAP_TEXT.empty);
+    const { container } = render(<PlannerClient />);
+    // Интересы не выбраны — спрошены виды по умолчанию, и сказано, какие.
+    const plaque = await screen.findByText(emptyText({ byDefault: true, shown: [], empty: ['Треккинг', 'Вулканы', 'Рыбалка'] }));
+    expect(plaque.textContent).toMatch(/Выберите интересы/);
     expect(screen.queryByText(MAP_TEXT.failed)).toBeNull();
+    expect(container.textContent).not.toMatch(/по вашим интересам|Для выбранных интересов/);
+  });
+
+  it('выбраны «Вулканы» — сказано, что точки ищутся по виду маршрута и маршрутов с такой пометкой нет', async () => {
+    routesByType = { trekking: CATALOG };
+    const { container } = render(<PlannerClient />);
+    toInterests();
+    fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
+    const plaque = await screen.findByText(emptyKindsText(['Вулканы']));
+    expect(plaque.getAttribute('role')).toBe('status');
+    expect(plaque.textContent).toBe('Точки ищутся по виду маршрута; маршрутов с пометкой «Вулканы» нет.');
+    // Интересы выбраны — «выберите интересы» тут не к месту.
+    expect(plaque.textContent).not.toMatch(/Выберите интересы/);
+    expect(container.textContent).not.toMatch(/Для выбранных интересов/);
+  });
+
+  it('без выбора — «показаны маршруты с пометкой «Треккинг»», а не «под ваши интересы»', async () => {
+    routesByType = { trekking: CATALOG };
+    render(<PlannerClient />);
+    expect(await screen.findByText(byDefaultText(['Треккинг']))).toBeTruthy();
+    expect(screen.getByText(MAP_TEXT.hintTap)).toBeTruthy();
+    expect(screen.queryByText(MAP_TEXT.hintNoPlan)).toBeNull();
+    // Пустые виды по умолчанию человек не выбирал — ими его не грузим.
+    expect(screen.queryByText(/маршрутов с пометкой/)).toBeNull();
+  });
+
+  it('выбраны «Вулканы» и «Треккинг» — точки треккинга есть, и сказано, что по «Вулканам» маршрутов нет', async () => {
+    routesByType = { trekking: CATALOG };
+    render(<PlannerClient />);
+    toInterests();
+    fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Треккинг/ }));
+    await screen.findByText(new RegExp(`${MAP_TEXT.legendTitle} · 5`));
+    expect(await screen.findByText(emptyKindsText(['Вулканы']))).toBeTruthy();
+    expect(screen.getByText(MAP_TEXT.hintNoPlan)).toBeTruthy();
+    expect(screen.queryByText(/Показаны маршруты с пометкой/)).toBeNull();
+  });
+
+  it('пока плана нет, карточка точки не предлагает «Добавить в план»', async () => {
+    render(<PlannerClient />);
+    await screen.findByText(new RegExp(`${MAP_TEXT.legendTitle} · 5`));
+    tap('r1');
+    // Карточка точки открылась — со ссылкой на маршрут и словами, когда её можно поставить.
+    expect(await screen.findByRole('link', { name: 'Открыть страницу маршрута' })).toBeTruthy();
+    expect(screen.getByText(/Сначала соберите план поездки/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Добавить в план/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Заменить/ })).toBeNull();
   });
 
   it('легенда — зоны словами, кружок того же цвета, что пины этих точек на карте', async () => {
@@ -209,7 +278,8 @@ describe('на настоящем экране планировщика', () => 
 
   it('подсказка говорит, что делать с точкой; прежней плашки с кружками-токенами нет', async () => {
     const { container } = render(<PlannerClient />);
-    await screen.findByText(MAP_TEXT.hintNoPlan);
+    // Интересы ещё не выбраны: подсказка без «под ваши интересы».
+    await screen.findByText(MAP_TEXT.hintTap);
     expect(container.textContent).not.toMatch(/маршрутов по зонам/);
     expect(container.innerHTML).not.toMatch(/background: var\(--(accent|ocean|success|purple)\)/);
   });
@@ -255,15 +325,67 @@ describe('на настоящем экране планировщика', () => 
 
     tap(both);
     await screen.findByText('Это день прилёта — его не заменяют маршрутом.');
-    expect(screen.queryByText(MAP_TEXT.editAction)).toBeNull();
+    expect(screen.queryByText(/Нажмите точку, затем/)).toBeNull();
     tap('r1');
     await screen.findByRole('button', { name: /Добавить в план/ });
     expect(screen.queryByRole('button', { name: /Заменить/ })).toBeNull();
 
     tap('day_2');
-    await screen.findByText(MAP_TEXT.editAction);
+    const action = await screen.findByText(editActionText(2));
     tap('r1');
-    expect(await screen.findByRole('button', { name: 'Заменить День 2' })).toBeTruthy();
+    const button = await screen.findByRole('button', { name: 'Заменить день 2' });
+    // Плашка называет ровно ту кнопку, что в карточке точки.
+    expect(action.textContent).toContain(`«${button.textContent?.trim()}»`);
+  });
+
+  it('открыт день, который не заменяют, — легенда остаётся свёрнутой; развернуть можно', async () => {
+    recommendation = FRAMED;
+    render(<PlannerClient />);
+    await buildPlan();
+    tap(markers().find(m => m.label === '1·3')?.id ?? '');
+    await screen.findByText('Это день прилёта — его не заменяют маршрутом.');
+    const toggle = screen.getByRole('button', { name: new RegExp(`${MAP_TEXT.legendTitle} · 5`) });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('list', { name: 'Цвета зон на карте' })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('list', { name: 'Цвета зон на карте' })).toBeTruthy();
+    // У этого дня карточка точки предлагает только «Добавить в план» — подсказка о том же.
+    expect(screen.getByText(MAP_TEXT.hintAddOnly)).toBeTruthy();
+    expect(screen.queryByText(MAP_TEXT.hintPlan)).toBeNull();
+  });
+
+  it('список дней: у открытого прилёта — «день прилёта не заменяют», а не «кликните карту»', async () => {
+    recommendation = FRAMED;
+    render(<PlannerClient />);
+    await buildPlan();
+    tap(markers().find(m => m.label === '1·3')?.id ?? '');
+    await screen.findByText('Это день прилёта — его не заменяют маршрутом.');
+    expect(screen.queryByText('кликните карту для замены')).toBeNull();
+    expect(screen.getByText('день прилёта не заменяют')).toBeTruthy();
+    const arrival = screen.getByText('— день прилёта не заменяют').closest('li') as HTMLElement;
+    expect(within(arrival).getByText('Прилёт', { selector: 'p' })).toBeTruthy();
+    expect(screen.queryByText('— редактирование')).toBeNull();
+
+    // Обычный день — прежние слова.
+    tap('day_2');
+    await screen.findByText(editActionText(2));
+    expect(screen.getByText('кликните карту для замены')).toBeTruthy();
+    expect(screen.getByText('— редактирование')).toBeTruthy();
+    expect(screen.queryByText(/не заменяют$/)).toBeNull();
+  });
+
+  it('заменяемый день открыт, маршруты не загрузились — плашка дня говорит это, «Повторить» одна', async () => {
+    routesReply = 'fail';
+    render(<PlannerClient />);
+    await buildPlan();
+    await screen.findByText(MAP_TEXT.failed);
+    tap('day_2');
+    const line = await screen.findByText(MAP_TEXT.editFailed);
+    // Строка — в плашке дня (рядом «Закончить замену дня»), не в плашке отказа.
+    const plaque = line.closest('div.fx-glass-dense') as HTMLElement;
+    expect(within(plaque).getByRole('button', { name: 'Закончить замену дня' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: MAP_TEXT.retry })).toHaveLength(1);
   });
 
   it('без открытого дня «Заменить» предлагает только те дни, где замена сработает', async () => {
@@ -302,9 +424,9 @@ describe('на настоящем экране планировщика', () => 
     render(<PlannerClient />);
     await buildPlan();
     tap('day_2');
-    await screen.findByText(MAP_TEXT.editAction);
+    await screen.findByText(editActionText(2));
     tap('r4');
-    await screen.findByRole('button', { name: 'Заменить День 2' });
+    await screen.findByRole('button', { name: 'Заменить день 2' });
     // День 2 удалён в плане — правка дня закрылась, карточка точки осталась.
     fireEvent.click(screen.getAllByTitle('Удалить день')[1]);
     const select = await screen.findByRole('combobox', { name: 'Какой день заменить' }) as HTMLSelectElement;
@@ -386,7 +508,7 @@ describe('плашка карты сама по себе', () => {
       legend={[{ zone: 'avachinsky', name: 'Авачинская', hex: '#C2410C', count: 3 }]}
       editing={editingDay()} onStopEditing={stop} />);
     expect(screen.getByText('Замена дня 2: Курильское озеро')).toBeTruthy();
-    expect(screen.getByText(MAP_TEXT.editAction)).toBeTruthy();
+    expect(screen.getByText('Нажмите точку, затем «Заменить день 2».')).toBeTruthy();
     expect(screen.getByText(MAP_TEXT.editColors)).toBeTruthy();
     // Легенда при замене не спорит с плашкой замены.
     expect(screen.queryByRole('list', { name: 'Цвета зон на карте' })).toBeNull();
@@ -395,10 +517,45 @@ describe('плашка карты сама по себе', () => {
   });
 
   it('замена дня, а точек нет — плашка замены говорит почему, а не «нажмите точку»', () => {
-    render(<PlannerMapOverlay {...base} status="empty" hasPlan editing={editingDay({ number: 1, title: 'Мутновский' })} />);
-    expect(screen.getByText(MAP_TEXT.empty)).toBeTruthy();
-    expect(screen.queryByText(MAP_TEXT.editAction)).toBeNull();
+    render(<PlannerMapOverlay {...base} status="empty" hasPlan editing={editingDay({ number: 1, title: 'Мутновский' })}
+      search={{ byDefault: false, shown: [], empty: ['Вулканы'] }} />);
+    expect(screen.getByText(emptyKindsText(['Вулканы']))).toBeTruthy();
+    expect(screen.queryByText(/Нажмите точку, затем/)).toBeNull();
     expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  it('заменяемый день и отказ загрузки — плашка дня не пустая; у незаменяемого — только причина', () => {
+    const { rerender } = render(<PlannerMapOverlay {...base} status="failed" hasPlan editing={editingDay()} />);
+    expect(screen.getByText(MAP_TEXT.editFailed)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: MAP_TEXT.retry })).toHaveLength(1);
+    rerender(<PlannerMapOverlay {...base} status="failed" hasPlan
+      editing={editingDay({ number: 1, title: 'Прилёт', refusal: 'Это день прилёта — его не заменяют маршрутом.' })} />);
+    expect(screen.queryByText(MAP_TEXT.editFailed)).toBeNull();
+    expect(screen.getByText('Это день прилёта — его не заменяют маршрутом.')).toBeTruthy();
+  });
+
+  it('незаменяемый день: легенда свёрнута, раскрытие помнится для этого дня, у другого — снова свёрнута', () => {
+    const legend = [{ zone: 'northern' as const, name: 'Северная', hex: '#15803D', count: 2 }];
+    const fixed = (n: number) => editingDay({ number: n, title: 'Прилёт', refusal: 'Это день прилёта — его не заменяют маршрутом.' });
+    const { rerender } = render(<PlannerMapOverlay {...base} status="ok" total={2} legend={legend} hasPlan editing={fixed(1)} />);
+    const toggle = screen.getByRole('button', { name: /Маршруты по зонам · 2/ });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('list', { name: 'Цвета зон на карте' })).toBeTruthy();
+    rerender(<PlannerMapOverlay {...base} status="ok" total={2} legend={legend} hasPlan editing={fixed(3)} />);
+    expect(screen.getByRole('button', { name: /Маршруты по зонам · 2/ }).getAttribute('aria-expanded')).toBe('false');
+    // Заменяемый день — легенды нет: плашка замены сама говорит про цвета.
+    rerender(<PlannerMapOverlay {...base} status="ok" total={2} legend={legend} hasPlan editing={editingDay()} />);
+    expect(screen.queryByRole('button', { name: /Маршруты по зонам/ })).toBeNull();
+  });
+
+  it('пусто без выбора интересов — «выберите интересы»; с выбором — нет', () => {
+    const { rerender } = render(<PlannerMapOverlay {...base} status="empty"
+      search={{ byDefault: true, shown: [], empty: ['Треккинг', 'Рыбалка'] }} />);
+    expect(screen.getByRole('status').textContent)
+      .toBe('Точки ищутся по виду маршрута; маршрутов с пометкой «Треккинг», «Рыбалка» нет. Выберите интересы.');
+    rerender(<PlannerMapOverlay {...base} status="empty" search={{ byDefault: false, shown: [], empty: ['Гейзеры'] }} />);
+    expect(screen.getByRole('status').textContent).toBe('Точки ищутся по виду маршрута; маршрутов с пометкой «Гейзеры» нет.');
   });
 
   it('легенду можно свернуть — на телефоне она закрывает север края', () => {
@@ -436,7 +593,7 @@ describe('плашка карты сама по себе', () => {
       editing={editingDay({ number: 1, title: 'Прилёт', refusal: 'Это день прилёта — его не заменяют маршрутом.' })} />);
     expect(screen.getByText('Это день прилёта — его не заменяют маршрутом.')).toBeTruthy();
     expect(screen.getByText('День 1: Прилёт')).toBeTruthy();
-    expect(screen.queryByText(MAP_TEXT.editAction)).toBeNull();
+    expect(screen.queryByText(/Нажмите точку, затем/)).toBeNull();
     expect(screen.queryByText(MAP_TEXT.editColors)).toBeNull();
     expect(screen.getByRole('button', { name: 'Закрыть день' })).toBeTruthy();
   });
