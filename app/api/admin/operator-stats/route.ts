@@ -1,26 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import {
+  OPERATOR_DATA_QUALITY_SQL, OPERATOR_INCOMPLETE_SQL,
+  type OperatorDataQualityRow, type OperatorIncompleteRow,
+} from '@/lib/admin/operator-stats-sql';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
   if (auth instanceof NextResponse) return auth;
-
-  interface DataQualityRow {
-    total: string;
-    contact_filled: string;
-    website_filled: string;
-    description_filled: string;
-  }
-  interface IncompleteRow {
-    id: number;
-    name: string;
-    contact: string | null;
-    website: string | null;
-    description: string | null;
-  }
 
   const [apps7, apps30, tours7, tours30, bookings7, bookings30, dataQuality, incomplete] = await Promise.all([
     pool.query<{ total: string; approved: string }>(
@@ -77,29 +67,10 @@ export async function GET(req: NextRequest) {
       [],
     ),
 
-    pool.query<DataQualityRow>(
-      `SELECT
-         COUNT(*)::int                                                                          AS total,
-         COUNT(*) FILTER (WHERE contact  IS NOT NULL AND contact  <> '')::int                  AS contact_filled,
-         COUNT(*) FILTER (WHERE website  IS NOT NULL AND website  <> '')::int                  AS website_filled,
-         COUNT(*) FILTER (WHERE description IS NOT NULL AND description <> '')::int            AS description_filled
-       FROM partners
-       WHERE category = 'operator'`,
-      [],
-    ),
-
-    pool.query<IncompleteRow>(
-      `SELECT id, name, contact, website, description
-       FROM partners
-       WHERE category = 'operator'
-       ORDER BY
-         (CASE WHEN contact     IS NULL OR contact     = '' THEN 1 ELSE 0 END +
-          CASE WHEN website     IS NULL OR website     = '' THEN 1 ELSE 0 END +
-          CASE WHEN description IS NULL OR description = '' THEN 1 ELSE 0 END) DESC,
-         id
-       LIMIT 10`,
-      [],
-    ),
+    // Заполненность — общим запросом (lib/admin/operator-stats-sql): contact —
+    // jsonb, и сравнение с '' роняло роут на каждом вызове (22P02, #1428).
+    pool.query<OperatorDataQualityRow>(OPERATOR_DATA_QUALITY_SQL),
+    pool.query<OperatorIncompleteRow>(OPERATOR_INCOMPLETE_SQL),
   ]);
 
   const a7  = apps7.rows[0];
@@ -139,9 +110,9 @@ export async function GET(req: NextRequest) {
         id:          r.id,
         name:        r.name,
         missing:     [
-          ...(!r.contact     ? ['contact']     : []),
-          ...(!r.website     ? ['website']     : []),
-          ...(!r.description ? ['description'] : []),
+          ...(r.contact_missing     ? ['contact']     : []),
+          ...(r.website_missing     ? ['website']     : []),
+          ...(r.description_missing ? ['description'] : []),
         ],
       })),
     },

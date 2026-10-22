@@ -174,6 +174,26 @@ describe('GET /api/cron/evo: честный контракт результат�
   });
 });
 
+describe('GET /api/cron/evo: отказ захвата лока не уносит соединение (#1428)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConnect.mockImplementation(async () => mockClient);
+    process.env.CRON_SECRET = 'test-cron-secret';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('query захвата бросил — соединение возвращено пулу, ответ 503 «не смог», оркестратор не зван', async () => {
+    mockClient.query.mockRejectedValueOnce(Object.assign(new Error('connection terminated'), { code: '57P01' }));
+    const { GET } = await import('@/app/api/cron/evo/route');
+    const res = await GET(request());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ success: false, status: 'lock_failed' });
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
+    expect(mockRunEvoOrchestrator).not.toHaveBeenCalled();
+    expect(mockStartEvoRunTask).not.toHaveBeenCalled();
+  });
+});
+
 describe('cron-evo.yml: partial не выглядит зелёным', () => {
   const workflow = readFileSync(
     join(process.cwd(), '.github/workflows/cron-evo.yml'),

@@ -59,11 +59,20 @@ const LOCK_KEY = 'evo.run';
 
 async function tryAcquireEvoRunLock(): Promise<PoolClient | null> {
   const client = await pool.connect();
-  const { rows } = await client.query<{ locked: boolean }>(
-    `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
-    [LOCK_KEY],
-  );
-  if (rows[0]?.locked) return client;
+  let locked = false;
+  try {
+    const { rows } = await client.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
+      [LOCK_KEY],
+    );
+    locked = rows[0]?.locked === true;
+  } catch (err) {
+    // Отказ запроса не уносит соединение из общего пула (находка судьи #1428):
+    // пул на 20 соединений делят SOS, брони и кроны.
+    client.release();
+    throw err;
+  }
+  if (locked) return client;
   client.release();
   return null;
 }
@@ -121,7 +130,18 @@ export async function GET(request: NextRequest) {
   // задачу, которую тут же пришлось бы отбрасывать, и не зовёт оркестратор
   // вовсе. Это НЕ ошибка вызывающего — второй живой источник расписания
   // (внешний cron поверх нативного GH Actions) сработает так по построению.
-  const lock = await tryAcquireEvoRunLock();
+  let lock: PoolClient | null;
+  try {
+    lock = await tryAcquireEvoRunLock();
+  } catch (err) {
+    // «Не смог захватить» — не «уже идёт»: отвечаем отказом, а не пропуском (§4.0).
+    const e = err as { code?: string; message?: string } | null;
+    console.error('[cron/evo] захват advisory-lock не выполнен', `SQLSTATE=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    return NextResponse.json(
+      { success: false, status: 'lock_failed', run_logged: false, kernel_task_id: null, trace_id: null, error: 'Не удалось захватить блокировку прогона: база не ответила.' },
+      { status: 503 },
+    );
+  }
   if (!lock) {
     return NextResponse.json({
       success: true,
