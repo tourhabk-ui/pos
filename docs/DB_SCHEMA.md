@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-22 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1312_partner_site_managed_by_platform.sql`.
+> Снято 2026-10-22 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1313_crm_contacts_renamed_by_partner.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 282 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3758 |
+| Колонок | 3759 |
 | Внешних ключей | 331 |
 | Таблиц без единого FK в обе стороны | 84 |
 
@@ -969,9 +969,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `contact_id uuid!` `partner_id uuid!` `source_kind text!` `source_id text!` `occurred_at timestamptz!` `created_at timestamptz!=`
 
-**crm_contacts** · 19 кол. · PK id · partner_id → partners.id, user_id → users.id · на неё ссылаются: crm_contact_links, crm_events, crm_tasks · индексов 6
+**crm_contacts** · 20 кол. · PK id · partner_id → partners.id, user_id → users.id · на неё ссылаются: crm_contact_links, crm_events, crm_tasks · индексов 6
 
-`id uuid!=` `partner_id uuid!` `user_id uuid` `display_name text` `phone text` `phone_e164 text` `email text` `email_norm text` `origin text!` `tags text[]!=` `notes text` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `first_seen_at timestamptz!=` `last_activity_at timestamptz!=` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `partner_id uuid!` `user_id uuid` `display_name text` `phone text` `phone_e164 text` `email text` `email_norm text` `origin text!` `tags text[]!=` `notes text` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `first_seen_at timestamptz!=` `last_activity_at timestamptz!=` `created_at timestamptz!=` `updated_at timestamptz!=` `renamed_by_partner_at timestamptz`
 
 **crm_events** · 12 кол. · PK id · actor_user_id → users.id, contact_id → crm_contacts.id, partner_id → partners.id · индексов 4
 
