@@ -97,6 +97,15 @@ export function notifyBudgetAlert(spentUsd: number, limitUsd: number): Promise<T
 }
 
 /**
+ * Сайты партнёров изменились (наблюдение 1311, lib/partners/site-watch) —
+ * владельцу в личку. Текст собран и экранирован там же; здесь только доставка
+ * с исходом: «сообщил» крон вправе сказать только при `ok: true`.
+ */
+export function notifyOwnerPartnerSites(text: string): Promise<TgSendOutcome> {
+  return sendAdminMessage('partner-site-watch', text);
+}
+
+/**
  * Тикет эскалирован — срочное уведомление в @tourhab_bot.
  */
 export function notifyAdminEscalated(ticket: SupportTicket, reason: string): void {
