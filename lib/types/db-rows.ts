@@ -1594,3 +1594,36 @@ export interface PartnerOAuthCodeRow {
   expires_at: Date;
   created_at: Date;
 }
+
+/**
+ * operator_chat_date_proposals — предложение «открыть даты» из чата кабинета
+ * оператора в MAX (миграция 1315, «Открой даты словами», этап C). BIGINT из
+ * pg приходит строкой (разборщик int8 не настроен): `chat_id`, `tour_id`,
+ * `candidate_tour_ids`.
+ */
+export interface OperatorChatDateProposalRow {
+  id: string;
+  partner_id: string;
+  channel: 'max';
+  chat_id: string;
+  source_mid: string | null;
+  tour_id: string | null;
+  candidate_tour_ids: string[] | null;
+  /** Дни выезда (DATE[]); читать как `dates::text[]`. */
+  dates: string[];
+  seats: number | null;
+  /** Номер сообщения MAX, заполнившего места черновика: повтор апдейта — ничего. */
+  seats_source_mid: string | null;
+  price_mentioned: boolean;
+  weekday_words: boolean;
+  /** Правило фразы словами («будни июля 2027») для превью после черновика; null — перечень дат. */
+  rule_words: string | null;
+  /** Время сообщения по часам MAX: повтор более старого сообщения это предложение не снимает. */
+  source_sent_at: Date | null;
+  status: 'draft' | 'ready' | 'done' | 'refused' | 'superseded' | 'cancelled';
+  /** Итог нажатия «Открыть» — только у done и refused. */
+  outcome: unknown;
+  created_at: Date;
+  expires_at: Date;
+  used_at: Date | null;
+}

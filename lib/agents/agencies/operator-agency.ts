@@ -26,6 +26,7 @@ import {
 } from '@/lib/tours/dates-phrase';
 import { longDay, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { peopleWord, seatsWord } from '@/lib/operators/chat-dates/texts';
 
 export interface KbFreshnessStats {
   rdc_total:        number;
@@ -370,9 +371,11 @@ export class OperatorAgency {
     }
     const found = isoDatesInPhrase(message);
     if (tourIds.length === 0 || found.kind === 'none') return { response: ADD_SLOTS_HELP };
-    if (found.kind === 'unclear') return { response: unclearDatesText(found.dates) };
-
     const seats = seatsInMessage(message);
+    if (found.kind === 'unclear') {
+      return { response: unclearDatesText(found.dates, tourIds[0]!, seats.kind === 'one' ? seats.value : null) };
+    }
+
     if (seats.kind === 'none') {
       const example = found.kind === 'range' ? `с ${found.from} по ${found.to}` : found.dates.join(' и ');
       return {
@@ -530,15 +533,21 @@ function dayFilterText(word: string): string {
     `или откройте массово в кабинете, там дни недели выбираются: ${CALENDAR_PATH}. Ничего не открыто.`;
 }
 
-/** Связь дат не названа: диапазон или перечень — спросить, а не угадать. */
-function unclearDatesText(dates: string[]): string {
+/**
+ * Связь дат не названа: диапазон или перечень — спросить, а не угадать.
+ * Подсказка в кавычках — команда целиком («добавь слоты туру 42 …, 8 мест»):
+ * голое «с A по B» классификатор помощнику не отдаёт, и ответ по подсказке
+ * уходил мимо (второй ревью 22.10). Места — названные, иначе их спросят следом.
+ */
+function unclearDatesText(dates: string[], tourId: string, seats: number | null): string {
+  const cmd = (what: string): string => `"добавь слоты туру ${tourId} ${what}${seats === null ? '' : `, ${seatsWord(seats)}`}"`;
   if (dates.length === 1) {
-    return `С какой и по какую дату? Напишите обе: "с ${dates[0]} по …" — или одну дату без «с»/«до», ` +
-      `если открыть только её. Ничего не открыто.`;
+    return `С какой и по какую дату? Допишите конец после «по»: добавь слоты туру ${tourId} с ${dates[0]} по ГГГГ-ММ-ДД — ` +
+      `или откройте только эту дату: ${cmd(dates[0]!)}. Ничего не открыто.`;
   }
   const [a, b] = [dates[0]!, dates[dates.length - 1]!];
-  return `Не понял, как связаны даты (${dates.join(', ')}): "с ${a} по ${b}" — все дни между ними, ` +
-    `"${dates.join(' и ')}" — только эти. Ничего не открыто.`;
+  return `Не понял, как связаны даты (${dates.join(', ')}): ${cmd(`с ${a} по ${b}`)} — все дни между ними, ` +
+    `${cmd(dates.join(' и '))} — только эти. Ничего не открыто.`;
 }
 
 /** Даты для журнала задачи: диапазон — концами, перечень — списком (до пяти). */
@@ -589,8 +598,8 @@ export function addSlotsReport(outcome: Extract<OpenDatesOutcome, { ok: true }>,
   const day = (r: { date: string }) => longDay(r.date);
   const lines: string[] = [
     outcome.written > 0
-      ? `Тур «${outcome.tour.title}», ${slots} мест на дату.`
-      : `Ничего не открыто. Тур «${outcome.tour.title}», ${slots} мест на дату.`,
+      ? `Тур «${outcome.tour.title}», ${seatsWord(slots)} на дату.`
+      : `Ничего не открыто. Тур «${outcome.tour.title}», ${seatsWord(slots)} на дату.`,
   ];
   const opened = only(outcome.perDate, 'opened');
   if (opened.length) lines.push(`Открыто (${opened.length}): ${listOf(opened, day)}`);
@@ -600,11 +609,12 @@ export function addSlotsReport(outcome: Extract<OpenDatesOutcome, { ok: true }>,
   if (updated.length) lines.push(`Места переписаны (${updated.length}): ${listOf(updated, (r) => `${day(r)} — было ${r.from}`)}`);
   const already = only(outcome.perDate, 'already_open');
   if (already.length) {
-    lines.push(`Уже были открыты, не трогал (${already.length}): ${listOf(already, (r) => `${day(r)} — ${r.slots} мест`)}`);
+    lines.push(`Уже были открыты, не трогал (${already.length}): ${listOf(already, (r) => `${day(r)} — ${seatsWord(r.slots)}`)}`);
   }
   const booked = only(outcome.perDate, 'refused_booked');
   if (booked.length) {
-    lines.push(`Не открыто — уже записано больше ${slots} (${booked.length}): ${listOf(booked, (r) => `${day(r)} — записано ${r.taken}`)}`);
+    lines.push(`Не открыто — уже записано больше, чем ${seatsWord(slots)} (${booked.length}): ` +
+      listOf(booked, (r) => `${day(r)} — записано ${peopleWord(r.taken)}`));
   }
   const closed = only(outcome.perDate, 'refused_closed');
   if (closed.length) {

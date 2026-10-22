@@ -173,4 +173,30 @@ describe('ответ партнёру', () => {
     expect(chat.partnerGreeting(guide)).toMatch(/кто ждёт ответа.*задачу с напоминанием/s);
     expect(chat.partnerGreeting({ ...guide, crmCategory: null })).not.toMatch(/задачу/);
   });
+
+  it('«открой даты словами» (22.10): оператору — даты сам не меняешь и не говоришь «открыл»; перевозчику строки нет', () => {
+    // Даты открывает поток с кнопкой подтверждения, а не модель: без строки
+    // помощник на непонятую фразу мог ответить «открыл», не открыв.
+    const operator = { ...guide, category: 'operator', crmCategory: 'operator' as const };
+    for (const tools of [true, false]) {
+      expect(chat.partnerSystemPrompt(operator, NOW, tools)).toMatch(/Даты и места туров ты сам не меняешь и не говоришь, что открыл или закрыл/);
+      expect(chat.partnerSystemPrompt(operator, NOW, tools)).toMatch(/кнопкой «Открыть»/);
+    }
+    const carrier = { ...guide, category: 'transfer', crmCategory: 'transfer' as const };
+    expect(chat.partnerSystemPrompt(carrier, NOW, true)).not.toMatch(/Даты и места туров/);
+    expect(chat.partnerSystemPrompt(guide, NOW, true)).not.toMatch(/Даты и места туров/);
+  });
+
+  it('четвёртый ревью: гиду, перевозчику, владельцу жилья фраза с «открой» и датой приходит сюда — помощник не говорит «открыл»', () => {
+    // Поток дат отдаёт их сообщения помощнику (как до этапа C), а календаря у
+    // помощника нет: строка держит его от «открыл», не открыв.
+    for (const category of ['guide', 'transfer', 'stay'] as const) {
+      for (const tools of [true, false]) {
+        expect(chat.partnerSystemPrompt({ ...guide, category, crmCategory: category }, NOW, tools))
+          .toMatch(/Календарь, даты и свободные места ты не меняешь и не говоришь, что открыл или закрыл их/);
+      }
+    }
+    const operator = { ...guide, category: 'operator', crmCategory: 'operator' as const };
+    expect(chat.partnerSystemPrompt(operator, NOW, true)).not.toMatch(/Календарь, даты/);
+  });
 });

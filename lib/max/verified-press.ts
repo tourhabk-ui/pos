@@ -52,7 +52,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -84,13 +84,16 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
  * Вид кнопки-действия по payload. `sr:` — ответ оператора на запрос мест
  * (`lib/seat-requests/core`, `answerPayload`), `lead_` — кнопки лида
  * (`lib/leads/status-action`, `lead_ai`, `lead_send`), `maxlogin_` — ответ на
- * вопрос о входе на сайт (`lib/auth/max-login`). Прочие кнопки (темы,
- * «Оформить заявку», «Другой вариант») только отвечают в чат.
+ * вопрос о входе на сайт (`lib/auth/max-login`), `od:` — «Открыть» / «Не
+ * надо» / выбор тура под предложением открыть даты из чата кабинета
+ * (`lib/operators/chat-dates`, 22.10). Прочие кнопки (темы, «Оформить
+ * заявку», «Другой вариант») только отвечают в чат.
  */
 export function pressActionOf(payload: string): MaxPressAction | null {
   if (payload.startsWith('sr:')) return 'seat';
   if (payload.startsWith('lead_')) return 'lead';
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
+  if (payload.startsWith('od:')) return 'dates';
   return null;
 }
 
@@ -115,6 +118,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Откройте заявку по ссылке из того же сообщения или в кабинете.',
   login: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Войдите на сайте другим способом.',
+  dates: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Откройте даты в кабинете, в календаре.',
 };
 
 /**
@@ -127,6 +132,7 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
     + 'Ответьте по ссылке «ответить на сайте» или во «Входящих» кабинета.',
   lead: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Откройте заявку в кабинете.',
   login: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Начните вход на сайте заново.',
+  dates: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Напишите фразу ещё раз или откройте даты в кабинете.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */
