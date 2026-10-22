@@ -114,8 +114,13 @@ describe('навыки — из реестра инструментов', () => 
       const schema = schemaOf.get(s.id)!;
       for (const k of keys) expect(Object.keys(schema.properties ?? {}), `${s.id}: параметра «${k}» в схеме нет`).toContain(k);
       for (const r of schema.required ?? []) expect(keys, `${s.id}: в примере нет обязательного «${r}»`).toContain(r);
-      const asStrings = Object.fromEntries(keys.map(k => [k, String(args[k])]));
-      const parsed = validateToolArgs(s.id, asStrings);
+      // Тип значения — как в схеме: агент сверяет пример со схемой tools/list,
+      // и `days: 5` при `"type": "string"` для него расхождение (22.10).
+      for (const k of keys) {
+        const declared = (schema.properties?.[k] as { type?: string } | undefined)?.type;
+        expect(typeof args[k], `${s.id}.${k}: в схеме ${declared}`).toBe(declared);
+      }
+      const parsed = validateToolArgs(s.id, args as Record<string, string>);
       expect(parsed.ok, s.id).toBe(true);
       if (parsed.ok) expect(Object.keys(parsed.args).sort(), `${s.id}: схема отбросила часть примера`).toEqual([...keys].sort());
     }
@@ -160,7 +165,7 @@ describe('карточка 0.3 (старый путь)', () => {
     expect(A2A_LEGACY_PROTOCOL_VERSION).toBe('0.3.0');
     expect(legacy.additionalInterfaces).toEqual([
       { url: `${BASE}/api/a2a`, transport: 'JSONRPC' },
-      { url: `${BASE}/api/a2a/v1`, transport: 'HTTP+JSON' },
+      { url: `${BASE}/api/a2a`, transport: 'HTTP+JSON' },
     ]);
     expect(legacy.capabilities).toEqual({ streaming: false, pushNotifications: false, stateTransitionHistory: false });
     expect(legacy).not.toHaveProperty('supportedInterfaces');

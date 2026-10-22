@@ -27,6 +27,15 @@ export const AGENT_CARD_PATH = '/.well-known/agent-card.json';
 export const LEGACY_AGENT_CARD_PATH = '/.well-known/agent.json';
 export const A2A_JSONRPC_PATH = '/api/a2a';
 export const A2A_REST_PATH = '/api/a2a/v1';
+/**
+ * База HTTP+JSON в карточке 0.3. Пути REST версии 0.3 сами несут `/v1`
+ * (`POST /v1/message:send`, раздел 3.2.3 спецификации 0.3.0) и дописываются
+ * к url интерфейса, а пути 1.0 — без него (`POST /message:send`, раздел 11.3).
+ * Поэтому интерфейс 0.3 — `/api/a2a`: клиент 0.3 придёт на
+ * `/api/a2a/v1/message:send`, в тот же роут, что клиент 1.0. До 22.10 здесь
+ * стоял `/api/a2a/v1`, и клиент 0.3 получал 404 на `/api/a2a/v1/v1/message:send`.
+ */
+export const A2A_LEGACY_REST_BASE = '/api/a2a';
 
 export const A2A_AGENT_NAME = 'Ведар — Камчатка (Vedar Kamchatka)';
 
@@ -89,11 +98,14 @@ export const SKILL_TAGS: Record<string, string[]> = {
  * `query` вместо `zone`, `destination` вместо `place`). Лишнее поле схема
  * молча отбрасывает, и агент, скопировавший пример, получал ответ не на свой
  * вопрос — а get_tour_details без `name` и вовсе отказ.
+ * Значения — того типа, что в схеме (у всех параметров `string`): число сервер
+ * примет, но агент, сверяющий пример со схемой tools/list, увидит расхождение
+ * (внешняя проверка 22.10: `days: 5` при `"type": "string"`).
  */
 const ARG_EXAMPLES: Record<string, Record<string, unknown>> = {
   get_tours: { activity_type: 'вулканы' },
   get_tour_details: { name: 'Курильское озеро' },
-  get_tour_availability: { tour: 'Курильское озеро', date_from: '2027-08-01', days: 14, people: 2 },
+  get_tour_availability: { tour: 'Курильское озеро', date_from: '2027-08-01', days: '14', people: '2' },
   get_guardian_context: { place: 'Вулкан Горелый' },
   get_place_info: { name: 'Курильское озеро' },
   get_weather: { place: 'Петропавловск-Камчатский' },
@@ -101,7 +113,7 @@ const ARG_EXAMPLES: Record<string, Record<string, unknown>> = {
   search_accommodations: { zone: 'Паратунка' },
   search_transfers: { place: 'Горелый' },
   search_gear: { query: 'палатка' },
-  make_trip_plan: { days: 5, interests: 'вулканы, медведи', when: 'август' },
+  make_trip_plan: { days: '5', interests: 'вулканы, медведи', when: 'август' },
   search: { query: 'Курильское озеро медведи' },
   fetch: { id: 'place:kurilskoe-ozero' },
 };
@@ -209,7 +221,7 @@ export function buildLegacyAgentCard(base: string): Record<string, unknown> {
     preferredTransport: 'JSONRPC',
     additionalInterfaces: [
       { url: `${base}${A2A_JSONRPC_PATH}`, transport: 'JSONRPC' },
-      { url: `${base}${A2A_REST_PATH}`, transport: 'HTTP+JSON' },
+      { url: `${base}${A2A_LEGACY_REST_BASE}`, transport: 'HTTP+JSON' },
     ],
     provider: provider(base),
     version: MCP_SERVER_INFO.version,
