@@ -313,6 +313,14 @@ export interface ContactPatch {
   tags?: string[];
 }
 
+/**
+ * Правка карточки партнёром: имя, заметка, метки. Смена имени оставляет след
+ * (renamed_by_partner_at, миграция 1311): имя, которое дал партнёр, — его
+ * запись о клиенте, и бывает о другом человеке с тем же номером. Удаление
+ * аккаунта по следу не считает карточку доказанно его клиента
+ * (PROVEN_HIS_CARD, lib/account/erase.ts). Повтор того же имени следа не
+ * пишет.
+ */
 export async function updateContact(
   partnerId: string,
   contactId: string,
@@ -321,6 +329,8 @@ export async function updateContact(
 ): Promise<boolean> {
   const r = await db.query(
     `UPDATE crm_contacts SET
+       renamed_by_partner_at = CASE WHEN $3::boolean AND $4::text IS DISTINCT FROM display_name
+                                    THEN NOW() ELSE renamed_by_partner_at END,
        display_name = CASE WHEN $3::boolean THEN $4 ELSE display_name END,
        notes        = CASE WHEN $5::boolean THEN $6 ELSE notes END,
        tags         = CASE WHEN $7::boolean THEN $8::text[] ELSE tags END,

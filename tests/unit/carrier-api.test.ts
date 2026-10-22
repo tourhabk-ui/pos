@@ -120,13 +120,27 @@ describe('4. гейт брони', () => {
     expect(confirmBody).toMatch(/FOR UPDATE/);
     expect(confirmBody.indexOf('FOR UPDATE')).toBeLessThan(confirmBody.indexOf("status = 'confirmed'"));
     // Вне сервиса — ни одной записи в брони мест (app/ и lib/ целиком).
+    // Исключение одно и названо: обезличивание при удалении аккаунта
+    // (152-ФЗ, #2327) стирает телефон и комментарий заказчика; колонок гейта
+    // (статус, места, цена, поездка, заказчик) оно не трогает — это и держит
+    // проверка ниже, а живые заказы держит отказ удаления (findEraseBlockers).
+    const ERASE_ONLY: Readonly<Record<string, string>> = {
+      'lib/account/erase.ts': 'обезличивание при удалении аккаунта: contact_phone и comment, не колонки гейта',
+    };
+    const GATE_COLUMNS = /\b(?:status|seats|price|trip_id|ordered_by_user_id|ordered_by_partner_id)\s*=/;
     const offenders: string[] = [];
     const walk = (d: string) => {
       for (const e of readdirSync(d, { withFileTypes: true })) {
         const p = join(d, e.name);
         if (e.isDirectory()) { if (!/node_modules|\.next/.test(e.name)) walk(p); continue; }
         if (!e.isFile() || !/\.ts$/.test(e.name) || p.endsWith('lib/transfers/service.ts')) continue;
-        if (/UPDATE transfer_seat_bookings/.test(strip(readFileSync(p, 'utf8')))) offenders.push(relative(ROOT, p));
+        const src = strip(readFileSync(p, 'utf8'));
+        if (!/UPDATE transfer_seat_bookings/.test(src)) continue;
+        const rel = relative(ROOT, p);
+        if (!ERASE_ONLY[rel]) { offenders.push(rel); continue; }
+        for (const m of src.matchAll(/UPDATE transfer_seat_bookings\s+SET\s+([\s\S]*?)\sWHERE\s/g)) {
+          if (GATE_COLUMNS.test(m[1])) offenders.push(`${rel}: пишет колонку гейта (${m[1].trim()})`);
+        }
       }
     };
     walk(join(ROOT, 'app')); walk(join(ROOT, 'lib'));

@@ -37,7 +37,7 @@ import { pool } from '@/lib/db-pool';
 import type { PoolClient } from 'pg';
 
 import {
-  SOURCE_KINDS, isSourceKind, isValidSourceId, SOURCE_SQL, UNLINKED_PAGE_SQL, UNLINKED_WHERE,
+  SOURCE_KINDS, isSourceKind, isValidSourceId, SOURCE_SQL, SOURCE_LOCK_SQL, UNLINKED_PAGE_SQL, UNLINKED_WHERE,
   UNLINKED_COUNT_SQL, cursorStart, type SourceKind, type SourcePersonRow,
 } from '@/lib/crm/source-specs';
 
@@ -57,10 +57,19 @@ export function normalizeName(raw: string | null | undefined): string | null {
   return s ? s.slice(0, 200) : null;
 }
 
-/** Почта как ключ: без пробелов, нижний регистр, есть «@» и точка после него. */
+/**
+ * Адрес в зоне .invalid (RFC 2606) не принадлежит никому: такой пишет
+ * удаление аккаунта (`deleted-<id>@deleted.invalid`, lib/account/erase). Как
+ * ключ склейки он слепил бы обезличенные брони в карточку «Удалённого
+ * пользователя», а как почта клиента — ничего не значит.
+ */
+const isReservedInvalid = (s: string): boolean => /\.invalid$/i.test(s.trim());
+
+/** Почта как ключ: без пробелов, нижний регистр, есть «@» и точка после него, не .invalid. */
 export function normalizeEmail(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null;
   const s = raw.trim().toLowerCase();
+  if (isReservedInvalid(s)) return null;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : null;
 }
 
@@ -81,7 +90,8 @@ export interface PersonKey {
 
 export function personKey(row: Pick<SourcePersonRow, 'person_name' | 'phone' | 'email' | 'user_id'>): PersonKey {
   const phone = typeof row.phone === 'string' && row.phone.trim() ? row.phone.trim().slice(0, 40) : null;
-  const email = typeof row.email === 'string' && row.email.trim() ? row.email.trim().slice(0, 200) : null;
+  const email = typeof row.email === 'string' && row.email.trim() && !isReservedInvalid(row.email)
+    ? row.email.trim().slice(0, 200) : null;
   return {
     name: normalizeName(row.person_name),
     phone,
@@ -127,13 +137,25 @@ function iso(v: Date | string): string {
  * Всё в одной транзакции: контакт без связи с источником не остаётся. Гонка
  * двух привязок одного источника решается уникальностью связи: проигравший
  * откатывается и читает победителя.
+ *
+ * Гонка со стиранием аккаунта (#2327): человек из источника прочитан до
+ * транзакции, и если в это время идёт удаление его аккаунта, прочитано
+ * то, что удаление вот-вот сотрёт. Поэтому перед записью строка источника
+ * запирается (SOURCE_LOCK_SQL — FOR SHARE ждёт коммита стирания, которое её
+ * переписывает) и перечитывается отдельным запросом: аккаунт стёрт — источник
+ * клиентом не становится (no_source), и карточка со старыми именем и
+ * телефоном не заводится. Запор — после поиска карточки, а не до: удаление
+ * запирает сначала карточки, потом переписывает строки источников, и тот же
+ * порядок здесь не даёт им запереть друг друга навстречу. Если склейка
+ * запёрла строку раньше, удаление ждёт её коммита и видит её связь своим
+ * вторым проходом (detachFromUnprovenCrmContacts в lib/account/erase.ts).
  */
 async function linkOne(
   client: PoolClient,
   kind: SourceKind,
   sourceId: string,
   row: SourcePersonRow,
-): Promise<{ contactId: string; created: boolean } | 'no_contact'> {
+): Promise<{ contactId: string; created: boolean } | 'no_contact' | 'no_source'> {
   const existing = await client.query<{ contact_id: string }>(
     `SELECT contact_id FROM crm_contact_links WHERE source_kind = $1 AND source_id = $2`,
     [kind, sourceId],
@@ -200,6 +222,12 @@ async function linkOne(
           ORDER BY (phone_e164 IS NULL AND email_norm IS NULL), created_at, id LIMIT 1 FOR UPDATE`,
         [row.partner_id, k.userId],
       );
+    }
+
+    await client.query(SOURCE_LOCK_SQL[kind], [sourceId]);
+    if ((await client.query(SOURCE_SQL[kind], [sourceId])).rows.length === 0) {
+      await client.query('ROLLBACK');
+      return 'no_source';
     }
 
     if (!contactId) {
@@ -286,6 +314,7 @@ export async function linkContactFromSource(
     try {
       const r = await linkOne(client, kind, sourceId, row);
       if (r === 'no_contact') return { outcome: 'no_contact' };
+      if (r === 'no_source') return { outcome: 'no_source' };
       return { outcome: 'linked', partnerId: row.partner_id, ...r };
     } catch (err) {
       if (sqlstate(err) === '23505' && attempt === 0) continue;

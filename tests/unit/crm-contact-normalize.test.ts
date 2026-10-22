@@ -36,6 +36,17 @@ describe('почта как ключ', () => {
       expect(normalizeEmail(raw as string | null)).toBeNull();
     }
   });
+
+  it('адрес удалённого аккаунта (.invalid) — ни ключ, ни почта: обезличенные брони не склеиваются по нему (#2327)', () => {
+    const erased = 'deleted-00000000-0000-4000-8000-000000000000@deleted.invalid';
+    expect(normalizeEmail(erased)).toBeNull();
+    expect(normalizeEmail(' Deleted-1@Deleted.INVALID ')).toBeNull();
+    const key = personKey({ person_name: 'Удалённый пользователь', phone: null, email: erased, user_id: 'u' });
+    expect(key).toMatchObject({ email: null, emailNorm: null });
+    expect(keyKind(key)).toBe('user');
+    // Обычная почта с «invalid» в имени — почта.
+    expect(normalizeEmail('invalid@mail.ru')).toBe('invalid@mail.ru');
+  });
 });
 
 describe('имя', () => {

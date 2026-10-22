@@ -1498,6 +1498,8 @@ export interface CrmContactRow {
   pd_consent_ip: string | null;
   pd_consent_source: string | null;
   pd_consent_version: string | null;
+  /** Когда партнёр сменил имя карточки (миграция 1311); NULL — не менял или менял до 1311. */
+  renamed_by_partner_at: Date | null;
   first_seen_at: Date;
   last_activity_at: Date;
   created_at: Date;

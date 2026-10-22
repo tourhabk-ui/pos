@@ -282,6 +282,10 @@ describe('читатели чата из JSONB', () => {
       .filter(f => /contacts->>'telegram_chat_id'/.test(readFileSync(f, 'utf-8').replace(/^\s*(\/\/|\*|--).*$/gm, '')))
       .map(f => f.slice(root.length + 1))
       .filter(f => f !== 'lib/partners/bind-channel.ts')
+      // Удаление аккаунта не читает чат для доставки, а снимает зеркало его
+      // же id вместе с колонкой (шаг partners, #2327): писатель зеркала
+      // кладёт ключ, удаление его убирает — читателем по смыслу не является.
+      .filter(f => f !== 'lib/account/erase.ts')
       .sort();
     const unknown = found.filter(f => !KNOWN_JSONB_TELEGRAM_READERS.includes(f));
     expect(unknown, 'новый читатель contacts->>telegram_chat_id — читай колонку через lib/partners/reach').toEqual([]);

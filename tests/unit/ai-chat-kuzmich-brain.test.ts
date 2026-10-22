@@ -65,6 +65,7 @@ vi.mock('@/lib/kuzmich/core', () => ({
 }));
 
 import { POST } from '@/app/api/ai/chat/route';
+import { SAVE_CHAT_SESSION_SQL } from '@/lib/kuzmich/chat-session-save';
 
 function postReq(body: unknown): NextRequest {
   return new Request('http://localhost/api/ai/chat', {
@@ -135,6 +136,24 @@ describe('POST /api/ai/chat — мозг Кузьмича для туристо�
     expect(String(named[0][0])).toContain('цикл инструментов Кузьмича');
     expect(named[0][1]).toMatchObject({ message: 'openrouter down' });
     errSpy.mockRestore();
+  });
+
+  it('ничья сессия, продолженная после входа: запись — общим запросом с хозяином, id вошедшего (#2327)', async () => {
+    // Хозяина на конфликте записывает SAVE_CHAT_SESSION_SQL — это доказано на
+    // настоящей базе (tourist-cabinet.pg.test.ts); здесь — что роут пишет
+    // именно им и передаёт вошедшего.
+    queryMock.mockImplementation(async (sql: string) => (/FROM chat_sessions/.test(sql)
+      ? { rows: [{ messages: [{ role: 'user', content: 'до входа' }], user_message_count: 1, interests_encrypted: null,
+          is_authenticated: false, user_id: null }] }
+      : { rows: [] }));
+    getUserFromRequestMock.mockResolvedValue({ userId: 'user-new', role: 'tourist' });
+    aiChatAgentLoopMock.mockResolvedValue('ОТВЕТ');
+    const res = await POST(postReq({ message: 'я Иван, +79991234567', sessionId: 'sess-anon' }));
+    expect(res.status).toBe(200);
+    const save = queryMock.mock.calls.find((c) => typeof c[0] === 'string' && (c[0] as string).includes('INSERT INTO chat_sessions'));
+    expect(save?.[0]).toBe(SAVE_CHAT_SESSION_SQL);
+    expect((save?.[1] as unknown[])[0]).toBe('sess-anon');
+    expect((save?.[1] as unknown[])[1]).toBe('user-new');
   });
 
   it('не-tourist роль (guide) → loop не вызывается, legacy как раньше', async () => {

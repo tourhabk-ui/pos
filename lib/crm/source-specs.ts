@@ -47,13 +47,32 @@ const NO_CONSENT = `NULL::timestamptz AS pd_consent_at, NULL::varchar AS pd_cons
        NULL::varchar AS pd_consent_source, NULL::varchar AS pd_consent_version`;
 
 /**
+ * Аккаунт строки не стёрт. Удаление аккаунта (lib/account/erase) пишет
+ * users.metadata.erased_at и обезличивает его брони, аренды и заказы, но
+ * ссылку на аккаунт в них оставляет; из карточки, которая не доказанно его,
+ * удаление снимает связь с его бронью — и бронь становится непривязанной.
+ * Такая строка — не новый клиент: задел (crm-contacts-sync) завёл бы из
+ * непривязанной брони карточку по ключу аккаунта (почта .invalid не ключ,
+ * телефон стёрт) — «Удалённый пользователь»
+ * с user_id стёртого аккаунта, ссылкой, которую удаление снимает. Подзапрос, а
+ * не JOIN: условие ссылается только на строку источника `s`, и переписи,
+ * которые берут его со своим FROM (lib/analytics/bookings-origin), не ломаются;
+ * оператор `?` — только наличие ключа, содержимое metadata не читается.
+ */
+const notErasedAccount = (col: string) =>
+  `NOT EXISTS (SELECT 1 FROM users eu WHERE eu.id = ${col} AND eu.metadata ? 'erased_at')`;
+
+/**
  * Как читать человека из источника. Строка источника — под псевдонимом `s`.
  * `eligible` — годится ли строка в клиента вообще (есть партнёр, не удалена,
- * не проба владельца); по нему же задел ищет непривязанное, поэтому хук и
- * задел не могут разойтись в том, что считать источником.
+ * не проба владельца, аккаунт не стёрт); по нему же задел ищет
+ * непривязанное, поэтому хук и задел не могут разойтись в том, что считать
+ * источником.
  */
 interface SourceSpec {
   idType: 'bigint' | 'uuid';
+  /** Таблица строки источника (та, что в `from` под псевдонимом `s`) — для запора строки. */
+  table: string;
   from: string;
   person: string;
   eligible: string;
@@ -64,6 +83,7 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
   // сказать нечего, как в «Бронированиях» оператора.
   operator_booking: {
     idType: 'bigint',
+    table: 'operator_bookings',
     from: `operator_bookings s
            JOIN operator_tours t ON t.id = s.operator_tour_id
            LEFT JOIN users u ON u.id = s.user_id`,
@@ -78,31 +98,35 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
     // служебный партнёр. Перепись 09.10 (run 104) нашла её единственной
     // непривязанной строкой, которую задел перебирал на каждом прогоне.
     eligible: `s.deleted_at IS NULL AND t.operator_id IS NOT NULL
-               AND s.created_via IS DISTINCT FROM 'service-payment-test'`,
+               AND s.created_via IS DISTINCT FROM 'service-payment-test'
+               AND ${notErasedAccount('s.user_id')}`,
   },
   // В брони жилья человека нет — только аккаунт; владелец получает имя,
   // телефон и почту гостя в уведомлении о брони.
   accommodation_booking: {
     idType: 'uuid',
+    table: 'accommodation_bookings',
     from: `accommodation_bookings s
            JOIN accommodations a ON a.id = s.accommodation_id
            JOIN users u ON u.id = s.user_id`,
     person: `a.partner_id, s.user_id, u.name AS person_name, u.phone, u.email,
              ${NO_CONSENT}, s.created_at AS occurred_at`,
-    eligible: `a.partner_id IS NOT NULL`,
+    eligible: `a.partner_id IS NOT NULL AND ${notErasedAccount('s.user_id')}`,
   },
   gear_rental: {
     idType: 'uuid',
+    table: 'gear_rentals',
     from: `gear_rentals s JOIN gear_items gi ON gi.id = s.gear_id`,
     person: `gi.partner_id, NULL::uuid AS user_id, s.customer_name AS person_name,
              s.customer_phone AS phone, s.customer_email AS email,
              ${NO_CONSENT}, s.created_at AS occurred_at`,
-    eligible: `gi.partner_id IS NOT NULL`,
+    eligible: `gi.partner_id IS NOT NULL AND ${notErasedAccount('s.user_id')}`,
   },
   // Заказчик места — турист (аккаунт) или партнёр, заказавший места своей
   // группе. Имя — только у партнёра: имени туриста перевозчик не видит.
   transfer_seat_booking: {
     idType: 'uuid',
+    table: 'transfer_seat_bookings',
     from: `transfer_seat_bookings s
            JOIN transfer_trips tr ON tr.id = s.trip_id
            JOIN transfer_fleet_vehicles v ON v.id = tr.vehicle_id
@@ -110,12 +134,13 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
     person: `v.partner_id, s.ordered_by_user_id AS user_id,
              op.name AS person_name, s.contact_phone AS phone, NULL::text AS email,
              ${NO_CONSENT}, s.created_at AS occurred_at`,
-    eligible: `TRUE`,
+    eligible: notErasedAccount('s.ordered_by_user_id'),
   },
   // Лид без оператора — заявка платформе, у неё нет партнёра. Свой лид
   // владельца (проверка формы) клиентом не становится — как и в счёт спроса.
   lead: {
     idType: 'uuid',
+    table: 'leads',
     from: `leads s`,
     person: `s.operator_id AS partner_id, NULL::uuid AS user_id, s.name AS person_name,
              s.phone, s.email,
@@ -127,6 +152,7 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
   // правилом, что у профиля (самый ранний при задвоении).
   agent_client: {
     idType: 'uuid',
+    table: 'agent_clients',
     from: `agent_clients s
            CROSS JOIN LATERAL (
              SELECT id FROM partners
@@ -155,6 +181,17 @@ export const SOURCE_SQL = bySpec((_, sp) => `
   SELECT ${sp.person}
     FROM ${sp.from}
    WHERE s.id = $1::${sp.idType} AND ${sp.eligible}`);
+
+/**
+ * Запор строки источника на время склейки (lib/crm/contacts, linkOne): FOR
+ * SHARE ждёт транзакцию, которая строку переписывает, — удаление аккаунта
+ * обезличивает каждую строку его источников, — а после ожидания склейка
+ * перечитывает человека отдельным запросом (SOURCE_SQL): условие «аккаунт не
+ * стёрт» смотрит в users, и перепроверка строки внутри FOR SHARE увидела бы
+ * users на момент начала запроса, до коммита стирания.
+ */
+export const SOURCE_LOCK_SQL = bySpec((_, sp) => `
+  SELECT 1 FROM ${sp.table} WHERE id = $1::${sp.idType} FOR SHARE`);
 
 /**
  * Задел: следующая порция непривязанных строк, по возрастанию id. $1 — id,

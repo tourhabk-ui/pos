@@ -55,7 +55,12 @@ describe('в контакт — только то, что партнёр уже 
 
   it('перевозчик: без имени и почты аккаунта туриста', () => {
     const sql = flat(SOURCE_SQL.transfer_seat_booking);
-    expect(sql).not.toMatch(/\busers\b/);
+    // Единственное упоминание аккаунта — проверка «аккаунт не стёрт» (#2327):
+    // подзапрос по наличию ключа erased_at, он ничего не выбирает. Вне его
+    // аккаунт туриста не читается вовсе.
+    const erasedCheck = /NOT EXISTS \(SELECT 1 FROM users eu WHERE eu\.id = s\.ordered_by_user_id AND eu\.metadata \? 'erased_at'\)/;
+    expect(sql).toMatch(erasedCheck);
+    expect(sql.replace(erasedCheck, '')).not.toMatch(/\busers\b/);
     expect(sql).toMatch(/op\.name AS person_name, s\.contact_phone AS phone, NULL::text AS email/);
     expect(flat(SOURCE_SUMMARY_SQL.transfer_seat_booking)).not.toMatch(/\busers\b/);
   });

@@ -44,6 +44,7 @@ import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { redactPII } from '@/lib/security/pii-redact';
 import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
+import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,6 +89,8 @@ function isForeignSession(session: SessionRow | null, requesterId: string | null
 }
 
 // ── Save session with all fields ──────────────────────────────────
+// Запись — одна на оба входа чата (lib/kuzmich/chat-session-save): там же
+// хозяин ничьей сессии, продолженной после входа (#2327).
 async function saveSession(
   sessionId: string,
   userId: string | null,
@@ -98,35 +101,9 @@ async function saveSession(
   interestsEncrypted: string | null,
   utm?: { referrerSource?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string },
 ): Promise<void> {
-  if (!sessionId) return;
-  const trimmed = messages.slice(-20);
-  try {
-    await query(
-      `INSERT INTO chat_sessions
-         (session_id, user_id, role, messages, user_message_count, is_authenticated,
-          interests_encrypted, referrer_source, utm_source, utm_medium, utm_campaign, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, NOW())
-       ON CONFLICT (session_id) DO UPDATE
-         SET messages               = $4::jsonb,
-             user_message_count     = $5,
-             is_authenticated       = $6,
-             interests_encrypted    = COALESCE($7, chat_sessions.interests_encrypted),
-             referrer_source        = COALESCE(chat_sessions.referrer_source, $8),
-             utm_source             = COALESCE(chat_sessions.utm_source, $9),
-             utm_medium             = COALESCE(chat_sessions.utm_medium, $10),
-             utm_campaign           = COALESCE(chat_sessions.utm_campaign, $11),
-             updated_at             = NOW(),
-             role                   = $3`,
-      [
-        sessionId, userId, role, JSON.stringify(trimmed), userMessageCount, isAuthenticated,
-        interestsEncrypted,
-        utm?.referrerSource ?? null, utm?.utmSource ?? null,
-        utm?.utmMedium ?? null, utm?.utmCampaign ?? null,
-      ],
-    );
-  } catch {
-    // Non-critical
-  }
+  await saveChatSession({
+    sessionId, userId, role, messages, userMessageCount, isAuthenticated, interestsEncrypted, utm,
+  });
 }
 
 // ── POST handler ──────────────────────────────────────────────────

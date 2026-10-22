@@ -1,8 +1,9 @@
 /**
  * Адреса API экрана CRM (CRM #2325). Режим решает, чьих клиентов видно:
- * партнёр — своих (`requirePartner`), администратор — всех и только для
- * чтения (`requireAdmin`). Других адресов у экрана нет — это держит сторож
- * crm-clients-screens.
+ * партнёр — своих (`requirePartner`), администратор — всех (`requireAdmin`):
+ * читает и, по обращению человека (152-ФЗ), стирает карточку —
+ * `${CRM_API.admin}/<id>/erase`. Других адресов у экрана нет — это держит
+ * сторож crm-clients-screens.
  */
 export const CRM_API = {
   partner: '/api/hub/crm/contacts',
