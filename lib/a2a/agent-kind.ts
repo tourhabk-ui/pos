@@ -10,8 +10,23 @@ import { PROBE_NAME_PATTERN } from '@/lib/mcp/probe-clients';
 /** Кто это: внешний агент, проверка реестра A2A, иная проверка (curl, пробы) или свой клиент. */
 export type A2aAgentKind = 'external' | 'registry' | 'probe' | 'self';
 
-const REGISTRY_RE = /^A2A-Registry-/i;
+/** Образец реестра A2A — общий для JS и PostgreSQL (`~*`), как PROBE_NAME_PATTERN. */
+export const A2A_REGISTRY_PATTERN = '^A2A-Registry-';
+const REGISTRY_RE = new RegExp(A2A_REGISTRY_PATTERN, 'i');
 const PROBE_RE = new RegExp(PROBE_NAME_PATTERN, 'i');
+
+/** Параметры предиката a2aExternalSql — всегда в этом порядке: образец реестра, образец проб. */
+export const A2A_EXTERNAL_PARAMS: [string, string] = [A2A_REGISTRY_PATTERN, PROBE_NAME_PATTERN];
+
+/**
+ * То же правило, что a2aAgentKind(...) === 'external', — для счёта в SQL
+ * (сводка суток на обзоре админки): число внешних агентов нельзя сложить из
+ * групп по имени, если считать разных вызывающих. Совпадение с JS держит
+ * tests/integration/admin-day-counts.pg.test.ts.
+ */
+export function a2aExternalSql(t: string, registryParam: string, probeParam: string): string {
+  return `(${t}.is_self = FALSE AND ${t}.agent !~* ${registryParam}::text AND ${t}.agent !~* ${probeParam}::text AND COALESCE(${t}.ua_family, '') <> 'curl')`;
+}
 
 /**
  * Кто это — по самоназванию и метке, не по адресу. Реестр A2A раз в сутки

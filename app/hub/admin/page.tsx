@@ -14,6 +14,7 @@ import {
   Smartphone, RussianRuble,
   type LucideIcon,
 } from 'lucide-react';
+import DaySummaryStrip from './_DaySummary';
 
 /* ═══════════════════════════════════════════
    Types
@@ -314,6 +315,9 @@ export default function AdminDashboard() {
           </button>
         </div>
       </div>
+
+      {/* ─── За сутки: люди, MCP, A2A, Кузьмич (слово владельца 22.10) ─── */}
+      <DaySummaryStrip />
 
       {/* ─── Pending banners ─── */}
       {((data.pendingTours ?? 0) > 0 || (data.pendingPartners ?? 0) > 0) && (

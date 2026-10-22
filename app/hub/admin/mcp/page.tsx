@@ -11,10 +11,16 @@
  *
  * Что здесь ЕСТЬ и чего сознательно НЕТ.
  *
- * Аргументы вызовов не пишутся и показать их нельзя: в них уходят имена,
- * телефоны и даты туристов, а MCP зовут снаружи (152-ФЗ, см. комментарий
- * миграции 861). Поэтому страница отвечает на вопросы «зовут ли», «что
- * зовут», «ломается ли», «сколько занимает» — и молчит о содержании.
+ * Из того, что передали в вызов, журнал хранит один главный параметр (1143,
+ * lib/mcp/call-reason): у читающих инструментов — значение до 40 знаков, с
+ * телефоном и почтой «[скрыто]», у пишущих — только имя параметра. Остальное
+ * не пишется: в заявках уходят имена, телефоны и даты туристов, а MCP зовут
+ * снаружи (152-ФЗ, миграция 861). Поэтому страница отвечает на «зовут ли»,
+ * «кто», «что», «о чём в общих словах», «ломается ли», «сколько занимает».
+ *
+ * Каждое число — кнопка (слово владельца 22.10: «расшифровка по дням mcp кто
+ * звал чем интересовался при нажатии на информационные кнопки с числами»):
+ * под рядом раскрывается расшифровка этого числа по суткам (_McpDayBreakdown).
  *
  * `caller_days` — человеко-дни, а не люди: хеш вызывающего суточный, тот же
  * приём, что в page_views. Подписано прямо на экране, потому что «уникальных
@@ -27,7 +33,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Plug, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plug, RefreshCw, AlertTriangle, ChevronDown } from 'lucide-react';
+import McpDayBreakdown, { type BreakdownRequest } from './_McpDayBreakdown';
 
 interface ToolRow {
   tool: string;
@@ -95,10 +102,53 @@ function fmtDay(iso: string): string {
   return `${d}.${m}`;
 }
 
+/** Карточка-число: по нажатию под её рядом открывается расшифровка этого числа. */
+interface StatCard { key: string; label: string; value: React.ReactNode; sub?: string | null; request: BreakdownRequest }
+
+function StatRow({ cards, cols, open, onToggle, note }: {
+  cards: StatCard[];
+  cols: string;
+  open: string | null;
+  onToggle: (key: string) => void;
+  note?: React.ReactNode;
+}) {
+  const opened = cards.find((c) => c.key === open) ?? null;
+  return (
+    <div className="space-y-3">
+      <div className={`grid ${cols} gap-3`}>
+        {cards.map((k) => (
+          <button
+            key={k.key}
+            type="button"
+            onClick={() => onToggle(k.key)}
+            aria-expanded={open === k.key}
+            aria-controls={`mcp-breakdown-${k.key}`}
+            className={`text-left p-3 rounded-lg border bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] transition-colors ${
+              open === k.key ? 'border-[var(--accent)]' : 'border-[var(--border)]'
+            }`}
+          >
+            <span className="flex items-start justify-between gap-1">
+              <span className="text-xs text-[var(--text-muted)]">{k.label}</span>
+              <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-[var(--text-muted)] transition-transform duration-200 ${open === k.key ? 'rotate-180' : ''}`} aria-hidden />
+            </span>
+            <span className="block text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</span>
+            {k.sub && <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">{k.sub}</span>}
+          </button>
+        ))}
+      </div>
+      {note}
+      {opened && <McpDayBreakdown key={opened.key} id={`mcp-breakdown-${opened.key}`} title={opened.label} request={opened.request} />}
+    </div>
+  );
+}
+
 export default function AdminMcpPage() {
   const [data, setData] = useState<McpData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Какое число раскрыто; повторное нажатие сворачивает.
+  const [openCard, setOpenCard] = useState<string | null>(null);
+  const toggleCard = useCallback((key: string) => setOpenCard((cur) => (cur === key ? null : key)), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -153,10 +203,12 @@ export default function AdminMcpPage() {
       </div>
 
       <p className="text-xs text-[var(--text-muted)] max-w-2xl">
-        Журнал фактов вызова инструментов внешними клиентами: что звали, чем кончилось,
-        сколько заняло. Аргументы не пишутся — в них уходят имена и телефоны туристов,
-        а канал внешний. Таблицы ниже — только внешние вызовы: свои (метка владельца в
-        адресе коннектора) и проверки (смоук деплоя, пробы, curl) вынесены отдельными числами.
+        Журнал фактов вызова инструментов внешними клиентами: кто звал, что звали, чем
+        кончилось, сколько заняло. Из переданного в вызов пишется только главный параметр:
+        у читающих инструментов — значение (место, вулкан, запрос; до 40 знаков, телефон и
+        почта скрыты), у пишущих — ничего: в заявках уходят имена и телефоны туристов, а канал
+        внешний. Таблицы ниже — только внешние вызовы: свои (метка владельца в адресе
+        коннектора) и проверки (смоук деплоя, пробы, curl) вынесены отдельными числами.
       </p>
 
       {loading && (
@@ -184,42 +236,42 @@ export default function AdminMcpPage() {
           ) : (
             <>
               {today && (
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: 'Внешних сегодня', value: today.calls, sub: `сбоев ${today.failures} · отказов ${today.refusals} · человеко-дней ${today.caller_days}` },
-                    { label: 'Внешних вчера', value: yesterday?.calls ?? 0, sub: `сбоев ${yesterday?.failures ?? 0} · отказов ${yesterday?.refusals ?? 0} · человеко-дней ${yesterday?.caller_days ?? 0}` },
-                    { label: 'Сегодня своих / проверок', value: `${today.self} / ${today.probe}`, sub: 'в число внешних не входят' },
-                  ].map(k => (
-                    <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
-                      <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
-                      <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
-                      <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{k.sub}</p>
-                    </div>
-                  ))}
-                  <p className="col-span-3 text-[10px] text-[var(--text-muted)]">
-                    Сутки камчатские (UTC+12): «сегодня» — с полуночи по Камчатке до этой минуты, сутки ещё не закончились.
-                  </p>
-                </div>
+                <StatRow
+                  cols="grid-cols-3"
+                  open={openCard}
+                  onToggle={toggleCard}
+                  cards={[
+                    { key: 'today', label: 'Внешних сегодня', value: today.calls, sub: `сбоев ${today.failures} · отказов ${today.refusals} · человеко-дней ${today.caller_days}`, request: { origin: 'external', days: 1, skip: 0 } },
+                    { key: 'yesterday', label: 'Внешних вчера', value: yesterday?.calls ?? 0, sub: `сбоев ${yesterday?.failures ?? 0} · отказов ${yesterday?.refusals ?? 0} · человеко-дней ${yesterday?.caller_days ?? 0}`, request: { origin: 'external', days: 1, skip: 1 } },
+                    { key: 'own-today', label: 'Сегодня своих / проверок', value: `${today.self} / ${today.probe}`, sub: 'в число внешних не входят', request: { origin: 'own', days: 1, skip: 0 } },
+                  ]}
+                  note={
+                    <p className="text-[10px] text-[var(--text-muted)]">
+                      Сутки камчатские (UTC+12): «сегодня» — с полуночи по Камчатке до этой минуты, сутки ещё не закончились.
+                      Нажмите на число — откроется расшифровка: кто звал и о чём.
+                    </p>
+                  }
+                />
               )}
 
               {data.origins_30d && (
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: 'Внешних за 30 дней', value: data.origins_30d.external },
-                    { label: 'Своих (метка владельца)', value: data.origins_30d.self },
-                    { label: 'Проверок (смоук, пробы, curl)', value: data.origins_30d.probe },
-                  ].map(k => (
-                    <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
-                      <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
-                      <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
-                    </div>
-                  ))}
-                  <p className="col-span-3 text-[10px] text-[var(--text-muted)]">
-                    {data.origins_30d.self_since
-                      ? <>Метка «свой» ставится с {data.origins_30d.self_since}: вызовы раньше этого дня в числе внешних неотличимы от своих.</>
-                      : <>Метка «свой» ещё ни разу не ставилась: свои вызовы пока сидят в числе внешних. Нужны MCP_SELF_TAG в env и ?self=&lt;метка&gt; в адресе коннектора.</>}
-                  </p>
-                </div>
+                <StatRow
+                  cols="grid-cols-3"
+                  open={openCard}
+                  onToggle={toggleCard}
+                  cards={[
+                    { key: 'external-30', label: 'Внешних за 30 дней', value: data.origins_30d.external, request: { origin: 'external', days: 30 } },
+                    { key: 'self-30', label: 'Своих (метка владельца)', value: data.origins_30d.self, request: { origin: 'self', days: 30 } },
+                    { key: 'probe-30', label: 'Проверок (смоук, пробы, curl)', value: data.origins_30d.probe, request: { origin: 'probe', days: 30 } },
+                  ]}
+                  note={
+                    <p className="text-[10px] text-[var(--text-muted)]">
+                      {data.origins_30d.self_since
+                        ? <>Метка «свой» ставится с {data.origins_30d.self_since}: вызовы раньше этого дня в числе внешних неотличимы от своих.</>
+                        : <>Метка «свой» ещё ни разу не ставилась: свои вызовы пока сидят в числе внешних. Нужны MCP_SELF_TAG в env и ?self=&lt;метка&gt; в адресе коннектора.</>}
+                    </p>
+                  }
+                />
               )}
 
               {/*
@@ -228,20 +280,17 @@ export default function AdminMcpPage() {
                 отказами по входу, а сбоев после 04.10 не было ни одного.
               */}
               {totals && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { label: 'Внешних за 7 дней', value: totals.calls7, sub: null },
-                    { label: 'Внешних за 30 дней', value: totals.calls30, sub: null },
-                    { label: 'Сбоев за 30 дней', value: totals.failures30, sub: 'упал наш код или база' },
-                    { label: 'Отказов за 30 дней', value: totals.refusals30, sub: 'инструмент ответил: агент передал не то' },
-                  ].map(k => (
-                    <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
-                      <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
-                      <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
-                      {k.sub && <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{k.sub}</p>}
-                    </div>
-                  ))}
-                </div>
+                <StatRow
+                  cols="grid-cols-2 sm:grid-cols-4"
+                  open={openCard}
+                  onToggle={toggleCard}
+                  cards={[
+                    { key: 'external-7', label: 'Внешних за 7 дней', value: totals.calls7, sub: null, request: { origin: 'external', days: 7 } },
+                    { key: 'external-30b', label: 'Внешних за 30 дней', value: totals.calls30, sub: null, request: { origin: 'external', days: 30 } },
+                    { key: 'failures-30', label: 'Сбоев за 30 дней', value: totals.failures30, sub: 'упал наш код или база', request: { origin: 'external', outcome: 'failure', days: 30 } },
+                    { key: 'refusals-30', label: 'Отказов за 30 дней', value: totals.refusals30, sub: 'инструмент ответил: агент передал не то', request: { origin: 'external', outcome: 'refusal', days: 30 } },
+                  ]}
+                />
               )}
 
               <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
