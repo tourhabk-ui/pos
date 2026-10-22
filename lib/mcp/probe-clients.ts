@@ -19,6 +19,7 @@ export const PROBE_CLIENT_NAMES: readonly string[] = [
   'connectors-manager',   // проверка коннектора самим claude.ai, не человек (перепись run 78: 41 вызов)
   'claude-audit',         // наш аудит MCP 29.09 из сессии Claude Code
   'vedar-eval',           // scripts/kuzmich-fact-exam.ts — эталон для еженедельного экзамена
+  'vedar-local-brain-probe', // scripts/local-brain-probe.ts — своя модель на своём железе ходит за фактами
 ];
 
 /**

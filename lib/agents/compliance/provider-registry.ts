@@ -150,6 +150,11 @@ export const LLM_EGRESS_FILES: readonly string[] = [
   // Посты X через xAI Responses API (`x_search`, 29.09): в промпте только
   // имена аккаунтов и окно часов, но егресс зарубежный — под надзором D2.
   'lib/ai/xai-x-search.ts',
+  // Проба своей модели (22.10, docs/LOCAL_BRAIN.md): адрес модели — из env, но
+  // только этот компьютер или домашняя сеть (`isOwnHardwareUrl`), и в промпте
+  // лишь эталонные вопросы эвала. Удалённый хост пробой не принимается — он
+  // заводится в providers.ts и в этот реестр.
+  'lib/ai/local-model-probe.ts',
 ] as const;
 
 /**
