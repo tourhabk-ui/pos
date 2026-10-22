@@ -65,7 +65,10 @@ export default function RescueChat({ className, style, surface = 'card' }: { cla
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setLoading(true);
 
-    const local = getLocalProtocol(text);
+    // Прежние реплики человека: «Мы заблудились», затем «Потеряли рюкзак» —
+    // не утеря вещи, и протокол кражи здесь не к месту.
+    const earlier = messages.filter(m => m.role === 'user').map(m => m.content);
+    const local = getLocalProtocol(text, earlier);
     if (local || !navigator.onLine) {
       setMessages(prev => [...prev, { role: 'assistant', content: local ?? OFFLINE_NO_PROTOCOL }]);
       setLoading(false);
