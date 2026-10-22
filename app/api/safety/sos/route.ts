@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import { verifyAuth } from '@/lib/auth';
 import { classifySosOrigin } from '@/lib/safety/sos-origin';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,11 +33,11 @@ const SOSSchema = z.object({
  * Ссылка на карту остаётся адресом: «Открыть на карте» без href бесполезно.
  */
 function htmlToPlain(html: string): string {
-  return html
-    .replace(/<a href="([^"]*)">([^<]*)<\/a>/g, '$2: $1')
-    .replace(/<\/?(?:b|i)>/g, '')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  return decodeHtmlEntities(
+    html
+      .replace(/<a href="([^"]*)">([^<]*)<\/a>/g, '$2: $1')
+      .replace(/<\/?(?:b|i)>/g, ''),
+  );
 }
 
 function isRateLimited(key: string): boolean {
