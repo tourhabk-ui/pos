@@ -1,19 +1,25 @@
 {
   "timeout": 60,
-  "run": 987,
-  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. Переезд fishingkam.ru на наш сервер: какие адреса сайта существуют (внутренние ссылки главной, карта сайта и карта товаров Tilda), чтобы после смены DNS каждый старый адрес вёл на живую страницу, а не в 404.",
+  "run": 988,
+  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. После влития #2701: предпросмотр сайта «Камчатской рыбалки» на vedarai.ru — страница из базы (туры, база, вопросы, форма), закрыта от поисковиков, canonical на https://fishingkam.ru/; его robots.txt и sitemap.xml. Ждёт выката: до него адрес отвечает 404.",
   "urls": [
-    "https://fishingkam.ru/",
-    "https://fishingkam.ru/sitemap.xml",
-    "https://fishingkam.ru/sitemap-store.xml",
-    "https://fishingkam.ru/robots.txt"
+    "https://vedarai.ru/partner-site/kamchatskaya-rybalka",
+    "https://vedarai.ru/partner-site/kamchatskaya-rybalka/robots.txt",
+    "https://vedarai.ru/partner-site/kamchatskaya-rybalka/sitemap.xml"
   ],
-  "bytes": 4000,
-  "around": [
-    "href=\"/",
-    "href=\"https://fishingkam.ru",
-    "<loc>"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 80
+  "until": "fishingkam.ru",
+  "retries": 45,
+  "retryDelay": 60,
+  "text": true,
+  "bytes": 6000,
+  "grep": [
+    "noindex",
+    "<link rel=\"canonical\" href=\"https://fishingkam.ru/\"",
+    "Туры и цены",
+    "ООО «Камчатская рыбалка»",
+    "Оплатить",
+    "Сайт работает на платформе",
+    "application/ld+json",
+    "manifest.json"
+  ]
 }
