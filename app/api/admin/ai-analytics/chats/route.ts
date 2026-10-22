@@ -98,7 +98,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ messages: rows });
     }
 
-    // ── Список чатов Telegram + Max ───────────────────────────────────────────
+    // ── Список чатов Telegram, MAX, WhatsApp (tg_conversations) ─────────────
+    // Чаты партнёров и WhatsApp сюда до 1314 не попадали: их род разговора не
+    // проходил CHECK, и запись молча падала.
     const { rows: tgChats } = await pool.query<{
       chat_id: string;
       platform: string;
@@ -107,11 +109,13 @@ export async function GET(req: NextRequest) {
       total_msgs: string;
       first_msg: string;
       last_msg: string;
+      partner_chat: boolean;
     }>(`
       SELECT
         chat_id::text,
         platform,
         MAX(user_name)                                      AS user_name,
+        BOOL_OR(mode = 'operator_tg')                       AS partner_chat,
         COUNT(*) FILTER (WHERE role = 'user')::text         AS user_msgs,
         COUNT(*)::text                                      AS total_msgs,
         MIN(created_at)::text                               AS first_msg,
@@ -196,6 +200,8 @@ export async function GET(req: NextRequest) {
         totalMsgs: parseInt(r.total_msgs, 10),
         firstMsg:  r.first_msg,
         lastMsg:   r.last_msg,
+        // Чат партнёра с Кузьмичом (processPartnerMessage), не туриста.
+        partnerChat: r.partner_chat,
       })),
       webChats: webChats.map(r => ({
         sessionId:      r.session_id,

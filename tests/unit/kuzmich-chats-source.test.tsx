@@ -17,7 +17,9 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const CHATS = {
   tgChats: [
-    { chatId: '171', platform: 'telegram', userName: 'Иван', userMsgs: 1, totalMsgs: 2, firstMsg: '2026-10-21T09:00:00Z', lastMsg: '2026-10-21T09:00:00Z' },
+    { chatId: '171', platform: 'telegram', userName: 'Иван', userMsgs: 1, totalMsgs: 2, firstMsg: '2026-10-21T09:00:00Z', lastMsg: '2026-10-21T09:00:00Z', partnerChat: false },
+    { chatId: '501', platform: 'telegram', userName: 'Оператор', userMsgs: 3, totalMsgs: 6, firstMsg: '2026-10-18T09:00:00Z', lastMsg: '2026-10-18T09:00:00Z', partnerChat: true },
+    { chatId: '502', platform: 'whatsapp', userName: 'Гость WA', userMsgs: 1, totalMsgs: 2, firstMsg: '2026-10-17T09:00:00Z', lastMsg: '2026-10-17T09:00:00Z', partnerChat: false },
   ],
   webChats: [
     { sessionId: 'a1b2c3d4-guest', userId: null, userMsgs: 2, authenticated: false, createdAt: '2026-10-20T08:00:00Z', updatedAt: '2026-10-20T08:00:00Z', referrerSource: null, utmSource: null, source: 'web', partner: null },
@@ -70,7 +72,7 @@ describe('«Переписки» Кузьмича — кто откуда', () =
   it('у каждого разговора вход словами; A2A в общем списке; свежие сверху', async () => {
     stub();
     await openChats();
-    expect(screen.getByText('(6 чатов)')).toBeTruthy();
+    expect(screen.getByText('(8 чатов)')).toBeTruthy();
     expect(rows()).toEqual([
       ['A2A', 'TravelAgent/2.1', '2 вопр.'],
       ['TG', 'Иван', '1 сообщ.'],
@@ -78,6 +80,9 @@ describe('«Переписки» Кузьмича — кто откуда', () =
       ['Виджет', 'сайт партнёра: Камчатская рыбалка', '1 сообщ.'],
       ['Сайт', 'Гость', '2 сообщ.'],
       ['Проверка', 'проверка безопасности Кузьмича', '1 сообщ.'],
+      // Чат партнёра и WhatsApp сохраняются с 1314 — и названы своим входом.
+      ['TG', 'Оператор · чат партнёра', '3 сообщ.'],
+      ['WhatsApp', 'Гость WA', '1 сообщ.'],
     ]);
   });
 

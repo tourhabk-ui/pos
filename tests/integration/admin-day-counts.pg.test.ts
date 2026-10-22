@@ -250,6 +250,22 @@ withPg('числа суток в админке', () => {
       await dialog('ctx-1', 2, 'А завтра?');
       const lone = await dialog(null, 1, 'Туры на рыбалку', 'A2A-Registry-TaskProbe/1.0');
 
+      // Переписка партнёра и WhatsApp: до 1314 их род не проходил CHECK, а
+      // пустой catch в saveMsg глотал отказ — строк не было, и Кузьмич
+      // партнёра не помнил прошлой реплики.
+      const { saveMsg, getHistory } = await import('@/lib/kuzmich/core');
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await saveMsg(501, 'operator_tg', 'user', 'сколько броней на субботу?', null, 'Оператор');
+      await saveMsg(501, 'operator_tg', 'assistant', 'две', null, null);
+      await saveMsg(502, 'whatsapp', 'user', 'есть туры на рыбалку?', null, 'Гость WA');
+      await saveMsg(503, 'tourist', 'user', 'привет', null, 'Турист');
+      await saveMsg(504, 'max', 'user', 'привет', null, 'Турист MAX');
+      expect(errors).not.toHaveBeenCalled();
+      errors.mockRestore();
+      expect((await getHistory(501, 'operator_tg')).map((m) => [m.role, m.content]))
+        .toEqual([['user', 'сколько броней на субботу?'], ['assistant', 'две']]);
+      expect(await getHistory(502, 'whatsapp')).toHaveLength(1);
+
       const { GET } = await import('@/app/api/admin/ai-analytics/chats/route');
       const { NextRequest } = await import('next/server');
       const list = await (await GET(new NextRequest('http://localhost/api/admin/ai-analytics/chats'))).json();
@@ -259,7 +275,16 @@ withPg('числа суток в админке', () => {
         'widget_fishingkam_abc123': ['widget', 'Камчатская рыбалка'],
         'safety-eval-1760900000000-benign-medkit': ['probe', null],
       });
-      expect(list.tgChats).toEqual([expect.objectContaining({ chatId: '171', platform: 'telegram', userName: 'Иван', userMsgs: 1 })]);
+      const tg = (list.tgChats as Array<{ chatId: string; platform: string; userName: string; userMsgs: number; partnerChat: boolean }>)
+        .map((c) => [c.chatId, c.platform, c.userName, c.userMsgs, c.partnerChat])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      expect(tg).toEqual([
+        ['171', 'telegram', 'Иван', 1, false],
+        ['501', 'telegram', 'Оператор', 1, true],
+        ['502', 'whatsapp', 'Гость WA', 1, false],
+        ['503', 'telegram', 'Турист', 1, false],
+        ['504', 'max', 'Турист MAX', 1, false],
+      ]);
       expect(list.a2aChats.map((c: { dialogKey: string; agent: string; kind: string; turns: number }) => [c.dialogKey, c.agent, c.kind, c.turns]))
         .toEqual([['ctx-1', 'TravelAgent/2.1', 'external', 2], [`row:${lone.rows[0].id}`, 'A2A-Registry-TaskProbe/1.0', 'registry', 1]]);
 

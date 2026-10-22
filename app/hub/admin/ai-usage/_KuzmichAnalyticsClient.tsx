@@ -48,6 +48,8 @@ interface TgChat {
   totalMsgs: number;
   firstMsg: string;
   lastMsg: string;
+  /** Чат партнёра с Кузьмичом в Telegram, а не туриста. */
+  partnerChat?: boolean;
 }
 
 interface WebChat {
@@ -84,7 +86,12 @@ const A2A_KIND_LABEL: Record<A2aChat['kind'], string | null> = {
 
 /** Бейдж входа: цвет — токеном, подпись — словом (вопрос владельца 22.10 «кто откуда»). */
 function sourceBadge(chat: AnyChat, type: ChatType): { label: string; bg: string; outline?: boolean } {
-  if (type === 'tg') return (chat as TgChat).platform === 'max' ? { label: 'MAX', bg: 'var(--accent)' } : { label: 'TG', bg: 'var(--ocean)' };
+  if (type === 'tg') {
+    const platform = (chat as TgChat).platform;
+    if (platform === 'max') return { label: 'MAX', bg: 'var(--accent)' };
+    if (platform === 'whatsapp') return { label: 'WhatsApp', bg: 'var(--success)', outline: true };
+    return { label: 'TG', bg: 'var(--ocean)' };
+  }
   if (type === 'a2a') return { label: 'A2A', bg: 'var(--warning)' };
   const src = (chat as WebChat).source ?? 'web';
   if (src === 'widget') return { label: 'Виджет', bg: 'var(--purple)' };
@@ -93,7 +100,10 @@ function sourceBadge(chat: AnyChat, type: ChatType): { label: string; bg: string
 }
 
 function chatName(chat: AnyChat, type: ChatType): string {
-  if (type === 'tg') return (chat as TgChat).userName;
+  if (type === 'tg') {
+    const t = chat as TgChat;
+    return t.partnerChat ? `${t.userName} · чат партнёра` : t.userName;
+  }
   if (type === 'a2a') {
     const a = chat as A2aChat;
     const kind = A2A_KIND_LABEL[a.kind];
