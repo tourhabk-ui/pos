@@ -109,9 +109,10 @@ describe('врезка в MCP-роут и приём лида', () => {
     expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs, text\)/);
     expect(MCP_ROUTE).toMatch(/const text = await executeTool\(/);
     expect(MCP_ROUTE).toMatch(/Продолжить в Ведаре/);
-    // Ссылка — отдельный элемент content, данные инструмента — первым и чистыми.
-    expect(MCP_ROUTE).toMatch(/const content: Array<\{ type: 'text'; text: string \}> = \[\{ type: 'text', text \}\];/);
-    expect(MCP_ROUTE).toMatch(/if \(handoff\) content\.push\(\{ type: 'text', text: `Продолжить в Ведаре: \$\{handoff\.url\}` \}\)/);
+    // Ссылка — отдельный элемент content, данные инструмента — первым и
+    // чистыми, а сама ссылка начинается с пустой строки: это держит вызов
+    // tools/call в tests/unit/mcp-plan-answer.test.ts (поведение, не литерал).
+    // Здесь — только запрет: хвостом самого текста ссылка не становится.
     expect(MCP_ROUTE).not.toMatch(/\$\{text\}\\n\\nПродолжить в Ведаре/);
     // В ветке ошибки handoff не выпускается.
     const catchBlock = MCP_ROUTE.slice(MCP_ROUTE.indexOf('} catch (toolErr)'));

@@ -149,6 +149,19 @@ describe('разбор слов: состав и бюджет', () => {
     expect(readChildren('25').note).toMatch(/считаю без детей/);
   });
 
+  it('дети: одиночный «0» — младенец у внешнего агента, «детей нет» в чате (ревью 22.10)', () => {
+    const agent = readChildren('0', 'mcp');
+    expect(agent.children).toEqual([0]);
+    expect(agent.note).toMatch(/«0» прочитал как одного ребёнка до года[\s\S]*Детей нет — не передавай поле/);
+    expect(readChildren('0')).toEqual({ children: [], note: null });
+    expect(readChildren('0', 'chat')).toEqual({ children: [], note: null });
+    // «Детей нет» словами у агента — по-прежнему без детей и без заметки.
+    expect(readChildren('нет', 'mcp')).toEqual({ children: [], note: null });
+    expect(readChildren(undefined, 'mcp')).toEqual({ children: [], note: null });
+    // Ноль среди других возрастов — возраст и раньше; заметки нет.
+    expect(readChildren('0, 5', 'mcp')).toEqual({ children: [0, 5], note: null });
+  });
+
   it('бюджет: коды и русские слова, непонятное — «комфорт» и вслух', () => {
     expect(readBudgetTier('economy').tier).toBe('economy');
     expect(readBudgetTier('подешевле').tier).toBe('economy');
@@ -167,6 +180,9 @@ describe('разбор слов: состав и бюджет', () => {
     expect(family).toMatch(/^Группа: 2 взр\., дети 6, 10 лет/);
     expect(family).toMatch(/«эконом»,/);
     expect(family).not.toMatch(/допущение/);
+    // Дети названы, взрослые — нет: двое взрослых — допущение, и оно сказано.
+    const kidsOnly = planAssumptions({ adults: 2, adultsGiven: false, children: [2], tier: 'comfort', tierGiven: true });
+    expect(kidsOnly).toMatch(/^Группа: 2 взр\. \(число взрослых не названо — допущение\), ребёнок 2 лет/);
   });
 });
 

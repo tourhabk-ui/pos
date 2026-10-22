@@ -274,9 +274,28 @@ export function readAdults(raw: string | undefined): { adults: number; given: bo
  * строкой «6,10»). Возраст — целое 0..17. Что не разобрано, не выбрасывается
  * молча: называется, и такой ребёнок в план не идёт — выдумывать ему возраст
  * нельзя, а от возраста зависят допуски активностей.
+ *
+ * Одиночный «0» значит разное в зависимости от того, кто заполнял поле
+ * (ревью 22.10). У внешнего агента (`mcp`, через MCP и A2A) описание поля —
+ * «возрасты, не число детей», и «0» — это младенец до года; туда же
+ * сворачивается массив `[0]` (строковое поле приводит его к «0»). Прочесть
+ * его как «детей нет» значило бы молча потерять ребёнка и не применить к
+ * семье ни одного возрастного допуска (медведи — с 6 лет). Ошибка в другую
+ * сторону — лишние допуски — видна: строка группы называет «до года», а
+ * заметка — прочтение поля и как сказать «детей нет». В чате туриста поле
+ * заполняет Кузьмич по описанию «детей нет — не передавай», и там «0»
+ * по-прежнему «детей нет».
  */
-export function readChildren(raw: string | undefined): { children: number[]; note: string | null } {
+export function readChildren(
+  raw: string | undefined, surface: DraftSurface = 'chat',
+): { children: number[]; note: string | null } {
   const t = (raw ?? '').trim();
+  if (t === '0' && surface === 'mcp') {
+    return {
+      children: [0],
+      note: 'Поле children «0» прочитал как одного ребёнка до года: поле — возрасты в годах, а не число детей. Детей нет — не передавай поле.',
+    };
+  }
   if (!t || /^(нет|0|-|\[\s*\])$/i.test(t)) return { children: [], note: null };
   const parts = t.replace(/^\[|\]$/g, '').split(/[,;\s]+/).filter(Boolean);
   const ages: number[] = [];
@@ -317,6 +336,32 @@ function childrenWords(ages: number[]): string {
   return ages.length === 1 ? `ребёнок ${ages[0]} лет` : `дети ${ages.join(', ')} лет`;
 }
 
+/** Возраст словами в именительном: «1 год», «2 года», «10 лет»; ноль — «до года». */
+function ageWords(n: number): string {
+  return n === 0 ? 'до года' : `${n} ${plural(n, 'год', 'года', 'лет')}`;
+}
+
+/**
+ * Состав группы для внешнего агента (MCP и A2A): число людей и то, КАК
+ * прочитано поле children.
+ *
+ * Живая проверка MCP 22.10: агент передал children: "2", считая это числом
+ * детей; сервер прочёл «ребёнок 2 лет» и считал группу на троих вместо
+ * четверых — сумма на группу вышла меньше на четверть, и из ответа это не
+ * было видно. Строка теперь называет и людей числом, и прочтение поля:
+ * агент, ошибившийся с полем, увидит это в ответе и пересоберёт план.
+ *
+ * В чате туриста этой строки нет: там поле заполняет Кузьмич из слов
+ * человека, и «поле children» туристу ничего не говорит.
+ */
+function agentGroupWords(adults: number, adultsGiven: boolean, ages: number[]): string {
+  const adultsPart = `${adults} взр.${adultsGiven ? '' : ' (число взрослых не названо — допущение)'}`;
+  const k = ages.length;
+  return `Группа: ${adultsPart} и ${k} ${plural(k, 'ребёнок', 'ребёнка', 'детей')}, всего ${adults + k} чел.; `
+    + `${k === 1 ? 'возраст ребёнка' : 'возрасты детей'}: ${ages.map(ageWords).join(', ')} `
+    + '(поле children — возрасты в годах через запятую, не число детей)';
+}
+
 function adultsWords(n: number): string {
   if (n === 1) return 'одного взрослого';
   if (n === 2) return 'двоих взрослых';
@@ -331,13 +376,18 @@ function adultsWords(n: number): string {
  * С #2223 состав и бюджет можно назвать. Что названо — пересказывается как
  * названное, что не названо — как допущение: «считаю на двоих» и «вас двое»
  * — разные утверждения.
+ *
+ * `surface` — кто читает ответ: у внешнего агента (`mcp`, через MCP и A2A)
+ * строка группы называет людей числом и прочтение поля children (22.10).
  */
 export function planAssumptions(p: {
   adults: number; adultsGiven: boolean; children: number[]; tier: BudgetTier; tierGiven: boolean;
-}): string {
-  const group = p.adultsGiven || p.children.length > 0
-    ? `Группа: ${[`${p.adults} взр.`, p.children.length > 0 ? childrenWords(p.children) : ''].filter(Boolean).join(', ')}`
-    : `Считаю на ${adultsWords(p.adults)}`;
+}, surface: DraftSurface = 'chat'): string {
+  const group = surface === 'mcp' && p.children.length > 0
+    ? agentGroupWords(p.adults, p.adultsGiven, p.children)
+    : p.adultsGiven || p.children.length > 0
+      ? `Группа: ${[`${p.adults} взр.${p.adultsGiven ? '' : ' (число взрослых не названо — допущение)'}`, p.children.length > 0 ? childrenWords(p.children) : ''].filter(Boolean).join(', ')}`
+      : `Считаю на ${adultsWords(p.adults)}`;
   const level = p.tierGiven
     ? `уровень размещения «${BUDGET_LABEL[p.tier]}»`
     : `уровень размещения «${BUDGET_LABEL[p.tier]}» (не назван — допущение)`;
@@ -621,7 +671,7 @@ export async function makeTripPlanForKuzmich(
     : null;
 
   const group = readAdults(args.adults);
-  const kids = readChildren(args.children);
+  const kids = readChildren(args.children, opts.surface ?? 'chat');
   const budget = readBudgetTier(args.budget_tier);
 
   const start = parsePlanStart(args.when, Date.now());
@@ -672,7 +722,7 @@ export async function makeTripPlanForKuzmich(
   const assumptions = planAssumptions({
     adults: group.adults, adultsGiven: group.given, children: kids.children,
     tier: budget.tier, tierGiven: budget.given,
-  });
+  }, opts.surface ?? 'chat');
   const notes = [
     startNote(start, plannedFor), daysNote, interestsNote,
     group.note, kids.note, budget.note, assumptions,
@@ -725,7 +775,7 @@ export function planIdLine(id: string | null, revision: number): string {
   if (!id) {
     return 'Черновик плана не сохранился — править этот план через edit_trip_plan нельзя; чтобы изменить, собери план заново.';
   }
-  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить день (интерес), убрать или переставить день, сменить уровень жилья. План хранится 7 дней.\n`
+  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить день (интерес), убрать или переставить день, сменить уровень жилья, учесть задержку рейса (flight_delay). План хранится 7 дней.\n`
     + `Страница плана — карта, GPX для навигатора и сохранение на телефон для поля без связи: ${SITE}/trip/${id}`;
 }
 
