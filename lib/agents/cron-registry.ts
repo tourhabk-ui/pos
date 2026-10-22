@@ -318,8 +318,18 @@ export const CRON_REGISTRY: CronEntry[] = [
     // lib/security/site-audit.ts.
     key: 'operator-site-audit', label: 'Operator Site Audit',
     description: 'Внешняя поверхность сайтов операторов: сертификат, заголовки, раскрытие.',
-    workflow: 'cron-operator-site-audit.yml', cron: '30 3 * * *', schedule: 'ежедневно · 03:30 UTC',
+    workflow: 'cron-operator-site-audit.yml', endpoint: 'operator-site-audit', cron: '30 3 * * *', schedule: 'ежедневно · 03:30 UTC',
     everyMin: DAY, tier: 'quality', agentId: 'operator-site-audit', triggerable: false,
+  },
+  {
+    // Слово владельца 22.10: «нам нужно проверять сайты партнеров на
+    // изменение». Вторым шагом того же суточного workflow: своё расписание
+    // добавило бы очереди GitHub ещё одно (§8, 20.09). Правила —
+    // lib/partners/site-watch.ts.
+    key: 'partner-site-watch', label: 'Partner Site Watch',
+    description: 'Сайты партнёров: главная и страницы-источники наших туров против прошлого раза; изменения — владельцу.',
+    workflow: 'cron-operator-site-audit.yml', endpoint: 'partner-site-watch', cron: '30 3 * * *', schedule: 'ежедневно · 03:30 UTC',
+    everyMin: DAY, tier: 'quality', agentId: 'partner-site-watch', triggerable: false,
   },
   {
     // Сверено с кодом 24.07: cron-kuzmich-eval.yml дёргает /api/cron/kuzmich-eval,
@@ -613,6 +623,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // и то же самое отдельно проверяет judgeCensus.
   'routes-census': 'broken',
   'operator-site-audit': 'broken',
+  // Партнёры с сайтом и живыми турами есть: ноль прочитанных страниц значит,
+  // что очередь не набралась (запрос, колонка сайта) — обрыв, не тишина.
+  'partner-site-watch': 'broken',
   'kuzmich-eval': 'unknown',
   'kuzmich-redteam': 'unknown',
   // Ноль разобранных находок означает, что сканеру нечего было предъявить —

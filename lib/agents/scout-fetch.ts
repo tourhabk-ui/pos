@@ -28,7 +28,8 @@ const USER_AGENT = 'VedarScout/1.0 (+https://vedarai.ru)';
 
 export type FetchResult =
   | { ok: true; body: string; finalUrl: string; truncated: boolean }
-  | { ok: false; reason: string };
+  /** `status` — ответ сервера, если до него дошло: 404 «страницы нет» и обрыв сети — разные исходы. */
+  | { ok: false; reason: string; status?: number };
 
 /** Все ли адреса имени публичные. Ошибка разрешения — «нет», а не «да». */
 async function resolvesPublic(hostname: string): Promise<boolean> {
@@ -44,8 +45,11 @@ async function resolvesPublic(hostname: string): Promise<boolean> {
 /**
  * Прочитать страницу. Возвращает текст тела или НАЗВАННУЮ причину отказа —
  * причина уходит человеку в ответ, поэтому она на русском и по делу.
+ *
+ * `opts.userAgent` — имя читающего: наблюдение за сайтами партнёров
+ * представляется своим именем, а не разведчиком.
  */
-export async function safeFetchText(rawUrl: string): Promise<FetchResult> {
+export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string }): Promise<FetchResult> {
   let current = rawUrl;
 
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
@@ -68,7 +72,7 @@ export async function safeFetchText(rawUrl: string): Promise<FetchResult> {
     try {
       res = await fetch(current, {
         redirect: 'manual',
-        headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,text/plain,*/*' },
+        headers: { 'User-Agent': opts?.userAgent ?? USER_AGENT, Accept: 'text/html,text/plain,*/*' },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
@@ -90,7 +94,7 @@ export async function safeFetchText(rawUrl: string): Promise<FetchResult> {
     }
 
     if (!res.ok) {
-      return { ok: false, reason: `источник ответил ${res.status}` };
+      return { ok: false, reason: `источник ответил ${res.status}`, status: res.status };
     }
 
     let body: string;
