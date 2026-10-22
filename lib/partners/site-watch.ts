@@ -172,6 +172,12 @@ export interface WatchedPage {
   partnerName: string;
   /** Названия наших живых туров, собранных с этой страницы; пусто — главная. */
   tours: string[];
+  /**
+   * Сайт ведёт платформа (`partners.site_managed_by_platform`, 1312). Тогда
+   * изменение — наша правка или правка того, у кого остался доступ, и правда —
+   * наши карточки, а не сайт. Нет поля — сайт не наш.
+   */
+  managedByUs?: boolean;
 }
 
 export interface PageReport {
@@ -204,7 +210,7 @@ export function ownerMessage(reports: PageReport[]): string | null {
   if (loud.length === 0) return null;
   const blocks: string[] = [];
   for (const r of loud) {
-    const head = `<b>${escapeHtml(r.page.partnerName)}</b> — ${escapeHtml(what(r.page))}`;
+    const head = `<b>${escapeHtml(r.page.partnerName)}</b>${r.page.managedByUs ? ' (сайт ведём мы)' : ''} — ${escapeHtml(what(r.page))}`;
     const url = escapeHtml(shortUrl(r.page.url));
     if (r.event === 'gone') {
       blocks.push(`${head}\nстраница пропала с сайта партнёра (${r.httpStatus ?? 404})\n${url}`);
@@ -224,7 +230,14 @@ export function ownerMessage(reports: PageReport[]): string | null {
     }
   }
   const title = `<b>Сайты партнёров: ${loud.length === 1 ? 'изменилась 1 страница' : `изменений — ${loud.length}`}</b>`;
-  const tail = 'Наши карточки этих туров могли устареть — сверьте и поправьте.';
+  // Направление сверки зависит от того, чей сайт: чужой поменялся — устарели
+  // наши карточки; наш поменялся — сайт сверяется с карточками.
+  const tail = [
+    loud.some((r) => !r.page.managedByUs) ? 'Наши карточки этих туров могли устареть — сверьте и поправьте.' : null,
+    loud.some((r) => r.page.managedByUs)
+      ? 'Сайт с пометкой «ведём мы» правим мы сами: если правка не наша — проверьте, у кого есть доступ. Правда там — наши карточки, сайт сверяется с ними.'
+      : null,
+  ].filter(Boolean).join('\n');
   let body = title;
   let shown = 0;
   for (const b of blocks) {
@@ -243,9 +256,13 @@ function cut(line: string): string {
 /** Первый прогон: кого взяли под наблюдение — одним сообщением, чтобы владелец сверил список. */
 export function baselineMessage(pages: WatchedPage[]): string | null {
   if (pages.length === 0) return null;
-  const byPartner = new Map<string, number>();
-  for (const p of pages) byPartner.set(p.partnerName, (byPartner.get(p.partnerName) ?? 0) + 1);
-  const lines = [...byPartner.entries()].map(([name, n]) => `${escapeHtml(name)} — страниц: ${n}`);
+  const byPartner = new Map<string, { n: number; ours: boolean }>();
+  for (const p of pages) {
+    const was = byPartner.get(p.partnerName) ?? { n: 0, ours: false };
+    byPartner.set(p.partnerName, { n: was.n + 1, ours: was.ours || p.managedByUs === true });
+  }
+  const lines = [...byPartner.entries()].map(([name, { n, ours }]) =>
+    `${escapeHtml(name)} — страниц: ${n}${ours ? ' · сайт ведём мы' : ''}`);
   return [
     '<b>Сайты партнёров: наблюдение начато</b>',
     '',

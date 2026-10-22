@@ -19,6 +19,7 @@
  * пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 
 const net = vi.hoisted(() => ({
@@ -59,6 +60,8 @@ const ARRAY_CONTACTS = '55555555-5555-4555-8555-555555555555';
 // страниц у туров нет, отметки «проверен» нет — главная всё равно под наблюдением.
 const ONE_PAGE = '66666666-6666-4666-8666-666666666666';
 const DRAFT_ONLY = '77777777-7777-4777-8777-777777777777';
+// Сайт ведём мы (1312): туров нет, отметки «проверен» нет — читается всё равно.
+const MANAGED = '88888888-8888-4888-8888-888888888888';
 
 const page = (title: string, price: string) =>
   `<html><body><h1>${title}</h1><p>Цена: ${price} ₽</p><p>Программа на 5 дней</p><script>t=${Math.random()}</script></body></html>`;
@@ -89,6 +92,8 @@ withPg('сайты партнёров: изменения против прош�
     await partner(ARRAY_CONTACTS, 'Массив Тест', { contacts: ['+7 900 000-00-00'] });
     await partner(ONE_PAGE, 'Одностраничный Тест', { contacts: { website: 'https://onepage-test.ru' } });
     await partner(DRAFT_ONLY, 'Только черновик Тест', { website: 'https://draft-only-test.ru' });
+    await partner(MANAGED, 'Наш сайт Тест', { website: 'https://managed-test.ru' });
+    await pool.query('UPDATE partners SET site_managed_by_platform = TRUE WHERE id = $1', [MANAGED]);
 
     let n = 0;
     const tour = async (op: string, title: string, url: string | null, state: 'live' | 'inactive' | 'deleted' | 'draft' = 'live') => {
@@ -127,6 +132,7 @@ withPg('сайты партнёров: изменения против прош�
       'https://fish-test.ru/t/1',
       'https://krai-test.ru/tours/a/',
       'https://krai-test.ru/tours/b/',
+      'https://managed-test.ru',
       'https://onepage-test.ru',
       'https://verified-test.ru',
       'https://www.krai-test.ru',
@@ -134,7 +140,8 @@ withPg('сайты партнёров: изменения против прош�
     const a = pages.find((p) => p.url === 'https://krai-test.ru/tours/a/');
     expect(a).toMatchObject({ partnerName: 'Край Тест', tours: ['Восхождение на Ключевскую'], partnerId: KRAI });
     expect(pages.find((p) => p.url === 'https://verified-test.ru')?.tours).toEqual([]);
-    expect(pages.find((p) => p.url === 'https://onepage-test.ru')).toMatchObject({ partnerId: ONE_PAGE, tours: [] });
+    expect(pages.find((p) => p.url === 'https://onepage-test.ru')).toMatchObject({ partnerId: ONE_PAGE, tours: [], managedByUs: false });
+    expect(pages.find((p) => p.url === 'https://managed-test.ru')).toMatchObject({ partnerId: MANAGED, tours: [], managedByUs: true });
   });
 
   async function snapshots(url: string) {
@@ -152,10 +159,11 @@ withPg('сайты партнёров: изменения против прош�
     net.pages.set('https://fish-test.ru/t/1', { status: 200, body: page('Жупанова', '150 000') });
     net.pages.set('https://verified-test.ru', { status: 200, body: page('Проверенный', '1') });
     net.pages.set('https://onepage-test.ru', { status: 200, body: page('Зимняя рыбалка', '22 000') });
+    net.pages.set('https://managed-test.ru', { status: 200, body: page('Наш сайт', '20 000') });
     const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
     const r = await runSiteWatch({ sleep: noSleep });
-    expect(r.pages).toBe(7);
-    expect(r.events).toEqual({ baseline: 6, quiet: 1 });
+    expect(r.pages).toBe(8);
+    expect(r.events).toEqual({ baseline: 7, quiet: 1 });
     expect(net.calls.some((c) => c.url === 'https://krai-test.ru/tours/b/')).toBe(false);
     expect(net.calls.every((c) => c.ua?.startsWith('VedarSiteWatch/'))).toBe(true);
     expect((await snapshots('https://krai-test.ru/tours/b/'))[0]).toMatchObject({ outcome: 'robots', text: null });
@@ -163,7 +171,8 @@ withPg('сайты партнёров: изменения против прош�
     expect(net.sent[0]).toContain('наблюдение начато');
     expect(net.sent[0]).toContain('Край Тест — страниц: 3');
     expect(net.sent[0]).toContain('Рыбалка Тест — страниц: 2');
-    expect(net.sent[0]).toContain('Одностраничный Тест — страниц: 1');
+    expect(net.sent[0]).toContain('Одностраничный Тест — страниц: 1\n');
+    expect(net.sent[0]).toContain('Наш сайт Тест — страниц: 1 · сайт ведём мы');
     expect(net.sent[0]).not.toContain('Справочник Тест');
     expect(net.sent[0]).not.toContain('Только черновик Тест');
   });
@@ -173,9 +182,10 @@ withPg('сайты партнёров: изменения против прош�
     net.pages.set('https://krai-test.ru/tours/a/', { status: 200, body: page('Восхождение', '340 000') });
     net.pages.delete('https://fish-test.ru/t/1');
     net.pages.set('https://verified-test.ru', { status: 0 });
+    net.pages.set('https://managed-test.ru', { status: 200, body: page('Наш сайт', '22 000') });
     const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
     const r = await runSiteWatch({ sleep: noSleep });
-    expect(r.events).toMatchObject({ changed: 1, gone: 1, same: 3, quiet: 2 });
+    expect(r.events).toMatchObject({ changed: 2, gone: 1, same: 3, quiet: 2 });
     const a = await snapshots('https://krai-test.ru/tours/a/');
     expect(a[1]).toMatchObject({ outcome: 'ok', event: 'changed', diff: { removed: ['Цена: 320 000 ₽'], added: ['Цена: 340 000 ₽'] } });
     expect(a[1].text).toContain('340 000');
@@ -187,13 +197,17 @@ withPg('сайты партнёров: изменения против прош�
     expect(net.sent[0]).toContain('тур «Рыбалка на Жупанове»');
     expect(net.sent[0]).toContain('страница пропала с сайта партнёра (404)');
     expect(net.sent[0]).not.toContain('Проверенный Тест');
+    expect(net.sent[0]).toContain('Наш сайт Тест</b> (сайт ведём мы) — главная страница сайта');
+    expect(net.sent[0]).toContain('стало: Цена: 22 000 ₽');
+    expect(net.sent[0]).toContain('правим мы сами');
+    expect(net.sent[0]).toContain('Наши карточки этих туров могли устареть');
   });
 
   it('прогон 3 — без перемен текст не копится; 404 второй раз молчит; отказ второй день — «не открывается»', async () => {
     net.sent.length = 0;
     const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
     const r = await runSiteWatch({ sleep: noSleep });
-    expect(r.events).toMatchObject({ same: 4, quiet: 2, failing: 1 });
+    expect(r.events).toMatchObject({ same: 5, quiet: 2, failing: 1 });
     const a = await snapshots('https://krai-test.ru/tours/a/');
     expect(a.map((s) => s.event)).toEqual(['baseline', 'changed', 'same']);
     expect(a.map((s) => s.text !== null)).toEqual([true, true, false]);
@@ -218,6 +232,23 @@ withPg('сайты партнёров: изменения против прош�
     expect((await GET(new NextRequest('http://localhost/x'))).status).toBe(401);
     const res = await GET(new NextRequest('http://localhost/x', { headers: { authorization: 'Bearer test-secret' } }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ success: true, pages: 7 });
+    expect(await res.json()).toMatchObject({ success: true, pages: 8 });
+  });
+
+  it('1312 отмечает сайт «Камчатской рыбалки» нашим — и только его; повтор ничего не ломает', async () => {
+    const FISHINGKAM = '0aaa4f05-b479-418b-9d54-2b909783dfd7';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, contacts, slug, is_public, status, site_managed_by_platform)
+       VALUES ($1, 'Камчатская рыбалка', 'operator', '{}'::jsonb, '{}'::jsonb, 'fishingkam-1312', TRUE, 'active', FALSE)`,
+      [FISHINGKAM],
+    );
+    const sql = readFileSync('migrations/1312_partner_site_managed_by_platform.sql', 'utf8');
+    await pool.query(sql);
+    await pool.query(sql);
+    const { rows } = await pool.query<{ id: string; m: boolean }>(
+      `SELECT id::text AS id, site_managed_by_platform AS m FROM partners WHERE id::text IN ($1, $2, $3) ORDER BY id`,
+      [FISHINGKAM, ONE_PAGE, KRAI],
+    );
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.m]))).toEqual({ [FISHINGKAM]: true, [ONE_PAGE]: false, [KRAI]: false });
   });
 });

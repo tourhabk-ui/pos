@@ -122,6 +122,23 @@ describe('сообщение владельцу', () => {
     expect(text.length).toBeLessThan(4096);
     expect(text).toMatch(/ещё изменений: \d+/);
   });
+  it('сайт, который ведём мы: пометка у имени, сверка в обратную сторону', () => {
+    const ours = { url: 'https://fishingkam.ru', partnerName: 'Камчатская рыбалка', tours: [], managedByUs: true };
+    const only = ownerMessage([{ page: ours, event: 'changed', diff: { removed: ['Цена 20 000'], added: ['Цена 22 000'] } }])!;
+    expect(only).toContain('Камчатская рыбалка</b> (сайт ведём мы) — главная страница сайта');
+    expect(only).toContain('если правка не наша — проверьте, у кого есть доступ');
+    expect(only).not.toContain('Наши карточки этих туров могли устареть');
+    const mixed = ownerMessage([
+      { page: ours, event: 'changed', diff: { removed: ['a'], added: ['b'] } },
+      { page, event: 'gone', httpStatus: 404 },
+    ])!;
+    expect(mixed).toContain('Наши карточки этих туров могли устареть');
+    expect(mixed).toContain('правим мы сами');
+    expect(mixed).not.toContain('Край &lt;Вулканов&gt;</b> (сайт ведём мы)');
+    expect(baselineMessage([ours, page])).toContain('Камчатская рыбалка — страниц: 1 · сайт ведём мы');
+    expect(baselineMessage([ours, page])).toContain('Край &lt;Вулканов&gt; — страниц: 1\n');
+  });
+
   it('первый прогон: кого взяли под наблюдение, по партнёрам', () => {
     const text = baselineMessage([
       page, { ...page, url: 'https://volcanoesland.ru' }, { url: 'https://fishingkam.ru', partnerName: 'Камчатская рыбалка', tours: [] },

@@ -5,7 +5,8 @@
  * Кого читаем (ответ владельца 22.10 «всех с сайтом, сами»): партнёра, у
  * которого записан сайт и чей хоть один тур стоит у нас на витрине (шлюз
  * `publicTourSql`: черновик туриста не обманывает) или который проверен
- * владельцем. Записан ли у тура адрес страницы-источника, для отбора не
+ * владельцем, или чей сайт ведём мы сами (1312: слово владельца 22.10 про
+ * fishingkam.ru). Записан ли у тура адрес страницы-источника, для отбора не
  * важно: у «Камчатской рыбалки» его нет (1106 сверяла туры с одностраничным
  * сайтом), а сайт её — тот, с которого собраны карточки. Без условия витрины
  * в очередь попал бы весь справочник операторов, импортированный с
@@ -40,36 +41,37 @@ export interface WatchedRow extends WatchedPage { partnerId: string }
  * домене (visitkamchatka, Telegram) сайтом партнёра не считается.
  */
 export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]> {
-  const { rows } = await pool.query<{ partner_id: string; partner_name: string; url: string; tours: string[] }>(
+  const { rows } = await pool.query<{ partner_id: string; partner_name: string; url: string; tours: string[]; managed: boolean }>(
     `WITH site AS (
        SELECT p.id, p.name,
               NULLIF(btrim(COALESCE(NULLIF(btrim(p.website), ''),
                                     CASE WHEN jsonb_typeof(p.contacts) = 'object' THEN p.contacts->>'website' END,
                                     CASE WHEN jsonb_typeof(p.contact) = 'object' THEN p.contact->>'website' END)), '') AS website,
-              COALESCE(p.is_verified, FALSE) AS verified
+              COALESCE(p.is_verified, FALSE) AS verified,
+              p.site_managed_by_platform AS managed
          FROM partners p
      ), live AS (
        SELECT t.operator_id, t.title::text AS title, btrim(t.source_url) AS url
          FROM operator_tours t
         WHERE ${publicTourSql('t')}
      ), watched AS (
-       SELECT s.id, s.name,
+       SELECT s.id, s.name, s.managed,
               CASE WHEN s.website ~* '^https?://' THEN s.website ELSE 'https://' || s.website END AS home,
               lower(regexp_replace(substring(s.website from '^(?:[a-zA-Z]+://)?([^/:?#]+)'), '^www\\.', '')) AS host
          FROM site s
         WHERE s.website IS NOT NULL
-          AND (s.verified OR EXISTS (SELECT 1 FROM live l WHERE l.operator_id = s.id))
+          AND (s.verified OR s.managed OR EXISTS (SELECT 1 FROM live l WHERE l.operator_id = s.id))
      ), pages AS (
-       SELECT w.id AS partner_id, w.name AS partner_name, l.url, array_agg(DISTINCT l.title) AS tours
+       SELECT w.id AS partner_id, w.name AS partner_name, w.managed, l.url, array_agg(DISTINCT l.title) AS tours
          FROM watched w
          JOIN live l ON l.operator_id = w.id
         WHERE l.url ~* '^https?://'
           AND lower(regexp_replace(substring(l.url from '^[a-zA-Z]+://([^/:?#]+)'), '^www\\.', '')) = w.host
-        GROUP BY w.id, w.name, l.url
+        GROUP BY w.id, w.name, w.managed, l.url
        UNION ALL
-       SELECT w.id, w.name, w.home, ARRAY[]::text[] FROM watched w
+       SELECT w.id, w.name, w.managed, w.home, ARRAY[]::text[] FROM watched w
      )
-     SELECT DISTINCT ON (pg.url) pg.partner_id::text AS partner_id, pg.partner_name, pg.url, pg.tours
+     SELECT DISTINCT ON (pg.url) pg.partner_id::text AS partner_id, pg.partner_name, pg.url, pg.tours, pg.managed
        FROM pages pg
       ORDER BY pg.url, cardinality(pg.tours) DESC`,
   );
@@ -79,7 +81,7 @@ export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]>
   const lastAt = new Map(last.rows.map((r) => [r.url, r.at]));
   // Ни разу не читанные — первыми, затем дольше всех не читанные.
   return rows
-    .map((r) => ({ partnerId: r.partner_id, partnerName: r.partner_name, url: r.url, tours: r.tours ?? [] }))
+    .map((r) => ({ partnerId: r.partner_id, partnerName: r.partner_name, url: r.url, tours: r.tours ?? [], managedByUs: r.managed }))
     .sort((a, b) => (lastAt.get(a.url) ?? '').localeCompare(lastAt.get(b.url) ?? ''))
     .slice(0, limit);
 }
