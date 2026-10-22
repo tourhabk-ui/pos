@@ -18,11 +18,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
-import { queryCatalog } from '@/lib/routes/catalog-query';
+import { CatalogQuerySchema, queryCatalog } from '@/lib/routes/catalog-query';
+import { bgRoutesUrl } from '@/lib/planner/bg-routes-url';
 import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+
+/** Фильтры каталога ровно в той форме, что приходит от карты планировщика. */
+function plannerFilters(tile: string): Record<string, unknown> {
+  return CatalogQuerySchema.parse(Object.fromEntries(new URL(bgRoutesUrl(tile), 'http://diag').searchParams));
+}
 
 const STEPS: Array<{ name: string; sql: string }> = [
   { name: 'select 1', sql: 'SELECT 1 AS ok' },
@@ -215,15 +221,23 @@ export async function GET(request: NextRequest) {
    * (ca70f8a3). Это заменяет сверку по времени мержа, которая ничего не
    * доказывает.
    */
-  const CATALOG_CALLS: Array<{ name: string; filters: Record<string, unknown> }> = [
+  const CATALOG_CALLS: Array<{ name: string; filters: Record<string, unknown> | (() => Record<string, unknown>) }> = [
     { name: 'queryCatalog kind=place (как проба 84)', filters: { kind: 'place', limit: 5, page: 1 } },
     { name: 'queryCatalog kind=route без has_waypoints', filters: { kind: 'route', limit: 10, page: 1, sort: 'recommended' } },
     { name: 'queryCatalog kind=route + has_waypoints (форма смоука)', filters: { kind: 'route', limit: 10, page: 1, sort: 'recommended', has_waypoints: 'true' } },
+    // Карта планировщика (22.10): плитка места — по месту пути, занятие — по
+    // виду маршрута. Форма — не переписанная руками, а та самая, что уходит
+    // с экрана (bgRoutesUrl), через ту же схему входа, что у /api/routes:
+    // { place_type: ['volcano'], kind: 'route', hasCoords: 'true',
+    //   sort: 'navigable', limit: 30, page: 1 } и то же с activity_type.
+    { name: 'queryCatalog карта планировщика: плитка места (place_type=volcano)', filters: () => plannerFilters('volcano') },
+    { name: 'queryCatalog карта планировщика: занятие (activity_type=trekking)', filters: () => plannerFilters('trekking') },
   ];
 
   for (const call of CATALOG_CALLS) {
     try {
-      const res = await queryCatalog(call.filters as never);
+      const filters = typeof call.filters === 'function' ? call.filters() : call.filters;
+      const res = await queryCatalog(filters as never);
       results.push({ step: call.name, ok: true, rows: res.items.length });
     } catch (err) {
       results.push({ step: call.name, ok: false, ...pgErrorFields(err) });

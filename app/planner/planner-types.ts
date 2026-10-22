@@ -3,6 +3,7 @@
  */
 
 import type { StayPrice } from '@/lib/planner/trip-extras';
+import type { PlannerRoute } from '@/lib/planner/bg-routes';
 
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
@@ -26,6 +27,16 @@ export interface DayPlan {
   priceFrom: number;
   priceTo: number;
   coords: [number, number];
+  /**
+   * Зона, которую показывать человеку, когда она не равна `zone` (22.10).
+   * День из маршрута карты, у которого зона в базе не из четырёх (район вне
+   * зон) или не записана вовсе: `zone` у него — догадка по расстоянию, нужная
+   * транспорту и логистике, а показывать догадку как факт нельзя (§4.0).
+   * Здесь — зона маршрута как записана (null — не записана). Нет поля —
+   * показывается `zone`. Только на экране планировщика: схема сохранённой
+   * поездки (lib/trips/trip-schema) это поле не хранит.
+   */
+  zoneShown?: string | null;
   defaultTransport: TransportType;
   allowedTransports: TransportType[];
   difficulty: 'easy' | 'moderate' | 'hard';
@@ -86,16 +97,13 @@ export interface Recommendation {
   };
 }
 
-export interface RoutePoint {
-  id: string;
-  title: string;
-  description: string | null;
-  lat: number;
-  lng: number;
-  activity_type: string | null;
-  location_type: string | null;
-  zone: string | null;
-}
+/**
+ * Маршрут фоновой точки карты. Форма — разбор ответа каталога
+ * (lib/planner/bg-routes, toPlannerRoute): до 22.10 здесь была своя копия
+ * со snake_case полями, а ответ приводился к ней вслепую, и поля, которых
+ * каталог так не называет, были пустыми всегда.
+ */
+export type RoutePoint = PlannerRoute;
 
 export interface Partner {
   id: string;

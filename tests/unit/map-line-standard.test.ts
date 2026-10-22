@@ -21,6 +21,8 @@ import {
   UNVERIFIED_SOURCES, SYNTHETIC_SOURCES, calculatedCarLine,
 } from '@/lib/map/line-standard';
 import type { LatLng } from '@/lib/routes/track-fidelity';
+import { resolveMarkerColor, MARKER_HEX } from '@/lib/map/marker-colors';
+import { buildPlannerMarkers } from '@/lib/planner/map-markers';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -87,7 +89,9 @@ describe('правило доехало до всех поверхностей, 
   const surfaces = [
     ['карточка маршрута', 'app/routes/[id]/_RouteDetailClient.tsx'],
     ['на маршруте', 'app/planning/_PlanningClient.tsx'],
-    ['планер', 'app/planner/_PlannerClient.tsx'],
+    // 22.10: маркеры планера собирает чистая функция (lib/planner/map-markers),
+    // экран её только зовёт — линия между днями строится там.
+    ['планер', 'lib/planner/map-markers.ts'],
     // 27.08: /map рисовал payload-геометрию как пришла — линия из скрейпа
     // сама назначала себе вид. Теперь стиль только через trackLine().
     ['карта мест', 'app/map/_MapPageClient.tsx'],
@@ -108,6 +112,21 @@ describe('правило доехало до всех поверхностей, 
       const handmade = src.match(/type: 'polyline'[^}]*color: '[^']+'[^}]*weight: [4-9]/g) ?? [];
       expect(handmade, `${name}: ${handmade.join(' | ')}`).toHaveLength(0);
     }
+  });
+
+  it('планер: линия между днями — построение с честным именем (вызовом)', () => {
+    const markers = buildPlannerMarkers({
+      routes: [],
+      days: [
+        { day: 1, title: 'Авачинский', zone: 'avachinsky', coords: [53.25, 158.83] },
+        { day: 2, title: 'Курильское озеро', zone: 'western', coords: [51.45, 157.1] },
+      ],
+      editingDayId: null,
+    });
+    const line = markers.find(m => m.geometry);
+    expect(line?.title).toBe(CONNECTOR_TITLES.planOrder);
+    expect(line?.geometry?.dashArray).toBe(connectorLine().dashArray);
+    expect(line?.geometry?.color).toBe(connectorLine().color);
   });
 
   it('карточка маршрута говорит происхождение словами, а не только видом', () => {
@@ -296,11 +315,25 @@ describe('реестр синтетики не разъезжается по м�
  * в один и тот же цвет, различаясь только толщиной и пунктиром.
  */
 describe('цвет линии не тонет при переходе к Leaflet', () => {
-  it('LeafletMap проверяет цвет на хекс до похода в COLOR_MAP', () => {
+  // 22.10: правило цвета вынесено в lib/map/marker-colors (его же читает
+  // легенда планировщика) и проверяется вызовом, а не строкой исходника.
+  it('цвет-хекс проходит как есть, имя — по таблице, пусто — запасной', () => {
+    const hexLine = connectorLine().color;
+    expect(resolveMarkerColor(hexLine, 'teal')).toBe(hexLine);
+    expect(resolveMarkerColor('#4ade80', 'teal')).toBe('#4ade80');
+    expect(resolveMarkerColor('blue', 'teal')).toBe(MARKER_HEX.blue);
+    expect(resolveMarkerColor(undefined, 'teal')).toBe(MARKER_HEX.teal);
+    expect(resolveMarkerColor('нет-такого', 'teal')).toBe(MARKER_HEX.teal);
+  });
+
+  it('у LeafletMap нет своей копии таблицы цветов', () => {
+    // Что пин рисуется цветом общей таблицы, проверяет рендер с подменённым
+    // Leaflet (tests/unit/leaflet-map-behavior.test.tsx). Здесь — только
+    // запреты: регулярка по исходнику судит «этого быть не должно» (13.10).
     const src = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
-    expect(src).toMatch(/color\.startsWith\(['"]#['"]\)/);
     // Прежний небезопасный lookup — хекс из trackLine() как ключ COLOR_MAP —
     // не должен вернуться ни для геометрии, ни для цвета самого маркера.
+    expect(src).not.toMatch(/const COLOR_MAP/);
     expect(src).not.toMatch(/COLOR_MAP\[marker\.geometry\.color/);
     expect(src).not.toMatch(/COLOR_MAP\[marker\.color/);
   });

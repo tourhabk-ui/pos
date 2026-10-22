@@ -233,6 +233,27 @@ describe('документ OpenAPI 3.1', () => {
     expect(code('app/api/routes/route.ts')).toMatch(/searchParams\.get\('brief'\) === '1'/);
   });
 
+  it('place_type: pattern документа отвечает так же, как вход сервера, и с kind=place обещает пустоту', () => {
+    // Второй литерал в документе разошёлся бы со схемой молча: агент строил
+    // бы запрос по одному правилу, а сервер отвечал бы 400 по другому.
+    // Сверяется исполнением на граничных значениях, а не текстом.
+    const param = ((doc.paths['/api/routes'].get as Operation).parameters ?? []).find((p) => p.name === 'place_type');
+    const schema = param?.schema as { pattern?: string; examples?: string[] } | undefined;
+    expect(schema?.pattern).toBeTruthy();
+    const documented = new RegExp(schema?.pattern ?? '$^');
+    const samples = [
+      'volcano', 'hot_spring,thermal', 'bay,cape,beach', 'a,b,c,d,e,f,g,h',
+      'a,b,c,d,e,f,g,h,i', 'Volcano', 'volcano,', ',volcano', '', 'volcano;drop', "volcano'--", 'x'.repeat(41),
+    ];
+    for (const s of samples) {
+      expect(documented.test(s), s).toBe(CatalogQuerySchema.safeParse({ place_type: s }).success);
+    }
+    // Примеры документа сервер принимает.
+    expect(schema?.examples?.length).toBeGreaterThan(0);
+    for (const ex of schema?.examples ?? []) expect(CatalogQuerySchema.safeParse({ place_type: ex }).success, ex).toBe(true);
+    expect(param?.description).toMatch(/kind=place/);
+  });
+
   it('формы ответов названы по коду роутов: degraded у списка туров, unavailable у статуса дня', () => {
     expect(JSON.stringify(doc.components.schemas.ToursResponse)).toMatch(/degraded/);
     expect(code('app/api/tours/route.ts')).toMatch(/degraded: true/);
