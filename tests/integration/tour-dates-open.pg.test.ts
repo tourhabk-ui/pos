@@ -12,9 +12,13 @@
  *     двумя соединениями и ожиданием блокировки в `pg_stat_activity`;
  *   - повтор, в том числе одновременный: одна запись, второй видит «уже
  *     открыта»;
- *   - владение, активность и удаление тура; сезон; прошедшие и дальние даты;
- *     закрытые даты (кабинет открывает, чат и помощник — нет); цена даты без
- *     права цен; снятие `deleted_at`, причины и `is_cancelled IS NULL`;
+ *   - владение и удаление тура; скрытый тур (кабинет пишет, чат и помощник —
+ *     отказ «скрыт», а не «не найден»); сезон; прошедшие и дальние даты, и
+ *     горизонт — тем же днём через год, что у витрины (високосный год);
+ *     закрытые даты (кабинет открывает, чат и помощник — нет), в том числе
+ *     закрытые ДРУГИМ писателем без блокировки тура между чтением и записью;
+ *     цена даты без права цен; снятие `deleted_at`, причины и
+ *     `is_cancelled IS NULL`;
  *   - помощник кабинета (`OperatorAgency.addSlots`) целиком, через настоящее
  *     ядро: без числа мест — вопрос и ни одной записи, умолчания 10 нет.
  *
@@ -104,13 +108,13 @@ withPg('общая запись дат тура на настоящем PostgreS
     return false;
   }
 
-  const chat = (tourId: string, dates: string[], slots: number) => ({
+  const chat = (tourId: string, dates: string[], slots: number, today = TODAY) => ({
     operatorId: operatorA, tourId, rows: dates.map((date) => ({ date, slots })),
-    mayPrice: false, skipExisting: true, closedDates: 'keep' as const, today: TODAY, enforceSeason: true,
+    mayPrice: false, inactiveTour: 'refuse' as const, skipExisting: true, closedDates: 'keep' as const, today, enforceSeason: true,
   });
   const cabinet = (tourId: string, dates: string[], slots: number, extra: { mayPrice?: boolean; price?: number; skipExisting?: boolean } = {}) => ({
     operatorId: operatorA, tourId, rows: dates.map((date) => ({ date, slots, price: extra.price ?? null })),
-    mayPrice: extra.mayPrice ?? false, skipExisting: extra.skipExisting ?? false, closedDates: 'reopen' as const,
+    mayPrice: extra.mayPrice ?? false, inactiveTour: 'write' as const, skipExisting: extra.skipExisting ?? false, closedDates: 'reopen' as const,
   });
 
   beforeAll(async () => {
@@ -249,12 +253,34 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(kinds).toEqual(['already_open', 'opened']);
   });
 
-  it('чужой, выключенный и удалённый тур — tour_not_found, календарь не тронут', async () => {
-    for (const t of [tour.foreign, tour.off, tour.deleted]) {
-      const out = await mod.openTourDates(cabinet(t, ['2027-06-01'], 5));
-      expect(out, t).toEqual({ ok: false, reason: 'tour_not_found' });
+  it('чужой и удалённый тур — tour_not_found при любых настройках, календарь не тронут', async () => {
+    for (const t of [tour.foreign, tour.deleted]) {
+      for (const input of [cabinet(t, ['2027-06-01'], 5), chat(t, ['2027-06-01'], 5)]) {
+        const out = await mod.openTourDates(input);
+        expect(out, t).toEqual({ ok: false, reason: 'tour_not_found' });
+      }
       expect(await row(t, '2027-06-01')).toBeUndefined();
     }
+  });
+
+  it('скрытый тур: помощник и чат — «скрыт» с названием, а не «не найден»; кабинет пишет, как до 22.10', async () => {
+    const refused = await mod.openTourDates(chat(tour.off, ['2027-06-02'], 5));
+    expect(refused).toEqual({ ok: false, reason: 'tour_inactive', title: 'Выключенный' });
+    expect(await row(tour.off, '2027-06-02')).toBeUndefined();
+
+    // Карточка тура (addAvailability): тур скрыт на межсезонье, даты сезона
+    // готовятся заранее. Туристы их не видят — тур скрыт, гейт брони его не берёт.
+    const { addAvailability } = await import('@/lib/api/operator-tours');
+    const written = await addAvailability(BigInt(tour.off), [{ date: '2027-06-02', available_slots: 8 }], false, operatorA);
+    expect(written).toMatchObject({
+      ok: true, written: 1, tour: { isActive: false }, perDate: [{ date: '2027-06-02', result: 'opened' }],
+    });
+    expect(await row(tour.off, '2027-06-02')).toMatchObject({ slots: 8, is_cancelled: false });
+    const { reserveBooking } = await import('@/lib/bookings/reserve');
+    await expect(reserveBooking({
+      tourId: Number(tour.off), touristName: 'Проба', touristPhone: '+70000000000',
+      participants: 1, date: '2027-06-02', createdVia: 'website',
+    })).rejects.toThrow(/не найден|не доступен/);
   });
 
   it('сезон: чат вне окна не открывает, кабинет открывает; уже открытую дату окно не трогает', async () => {
@@ -272,6 +298,23 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(cab).toMatchObject({ ok: true, perDate: [{ result: 'opened' }] });
     const again = await mod.openTourDates(chat(tour.season, ['2027-10-05'], 6));
     expect(again).toMatchObject({ ok: true, perDate: [{ result: 'already_open', slots: 6 }] });
+  });
+
+  it('горизонт — тот же день через год, как у витрины: сверка с PostgreSQL, в том числе через 29 февраля', async () => {
+    for (const today of ['2026-10-22', '2027-03-01', '2027-02-28', '2028-02-29', '2027-10-22', '2027-12-31']) {
+      const pg = await pool.query<{ d: string }>(`SELECT ($1::date + INTERVAL '1 year')::date::text AS d`, [today]);
+      expect(mod.horizonLastDate(today), today).toBe(pg.rows[0]!.d);
+    }
+    // С 1 марта 2027 впереди 29.02.2028: 365 дней кончились бы 29 февраля, а
+    // витрина покажет и 1 марта 2028.
+    const out = await mod.openTourDates(chat(tour.plain, ['2028-03-01', '2028-03-02'], 4, '2027-03-01'));
+    expect(out).toMatchObject({
+      ok: true, written: 1,
+      perDate: [
+        { date: '2028-03-01', result: 'opened' },
+        { date: '2028-03-02', result: 'refused_horizon', lastDate: '2028-03-01' },
+      ],
+    });
   });
 
   it('прошедшая дата и дальше года — отказ при today; без today кабинету можно', async () => {
@@ -320,6 +363,57 @@ withPg('общая запись дат тура на настоящем PostgreS
     const cab = await mod.openTourDates(cabinet(tour.plain, ['2027-07-20'], 6));
     expect(cab).toMatchObject({ ok: true, perDate: [{ result: 'reopened', reason: 'Шторм' }] });
     expect(await row(tour.plain, '2027-07-20')).toMatchObject({ is_cancelled: false, reason: null, slots: 6, deleted: false });
+  });
+
+  it('дату закрыл писатель без блокировки тура (SQL роута block) между чтением и записью — чат её не открывает', async () => {
+    // Закрытие легло раньше нашей записи, но не зафиксировано: чтение
+    // состояния его не видит (строки «нет»), а upsert ждёт его фиксации.
+    const blocker = await pool.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
+         SELECT $1::bigint, d, 0, true, $3::text FROM unnest($2::date[]) AS d
+         ON CONFLICT (operator_tour_id, date) DO UPDATE SET
+           is_cancelled = true, cancellation_reason = EXCLUDED.cancellation_reason, updated_at = NOW()`,
+        [tour.plain, ['2027-07-15'], 'Шторм'],
+      );
+      const pending = mod.openTourDates(chat(tour.plain, ['2027-07-15', '2027-07-16'], 6));
+      expect(await someoneWaitsOnLock(), 'upsert обязан ждать чужую вставку той же даты').toBe(true);
+      await blocker.query('COMMIT');
+      const out = await pending;
+      expect(out).toMatchObject({
+        ok: true, written: 1,
+        perDate: [
+          { date: '2027-07-15', result: 'refused_closed', reason: 'Шторм' },
+          { date: '2027-07-16', result: 'opened' },
+        ],
+      });
+      expect(await row(tour.plain, '2027-07-15')).toMatchObject({ is_cancelled: true, reason: 'Шторм', slots: 0 });
+    } finally {
+      blocker.release();
+    }
+  });
+
+  it('дату открыл писатель без блокировки между чтением и записью — чат (skipExisting) её места не переписывает', async () => {
+    const other = await pool.connect();
+    try {
+      await other.query('BEGIN');
+      // Форма POST /api/operator/calendar: одна дата, 4 места.
+      await other.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+         VALUES ($1, '2027-07-17', 4, FALSE)`,
+        [tour.plain],
+      );
+      const pending = mod.openTourDates(chat(tour.plain, ['2027-07-17'], 6));
+      expect(await someoneWaitsOnLock()).toBe(true);
+      await other.query('COMMIT');
+      const out = await pending;
+      expect(out).toMatchObject({ ok: true, written: 0, perDate: [{ date: '2027-07-17', result: 'already_open', slots: 4 }] });
+      expect(await row(tour.plain, '2027-07-17')).toMatchObject({ slots: 4 });
+    } finally {
+      other.release();
+    }
   });
 
   it('снятая строка и строка без отметки (is_cancelled IS NULL) — открываются снова, отметки снимаются', async () => {
@@ -381,5 +475,11 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(await row(tour.agent, '2027-09-29')).toMatchObject({ is_cancelled: true, reason: 'Шторм' });
     expect(await row(tour.agent, '2027-09-30')).toMatchObject({ slots: 4 });
     expect(await tasks()).toBe(1);
+
+    // Скрытый тур: помощник называет причину, а не «не найден», и не пишет.
+    const hidden = await new OperatorAgency().addSlots(ctx, `открой даты туру ${tour.off} 2027-06-03, 6 мест`);
+    expect(hidden.response).toMatch(/Тур «Выключенный» скрыт/);
+    expect(hidden.response).toMatch(/Ничего не открыто/);
+    expect(await row(tour.off, '2027-06-03')).toBeUndefined();
   });
 });

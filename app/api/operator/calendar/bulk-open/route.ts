@@ -16,13 +16,16 @@
  * Запись — общей функцией `openTourDates` (lib/tours/availability-open.ts):
  * владение и блокировка тура, занятость по броням, исход по каждой дате.
  * Кабинет открывает и закрытые даты (`closedDates: 'reopen'`), прошлые даты и
- * сезон не проверяет — как раньше. Новое правило одно: места ниже числа уже
- * записанных не ставятся — такая дата приходит в `refused` с числом записанных.
+ * сезон не проверяет — как раньше. Скрытому туру даты здесь не открываются, как
+ * и до 22.10 (владение проверялось с `is_active = true`), но ответ теперь
+ * называет причину — «тур скрыт», а не «тур не найден»: тур есть, и он виден
+ * оператору в списке. Новое правило одно: места ниже числа уже записанных не
+ * ставятся — такая дата приходит в `refused` с числом записанных.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
-import { countResults, datesInRange, isCalendarDate, openTourDates } from '@/lib/tours/availability-open';
+import { countResults, datesInRange, isCalendarDate, openTourDates, tourHiddenText } from '@/lib/tours/availability-open';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -76,12 +79,19 @@ export async function POST(request: NextRequest) {
     tourId: String(tourId),
     rows: dates.map((date) => ({ date, slots, price: priceOverride ?? null })),
     mayPrice,
+    inactiveTour: 'refuse',
     skipExisting,
     closedDates: 'reopen',
   });
   if (!outcome.ok) {
     if (outcome.reason === 'tour_not_found') {
       return NextResponse.json({ success: false, error: 'Тур не найден или нет прав' }, { status: 404 });
+    }
+    if (outcome.reason === 'tour_inactive') {
+      return NextResponse.json(
+        { success: false, error: tourHiddenText(outcome.title) },
+        { status: 409 },
+      );
     }
     // Текст ошибки базы — в лог (его пишет openTourDates с SQLSTATE), а не
     // человеку: он про колонки, а не про даты.

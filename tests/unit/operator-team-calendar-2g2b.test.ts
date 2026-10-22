@@ -84,7 +84,7 @@ const ownsTour = (sql: string) => sql.includes('FROM operator_tours WHERE id = $
  */
 function datesWrite(sql: string, params: unknown[]): unknown {
   if (ownsTour(sql)) {
-    return { rows: [{ title: 'Тур', max_participants: 10, is_published: true, season_start: null, season_end: null,
+    return { rows: [{ title: 'Тур', max_participants: 10, is_published: true, is_active: true, season_start: null, season_end: null,
       duration_type: null, multi_day_count: null, duration_hours: null }] };
   }
   if (sql.includes('FROM unnest($2::date[]) AS d(date)')) {
@@ -92,7 +92,9 @@ function datesWrite(sql: string, params: unknown[]): unknown {
       date, has_row: false, deleted: false, available_slots: null, is_cancelled: null, cancellation_reason: null, taken: 0,
     })) };
   }
-  if (sql.includes('INSERT INTO tour_availability')) return { rows: [], rowCount: (params[1] as string[]).length };
+  if (sql.includes('INSERT INTO tour_availability')) {
+    return { rows: (params[1] as string[]).map((date) => ({ date })), rowCount: (params[1] as string[]).length };
+  }
   return { rows: [] };
 }
 
@@ -196,6 +198,19 @@ describe('массовое открытие дат', () => {
     expect(upsertCall()![1][1]).toEqual(['2020-01-01', '2020-01-03']);
   });
 
+  it('скрытый тур: массовое открытие отказывает, как до 22.10, но словами «скрыт», а не «не найден»', async () => {
+    db('owner', (sql, params) => ownsTour(sql)
+      ? { rows: [{ ...(datesWrite(sql, params) as { rows: Array<Record<string, unknown>> }).rows[0], is_active: false }] }
+      : datesWrite(sql, params));
+    const res = await post({});
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/Тур «Тур» скрыт/);
+    expect(body.error).not.toMatch(/не найден/);
+    expect(upsertCall()).toBeUndefined();
+    expect(query.mock.calls.map(([s]) => s)).toContain('ROLLBACK');
+  });
+
   it('сбой базы — лог и русский текст, а не текст ошибки базы', async () => {
     db('owner', (sql, params) => {
       if (sql.includes('INSERT INTO tour_availability')) {
@@ -267,8 +282,8 @@ describe('даты тура (роут 2г-1): та же дыра со сброс
     { params: Promise.resolve({ id: '7' }) },
   );
 
-  const written = (date: string) => ({
-    ok: true, tour: { title: 'Тур', maxParticipants: 10, isPublished: true },
+  const written = (date: string, isActive = true) => ({
+    ok: true, tour: { title: 'Тур', maxParticipants: 10, isPublished: true, isActive },
     perDate: [{ date, result: 'opened' }], written: 1,
   });
 
@@ -285,7 +300,7 @@ describe('даты тура (роут 2г-1): та же дыра со сброс
   it('места ниже записанных — 409 с числом записанных, а не «добавлено»; тура нет — 404', async () => {
     db('owner');
     addAvailability.mockResolvedValue({
-      ok: true, tour: { title: 'Тур', maxParticipants: 10, isPublished: true },
+      ok: true, tour: { title: 'Тур', maxParticipants: 10, isPublished: true, isActive: true },
       perDate: [{ date: '2026-11-01', result: 'refused_booked', taken: 9 }], written: 0,
     });
     const res = await post([{ date: '2026-11-01', available_slots: 8 }]);
@@ -298,6 +313,25 @@ describe('даты тура (роут 2г-1): та же дыра со сброс
     expect((await post([{ date: '2026-11-01', available_slots: 8 }])).status).toBe(404);
     addAvailability.mockResolvedValue({ ok: false, reason: 'failed', sqlstate: '57P01' });
     expect((await post([{ date: '2026-11-01', available_slots: 8 }])).status).toBe(500);
+  });
+
+  it('скрытый тур: карточка тура пишет даты, как до 22.10, и говорит, что туристы их пока не видят', async () => {
+    db('owner');
+    addAvailability.mockResolvedValue(written('2026-11-01', false));
+    const res = await post([{ date: '2026-11-01', available_slots: 8 }]);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.tour_hidden).toBe(true);
+    expect(body.message).toMatch(/Открыто дат: 1\. Тур скрыт — туристы увидят эти даты, когда вы его включите/);
+
+    // Настоящая addAvailability со скрытым туром: пишет (режим кабинета).
+    const real = await vi.importActual<typeof import('@/lib/api/operator-tours')>('@/lib/api/operator-tours');
+    db('owner', (sql, params) => ownsTour(sql)
+      ? { rows: [{ ...(datesWrite(sql, params) as { rows: Array<Record<string, unknown>> }).rows[0], is_active: false }] }
+      : datesWrite(sql, params));
+    const out = await real.addAvailability(7n, [{ date: '2026-11-01', available_slots: 5 }], true, CABINET);
+    expect(out).toMatchObject({ ok: true, written: 1, tour: { isActive: false } });
+    expect(upsertCall()).toBeDefined();
   });
 
   it('upsert без права оставляет цену даты; тур сверяется с кабинетом', async () => {

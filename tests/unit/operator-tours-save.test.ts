@@ -23,7 +23,7 @@ vi.mock('@/lib/db-pool', () => ({
       query: async (sql: string, params: unknown[] = []) => {
         sent.push([sql, params]);
         if (sql.includes('FROM operator_tours WHERE id = $1 AND operator_id = $2')) {
-          return { rows: [{ title: 'Тур', max_participants: 10, is_published: true, season_start: null, season_end: null,
+          return { rows: [{ title: 'Тур', max_participants: 10, is_published: true, is_active: true, season_start: null, season_end: null,
             duration_type: null, multi_day_count: null, duration_hours: null }] };
         }
         if (sql.includes('FROM unnest($2::date[]) AS d(date)')) {
@@ -33,7 +33,9 @@ vi.mock('@/lib/db-pool', () => ({
             cancellation_reason: 'Шторм', taken: 0,
           })) };
         }
-        if (sql.includes('INSERT INTO tour_availability')) return { rows: [], rowCount: (params[1] as string[]).length };
+        if (sql.includes('INSERT INTO tour_availability')) {
+          return { rows: (params[1] as string[]).map((date) => ({ date })), rowCount: (params[1] as string[]).length };
+        }
         return { rows: [] };
       },
     }),

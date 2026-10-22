@@ -14,6 +14,7 @@ import {
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { formatDateOnly } from '@/lib/dates/date-only';
+import { tourHiddenText } from '@/lib/tours/availability-open';
 import { ZodError } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -45,12 +46,17 @@ export async function POST(
       return permissionDenied('can_edit_prices');
     }
 
-    // Владение (тур кабинета, включён, не удалён) проверяет сама запись — под
-    // той же блокировкой тура, что у гейта брони (lib/tours/availability-open).
+    // Владение (тур кабинета, не удалён) проверяет сама запись — под той же
+    // блокировкой тура, что у гейта брони (lib/tours/availability-open).
+    // Скрытому туру даты пишутся, как и до 22.10 (карточка тура открыта, тур
+    // есть), а ответ говорит, что туристы их пока не видят.
     const outcome = await addAvailability(tourId, dates, mayPrice, ctx.partnerId);
     if (!outcome.ok) {
       if (outcome.reason === 'tour_not_found') {
         return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+      }
+      if (outcome.reason === 'tour_inactive') {
+        return NextResponse.json({ error: tourHiddenText(outcome.title) }, { status: 409 });
       }
       return NextResponse.json({ error: 'Не удалось добавить даты' }, { status: 500 });
     }
@@ -68,14 +74,18 @@ export async function POST(
       );
     }
 
+    const hiddenNote = outcome.tour.isActive
+      ? ''
+      : '. Тур скрыт — туристы увидят эти даты, когда вы его включите';
     return NextResponse.json(
       {
         success: true,
-        message: refused.length > 0
+        message: (refused.length > 0
           ? `Открыто дат: ${outcome.written}. Не открыто: ${refusedText}`
-          : `Открыто дат: ${outcome.written}`,
+          : `Открыто дат: ${outcome.written}`) + hiddenNote,
         dates_added: outcome.written,
         refused,
+        tour_hidden: !outcome.tour.isActive,
       },
       { status: 201 }
     );

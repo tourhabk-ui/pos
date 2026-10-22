@@ -396,11 +396,6 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'lib/services/routes/route-description-cache.ts': { n: 1, why: `${NOT_SHOWCASE}: писатель кэша описаний` },
   'lib/services/tours/booking-funnel-stages.ts': { n: 2, why: `${NOT_SHOWCASE}: диагностика воронки, счёт предложения` },
   'lib/telegram/welcome.ts': { n: 1, why: `${NOT_SHOWCASE}: приветствие оператора, свои туры` },
-  // Перенесено 22.10 из роута bulk-open вместе с проверкой владения: общая
-  // запись дат кабинета и его помощника. Выключенному туру (is_active) даты не
-  // открываются, а черновик (не опубликован) свои даты получать вправе —
-  // поэтому флаг один, и шлюз витрины здесь неуместен.
-  'lib/tours/availability-open.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет оператора и его помощник, запись дат своего тура под блокировкой` },
   'lib/tours/top-tour-by-activity.ts': { n: 4, why: `${FULL_COPY} (пункт 1.10 его оставляет как есть)` },
 };
 

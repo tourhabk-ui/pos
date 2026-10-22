@@ -10,7 +10,12 @@
  *   - без числа — вопрос, и до ядра и записи дело не доходит;
  *   - с числом — общая функция зовётся с правилами чата кабинета: открытое
  *     не трогать, закрытое не открывать, сезон и прошлое — проверять, цены нет;
- *   - ответ называет исход каждой даты, «открыто» — только записанное.
+ *   - ответ называет исход каждой даты, «открыто» — только записанное;
+ *   - фраза, где просят закрыть, не открывать или открыть «кроме», сюда
+ *     приходит по ключу классификатора («слоты на») — и не исполняется;
+ *   - номер тура из поля «Tour ID» (роут дописывает «тур 42») понимается;
+ *   - цена во фразе названа словами, а не пропущена молча;
+ *   - ядро ответило отказом ПОСЛЕ записи — ответ не говорит «не открыты».
  *
  * Что запись делает на настоящей базе (и весь путь через ядро) —
  * tests/integration/tour-dates-open.pg.test.ts.
@@ -34,6 +39,12 @@ vi.mock('@/lib/operators/team-access', async (orig) => ({
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
 const { OperatorAgency, seatsInMessage, addSlotsReport } = await import('@/lib/agents/agencies/operator-agency');
+const { classifyIntentByKeywords } = await import('@/lib/agents/intent-classifier');
+
+const openedOne = (date = '2027-07-05') => ({
+  ok: true, tour: { title: 'Горелый', maxParticipants: 10, isPublished: true, isActive: true }, written: 1,
+  perDate: [{ date, result: 'opened' }],
+});
 
 const ctx = {
   user: { userId: '5f3c1a2b-0000-4000-8000-000000000000', role: 'operator' },
@@ -87,22 +98,21 @@ describe('addSlots', () => {
   });
 
   it('с числом — общая запись с правилами чата кабинета; одна дата тоже понимается', async () => {
-    openTourDates.mockResolvedValue({
-      ok: true, tour: { title: 'Горелый', maxParticipants: 10, isPublished: true }, written: 1,
-      perDate: [{ date: '2027-07-05', result: 'opened' }],
-    });
+    openTourDates.mockResolvedValue(openedOne());
     const res = await new OperatorAgency().addSlots(ctx, 'открой даты туру 42 2027-07-05, 8 мест');
     expect(openTourDates).toHaveBeenCalledTimes(1);
     const input = openTourDates.mock.calls[0]![0] as Record<string, unknown>;
     expect(input).toMatchObject({
       operatorId: 'p-1', tourId: '42', rows: [{ date: '2027-07-05', slots: 8 }],
-      mayPrice: false, skipExisting: true, closedDates: 'keep', enforceSeason: true,
+      mayPrice: false, inactiveTour: 'refuse', skipExisting: true, closedDates: 'keep', enforceSeason: true,
     });
     expect(input.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(executeGovernedAction.mock.calls[0]![0]).toMatchObject({
       capability: 'tour.add_slots', resource: { type: 'tour', id: '42' },
     });
     expect(res.response).toMatch(/Открыто \(1\): 5 июля 2027/);
+    // Цены во фразе нет — и строки о цене нет.
+    expect(res.response).not.toMatch(/Цену/);
   });
 
   it('отказ базы — провал задачи, а не «добавлено 0»', async () => {
@@ -111,10 +121,69 @@ describe('addSlots', () => {
     expect(res.response).toMatch(/Даты не открыты: база не ответила \(SQLSTATE 57P01\)/);
   });
 
-  it('тур не найден среди включённых — так и сказано', async () => {
+  it('тура нет — «не найден»; тур скрыт — «скрыт» с названием и как включить', async () => {
     openTourDates.mockResolvedValue({ ok: false, reason: 'tour_not_found' });
     const res = await new OperatorAgency().addSlots(ctx, 'открой даты туру 42 2027-07-05, 8 мест');
-    expect(res.response).toMatch(/Тур 42 не найден среди ваших включённых туров/);
+    expect(res.response).toMatch(/Тур 42 не найден среди ваших туров/);
+
+    openTourDates.mockResolvedValue({ ok: false, reason: 'tour_inactive', title: 'Горелый' });
+    const hidden = await new OperatorAgency().addSlots(ctx, 'открой даты туру 42 2027-07-05, 8 мест');
+    expect(hidden.response).toMatch(/Тур «Горелый» скрыт/);
+    expect(hidden.response).toMatch(/«Показать» в списке туров/);
+    expect(hidden.response).not.toMatch(/не найден/);
+  });
+
+  it('ядро отказало ПОСЛЕ записи — ответ называет записанное и сбой журнала, а не «не открыты»', async () => {
+    openTourDates.mockResolvedValue(openedOne());
+    executeGovernedAction.mockImplementation(async (input: { execute: () => Promise<unknown> }) => {
+      await input.execute();
+      return { ok: false, taskId: 't', traceId: 'tr', reason: 'эффект исполнен, но терминальный переход не записан: x', state: 'running' };
+    });
+    const res = await new OperatorAgency().addSlots(ctx, 'открой даты туру 42 2027-07-05, 8 мест');
+    expect(res.response).not.toMatch(/Даты не открыты/);
+    expect(res.response).toMatch(/Открыто \(1\): 5 июля 2027/);
+    expect(res.response).toMatch(/Журнал задач помощника не дописан \(эффект исполнен, но терминальный переход не записан: x\)/);
+    expect(res.response).toMatch(/\/hub\/operator\/calendar/);
+  });
+
+  it('ядро отказало ДО записи (ресурс занят) — «не открыты», и это правда: записи не было', async () => {
+    executeGovernedAction.mockResolvedValue({
+      ok: false, taskId: null, traceId: null, reason: 'tour:42 занят другой задачей', state: 'running',
+    });
+    const res = await new OperatorAgency().addSlots(ctx, 'открой даты туру 42 2027-07-05, 8 мест');
+    expect(openTourDates).not.toHaveBeenCalled();
+    expect(res.response).toBe('Даты не открыты: tour:42 занят другой задачей');
+  });
+
+  it('номер тура из поля «Tour ID»: роут дописывает «тур 42» в конец — понимается; два разных номера — вопрос', async () => {
+    openTourDates.mockResolvedValue(openedOne());
+    // Ровно то, что пишет /api/agents/operator: `${message} тур ${tourId}`.
+    await new OperatorAgency().addSlots(ctx, 'открой даты 2027-07-05, 8 мест тур 42');
+    expect(openTourDates.mock.calls[0]![0]).toMatchObject({ tourId: '42' });
+
+    openTourDates.mockClear();
+    const two = await new OperatorAgency().addSlots(ctx, 'открой даты туру 43 2027-07-05, 8 мест тур 42');
+    expect(two.response).toMatch(/несколько туров \(43, 42\)/);
+    expect(openTourDates).not.toHaveBeenCalled();
+  });
+
+  it('цена во фразе: даты открыты по правилам помощника, и сказано, что цену он не меняет', async () => {
+    openTourDates.mockResolvedValue(openedOne());
+    for (const phrase of [
+      'открой даты туру 42 2027-07-05, 8 мест по 15000 руб',
+      'открой даты туру 42 2027-07-05, 8 мест по 15 000',
+      'открой даты туру 42 2027-07-05, 8 мест, цена 9000',
+      'открой даты туру 1042 2027-07-05, 8 мест, 500р.',
+    ]) {
+      const res = await new OperatorAgency().addSlots(ctx, phrase);
+      expect(res.response, phrase).toMatch(/Цену из помощника не меняю/);
+    }
+    // Ни год даты, ни номер тура, ни места ценой не считаются.
+    const plain = await new OperatorAgency().addSlots(ctx, 'добавь слоты туру 1042 с 2027-07-01 по 2027-07-05, 12 человек');
+    expect(plain.response).not.toMatch(/Цену/);
+    for (const call of openTourDates.mock.calls) {
+      expect((call[0] as { rows: Array<{ price?: unknown }> }).rows.every((r) => r.price === undefined)).toBe(true);
+    }
   });
 
   it('несуществующая дата и перевёрнутый диапазон — до записи', async () => {
@@ -124,8 +193,41 @@ describe('addSlots', () => {
   });
 });
 
+describe('фраза «закрой / не открывай / кроме» — ни одной записи (ключ «слоты на» ведёт её сюда)', () => {
+  it.each([
+    ['закрой слоты на 2027-07-05 туру 42, группа 8 человек набрана', /Закрыть или убрать даты из помощника нельзя.*«закрой»/],
+    ['не надо открывать — убери слоты на 2027-07-05 туру 42, 8 мест', /отказ \(«не надо открывать»\)/],
+    ['не открывай слоты на 2027-07-05 туру 42, 8 мест', /отказ \(«не открывай»\)/],
+    ['удали слоты на 2027-07-05 туру 42, 8 мест', /Закрыть или убрать.*«удали»/],
+    ['сними слоты на 2027-07-05 туру 42, 8 мест', /Закрыть или убрать.*«сними»/],
+    ['отмени слоты на 2027-07-05 туру 42, 8 мест', /Закрыть или убрать.*«отмени»/],
+    ['добавь слоты туру 42 с 2027-07-01 по 2027-07-31 кроме 2027-07-17, 8 мест', /Исключения \(«кроме»\)/],
+    ['открой даты туру 42 с 2027-07-01 по 2027-07-31 без 17, 8 мест', /Исключения \(«без 17»\)/],
+  ])('«%s»', async (phrase, answer) => {
+    expect(classifyIntentByKeywords(phrase, 'operator')).toBe('op_add_slots');
+    const res = await new OperatorAgency().addSlots(ctx, phrase);
+    expect(res.response).toMatch(answer);
+    expect(res.response).toMatch(/Ничего не изменено/);
+    expect(openTourDates).not.toHaveBeenCalled();
+    expect(executeGovernedAction).not.toHaveBeenCalled();
+  });
+
+  it('обычная фраза открытия отказом не считается', async () => {
+    openTourDates.mockResolvedValue(openedOne());
+    for (const phrase of [
+      'добавь слоты туру 42 с 2027-07-01 по 2027-07-31, 8 мест',
+      'открой даты туру 42 2027-07-05, 8 мест',
+      'слоты на 2027-07-05 туру 42, 8 мест, тур Горелый',
+    ]) {
+      const res = await new OperatorAgency().addSlots(ctx, phrase);
+      expect(res.response, phrase).not.toMatch(/Ничего не изменено/);
+    }
+    expect(openTourDates).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe('ответ называет исход каждой даты', () => {
-  const tour = { title: 'Горелый', maxParticipants: 10, isPublished: false };
+  const tour = { title: 'Горелый', maxParticipants: 10, isPublished: false, isActive: true };
 
   it('ничего не записано — «Ничего не открыто», и ни слова «Открыто (»', () => {
     const text = addSlotsReport({

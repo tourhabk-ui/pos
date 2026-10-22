@@ -1,6 +1,7 @@
 /**
- * Открыть даты тура — одна дверь на все пути записи (22.10, «Открой даты
- * словами», этап B).
+ * Открыть даты тура — одна дверь для всех, кто ОТКРЫВАЕТ даты (22.10,
+ * «Открой даты словами», этап B): кабинет (массово и в карточке тура),
+ * помощник кабинета и, после этапа C, чат кабинета в MAX.
  *
  * ── Зачем одна функция ────────────────────────────────────────────────────
  *
@@ -24,8 +25,8 @@
  *
  * ── Что держит функция ────────────────────────────────────────────────────
  *
- *  1. Владение и блокировка — ОДНИМ запросом: тур этого оператора, включён и не
- *     удалён, строка тура под `FOR NO KEY UPDATE`. Гейт брони (`reserveBooking`)
+ *  1. Владение и блокировка — ОДНИМ запросом: тур этого оператора и не удалён,
+ *     строка тура под `FOR NO KEY UPDATE`. Гейт брони (`reserveBooking`)
  *     берёт `FOR UPDATE` на той же строке, и эти блокировки конфликтуют: между
  *     чтением занятости и записью мест бронь не пройдёт, а бронь, начатая
  *     раньше, будет видна. С `KEY SHARE` внешних ключей (вставка брони, строки
@@ -39,6 +40,13 @@
  *     что переписано, что уже было открыто и почему остальное не тронуто.
  *
  * Настройки по вызывающему — правило одно, решения разные:
+ *   - `inactiveTour` — скрытый тур (`is_active = false`: «Скрыть» в списке
+ *     туров, снятый «Активен» в карточке или приостановка за отзывы).
+ *     Кабинет пишет ему даты (`write`), как и до 22.10 писала карточка тура:
+ *     на межсезонье тур скрыт, а даты следующего сезона готовятся заранее;
+ *     туристы их не видят (`publicTourSql`), гейт брони скрытый тур не
+ *     бронирует. Помощник и чат отказывают (`refuse`) — исходом
+ *     `tour_inactive`, а не «тур не найден»: тур есть, он скрыт;
  *   - `skipExisting` — открытую дату не трогать (`already_open`) или переписать
  *     её места (`updated`, только кабинет);
  *   - `closedDates` — закрытую оператором дату (строка с причиной, например
@@ -46,12 +54,30 @@
  *     (`keep`, чат и помощник: решение 22.10 — закрытое закрыл человек, и
  *     открыть его обратно может только он, в кабинете);
  *   - `today` — прошедшие даты (`refused_past`) и даты дальше года вперёд
- *     (`refused_horizon`, `OPEN_DATES_HORIZON_DAYS`: витрина отдаёт даты не
- *     дальше `CURRENT_DATE + 1 year`, и дату за ним туристы не увидят).
- *     Кабинет `today` не передаёт: прошлую дату ему можно, как и раньше;
+ *     (`refused_horizon`, `horizonLastDate`: витрина отдаёт даты не дальше
+ *     `CURRENT_DATE + INTERVAL '1 year'` — тот же день через год, а не через
+ *     365 дней: год с 29 февраля длиннее; дату за горизонтом туристы не
+ *     увидят). Кабинет `today` не передаёт: прошлую дату ему можно, как и раньше;
  *   - `enforceSeason` — дату вне окна сезона (`requestWindow`) не открывать
  *     (решение 22.10 для чата и помощника: сезон меняется в карточке тура).
  *     Строка календаря сильнее сезона: уже открытую дату правило не трогает.
+ *
+ * ── Другие писатели календаря ─────────────────────────────────────────────
+ *
+ * Не все пути записи идут через эту функцию, и это названо, а не обещано
+ * обратное:
+ *   - `POST /api/operator/calendar` — одна дата из календаря кабинета, ставит
+ *     и места, и закрытие, и погоду одной формой; свой upsert, занятость не
+ *     проверяет (спецификация 22.10, §11 — перевод отдельной задачей);
+ *   - `POST /api/operator/calendar/block` — закрытие диапазона;
+ *   - счётчики оплаты (`booked_slots`) — приёмники платежей.
+ * Блокировку строки тура они не берут, и их запись может лечь между чтением
+ * состояния дат здесь и upsert. Поэтому upsert не верит прочитанному слепо:
+ * `DO UPDATE` с условием по режиму не трогает дату, которая к моменту записи
+ * стала закрытой (`closedDates = 'keep'`) или открытой (`skipExisting`), — и
+ * такая дата перечитывается и получает свой исход (`refused_closed`,
+ * `already_open`), а не «открыто». Закрытие «Шторм», легшее в это окно, чат и
+ * помощник не снимают.
  *
  * ── Отказ ─────────────────────────────────────────────────────────────────
  *
@@ -71,8 +97,21 @@ import { pool } from '@/lib/db-pool';
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { requestWindow, dateInWindow } from './request-window';
 
-/** Даты дальше этого числа дней от сегодня витрина не показывает (`+ 1 year`). */
-export const OPEN_DATES_HORIZON_DAYS = 365;
+/**
+ * Последний день, который витрина покажет при этом «сегодня»: тот же
+ * календарный день через год, как `$today::date + INTERVAL '1 year'` в
+ * PostgreSQL (`/api/tours/[id]/slots`). 29 февраля через год — 28 февраля:
+ * так считает и сервер. Не `+ 365 дней`: при 29 февраля впереди это на день
+ * короче витрины, и помощник отказал бы в дате, которую туристы увидят.
+ */
+export function horizonLastDate(today: string): string {
+  if (!isCalendarDate(today)) throw new TypeError(`horizonLastDate: не дата: ${today}`);
+  const [y, m, d] = today.split('-').map(Number) as [number, number, number];
+  // День 0 следующего месяца — последний день этого: в феврале невисокосного
+  // года 29-е превращается в 28-е, а не перекатывается в 1 марта.
+  const lastOfMonth = new Date(Date.UTC(y + 1, m, 0)).getUTCDate();
+  return new Date(Date.UTC(y + 1, m - 1, Math.min(d, lastOfMonth))).toISOString().slice(0, 10);
+}
 /** Мест на дату — как у кабинета (`slots` в bulk-open). */
 export const MAX_SLOTS_PER_DATE = 500;
 
@@ -115,7 +154,7 @@ export type DateOpenResult =
   | { date: string; result: 'refused_closed'; reason: string | null }
   /** Дата раньше `today`. */
   | { date: string; result: 'refused_past' }
-  /** Дата дальше `today + OPEN_DATES_HORIZON_DAYS`: туристы её не увидят. */
+  /** Дата дальше `horizonLastDate(today)`: туристы её не увидят. */
   | { date: string; result: 'refused_horizon'; lastDate: string }
   /** Дата вне окна сезона тура (`enforceSeason`): выезд с `from` по `to`. */
   | { date: string; result: 'refused_season'; seasonStart: string; seasonEnd: string; from: string; to: string };
@@ -143,6 +182,12 @@ export interface OpenDatesInput {
    * дата получает NULL (цена тура).
    */
   mayPrice: boolean;
+  /**
+   * Скрытый тур (`is_active = false`): писать даты (`write`, кабинет) или
+   * отказать исходом `tour_inactive` (`refuse`, помощник и чат). Без
+   * умолчания: каждый вызывающий решает сам.
+   */
+  inactiveTour: 'write' | 'refuse';
   /** Открытую дату не трогать (`already_open`) — или переписать её места (`updated`). */
   skipExisting: boolean;
   /** Закрытую оператором дату открыть снова (`reopen`) или не трогать (`keep`). */
@@ -157,12 +202,16 @@ export interface OpenedTour {
   title: string;
   maxParticipants: number | null;
   isPublished: boolean;
+  /** Тур не скрыт (`is_active`). Скрытому туристы даты не видят. */
+  isActive: boolean;
 }
 
 export type OpenDatesOutcome =
   | { ok: true; tour: OpenedTour; perDate: DateOpenResult[]; written: number }
-  /** Тура нет, он не этого оператора, выключен или удалён — ничего не записано. */
-  | { ok: false; reason: 'tour_not_found' };
+  /** Тура нет, он не этого оператора или удалён — ничего не записано. */
+  | { ok: false; reason: 'tour_not_found' }
+  /** Тур есть и этого оператора, но скрыт, а вызывающий скрытому не пишет. */
+  | { ok: false; reason: 'tour_inactive'; title: string };
 
 /** Ответ `openTourDates`: плюс отказ базы — ничего не записано. */
 export type OpenDatesResult = OpenDatesOutcome | { ok: false; reason: 'failed'; sqlstate: string | null };
@@ -174,10 +223,6 @@ export function isCalendarDate(date: string): boolean {
   if (!ISO.test(date)) return false;
   const d = new Date(`${date}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === date;
-}
-
-function addDays(day: string, n: number): string {
-  return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 }
 
 /**
@@ -215,6 +260,7 @@ interface TourRow {
   title: string;
   max_participants: number | null;
   is_published: boolean | null;
+  is_active: boolean | null;
   season_start: string | null;
   season_end: string | null;
   duration_type: string | null;
@@ -240,18 +286,21 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
   const byDate = normalize(input);
   const dates = [...byDate.keys()].sort();
 
-  // Владение, активность и блокировка — одним запросом (см. шапку, п. 1).
+  // Владение и блокировка — одним запросом (см. шапку, п. 1). Скрытость
+  // читается, а не отсекается: «скрыт» и «не найден» — разные ответы.
   const tourRes = await client.query<TourRow>(
-    `SELECT title, max_participants, is_published,
+    `SELECT title, max_participants, is_published, is_active,
             season_start::text AS season_start, season_end::text AS season_end,
             duration_type, multi_day_count, duration_hours
        FROM operator_tours WHERE id = $1 AND operator_id = $2
-        AND is_active = true AND deleted_at IS NULL
+        AND deleted_at IS NULL
      FOR NO KEY UPDATE`,
     [String(input.tourId), input.operatorId],
   );
   const tour = tourRes.rows[0];
   if (!tour) return { ok: false, reason: 'tour_not_found' };
+  const isActive = tour.is_active === true;
+  if (!isActive && input.inactiveTour === 'refuse') return { ok: false, reason: 'tour_inactive', title: tour.title };
 
   // Состояние каждой даты под той же блокировкой: строка календаря и занятость
   // по броням — тем же правилом, что у гейта брони.
@@ -274,7 +323,7 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
   const state = new Map(stateRes.rows.map((r) => [r.date, r]));
 
   const window = input.enforceSeason && input.today ? requestWindow(tour, input.today) : null;
-  const lastDate = input.today ? addDays(input.today, OPEN_DATES_HORIZON_DAYS) : null;
+  const lastDate = input.today ? horizonLastDate(input.today) : null;
 
   const perDate: DateOpenResult[] = [];
   const toWrite: Array<{ date: string; slots: number; price: number | null }> = [];
@@ -316,11 +365,16 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
     toWrite.push({ date, slots: want.slots, price: want.price });
   }
 
+  let written = 0;
   if (toWrite.length > 0) {
     // Без права цен повторное открытие цену даты не трогает ($5 = false), иначе
     // сбросило бы цену владельца на базовую. Снятая строка и причина закрытия
     // снимаются: открытая дата открыта и туристу (/api/tours/[id]/slots).
-    const upsert = await client.query(
+    //
+    // Условие DO UPDATE — страховка от писателей без блокировки тура (см.
+    // шапку, «Другие писатели»): дату, закрытую ($6) или открытую ($7) после
+    // нашего чтения, upsert не трогает, и она не возвращается в RETURNING.
+    const upsert = await client.query<{ date: string }>(
       `INSERT INTO tour_availability (operator_tour_id, date, day_of_week, available_slots, base_price_override)
        SELECT $1::bigint, d.date, EXTRACT(DOW FROM d.date)::int, d.slots, d.price
          FROM unnest($2::date[], $3::int[], $4::numeric[]) AS d(date, slots, price)
@@ -330,20 +384,25 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
          is_cancelled        = FALSE,
          cancellation_reason = NULL,
          deleted_at          = NULL,
-         updated_at          = NOW()`,
+         updated_at          = NOW()
+       WHERE NOT ($6::boolean AND tour_availability.deleted_at IS NULL AND tour_availability.is_cancelled IS TRUE)
+         AND NOT ($7::boolean AND tour_availability.deleted_at IS NULL AND tour_availability.is_cancelled IS FALSE
+                  AND tour_availability.available_slots > 0)
+       RETURNING date::text AS date`,
       [
         String(input.tourId),
         toWrite.map((r) => r.date),
         toWrite.map((r) => r.slots),
         toWrite.map((r) => r.price),
         input.mayPrice,
+        input.closedDates === 'keep',
+        input.skipExisting,
       ],
     );
-    // Каждая разрешённая дата — ровно одна строка (вставка или правка). Иное
-    // число — запись не та, что разрешена, и выдавать её за успех нельзя.
-    if (upsert.rowCount !== toWrite.length) {
-      throw new Error(`openTourDates: записано ${upsert.rowCount ?? 'неизвестно'} строк из ${toWrite.length}`);
-    }
+    const done = new Set(upsert.rows.map((r) => r.date));
+    written = done.size;
+    const changed = toWrite.map((r) => r.date).filter((d) => !done.has(d));
+    if (changed.length > 0) await reclassifyChanged(client, input, changed, perDate);
   }
 
   return {
@@ -352,10 +411,43 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
       title: tour.title,
       maxParticipants: tour.max_participants,
       isPublished: tour.is_published === true,
+      isActive,
     },
     perDate,
-    written: toWrite.length,
+    written,
   };
+}
+
+/**
+ * Даты, которые upsert не тронул: их состояние сменил писатель без блокировки
+ * тура между нашим чтением и записью. Перечитываются и получают исход по
+ * тому, что стоит сейчас. Иное состояние (строки нет, она снята) значит, что
+ * запись не та, что разрешена, — ошибка, транзакция откатывается.
+ */
+async function reclassifyChanged(
+  client: Pick<PoolClient, 'query'>,
+  input: OpenDatesInput,
+  changed: string[],
+  perDate: DateOpenResult[],
+): Promise<void> {
+  const now = await client.query<{ date: string; available_slots: number | null; is_cancelled: boolean | null; cancellation_reason: string | null }>(
+    `SELECT date::text AS date, available_slots, is_cancelled, cancellation_reason
+       FROM tour_availability
+      WHERE operator_tour_id = $1::bigint AND date = ANY($2::date[]) AND deleted_at IS NULL`,
+    [String(input.tourId), changed],
+  );
+  const byDate = new Map(now.rows.map((r) => [r.date, r]));
+  for (const date of changed) {
+    const r = byDate.get(date);
+    const i = perDate.findIndex((p) => p.date === date);
+    if (r && i >= 0 && input.closedDates === 'keep' && r.is_cancelled === true) {
+      perDate[i] = { date, result: 'refused_closed', reason: r.cancellation_reason };
+    } else if (r && i >= 0 && input.skipExisting && r.is_cancelled === false && (r.available_slots ?? 0) > 0) {
+      perDate[i] = { date, result: 'already_open', slots: r.available_slots ?? 0 };
+    } else {
+      throw new Error(`openTourDates: дата ${date} не записана, и её состояние не объясняет почему`);
+    }
+  }
 }
 
 /**
@@ -394,6 +486,15 @@ export async function openTourDates(input: OpenDatesInput): Promise<OpenDatesRes
     }
     return { ok: false, reason: 'failed', sqlstate };
   }
+}
+
+/**
+ * Отказ скрытому туру словами — один текст на кабинет и помощника. Тур есть и
+ * виден оператору в списке, поэтому «не найден» здесь было бы неправдой.
+ */
+export function tourHiddenText(title: string): string {
+  return `Тур «${title}» скрыт — туристы его не видят, и даты ему не открыты. ` +
+    'Включите его («Показать» в списке туров или «Активен» в карточке тура), тогда даты откроются.';
 }
 
 /** Счёт исходов — для ответа роута и строк помощника. */

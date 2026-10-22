@@ -287,10 +287,14 @@ export async function createTour(
 
 /**
  * Даты тура из кабинета (`POST /api/hub/operator/tours/[id]/availability`) —
- * общей функцией записи дат (lib/tours/availability-open.ts, 22.10): владение,
- * активность и блокировка тура — в одной транзакции с записью, открытая дата
- * получает новые места, закрытая открывается снова, а ниже числа уже
- * записанных места не опускаются (такая дата — `refused_booked` в ответе).
+ * общей функцией записи дат (lib/tours/availability-open.ts, 22.10): владение
+ * и блокировка тура — в одной транзакции с записью, открытая дата получает
+ * новые места, закрытая открывается снова, а ниже числа уже записанных места
+ * не опускаются (такая дата — `refused_booked` в ответе).
+ *
+ * Скрытому туру (`is_active = false`) даты пишутся, как и до 22.10: оператор
+ * на межсезонье скрывает тур и готовит даты следующего сезона в его карточке.
+ * Туристы их не видят, пока тур скрыт, — роут говорит это словами.
  *
  * mayPrice — может ли вошедший ставить цену (владелец или менеджер с правом
  * can_edit_prices). Без права повторное открытие даты цену не трогает: до
@@ -311,6 +315,7 @@ export async function addAvailability(
     tourId: tourId.toString(),
     rows: dates.map((slot) => ({ date: slot.date, slots: slot.available_slots, price: slot.price_override || null })),
     mayPrice,
+    inactiveTour: 'write',
     skipExisting: false,
     closedDates: 'reopen',
   });

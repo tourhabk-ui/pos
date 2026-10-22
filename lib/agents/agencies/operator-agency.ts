@@ -17,9 +17,10 @@ import { runAutoFillAI } from '@/app/api/operator/tours/auto-fill-ai/route';
 import type { AgentContext } from '../context-hub';
 import { managerMay, operatorAccess, type ManagerPermission } from '@/lib/operators/team-access';
 import {
-  MAX_SLOTS_PER_DATE, datesInRange, isCalendarDate, openTourDates,
-  type DateOpenKind, type DateOpenResult, type OpenDatesOutcome,
+  MAX_SLOTS_PER_DATE, datesInRange, isCalendarDate, openTourDates, tourHiddenText,
+  type DateOpenKind, type DateOpenResult, type OpenDatesOutcome, type OpenDatesResult,
 } from '@/lib/tours/availability-open';
+import { datesPhraseRefusal, phraseMentionsPrice, type DatesPhraseRefusal } from '@/lib/tours/dates-phrase';
 import { longDay, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 
@@ -327,22 +328,35 @@ export class OperatorAgency {
    * 22.10), той же, что у кабинета, с правилами чата кабинета (решения
    * владельца 22.10): уже открытые даты не трогаются, закрытые оператором — не
    * открываются (их открывают в кабинете), даты вне сезона тура, прошедшие и
-   * дальше года вперёд — тоже; ниже числа уже записанных места не ставятся.
-   * Ответ называет исход каждой даты.
+   * дальше года вперёд — тоже; скрытому туру даты не открываются; ниже числа
+   * уже записанных места не ставятся. Ответ называет исход каждой даты.
    *
    * Число мест называет оператор. До 22.10 без числа подставлялось 10 —
    * выдуманное число (§4.0): помощник открывал даты на десять мест, о которых
    * никто не говорил. Теперь без числа — вопрос, и ничего не пишется.
+   *
+   * Сюда фразу ведёт ключ классификатора («слоты на», «открой даты»), а он не
+   * видит, чего просят: «закрой слоты на …» тоже приходит сюда. Фраза с
+   * закрытием, отрицанием или исключением не исполняется — первым делом, до
+   * прав и чисел (lib/tours/dates-phrase).
    */
   async addSlots(context: AgentContext, message: string): Promise<AgencyResult> {
+    const refusal = datesPhraseRefusal(message);
+    if (refusal) return { response: phraseRefusalText(refusal) };
+
     const cab = await this.cabinet(context.user.userId);
     if ('denied' in cab) return { response: cab.denied };
     const { partnerId } = cab;
 
-    // Парсим: tour ID, одна дата или две (с … по …), число мест
-    const idMatch = message.match(/тур(?:у|ам?)\s+(\d+)/i);
-    const isoDates = [...message.matchAll(/(?<![\d.-])(\d{4}-\d{2}-\d{2})(?![\d.])/g)].map((m) => m[1]!);
-    if (!idMatch || isoDates.length === 0 || isoDates.length > 2) {
+    // Номер тура: «туру 42», «тура 42» и «тур 42» — так дописывает его роут
+    // /api/agents/operator из поля «Tour ID» экрана помощника. Два разных
+    // номера — вопрос, а не первый попавшийся.
+    const tourIds = [...new Set([...message.matchAll(TOUR_ID)].map((m) => m[1]!))];
+    if (tourIds.length > 1) {
+      return { response: `Назвали несколько туров (${tourIds.join(', ')}) — напишите один. Ничего не открыто.` };
+    }
+    const isoDates = [...message.matchAll(ISO_DATE)].map((m) => m[1]!);
+    if (tourIds.length === 0 || isoDates.length === 0 || isoDates.length > 2) {
       return { response: ADD_SLOTS_HELP };
     }
 
@@ -351,7 +365,7 @@ export class OperatorAgency {
       return {
         response:
           'Сколько мест открыть на каждую дату? Напишите команду с числом, например: ' +
-          `"добавь слоты туру ${idMatch[1]} с ${isoDates[0]} по ${isoDates[1] ?? isoDates[0]}, 8 мест". Ничего не открыто.`,
+          `"добавь слоты туру ${tourIds[0]} с ${isoDates[0]} по ${isoDates[1] ?? isoDates[0]}, 8 мест". Ничего не открыто.`,
       };
     }
     if (seats.kind === 'two') {
@@ -361,7 +375,7 @@ export class OperatorAgency {
       return { response: `Мест на дату — от 1 до ${MAX_SLOTS_PER_DATE}, а названо ${seats.value}. Ничего не открыто.` };
     }
 
-    const tourId   = parseInt(idMatch[1], 10);
+    const tourId   = parseInt(tourIds[0]!, 10);
     const dateFrom = isoDates[0]!;
     const dateTo   = isoDates[1] ?? dateFrom;
     const slots    = seats.value;
@@ -375,11 +389,16 @@ export class OperatorAgency {
     // Через ядро Volcano OS (P2, 28.08): владение туром проверяет policy
     // (operatorOwnsTour, capability tour.add_slots) — тот же путь, что у
     // createTour/set_tour_published/update_price; сама запись ещё раз проверяет
-    // владение и активность тура — под блокировкой, в своей транзакции.
+    // владение и скрытость тура — под блокировкой, в своей транзакции.
     // Ключа идемпотентности нет намеренно (тот же выбор, что у createTour):
     // повтор безопасен сам — открытые даты при повторе приходят «уже открыты».
     // Отказ базы — провал задачи ядра (след в журнале), а не «успех с нулём».
+    //
+    // Что вернула запись, помнится здесь же: ядро отвечает ok:false и тогда,
+    // когда эффект УЖЕ прошёл, а не записался учёт задачи. Даты в этом случае
+    // в календаре — и сказать «не открыты» было бы неправдой (§4.0).
     const today = kamchatkaToday();
+    const effect: { result: OpenDatesResult | null } = { result: null };
     const { executeGovernedAction, hashInput } = await import('@/lib/agents/kernel');
     const gov = await executeGovernedAction<OpenDatesOutcome>({
       principal: { type: 'operator', id: String(partnerId) },
@@ -392,30 +411,91 @@ export class OperatorAgency {
           tourId: String(tourId),
           rows: dates.map((date) => ({ date, slots })),
           mayPrice: false,
+          inactiveTour: 'refuse',
           skipExisting: true,
           closedDates: 'keep',
           today,
           enforceSeason: true,
         });
-        if (r.ok || r.reason === 'tour_not_found') return r;
+        effect.result = r;
+        if (!isDbFailure(r)) return r;
         throw new Error(`база не ответила (SQLSTATE ${r.sqlstate ?? 'нет'}) — ничего не открыто`);
       },
-      summarize: (r) => (r.ok
-        ? `даты тура ${tourId}: записано ${r.written} из ${r.perDate.length} (${dateFrom} — ${dateTo}, ${slots} мест)`
-        : `даты тура ${tourId}: тур не найден среди включённых туров оператора — ничего не открыто`),
+      summarize: (r) => {
+        if (r.ok) return `даты тура ${tourId}: записано ${r.written} из ${r.perDate.length} (${dateFrom} — ${dateTo}, ${slots} мест)`;
+        return r.reason === 'tour_inactive'
+          ? `даты тура ${tourId}: тур скрыт — ничего не открыто`
+          : `даты тура ${tourId}: тур не найден среди туров оператора — ничего не открыто`;
+      },
     });
 
-    if (!gov.ok) return { response: `Даты не открыты: ${gov.reason}` };
-    if (gov.duplicate) return { response: 'Этот запрос уже выполнялся — повтор не выполнялся.' };
-
-    const outcome = gov.result;
-    if (!outcome.ok) {
-      return { response: `Тур ${tourId} не найден среди ваших включённых туров — даты не открыты.` };
+    let outcome: OpenDatesOutcome;
+    let journalNote: string | null = null;
+    if (gov.ok) {
+      if (gov.duplicate) return { response: 'Этот запрос уже выполнялся — повтор не выполнялся.' };
+      outcome = gov.result;
+    } else {
+      const seen = effect.result;
+      // Записи не было вовсе (policy, ресурс занят) или база отказала и
+      // транзакция откачена — «не открыты» правда.
+      if (!seen || isDbFailure(seen)) return { response: `Даты не открыты: ${gov.reason}` };
+      outcome = seen;
+      journalNote = `Журнал задач помощника не дописан (${gov.reason}); исходы выше — то, что запись уже сделала ` +
+        `в календаре. Проверить: ${CALENDAR_PATH}`;
     }
+
+    if (!outcome.ok) {
+      const text = outcome.reason === 'tour_inactive'
+        ? `${tourHiddenText(outcome.title)} Ничего не открыто.`
+        : `Тур ${tourId} не найден среди ваших туров — даты не открыты.`;
+      return { response: text };
+    }
+    const lines = [addSlotsReport(outcome, slots)];
+    // Цену помощник не ставит (право цен — кабинету): если она во фразе, это
+    // сказано, а не пропущено молча.
+    if (phraseMentionsPrice(withoutParsed(message))) lines.push(PRICE_NOT_SET);
+    if (journalNote) lines.push(journalNote);
     return {
-      response: addSlotsReport(outcome, slots),
+      response: lines.join('\n'),
       data: { tourId, dateFrom, dateTo, slots, written: outcome.written, perDate: outcome.perDate },
     };
+  }
+}
+
+const CALENDAR_PATH = '/hub/operator/calendar';
+
+/** Номер тура во фразе: «туру 42», «тура 42», «тур 42», «тур № 42». */
+const TOUR_ID = /(?<!\p{L})тур(?:у|а|ам|ом)?\s+(?:№\s*)?(\d+)(?!\d)/giu;
+/** Дата ISO во фразе — целиком, не кусок длинного числа. */
+const ISO_DATE = /(?<![\d.-])(\d{4}-\d{2}-\d{2})(?![\d.])/g;
+/** Число мест во фразе (см. seatsInMessage). */
+const SEATS = /(?<![\d.,-])(\d+)(?![\d.,])\s*(?:мест|чел)\p{L}*/giu;
+
+const PRICE_NOT_SET =
+  'Цену из помощника не меняю: новые даты идут по цене тура, у открытых остаётся своя. ' +
+  `Цену на дату ставят в кабинете: ${CALENDAR_PATH}`;
+
+/** Фраза без разобранного: дат, номера тура и мест — остаток судит цену. */
+function withoutParsed(message: string): string {
+  return message.replace(ISO_DATE, ' ').replace(TOUR_ID, ' ').replace(SEATS, ' ');
+}
+
+function isDbFailure(r: OpenDatesResult): r is Extract<OpenDatesResult, { reason: 'failed' }> {
+  return !r.ok && r.reason === 'failed';
+}
+
+/** Отказ фразе словами: что не так и где это делается. Записи нет. */
+export function phraseRefusalText(refusal: DatesPhraseRefusal): string {
+  switch (refusal.kind) {
+    case 'close':
+      return `Закрыть или убрать даты из помощника нельзя (во фразе «${refusal.word}») — это делается в кабинете, ` +
+        `в календаре: ${CALENDAR_PATH}. Ничего не изменено.`;
+    case 'negation':
+      return `Во фразе отказ («${refusal.word}») — даты не открываю. Если их нужно открыть, напишите без отрицания, ` +
+        'например: "открой даты туру 42 2027-07-05, 8 мест". Ничего не изменено.';
+    case 'exception':
+      return `Исключения («${refusal.word}») помощник не разбирает — перечислите даты, которые открыть, ` +
+        'например: "открой даты туру 42 с 2027-07-01 по 2027-07-16, 8 мест". Ничего не изменено.';
   }
 }
 
@@ -435,7 +515,7 @@ type SeatsInMessage =
  * («2027-07-31 мест») числом мест не считается.
  */
 export function seatsInMessage(message: string): SeatsInMessage {
-  const found = [...message.matchAll(/(?<![\d.,-])(\d+)(?![\d.,])\s*(?:мест|чел)/gi)].map((m) => Number(m[1]));
+  const found = [...message.matchAll(SEATS)].map((m) => Number(m[1]));
   const distinct = [...new Set(found)];
   if (distinct.length === 0) return { kind: 'none' };
   if (distinct.length > 1) return { kind: 'two', values: distinct };
