@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import {
   Building2, Search, Loader2, CheckCircle2, XCircle,
   Clock, Phone, Mail, Calendar, ChevronDown, ChevronUp,
   Send, Pencil, Check, Globe, Copy, Database, RefreshCw, Play,
-  UserPlus, KeyRound,
+  UserPlus, KeyRound, AlertTriangle,
 } from 'lucide-react';
 import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
 import { PARTNER_GROUP_LABELS, PARTNER_GROUP_HINTS } from '@/lib/partners/partner-groups';
@@ -1487,6 +1487,11 @@ function ScraperPanel() {
   );
 }
 
+/** Сколько партнёров приходит одной страницей. */
+const PAGE_SIZE = 100;
+/** Пауза после набора, прежде чем спросить сервер. */
+const SEARCH_DEBOUNCE_MS = 300;
+
 export default function OperatorsClient() {
   const [tab, setTab]             = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   // Группа по участию (lib/partners/partner-groups): сначала настоящие
@@ -1499,22 +1504,55 @@ export default function OperatorsClient() {
   const [acting, setActing]       = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
   const [counts, setCounts]       = useState<Record<string, number>>({});
+  /** Сколько партнёров подходит под группу, вкладку и поиск — по ответу сервера; null — не знаем. */
+  const [total, setTotal]         = useState<number | null>(null);
+  /** Список не загрузился — словами; null — загрузился (§4.0: отказ ≠ «ничего не найдено»). */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Номер последнего запроса: ответ на прежний поиск, пришедший позже нового,
+  // не должен подменить список.
+  const lastRequest = useRef(0);
 
-  const load = useCallback(async (status: string, grp: PartnerGroup) => {
+  /**
+   * Страница списка. Ищет СЕРВЕР (16.10, «где Камчатская рыбалка?»): прежде
+   * экран брал первые 100 партнёров и искал только среди них, и давняя
+   * карточка за сотней новых не находилась вовсе.
+   */
+  const load = useCallback(async (status: string, grp: PartnerGroup, q: string, offset = 0) => {
+    const request = ++lastRequest.current;
     setLoading(true);
+    // У потенциальных статус один ('none' без заявки) — режет сама группа.
+    const params = new URLSearchParams({
+      status: grp === 'potential' ? 'all' : status,
+      group: grp,
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
+    if (q) params.set('q', q);
+    const fail = (why: string) => {
+      setLoadError(`Список не загрузился: ${why}.`);
+      if (offset === 0) { setOperators([]); setTotal(null); }
+    };
     try {
-      // У потенциальных статус один ('none' без заявки) — режет сама группа.
-      const res = await fetch(`/api/admin/operators?status=${grp === 'potential' ? 'all' : status}&group=${grp}&limit=100`);
+      const res = await fetch(`/api/admin/operators?${params.toString()}`);
+      if (request !== lastRequest.current) return;
+      if (!res.ok) { fail(`сервер ответил ${res.status}`); return; }
       const j: unknown = await res.json();
-      if (typeof j === 'object' && j !== null && 'data' in j) {
-        setOperators((j as { data: OperatorRow[] }).data);
+      if (request !== lastRequest.current) return;
+      if (typeof j !== 'object' || j === null || !('data' in j) || !Array.isArray((j as { data: unknown }).data)) {
+        fail('сервер ответил не списком');
+        return;
       }
-      if (typeof j === 'object' && j !== null && 'meta' in j) {
-        const gc = (j as { meta: { group_counts?: Record<PartnerGroup, number> } }).meta.group_counts;
-        if (gc) setGroupCounts(gc);
-      }
+      const body = j as { data: OperatorRow[]; meta?: { total?: number; group_counts?: Record<PartnerGroup, number> } };
+      setLoadError(null);
+      setOperators(prev => (offset === 0 ? body.data : [...prev, ...body.data]));
+      setTotal(typeof body.meta?.total === 'number' ? body.meta.total : null);
+      if (body.meta?.group_counts) setGroupCounts(body.meta.group_counts);
+    } catch (e) {
+      if (request !== lastRequest.current) return;
+      console.error('[admin/operators] список не загрузился:', e instanceof Error ? e.message : e);
+      fail('запрос не выполнился');
     } finally {
-      setLoading(false);
+      if (request === lastRequest.current) setLoading(false);
     }
   }, []);
 
@@ -1537,7 +1575,12 @@ export default function OperatorsClient() {
     setCounts(Object.fromEntries(results));
   }, []);
 
-  useEffect(() => { load(tab, group); }, [load, tab, group]);
+  // Набор текста ждёт паузы, смена группы и вкладки — нет.
+  const query = search.trim();
+  useEffect(() => {
+    const timer = setTimeout(() => { void load(tab, group, query); }, query ? SEARCH_DEBOUNCE_MS : 0);
+    return () => clearTimeout(timer);
+  }, [load, tab, group, query]);
   useEffect(() => { loadCounts(); }, [loadCounts]);
 
   async function approve(id: string) {
@@ -1551,6 +1594,7 @@ export default function OperatorsClient() {
       const j: unknown = await res.json();
       if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
         setOperators(prev => prev.filter(o => o.id !== id));
+        setTotal(prev => (prev === null ? prev : Math.max(0, prev - 1)));
         setCounts(prev => ({ ...prev, pending: (prev.pending ?? 1) - 1, approved: (prev.approved ?? 0) + 1 }));
       }
     } finally {
@@ -1570,18 +1614,13 @@ export default function OperatorsClient() {
       const j: unknown = await res.json();
       if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
         setOperators(prev => prev.filter(o => o.id !== id));
+        setTotal(prev => (prev === null ? prev : Math.max(0, prev - 1)));
         setCounts(prev => ({ ...prev, pending: (prev.pending ?? 1) - 1, rejected: (prev.rejected ?? 0) + 1 }));
       }
     } finally {
       setActing(null);
     }
   }
-
-  const filtered = operators.filter(o =>
-    o.company_name.toLowerCase().includes(search.toLowerCase()) ||
-    (o.contact_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (o.email ?? '').toLowerCase().includes(search.toLowerCase())
-  );
 
   const TABS = ['pending', 'approved', 'rejected', 'all'] as const;
 
@@ -1614,7 +1653,7 @@ export default function OperatorsClient() {
 
         {/* Ручное заведение партнёра — до импорта: чаще нужен один живой
             партнёр, а не пачка из внешнего источника. */}
-        <CreatePartnerPanel onCreated={() => { void load(tab, group); void loadCounts(); }} />
+        <CreatePartnerPanel onCreated={() => { void load(tab, group, query); void loadCounts(); }} />
 
         {/* Scraper panel */}
         <ScraperPanel />
@@ -1676,26 +1715,40 @@ export default function OperatorsClient() {
         </div>
 
         {/* List */}
-        {loading ? (
+        {loading && operators.length === 0 ? (
           <div className="flex justify-center py-16">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : loadError && operators.length === 0 ? (
+          <div role="alert" className="text-center py-16">
+            <AlertTriangle className="w-10 h-10 text-[var(--warning)] mx-auto mb-3" />
+            <p className="text-[var(--text-primary)]">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => { void load(tab, group, query); }}
+              className="mt-3 text-sm text-[var(--ocean)] hover:underline"
+            >
+              Попробовать ещё раз
+            </button>
+          </div>
+        ) : operators.length === 0 ? (
           <div className="text-center py-16">
             <Clock className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3" />
             <p className="text-[var(--text-secondary)]">
-              {group === 'potential'
-                ? 'Потенциальных карточек нет'
-                : tab === 'pending'
-                  ? 'Нет заявок на проверке'
-                  : tab === 'all'
-                    ? 'Партнёров пока нет — карточки без заявки лежат во вкладке «Потенциальные»'
-                    : 'Ничего не найдено'}
+              {query
+                ? `Ничего не найдено по «${query}»`
+                : group === 'potential'
+                  ? 'Потенциальных карточек нет'
+                  : tab === 'pending'
+                    ? 'Нет заявок на проверке'
+                    : tab === 'all'
+                      ? 'Партнёров пока нет — карточки без заявки лежат во вкладке «Потенциальные»'
+                      : 'Ничего не найдено'}
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {filtered.map(op => (
+            {operators.map(op => (
               <OperatorCard
                 key={op.id}
                 op={op}
@@ -1706,6 +1759,23 @@ export default function OperatorsClient() {
                 acting={acting}
               />
             ))}
+            {/* Обрезка названа словами: «вот все» и «вот первые сто» — разные ответы. */}
+            {total !== null && total > operators.length && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-sm text-[var(--text-secondary)]">
+                <span>Показаны {operators.length} из {total}{query ? '' : '. Остальных найдёт поиск'}</span>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => { void load(tab, group, query, operators.length); }}
+                  className="px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                >
+                  {loading ? 'Загружаю…' : 'Показать ещё'}
+                </button>
+              </div>
+            )}
+            {loadError && (
+              <p role="alert" className="pt-2 text-sm text-[var(--warning)]">{loadError}</p>
+            )}
           </div>
         )}
       </div>
