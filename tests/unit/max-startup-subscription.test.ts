@@ -14,6 +14,10 @@
  *    ключа — ставится с ключом;
  *  - без ключа в окружении старт не подписывает ничего и говорит об этом;
  *  - отказ — в лог, и ключа нет ни в одной строке лога;
+ *  - подписка засчитывается по ответу MAX целиком: `{success:false}` при
+ *    HTTP 200 — отказ, а не «поставлена»;
+ *  - отказ повторяется с паузами, а не вышло — тревога в рабочий чат: после
+ *    смены ключа без новой подписки бот в MAX молчит до прогона крона;
  *  - instrumentation зовёт это при старте и не ждёт сети MAX.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -21,7 +25,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const m = vi.hoisted(() => ({ maxFetch: vi.fn() }));
 vi.mock('@/lib/max/max-fetch', () => ({ maxFetch: m.maxFetch }));
 
-import { ensureMaxSubscriptionOnStart } from '@/lib/max/startup-subscription';
+import { RETRY_DELAYS_MS, ensureMaxSubscriptionOnStart, subscribeMaxOnStart } from '@/lib/max/startup-subscription';
 import { maxWebhookUrl } from '@/lib/max/webhook-url';
 
 const KEY = 'startup-key-never-in-logs';
@@ -112,11 +116,78 @@ describe('подписка MAX при старте', () => {
     expect(logged()).not.toContain(KEY);
   });
 
+  it('MAX ответил HTTP 200 и {success:false} — подписка не засчитана, причина словами MAX', async () => {
+    m.maxFetch
+      .mockResolvedValueOnce(json({ subscriptions: [] }))
+      .mockResolvedValueOnce(json({ success: false, message: `url ${KEYED} rejected` }));
+    const out = await ensureMaxSubscriptionOnStart();
+    expect(out).toMatchObject({ outcome: 'failed', step: 'register' });
+    expect(out.outcome === 'failed' && out.reason).toContain('success: false: url');
+    expect(JSON.stringify(out)).not.toContain(KEY);
+    expect(logged()).not.toContain(KEY);
+  });
+
   it('MAX не ответил на список — HTTP-код в логе, подписки вслепую нет', async () => {
     m.maxFetch.mockResolvedValueOnce(json({}, 503));
     expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'failed', step: 'list', reason: 'HTTP 503' });
     expect(m.maxFetch).toHaveBeenCalledTimes(1);
     expect(logged()).not.toContain(KEY);
+  });
+});
+
+describe('подписка при старте: повтор с паузами и тревога', () => {
+  const sleep = vi.fn(async () => undefined);
+  const alert = vi.fn();
+  beforeEach(() => {
+    sleep.mockClear();
+    alert.mockReset();
+    alert.mockResolvedValue({ ok: true });
+  });
+
+  it('паузы по умолчанию — минуты, а не часы крона', () => {
+    expect(RETRY_DELAYS_MS.length).toBeGreaterThan(0);
+    expect(RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(15 * 60_000);
+  });
+
+  it('сеть отказала дважды, потом подписка встала — тревоги нет, паузы по порядку', async () => {
+    m.maxFetch
+      .mockRejectedValueOnce(Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' }))
+      .mockResolvedValueOnce(json({}, 503))
+      .mockResolvedValueOnce(json({ subscriptions: [] }))
+      .mockResolvedValueOnce(json({ success: true }));
+    const out = await subscribeMaxOnStart({ delaysMs: [5, 7, 11], sleep, alert });
+    expect(out).toEqual({ outcome: 'registered' });
+    expect(sleep.mock.calls).toEqual([[5], [7]]);
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it('все попытки не удались — одна тревога с причиной и тем, как поднять бота; ключа в ней нет', async () => {
+    m.maxFetch.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === 'POST'
+      ? json({ success: false, message: `quota for ${KEYED}` })
+      : json({ subscriptions: [] })));
+    const out = await subscribeMaxOnStart({ delaysMs: [1, 1], sleep, alert });
+    expect(out).toMatchObject({ outcome: 'failed', step: 'register' });
+    expect(m.maxFetch.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(3);
+    expect(alert).toHaveBeenCalledTimes(1);
+    const text = String(alert.mock.calls[0]![0]);
+    expect(text).toContain('Попыток: 3;');
+    expect(text).toContain('success: false: quota');
+    expect(text).toContain('cron-max-webhook');
+    expect(text).not.toContain(KEY);
+  });
+
+  it('тревога не доставлена — это названо в логе', async () => {
+    m.maxFetch.mockResolvedValue(json({}, 502));
+    alert.mockResolvedValue({ ok: false, reason: 'TELEGRAM_BOT_TOKEN не задан' });
+    await subscribeMaxOnStart({ delaysMs: [], sleep, alert });
+    expect(logged()).toContain('тревога о подписке при старте не доставлена: TELEGRAM_BOT_TOKEN не задан');
+  });
+
+  it('без ключа — ни повторов, ни тревоги: это настройка, она в логе', async () => {
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    expect(await subscribeMaxOnStart({ delaysMs: [1, 1], sleep, alert })).toEqual({ outcome: 'skipped', reason: 'no_key' });
+    expect(sleep).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
   });
 });
 
@@ -126,7 +197,7 @@ describe('instrumentation: старт зовёт подписку и не ждё
   beforeEach(() => {
     vi.resetModules();
     ensure.mockReset();
-    vi.doMock('@/lib/max/startup-subscription', () => ({ ensureMaxSubscriptionOnStart: ensure }));
+    vi.doMock('@/lib/max/startup-subscription', () => ({ subscribeMaxOnStart: ensure }));
     vi.doMock('@/lib/config', () => ({ validateConfig: () => ({ warnings: [], fatal: [] }) }));
     vi.stubEnv('NEXT_RUNTIME', 'nodejs');
     // Обработчики процесса из register() в процесс теста не вешаем.

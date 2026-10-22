@@ -148,12 +148,13 @@ export async function register(): Promise<void> {
 
     // ── 2. Подписка бота MAX ──────────────────────────────────────────
     // Адрес — maxWebhookUrl() с ключом, путь — maxFetch (корень Минцифры),
-    // отказ — в лог с замаскированным адресом; без ключа не подписываем
-    // ничего (почему — в шапке lib/max/startup-subscription). Не ждём:
-    // старт сервера не стоит в очереди за сетью MAX.
+    // отказ — в лог с замаскированным адресом, повтор с паузами и тревога в
+    // рабочий чат; без ключа не подписываем ничего (почему — в шапке
+    // lib/max/startup-subscription). Не ждём: старт сервера не стоит в
+    // очереди за сетью MAX.
     if (process.env.MAX_BOT_TOKEN) {
       void import('@/lib/max/startup-subscription')
-        .then(({ ensureMaxSubscriptionOnStart }) => ensureMaxSubscriptionOnStart())
+        .then(({ subscribeMaxOnStart }) => subscribeMaxOnStart())
         .catch((err: unknown) => {
           console.error('[max] подписка при старте не выполнилась:', err instanceof Error ? err.message : String(err));
         });

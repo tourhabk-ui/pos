@@ -15,9 +15,13 @@
  * истории; всё, что меняет что-то за пределами ответа в чат, — вход,
  * подключение чата по ссылке, ответ на запрос мест, кнопки лида, заявка из
  * присланного номера, помощник кабинета, бронь в чате, /reset, — только по
- * заверенному апдейту; на прочие бот говорит, что это не засчитано
- * (lib/max/verified-press). Чат кнопки-действия — только из сообщения с
- * кнопкой, без отката на user_id тела.
+ * заверенному апдейту; на прочие бот говорит, что через MAX это сейчас
+ * недоступно (lib/max/verified-press). Кнопки «Оформить заявку» без ключа
+ * не показываются: оба пути после неё (номер и бронь в чате) закрыты. Чат
+ * кнопки-действия — только из сообщения с кнопкой, без отката на user_id
+ * тела: так у заверенного апдейта право нажатия решает чат, названный MAX.
+ * Без ключа бот — открытый ответчик: отвечает в чат, названный телом, и
+ * подделать его так же легко, как user_id (шапка lib/max/verified-press).
  *
  * Env vars: MAX_BOT_TOKEN
  */
@@ -235,6 +239,15 @@ function hasTourRecommendation(text: string): boolean {
   return lower.includes('тур') || lower.includes('маршрут') || lower.includes('программа') || lower.includes('экскурс');
 }
 
+/**
+ * Предлагать ли «Оформить заявку» после ответа. Только заверенному апдейту:
+ * без него оба пути после кнопки — присланный номер и бронь в чате — не
+ * применяются (lib/max/verified-press), и кнопка обещала бы то, чего не будет.
+ */
+function offersBooking(verified: boolean, reply: string): boolean {
+  return verified && reply !== '' && hasTourRecommendation(reply);
+}
+
 const BOOKING_BUTTONS: MaxButton[][] = [
   [
     { type: 'callback', text: 'Оформить заявку', payload: 'book_now', intent: 'positive' },
@@ -364,10 +377,12 @@ interface MaxUpdate {
  * (`sr:`) и кнопки лида (`lead_`). Три ворот, по порядку:
  *  1. чат — только из сообщения с кнопкой; нет его — право нажатия не
  *     проверить, нажатие не применяется. Заверенному нажатию об этом
- *     говорится в личном чате нажавшего (его user_id прислал MAX), а
- *     незаверенному не говорится ничего: его user_id прислал кто угодно;
- *  2. апдейт заверен (серверный флаг, не поле тела); нет — отвечаем «не смог
- *     проверить» и ничего не меняем;
+ *     говорится в личном чате нажавшего (его user_id прислал MAX). Незаверенному
+ *     без сообщения не отвечаем: его user_id — такое же поле тела, как чат, и
+ *     это не защита, а отказ давать телу второе поле для выбора адресата;
+ *  2. апдейт заверен (серверный флаг, не поле тела); нет — отвечаем, что
+ *     нажатие не засчитано, и ничего не меняем. Ответ уходит в чат из тела:
+ *     без ключа это открытый ответчик (шапка lib/max/verified-press);
  *  3. чат вправе нажимать: для мест — MAX-чат оператора запроса, для лида —
  *     рабочий MAX_OPERATOR_CHAT_ID.
  */
@@ -653,7 +668,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         platform: 'max',
         verifiedOrigin: opts?.verifiedOrigin === true,
       });
-      if (capturedReply && hasTourRecommendation(capturedReply)) {
+      if (offersBooking(opts?.verifiedOrigin === true, capturedReply)) {
         await maxReplyWithButtons(chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
       }
     }
@@ -667,7 +682,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     const payload = update.callback.payload ?? '';
     // Чат сообщения с кнопкой. Для кнопки-действия — единственный источник
-    // чата: user_id из тела прислал бы кто угодно.
+    // чата: у заверенного апдейта его назвал MAX, и по нему решается право
+    // нажатия; user_id нажавшего этого права не даёт.
     const messageChatId: number | null = update.message?.recipient.chat_id ?? null;
 
     // Подтверждаем получение. Без второго аргумента намеренно: раньше сюда
@@ -690,9 +706,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     // Кнопки без последствий — только ответ в чат. Сообщения нет (его успели
     // удалить) — заверенному отвечаем в личный чат нажавшего (DM = user_id в
-    // MAX); у незаверенного user_id прислал кто угодно, отвечать некуда.
-    // Группы и каналы (отрицательный чат) — мимо, как у сообщений выше: темы
-    // и заявка — разговор в личном чате.
+    // MAX). Незаверенному — только в чат сообщения: это не защита (чат в теле
+    // подделывается так же, как user_id), а отказ добавлять второе поле, по
+    // которому тело выбирает адресата. Группы и каналы (отрицательный чат) —
+    // мимо, как у сообщений выше: темы и заявка — разговор в личном чате.
     const resolvedChatId = messageChatId ?? (opts?.verifiedOrigin === true ? update.callback.user.user_id : null);
     if (!resolvedChatId || resolvedChatId < 0) return;
 
@@ -713,13 +730,19 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         platform: 'max',
         verifiedOrigin: opts?.verifiedOrigin === true,
       });
-      if (capturedReply && hasTourRecommendation(capturedReply)) {
+      if (offersBooking(opts?.verifiedOrigin === true, capturedReply)) {
         await maxReplyWithButtons(resolvedChatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
       }
       return;
     }
 
-    // Кнопка "Оформить заявку"
+    // Кнопка "Оформить заявку". Без заверенного апдейта оба пути после неё —
+    // присланный номер и бронь в чате — закрыты; сказать это сразу честнее,
+    // чем попросить номер и потом его не засчитать.
+    if (payload === 'book_now' && opts?.verifiedOrigin !== true) {
+      await maxReply(resolvedChatId, UNVERIFIED_CHAT_REPLY.booking);
+      return;
+    }
     if (payload === 'book_now') {
       await maxReplyWithButtons(
         resolvedChatId,

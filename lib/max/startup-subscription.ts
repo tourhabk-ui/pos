@@ -20,10 +20,21 @@
  * подписать адрес, с которого ни одно нажатие не проверить. Чинить и снимать
  * лишние подписки — дело крона `/api/cron/max-webhook` (раз в 6 ч); старт
  * только не даёт боту остаться без подписки после выката.
+ *
+ * Подписка засчитывается по ответу MAX целиком: `{success:false}` приходит и с
+ * HTTP 200 (`lib/max/subscription-response`). Отказ старта — не строка в логе,
+ * которую никто не читает: при заданном ключе вебхук отбрасывает запросы без
+ * него (`app/api/max/kuzmich`), и после смены ключа без новой подписки бот в
+ * MAX молчит полностью — туристам, операторам, контролю выхода — до прогона
+ * крона, до 6 ч. Поэтому `subscribeMaxOnStart` повторяет попытку с паузами
+ * (`RETRY_DELAYS_MS`) и, если не вышло, шлёт тревогу в рабочий чат
+ * (`tgSend`) с тем, как поднять бота сразу.
  */
 
 import { maxFetch } from '@/lib/max/max-fetch';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
+import { readMaxAction } from '@/lib/max/subscription-response';
+import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 
 const MAX_API_BASE = 'https://platform-api2.max.ru';
 const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
@@ -82,9 +93,10 @@ export async function ensureMaxSubscriptionOnStart(): Promise<StartupSubscriptio
       headers,
       body: JSON.stringify({ url, update_types: UPDATE_TYPES }),
     });
-    if (!res.ok) {
-      console.error(`[max] подписка ${shown} при старте не поставлена: HTTP ${res.status}`);
-      return { outcome: 'failed', step: 'register', reason: `HTTP ${res.status}` };
+    const action = await readMaxAction(res);
+    if (!action.ok) {
+      console.error(`[max] подписка ${shown} при старте не поставлена: ${action.reason}`);
+      return { outcome: 'failed', step: 'register', reason: action.reason };
     }
     return { outcome: 'registered' };
   } catch (err) {
@@ -92,4 +104,62 @@ export async function ensureMaxSubscriptionOnStart(): Promise<StartupSubscriptio
     console.error(`[max] подписка ${shown} при старте не поставлена: ${reason}`);
     return { outcome: 'failed', step: 'register', reason };
   }
+}
+
+/**
+ * Паузы перед повторами: полминуты, две и десять минут. Отказ на старте чаще
+ * всего — сеть или 5xx/429 MAX в первые секунды после выката; десять минут
+ * последней паузы — ещё в пределах одной смены, а не шести часов крона.
+ */
+export const RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000, 600_000];
+
+function escHtml(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Текст тревоги: без адреса и ключа, с тем, как поднять бота сразу. */
+export function startupAlertText(out: Extract<StartupSubscriptionOutcome, { outcome: 'failed' }>, attempts: number): string {
+  const what = out.step === 'list'
+    ? 'подписки MAX не прочитаны — стоит ли подписка с текущим ключом, не проверено'
+    : 'подписка с текущим ключом не поставлена';
+  return [
+    '<b>Бот MAX: подписка при старте не удалась</b>',
+    '',
+    `Попыток: ${attempts}; ${what}.`,
+    `<b>Причина:</b> ${escHtml(out.reason)}`,
+    '',
+    'Пока подписки с текущим ключом нет, MAX зовёт прежний адрес, а вебхук такие запросы отбрасывает: '
+      + 'бот в MAX не отвечает никому — ни туристам, ни операторам, ни контролю выхода.',
+    'Поднять сразу — запустить workflow cron-max-webhook вручную; сам он придёт в течение 6 ч.',
+  ].join('\n');
+}
+
+/**
+ * Подписка при старте с повторами и тревогой. Пропуск (нет токена или ключа)
+ * не повторяется и не тревожит — это настройка, она названа в логе.
+ */
+export async function subscribeMaxOnStart(opts: {
+  delaysMs?: readonly number[];
+  sleep?: (ms: number) => Promise<void>;
+  alert?: (text: string) => Promise<TgSendOutcome>;
+} = {}): Promise<StartupSubscriptionOutcome> {
+  const delays = opts.delaysMs ?? RETRY_DELAYS_MS;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms).unref?.(); }));
+  const alert = opts.alert ?? ((text: string) => tgSend('max-startup-subscription', text));
+
+  let out = await ensureMaxSubscriptionOnStart();
+  let attempts = 1;
+  for (const ms of delays) {
+    if (out.outcome !== 'failed') return out;
+    await sleep(ms);
+    out = await ensureMaxSubscriptionOnStart();
+    attempts += 1;
+  }
+  if (out.outcome !== 'failed') return out;
+
+  const sent = await alert(startupAlertText(out, attempts));
+  if (!sent.ok) {
+    console.error(`[max] тревога о подписке при старте не доставлена: ${sent.reason}`);
+  }
+  return out;
 }

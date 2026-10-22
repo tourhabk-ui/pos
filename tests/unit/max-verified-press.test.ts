@@ -18,7 +18,14 @@
  *  - чат кнопки-действия — только из сообщения с кнопкой: без сообщения
  *    нажатие не применяется, даже если `user_id` равен рабочему чату; о
  *    заверенном таком нажатии нажавшему говорится в личном чате;
+ *  - без ключа тексты отказа не зовут повторить (повтор дал бы тот же отказ),
+ *    а «Оформить заявку» не предлагается: оба пути после неё закрыты;
  *  - сбой одного апдейта не роняет ответ 200 и не съедает остальные.
+ *
+ * Чего здесь НЕ держится, сказано прямо: без ключа бот отвечает в чат,
+ * названный телом (шапка `lib/max/verified-press`). Отказ отвечать на
+ * `user_id` у незаверенного — не защита, а отказ добавлять второе поле,
+ * которым тело выбирает адресата.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -416,15 +423,68 @@ describe('ключа нет: вопросы Кузьмичу и кнопки т�
     expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ chatId: 77, text: 'Вулканы Камчатки', verifiedOrigin: false }));
   });
 
-  it('кнопка темы без сообщения — на user_id тела не отвечает', async () => {
+  it('кнопка темы без сообщения — адресат только чат сообщения, user_id вторым полем не служит', async () => {
+    // Не защита: чат сообщения подделывается так же. Это отказ добавлять
+    // ещё одно поле тела, которым выбирается адресат ответа.
     await post(UNVERIFIED[0]!, press('topic_volcanoes', null, 4242));
     expect(m.processMessage).not.toHaveBeenCalled();
     expect(m.maxSend).not.toHaveBeenCalled();
   });
 
+  it('ответ Кузьмича про тур — без кнопки «Оформить заявку»: номер и бронь в чате закрыты', async () => {
+    m.processMessage.mockImplementation(async (o: { chatId: number; reply: (id: number, t: string) => Promise<void> }) => {
+      await o.reply(o.chatId, 'Есть тур на Авачинский вулкан, программа на день.');
+    });
+    await post(UNVERIFIED[0]!, message('Какие туры на вулкан?'));
+    await post(UNVERIFIED[0]!, press('topic_tour', 77, 77));
+    const said = repliesTo(77);
+    expect(said.filter((t) => t.includes('Авачинский'))).toHaveLength(2);
+    expect(said).not.toContain('Хотите оформить заявку?');
+  });
+
+  it('«Оформить заявку» со старой клавиатуры — сразу «не оформляю, на сайте», номер не просим', async () => {
+    await post(UNVERIFIED[0]!, press('book_now', 77, 77));
+    expect(repliesTo(77)).toEqual([UNVERIFIED_CHAT_REPLY.booking]);
+  });
+
   it('кнопка темы из группы (отрицательный чат) — мимо, как сообщения', async () => {
     await post(UNVERIFIED[0]!, press('topic_volcanoes', -100500, 77));
     expect(m.processMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('заверенное — «Оформить заявку» предлагается и ведёт к номеру', () => {
+  it('ответ про тур — кнопка есть; book_now — просьба номера', async () => {
+    m.processMessage.mockImplementation(async (o: { chatId: number; reply: (id: number, t: string) => Promise<void> }) => {
+      await o.reply(o.chatId, 'Есть тур на Авачинский вулкан, программа на день.');
+    });
+    await post(VERIFIED, message('Какие туры на вулкан?'));
+    expect(repliesTo(77)).toContain('Хотите оформить заявку?');
+    m.maxSend.mockClear();
+    await post(VERIFIED, press('book_now', 77, 77));
+    expect(repliesTo(77).join('\n')).toContain('Поделитесь номером');
+  });
+});
+
+describe('тексты отказа без ключа: не зовут повторить', () => {
+  // Без ключа заверенным не бывает ни один апдейт вебхука: «начните заново»,
+  // «откройте ещё раз», «если подтверждения не было» обещали бы исход,
+  // которого повтор не даст.
+  const ALL = [
+    ...Object.values(UNVERIFIED_PRESS_REPLY), ...Object.values(UNVERIFIED_START_REPLY), ...Object.values(UNVERIFIED_CHAT_REPLY),
+  ];
+  for (const text of ALL) {
+    it(text.slice(0, 50), () => {
+      expect(text).not.toMatch(/заново|ещё раз|еще раз|попробуйте снова|Если подтверждения не было|отдельным сообщением/i);
+    });
+  }
+
+  it('ссылка входа без ключа — ответ говорит, что вход через MAX недоступен, и куда идти', async () => {
+    keyless();
+    await post(UNVERIFIED[0]!, started('login-abcdefgh12345678'));
+    const [said] = repliesTo(77);
+    expect(said).toContain('Вход через MAX сейчас недоступен');
+    expect(said).toContain('другим способом');
   });
 });
 
