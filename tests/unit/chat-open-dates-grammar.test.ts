@@ -11,7 +11,7 @@
  *   - снимок закрытых списков языка: правка любого — видимая;
  *   - каждая форма языка даёт предложение с точными датами — и перечислением
  *     по каждому слову каждого списка;
- *   - все фразы ревьюеров кругов 4–7 — с исходом: ни одного предложения,
+ *   - все фразы ревьюеров кругов 4–8 — с исходом: ни одного предложения,
  *     отличного от сказанного (таблицы — tests/unit/chat-open-dates-phrases.ts);
  *   - вставка в любое место любой принятой фразы — слова, знака, «слово+знак+
  *     слово», «…» между цифрами, повтора даты — даёт отказ; то же
@@ -25,7 +25,7 @@ import { describe, it, expect } from 'vitest';
 import { type ChatTour, type DatesParse, CONNECTORS, parseDatesPhrase } from '@/lib/operators/chat-dates/parse';
 import { LANGUAGE } from '@/lib/operators/chat-dates/grammar';
 import {
-  type Outcome, FIXED, PRICE, REVIEW4, REVIEW5, REVIEW5_TRAPS, REVIEW6, REVIEW6_T5, REVIEW6_T7, REVIEW7, REVIEW7_DT, SAME_AS_BEFORE, TOURS,
+  type Outcome, FIXED, PRICE, REVIEW4, REVIEW5, REVIEW5_TRAPS, REVIEW6, REVIEW6_T5, REVIEW6_T7, REVIEW7, REVIEW7_DT, REVIEW8, REVIEW8_TW, SAME_AS_BEFORE, TOURS,
 } from './chat-open-dates-phrases';
 
 const NOW = Date.parse('2026-10-22T00:00:00Z');
@@ -224,10 +224,14 @@ const TOUR_FORMS: Array<[string, ChatTour[], string]> = [
   ['открой 3 августа тур Неделя на Камчатке, 8 мест', TOURS.T5, 'one:6'],
   ['открой тур Выходные на Авачинском весь июль, 8 мест', TOURS.DATE_TITLES, 'one:3'],
   ['открой тур: Субботы на Халактыре 3 августа, 8 мест', TOURS.DATE_TITLES, 'one:4'],
-  // Слова названия — не «закрой», «скрой», «занято» (седьмой ревью, m4).
+  // Слова названия — не «закрой», «скрой» (седьмой ревью, m4); исключение в названии — после «тур» (восьмой, S2).
   ['открой 3 августа на Закрытую бухту, 8 мест', TOURS.DATE_TITLES, 'one:8'],
   ['открой 3 августа на Скрытый водопад, 8 мест', TOURS.DATE_TITLES, 'one:9'],
-  ['открой 3 августа на Занятия на вулкане, 8 мест', TOURS.DATE_TITLES, 'one:10'],
+  ['открой 3 августа тур Занятия на вулкане, 8 мест', TOURS.DATE_TITLES, 'one:10'],
+  ['открой тур Минус тридцать 17 августа, 3 и 5 сентября, 8 мест', TOURS.TITLE_WORDS, 'one:14'],
+  ['открыть 5 августа, 8 мест', TOURS.TITLE_WORDS, 'name_needed'],
+  // Слово дня недели не первым в названии — после «тур» (восьмой ревью, S1).
+  ['открой весь июль тур Горелый по субботам, 8 мест', TOURS.TITLE_WORDS, 'one:2'],
 ];
 
 describe('язык: каждая форма — предложение с точными датами', () => {
@@ -307,7 +311,7 @@ describe('язык: каждое слово каждого списка — в �
 
 // ── Фразы ревьюеров ───────────────────────────────────────────────────────
 
-describe('ревью кругов 4–7: исход каждой фразы — точное предложение или отказ', () => {
+describe('ревью кругов 4–8: исход каждой фразы — точное предложение или отказ', () => {
   it.each(REVIEW4)('четвёртый: «%s»', (text, want) => expectOutcome(text, T3, want));
   it.each(REVIEW5)('пятый: «%s»', (text, want) => expectOutcome(text, T3, want));
   it.each(REVIEW5_TRAPS)('пятый, туры-ловушки: «%s»', (text, want) => expectOutcome(text, TOURS.TRAPS, want));
@@ -316,6 +320,8 @@ describe('ревью кругов 4–7: исход каждой фразы — 
   it.each(REVIEW6_T7)('шестой, туры T7: «%s»', (text, want) => expectOutcome(text, TOURS.T7, want));
   it.each(REVIEW7)('седьмой: «%s»', (text, want) => expectOutcome(text, T3, want));
   it.each(REVIEW7_DT)('седьмой, туры DATE_TITLES: «%s»', (text, want) => expectOutcome(text, TOURS.DATE_TITLES, want));
+  it.each(REVIEW8)('восьмой: «%s»', (text, want) => expectOutcome(text, T3, want));
+  it.each(REVIEW8_TW)('восьмой, туры TITLE_WORDS: «%s»', (text, want) => expectOutcome(text, TOURS.TITLE_WORDS, want));
 
   it('находки шестого круга — отказ, а не предложение', () => {
     for (const text of [
@@ -384,8 +390,9 @@ describe('ревью кругов 4–7: исход каждой фразы — 
     ];
     for (const [text, tours, want] of cases) expect(label(parse(text, tours)), text).toBe(want);
     // Год в отказе — оба варианта: по порядку и сам по себе.
-    expect(parse('открой 5 ноября и 22 октября, 8 мест'))
-      .toEqual({ kind: 'refused', reason: 'year_order', date: '2027-10-22', other: '2026-10-22', seats: 8, month: null });
+    expect(parse('открой 5 ноября и 22 октября, 8 мест')).toMatchObject({
+      kind: 'refused', reason: 'year_order', date: '2027-10-22', other: '2026-10-22', seats: 8, month: null,
+    });
     expect(parse('открой субботы января и декабря, 8 мест'))
       .toMatchObject({ reason: 'year_order', date: '2027-12-01', other: '2026-12-01', month: { wd: [5] } });
     // Оба правила дают одно — предложение; явный год — принимается.
@@ -399,6 +406,68 @@ describe('ревью кругов 4–7: исход каждой фразы — 
     expect(parse('открой тур Выходные на Авачинском весь июль, 8 мест', DT)).toMatchObject({ kind: 'proposal', tour: { kind: 'one', id: '3' } });
     expect(parse('открой тур Выходные весь июль, 8 мест', DT)).toMatchObject({ kind: 'proposal', tour: { kind: 'one', id: '5' } });
   });
+
+  it('находки восьмого круга: слово даты где угодно в названии, исключение в названии, год во всей фразе', () => {
+    const TW = TOURS.TITLE_WORDS;
+    const cases: Array<[string, ChatTour[], string]> = [
+      // S1: слово дня недели не первым в названии — после «тур», иначе отказ.
+      ['открой весь июль на Горелый по субботам, 8 мест', TW, 'R:date_word_in_title'],
+      ['открой с 1 по 31 июля на Горелый по субботам, 8 мест', TW, 'R:date_word_in_title'],
+      ['открой весь июль на сплав по выходным, 8 мест', TW, 'R:date_word_in_title'],
+      ['открой весь август на рыбалку по будням, 8 мест', TW, 'R:date_word_in_title'],
+      ['открой весь июль на Авачу в выходные, 8 мест', TW, 'R:date_word_in_title'],
+      ['открой 3 августа на Горелый по субботам, 8 мест', TW, 'R:date_word_in_title'],
+      // S2: «минус», «пропуск», «занято» — исключение, даже если слово есть в названии тура.
+      ['открой минус 17 августа, 3 и 5 сентября, 8 мест', TW, 'R:exclusion'],
+      ['открой пропуск 17 августа, 3 и 5 сентября, 8 мест', TW, 'R:exclusion'],
+      ['открой занято 17 августа, 3 и 5 сентября, 8 мест', TW, 'R:exclusion'],
+      ['открой на минус 17 августа, 8 мест', TW, 'R:exclusion'],
+      ['открой весь июль, минус 17 июля, 8 мест', TW, 'R:exclusion'],
+      ['открой весь июль, кроме 17 июля, на Кроме шуток, 8 мест', TW, 'R:exclusion'],
+      ['открой 3 августа на Минус тридцать, 8 мест', TW, 'R:action_word_in_title'],
+      ['открой 3 августа на Занятия на вулкане, 8 мест', TW, 'R:action_word_in_title'],
+      ['открой 3 августа на закрытую, 8 мест', TW, 'R:mixed_actions'],
+      ['открой 3 августа на Закрытую бухту, закрыть 5 августа', TW, 'R:mixed_actions'],
+    ];
+    for (const [text, tours, want] of cases) expect(label(parse(text, tours)), text).toBe(want);
+    // m4 седьмого круга держится: название целиком — тур.
+    for (const [text, id] of [['открой 3 августа на Закрытую бухту, 8 мест', '10'], ['открой 3 августа на Скрытый водопад, 8 мест', '11']]) {
+      expect(parse(text!, TW), text).toMatchObject({ kind: 'proposal', tour: { kind: 'one', id } });
+    }
+    // Глагол открытия не скрывается никогда: с туром «Открытое море» — как без него.
+    for (const text of ['открыть 5 августа, 8 мест', 'открой 5 августа, 8 мест', 'нужно открыть 5 августа, 8 мест']) {
+      expect(label(parse(text, TW)), text).toBe(label(parse(text, T3)));
+    }
+    // S3: вариант — вся фраза с годом у спорной даты или отрезка, по году в окне.
+    expect(parse('открой 5 ноября и с 20 по 25 октября, 8 мест')).toMatchObject({
+      reason: 'year_order', variants: [{ year: 2026, text: 'открой 5 ноября и с 20 по 25 октября 2026, 8 мест' }],
+    });
+    expect(parse('открой 5 ноября и 22 октября, 8 мест')).toMatchObject({
+      reason: 'year_order',
+      variants: [{ year: 2026, text: 'открой 5 ноября и 22 октября 2026, 8 мест' }, { year: 2027, text: 'открой 5 ноября и 22 октября 2027, 8 мест' }],
+    });
+    expect(parse('открой 01.11 и 22.10, 8 мест')).toMatchObject({ variants: [{ year: 2026, text: 'открой 01.11 и 22.10.2026, 8 мест' }, { year: 2027 }] });
+    expect(parse('открой 5 ноября и субботы октября, 8 мест')).toMatchObject({
+      month: { wd: [5] }, variants: [{ year: 2026, text: 'открой 5 ноября и субботы октября 2026, 8 мест' }],
+    });
+    // Год вне окна или там, где язык года не принимает, — без варианта.
+    expect(parse('открой 5 ноября и 1 октября, 8 мест')).toMatchObject({ variants: [{ year: 2027, text: 'открой 5 ноября и 1 октября 2027, 8 мест' }] });
+    expect(parse('открой субботы января и декабря, 8 мест')).toMatchObject({ reason: 'year_order', variants: [] });
+    // Каждый вариант — предложение с теми же местами и днями, только год назван.
+    const want: Record<string, string[]> = {
+      'открой 5 ноября и с 20 по 25 октября 2026, 8 мест': ['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-11-05'],
+      'открой 5 ноября и 22 октября 2026, 8 мест': ['2026-10-22', '2026-11-05'],
+      'открой 5 ноября и 22 октября 2027, 8 мест': ['2026-11-05', '2027-10-22'],
+      'открой 5 ноября и 1 октября 2027, 8 мест': ['2026-11-05', '2027-10-01'],
+    };
+    for (const [text, dates] of Object.entries(want)) expect(parse(text), text).toMatchObject({ kind: 'proposal', seats: 8, dates });
+    // m2: образец «одинаковых концов» — то же без отрезка.
+    expect(parse('открой сб-сб в июле, 8 мест')).toMatchObject({ reason: 'range_same', hint: 'субботы июля' });
+    expect(parse('открой с 3 по 3 августа, 8 мест')).toMatchObject({ reason: 'range_same', hint: '3 августа' });
+    expect(parse('открой субботы с октября по октябрь, 8 мест')).toMatchObject({ reason: 'range_same', hint: 'субботы октября' });
+    // m2: образец тура со словом даты — даты самой фразы.
+    expect(parse('открой весь июль на Горелый по субботам, 8 мест', TW)).toMatchObject({ dates: 'весь июль', word: 'субботам' });
+  });
 });
 
 // ── Вставка ───────────────────────────────────────────────────────────────
@@ -408,7 +477,7 @@ const ACCEPTED: Array<[string, ChatTour[]]> = [
   ...FORMS.map(([t]) => [t, ONE_TOUR] as [string, ChatTour[]]),
   ...TOUR_FORMS.map(([t, tours]) => [t, tours] as [string, ChatTour[]]),
   ...([[REVIEW4, T3], [REVIEW5, T3], [REVIEW5_TRAPS, TOURS.TRAPS], [REVIEW6, T3], [REVIEW6_T5, TOURS.T5], [REVIEW6_T7, TOURS.T7],
-    [REVIEW7, T3], [REVIEW7_DT, TOURS.DATE_TITLES]] as const)
+    [REVIEW7, T3], [REVIEW7_DT, TOURS.DATE_TITLES], [REVIEW8, T3], [REVIEW8_TW, TOURS.TITLE_WORDS]] as const)
     .flatMap(([table, tours]) => table.filter(([, w]) => typeof w !== 'string').map(([t]) => [t, tours] as [string, ChatTour[]])),
 ];
 /**

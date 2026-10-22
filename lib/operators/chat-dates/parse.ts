@@ -99,7 +99,12 @@
  * сразу после слова этого названия («Мутновский 5 дней»), иначе оно
  * осталось бы датой. Фамилия, совпавшая с туром по основе («Горелову»,
  * «Быстровой»), — не тур. Слово, ушедшее в дату, которое стоит в названии
- * тура рядом («на Выходные на Авачинском»), — отказ «тур — кнопкой».
+ * тура рядом («на Выходные на Авачинском»), — отказ «тур — кнопкой». Восьмой
+ * ревью: в языке слово дня недели, месяца, «сегодня» в любом месте названия
+ * («Горелый по субботам») — тур только после «тур»; слово закрытия в
+ * названии («Закрытая бухта») не читается как «закрой», если название стоит
+ * целиком или двумя словами подряд; слово исключения («Минус тридцать»,
+ * «Занятия на вулкане») — только в названии целиком после «тур».
  * Вопрос «какой тур?» — только при ничьей; слова разных туров раздельно —
  * отказ «по одному туру за раз».
  *
@@ -137,14 +142,14 @@
  *
  * Сторожа: tests/unit/chat-open-dates-parse.test.ts (поведение),
  * tests/unit/chat-open-dates-grammar.test.ts (язык: снимок списков, каждая
- * форма, фразы ревьюеров кругов 4–7, вставка слова и знака в любое место,
+ * форма, фразы ревьюеров кругов 4–8, вставка слова и знака в любое место,
  * сверка с 114bd9e4f и таблица цены).
  */
 
 import { datesPhraseRefusal, hasOpenVerb, isQuestionPhrase, periodicityWord } from '@/lib/tours/dates-phrase';
 import { MAX_SLOTS_PER_DATE, datesInRange, horizonLastDate, isCalendarDate } from '@/lib/tours/availability-open';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
-import { type LParse, LANGUAGE, hasEllipsis, languageParses, languageSource } from './grammar';
+import { type LParse, type UntilAt, type YearIns, LANGUAGE, hasEllipsis, languageDisplay, languageParses, languageSource, languageText } from './grammar';
 
 /** Дат в одном предложении — не больше месяца: длиннее список не проверить глазами. */
 export const MAX_DATES_PER_PROPOSAL = 31;
@@ -219,8 +224,20 @@ export type DatesRefusal =
   | { kind: 'refused'; reason: 'unjoined_dates'; parts: string[]; seats: number | null }
   /** «после», «к», «между», «примерно»… рядом с датой: срок или окрестность, а не выезд. */
   | { kind: 'refused'; reason: 'date_relation'; word: string; month: number | null; seats: number | null }
-  /** Слово, ушедшее в дату, стоит в названии тура рядом («на Выходные на Авачинском»): тур — кнопкой. */
-  | { kind: 'refused'; reason: 'date_word_in_title'; word: string; title: string; seats: number | null }
+  /**
+   * Слово даты — в названии тура («на Выходные на Авачинском», «на Горелый по
+   * субботам»): тур — кнопкой или после слова «тур». `dates` — даты фразы
+   * словами оператора («весь июль»), образец отказа повторяет их (восьмой
+   * ревью, m2); null — фраза вне языка, образец общий.
+   */
+  | { kind: 'refused'; reason: 'date_word_in_title'; word: string; title: string; dates: string | null; seats: number | null }
+  /**
+   * Слово исключения или отрицания — в названии тура («на Занятия на
+   * вулкане», «на Минус тридцать»): исключение это или тур, не угадываем;
+   * тур называется после слова «тур» (восьмой ревью, S2). `dates` — как у
+   * `date_word_in_title`.
+   */
+  | { kind: 'refused'; reason: 'action_word_in_title'; word: string; title: string; dates: string | null; seats: number | null }
   /** «всего 8 мест» на две даты и больше: места ставятся на каждый выезд. */
   | { kind: 'refused'; reason: 'seats_total'; seats: number; count: number }
   /**
@@ -235,12 +252,27 @@ export type DatesRefusal =
    * октября» — 22 октября 2027 по порядку и 2026 само по себе. `date` — по
    * порядку, `other` — само по себе; `month` — год спорен у месяца («3
    * августа и субботы июля»), `wd` — его дни недели (null — весь месяц).
+   * `variants` — вся фраза оператора с годом у спорной даты, отрезка или
+   * месяца, по году в окне продаж; каждая проверена разбором: то же
+   * предложение, те же места (восьмой ревью, S3). Пусто — год там язык не
+   * принимает или оба года вне окна.
    */
-  | { kind: 'refused'; reason: 'year_order'; date: string; other: string; seats: number | null; month: { wd: number[] | null } | null }
-  /** Конец отрезка через «до» — бывает и невключительно (седьмой ревью); `wd` — дни недели отрезка. */
-  | { kind: 'refused'; reason: 'range_until'; from: string; to: string; wd: number[] | null; seats: number | null }
-  /** Отрезок с одинаковыми концами: «со среды по среду», «с октября по октябрь», «сб-сб». */
-  | { kind: 'refused'; reason: 'range_same'; seats: number | null }
+  | {
+    kind: 'refused'; reason: 'year_order'; date: string; other: string; seats: number | null; month: { wd: number[] | null } | null;
+    variants: Array<{ year: number; text: string }>;
+  }
+  /**
+   * Конец отрезка через «до» — бывает и невключительно (седьмой ревью).
+   * `variants` — вся фраза оператора с «по» вместо «до»: с тем же концом
+   * (`inclusive`) и с днём раньше; каждая проверена разбором (восьмой ревью).
+   */
+  | { kind: 'refused'; reason: 'range_until'; from: string; to: string; seats: number | null; variants: Array<{ inclusive: boolean; text: string }> }
+  /**
+   * Отрезок с одинаковыми концами: «со среды по среду», «с октября по
+   * октябрь», «сб-сб». `hint` — то же без отрезка («субботы июля», «3
+   * августа»), образец отказа (восьмой ревью, m2).
+   */
+  | { kind: 'refused'; reason: 'range_same'; hint: string | null; seats: number | null }
   | { kind: 'refused'; reason: 'not_understood' };
 
 export type DatesAsk =
@@ -745,15 +777,22 @@ function firstMonth(norm: string): number | null {
  * образцу» (`off_pattern`), а не угаданные даты.
  */
 export function parseDatesPhrase(text: string, nowMs: number, tours: ChatTour[] | null): DatesParse {
+  return parsePhrase(text, nowMs, tours, true);
+}
+
+/** `hints` — собирать ли подсказки-фразы (их проверка зовёт разбор ещё раз, уже без них). */
+function parsePhrase(text: string, nowMs: number, tours: ChatTour[] | null, hints: boolean): DatesParse {
   const src = languageSource(text);
   const norm = normalizePhrase(src);
   const titles = (tours ?? []).map((t) => ({ t, words: titleWordsOf(t.title) }));
   const tourWord = tours === null ? null : (w: string) => titles.some((e) => wordInTitle(w, e.words));
-  // Слова названий туров партнёра («на Закрытую бухту», «на Скрытый водопад»,
-  // «на Занятия на вулкане») не читаются как «закрой», «скрой», «занято» —
-  // только здесь, в пути этапа C, и только в проверках закрытия, отрицания и
-  // исключений (седьмой ревью, m4). Принять фразу всё равно может только язык.
-  const intent = intentOf(norm, tourWord, maskTourWords(norm, tours)).intent;
+  // Слова названий туров партнёра («на Закрытую бухту», «на Скрытый водопад»)
+  // не читаются как «закрой», «скрой» — только здесь, в пути этапа C, только
+  // в проверках закрытия, отрицания и исключений и только там, где название
+  // стоит во фразе (`maskTourWords`, седьмой и восьмой ревью). Принять фразу
+  // всё равно может только язык.
+  const mask = maskTourWords(norm, tours);
+  const intent = intentOf(norm, tourWord, mask.strict).intent;
   // «…» — не точка: «10…12» не 10 декабря (шестой ревью). Отказ — и там, где
   // прежний разбор сказал бы «не понял».
   if ((intent === 'open' || intent === 'unparsed') && hasEllipsis(src)) {
@@ -765,18 +804,97 @@ export function parseDatesPhrase(text: string, nowMs: number, tours: ChatTour[] 
     const d = diagnosePhrase(src, nowMs, tours);
     return d.kind === 'proposal' ? { kind: 'refused', reason: 'off_pattern', seats: d.seats } : d;
   };
-  if (intent !== 'open') return diagnosed();
+  if (intent !== 'open') {
+    // «на Занятия на вулкане»: без исключения в названии тура фраза — просьба
+    // открыть. Исключение это или тур — не угадываем, тур — после «тур» (S2).
+    if (mask.hit && intentOf(norm, tourWord, mask.lenient).intent === 'open') {
+      const seatValues = [...new Set(cutSeats(norm).values)];
+      return {
+        kind: 'refused', reason: 'action_word_in_title', word: mask.hit.word, title: mask.hit.title,
+        dates: hints ? phraseDates(src, nowMs, tours) : null, seats: seatValues.length === 1 ? seatValues[0]! : null,
+      };
+    }
+    return diagnosed();
+  }
   // «ещё 2 места» — добавка, а не итог: в языке «ещё» перед местами стояло бы вставкой.
   const delta = norm.match(SEATS_DELTA);
   if (delta) return { kind: 'refused', reason: 'seats_delta', word: delta[0].trim() };
-  return byLanguage(src, nowMs, tours) ?? diagnosed();
+  return byLanguage(src, nowMs, tours, hints) ?? diagnosed();
 }
 
-/** Слово, совпавшее со словом названия тура лишь окончанием, — «тур» (для намерения фразы). */
-function maskTourWords(norm: string, tours: ChatTour[] | null): string {
-  if (!tours || tours.length === 0) return norm;
-  const words = tours.flatMap((t) => titleWordsOf(t.title));
-  return norm.replace(/\p{L}+/gu, (w) => (w.length >= 4 && words.some((tw) => formMatch(w, tw)) ? 'тур' : w));
+/**
+ * Слова закрытия в названиях туров («Закрытая бухта», «Скрытый водопад»).
+ * Тот же список, что у `datesPhraseRefusal` (lib/tours/dates-phrase).
+ */
+const CLOSE_TITLE_WORD = /^(?:закр|убер|убир|убра|удал|сним|снят|отмен|заблок|блок|скро|скры|отключ|выключ|останов|останавлив|приостан|стоп|прекрат|уменьш|сократ|убав)/u;
+/** Слова исключения и отрицания: «минус», «пропуск», «занято», «кроме», «не»… */
+const EXCEPT_TITLE_WORD = /^(?:кроме|исключая|исключением|считая|не|нет|нельзя|минус|без|пропус\p{L}*|занят\p{L}*)$/u;
+
+/**
+ * Фраза для проверок закрытия, отрицания и исключений: слова названий туров
+ * партнёра, стоящих во фразе, — «тур» (восьмой ревью, S2).
+ *   - `strict` — проверяет намерение. Слово закрытия скрыто, если во фразе
+ *     стоит название целиком или два его слова подряд («на Закрытую
+ *     бухту»). Слово исключения и отрицания — только в названии целиком
+ *     сразу после слова «тур» («тур Занятия на вулкане»): одно «минус» при
+ *     туре «Минус тридцать» — исключение, и 17 августа не открывается.
+ *     Глаголы открытия не скрываются никогда («нужно открыть» при туре
+ *     «Открытое море»).
+ *   - `lenient` — ещё и исключения в названии целиком без «тур»: если только
+ *     так фраза становится просьбой открыть, отказ называет тур (`hit`).
+ */
+function maskTourWords(norm: string, tours: ChatTour[] | null): { strict: string; lenient: string; hit: { word: string; title: string } | null } {
+  if (!tours || tours.length === 0) return { strict: norm, lenient: norm, hit: null };
+  const toks = [...norm.matchAll(/\p{L}+/gu)].map((m) => ({ w: m[0], at: m.index ?? 0 }));
+  const near = (i: number): boolean => /^[ -]+$/u.test(norm.slice(toks[i]!.at + toks[i]!.w.length, toks[i + 1]!.at));
+  const strict = new Set<number>();
+  const lenient = new Set<number>();
+  let hit: { word: string; title: string } | null = null;
+  for (const t of tours) {
+    const tw = titleWordsOf(t.title);
+    for (let s = 0; s < toks.length; s++) {
+      const fits = (k: number, j: number): boolean => s + k < toks.length && formMatch(toks[s + k]!.w, tw[j]!) && (k === 0 || near(s + k - 1));
+      // Два слова названия подряд — закрытие скрыто.
+      for (let j = 0; j + 1 < tw.length; j++) {
+        if (fits(0, j) && fits(1, j + 1)) for (const k of [s, s + 1]) if (CLOSE_TITLE_WORD.test(toks[k]!.w)) strict.add(k);
+      }
+      if (tw.length === 0 || !tw.every((_, j) => fits(j, j))) continue;
+      const afterTour = s > 0 && toks[s - 1]!.w === 'тур' && near(s - 1);
+      for (let k = s; k < s + tw.length; k++) {
+        const w = toks[k]!.w;
+        if (CLOSE_TITLE_WORD.test(w) || (afterTour && EXCEPT_TITLE_WORD.test(w))) strict.add(k);
+        else if (EXCEPT_TITLE_WORD.test(w)) { lenient.add(k); hit ??= { word: w, title: t.title }; }
+      }
+    }
+  }
+  const build = (set: Set<number>): string => {
+    let out = '';
+    let at = 0;
+    toks.forEach((x, i) => { if (set.has(i)) { out += `${norm.slice(at, x.at)}тур`; at = x.at + x.w.length; } });
+    return out + norm.slice(at);
+  };
+  return { strict: build(strict), lenient: build(new Set([...strict, ...lenient])), hit };
+}
+
+/** Даты фразы словами оператора — по первому разбору языка; null — фраза вне языка. */
+function phraseDates(src: string, nowMs: number, tours: ChatTour[] | null): string | null {
+  const titled: Titled = (tours ?? []).map((t) => ({ t, tw: titleWordsOf(t.title) }));
+  const chainOk = tours === null ? chainOkUnread : (ws: string[]) => chainHits(ws, titled).length > 0 || chainHalves(ws, titled) !== null;
+  const lp = languageParses(src, chainOk)[0];
+  return lp ? datesHint(src, lp, nowMs, tours) : null;
+}
+/**
+ * Даты фразы для образца отказа — только если «открой <даты>» разбор примет
+ * сам («с 3 до 4 июля» — отказ «до», такой образец не годится).
+ */
+function datesHint(src: string, lp: LParse, nowMs: number, tours: ChatTour[] | null): string | null {
+  const dates = displaySlice(src, lp.dates.at, lp.dates.end);
+  return dates !== null && parsePhrase(`открой ${dates}`, nowMs, tours, false).kind === 'proposal' ? dates : null;
+}
+/** Кусок фразы с регистром оператора; null — если строчные буквы изменили бы длину. */
+function displaySlice(src: string, at: number, end: number): string | null {
+  const display = languageDisplay(src);
+  return display.toLowerCase().replace(/ё/g, 'е') === languageText(src) ? display.slice(at, end) : null;
 }
 
 // ── Язык: смысл разбора ───────────────────────────────────────────────────
@@ -868,26 +986,99 @@ function pickOf(cands: ChatTour[]): TourPick {
   return hid.length > 0 ? { kind: 'choose', ids, hidden: hid } : { kind: 'choose', ids };
 }
 
+/**
+ * Где во фразе править подсказку: место для спорного года и что спорно —
+ * дата, начало отрезка или месяц; место «до» и дня конца отрезка.
+ */
+interface YearSide { yi: YearIns | null; unit: 'day' | 'span' | 'month'; until: UntilAt | null }
+
 /** Фраза языка — предложение или отказ по смыслу; null — фраза вне языка. */
-function byLanguage(src: string, nowMs: number, tours: ChatTour[] | null): DatesParse | null {
+function byLanguage(src: string, nowMs: number, tours: ChatTour[] | null, hints: boolean): DatesParse | null {
   const titled: Titled = (tours ?? []).map((t) => ({ t, tw: titleWordsOf(t.title) }));
   const chainOk = tours === null
     ? chainOkUnread
     : (ws: string[]) => chainHits(ws, titled).length > 0 || chainHalves(ws, titled) !== null;
   const parses = languageParses(src, chainOk);
   if (parses.length === 0) return null;
-  const results = parses.map((lp) => resolveLanguage(lp, nowMs, tours, titled));
-  // Название тура, начатое словом даты, без «тур» — отказ, даже если у фразы
-  // есть и прочтение датами («на выходные с 1 по 31 июля» при туре «Выходные»).
-  const titleWord = results.find((r) => r.kind === 'refused' && r.reason === 'date_word_in_title');
-  if (titleWord) return titleWord;
-  const distinct = new Set(results.map((r) => JSON.stringify(r)));
-  if (distinct.size === 1) return results[0]!;
+  const results = parses.map((lp) => {
+    const side: YearSide = { yi: null, unit: 'day', until: null };
+    return { lp, side, r: resolveLanguage(lp, nowMs, tours, titled, side) };
+  });
+  // Слово даты в названии тура без «тур» — отказ, даже если у фразы есть и
+  // прочтение датами («на выходные с 1 по 31 июля» при туре «Выходные»).
+  for (const { lp, r } of results) {
+    if (r.kind === 'refused' && r.reason === 'date_word_in_title') {
+      return hints ? { ...r, dates: datesHint(src, lp, nowMs, tours) } : r;
+    }
+  }
+  const distinct = new Set(results.map((x) => JSON.stringify(x.r)));
+  if (distinct.size === 1) {
+    const { r, side } = results[0]!;
+    if (hints && r.kind === 'refused' && r.reason === 'year_order') return { ...r, variants: yearVariants(r, side, src, nowMs, tours) };
+    if (hints && r.kind === 'refused' && r.reason === 'range_until') return { ...r, variants: untilVariants(r, side, src, nowMs, tours) };
+    return r;
+  }
   // Два разных смысла одной фразы — не угадываем.
   return { kind: 'refused', reason: 'off_pattern', seats: parses[0]!.seats };
 }
 
-function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, titled: Titled): DatesParse {
+/**
+ * Варианты «уточните год» — вся фраза оператора с годом у спорной даты,
+ * отрезка или месяца (восьмой ревью, S3: прежняя подсказка «открой 20
+ * октября 2027» теряла остальную фразу). Вариант — только год в окне продаж:
+ * разбор его фразы — предложение с теми же местами и с днями спорной части
+ * в этом году. Остальное по построению то же: в фразу вписан только год.
+ */
+function yearVariants(
+  r: Extract<DatesRefusal, { reason: 'year_order' }>, side: YearSide, src: string, nowMs: number, tours: ChatTour[] | null,
+): Array<{ year: number; text: string }> {
+  const yi = side.yi;
+  if (!yi || displaySlice(src, 0, 0) === null) return [];
+  const display = languageDisplay(src);
+  const years = [...new Set([Number(r.other.slice(0, 4)), Number(r.date.slice(0, 4))])].sort((a, b) => a - b);
+  return years.flatMap((year) => {
+    const text = `${display.slice(0, yi.at)}${yi.sep}${year}${display.slice(yi.at)}`;
+    const p = parsePhrase(text, nowMs, tours, false);
+    if (p.kind !== 'proposal' || p.seats !== r.seats) return [];
+    const want = side.unit === 'day' ? `${year}${r.date.slice(4)}` : `${year}${r.date.slice(4, 7)}`;
+    return p.dates.some((d) => d.startsWith(want)) ? [{ year, text }] : [];
+  });
+}
+
+/**
+ * Варианты для «до» в конце отрезка — вся фраза оператора с «по»: с тем же
+ * днём конца и с днём раньше (так «до» тоже пишут). Только те, что разбор
+ * примет: предложение с теми же местами («с 1 до 2 июля» днём раньше — уже
+ * не отрезок, такого варианта нет). Своё «сб и вс» оператора остаётся его
+ * словами: «выходные» при туре «Выходные» был бы отказом.
+ */
+function untilVariants(
+  r: Extract<DatesRefusal, { reason: 'range_until' }>, side: YearSide, src: string, nowMs: number, tours: ChatTour[] | null,
+): Array<{ inclusive: boolean; text: string }> {
+  const u = side.until;
+  if (!u || displaySlice(src, 0, 0) === null) return [];
+  const display = languageDisplay(src);
+  const day = display.slice(u.dayAt, u.dayEnd);
+  const digits = /^\d+/.exec(day)?.[0] ?? '';
+  const n = Number(digits);
+  // «10.07» → «09.07», «10» → «9», «10-го» → «9-го».
+  const width = digits.startsWith('0') || day.includes('.') ? digits.length : 1;
+  const earlier = n > 1 ? `${String(n - 1).padStart(width, '0')}${day.slice(digits.length)}` : null;
+  const edit = (d: string): string => `${display.slice(0, u.till)}по${display.slice(u.till + 2, u.dayAt)}${d}${display.slice(u.dayEnd)}`;
+  return [{ inclusive: true, text: edit(day) }, ...(earlier ? [{ inclusive: false, text: edit(earlier) }] : [])].filter((v) => {
+    const p = parsePhrase(v.text, nowMs, tours, false);
+    return p.kind === 'proposal' && p.seats === r.seats;
+  });
+}
+
+/**
+ * Слова дня недели, месяца и «сегодня», «завтра» в названии тура: тур с
+ * ними — только после слова «тур», где бы в названии они ни стояли
+ * («Горелый по субботам», «Авача в выходные» — восьмой ревью, S1).
+ */
+const DATE_WORD = new RegExp(`^(?:${MONTH_WORD}|${WEEKDAY_WORD}|сегодня|завтра|послезавтра)$`, 'u');
+
+function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, titled: Titled, side: YearSide): DatesParse {
   const seats = lp.seats;
   if (seats !== null && (!Number.isInteger(seats) || seats < 1 || seats > MAX_SLOTS_PER_DATE)) {
     return { kind: 'refused', reason: 'bad_seats', value: seats };
@@ -907,11 +1098,13 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
     const words = lp.tour.words;
     const hits = chainHits(words, titled);
     // Название целиком, начатое словом даты или отношения к дате («Выходные на
-    // Авачинском», «Субботы на Халактыре», «Каждый день на вулкане»), — только
-    // после слова «тур»: голое и после «на», «для» оно съело бы дни недели
-    // фразы (седьмой ревью, M1).
-    if (hits.length > 0 && RISKY.test(words[0]!) && lp.tour.slot !== 'тур') {
-      return { kind: 'refused', reason: 'date_word_in_title', word: words[0]!, title: hits[0]!.title, seats };
+    // Авачинском», «Каждый день на вулкане»), и название со словом дня недели,
+    // месяца, «сегодня» где угодно («Горелый по субботам») — только после
+    // слова «тур»: голое и после «на», «для» оно съело бы дни недели фразы
+    // (седьмой ревью, M1; восьмой, S1).
+    const dateWord = RISKY.test(words[0]!) ? words[0]! : words.find((x) => DATE_WORD.test(x));
+    if (hits.length > 0 && dateWord !== undefined && lp.tour.slot !== 'тур') {
+      return { kind: 'refused', reason: 'date_word_in_title', word: dateWord, title: hits[0]!.title, dates: null, seats };
     }
     const whole = titled.some((e) => pieceOf(words.filter((w) => w !== '-'), e.tw) === 'whole');
     const halves = whole ? null : chainHalves(words, titled);
@@ -931,8 +1124,19 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
    * отказ «уточните год» (седьмой ревью, M2: «5 ноября и 22 октября» давало
    * 22 октября 2027, а «22 октября и 5 ноября» — 2026).
    */
-  const ordered = (y: number, m: number, d: number, month: { wd: number[] | null } | null = null): DatesRefusal | null =>
-    (y === yearFor(m) ? null : { kind: 'refused', reason: 'year_order', date: iso(y, m, d), other: iso(yearFor(m), m, d), seats, month });
+  const ordered = (
+    y: number, m: number, d: number, yi: YearIns | null, unit: YearSide['unit'], month: { wd: number[] | null } | null = null,
+  ): DatesRefusal | null => {
+    if (y === yearFor(m)) return null;
+    side.yi = yi;
+    side.unit = unit;
+    return { kind: 'refused', reason: 'year_order', date: iso(y, m, d), other: iso(yearFor(m), m, d), seats, month, variants: [] };
+  };
+  /** «3 августа», с годом — только если разбор сам выбрал бы другой: образец отказа. */
+  const dayWords = (date: string): string => {
+    const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+    return `${d} ${GEN_MONTH[m - 1]}${y === yearFor(m) ? '' : ` ${y}`}`;
+  };
   const singles: string[] = [];
   const expanded: string[] = [];
   const ruleParts: Array<{ kind: 'span'; from: string; to: string } | { kind: 'month'; y: number; m: number; whole: boolean }> = [];
@@ -945,7 +1149,7 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
     if (g.k === 'days') {
       for (const p of g.points) {
         if (p.y === null && p.m >= 1 && p.m <= 12) {
-          const off = ordered(yearOf(p.m), p.m, p.d);
+          const off = ordered(yearOf(p.m), p.m, p.d, p.yi, 'day');
           if (off) return off;
         }
         const r = resolvePoint({ d: p.d, m: p.m, y: p.y, raw: p.raw }, yearOf);
@@ -958,8 +1162,6 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
     }
     const filter = g.wd ? g.wd.days : undefined;
     if (g.wd) wd = g.wd;
-    // «сб-сб», «со среды по среду», «с октября по октябрь» — что открыть, не сказано (седьмой ревью, m3).
-    if (g.wd?.same || (g.k === 'months' && g.same)) return { kind: 'refused', reason: 'range_same', seats };
     if (g.k === 'span') {
       let fromYear = g.from.y;
       if (fromYear === null && g.to.y !== null) {
@@ -968,7 +1170,7 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
         fromYear = fm < tm || (fm === tm && g.from.d <= g.to.d) ? g.to.y : g.to.y - 1;
       }
       if (fromYear === null && g.from.m >= 1 && g.from.m <= 12) {
-        const off = ordered(yearOf(g.from.m), g.from.m, g.from.d);
+        const off = ordered(yearOf(g.from.m), g.from.m, g.from.d, g.from.yi, 'span');
         if (off) return off;
       }
       const a = resolvePoint({ ...g.from, y: fromYear }, yearOf);
@@ -983,7 +1185,14 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
       if (b.date < a.date) {
         return { kind: 'refused', reason: 'range_reversed', from: a.date, to: b.date, seats, startMonthInherited: g.fromInherited };
       }
-      if (b.date === a.date) return { kind: 'refused', reason: 'range_same', seats };
+      // Одинаковые концы — что открыть, не сказано (седьмой ревью, m3); образец — тот же день
+      // или те же дни недели без отрезка (восьмой ревью, m2).
+      if (b.date === a.date) return { kind: 'refused', reason: 'range_same', hint: dayWords(a.date), seats };
+      if (g.wd?.same) {
+        const span = a.date.slice(0, 7) === b.date.slice(0, 7)
+          ? `с ${Number(a.date.slice(8))} по ${dayWords(b.date)}` : `с ${dayWords(a.date)} по ${dayWords(b.date)}`;
+        return { kind: 'refused', reason: 'range_same', hint: `${weekdaysPlural(g.wd.days)} ${span}`, seats };
+      }
       const n = Math.round((Date.parse(b.date) - Date.parse(a.date)) / 86_400_000) + 1;
       if (n > 366) return { kind: 'refused', reason: 'too_many', count: n, seats, parts: [] };
       // Отрезок короче недели с днями недели: концы названы — и обязаны быть этими днями.
@@ -992,18 +1201,29 @@ function resolveLanguage(lp: LParse, nowMs: number, tours: ChatTour[] | null, ti
         if (off) return { kind: 'refused', reason: 'weekday_mismatch', date: off };
       }
       // «с 1 до 10 июля»: входит ли 10-е — по-русски по-разному (седьмой ревью, m2).
-      if (g.until) return { kind: 'refused', reason: 'range_until', from: a.date, to: b.date, wd: filter ?? null, seats };
+      if (g.until) {
+        side.until = g.until;
+        return { kind: 'refused', reason: 'range_until', from: a.date, to: b.date, seats, variants: [] };
+      }
       expanded.push(...datesInRange(a.date, b.date, filter));
       ruleParts.push({ kind: 'span', from: a.date, to: b.date });
       cursor = { y: Number(b.date.slice(0, 4)), m: Number(b.date.slice(5, 7)) };
       continue;
+    }
+    // «сб-сб в июле», «субботы с октября по октябрь» — образец: «субботы июля», «субботы октября».
+    if (g.wd?.same || g.same) {
+      const first = g.months[0]!;
+      const y = first.y ?? yearOf(first.m);
+      const year = g.months.length === 1 && y !== yearFor(first.m) ? ` ${y}` : '';
+      const hint = g.wd ? `${weekdaysPlural(g.wd.days)} ${g.months.map((x) => GEN_MONTH[x.m - 1]).join(' и ')}${year}` : null;
+      return { kind: 'refused', reason: 'range_same', hint, seats };
     }
     let prev: { y: number; m: number } | null = null;
     for (const mm of g.months) {
       const y: number = mm.y ?? (prev === null ? yearOf(mm.m) : mm.m >= prev.m ? prev.y : prev.y + 1);
       // Перечень месяцев сверяется весь; отрезок («с ноября по февраль») — только началом.
       if (mm.y === null && (prev === null || !g.range)) {
-        const off = ordered(y, mm.m, 1, { wd: g.wd ? g.wd.days : null });
+        const off = ordered(y, mm.m, 1, mm.yi, 'month', { wd: g.wd ? g.wd.days : null });
         if (off) return off;
       }
       expanded.push(...datesInRange(iso(y, mm.m, 1), iso(y, mm.m, daysIn(y, mm.m)), filter));
@@ -1651,7 +1871,7 @@ function diagnosePhrase(text: string, nowMs: number, tours: ChatTour[] | null): 
           || (i + 1 < toks.length && TOUR_SLOT.has(word(i + 1) ?? '') && chainIdx.has(i + 2));
         const inCandidate = inTitle.find((e) => candidates.includes(e.t));
         if (slotBefore || nearChain || inCandidate) {
-          return { kind: 'refused', reason: 'date_word_in_title', word: w, title: (inCandidate ?? inTitle[0]!).t.title, seats };
+          return { kind: 'refused', reason: 'date_word_in_title', word: w, title: (inCandidate ?? inTitle[0]!).t.title, dates: null, seats };
         }
       }
     }

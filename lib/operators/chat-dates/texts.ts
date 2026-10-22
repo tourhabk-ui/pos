@@ -22,7 +22,7 @@
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
 import { windowLabel } from '@/lib/tours/request-window';
-import { datesInRange, horizonLastDate, isCalendarDate, tourHiddenText, type DateOpenResult } from '@/lib/tours/availability-open';
+import { horizonLastDate, isCalendarDate, tourHiddenText, type DateOpenResult } from '@/lib/tours/availability-open';
 import { type DatesAsk, type DatesRefusal, MAX_DATES_PER_PROPOSAL, weekdayOf, weekdaysPlural } from './parse';
 
 /** Сколько минут предложение ждёт нажатия. */
@@ -646,55 +646,44 @@ export function refusalText(r: DatesRefusal, today: string): string {
     case 'date_relation':
       return `«${escapeHtml(r.word)}» рядом с датой не разбираю — открываю только названные даты выезда. ` +
         `Назовите их числами, например «открой 3 и 17 ${datesMonth(r.month, today)}${seatsTail(r.seats)}». ${nothing}`;
-    case 'date_word_in_title':
-      // Седьмой ревью: тур, чьё название начинается словом даты, называется после слова «тур».
+    case 'date_word_in_title': {
+      // Седьмой ревью: тур со словом даты в названии называется после слова «тур».
+      // Восьмой (m2): образец — даты самой фразы, если она в языке.
+      const dates = escapeHtml(r.dates ?? `субботы ${sampleMonth(today).gen}`);
+      const plain = r.dates ? `«открой ${dates}${seatsTail(r.seats)}»` : exampleSeats(today, r.seats);
       return `«${escapeHtml(r.word)}» — это даты или тур «${tourName(r.title)}»? Напишите даты без названия тура — ` +
-        `тур выберете кнопкой, например ${exampleSeats(today, r.seats)}, — или назовите его после слова тур: ` +
-        `«открой субботы ${sampleMonth(today).gen} тур ${tourName(r.title)}${seatsTail(r.seats)}». ${nothing}`;
+        `тур выберете кнопкой, например ${plain}, — или назовите его после слова тур: ` +
+        `«открой ${dates} тур ${tourName(r.title)}${seatsTail(r.seats)}». ${nothing}`;
+    }
+    case 'action_word_in_title': {
+      // Восьмой ревью (S2): слово исключения в названии тура без «тур» не скрывается.
+      const dates = escapeHtml(r.dates ?? `субботы ${sampleMonth(today).gen}`);
+      return `«${escapeHtml(r.word)}» — это исключение дат или тур «${tourName(r.title)}»? Не угадываю. Тур с таким словом ` +
+        `называйте после слова тур: «открой ${dates} тур ${tourName(r.title)}${seatsTail(r.seats)}» — или напишите даты ` +
+        `без названия тура, тур выберете кнопкой. ${nothing}`;
+    }
     case 'year_order': {
-      // Седьмой ревью: год даты зависел от порядка дат во фразе.
+      // Седьмой ревью: год даты зависел от порядка дат во фразе. Восьмой (S3):
+      // образец — вся фраза оператора с годом, по году в окне продаж.
       const [y1, y2] = [Number(r.date.slice(0, 4)), Number(r.other.slice(0, 4))].sort((a, b) => a - b);
-      const last = horizonLastDate(today);
-      const why = `По порядку дат во фразе и само по себе выходит разное — не угадываю.`;
-      const example = (hints: string[]): string => (hints.length > 0 ? `, например ${hints.join(' или ')}` : '');
-      if (r.month) {
-        // Месяц: образец — тот же месяц с годом, если в нём до горизонта есть что открыть.
-        const m = Number(r.date.slice(5, 7));
-        const what = r.month.wd ? `${weekdaysPlural(r.month.wd)} ${GEN_MONTH[m - 1]}` : `весь ${NOM_MONTH[m - 1]}`;
-        const wd = r.month.wd ?? undefined;
-        const hints = [r.other, r.date].sort().filter((d) => {
-          const end = `${d.slice(0, 8)}${String(new Date(Date.UTC(Number(d.slice(0, 4)), m, 0)).getUTCDate()).padStart(2, '0')}`;
-          return end <= last && end >= today && datesInRange(d < today ? today : d, end, wd).length > 0;
-        }).map((d) => `«открой ${what} ${d.slice(0, 4)}${seatsTail(r.seats)}»`);
-        const name = NOM_MONTH[m - 1]!;
-        return `${name[0]!.toUpperCase()}${name.slice(1)} — ${y1} или ${y2} год? ${why} Напишите год после месяца${example(hints)}. ${nothing}`;
-      }
-      const hints = [r.other, r.date].sort().filter((d) => d >= today && d <= last)
-        .map((d) => `«открой ${dayLong(d)}${seatsTail(r.seats)}»`);
-      return `${dayLong(r.date).replace(/ \d{4}$/, '')} — ${y1} или ${y2} год? ${why} Напишите год у этой даты${example(hints)}. ${nothing}`;
+      const name = NOM_MONTH[Number(r.date.slice(5, 7)) - 1]!;
+      const what = r.month ? `${name[0]!.toUpperCase()}${name.slice(1)}` : dayLong(r.date).replace(/ \d{4}$/, '');
+      const how = r.variants.length > 0
+        ? `Напишите фразу с годом: ${r.variants.map((v) => `«${escapeHtml(v.text)}»`).join(' или ')}.`
+        : `Напишите год ${r.month ? 'после месяца' : 'у этой даты'}.`;
+      return `${what} — ${y1} или ${y2} год? По порядку дат во фразе и само по себе выходит разное — не угадываю. ${how} ${nothing}`;
     }
     case 'range_until': {
-      // Седьмой ревью: «до» в конце отрезка бывает и невключительно. Образцы —
-      // оба прочтения, с теми же днями недели и только те, что разбор примет:
-      // не в прошлом, не за горизонтом, короткий отрезок — концами этих дней.
-      const prev = new Date(Date.parse(`${r.to}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-      const last = horizonLastDate(today);
-      const wdw = r.wd ? `${weekdaysPlural(r.wd)} ` : '';
-      const fits = (b: string): boolean => {
-        if (b < today || b > last || b < r.from) return false;
-        if (!r.wd) return true;
-        const n = Math.round((Date.parse(b) - Date.parse(r.from)) / 86_400_000) + 1;
-        return n >= 7 || (r.wd.includes(weekdayOf(r.from)) && r.wd.includes(weekdayOf(b)));
-      };
-      const alts = [r.to, prev].filter(fits)
-        .map((b) => (b === r.from ? dayLong(b) : `${wdw}с ${dayLong(r.from)} по ${dayLong(b)}`))
-        .filter((x) => !(r.wd && !x.includes(' по ')));
-      return `До ${dayLong(r.to)} — входит ли этот день, не угадываю: так пишут и включительно, и нет. Напишите с предлогом по` +
-        `${alts.length > 0 ? `: ${alts.map((x) => `«открой ${x}${seatsTail(r.seats)}»`).join(' или ')}` : ''}. ${nothing}`;
+      // Седьмой ревью: «до» в конце отрезка бывает и невключительно. Восьмой:
+      // образцы — вся фраза оператора с «по», оба прочтения, проверенные разбором.
+      const how = r.variants.length > 0 ? `: ${r.variants.map((v) => `«${escapeHtml(v.text)}»`).join(' или ')}` : '';
+      return `До ${dayLong(r.to)} — входит ли этот день, не угадываю: так пишут и включительно, и нет. Напишите с предлогом по${how}. ${nothing}`;
     }
     case 'range_same':
+      // Восьмой ревью (m2): образец — то же без отрезка («субботы июля», «3 августа»).
       return `Отрезок начинается и кончается одним и тем же днём или месяцем — не понял, что открыть. ` +
-        `Назовите даты, например ${exampleSeats(today, r.seats)}. ${nothing}`;
+        (r.hint ? `Если нужно это — напишите «открой ${escapeHtml(r.hint)}${seatsTail(r.seats)}». ` : `Назовите даты, например ${exampleSeats(today, r.seats)}. `) +
+        nothing;
     case 'seats_total':
       return `Всего ${seatsWord(r.seats)} на ${datesWord(r.count)} не разбираю — места ставятся на каждый выезд. ` +
         `Напишите, сколько мест на каждую дату, например «открой 3 и 10 ${g}, ${seatsWord(r.seats)}». ${nothing}`;

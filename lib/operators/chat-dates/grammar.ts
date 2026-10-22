@@ -65,7 +65,8 @@
  *     дней через «до» («с 1 до 10 июля» бывает и без 10-го) — образец с «по»;
  *     отрезок с одинаковыми концами («сб-сб», «со среды по среду», «с
  *     октября по октябрь»); дата без года, чей год по порядку дат во фразе и
- *     сам по себе разный («5 ноября и 22 октября») — «уточните год».
+ *     сам по себе разный («5 ноября и 22 октября») — «уточните год»; образец
+ *     — вся фраза с годом там, где язык его принимает (`YearIns`).
  *   ДН       := ЭЛЕМ (СВЯЗЬ ЭЛЕМ)* | КР - КР          пн-пт, сб и вс, выходные и вторники
  *   ЭЛЕМ     := [все|каждые] субботы… | выходные [дни] | будни | будние дни
  *             | каждый понедельник|вторник|четверг | каждую среду|пятницу|субботу
@@ -81,8 +82,11 @@
  *   ТУР      := на|тур|для ЦЕПОЧКА | ЦЕПОЧКА — сразу после ПРЕДМЕТА «тур» это
  *               тоже «тур ЦЕПОЧКА». Название, начатое словом даты или отношения
  *               к ней («Выходные на Авачинском», «Субботы на Халактыре»,
- *               «Каждый день на вулкане»), — только после «тур»; голое и после
- *               «на», «для» — отказ (оно съело бы дни недели фразы)
+ *               «Каждый день на вулкане»), и название со словом дня недели,
+ *               месяца, «сегодня» в любом месте («Горелый по субботам», «Авача
+ *               в выходные») — только после «тур»; голое и после «на», «для»
+ *               — отказ (оно съело бы дни недели фразы). Слово исключения в
+ *               названии («Занятия на вулкане») — тоже только после «тур»
  *   ЦЕПОЧКА  := слова подряд — название тура целиком или его непрерывный
  *               кусок: первое слово называет (не дата, не «после», не
  *               «неделю»), последнее — слово, а не число и не предлог;
@@ -98,7 +102,7 @@
  * точка — вне языка. Точка или «!» — только в конце.
  *
  * Сторож: tests/unit/chat-open-dates-grammar.test.ts — каждая форма языка
- * даёт предложение, снимок списков ниже, все фразы ревьюеров кругов 4–7,
+ * даёт предложение, снимок списков ниже, все фразы ревьюеров кругов 4–8,
  * вставка в любое место, сверка с прежним разбором и таблица цены.
  */
 
@@ -131,11 +135,12 @@ export const LANGUAGE = {
 
 const L = LANGUAGE;
 
-export type LTok =
-  | { k: 'w'; w: string; sp: boolean }
-  | { k: 'n'; v: number; raw: string; digits: number; grouped: boolean; suffix: boolean; sp: boolean }
-  | { k: 'dm'; d: number; m: number; y: number | null; raw: string; sp: boolean }
-  | { k: 'p'; p: string; sp: boolean };
+/** Лексема; `at`/`end` — её место в `languageText` (и в `languageDisplay` той же длины). */
+export type LTok = { sp: boolean; at: number; end: number } & (
+  | { k: 'w'; w: string }
+  | { k: 'n'; v: number; raw: string; digits: number; grouped: boolean; suffix: boolean }
+  | { k: 'dm'; d: number; m: number; y: number | null; raw: string }
+  | { k: 'p'; p: string });
 
 const ZERO_WIDTH = /[​-‍⁠﻿]/g;
 const DASHES = /[‐-―]/g;
@@ -145,10 +150,18 @@ export function languageSource(text: string): string {
   return text.normalize('NFKC').replace(ZERO_WIDTH, '');
 }
 
+/**
+ * Фраза в форме языка, но с регистром и «ё» оператора — для подсказки,
+ * повторяющей его фразу (восьмой ревью, S3). Строчные буквы и «ё» → «е»
+ * длины не меняют: места лексем в ней те же, что в `languageText`.
+ */
+export function languageDisplay(text: string): string {
+  return text.normalize('NFKC').replace(ZERO_WIDTH, '').replace(DASHES, '-').replace(/[ \t ]+/g, ' ').trim();
+}
+
 /** Нормальная форма фразы языка (шапка, «Нормализация»). */
 export function languageText(text: string): string {
-  return text.normalize('NFKC').replace(ZERO_WIDTH, '').toLowerCase().replace(/ё/g, 'е')
-    .replace(DASHES, '-').replace(/[ \t ]+/g, ' ').trim();
+  return languageDisplay(text).toLowerCase().replace(/ё/g, 'е');
 }
 
 /** «…» и «..» — не точка: «10…12» не 10 декабря (шестой ревью). */
@@ -175,22 +188,24 @@ export function languageTokens(text: string): LTok[] | null {
   let sp = false;
   for (const m of t.matchAll(TOKEN)) {
     if (m[11] !== undefined) { sp = true; continue; }
+    const at = m.index ?? 0;
+    const base = { sp, at, end: at + m[0].length };
     if (m[1] !== undefined) {
-      out.push({ k: 'dm', y: Number(m[1]), m: Number(m[2]), d: Number(m[3]), raw: m[0], sp });
+      out.push({ ...base, k: 'dm', y: Number(m[1]), m: Number(m[2]), d: Number(m[3]), raw: m[0] });
     } else if (m[4] !== undefined) {
       const y = m[6] === undefined ? null : m[6].length === 2 ? 2000 + Number(m[6]) : Number(m[6]);
-      out.push({ k: 'dm', d: Number(m[4]), m: Number(m[5]), y, raw: m[0], sp });
+      out.push({ ...base, k: 'dm', d: Number(m[4]), m: Number(m[5]), y, raw: m[0] });
     } else if (m[7] !== undefined) {
       const digits = m[7].replace(/ /g, '');
-      out.push({ k: 'n', v: Number(digits), raw: m[7], digits: digits.length, grouped: true, suffix: false, sp });
+      out.push({ ...base, k: 'n', v: Number(digits), raw: m[7], digits: digits.length, grouped: true, suffix: false });
     } else if (m[8] !== undefined) {
-      out.push({ k: 'n', v: Number(m[8]), raw: m[0], digits: m[8].length, grouped: false, suffix: true, sp });
+      out.push({ ...base, k: 'n', v: Number(m[8]), raw: m[0], digits: m[8].length, grouped: false, suffix: true });
     } else if (m[9] !== undefined) {
-      out.push({ k: 'n', v: Number(m[9]), raw: m[9], digits: m[9].length, grouped: false, suffix: false, sp });
+      out.push({ ...base, k: 'n', v: Number(m[9]), raw: m[9], digits: m[9].length, grouped: false, suffix: false });
     } else if (m[10] !== undefined) {
-      out.push({ k: 'w', w: m[10], sp });
+      out.push({ ...base, k: 'w', w: m[10] });
     } else if (PUNCT.has(m[12]!)) {
-      out.push({ k: 'p', p: m[12]!, sp });
+      out.push({ ...base, k: 'p', p: m[12]! });
     } else {
       return null;
     }
@@ -201,8 +216,16 @@ export function languageTokens(text: string): LTok[] | null {
 
 // ── Разбор ────────────────────────────────────────────────────────────────
 
-/** Дата, названная днём: месяц и год — если названы. */
-export interface LPoint { d: number; m: number; y: number | null; raw: string }
+/**
+ * Где во фразе язык примет год у даты или месяца, которым его не назвали:
+ * место в `languageText` и знак перед годом («22 октября 2026», «22.10.2026»).
+ * Подсказка «уточните год» повторяет фразу оператора с годом здесь (восьмой ревью, S3).
+ */
+export interface YearIns { at: number; sep: ' ' | '.' }
+/** Место «до» и дня конца отрезка в `languageText`. */
+export interface UntilAt { till: number; dayAt: number; dayEnd: number }
+/** Дата, названная днём: месяц и год — если названы; `yi` — куда языку можно вписать год. */
+export interface LPoint { d: number; m: number; y: number | null; raw: string; yi: YearIns | null }
 /**
  * Дни недели группы: 0 = пн … 6 = вс; `named` — «выходные», «будни»
  * (праздники не учтены); `same` — отрезок дней с одинаковыми концами
@@ -212,14 +235,17 @@ export interface LWd { days: number[]; named: boolean; same?: boolean }
 export type LGroup =
   /** Отдельные даты; `check` — день недели, названный при единственной дате («субботу 3 июля»). */
   | { k: 'days'; points: LPoint[]; check: number | null }
-  /** `until` — конец назван через «до» (бывает и невключительно). */
-  | { k: 'span'; from: LPoint; to: LPoint; fromInherited: boolean; wd: LWd | null; until: boolean }
+  /**
+   * `until` — конец назван через «до» (бывает и невключительно): где во
+   * фразе «до» и день конца — подсказка повторяет фразу с «по» (восьмой ревью).
+   */
+  | { k: 'span'; from: LPoint; to: LPoint; fromInherited: boolean; wd: LWd | null; until: UntilAt | null }
   /**
    * Месяцы целиком (или с днями недели). `range` — «с июля по сентябрь»:
    * год идёт по порядку; перечень («июля и августа») — каждый месяц сверяется.
    * `same` — «с октября по октябрь».
    */
-  | { k: 'months'; months: Array<{ m: number; y: number | null }>; wd: LWd | null; range: boolean; same: boolean }
+  | { k: 'months'; months: Array<{ m: number; y: number | null; yi: YearIns | null }>; wd: LWd | null; range: boolean; same: boolean }
   | { k: 'rel'; offsets: number[]; words: string[] };
 export interface LParse {
   groups: LGroup[];
@@ -229,6 +255,8 @@ export interface LParse {
   tour: { words: string[]; slot: string | null } | null;
   /** Вставки после глагола («ещё», «только»…): «ещё» при местах — добавка или итог (седьмой ревью, m1). */
   fillers: string[];
+  /** Где во фразе части ДАТЫ (без «на»): образец отказа повторяет даты оператора (восьмой ревью, m2). */
+  dates: { at: number; end: number };
 }
 
 type R<T> = Array<[number, T]>;
@@ -296,7 +324,7 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
   };
   const DM: P<LPoint> = (i) => {
     const x = toks[i];
-    return x && x.k === 'dm' ? [[i + 1, { d: x.d, m: x.m, y: x.y, raw: x.raw }]] : [];
+    return x && x.k === 'dm' ? [[i + 1, { d: x.d, m: x.m, y: x.y, raw: x.raw, yi: x.y === null ? { at: x.end, sep: '.' } : null }]] : [];
   };
   const MON_GEN: P<number> = (i) => {
     const x = w(i);
@@ -314,7 +342,10 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
   const MON_NOM = fromList(L.monthNom);
   const MON_PREP = fromList(L.monthPrep);
   const yearOpt = opt(YEAR);
-  const monthWithYear: P<{ m: number; y: number | null }> = bind(MON_GEN, (m, j) => yearOpt(j).map(([k, y]) => [k, { m, y }]));
+  /** Год можно вписать сразу после месяца лексемы `i - 1`. */
+  const yearAfter = (i: number): YearIns => ({ at: toks[i - 1]!.end, sep: ' ' });
+  const monthWithYear: P<{ m: number; y: number | null; yi: YearIns | null }> =
+    bind(MON_GEN, (m, j) => yearOpt(j).map(([k, y]) => [k, { m, y, yi: y === null ? yearAfter(j) : null }]));
   const monthsGen: P<number[]> = listOf(MON_GEN);
   const monthsPrep: P<number[]> = listOf(MON_PREP);
   const inclusive = (j: number): number[] => (w(j) === 'включительно' ? [j, j + 1] : [j]);
@@ -380,44 +411,53 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
   const IN = one(['в', 'во']);
 
   // ── Группы дат ──
-  const days = (pts: Array<{ d: number; raw: string }>, m: number, y: number | null): LPoint[] =>
-    pts.map((p) => ({ d: p.d, m, y, raw: p.raw }));
+  const days = (pts: Array<{ d: number; raw: string }>, my: { m: number; y: number | null; yi: YearIns | null }): LPoint[] =>
+    pts.map((p) => ({ d: p.d, m: my.m, y: my.y, raw: p.raw, yi: my.yi }));
   const G_DAYS: P<LGroup> = alt(
-    bind(listOf(DAY), (ds, j) => monthWithYear(j).map(([k, my]) => [k, { k: 'days', points: days(ds, my.m, my.y), check: null } as LGroup])),
+    bind(listOf(DAY), (ds, j) => monthWithYear(j).map(([k, my]) => [k, { k: 'days', points: days(ds, my), check: null } as LGroup])),
     bind(wdIndex(L.weekdayAcc), (wd, j) => bind(DAY, (dd, k) => monthWithYear(k).map(([l, my]) =>
-      [l, { k: 'days', points: days([dd], my.m, my.y), check: wd } as LGroup]))(j)),
+      [l, { k: 'days', points: days([dd], my), check: wd } as LGroup]))(j)),
   );
   const G_DM: P<LGroup> = bind(listOf(DM), (pts, j) => [[j, { k: 'days', points: pts, check: null }]]);
-  const span = (from: LPoint, to: LPoint, inherited: boolean, wd: LWd | null, until = false): LGroup =>
+  const span = (from: LPoint, to: LPoint, inherited: boolean, wd: LWd | null, until: UntilAt | null = null): LGroup =>
     ({ k: 'span', from, to, fromInherited: inherited, wd, until });
+  /** «до» лексемой `till`, день конца — лексемой `day`. */
+  const untilAt = (word: string, till: number, day: number): UntilAt | null =>
+    (word === 'до' ? { till: toks[till]!.at, dayAt: toks[day]!.at, dayEnd: toks[day]!.end } : null);
   /** с|со Д [МЕС_Р [ГОД]] по|до Д МЕС_Р [ГОД] [включительно] — `wd` задаёт обёртка. */
   const spanFromTo = (wd: LWd | null): P<LGroup> => bind(FROM, (_, j) => bind(DAY, (a, k) => {
-    const heads: R<{ m: number | null; y: number | null }> = [[k, { m: null, y: null }], ...monthWithYear(k)];
+    const heads: R<{ m: number | null; y: number | null; yi: YearIns | null }> = [[k, { m: null, y: null, yi: null }], ...monthWithYear(k)];
+    // Начало без месяца берёт месяц и год конца: год вписывается после месяца конца.
     return heads.flatMap(([l, am]) => bind(TO, (till, n) => bind(DAY, (b, o) => monthWithYear(o).flatMap(([q, bm]) =>
       inclusive(q).map((r) => [r, span(
-        { d: a.d, m: am.m ?? bm.m, y: am.m === null ? null : am.y, raw: a.raw }, { d: b.d, m: bm.m, y: bm.y, raw: b.raw },
-        am.m === null, wd, till === 'до',
+        { d: a.d, m: am.m ?? bm.m, y: am.m === null ? null : am.y, raw: a.raw, yi: am.m === null ? bm.yi : am.yi },
+        { d: b.d, m: bm.m, y: bm.y, raw: b.raw, yi: bm.yi },
+        am.m === null, wd, untilAt(till, n - 1, o - 1),
       )] as [number, LGroup])))(n))(l));
   })(j));
   const G_SPAN: P<LGroup> = alt(
     spanFromTo(null),
     bind(DAY, (a, j) => bind(DASH, (_, k) => bind(DAY, (b, l) => monthWithYear(l).flatMap(([n, bm]) =>
-      inclusive(n).map((o) => [o, span({ d: a.d, m: bm.m, y: null, raw: a.raw }, { d: b.d, m: bm.m, y: bm.y, raw: b.raw }, true, null)] as [number, LGroup])))(k))(j)),
+      inclusive(n).map((o) => [o, span({ d: a.d, m: bm.m, y: null, raw: a.raw, yi: bm.yi }, { d: b.d, m: bm.m, y: bm.y, raw: b.raw, yi: bm.yi }, true, null)] as [number, LGroup])))(k))(j)),
     bind(DAY, (a, j) => bind(monthWithYear, (am, k) => bind(DASH, (_, l) => bind(DAY, (b, n) => monthWithYear(n).flatMap(([o, bm]) =>
-      inclusive(o).map((q) => [q, span({ d: a.d, m: am.m, y: am.y, raw: a.raw }, { d: b.d, m: bm.m, y: bm.y, raw: b.raw }, false, null)] as [number, LGroup])))(l))(k))(j)),
+      inclusive(o).map((q) => [q, span({ d: a.d, m: am.m, y: am.y, raw: a.raw, yi: am.yi }, { d: b.d, m: bm.m, y: bm.y, raw: b.raw, yi: bm.yi }, false, null)] as [number, LGroup])))(l))(k))(j)),
     bind(FROM, (_, j) => bind(DM, (a, k) => bind(TO, (till, l) => bind(DM, (b, n) =>
-      inclusive(n).map((o) => [o, span(a, b, false, null, till === 'до')] as [number, LGroup]))(l))(k))(j)),
+      inclusive(n).map((o) => [o, span(a, b, false, null, untilAt(till, l - 1, n - 1))] as [number, LGroup]))(l))(k))(j)),
     bind(DM, (a, j) => bind(DASH, (_, k) => bind(DM, (b, l) => inclusive(l).map((n) => [n, span(a, b, false, null)] as [number, LGroup]))(k))(j)),
   );
-  const monthsGroup = (ms: number[], y: number | null, wd: LWd | null, range = false, same = false): LGroup =>
-    ({ k: 'months', months: ms.map((m, n) => ({ m, y: n === ms.length - 1 ? y : null })), wd, range, same });
+  /** `yi` — куда вписать год последнему месяцу (язык знает год только у одного месяца, без «в», «по»). */
+  const monthsGroup = (ms: number[], y: number | null, wd: LWd | null, range = false, same = false, yi: YearIns | null = null): LGroup =>
+    ({ k: 'months', months: ms.map((m, n) => ({ m, y: n === ms.length - 1 ? y : null, yi: n === ms.length - 1 ? yi : null })), wd, range, same });
   /** «с июля по сентябрь»: месяцы подряд, год — по порядку; «с октября по октябрь» — `same`. */
   const monthRange = (a: number, b: number, wd: LWd): LGroup => monthsGroup(monthSpan(a, b), null, wd, true, a === b);
   const G_WHOLE: P<LGroup> = alt(
-    bind(lit('весь'), (_, j) => bind(MON_NOM, (m, k) => yearOpt(k).map(([l, y]) => [l, monthsGroup([m], y, null)] as [number, LGroup]))(j)),
+    bind(lit('весь'), (_, j) => bind(MON_NOM, (m, k) => yearOpt(k).map(([l, y]) =>
+      [l, monthsGroup([m], y, null, false, false, y === null ? yearAfter(k) : null)] as [number, LGroup]))(j)),
     bind(MON_NOM, (m, j) => (['целиком', 'полностью'].includes(w(j) ?? '') ? [[j + 1, monthsGroup([m], null, null)] as [number, LGroup]] : [])),
-    bind(lit('каждый'), (_, j) => bind(lit('день'), (__, k) => bind(MON_GEN, (m, l) => yearOpt(l).map(([n, y]) => [n, monthsGroup([m], y, null)] as [number, LGroup]))(k))(j)),
-    bind(lit('все'), (_, j) => bind(lit('дни'), (__, k) => bind(MON_GEN, (m, l) => yearOpt(l).map(([n, y]) => [n, monthsGroup([m], y, null)] as [number, LGroup]))(k))(j)),
+    bind(lit('каждый'), (_, j) => bind(lit('день'), (__, k) => bind(MON_GEN, (m, l) => yearOpt(l).map(([n, y]) =>
+      [n, monthsGroup([m], y, null, false, false, y === null ? yearAfter(l) : null)] as [number, LGroup]))(k))(j)),
+    bind(lit('все'), (_, j) => bind(lit('дни'), (__, k) => bind(MON_GEN, (m, l) => yearOpt(l).map(([n, y]) =>
+      [n, monthsGroup([m], y, null, false, false, y === null ? yearAfter(l) : null)] as [number, LGroup]))(k))(j)),
   );
   const monthSpan = (a: number, b: number): number[] => {
     const out: number[] = [];
@@ -427,7 +467,7 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
   const G_WEEKDAY: P<LGroup> = alt(
     // ДН МЕС_Р (СВЯЗЬ МЕС_Р)* [ГОД]
     bind(WD, (wd, j) => bind(monthsGen, (ms, k) => yearOpt(k).flatMap(([l, y]) =>
-      (y !== null && ms.length > 1 ? [] : [[l, monthsGroup(ms, y, wd)] as [number, LGroup]])))(j)),
+      (y !== null && ms.length > 1 ? [] : [[l, monthsGroup(ms, y, wd, false, false, y === null && ms.length === 1 ? yearAfter(k) : null)] as [number, LGroup]])))(j)),
     // ДН с|со Д [МЕС_Р] по|до Д МЕС_Р [ГОД]
     bind(WD, (wd, j) => spanFromTo(wd)(j)),
     // ДН в|во МЕС_П (СВЯЗЬ МЕС_П)*
@@ -473,7 +513,8 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
     if (withWd.length === 1 && gs.some((g) => g !== withWd[0] && g.k !== 'days')) return false;
     return true;
   };
-  const DATES: P<LGroup[]> = bind(opt(lit('на')), (_, j) => listOf(GROUP)(j).filter(([, gs]) => groupsOk(gs)));
+  const DATES: P<{ gs: LGroup[]; at: number; end: number }> = bind(opt(lit('на')), (_, j) => listOf(GROUP)(j)
+    .filter(([, gs]) => groupsOk(gs)).map(([k, gs]) => [k, { gs, at: toks[j]!.at, end: toks[k - 1]!.end }]));
 
   // ── Места, цена, тур ──
   const SEAT_EACH: P<null> = (i) => {
@@ -519,7 +560,8 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
   const TOUR_BARE: P<{ words: string[]; slot: string | null }> = (i) => CHAIN(i).map(([k, ws]) => [k, { words: ws, slot: null }]);
 
   // ── Части ──
-  type Part = { t: 'dates'; v: LGroup[] } | { t: 'seats'; v: number } | { t: 'price' } | { t: 'tour'; v: { words: string[]; slot: string | null } };
+  type Part = { t: 'dates'; v: { gs: LGroup[]; at: number; end: number } } | { t: 'seats'; v: number } | { t: 'price' }
+    | { t: 'tour'; v: { words: string[]; slot: string | null } };
   const PART = (first: boolean): P<Part> => alt<Part>(
     bind(DATES, (v, j) => [[j, { t: 'dates', v }]]),
     bind(SEATS, (v, j) => [[j, { t: 'seats', v }]]),
@@ -595,9 +637,9 @@ function parsePhrase(toks: LTok[], chainOk: (words: string[]) => boolean): LPars
             for (const [f, parts] of PARTS(e)) {
               for (const [g] of opt(TAIL)(f)) {
                 if (!END(g)) continue;
-                const lp: LParse = { groups: [], seats: null, price: false, tour: null, fillers };
+                const lp: LParse = { groups: [], seats: null, price: false, tour: null, fillers, dates: { at: 0, end: 0 } };
                 for (const part of parts) {
-                  if (part.t === 'dates') lp.groups = part.v;
+                  if (part.t === 'dates') { lp.groups = part.v.gs; lp.dates = { at: part.v.at, end: part.v.end }; }
                   else if (part.t === 'seats') lp.seats = part.v;
                   else if (part.t === 'price') lp.price = true;
                   // Цепочка первой частью сразу после предмета «тур» названа после слова «тур».
