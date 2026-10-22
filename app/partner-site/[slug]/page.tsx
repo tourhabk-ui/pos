@@ -10,6 +10,7 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { defaultOgImages } from '@/lib/seo/og-image';
 import { PartnerSitePage } from '@/components/partner-site/PartnerSitePage';
 import { loadPartnerSite } from '@/lib/partner-sites/load';
 import { partnerSiteBySlug, partnerSiteUrl } from '@/lib/partner-sites/registry';
@@ -33,14 +34,21 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   // Индексируется только на своём домене: на vedarai.ru это предпросмотр.
   const onOwnDomain = partnerSiteOfRequest(await headers())?.slug === site.slug;
   const url = partnerSiteUrl(site);
-  const logo = (await loadPartnerSite(site.slug))?.profile.logo_image ?? null;
+  const data = await loadPartnerSite(site.slug);
+  const logo = data?.profile.logo_image ?? null;
+  const ogImage = data ? absolute(site, data.profile.hero_image ?? extractGallery(data.profile.gallery)[0] ?? null) : null;
   return {
     // absolute: шаблон «… | Ведар» корневого layout к сайту партнёра не относится.
     title: { absolute: site.title },
     description: site.description,
     alternates: { canonical: url },
     robots: onOwnDomain ? { index: true, follow: true } : { index: false, follow: false },
-    openGraph: { title: site.title, description: site.description, url, type: 'website', locale: 'ru_RU' },
+    openGraph: {
+      title: site.title, description: site.description, url, type: 'website', locale: 'ru_RU', siteName: site.host,
+      // Снимок партнёра: превью ссылки — его сайт. Без снимка — общая
+      // картинка, а не пустое превью (сторож og-image-everywhere).
+      images: ogImage ? [{ url: ogImage }] : defaultOgImages(),
+    },
     // Не приложение Ведара: без его манифеста браузер не предложит
     // «установить Ведар» на сайте партнёра; значок вкладки — логотип партнёра.
     manifest: null,

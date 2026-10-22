@@ -3,7 +3,7 @@
  * страница партнёра — предпросмотр под /partner-site/<slug>).
  *
  * За прокси Timeweb заголовок Host до приложения доходит не всегда — правила
- * tourhab.ru в next.config.js по той же причине продублированы через
+ * канона домена в next.config.js по той же причине продублированы через
  * x-forwarded-host. Поэтому сначала x-forwarded-host, потом host.
  */
 import type { PartnerSite } from '@/lib/partner-sites/registry';
