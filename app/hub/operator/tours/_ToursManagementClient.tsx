@@ -9,6 +9,8 @@ import {
   Eye, EyeOff, Trash2, Edit2, RefreshCw, ChevronLeft, ChevronRight,
   CalendarDays, Check, X, FileText, Loader2,
 } from 'lucide-react';
+import { storefrontState } from '@/lib/tours/public-visibility';
+import { StorefrontBadge } from '@/components/operator/StorefrontBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,8 @@ interface Tour {
   difficulty: string | null;
   is_active: boolean;
   is_published: boolean;
+  /** Ответ шлюза каталога (publicTourSql) — видит ли тур турист (#2642). */
+  on_storefront: boolean;
   tour_image: string | null;
   photos: string[] | null;
   rating: string | null;
@@ -270,11 +274,16 @@ export default function ToursManagementClient() {
             const img = tour.tour_image ?? tour.photos?.[0] ?? null;
             const isToggling = toggling === tour.id;
             const isDeleting = deleting === tour.id;
+            // Бейдж — по шлюзу каталога, а не по одному is_active (#2642):
+            // новый тур заводится черновиком (is_published = false), и
+            // «Активен» у него обещал туристов, которых тур не увидит.
+            const state = storefrontState(tour);
             return (
-              <div
+              <article
                 key={tour.id}
+                aria-label={tour.title}
                 className="ds-card p-4 flex gap-4 items-start"
-                style={!tour.is_active ? { opacity: 0.65 } : {}}
+                style={state === 'hidden' ? { opacity: 0.65 } : {}}
               >
                 {/* Thumbnail */}
                 <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-[var(--bg-hover)] flex items-center justify-center">
@@ -315,17 +324,7 @@ export default function ToursManagementClient() {
                       </div>
                     </div>
 
-                    {/* Status badge */}
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
-                      style={tour.is_active ? {
-                        background: 'var(--success)/12', color: 'var(--success)',
-                      } : {
-                        background: 'var(--text-muted)/12', color: 'var(--text-muted)',
-                      }}
-                    >
-                      {tour.is_active ? 'Активен' : 'Скрыт'}
-                    </span>
+                    <StorefrontBadge state={state} />
                   </div>
 
                   {/* Stats row */}
@@ -408,7 +407,7 @@ export default function ToursManagementClient() {
                     )}
                   </button>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
@@ -534,7 +533,7 @@ export default function ToursManagementClient() {
                 </div>
 
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  Тур будет создан как черновик с координатами по умолчанию. Уточните детали в редакторе.
+                  Тур будет создан черновиком: туристы его не увидят, пока в редакторе не отмечено «Опубликован». Там же уточните детали и координаты.
                 </p>
 
                 <div className="flex gap-2">

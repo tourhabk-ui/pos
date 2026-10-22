@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // ============================================================================
 // SCHEMAS
@@ -148,6 +149,9 @@ export async function getToursByOperator(
       t.location_type, t.activity_type, t.location_name,
       t.base_price, t.price_old, t.price_unit,
       t.max_participants, t.min_participants, t.is_active, t.is_published,
+      -- Видит ли тур турист — ответ того же шлюза, что у каталога, а не
+      -- копия условия: бейдж кабинета судит по нему (#2642).
+      ${publicTourSql('t')} AS on_storefront,
       t.duration_hours, t.duration_type, t.multi_day_count,
       t.difficulty, t.included, t.not_included, t.what_to_bring,
       t.photos, t.tour_image, t.agent_route_id,

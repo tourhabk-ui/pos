@@ -55,7 +55,7 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...args: unknown[]) => poolQueryMock(...args) },
 }));
 
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicTourSql, storefrontState, STOREFRONT_LABELS } from '@/lib/tours/public-visibility';
 import { GET as toursList } from '@/app/api/tours/route';
 import { GET as tourDetail } from '@/app/api/tours/[id]/route';
 import { GET as tourSlots } from '@/app/api/tours/[id]/slots/route';
@@ -105,6 +105,40 @@ describe('шлюз витрины туров — сам предикат', () =>
 
   it('алиас из чужих рук в SQL не подставляется', () => {
     expect(() => publicTourSql("t; DROP TABLE operator_tours --")).toThrow();
+  });
+});
+
+// #2642: кабинет оператора называет состояние тура тем же правилом, что шлюз.
+describe('storefrontState — состояние тура для кабинета, рядом со шлюзом', () => {
+  it('на витрине — только при всех трёх флагах, как в publicTourSql', () => {
+    expect(storefrontState({ is_active: true, is_published: true, deleted_at: null })).toBe('on');
+    expect(storefrontState({ is_active: true, is_published: true })).toBe('on');
+  });
+
+  it('новый тур (is_published = false) — черновик, а не «на витрине»', () => {
+    expect(storefrontState({ is_active: true, is_published: false })).toBe('draft');
+    // NULL флага — не «да», как и в SQL (NULL = true не проходит WHERE).
+    expect(storefrontState({ is_active: true, is_published: null })).toBe('draft');
+  });
+
+  it('выключенный или удалённый — скрыт, опубликован он или нет', () => {
+    expect(storefrontState({ is_active: false, is_published: true })).toBe('hidden');
+    expect(storefrontState({ is_active: false, is_published: false })).toBe('hidden');
+    expect(storefrontState({ is_active: null, is_published: true })).toBe('hidden');
+    expect(storefrontState({ is_active: true, is_published: true, deleted_at: '2026-10-01T00:00:00Z' })).toBe('hidden');
+  });
+
+  it('ответ шлюза «нет» сильнее флагов: «На витрине» без витрины не пишется', () => {
+    expect(storefrontState({ is_active: true, is_published: true, on_storefront: false })).toBe('hidden');
+    expect(storefrontState({ is_active: true, is_published: true, on_storefront: true })).toBe('on');
+  });
+
+  it('подписи — словами, одна на состояние', () => {
+    expect(STOREFRONT_LABELS).toEqual({
+      on: 'На витрине',
+      draft: 'Черновик — туристы не видят',
+      hidden: 'Скрыт',
+    });
   });
 });
 

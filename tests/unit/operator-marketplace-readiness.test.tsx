@@ -95,7 +95,7 @@ const SCREEN = {
     stats: { totalTours: 2, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 2 },
     tours: [
       {
-        tour_id: '51', tour_title: 'Рыбалка', is_published: true,
+        tour_id: '51', tour_title: 'Рыбалка', is_active: true, is_published: true, on_storefront: true,
         required_score: 100, recommended_score: 50, total_score: 85,
         missing_required: ['tour_image'], missing_recommended: [],
         marketplace_ready: false,
@@ -105,7 +105,7 @@ const SCREEN = {
         ],
       },
       {
-        tour_id: '52', tour_title: 'Вулкан Горелый', is_published: true,
+        tour_id: '52', tour_title: 'Вулкан Горелый', is_active: true, is_published: true, on_storefront: true,
         required_score: 100, recommended_score: 100, total_score: 100,
         missing_required: [], missing_recommended: [],
         marketplace_ready: true, marketplace_blockers: [],

@@ -24,6 +24,11 @@
  * живое место; планировщик считает спрос в главном месте один раз; перепись
  * называет непривязанные живые туры.
  *
+ * Третья — кабинет оператора (#2642): черновик выглядел там «Активен». Список
+ * туров и экран «Чего не хватает» несут ответ того же шлюза (`on_storefront`),
+ * и на каждом туре он равен наличию тура в выдаче каталога; «готов к Авито и
+ * Яндексу» равен наличию тура в ленте — черновик со всеми полями не готов.
+ *
  * Своя база `public_tour_gate_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -184,6 +189,76 @@ withPg('витрина туров: снятый тур не в плане и н�
     const s = await queryCatalogSummary();
     const ours = s.byActivity.filter((b) => b.activity_type.startsWith('w2pt_')).map((b) => b.activity_type).sort();
     expect(ours).toEqual([activity('live'), activity('live2')]);
+  });
+
+  // ── #2642: кабинет оператора говорит, видит ли тур турист ─────────────────
+  // Список туров ставил бейдж по одному is_active, экран «Чего не хватает» —
+  // по одному is_published. Теперь оба читают ответ того же шлюза
+  // (publicTourSql AS on_storefront) и называют состояние storefrontState.
+
+  it('кабинет (#2642): on_storefront и состояние тура совпадают с выдачей каталога на каждом туре', async () => {
+    const { getToursByOperator } = await import('@/lib/api/operator-tours');
+    const { COMPLETENESS_TOURS_SQL } = await import('@/lib/operator/screen-queries');
+    const { queryMarketplaceTours, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
+    const { storefrontState } = await import('@/lib/tours/public-visibility');
+    type Row = { id: string | number; is_active: boolean | null; is_published: boolean | null; on_storefront: boolean };
+
+    const list = (await getToursByOperator(OPERATOR.id, { limit: 100, offset: 0 })).rows as unknown as Row[];
+    const screenRows = (await pool.query<Row>(COMPLETENESS_TOURS_SQL, [OPERATOR.id])).rows;
+    // Удалённый тур кабинет не показывает вовсе — ни списком, ни экраном.
+    const inCabinet = [id.live, id.live2, id.inactive, id.unpublished].sort();
+    expect(list.map((r) => String(r.id)).sort()).toEqual(inCabinet);
+    expect(screenRows.map((r) => String(r.id)).sort()).toEqual(inCabinet);
+
+    const expected: Record<string, 'on' | 'draft' | 'hidden'> = {
+      [id.live]: 'on', [id.live2]: 'on', [id.inactive]: 'hidden', [id.unpublished]: 'draft',
+    };
+    for (const [where, rows] of [['список туров', list], ['экран «Чего не хватает»', screenRows]] as const) {
+      for (const r of rows) {
+        const tid = String(r.id);
+        const found = await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ id: tid, limit: 10 }));
+        const inCatalog = found.tours.some((t) => String(t.id) === tid);
+        expect(typeof r.on_storefront, `${where}: ${tid}`).toBe('boolean');
+        expect(r.on_storefront, `${where}: on_storefront тура ${tid} против каталога`).toBe(inCatalog);
+        // Копия условия в функции равна шлюзу: одни флаги дают тот же итог.
+        expect(storefrontState({ is_active: r.is_active, is_published: r.is_published }) === 'on', `${where}: флаги ${tid}`).toBe(inCatalog);
+        expect(storefrontState(r), `${where}: ${tid}`).toBe(expected[tid]);
+      }
+    }
+  });
+
+  it('кабинет (#2642): «Готов к Авито и Яндексу» — ровно туры из ленты; черновик со всеми полями — нет', async () => {
+    // Поля лент заполнены у всех туров оператора: решает только витрина.
+    await pool.query(`UPDATE partners SET contacts = '{"phone":"+70000000001"}'::jsonb WHERE id = $1`, [OPERATOR.id]);
+    await pool.query(
+      `UPDATE operator_tours
+          SET description = repeat('Описание тура для лент площадок. ', 15),
+              photos = ARRAY['/images/w2pt-cover.jpg'],
+              pickup_type = 'hotel_pickup',
+              cancellation_policy = 'Бесплатная отмена за 3 дня до тура',
+              latitude = 53.25, longitude = 158.83
+        WHERE operator_id = $1`,
+      [OPERATOR.id],
+    );
+    const { getOperatorPartnerId } = await import('@/lib/auth/operator-helpers');
+    vi.mocked(getOperatorPartnerId).mockResolvedValueOnce(OPERATOR.id);
+    const { GET } = await import('@/app/api/operator/completeness/route');
+    const res = await GET(new NextRequest('http://localhost/api/operator/completeness'));
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      data: { tours: Array<{ tour_id: string | number; on_storefront: boolean; marketplace_ready: boolean; marketplace_blockers: unknown[] }> };
+    };
+    const byId = Object.fromEntries(body.data.tours.map((t) => [String(t.tour_id), t]));
+    expect(Object.keys(byId).sort()).toEqual([id.live, id.live2, id.inactive, id.unpublished].sort());
+
+    const { selectFeedTours } = await import('@/lib/channels/ready-tours');
+    const feed = new Set((await selectFeedTours()).tours.map((t) => String(t.id)));
+    for (const [tid, t] of Object.entries(byId)) {
+      expect(t.marketplace_blockers, `у тура ${tid} поля лент заполнены`).toEqual([]);
+      expect(t.marketplace_ready, `«готов» тура ${tid} против ленты`).toBe(feed.has(tid));
+    }
+    expect(byId[id.unpublished]).toMatchObject({ on_storefront: false, marketplace_ready: false });
+    expect(byId[id.live]).toMatchObject({ on_storefront: true, marketplace_ready: true });
   });
 
   it('чат виджета партнёра (loadPartnerTours): только живые туры этого оператора, закреплённый первым, соседа нет', async () => {
