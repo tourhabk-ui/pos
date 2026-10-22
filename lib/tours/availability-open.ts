@@ -102,6 +102,7 @@ import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { requestWindow, dateInWindow } from './request-window';
+import { tourDays } from './catalog-availability';
 
 /**
  * Последний день, который витрина покажет при этом «сегодня»: тот же
@@ -286,11 +287,22 @@ interface StateRow {
 }
 
 /**
- * Записать даты в транзакции вызывающего. Клиент УЖЕ в транзакции; ошибку
- * базы функция бросает — откат и слова человеку решает владелец транзакции.
+ * Разбор дат: владение, состояние каждой даты и исход — одним правилом для
+ * записи и для превью. `lock` — строка тура под `FOR NO KEY UPDATE` (запись,
+ * шапка, п. 1); превью идёт без блокировки: оно только показывает, что
+ * будет, а запись при нажатии разбирает даты заново под блокировкой — между
+ * превью и нажатием могли прийти брони.
  */
-export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: OpenDatesInput): Promise<OpenDatesOutcome> {
-  const byDate = normalize(input);
+async function classifyTourDates(
+  client: Pick<PoolClient, 'query'>,
+  input: OpenDatesInput,
+  byDate: Map<string, { slots: number; price: number | null }>,
+  lock: boolean,
+): Promise<
+  | { ok: false; reason: 'tour_not_found' }
+  | { ok: false; reason: 'tour_inactive'; title: string }
+  | { ok: true; tour: TourRow; isActive: boolean; perDate: DateOpenResult[]; toWrite: Array<{ date: string; slots: number; price: number | null }> }
+> {
   const dates = [...byDate.keys()].sort();
 
   // Владение и блокировка — одним запросом (см. шапку, п. 1). Скрытость
@@ -301,7 +313,7 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
             duration_type, multi_day_count, duration_hours
        FROM operator_tours WHERE id = $1 AND operator_id = $2
         AND deleted_at IS NULL
-     FOR NO KEY UPDATE`,
+     ${lock ? 'FOR NO KEY UPDATE' : ''}`,
     [String(input.tourId), input.operatorId],
   );
   const tour = tourRes.rows[0];
@@ -371,6 +383,51 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
     else perDate.push({ date, result: 'reopened', reason: closed ? s.cancellation_reason : null });
     toWrite.push({ date, slots: want.slots, price: want.price });
   }
+  return { ok: true, tour, isActive, perDate, toWrite };
+}
+
+function openedTour(tour: TourRow, isActive: boolean): OpenedTour {
+  return {
+    title: tour.title,
+    maxParticipants: tour.max_participants,
+    isPublished: tour.is_published === true,
+    isActive,
+  };
+}
+
+/** Тур в превью: плюс длительность в днях — для предупреждения о частых выездах. */
+export interface PreviewTour extends OpenedTour {
+  /** Дней в поездке (`tourDays`): многодневная бронь занимает все свои дни. */
+  days: number;
+}
+
+export type PreviewDatesOutcome =
+  | { ok: true; tour: PreviewTour; perDate: DateOpenResult[] }
+  | { ok: false; reason: 'tour_not_found' }
+  | { ok: false; reason: 'tour_inactive'; title: string };
+
+/**
+ * Что будет с датами, если их открыть сейчас, — без записи и без блокировки
+ * тура (чат кабинета показывает это до нажатия «Открыть»). Правило то же, что
+ * у записи: одна функция разбора. Исход `opened`/`reopened` здесь значит
+ * «откроется». Ошибку базы бросает: «не смог проверить» решает вызывающий.
+ */
+export async function previewTourDates(db: Pick<PoolClient, 'query'>, input: OpenDatesInput): Promise<PreviewDatesOutcome> {
+  const byDate = normalize(input);
+  const c = await classifyTourDates(db, input, byDate, false);
+  if (!c.ok) return c;
+  return { ok: true, tour: { ...openedTour(c.tour, c.isActive), days: tourDays(c.tour) }, perDate: c.perDate };
+}
+
+/**
+ * Записать даты в транзакции вызывающего. Клиент УЖЕ в транзакции; ошибку
+ * базы функция бросает — откат и слова человеку решает владелец транзакции.
+ */
+export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: OpenDatesInput): Promise<OpenDatesOutcome> {
+  const byDate = normalize(input);
+  const c = await classifyTourDates(client, input, byDate, true);
+  if (!c.ok) return c;
+  const { perDate, toWrite } = c;
 
   let written = 0;
   if (toWrite.length > 0) {
@@ -417,17 +474,7 @@ export async function openTourDatesTx(client: Pick<PoolClient, 'query'>, input: 
     if (changed.length > 0) await reclassifyChanged(client, input, changed, perDate);
   }
 
-  return {
-    ok: true,
-    tour: {
-      title: tour.title,
-      maxParticipants: tour.max_participants,
-      isPublished: tour.is_published === true,
-      isActive,
-    },
-    perDate,
-    written,
-  };
+  return { ok: true, tour: openedTour(c.tour, c.isActive), perDate, written };
 }
 
 /**

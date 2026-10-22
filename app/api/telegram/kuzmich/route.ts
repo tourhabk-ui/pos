@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
 import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
+import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
+import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
@@ -605,6 +607,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const text = msg.text.trim();
       if (text === '/start') {
         await tgReply(chatId, partnerGreeting(partner));
+      } else if (partner.category === 'operator' && chatDatesIntent(text) === 'dates'
+        && await (await import('@/lib/operators/chat-dates/flow')).isOperatorDatesPhrase(text, partner.partnerId)) {
+        // «Открой даты словами» (22.10) — только в MAX: там есть кнопка
+        // подтверждения. Здесь записи нет, и помощник фразу не получает —
+        // он сказал бы «открыл», не открыв.
+        await tgReply(chatId, telegramDatesText());
       } else {
         await processPartnerMessage({ chatId, text, fromName, partner, reply: tgReply });
       }

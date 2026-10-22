@@ -88,7 +88,8 @@
  *     max_chat_id и зеркало contacts.telegram_chat_id), доказанно его по
  *     столбцам: его id в Telegram или MAX, или диалог MAX, где он писал
  *     Кузьмичу; чужой канал карточки (чат команды) остаётся и называется в
- *     ответе (ERASE_STEP_LEAVES);
+ *     ответе (ERASE_STEP_LEAVES); предложения «открыть даты» из его диалога
+ *     MAX (operator_chat_date_proposals) удаляются тем же ключом;
  *   - спутники, описание маршрута и последняя точка в его прошедших
  *     регистрациях маршрута, адресат в журнале доставки тревог по ним
  *     (телефон и почта экстренного контакта) и текст отказа доставки, где
@@ -825,6 +826,21 @@ export const ERASE_DETACH_ONLY: Readonly<Record<string, string>> = {
     + 'его каналы в мессенджерах, а туры, машины, заявки и брони, ссылающиеся на карточку, — партнёра и его клиентов',
 };
 
+/**
+ * Таблицы, ссылающиеся на карточку из ERASE_DETACH_ONLY и хранящие id в
+ * мессенджере, но не копию его канала — с причиной. Перепись полноты такие
+ * таблицы не берёт (ссылка на карточку — не ссылка на него), а id чата в них
+ * может оказаться его диалогом: так было с предложениями «открыть даты»
+ * (ревью этапа C 22.10), и шаг для них стоит в eraseUser. Сторож
+ * (tests/unit/account-erase-coverage.test.ts) требует у каждой такой таблицы
+ * шаг, место в переписи, в ERASE_UNLINKED или запись здесь; запись
+ * самоустаревает — у таблицы появился шаг, или её нет в схеме.
+ */
+export const PARTNER_MESSENGER_NOT_HIS: Readonly<Record<string, string>> = {
+  operator_ai_config: 'max_owner_chat_id есть только в baseline: ни один файл lib/, app/ и migrations/ её не пишет и не читает '
+    + '(перепись 22.10) — копии канала нет, пока у колонки нет производителя',
+};
+
 
 /**
  * Заголовок касания или «задача выполнена» после стирания карточки по
@@ -1132,6 +1148,16 @@ export async function eraseUser(
       FROM (${HIS_MESSENGER_IDS}) his
       WHERE partners.user_id = $1
         AND (${OWN_TG('partners')} OR ${OWN_MAX('partners')} OR ${OWN_TG_MIRROR('partners')})`],
+    // Предложения «открыть даты» из его диалога MAX с ботом (миграция 1315,
+    // lib/operators/chat-dates): chat_id строки — копия канала карточки, и
+    // шаг partners выше её не видит — строки ссылаются на карточку, а не на
+    // него (ERASE_DETACH_ONLY). Тот же ключ, что у канала карточки: диалог MAX
+    // доказанно его. Даты, открытые по нажатию, живут в tour_availability и
+    // не трогаются; уходит журнал действия с id его диалога. ДО шагов
+    // tg_conversations и users — ключи к диалогу живут там.
+    ['operator_chat_date_proposals', `DELETE FROM operator_chat_date_proposals p
+      USING (${HIS_MESSENGER_IDS}) his
+      WHERE p.channel = 'max' AND p.chat_id = ANY(his.mx)`],
     // Переписка с Кузьмичом — ДО шага users: ключ к ней (id в мессенджере)
     // живёт только в users и обнуляется там. Telegram пишет chat_id чата и
     // user_id отправителя (в личке они равны), MAX — chat_id диалога (в users

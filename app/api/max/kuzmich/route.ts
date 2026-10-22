@@ -23,6 +23,14 @@
  * Без ключа бот — открытый ответчик: отвечает в чат, названный телом, и
  * подделать его так же легко, как user_id (шапка lib/max/verified-press).
  *
+ * «Открой даты словами» (решение владельца 22.10, вариант а): фраза про даты
+ * в чате кабинета туроператора — предложение с кнопками «Открыть» / «Не
+ * надо» (`od:`), запись — только по нажатию. И фраза, и нажатие — только по
+ * заверенному апдейту и только из личного диалога (`chat_type`), чат нажатия
+ * — из сообщения с кнопкой; фраза про даты из группы получает ответ «даты —
+ * в личном диалоге», а не молчание; порядок проверок и тексты —
+ * lib/operators/chat-dates/flow.
+ *
  * Env vars: MAX_BOT_TOKEN
  */
 
@@ -46,6 +54,9 @@ import {
   UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf,
 } from '@/lib/max/verified-press';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
+import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
+import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -98,6 +109,15 @@ function updateKind(update: unknown): string {
 }
 
 /**
+ * Вид чата для лога: поле тела, поэтому только узнаваемая форма. Подделанный
+ * апдейт в режиме без ключа иначе писал бы в лог свои строки — с переводом
+ * строки, поддельной записью и телефоном (ревью 22.10).
+ */
+function chatTypeForLog(v: unknown): string {
+  return typeof v === 'string' && /^[a-z_]{1,20}$/.test(v) ? v : 'вид чата не узнан';
+}
+
+/**
  * Откуда пришёл запрос, для лога: хост и путь адреса и X-Forwarded-Host (прокси
  * Timeweb подменяет Host своим, исходное имя кладёт туда — next.config.js,
  * «Канон домена»). Без query: в нём ключ подписки. Заголовок присылает кто
@@ -144,6 +164,20 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
   } catch (err) {
     logFailure('ответ с кнопками в чат MAX', err);
   }
+}
+
+/** Ответ потока дат в чат кабинета: кнопки — callback с payload `od:`. */
+function datesSend(chatId: number): DatesSend {
+  return async (text, buttons) => {
+    if (!buttons?.length) {
+      await maxReply(chatId, text);
+      return;
+    }
+    await maxReplyWithButtons(chatId, text, buttons.map((row) => row.map((b) => (
+      b.intent ? { type: 'callback' as const, text: b.text, payload: b.payload, intent: b.intent }
+        : { type: 'callback' as const, text: b.text, payload: b.payload }
+    ))));
+  };
 }
 
 // ── Кнопки по лиду ────────────────────────────────────────────────────────────
@@ -385,7 +419,8 @@ interface MaxUpdate {
  *     нажатие не засчитано, и ничего не меняем. Ответ уходит в чат из тела:
  *     без ключа это открытый ответчик (шапка lib/max/verified-press);
  *  3. чат вправе нажимать: для мест — MAX-чат оператора запроса, для лида —
- *     рабочий MAX_OPERATOR_CHAT_ID.
+ *     рабочий MAX_OPERATOR_CHAT_ID, для дат — личный диалог (`chatType`) чата
+ *     кабинета туроператора, чьё это предложение (lib/operators/chat-dates).
  */
 async function handleActionPress(
   action: MaxPressAction,
@@ -393,6 +428,7 @@ async function handleActionPress(
   chatId: number | null,
   verified: boolean,
   presserId: number | null,
+  chatType: string | null,
 ): Promise<void> {
   if (!chatId) {
     console.error(`[max/kuzmich] нажатие (${action}) без чата сообщения — не применено`);
@@ -416,6 +452,20 @@ async function handleActionPress(
       : confirm ? await confirmMaxLoginSession(nonce, presserId)
       : await rejectMaxLoginSession(nonce, presserId);
     await maxReply(chatId, !done ? MAX_LOGIN_TEXT.stale : confirm ? MAX_LOGIN_TEXT.confirmed : MAX_LOGIN_TEXT.rejected);
+    return;
+  }
+
+  // «Открыть» / «Не надо» / выбор тура под предложением открыть даты. Только
+  // личный диалог: в группе кнопку нажал бы любой участник. Отказ — в лог,
+  // без ответа: чат не тот, и отвечать в него нечего.
+  if (action === 'dates') {
+    if (chatType !== 'dialog') {
+      console.error(`[max/kuzmich] нажатие (dates) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      return;
+    }
+    const lookup = await findPartnerByChat('max', chatId);
+    const { handleOperatorDatesPress } = await import('@/lib/operators/chat-dates/flow');
+    await handleOperatorDatesPress({ payload, chatId, lookup, send: datesSend(chatId) });
     return;
   }
 
@@ -661,10 +711,27 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     // Текст
     if (text) {
+      // «Открой даты словами» (22.10): фраза про даты в чате партнёра — в
+      // поток дат. Предложение — только в личном диалоге: в группе
+      // (положительный id бывает и у них) кнопку нажал бы любой участник, и
+      // поток отвечает «даты — в личном диалоге» (четвёртый ревью 22.10:
+      // раньше фраза пропадала молча). Туристу вид чата ничего не меняет — его
+      // сообщение идёт Кузьмичу, как раньше.
+      const datesIntent = chatDatesIntent(text);
+      const dialog = msg.recipient.chat_type === 'dialog';
       // Партнёр по привязанному чату — к помощнику партнёра (CRM 1д). «Не
       // смогли проверить» записано в лог самой проверкой и ведёт в туристский
-      // поток — как в Telegram.
+      // поток — как в Telegram. Кроме фразы про даты: туристский Кузьмич
+      // ответил бы на «открой субботы июля» по-своему, а «не смог проверить»
+      // не равно «это турист» (§4.0).
       const lookup = await findPartnerByChat('max', chatId);
+      if (lookup.outcome !== 'none' && datesIntent === 'dates' && !dialog) {
+        console.error(`[max/kuzmich] фраза про даты не из личного диалога (${chatTypeForLog(msg.recipient.chat_type)}) — без предложения`);
+      }
+      if (lookup.outcome === 'unavailable' && datesIntent === 'dates') {
+        await maxReply(chatId, DATES_TEXT.partnerUnknown);
+        return;
+      }
       if (lookup.outcome === 'found') {
         // Помощник кабинета пишет в CRM партнёра (касания, задачи) — только по
         // заверенному апдейту: чат партнёра в теле прислал бы кто угодно.
@@ -673,6 +740,15 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReply(chatId, UNVERIFIED_CHAT_REPLY.partner);
           return;
         }
+        // Поток дат смотрит каждое сообщение партнёра: не про даты — false, но
+        // поправка («нет, 4 места»), ушедшая помощнику, снимает действующее
+        // предложение туроператора (пятый ревью 22.10).
+        const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
+        const handled = await handleOperatorDatesText({
+          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId), dialog,
+          sentAtMs: Number.isFinite(update.timestamp) ? update.timestamp : null,
+        });
+        if (handled) return;
         const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
         await processPartnerMessage({ chatId, text, fromName: userName, partner: lookup.partner, reply: maxReply });
         return;
@@ -721,7 +797,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     const pressAction = pressActionOf(payload);
     if (pressAction !== null) {
       const presserId = typeof update.callback.user?.user_id === 'number' ? update.callback.user.user_id : null;
-      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true, presserId);
+      const chatType = typeof update.message?.recipient.chat_type === 'string' ? update.message.recipient.chat_type : null;
+      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true, presserId, chatType);
       return;
     }
 

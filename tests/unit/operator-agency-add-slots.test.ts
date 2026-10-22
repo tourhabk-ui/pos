@@ -266,6 +266,36 @@ describe('какие даты: ровно названные, а не догад
     expect(executeGovernedAction).not.toHaveBeenCalled();
   });
 
+  it('второй ревью 22.10: подсказка на «как связаны даты» — команда целиком, которую помощник исполняет', async () => {
+    // Голое «с A по B» классификатор помощнику не отдаёт: ответ по подсказке
+    // уходил мимо. Каждая подсказка в кавычках — ключ op_add_slots и исполнение
+    // без того же вопроса; названные места — в подсказке.
+    const cases: Array<[string, number | null]> = [
+      ['открой даты туру 42 2027-08-05 2027-08-12, 6 мест', 6],
+      ['открой даты туру 42 с 2027-08-05, 6 мест', 6],
+      ['открой даты туру 42 2027-08-05 2027-08-12', null],
+    ];
+    for (const [phrase, seats] of cases) {
+      const res = await new OperatorAgency().addSlots(ctx, phrase);
+      const hints = [...res.response.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+      expect(hints.length, res.response).toBeGreaterThan(0);
+      for (const hint of hints) {
+        expect(classifyIntentByKeywords(hint, 'operator'), hint).toBe('op_add_slots');
+        openTourDates.mockReset();
+        openTourDates.mockResolvedValue(openedOne('2027-08-05'));
+        const again = await new OperatorAgency().addSlots(ctx, hint);
+        expect(again.response, hint).not.toMatch(/как связаны даты|С какой и по какую/);
+        if (seats === null) {
+          expect(again.response, hint).toMatch(/Сколько мест открыть/);
+          expect(openTourDates).not.toHaveBeenCalled();
+        } else {
+          expect(openTourDates, hint).toHaveBeenCalledTimes(1);
+          expect((openTourDates.mock.calls[0]![0] as { rows: Array<{ slots: number }> }).rows.every((r) => r.slots === seats)).toBe(true);
+        }
+      }
+    }
+  });
+
   it('дни недели — отказ словами: помощник их не применит и не откроет каждый день', async () => {
     const res = await new OperatorAgency().addSlots(ctx, 'добавь слоты по субботам с 2027-07-01 по 2027-07-31 туру 42, 8 мест');
     expect(res.response).toMatch(/Дни недели и периодичность \(«субботам»\)/);
@@ -313,7 +343,7 @@ describe('ответ называет исход каждой даты', () => {
     }, 8);
     expect(text.startsWith('Ничего не открыто.')).toBe(true);
     expect(text).not.toMatch(/Открыто \(/);
-    expect(text).toMatch(/уже записано больше 8 \(1\): 3 июля 2027 — записано 9/);
+    expect(text).toMatch(/уже записано больше, чем 8 мест \(1\): 3 июля 2027 — записано 9 человек/);
     expect(text).toMatch(/закрыли вы.*10 июля 2027 \(«Шторм»\)/);
     expect(text).toMatch(/вне сезона тура \(сезон 1 мая 2027 — 30 сентября 2027; сезон меняется в карточке тура\)/);
     expect(text).toMatch(/дата прошла \(1\): 1 октября 2026/);

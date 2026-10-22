@@ -48,7 +48,8 @@ import {
   type CensusRow, type EraseStep, type ParsedSchema,
 } from '../helpers/pd-census';
 import {
-  ERASE_DETACH_ONLY, ERASE_KEEP, ERASE_STEP_LEAVES, ERASE_UNLINKED, HAND_TITLE_KINDS, UNPROVEN_CARD_KEEP, UNPROVEN_CRM_CARDS, UNPROVEN_CRM_PARTNERS,
+  ERASE_DETACH_ONLY, ERASE_KEEP, ERASE_STEP_LEAVES, ERASE_UNLINKED, HAND_TITLE_KINDS, PARTNER_MESSENGER_NOT_HIS,
+  UNPROVEN_CARD_KEEP, UNPROVEN_CRM_CARDS, UNPROVEN_CRM_PARTNERS,
   eraseUser, erasureMessage, findRemainingData, findEraseBlockers, unprovenCrmSentence,
   type EraseQueryable,
 } from '@/lib/account/erase';
@@ -312,6 +313,36 @@ describe('удаление аккаунта: каждая таблица с ПД
     expect(order.indexOf('partners')).toBeLessThan(order.indexOf('users'));
     // Карточка — не его строка: ссылающиеся на неё таблицы перепись по этой связи не берёт.
     for (const t of ['leads', 'transfer_fleet_vehicles', 'transfer_charter_prices']) expect(census.has(t), t).toBe(false);
+  });
+
+  it('id в мессенджере в таблице, ссылающейся на карточку партнёра, — шаг, перепись, «не привязано» или причина (ревью этапа C 22.10)', () => {
+    // Перепись по ссылке на карточку таблицу не берёт (ERASE_DETACH_ONLY), а
+    // id чата в ней может быть его диалогом: предложения «открыть даты»
+    // хранили id его диалога MAX и после удаления аккаунта — шаг partners
+    // снимал канал с карточки, а копия оставалась навсегда.
+    const MESSENGER = /(?:^|_)chat_id$|^(?:telegram|tg|max|vk)_(?:user_)?id$/;
+    const touched = new Set(steps.map((st) => st.table));
+    const unlinked = new Set(Object.values(ERASE_UNLINKED).flatMap((u) => [...u.tables]));
+    const linked = [...new Set(schema.foreignKeys
+      .filter((fk) => ERASE_DETACH_ONLY[fk.refTable] !== undefined && fk.table !== fk.refTable)
+      .map((fk) => fk.table))]
+      .filter((t) => [...(schema.columns.get(t)?.keys() ?? [])].some((c) => MESSENGER.test(c)));
+    // Ноль при нулевом входе — отказ (§4.0): разбор схемы обязан видеть таблицу, ради которой сторож заведён.
+    expect(linked).toContain('operator_chat_date_proposals');
+    const unanswered = linked.filter((t) => !touched.has(t) && !census.has(t) && !unlinked.has(t)
+      && PARTNER_MESSENGER_NOT_HIS[t] === undefined);
+    expect(unanswered, 'шаг eraseUser, или запись в PARTNER_MESSENGER_NOT_HIS с причиной').toEqual([]);
+    // Самоустаревание: у таблицы появился шаг или её нет в схеме — запись убрать.
+    for (const [t, why] of Object.entries(PARTNER_MESSENGER_NOT_HIS)) {
+      expect(linked, `${t}: в схеме нет такой связи — запись убрать`).toContain(t);
+      expect(touched.has(t), `${t}: шаг есть — запись убрать`).toBe(false);
+      expect(why.trim().length, t).toBeGreaterThan(40);
+    }
+    // Предложения дат: удаляются по его id в MAX ДО шагов, где живут ключи к диалогу.
+    const order = steps.map((st) => st.table);
+    expect(steps.find((st) => st.table === 'operator_chat_date_proposals')?.kind).toBe('delete');
+    expect(order.indexOf('operator_chat_date_proposals')).toBeLessThan(order.indexOf('tg_conversations'));
+    expect(order.indexOf('operator_chat_date_proposals')).toBeLessThan(order.indexOf('users'));
   });
 
   it('ERASE_DETACH_ONLY и ERASE_STEP_LEAVES самоустаревают: у каждой записи есть шаг по таблице и причина, счёт — по ссылке на человека', () => {
