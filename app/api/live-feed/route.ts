@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -77,7 +78,12 @@ export async function GET() {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).
+    logSwallowedFailure('live-feed', 'лента главной', err);
+    return NextResponse.json(
+      { ok: false, error: 'Лента временно не загружается, попробуйте позже' },
+      { status: 500 },
+    );
   }
 }

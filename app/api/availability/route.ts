@@ -14,6 +14,7 @@ import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,7 +98,12 @@ export async function GET(request: NextRequest) {
       days,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).
+    logSwallowedFailure('availability', 'календарь месяца', err);
+    return NextResponse.json(
+      { success: false, error: 'Календарь временно не загружается, попробуйте позже' },
+      { status: 500 },
+    );
   }
 }

@@ -5,9 +5,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchService } from '@/lib/services';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+
+/** Что видит аноним при отказе — словами, без текста исключения. */
+const SEARCH_FAILED_TEXT = 'Поиск временно не работает, попробуйте позже';
 
 // Public: поиск туров доступен без аутентификации.
 export async function GET(request: NextRequest) {
+  // Имя проверки для лога: какая из трёх веток поиска не выполнилась.
+  let check = 'поиск по словам';
   try {
     // Получить параметры из query
     const searchParams = request.nextUrl.searchParams;
@@ -40,6 +46,7 @@ export async function GET(request: NextRequest) {
     // deleted_at, и черновик оператора (is_published = false), про который
     // кабинет говорит «туристы не видят», находился поиском по тегам.
     if (tagLandscape || tagActivity || tagFeature) {
+      check = 'поиск по AI-тегам';
       const conditions: string[] = [publicTourSql('')];
       const sqlParams: (string | number)[] = [];
       let pIdx = 1;
@@ -87,6 +94,7 @@ export async function GET(request: NextRequest) {
     const isAdvanced = searchParams.get('advanced') === 'true';
 
     if (isAdvanced) {
+      check = 'расширенный поиск';
       // Продвинутый поиск с фасетами
       const result = await searchService.advancedSearch({
         query,
@@ -150,12 +158,12 @@ export async function GET(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
+    // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0);
+    // параметры запроса (слова поиска) туда не идут.
+    logSwallowedFailure('discovery-search', check, error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Search failed',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { success: false, error: SEARCH_FAILED_TEXT },
       { status: 500 }
     );
   }

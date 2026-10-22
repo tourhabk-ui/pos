@@ -40,6 +40,11 @@
  *   6. «тура в плане нет» на настоящем PostgreSQL —
  *      `tests/integration/public-tour-gate.pg.test.ts` (мок ответил бы на любой
  *      SQL, поэтому сам отбор судится там).
+ *   7. отказ базы на публичных отборах ревью #2642 (поиск всеми тремя
+ *      ветками, календарь, туры дня, лента главной, операторы планера) — 500
+ *      словами по-русски: текст исключения PostgreSQL (таблицы, колонки,
+ *      statement timeout) анониму не уходит, в логе — проверка и SQLSTATE,
+ *      без слов поиска.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -797,17 +802,77 @@ describe('отборы ревью #2642 — поведением: в отпра�
     expectGated(sentPool(), 'поиск по словам');
   });
 
-  it('отказ базы в поиске — 500, а не пустая выдача с success (§4.0)', async () => {
-    poolQueryMock.mockRejectedValue(Object.assign(new Error('relation missing'), { code: '42P01' }));
-    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    try {
-      const { GET } = await import('@/app/api/discovery/search/route');
-      const { NextRequest } = await import('next/server');
-      expect((await GET(new NextRequest('http://localhost/api/discovery/search?q=x'))).status).toBe(500);
-      expect(err).toHaveBeenCalled();
-    } finally {
-      err.mockRestore();
-    }
+  describe('отказ базы — 500 словами: текст исключения анониму не уходит, в логе имя проверки и SQLSTATE (ревью #2642)', () => {
+    // Так PostgreSQL называет отказ: таблица и колонка — то, чего аноним знать
+    // не должен. Слово поиска — то, чему не место в логе.
+    const LEAK = 'column t.secret_col of relation operator_tours does not exist';
+    const WORD = 'тайноеслово';
+    const reject = () => Object.assign(new Error(LEAK), { code: '42703' });
+    const nextReq = async (url: string) => new (await import('next/server')).NextRequest(url);
+
+    const CASES: Array<{ name: string; scope: string; check: string; text: string; call: () => Promise<Response> }> = [
+      {
+        name: 'поиск по словам', scope: 'discovery-search', check: 'поиск по словам',
+        text: 'Поиск временно не работает, попробуйте позже',
+        call: async () => (await import('@/app/api/discovery/search/route')).GET(await nextReq(`http://localhost/api/discovery/search?q=${encodeURIComponent(WORD)}`)),
+      },
+      {
+        name: 'поиск по AI-тегам', scope: 'discovery-search', check: 'поиск по AI-тегам',
+        text: 'Поиск временно не работает, попробуйте позже',
+        call: async () => (await import('@/app/api/discovery/search/route')).GET(await nextReq(`http://localhost/api/discovery/search?landscape=${encodeURIComponent(WORD)}`)),
+      },
+      {
+        name: 'расширенный поиск', scope: 'discovery-search', check: 'расширенный поиск',
+        text: 'Поиск временно не работает, попробуйте позже',
+        call: async () => (await import('@/app/api/discovery/search/route')).GET(await nextReq(`http://localhost/api/discovery/search?advanced=true&q=${encodeURIComponent(WORD)}`)),
+      },
+      {
+        name: 'календарь месяца', scope: 'availability', check: 'календарь месяца',
+        text: 'Календарь временно не загружается, попробуйте позже',
+        call: async () => (await import('@/app/api/availability/route')).GET(await nextReq('http://localhost/api/availability?month=2099-07')),
+      },
+      {
+        name: 'туры дня', scope: 'availability-day', check: 'туры дня',
+        text: 'Туры на эту дату временно не загружаются, попробуйте позже',
+        call: async () => (await import('@/app/api/availability/day/route')).GET(await nextReq('http://localhost/api/availability/day?date=2099-07-01')),
+      },
+      {
+        name: 'лента главной', scope: 'live-feed', check: 'лента главной',
+        text: 'Лента временно не загружается, попробуйте позже',
+        call: async () => (await import('@/app/api/live-feed/route')).GET(),
+      },
+      {
+        name: 'операторы дня в планере', scope: 'planner-partners', check: 'операторы дня',
+        text: 'Операторы временно не загружаются, попробуйте позже',
+        call: async () => (await import('@/app/api/planner/partners/route')).GET(await nextReq('http://localhost/api/planner/partners?activity_type=fishing')),
+      },
+    ];
+
+    it.each(CASES)('$name', async (c) => {
+      queryMock.mockRejectedValue(reject());
+      poolQueryMock.mockRejectedValue(reject());
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const res = await c.call();
+        // Не пустая выдача с success: отказ — это 500 (§4.0).
+        expect(res.status).toBe(500);
+        const raw = await res.text();
+        expect(raw).not.toContain('secret_col');
+        expect(raw).not.toContain('operator_tours');
+        const body = JSON.parse(raw) as { error?: unknown; message?: unknown };
+        expect(body.error).toBe(c.text);
+        expect(body.message).toBeUndefined();
+        // Отказ назван: область, проверка и SQLSTATE.
+        expect(err).toHaveBeenCalledWith(
+          expect.stringContaining(`[${c.scope}] ${c.check}`),
+          expect.objectContaining({ code: '42703' }),
+        );
+        // Слово поиска в лог не идёт.
+        expect(JSON.stringify(err.mock.calls)).not.toContain(WORD);
+      } finally {
+        err.mockRestore();
+      }
+    });
   });
 
   it('подсказки поиска: автодополнение, рекомендованные, тренды, теги, похожие', async () => {
