@@ -20,7 +20,7 @@ const DATA = {
   people: { ok: true, today: { visitors: 41, views: 120, bot_views: 300 }, yesterday: { visitors: 38, views: 99, bot_views: 250 } },
   mcp: { ok: true, today: { calls: 116, callers: 46 }, yesterday: { calls: 103, callers: 16 } },
   a2a: { ok: true, today: { requests: 5, callers: 2 }, yesterday: { requests: 0, callers: 0 } },
-  kuzmich: { ok: true, today: { answers: 9, by_surface: { web: 4, 'web-stream': 1, telegram: 3, a2a: 1 } }, yesterday: { answers: 12, by_surface: {} } },
+  kuzmich: { ok: true, today: { answers: 9, by_surface: { web: 4, 'web-stream': 1, telegram: 3, a2a: 1 } }, yesterday: { answers: 3, by_surface: { a2a: 2, telegram: 1 } } },
 };
 
 async function show() {
@@ -46,6 +46,9 @@ describe('обзор админки — числа суток', () => {
     expect(within(link(/^A2A/)).getByText('вчера 0')).toBeTruthy();
     // Сайт и его потоковый вход — одной строкой; по убыванию.
     expect(within(link(/^Кузьмич/)).getByText('сайт 5 · Telegram 3 · A2A 1')).toBeTruthy();
+    // И где были вчерашние ответы (вопрос владельца 22.10: «вчера 3 ответа а в
+    // переписках нету кто откуда»).
+    expect(within(link(/^Кузьмич/)).getByText('вчера: A2A 2 · Telegram 1')).toBeTruthy();
     expect(region.getByText(/ваши разговоры с ним в числе/)).toBeTruthy();
   });
 

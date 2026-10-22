@@ -46,7 +46,7 @@ withPg('числа суток в админке', () => {
     pool = new Pool({ connectionString: dbUrl, max: 2 });
     process.env.DATABASE_URL = dbUrl;
     process.env.DATABASE_SSL = 'false';
-    await pool.query('TRUNCATE page_views, mcp_tool_calls, mcp_clients, a2a_requests, ai_actions_log');
+    await pool.query('TRUNCATE page_views, mcp_tool_calls, mcp_clients, a2a_requests, ai_actions_log, a2a_dialogs, chat_sessions, tg_conversations CASCADE');
 
     const view = (at: string, hash: string, flags: { bot?: boolean; self?: boolean } = {}) =>
       pool.query(`INSERT INTO page_views (path, visitor_hash, created_at, is_bot, is_self) VALUES ('/', $1, $2, $3, $4)`,
@@ -222,5 +222,58 @@ withPg('числа суток в админке', () => {
     const { GET: SUMMARY } = await import('@/app/api/admin/analytics/day-summary/route');
     const anonSummary = await SUMMARY(new NextRequest('http://localhost/api/admin/analytics/day-summary'));
     expect([401, 403]).toContain(anonSummary.status);
+  });
+
+  it('«Переписки»: у каждого разговора вход — сайт, виджет с партнёром, проверка, TG, A2A с агентом', async () => {
+    const { vi } = await import('vitest');
+    vi.doMock('@/lib/auth/middleware', () => ({ requireAdmin: async () => ({ userId: 'admin', role: 'admin' }) }));
+    try {
+      await pool.query(`INSERT INTO partners (name, slug, category, contact, contacts, is_public, status)
+                        VALUES ('Камчатская рыбалка', 'fishingkam', 'operator', '{}'::jsonb, '{}'::jsonb, TRUE, 'active')`);
+      const session = (id: string, n: number) => pool.query(
+        `INSERT INTO chat_sessions (session_id, user_message_count, messages, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')`,
+        [id, n, JSON.stringify([{ role: 'user', content: 'вопрос' }, { role: 'assistant', content: 'ответ' }])],
+      );
+      await session('a1b2c3d4-guest', 2);
+      await session('widget_fishingkam_abc123', 1);
+      await session('safety-eval-1760900000000-benign-medkit', 1);
+      await pool.query(`INSERT INTO tg_conversations (chat_id, mode, role, content, platform, user_name)
+                        VALUES (171, 'tourist', 'user', 'привет', 'telegram', 'Иван'), (171, 'tourist', 'assistant', 'здравствуйте', 'telegram', NULL)`);
+      const dialog = (key: string | null, turn: number, q: string, agent = 'TravelAgent/2.1', self = false) => pool.query(
+        `INSERT INTO a2a_dialogs (agent, ua_family, caller_hash, context_key, turn, question, answer, state, is_self, created_at)
+         VALUES ($1, 'other', 'h', $2, $3::int, $4, $5, 'completed', $6, NOW() - INTERVAL '10 minutes' + ($3::int * INTERVAL '1 minute'))
+         RETURNING id`,
+        [agent, key, turn, q, `ответ на «${q}»`, self],
+      );
+      await dialog('ctx-1', 1, 'Какая погода на Авачинском?');
+      await dialog('ctx-1', 2, 'А завтра?');
+      const lone = await dialog(null, 1, 'Туры на рыбалку', 'A2A-Registry-TaskProbe/1.0');
+
+      const { GET } = await import('@/app/api/admin/ai-analytics/chats/route');
+      const { NextRequest } = await import('next/server');
+      const list = await (await GET(new NextRequest('http://localhost/api/admin/ai-analytics/chats'))).json();
+      const web = Object.fromEntries(list.webChats.map((c: { sessionId: string; source: string; partner: string | null }) => [c.sessionId, [c.source, c.partner]]));
+      expect(web).toEqual({
+        'a1b2c3d4-guest': ['web', null],
+        'widget_fishingkam_abc123': ['widget', 'Камчатская рыбалка'],
+        'safety-eval-1760900000000-benign-medkit': ['probe', null],
+      });
+      expect(list.tgChats).toEqual([expect.objectContaining({ chatId: '171', platform: 'telegram', userName: 'Иван', userMsgs: 1 })]);
+      expect(list.a2aChats.map((c: { dialogKey: string; agent: string; kind: string; turns: number }) => [c.dialogKey, c.agent, c.kind, c.turns]))
+        .toEqual([['ctx-1', 'TravelAgent/2.1', 'external', 2], [`row:${lone.rows[0].id}`, 'A2A-Registry-TaskProbe/1.0', 'registry', 1]]);
+
+      const hist = await (await GET(new NextRequest('http://localhost/api/admin/ai-analytics/chats?chat_id=ctx-1&platform=a2a'))).json();
+      expect(hist.messages.map((m: { role: string; content: string }) => [m.role, m.content])).toEqual([
+        ['user', 'Какая погода на Авачинском?'], ['assistant', 'ответ на «Какая погода на Авачинском?»'],
+        ['user', 'А завтра?'], ['assistant', 'ответ на «А завтра?»'],
+      ]);
+      const one = await (await GET(new NextRequest(`http://localhost/api/admin/ai-analytics/chats?chat_id=row:${lone.rows[0].id}&platform=a2a`))).json();
+      expect(one.messages).toHaveLength(2);
+    } finally {
+      // Тест последний в файле: роуты, уже загруженные с подменой админа,
+      // дальше никто не зовёт; проверка «без админа — отказ» идёт раньше.
+      vi.doUnmock('@/lib/auth/middleware');
+    }
   });
 });

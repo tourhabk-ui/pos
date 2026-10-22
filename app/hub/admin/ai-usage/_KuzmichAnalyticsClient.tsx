@@ -6,6 +6,8 @@ import {
   TrendingUp, Sparkles, BarChart2, Activity, ThumbsUp, ThumbsDown, Globe,
   ChevronDown, ChevronRight, Send, User, Copy, Check, type LucideIcon,
 } from 'lucide-react';
+import { surfaceLine, type WebChatSource } from '@/lib/kuzmich/chat-source';
+import type { DaySummary } from '@/lib/analytics/day-summary-types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,67 @@ interface WebChat {
   updatedAt: string;
   referrerSource: string | null;
   utmSource: string | null;
+  /** Вход по id сессии (lib/kuzmich/chat-source): сайт, виджет партнёра или проверка. */
+  source?: WebChatSource;
+  /** Партнёр, на чьём сайте стоит виджет; null — не нашёлся по slug. */
+  partner?: string | null;
+}
+
+/** Диалог A2A (a2a_dialogs): агент спрашивает Кузьмича. */
+interface A2aChat {
+  dialogKey: string;
+  agent: string;
+  kind: 'external' | 'registry' | 'probe' | 'self';
+  turns: number;
+  firstMsg: string;
+  lastMsg: string;
+}
+
+type ChatType = 'tg' | 'web' | 'a2a';
+type AnyChat = TgChat | WebChat | A2aChat;
+
+const A2A_KIND_LABEL: Record<A2aChat['kind'], string | null> = {
+  external: null, registry: 'реестр A2A', probe: 'проверка', self: 'свой',
+};
+
+/** Бейдж входа: цвет — токеном, подпись — словом (вопрос владельца 22.10 «кто откуда»). */
+function sourceBadge(chat: AnyChat, type: ChatType): { label: string; bg: string; outline?: boolean } {
+  if (type === 'tg') return (chat as TgChat).platform === 'max' ? { label: 'MAX', bg: 'var(--accent)' } : { label: 'TG', bg: 'var(--ocean)' };
+  if (type === 'a2a') return { label: 'A2A', bg: 'var(--warning)' };
+  const src = (chat as WebChat).source ?? 'web';
+  if (src === 'widget') return { label: 'Виджет', bg: 'var(--purple)' };
+  if (src === 'probe') return { label: 'Проверка', bg: 'var(--text-muted)', outline: true };
+  return { label: 'Сайт', bg: 'var(--success)' };
+}
+
+function chatName(chat: AnyChat, type: ChatType): string {
+  if (type === 'tg') return (chat as TgChat).userName;
+  if (type === 'a2a') {
+    const a = chat as A2aChat;
+    const kind = A2A_KIND_LABEL[a.kind];
+    return kind ? `${a.agent} · ${kind}` : a.agent;
+  }
+  const w = chat as WebChat;
+  if (w.source === 'widget') return w.partner ? `сайт партнёра: ${w.partner}` : 'сайт партнёра';
+  if (w.source === 'probe') return 'проверка безопасности Кузьмича';
+  return w.authenticated ? 'Пользователь' : 'Гость';
+}
+
+function chatLast(chat: AnyChat, type: ChatType): string {
+  if (type === 'tg') return (chat as TgChat).lastMsg;
+  if (type === 'a2a') return (chat as A2aChat).lastMsg;
+  return (chat as WebChat).updatedAt;
+}
+
+function chatCount(chat: AnyChat, type: ChatType): string {
+  if (type === 'a2a') return `${(chat as A2aChat).turns} вопр.`;
+  return `${type === 'tg' ? (chat as TgChat).userMsgs : (chat as WebChat).userMsgs} сообщ.`;
+}
+
+function chatKey(chat: AnyChat, type: ChatType): string {
+  if (type === 'tg') return `tg:${(chat as TgChat).platform}:${(chat as TgChat).chatId}`;
+  if (type === 'a2a') return `a2a:${(chat as A2aChat).dialogKey}`;
+  return `web:${(chat as WebChat).sessionId}`;
 }
 
 interface ChatMessage {
@@ -210,7 +273,7 @@ function CopyButton({ value, display, title = 'Скопировать chat_id' }
   return (
     <button
       onClick={copy}
-      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 whitespace-nowrap
                  text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]
                  transition-colors border border-[var(--border)]"
       title={title}
@@ -223,7 +286,7 @@ function CopyButton({ value, display, title = 'Скопировать chat_id' }
 
 // ─── Chat conversation viewer ─────────────────────────────────────────────────
 
-function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' }) {
+function ChatRow({ chat, type }: { chat: AnyChat; type: ChatType }) {
   const [open, setOpen]       = useState(false);
   const [msgs, setMsgs]       = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -236,7 +299,9 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
     try {
       const url = type === 'tg'
         ? `/api/admin/ai-analytics/chats?chat_id=${(chat as TgChat).chatId}&platform=${(chat as TgChat).platform}`
-        : `/api/admin/ai-analytics/chats?chat_id=${(chat as WebChat).sessionId}`;
+        : type === 'a2a'
+          ? `/api/admin/ai-analytics/chats?chat_id=${encodeURIComponent((chat as A2aChat).dialogKey)}&platform=a2a`
+          : `/api/admin/ai-analytics/chats?chat_id=${(chat as WebChat).sessionId}`;
       const res  = await fetch(url);
       const json = await res.json() as { messages?: ChatMessage[] };
       setMsgs(json.messages ?? []);
@@ -246,8 +311,10 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
   }, [open, msgs.length, chat, type]);
 
   const isTg = type === 'tg';
+  const isWeb = type === 'web';
   const tg   = chat as TgChat;
   const web  = chat as WebChat;
+  const badge = sourceBadge(chat, type);
 
   return (
     <div className="border border-[var(--border)] rounded-lg overflow-hidden">
@@ -258,51 +325,48 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
         {open ? <ChevronDown size={14} className="shrink-0 text-[var(--text-muted)]" />
                : <ChevronRight size={14} className="shrink-0 text-[var(--text-muted)]" />}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            {isTg && (
-              <span
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                style={{
-                  background: tg.platform === 'max' ? 'var(--accent)' : 'var(--ocean)',
-                  color: 'white',
-                }}
-              >
-                {tg.platform === 'max' ? 'Max' : 'TG'}
-              </span>
-            )}
-            {!isTg && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                style={{ background: 'var(--success)', color: 'white' }}>
-                Сайт
-              </span>
-            )}
-            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-              {isTg ? tg.userName : (web.authenticated ? `Пользователь` : 'Гость')}
+          {/* Ряд переносится, а не наезжает: на телефоне чип id ложился на
+              «1 сообщ.» (скрин владельца 22.10) — сжиматься умело только имя. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+              style={badge.outline
+                ? { color: badge.bg, border: `1px solid ${badge.bg}` }
+                : { background: badge.bg, color: 'white' }}
+            >
+              {badge.label}
+            </span>
+            <span className="text-sm font-medium text-[var(--text-primary)] truncate min-w-0 max-w-full">
+              {chatName(chat, type)}
             </span>
             {isTg && <CopyButton value={tg.chatId} />}
             {/* session_id приходил в этом же API-ответе и раньше нигде не
                 показывался — 03.09, разбирая живую переписку про Авачинский,
                 владелец спросил «кто тестировал», и ответить было нечем
                 прямо на экране: копировать id значит лезть в БД руками. */}
-            {!isTg && (
+            {isWeb && (
               <CopyButton value={web.sessionId} display={`session ${web.sessionId.slice(-8)}`}
                 title="Скопировать session_id" />
             )}
-            {!isTg && web.userId && (
+            {isWeb && web.userId && (
               <span className="text-[10px] text-[var(--text-muted)] truncate">#{web.userId.slice(-6)}</span>
             )}
           </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-[var(--text-muted)] sm:hidden">
+            <span className="whitespace-nowrap">{chatCount(chat, type)}</span>
+            <span className="whitespace-nowrap">{fmtDate(chatLast(chat, type))}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-4 shrink-0 text-xs text-[var(--text-muted)]">
-          <span>{isTg ? tg.userMsgs : web.userMsgs} сообщ.</span>
-          <span>{fmtDate(isTg ? tg.lastMsg : web.updatedAt)}</span>
+        <div className="hidden sm:flex items-center gap-4 shrink-0 text-xs text-[var(--text-muted)]">
+          <span className="whitespace-nowrap">{chatCount(chat, type)}</span>
+          <span className="whitespace-nowrap">{fmtDate(chatLast(chat, type))}</span>
         </div>
       </button>
 
       {open && (
         <div className="border-t border-[var(--border)] px-4 py-3 max-h-96 overflow-y-auto space-y-2"
           style={{ background: 'var(--bg-primary)' }}>
-          {!isTg && (
+          {isWeb && (
             <p className="text-[10px] text-[var(--text-muted)] pb-1 border-b border-[var(--border)] mb-1">
               Источник: {web.referrerSource || web.utmSource
                 ? [web.utmSource, web.referrerSource].filter(Boolean).join(' · ')
@@ -344,9 +408,33 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
   );
 }
 
-function ChatsSection() {
+/**
+ * Где были ответы Кузьмича за сутки — тем же счётом, что плитка обзора
+ * (lib/analytics/day-summary). Нужен здесь, рядом со списком: ответ и
+ * переписка пишутся в разные места, и без этой строки «ответов 3, переписок
+ * нет» не объяснить (вопрос владельца 22.10).
+ */
+function AnswersBySurface({ summary }: { summary: DaySummary['kuzmich'] | null }) {
+  if (!summary) return null;
+  if (!summary.ok) return <p className="text-xs text-[var(--text-muted)] pt-3">Ответы по входам: не загрузилось.</p>;
+  const line = (n: number, by: Record<string, number>) => (n === 0 ? '0' : `${n} — ${surfaceLine(by)}`);
+  return (
+    <div className="pt-3 space-y-0.5 text-xs text-[var(--text-secondary)]">
+      <p>Ответов Кузьмича сегодня: {line(summary.today.answers, summary.today.by_surface)}</p>
+      <p>Вчера: {line(summary.yesterday.answers, summary.yesterday.by_surface)}</p>
+      <p className="text-[10px] text-[var(--text-muted)]">
+        Сутки по Камчатке. Ответ без строки ниже бывает: запрос без номера сессии (наши пробы),
+        сообщение MAX до проверки подписи. Разговоры A2A — с меткой A2A.
+      </p>
+    </div>
+  );
+}
+
+export function ChatsSection() {
   const [tgChats,  setTgChats]  = useState<TgChat[]>([]);
   const [webChats, setWebChats] = useState<WebChat[]>([]);
+  const [a2aChats, setA2aChats] = useState<A2aChat[]>([]);
+  const [answers,  setAnswers]  = useState<DaySummary['kuzmich'] | null>(null);
   const [loaded,   setLoaded]   = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [open,     setOpen]     = useState(false);
@@ -354,10 +442,20 @@ function ChatsSection() {
   const fetch_ = useCallback(async () => {
     setLoading(true);
     try {
-      const res  = await fetch('/api/admin/ai-analytics/chats');
-      const json = await res.json() as { tgChats: TgChat[]; webChats: WebChat[] };
+      const [res, sum] = await Promise.all([
+        fetch('/api/admin/ai-analytics/chats'),
+        fetch('/api/admin/analytics/day-summary').catch(() => null),
+      ]);
+      const json = await res.json() as { tgChats: TgChat[]; webChats: WebChat[]; a2aChats?: A2aChat[] };
       setTgChats(json.tgChats ?? []);
       setWebChats(json.webChats ?? []);
+      setA2aChats(json.a2aChats ?? []);
+      try {
+        const s = sum ? await sum.json() as { success?: boolean; data?: DaySummary } : null;
+        setAnswers(s?.success && s.data ? s.data.kuzmich : { ok: false, error: 'не загрузилось' });
+      } catch {
+        setAnswers({ ok: false, error: 'не загрузилось' });
+      }
       setLoaded(true);
       setOpen(true);
     } finally {
@@ -370,7 +468,12 @@ function ChatsSection() {
     setOpen(o => !o);
   }, [loaded, fetch_]);
 
-  const total = tgChats.length + webChats.length;
+  const total = tgChats.length + webChats.length + a2aChats.length;
+  const rows: Array<{ chat: AnyChat; type: ChatType }> = [
+    ...tgChats.map(c => ({ chat: c as AnyChat, type: 'tg' as const })),
+    ...webChats.map(c => ({ chat: c as AnyChat, type: 'web' as const })),
+    ...a2aChats.map(c => ({ chat: c as AnyChat, type: 'a2a' as const })),
+  ].sort((a, b) => new Date(chatLast(b.chat, b.type)).getTime() - new Date(chatLast(a.chat, a.type)).getTime());
 
   return (
     <div className="ds-card overflow-hidden">
@@ -402,22 +505,13 @@ function ChatsSection() {
 
       {open && !loading && (
         <div className="px-5 pb-5 space-y-2 border-t border-[var(--border)]">
-          {tgChats.length === 0 && webChats.length === 0 && (
+          <AnswersBySurface summary={answers} />
+          {rows.length === 0 && (
             <p className="text-xs text-[var(--text-muted)] pt-4 text-center">Нет чатов за 30 дней</p>
           )}
-          {[...tgChats.map(c => ({ chat: c, type: 'tg' as const })),
-             ...webChats.map(c => ({ chat: c, type: 'web' as const }))
-          ]
-            .sort((a, b) => {
-              const da = a.type === 'tg' ? (a.chat as TgChat).lastMsg   : (a.chat as WebChat).updatedAt;
-              const db = b.type === 'tg' ? (b.chat as TgChat).lastMsg   : (b.chat as WebChat).updatedAt;
-              return new Date(db).getTime() - new Date(da).getTime();
-            })
-            .map(({ chat, type }) => (
-              <ChatRow key={type === 'tg' ? (chat as TgChat).chatId : (chat as WebChat).sessionId}
-                chat={chat} type={type} />
-            ))
-          }
+          {rows.map(({ chat, type }) => (
+            <ChatRow key={chatKey(chat, type)} chat={chat} type={type} />
+          ))}
         </div>
       )}
     </div>
