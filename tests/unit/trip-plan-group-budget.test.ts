@@ -167,6 +167,9 @@ describe('разбор слов: состав и бюджет', () => {
     expect(family).toMatch(/^Группа: 2 взр\., дети 6, 10 лет/);
     expect(family).toMatch(/«эконом»,/);
     expect(family).not.toMatch(/допущение/);
+    // Дети названы, взрослые — нет: двое взрослых — допущение, и оно сказано.
+    const kidsOnly = planAssumptions({ adults: 2, adultsGiven: false, children: [2], tier: 'comfort', tierGiven: true });
+    expect(kidsOnly).toMatch(/^Группа: 2 взр\. \(число взрослых не названо — допущение\), ребёнок 2 лет/);
   });
 });
 

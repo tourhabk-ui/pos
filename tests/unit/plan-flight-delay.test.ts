@@ -61,6 +61,45 @@ describe('обратный билет прежний — поездка коро
     expect(r.toursTouched?.map((t) => `${t.tourId}:${t.title}`)).toEqual(['t-sea:Морская прогулка', 't-raft:Сплав']);
   });
 
+  // Живая проверка MCP 22.10: «Выпали дни 2» — без числа, даты, занятия и
+  // причины. Дни плана привязаны к датам, поэтому причина у выпавшего дня
+  // своя: на его дату прилёт, в его дату человек ещё в пути или он — хвост
+  // многодневного тура.
+  it('один выпавший день — единственное число, дата, занятие и «теперь прилёт»', async () => {
+    const r = await applyPlanEdit(plan(), { kind: 'flight_delay', days: 1, keepReturn: true });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.note).toContain('прилёт теперь 11 июля (2027-07-11)');
+    expect(r.note).toContain('День 2 (11 июля, Морская прогулка) выпал: в этот день теперь прилёт.');
+    expect(r.note).not.toMatch(/Выпали дни|Дни 2/);
+    expect(r.note).toContain('номера дней после выпавших стали на 1 меньше');
+  });
+
+  it('два дня в окне и хвост тура — множественное число, «в пути» до даты прилёта, хвост назван отдельно', async () => {
+    const r = await applyPlanEdit(plan(), { kind: 'flight_delay', days: 2, keepReturn: true });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.note).toContain('Дни 2 (11 июля, Морская прогулка) и 3 (12 июля, Сплав) выпали: до 12 июля вы ещё в пути, 12 июля — прилёт.');
+    expect(r.note).toContain('День 4 (13 июля, Сплав) тоже выпал: многодневный тур выпадает целиком, по частям его не проходят, — этот день теперь свободен.');
+  });
+
+  it('без дня прилёта в плане окно целиком раньше даты прилёта — «в пути», не «прилёт»', async () => {
+    const p = plan();
+    p.days = p.days.filter((d) => d.type !== 'arrival');
+    // Окно — дни 1 и 2 (10 и 11 июля), прилёт теперь 12-го; первого дня в
+    // плане нет, второй — морская прогулка, в её дату человек ещё летит.
+    const r = await applyPlanEdit(p, { kind: 'flight_delay', days: 2, keepReturn: true });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.note).toContain('День 2 (11 июля, Морская прогулка) выпал: в этот день вы ещё в пути — прилёт теперь 12 июля.');
+  });
+
+  it('окно пришлось на незаполненный день — так и сказано, а не пустое место', async () => {
+    const p = plan();
+    p.days = p.days.filter((d) => d.day !== 2);
+    const r = await applyPlanEdit(p, { kind: 'flight_delay', days: 1, keepReturn: true });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.note).toContain('Занятий на эти даты в плане не было — ничего не выпало.');
+    expect(r.toursTouched).toEqual([]);
+  });
+
   it('отъезд или переезд в окне — отказ, план прежний', async () => {
     const p = plan();
     p.days[1] = day(2, 'travel', 'Переезд на север');

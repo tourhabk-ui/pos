@@ -82,6 +82,19 @@ describe('несуществующий инструмент — списком �
     expect(nearestToolName('')).toBeNull();
   });
 
+  it('имя с префиксом коннектора клиента — подсказка на сам инструмент', () => {
+    // Живая проверка MCP 22.10: агент сообщил «Unknown tool:
+    // mcp_vedarai_edit_trip_plan». Отказ дал его коннектор (кэш списка), сервер
+    // такое имя не получал; но если клиент пришлёт его сюда, подсказка должна
+    // вести на инструмент без префикса — для каждого живого имени.
+    for (const name of PUBLIC_MCP_TOOL_NAMES) {
+      for (const prefixed of [`mcp_vedarai_${name}`, `mcp__https_vedarai_ru_api_mcp__${name}`, `vedar.${name}`]) {
+        expect(nearestToolName(prefixed), prefixed).toBe(name);
+      }
+    }
+    expect(unknownToolResponse('mcp_vedarai_edit_trip_plan').message).toContain('Did you mean: edit_trip_plan?');
+  });
+
   it('ответ несёт все живые имена и в тексте, и в data', () => {
     const r = unknownToolResponse('get_tour');
     expect(r.data.available).toEqual([...PUBLIC_MCP_TOOL_NAMES].sort());

@@ -834,6 +834,9 @@ export async function OPTIONS() {
  */
 const SERVER_INSTRUCTIONS = `${MCP_SERVER_INFO.description} Данные — из базы платформы; чего в базе нет, инструменты так и говорят, и дополнять это догадкой не нужно. Экстренный вызов на Камчатке — 112.`;
 
+/** Пустая строка перед «Продолжить в Ведаре» — см. handleToolsCall. */
+const HANDOFF_SEPARATOR = '\n\n';
+
 /** Отказ по лимиту пишется в журнал раз в минуту на адрес, а не на каждый запрос флуда. */
 const rateLimitedLogGate = createRateLimiter({ windowMs: 60_000, max: 1 });
 
@@ -869,8 +872,14 @@ async function handleToolsCall(
       // проверка MCP 26.09: «для чистого MCP-клиента — шум»). Клиент,
       // показывающий всё подряд, увидит её как прежде; клиент, берущий
       // первый элемент как ответ инструмента, получает чистые данные.
+      //
+      // Ссылка начинается с пустой строки (живая проверка MCP 22.10): клиент,
+      // склеивающий элементы без разделителя, получал «…/trip/<id>Продолжить
+      // в Ведаре: …», и автоссылка забирала «Продолжить» в адрес страницы
+      // плана. Клиенту, показывающему элементы раздельно, ведущие переводы
+      // строки ничего не добавляют.
       const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-      if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
+      if (handoff) content.push({ type: 'text', text: `${HANDOFF_SEPARATOR}Продолжить в Ведаре: ${handoff.url}` });
       // structuredContent — у инструментов с outputSchema (search/fetch для
       // ChatGPT): ревизия 2025-06-18 велит дублировать его текстом, что и так есть.
       return jsonrpcSuccess(id, outcome.structured ? { content, structuredContent: outcome.structured } : { content });

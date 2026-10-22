@@ -360,13 +360,71 @@ function flightDelay(plan: EditablePlan, days: number, keepReturn: boolean): Edi
     // `days` раньше. Дни выпавшего тура за окном остаются пустыми.
     .map((d) => (d.day >= start + days ? { ...d, day: d.day - days } : d));
   next.params.arrivalDate = shiftIso(plan.params.arrivalDate, days);
-  const emptied = [...removed].filter((n) => n >= start + days).length;
+  const dropped = plan.days.filter((d) => removed.has(d.day)).sort((a, b) => a.day - b.day);
   return {
     ok: true, plan: next,
-    note: `Рейс задержан на ${days} ${dayWord}: прилёт ${next.params.arrivalDate}, обратный билет прежний — поездка стала на ${days} ${dayWord} короче.`
-      + ` Выпали дни ${[...removed].sort((a, b) => a - b).join(', ')}${emptied > 0 ? ` (многодневный тур выпадает целиком, свободных дней после него: ${emptied})` : ''}; остальные дни не менялись.`,
+    note: `Рейс задержан на ${days} ${dayWord}: прилёт теперь ${dateWords(next.params.arrivalDate)} (${next.params.arrivalDate}), обратный билет прежний — поездка стала на ${days} ${dayWord} короче. `
+      + droppedDaysWords(dropped, plan.params.arrivalDate, next.params.arrivalDate, start + days)
+      + ` Остальные дни не менялись и стоят на прежних датах — туры операторов идут по датам; номера дней после выпавших стали на ${days} меньше.`,
     toursTouched: touchedTours((d) => removed.has(d.day), 'dropped'),
   };
+}
+
+/** «11 июля» — дата дня словами, по UTC, как и все даты плана. */
+function dateWords(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+/** «день 2 (11 июля, Термальные источники)» — номер, дата и что было в этот день. */
+function dayWords(d: DayPlan, arrivalIso: string): string {
+  return `${d.day} (${dateWords(shiftIso(arrivalIso, d.day - 1))}, ${tourTitle(d)})`;
+}
+
+/** «2 (…)», «2 (…) и 3 (…)», «2 (…), 3 (…) и 4 (…)». */
+function joinDays(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} и ${items[items.length - 1]}`;
+}
+
+/**
+ * Какие дни выпали из-за задержки рейса — словами, с датой, занятием и
+ * причиной (живая проверка MCP 22.10).
+ *
+ * Прежний ответ — «Выпали дни 2; остальные дни не менялись»: без числа
+ * («выпал день»), без даты и без смысла. Агент не мог сказать человеку, что
+ * пропали термальные источники и почему — а причина простая: дни плана
+ * привязаны к датам (туры у операторов идут по датам), и на дату этого дня
+ * теперь приходится прилёт.
+ *
+ * Причин три, и они разные: на эту дату теперь прилёт; в эту дату человек ещё
+ * в пути (задержка больше дня); день — хвост многодневного тура, задетого
+ * задержкой, тур выпадает целиком, а день остаётся свободным. `windowEnd` —
+ * первый номер дня (по прежнему плану) после окна задержки.
+ */
+function droppedDaysWords(
+  dropped: readonly DayPlan[], oldArrivalIso: string, newArrivalIso: string, windowEnd: number,
+): string {
+  const inWindow = dropped.filter((d) => d.day < windowEnd);
+  const tail = dropped.filter((d) => d.day >= windowEnd);
+  const parts: string[] = [];
+  if (inWindow.length > 0) {
+    const iso = (d: DayPlan) => shiftIso(oldArrivalIso, d.day - 1);
+    const onArrival = inWindow.some((d) => iso(d) === newArrivalIso);
+    const inTransit = inWindow.some((d) => iso(d) < newArrivalIso);
+    const one = inWindow.length === 1;
+    const arrivalWords = dateWords(newArrivalIso);
+    const why = onArrival && !inTransit
+      ? (one ? 'в этот день теперь прилёт' : 'в эти дни теперь прилёт')
+      : !onArrival
+        ? `${one ? 'в этот день' : 'в эти дни'} вы ещё в пути — прилёт теперь ${arrivalWords}`
+        : `до ${arrivalWords} вы ещё в пути, ${arrivalWords} — прилёт`;
+    parts.push(`${one ? 'День' : 'Дни'} ${joinDays(inWindow.map((d) => dayWords(d, oldArrivalIso)))} ${one ? 'выпал' : 'выпали'}: ${why}.`);
+  }
+  if (tail.length > 0) {
+    const one = tail.length === 1;
+    parts.push(`${one ? 'День' : 'Дни'} ${joinDays(tail.map((d) => dayWords(d, oldArrivalIso)))} тоже ${one ? 'выпал' : 'выпали'}: многодневный тур выпадает целиком, по частям его не проходят, — ${one ? 'этот день теперь свободен' : 'эти дни теперь свободны'}.`);
+  }
+  // Окно пришлось на незаполненные дни — выпадать было нечему, и это сказано.
+  return parts.length > 0 ? parts.join(' ') : 'Занятий на эти даты в плане не было — ничего не выпало.';
 }
 
 /** Единственная точка правки плана: Кузьмич, MCP и (следующим шагом) веб-планер. */
