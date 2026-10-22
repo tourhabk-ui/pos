@@ -172,6 +172,45 @@ describe('ключ журнала с вендором через двоеточ�
   });
 });
 
+/**
+ * 22.10: та же болезнь вернулась разделителем ВЕРСИИ. API Anthropic зовёт
+ * модель `claude-opus-5-5`, каталог OpenRouter — `anthropic/claude-opus-5.5`.
+ * Судья и ревью эволюции ходят в Opus 5.5 напрямую каждый день, и их строки
+ * ложились в книги с ценой NULL — мимо дневного бюджета.
+ */
+describe('версия Anthropic через дефис находит цену, записанную через точку', () => {
+  it('anthropic:claude-opus-5-5 — цена каталога по слагу anthropic/claude-opus-5.5', async () => {
+    queryMock.mockImplementation(async (_sql: string, params: unknown[]) => (
+      params[0] === 'anthropic/claude-opus-5.5'
+        ? { rows: [{ usd_per_mtok_in: '4', usd_per_mtok_out: '20' }] }
+        : { rows: [] }
+    ));
+    const { cost, basis } = await resolveCostUsd('anthropic:claude-opus-5-5', 1000, 200);
+    expect(cost).toBeCloseTo((1000 * 4 + 200 * 20) / 1e6, 10);
+    expect(basis).toBe('model_catalog');
+  });
+
+  it('на раннере без каталога — из запаса, а не «цену не знаем»', async () => {
+    delete process.env.DATABASE_URL;
+    const { cost, basis } = await resolveCostUsd('anthropic:claude-opus-5-5', 1000, 200);
+    expect(cost).toBeCloseTo((0.006 * 1200) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+  });
+
+  it('снимок с датой ищется по слагу без даты', () => {
+    expect(priceLookupIds('anthropic:claude-haiku-4-5-20251001')).toEqual([
+      'anthropic:claude-haiku-4-5-20251001',
+      'anthropic/claude-haiku-4-5-20251001',
+      'anthropic/claude-haiku-4.5',
+    ]);
+  });
+
+  it('версия из одного числа и чужой вендор третьего кандидата не порождают', () => {
+    expect(priceLookupIds('anthropic:claude-opus-5')).toEqual(['anthropic:claude-opus-5', 'anthropic/claude-opus-5']);
+    expect(priceLookupIds('deepseek:deepseek-v4-1-2')).toEqual(['deepseek:deepseek-v4-1-2', 'deepseek/deepseek-v4-1-2']);
+  });
+});
+
 describe('logLLMUsage пишет cost_basis рядом с ценой', () => {
   const SRC = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
   // Окно чтения тела: 19.09 функция подросла ветвью прод-стока для раннера

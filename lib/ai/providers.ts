@@ -83,6 +83,11 @@ const COST_PER_1K: Record<string, number> = {
   // Таблица блендовая (одно число на 1К всех токенов); доля вывода в ней ~12.5%,
   // что и даёт 0.015 для Fable 5. Тот же бленд для вдвое меньших ставок — 0.0075.
   'anthropic/claude-opus-5':                   0.00750,
+  // Opus 5.5 — $4/$20 за млн (справочник API Anthropic; каталог OpenRouter
+  // называл то же, маркер evo-judge 24.09). Тот же бленд: 0.875·4 + 0.125·20 =
+  // 6 за млн. Слаг каталога — с точкой; прямой путь пишет `claude-opus-5-5`,
+  // и до него сюда доводит `priceLookupIds`.
+  'anthropic/claude-opus-5.5':                 0.00600,
   // 4.8 оставлена: по ней считается стоимость исторических строк llm_usage_log.
   'anthropic/claude-opus-4-8':                 0.01500,
   'anthropic/claude-haiku-4-5-20251001':       0.00025,
@@ -141,7 +146,7 @@ type CostBasis = 'model_catalog' | 'cost_table_fallback' | 'provider_reported' |
  *
  * Цену на раннере считает прод, принимая строку расхода
  * (`POST /api/admin/llm-usage/report` зовёт эту же функцию у себя); потолку
- * прямого Anthropic хватает запаса `COST_PER_1K`, где Opus 5 есть.
+ * прямого Anthropic хватает запаса `COST_PER_1K`, где есть Opus 5 и Opus 5.5.
  */
 function priceCatalogReachable(): boolean {
   return Boolean(process.env.DATABASE_URL);
@@ -216,6 +221,15 @@ export async function resolveCostUsd(
  * Нормализация МЕХАНИЧЕСКАЯ: та же строка, другой разделитель. Догадок о чужих
  * слагах здесь нет — если `vendor/model` не знает ни каталог, ни запас, цена
  * остаётся `null`, то есть честное «не знаем» (§4.0), а не подставленный ноль.
+ *
+ * 22.10 та же болезнь вернулась с Opus 5.5, уже не разделителем вендора, а
+ * разделителем версии. API Anthropic зовёт модель `claude-opus-5-5` (снимок с
+ * датой — `claude-haiku-4-5-20251001`), каталог OpenRouter — `claude-opus-5.5`,
+ * без даты. Судья и ревью эволюции ходят в Opus 5.5 напрямую каждый день, и
+ * их строки снова ложились в книги без цены — мимо дневного бюджета. Поэтому
+ * для `anthropic:` есть третий кандидат: та же модель с версией через точку
+ * (`anthropicCatalogSlug`). Тоже механика, а не догадка: правило одно для
+ * всех версий, и цены другой модели оно подставить не может.
  */
 export function priceLookupIds(loggedModel: string): string[] {
   const ids = [loggedModel];
@@ -226,9 +240,24 @@ export function priceLookupIds(loggedModel: string): string[] {
     // Слаг вендора не содержит двоеточий и косых: `timeweb:<agent_id>` так и
     // останется неизвестным — у агента шлюза нет цены ни в одном каталоге, и
     // притворяться, что есть, значило бы выдумать её.
-    if (rest && !rest.includes('/') && !rest.includes(':')) ids.push(`${vendor}/${rest}`);
+    if (rest && !rest.includes('/') && !rest.includes(':')) {
+      ids.push(`${vendor}/${rest}`);
+      const dotted = vendor === 'anthropic' ? anthropicCatalogSlug(rest) : null;
+      if (dotted) ids.push(dotted);
+    }
   }
   return ids;
+}
+
+/**
+ * Имя модели API Anthropic → слаг каталога OpenRouter: `claude-opus-5-5` →
+ * `anthropic/claude-opus-5.5`, `claude-haiku-4-5-20251001` →
+ * `anthropic/claude-haiku-4.5`. У версии из одного числа (`claude-opus-5`)
+ * слаг совпадает со вторым кандидатом — тогда null, лишнего запроса нет.
+ */
+function anthropicCatalogSlug(model: string): string | null {
+  const m = /^(claude-[a-z]+)-(\d+)-(\d+)(?:-\d{8})?$/.exec(model);
+  return m ? `anthropic/${m[1]}-${m[2]}.${m[3]}` : null;
 }
 
 // ── Потолок прямого Anthropic (ступень 0b решателя) ───────────────

@@ -77,6 +77,17 @@ describe('потолок прямого Anthropic: сумма и число вы
     expect(anthropicDirectBudgetState().spent_usd).toBeCloseTo(0.009, 10);
   });
 
+  it('Opus 5.5 с прямого пути считается деньгами, а не штукой без цены (22.10)', async () => {
+    // API Anthropic пишет версию дефисом (`claude-opus-5-5`), запас и каталог —
+    // точкой (`anthropic/claude-opus-5.5`). До 22.10 вызов шёл в unpriced_calls,
+    // и сумма ANTHROPIC_DIRECT_MAX_USD самой ходовой модели не касалась.
+    // Запас: 0.006 за 1К всех токенов → 1200 токенов = $0.0072.
+    await chargeAnthropicDirect('anthropic:claude-opus-5-5', 1000, 200);
+    const st = anthropicDirectBudgetState();
+    expect(st.unpriced_calls).toBe(0);
+    expect(st.spent_usd).toBeCloseTo(0.0072, 10);
+  });
+
   it('число вызовов кончилось — не пускает, даже когда денег потрачено мало', async () => {
     process.env.ANTHROPIC_DIRECT_MAX_CALLS = '2';
     await chargeAnthropicDirect('anthropic:claude-haiku-4-5', 10, 10);
