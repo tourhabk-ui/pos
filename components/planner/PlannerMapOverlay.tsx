@@ -59,6 +59,19 @@
  *     карточка закрывала и предупреждение, и низ легенды;
  *   • на компьютере легенда у незаменяемого дня сама не сворачивается — то
  *     же правило широкого экрана, что при появлении плана.
+ *
+ * Шестой круг (22.10):
+ *   • отказ при открытом дне — ОДНА плашка: плашка дня говорит «Маршруты не
+ *     загрузились — заменить день N можно после «Повторить»» и держит
+ *     кнопку. Две плашки подряд на телефоне ложились на северный пин дня;
+ *   • частичный отказ называет, что не загрузилось («Не загрузились:
+ *     «Вулканы»»), и это имя не попадает в «На карте нет маршрутов»;
+ *   • «…или поставить вместо дня» — только когда в плане есть день, который
+ *     заменяют; план из прилёта и отъезда этого не обещает;
+ *   • каталог знает больше, чем показано, — «показаны 30 из 52»;
+ *   • пока на телефоне открыта карточка точки, плашка замены не повторяет
+ *     «нажмите точку» и цвета: точка уже нажата, кнопка — в карточке, а
+ *     колонка плашек короче (карточка встаёт под её низ, PlannerClient).
  */
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type Ref } from 'react';
@@ -77,7 +90,7 @@ export const MAP_TEXT = {
   failed: 'Маршруты не загрузились. Проверьте связь и нажмите «Повторить».',
   retry: 'Повторить',
   // Каталог ответил, а спрошенных видов нет вовсе — подписей нечего назвать.
-  emptyBare: 'Маршрутов с точкой на карте нет.',
+  emptyBare: 'На карте нет маршрутов.',
   // Что делать, когда на карте пусто, — слова шага анкеты.
   chooseInterests: 'Выберите интересы в шаге «Что интересно».',
   addInterest: 'Добавьте занятие или место в шаге «Что интересно».',
@@ -89,9 +102,6 @@ export const MAP_TEXT = {
   hintPlan: 'Нажмите точку — её можно добавить в план новым днём или поставить вместо дня.',
   // Открыт день, который не заменяют: карточка точки предлагает только «Добавить в план».
   hintAddOnly: 'Нажмите точку — её можно добавить в план новым днём.',
-  // Заменяемый день открыт, а маршруты не загрузились. Сам отказ и
-  // «Повторить» — в плашке отказа ниже; здесь — что это значит для дня.
-  editFailed: 'Заменить день можно, когда точки загрузятся — «Повторить» ниже.',
   editColors: 'Яркие — та же зона, что у дня; серые — другая зона или зона не записана.',
   // Без «под ваши интересы»: интересы могли быть и не выбраны (точки по умолчанию).
   editNoSameZone: 'В зоне этого дня точек на карте нет — все точки серые. Поставить можно любую.',
@@ -110,21 +120,48 @@ export function editActionText(n: number): string {
   return `Нажмите точку, затем «Заменить день ${n}».`;
 }
 
+/**
+ * Заменяемый день открыт, а маршруты не загрузились: отказ и что это значит
+ * для дня — одной строкой в плашке дня, рядом с «Повторить». Отдельная
+ * плашка отказа под плашкой дня на телефоне ложилась на северный пин дня.
+ */
+export function editFailedText(n: number): string {
+  return `Маршруты не загрузились — заменить день ${n} можно после «Повторить».`;
+}
+
 const quoted = (labels: readonly string[]) => labels.map(l => `«${l}»`).join(', ');
 
 /**
  * Каталог ответил пусто по этим интересам — называем, что искали, подписями
- * плиток анкеты. Ищутся маршруты с координатами, поэтому «с точкой на
- * карте»: маршрут без координат может быть, а на карте его нет.
+ * плиток анкеты. Ищутся маршруты с координатами, поэтому «на карте»:
+ * маршрут без координат может быть, а на карте его нет.
  */
 export function emptyKindsText(labels: readonly string[]): string {
-  return `Маршрутов с точкой на карте не нашли: ${quoted(labels)}.`;
+  return `На карте нет маршрутов: ${quoted(labels)}.`;
+}
+
+/**
+ * Часть интересов не ответила — называем какие. Это отказ, а не «нет»:
+ * эти подписи в «На карте нет маршрутов» не попадают (PlannerClient).
+ */
+export function partialText(failed: readonly string[]): string {
+  return failed.length > 0
+    ? `Не загрузились: ${quoted(failed)}. Проверьте связь и нажмите «Повторить».`
+    : MAP_TEXT.partial;
+}
+
+/** Каталог знает больше, чем пришло, — «показаны 30 из 52», по интересу. */
+export function truncatedText(items: readonly PlannerMapTruncated[]): string {
+  return `${items.map(i => `«${i.label}» — показаны ${i.shown} из ${i.total}`).join('; ')}.`;
 }
 
 /** Интересы не выбраны — показаны маршруты по умолчанию, и это сказано. */
 export function byDefaultText(labels: readonly string[]): string {
   return `Интересы не выбраны — на карте маршруты: ${quoted(labels)}. Свои — в шаге «Что интересно».`;
 }
+
+/** Интерес, по которому каталог знает больше маршрутов, чем на карте. */
+export interface PlannerMapTruncated { label: string; shown: number; total: number }
 
 /** Что карта искала (lib/planner/bg-routes) — подписями плиток. */
 export interface PlannerMapSearch {
@@ -134,6 +171,10 @@ export interface PlannerMapSearch {
   shown: readonly string[];
   /** Виды, по которым каталог ответил: маршрутов нет. */
   empty: readonly string[];
+  /** Виды, по которым каталог не ответил (отказ, не «нет»). */
+  failed?: readonly string[];
+  /** Виды, по которым показаны не все маршруты. */
+  truncated?: readonly PlannerMapTruncated[];
 }
 
 const NO_SEARCH: PlannerMapSearch = { byDefault: false, shown: [], empty: [] };
@@ -232,7 +273,7 @@ function editColorsText(editing: PlannerMapEditing): string {
 }
 
 export function PlannerMapOverlay({
-  status, refreshing = false, legend, total, partial, hasPlan, editing, search = NO_SEARCH, cardOpen = false,
+  status, refreshing = false, legend, total, partial, hasPlan, canReplace = false, editing, search = NO_SEARCH, cardOpen = false,
   onRetry, onStopEditing, panelRef,
 }: {
   status: PlannerMapStatus;
@@ -243,6 +284,12 @@ export function PlannerMapOverlay({
   /** Часть интересов не загрузилась, но точки есть. */
   partial: boolean;
   hasPlan: boolean;
+  /**
+   * В плане есть день, который заменяют маршрутом (lib/planner/plan-ops).
+   * Нет — подсказка не обещает «поставить вместо дня»: план из прилёта и
+   * отъезда заменить нечем. Не сказано — не обещаем.
+   */
+  canReplace?: boolean;
   editing: PlannerMapEditing | null;
   /** Что искали — для «пусто» и строки о видах без маршрутов. */
   search?: PlannerMapSearch;
@@ -307,7 +354,12 @@ export function PlannerMapOverlay({
     : (search.empty.length > 0 ? emptyKindsText(search.empty) : null);
   const hint = fixedDay !== null
     ? MAP_TEXT.hintAddOnly
-    : hasPlan ? MAP_TEXT.hintPlan : search.byDefault ? MAP_TEXT.hintTap : MAP_TEXT.hintNoPlan;
+    : hasPlan
+      ? (canReplace ? MAP_TEXT.hintPlan : MAP_TEXT.hintAddOnly)
+      : search.byDefault ? MAP_TEXT.hintTap : MAP_TEXT.hintNoPlan;
+  const truncatedLine = search.truncated && search.truncated.length > 0 ? truncatedText(search.truncated) : null;
+  // Отказ при открытом дне — в плашке дня, одной плашкой (шестой круг).
+  const failedInDay = editing !== null && status === 'failed';
 
   return (
     <div
@@ -318,7 +370,8 @@ export function PlannerMapOverlay({
       {editing && (
         <div
           className={`${GLASS} pointer-events-auto flex items-start gap-3`}
-          style={{ border: `1px solid color-mix(in srgb, ${planDayHex()} 80%, transparent)` }}
+          // Отказ в плашке дня узнаётся кромкой предупреждения, как плашка отказа.
+          style={failedInDay ? WARN_EDGE : { border: `1px solid color-mix(in srgb, ${planDayHex()} 80%, transparent)` }}
         >
           <DaySwatch n={editing.number} size="md" />
           <div className="flex-1 min-w-0">
@@ -330,7 +383,9 @@ export function PlannerMapOverlay({
             {editing.refusal !== null && (
               <p className="text-[11px] leading-snug text-[var(--glass-fg)]">{editing.refusal}</p>
             )}
-            {replaceable && status === 'ok' && (
+            {/* Карточка точки открыта (телефон) — точка уже нажата, «Заменить
+                день N» — в карточке: колонка короче, карточка под ней. */}
+            {replaceable && status === 'ok' && !squeezed && (
               <>
                 <p className="text-[11px] leading-snug text-[var(--glass-fg-muted)]">{editActionText(editing.number)}</p>
                 <p className="text-[11px] leading-snug text-[var(--glass-fg-muted)]">
@@ -343,11 +398,19 @@ export function PlannerMapOverlay({
                 {status === 'loading' ? MAP_TEXT.loading : emptyText(search)}
               </p>
             )}
-            {/* Отказ: на телефоне название дня скрыто (оно на полосе над
-                вкладками), и без этой строки плашка была пустой. Кнопка
-                «Повторить» — одна, в плашке отказа ниже. */}
-            {replaceable && status === 'failed' && (
-              <p className="text-[11px] leading-snug text-[var(--glass-fg)]">{MAP_TEXT.editFailed}</p>
+            {/* Отказ при открытом дне — здесь же, одной плашкой: отказ, что
+                это значит для дня, и «Повторить». Отдельная плашка отказа под
+                этой ложилась на телефоне на северный пин дня. */}
+            {failedInDay && (
+              <div role="alert" className="mt-0.5 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0 text-[var(--warning)]" aria-hidden />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] leading-snug text-[var(--glass-fg)]">
+                    {replaceable ? editFailedText(editing.number) : MAP_TEXT.failed}
+                  </p>
+                  <RetryButton onRetry={onRetry} />
+                </div>
+              </div>
             )}
           </div>
           <button
@@ -368,7 +431,7 @@ export function PlannerMapOverlay({
         </div>
       )}
 
-      {status === 'failed' && (
+      {status === 'failed' && !failedInDay && (
         <div role="alert" className={`${GLASS} pointer-events-auto flex items-start gap-2`} style={WARN_EDGE}>
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--warning)]" aria-hidden />
           <div className="flex-1 min-w-0">
@@ -391,7 +454,7 @@ export function PlannerMapOverlay({
       {status === 'ok' && partial && (
         <div role="status" className={`${GLASS} pointer-events-auto flex items-center gap-2`} style={WARN_EDGE}>
           <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--warning)]" aria-hidden />
-          <p className="flex-1 min-w-0 text-xs leading-snug">{MAP_TEXT.partial}</p>
+          <p className="flex-1 min-w-0 text-xs leading-snug">{partialText(search.failed ?? [])}</p>
           <RetryButton onRetry={onRetry} inline />
         </div>
       )}
@@ -439,6 +502,9 @@ export function PlannerMapOverlay({
           )}
           {open && showLegend && searchLine && (
             <p className="mt-1.5 text-[11px] leading-snug text-[var(--glass-fg)]">{searchLine}</p>
+          )}
+          {open && showLegend && truncatedLine && (
+            <p className="mt-1.5 text-[11px] leading-snug text-[var(--glass-fg)]">{truncatedLine}</p>
           )}
           {open && showLegend && (
             <p className="mt-1.5 text-[11px] leading-snug text-[var(--glass-fg-muted)]">{hint}</p>

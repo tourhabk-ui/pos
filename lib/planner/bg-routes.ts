@@ -35,6 +35,21 @@
  * есть в словаре мест (lib/places/location-types), живых мест этого вида
  * сейчас нет — взята, потому что это тот же интерес. Остров к побережью не
  * отнесён: остров — не берег.
+ *
+ * ── Что ещё спрашивается (22.10, шестой круг) ───────────────────────────
+ *
+ *   • `kind=route`: сервер, ещё не знающий `place_type`, отбрасывает его как
+ *     неизвестный (Zod) — без рода он отдал бы места вперемешку с
+ *     маршрутами, и место встало бы на карту «маршрутом». С родом приходят
+ *     только маршруты, а игнор фильтра виден числом: «показаны 30 из 301» —
+ *     все маршруты с координатами, а не маршруты через вулкан;
+ *   • `sort=navigable` — порядок для выбора в поле (род линии, потом
+ *     полнота карточки, CatalogQuerySchema): на карту идут первые 30, и это
+ *     должны быть те, по которым можно идти, а не первые по алфавиту;
+ *   • `brief=1` — описание первой строкой: карточка точки показывает 140
+ *     знаков, целые тексты карте не нужны;
+ *   • `meta.total` читается: показано 30 из 52 — карта говорит это словами
+ *     (`truncated`), а не выдаёт тридцать за все.
  */
 import { asPlannerZone } from '@/lib/planner/zone-style';
 import type { ZoneId } from '@/lib/planner/constants';
@@ -59,9 +74,16 @@ export interface PlannerRoute {
  * (у `empty` — все спрошенные). Это не отказ: отказ — `failedTypes`.
  */
 export type BgRoutesResult =
-  | { state: 'ok'; routes: PlannerRoute[]; failedTypes: string[]; emptyTypes: string[] }
+  | { state: 'ok'; routes: PlannerRoute[]; failedTypes: string[]; emptyTypes: string[]; truncated: TruncatedType[] }
   | { state: 'empty'; emptyTypes: string[] }
   | { state: 'failed'; failedTypes: string[] };
+
+/**
+ * Интерес, по которому каталог знает больше маршрутов, чем пришло
+ * (`meta.total` > показанных). Каталог не назвал total — интереса здесь
+ * нет: «показаны все» тоже не утверждается, это просто не известно.
+ */
+export interface TruncatedType { type: string; shown: number; total: number }
 
 /** Сколько маршрутов на один интерес — как было. */
 export const BG_ROUTES_PER_TYPE = 30;
@@ -96,13 +118,20 @@ export const PLACE_TILE_LOCATION_TYPES: Readonly<Record<string, readonly string[
  */
 export const BG_DEFAULT_TYPES = ['trekking', 'volcano'] as const;
 
-/** Адрес каталога для плитки: место — по месту пути, занятие — по виду маршрута. */
+/**
+ * Адрес каталога для плитки: место — по месту пути, занятие — по виду
+ * маршрута. Только маршруты, с координатами, в порядке для поля, описание
+ * первой строкой (см. шапку, шестой круг).
+ */
 export function bgRoutesUrl(tile: string): string {
   const placeTypes = PLACE_TILE_LOCATION_TYPES[tile];
-  const by = placeTypes
-    ? `place_type=${encodeURIComponent(placeTypes.join(','))}`
-    : `activity_type=${encodeURIComponent(tile)}`;
-  return `/api/routes?${by}&hasCoords=true&limit=${BG_ROUTES_PER_TYPE}`;
+  const sp = new URLSearchParams(placeTypes ? { place_type: placeTypes.join(',') } : { activity_type: tile });
+  sp.set('kind', 'route');
+  sp.set('hasCoords', 'true');
+  sp.set('sort', 'navigable');
+  sp.set('brief', '1');
+  sp.set('limit', String(BG_ROUTES_PER_TYPE));
+  return `/api/routes?${sp.toString()}`;
 }
 
 function str(v: unknown): string | null {
@@ -141,7 +170,7 @@ export function toPlannerRoute(item: unknown): PlannerRoute | null {
 
 type FetchLike = (url: string) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
 
-type TypeOutcome = { ok: true; routes: PlannerRoute[] } | { ok: false };
+type TypeOutcome = { ok: true; routes: PlannerRoute[]; total: number | null } | { ok: false };
 
 async function loadType(type: string, fetchImpl: FetchLike): Promise<TypeOutcome> {
   const fail = (reason: string, status?: number): TypeOutcome => {
@@ -159,7 +188,9 @@ async function loadType(type: string, fetchImpl: FetchLike): Promise<TypeOutcome
     // Записи пришли, а разобрать нельзя ни одну — сменилась форма ответа.
     // Это отказ, а не «маршрутов нет».
     if (data.data.length > 0 && routes.length === 0) return fail('shape', r.status);
-    return { ok: true, routes };
+    const meta = data.meta && typeof data.meta === 'object' ? (data.meta as Record<string, unknown>) : null;
+    const total = meta ? num(meta.total) : null;
+    return { ok: true, routes, total };
   } catch (err) {
     return fail(err instanceof Error ? err.name : 'network');
   }
@@ -168,7 +199,8 @@ async function loadType(type: string, fetchImpl: FetchLike): Promise<TypeOutcome
 /**
  * Маршруты по интересам. Исходы:
  *   ok     — есть что рисовать (`failedTypes` — интересы, по которым не вышло,
- *            `emptyTypes` — по которым маршрутов нет);
+ *            `emptyTypes` — по которым маршрутов нет, `truncated` — по
+ *            которым каталог знает больше, чем пришло);
  *   empty  — все запросы ответили, и маршрутов с точкой нет;
  *   failed — рисовать нечего, и хотя бы один запрос не ответил: сказать
  *            «маршрутов нет» мы в этом случае не можем.
@@ -192,7 +224,14 @@ export async function loadBackgroundRoutes(
       if (!seen.has(route.id)) { seen.add(route.id); routes.push(route); }
     }
   }
-  if (routes.length > 0) return { state: 'ok', routes, failedTypes, emptyTypes };
+  const truncated: TruncatedType[] = [];
+  unique.forEach((type, i) => {
+    const o = outcomes[i];
+    if (o.ok && o.total !== null && o.total > o.routes.length) {
+      truncated.push({ type, shown: o.routes.length, total: o.total });
+    }
+  });
+  if (routes.length > 0) return { state: 'ok', routes, failedTypes, emptyTypes, truncated };
   if (failedTypes.length > 0 || unique.length === 0) return { state: 'failed', failedTypes };
   return { state: 'empty', emptyTypes };
 }

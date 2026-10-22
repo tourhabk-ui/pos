@@ -188,9 +188,44 @@ describe('что спрашивается у каталога', () => {
     const { impl, calls } = fakeFetch({});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await loadBackgroundRoutes(BG_DEFAULT_TYPES, impl);
-    expect(calls.map(u => params(u).toString()).sort()).toEqual([
-      'activity_type=trekking&hasCoords=true&limit=30',
-      'place_type=volcano&hasCoords=true&limit=30',
-    ]);
+    expect(calls.map(u => params(u).get('activity_type') ?? params(u).get('place_type')).sort()).toEqual(['trekking', 'volcano']);
+  });
+
+  it('только маршруты, порядок для поля, описание первой строкой — и форма проходит схему каталога', () => {
+    for (const tile of ['volcano', 'sea', 'trekking', 'helicopter']) {
+      const sp = params(bgRoutesUrl(tile));
+      // Сервер, не знающий place_type, без рода отдал бы и места.
+      expect(sp.get('kind'), tile).toBe('route');
+      expect(sp.get('sort'), tile).toBe('navigable');
+      expect(sp.get('brief'), tile).toBe('1');
+      expect(sp.get('hasCoords'), tile).toBe('true');
+      expect(sp.get('limit'), tile).toBe(String(30));
+      const parsed = CatalogQuerySchema.safeParse(Object.fromEntries(sp));
+      expect(parsed.success, tile).toBe(true);
+      // Порядок — тот, что схема знает, а не молча отброшенный к «по алфавиту».
+      if (parsed.success) expect(parsed.data.sort).toBe('navigable');
+    }
+  });
+});
+
+describe('сколько маршрутов есть, а сколько показано', () => {
+  const reply = (data: unknown[], meta?: unknown): Reply => ({ ok: true, status: 200, body: { success: true, data, ...(meta === undefined ? {} : { meta }) } });
+
+  it('каталог знает больше, чем пришло, — интерес назван с числами', async () => {
+    const { impl } = fakeFetch({
+      volcano: reply([item('a'), item('b')], { total: 52, page: 1, limit: 30, pages: 2 }),
+      trekking: reply([item('c')], { total: 1, page: 1, limit: 30, pages: 1 }),
+    });
+    const r = await loadBackgroundRoutes(['volcano', 'trekking'], impl);
+    expect(r.state === 'ok' && r.truncated).toEqual([{ type: 'volcano', shown: 2, total: 52 }]);
+  });
+
+  it('total не пришёл или не число — «показаны все» не утверждается, и усечения не выдумывается', async () => {
+    const { impl } = fakeFetch({
+      volcano: reply([item('a')]),
+      trekking: reply([item('b')], { total: 'много' }),
+    });
+    const r = await loadBackgroundRoutes(['volcano', 'trekking'], impl);
+    expect(r.state === 'ok' && r.truncated).toEqual([]);
   });
 });

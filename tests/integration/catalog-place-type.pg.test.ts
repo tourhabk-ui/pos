@@ -144,6 +144,74 @@ withPg('поиск маршрута по виду места пути', () => {
     expect((await titles({ place_type: 'volcano' })).titles).not.toContain('place-twin');
   });
 
+  it('строка маршрута, с которой читаются связи, — живая: скрытый или слитый дубль с ark_id живого не отдаёт ему свой вулкан', async () => {
+    // Строка ищется по обоим id (id VIEW = COALESCE(ark_id, id)), и под
+    // `kpt.ark_id = ark.id` попадает чужая строка: дубль, чей ark_id совпал
+    // с id живого маршрута. Три дубля — скрытый, слитый, скрытый и слитый,
+    // — у каждого свой живой маршрут на озеро, и у каждого дубля точка
+    // пути — вулкан. Живые маршруты «вулканными» от этого не становятся.
+    // Дубли — только в этом тесте: соединение строки маршрута в выборке
+    // (krl по обоим id) удвоило бы живой маршрут в прочих проверках.
+    const scenes: Array<[string, boolean, boolean]> = [
+      ['Т Живой, дубль скрыт', false, false],
+      ['Т Живой, дубль слит', true, true],
+      ['Т Живой, дубль скрыт и слит', false, true],
+    ];
+    const created: string[] = [];
+    try {
+      for (const [live, dupVisible, dupMerged] of scenes) {
+        const l = await pool.query<{ id: string }>(
+          `INSERT INTO kamchatka_routes (category, title, slug, is_visible, lat, lng)
+           VALUES ('hiking', $1::text, $1::text, TRUE, 53.25, 158.83) RETURNING id::text`,
+          [live],
+        );
+        await pool.query(
+          `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, 'place-lake', 0, 'waypoint')`,
+          [l.rows[0].id],
+        );
+        const d = await pool.query<{ id: string }>(
+          `INSERT INTO kamchatka_routes (category, title, slug, is_visible, merged_into_id, lat, lng, ark_id)
+           VALUES ('hiking', $1::text, $1::text, $2::boolean,
+                   CASE WHEN $3::boolean THEN $4::text END, 53.25, 158.83, $4::uuid)
+           RETURNING id::text`,
+          [`${live} — дубль`, dupVisible, dupMerged, l.rows[0].id],
+        );
+        await pool.query(
+          `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, 'place-volc', 0, 'waypoint')`,
+          [d.rows[0].id],
+        );
+        created.push(l.rows[0].id, d.rows[0].id);
+      }
+      const volcano = await titles({ place_type: 'volcano', hasCoords: 'true' });
+      for (const [live] of scenes) expect(volcano.titles, live).not.toContain(live);
+      expect(volcano.titles).toEqual(['Т Маршрут с ark_id', 'Т Путь через вулкан', 'Т Связь не размечена']);
+      // Свои точки пути живой маршрут отдаёт как прежде: он — маршрут на озеро.
+      const lake = await titles({ place_type: 'lake', hasCoords: 'true' });
+      for (const [live] of scenes) expect(lake.titles, live).toContain(live);
+    } finally {
+      if (created.length > 0) {
+        await pool.query('DELETE FROM route_waypoints WHERE route_id = ANY($1::uuid[])', [created]);
+        await pool.query('DELETE FROM kamchatka_routes WHERE id = ANY($1::uuid[])', [created]);
+      }
+    }
+  });
+
+  it('форма запроса карты планировщика (bgRoutesUrl) выполняется на схеме прода', async () => {
+    // Ровно то, что уходит с экрана: kind=route, порядок для поля, brief.
+    // Сортировка `navigable` читает строку маршрута — 42702 «ambiguous»
+    // уже ронял каталог на одной сортировке при живой другой.
+    const { bgRoutesUrl } = await import('@/lib/planner/bg-routes');
+    for (const tile of ['volcano', 'trekking']) {
+      const sp = Object.fromEntries(new URL(bgRoutesUrl(tile), 'http://x').searchParams);
+      const { items, meta } = await queryCatalog(schema.parse(sp));
+      expect(items.every((i) => i.kind === 'route'), tile).toBe(true);
+      if (tile === 'volcano') {
+        expect(items.map((i) => i.title).sort()).toEqual(['Т Маршрут с ark_id', 'Т Путь через вулкан', 'Т Связь не размечена']);
+        expect(meta.total).toBe(3);
+      }
+    }
+  });
+
   it('вид, которого на пути нет, — пусто, а не всё подряд', async () => {
     expect(await titles({ place_type: 'geyser', hasCoords: 'true' })).toEqual({ titles: [], total: 0 });
   });

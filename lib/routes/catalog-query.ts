@@ -25,6 +25,7 @@ import { cardImage } from '@/lib/routes/card-image';
 import { placeOnLiveRouteSql } from '@/lib/places/on-route';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { arkUrlSlugSql } from '@/lib/routes/url-slug';
+import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
 
 
 /** Определение опасностей на основе данных точки/маршрута. */
@@ -73,11 +74,18 @@ function resolveHazards(row: Record<string, unknown>): string[] {
  * VIEW не отдаёт), строка `kamchatka_routes` ищется по обоим id, как у
  * `has_waypoints`: id VIEW у маршрута — COALESCE(ark_id, id).
  *
+ * Строка маршрута, С КОТОРОЙ читаются связи, — тоже живая: видимая и не
+ * слитая (как в placeOnLiveRouteSql). Поиск по обоим id находит и чужую
+ * строку: слитый скрытый дубль, чей `ark_id` совпал с id живого маршрута,
+ * отдавал бы ему свои путевые точки — живой маршрут на озеро становился
+ * «вулканным» по вулкану дубля (ревью 22.10, шестой круг).
+ *
  * Типы сравнения: `route_waypoints.route_id` и `kamchatka_routes.id` — uuid,
  * `route_waypoints.place_id` и `places.id` — text; сравниваются только
  * колонки одного типа. Параметр — `text[]` с явным приведением.
  */
-export const PLACE_TYPE_PARAM = /^[a-z_]{1,40}(,[a-z_]{1,40}){0,7}$/;
+// Правило входа — в модуле без зависимостей: его же читает документ OpenAPI.
+export { PLACE_TYPE_PARAM };
 
 export function routeThroughPlaceTypeSql(arkAlias: string, param: string): string {
   return `${arkAlias}.kind = 'route' AND EXISTS (
@@ -86,6 +94,8 @@ export function routeThroughPlaceTypeSql(arkAlias: string, param: string): strin
        JOIN route_waypoints rwpt ON rwpt.route_id = kpt.id
        JOIN places ppt ON ppt.id = rwpt.place_id
       WHERE (kpt.id = ${arkAlias}.id OR kpt.ark_id = ${arkAlias}.id)
+        AND kpt.is_visible = TRUE
+        AND kpt.merged_into_id IS NULL
         AND rwpt.link_kind IN ('waypoint', 'unknown')
         AND ppt.location_type = ANY(${param}::text[])
         AND ppt.is_visible IS NOT FALSE

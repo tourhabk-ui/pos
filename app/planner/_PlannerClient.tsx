@@ -35,6 +35,7 @@ import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/l
 import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { PlannerMapOverlay, editingDayTitle, type PlannerMapStatus, type PlannerMapSearch } from '@/components/planner/PlannerMapOverlay';
+import { useInsetBelow } from '@/hooks/useInsetBelow';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
@@ -735,7 +736,9 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
               value={targetDay}
               onChange={e => setChosenDay(Number(e.target.value))}
               aria-label="Какой день заменить"
-              className="ds-input flex-1 text-xs py-1.5"
+              // min-w-0: без него ширина длинного названия дня выталкивала
+              // «Заменить» за край карточки (на 360 px виднелось «Заме»).
+              className="ds-input flex-1 min-w-0 text-xs py-1.5"
             >
               {replaceable.map(d => (
                 <option key={d.day} value={d.day}>День {days.indexOf(d) + 1}: {trunc(d.title, 22)}</option>
@@ -1267,6 +1270,15 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const dayRefs = useRef<Map<number, HTMLElement>>(new Map());
   /** Колонка плашек поверх карты — подгонка вида оставляет её низ над точками. */
   const mapOverlayRef = useRef<HTMLDivElement>(null);
+  // Низ той же колонки — верхняя граница карточки точки (шестой круг, 22.10):
+  // на телефоне 360×640 карточка, прижатая к низу, закрывала плашку «Не
+  // загрузились … «Повторить»» при замене дня. Колонка растёт с текстом и
+  // шрифтом — меряется ResizeObserver'ом (hooks/useInsetBelow), не числом.
+  const [setOverlayInsetEl, overlayBottom] = useInsetBelow(8);
+  const overlayColumnRef = useCallback((el: HTMLDivElement | null) => {
+    mapOverlayRef.current = el;
+    setOverlayInsetEl(el);
+  }, [setOverlayInsetEl]);
 
   // TripBuilder v2: AI chat fill
   const [chatInput, setChatInput]   = useState('');
@@ -1548,7 +1560,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     return {
       byDefault,
       shown: [...new Set(types)].filter(t => !empty.includes(t) && !failed.includes(t)).map(tileLabel),
+      // «Нет» — только то, на что каталог ответил пусто (bg-routes: отказ и
+      // пустота не пересекаются); не ответил — подпись идёт в плашку «Не
+      // загрузились», а не в «На карте нет маршрутов».
       empty: empty.map(tileLabel),
+      failed: failed.map(tileLabel),
+      truncated: bgResult.state === 'ok'
+        ? bgResult.truncated.map(t => ({ label: tileLabel(t.type), shown: t.shown, total: t.total }))
+        : [],
     };
   }, [bgResult, bgAsked]);
   // Перезагрузка после отказа или пустоты — снова «загружаем», а не прежний
@@ -2475,7 +2494,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       : 'даты не выбраны' },
     { n: 2, label: 'Кто едет', value: `${adults} взр.${childAges.length > 0 ? `, детей ${childAges.length}` : ''}` },
     { n: 3, label: 'Как', value: `${TRAVEL_STYLE_LABEL[travelStyle].label}${restDaysToSend > 0 ? `, отдых ${restDaysToSend}` : ''}` },
-    { n: 4, label: 'Что', value: allInterests.map((i) => ACTIVITY_LABEL[i] ?? i).join(', ') || 'не выбрано' },
+    // Строка называется как шаг, который открывает: карта отсылает к «Что
+    // интересно», и после сборки плана человек видит именно эту строку.
+    { n: 4, label: 'Что интересно', value: allInterests.map((i) => ACTIVITY_LABEL[i] ?? i).join(', ') || 'не выбрано' },
   ];
 
   const summaryCard = (
@@ -2483,7 +2504,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       {summaryRows.map((r) => (
         <button key={r.n} type="button" onClick={() => { setStep(r.n); setFormOpen(true); }}
           className="w-full flex items-center gap-3 px-4 min-h-[44px] py-2 text-left transition-colors duration-200 motion-reduce:transition-none hover:bg-[var(--bg-hover)]">
-          <span className="w-20 shrink-0 text-xs text-[var(--text-muted)]">{r.label}</span>
+          <span className="w-24 shrink-0 text-xs text-[var(--text-muted)]">{r.label}</span>
           <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] truncate">{r.value}</span>
           <Pencil className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
         </button>
@@ -2907,6 +2928,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         total={bgRoutes.length}
         partial={bgResult?.state === 'ok' && bgResult.failedTypes.length > 0}
         hasPlan={days.length > 0}
+        canReplace={days.some(d => replaceRefusal(days, d) === null)}
         search={mapSearch}
         cardOpen={selectedRoute !== null}
         editing={editingDayInfo ? {
@@ -2918,7 +2940,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         } : null}
         onRetry={() => setBgRetry(n => n + 1)}
         onStopEditing={() => setEditingDayId(null)}
-        panelRef={mapOverlayRef}
+        panelRef={overlayColumnRef}
       />
 
       {/* Карточка маршрута по нажатию на точку. На телефоне — выше подписи
@@ -2926,17 +2948,25 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           тайлов требует, чтобы она была видна). Когда план есть, в том же
           углу висит кнопка чата помощника (CompanionWidget, fixed bottom-6
           right-6, 48 px) — карточка встаёт над ней, иначе кнопка ложилась на
-          ссылку «Открыть страницу маршрута». */}
+          ссылку «Открыть страницу маршрута».
+          Сверху карточку ограничивает низ колонки плашек (overlayBottom):
+          прижатая к низу, она на 360×640 закрывала «Повторить». Низ прежний;
+          не помещается — карточка прокручивается внутри, а не наезжает. */}
       {selectedRoute && (
-        <div className={`absolute ${days.length > 0 ? 'bottom-24' : 'bottom-8'} lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10`}>
-          <RouteDetailCard
-            route={selectedRoute}
-            days={days}
-            editingDayId={editingDayId}
-            onReplace={dayNum => replaceDay(dayNum, selectedRoute)}
-            onAddDay={() => addRouteAsDay(selectedRoute)}
-            onClose={() => setSelectedRoute(null)}
-          />
+        <div
+          className={`absolute ${days.length > 0 ? 'bottom-24' : 'bottom-8'} lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10 flex flex-col justify-end pointer-events-none`}
+          style={{ top: overlayBottom }}
+        >
+          <div className="min-h-0 overflow-y-auto overscroll-contain rounded-lg pointer-events-auto">
+            <RouteDetailCard
+              route={selectedRoute}
+              days={days}
+              editingDayId={editingDayId}
+              onReplace={dayNum => replaceDay(dayNum, selectedRoute)}
+              onAddDay={() => addRouteAsDay(selectedRoute)}
+              onClose={() => setSelectedRoute(null)}
+            />
+          </div>
         </div>
       )}
     </div>
