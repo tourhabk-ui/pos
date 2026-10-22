@@ -27,6 +27,7 @@ const ALLOWED: Record<string, string> = {
   'app/api/admin/auth/issue-token/route.ts': 'служебный email внутреннего токена, людям не показывается',
   'lib/analytics/bot-detect.ts': 'прежний хост — свой, а не внешний источник переходов',
   'app/api/admin/analytics/traffic/route.ts': 'комментарий о прежнем хосте',
+  'app/api/cron/max-webhook/route.ts': 'прежний хост — свой: подписки бота MAX на него снимаются как наши, а не числятся чужими',
 };
 
 describe('контакты на vedarai.ru', () => {

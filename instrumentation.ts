@@ -146,33 +146,21 @@ export async function register(): Promise<void> {
     //   warmModel().catch(() => {});
     // } catch { /* best-effort */ }
 
-    // ── 2. Register MAX bot webhook ───────────────────────────────────
-    const maxToken = process.env.MAX_BOT_TOKEN;
-    if (maxToken) {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://tourhab.ru';
-      const webhookUrl = `${baseUrl}/api/max/kuzmich`;
-      try {
-        // Check existing subscription first.
-        // MAX Bot API v2 host — старый platform-api.max.ru выведен из эксплуатации,
-        // пакет @maxhub/max-bot-api уже по умолчанию использует platform-api2.max.ru.
-        const checkRes = await fetch('https://platform-api2.max.ru/subscriptions', {
-          headers: { Authorization: maxToken },
+    // ── 2. Подписка бота MAX ──────────────────────────────────────────
+    // Адрес — maxWebhookUrl() с ключом, путь — maxFetch (корень Минцифры),
+    // отказ — в лог с замаскированным адресом, повтор с паузами и тревога в
+    // рабочий чат; без ключа не подписываем ничего, и подписывается только
+    // канонический адрес (хост vedarai.ru): подписка у бота одна на все
+    // окружения, и стенд с прод-переменными и своим адресом увёл бы её на
+    // себя; NODE_ENV отсекает лишь next dev (почему и чего проверка не
+    // держит — в шапке lib/max/startup-subscription, там же проверка).
+    // Не ждём: старт сервера не стоит в очереди за сетью MAX.
+    if (process.env.MAX_BOT_TOKEN) {
+      void import('@/lib/max/startup-subscription')
+        .then(({ subscribeMaxOnStart }) => subscribeMaxOnStart())
+        .catch((err: unknown) => {
+          console.error('[max] подписка при старте не выполнилась:', err instanceof Error ? err.message : String(err));
         });
-        const checkData = await checkRes.json() as { subscriptions?: Array<{ url: string }> };
-        const alreadyRegistered = checkData.subscriptions?.some((s) => s.url === webhookUrl);
-        if (!alreadyRegistered) {
-          await fetch('https://platform-api2.max.ru/subscriptions', {
-            method: 'POST',
-            headers: { Authorization: maxToken, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              url: webhookUrl,
-              update_types: ['bot_started', 'message_created', 'message_callback'],
-            }),
-          });
-        }
-      } catch {
-        // Non-blocking: webhook registration is best-effort
-      }
     }
   }
 }

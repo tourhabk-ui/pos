@@ -669,14 +669,10 @@ describe('туристу и уборщик', () => {
 /* ─── Провода ───────────────────────────────────────────────────────────── */
 
 describe('провода', () => {
-  it('MAX: кнопка засчитывается только из заверенного апдейта и из чата оператора запроса', () => {
-    const src = read('app/api/max/kuzmich/route.ts');
-    const i = src.indexOf('const seat = parseAnswerPayload(payload);');
-    expect(i).toBeGreaterThan(0);
-    const branch = src.slice(i, src.indexOf('answerSeatRequest(seat.requestId', i));
-    expect(branch).toMatch(/if \(opts\?\.verifiedOrigin !== true\) return;/);
-    expect(branch).toMatch(/requestBelongsToMaxChat\(seat\.requestId, resolvedChatId\)/);
-  });
+  // Кнопка «Есть места / Мест нет» в MAX засчитывается только из заверенного
+  // апдейта, из чата сообщения с кнопкой и из чата оператора запроса — это
+  // держит вызов вебхука в tests/unit/max-verified-press.test.ts (незаверенное
+  // нажатие отвечает «не смог проверить», без сообщения не применяется).
 
   it('турист подключает чат в обоих ботах; в MAX — под гейтом заверенного апдейта', () => {
     expect(read('app/api/telegram/webhook/route.ts')).toMatch(/bindTouristChat\(seatToken, 'telegram', update\.message\.chat\.id\)/);

@@ -58,6 +58,7 @@ import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
+import { UNVERIFIED_CHAT_REPLY } from '@/lib/max/verified-press';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
@@ -1598,8 +1599,11 @@ async function notifyOperatorNewBooking(
 
 // ── Cleanup для pending Maps ──────────────────────────────────────────────────
 
+/** Бронь в чате без движения дольше этого — брошена и не продолжается. */
+const BOOKING_FLOW_TTL_MS = 30 * 60 * 1000;
+
 export function cleanupPending(pending: Map<number, PendingBooking>) {
-  const cutoff = Date.now() - 30 * 60 * 1000;
+  const cutoff = Date.now() - BOOKING_FLOW_TTL_MS;
   for (const [k, v] of pending) {
     if (v.started_at < cutoff) pending.delete(k);
   }
@@ -2418,14 +2422,22 @@ export async function aiChat(opts: {
   pending?: Map<number, PendingBooking>;
   platform?: 'tg' | 'max';
   afterReply?: (chatId: number, answer?: string) => Promise<void>;
+  /**
+   * Писать ли разговор и память чата (по умолчанию — да). false — апдейт MAX
+   * без ключа подписки (lib/max/verified-press): чат в его теле назвал кто
+   * угодно, и ответить в этот чат можно, а дописать ему историю или заметки
+   * памяти — нет: они вошли бы в каждый следующий ответ настоящему человеку.
+   */
+  persist?: boolean;
 }): Promise<void> {
   const { chatId, text, mode, reply, userId, userName, visionDescription, platform, afterReply } = opts;
+  const persist = opts.persist !== false;
 
   // Сохраняем сообщение пользователя
   const userContent = visionDescription
     ? `[Фото: ${visionDescription}]\n${text || ''}`.trim()
     : text;
-  await saveMsg(chatId, mode, 'user', userContent, userId, userName);
+  if (persist) await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
   const [historyResult, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx] = await Promise.all([
     getHistoryWithCompactionSummary(chatId, mode),
@@ -2438,7 +2450,12 @@ export async function aiChat(opts: {
     loadUserSituation(chatId),
     searchLegislation(text),
   ]);
-  const { history, summary: historySummary } = historyResult;
+  // Записанный вопрос история уже содержит; незаписанный добавляется здесь
+  // же, в памяти: запасной путь ниже берёт вопрос только из истории.
+  const history: ChatMessage[] = persist
+    ? historyResult.history
+    : [...historyResult.history, { role: 'user', content: userContent }];
+  const historySummary = historyResult.summary;
 
   // Строим системный промпт с маркером для prompt caching:
   // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
@@ -2556,7 +2573,7 @@ export async function aiChat(opts: {
   });
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
-  if (!isAIErrorResponse(answer)) {
+  if (persist && !isAIErrorResponse(answer)) {
     await saveMsg(chatId, mode, 'assistant', finalAnswer, userId, userName);
   }
   await reply(chatId, finalAnswer);
@@ -2581,7 +2598,7 @@ export async function aiChat(opts: {
   });
 
   // Fire-and-forget: обновляем долгосрочную память бота
-  if (platform) {
+  if (platform && persist) {
     const newCount = (botMemory?.messages_count ?? 0) + 1;
     const patch    = extractBotMemoryPatch(text);
     void saveBotMemory(chatId, platform, { ...patch, messages_count: 1 }, botMemory);
@@ -2682,6 +2699,13 @@ export async function processMessage(opts: {
 }): Promise<void> {
   const { chatId, text, userName, userId, mode, createdVia, pending: pendingMap, reply: replyFn, visionDescription, platform, afterReply, verifiedOrigin } = opts;
   const cmd = text.split(' ')[0]?.toLowerCase() ?? '';
+  // Апдейт MAX без ключа подписки доходит сюда, только пока ключ не задан
+  // (lib/max/verified-press): при заданном ключе вебхук его не обрабатывает.
+  // Такой апдейт получает ответ в чат — и только: /reset и бронь в чате не
+  // применяются (поддельный апдейт с чужим чатом стёр бы его историю и
+  // черновик контроля выхода или оформил бы бронь с чужими именем и
+  // телефоном), а ответ Кузьмича не пишется ни в историю, ни в память чата.
+  const maxUnverified = platform === 'max' && verifiedOrigin !== true;
 
   // /start
   if (cmd === '/start') {
@@ -2731,6 +2755,10 @@ export async function processMessage(opts: {
 
   // /reset
   if (cmd === '/reset') {
+    if (maxUnverified) {
+      await replyFn(chatId, UNVERIFIED_CHAT_REPLY.reset);
+      return;
+    }
     await deleteBookingFlow(chatId, mode, pendingMap);
     if (platform === 'max') {
       await deleteWatchDraft(platform, chatId).catch((err) =>
@@ -2739,7 +2767,17 @@ export async function processMessage(opts: {
     await pool.query(
       `DELETE FROM tg_conversations WHERE chat_id = $1 AND mode = $2`,
       [chatId, mode],
-    ).catch(() => {});
+    ).catch((err: unknown) =>
+      console.error('[kuzmich] /reset: история не удалена', logText(chatId), logText(err instanceof Error ? err.message : err)));
+    // Заметки памяти чата — тоже история: без их удаления то, что попало в
+    // память (в том числе чужим апдейтом до гейта MAX), пережило бы /reset.
+    if (platform) {
+      await pool.query(
+        `DELETE FROM agent_memory WHERE agent_id = 'kuzmich' AND memory_type = 'user_pref' AND key = $1`,
+        [botMemKey(chatId, platform)],
+      ).catch((err: unknown) =>
+        console.error('[kuzmich] /reset: память чата не удалена', logText(chatId), logText(err instanceof Error ? err.message : err)));
+    }
     await replyFn(chatId, 'История очищена. С чего начнём?');
     return;
   }
@@ -2774,9 +2812,19 @@ export async function processMessage(opts: {
 
   // Active booking flow — проверяем память И базу данных
   const activeBooking = !isMediaMessage ? await loadBookingFlow(chatId, mode, pendingMap) : null;
-  if (activeBooking) {
+  const liveBooking = activeBooking !== null && activeBooking.started_at >= Date.now() - BOOKING_FLOW_TTL_MS;
+  // Бронь из незаверенного апдейта MAX не начинается и не продвигается: шаг
+  // «да» создал бы бронь оператору и разослал бы ПД. Человек слышит, где
+  // оформить заявку, а не тишину (§4.0). Брошенная бронь (старше срока) —
+  // не повод отказывать: она не продолжается и для заверенного, вопрос идёт
+  // Кузьмичу. Удалить её незаверенный апдейт не может — записи от него нет.
+  if (maxUnverified && (liveBooking || isBookingTrigger(text))) {
+    await replyFn(chatId, UNVERIFIED_CHAT_REPLY.booking);
+    return;
+  }
+  if (activeBooking && !maxUnverified) {
     // Auto-expire: если booking flow старше 30 минут — удаляем
-    if (activeBooking.started_at < Date.now() - 30 * 60 * 1000) {
+    if (!liveBooking) {
       await deleteBookingFlow(chatId, mode, pendingMap);
     } else {
       const handled = await handleBookingStep(chatId, text, mode, pendingMap, replyFn, createdVia);
@@ -2793,5 +2841,8 @@ export async function processMessage(opts: {
   }
 
   // Free AI chat (с vision если есть)
-  await aiChat({ chatId, text, mode, reply: replyFn, userId, userName, visionDescription, pending: pendingMap, platform, afterReply });
+  await aiChat({
+    chatId, text, mode, reply: replyFn, userId, userName, visionDescription, pending: pendingMap, platform, afterReply,
+    persist: !maxUnverified,
+  });
 }
