@@ -513,7 +513,9 @@ describe('getGuardianContext — свежесть и происхождение 
   it('тревога подписана своей лентой', async () => {
     mockDb({
       places: [{ ...row, volcano_observed_at: FRESH_OBSERVATION }],
-      alerts: [{ title: 'Землетрясение M5.1', severity: 1, description: null, source_url: null, external_id: 't.me/kbgsras/123' }],
+      // Запрос тревог ищет название в заголовке или описании — подставная
+      // строка его несёт, как несла бы настоящая (#2699: без названия строки нет).
+      alerts: [{ title: 'Землетрясение M5.1', severity: 1, description: 'Эпицентр в 20 км от вулкана Мутновский.', source_url: null, external_id: 't.me/kbgsras/123' }],
     });
     const ctx = await getGuardianContext('Мутновский');
     expect(ctx).toContain('[Предупреждение, источник: КБГС РАН] Землетрясение M5.1');

@@ -12,6 +12,7 @@ import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { isVolcanoObservationStale, VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
+import { alertLineForPlace } from '@/lib/kuzmich/alert-mention';
 import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -501,7 +502,9 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
        FROM external_alerts
        WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})
          AND (title ILIKE $1 OR description ILIKE $1)
-       ORDER BY severity DESC
+       -- Тревоги, названные по месту, — раньше упоминаний в чужих сводках:
+       -- иначе три упоминания вытесняли бы тревогу о самом месте (#2699).
+       ORDER BY (title ILIKE $1) DESC, severity DESC
        LIMIT 3`,
       [containsPattern(placeName)],
     ),
@@ -779,7 +782,10 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // Источник — по ленте, из которой пришла тревога, а не одной подписью
     // «КБГС/МЧС» на все шесть лент (проверка MCP 29.09).
     const origin = alertOrigin(a.external_id, a.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT;
-    parts.push(`[Предупреждение, источник: ${origin}] ${a.title}${a.description ? ': ' + a.description.slice(0, 150) : ''}`);
+    // Место названо только в теле сводки — печатается фрагмент о нём, а не
+    // чужой заголовок и начало сводки (#2699, lib/kuzmich/alert-mention).
+    const line = alertLineForPlace(a, placeName, origin);
+    if (line) parts.push(line);
   }
 
   // Факты маршрутов (14.10): сначала найденные по названию — их назвал сам
