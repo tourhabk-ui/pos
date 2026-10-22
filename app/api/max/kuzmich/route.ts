@@ -33,7 +33,7 @@ import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmi
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
-import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
+import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
@@ -41,7 +41,8 @@ import { handleMemberStart } from '@/lib/operators/member-channel';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 import {
-  type MaxPressAction, PRESS_WITHOUT_MESSAGE_REPLY, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY,
+  type MaxPressAction, LOGIN_CONFIRM_PREFIX, LOGIN_REJECT_PREFIX, MAX_LOGIN_TEXT,
+  PRESS_WITHOUT_MESSAGE_REPLY, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY,
   UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf,
 } from '@/lib/max/verified-press';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -404,6 +405,20 @@ async function handleActionPress(
     return;
   }
 
+  // Вход на сайт: «Да, это я» / «Нет, не я» после «Старта» по ссылке входа.
+  // Право нажатия — пользователь MAX, за которым сессия закреплена «Стартом»
+  // (условие в SQL, lib/auth/max-login); его user_id в заверенном апдейте
+  // прислал MAX. Чат сообщения — личный чат с ботом, туда и ответ.
+  if (action === 'login') {
+    const confirm = payload.startsWith(LOGIN_CONFIRM_PREFIX);
+    const nonce = payload.slice((confirm ? LOGIN_CONFIRM_PREFIX : LOGIN_REJECT_PREFIX).length);
+    const done = presserId === null ? false
+      : confirm ? await confirmMaxLoginSession(nonce, presserId)
+      : await rejectMaxLoginSession(nonce, presserId);
+    await maxReply(chatId, !done ? MAX_LOGIN_TEXT.stale : confirm ? MAX_LOGIN_TEXT.confirmed : MAX_LOGIN_TEXT.rejected);
+    return;
+  }
+
   if (action === 'seat') {
     const seat = parseAnswerPayload(payload);
     if (!seat) {
@@ -446,17 +461,23 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       && typeof update.payload === 'string'
       && update.payload.startsWith('login-')) {
     const nonce = update.payload.slice('login-'.length);
-    const ok = await authenticateMaxLoginSession(nonce, {
+    // «Старт» вход НЕ подтверждает (аудит 22.10): ссылку входа создаёт любой,
+    // и присланная чужим человеком ссылка входила бы им в аккаунт нажавшего.
+    // Сессия закрепляется за этим пользователем MAX, а вход выдаёт только его
+    // же «Да, это я» — кнопка-действие login (handleActionPress).
+    const claimed = await claimMaxLoginSession(nonce, {
       maxUserId: update.user?.user_id ?? update.chat_id,
       name: update.user?.name ?? null,
       username: update.user?.username ?? null,
     });
-    await maxReply(
-      update.chat_id,
-      ok
-        ? 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.'
-        : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
-    );
+    if (!claimed) {
+      await maxReply(update.chat_id, MAX_LOGIN_TEXT.stale);
+      return;
+    }
+    await maxReplyWithButtons(update.chat_id, MAX_LOGIN_TEXT.ask, [
+      [{ type: 'callback', text: 'Да, это я', payload: `${LOGIN_CONFIRM_PREFIX}${nonce}`, intent: 'positive' }],
+      [{ type: 'callback', text: 'Нет, не я', payload: `${LOGIN_REJECT_PREFIX}${nonce}`, intent: 'negative' }],
+    ]);
     return;
   }
 

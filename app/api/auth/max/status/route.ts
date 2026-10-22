@@ -38,7 +38,11 @@ async function findOrCreateMaxUser(
   const created = await query<MaxUserRow>(
     `INSERT INTO users (email, name, role, max_user_id, max_username, password_hash, is_active, pd_consent_given)
      VALUES ($1, $2, 'tourist', $3, $4, '', TRUE, TRUE)
-     ON CONFLICT (max_user_id) DO UPDATE SET
+     -- Индекс уникальности частичный (799: WHERE max_user_id IS NOT NULL), и
+     -- без его условия здесь PostgreSQL не находит, по чему разрешать
+     -- конфликт: 42P10 на каждом ПЕРВОМ входе через MAX (найдено pg-тестом
+     -- подтверждения входа 22.10).
+     ON CONFLICT (max_user_id) WHERE max_user_id IS NOT NULL DO UPDATE SET
        max_username = EXCLUDED.max_username,
        name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END
      RETURNING id, email, name, role`,
