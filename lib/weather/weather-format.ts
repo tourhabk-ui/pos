@@ -114,10 +114,16 @@ export function visibilityLine(m: number | null | undefined): string {
   return `${Math.round(m)} м`;
 }
 
+/** Давление гПа → мм рт. ст., целым; нет данных — null. */
+export function pressureMm(hpa: number | null | undefined): number | null {
+  if (hpa === null || hpa === undefined || !Number.isFinite(hpa)) return null;
+  return Math.round(hpa * 0.75006);
+}
+
 /** Давление гПа → мм рт. ст. одной строкой. */
 export function pressureLine(hpa: number | null | undefined): string {
-  if (hpa === null || hpa === undefined || !Number.isFinite(hpa)) return 'нет данных';
-  return `${Math.round(hpa * 0.75006)} мм рт. ст.`;
+  const mm = pressureMm(hpa);
+  return mm === null ? 'нет данных' : `${mm} мм рт. ст.`;
 }
 
 /** УФ-индекс словами уровня. */
@@ -132,19 +138,4 @@ export function hhmm(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const m = /T(\d{2}:\d{2})/.exec(iso);
   return m ? m[1] : null;
-}
-
-/**
- * Положение отрезка дня на общей шкале недели (Apple-стиль): проценты
- * left/width от мин. до макс. недели. Нет данных — null.
- */
-export function rangeBar(
-  dayMin: number | null, dayMax: number | null, weekMin: number | null, weekMax: number | null,
-): { left: number; width: number } | null {
-  if (dayMin === null || dayMax === null || weekMin === null || weekMax === null) return null;
-  const span = weekMax - weekMin;
-  if (!(span > 0)) return { left: 0, width: 100 };
-  const left = Math.max(0, Math.min(100, ((dayMin - weekMin) / span) * 100));
-  const right = Math.max(0, Math.min(100, ((dayMax - weekMin) / span) * 100));
-  return { left, width: Math.max(4, right - left) };
 }
