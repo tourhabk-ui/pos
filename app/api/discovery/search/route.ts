@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { searchService } from '@/lib/services';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // Public: поиск туров доступен без аутентификации.
 export async function GET(request: NextRequest) {
@@ -34,9 +35,12 @@ export async function GET(request: NextRequest) {
     const tagActivity = searchParams.get('activity');
     const tagFeature = searchParams.get('feature');
 
-    // Если заданы AI-теги — выполняем фильтрацию по ai_tags сразу
+    // Если заданы AI-теги — выполняем фильтрацию по ai_tags сразу.
+    // Отбор — шлюзом витрины (#2642): ветка смотрела только is_active и
+    // deleted_at, и черновик оператора (is_published = false), про который
+    // кабинет говорит «туристы не видят», находился поиском по тегам.
     if (tagLandscape || tagActivity || tagFeature) {
-      const conditions: string[] = ['is_active = true'];
+      const conditions: string[] = [publicTourSql('')];
       const sqlParams: (string | number)[] = [];
       let pIdx = 1;
 
@@ -65,7 +69,7 @@ export async function GET(request: NextRequest) {
       }>(
         `SELECT id, title, description, base_price AS price, activity_type AS category, difficulty, ai_tags
          FROM operator_tours
-         WHERE ${conditions.join(' AND ')} AND deleted_at IS NULL
+         WHERE ${conditions.join(' AND ')}
          ORDER BY rating DESC NULLS LAST
          LIMIT $${pIdx} OFFSET $${pIdx + 1}`,
         sqlParams

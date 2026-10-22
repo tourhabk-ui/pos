@@ -128,6 +128,7 @@ const b = (field: string) => ({ field, label: BLOCKER_LABELS[field] });
 const ON = { is_active: true, is_published: true, on_storefront: true };
 const DRAFT = { is_active: true, is_published: false, on_storefront: false };
 const HIDDEN = { is_active: false, is_published: true, on_storefront: false };
+const HIDDEN_DRAFT = { is_active: false, is_published: false, on_storefront: false };
 const TOURS: Tour[] = [
   {
     tour_id: '51', tour_title: 'Сплав по реке Быстрая', ...ON,
@@ -162,6 +163,14 @@ const TOURS: Tour[] = [
     missing_required: [], missing_recommended: [],
     marketplace_ready: false, marketplace_blockers: [],
   },
+  // Ревью #2642: выключен И не опубликован. Бейдж «Скрыт», но лекарство —
+  // обе отметки, и в счёт неопубликованных он входит.
+  {
+    tour_id: '56', tour_title: 'Выключенный черновик на Толбачик', ...HIDDEN_DRAFT,
+    required_score: 100, recommended_score: 100, total_score: 100,
+    missing_required: [], missing_recommended: [],
+    marketplace_ready: false, marketplace_blockers: [],
+  },
 ];
 
 function installFetch(body: unknown, opts: { reject?: boolean } = {}) {
@@ -172,7 +181,7 @@ function installFetch(body: unknown, opts: { reject?: boolean } = {}) {
 }
 const OK = (tours: Tour[]) => ({
   success: true,
-  data: { stats: { totalTours: tours.length, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 0 }, tours },
+  data: { stats: { totalTours: tours.length, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0 }, tours },
 });
 
 async function flush() { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); }
@@ -226,7 +235,7 @@ describe('экран: блокеры с действиями, цифры, тре
     // Ленты берут только туры с витрины Ведара: у тура вне её счёт пробелов —
     // не весь ответ, и пустой список блокеров — ещё не «готов» (#2642).
     expect(tour('Черновик рыбалки')).toHaveTextContent('На Авито и Яндекс уходят только туры с витрины Ведара; для лент не хватает ещё: 2');
-    for (const t of ['Новый тур на Мутновский', 'Скрытый тур на Авачинский']) {
+    for (const t of ['Новый тур на Мутновский', 'Скрытый тур на Авачинский', 'Выключенный черновик на Толбачик']) {
       expect(tour(t)).toHaveTextContent('На Авито и Яндекс уходят только туры с витрины Ведара — поля для лент заполнены');
       expect(tour(t)).not.toHaveTextContent('Готов к выкладке');
       expect(screen.queryByRole('list', { name: `Чего не хватает: ${t}` }), 'пустой список блокеров не рисуется').toBeNull();
@@ -255,7 +264,12 @@ describe('экран: блокеры с действиями, цифры, тре
     expect(screen.queryByText('Опубликован')).toBeNull();
     // Вне витрины — почему турист его не видит и где это меняется.
     expect(tour('Новый тур на Мутновский')).toHaveTextContent('в редакторе не отмечено «Опубликован»');
-    expect(tour('Скрытый тур на Авачинский')).toHaveTextContent('тур скрыт');
+    expect(tour('Скрытый тур на Авачинский')).toHaveTextContent('Туристы его не видят: в редакторе не отмечено «Активен». «Активен» включает и глаз в списке туров.');
+    // Ревью #2642: выключенному и неопубликованному одной «Активен» мало —
+    // названы обе отметки, а не обещано лекарство, которого не хватит.
+    badge('Выключенный черновик на Толбачик', 'Скрыт');
+    expect(tour('Выключенный черновик на Толбачик')).toHaveTextContent('Туристы его не видят: в редакторе не отмечены «Активен» и «Опубликован».');
+    expect(tour('Новый тур на Мутновский')).not.toHaveTextContent('«Активен»');
     expect(tour('Вулкан Горелый')).not.toHaveTextContent('Туристы его не видят');
   });
 
@@ -265,10 +279,12 @@ describe('экран: блокеры с действиями, цифры, тре
     await flush();
     const value = (title: string) => screen.getByText(title).nextElementSibling?.textContent;
     expect(value('На витрине Ведара')).toBe('2');
-    expect(screen.getByText('На витрине Ведара').parentElement).toHaveTextContent('из 5 туров');
+    expect(screen.getByText('На витрине Ведара').parentElement).toHaveTextContent('из 6 туров');
     expect(value('Готовы к Авито и Яндексу')).toBe('1');
     expect(value('Не хватает данных')).toBe('2');
-    expect(value('Черновики')).toBe('2');
+    // Счёт по отметке «Опубликован», а не по бейджу: выключенный черновик в
+    // нём есть, хотя бейдж у него «Скрыт» (ревью #2642).
+    expect(value('Не опубликованы')).toBe('3');
     // Шапка не называет каталог Ведара судимым правилом лент.
     expect(screen.queryByText(/каталогу Ведара, Авито и Яндексу/)).toBeNull();
     expect(screen.getByText(/Каталог Ведара показывает тур, когда он активен и опубликован/)).toBeInTheDocument();

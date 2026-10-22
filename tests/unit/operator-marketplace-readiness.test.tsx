@@ -92,7 +92,7 @@ describe('блокеры названы человеческими словам�
 const SCREEN = {
   success: true,
   data: {
-    stats: { totalTours: 2, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 2 },
+    stats: { totalTours: 2, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0 },
     tours: [
       {
         tour_id: '51', tour_title: 'Рыбалка', is_active: true, is_published: true, on_storefront: true,

@@ -12,6 +12,7 @@ import {
   TourValidationError,
   TourAlreadyPublishedError,
 } from '../_helpers';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const tourService = {
   normalize(row: Record<string, unknown> | null) {
@@ -53,7 +54,9 @@ export const tourService = {
         ? (params.filters as Record<string, unknown>)
         : {};
 
-      const conditions: string[] = ['t.is_active = TRUE', 't.deleted_at IS NULL'];
+      // Отбор для туриста (GET /api/discovery/search) — шлюзом витрины (#2642):
+      // без is_published черновик оператора находился поиском.
+      const conditions: string[] = [publicTourSql('t')];
       const queryParams: unknown[] = [];
 
       if (query) {
@@ -126,8 +129,11 @@ export const tourService = {
         total,
         hasMore: offset + limit < total,
       };
-    } catch {
-      return { tours: [], total: 0, hasMore: false };
+    } catch (e) {
+      // Отказ базы — не «туров нет» (§4.0): глушение отдавало пустую выдачу с
+      // success: true. Роут поиска ловит и отвечает 500.
+      console.error('[tourService.search] отбор туров не выполнен:', e instanceof Error ? e.message : String(e));
+      throw e;
     }
   },
   async getById(id: string) {

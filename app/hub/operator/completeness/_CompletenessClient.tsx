@@ -38,7 +38,7 @@ import { useRouter } from 'next/navigation';
 import { isQuickFillField } from '@/lib/operator/quick-fill-fields';
 import { BLOCKER_TARGETS, blockerHref, blockerQuickField } from '@/lib/operator/blocker-targets';
 import { plural } from '@/lib/home/data-freshness';
-import { storefrontState, type StorefrontState } from '@/lib/tours/public-visibility';
+import { missingStorefrontMarks, storefrontState, type StorefrontState } from '@/lib/tours/public-visibility';
 import { StorefrontBadge } from '@/components/operator/StorefrontBadge';
 
 interface TourCompletion {
@@ -67,7 +67,6 @@ interface CompletenessData {
     avgTotalScore: number;
     fullyComplete: number;
     criticallyIncomplete: number;
-    publishedTours: number;
   };
   tours: TourCompletion[];
 }
@@ -126,11 +125,22 @@ function BlockerAction({ field, tourId, tourTitle, onQuick }: {
   );
 }
 
-/** Почему турист не видит тур — словами, с тем, где это меняется. */
-const OFF_STOREFRONT_HINT: Record<Exclude<StorefrontState, 'on'>, string> = {
-  draft: 'Туристы его не видят: в редакторе не отмечено «Опубликован».',
-  hidden: 'Туристы его не видят: тур скрыт — включить его можно в редакторе («Активен») или глазом в списке туров.',
-};
+/**
+ * Почему турист не видит тур — словами, с тем, где это меняется. Лекарство
+ * называется целиком: у выключенного и неопубликованного тура не хватает
+ * обеих отметок, и подсказка про одну «Активен» оставила бы его вне витрины
+ * (ревью issue 2642). Отметки стоят, а каталог тура не отдаёт — так и сказано:
+ * выдумывать причину нельзя (§4.0).
+ */
+function offStorefrontHint(tour: TourCompletion): string {
+  const marks = missingStorefrontMarks(tour).map((m) => `«${m}»`);
+  if (marks.length === 0) {
+    return 'Туристы его не видят: отметки «Активен» и «Опубликован» стоят, а каталог тур не показывает — напишите в поддержку.';
+  }
+  const where = marks.length > 1 ? `в редакторе не отмечены ${marks.join(' и ')}` : `в редакторе не отмечено ${marks[0]}`;
+  const eye = tour.is_active !== true ? ' «Активен» включает и глаз в списке туров.' : '';
+  return `Туристы его не видят: ${where}.${eye}`;
+}
 
 /**
  * Строка про ленты Авито и Яндекса. Ленты берут только туры с витрины
@@ -171,7 +181,7 @@ function TourCard({ tour, expanded, onToggle, onQuick, onAutoFill }: {
             <StorefrontBadge state={state} />
           </div>
           {state !== 'on' && (
-            <p className="text-xs mt-0.5 text-[var(--text-secondary)]">{OFF_STOREFRONT_HINT[state]}</p>
+            <p className="text-xs mt-0.5 text-[var(--text-secondary)]">{offStorefrontHint(tour)}</p>
           )}
           <p className={`text-xs mt-0.5 ${tour.marketplace_ready ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}>
             {feedLine(tour, state)}
@@ -367,7 +377,9 @@ export default function CompletenessClient() {
     .sort((a, b) => b.marketplace_blockers.length - a.marketplace_blockers.length);
   // Витрина Ведара и ленты — разные вопросы (issue 2642), и счёт у них свой.
   const onVedar = tours.filter((t) => storefrontState(t) === 'on').length;
-  const drafts = tours.filter((t) => storefrontState(t) === 'draft').length;
+  // Счёт по самой отметке, а не по бейджу: выключенный и неопубликованный тур
+  // бейджем «Скрыт», но «Опубликован» ему тоже нужен (ревью issue 2642).
+  const unpublished = tours.filter((t) => t.is_published !== true).length;
   const lacking = tours.filter((t) => t.marketplace_blockers.length > 0).length;
 
   // Сколько туров спотыкается о каждый блокер — список работ: видно, что
@@ -420,9 +432,9 @@ export default function CompletenessClient() {
           <p className="text-xs text-[var(--text-secondary)] mt-1">{lacking === 0 ? 'поля для лент заполнены у всех' : 'для лент — список ниже'}</p>
         </div>
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Черновики</p>
-          <p className="text-3xl font-bold text-[var(--text-primary)]">{drafts}</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">туристы не видят — отметьте «Опубликован» в редакторе</p>
+          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Не опубликованы</p>
+          <p className="text-3xl font-bold text-[var(--text-primary)]">{unpublished}</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">туристы не видят — в редакторе нужна отметка «Опубликован»</p>
         </div>
       </div>
 

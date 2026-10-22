@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -53,7 +54,9 @@ export async function GET() {
           p.name AS operator_name,
           ob.created_at::text
         FROM operator_bookings ob
-        JOIN operator_tours ot ON ob.operator_tour_id = ot.id
+        -- Лента главной — витрина: тур называется, только пока он на ней
+        -- (#2642). Снятый после брони тур в ленту больше не попадает.
+        JOIN operator_tours ot ON ob.operator_tour_id = ot.id AND ${publicTourSql('ot')}
         JOIN partners p ON ot.operator_id = p.id
         WHERE ob.booking_status IN ('confirmed', 'new')
           AND ob.created_at > NOW() - '48 hours'::interval

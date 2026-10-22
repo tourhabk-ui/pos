@@ -18,7 +18,12 @@
  * устроен шлюз витрины жилья и проката (`lib/moderation/gate.ts`) — и по той
  * же причине: условие, размноженное по читателям, однажды забудут в одном.
  *
- * Сторож: `tests/unit/public-tour-gate.test.ts`.
+ * Сторож: `tests/unit/public-tour-gate.test.ts` — там же реестр отборов для
+ * туриста и чужих площадок (`TOURIST_SELECTIONS`) и перепись поверхностей,
+ * открытых без входа: читатель тура без шлюза и без записи краснеет (ревью
+ * #2642 — подпись кабинета «туристы не видят» правдива, только пока шлюз
+ * спрашивает каждый такой отбор). Черновик на настоящей базе —
+ * `tests/integration/public-tour-gate.pg.test.ts`.
  */
 
 /**
@@ -77,6 +82,22 @@ export function storefrontState(t: StorefrontFlags): StorefrontState {
   if (t.is_published !== true) return 'draft';
   if (t.on_storefront === false) return 'hidden';
   return 'on';
+}
+
+/**
+ * Какие отметки редактора не стоят у тура — словами, как они названы в
+ * редакторе. Лекарство называется целиком: у выключенного и неопубликованного
+ * тура не хватает ОБЕИХ, и подсказка «включите „Активен“» оставила бы его вне
+ * витрины (ревью #2642). Удалённый тур кабинет не показывает вовсе, поэтому
+ * его здесь нет.
+ */
+export type StorefrontMark = 'Активен' | 'Опубликован';
+
+export function missingStorefrontMarks(t: StorefrontFlags): StorefrontMark[] {
+  const out: StorefrontMark[] = [];
+  if (t.is_active !== true) out.push('Активен');
+  if (t.is_published !== true) out.push('Опубликован');
+  return out;
 }
 
 /** Подпись состояния — одна на список туров и экран «Чего не хватает». */

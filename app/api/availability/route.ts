@@ -13,6 +13,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,8 +74,8 @@ export async function GET(request: NextRequest) {
          AND ta.is_cancelled = false
          AND ta.deleted_at IS NULL
          AND (ta.available_slots - occ.taken) > 0
-         AND t.is_active = true
-         AND t.is_published = true
+         -- тур — шлюзом витрины (#2642): копия без deleted_at отдавала даты удалённого тура
+         AND ${publicTourSql('t')}
          ${activityFilter}
        GROUP BY ta.date
        ORDER BY ta.date ASC`,

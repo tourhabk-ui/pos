@@ -48,14 +48,20 @@ import ts from 'typescript';
 
 const queryMock = vi.fn();
 const poolQueryMock = vi.fn();
+const clientQueryMock = vi.fn();
 vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 vi.mock('@/lib/db-pool', () => ({
-  pool: { query: (...args: unknown[]) => poolQueryMock(...args) },
+  pool: {
+    query: (...args: unknown[]) => poolQueryMock(...args),
+    // Транзакция (холд OCTO) — свой клиент; его SQL судится так же.
+    connect: async () => ({ query: (...args: unknown[]) => clientQueryMock(...args), release: () => undefined }),
+  },
 }));
 
-import { publicTourSql, storefrontState, STOREFRONT_LABELS } from '@/lib/tours/public-visibility';
+import { publicTourSql, storefrontState, missingStorefrontMarks, STOREFRONT_LABELS } from '@/lib/tours/public-visibility';
+import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { GET as toursList } from '@/app/api/tours/route';
 import { GET as tourDetail } from '@/app/api/tours/[id]/route';
 import { GET as tourSlots } from '@/app/api/tours/[id]/slots/route';
@@ -87,6 +93,7 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) });
 beforeEach(() => {
   queryMock.mockReset();
   poolQueryMock.mockReset();
+  clientQueryMock.mockReset();
 });
 
 describe('шлюз витрины туров — сам предикат', () => {
@@ -131,6 +138,15 @@ describe('storefrontState — состояние тура для кабинет�
   it('ответ шлюза «нет» сильнее флагов: «На витрине» без витрины не пишется', () => {
     expect(storefrontState({ is_active: true, is_published: true, on_storefront: false })).toBe('hidden');
     expect(storefrontState({ is_active: true, is_published: true, on_storefront: true })).toBe('on');
+  });
+
+  it('недостающие отметки называются все: выключенному черновику одной «Активен» мало (ревью #2642)', () => {
+    expect(missingStorefrontMarks({ is_active: true, is_published: true })).toEqual([]);
+    expect(missingStorefrontMarks({ is_active: true, is_published: false })).toEqual(['Опубликован']);
+    expect(missingStorefrontMarks({ is_active: false, is_published: true })).toEqual(['Активен']);
+    expect(missingStorefrontMarks({ is_active: false, is_published: false })).toEqual(['Активен', 'Опубликован']);
+    // NULL — не «да», как в шлюзе.
+    expect(missingStorefrontMarks({ is_active: null, is_published: null })).toEqual(['Активен', 'Опубликован']);
   });
 
   it('подписи — словами, одна на состояние', () => {
@@ -320,14 +336,16 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
  * Только сокращается. Перевёл файл на publicTourSql — уменьши число; убрал
  * все — удали запись; новый файл появиться здесь не может. Причина говорит,
  * чем запись является: не витрина (админка, перепись, кабинет партнёра,
- * внутренний агент — им снятый тур виден по делу), витрина с ВСЕМИ тремя
- * флагами руками (совпадает со шлюзом, пока его не поправят), или витрина с
- * НЕПОЛНОЙ копией — настоящий пробел, оставленный вне пункта 1.10 дорожной
- * карты и названный словами.
+ * внутренний агент — им снятый тур виден по делу) или витрина с ВСЕМИ тремя
+ * флагами руками (совпадает со шлюзом, пока его не поправят).
+ *
+ * Третьего рода — витрины с НЕПОЛНОЙ копией — больше нет и быть не может
+ * (ревью #2642): кабинет подписывает черновик «туристы не видят», и витрина
+ * без is_published делает эту подпись ложью. Тринадцать таких записей
+ * переведены на шлюз; запись с иной причиной, чем две выше, сторож не примет.
  */
 const NOT_SHOWCASE = 'не витрина';
 const FULL_COPY = 'витрина, все три флага руками: сегодня совпадает со шлюзом, разойдётся при первой его правке';
-const PARTIAL = 'витрина, НЕПОЛНАЯ копия';
 const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'app/api/admin/ai-assistant/route.ts': { n: 1, why: `${NOT_SHOWCASE}: счёт активных туров в контекст ассистента админки` },
   'app/api/admin/content/tours/route.ts': { n: 1, why: `${NOT_SHOWCASE}: фильтр админки по статусу — видит все состояния намеренно` },
@@ -335,9 +353,6 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'app/api/admin/tours/route.ts': { n: 1, why: `${NOT_SHOWCASE}: фильтр админки по статусу — видит все состояния намеренно` },
   'app/api/agent/find-tours/route.ts': { n: 2, why: `${FULL_COPY} (подбор для турагента)` },
   'app/api/agent/tours/route.ts': { n: 2, why: `${FULL_COPY} (список для турагента)` },
-  'app/api/ai/knowledge-base/route.ts': { n: 1, why: `${PARTIAL}: нет is_published — снятый тур уходит в базу знаний ИИ` },
-  'app/api/availability/day/route.ts': { n: 2, why: `${PARTIAL}: нет deleted_at тура — даты удалённого тура в публичном ответе` },
-  'app/api/availability/route.ts': { n: 2, why: `${PARTIAL}: нет deleted_at тура — даты удалённого тура в публичном ответе` },
   'app/api/cron/channel-readiness/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись считает именно «активен, но не опубликован» — обратное условие` },
   'app/api/cron/digest/route.ts': { n: 2, why: `${NOT_SHOWCASE}: дайджест владельцу, счёт активных туров` },
   'app/api/cron/guide-readiness/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись готовности гидов` },
@@ -348,21 +363,12 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'app/api/cron/smart-notify/route.ts': { n: 2, why: `${FULL_COPY} (рассылка туристам)` },
   'app/api/cron/tour-describe/route.ts': { n: 1, why: `${NOT_SHOWCASE}: писатель описаний — черновику тоже нужен текст до публикации` },
   'app/api/cron/tour-photos-census/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись снимков туров` },
-  'app/api/discovery/search/route.ts': { n: 1, why: `${PARTIAL}: фильтр по AI-тегам без is_published — снятый тур находится поиском` },
-  'app/api/home/metrics/route.ts': { n: 2, why: `${FULL_COPY} (цифры главной)` },
   'app/api/hub/operator/pricing-rules/route.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет оператора, свои туры` },
-  'app/api/meta/catalog/route.ts': { n: 1, why: `${PARTIAL}: фид Meta без is_published — снятый тур уходит на чужую витрину` },
   'app/api/operator/calendar/bulk-open/route.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет оператора, проверка владения своим туром` },
-  'app/api/planner/partners/route.ts': { n: 2, why: `${FULL_COPY} (партнёры планера)` },
-  'app/api/planner/tours-for-day/route.ts': { n: 4, why: `${FULL_COPY} (туры на день планера)` },
-  'app/api/public/now/route.ts': { n: 1, why: `${PARTIAL}: «ближайший выезд» без is_published — снятый тур на публичной плашке` },
   'app/api/routes/analysis/route.ts': { n: 1, why: `${NOT_SHOWCASE}: аналитика маршрутов, счёт активных среди всех туров места` },
   'app/api/telegram/admin/route.ts': { n: 1, why: `${NOT_SHOWCASE}: статистика админ-бота` },
   'app/api/telegram/webhook/route.ts': { n: 1, why: `${NOT_SHOWCASE}: команда статистики для админа в боте` },
-  'app/api/trip/plan/route.ts': { n: 1, why: `${PARTIAL}: нет is_published; роут не зовёт ни одна поверхность, а запрос читает колонки, которых у тура нет (coordinates, season, reviews_count)` },
-  'app/fish/[id]/page.tsx': { n: 2, why: `${FULL_COPY} (туры на странице вида рыбы)` },
   'app/hub/admin/channels/page.tsx': { n: 2, why: `${FULL_COPY} (счёт готовых к выкладке в админке каналов)` },
-  'app/hub/fishing/page.tsx': { n: 2, why: `${FULL_COPY} (витрина рыбалки)` },
   'lib/admin/alerts.ts': { n: 1, why: `${NOT_SHOWCASE}: тревоги админки о состоянии каталога` },
   'lib/agents/agencies/marketing-agency.ts': { n: 1, why: `${NOT_SHOWCASE}: контекст внутреннего агента` },
   'lib/agents/agencies/rescue-agency.ts': { n: 1, why: `${NOT_SHOWCASE}: безопасность — турист уже едет и на снятый с витрины тур` },
@@ -374,19 +380,13 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'lib/channels/ready-tours.ts': { n: 2, why: `${FULL_COPY} (фид каналов; пункт 1.10 его оставляет как есть)` },
   'lib/eco/compensation.ts': { n: 1, why: `${NOT_SHOWCASE}: порог эко «активный оператор», не показ тура` },
   'lib/guides/team-queries.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет гида и команды` },
-  'lib/kuzmich/engagement.ts': { n: 1, why: `${PARTIAL}: напоминание о туре без is_active и deleted_at — выключенный или удалённый тур уходит в личку` },
   'lib/leads/create.ts': { n: 1, why: `${NOT_SHOWCASE}: атрибуция лида оператору, тур не показывается` },
   'lib/notifications/telegram-channel.ts': { n: 2, why: `${FULL_COPY} (пост в канал)` },
-  'lib/notifications/tour-channel-post.ts': { n: 1, why: `${PARTIAL}: пост тура по id без is_published — снятый тур публикуется в канал` },
-  'lib/octo/service.ts': { n: 5, why: `${PARTIAL}: OCTO для площадок без is_active — выключенный тур продаётся каналом` },
   'lib/safety/safety-selfcheck.ts': { n: 1, why: `${NOT_SHOWCASE}: самопроверка «есть покупаемый тур», диагностика` },
   'lib/seat-requests/service.ts': { n: 2, why: `${FULL_COPY} (запрос мест из планера)` },
   'lib/services/analytics.service.ts': { n: 1, why: `${NOT_SHOWCASE}: аналитика, счёт` },
-  'lib/services/operators/lead-processor.service.ts': { n: 1, why: `${PARTIAL}: подбор туров в предложение по лиду без is_published` },
   'lib/services/routes/route-description-cache.ts': { n: 1, why: `${NOT_SHOWCASE}: писатель кэша описаний` },
-  'lib/services/search.service.ts': { n: 5, why: `${PARTIAL}: поиск и автодополнение без is_published` },
   'lib/services/tours/booking-funnel-stages.ts': { n: 2, why: `${NOT_SHOWCASE}: диагностика воронки, счёт предложения` },
-  'lib/services/tours/tour.service.ts': { n: 1, why: `${PARTIAL}: поиск сервиса туров без is_published` },
   'lib/telegram/welcome.ts': { n: 1, why: `${NOT_SHOWCASE}: приветствие оператора, свои туры` },
   'lib/tours/top-tour-by-activity.ts': { n: 4, why: `${FULL_COPY} (пункт 1.10 его оставляет как есть)` },
 };
@@ -402,6 +402,26 @@ const MOVED_TO_GATE = [
   'app/_home/data.ts',
   'lib/operators/list-query.ts',
   'lib/places/place-detail.ts',
+  // Ревью #2642: подпись кабинета «Черновик — туристы не видят» правдива,
+  // только если черновик не уходит туристу ни одним отбором.
+  'app/api/ai/knowledge-base/route.ts',
+  'app/api/availability/day/route.ts',
+  'app/api/availability/route.ts',
+  'app/api/discovery/search/route.ts',
+  'app/api/home/metrics/route.ts',
+  'app/api/meta/catalog/route.ts',
+  'app/api/planner/partners/route.ts',
+  'app/api/planner/tours-for-day/route.ts',
+  'app/api/public/now/route.ts',
+  'app/api/trip/plan/route.ts',
+  'app/fish/[id]/page.tsx',
+  'app/hub/fishing/page.tsx',
+  'lib/kuzmich/engagement.ts',
+  'lib/notifications/tour-channel-post.ts',
+  'lib/octo/service.ts',
+  'lib/services/operators/lead-processor.service.ts',
+  'lib/services/search.service.ts',
+  'lib/services/tours/tour.service.ts',
 ];
 
 describe('перепись детектора ручной копии (сторож на сторожа)', () => {
@@ -458,6 +478,16 @@ describe('витрина туров в app/ и lib/ — через шлюз (н�
 
   it('у каждой записи есть причина', () => {
     for (const [f, { why }] of Object.entries(KNOWN_HAND_COPIES)) expect(why.length, f).toBeGreaterThan(25);
+  });
+
+  it('витрина с неполной копией в долге стоять не может (ревью #2642)', () => {
+    // Причина записи — один из двух родов. Витрина без is_published или без
+    // deleted_at делает ложью подпись кабинета «туристы не видят»: такой файл
+    // переводится на шлюз, а не записывается в долг.
+    const other = Object.entries(KNOWN_HAND_COPIES)
+      .filter(([, { why }]) => !why.startsWith(`${NOT_SHOWCASE}:`) && !why.startsWith(FULL_COPY))
+      .map(([f, { why }]) => `${f}: ${why}`);
+    expect(other).toEqual([]);
   });
 
   it('переведённые читатели в список долга не возвращаются', () => {
@@ -533,5 +563,374 @@ describe('переведённые читатели — поведением: в
     const sent = sentPool();
     expect(sent).toHaveLength(4);
     for (const s of sent) expect(s).toContain(publicTourSql('t'));
+  });
+});
+
+// ── Ревью #2642: отборы для туриста — реестр, перепись и поведение ─────────
+
+/**
+ * Кабинет оператора подписывает тур вне витрины «Черновик — туристы не видят»
+ * или «Скрыт». Подпись правдива, только пока КАЖДЫЙ отбор туров, который видит
+ * турист или чужая площадка, спрашивает шлюз. Ревью #2642 нашло три отбора,
+ * судивших по is_active/deleted_at без is_published (поиск
+ * /api/discovery/search, фид Meta, подбор туров в предложение по лиду), а
+ * перепись — ещё: подсказки поиска, календарь, плашку «ближайший выезд»,
+ * базу знаний ассистента, напоминание в Telegram, пост в канал, OCTO для
+ * реселлеров, публичную подборку по ссылке и ленту главной (у двух последних
+ * флагов не было вовсе — их не видела и перепись ручных копий выше).
+ *
+ * Сторож держит связку с трёх сторон:
+ *   - реестр TOURIST_SELECTIONS: файл и чью витрину он кормит. Запрет
+ *     регуляркой (допустим как запрет): файл реестра читает operator_tours и
+ *     не зовёт шлюз, или держит рядом ручной флаг витрины;
+ *   - перепись поверхностей, которые турист открывает без входа: роут /api/*,
+ *     куда Edge пускает анонима (lib/auth/public-api-routes), и страница или
+ *     роут вне /api и /hub/admin. Читает operator_tours — либо в реестре, либо
+ *     в NOT_TOURIST_SELECTION с причиной; молчание не ответ. Записи
+ *     самоустаревают: файл пропал из переписи — запись удаляется;
+ *   - поведение: SQL, который отборы реально отправляют, несёт шлюз (ниже,
+ *     на моке), а черновик не доходит до выдачи на настоящей базе
+ *     (tests/integration/public-tour-gate.pg.test.ts).
+ */
+const TOURIST_SELECTIONS: Record<string, string> = {
+  // Каталог и карточка
+  'app/api/tours/route.ts': 'список туров GET /api/tours',
+  'app/api/tours/[id]/route.ts': 'карточка тура по id',
+  'app/api/tours/[id]/slots/route.ts': 'свободные даты тура',
+  'app/api/tours/[id]/price/route.ts': 'цена тура на дату',
+  'app/api/tours/[id]/availability/route.ts': 'доступность тура',
+  'lib/tours/tour-detail-query.ts': 'каноническое чтение карточки /catalog/tours/[id]',
+  'lib/search/tour-search.ts': 'каталог /catalog и поиск по словам',
+  'lib/search/tour-recommend.ts': 'персональные рекомендации',
+  'app/_home/data.ts': 'туры на главной',
+  'app/api/home/metrics/route.ts': 'счёт туров на главной',
+  'app/api/live-feed/route.ts': 'лента броней на главной: называет тур',
+  'app/api/public/now/route.ts': 'плашка «ближайший выезд»',
+  'app/api/availability/route.ts': 'публичный календарь дат',
+  'app/api/availability/day/route.ts': 'туры на выбранный день календаря',
+  'app/fish/[id]/page.tsx': 'туры на странице вида рыбы',
+  'app/hub/fishing/page.tsx': 'витрина рыбалки',
+  'app/operators/[slug]/page.tsx': 'страница оператора',
+  'lib/operators/list-query.ts': 'список компаний /operators, факты из живых туров',
+  'lib/places/place-detail.ts': '«Туры сюда» на карточке места',
+  // Поиск /api/discovery/search
+  'app/api/discovery/search/route.ts': 'поиск туров по AI-тегам',
+  'lib/services/tours/tour.service.ts': 'поиск туров по словам и фильтрам',
+  'lib/services/search.service.ts': 'автодополнение, рекомендованные, тренды, теги, похожие',
+  // Планер и подбор
+  'lib/planner/compose.ts': 'тур-бандл плана поездки',
+  'lib/planner/data.ts': 'туры и запасные туры планера',
+  'app/api/planner/partners/route.ts': 'операторы дня планера по их турам',
+  'app/api/planner/tours-for-day/route.ts': 'туры на день планера',
+  'app/api/trip/plan/route.ts': 'план поездки ИИ (вызывающих нет, запрос читает несуществующие колонки — шлюз стоит, чтобы починка не вернула черновик)',
+  'lib/services/operators/lead-processor.service.ts': 'подбор трёх туров в предложение клиенту по лиду',
+  'app/api/p/[code]/route.ts': 'подборка оператора, открытая клиентом по ссылке',
+  // Кузьмич, ИИ и агенты
+  'lib/kuzmich/core.ts': 'общий мозг Кузьмича',
+  'lib/kuzmich/tour-availability-tool.ts': 'инструмент дат Кузьмича',
+  'lib/agents/sdk/tourist-tools.ts': 'инструменты туриста: поиск, подробности, даты, сравнение',
+  'lib/ai/booking-intent.ts': 'туры в чате по намерению',
+  'lib/kuzmich/engagement.ts': 'напоминание туристу о туре в Telegram',
+  'lib/embed/widget-chat.ts': 'чат виджета на сайте партнёра',
+  'lib/mcp/connector-tools.ts': 'MCP-коннекторы (ChatGPT)',
+  'app/api/ai/knowledge-base/route.ts': 'база знаний ассистента, отвечающего туристу',
+  // Внешние площадки и обходчики
+  'app/api/tours-feed/route.ts': 'фид для площадок',
+  'app/api/meta/catalog/route.ts': 'фид каталога для Meta (Instagram, WhatsApp)',
+  'lib/octo/service.ts': 'OCTO для реселлеров: продукты, даты, холд',
+  'lib/notifications/tour-channel-post.ts': 'пост тура в Telegram-канал',
+  'lib/seo/sitemap-entries.ts': 'sitemap',
+  'lib/seo/query-landings-data.ts': 'посадочные страницы по запросам',
+  'app/llms.txt/route.ts': 'llms.txt для ИИ-поиска',
+  'lib/zh/entry.ts': 'китайский вход /zh',
+  'lib/zh/content.ts': 'китайские конспекты туров и мест',
+};
+
+/** Префиксы, которые перепись публичных роутов не судит, — с причиной. */
+const CENSUS_SKIP: Record<string, string> = {
+  '/api/cron/': 'Edge пускает крон без входа, но внутри CRON_SECRET: турист сюда не ходит; '
+    + 'крон, рассылающий туры людям, держит перепись ручных копий выше',
+};
+
+/**
+ * Публичный роут читает operator_tours, но тур туристу не ОТБИРАЕТ — с
+ * причиной. Самоустаревает: файл ушёл из переписи — запись удаляется.
+ */
+const NOT_TOURIST_SELECTION: Record<string, string> = {
+  'app/api/reviews/route.ts': 'отбор отзывов, а не туров: правдивый отзыв туриста не убирается вместе с туром (§0), название тура — подпись к нему',
+  'app/api/reviews/my/route.ts': 'свои отзывы туриста о турах, на которых он был',
+  'app/api/hub/bookings/[id]/route.ts': 'бронь туриста по её ключу: тур — тот, что он купил, даже если его сняли с витрины потом',
+  'app/api/hub/bookings/[id]/pdf/route.ts': 'PDF брони по её ключу: тур — тот, что в брони',
+  'app/api/payments/tochka/qr/route.ts': 'QR оплаты брони: тур — тот, что в брони',
+  'app/api/payments/webhook/route.ts': 'приёмник оплаты: тур — тот, что в оплаченной брони',
+  'app/api/hub/operator/payments/webhook/route.ts': 'приёмник оплаты: тур — тот, что в оплаченной брони',
+  'app/api/safety/warnings/route.ts': 'опасности маршрута по id тура: нужны и по снятому туру, на который турист уже едет; списка туров не отдаёт',
+  'app/api/routes/analysis/route.ts': 'аналитика мест для админки: счётчики по всем турам места, ни названий, ни карточек',
+  'app/api/health/booking-funnel/route.ts': 'диагностика воронки за requireAdmin: счёт туров и броней',
+  'app/api/telegram/admin/route.ts': 'бот владельца: статистика, туров туристу не показывает',
+  'app/api/telegram/webhook/route.ts': 'команда статистики владельца в боте: счёт туров',
+};
+
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
+
+/** Методы, которые роут экспортирует. */
+function exportedMethods(src: string): string[] {
+  return HTTP_METHODS.filter((m) => new RegExp(
+    String.raw`export\s+(?:async\s+)?function\s+${m}\b|export\s+const\s+${m}\b|export\s*\{[^}]*\b${m}\b[^}]*\}`,
+  ).test(src));
+}
+
+/** Адрес роута по пути файла: `[code]` — один сегмент, `(группа)` — без сегмента. */
+function urlOf(rel: string): string {
+  const segs = rel.replace(/^app\//, '').replace(/\/route\.tsx?$/, '').split('/')
+    .filter((seg) => !/^\(.*\)$/.test(seg))
+    .map((seg) => (seg.startsWith('[') ? 'x' : seg));
+  return `/${segs.join('/')}`;
+}
+
+/** Читает ли файл тур — в SQL, а не в комментарии. */
+function readsTours(fileName: string, src: string): boolean {
+  return sqlPieces(fileName, src).some((p) => /\b(?:FROM|JOIN)\s+operator_tours\b/i.test(p));
+}
+
+/** Зовёт ли файл шлюз — вызовом, а не упоминанием в комментарии. */
+function callsGate(fileName: string, src: string): boolean {
+  const kind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, false, kind);
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'publicTourSql') found = true;
+    else ts.forEachChild(n, visit);
+  };
+  visit(file);
+  return found;
+}
+
+/** Поверхности, которые турист открывает без входа и которые читают тур. */
+function touristSurfaceReaders(): { api: string[]; pages: string[] } {
+  const api: string[] = [];
+  const pages: string[] = [];
+  for (const f of sourceFiles(join(ROOT, 'app'))) {
+    const rel = relative(ROOT, f);
+    const src = readFileSync(f, 'utf-8');
+    if (!readsTours(f, src)) continue;
+    if (rel.startsWith('app/api/')) {
+      if (!/\/route\.tsx?$/.test(rel)) continue;
+      const url = urlOf(rel);
+      if (Object.keys(CENSUS_SKIP).some((p) => url.startsWith(p))) continue;
+      if (exportedMethods(src).some((m) => isPublicApiPath(url, m))) api.push(rel);
+    } else if (!rel.startsWith('app/hub/admin/')) {
+      pages.push(rel);
+    }
+  }
+  return { api: api.sort(), pages: pages.sort() };
+}
+
+describe('отборы для туриста — через шлюз (ревью #2642)', () => {
+  const surfaces = touristSurfaceReaders();
+
+  it('перепись видит публичных читателей тура (смотрящая не туда не выглядит успешной)', () => {
+    expect(surfaces.api.length).toBeGreaterThanOrEqual(15);
+    expect(surfaces.pages.length).toBeGreaterThanOrEqual(4);
+    // Сверка самой переписи на известном: публичная подборка — роут без входа.
+    expect(surfaces.api).toContain('app/api/p/[code]/route.ts');
+    expect(urlOf('app/api/p/[code]/route.ts')).toBe('/api/p/x');
+  });
+
+  it('файл реестра читает тур и зовёт шлюз — отбор для туриста без шлюза запрещён', () => {
+    const bad: string[] = [];
+    for (const [f, surface] of Object.entries(TOURIST_SELECTIONS)) {
+      const p = join(ROOT, f);
+      if (!existsSync(p)) { bad.push(`${f}: файла нет (${surface})`); continue; }
+      const src = readFileSync(p, 'utf-8');
+      if (!readsTours(p, src)) bad.push(`${f}: operator_tours не читает — запись устарела`);
+      else if (!callsGate(p, src)) bad.push(`${f}: читает тур без publicTourSql (${surface})`);
+      const hand = handShowcaseFlags(p, src);
+      if (hand > 0) bad.push(`${f}: флагов витрины руками ${hand} — рядом со шлюзом их быть не должно`);
+    }
+    expect(bad, 'отбор туров для туриста обязан спрашивать шлюз витрины').toEqual([]);
+  });
+
+  it('публичный читатель тура — либо отбор в реестре, либо исключение с причиной', () => {
+    const silent = [...surfaces.api, ...surfaces.pages]
+      .filter((f) => !(f in TOURIST_SELECTIONS) && !(f in NOT_TOURIST_SELECTION));
+    expect(
+      silent,
+      'поверхность, которую турист открывает без входа, читает operator_tours. Отбираете тур '
+      + 'для туриста — позовите publicTourSql и внесите файл в TOURIST_SELECTIONS; не отбираете '
+      + '(бронь по ключу, оплата, отзыв) — запись в NOT_TOURIST_SELECTION с причиной',
+    ).toEqual([]);
+  });
+
+  it('исключения самоустаревают и не прячут отбор', () => {
+    const all = new Set([...surfaces.api, ...surfaces.pages]);
+    const stale = Object.keys(NOT_TOURIST_SELECTION).filter((f) => !all.has(f));
+    expect(stale, 'файл ушёл из переписи (не публичный или не читает тур) — удалите запись').toEqual([]);
+    const both = Object.keys(NOT_TOURIST_SELECTION).filter((f) => f in TOURIST_SELECTIONS);
+    expect(both).toEqual([]);
+    for (const [f, why] of Object.entries(NOT_TOURIST_SELECTION)) expect(why.length, f).toBeGreaterThan(25);
+  });
+});
+
+describe('отборы ревью #2642 — поведением: в отправленном SQL стоит шлюз', () => {
+  const GATES = ['ot', 't', ''].map((a) => publicTourSql(a));
+  /** SQL, читающие тур, — каждый со шлюзом; и хотя бы один такой был. */
+  const expectGated = (sent: string[], label: string) => {
+    const reads = sent.filter((s) => /\b(?:FROM|JOIN)\s+operator_tours\b/i.test(s));
+    expect(reads.length, `${label}: тур не читался вовсе`).toBeGreaterThan(0);
+    for (const s of reads) expect(GATES.some((g) => s.includes(g)), `${label}: ${s.slice(0, 160)}`).toBe(true);
+  };
+  const sentPool = () => poolQueryMock.mock.calls.map((c) => String(c[0]));
+  const sentQuery = () => queryMock.mock.calls.map((c) => String(c[0]));
+  const empty = { rows: [], rowCount: 0 };
+
+  it('GET /api/discovery/search: ветка AI-тегов и поиск по словам', async () => {
+    queryMock.mockResolvedValue(empty);
+    poolQueryMock.mockResolvedValue({ rows: [{ total: 0 }], rowCount: 1 });
+    const { GET } = await import('@/app/api/discovery/search/route');
+    const { NextRequest } = await import('next/server');
+    expect((await GET(new NextRequest('http://localhost/api/discovery/search?landscape=volcano'))).status).toBe(200);
+    expectGated(sentQuery(), 'ai_tags');
+    expect((await GET(new NextRequest('http://localhost/api/discovery/search?q=%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD'))).status).toBe(200);
+    expect(sentPool()).toHaveLength(2); // счёт и выдача
+    expectGated(sentPool(), 'поиск по словам');
+  });
+
+  it('отказ базы в поиске — 500, а не пустая выдача с success (§4.0)', async () => {
+    poolQueryMock.mockRejectedValue(Object.assign(new Error('relation missing'), { code: '42P01' }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { GET } = await import('@/app/api/discovery/search/route');
+      const { NextRequest } = await import('next/server');
+      expect((await GET(new NextRequest('http://localhost/api/discovery/search?q=x'))).status).toBe(500);
+      expect(err).toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('подсказки поиска: автодополнение, рекомендованные, тренды, теги, похожие', async () => {
+    const { searchService } = await import('@/lib/services/search.service');
+    poolQueryMock.mockResolvedValue(empty);
+    await searchService.autocomplete('вулкан', 5);
+    await searchService.getRecommended(5);
+    await searchService.getTrending(5);
+    await searchService.getPopularTags(5);
+    expect(sentPool()).toHaveLength(4);
+    expectGated(sentPool(), 'подсказки');
+    // Похожие: исходный тур читается по id (его поля не уходят наружу),
+    // кандидаты — только с витрины.
+    poolQueryMock.mockReset();
+    poolQueryMock
+      .mockResolvedValueOnce({ rows: [{ id: '1', category: 'fishing', difficulty: 'easy' }], rowCount: 1 })
+      .mockResolvedValueOnce(empty);
+    await searchService.getSimilar('1', 5);
+    expectGated(sentPool().slice(1), 'похожие');
+  });
+
+  it('фид Meta и подбор туров в предложение по лиду', async () => {
+    poolQueryMock.mockResolvedValue(empty);
+    const meta = await import('@/app/api/meta/catalog/route');
+    expect((await meta.GET()).status).toBe(200);
+    expectGated(sentPool(), 'фид Meta');
+
+    poolQueryMock.mockReset();
+    poolQueryMock.mockResolvedValue(empty);
+    const { leadProcessor } = await import('@/lib/services/operators/lead-processor.service');
+    const match = (leadProcessor as unknown as {
+      matchTours: (i: unknown, r: string | null, op: string | null) => Promise<unknown[]>;
+    }).matchTours.bind(leadProcessor);
+    await match({ activity_types: ['fishing'], interests: [], budget_rub: null, duration_days: null }, null, null);
+    expectGated(sentPool(), 'matchTours');
+  });
+
+  it('календарь, плашка «ближайший выезд», лента главной, подборка по ссылке', async () => {
+    const { NextRequest } = await import('next/server');
+    poolQueryMock.mockResolvedValue(empty);
+    const month = await import('@/app/api/availability/route');
+    await month.GET(new NextRequest('http://localhost/api/availability?month=2099-07'));
+    const day = await import('@/app/api/availability/day/route');
+    await day.GET(new NextRequest('http://localhost/api/availability/day?date=2099-07-01'));
+    expectGated(sentPool(), 'календарь');
+
+    poolQueryMock.mockReset();
+    poolQueryMock.mockResolvedValue(empty);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('сеть в тесте не нужна'));
+    try {
+      const now = await import('@/app/api/public/now/route');
+      await now.GET();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+    const live = await import('@/app/api/live-feed/route');
+    await live.GET();
+    expectGated(sentPool(), 'ближайший выезд и лента');
+
+    poolQueryMock.mockReset();
+    poolQueryMock
+      .mockResolvedValueOnce({ rows: [{ id: 's1', title: null, client_name: null, operator_name: null, expires_at: null }], rowCount: 1 })
+      .mockResolvedValueOnce(empty);
+    const sel = await import('@/app/api/p/[code]/route');
+    const res = await sel.GET(new NextRequest('http://localhost/api/p/abc'), { params: Promise.resolve({ code: 'abc' }) });
+    expect(res.status).toBe(200);
+    expectGated(sentPool(), 'подборка по ссылке');
+  });
+
+  it('напоминание в Telegram и пост в канал', async () => {
+    poolQueryMock.mockResolvedValue(empty);
+    const { sendEngagementPushes } = await import('@/lib/kuzmich/engagement');
+    await sendEngagementPushes();
+    expectGated(sentPool(), 'напоминание');
+
+    const prev = process.env.TELEGRAM_CHANNEL_ID;
+    process.env.TELEGRAM_CHANNEL_ID = '-100';
+    try {
+      queryMock.mockResolvedValue(empty);
+      const { postTourToChannel } = await import('@/lib/notifications/tour-channel-post');
+      const r = await postTourToChannel('1');
+      expect(r.ok).toBe(false);
+      expectGated(sentQuery(), 'пост в канал');
+    } finally {
+      if (prev === undefined) delete process.env.TELEGRAM_CHANNEL_ID; else process.env.TELEGRAM_CHANNEL_ID = prev;
+    }
+  });
+
+  it('OCTO: поставщики, продукты, даты и холд под FOR UPDATE', async () => {
+    poolQueryMock.mockResolvedValue(empty);
+    const octo = await import('@/lib/octo/service');
+    await octo.getSuppliers();
+    await octo.getProducts();
+    await octo.getProductById('1');
+    await octo.checkAvailability('1', 'o1', '2099-07-01', '2099-07-02');
+    // Даты из календаря читаются по продукту, который реселлер получил из
+    // getProducts (шлюз там); запасной путь FREESALE читает тур сам — со шлюзом.
+    expectGated(sentPool().filter((s) => !/FROM tour_availability ta/.test(s)), 'OCTO чтение');
+
+    clientQueryMock.mockResolvedValue(empty);
+    const r = await octo.createBooking({
+      tourId: '1', optionId: 'o1', availabilityId: 'a1', bookingDate: '2099-07-01',
+      adultCount: 1, childCount: 0, apiKeyId: 'k1',
+    });
+    expect(r).toEqual({ error: 'PRODUCT_NOT_FOUND' });
+    const held = clientQueryMock.mock.calls.map((c) => String(c[0])).filter((s) => /FOR UPDATE/.test(s));
+    expect(held).toHaveLength(1);
+    expectGated(held, 'холд OCTO');
+  });
+
+  it('счёт на главной и планер: операторы и туры дня', async () => {
+    const { NextRequest } = await import('next/server');
+    queryMock.mockResolvedValue({ rows: [{}], rowCount: 1 });
+    const metrics = await import('@/app/api/home/metrics/route');
+    await metrics.GET();
+    expectGated(sentQuery(), 'счёт главной');
+
+    poolQueryMock.mockResolvedValue(empty);
+    const partners = await import('@/app/api/planner/partners/route');
+    await partners.GET(new NextRequest('http://localhost/api/planner/partners?activity_type=fishing'));
+    const forDay = await import('@/app/api/planner/tours-for-day/route');
+    await forDay.GET(new NextRequest('http://localhost/api/planner/tours-for-day?activity_type=fishing&zone=western&limit=3'));
+    expect(sentPool().length).toBeGreaterThanOrEqual(3);
+    expectGated(sentPool(), 'планер');
   });
 });

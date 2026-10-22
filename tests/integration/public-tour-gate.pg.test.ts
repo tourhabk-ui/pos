@@ -261,6 +261,149 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(byId[id.live]).toMatchObject({ on_storefront: true, marketplace_ready: true });
   });
 
+  // ── Ревью #2642: «Черновик — туристы не видят» — правда на каждом отборе ──
+  // Кабинет подписывает черновик «туристы не видят». Ревью нашло три отбора
+  // для туриста, судивших по is_active/deleted_at без is_published: поиск
+  // /api/discovery/search, фид Meta и подбор туров в предложение по лиду; перепись
+  // нашла ещё. Здесь черновик (и выключенный, и удалённый) спрашивается у
+  // каждого из них на настоящей базе: мок ответил бы на любой SQL.
+  describe('черновик не уходит туристу (ревью #2642)', () => {
+    const ours = (ids: Array<string | number | null | undefined>) =>
+      ids.map((x) => String(x)).filter((x) => STATES.some((s) => id[s] === x)).sort();
+    const title = (s: State) => `W2PT тур ${s}`;
+    let d1 = '';
+    let d2 = '';
+    let d3 = '';
+
+    beforeAll(async () => {
+      // Поля, без которых отборы отказали бы туру по другим причинам: AI-теги
+      // для поиска по тегам, тип места для OCTO. Даты: на первую — только
+      // снятые туры, на вторую — живые, на третью — все пять.
+      await pool.query(
+        `UPDATE operator_tours
+            SET ai_tags = '{"landscape":["w2pt_land"]}'::jsonb,
+                location_type = 'volcano'
+          WHERE operator_id = $1`,
+        [OPERATOR.id],
+      );
+      const dates = (await pool.query<{ d1: string; d2: string; d3: string }>(
+        `SELECT (CURRENT_DATE + 3)::text AS d1, (CURRENT_DATE + 4)::text AS d2, (CURRENT_DATE + 5)::text AS d3`,
+      )).rows[0];
+      ({ d1, d2, d3 } = dates);
+      for (const s of STATES) {
+        const live = s === 'live' || s === 'live2';
+        for (const day of [live ? d2 : d1, d3]) {
+          await pool.query(
+            `INSERT INTO tour_availability (operator_tour_id, date, available_slots) VALUES ($1, $2::date, 8)`,
+            [id[s], day],
+          );
+        }
+      }
+    });
+
+    it('GET /api/discovery/search: ни ветка AI-тегов, ни поиск по словам черновика не находят', async () => {
+      const { GET } = await import('@/app/api/discovery/search/route');
+      type Body = { success: boolean; data: Array<{ id: string | number }> };
+      const ask = async (qs: string) => {
+        const res = await GET(new NextRequest(`http://localhost/api/discovery/search?${qs}`));
+        expect(res.status, qs).toBe(200);
+        return ours(((await res.json()) as Body).data.map((t) => t.id));
+      };
+      expect(await ask('landscape=w2pt_land&limit=100'), 'ветка ai_tags').toEqual(live());
+      expect(await ask(`q=${encodeURIComponent('W2PT тур')}&limit=100`), 'поиск по словам').toEqual(live());
+      expect(await ask(`q=${encodeURIComponent('W2PT тур')}&limit=100&advanced=true`), 'расширенный').toEqual(live());
+    });
+
+    it('подсказки и подборки поиска (searchService): автодополнение, рекомендованные, тренды, теги, похожие', async () => {
+      const { searchService } = await import('@/lib/services');
+      const titles = (await searchService.autocomplete('W2PT тур', 50)).filter((t) => t.startsWith('W2PT тур ')).sort();
+      expect(titles).toEqual([title('live'), title('live2')]);
+      const idOf = (rows: unknown[]) => ours(rows.map((r) => (r as { id: string | number }).id));
+      expect(idOf(await searchService.getRecommended(50, OPERATOR.id))).toEqual(live());
+      expect(idOf(await searchService.getTrending(50))).toEqual(live());
+      expect(idOf(await searchService.getSimilar(id.live, 20))).toEqual([id.live2]);
+      const tags = (await searchService.getPopularTags(100)).map((t) => t.tag).filter((t) => t.startsWith('w2pt_')).sort();
+      expect(tags).toEqual([activity('live'), activity('live2')]);
+    });
+
+    it('фид Meta (/api/meta/catalog): только туры витрины', async () => {
+      const { GET } = await import('@/app/api/meta/catalog/route');
+      const res = await GET();
+      expect(res.status).toBe(200);
+      const body = await res.json() as { data: Array<{ id: string }> };
+      expect(ours(body.data.map((p) => p.id.replace(/^tour_/, '')))).toEqual(live());
+    });
+
+    it('подбор туров в предложение по лиду (matchTours): черновика нет', async () => {
+      const { leadProcessor } = await import('@/lib/services/operators/lead-processor.service');
+      // Метод закрыт, а судится он сам — без ИИ-квалификации вокруг.
+      const match = (leadProcessor as unknown as {
+        matchTours: (i: unknown, r: string | null, op: string | null) => Promise<Array<{ id: string }>>;
+      }).matchTours.bind(leadProcessor);
+      const intent = {
+        activity_types: STATES.map(activity), group_size: null, budget_rub: null, desired_dates: null,
+        duration_days: null, interests: [], urgency: 'low', qualification_notes: '',
+      };
+      expect(ours((await match(intent, null, OPERATOR.id)).map((t) => t.id))).toEqual(live());
+    });
+
+    it('календарь дат (/api/availability, /day) и плашка «ближайший выезд»: только туры витрины', async () => {
+      const day = await import('@/app/api/availability/day/route');
+      const dayRes = await day.GET(new NextRequest(`http://localhost/api/availability/day?date=${d3}`));
+      const dayBody = await dayRes.json() as { tours: Array<{ tourId: number }> };
+      expect(dayRes.status, JSON.stringify(dayBody)).toBe(200);
+      expect(ours(dayBody.tours.map((t) => t.tourId))).toEqual(live());
+
+      const month = await import('@/app/api/availability/route');
+      for (const s of STATES) {
+        const res = await month.GET(new NextRequest(`http://localhost/api/availability?month=${d3.slice(0, 7)}&activity=${activity(s)}`));
+        const body = await res.json() as { days: Array<{ date: string }> };
+        const live1 = s === 'live' || s === 'live2';
+        expect(body.days.map((x) => x.date).sort(), s).toEqual(live1 ? [d2, d3].filter((x) => x.slice(0, 7) === d3.slice(0, 7)).sort() : []);
+      }
+
+      // Снятые туры выезжают раньше живых: прежняя копия без is_published
+      // назвала бы ближайшим выездом черновик. Погода — чужой сервис, здесь она
+      // не нужна.
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('сеть в тесте не нужна'));
+      try {
+        const now = await import('@/app/api/public/now/route');
+        const body = await (await now.GET()).json() as { data: { nextDeparture: { tourName: string; date: string } | null } };
+        expect(body.data.nextDeparture?.tourName).toBe(title('live'));
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('подборка по ссылке (/api/p/[code]): черновик, выключенный и удалённый тур клиент не видит', async () => {
+      const sel = (await pool.query<{ id: string }>(
+        `INSERT INTO tour_selections (code, title, operator_id) VALUES ('w2ptsel', 'W2PT подборка', $1) RETURNING id::text`,
+        [OPERATOR.id],
+      )).rows[0];
+      let pos = 0;
+      for (const s of STATES) {
+        await pool.query(
+          `INSERT INTO tour_selection_items (selection_id, operator_tour_id, position) VALUES ($1::uuid, $2::int, $3)`,
+          [sel.id, id[s], pos++],
+        );
+      }
+      const { GET } = await import('@/app/api/p/[code]/route');
+      const res = await GET(new NextRequest('http://localhost/api/p/w2ptsel'), { params: Promise.resolve({ code: 'w2ptsel' }) });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { tours: Array<{ tour_id: number }> };
+      expect(ours(body.tours.map((t) => t.tour_id))).toEqual(live());
+    });
+
+    it('OCTO для реселлеров: продукт и список продуктов — только туры витрины', async () => {
+      const octo = await import('@/lib/octo/service');
+      for (const s of STATES) {
+        const live1 = s === 'live' || s === 'live2';
+        expect(await octo.getProductById(id[s]) !== null, `getProductById ${s}`).toBe(live1);
+      }
+      expect(ours((await octo.getProducts(OPERATOR.id)).map((p) => (p as { id: string | number }).id))).toEqual(live());
+    });
+  });
+
   it('чат виджета партнёра (loadPartnerTours): только живые туры этого оператора, закреплённый первым, соседа нет', async () => {
     // Аудит 15.10, WID-safety: чат на сайте партнёра подбирал туры по всей
     // платформе и советовал туры конкурентов. Сосед с живым туром и

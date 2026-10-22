@@ -22,6 +22,7 @@
 import { channelHeadline, channelKicker, channelFacts, channelLink, channelPost } from '@/lib/notifications/channel-style';
 import { createHash } from 'node:crypto';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tgPostMediaGroup } from '@/lib/notifications/telegram-channel';
 import { activityLabel, difficultyLabel, priceUnitLabel } from '@/lib/tours/labels';
@@ -122,6 +123,8 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID не настроен' };
 
+  // Пост в канал — витрина: тур только шлюзом (#2642). Копия без is_published
+  // публиковала черновик, про который кабинет говорил «туристы не видят».
   const { rows } = await query<TourPostRow & { season_start: string | null; season_end: string | null; duration_type: string | null }>(
     `SELECT ot.id::text,
             ot.slug,
@@ -143,8 +146,7 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
        FROM operator_tours ot
        LEFT JOIN partners p ON p.id = ot.operator_id
       WHERE ot.id::text = $1
-        AND ot.deleted_at IS NULL
-        AND ot.is_active = true
+        AND ${publicTourSql('ot')}
       LIMIT 1`,
     [tourId],
   );

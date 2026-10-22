@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,9 +54,7 @@ export async function GET(req: NextRequest) {
           operator_id,
           ARRAY_AGG(DISTINCT activity_type) FILTER (WHERE activity_type IS NOT NULL) AS activity_types
         FROM operator_tours
-        WHERE is_active = TRUE
-          AND is_published = TRUE
-          AND deleted_at IS NULL
+        WHERE ${publicTourSql('')}
         GROUP BY operator_id
       )
       SELECT

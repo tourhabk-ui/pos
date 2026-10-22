@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: {
-          stats: { totalTours: 0, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 0 },
+          stats: { totalTours: 0, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0 },
           tours: [],
         },
       });
@@ -190,7 +190,9 @@ export async function GET(request: NextRequest) {
           avgTotalScore,
           fullyComplete,
           criticallyIncomplete,
-          publishedTours: completions.filter(t => t.is_published).length,
+          // publishedTours снят (ревью #2642): считался по одному is_published
+          // — выключенный тур числился опубликованным, — а читателя у поля не
+          // было ни одного. Экран считает витрину сам, по on_storefront.
         },
         tours: completions,
       },

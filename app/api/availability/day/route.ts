@@ -8,6 +8,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,7 +93,11 @@ export async function GET(request: NextRequest) {
          p.slug                                                              AS operator_slug,
          p.is_public                                                         AS operator_public,
          p.rating::text                                                      AS operator_rating,
-         t.tags
+         -- Теги — из operator_tour_tags (их пишет кабинет): колонки tags у
+         -- operator_tours нет, и прежнее t.tags роняло роут на 42703 при любом
+         -- запросе — панель дня в /calendar не открывалась (найдено pg-тестом
+         -- шлюза, ревью #2642).
+         ARRAY(SELECT tt.tag::text FROM operator_tour_tags tt WHERE tt.tour_id = t.id ORDER BY tt.tag) AS tags
        FROM tour_availability ta
        JOIN operator_tours t ON ta.operator_tour_id = t.id
        JOIN partners p       ON t.operator_id = p.id
@@ -105,8 +110,8 @@ export async function GET(request: NextRequest) {
          AND ta.is_cancelled = false
          AND ta.deleted_at IS NULL
          AND (ta.available_slots - occ.taken) > 0
-         AND t.is_active = true
-         AND t.is_published = true
+         -- тур — шлюзом витрины (#2642): копия без deleted_at отдавала даты удалённого тура
+         AND ${publicTourSql('t')}
          ${activityFilter}
        ORDER BY
          COALESCE(ta.base_price_override, t.base_price) ASC,

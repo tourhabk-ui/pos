@@ -11,10 +11,16 @@
  *    пирожки» и «сбор в Паратунской зоне» — оба поймал владелец, и это стоило
  *    миграции 814. В канале цена выше: пост уходит подписчикам и не правится.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const { queryMock } = vi.hoisted(() => ({ queryMock: vi.fn() }));
+vi.mock('@/lib/database', () => ({ query: (...args: unknown[]) => queryMock(...args) }));
+
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import {
+  postTourToChannel,
   buildTourPostText,
   absolutePhotoUrls,
   tourPostHash,
@@ -119,8 +125,22 @@ describe('пост не может разойтись с карточкой', ()
     expect(trigger.photos).toBeUndefined();
   });
 
-  it('снятый с витрины тур не публикуется', () => {
-    expect(MODULE).toMatch(/deleted_at IS NULL/);
-    expect(MODULE).toMatch(/is_active = true/);
+  it('снятый с витрины тур не публикуется: тур читается шлюзом витрины', async () => {
+    // Вызовом, а не поиском строки в исходнике: копия «deleted_at и
+    // is_active» проходила прежнюю проверку и публиковала черновик
+    // (is_published = false), про который кабинет говорит «туристы не видят»
+    // (ревью #2642).
+    const prev = process.env.TELEGRAM_CHANNEL_ID;
+    process.env.TELEGRAM_CHANNEL_ID = '-100';
+    try {
+      queryMock.mockReset();
+      queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+      const r = await postTourToChannel('27');
+      expect(r).toEqual({ ok: false, error: 'Тур 27 не найден или снят с витрины' });
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(String(queryMock.mock.calls[0][0])).toContain(publicTourSql('ot'));
+    } finally {
+      if (prev === undefined) delete process.env.TELEGRAM_CHANNEL_ID; else process.env.TELEGRAM_CHANNEL_ID = prev;
+    }
   });
 });

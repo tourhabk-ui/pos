@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { callAIWaterfallOrNull } from '@/lib/ai/providers';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { findCharterOffers } from '@/lib/planner/trip-extras-data';
 import { config } from '@/lib/config';
@@ -255,8 +256,7 @@ async function selectTours(
         season
       FROM operator_tours
       WHERE
-        is_active = true
-        AND deleted_at IS NULL
+        ${publicTourSql('')}
         AND difficulty = ANY($1)
         ${budget ? 'AND base_price <= $2' : ''}
         AND rating >= 3.5
