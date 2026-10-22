@@ -8,6 +8,9 @@
  * Критерий: description IS NULL или LENGTH(description) < 300.
  * Действие: генерирует описание через AI → UPDATE agent_route_knowledge.
  * Лимит: 15 маршрутов за запуск.
+ *
+ * Места с 22.10 не пишет — слово владельца, выключатель
+ * lib/places/model-place-text.ts (`editorKindSql` ниже).
  */
 
 import { pool } from '@/lib/db-pool';
@@ -19,6 +22,7 @@ import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksL
 import { sanitizeGarbageDescriptions } from '@/lib/agents/evo/content-sanitizer';
 import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
 import { placeZoneLabel } from '@/lib/places/zone-labels';
+import { MODEL_WRITES_PLACE_TEXT } from '@/lib/places/model-place-text';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
 // (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
@@ -200,6 +204,19 @@ export function notWithdrawnSql(idExpr: string): string {
                        WHERE COALESCE(wr.ark_id, wr.id) = ${idExpr} AND wr.description_withdrawn IS NOT NULL)`;
 }
 
+/**
+ * Места в очереди — только пока модели разрешено писать тексты мест.
+ *
+ * Слово владельца 22.10: «отключи агента выдумывающкюего описание мест такую
+ * пургу придумал» (lib/places/model-place-text.ts). Очередь одна на прод и на
+ * раннер: editor-job отдаёт её раннеру, editor-result по ней же сверяет
+ * присланный id. Поэтому условие стоит здесь, а не в каждой двери: место,
+ * которого нет в очереди, не пишется ни одной из них.
+ */
+export function editorKindSql(alias: string): string {
+  return MODEL_WRITES_PLACE_TEXT ? 'TRUE' : `${alias}.kind IS DISTINCT FROM 'place'`;
+}
+
 export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
   // NULL-описания — всегда в приоритете (реальные пробелы важнее полировки).
   // Короткие (<300) берём только если их давно (>7 дней) никто не трогал —
@@ -235,6 +252,7 @@ export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
            -- (lib/places/owner-decided.ts, случай Микижи 27.09).
            AND ${notOwnerDecidedSql('ark.id')}))
       AND ${notWithdrawnSql('ark.id')}
+      AND ${editorKindSql('ark')}
     ORDER BY (ark.description IS NULL) DESC, RANDOM()
     LIMIT $2
   `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE, REATTEMPT_REST_DAYS]);
@@ -566,7 +584,8 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
              OR (LENGTH(description) < $1 AND updated_at < NOW() - make_interval(days => $2)))::text AS queue,
            COUNT(*) FILTER (WHERE description IS NULL OR LENGTH(description) < $1)::text AS total_short
          FROM agent_route_knowledge ark
-        WHERE ${notWithdrawnSql('ark.id')}`,
+        WHERE ${notWithdrawnSql('ark.id')}
+          AND ${editorKindSql('ark')}`,
         [MIN_DESCRIPTION_LENGTH, REATTEMPT_REST_DAYS]
       );
       queue = Number(rows[0]?.queue ?? 0);

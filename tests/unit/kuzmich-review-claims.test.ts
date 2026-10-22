@@ -22,6 +22,10 @@ vi.mock('@/lib/ai/providers', () => ({
   isWaterfallErrorResponse: () => false,
 }));
 vi.mock('@/lib/scraping/brightdata', () => ({ fetchViaBrightData: async () => null }));
+// С 22.10 новые заметки выключены словом владельца (model-place-text-paused.test.ts
+// держит выключенное). Здесь судится путь записи на день, когда его включат снова:
+// без проверки после модели он вернулся бы с прежними выдумками.
+vi.mock('@/lib/places/model-place-text', () => ({ MODEL_WRITES_PLACE_TEXT: true, MODEL_PLACE_TEXT_PAUSED_MESSAGE: '' }));
 
 import { reviewClaims, reviewRewriteReason } from '@/lib/kuzmich/review-claims';
 import { runKuzmichPlaceEnricher, recheckExistingReviews } from '@/lib/agents/kuzmich-place-enricher';

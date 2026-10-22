@@ -49,6 +49,7 @@ import { z } from 'zod';
 import { stripTags } from '@/lib/html/text';
 import { notOwnerDecidedSql } from '@/lib/places/owner-decided';
 import { placeAreaWords } from '@/lib/places/zone-labels';
+import { MODEL_WRITES_PLACE_TEXT, MODEL_PLACE_TEXT_PAUSED_MESSAGE } from '@/lib/places/model-place-text';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -148,6 +149,13 @@ function buildPrompt(p: {
 export async function POST(req: NextRequest) {
   const authErr = await requireAdmin(req);
   if (authErr) return authErr;
+
+  // Слово владельца 22.10: модель тексты мест не пишет (выключатель и его
+  // причина — lib/places/model-place-text.ts). Раньше разбора тела: `force`
+  // это решение человека о партии, а не о том, писать ли модели вообще.
+  if (!MODEL_WRITES_PLACE_TEXT) {
+    return NextResponse.json({ error: MODEL_PLACE_TEXT_PAUSED_MESSAGE, paused: true }, { status: 409 });
+  }
 
   const body = await req.json().catch(() => ({}));
   // safeParse, а не parse.

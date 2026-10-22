@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { stripTags } from '@/lib/html/text';
 import { descriptionVoice } from '@/lib/places/description-voice';
 import { descriptionClaims } from '@/lib/routes/description-claims';
+import { MODEL_WRITES_PLACE_TEXT, MODEL_PLACE_TEXT_PAUSED_MESSAGE } from '@/lib/places/model-place-text';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -191,12 +192,27 @@ const NOT_WITHDRAWN = `NOT EXISTS (
  * проверки «сверх данных», — проверка ловит выдуманные числа и имена, но не
  * пустоту. Описание маршрута пишется по паспорту или источнику
  * (import-route-passports, visitkamchatka), а не моделью по названию. Места
- * остаются: их очередь — enrich-places и этот писатель с проверкой после
- * модели.
+ * оставались до 22.10: с этого дня выключены и они — слово владельца
+ * (lib/places/model-place-text.ts, проверка в начале enrichDescriptions).
  */
 const PLACES_ONLY = `kind = 'place'`;
 
 export async function enrichDescriptions(batchSize: number, force: boolean, dryRun: boolean) {
+  // Слово владельца 22.10: модель тексты мест не пишет
+  // (lib/places/model-place-text.ts). Этот писатель с 15.10 пишет ТОЛЬКО
+  // местам и только по названию, типу и координатам — то есть именно тот
+  // агент, о котором сказано. Закрыт здесь, в общей функции: так закрыты обе
+  // двери — ночной крон /api/cron/enrich-routes и ручной POST. Ответ 200, а
+  // не отказ: крон краснеет на любом не-200, и выключенное по решению
+  // человека будило бы каждую ночь. processed 0 — его правило «упал» не
+  // срабатывает, paused говорит, почему пусто. Сухой прогон тоже закрыт: он
+  // зовёт модель, только не пишет.
+  if (!MODEL_WRITES_PLACE_TEXT) {
+    return NextResponse.json({
+      success: true, paused: true, message: MODEL_PLACE_TEXT_PAUSED_MESSAGE,
+      processed: 0, improved: 0, errors: 0, rejected: 0, skipped: 0,
+    });
+  }
   const condition = force
     ? `(description IS NULL OR LENGTH(description) < 300)`
     : `(description IS NULL OR description = '' OR LENGTH(description) < 300)`;
