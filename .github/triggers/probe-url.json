@@ -1,12 +1,19 @@
 {
   "timeout": 60,
-  "run": 986,
-  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. fishingkam.ru переезжает на наш сервер (слово владельца 22.10: DNS доступен, REG.RU). Снимаю полный видимый текст главной и страниц политики и согласия: разделы, частые вопросы, контакты — основа страницы сайта партнёра на нашем приложении. Цены и даты возьмутся из базы, не отсюда.",
+  "run": 987,
+  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. Переезд fishingkam.ru на наш сервер: какие адреса сайта существуют (внутренние ссылки главной, карта сайта и карта товаров Tilda), чтобы после смены DNS каждый старый адрес вёл на живую страницу, а не в 404.",
   "urls": [
     "https://fishingkam.ru/",
-    "https://fishingkam.ru/pol",
-    "https://fishingkam.ru/soglasie"
+    "https://fishingkam.ru/sitemap.xml",
+    "https://fishingkam.ru/sitemap-store.xml",
+    "https://fishingkam.ru/robots.txt"
   ],
-  "text": true,
-  "bytes": 45000
+  "bytes": 4000,
+  "around": [
+    "href=\"/",
+    "href=\"https://fishingkam.ru",
+    "<loc>"
+  ],
+  "aroundLines": 0,
+  "aroundHits": 80
 }
