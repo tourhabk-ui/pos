@@ -284,10 +284,14 @@ export default function SafetyHubClient() {
       rescueChatRef.current?.scrollTo({ top: rescueChatRef.current.scrollHeight, behavior: 'smooth' });
     }, 50);
 
+    // Прежние реплики человека — протоколу: «Мы заблудились», затем «Потеряли
+    // рюкзак» — не утеря вещи (lib/safety/rescue-protocols).
+    const earlier = rescueMessages.filter(m => m.role === 'user').map(m => m.content);
+
     // Оффлайн-режим: локальный протокол без сети
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     if (!isOnline) {
-      const local = getLocalProtocol(text)
+      const local = getLocalProtocol(text, earlier)
         ?? 'Нет связи. Звоните 112 — работает без баланса и SIM, переключит на спасателей.\n\n3 свистка подряд = сигнал бедствия.';
       setRescueMessages(prev => [...prev, { role: 'assistant', content: local }]);
       setRescueLoading(false);
@@ -361,7 +365,7 @@ export default function SafetyHubClient() {
         const data = await res.json() as { reply?: string; error?: string };
         if (!res.ok || data.error || !data.reply) {
           // AI недоступен — локальный протокол выживания вместо текста ошибки
-          const local = getLocalProtocol(text);
+          const local = getLocalProtocol(text, earlier);
           const footer = 'AI-связь недоступна. При угрозе жизни звоните 112 — работает без баланса и SIM.';
           setRescueMessages(prev => [...prev, {
             role: 'assistant',
@@ -374,7 +378,7 @@ export default function SafetyHubClient() {
 
     } catch {
       // Таймаут или сетевая ошибка — показываем локальный протокол
-      const local = getLocalProtocol(text)
+      const local = getLocalProtocol(text, earlier)
         ?? 'Нет связи. Звоните 112 — работает без баланса и SIM, переключит на спасателей.';
       setRescueMessages(prev => [...prev, { role: 'assistant', content: local }]);
     } finally {
