@@ -253,13 +253,27 @@ withPg('сайты партнёров: изменения против прош�
   });
   it('сайт партнёра на его домене (loadPartnerSite): профиль и только живые туры, скрытый партнёр — нет', async () => {
     const { loadPartnerSite } = await import('@/lib/partner-sites/load');
-    const site = await loadPartnerSite(`test-${KRAI.slice(0, 4)}`);
+    const site = await loadPartnerSite(KRAI);
     expect(site?.profile.name).toBe('Край Тест');
     expect(site?.profile.id).toBe(KRAI);
     expect(site?.tours.map((t) => t.title).sort()).toEqual(['Восхождение на Ключевскую', 'Сплав по Быстрой', 'Чужой источник']);
     expect(site?.tours[0]).toMatchObject({ base_price: '1000.00', max_participants: 10 });
     expect(await loadPartnerSite('no-such-partner')).toBeNull();
+    expect(await loadPartnerSite('99999999-9999-4999-8999-999999999999')).toBeNull();
     await pool.query('UPDATE partners SET is_public = FALSE WHERE id = $1', [DIRECTORY]);
-    expect(await loadPartnerSite(`test-${DIRECTORY.slice(0, 4)}`)).toBeNull();
+    expect(await loadPartnerSite(DIRECTORY)).toBeNull();
+  });
+  it('домен из реестра находит своего партнёра по id, какой бы slug у него ни был (22.10: по slug предпросмотр отвечал 404)', async () => {
+    const { loadPartnerSite } = await import('@/lib/partner-sites/load');
+    const { partnerSiteForHost } = await import('@/lib/partner-sites/registry');
+    const fk = partnerSiteForHost('fishingkam.ru');
+    expect(fk).not.toBeNull();
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, contacts, slug, is_public, status)
+       VALUES ($1, 'Камчатская рыбалка', 'operator', '{}'::jsonb, '{}'::jsonb, 'slug-ne-iz-reestra', TRUE, 'active')
+       ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, is_public = TRUE`,
+      [fk!.partnerId],
+    );
+    expect((await loadPartnerSite(fk!.partnerId))?.profile.name).toBe('Камчатская рыбалка');
   });
 });

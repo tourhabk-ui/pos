@@ -13,13 +13,13 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { PartnerSitePage } from '@/components/partner-site/PartnerSitePage';
 import { loadPartnerSite } from '@/lib/partner-sites/load';
-import { partnerSiteBySlug, partnerSiteUrl } from '@/lib/partner-sites/registry';
+import { partnerSiteByKey, partnerSiteUrl } from '@/lib/partner-sites/registry';
 import { partnerSiteOfRequest, VEDAR_BASE } from '@/lib/partner-sites/request';
 import { extractContacts, extractGallery, extractLegalInfo } from '@/lib/operators/profile-parse';
 
 export const dynamic = 'force-dynamic';
 
-type Params = { slug: string };
+type Params = { key: string };
 
 function absolute(site: { host: string }, src: string | null): string | null {
   if (!src) return null;
@@ -28,13 +28,13 @@ function absolute(site: { host: string }, src: string | null): string | null {
 }
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
-  const { slug } = await params;
-  const site = partnerSiteBySlug(slug);
+  const { key } = await params;
+  const site = partnerSiteByKey(key);
   if (!site) return { title: 'Сайт не найден', robots: { index: false, follow: false } };
   // Индексируется только на своём домене: на vedarai.ru это предпросмотр.
-  const onOwnDomain = partnerSiteOfRequest(await headers())?.slug === site.slug;
+  const onOwnDomain = partnerSiteOfRequest(await headers())?.key === site.key;
   const url = partnerSiteUrl(site);
-  const data = await loadPartnerSite(site.slug);
+  const data = await loadPartnerSite(site.partnerId);
   const logo = data?.profile.logo_image ?? null;
   const ogImage = data ? absolute(site, data.profile.hero_image ?? extractGallery(data.profile.gallery)[0] ?? null) : null;
   return {
@@ -57,10 +57,10 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 }
 
 export default async function PartnerSiteRoute({ params }: { params: Promise<Params> }) {
-  const { slug } = await params;
-  const site = partnerSiteBySlug(slug);
+  const { key } = await params;
+  const site = partnerSiteByKey(key);
   if (!site) notFound();
-  const data = await loadPartnerSite(site.slug);
+  const data = await loadPartnerSite(site.partnerId);
   if (!data) notFound();
 
   const { profile } = data;

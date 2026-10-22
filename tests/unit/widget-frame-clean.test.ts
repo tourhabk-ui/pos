@@ -78,7 +78,7 @@ describe('isForeignSurface: виджет и сайт партнёра на ег�
     expect(isForeignSurface('/', 'FishingKam.ru')).toBe(true);
   });
   it('предпросмотр сайта партнёра на vedarai.ru — по пути', () => {
-    expect(isForeignSurface('/partner-site/kamchatskaya-rybalka', 'vedarai.ru')).toBe(true);
+    expect(isForeignSurface('/partner-site/fishingkam', 'vedarai.ru')).toBe(true);
   });
   it('Ведар остаётся Ведаром', () => {
     expect(isForeignSurface('/', 'vedarai.ru')).toBe(false);

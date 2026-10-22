@@ -561,7 +561,12 @@ describe('на настоящем экране планировщика', () => 
     recommendation = FRAME_ONLY;
     render(<PlannerClient />);
     await buildPlan();
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(MAP_TEXT.legendTitle) }));
+    // Сначала легенда сворачивается сама (план появился, телефон) — и только
+    // потом нажатие её разворачивает. Нажать раньше эффекта — свернуть её
+    // нажатием, а эффект оставит свёрнутой (CI 22.10, PR #2703).
+    const toggle = screen.getByRole('button', { name: new RegExp(MAP_TEXT.legendTitle) });
+    await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'));
+    fireEvent.click(toggle);
     expect(screen.getByText(MAP_TEXT.hintAddOnly)).toBeTruthy();
     expect(screen.queryByText(MAP_TEXT.hintPlan)).toBeNull();
     // И карточка точки — о том же: только «Добавить в план».

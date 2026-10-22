@@ -27,7 +27,7 @@ const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
  * разу: запросов с этим Host к приложению нет.
  */
 const PARTNER_SITE_HOSTS = [
-  { host: 'fishingkam.ru', slug: 'kamchatskaya-rybalka' },
+  { host: 'fishingkam.ru', key: 'fishingkam' },
 ];
 
 /** Условия «запрос пришёл на домен»: по Host и по X-Forwarded-Host (за прокси Timeweb Host подменяется — см. tourhab.ru в redirects). */
@@ -47,11 +47,11 @@ const escapeHost = (host) => host.replace(/\./g, '\\.');
  * без него оно подменило бы главную самого Ведара.
  */
 function partnerSiteRewrites() {
-  return PARTNER_SITE_HOSTS.flatMap(({ host, slug }) =>
+  return PARTNER_SITE_HOSTS.flatMap(({ host, key }) =>
     hostConditions(`(www\\.)?${escapeHost(host)}`).flatMap((has) => [
-      { source: '/', has, destination: `/partner-site/${slug}` },
-      { source: '/robots.txt', has, destination: `/partner-site/${slug}/robots.txt` },
-      { source: '/sitemap.xml', has, destination: `/partner-site/${slug}/sitemap.xml` },
+      { source: '/', has, destination: `/partner-site/${key}` },
+      { source: '/robots.txt', has, destination: `/partner-site/${key}/robots.txt` },
+      { source: '/sitemap.xml', has, destination: `/partner-site/${key}/sitemap.xml` },
     ]));
 }
 

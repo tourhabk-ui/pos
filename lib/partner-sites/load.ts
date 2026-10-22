@@ -20,8 +20,12 @@ export interface PartnerSiteData {
   tours: PartnerSiteTourRow[];
 }
 
-/** Один запрос на рендер: метаданные и страница читают одно и то же (React cache). */
-export const loadPartnerSite = cache(async (slug: string): Promise<PartnerSiteData | null> => {
+/**
+ * Один запрос на рендер: метаданные и страница читают одно и то же (React cache).
+ * Партнёр — по id из реестра, не по slug: slug меняется (22.10 предпросмотр
+ * по slug отвечал 404).
+ */
+export const loadPartnerSite = cache(async (partnerId: string): Promise<PartnerSiteData | null> => {
   const profiles = await query<OperatorProfileRow>(
     `SELECT id::text AS id, slug, name, category, description, short_description,
             hero_image, logo_image, gallery, services, features, faq, season_info,
@@ -31,9 +35,9 @@ export const loadPartnerSite = cache(async (slug: string): Promise<PartnerSiteDa
             to_char(registry_checked_at AT TIME ZONE 'Asia/Kamchatka', 'DD.MM.YYYY') AS registry_checked_at,
             created_at::text
        FROM partners
-      WHERE slug = $1 AND is_public = TRUE
+      WHERE id::text = $1::text AND is_public = TRUE
       LIMIT 1`,
-    [slug],
+    [partnerId],
   );
   const profile = profiles.rows[0];
   if (!profile) return null;
