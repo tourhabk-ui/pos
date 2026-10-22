@@ -314,6 +314,32 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(await ask(`q=${encodeURIComponent('W2PT тур')}&limit=100&advanced=true`), 'расширенный').toEqual(live());
     });
 
+    it('вход на границах проверки (ревью #2642, третий круг): что пропустила проверка, база выполняет', async () => {
+      // Проверка входа стоит до базы; здесь — что граничные значения, которые
+      // она пропускает, база принимает: дробная цена против numeric, последняя
+      // страница при самом большом размере, день и месяц на краю календаря.
+      const search = (await import('@/app/api/discovery/search/route')).GET;
+      type Body = { success: boolean; data: Array<{ id: string | number }> };
+      const ask = async (qs: string) => {
+        const res = await search(new NextRequest(`http://localhost/api/discovery/search?${qs}`));
+        expect(res.status, qs).toBe(200);
+        return ours(((await res.json()) as Body).data.map((t) => t.id));
+      };
+      const q = `q=${encodeURIComponent('W2PT тур')}`;
+      // Цена туров 1000: «до 1000.5» — оба живых, «от 1000.5» — ни одного.
+      expect(await ask(`${q}&limit=100&page=1&minPrice=0&maxPrice=1000.5&rating=0`)).toEqual(live());
+      expect(await ask(`${q}&limit=100&minPrice=1000.5`)).toEqual([]);
+      expect(await ask(`${q}&limit=100&page=10000`)).toEqual([]);
+      expect(await ask(`landscape=w2pt_land&limit=1&page=10000`)).toEqual([]);
+      expect(await ask(`landscape=w2pt_land&limit=100&page=1`)).toEqual(live());
+
+      const day = (await import('@/app/api/availability/day/route')).GET;
+      expect((await day(new NextRequest('http://localhost/api/availability/day?date=9999-12-31'))).status).toBe(200);
+      expect((await day(new NextRequest('http://localhost/api/availability/day?date=2096-02-29'))).status).toBe(200);
+      const month = (await import('@/app/api/availability/route')).GET;
+      expect((await month(new NextRequest('http://localhost/api/availability?month=9999-12'))).status).toBe(200);
+    });
+
     it('подсказки и подборки поиска (searchService): автодополнение, рекомендованные, тренды, теги, похожие', async () => {
       const { searchService } = await import('@/lib/services');
       const titles = (await searchService.autocomplete('W2PT тур', 50)).filter((t) => t.startsWith('W2PT тур ')).sort();

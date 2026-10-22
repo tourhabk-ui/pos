@@ -7,9 +7,11 @@
 
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { badQueryParam, calendarDay, queryInput, queryText } from '@/lib/api/public-query';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,14 +49,34 @@ const ACTIVITY_RU: Record<string, string> = {
   photo: 'Фототур', camping: 'Кемпинг', other: 'Активный отдых',
 };
 
+/**
+ * Вход — проверяется ДО базы (ревью #2642, третий круг). Одной регулярки
+ * мало: `2099-02-30` формой проходит, а база отвечает 22008, и человек читал
+ * «временно не загружаются» про день, которого нет в календаре. Вид
+ * активности — без символа NUL (22021).
+ */
+const DayQuery = z.object({
+  date: calendarDay,
+  activity: queryText.optional(),
+});
+const PARAM_TEXT: Record<keyof z.input<typeof DayQuery>, string> = {
+  date: 'Дата (date) — день календаря в формате ГГГГ-ММ-ДД, например 2027-07-15',
+  activity: 'Вид активности (activity) содержит недопустимый символ',
+};
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const date     = searchParams.get('date');
-  const activity = searchParams.get('activity') ?? null;
-
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ success: false, error: 'Параметр date обязателен (YYYY-MM-DD)' }, { status: 400 });
+  const parsed = DayQuery.safeParse(queryInput(searchParams, ['date', 'activity'] as const));
+  if (!parsed.success) {
+    // Неверный вход — не отказ базы: 400 словами, база не спрашивалась.
+    const bad = badQueryParam(parsed.error, PARAM_TEXT);
+    return NextResponse.json(
+      { success: false, error: bad?.error ?? PARAM_TEXT.date, param: bad?.param ?? null },
+      { status: 400 },
+    );
   }
+  const { date } = parsed.data;
+  const activity = parsed.data.activity ?? null;
 
   // Не показываем прошлое
   const today = new Date().toISOString().slice(0, 10);

@@ -3,43 +3,91 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { searchService } from '@/lib/services';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import {
+  badQueryParam, nonNegativeAmount, queryInput, queryText, wholeNumber,
+} from '@/lib/api/public-query';
 
 /** Что видит аноним при отказе — словами, без текста исключения. */
 const SEARCH_FAILED_TEXT = 'Поиск временно не работает, попробуйте позже';
 
+/** Дальше этой страницы не листают: 10 000 × 100 — миллион строк сдвига. */
+const MAX_PAGE = 10_000;
+const MAX_LIMIT = 100;
+
+/**
+ * Вход поиска — проверяется ДО базы (ревью #2642, третий круг). Прежде
+ * `?page=0` давал `OFFSET -20`, `?limit=-1` — отрицательный LIMIT, а
+ * `?page=abc` в ветке AI-тегов — `NaN` в bigint: база отказывала, и человек
+ * читал «временно не работает», хотя повтор ничего не изменит. Текст — без
+ * символа NUL: его PostgreSQL не принимает (22021).
+ */
+const SearchQuery = z.object({
+  q: queryText.optional(),
+  page: wholeNumber(1, MAX_PAGE).default(1),
+  limit: wholeNumber(1, MAX_LIMIT).default(20),
+  activity: queryText.optional(),
+  difficulty: queryText.optional(),
+  minPrice: nonNegativeAmount.optional(),
+  maxPrice: nonNegativeAmount.optional(),
+  rating: nonNegativeAmount.optional(),
+  sortBy: queryText.optional(),
+  landscape: queryText.optional(),
+  feature: queryText.optional(),
+});
+type SearchParam = keyof z.input<typeof SearchQuery>;
+
+/** Что не так с параметром — его именем и словами, как правильно. */
+const PARAM_TEXT: Record<SearchParam, string> = {
+  q: 'Текст поиска (q) содержит недопустимый символ',
+  page: `Номер страницы (page) — целое число от 1 до ${MAX_PAGE}`,
+  limit: `Размер страницы (limit) — целое число от 1 до ${MAX_LIMIT}`,
+  activity: 'Вид активности (activity) содержит недопустимый символ',
+  difficulty: 'Сложность (difficulty) содержит недопустимый символ',
+  minPrice: 'Цена от (minPrice) — число не меньше 0, например 15000',
+  maxPrice: 'Цена до (maxPrice) — число не меньше 0, например 50000',
+  rating: 'Рейтинг от (rating) — число не меньше 0, например 4.5',
+  sortBy: 'Порядок (sortBy) содержит недопустимый символ',
+  landscape: 'Ландшафт (landscape) содержит недопустимый символ',
+  feature: 'Особенность (feature) содержит недопустимый символ',
+};
+const PARAM_KEYS = Object.keys(PARAM_TEXT) as SearchParam[];
+
 // Public: поиск туров доступен без аутентификации.
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const parsed = SearchQuery.safeParse(queryInput(searchParams, PARAM_KEYS));
+  if (!parsed.success) {
+    // Неверный вход — не отказ базы: 400 с именем параметра, база не
+    // спрашивалась, в лог отказов нечего писать.
+    const bad = badQueryParam(parsed.error, PARAM_TEXT);
+    return NextResponse.json(
+      { success: false, error: bad?.error ?? 'Неверные параметры поиска', param: bad?.param ?? null },
+      { status: 400 },
+    );
+  }
+  const input = parsed.data;
+
   // Имя проверки для лога: какая из трёх веток поиска не выполнилась.
   let check = 'поиск по словам';
   try {
-    // Получить параметры из query
-    const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get('q') || '';
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
+    const query = input.q ?? '';
+    const { page, limit } = input;
     const offset = (page - 1) * limit;
 
     // Параметры фильтрации
-    const activity = searchParams.get('activity');
-    const difficulty = searchParams.get('difficulty');
-    const minPrice = searchParams.get('minPrice')
-      ? parseInt(searchParams.get('minPrice')!)
-      : undefined;
-    const maxPrice = searchParams.get('maxPrice')
-      ? parseInt(searchParams.get('maxPrice')!)
-      : undefined;
-    const rating = searchParams.get('rating')
-      ? parseFloat(searchParams.get('rating')!)
-      : undefined;
-    const sortBy = searchParams.get('sortBy') || 'rating';
+    const activity = input.activity ?? null;
+    const difficulty = input.difficulty ?? null;
+    const { minPrice, maxPrice, rating } = input;
+    const sortBy = input.sortBy ?? 'rating';
 
     // AI-теги фильтры (из ai_tags JSONB колонки)
-    const tagLandscape = searchParams.get('landscape');
-    const tagActivity = searchParams.get('activity');
-    const tagFeature = searchParams.get('feature');
+    const tagLandscape = input.landscape;
+    const tagActivity = input.activity;
+    const tagFeature = input.feature;
 
     // Если заданы AI-теги — выполняем фильтрацию по ai_tags сразу.
     // Отбор — шлюзом витрины (#2642): ветка смотрела только is_active и

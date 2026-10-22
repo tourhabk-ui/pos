@@ -45,6 +45,10 @@
  *      словами по-русски: текст исключения PostgreSQL (таблицы, колонки,
  *      statement timeout) анониму не уходит, в логе — проверка и SQLSTATE,
  *      без слов поиска.
+ *   8. неверный вход тех же роутов (page=0, limit=-1, page=abc, 30 февраля,
+ *      13-й месяц, NUL в тексте) — 400 с именем параметра ДО базы: пул не
+ *      вызван, строки отказа в логе нет. «Временно не работает» остаётся
+ *      только отказу базы (третий круг ревью #2642).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -872,6 +876,99 @@ describe('отборы ревью #2642 — поведением: в отпра�
       } finally {
         err.mockRestore();
       }
+    });
+  });
+
+  describe('неверный вход — 400 словами до базы, без строки отказа в логе (ревью #2642, третий круг)', () => {
+    // Прежде такой вход доходил до базы: `page=0` давал OFFSET -20 (2201X),
+    // `limit=-1` — 2201W, `page=abc` в ветке AI-тегов — NaN в bigint (22P02),
+    // `2099-02-30` — 22008, NUL в тексте — 22021. Человек читал «временно не
+    // работает», хотя повтор ничего не изменит, а лог отказов базы заполнялся
+    // чужими опечатками. Здесь вход судится вызовом роута: статус, имя
+    // параметра, фраза — и что ни пул, ни лог не тронуты.
+    const nextReq = async (url: string) => new (await import('next/server')).NextRequest(url);
+    const search = async (qs: string) =>
+      (await import('@/app/api/discovery/search/route')).GET(await nextReq(`http://localhost/api/discovery/search?${qs}`));
+    const day = async (qs: string) =>
+      (await import('@/app/api/availability/day/route')).GET(await nextReq(`http://localhost/api/availability/day?${qs}`));
+    const month = async (qs: string) =>
+      (await import('@/app/api/availability/route')).GET(await nextReq(`http://localhost/api/availability?${qs}`));
+
+    const PAGE = 'Номер страницы (page) — целое число от 1 до 10000';
+    const LIMIT = 'Размер страницы (limit) — целое число от 1 до 100';
+    const DATE = 'Дата (date) — день календаря в формате ГГГГ-ММ-ДД, например 2027-07-15';
+    const MONTH = 'Месяц (month) — в формате ГГГГ-ММ, например 2027-07';
+    const ACTIVITY = 'Вид активности (activity) содержит недопустимый символ';
+
+    const CASES: Array<{ name: string; call: () => Promise<Response>; param: string; text: string }> = [
+      { name: 'поиск: page=0', call: () => search('q=x&page=0'), param: 'page', text: PAGE },
+      { name: 'поиск: limit=-1', call: () => search('q=x&limit=-1'), param: 'limit', text: LIMIT },
+      { name: 'поиск: page=abc', call: () => search('q=x&page=abc'), param: 'page', text: PAGE },
+      { name: 'поиск по AI-тегам: page=abc', call: () => search('landscape=volcano&page=abc'), param: 'page', text: PAGE },
+      { name: 'поиск по AI-тегам: limit=0', call: () => search('feature=hot&limit=0'), param: 'limit', text: LIMIT },
+      { name: 'расширенный: page=-3', call: () => search('advanced=true&q=x&page=-3'), param: 'page', text: PAGE },
+      { name: 'поиск: page=1.5', call: () => search('page=1.5'), param: 'page', text: PAGE },
+      { name: 'поиск: page=10001', call: () => search('page=10001'), param: 'page', text: PAGE },
+      { name: 'поиск: limit=101', call: () => search('limit=101'), param: 'limit', text: LIMIT },
+      { name: 'поиск: limit=1e2', call: () => search('limit=1e2'), param: 'limit', text: LIMIT },
+      { name: 'поиск: minPrice=-5', call: () => search('minPrice=-5'), param: 'minPrice', text: 'Цена от (minPrice) — число не меньше 0, например 15000' },
+      { name: 'поиск: maxPrice=abc', call: () => search('maxPrice=abc'), param: 'maxPrice', text: 'Цена до (maxPrice) — число не меньше 0, например 50000' },
+      { name: 'поиск: rating=Infinity', call: () => search('rating=Infinity'), param: 'rating', text: 'Рейтинг от (rating) — число не меньше 0, например 4.5' },
+      { name: 'поиск: NUL в тексте', call: () => search('q=%00'), param: 'q', text: 'Текст поиска (q) содержит недопустимый символ' },
+      { name: 'поиск по AI-тегам: NUL в ландшафте', call: () => search('landscape=a%00b'), param: 'landscape', text: 'Ландшафт (landscape) содержит недопустимый символ' },
+      { name: 'туры дня: 30 февраля', call: () => day('date=2099-02-30'), param: 'date', text: DATE },
+      { name: 'туры дня: 13-й месяц', call: () => day('date=2099-13-01'), param: 'date', text: DATE },
+      { name: 'туры дня: не дата', call: () => day('date=abc'), param: 'date', text: DATE },
+      { name: 'туры дня: без даты', call: () => day(''), param: 'date', text: DATE },
+      { name: 'туры дня: NUL в виде активности', call: () => day('date=2099-07-01&activity=%00'), param: 'activity', text: ACTIVITY },
+      { name: 'календарь: 13-й месяц', call: () => month('month=2099-13'), param: 'month', text: MONTH },
+      { name: 'календарь: месяц без числа', call: () => month('month=abc'), param: 'month', text: MONTH },
+      { name: 'календарь: один год', call: () => month('month=2099'), param: 'month', text: MONTH },
+      { name: 'календарь: нулевой год', call: () => month('month=0000-01'), param: 'month', text: MONTH },
+      { name: 'календарь: NUL в виде активности', call: () => month('month=2099-07&activity=%00'), param: 'activity', text: ACTIVITY },
+    ];
+
+    it.each(CASES)('$name', async (c) => {
+      // База ответила бы успехом — но спрашивать её нельзя.
+      queryMock.mockResolvedValue(empty);
+      poolQueryMock.mockResolvedValue({ rows: [{ total: 0 }], rowCount: 1 });
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const res = await c.call();
+        expect(res.status).toBe(400);
+        const body = await res.json() as { success?: unknown; error?: unknown; param?: unknown };
+        expect(body.success).toBe(false);
+        expect(body.param).toBe(c.param);
+        expect(body.error).toBe(c.text);
+        expect(queryMock).not.toHaveBeenCalled();
+        expect(poolQueryMock).not.toHaveBeenCalled();
+        expect(err).not.toHaveBeenCalled();
+      } finally {
+        err.mockRestore();
+      }
+    });
+
+    it('граничный верный вход доходит до базы числами; пустой параметр — как не заданный', async () => {
+      poolQueryMock.mockResolvedValue({ rows: [{ total: 0 }], rowCount: 1 });
+      const res = await search('q=x&page=10000&limit=100&minPrice=0&maxPrice=1500.5&rating=4.5');
+      expect(res.status).toBe(200);
+      // [счёт, выдача]; у выдачи последние два — LIMIT и OFFSET.
+      expect(poolQueryMock.mock.calls[1][1]).toEqual(['%x%', 0, 1500.5, 4.5, 100, 999_900]);
+
+      poolQueryMock.mockClear();
+      expect((await search('q=x&page=&limit=&minPrice=')).status).toBe(200);
+      expect(poolQueryMock.mock.calls[1][1]).toEqual(['%x%', 20, 0]);
+
+      queryMock.mockResolvedValue(empty);
+      expect((await search('landscape=volcano&page=3&limit=5')).status).toBe(200);
+      expect(queryMock.mock.calls[0][1]).toEqual(['volcano', 5, 10]);
+
+      poolQueryMock.mockClear();
+      expect((await day('date=2099-02-28&activity=fishing')).status).toBe(200);
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['2099-02-28', 'fishing']);
+      poolQueryMock.mockClear();
+      expect((await month('month=2099-02')).status).toBe(200);
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['2099-02-01', '2099-02-28']);
     });
   });
 
