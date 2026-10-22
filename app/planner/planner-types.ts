@@ -27,6 +27,16 @@ export interface DayPlan {
   priceFrom: number;
   priceTo: number;
   coords: [number, number];
+  /**
+   * Зона, которую показывать человеку, когда она не равна `zone` (22.10).
+   * День из маршрута карты, у которого зона в базе не из четырёх (район вне
+   * зон) или не записана вовсе: `zone` у него — догадка по расстоянию, нужная
+   * транспорту и логистике, а показывать догадку как факт нельзя (§4.0).
+   * Здесь — зона маршрута как записана (null — не записана). Нет поля —
+   * показывается `zone`. Только на экране планировщика: схема сохранённой
+   * поездки (lib/trips/trip-schema) это поле не хранит.
+   */
+  zoneShown?: string | null;
   defaultTransport: TransportType;
   allowedTransports: TransportType[];
   difficulty: 'easy' | 'moderate' | 'hard';

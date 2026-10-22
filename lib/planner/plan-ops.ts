@@ -50,6 +50,22 @@ export function tourGroup<T extends Pick<DayLike, 'realTour'>>(days: readonly T[
   return days.filter((d) => d.realTour?.tourId === id);
 }
 
+/**
+ * Почему день нельзя заменить маршрутом с карты — словами для человека; null —
+ * можно. Каркас поездки не заменяют, день многодневного тура — по одному не
+ * заменяют (его убирают целиком). Одна строка на кнопку «Заменить», плашку
+ * карты и отказ правки: прежде карта обещала «нажмите точку — она встанет
+ * вместо этого дня» и дню прилёта, а отказ уходил на скрытую вкладку (22.10).
+ */
+export function replaceRefusal<T extends Pick<DayLike, 'type' | 'realTour'>>(days: readonly T[], day: T): string | null {
+  const frame = frameReason(day);
+  if (frame) return `Это ${frame} — его не заменяют маршрутом.`;
+  if (tourGroup(days, day).length > 1) {
+    return 'Это день многодневного тура — по одному дню его не заменяют. Уберите тур целиком и добавьте маршрут.';
+  }
+  return null;
+}
+
 /** Куда встаёт новый день: перед отъездом, а если отъезда нет — в конец. */
 export function insertIndex(days: readonly Pick<DayLike, 'type'>[]): number {
   const dep = days.findIndex((d) => d.type === 'departure');

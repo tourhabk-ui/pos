@@ -9,6 +9,12 @@
  *     уже не «рядом»;
  *   • день плана — кружок с номером (MapMarker.label), один цвет на все дни,
  *     не совпадающий ни с одной зоной; день, который правят, крупнее;
+ *   • дни в ОДНОЙ точке — один пин со всеми номерами («1·7»). Движок ставит
+ *     прилёт, отъезд, свободный день, отдых и возвращение в одну точку
+ *     Петропавловска (engine.ts, PKC_COORDS), а продолжения многодневного
+ *     тура — в точку первого дня. Пины с равными координатами Leaflet
+ *     кладёт один на другой: виден последний, номер первого не виден и не
+ *     нажимается ни на каком зуме (ревью 22.10: «7» закрывала «1»);
  *   • линия между зонами плана — построение, а не путь (lib/map/line-standard).
  *
  * Легенда собирается из тех же точек и тех же цветов: зона, которой нет на
@@ -36,13 +42,118 @@ export interface PlannerMapDay {
   /** Ключ дня в плане (не позиция). */
   day: number;
   title: string;
+  /** Зона дня для логистики плана (всегда одна из четырёх). */
   zone: string;
+  /**
+   * Зона, которую показывать человеку, если она не равна `zone`: день из
+   * маршрута с карты несёт зону маршрута как записана в базе (null — не
+   * записана), а `zone` у него — догадка для транспорта. Нет поля — `zone`.
+   */
+  zoneShown?: string | null;
   coords: [number, number];
 }
 
-/** Id маркера дня — по нему клик по карте находит день в плане. */
-export function dayMarkerId(day: number): string {
-  return `day_${day}`;
+/**
+ * Id пина дней — по нему клик по карте находит дни в плане. Ключи дней
+ * (DayPlan.day, не позиции) через «_»: `day_7`, `day_7_12`.
+ */
+export function dayPinId(keys: readonly number[]): string {
+  return `day_${keys.join('_')}`;
+}
+
+/** Ключи дней из id пина; не пин дней — null. */
+export function parseDayPinId(id: string): number[] | null {
+  const m = /^day_(\d+(?:_\d+)*)$/.exec(id);
+  if (!m) return null;
+  return m[1].split('_').map(Number);
+}
+
+/**
+ * Какой день открыть нажатием на пин. Один день — тот же переключатель, что
+ * у карточки дня: не открыт — открыть, открыт — закрыть. Несколько дней в
+ * точке — по кругу: первый, следующий, после последнего — закрыть.
+ */
+export function nextDayOnPin(keys: readonly number[], editingDayId: number | null): number | null {
+  if (keys.length === 0) return null;
+  const at = editingDayId === null ? -1 : keys.indexOf(editingDayId);
+  if (at === -1) return keys[0];
+  return at + 1 < keys.length ? keys[at + 1] : null;
+}
+
+/** Сколько отрезков подписи пина помещается, прежде чем писать «+N». */
+const PIN_LABEL_SEGMENTS = 3;
+
+/**
+ * Подпись пина по номерам дней (1-based, по возрастанию): «3», «1·7»,
+ * подряд от трёх — диапазоном «2–4». Длиннее трёх отрезков — «+N» дней.
+ */
+export function dayPinLabel(numbers: readonly number[]): string {
+  const segments: { text: string; size: number }[] = [];
+  let i = 0;
+  while (i < numbers.length) {
+    let j = i;
+    while (j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1) j += 1;
+    const run = j - i + 1;
+    if (run >= 3) {
+      segments.push({ text: `${numbers[i]}–${numbers[j]}`, size: run });
+    } else {
+      for (let k = i; k <= j; k += 1) segments.push({ text: String(numbers[k]), size: 1 });
+    }
+    i = j + 1;
+  }
+  if (segments.length <= PIN_LABEL_SEGMENTS) return segments.map(x => x.text).join('·');
+  const shown = segments.slice(0, PIN_LABEL_SEGMENTS - 1);
+  const rest = segments.slice(PIN_LABEL_SEGMENTS - 1).reduce((a, x) => a + x.size, 0);
+  return `${shown.map(x => x.text).join('·')}·+${rest}`;
+}
+
+/**
+ * Одна ли это точка на карте. Порог — около 30 м: на 17-м зуме (максимум
+ * карты) пин в 28 px покрывает примерно 20 м, и пины ближе этого
+ * перекрываются и там. Дальние пины разводит приближение.
+ */
+const SAME_POINT_LAT = 0.0003;
+const SAME_POINT_LNG = 0.0005;
+
+function samePoint(a: readonly [number, number], b: readonly [number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < SAME_POINT_LAT && Math.abs(a[1] - b[1]) < SAME_POINT_LNG;
+}
+
+interface DayPinGroup {
+  coords: [number, number];
+  /** Ключи дней в порядке плана. */
+  keys: number[];
+  /** Номера дней 1..n в порядке плана. */
+  numbers: number[];
+  titles: string[];
+  /** Подпись зоны первого дня группы. */
+  zoneLabel: string;
+}
+
+/** Дни плана, сведённые по точкам: одна точка — один пин. Порядок — по первому дню. */
+export function groupDaysByPoint(days: readonly PlannerMapDay[]): DayPinGroup[] {
+  const groups: DayPinGroup[] = [];
+  days.forEach((d, i) => {
+    const g = groups.find(x => samePoint(x.coords, d.coords));
+    if (g) {
+      g.keys.push(d.day);
+      g.numbers.push(i + 1);
+      g.titles.push(d.title);
+    } else {
+      groups.push({
+        coords: d.coords, keys: [d.day], numbers: [i + 1], titles: [d.title],
+        zoneLabel: zoneName(d.zoneShown !== undefined ? d.zoneShown : d.zone),
+      });
+    }
+  });
+  return groups;
+}
+
+/** Сколько фоновых точек той же зоны планировщика, что у дня. */
+export function sameZoneCount(routes: readonly PlannerMapRoute[], zone: string | null | undefined): number {
+  const z = asPlannerZone(zone);
+  if (!z) return 0;
+  return routes.filter(r => asPlannerZone(r.zone) === z).length;
 }
 
 export const ROUTE_LINE_ID = 'route_line';
@@ -51,9 +162,17 @@ export function buildPlannerMarkers(input: {
   routes: readonly PlannerMapRoute[];
   days: readonly PlannerMapDay[];
   editingDayId: number | null;
+  /**
+   * Можно ли открытый день заменить точкой с карты (lib/planner/plan-ops,
+   * replaceRefusal). Нельзя — точки не перекрашиваются: «яркие — та же
+   * зона» имеет смысл только там, где точку можно поставить вместо дня.
+   */
+  editingReplaceable?: boolean;
 }): MapMarker[] {
-  const { routes, days, editingDayId } = input;
-  const editingDay = editingDayId !== null ? days.find(d => d.day === editingDayId) ?? null : null;
+  const { routes, days, editingDayId, editingReplaceable = true } = input;
+  const editingDay = editingDayId !== null && editingReplaceable
+    ? days.find(d => d.day === editingDayId) ?? null
+    : null;
   const editingZone = editingDay ? asPlannerZone(editingDay.zone) : null;
   const result: MapMarker[] = [];
 
@@ -71,18 +190,20 @@ export function buildPlannerMarkers(input: {
     });
   }
 
-  days.forEach((d, i) => {
+  // Дни в одной точке — один пин со всеми номерами (см. шапку): иначе
+  // верхний пин закрывает нижний целиком, и его день с карты не открыть.
+  for (const g of groupDaysByPoint(days)) {
     result.push({
-      id: dayMarkerId(d.day),
-      coords: d.coords,
-      title: `${i + 1}. ${d.title}`,
-      description: zoneName(d.zone),
+      id: dayPinId(g.keys),
+      coords: g.coords,
+      title: g.numbers.map((n, k) => `${n}. ${g.titles[k]}`).join(' · '),
+      description: g.zoneLabel,
       color: PLAN_DAY_PIN,
-      label: String(i + 1),
-      emphasis: d.day === editingDayId,
+      label: dayPinLabel(g.numbers),
+      emphasis: editingDayId !== null && g.keys.includes(editingDayId),
       suppressBalloon: true,
     });
-  });
+  }
 
   // Линия между днями плана — ПОСТРОЕНИЕ, а не путь (lib/map/line-standard).
   // Она соединяет центры зон, между которыми бывает триста километров и

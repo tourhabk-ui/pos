@@ -29,3 +29,27 @@ export function fitDecision(input: { fitDone: boolean; points: number; width: nu
   if (!(input.width > 0) || !(input.height > 0)) return 'wait_for_size';
   return 'fit';
 }
+
+/** Прямоугольник на экране — то, что отдаёт getBoundingClientRect. */
+interface Box { top: number; bottom: number; left: number; right: number }
+
+/**
+ * Верхнее поле подгонки, когда поверх верха карты лежит панель (легенда
+ * планировщика на телефоне, ревью 22.10): точки ложатся ниже её нижнего
+ * края, а не под стекло. Панель шириной меньше половины карты (легенда на
+ * компьютере, слева) поля не требует — она закрывает угол, а не полосу, и
+ * сжимать ради неё весь вид незачем. Панель скрыта или ниже верха карты —
+ * обычное поле.
+ */
+export function fitPaddingTop(panel: Box, map: Box, base: number): number {
+  const mapWidth = map.right - map.left;
+  const overlap = Math.min(panel.right, map.right) - Math.max(panel.left, map.left);
+  const visible = panel.bottom > panel.top && overlap > 0;
+  if (!visible || mapWidth <= 0 || overlap < mapWidth / 2) return base;
+  const below = panel.bottom - map.top;
+  if (below <= 0) return base;
+  // Карта низкая, панель высокая: поле не больше 60% высоты карты, иначе
+  // подгонять было бы не во что (Leaflet ушёл бы на самый мелкий зум).
+  const cap = Math.round((map.bottom - map.top) * 0.6);
+  return Math.max(base, Math.min(Math.round(below) + base / 2, cap));
+}

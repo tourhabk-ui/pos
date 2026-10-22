@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { frameReason, tourGroup, insertIndex, orderProblem } from '@/lib/planner/plan-ops';
+import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal } from '@/lib/planner/plan-ops';
 
 type D = { day: number; type: string; title: string; realTour?: { tourId: string } | null };
 const d = (day: number, type: string, title = `д${day}`, tourId?: string): D =>
@@ -27,6 +27,15 @@ describe('правила', () => {
     expect(frameReason({ type: 'departure' })).toBe('день отъезда');
     expect(frameReason({ type: 'travel' })).toBe('переезд между зонами');
     for (const t of ['activity', 'rest', 'buffer']) expect(frameReason({ type: t })).toBeNull();
+  });
+
+  it('заменить с карты: каркас и день многодневного тура — нет, с причиной словами', () => {
+    expect(replaceRefusal(PLAN, PLAN[0])).toBe('Это день прилёта — его не заменяют маршрутом.');
+    expect(replaceRefusal(PLAN, PLAN[6])).toBe('Это день отъезда — его не заменяют маршрутом.');
+    expect(replaceRefusal(PLAN, PLAN[2])).toMatch(/переезд между зонами/);
+    expect(replaceRefusal(PLAN, PLAN[3])).toMatch(/многодневного тура/);
+    expect(replaceRefusal(PLAN, PLAN[1])).toBeNull();
+    expect(replaceRefusal(PLAN, PLAN[5])).toBeNull();
   });
 
   it('многодневный тур — одной группой', () => {
@@ -64,11 +73,16 @@ describe('одна функция на обе двери', () => {
   });
 
   it('кнопки планера судят теми же правилами', () => {
-    expect(UI).toMatch(/import \{ frameReason, tourGroup, insertIndex, orderProblem \} from '@\/lib\/planner\/plan-ops'/);
+    const opsImport = UI.match(/import \{([^}]*)\} from '@\/lib\/planner\/plan-ops'/)?.[1] ?? '';
+    for (const name of ['frameReason', 'tourGroup', 'insertIndex', 'orderProblem', 'replaceRefusal']) {
+      expect(opsImport, name).toMatch(new RegExp(`\\b${name}\\b`));
+    }
     const fn = (name: string) => UI.slice(UI.indexOf(`function ${name}(`), UI.indexOf('\n  }\n', UI.indexOf(`function ${name}(`)));
     expect(fn('deleteDay')).toMatch(/frameReason\(target\)/);
     expect(fn('deleteDay')).toMatch(/tourGroup\(days, target\)/);
-    expect(fn('replaceDay')).toMatch(/frameReason\(target\)/);
+    // Замена — общим правилом replaceRefusal (каркас и многодневный тур), им
+    // же карта решает, предлагать ли «Заменить» (22.10).
+    expect(fn('replaceDay')).toMatch(/replaceRefusal\(days, target\)/);
     expect(fn('addRouteAsDay')).toMatch(/insertIndex\(prev\)/);
     expect(fn('addDay')).toMatch(/insertIndex\(prev\)/);
     // Маршрут больше не дописывается в конец, после дня отъезда.

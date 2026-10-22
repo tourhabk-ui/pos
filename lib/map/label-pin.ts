@@ -30,19 +30,31 @@ export function labelPinSize(emphasis = false): number {
 }
 
 /**
+ * Размер пина под подпись. Одна-две цифры — круг; подпись длиннее («1·7»,
+ * «2–4·9») — капсула той же высоты, шире под текст, чтобы номера не
+ * обрезались и не налезали на кромку.
+ */
+export function labelPinBox(label: string, emphasis = false): { width: number; height: number } {
+  const height = labelPinSize(emphasis);
+  if (label.length <= 2) return { width: height, height };
+  // ~7 px на знак при 11 px жирного + поля по 7 px с каждой стороны.
+  return { width: Math.max(height, label.length * 7 + 14), height };
+}
+
+/**
  * HTML кружка с числом. Подпись экранируется, цвет принимается только хексом
  * (иначе — синий из таблицы пинов): разметка уходит в innerHTML иконки.
  */
 export function labelPinHtml(label: string, hex: string, emphasis = false): string {
   const fill = SAFE_HEX.test(hex) ? hex : MARKER_HEX.darkBlue;
-  const size = labelPinSize(emphasis);
+  const { width, height } = labelPinBox(label, emphasis);
   const text = escapeHtml(label);
   const fontSize = label.length >= 3 ? 11 : emphasis ? 15 : 13;
   const ring = emphasis ? 3 : 2;
   // Выделенный пин — ещё и ореол его же цвета: «этот день сейчас правят».
   const haloColor = fill.length === 7 ? `${fill}59` : 'rgba(0,0,0,0.25)';
   const halo = emphasis ? `0 0 0 4px ${haloColor}, ` : '';
-  return `<div style="width:${size}px;height:${size}px;box-sizing:border-box;border-radius:50%;`
+  return `<div style="width:${width}px;height:${height}px;box-sizing:border-box;border-radius:${height / 2}px;white-space:nowrap;`
     + `background:${fill};border:${ring}px solid #fff;box-shadow:${halo}0 2px 6px rgba(0,0,0,0.35);`
     + `display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;`
     + `font-size:${fontSize}px;line-height:1;font-family:inherit">${text}</div>`;

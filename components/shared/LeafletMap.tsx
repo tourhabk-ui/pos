@@ -13,8 +13,8 @@ import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
 // Цвета пинов — общая таблица (22.10): из неё же берёт цвет легенда
 // планировщика, и легенда показывает ровно тот цвет, каким нарисован пин.
 import { resolveMarkerColor } from '@/lib/map/marker-colors';
-import { labelPinHtml, labelPinSize } from '@/lib/map/label-pin';
-import { fitDecision } from '@/lib/map/fit-when-sized';
+import { labelPinHtml, labelPinBox } from '@/lib/map/label-pin';
+import { fitDecision, fitPaddingTop } from '@/lib/map/fit-when-sized';
 
 interface LeafletMapProps {
   markers?: MapMarker[];
@@ -50,6 +50,16 @@ interface LeafletMapProps {
    * Отступ задаёт вызывающий, потому что только он знает, что у него сверху.
    */
   topInset?: number;
+  /**
+   * Панель вызывающего, лежащая поверх ВЕРХА карты (легенда планировщика на
+   * телефоне). Подгонка вида под маркеры оставляет её нижний край над
+   * точками: иначе север края подгонялся ровно под легенду, и точки там
+   * были видны только размытыми пятнами за стеклом (ревью 22.10). Размер
+   * берётся в момент подгонки, а не заранее: панель растёт с данными.
+   * Узкая панель сбоку (легенда на компьютере) отступа не требует — правило
+   * в lib/map/fit-when-sized (fitPaddingTop).
+   */
+  fitClearOf?: { readonly current: HTMLElement | null };
   onMarkerClick?: (id: string) => void;
   /**
    * Тап по свободной точке карты — сырые координаты под пальцем, не
@@ -103,6 +113,12 @@ export interface LeafletZoomHandle {
   getZoom(): number;
   onZoom(cb: (zoom: number) => void): () => void;
 }
+
+/** Сдвиг z-index пинов с подписью: выделенный — над обычными (см. отрисовку маркеров). */
+export const LABEL_Z = { normal: 1000, emphasis: 2000 } as const;
+
+/** Поля подгонки вида, когда сверху ничего не лежит. */
+const FIT_PADDING = 50;
 
 /** Попап собирается строкой — любой текст из БД обязан быть экранирован. */
 function escapeHtml(s: string): string {
@@ -166,6 +182,7 @@ export default function LeafletMap({
   attribution = true,
   attributionPosition,
   topInset = 0,
+  fitClearOf,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -255,6 +272,19 @@ export default function LeafletMap({
   // Обработчики — через ref: инлайновая стрелка у вызывающего меняет identity
   // на каждом рендере, и будь она в зависимостях, карта пересоздавалась бы
   // вообще на каждый рендер родителя, независимо от маркеров.
+  /**
+   * Поля подгонки — в момент подгонки, а не при рендере: панель поверх карты
+   * (fitClearOf) растёт вместе с данными, и снятый заранее размер устарел бы.
+   */
+  const fitClearOfRef = useRef(fitClearOf);
+  useEffect(() => { fitClearOfRef.current = fitClearOf; });
+  const fitOptionsRef = useRef((): import('leaflet').FitBoundsOptions => {
+    const panel = fitClearOfRef.current?.current ?? null;
+    const box = containerRef.current;
+    if (!panel || !box) return { padding: [FIT_PADDING, FIT_PADDING] };
+    const top = fitPaddingTop(panel.getBoundingClientRect(), box.getBoundingClientRect(), FIT_PADDING);
+    return { paddingTopLeft: [FIT_PADDING, top], paddingBottomRight: [FIT_PADDING, FIT_PADDING] };
+  });
   const onMarkerClickRef = useRef(onMarkerClick);
   const onMapClickRef = useRef(onMapClick);
   onMarkerClickRef.current = onMarkerClick;
@@ -428,19 +458,8 @@ export default function LeafletMap({
         zoomListenersRef.current.forEach(cb => cb(z));
       });
 
-      // Верх занят чужой панелью — сдвигаем ОБА верхних угла Leaflet вниз.
-      // Иначе контролы честно существуют и честно недостижимы: замер 08.09
-      // на «На маршруте» — «+» целиком под полосой вкладок, атрибуция тоже
-      // (см. topInset в пропсах). Padding на угловом контейнере, а не
-      // margin на кнопках: угол один, а контролов в нём может быть сколько
-      // угодно, и следующий добавленный получит отступ сам.
-      if (topInset > 0) {
-        const root = map.getContainer();
-        for (const sel of ['.leaflet-top.leaflet-left', '.leaflet-top.leaflet-right']) {
-          const corner = root.querySelector(sel);
-          if (corner instanceof HTMLElement) corner.style.paddingTop = `${topInset}px`;
-        }
-      }
+      // Отступ верхних углов (topInset) ставит свой эффект ниже — он
+      // переживает смену высоты чужой панели, а инициализация бежит раз.
 
       // Свой угол атрибуции (см. attributionPosition выше) — заменяет
       // отключённый встроенный контрол, тем же текстом.
@@ -607,7 +626,7 @@ export default function LeafletMap({
           }) !== 'fit') return;
           pendingFitRef.current = null;
           fitDoneRef.current = true;
-          map.fitBounds(pending as unknown as import('leaflet').LatLngBoundsExpression, { padding: [50, 50] });
+          map.fitBounds(pending as unknown as import('leaflet').LatLngBoundsExpression, fitOptionsRef.current());
         });
         resizeObserver.observe(containerRef.current);
       }
@@ -768,6 +787,28 @@ export default function LeafletMap({
   }, [center[0], center[1], zoom, attribution, showUserLocation, locationPriority, retry, ownZoomButtons]);
 
   /**
+   * Верх занят чужой панелью — сдвигаем ОБА верхних угла Leaflet вниз.
+   * Иначе контролы честно существуют и честно недостижимы: замер 08.09
+   * на «На маршруте» — «+» целиком под полосой вкладок, атрибуция тоже
+   * (см. topInset в пропсах). Padding на угловом контейнере, а не
+   * margin на кнопках: угол один, а контролов в нём может быть сколько
+   * угодно, и следующий добавленный получит отступ сам.
+   *
+   * Своим эффектом, а не в инициализации: высоту панели вызывающий меряет
+   * после монтажа (офлайн-/map, 22.10), и она меняется с шрифтом и текстом.
+   * Инициализация бежит раз — отступ, снятый в ней, застывал бы нулём.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const root = map.getContainer();
+    for (const sel of ['.leaflet-top.leaflet-left', '.leaflet-top.leaflet-right']) {
+      const corner = root.querySelector(sel);
+      if (corner instanceof HTMLElement) corner.style.paddingTop = topInset > 0 ? `${topInset}px` : '';
+    }
+  }, [topInset, mapEpoch]);
+
+  /**
    * Отрисовка маркеров НА ЖИВОЙ карте — без пересоздания инстанса.
    *
    * Снимает слои прошлого набора и рисует новый. Кластер чистится своим
@@ -858,13 +899,13 @@ export default function LeafletMap({
       const labelled = typeof marker.label === 'string' && marker.label.length > 0;
       let icon: import('leaflet').DivIcon;
       if (labelled) {
-        const d = labelPinSize(marker.emphasis === true);
+        const box = labelPinBox(marker.label as string, marker.emphasis === true);
         icon = L.divIcon({
           html: labelPinHtml(marker.label as string, hex, marker.emphasis === true),
           className: 'kh-label-pin',
-          iconSize: [d, d],
-          iconAnchor: [d / 2, d / 2],
-          popupAnchor: [0, -d / 2],
+          iconSize: [box.width, box.height],
+          iconAnchor: [box.width / 2, box.height / 2],
+          popupAnchor: [0, -box.height / 2],
         });
       } else {
         const svgIcon = placeMarkerSvg(hex, marker.category);
@@ -877,9 +918,14 @@ export default function LeafletMap({
         });
       }
 
+      // Пины с подписью — поверх точек; выделенный (день, который правят) —
+      // поверх остальных пинов с подписью. Leaflet ставит z-index = y + сдвиг:
+      // при равном сдвиге решала бы лишь высота на экране и порядок в DOM.
       const m = L.marker(
         marker.coords,
-        labelled ? { icon, title: marker.title, zIndexOffset: 1000 } : { icon },
+        labelled
+          ? { icon, title: marker.title, zIndexOffset: marker.emphasis === true ? LABEL_Z.emphasis : LABEL_Z.normal }
+          : { icon },
       );
 
       if (!marker.suppressBalloon) {
@@ -929,9 +975,7 @@ export default function LeafletMap({
     fitDoneRef.current = true;
     const fit = () => {
       map.invalidateSize();
-      map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
-        padding: [50, 50],
-      });
+      map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, fitOptionsRef.current());
     };
     fit();
     // Контейнер мог ещё не устояться в размере (боттом-шит, модалка) — тот же

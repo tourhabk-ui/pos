@@ -64,6 +64,7 @@ import { usePlaceProximity } from '@/hooks/usePlaceProximity';
 import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 import { clipAtWord } from '@/lib/text/clip-at-word';
 import { withClosure } from '@/lib/safety/place-closure';
+import { useInsetBelow } from '@/hooks/useInsetBelow';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -236,6 +237,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
     [mapPackBaseUrl],
   );
   const vedarReady = overviewSource.state === 'ready';
+  // Что лежит поверх верха Leaflet-карты: офлайн — баннер и колонка
+  // «Скачать», запасная карта онлайн — кнопка «моё место». Карта сдвигает
+  // свои верхние углы ниже (hooks/useInsetBelow).
+  const [offlineTopRef, offlineTopInset] = useInsetBelow();
+  const [gpsButtonRef, gpsButtonInset] = useInsetBelow();
   // Код своей карты качается сразу, как и до 14.10; откладывается только её
   // запуск (IdleMount ниже), поэтому на медленной сети карта не приходит
   // позже. Отказ здесь не последний: смонтированная карта попросит код ещё
@@ -519,7 +525,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         </div>
 
         {/* Кнопка «Скачать регионы» — доступ к офлайн-управлению */}
-        <div className="absolute top-16 right-3 z-[500] flex flex-col gap-2">
+        <div ref={offlineTopRef} className="absolute top-16 right-3 z-[500] flex flex-col gap-2">
           <Link
             href="/offline/manage"
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60  border border-white/20 text-white text-xs font-medium hover:bg-black/80 transition-all"
@@ -543,6 +549,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           showUserLocation={showMyLocation}
           locationPriority="highAccuracy"
           className="bg-black"
+          // Верх занят баннером и «Скачать», низ — полосой фильтров во всю
+          // ширину: «+/−» — ниже баннера, подпись OpenStreetMap — в верхний
+          // левый угол под ним (ODbL требует, чтобы её было видно).
+          topInset={offlineTopInset}
+          attributionPosition="topleft"
         />
 
         {/* Фильтры — снизу, поверх карты, крупные для перчаток */}
@@ -837,12 +848,15 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               onMarkerClick={handleMarkerClick}
               showUserLocation={showMyLocation}
               locationPriority="highAccuracy"
+              // Угол top-right занят кнопкой «моё место» — «+/−» ниже неё.
+              topInset={gpsButtonInset}
             />
           )}
           </MapErrorBoundary>
 
           {/* Кнопка GPS */}
           <button
+            ref={vedarReady ? undefined : gpsButtonRef}
             onClick={() => setShowMyLocation(!showMyLocation)}
             className={`absolute top-3 right-3 z-[500] p-2.5 rounded-lg shadow-lg transition-all ${
               showMyLocation

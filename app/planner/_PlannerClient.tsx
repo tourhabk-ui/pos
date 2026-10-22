@@ -26,15 +26,15 @@ import {
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
 import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
-import { frameReason, tourGroup, insertIndex, orderProblem } from '@/lib/planner/plan-ops';
+import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal } from '@/lib/planner/plan-ops';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
-import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID } from '@/lib/planner/map-markers';
+import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount } from '@/lib/planner/map-markers';
 import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
 import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
 import { placeTypeLabel } from '@/lib/places/type-label';
-import { PlannerMapOverlay, type PlannerMapStatus } from '@/components/planner/PlannerMapOverlay';
+import { PlannerMapOverlay, editingDayTitle, type PlannerMapStatus } from '@/components/planner/PlannerMapOverlay';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
@@ -184,11 +184,18 @@ function guessZone(lat: number, lng: number): DayPlan['zone'] {
   return best as DayPlan['zone'];
 }
 
+/** Зона дня словами и цветом — записанная, а не угаданная (см. DayPlan.zoneShown). */
+function shownZone(day: Pick<DayPlan, 'zone' | 'zoneShown'>): string | null {
+  return day.zoneShown !== undefined ? day.zoneShown : day.zone;
+}
+
 function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
   const activity = route.activity_type ?? 'trekking';
   const [priceFrom, priceTo] = INTEREST_PRICE[activity] ?? DEFAULT_PRICE;
   const transport = ACTIVITY_DEFAULT_TRANSPORT[activity] ?? 'walking';
-  // Зона дня — записанная в базе; угадывать по расстоянию только если её нет.
+  // Зона дня для логистики — записанная в базе; нет её среди четырёх —
+  // угадывается по расстоянию. Догадка нужна транспорту, человеку же
+  // показывается зона маршрута как записана (zoneShown, §4.0).
   const zone = route.plannerZone ?? guessZone(route.lat, route.lng);
   const zoneTransports = ZONE_TRANSPORTS[zone] ?? ['walking', 'jeep'];
   return {
@@ -200,6 +207,7 @@ function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
     activityType: activity,
     priceFrom, priceTo,
     coords: [route.lat, route.lng],
+    ...(route.plannerZone ? {} : { zoneShown: route.zone }),
     defaultTransport: transport,
     allowedTransports: zoneTransports.filter(t => t === transport || ['walking', 'jeep'].includes(t)) as TransportType[],
     difficulty: 'moderate',
@@ -471,8 +479,8 @@ function DayCard({
               )}
             </div>
             <p className="text-[10px] text-[var(--text-muted)]">
-              <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(day.zone) }} />
-              {zoneName(day.zone)}
+              <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(shownZone(day)) }} />
+              {zoneName(shownZone(day))}
               {isEditing && (
                 <span className="ml-1.5 text-[var(--accent)] font-medium">— редактирование</span>
               )}
@@ -567,7 +575,7 @@ function DayCard({
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                 <MapPin className="w-3 h-3" />
-                <span>{zoneName(day.zone)}</span>
+                <span>{zoneName(shownZone(day))}</span>
               </div>
               {day.type === 'activity' && (
                 <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
@@ -635,7 +643,12 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
   onAddDay: () => void;
   onClose: () => void;
 }) {
-  const defaultTarget = editingDayId ?? days[0]?.day ?? 0;
+  // Заменить точкой можно не всякий день: каркас поездки и день
+  // многодневного тура не заменяют (lib/planner/plan-ops). Кнопка «Заменить»
+  // предлагает только те дни, где замена сработает, — иначе нажатие уходило
+  // в отказ на скрытой вкладке «План», и на карте «ничего не происходило».
+  const replaceable = days.filter(d => replaceRefusal(days, d) === null);
+  const defaultTarget = editingDayId ?? replaceable[0]?.day ?? 0;
   const [targetDay, setTargetDay] = useState<number>(defaultTarget);
   const actLabel = route.activity_type ? (ACTIVITY_LABEL[route.activity_type] ?? route.activity_type) : null;
 
@@ -645,6 +658,7 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
   }, [editingDayId]);
 
   const editingIdx = days.findIndex(d => d.day === editingDayId);
+  const editingReplaceable = editingIdx >= 0 && replaceRefusal(days, days[editingIdx]) === null;
   const typeLabel = placeTypeLabel(route.location_type);
   // Плана ещё нет (идут шаги анкеты): день, добавленный сейчас, сборка плана
   // перезапишет, а на экране шагов его не видно вовсе. Предлагать
@@ -684,7 +698,7 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
 
       <div className="px-3 pb-3 space-y-2 border-t border-[var(--border)] pt-2">
         {/* In edit mode: direct replace for the editing day */}
-        {editingDayId !== null && editingIdx >= 0 && (
+        {editingDayId !== null && editingReplaceable && (
           <button
             onClick={() => onReplace(editingDayId)}
             className="w-full ds-btn ds-btn-primary py-2 text-xs font-medium flex items-center justify-center gap-1.5"
@@ -695,15 +709,16 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
         )}
 
         {/* Select a different day to replace */}
-        {days.length > 0 && editingDayId === null && (
+        {replaceable.length > 0 && editingDayId === null && (
           <div className="flex items-center gap-2">
             <select
               value={targetDay}
               onChange={e => setTargetDay(Number(e.target.value))}
+              aria-label="Какой день заменить"
               className="ds-input flex-1 text-xs py-1.5"
             >
-              {days.map((d, i) => (
-                <option key={d.day} value={d.day}>День {i + 1}: {trunc(d.title, 22)}</option>
+              {replaceable.map(d => (
+                <option key={d.day} value={d.day}>День {days.indexOf(d) + 1}: {trunc(d.title, 22)}</option>
               ))}
             </select>
             <button
@@ -718,7 +733,7 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
 
         {!hasPlan && (
           <p className="text-[11px] leading-snug text-[var(--text-secondary)]">
-            Сначала соберите маршрут — потом эту точку можно поставить в день плана.
+            Сначала соберите план поездки — потом эту точку можно поставить в день плана.
           </p>
         )}
 
@@ -844,7 +859,7 @@ function PartnersModal({ activityType, onClose }: {
 function MobileTabBar({ active, onChange, editingDay }: {
   active: MobileTab;
   onChange: (tab: MobileTab) => void;
-  editingDay: { idx: number; title: string } | null;
+  editingDay: { idx: number; title: string; refusal: string | null } | null;
 }) {
   return (
     <div className="lg:hidden border-b border-[var(--border)] bg-[var(--bg-primary)]">
@@ -852,7 +867,7 @@ function MobileTabBar({ active, onChange, editingDay }: {
         <div className="px-4 py-2 bg-[var(--accent)]/10 border-b border-[var(--accent)]/20 flex items-center gap-2">
           <Pencil className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
           <p className="text-xs text-[var(--accent)] font-medium truncate">
-            Замена для Дня {editingDay.idx + 1}: {editingDay.title}
+            {editingDayTitle(editingDay.idx + 1, editingDay.refusal === null)}: {editingDay.title}
           </p>
         </div>
       )}
@@ -1227,6 +1242,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Refs for scrolling to day card
   const dayRefs = useRef<Map<number, HTMLElement>>(new Map());
+  /** Колонка плашек поверх карты — подгонка вида оставляет её низ над точками. */
+  const mapOverlayRef = useRef<HTMLDivElement>(null);
 
   // TripBuilder v2: AI chat fill
   const [chatInput, setChatInput]   = useState('');
@@ -1355,7 +1372,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (editingDayId === null) return null;
     const idx = days.findIndex(d => d.day === editingDayId);
     if (idx < 0) return null;
-    return { idx, title: days[idx].title };
+    return { idx, title: days[idx].title, refusal: replaceRefusal(days, days[idx]), zone: days[idx].zone };
   }, [editingDayId, days]);
 
   // Transport helpers
@@ -1484,8 +1501,11 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Карта: фоновые точки цветом своей зоны, дни плана — кружками с номером,
   // линия между зонами — построение. Правило — lib/planner/map-markers.
   const mapMarkers = useMemo(
-    () => buildPlannerMarkers({ routes: bgRoutes, days, editingDayId }),
-    [days, bgRoutes, editingDayId],
+    () => buildPlannerMarkers({
+      routes: bgRoutes, days, editingDayId,
+      editingReplaceable: editingDayInfo?.refusal === null,
+    }),
+    [days, bgRoutes, editingDayId, editingDayInfo],
   );
   const mapLegend = useMemo(() => plannerLegend(bgRoutes), [bgRoutes]);
   // Перезагрузка после отказа или пустоты — снова «загружаем», а не прежний
@@ -1496,15 +1516,18 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Handle map marker click
   const handleMarkerClick = useCallback((id: string) => {
-    // Click on day marker → scroll to day in panel + toggle edit
-    if (id.startsWith('day_')) {
-      const dayNum = Number(id.replace('day_', ''));
-      if (!isNaN(dayNum)) {
-        toggleEditDay(dayNum);
-        // Scroll to day card
-        const el = dayRefs.current.get(dayNum);
+    // Пин дней: день откроется в плане. Несколько дней в одной точке
+    // (прилёт и отъезд в Петропавловске) — по кругу: первый, следующий,
+    // после последнего — закрыть (lib/planner/map-markers, nextDayOnPin).
+    const pinDays = parseDayPinId(id);
+    if (pinDays) {
+      const next = nextDayOnPin(pinDays, editingDayId);
+      setSelectedRoute(null);
+      setEditingDayId(next);
+      if (next !== null) {
+        const el = dayRefs.current.get(next);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // On mobile, switch to plan tab
+        // На телефоне — вкладка «План», где этот день виден.
         setMobileTab('plan');
       }
       return;
@@ -1513,7 +1536,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     // Click on suggestion route
     const route = bgRoutes.find(r => r.id === id);
     if (route) setSelectedRoute(route);
-  }, [bgRoutes, toggleEditDay]);
+  }, [bgRoutes, editingDayId]);
 
 
   // Фоновые маршруты по интересам (по умолчанию — три интереса). Отказ —
@@ -1605,7 +1628,7 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
     <span class="day-price">${escapeHtml(dayPriceLine(d))}</span>
   </div>
   ${d.description ? `<div class="day-desc">${d.description}</div>` : ''}
-  <div class="day-meta">${escapeHtml(zoneName(d.zone))}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>
+  <div class="day-meta">${escapeHtml(zoneName(shownZone(d)))}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>
   ${d.dayWarnings.map(w => `<div class="day-warn">${w}</div>`).join('')}
 </div>`).join('\n')}
 ${estimate ? `<div class="footer">
@@ -1658,12 +1681,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
   function replaceDay(dayNum: number, route: RoutePoint) {
     const target = days.find(d => d.day === dayNum);
-    const frame = target ? frameReason(target) : null;
-    if (frame) { setEditNote(`Это ${frame} — его не заменяют маршрутом.`); return; }
-    if (target && tourGroup(days, target).length > 1) {
-      setEditNote('Это день многодневного тура — по одному дню его не заменяют. Уберите тур целиком и добавьте маршрут.');
-      return;
-    }
+    const refusal = target ? replaceRefusal(days, target) : null;
+    if (refusal) { setEditNote(refusal); return; }
     setEditNote(null);
     setDays(prev => prev.map(d => d.day === dayNum ? routeToDayPlan(route, dayNum) : d));
     setTransportByDay(prev => { const n = { ...prev }; delete n[dayNum]; return n; });
@@ -2824,6 +2843,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         height="100%"
         className="rounded-none border-0"
         onMarkerClick={handleMarkerClick}
+        // Подгонка вида оставляет плашки карты над точками: на телефоне
+        // легенда поперёк верха закрывала север края.
+        fitClearOf={mapOverlayRef}
       />
 
       {/* Что на карте — словами: замена дня, загрузка/отказ/пусто, легенда зон
@@ -2835,16 +2857,25 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         total={bgRoutes.length}
         partial={bgResult?.state === 'ok' && bgResult.failedTypes.length > 0}
         hasPlan={days.length > 0}
-        editing={editingDayInfo ? { number: editingDayInfo.idx + 1, title: editingDayInfo.title } : null}
+        editing={editingDayInfo ? {
+          number: editingDayInfo.idx + 1,
+          title: editingDayInfo.title,
+          refusal: editingDayInfo.refusal,
+          sameZone: sameZoneCount(bgRoutes, editingDayInfo.zone),
+        } : null}
         onRetry={() => setBgRetry(n => n + 1)}
         onStopEditing={() => setEditingDayId(null)}
+        panelRef={mapOverlayRef}
       />
 
       {/* Карточка маршрута по нажатию на точку. На телефоне — выше подписи
           OpenStreetMap в правом нижнем углу: её закрывать нельзя (лицензия
-          тайлов требует, чтобы она была видна). */}
+          тайлов требует, чтобы она была видна). Когда план есть, в том же
+          углу висит кнопка чата помощника (CompanionWidget, fixed bottom-6
+          right-6, 48 px) — карточка встаёт над ней, иначе кнопка ложилась на
+          ссылку «Открыть страницу маршрута». */}
       {selectedRoute && (
-        <div className="absolute bottom-8 lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10">
+        <div className={`absolute ${days.length > 0 ? 'bottom-24' : 'bottom-8'} lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10`}>
           <RouteDetailCard
             route={selectedRoute}
             days={days}

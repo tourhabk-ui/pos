@@ -326,9 +326,11 @@ describe('цвет линии не тонет при переходе к Leaflet
     expect(resolveMarkerColor('нет-такого', 'teal')).toBe(MARKER_HEX.teal);
   });
 
-  it('LeafletMap берёт цвет из общей таблицы, своей копии нет', () => {
+  it('у LeafletMap нет своей копии таблицы цветов', () => {
+    // Что пин рисуется цветом общей таблицы, проверяет рендер с подменённым
+    // Leaflet (tests/unit/leaflet-map-behavior.test.tsx). Здесь — только
+    // запреты: регулярка по исходнику судит «этого быть не должно» (13.10).
     const src = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx'), 'utf-8');
-    expect(src).toMatch(/import \{ resolveMarkerColor \} from '@\/lib\/map\/marker-colors'/);
     // Прежний небезопасный lookup — хекс из trackLine() как ключ COLOR_MAP —
     // не должен вернуться ни для геометрии, ни для цвета самого маркера.
     expect(src).not.toMatch(/const COLOR_MAP/);
