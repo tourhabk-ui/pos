@@ -18,6 +18,14 @@
  * ставится сразу, и прогон красный. Без сверки крон отчитывался бы «снята» при
  * `{success:false}` с HTTP 200, а снятие, задевшее ожидаемый адрес, оставило бы
  * бота немым до следующего прогона через 6 ч при зелёном отчёте.
+ *
+ * Чужой хост на адресе вебхука Кузьмича (`/api/max/kuzmich`) или с текущим
+ * ключом в адресе — исход «плохо», прогон красный (`foreign_webhooks`, только
+ * хост): подписка у бота одна, и копия приложения на чужом хосте (стенд, `next
+ * dev` с прод-переменными) получает апдейты людей, а с верным ключом ещё и
+ * отвечает им, включая вход по MAX. Крон её не снимает — чей это хост и можно
+ * ли его гасить, решает человек. Подписки чужих хостов на иные пути — другие
+ * интеграции: они показаны в `other_subscriptions` как сведение, без красного.
  * Env: MAX_BOT_TOKEN, CRON_SECRET.
  */
 
@@ -93,16 +101,48 @@ function isOwnWebhookUrl(url: string, webhookUrl: string): boolean {
   return isOwnHost(u.hostname, webhookUrl) && u.pathname.replace(/\/+$/, '') === WEBHOOK_PATH;
 }
 
+/** Чужая подписка бота, которая отвечает людям: только хост и признак, без пути и ключа. */
+interface ForeignWebhook { host: string; sign: string }
+
+/**
+ * Чужой ли это вебхук бота: не наш хост, а путь — вебхука Кузьмича, или в
+ * адресе стоит текущий ключ подписки. Такой хост получает апдейты людей, а с
+ * ключом ещё и проходит проверку `verified-press` — отвечает им, включая вход
+ * по MAX. null — не наш хост и признаков нет (иная интеграция), либо наш хост.
+ */
+function foreignWebhook(url: string, webhookUrl: string): ForeignWebhook | null {
+  const u = parsedUrl(url);
+  if (!u || isOwnHost(u.hostname, webhookUrl)) return null;
+  const host = u.host.toLowerCase();
+  if (u.pathname.replace(/\/+$/, '').toLowerCase() === WEBHOOK_PATH) {
+    return { host, sign: 'адрес вебхука Кузьмича' };
+  }
+  const secret = process.env.MAX_WEBHOOK_SECRET;
+  if (secret) {
+    // Ключ — значение любого параметра (под любым именем, раскодированное)
+    // или сегмент пути (сырой, поэтому и в URL-кодировке). Сверка на
+    // равенство, не вхождение: короткая подстрока ключа в чужом адресе —
+    // совпадение, а не утечка.
+    const forms = new Set([secret, encodeURIComponent(secret)]);
+    const parts = [...u.searchParams.values(), ...u.pathname.split('/')];
+    if (parts.some((part) => forms.has(part))) {
+      return { host, sign: 'текущий ключ подписки в адресе' };
+    }
+  }
+  return null;
+}
+
 /** Сегмент пути, который можно показать: слова из строчных латинских букв через - или _. */
 const WORD_SEGMENT = /^[a-z]+(?:[-_][a-z]+)*$/;
 
 /**
- * Подписка для ответа крона. Ответ печатается в лог GitHub Actions
- * (`cron-max-webhook.yml`, `cat /tmp/out.json`), а в чужом адресе ключ бывает
- * не только в query, но и в пути (`hook.example/abcd1234secret`). Поэтому:
- * хост — всегда; путь чужого хоста — только если это путь вебхука Кузьмича
- * (он и так публичен), иначе «путь скрыт»; путь нашего хоста — по сегментам,
- * всё, что не похоже на слово, скрыто; query — никогда, что он был, сказано.
+ * Подписка для ответа крона — иная интеграция, не вебхук Кузьмича (тот либо
+ * наш и снимается, либо чужой и уходит в `foreign_webhooks`). Ответ
+ * печатается в лог GitHub Actions (`cron-max-webhook.yml`, `cat /tmp/out.json`),
+ * а в чужом адресе ключ бывает не только в query, но и в пути
+ * (`hook.example/abcd1234secret`). Поэтому: хост — всегда; путь чужого хоста —
+ * никогда, «путь скрыт»; путь нашего хоста — по сегментам, всё, что не похоже
+ * на слово, скрыто; query — никогда, что он был, сказано.
  */
 function describeSubscription(url: string, webhookUrl: string): string {
   const u = parsedUrl(url);
@@ -111,9 +151,7 @@ function describeSubscription(url: string, webhookUrl: string): string {
   const ownHost = isOwnHost(u.hostname, webhookUrl);
   let shown = '';
   let pathHidden = false;
-  if (path === WEBHOOK_PATH) {
-    shown = path;
-  } else if (path !== '' && ownHost) {
+  if (path !== '' && ownHost) {
     shown = path.split('/').map((seg) => (seg === '' || (seg.length <= 16 && WORD_SEGMENT.test(seg)) ? seg : '[скрыто]')).join('/');
   } else if (path !== '') {
     pathHidden = true;
@@ -135,8 +173,9 @@ interface StaleFailure { url: string; reason: string }
  * MAX_WEBHOOK_SECRET или прежним стартом контейнера на tourhab.ru). Без этого
  * MAX шлёт каждое сообщение на оба адреса: незаверенную копию вебхук при
  * заданном ключе отбрасывает, но она по-прежнему тратит запрос на каждый
- * апдейт. Чужие адреса не трогаем, их показываем (`describeSubscription`).
- * Зовётся только когда ожидаемый адрес уже точно зарегистрирован — иначе
+ * апдейт. Чужие адреса не трогаем: иные интеграции показываем
+ * (`describeSubscription`), чужие вебхуки Кузьмича (`foreignWebhook`) называет
+ * GET отдельно. Зовётся только когда ожидаемый адрес уже точно зарегистрирован — иначе
  * бот остался бы без подписки вовсе.
  *
  * Снятие засчитывается по ответу MAX (`readMaxAction`: HTTP-код и `success`),
@@ -150,7 +189,9 @@ async function removeStale(
 ): Promise<{ removed: string[]; failed: StaleFailure[]; others: string[]; attempted: number }> {
   const urls = current.map((s) => s.url ?? '').filter((u) => u !== webhookUrl);
   const stale = urls.filter((u) => isOwnWebhookUrl(u, webhookUrl));
-  const others = urls.filter((u) => !isOwnWebhookUrl(u, webhookUrl)).map((u) => describeSubscription(u, webhookUrl));
+  const others = urls
+    .filter((u) => !isOwnWebhookUrl(u, webhookUrl) && foreignWebhook(u, webhookUrl) === null)
+    .map((u) => describeSubscription(u, webhookUrl));
   const removed: string[] = [];
   const failed: StaleFailure[] = [];
   for (const url of stale) {
@@ -219,9 +260,13 @@ export async function GET(req: Request): Promise<NextResponse> {
       recordCronRun('max-webhook', t0, 'success');
     } else {
       const staleFailed = Array.isArray(body.stale_failed) ? (body.stale_failed as StaleFailure[]) : [];
+      const foreignHooks = Array.isArray(body.foreign_webhooks) ? (body.foreign_webhooks as ForeignWebhook[]) : [];
       const why = [
         body.step, body.action, body.error, body.cause, body.status,
         staleFailed.length > 0 ? `не сняты старые подписки: ${staleFailed.length} (${staleFailed[0]!.reason})` : undefined,
+        foreignHooks.length > 0
+          ? `бот подписан на чужой хост: ${foreignHooks.map((f) => `${f.host} (${f.sign})`).join(', ')}`
+          : undefined,
       ]
         .filter((x) => x !== undefined && x !== null && x !== '')
         .map(String)
@@ -258,6 +303,22 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   const alreadyRegistered = current.some(s => s.url === webhookUrl);
 
+  // Чужие вебхуки бота — «плохо» при любом исходе остального: копия на чужом
+  // хосте получает апдейты людей. Не снимаются: чей хост, решает человек.
+  const foreign = current
+    .map((s) => s.url ?? '')
+    .filter((u) => u !== webhookUrl)
+    .map((u) => foreignWebhook(u, webhookUrl))
+    .filter((f): f is ForeignWebhook => f !== null);
+  const foreignInfo = foreign.length === 0 ? { foreign_webhooks: [] } : {
+    foreign_webhooks: foreign,
+    foreign_note: 'Бот подписан на чужой хост: копия приложения там получает апдейты людей, а с текущим ключом ещё и отвечает им. '
+      + 'Крон её не снимает — чей это хост и гасить ли подписку, решает человек (DELETE /subscriptions?url=<адрес> к API MAX с токеном бота).',
+  };
+  for (const f of foreign) {
+    console.error(`[cron/max-webhook] бот подписан на чужой хост ${f.host}: ${f.sign}`);
+  }
+
   // 2. Подписки нет — регистрируем заново (самолечение). Засчитывается по
   //    ответу MAX: `success: false` при HTTP 200 — отказ, а не «поставлена».
   let registerStatus = 0;
@@ -267,13 +328,13 @@ export async function GET(req: Request): Promise<NextResponse> {
       registerStatus = reg.status;
       if (!reg.outcome.ok) {
         return finish(
-          { ok: false, action: 'register_failed', error: reg.outcome.reason, webhook_url: redactWebhookUrl(webhookUrl) },
+          { ok: false, action: 'register_failed', error: reg.outcome.reason, webhook_url: redactWebhookUrl(webhookUrl), ...foreignInfo },
           502,
         );
       }
     } catch (err) {
       return finish(
-        { ok: false, step: 'register', error: err instanceof Error ? scrubMaxReason(err.message) : 'fetch failed', cause: causeOf(err) },
+        { ok: false, step: 'register', error: err instanceof Error ? scrubMaxReason(err.message) : 'fetch failed', cause: causeOf(err), ...foreignInfo },
         502,
       );
     }
@@ -289,11 +350,13 @@ export async function GET(req: Request): Promise<NextResponse> {
     update_types: UPDATE_TYPES,
     subscriptions: current.length,
     other_subscriptions: stale.others,
+    ...foreignInfo,
   };
+  const foreignOk = foreign.length === 0;
 
   // Ничего не меняли — проверять нечего: список только что прочитан.
   if (alreadyRegistered && stale.attempted === 0) {
-    return finish({ ok: true, ...base, stale_removed: [], stale_failed: [] });
+    return finish({ ok: foreignOk, ...base, stale_removed: [], stale_failed: [] }, foreignOk ? 200 : 502);
   }
 
   // 4. Сверка повторным списком. Ответ MAX на POST/DELETE — его слово, а не
@@ -334,5 +397,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     }, 502);
   }
 
-  return finish({ ok: failed.length === 0, ...base, ...verified }, failed.length === 0 ? 200 : 502);
+  const allOk = failed.length === 0 && foreignOk;
+  return finish({ ok: allOk, ...base, ...verified }, allOk ? 200 : 502);
 }

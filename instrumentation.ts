@@ -149,9 +149,11 @@ export async function register(): Promise<void> {
     // ── 2. Подписка бота MAX ──────────────────────────────────────────
     // Адрес — maxWebhookUrl() с ключом, путь — maxFetch (корень Минцифры),
     // отказ — в лог с замаскированным адресом, повтор с паузами и тревога в
-    // рабочий чат; без ключа не подписываем ничего (почему — в шапке
-    // lib/max/startup-subscription). Не ждём: старт сервера не стоит в
-    // очереди за сетью MAX.
+    // рабочий чат; без ключа не подписываем ничего, и подписывает только
+    // боевой экземпляр — хост vedarai.ru и NODE_ENV=production: подписка у
+    // бота одна на все окружения, и стенд с прод-переменными увёл бы её на
+    // себя (почему — в шапке lib/max/startup-subscription, там же проверка).
+    // Не ждём: старт сервера не стоит в очереди за сетью MAX.
     if (process.env.MAX_BOT_TOKEN) {
       void import('@/lib/max/startup-subscription')
         .then(({ subscribeMaxOnStart }) => subscribeMaxOnStart())

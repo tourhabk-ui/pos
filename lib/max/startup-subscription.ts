@@ -1,8 +1,8 @@
 /**
  * lib/max/startup-subscription.ts — подписка бота MAX при старте контейнера.
  *
- * До 22.10 `instrumentation.ts` подписывал адрес БЕЗ ключа
- * (`${NEXT_PUBLIC_BASE_URL ?? 'https://tourhab.ru'}/api/max/kuzmich`) обычным
+ * До 22.10 `instrumentation.ts` подписывал адрес БЕЗ ключа (`/api/max/kuzmich`
+ * на `NEXT_PUBLIC_BASE_URL`, запасной хост — прежний домен платформы) обычным
  * `fetch` и глушил отказ пустым `catch`. Обычный `fetch` не знает корня
  * Минцифры, которым подписан API MAX (`lib/max/max-fetch`), поэтому на проде
  * он, по всей видимости, падал на TLS молча и ничего не подписывал. Если бы
@@ -20,6 +20,13 @@
  * подписать адрес, с которого ни одно нажатие не проверить. Чинить и снимать
  * лишние подписки — дело крона `/api/cron/max-webhook` (раз в 6 ч); старт
  * только не даёт боту остаться без подписки после выката.
+ *
+ * Подписку ставит ТОЛЬКО боевой экземпляр: хост адреса подписки — канон
+ * (`CANONICAL_HOSTS`) и `NODE_ENV === 'production'`. Подписка в MAX одна на
+ * бота, а не на окружение: стенд или `next dev`, поднятые с прод-переменными
+ * (токен и ключ), иначе подписали бы боевого бота на себя — и чужая копия с
+ * верным ключом отвечала бы людям, в том числе входом по MAX. Прочие старты
+ * не подписывают ничего и говорят почему (`skipped`, без повторов и тревоги).
  *
  * Подписка засчитывается по ответу MAX целиком: `{success:false}` приходит и с
  * HTTP 200 (`lib/max/subscription-response`). Отказ старта — не строка в логе,
@@ -39,8 +46,14 @@ import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 const MAX_API_BASE = 'https://platform-api2.max.ru';
 const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
 
+/**
+ * Хосты, на которые подписывается боевой бот. Прежний домен платформы сюда
+ * не входит: подписка на него — та самая вторая подписка, которую снимает крон.
+ */
+export const CANONICAL_HOSTS: readonly string[] = ['vedarai.ru', 'www.vedarai.ru'];
+
 export type StartupSubscriptionOutcome =
-  | { outcome: 'skipped'; reason: 'no_token' | 'no_key' }
+  | { outcome: 'skipped'; reason: 'no_token' | 'no_key' | 'not_production' | 'foreign_host' }
   | { outcome: 'present' }
   | { outcome: 'registered' }
   | { outcome: 'failed'; step: 'list' | 'register'; reason: string };
@@ -58,14 +71,34 @@ export async function ensureMaxSubscriptionOnStart(): Promise<StartupSubscriptio
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) return { outcome: 'skipped', reason: 'no_token' };
 
+  const url = maxWebhookUrl();
+  const shown = redactWebhookUrl(url);
+
+  // Боевой ли это экземпляр. Хост — из того же адреса, что уйдёт в MAX, а не
+  // из отдельной переменной: проверяется ровно то, что будет подписано.
+  let host = '';
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch (err) {
+    console.error(`[max] адрес подписки не разобран: ${reasonOf(err)}`);
+  }
+  if (!CANONICAL_HOSTS.includes(host)) {
+    console.error(`[max] подписка при старте не ставится: хост ${host || '(не разобран)'} — не боевой `
+      + `(${CANONICAL_HOSTS.join(', ')}). Подписка у бота одна на все окружения: этот экземпляр увёл бы на себя боевого бота.`);
+    return { outcome: 'skipped', reason: 'foreign_host' };
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(`[max] подписка при старте не ставится: NODE_ENV=${process.env.NODE_ENV ?? '(не задан)'}, а не production. `
+      + 'Подписка у бота одна на все окружения: этот экземпляр увёл бы на себя боевого бота.');
+    return { outcome: 'skipped', reason: 'not_production' };
+  }
+
   if (!process.env.MAX_WEBHOOK_SECRET) {
     console.error('[max] подписка при старте не ставится: MAX_WEBHOOK_SECRET не задан. '
       + 'Без него ни одно нажатие в MAX не проверить — вход, подключение чатов, ответы на запросы мест и кнопки лида не работают.');
     return { outcome: 'skipped', reason: 'no_key' };
   }
 
-  const url = maxWebhookUrl();
-  const shown = redactWebhookUrl(url);
   const headers = { 'Content-Type': 'application/json', Authorization: token };
 
   let present = false;
@@ -135,8 +168,9 @@ export function startupAlertText(out: Extract<StartupSubscriptionOutcome, { outc
 }
 
 /**
- * Подписка при старте с повторами и тревогой. Пропуск (нет токена или ключа)
- * не повторяется и не тревожит — это настройка, она названа в логе.
+ * Подписка при старте с повторами и тревогой. Пропуск (нет токена или ключа,
+ * не боевой экземпляр) не повторяется и не тревожит — это настройка, она
+ * названа в логе.
  */
 export async function subscribeMaxOnStart(opts: {
   delaysMs?: readonly number[];

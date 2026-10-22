@@ -18,6 +18,11 @@
  *    HTTP 200 — отказ, а не «поставлена»;
  *  - отказ повторяется с паузами, а не вышло — тревога в рабочий чат: после
  *    смены ключа без новой подписки бот в MAX молчит до прогона крона;
+ *  - ответ HTTP 200 без поля success или не JSON — «исход не проверен»: не
+ *    подписка, а отказ с повторами и тревогой;
+ *  - подписывает только боевой экземпляр (хост vedarai.ru и
+ *    NODE_ENV=production): стенд или next dev с прод-переменными к MAX не
+ *    ходят вовсе — подписка у бота одна, и они увели бы её на себя;
  *  - instrumentation зовёт это при старте и не ждёт сети MAX.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -43,6 +48,8 @@ beforeEach(() => {
   vi.stubEnv('MAX_WEBHOOK_SECRET', KEY);
   // Не задан: прежний код брал тогда запасной хост tourhab.ru.
   vi.stubEnv('NEXT_PUBLIC_BASE_URL', undefined);
+  // Боевой экземпляр; прочие окружения — отдельный блок ниже.
+  vi.stubEnv('NODE_ENV', 'production');
   errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
@@ -127,6 +134,18 @@ describe('подписка MAX при старте', () => {
     expect(logged()).not.toContain(KEY);
   });
 
+  it.each([
+    ['{}', 'HTTP 200, в ответе нет поля success — исход не проверен'],
+    ['OK', 'HTTP 200, ответ не разобран — исход не проверен'],
+  ])('MAX ответил HTTP 200 и %s — исход не проверен, подписка не засчитана', async (body, reason) => {
+    m.maxFetch
+      .mockResolvedValueOnce(json({ subscriptions: [] }))
+      .mockResolvedValueOnce(new Response(body, { status: 200 }));
+    expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'failed', step: 'register', reason });
+    expect(logged()).toContain('исход не проверен');
+    expect(logged()).not.toContain(KEY);
+  });
+
   it('MAX не ответил на список — HTTP-код в логе, подписки вслепую нет', async () => {
     m.maxFetch.mockResolvedValueOnce(json({}, 503));
     expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'failed', step: 'list', reason: 'HTTP 503' });
@@ -176,6 +195,21 @@ describe('подписка при старте: повтор с паузами �
     expect(text).not.toContain(KEY);
   });
 
+  it('MAX каждый раз отвечает HTTP 200 без success — повторы с паузами и одна тревога «не проверено»', async () => {
+    const replies = ['{}', 'OK', '{"result":"done"}'];
+    m.maxFetch.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === 'POST'
+      ? new Response(replies.shift() ?? '{}', { status: 200 })
+      : json({ subscriptions: [] })));
+    const out = await subscribeMaxOnStart({ delaysMs: [3, 4], sleep, alert });
+    expect(out).toMatchObject({ outcome: 'failed', step: 'register', reason: expect.stringContaining('исход не проверен') });
+    expect(sleep.mock.calls).toEqual([[3], [4]]);
+    expect(m.maxFetch.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(3);
+    expect(alert).toHaveBeenCalledTimes(1);
+    const text = String(alert.mock.calls[0]![0]);
+    expect(text).toContain('Попыток: 3;');
+    expect(text).toContain('исход не проверен');
+  });
+
   it('тревога не доставлена — это названо в логе', async () => {
     m.maxFetch.mockResolvedValue(json({}, 502));
     alert.mockResolvedValue({ ok: false, reason: 'TELEGRAM_BOT_TOKEN не задан' });
@@ -188,6 +222,57 @@ describe('подписка при старте: повтор с паузами �
     expect(await subscribeMaxOnStart({ delaysMs: [1, 1], sleep, alert })).toEqual({ outcome: 'skipped', reason: 'no_key' });
     expect(sleep).not.toHaveBeenCalled();
     expect(alert).not.toHaveBeenCalled();
+  });
+});
+
+describe('подписка при старте: только боевой экземпляр', () => {
+  const sleep = vi.fn(async () => undefined);
+  const alert = vi.fn(async () => ({ ok: true as const }));
+  beforeEach(() => {
+    sleep.mockClear();
+    alert.mockClear();
+    // Если бы проверки не было, MAX принял бы подписку: исход отличался бы.
+    m.maxFetch.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === 'POST'
+      ? json({ success: true })
+      : json({ subscriptions: [] })));
+  });
+  const posts = () => m.maxFetch.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST');
+
+  it.each([
+    ['стенд', 'https://staging.vedarai.ru', 'staging.vedarai.ru'],
+    ['прежний хост', 'https://tourhab.ru', 'tourhab.ru'],
+    ['next dev', 'http://localhost:3000', 'localhost'],
+  ])('чужой NEXT_PUBLIC_BASE_URL (%s) с прод-переменными — POST к MAX не уходит, причина в логе без ключа', async (_name, base, host) => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', base);
+    expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'skipped', reason: 'foreign_host' });
+    expect(posts()).toHaveLength(0);
+    expect(m.maxFetch).not.toHaveBeenCalled();
+    expect(logged()).toContain(`хост ${host}`);
+    expect(logged()).not.toContain(KEY);
+  });
+
+  it('NODE_ENV=development на боевом адресе — POST к MAX не уходит, причина в логе', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'skipped', reason: 'not_production' });
+    expect(posts()).toHaveLength(0);
+    expect(m.maxFetch).not.toHaveBeenCalled();
+    expect(logged()).toContain('NODE_ENV=development');
+    expect(logged()).not.toContain(KEY);
+  });
+
+  it('старт стенда — ни повторов, ни тревоги: это не отказ, а не тот экземпляр', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://staging.vedarai.ru');
+    expect(await subscribeMaxOnStart({ delaysMs: [1, 1], sleep, alert })).toEqual({ outcome: 'skipped', reason: 'foreign_host' });
+    expect(posts()).toHaveLength(0);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it('www.vedarai.ru в проде — канон, подписка ставится на него', async () => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://www.vedarai.ru/');
+    expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'registered' });
+    expect(posts()).toHaveLength(1);
+    expect(calls()[1]!.body!.url).toBe(`https://www.vedarai.ru/api/max/kuzmich?s=${KEY}`);
   });
 });
 
