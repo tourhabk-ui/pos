@@ -1,15 +1,18 @@
 {
-  "timeout": 60,
-  "run": 989,
-  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. Предпросмотр сайта партнёра ответил 404: какой slug у «Камчатской рыбалки» на проде и публична ли её страница — canonical страницы оператора называет slug из базы.",
+  "timeout": 30,
+  "run": 990,
+  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. DNS перед переносом fishingkam.ru на приложение Ведара: какие A/NS/MX стоят у домена сейчас (REG.RU) и на какой адрес смотрит vedarai.ru — то есть что владельцу менять на REG.RU и что не трогать (почта).",
   "urls": [
-    "https://vedarai.ru/operators/kamchatskaya-rybalka",
-    "https://vedarai.ru/operators/fishingkam"
+    "https://dns.google/resolve?name=vedarai.ru&type=A",
+    "https://dns.google/resolve?name=fishingkam.ru&type=A",
+    "https://dns.google/resolve?name=www.fishingkam.ru&type=A",
+    "https://dns.google/resolve?name=fishingkam.ru&type=NS",
+    "https://dns.google/resolve?name=fishingkam.ru&type=MX",
+    "https://dns.google/resolve?name=fishingkam.ru&type=TXT"
   ],
   "text": true,
-  "bytes": 3000,
+  "bytes": 1500,
   "grep": [
-    "<link rel=\"canonical\" href=\"https://vedarai.ru/operators/",
-    "Камчатская рыбалка"
+    "\"Status\":0"
   ]
 }
