@@ -15,6 +15,7 @@ import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 import { widgetOrigin } from '@/lib/embed/widget-origin';
@@ -42,7 +43,8 @@ const ListSchema = z.object({
     'new', 'ai_processing', 'ai_qualified', 'proposal_sent',
     'awaiting_confirm', 'contacted', 'qualified', 'converted', 'lost', 'all',
   ]).optional().default('all'),
-  limit:  z.coerce.number().min(1).max(100).optional().default(50),
+  // Потолок общий с канбаном (lib/leads/list-page.ts): доска читает страницами.
+  limit:  z.coerce.number().min(1).max(LEADS_PAGE_MAX).optional().default(50),
   offset: z.coerce.number().min(0).optional().default(0),
 });
 

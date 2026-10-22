@@ -101,7 +101,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/mesh/sos-relay/route.ts': 1,
   'app/api/meta/webhook/route.ts': 1,
   'app/api/octo/bookings/[uuid]/cancel/route.ts': 1,
-  'app/api/octo/bookings/[uuid]/status/route.ts': 1,
   'app/api/p/[code]/event/route.ts': 1,
   'app/api/partners/register/route.ts': 2,
   'app/api/planner/chat/route.ts': 1,

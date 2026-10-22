@@ -1,93 +1,37 @@
 /**
- * GET /api/ai/health?token=kamhub-debug-2026
- * Диагностика AI-провайдеров в продакшене.
- * Требует debug-токен в query string.
+ * /api/ai/health — выведен из употребления 22.10.2026 (аудит перед запуском).
+ *
+ * Здоровье провайдеров: /hub/admin/health (за входом администратора) и крон
+ * health (/api/cron/health, Bearer CRON_SECRET).
+ *
+ * Это был отладочный роут лета 2026, открытый в реестре публичных. Пускал по
+ * токену из строки запроса, а токен лежал литералом в этом же файле, то есть
+ * в публичном репозитории. Предъявивший его получал:
+ *
+ * 1. Длину и первые восемь знаков ключей OpenRouter, DeepSeek, MiniMax и xAI.
+ *    Платформа нигде не показывает ключ даже частью — для опознания есть
+ *    отпечаток (lib/ai/key-identity.ts), по которому ключ не восстановить.
+ * 2. Платные вызовы моделей за наш счёт: по одному на провайдера на каждый
+ *    запрос, без ограничения частоты.
+ *
+ * Звал его никто: ни workflow, ни страница, ни скрипт. Токен остался в
+ * истории git, но больше ничего не открывает — сверять его здесь нечему.
+ *
+ * 410, а не удаление файла: 404 неотличим от опечатки в пути.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { resolveDeepSeekModel } from '@/lib/ai/providers';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const DEBUG_TOKEN = 'kamhub-debug-2026';
-
-async function testProvider(
-  name: string,
-  fn: () => Promise<Response>
-): Promise<{ name: string; ok: boolean; status: number; error?: string; answer?: string }> {
-  try {
-    const res = await fn();
-    if (res.ok) {
-      const data: unknown = await res.json();
-      const answer =
-        (data as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content ??
-        (data as { content?: Array<{ text?: string }> })?.content?.[0]?.text ??
-        'ok';
-      return { name, ok: true, status: res.status, answer: String(answer).slice(0, 60) };
-    }
-    const body = await res.text().catch(() => '');
-    return { name, ok: false, status: res.status, error: body.slice(0, 200) };
-  } catch (e) {
-    return { name, ok: false, status: 0, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-export async function GET(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get('token');
-  if (token !== DEBUG_TOKEN) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  const deepseekKey = process.env.DEEPSEEK_API_KEY;
-  const minimaxKey = process.env.MINIMAX_API_KEY;
-  const xaiKey = process.env.XAI_API_KEY;
-
-  const keySummary = {
-    OPENROUTER_API_KEY: openrouterKey ? `SET (${openrouterKey.length}ch, ${openrouterKey.slice(0, 8)}...)` : 'MISSING',
-    DEEPSEEK_API_KEY: deepseekKey ? `SET (${deepseekKey.length}ch, ${deepseekKey.slice(0, 8)}...)` : 'MISSING',
-    MINIMAX_API_KEY: minimaxKey ? `SET (${minimaxKey.length}ch, ${minimaxKey.slice(0, 8)}...)` : 'MISSING',
-    XAI_API_KEY: xaiKey ? `SET (${xaiKey.length}ch, ${xaiKey.slice(0, 8)}...)` : 'MISSING',
-    DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'MISSING',
-    JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'MISSING',
-  };
-
-  const tests = await Promise.all([
-    openrouterKey
-      ? testProvider('OpenRouter', () =>
-          fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openrouterKey}` },
-            body: JSON.stringify({ model: 'anthropic/claude-sonnet-4-6', max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
-          })
-        )
-      : { name: 'OpenRouter', ok: false, status: 0, error: 'OPENROUTER_API_KEY MISSING' },
-
-    deepseekKey
-      ? testProvider('DeepSeek', async () =>
-          fetch('https://api.deepseek.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${deepseekKey}` },
-            body: JSON.stringify({ model: await resolveDeepSeekModel(), max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
-          })
-        )
-      : { name: 'DeepSeek', ok: false, status: 0, error: 'DEEPSEEK_API_KEY MISSING' },
-
-    minimaxKey
-      ? testProvider('MiniMax', () =>
-          fetch('https://api.minimaxi.chat/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${minimaxKey}` },
-            body: JSON.stringify({ model: 'MiniMax-Text-01', max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
-          })
-        )
-      : { name: 'MiniMax', ok: false, status: 0, error: 'MINIMAX_API_KEY MISSING' },
-  ]);
-
-  return NextResponse.json({
-    keys: keySummary,
-    providerTests: tests,
-    nodeVersion: process.version,
-    nodeEnv: process.env.NODE_ENV,
-  });
+// AUTH: Public — остаётся в белом списке, чтобы старый вызов увидел 410
+// с объяснением, а не 401 без него.
+export async function GET() {
+  return NextResponse.json(
+    {
+      success: false,
+      error: 'Адрес снят. Здоровье AI-провайдеров — /hub/admin/health, за входом администратора',
+    },
+    { status: 410 },
+  );
 }

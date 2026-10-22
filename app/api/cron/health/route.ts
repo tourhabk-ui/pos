@@ -260,8 +260,10 @@ export async function checkDB(): Promise<HealthIssue[]> {
   // вдобавок выбирал ПРОИЗВОЛЬНЫЙ слот (WHERE booked_slots > 0 LIMIT 1),
   // а не дату брони — портил чужие дни.
   try {
-    const expiredBkgResult = await pool.query<{ id: string; octo_uuid: string; participants: number }>(
-      `SELECT id, octo_uuid, participants
+    const expiredBkgResult = await pool.query<{
+      id: string; octo_uuid: string; participants: number; octo_api_key_id: string | null;
+    }>(
+      `SELECT id, octo_uuid, participants, octo_api_key_id
        FROM operator_bookings
        WHERE booking_status = 'new' AND hold_expires_at < NOW() AND deleted_at IS NULL
        LIMIT 1000`
@@ -284,8 +286,12 @@ export async function checkDB(): Promise<HealthIssue[]> {
           payload: { from: 'new', to: 'cancelled', reason: 'octo_hold_expired' },
         });
 
-        // Webhook notification
-        const fullBooking = await getBookingByUuid(booking.octo_uuid);
+        // Webhook notification. Бронь читается глазами её ключа
+        // (getBookingByUuid, аудит 22.10); у брони без ключа канала адресата
+        // вебхука нет вовсе — notifyOctoWebhooks ищет его по тому же ключу.
+        const fullBooking = booking.octo_api_key_id
+          ? await getBookingByUuid(booking.octo_uuid, booking.octo_api_key_id)
+          : null;
         notifyOctoWebhooks('booking:expired', booking.id, fullBooking ?? {}).catch(() => {});
       }
 

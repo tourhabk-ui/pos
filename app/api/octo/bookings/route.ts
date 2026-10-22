@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
     contactPhone: contact?.phoneNumber,
     notes,
     apiKeyId: authResult.id,
+    operatorId: authResult.operatorId,
     resellerReference,
   });
 
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Fetch full booking details for response
-  const full = await getBookingByUuid(result.booking.octo_uuid);
+  const full = await getBookingByUuid(result.booking.octo_uuid, authResult.id);
   if (!full) {
     const response = NextResponse.json(
       { error: 'INTERNAL_ERROR', errorMessage: 'Booking created but failed to retrieve' },

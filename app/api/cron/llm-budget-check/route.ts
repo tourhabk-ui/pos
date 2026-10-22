@@ -3,6 +3,10 @@
  * Считает дневные LLM-затраты из llm_usage_log.
  * Если сумма превышает AI_DAILY_BUDGET_USD — отправляет Telegram-алерт владельцу.
  * Запускать ежечасно или реже.
+ *
+ * Порог не задан или не число — прогон НЕ успех (lib/ai/daily-budget.ts): траты
+ * дня всё равно считаются и отдаются в ответе, а в журнал уходит отказ с
+ * причиной, и Watchdog говорит владельцу, что бюджет не сторожится.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -11,6 +15,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { notifyBudgetAlert } from '@/lib/telegram/admin-notify';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { readDailyBudget, BUDGET_UNSET_REASON, BUDGET_INVALID_REASON } from '@/lib/ai/daily-budget';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,11 +37,7 @@ export async function GET(req: Request) {
 
   const startedAt = Date.now();
 
-  const limitUsd = parseFloat(process.env.AI_DAILY_BUDGET_USD ?? '0');
-  if (!limitUsd) {
-    recordCronRun('llm-budget', startedAt, 'success');
-    return Response.json({ ok: true, status: 'skipped', reason: 'AI_DAILY_BUDGET_USD not set' });
-  }
+  const budget = readDailyBudget(process.env.AI_DAILY_BUDGET_USD);
 
   // Heartbeat пишется ПОСЛЕ проверки, по её исходу. Раньше success уходил
   // до запроса к БД, а сам запрос стоял без catch: упавшая БД давала
@@ -63,6 +64,23 @@ export async function GET(req: Request) {
       // а часть вызовов сегодня прошла без цены (нет в каталоге и в запасе).
       console.error(`[llm-budget-check] ${unknownCalls} вызовов сегодня без цены — spent_usd занижен на их долю`);
     }
+
+    // Нечем судить — не «успех» (аудит 22.10). Было: `ok: true, skipped` и
+    // успех в журнале; тревога о перерасходе молчала при любой трате, а
+    // workflow и панель кронов стояли зелёными. Траты дня при этом
+    // посчитаны — их видно в ответе, даже пока порога нет.
+    if (budget.kind !== 'set') {
+      const reason = budget.kind === 'unset' ? BUDGET_UNSET_REASON : BUDGET_INVALID_REASON;
+      recordCronRun('llm-budget', startedAt, 'failed', { error: reason });
+      return Response.json({
+        ok: false,
+        status: 'not_configured',
+        reason,
+        spent_usd: spentUsd,
+        unknown_cost_calls: unknownCalls,
+      });
+    }
+    const limitUsd = budget.usd;
     recordCronRun('llm-budget', startedAt, 'success');
 
     if (spentUsd >= limitUsd) {

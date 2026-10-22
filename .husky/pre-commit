@@ -18,22 +18,18 @@ finish() {
   exit 0
 }
 
-# ── СЕКРЕТЫ: проверяем ВСЕ staged-файлы (не только .ts) ─────────
-ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
-
-if [ -n "$ALL_STAGED" ]; then
-  secret_hits=$(echo "$ALL_STAGED" | xargs grep -rnE \
-    '[0-9]{8,10}:AA[A-Za-z0-9_-]{33}|sk-ant-api03-[A-Za-z0-9_-]{30,}|sk-or-v1-[A-Za-z0-9_-]{30,}|xai-[A-Za-z0-9]{10,}|AKIA[A-Z0-9]{16}|cp-[a-f0-9]{32}|sk-[a-f0-9]{32}|eyJhbGci[A-Za-z0-9._-]{100,}' \
-    2>/dev/null \
-    | grep -v "node_modules\|\.next\|// allow-secret:\|example\|placeholder\|your-" \
-    || true)
-  if [ -n "$secret_hits" ]; then
-    red "СЕКРЕТ В КОДЕ: обнаружен ключ API или токен в staged-файлах!"
-    printf '%s\n' "$secret_hits" | sed 's/\(.\{0,6\}\)\(.\{20,\}\)\(.\{6\}\)/\1***REDACTED***\3/' | head -5
-    red "Удали секрет из файла. Если уже скомпрометирован — отзови через провайдера."
-    red "Храни секреты только в .env.local (он в .gitignore)."
+# ── СЕКРЕТЫ: добавленные строки всех staged-файлов (не только .ts) ─────────
+# Шаблоны — один список на хук и CI: scripts/security/secret-scan.mjs (22.10).
+# Хук — ранний сигнал, обходится --no-verify; держит правило workflow
+# secret-scan.yml на каждом PR и пуше в main. Значение ключа не печатается.
+SECRET_SCAN="$(dirname "$0")/../scripts/security/secret-scan.mjs"
+if [ -f "$SECRET_SCAN" ]; then
+  if ! secret_out=$(node "$SECRET_SCAN" --staged); then
+    red "$secret_out"
     ERRORS=$((ERRORS + 1))
   fi
+else
+  warn "Проверка секретов не выполнена: нет $SECRET_SCAN. Это не «секретов нет»."
 fi
 
 # Только изменённые .ts / .tsx файлы кода. Тесты не проверяются: сторож
