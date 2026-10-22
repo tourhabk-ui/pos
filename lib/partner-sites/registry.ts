@@ -20,8 +20,15 @@
 export interface PartnerSite {
   /** Домен без www и порта, в нижнем регистре. */
   host: string;
-  /** partners.slug — чей это сайт. */
-  slug: string;
+  /**
+   * partners.id — чей это сайт. Не slug: slug партнёра меняется и у одного
+   * партнёра их бывало несколько (у «Камчатской рыбалки» — fishingkam и
+   * kamchatskaya-rybalka, 804). Реестр по slug 22.10 искал не тот, и
+   * предпросмотр отвечал 404.
+   */
+  partnerId: string;
+  /** Ключ в пути приложения: /partner-site/<key>. Только адрес, к базе не относится. */
+  key: string;
   /** <title> на домене партнёра. Взят с прежнего сайта (снимок 22.10, проба 986). */
   title: string;
   /** meta description на домене партнёра. */
@@ -31,7 +38,9 @@ export interface PartnerSite {
 export const PARTNER_SITES: readonly PartnerSite[] = [
   {
     host: 'fishingkam.ru',
-    slug: 'kamchatskaya-rybalka',
+    // «Камчатская рыбалка»: id из живого каталога туров (863, 1312).
+    partnerId: '0aaa4f05-b479-418b-9d54-2b909783dfd7',
+    key: 'fishingkam',
     title: 'Рыбалка на Камчатке — туры на реку Камчатку с проживанием',
     description:
       'Рыболовные туры на реке Камчатке круглый год: летняя и зимняя рыбалка с проживанием на базе. ' +
@@ -57,9 +66,10 @@ export function partnerSiteForHost(raw: string | null | undefined): PartnerSite 
   return PARTNER_SITES.find((s) => s.host === host) ?? null;
 }
 
-export function partnerSiteBySlug(slug: string | null | undefined): PartnerSite | null {
-  if (!slug) return null;
-  return PARTNER_SITES.find((s) => s.slug === slug) ?? null;
+/** Сайт партнёра по ключу пути /partner-site/<key>. */
+export function partnerSiteByKey(key: string | null | undefined): PartnerSite | null {
+  if (!key) return null;
+  return PARTNER_SITES.find((s) => s.key === key) ?? null;
 }
 
 /** Путь страницы сайта партнёра внутри приложения (предпросмотр на vedarai.ru). */

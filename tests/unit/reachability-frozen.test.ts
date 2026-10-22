@@ -45,7 +45,7 @@ const CEILING = {
   // и запрос мест. Запаса на 13.10 нет: перепись того дня — восемь прежних
   // (/auth/reset-password, /briefing, /hub/gear, /oauth/partner/authorize,
   // /request-status, /seat-request/answer, /tp-verify, виджет) и эта.
-  // 22.10 → 10 (с 9): /partner-site/[slug] — сайт партнёра, который Ведар
+  // 22.10 → 10 (с 9): /partner-site/[key] — сайт партнёра, который Ведар
   // отдаёт на ЕГО домене (fishingkam.ru): next.config.js переписывает туда
   // главную домена партнёра. Ссылки из интерфейса Ведара у неё быть не
   // должно — это витрина партнёра, а не страница платформы; на vedarai.ru

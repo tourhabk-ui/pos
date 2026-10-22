@@ -17,7 +17,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { PARTNER_SITES, partnerSiteForHost, normalizeHost } from '@/lib/partner-sites/registry';
+import { PARTNER_SITES, partnerSiteByKey, partnerSiteForHost, normalizeHost } from '@/lib/partner-sites/registry';
 
 const { getPathMatch } = require('next/dist/shared/lib/router/utils/path-match') as {
   getPathMatch: (source: string, opts: Record<string, unknown>) => (path: string) => false | Record<string, unknown>;
@@ -57,13 +57,13 @@ const VEDAR = { host: 'vedarai.ru' };
 
 describe('fishingkam.ru отдаёт сайт партнёра', () => {
   it('главная — страница партнёра, по Host и по X-Forwarded-Host', async () => {
-    expect(await route('/', FK)).toBe('rewrite /partner-site/kamchatskaya-rybalka');
-    expect(await route('/', FK_PROXIED)).toBe('rewrite /partner-site/kamchatskaya-rybalka');
+    expect(await route('/', FK)).toBe('rewrite /partner-site/fishingkam');
+    expect(await route('/', FK_PROXIED)).toBe('rewrite /partner-site/fishingkam');
   });
 
   it('robots.txt и sitemap.xml — свои', async () => {
-    expect(await route('/robots.txt', FK)).toBe('rewrite /partner-site/kamchatskaya-rybalka/robots.txt');
-    expect(await route('/sitemap.xml', FK_PROXIED)).toBe('rewrite /partner-site/kamchatskaya-rybalka/sitemap.xml');
+    expect(await route('/robots.txt', FK)).toBe('rewrite /partner-site/fishingkam/robots.txt');
+    expect(await route('/sitemap.xml', FK_PROXIED)).toBe('rewrite /partner-site/fishingkam/sitemap.xml');
   });
 
   it('www — на голый домен одним хопом', async () => {
@@ -111,14 +111,25 @@ describe('список доменов один', () => {
         const host = value.replace('(www\\.)?', '').replace(/\\\./g, '.');
         return `${host} → ${r.destination.replace('/partner-site/', '')}`;
       }));
-    const fromRegistry = new Set(PARTNER_SITES.map((s) => `${s.host} → ${s.slug}`));
+    const fromRegistry = new Set(PARTNER_SITES.map((s) => `${s.host} → ${s.key}`));
     expect(fromConfig).toEqual(fromRegistry);
   });
 
   it('домен запроса узнаётся без www, порта и регистра', () => {
     expect(normalizeHost('WWW.FishingKam.ru:443')).toBe('fishingkam.ru');
-    expect(partnerSiteForHost('fishingkam.ru, proxy.internal')?.slug).toBe('kamchatskaya-rybalka');
+    expect(partnerSiteForHost('fishingkam.ru, proxy.internal')?.key).toBe('fishingkam');
     expect(partnerSiteForHost('vedarai.ru')).toBeNull();
     expect(partnerSiteForHost('')).toBeNull();
+  });
+
+  it('партнёр сайта назван id, а не slug, и ключи пути не повторяются', () => {
+    // slug партнёра меняется, и у одного партнёра их бывало несколько:
+    // 22.10 реестр по slug искал kamchatskaya-rybalka, на проде был другой,
+    // и предпросмотр отвечал 404.
+    for (const s of PARTNER_SITES) {
+      expect(s.partnerId, s.host).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(partnerSiteByKey(s.key)).toBe(s);
+    }
+    expect(new Set(PARTNER_SITES.map((s) => s.key)).size).toBe(PARTNER_SITES.length);
   });
 });
