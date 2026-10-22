@@ -731,6 +731,8 @@ body {
   --wx-chip: rgba(8, 26, 50, 0.36);
   --wx-silhouette: rgba(3, 14, 32, 0.50);
   --wx-scene-border: rgba(160, 205, 240, 0.28);
+  /* Солнце знаков и дуги дня (Samsung-стиль, 22.10): тёплый, а не цвет иконок. */
+  --wx-sun: #ffc95a;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -780,6 +782,7 @@ body {
   --wx-chip: rgba(255, 255, 255, 0.44);
   --wx-silhouette: rgba(35, 86, 128, 0.26);
   --wx-scene-border: rgba(110, 170, 220, 0.45);
+  --wx-sun: #e89a00;
 }
 .wx-scene[data-wx-scene="day-clear"] {
   --wx-bg: linear-gradient(180deg, #6fb2e6 0%, #9cccf0 48%, #d3ecf9 100%);
@@ -852,6 +855,16 @@ body {
 }
 @media (min-width: 640px) {
   .wx-silhouette-svg { height: 260px; }
+}
+/* На телефоне сцена — во всю ширину экрана, как погодное приложение:
+   поля страницы (px-4 у main) она перекрывает, углы и боковые рамки снимает. */
+@media (max-width: 639px) {
+  .wx-scene {
+    margin-inline: -1rem;
+    border-radius: 0;
+    border-left-width: 0;
+    border-right-width: 0;
+  }
 }
 
 /* SectionSwipeBar — полоса подразделов под шапкой. Высота шапки:

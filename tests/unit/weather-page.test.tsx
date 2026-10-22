@@ -40,8 +40,11 @@ import {
   loadMeteoWarnings, loadPlaceWeather, loadWeatherPage, type WeatherPageData,
 } from '@/lib/weather/weather-page';
 import {
-  dayLabel, fmtTemp, partPrecip, precipLine, pressureLine, rangeBar, skyWords, tempRange, uvWords, visibilityLine, windDetail, windLine,
+  dayLabel, fmtTemp, partPrecip, precipLine, pressureLine, skyWords, tempRange, uvWords, visibilityLine, windDetail, windLine,
 } from '@/lib/weather/weather-format';
+import {
+  arcPoint, daylightFraction, ringDash, tempCurve, uvMarkerPercent, windArrowRotation,
+} from '@/lib/weather/wx-instruments';
 import { insideKrai } from '@/lib/geo/krai-envelope';
 import { settlementByName } from '@/lib/kuzmich/weather-tool';
 import { SVODKA_WEATHER_PLACES } from '@/lib/svodka/svodka';
@@ -264,11 +267,12 @@ describe('4. разметка', () => {
   };
 
   it('место в заголовке, высота словами, дни и части дня', () => {
-    render(<WeatherView data={data()} />);
+    const { container } = render(<WeatherView data={data()} />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Погода на Авачинском вулкане');
     expect(screen.getByText(/Высота точки ~2710 м — прогноз для этой высоты/)).toBeTruthy();
     expect(screen.getAllByText('Сегодня').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/осадки 0,8 мм · ветер до 13 м\/с/).length).toBeGreaterThan(0);
+    // Подробности дня — частями, которые не рвутся внутри; читаются одной строкой.
+    expect(container.querySelector('section[aria-labelledby="weather-week"]')?.textContent).toMatch(/осадки 0,8 мм · ветер до 13 м\/с/);
     expect(screen.getAllByText('снег 0,5 мм').length).toBeGreaterThan(0);
     // Пропуск части дня — словами, а не нулём.
     expect(screen.getAllByText('нет данных').length).toBeGreaterThan(0);
@@ -339,13 +343,7 @@ describe('4. разметка', () => {
   });
 });
 
-describe('4b. виджет: шкала, ветер, давление', () => {
-  it('шкала недели: отрезок дня внутри общей недели, пропуск — null', () => {
-    expect(rangeBar(0, 10, 0, 20)).toEqual({ left: 0, width: 50 });
-    expect(rangeBar(10, 20, 0, 20)).toEqual({ left: 50, width: 50 });
-    expect(rangeBar(null, 5, 0, 20)).toBeNull();
-    expect(rangeBar(0, 5, null, 20)).toBeNull();
-  });
+describe('4b. виджет: ветер, давление', () => {
   it('ветер с направлением и порывами, давление в мм рт. ст., видимость и УФ', () => {
     expect(windDetail(36, 72, 315)).toContain('10 м/с');
     expect(windDetail(36, 72, 315)).toContain('северо-западный');
@@ -378,7 +376,8 @@ describe('4b. виджет: шкала, ветер, давление', () => {
     unmount();
     render(<WeatherView data={mk({ ...noPressure, pressureHpa: 1015 })} />);
     expect(screen.getByText('Давление')).toBeTruthy();
-    expect(screen.getByText('761 мм рт. ст.')).toBeTruthy();
+    // Показание — число крупно и единица мельче рядом, одной строкой для читателя.
+    expect(screen.getByText((_, el) => el?.textContent === '761 мм рт. ст.')).toBeTruthy();
     expect(screen.getByText('к уровню моря')).toBeTruthy();
   });
   it('пустые предупреждения — одна строка, а не карточка с заголовком', () => {
@@ -436,6 +435,136 @@ describe('4c. сцена героя: период и небо из прогно�
     expect(scene?.getAttribute('data-wx-scene')).toBe('night-cloud');
     expect(scene?.querySelectorAll('.wx-glass').length).toBeGreaterThanOrEqual(2);
     expect(scene?.querySelector('svg.wx-silhouette-svg')).toBeTruthy();
+  });
+});
+
+/**
+ * Стиль Samsung Weather (слово владельца 22.10: «сделай в стиле самсунг
+ * погода»): крупная температура слева, лента часов с линией температуры,
+ * неделя «день · вероятность осадков · знак · макс/мин», плитки-приборы.
+ * Геометрия приборов — чистые функции; разметка — рендером, с данными.
+ */
+describe('4d. стиль Samsung Weather: приборы', () => {
+  it('линия температуры: теплее — выше, пропуск рвёт линию, ровный день — посередине', () => {
+    const c = tempCurve([0, 10, 5], { col: 64, height: 72, padTop: 26, padBottom: 10 });
+    expect(c.points.map((p) => p && [p.x, p.y])).toEqual([[32, 62], [96, 26], [160, 44]]);
+    expect(c.path).toBe('M32 62 C64 62 64 26 96 26 C128 26 128 44 160 44');
+    const gap = tempCurve([1, null, 3], { col: 64, height: 72, padTop: 26, padBottom: 10 });
+    expect(gap.points[1]).toBeNull();
+    expect(gap.path.match(/M/g)?.length).toBe(2);
+    expect(tempCurve([4, 4], { col: 64, height: 72, padTop: 26, padBottom: 10 }).points.map((p) => p?.y)).toEqual([44, 44]);
+    expect(tempCurve([null, null], { col: 64, height: 72, padTop: 26, padBottom: 10 })).toEqual({ points: [null, null], path: '', min: null, max: null });
+  });
+  it('солнце на дуге: доля светового дня; ночью и без восхода — нет солнца', () => {
+    expect(daylightFraction('07:00', '19:00', '13:00')).toBe(0.5);
+    expect(daylightFraction('07:00', '19:00', '06:59')).toBeNull();
+    expect(daylightFraction('07:00', '19:00', '19:01')).toBeNull();
+    expect(daylightFraction(null, '19:00', '13:00')).toBeNull();
+    expect(daylightFraction('19:00', '07:00', '13:00')).toBeNull();
+    expect(arcPoint(0.5, { x: 12, y: 56 }, { x: 120, y: -16 }, { x: 228, y: 56 })).toEqual({ x: 120, y: 20 });
+  });
+  it('стрелка ветра летит по ветру; шкала УФ и кольцо — в своих пределах', () => {
+    expect(windArrowRotation(315)).toBe(135);
+    expect(windArrowRotation(0)).toBe(180);
+    expect(windArrowRotation(-90)).toBe(90);
+    expect(windArrowRotation(null)).toBeNull();
+    expect(uvMarkerPercent(5.5)).toBe(50);
+    expect(uvMarkerPercent(15)).toBe(100);
+    expect(uvMarkerPercent(-1)).toBe(0);
+    expect(uvMarkerPercent(null)).toBeNull();
+    expect(ringDash(50, 24)).toEqual({ filled: 75.4, circumference: 150.8 });
+    expect(ringDash(140, 24).filled).toBe(150.8);
+  });
+
+  const hour = (time: string, temp: number | null, over: Record<string, unknown> = {}) => ({
+    time, temp, apparent: null, humidity: null, precipMm: 0, precipProb: 10, windKmh: null, windGustKmh: null,
+    windDirDeg: null, weatherCode: 1, description: null, cloudCover: null, visibilityM: null, pressureHpa: null, uvIndex: null,
+    ...over,
+  });
+  const page = (now: Record<string, unknown>, over: Record<string, unknown> = {}): WeatherPageData => {
+    const selected = {
+      kind: 'ok' as const, place: weatherPlaceBySlug('avachinsky')!, lat: 53.255, lng: 158.83, elevationM: 2710,
+      days: [
+        day('2026-10-08', { sunrise: '2026-10-08T07:00', sunset: '2026-10-08T18:30', precipProbMax: 40, uvIndexMax: 3.4 }),
+        day('2026-10-09', { precipProbMax: null }),
+      ],
+      hours: [hour('2026-10-08T13:00', 5), hour('2026-10-08T14:00', 7), hour('2026-10-08T15:00', null), hour('2026-10-08T16:00', 3)],
+      now: {
+        time: '2026-10-08T13:00', temp: 5, apparent: 2, humidity: 78, weatherCode: 1, description: 'Малооблачно',
+        windKmh: 36, windGustKmh: 72, windDirDeg: 315, pressureHpa: 1015, isDay: true, ...now,
+      },
+      fetchedAt: '2026-10-08T03:05:00.000Z', staleSince: null, ...over,
+    };
+    return {
+      selected: selected as WeatherPageData['selected'],
+      all: [selected as WeatherPageData['selected']],
+      warnings: { kind: 'ok', checkedAt: '2026-10-08T05:55:00.000Z', items: [] },
+      today: '2026-10-08', generatedAt: '2026-10-08T06:00:00.000Z',
+    };
+  };
+
+  it('сцена начинается заголовком страницы; крупная температура и «ощущается»', () => {
+    const { container } = render(<WeatherView data={page({})} />);
+    const scene = container.querySelector('.wx-scene')!;
+    expect(scene.querySelector('h1')?.textContent).toBe('Погода на Авачинском вулкане');
+    expect(scene.querySelector('[aria-label="Сейчас +5 градусов"]')?.textContent).toBe('+5°');
+    expect(screen.getByText('Ощущается как +2°')).toBeTruthy();
+    expect(screen.getByText('при температуре воздуха +5°')).toBeTruthy();
+  });
+
+  it('предупреждения в сцене — стеклом с кромкой цвета предупреждения', () => {
+    const d = page({});
+    const { container } = render(<WeatherView data={{
+      ...d,
+      warnings: { kind: 'ok', checkedAt: '2026-10-08T05:55:00.000Z', items: [{ title: 'Ветер — жёлтый уровень', text: null, severity: 1, until: null }] },
+    }} />);
+    const section = container.querySelector('.wx-scene section[aria-labelledby="weather-warnings"]') as HTMLElement;
+    expect(section.classList.contains('wx-glass')).toBe(true);
+    expect(section.style.borderLeftColor).toBe('var(--warning)');
+    expect(section.style.borderLeftWidth).toBe('4px');
+  });
+
+  it('лента часов: линия температуры рвётся на пропуске, подписи у точек', () => {
+    const { container } = render(<WeatherView data={page({})} />);
+    const hourly = container.querySelector('section[aria-labelledby="weather-hourly"]')!;
+    const curve = hourly.querySelector('svg[data-wx-curve]')!;
+    const path = curve.querySelector('path')!.getAttribute('d')!;
+    expect(path.match(/M/g)?.length).toBe(2);
+    expect(curve.querySelectorAll('circle').length).toBe(3);
+    expect(hourly.textContent).toContain('Сейчас');
+    expect(hourly.textContent).toContain('+7°');
+    // Час без температуры — прочерк, а не ноль на линии.
+    expect(hourly.textContent).toContain('—');
+  });
+
+  it('неделя: вероятность осадков у дня, пропуск — прочерк; подробности строкой', () => {
+    const { container } = render(<WeatherView data={page({})} />);
+    const rows = container.querySelectorAll('section[aria-labelledby="weather-week"] ol > li');
+    expect(rows[0].textContent).toContain('40%');
+    expect(rows[0].textContent).toContain('Сегодня');
+    expect(rows[1].textContent).toContain('—');
+    expect(rows[1].textContent).toContain('Завтра');
+    expect(rows[0].textContent).toContain('осадки 0,8 мм · ветер до 13 м/с');
+  });
+
+  it('плитки-приборы: компас по ветру, кольцо влажности, шкала УФ, солнце над горизонтом днём', () => {
+    const { container } = render(<WeatherView data={page({})} />);
+    expect(container.querySelector('g[transform="rotate(135 40 40)"]')).toBeTruthy();
+    expect(screen.getByText('северо-западный')).toBeTruthy();
+    expect(screen.getByText('порывы 20 м/с')).toBeTruthy();
+    expect(screen.getByText('78%')).toBeTruthy();
+    expect(screen.getByText(/3,4 · умеренный/)).toBeTruthy();
+    expect(container.querySelector('svg[data-sun="up"]')).toBeTruthy();
+    expect(screen.getByText('Восход 07:00')).toBeTruthy();
+    expect(screen.getByText('Закат 18:30')).toBeTruthy();
+    expect(screen.queryByText('Солнце за горизонтом')).toBeNull();
+  });
+
+  it('ночью солнца на дуге нет, это сказано словами; без направления ветра стрелки нет', () => {
+    const { container } = render(<WeatherView data={page({ time: '2026-10-08T22:00', isDay: false, windDirDeg: null })} />);
+    expect(container.querySelector('svg[data-sun="down"]')).toBeTruthy();
+    expect(screen.getByText('Солнце за горизонтом')).toBeTruthy();
+    expect(container.querySelector('g[transform^="rotate("]')).toBeNull();
   });
 });
 
