@@ -1,9 +1,13 @@
 /**
  * Вход через MAX (бот-авторизация). Зеркалит вход через Telegram, но у MAX нет
  * OAuth-виджета — подтверждение идёт через бота по одноразовому nonce. Сторож
- * фиксирует контракт безопасности: подтверждается только pending+неистёкшая
- * сессия; гашение единожды (защита от повторной выдачи JWT); бот распознаёт
- * login-payload; кнопка под фиче-флагом.
+ * фиксирует контракт безопасности: закрепить и подтвердить можно только
+ * pending+неистёкшую сессию; гашение единожды (защита от повторной выдачи
+ * JWT); бот распознаёт login-payload; кнопка под фиче-флагом.
+ *
+ * Двухшаговость входа (с 22.10: «Старт» закрепляет, «Да, это я» того же
+ * человека подтверждает) судится исполнением на настоящей базе —
+ * tests/integration/max-login-confirm.pg.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -14,34 +18,36 @@ vi.mock('@/lib/database', () => ({
   query: (sql: string, params?: unknown[]) => queryMock(sql, params),
 }));
 
-import { authenticateMaxLoginSession, consumeMaxLoginSession, createMaxLoginSession } from '@/lib/auth/max-login';
+import {
+  claimMaxLoginSession, confirmMaxLoginSession, consumeMaxLoginSession, createMaxLoginSession,
+} from '@/lib/auth/max-login';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
 beforeEach(() => queryMock.mockReset());
 
-describe('max-login: подтверждение сессии', () => {
-  it('UPDATE строго pending + не истёкшую + не использованную', async () => {
+describe('max-login: закрепление и подтверждение сессии', () => {
+  it('«Старт» закрепляет только pending + не истёкшую + не использованную и статус не меняет', async () => {
     queryMock.mockResolvedValue({ rows: [], rowCount: 1 });
-    const ok = await authenticateMaxLoginSession('a'.repeat(20), { maxUserId: 42, name: 'Ivan', username: null });
+    const ok = await claimMaxLoginSession('a'.repeat(20), { maxUserId: 42, name: 'Ivan', username: null });
     expect(ok).toBe(true);
     const [sql, params] = queryMock.mock.calls[0];
     expect(sql).toContain("status = 'pending'");
     expect(sql).toContain('consumed = FALSE');
     expect(sql).toContain('expires_at > NOW()');
+    expect(sql).not.toContain("status = 'authenticated'");
     expect(params).toEqual(['a'.repeat(20), 42, 'Ivan', null]);
   });
 
   it('отклоняет мусорный nonce без запроса в БД', async () => {
-    const ok = await authenticateMaxLoginSession('x', { maxUserId: 1, name: null, username: null });
-    expect(ok).toBe(false);
+    expect(await claimMaxLoginSession('x', { maxUserId: 1, name: null, username: null })).toBe(false);
+    expect(await confirmMaxLoginSession('x', 1)).toBe(false);
     expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('нет затронутых строк → не подтверждено', async () => {
     queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
-    const ok = await authenticateMaxLoginSession('b'.repeat(20), { maxUserId: 7, name: null, username: null });
-    expect(ok).toBe(false);
+    expect(await confirmMaxLoginSession('b'.repeat(20), 7)).toBe(false);
   });
 });
 
@@ -76,7 +82,6 @@ describe('max-login: интеграция', () => {
   it('бот распознаёт login-payload в bot_started', () => {
     const bot = read('app/api/max/kuzmich/route.ts');
     expect(bot).toContain("update.payload.startsWith('login-')");
-    expect(bot).toContain('authenticateMaxLoginSession');
   });
 
   it('ЗАХВАТ АККАУНТА ЗАКРЫТ: вход подтверждается только с заверенного источника', () => {

@@ -233,20 +233,23 @@ function buildMessage(
   );
 }
 
-export async function GET(req: Request) {
-  const secret = getCronSecret(req);
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || !timingSafeCompare(secret ?? '', cronSecret)) {
-    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
-  }
+/** Пауза перед повтором выборки: сбой пула подключений обычно короче. */
+const RETRY_READ_MS = 3_000;
 
-  const lease = await claimCronWindow('checkin-watchdog', 60, 'external');
-  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('checkin-watchdog', 60));
+/** Причина отказа базы — SQLSTATE и текст, без строк с данными людей. */
+function dbFailure(err: unknown): { sqlstate: string | null; message: string } {
+  const e = err as { code?: unknown; message?: unknown };
+  return {
+    sqlstate: typeof e?.code === 'string' ? e.code : null,
+    message: typeof e?.message === 'string' ? e.message : String(err),
+  };
+}
 
-  const now = new Date();
-  const startedAt = Date.now();
-
-  // Регистрации без отметки о возвращении с ожидаемым временем в прошлом (или дата уже прошла)
+/**
+ * Регистрации без отметки о возвращении с ожидаемым временем в прошлом (или
+ * дата уже прошла).
+ */
+async function readOverdue(now: Date): Promise<RegRow[]> {
   const { rows } = await query<RegRow>(`
     SELECT
       r.id,
@@ -302,6 +305,50 @@ export async function GET(req: Request) {
     ORDER BY COALESCE(r.expected_return_at, r.end_date::timestamptz) ASC
     LIMIT $3
   `, [now, now, WATCHDOG_BATCH]);
+  return rows;
+}
+
+export async function GET(req: Request) {
+  const secret = getCronSecret(req);
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || !timingSafeCompare(secret ?? '', cronSecret)) {
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
+  }
+
+  const lease = await claimCronWindow('checkin-watchdog', 60, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('checkin-watchdog', 60));
+
+  const now = new Date();
+  const startedAt = Date.now();
+
+  // Выборка — главный шаг сторожа. 17–21.10 четыре прогона кончились пустым
+  // 500 примерно через 10 с: подключение к базе не выдалось ни аренде окна,
+  // ни этой выборке (по 5 с ожидания на каждую), исключение уходило из
+  // обработчика, и прогон не записывал даже отказа — для реестра кронов он
+  // «не запускался». Теперь один повтор через RETRY_READ_MS (сбой пула обычно
+  // короче), не вышло — отказ в журнал прогонов и 503 с причиной: отказ
+  // проверки — отказ, а не «тревог нет» (манифест, правило 6).
+  let rows: RegRow[];
+  try {
+    rows = await readOverdue(now);
+  } catch (first) {
+    console.error('[checkin-watchdog] выборка регистраций не выполнилась, повтор', dbFailure(first));
+    await new Promise((resolve) => setTimeout(resolve, RETRY_READ_MS));
+    try {
+      rows = await readOverdue(now);
+    } catch (second) {
+      const why = dbFailure(second);
+      console.error('[checkin-watchdog] выборка регистраций не выполнилась и при повторе', why);
+      recordCronRun('checkin-watchdog', startedAt, 'failed', {
+        error: `регистрации не прочитаны: ${why.message}`,
+      });
+      return NextResponse.json({
+        success: false,
+        error: 'Регистрации не прочитаны — сторож не проверил, кто не вернулся. Следующий прогон повторит.',
+        sqlstate: why.sqlstate,
+      }, { status: 503 });
+    }
+  }
   // Полная пачка — значит, за ней могли остаться люди. Это не успех.
   const tail = rows.length === WATCHDOG_BATCH;
 

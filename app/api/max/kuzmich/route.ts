@@ -16,7 +16,7 @@ import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmi
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
-import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
+import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
@@ -31,6 +31,22 @@ type MaxButton =
   | { type: 'request_contact'; text: string };
 
 export const dynamic = 'force-dynamic';
+
+// ── Вход на сайт через MAX: вопрос и ответы бота ────────────────────────────
+
+const MAX_LOGIN_OK = 'maxlogin_ok:';
+const MAX_LOGIN_NO = 'maxlogin_no:';
+
+const MAX_LOGIN_TEXT = {
+  ask:
+    '<b>Вход на сайт Ведар (vedarai.ru)</b>\n\n'
+    + 'Нажмите «Да, это я», только если вы сами сейчас нажали «Войти через MAX» на сайте.\n\n'
+    + 'Если ссылку на этот вход вам прислали — нажмите «Нет, не я»: '
+    + 'иначе тот, кто её прислал, войдёт в ваш аккаунт.',
+  confirmed: 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.',
+  rejected: 'Вход отменён — сайт его не получит. Ссылки входа, присланные другими людьми, не открывайте.',
+  stale: 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
+} as const;
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 
@@ -291,17 +307,23 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       && typeof update.payload === 'string'
       && update.payload.startsWith('login-')) {
     const nonce = update.payload.slice('login-'.length);
-    const ok = await authenticateMaxLoginSession(nonce, {
+    // «Старт» вход НЕ подтверждает (аудит 22.10): ссылку входа создаёт любой,
+    // и присланная чужим человеком ссылка входила бы им в аккаунт нажавшего.
+    // Сессия закрепляется за этим пользователем MAX, а вход выдаёт только его
+    // же «Да, это я» (ветка message_callback ниже).
+    const claimed = await claimMaxLoginSession(nonce, {
       maxUserId: update.user?.user_id ?? update.chat_id,
       name: update.user?.name ?? null,
       username: update.user?.username ?? null,
     });
-    await maxReply(
-      update.chat_id,
-      ok
-        ? 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.'
-        : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
-    );
+    if (!claimed) {
+      await maxReply(update.chat_id, MAX_LOGIN_TEXT.stale);
+      return;
+    }
+    await maxReplyWithButtons(update.chat_id, MAX_LOGIN_TEXT.ask, [
+      [{ type: 'callback', text: 'Да, это я', payload: `${MAX_LOGIN_OK}${nonce}`, intent: 'positive' }],
+      [{ type: 'callback', text: 'Нет, не я', payload: `${MAX_LOGIN_NO}${nonce}`, intent: 'negative' }],
+    ]);
     return;
   }
 
@@ -516,6 +538,23 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
+
+    // Вход на сайт: «Да, это я» / «Нет, не я» после «Старта» по ссылке входа.
+    // Только по заверенному источнику апдейта и только тем пользователем MAX,
+    // за которым сессия закреплена (условие в SQL, lib/auth/max-login).
+    if (payload.startsWith(MAX_LOGIN_OK) || payload.startsWith(MAX_LOGIN_NO)) {
+      if (opts?.verifiedOrigin !== true) return;
+      const yes = payload.startsWith(MAX_LOGIN_OK);
+      const nonce = payload.slice((yes ? MAX_LOGIN_OK : MAX_LOGIN_NO).length);
+      const done = yes
+        ? await confirmMaxLoginSession(nonce, userId)
+        : await rejectMaxLoginSession(nonce, userId);
+      await maxReply(
+        resolvedChatId,
+        !done ? MAX_LOGIN_TEXT.stale : yes ? MAX_LOGIN_TEXT.confirmed : MAX_LOGIN_TEXT.rejected,
+      );
+      return;
+    }
 
     // Ответ оператора на запрос свободных мест (lib/seat-requests). Право
     // нажатия — чат сообщения совпадает с MAX-чатом оператора запроса, и
