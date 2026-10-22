@@ -1237,8 +1237,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Фоновые маршруты карты — три исхода (lib/planner/bg-routes): null — ещё
   // не загружали. Пока идёт перезагрузка, на карте остаются прежние точки.
   const [bgResult, setBgResult] = useState<BgRoutesResult | null>(null);
-  // На какие виды получен ответ: по умолчанию (интересы не выбраны) карта
-  // говорит «показаны маршруты с пометкой …», а не «по вашим интересам».
+  // На какие интересы получен ответ: по умолчанию (интересы не выбраны) карта
+  // называет показанные маршруты подписями плиток, а не «по вашим интересам».
   const [bgAsked, setBgAsked] = useState<{ types: readonly string[]; byDefault: boolean }>({ types: [], byDefault: false });
   const [bgLoading, setBgLoading] = useState(false);
   const [bgRetry, setBgRetry] = useState(0);
@@ -1537,8 +1537,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     [days, bgRoutes, editingDayId, editingDayInfo],
   );
   const mapLegend = useMemo(() => plannerLegend(bgRoutes), [bgRoutes]);
-  // Что карта искала — подписями плиток (lib/planner/bg-routes): точки
-  // ищутся по виду маршрута, и вид без маршрутов называется словами.
+  // Что карта искала — подписями плиток (lib/planner/bg-routes): плитка
+  // места — маршруты через место этого вида, занятие — маршруты этого вида.
+  // Интерес без маршрутов назван словами; отказ — не «нет» (он в partial).
   const mapSearch = useMemo<PlannerMapSearch>(() => {
     const { types, byDefault } = bgAsked;
     if (bgResult === null || bgResult.state === 'failed') return { byDefault, shown: [], empty: [] };
@@ -1581,8 +1582,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   }, [bgRoutes, editingDayId]);
 
 
-  // Фоновые маршруты по интересам (по умолчанию — три интереса). Отказ —
-  // это отказ, а не «маршрутов нет» (lib/planner/bg-routes).
+  // Фоновые маршруты по интересам (по умолчанию — те, что дают точки,
+  // BG_DEFAULT_TYPES). Отказ — это отказ, а не «маршрутов нет»
+  // (lib/planner/bg-routes).
   useEffect(() => {
     const byDefault = allInterests.length === 0;
     const types = byDefault ? [...BG_DEFAULT_TYPES] : allInterests;
@@ -2906,6 +2908,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         partial={bgResult?.state === 'ok' && bgResult.failedTypes.length > 0}
         hasPlan={days.length > 0}
         search={mapSearch}
+        cardOpen={selectedRoute !== null}
         editing={editingDayInfo ? {
           number: editingDayInfo.idx + 1,
           title: editingDayInfo.title,

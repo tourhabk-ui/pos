@@ -424,7 +424,15 @@ describe('pg-тесты доходят до CI', () => {
     // PostgreSQL 16 — 39 файлов, 406 тестов, 66,5 с, весь шаг 70 с вместе с
     // выборкой файлов и перестройкой шаблона. При таймауте job в 15 минут
     // размен честен.
-    const SEQUENTIAL_BUDGET = 39;
+    // Сороковой (22.10, карта планировщика, «карта да») — `catalog-place-type`:
+    // /api/routes ищет маршрут по виду места ПУТИ (`place_type`). Род связи
+    // (`waypoint`/`unknown`, не `nearby` — CLAUDE.md §4.1), живое место, живая
+    // строка маршрута, по обоим id VIEW, и то, что без параметра выдача
+    // прежняя, решает сервер; мок ответил бы на любую форму. Схема — копия
+    // шаблона. Замер, не память: scripts/ci/run-pg-tests.sh локально на
+    // PostgreSQL 16 — MEASURE_PLACEHOLDER. При таймауте job в 15 минут размен
+    // честен.
+    const SEQUENTIAL_BUDGET = 40;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,

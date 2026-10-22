@@ -16,17 +16,25 @@
  * появлялись, а день из маршрута вертолётного тура становился пешим
  * треккингом. Ответ теперь разбирается явно.
  *
- * ── Что ищется на самом деле (ревью 22.10, третий круг) ────────────────
+ * ── Плитки мест ищут по месту пути (22.10, пятый круг) ──────────────────
  *
- * Точки ищутся по ВИДУ МАРШРУТА (`activity_type`). Шесть плиток анкеты —
- * виды МЕСТ (вулканы, термальные, гейзеры, побережье, хребты, реки), и
- * маршрутов с таким `activity_type` в каталоге нет: замер 22.10 на проде —
- * ноль по каждой из шести. Искать маршрут по виду места пути /api/routes не
- * умеет: фильтр `location_type` во VIEW у маршрутов всегда NULL (миграция
- * 942), он отдаёт только места. Расширять API в правке текста не стали —
- * вместо этого исход называет, по каким видам ответ пуст (`emptyTypes`), и
- * карта говорит словами, что искали, а не «по вашим интересам маршрутов
- * нет»: маршруты на вулканы есть, они помечены треккингом.
+ * Шесть плиток мест анкеты (вулканы, термальные, гейзеры, побережье, хребты,
+ * реки) искали маршрут по `activity_type` и не находили ничего: вид места у
+ * маршрута не записан, а `activity_type` есть только у 38 маршрутов из 301
+ * с координатами (замер 22.10 по /api/routes: треккинг 28, зимний поход 5,
+ * вертолёт 3, лыжи 1, снегоход 1; у 263 — нет). Теперь плитка места ищет
+ * маршрут, чья точка ПУТИ — место этого вида (`place_type`, правило в
+ * lib/routes/catalog-query: связь `waypoint`/`unknown`, не «рядом»).
+ * Плитки занятий ищут, как прежде, по `activity_type`.
+ *
+ * Виды мест — фактические значения `places.location_type` на проде
+ * (/api/routes?kind=place, 22.10; в скобках — сколько мест вида стоит на
+ * живом маршруте точкой пути, `onRoute`): вулкан 116 (38), термальный
+ * источник 58 (38), гейзер 2 (2), бухта 8 (4), мыс 10 (3), пляж 2 (1),
+ * гора 15 (14), перевал 5 (1), река 7 (2). «Термальная зона» (`thermal`)
+ * есть в словаре мест (lib/places/location-types), живых мест этого вида
+ * сейчас нет — взята, потому что это тот же интерес. Остров к побережью не
+ * отнесён: остров — не берег.
  */
 import { asPlannerZone } from '@/lib/planner/zone-style';
 import type { ZoneId } from '@/lib/planner/constants';
@@ -58,8 +66,44 @@ export type BgRoutesResult =
 /** Сколько маршрутов на один интерес — как было. */
 export const BG_ROUTES_PER_TYPE = 30;
 
-/** Интересы по умолчанию, пока человек ничего не выбрал. */
-export const BG_DEFAULT_TYPES = ['trekking', 'volcano', 'fishing'] as const;
+/**
+ * Плитка места → виды мест пути (`places.location_type`). Плитки, которых
+ * здесь нет, — занятия: ищутся по `activity_type` маршрута.
+ */
+export const PLACE_TILE_LOCATION_TYPES: Readonly<Record<string, readonly string[]>> = {
+  volcano:    ['volcano'],
+  hot_spring: ['hot_spring', 'thermal'],
+  geyser:     ['geyser'],
+  sea:        ['bay', 'cape', 'beach'],
+  mountain:   ['mountain', 'pass'],
+  river:      ['river'],
+};
+
+/**
+ * Интересы по умолчанию, пока человек ничего не выбрал: только те, что дают
+ * точки. Замер 22.10 на проде: треккинг — 28 маршрутов с координатами
+ * (`/api/routes?activity_type=trekking`); через вулкан точкой пути — не
+ * меньше 50 маршрутов с координатами (38 вулканов на живых маршрутах, их
+ * маршруты не «рядом» — по карточкам мест /api/places/[id], а карточка
+ * показывает до десяти маршрутов, поэтому «не меньше»; точное число скажет
+ * сам каталог после выката: `/api/routes?place_type=volcano&hasCoords=true`).
+ * Тем же замером у остальных плиток мест: термальные — не меньше 51,
+ * хребты — 22, побережье — 11, гейзеры — 5, реки — 2.
+ *
+ * «Рыбалка» стояла здесь до 22.10 и не давала ни одной точки
+ * (`activity_type=fishing` — ноль маршрутов) — она снята, а не заменена
+ * догадкой.
+ */
+export const BG_DEFAULT_TYPES = ['trekking', 'volcano'] as const;
+
+/** Адрес каталога для плитки: место — по месту пути, занятие — по виду маршрута. */
+export function bgRoutesUrl(tile: string): string {
+  const placeTypes = PLACE_TILE_LOCATION_TYPES[tile];
+  const by = placeTypes
+    ? `place_type=${encodeURIComponent(placeTypes.join(','))}`
+    : `activity_type=${encodeURIComponent(tile)}`;
+  return `/api/routes?${by}&hasCoords=true&limit=${BG_ROUTES_PER_TYPE}`;
+}
 
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v : null;
@@ -106,9 +150,7 @@ async function loadType(type: string, fetchImpl: FetchLike): Promise<TypeOutcome
     return { ok: false };
   };
   try {
-    const r = await fetchImpl(
-      `/api/routes?activity_type=${encodeURIComponent(type)}&hasCoords=true&limit=${BG_ROUTES_PER_TYPE}`,
-    );
+    const r = await fetchImpl(bgRoutesUrl(type));
     if (!r.ok) return fail('http', r.status);
     const body: unknown = await r.json();
     const data = body && typeof body === 'object' ? (body as Record<string, unknown>) : null;

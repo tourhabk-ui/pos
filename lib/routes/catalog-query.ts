@@ -52,6 +52,46 @@ function resolveHazards(row: Record<string, unknown>): string[] {
   return hazards;
 }
 
+/**
+ * Поиск маршрута по виду места ПУТИ (22.10, карта планировщика).
+ *
+ * Шесть плиток мест анкеты планировщика («Вулканы», «Термальные», «Гейзеры»,
+ * «Побережье», «Хребты», «Реки») искали точки по `activity_type` маршрута и
+ * не находили ничего: вид места у маршрута не записан (во VIEW его
+ * `location_type` всегда NULL, миграция 942), а `activity_type` есть только
+ * у 38 маршрутов из 301 с координатами (замер 22.10 по /api/routes). Маршрут
+ * на вулкан — это маршрут, чья точка ПУТИ — вулкан.
+ *
+ * Связь берётся только родов `waypoint` и `unknown` (CLAUDE.md §4.1,
+ * lib/routes/link-kind): `nearby` — «рядом, загляните», о пути она не
+ * говорит, и музей у Скал Три Брата не делает их «музейным маршрутом».
+ * `unknown` — как везде на платформе: до разметки связь считалась путём,
+ * и молчаливое «стало меньше» было бы сменой линейки, а не данных.
+ *
+ * Место — живое: видимое и не слитое (тот же предикат, что у снимка главной
+ * точки пути ниже). Маршрут — сам по себе из VIEW (`ark.is_visible`, слитые
+ * VIEW не отдаёт), строка `kamchatka_routes` ищется по обоим id, как у
+ * `has_waypoints`: id VIEW у маршрута — COALESCE(ark_id, id).
+ *
+ * Типы сравнения: `route_waypoints.route_id` и `kamchatka_routes.id` — uuid,
+ * `route_waypoints.place_id` и `places.id` — text; сравниваются только
+ * колонки одного типа. Параметр — `text[]` с явным приведением.
+ */
+export const PLACE_TYPE_PARAM = /^[a-z_]{1,40}(,[a-z_]{1,40}){0,7}$/;
+
+export function routeThroughPlaceTypeSql(arkAlias: string, param: string): string {
+  return `${arkAlias}.kind = 'route' AND EXISTS (
+     SELECT 1
+       FROM kamchatka_routes kpt
+       JOIN route_waypoints rwpt ON rwpt.route_id = kpt.id
+       JOIN places ppt ON ppt.id = rwpt.place_id
+      WHERE (kpt.id = ${arkAlias}.id OR kpt.ark_id = ${arkAlias}.id)
+        AND rwpt.link_kind IN ('waypoint', 'unknown')
+        AND ppt.location_type = ANY(${param}::text[])
+        AND ppt.is_visible IS NOT FALSE
+        AND ppt.merged_into_id IS NULL)`;
+}
+
 export const CatalogQuerySchema = z.object({
   q:             z.string().max(200).optional(),
   kind:          z.enum(['place', 'route', 'tour']).optional(),
@@ -76,6 +116,12 @@ export const CatalogQuerySchema = z.object({
   // Только маршруты с реальными точками (route_waypoints) — планировщик
   // в поле не должен рекомендовать статьи-обзоры без единой точки
   has_waypoints: z.enum(['true']).optional(),
+  // Маршруты, ПУТЬ которых проходит через место этого вида
+  // (`places.location_type`; несколько — через запятую). Разбор и правило —
+  // ниже, у PLACE_TYPE_PARAM и routeThroughPlaceTypeSql.
+  place_type:    z.string().max(200).regex(PLACE_TYPE_PARAM, 'Вид места — латиница и «_», до 8 через запятую')
+    .transform((s) => [...new Set(s.split(','))])
+    .optional(),
 });
 
 export type CatalogFilters = z.infer<typeof CatalogQuerySchema>;
@@ -158,7 +204,7 @@ function stripGeometryStyle(v: unknown): CatalogItem['geometry'] {
 }
 
 export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResult> {
-  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km, has_waypoints } = filters;
+  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km, has_waypoints, place_type } = filters;
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ['ark.is_visible = TRUE'];
@@ -238,6 +284,11 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
           WHERE (kw2.id = ark.id OR kw2.ark_id = ark.id)
             AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
     );
+  }
+  if (place_type && place_type.length > 0) {
+    conditions.push(routeThroughPlaceTypeSql('ark', `$${idx}`));
+    params.push(place_type);
+    idx++;
   }
   if (near_lat != null && near_lng != null && radius_km != null) {
     // Гаверсинус в SQL; least(1.0, ...) страхует acos от погрешности округления

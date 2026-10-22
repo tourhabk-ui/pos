@@ -38,19 +38,30 @@
  *     вид подогнан раньше, чем план вырос.
  *
  * Ревью 22.10 (третий круг, мелкое):
- *   • «маршрутов нет» называет, ЧТО искали: точки ищутся по виду маршрута,
- *     а плитки мест («Вулканы») — виды мест, и маршрутов с такой пометкой
- *     нет (lib/planner/bg-routes). Прежнее «для выбранных интересов
- *     маршрутов нет» было неправдой: маршруты на вулканы есть. Без выбора
- *     интересов — «показаны маршруты с пометкой …», а не «по вашим»;
- *   • заменяемый день открыт, а загрузка отказала — плашка дня не пустая:
- *     «Точек нет — маршруты не загрузились» («Повторить» — в своей плашке);
+ *   • «маршрутов нет» называет, ЧТО искали — подписями плиток анкеты; без
+ *     выбора интересов — какие маршруты показаны, а не «по вашим»;
+ *   • заменяемый день открыт, а загрузка отказала — плашка дня не пустая
+ *     («Повторить» — одна, в плашке отказа);
  *   • открыт день, который не заменяют, — точки остаются в цветах зон, и
  *     легенда остаётся, свёрнутой;
  *   • «что нажать» при замене — те же слова, что на кнопке карточки точки.
+ *
+ * Пятый круг (22.10):
+ *   • плитки мест ищут маршрут по месту пути (lib/planner/bg-routes), и
+ *     служебных «вид маршрута», «пометка» в словах больше нет: искали —
+ *     «маршруты с точкой на карте» по подписи плитки; что делать — только
+ *     когда на карте пусто («Добавьте занятие или место в шаге «Что
+ *     интересно»»);
+ *   • в плашке дня при отказе — следствие, а не второй раз отказ: «Заменить
+ *     день можно, когда точки загрузятся — «Повторить» ниже»;
+ *   • предупреждение «часть не загрузилась» стоит над легендой, а пока на
+ *     телефоне открыта карточка точки, легенда свёрнута: на 375×667
+ *     карточка закрывала и предупреждение, и низ легенды;
+ *   • на компьютере легенда у незаменяемого дня сама не сворачивается — то
+ *     же правило широкого экрана, что при появлении плана.
  */
 
-import { useEffect, useId, useRef, useState, type Ref } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type Ref } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Loader, RotateCw, X } from 'lucide-react';
 import type { LegendEntry } from '@/lib/planner/map-markers';
 import { asPlannerZone, planDayHex, zoneName, ZONE_OUTSIDE } from '@/lib/planner/zone-style';
@@ -67,7 +78,9 @@ export const MAP_TEXT = {
   retry: 'Повторить',
   // Каталог ответил, а спрошенных видов нет вовсе — подписей нечего назвать.
   emptyBare: 'Маршрутов с точкой на карте нет.',
-  chooseInterests: 'Выберите интересы.',
+  // Что делать, когда на карте пусто, — слова шага анкеты.
+  chooseInterests: 'Выберите интересы в шаге «Что интересно».',
+  addInterest: 'Добавьте занятие или место в шаге «Что интересно».',
   partial: 'Часть маршрутов не загрузилась.',
   legendTitle: 'Маршруты по зонам',
   days: 'Дни вашего плана. Нажмите кружок — день откроется в плане.',
@@ -76,8 +89,9 @@ export const MAP_TEXT = {
   hintPlan: 'Нажмите точку — её можно добавить в план новым днём или поставить вместо дня.',
   // Открыт день, который не заменяют: карточка точки предлагает только «Добавить в план».
   hintAddOnly: 'Нажмите точку — её можно добавить в план новым днём.',
-  // Заменяемый день открыт, а маршруты не загрузились: «Повторить» — в плашке отказа.
-  editFailed: 'Точек нет — маршруты не загрузились.',
+  // Заменяемый день открыт, а маршруты не загрузились. Сам отказ и
+  // «Повторить» — в плашке отказа ниже; здесь — что это значит для дня.
+  editFailed: 'Заменить день можно, когда точки загрузятся — «Повторить» ниже.',
   editColors: 'Яркие — та же зона, что у дня; серые — другая зона или зона не записана.',
   // Без «под ваши интересы»: интересы могли быть и не выбраны (точки по умолчанию).
   editNoSameZone: 'В зоне этого дня точек на карте нет — все точки серые. Поставить можно любую.',
@@ -99,17 +113,17 @@ export function editActionText(n: number): string {
 const quoted = (labels: readonly string[]) => labels.map(l => `«${l}»`).join(', ');
 
 /**
- * Каталог ответил пусто по этим видам. Точки ищутся по виду МАРШРУТА, и
- * плитка места («Вулканы») такой пометкой у маршрутов не бывает — говорим,
- * что искали, а не «маршрутов нет»: маршруты на вулканы есть.
+ * Каталог ответил пусто по этим интересам — называем, что искали, подписями
+ * плиток анкеты. Ищутся маршруты с координатами, поэтому «с точкой на
+ * карте»: маршрут без координат может быть, а на карте его нет.
  */
 export function emptyKindsText(labels: readonly string[]): string {
-  return `Точки ищутся по виду маршрута; маршрутов с пометкой ${quoted(labels)} нет.`;
+  return `Маршрутов с точкой на карте не нашли: ${quoted(labels)}.`;
 }
 
 /** Интересы не выбраны — показаны маршруты по умолчанию, и это сказано. */
 export function byDefaultText(labels: readonly string[]): string {
-  return `Показаны маршруты с пометкой ${quoted(labels)} — выберите интересы.`;
+  return `Интересы не выбраны — на карте маршруты: ${quoted(labels)}. Свои — в шаге «Что интересно».`;
 }
 
 /** Что карта искала (lib/planner/bg-routes) — подписями плиток. */
@@ -124,10 +138,10 @@ export interface PlannerMapSearch {
 
 const NO_SEARCH: PlannerMapSearch = { byDefault: false, shown: [], empty: [] };
 
-/** Плашка «пусто»: что искали и, без выбора, что сделать. */
+/** Плашка «пусто» (на карте ничего): что искали и что сделать. */
 export function emptyText(search: PlannerMapSearch): string {
   const what = search.empty.length > 0 ? emptyKindsText(search.empty) : MAP_TEXT.emptyBare;
-  return search.byDefault ? `${what} ${MAP_TEXT.chooseInterests}` : what;
+  return `${what} ${search.byDefault ? MAP_TEXT.chooseInterests : MAP_TEXT.addInterest}`;
 }
 
 /** «Замена дня 2» — одно слово на плашке карты и на полосе над вкладками. */
@@ -152,12 +166,12 @@ function DaySwatch({ n, size = 'sm' }: { n: number; size?: 'sm' | 'md' }) {
   );
 }
 
-function RetryButton({ onRetry }: { onRetry: () => void }) {
+function RetryButton({ onRetry, inline = false }: { onRetry: () => void; inline?: boolean }) {
   return (
     <button
       type="button"
       onClick={onRetry}
-      className="pointer-events-auto mt-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-[var(--warning)] text-[var(--bg-primary)] transition-opacity duration-200 hover:opacity-90"
+      className={`pointer-events-auto ${inline ? 'shrink-0' : 'mt-2'} inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-[var(--warning)] text-[var(--bg-primary)] transition-opacity duration-200 hover:opacity-90`}
     >
       <RotateCw className="w-3.5 h-3.5" aria-hidden />
       {MAP_TEXT.retry}
@@ -165,15 +179,34 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+const WIDE_QUERY = '(min-width: 1024px)';
+
 /** Широкий экран (компьютер): легенда там не закрывает карту и сама не сворачивается. */
 function isWideScreen(): boolean {
   try {
     return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      && window.matchMedia('(min-width: 1024px)').matches;
+      && window.matchMedia(WIDE_QUERY).matches;
   } catch (err) {
     console.error('[planner-map] matchMedia недоступен', err);
     return false;
   }
+}
+
+function subscribeWide(onChange: () => void): () => void {
+  try {
+    const mql = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(WIDE_QUERY) : null;
+    mql?.addEventListener?.('change', onChange);
+    return () => mql?.removeEventListener?.('change', onChange);
+  } catch (err) {
+    console.error('[planner-map] подписка на ширину экрана не удалась', err);
+    return () => {};
+  }
+}
+
+/** Широкий экран — с подпиской: повернули планшет — правило сменилось. */
+function useWideScreen(): boolean {
+  return useSyncExternalStore(subscribeWide, isWideScreen, () => false);
 }
 
 export interface PlannerMapEditing {
@@ -199,7 +232,8 @@ function editColorsText(editing: PlannerMapEditing): string {
 }
 
 export function PlannerMapOverlay({
-  status, refreshing = false, legend, total, partial, hasPlan, editing, search = NO_SEARCH, onRetry, onStopEditing, panelRef,
+  status, refreshing = false, legend, total, partial, hasPlan, editing, search = NO_SEARCH, cardOpen = false,
+  onRetry, onStopEditing, panelRef,
 }: {
   status: PlannerMapStatus;
   /** Идёт перезагрузка, а на карте ещё прежние точки. */
@@ -212,6 +246,8 @@ export function PlannerMapOverlay({
   editing: PlannerMapEditing | null;
   /** Что искали — для «пусто» и строки о видах без маршрутов. */
   search?: PlannerMapSearch;
+  /** Открыта карточка точки: на телефоне она встаёт под колонку плашек. */
+  cardOpen?: boolean;
   onRetry: () => void;
   onStopEditing: () => void;
   /** Колонка плашек — карта оставляет её низ над точками при подгонке вида. */
@@ -220,6 +256,7 @@ export function PlannerMapOverlay({
   // Свернуть можно: на телефоне развёрнутая легенда закрывает север края.
   // По умолчанию развёрнута — человек сначала должен прочитать, что на карте.
   const [collapsed, setCollapsed] = useState(false);
+  const wide = useWideScreen();
   // План появился — на телефоне легенда сворачивается сама, один раз: дальше
   // решает человек.
   const hadPlan = useRef(hasPlan);
@@ -227,26 +264,44 @@ export function PlannerMapOverlay({
     if (hasPlan && !hadPlan.current && !isWideScreen()) setCollapsed(true);
     hadPlan.current = hasPlan;
   }, [hasPlan]);
+  // Карточка точки на телефоне встаёт под колонку плашек (на 375×667 она
+  // закрывала предупреждение и низ легенды): пока она открыта, легенда
+  // свёрнута. Развернуть можно — до закрытия карточки; закрыл — легенда
+  // снова такая, какой была.
+  const squeezed = cardOpen && !wide;
+  const [openWithCard, setOpenWithCard] = useState(false);
+  const [cardSeen, setCardSeen] = useState(cardOpen);
+  if (cardSeen !== cardOpen) {
+    setCardSeen(cardOpen);
+    setOpenWithCard(false);
+  }
   const detailsId = useId();
   const replaceable = editing !== null && editing.refusal === null;
   // Открыт день, который не заменяют: точки на карте остаются в цветах зон,
-  // и легенда остаётся — свёрнутой, чтобы не спорить с плашкой дня.
-  // Развернуть можно; выбор помнится для этого дня, а не навсегда.
+  // и легенда остаётся — на телефоне свёрнутой, чтобы не спорить с плашкой
+  // дня (на компьютере место есть, и она сама не сворачивается — то же
+  // правило, что при появлении плана). Развернуть можно; выбор помнится
+  // для этого дня, а не навсегда.
   const fixedDay = editing !== null && editing.refusal !== null ? editing.number : null;
+  const foldForDay = fixedDay !== null && !wide;
   const [legendOpenForDay, setLegendOpenForDay] = useState<number | null>(null);
   const showLegend = status === 'ok' && (!editing || fixedDay !== null);
   const showDays = hasPlan && !editing;
-  const legendCollapsed = fixedDay !== null ? legendOpenForDay !== fixedDay : collapsed;
+  const legendCollapsed = squeezed
+    ? !openWithCard
+    : foldForDay ? legendOpenForDay !== fixedDay : collapsed;
   const open = !showLegend || !legendCollapsed;
   const toggleLegend = () => {
-    if (fixedDay !== null) setLegendOpenForDay(d => (d === fixedDay ? null : fixedDay));
+    if (squeezed) setOpenWithCard(o => !o);
+    else if (foldForDay) setLegendOpenForDay(d => (d === fixedDay ? null : fixedDay));
     else setCollapsed(c => !c);
   };
   // При замене дня «нажмите точку» — только когда точки есть. Нет точек —
   // плашка замены говорит, почему, вместо второй плашки поверх карты.
   const editingInline = editing && (status === 'loading' || status === 'empty');
-  // Что показано и чего нет — строкой в легенде: без выбора — «показаны
-  // маршруты с пометкой …», с выбором — по каким видам маршрутов нет.
+  // Что показано и чего нет — строкой в легенде: без выбора — какие
+  // маршруты показаны, с выбором — по каким интересам маршрутов не нашли.
+  // Что делать — только в плашке «пусто»: здесь точки на карте есть.
   const searchLine = search.byDefault
     ? (search.shown.length > 0 ? byDefaultText(search.shown) : null)
     : (search.empty.length > 0 ? emptyKindsText(search.empty) : null);
@@ -329,6 +384,18 @@ export function PlannerMapOverlay({
         </div>
       )}
 
+      {/* Часть интересов не ответила — отдельно от легенды и НАД ней:
+          свёрнутая легенда, замена дня и карточка точки на телефоне это
+          предупреждение не прячут. Кнопка — в строку с текстом: плашка
+          низкая, и на 375×667 при замене дня она целиком над карточкой. */}
+      {status === 'ok' && partial && (
+        <div role="status" className={`${GLASS} pointer-events-auto flex items-center gap-2`} style={WARN_EDGE}>
+          <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--warning)]" aria-hidden />
+          <p className="flex-1 min-w-0 text-xs leading-snug">{MAP_TEXT.partial}</p>
+          <RetryButton onRetry={onRetry} inline />
+        </div>
+      )}
+
       {(showLegend || showDays) && (
         <div className={GLASS} aria-live="polite">
           {showLegend && (
@@ -379,17 +446,6 @@ export function PlannerMapOverlay({
         </div>
       )}
 
-      {/* Часть интересов не ответила — отдельно от легенды: свёрнутая легенда
-          и замена дня это предупреждение не прячут. */}
-      {status === 'ok' && partial && (
-        <div role="status" className={`${GLASS} pointer-events-auto flex items-start gap-2`} style={WARN_EDGE}>
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--warning)]" aria-hidden />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs leading-snug">{MAP_TEXT.partial}</p>
-            <RetryButton onRetry={onRetry} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

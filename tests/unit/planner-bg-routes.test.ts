@@ -5,9 +5,18 @@
  * отказ каталога в «маршрутов нет», и карта молча пустела. А ответ
  * приводился к своей форме вслепую: каталог отдаёт camelCase и (теперь) зону,
  * экран ждал snake_case — и вид маршрута, и зона были пустыми всегда.
+ *
+ * Пятый круг (22.10): плитки мест ищут маршрут по месту ПУТИ (`place_type`
+ * каталога), занятия — по виду маршрута; виды мест — из словаря мест и
+ * проходят схему входа каталога; по умолчанию спрашивается только то, что
+ * даёт точки.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { loadBackgroundRoutes, toPlannerRoute } from '@/lib/planner/bg-routes';
+import {
+  BG_DEFAULT_TYPES, PLACE_TILE_LOCATION_TYPES, bgRoutesUrl, loadBackgroundRoutes, toPlannerRoute,
+} from '@/lib/planner/bg-routes';
+import { CatalogQuerySchema } from '@/lib/routes/catalog-query';
+import { LOCATION_TYPES } from '@/lib/places/location-types';
 
 type Reply = { ok: boolean; status: number; body?: unknown; throws?: boolean };
 
@@ -15,7 +24,9 @@ function fakeFetch(byType: Record<string, Reply>) {
   const calls: string[] = [];
   const impl = async (url: string) => {
     calls.push(url);
-    const type = new URL(url, 'http://x').searchParams.get('activity_type') ?? '';
+    // Плитка занятия — по виду маршрута, плитка места — по виду места пути.
+    const sp = new URL(url, 'http://x').searchParams;
+    const type = sp.get('activity_type') ?? sp.get('place_type') ?? '';
     const r = byType[type];
     if (!r || r.throws) throw new TypeError('Failed to fetch');
     return { ok: r.ok, status: r.status, json: async () => r.body } as Response;
@@ -143,5 +154,43 @@ describe('разбор ответа каталога', () => {
     expect(toPlannerRoute(item('a', { lat: null }))).toBeNull();
     expect(toPlannerRoute(item('', {}))).toBeNull();
     expect(toPlannerRoute(null)).toBeNull();
+  });
+});
+
+describe('что спрашивается у каталога', () => {
+  const params = (url: string) => new URL(url, 'http://x').searchParams;
+
+  it('плитка места — по месту пути (place_type), занятие — по виду маршрута; оба с координатами', async () => {
+    const { impl, calls } = fakeFetch({});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await loadBackgroundRoutes(['volcano', 'hot_spring', 'sea', 'trekking'], impl);
+    const byKey = new Map(calls.map(u => [params(u).get('activity_type') ?? params(u).get('place_type'), params(u)]));
+    expect(byKey.get('volcano')?.get('activity_type')).toBeNull();
+    expect(byKey.get('volcano')?.get('place_type')).toBe('volcano');
+    expect(byKey.get('hot_spring,thermal')?.get('place_type')).toBe('hot_spring,thermal');
+    expect(byKey.get('bay,cape,beach')?.get('activity_type')).toBeNull();
+    expect(byKey.get('trekking')?.get('place_type')).toBeNull();
+    for (const p of byKey.values()) expect(p.get('hasCoords')).toBe('true');
+  });
+
+  it('виды мест плиток — из словаря мест (без выдуманных) и проходят схему входа каталога', () => {
+    for (const [tile, types] of Object.entries(PLACE_TILE_LOCATION_TYPES)) {
+      expect(types.length, tile).toBeGreaterThan(0);
+      for (const t of types) expect(Object.keys(LOCATION_TYPES), `${tile}: ${t}`).toContain(t);
+      const sent = params(bgRoutesUrl(tile)).get('place_type');
+      const parsed = CatalogQuerySchema.safeParse({ place_type: sent });
+      expect(parsed.success, tile).toBe(true);
+      if (parsed.success) expect(parsed.data.place_type).toEqual([...types]);
+    }
+  });
+
+  it('по умолчанию — только интересы, что дают точки: треккинг и вулканы, без «Рыбалки»', async () => {
+    const { impl, calls } = fakeFetch({});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await loadBackgroundRoutes(BG_DEFAULT_TYPES, impl);
+    expect(calls.map(u => params(u).toString()).sort()).toEqual([
+      'activity_type=trekking&hasCoords=true&limit=30',
+      'place_type=volcano&hasCoords=true&limit=30',
+    ]);
   });
 });

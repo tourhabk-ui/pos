@@ -818,6 +818,7 @@ export function buildOpenApiDocument(base: string): Json {
           query('near_lng', { type: 'number', minimum: -180, maximum: 180 }, 'Центр радиуса'),
           query('radius_km', { type: 'number', minimum: 1, maximum: 1000 }, 'Радиус'),
           query('has_waypoints', { type: 'string', enum: ['true'] }, 'Только маршруты с двумя и более путевыми точками'),
+          query('place_type', { type: 'string', maxLength: 200, pattern: '^[a-z_]{1,40}(,[a-z_]{1,40}){0,7}$' }, 'Только маршруты, чей путь проходит через место этого вида (location_type, до 8 через запятую); места «рядом с маршрутом» не считаются'),
           query('brief', { type: 'string', enum: ['1'] }, 'Описание первой строкой до 200 знаков'),
         ],
         responses: {
