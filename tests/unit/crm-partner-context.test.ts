@@ -147,6 +147,23 @@ describe('поиск профиля по человеку — с категор�
     'lib/agents/agencies/guide-agency.ts': 'агентство гида; категория guide на проде не сверена',
   };
 
+  // Счёт ВСЕХ карточек человека (SELECT count(*) FROM partners WHERE
+  // user_id = $1) и проверка, есть ли среди них хоть одна (EXISTS (SELECT 1
+  // FROM partners …)), — не выбор одного профиля: путать категории им нечем, а
+  // фильтр по категории как раз солгал бы — удаление аккаунта
+  // (lib/account/erase.ts) сказало бы «стёрты» при карточке другой категории
+  // или пропустило бы владельца партнёра с живыми турами. Каждое вхождение
+  // судится отдельно: ни EXISTS, ни счёт в том же запросе не прикрывают
+  // соседний выбор одного профиля — у счёта прощается только его собственный
+  // FROM, а не вложенный `(SELECT id FROM partners WHERE user_id = $1 LIMIT 1)`.
+  const LOOKUP = /(EXISTS\s*\(\s*SELECT\s+1\s+)?FROM\s+partners\b(?:\s+\w+)?\s+WHERE\s+(?:\w+\.)?user_id\s*=\s*\$1/gi;
+  const COUNT_OWN_FROM = /^\s*SELECT\s+count\(\*\)(?:::\w+)?(?:\s+AS\s+\w+)?\s*$/i;
+  function isLookupWithoutCategory(sql: string): boolean {
+    return [...sql.matchAll(LOOKUP)]
+      .some((m) => m[1] === undefined && !COUNT_OWN_FROM.test(sql.slice(0, m.index)))
+      && !sql.includes('category');
+  }
+
   async function lookupsWithoutCategory(): Promise<string[]> {
     const { execSync } = await import('node:child_process');
     const { readFileSync } = await import('node:fs');
@@ -156,12 +173,27 @@ describe('поиск профиля по человеку — с категор�
     const out: string[] = [];
     for (const f of files) {
       const src = readFileSync(f, 'utf-8');
-      const hit = [...src.matchAll(/`([^`]*)`/g)].some(([, sql]) =>
-        /FROM\s+partners\b(?:\s+\w+)?\s+WHERE\s+(?:\w+\.)?user_id\s*=\s*\$1/.test(sql) && !sql.includes('category'));
-      if (hit) out.push(f);
+      if ([...src.matchAll(/`([^`]*)`/g)].some(([, sql]) => isLookupWithoutCategory(sql))) out.push(f);
     }
     return out.sort();
   }
+
+  it('счёт и EXISTS по всем карточкам человека — не выбор профиля; выбор одного профиля внутри них — выбор', () => {
+    expect(isLookupWithoutCategory('SELECT count(*)::int AS n FROM partners WHERE user_id = $1')).toBe(false);
+    expect(isLookupWithoutCategory('SELECT EXISTS (SELECT 1 FROM partners p WHERE p.user_id = $1) AS x')).toBe(false);
+    expect(isLookupWithoutCategory('SELECT id FROM partners WHERE user_id = $1 LIMIT 1')).toBe(true);
+    // Ревью круга 10 (#2327): исключение «весь SQL, начинающийся с count(*)»
+    // пропускало вложенный выбор одного профиля без категории.
+    expect(isLookupWithoutCategory(
+      'SELECT count(*)::int AS n FROM operator_tours WHERE operator_id = (SELECT id FROM partners WHERE user_id = $1 LIMIT 1)',
+    )).toBe(true);
+    expect(isLookupWithoutCategory(
+      'SELECT count(*) FROM partners WHERE user_id = $1 AND id <> (SELECT id FROM partners WHERE user_id = $1 LIMIT 1)',
+    )).toBe(true);
+    expect(isLookupWithoutCategory(
+      'SELECT EXISTS (SELECT 1 FROM partners WHERE user_id = $1) OR (SELECT id FROM partners WHERE user_id = $1 LIMIT 1) IS NULL',
+    )).toBe(true);
+  });
 
   it('новый поиск профиля без категории — красный', async () => {
     const added = (await lookupsWithoutCategory()).filter((f) => !(f in KNOWN_WITHOUT_CATEGORY));

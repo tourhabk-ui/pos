@@ -4,7 +4,9 @@
  * Карточка клиента (CRM #2325): как связаться, что о нём записано, откуда он
  * пришёл. Партнёр правит только имя, заметку и метки — телефон, почта и
  * согласие приходят из источников и руками не переписываются. Администратор
- * видит карточку любого партнёра с его именем и ничего не правит.
+ * видит карточку любого партнёра с его именем и записей партнёра не правит;
+ * его единственное действие — стереть карточку по обращению человека
+ * (152-ФЗ, EraseOnRequest).
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -19,6 +21,8 @@ import { DETAILS_MAX, TITLE_MAX, TOUCH_KINDS, type EventKind, type TouchKind } f
 import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { CRM_API, type CrmMode } from './api';
 import { TaskList } from './TaskList';
+import { EraseOnRequest } from './EraseOnRequest';
+import { ERASED_NAME } from '@/lib/account/erased-name';
 import {
   SOURCE_KIND_LABELS, EVENT_KIND_LABELS, ACTOR_KIND_LABELS,
   statusLabel, formatSourceDate, formatMoment, formatMomentTime, partnerCategoryLabel,
@@ -44,7 +48,7 @@ type CardState =
 
 interface Props {
   contactId: string;
-  /** admin — карточка любого партнёра, только просмотр. */
+  /** admin — карточка любого партнёра: просмотр и стирание по обращению человека. */
   mode?: CrmMode;
   onClose: () => void;
   /** Что-то сохранено — список обновит строку. */
@@ -75,6 +79,8 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
   const [touchKind, setTouchKind] = useState<TouchKind>('note');
   const [touchTitle, setTouchTitle] = useState('');
   const [touchDetails, setTouchDetails] = useState('');
+  /** Перечитать карточку (после стирания по обращению). */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useModalDialog(dialogRef, onClose, () => !saving);
 
@@ -98,7 +104,7 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
         if (!ctrl.signal.aborted) setState({ kind: 'error', message: 'Нет связи с сервером — карточка не загружена' });
       });
     return () => ctrl.abort();
-  }, [contactId, mode]);
+  }, [contactId, mode, reloadKey]);
 
   async function save(patch: { display_name?: string; notes?: string | null; tags?: string[] }): Promise<boolean> {
     if (readOnly) return false;
@@ -466,7 +472,13 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
                           {[from && (to && to !== from ? `${from} — ${to}` : from), s.people !== null && `${s.people} чел.`, status]
                             .filter(Boolean).join(' · ')}
                         </p>
-                        {s.person_name && s.person_name !== card.display_name && (
+                        {/* Клиент карточки стёрт (удаление аккаунта или обращение,
+                            lib/account/erase.ts) — источник не подписывается
+                            именем из своей строки: иначе стёртое имя вернулось
+                            бы в карточку подписью «Записан как». Сама заявка
+                            с этим именем остаётся у партнёра, и экран
+                            администратора говорит это (EraseOnRequest). */}
+                        {card.display_name !== ERASED_NAME && s.person_name && s.person_name !== card.display_name && (
                           <p className="text-[var(--text-muted)]">Записан как «{s.person_name}»</p>
                         )}
                       </li>
@@ -475,6 +487,10 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
                 </ul>
               )}
             </section>
+
+            {readOnly && (
+              <EraseOnRequest contactId={contactId} onErased={() => { setReloadKey((k) => k + 1); onChanged(); }} />
+            )}
           </>
         )}
       </div>

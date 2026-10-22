@@ -447,6 +447,14 @@ describe('ответ оператора', () => {
     expect(reserveMock.mock.calls[0]![0]).toMatchObject({
       tourId: 7, participants: 2, date: '2099-07-10', createdVia: 'seat_request', referralCode: 'KH-AGT-ABCDEF',
     });
+    // Бронь из запроса мест к аккаунту не привязана (userId нет). Удаление
+    // аккаунта (lib/account/erase.ts) находит её третьей дорогой HIS_BOOKINGS —
+    // через запрос, подключённый к его Telegram (HIS_SEAT_REQUEST; сам запрос
+    // стирает шаг tour_seat_requests), — а запрос без такой связи называет
+    // человеку непривязанным (ERASE_UNLINKED.seat_requests). Появится userId —
+    // бронь найдёт и первая дорога (user_id), и ERASE_UNLINKED.seat_requests
+    // надо будет пересмотреть (#2327).
+    expect((reserveMock.mock.calls[0]![0] as { userId?: unknown }).userId ?? null).toBeNull();
     expect(confirmMock).toHaveBeenCalledWith('42', null, expect.any(String), 'partner_user');
     // Оператор подтвердил бронь — и узнаёт контакты туриста обычным уведомлением.
     expect(notifyOpMock).toHaveBeenCalledTimes(1);

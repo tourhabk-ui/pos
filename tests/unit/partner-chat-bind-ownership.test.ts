@@ -34,6 +34,9 @@ const CHAT_WRITERS: Readonly<Record<string, string>> = {
     '/start link_ — токен HMAC, выданный вошедшему пользователю (/api/telegram/connect, requireAuth); пишется по его user_id',
   'app/api/auth/telegram/route.ts':
     'вход через Telegram Login Widget с проверкой подписи Telegram; пишется по user_id вошедшего',
+  'lib/account/erase.ts':
+    'удаление аккаунта самим владельцем карточки (POST /api/user/delete, requireAuth, строка партнёра по его user_id): '
+    + 'адрес только снимается (NULL), и только равный его id в Telegram или MAX или его диалогу MAX; нового не назначает (#2327)',
 };
 
 function walk(dir: string): string[] {

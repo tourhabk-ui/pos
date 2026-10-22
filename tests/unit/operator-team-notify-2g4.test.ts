@@ -225,7 +225,10 @@ describe('адрес менеджера: кто пишет и кто стира�
         return /operator_members/.test(src) && /(?:max_chat_id|telegram_chat_id)\s*=\s*(?:\$\d|NULL)/.test(src);
       })
       .sort();
-    expect(writers).toEqual(['lib/operators/member-channel.ts', 'lib/operators/team.ts']);
+    // lib/account/erase.ts — то же снятие: удалённый аккаунт снимается с
+    // команды, и его адрес стирается (152-ФЗ, #2327); иначе рассылка с ПД
+    // туристов шла бы в мессенджер человека, удалившего аккаунт.
+    expect(writers).toEqual(['lib/account/erase.ts', 'lib/operators/member-channel.ts', 'lib/operators/team.ts']);
   });
 
   it('снятие из команды стирает адрес тем же запросом, что ставит revoked', async () => {

@@ -54,6 +54,7 @@ vi.mock('@/lib/kuzmich/core', () => ({
 }));
 
 import { POST } from '@/app/api/ai/chat-stream/route';
+import { SAVE_CHAT_SESSION_SQL } from '@/lib/kuzmich/chat-session-save';
 
 function postReq(body: unknown): NextRequest {
   return new Request('http://localhost/api/ai/chat-stream', {
@@ -163,5 +164,19 @@ describe('POST /api/ai/chat-stream — чужая сессия', () => {
     await readSSE(await POST(postReq({ message: 'Продолжим', sessionId: 'sess-anon' })));
     expect(historySent()).toContain('ЧУЖАЯ ПЕРЕПИСКА');
     expect(savedSession()).toBe(true);
+  });
+
+  it('ничья сессия, продолженная после входа: запись — общим запросом с хозяином, id вошедшего (#2327)', async () => {
+    // Хозяина на конфликте записывает SAVE_CHAT_SESSION_SQL — это доказано на
+    // настоящей базе (tourist-cabinet.pg.test.ts); здесь — что стрим пишет
+    // именно им и передаёт вошедшего, а не свой запрос без хозяина.
+    sessionOf(null);
+    getUserMock.mockResolvedValue({ userId: 'user-new', role: 'tourist' });
+    aiChatAgentLoopMock.mockResolvedValue('Ответ');
+    await readSSE(await POST(postReq({ message: 'я Иван, +79991234567', sessionId: 'sess-anon' })));
+    const save = queryMock.mock.calls.find(([sql]) => /INSERT INTO chat_sessions/.test(String(sql)));
+    expect(save?.[0]).toBe(SAVE_CHAT_SESSION_SQL);
+    expect((save?.[1] as unknown[])[0]).toBe('sess-anon');
+    expect((save?.[1] as unknown[])[1]).toBe('user-new');
   });
 });

@@ -113,7 +113,7 @@ describe('экран CRM по правилам дизайн-системы', () 
     // А fetch зовёт только через CRM_API / CRM_TASKS_API — своего адреса мимо карты нет.
     const fetches = files.flatMap((f) => [...read(f).matchAll(/fetch\(\s*([^,)]+)/g)].map((m) => `${f}: ${m[1]}`));
     expect(fetches.length).toBeGreaterThan(0);
-    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.partner(?!\w))|CRM_TASKS_API(?!\w)|CRM_EXPORT_API(?!\w)|CRM_INBOX_API(?!\w)|CRM_KEYS_API(?!\w)|CRM_SEAT_ANSWER_API(?!\w))/);
+    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.(partner|admin)(?!\w))|CRM_TASKS_API(?!\w)|CRM_EXPORT_API(?!\w)|CRM_INBOX_API(?!\w)|CRM_KEYS_API(?!\w)|CRM_SEAT_ANSWER_API(?!\w))/);
     // Выгрузка — только партнёрская: у администратора кнопки нет.
     expect(read('components/crm/ContactsScreen.tsx')).toMatch(/\{!isAdmin && \(\s*<div className="flex items-center gap-2">\s*<button\s+type="button"\s+onClick=\{\(\) => void exportCsv\(\)\}/);
     // Задачи — только партнёрские: администратору адреса задач экран не даёт.

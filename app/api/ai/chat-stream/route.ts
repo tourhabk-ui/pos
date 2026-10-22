@@ -42,6 +42,7 @@ import {
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
 import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
+import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
@@ -107,6 +108,8 @@ async function loadSession(sessionId: string): Promise<SessionRow | null> {
   }
 }
 
+// Запись — одна на оба входа чата (lib/kuzmich/chat-session-save): там же
+// хозяин ничьей сессии, продолженной после входа (#2327).
 async function saveSession(
   sessionId: string,
   userId: string | null,
@@ -116,24 +119,7 @@ async function saveSession(
   isAuthenticated: boolean,
   interestsEncrypted: string | null,
 ): Promise<void> {
-  if (!sessionId) return;
-  const trimmed = messages.slice(-20);
-  try {
-    await query(
-      `INSERT INTO chat_sessions (session_id, user_id, role, messages, user_message_count, is_authenticated, interests_encrypted, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, NOW())
-       ON CONFLICT (session_id) DO UPDATE
-         SET messages = $4::jsonb,
-             user_message_count = $5,
-             is_authenticated = $6,
-             interests_encrypted = COALESCE($7, chat_sessions.interests_encrypted),
-             updated_at = NOW(),
-             role = $3`,
-      [sessionId, userId, role, JSON.stringify(trimmed), userMessageCount, isAuthenticated, interestsEncrypted],
-    );
-  } catch {
-    // Non-critical
-  }
+  await saveChatSession({ sessionId, userId, role, messages, userMessageCount, isAuthenticated, interestsEncrypted });
 }
 
 async function streamViaOpenRouter(messages: ChatMessage[]): Promise<Response | null> {

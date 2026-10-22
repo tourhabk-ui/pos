@@ -18,6 +18,9 @@ export default function DeleteAccount() {
   const [phrase, setPhrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ответ сервера о том, что стёрто и что осталось (lib/account/erase.ts,
+  // erasureMessage). Показывается человеку, а не теряется за переходом.
+  const [done, setDone] = useState<string | null>(null);
 
   async function submit() {
     if (!mode) return;
@@ -30,13 +33,13 @@ export default function DeleteAccount() {
         credentials: 'include',
         body: JSON.stringify({ confirm: true, phrase, mode }),
       });
-      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string; message?: string };
       if (!res.ok || !json.success) {
         setError(json.error ?? 'Не удалось удалить аккаунт. Попробуйте позже.');
         return;
       }
       try { localStorage.removeItem('user'); } catch (err) { logSwallowedFailure('delete-account', 'очистка localStorage', err); }
-      window.location.href = '/?account=deleted';
+      setDone(json.message ?? 'Аккаунт удалён.');
     } catch {
       setError('Нет связи с сервером. Попробуйте позже.');
     } finally {
@@ -59,11 +62,23 @@ export default function DeleteAccount() {
         Вы можете отозвать согласие на обработку персональных данных или удалить аккаунт
         (152-ФЗ). Без согласия аккаунт работать не может, поэтому в обоих случаях имя, почта,
         телефон, привязки Telegram и MAX и экстренный контакт стираются сразу. Прошедшие заявки
-        и отзывы остаются у операторов без ваших данных.{' '}
+        и отзывы остаются у операторов без ваших данных. Если что-то хранится и после удаления
+        (например, карточка партнёра и её чат, если он не ваш, учёт денег или карточка клиента у
+        партнёра, где кроме ваших заявок есть чужие или его записи), мы назовём это сразу после удаления.{' '}
         <Link href="/legal/privacy" className="underline">Политика конфиденциальности</Link>
       </p>
 
-      {!mode ? (
+      {done ? (
+        <div className="space-y-3">
+          <p role="status" className="text-sm text-[var(--text-primary)]">{done}</p>
+          {/* Полная перезагрузка, а не переход внутри приложения: шапка и
+              кабинет не должны держать вход, которого уже нет. */}
+          <button type="button" onClick={() => { window.location.href = '/'; }}
+            className="ds-btn ds-btn-secondary min-h-[44px] px-5">
+            На главную
+          </button>
+        </div>
+      ) : !mode ? (
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={() => setMode('revoke_consent')}
             className="ds-btn ds-btn-secondary min-h-[44px] px-5">
