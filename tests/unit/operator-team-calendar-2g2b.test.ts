@@ -172,7 +172,9 @@ describe('массовое открытие дат', () => {
     const res = await post({});
     expect(res.status).toBe(200);
     const [sql, params] = upsertCall()!;
-    expect(sql).toMatch(/CASE WHEN \$5::boolean THEN EXCLUDED\.base_price_override\s+ELSE tour_availability\.base_price_override END/);
+    // Цена даты меняется только с правом ($5) и только ПЕРЕДАННАЯ (не NULL):
+    // поведение — tests/integration/tour-dates-open.pg.test.ts.
+    expect(sql).toMatch(/CASE WHEN \$5::boolean AND EXCLUDED\.base_price_override IS NOT NULL\s+THEN EXCLUDED\.base_price_override ELSE tour_availability\.base_price_override END/);
     expect(params[4]).toBe(false);
     // Тур сверяется с кабинетом владельца, а не с аккаунтом менеджера, — тем же
     // запросом, что берёт блокировку тура.
@@ -193,6 +195,10 @@ describe('массовое открытие дат', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toMatchObject({ opened: 2, reopened: 1, updated: 0, skipped: 0, refused: [{ date: '2020-01-02', taken: 9 }], total: 3 });
+    // Открытая снова — поимённо и с причиной: она снимается при открытии, и
+    // панель называет её отдельной строкой.
+    expect(body.data.reopenedDates).toEqual([{ date: '2020-01-01', reason: 'Шторм' }]);
+    expect(body.message).toMatch(/из них открыто снова 1 — были закрыты или сняты/);
     expect(body.message).toMatch(/не открыто 1: уже записано больше мест/);
     // В базу ушли только разрешённые даты.
     expect(upsertCall()![1][1]).toEqual(['2020-01-01', '2020-01-03']);
@@ -206,6 +212,10 @@ describe('массовое открытие дат', () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toMatch(/Тур «Тур» скрыт/);
+    // Включение тура даты само не открывает — текст велит открыть их снова, а
+    // не обещает, что «тогда даты откроются».
+    expect(body.error).toMatch(/и откройте даты ещё раз/);
+    expect(body.error).not.toMatch(/тогда даты откроются/);
     expect(body.error).not.toMatch(/не найден/);
     expect(upsertCall()).toBeUndefined();
     expect(query.mock.calls.map(([s]) => s)).toContain('ROLLBACK');
@@ -343,7 +353,7 @@ describe('даты тура (роут 2г-1): та же дыра со сброс
     // Цена даты без права не трогается: условие на флаге права. Поведение на
     // настоящем PostgreSQL — tests/integration/tour-dates-open.pg.test.ts и
     // tests/integration/tour-availability-batch.pg.test.ts.
-    expect(sql).toMatch(/base_price_override = CASE WHEN \$5::boolean THEN EXCLUDED\.base_price_override ELSE tour_availability\.base_price_override END/);
+    expect(sql).toMatch(/base_price_override = CASE WHEN \$5::boolean AND EXCLUDED\.base_price_override IS NOT NULL\s+THEN EXCLUDED\.base_price_override ELSE tour_availability\.base_price_override END/);
     expect(params[4]).toBe(false);
     expect(query.mock.calls.find(([s]) => ownsTour(String(s)))![1]).toEqual(['7', CABINET]);
   });

@@ -20,7 +20,10 @@ import {
   MAX_SLOTS_PER_DATE, datesInRange, isCalendarDate, openTourDates, tourHiddenText,
   type DateOpenKind, type DateOpenResult, type OpenDatesOutcome, type OpenDatesResult,
 } from '@/lib/tours/availability-open';
-import { datesPhraseRefusal, phraseMentionsPrice, type DatesPhraseRefusal } from '@/lib/tours/dates-phrase';
+import {
+  ISO_DATE_IN_PHRASE, dayFilterWord, datesPhraseRefusal, isoDatesInPhrase, phraseMentionsPrice,
+  type DatesPhraseRefusal,
+} from '@/lib/tours/dates-phrase';
 import { longDay, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 
@@ -335,14 +338,23 @@ export class OperatorAgency {
    * выдуманное число (§4.0): помощник открывал даты на десять мест, о которых
    * никто не говорил. Теперь без числа — вопрос, и ничего не пишется.
    *
-   * Сюда фразу ведёт ключ классификатора («слоты на», «открой даты»), а он не
-   * видит, чего просят: «закрой слоты на …» тоже приходит сюда. Фраза с
-   * закрытием, отрицанием или исключением не исполняется — первым делом, до
-   * прав и чисел (lib/tours/dates-phrase).
+   * Сюда фразу ведёт ключ классификатора («слоты на», «новые слоты»), а он не
+   * видит, чего просят: «закрой слоты на …», «заблокируй слоты на …» и вопрос
+   * «есть ли свободные слоты на … для 8 человек?» тоже приходят сюда. Поэтому
+   * первым делом, до прав и чисел (lib/tours/dates-phrase): нужен глагол
+   * открытия, и нет ни закрытия, ни отрицания, ни исключения, ни вопроса.
+   *
+   * Даты — числами ISO. Две даты — диапазон только при явной связке («с … по
+   * …», тире, дефис); «A и B», «A, B» — ровно эти даты; связка не названа —
+   * вопрос. Дни недели («по субботам», «выходные») помощник не разбирает и
+   * отказывает словами: до 22.10 он их молча отбрасывал и открывал каждый день
+   * диапазона (ревью 22.10).
    */
   async addSlots(context: AgentContext, message: string): Promise<AgencyResult> {
     const refusal = datesPhraseRefusal(message);
     if (refusal) return { response: phraseRefusalText(refusal) };
+    const dayWord = dayFilterWord(message);
+    if (dayWord) return { response: dayFilterText(dayWord) };
 
     const cab = await this.cabinet(context.user.userId);
     if ('denied' in cab) return { response: cab.denied };
@@ -350,22 +362,23 @@ export class OperatorAgency {
 
     // Номер тура: «туру 42», «тура 42» и «тур 42» — так дописывает его роут
     // /api/agents/operator из поля «Tour ID» экрана помощника. Два разных
-    // номера — вопрос, а не первый попавшийся.
+    // номера — вопрос, а не первый попавшийся. Год даты («тур 2027-07-05»)
+    // номером тура не считается.
     const tourIds = [...new Set([...message.matchAll(TOUR_ID)].map((m) => m[1]!))];
     if (tourIds.length > 1) {
       return { response: `Назвали несколько туров (${tourIds.join(', ')}) — напишите один. Ничего не открыто.` };
     }
-    const isoDates = [...message.matchAll(ISO_DATE)].map((m) => m[1]!);
-    if (tourIds.length === 0 || isoDates.length === 0 || isoDates.length > 2) {
-      return { response: ADD_SLOTS_HELP };
-    }
+    const found = isoDatesInPhrase(message);
+    if (tourIds.length === 0 || found.kind === 'none') return { response: ADD_SLOTS_HELP };
+    if (found.kind === 'unclear') return { response: unclearDatesText(found.dates) };
 
     const seats = seatsInMessage(message);
     if (seats.kind === 'none') {
+      const example = found.kind === 'range' ? `с ${found.from} по ${found.to}` : found.dates.join(' и ');
       return {
         response:
           'Сколько мест открыть на каждую дату? Напишите команду с числом, например: ' +
-          `"добавь слоты туру ${tourIds[0]} с ${isoDates[0]} по ${isoDates[1] ?? isoDates[0]}, 8 мест". Ничего не открыто.`,
+          `"добавь слоты туру ${tourIds[0]} ${example}, 8 мест". Ничего не открыто.`,
       };
     }
     if (seats.kind === 'two') {
@@ -375,16 +388,20 @@ export class OperatorAgency {
       return { response: `Мест на дату — от 1 до ${MAX_SLOTS_PER_DATE}, а названо ${seats.value}. Ничего не открыто.` };
     }
 
-    const tourId   = parseInt(tourIds[0]!, 10);
-    const dateFrom = isoDates[0]!;
-    const dateTo   = isoDates[1] ?? dateFrom;
-    const slots    = seats.value;
-
-    const notADay = [dateFrom, dateTo].find((d) => !isCalendarDate(d));
+    const tourId = parseInt(tourIds[0]!, 10);
+    const slots  = seats.value;
+    const named  = found.kind === 'range' ? [found.from, found.to] : found.dates;
+    const notADay = named.find((d) => !isCalendarDate(d));
     if (notADay) return { response: `Такой даты нет в календаре: ${notADay}. Ничего не открыто.` };
-    if (dateTo < dateFrom) return { response: 'Некорректный диапазон дат: конец раньше начала.' };
-    const dates = datesInRange(dateFrom, dateTo);
-    if (dates.length === 0) return { response: 'Диапазон дат слишком большой (не больше 366 дней).' };
+    let dates: string[];
+    if (found.kind === 'range') {
+      if (found.to < found.from) return { response: 'Некорректный диапазон дат: конец раньше начала.' };
+      dates = datesInRange(found.from, found.to);
+      if (dates.length === 0) return { response: 'Диапазон дат слишком большой (не больше 366 дней).' };
+    } else {
+      dates = found.dates;
+    }
+    const span = spanText(dates, found.kind === 'range');
 
     // Через ядро Volcano OS (P2, 28.08): владение туром проверяет policy
     // (operatorOwnsTour, capability tour.add_slots) — тот же путь, что у
@@ -404,7 +421,7 @@ export class OperatorAgency {
       principal: { type: 'operator', id: String(partnerId) },
       capability: 'tour.add_slots',
       resource: { type: 'tour', id: String(tourId) },
-      inputHash: hashInput({ partnerId, tourId, dateFrom, dateTo, slots }),
+      inputHash: hashInput({ partnerId, tourId, dates, slots }),
       execute: async () => {
         const r = await openTourDates({
           operatorId: String(partnerId),
@@ -422,7 +439,7 @@ export class OperatorAgency {
         throw new Error(`база не ответила (SQLSTATE ${r.sqlstate ?? 'нет'}) — ничего не открыто`);
       },
       summarize: (r) => {
-        if (r.ok) return `даты тура ${tourId}: записано ${r.written} из ${r.perDate.length} (${dateFrom} — ${dateTo}, ${slots} мест)`;
+        if (r.ok) return `даты тура ${tourId}: записано ${r.written} из ${r.perDate.length} (${span}, ${slots} мест)`;
         return r.reason === 'tour_inactive'
           ? `даты тура ${tourId}: тур скрыт — ничего не открыто`
           : `даты тура ${tourId}: тур не найден среди туров оператора — ничего не открыто`;
@@ -457,17 +474,18 @@ export class OperatorAgency {
     if (journalNote) lines.push(journalNote);
     return {
       response: lines.join('\n'),
-      data: { tourId, dateFrom, dateTo, slots, written: outcome.written, perDate: outcome.perDate },
+      data: { tourId, dateFrom: dates[0], dateTo: dates[dates.length - 1], dates, slots, written: outcome.written, perDate: outcome.perDate },
     };
   }
 }
 
 const CALENDAR_PATH = '/hub/operator/calendar';
 
-/** Номер тура во фразе: «туру 42», «тура 42», «тур 42», «тур № 42». */
-const TOUR_ID = /(?<!\p{L})тур(?:у|а|ам|ом)?\s+(?:№\s*)?(\d+)(?!\d)/giu;
-/** Дата ISO во фразе — целиком, не кусок длинного числа. */
-const ISO_DATE = /(?<![\d.-])(\d{4}-\d{2}-\d{2})(?![\d.])/g;
+/**
+ * Номер тура во фразе: «туру 42», «тура 42», «тур 42», «тур № 42». Число не
+ * должно продолжаться дефисом: «на тур 2027-07-05» — дата, а не тур 2027.
+ */
+const TOUR_ID = /(?<!\p{L})тур(?:у|а|ам|ом)?\s+(?:№\s*)?(\d+)(?![\d-])/giu;
 /** Число мест во фразе (см. seatsInMessage). */
 const SEATS = /(?<![\d.,-])(\d+)(?![\d.,])\s*(?:мест|чел)\p{L}*/giu;
 
@@ -477,7 +495,7 @@ const PRICE_NOT_SET =
 
 /** Фраза без разобранного: дат, номера тура и мест — остаток судит цену. */
 function withoutParsed(message: string): string {
-  return message.replace(ISO_DATE, ' ').replace(TOUR_ID, ' ').replace(SEATS, ' ');
+  return message.replace(ISO_DATE_IN_PHRASE, ' ').replace(TOUR_ID, ' ').replace(SEATS, ' ');
 }
 
 function isDbFailure(r: OpenDatesResult): r is Extract<OpenDatesResult, { reason: 'failed' }> {
@@ -488,20 +506,51 @@ function isDbFailure(r: OpenDatesResult): r is Extract<OpenDatesResult, { reason
 export function phraseRefusalText(refusal: DatesPhraseRefusal): string {
   switch (refusal.kind) {
     case 'close':
-      return `Закрыть или убрать даты из помощника нельзя (во фразе «${refusal.word}») — это делается в кабинете, ` +
-        `в календаре: ${CALENDAR_PATH}. Ничего не изменено.`;
+      return `Закрыть, убрать или уменьшить даты из помощника нельзя (во фразе «${refusal.word}») — это делается ` +
+        `в кабинете, в календаре: ${CALENDAR_PATH}. Ничего не изменено.`;
     case 'negation':
       return `Во фразе отказ («${refusal.word}») — даты не открываю. Если их нужно открыть, напишите без отрицания, ` +
         'например: "открой даты туру 42 2027-07-05, 8 мест". Ничего не изменено.';
     case 'exception':
       return `Исключения («${refusal.word}») помощник не разбирает — перечислите даты, которые открыть, ` +
         'например: "открой даты туру 42 с 2027-07-01 по 2027-07-16, 8 мест". Ничего не изменено.';
+    case 'question':
+      return 'Это вопрос — по вопросу помощник даты не открывает. Что открыто и сколько мест, видно в кабинете, ' +
+        `в календаре: ${CALENDAR_PATH}. Открыть: "открой даты туру 42 2027-07-05, 8 мест". Ничего не изменено.`;
+    case 'no_open_verb':
+      return 'Не понял, что сделать с датами. Открыть — словом «открой» или «добавь», например: ' +
+        `"открой даты туру 42 2027-07-05, 8 мест". Закрыть или уменьшить — в кабинете: ${CALENDAR_PATH}. Ничего не изменено.`;
   }
+}
+
+/** Отказ дням недели: помощник их не применит, а открывать каждый день диапазона нельзя. */
+function dayFilterText(word: string): string {
+  return `Дни недели и периодичность («${word}») помощник не разбирает — открыл бы каждый день подряд. ` +
+    'Перечислите даты, например: "открой даты туру 42 2027-07-03 и 2027-07-10, 8 мест", ' +
+    `или откройте массово в кабинете, там дни недели выбираются: ${CALENDAR_PATH}. Ничего не открыто.`;
+}
+
+/** Связь дат не названа: диапазон или перечень — спросить, а не угадать. */
+function unclearDatesText(dates: string[]): string {
+  if (dates.length === 1) {
+    return `С какой и по какую дату? Напишите обе: "с ${dates[0]} по …" — или одну дату без «с»/«до», ` +
+      `если открыть только её. Ничего не открыто.`;
+  }
+  const [a, b] = [dates[0]!, dates[dates.length - 1]!];
+  return `Не понял, как связаны даты (${dates.join(', ')}): "с ${a} по ${b}" — все дни между ними, ` +
+    `"${dates.join(' и ')}" — только эти. Ничего не открыто.`;
+}
+
+/** Даты для журнала задачи: диапазон — концами, перечень — списком (до пяти). */
+function spanText(dates: string[], isRange: boolean): string {
+  if (isRange && dates.length > 1) return `${dates[0]} — ${dates[dates.length - 1]}`;
+  return dates.length > 5 ? `${dates.slice(0, 5).join(', ')} и ещё ${dates.length - 5}` : dates.join(', ');
 }
 
 const ADD_SLOTS_HELP =
   'Укажи ID тура, даты и число мест.\n' +
-  'Пример: "добавь слоты туру 42 с 2027-07-01 по 2027-07-31, 8 мест" или "открой даты туру 42 2027-07-05, 8 мест"';
+  'Пример: "добавь слоты туру 42 с 2027-07-01 по 2027-07-31, 8 мест", "открой даты туру 42 2027-07-05, 8 мест" ' +
+  'или "открой даты туру 42 2027-07-05 и 2027-07-12, 8 мест". Ничего не открыто.';
 
 type SeatsInMessage =
   | { kind: 'none' }

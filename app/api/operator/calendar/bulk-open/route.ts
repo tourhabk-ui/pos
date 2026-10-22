@@ -21,6 +21,11 @@
  * называет причину — «тур скрыт», а не «тур не найден»: тур есть, и он виден
  * оператору в списке. Новое правило одно: места ниже числа уже записанных не
  * ставятся — такая дата приходит в `refused` с числом записанных.
+ *
+ * Ответ: `opened` — открыто всего, ВКЛЮЧАЯ открытые снова; `reopenedDates` —
+ * открытые снова поимённо с причиной закрытия (она при открытии снимается, и
+ * панель называет её отдельной строкой). Пустая цена цену уже открытой даты не
+ * трогает (меняется только переданная).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -100,8 +105,14 @@ export async function POST(request: NextRequest) {
 
   const n = countResults(outcome.perDate);
   const refused = outcome.perDate.flatMap((r) => (r.result === 'refused_booked' ? [{ date: r.date, taken: r.taken }] : []));
+  // Открытые СНОВА — поимённо и с причиной закрытия: кабинет открывает и
+  // закрытые оператором даты (например, «Шторм»), а причина при открытии
+  // снимается. Без отдельной строки такая дата растворялась в «Открыто N»
+  // (ревью 22.10).
+  const reopenedDates = outcome.perDate.flatMap((r) => (r.result === 'reopened' ? [{ date: r.date, reason: r.reason }] : []));
   const opened = n.opened + n.reopened;
   const parts = [`Открыто ${opened} дат`];
+  if (n.reopened > 0) parts.push(`из них открыто снова ${n.reopened} — были закрыты или сняты`);
   if (n.updated > 0) parts.push(`обновлено ${n.updated}`);
   if (n.already_open > 0) parts.push(`пропущено ${n.already_open}`);
   if (refused.length > 0) parts.push(`не открыто ${refused.length}: уже записано больше мест`);
@@ -110,6 +121,7 @@ export async function POST(request: NextRequest) {
     data: {
       opened,
       reopened: n.reopened,
+      reopenedDates,
       updated: n.updated,
       skipped: n.already_open,
       refused,

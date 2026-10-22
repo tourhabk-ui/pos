@@ -19,8 +19,16 @@
  *     закрытые ДРУГИМ писателем без блокировки тура между чтением и записью;
  *     цена даты без права цен; снятие `deleted_at`, причины и
  *     `is_cancelled IS NULL`;
+ *   - ручная бронь оператора (`POST /api/hub/operator/bookings`) берёт
+ *     `FOR SHARE` на строке тура: запись дат ждёт её и не ставит места ниже
+ *     записанных (ревью 22.10 — без замка она шла параллельно и ставила 5
+ *     мест при 7 записанных);
+ *   - цена даты: владелец с правом цен, открывая места без цены, цену даты не
+ *     стирает;
  *   - помощник кабинета (`OperatorAgency.addSlots`) целиком, через настоящее
- *     ядро: без числа мест — вопрос и ни одной записи, умолчания 10 нет.
+ *     ядро: без числа мест — вопрос и ни одной записи, умолчания 10 нет;
+ *     «заблокируй/скрой/стоп слоты на …», вопрос и дни недели — ни строки
+ *     календаря, ни задачи ядра; «A и B» — ровно две даты.
  *
  * Своя база `tour_dates_open_test` — копия шаблона схемы (baseline +
  * миграции). Запуск ТРЕБУЕТ базы: KERNEL_PG_TEST_URL=postgresql://user:pass@host/db.
@@ -39,6 +47,14 @@ vi.mock('@/lib/operators/team-access', async (orig) => ({
   ...(await orig<typeof import('@/lib/operators/team-access')>()),
   operatorAccess: vi.fn(async () => ({ kind: 'owner', partnerId: operatorA })),
 }));
+
+// Ручная бронь оператора: вход — оператор A (сам вход здесь не предмет), и
+// уведомление оператору в мессенджер из теста не уходит.
+vi.mock('@/lib/auth/middleware', async (orig) => ({
+  ...(await orig<typeof import('@/lib/auth/middleware')>()),
+  requireOperator: vi.fn(async () => ({ userId: 'd0e10000-0000-4000-8000-0000000000aa', role: 'operator', email: 'op-a@example.test' })),
+}));
+vi.mock('@/lib/notifications/operator-booking', () => ({ notifyNewBooking: vi.fn(async () => undefined) }));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -103,6 +119,20 @@ withPg('общая запись дат тура на настоящем PostgreS
           WHERE datname = current_database() AND wait_event_type = 'Lock'`,
       );
       if (Number(r.rows[0]!.n) > 0) return true;
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    return false;
+  }
+
+  /** Ждёт, пока на блокировках будут стоять хотя бы n соединений. */
+  async function waitersOnLock(n: number, ms = 3000): Promise<boolean> {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      const r = await pool.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      if (Number(r.rows[0]!.n) >= n) return true;
       await new Promise((res) => setTimeout(res, 50));
     }
     return false;
@@ -237,6 +267,49 @@ withPg('общая запись дат тура на настоящем PostgreS
     }
   });
 
+  it('ручная бронь оператора, начатая раньше, видна записи дат: запись ждёт её и не опускает места ниже записанных', async () => {
+    // Дата открыта на 10; оператор заводит бронь по звонку на 7, и в ту же
+    // минуту кто-то из команды ставит дате 5 мест. Ручную бронь удерживаем
+    // посреди её транзакции: она уже вставила бронь и ждёт строку лида,
+    // которую держит третье соединение.
+    await mod.openTourDates(cabinet(tour.lock, ['2027-09-20'], 10));
+    const lead = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, status, operator_id) VALUES ('Проба', '+70000000001', 'ai_qualified', $1) RETURNING id::text`,
+      [operatorA],
+    );
+    const leadId = lead.rows[0]!.id;
+    const { POST: manualBooking } = await import('@/app/api/hub/operator/bookings/route');
+    const { NextRequest } = await import('next/server');
+    const leadHolder = await pool.connect();
+    try {
+      await leadHolder.query('BEGIN');
+      await leadHolder.query(`SELECT id FROM leads WHERE id = $1::uuid FOR UPDATE`, [leadId]);
+      const booking = manualBooking(new NextRequest('http://localhost/api/hub/operator/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operator_tour_id: Number(tour.lock), booking_date: '2027-09-20', participants: 7,
+          booking_status: 'confirmed', lead_id: leadId,
+        }),
+      }));
+      // Ручная бронь встала на строку лида — со своей блокировкой тура.
+      expect(await waitersOnLock(1), 'ручная бронь обязана дойти до строки лида').toBe(true);
+
+      const lowering = mod.openTourDates(cabinet(tour.lock, ['2027-09-20'], 5));
+      // Запись дат обязана ждать ручную бронь: второй ожидающий — она.
+      expect(await waitersOnLock(2), 'запись дат обязана ждать замок ручной брони').toBe(true);
+
+      await leadHolder.query('COMMIT');
+      expect((await booking).status).toBe(201);
+      const out = await lowering;
+      expect(out).toMatchObject({ ok: true, written: 0, perDate: [{ date: '2027-09-20', result: 'refused_booked', taken: 7 }] });
+      expect(await row(tour.lock, '2027-09-20')).toMatchObject({ slots: 10 });
+    } finally {
+      await leadHolder.query('ROLLBACK').catch(() => undefined);
+      leadHolder.release();
+    }
+  });
+
   it('повтор: последовательный не пишет второй раз, одновременный — одна запись, второй видит «уже открыта»', async () => {
     const first = await mod.openTourDates(chat(tour.plain, ['2027-06-25'], 6));
     expect(first).toMatchObject({ ok: true, written: 1, perDate: [{ result: 'opened' }] });
@@ -344,6 +417,15 @@ withPg('общая запись дат тура на настоящем PostgreS
 
     await mod.openTourDates(cabinet(tour.plain, ['2027-06-28'], 9));
     expect(await row(tour.plain, '2027-06-28')).toMatchObject({ slots: 9, price: '7000.00' });
+
+    // Владелец С правом цен открывает места без цены (поле «Цена» пустое,
+    // карточка тура цену не шлёт) — цена даты не стирается (ревью 22.10).
+    const owner = await mod.openTourDates(cabinet(tour.plain, ['2027-06-28'], 10, { mayPrice: true }));
+    expect(owner).toMatchObject({ ok: true, perDate: [{ result: 'updated', from: 9 }] });
+    expect(await row(tour.plain, '2027-06-28')).toMatchObject({ slots: 10, price: '7000.00' });
+    // Переданная цена — меняется.
+    await mod.openTourDates(cabinet(tour.plain, ['2027-06-28'], 10, { mayPrice: true, price: 7500 }));
+    expect(await row(tour.plain, '2027-06-28')).toMatchObject({ slots: 10, price: '7500.00' });
 
     // Цена без права — ошибка вызывающего до базы, а не «база не ответила».
     await expect(mod.openTourDates({ ...chat(tour.plain, ['2027-06-30'], 8), rows: [{ date: '2027-06-30', slots: 8, price: 100 }] }))
@@ -481,5 +563,44 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(hidden.response).toMatch(/Тур «Выключенный» скрыт/);
     expect(hidden.response).toMatch(/Ничего не открыто/);
     expect(await row(tour.off, '2027-06-03')).toBeUndefined();
+  });
+
+  it('помощник: «заблокируй/скрой/стоп», вопрос и дни недели — ни строки календаря, ни задачи; «A и B» — ровно две даты', async () => {
+    const { OperatorAgency } = await import('@/lib/agents/agencies/operator-agency');
+    const ctx = {
+      user: { userId: 'd0e10000-0000-4000-8000-0000000000aa', role: 'operator' },
+      task: {}, platform: { routesCount: 0, activeOperators: 0, toursCount: 0 },
+      execution: { agentName: 't', startedAt: new Date() },
+    } as unknown as Parameters<InstanceType<typeof OperatorAgency>['addSlots']>[0];
+    const t = await addTour(operatorA, 'Фразы помощника');
+    const rows = async () => (await pool.query<{ date: string }>(
+      `SELECT date::text AS date FROM tour_availability WHERE operator_tour_id = $1 ORDER BY date`, [t])).rows.map((r) => r.date);
+    const tasks = async () => Number((await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM agent_tasks WHERE capability = 'tour.add_slots' AND resource_id = $1`, [t])).rows[0]!.n);
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T00:00:00Z`));
+    try {
+      for (const phrase of [
+        `заблокируй слоты на 2027-07-05 туру ${t}, группа 8 человек набрана`,
+        `скрой слоты на 2027-07-05 туру ${t}, там уже 8 человек`,
+        `стоп слоты на 2027-07-05 туру ${t}, 8 человек`,
+        `есть ли свободные слоты на 2027-07-05 по туру ${t} для 8 человек`,
+        `добавь слоты по субботам с 2027-07-01 по 2027-07-31 туру ${t}, 8 мест`,
+        `открой даты туру ${t} 2027-08-05 2027-08-12, 6 мест`,
+      ]) {
+        const res = await new OperatorAgency().addSlots(ctx, phrase);
+        expect(res.response, phrase).toMatch(/Ничего не (?:изменено|открыто)/);
+      }
+      expect(await rows()).toEqual([]);
+      expect(await tasks()).toBe(0);
+
+      const two = await new OperatorAgency().addSlots(ctx, `открой даты туру ${t} 2027-08-05 и 2027-08-12, 6 мест`);
+      expect(two.response).toMatch(/Открыто \(2\)/);
+      expect(await rows()).toEqual(['2027-08-05', '2027-08-12']);
+      expect(await tasks()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
