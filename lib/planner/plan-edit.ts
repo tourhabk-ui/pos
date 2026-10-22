@@ -361,11 +361,15 @@ function flightDelay(plan: EditablePlan, days: number, keepReturn: boolean): Edi
     .map((d) => (d.day >= start + days ? { ...d, day: d.day - days } : d));
   next.params.arrivalDate = shiftIso(plan.params.arrivalDate, days);
   const dropped = plan.days.filter((d) => removed.has(d.day)).sort((a, b) => a.day - b.day);
+  // Номера сдвигает окно задержки, а не выпавшие дни: окно могло прийтись
+  // на незаполненные дни, и тогда не выпало ничего, а номера всё равно
+  // сдвинулись. Поэтому граница называется датой последнего дня окна.
+  const windowLastIso = shiftIso(plan.params.arrivalDate, start + days - 2);
   return {
     ok: true, plan: next,
     note: `Рейс задержан на ${days} ${dayWord}: прилёт теперь ${dateWords(next.params.arrivalDate)} (${next.params.arrivalDate}), обратный билет прежний — поездка стала на ${days} ${dayWord} короче. `
       + droppedDaysWords(dropped, plan.params.arrivalDate, next.params.arrivalDate, start + days)
-      + ` Остальные дни не менялись и стоят на прежних датах — туры операторов идут по датам; номера дней после выпавших стали на ${days} меньше.`,
+      + ` ${dropped.length > 0 ? 'Остальные дни' : 'Дни плана'} не менялись и стоят на прежних датах — туры операторов идут по датам; номера дней после ${dateWords(windowLastIso)} стали на ${days} меньше.`,
     toursTouched: touchedTours((d) => removed.has(d.day), 'dropped'),
   };
 }

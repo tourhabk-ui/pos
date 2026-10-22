@@ -313,7 +313,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
-    children: { lead: 'Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → "6, 10"; one child aged 2 → "2". Ages decide which activities are allowed.', example: '6, 10' },
+    children: { lead: 'Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → "6, 10"; one child aged 2 → "2"; a baby under one year → "0". Ages decide which activities are allowed. No children — omit the field.', example: '6, 10' },
     budget_tier: { lead: 'Budget level: economy, comfort or premium; default comfort.', example: 'economy' },
   },
   edit_trip_plan: {

@@ -14,6 +14,9 @@
  *  3. flight_delay отвечал «Выпали дни 2; остальные дни не менялись» — без
  *     числа, даты, занятия и причины.
  *  4. Строка «Изменить — edit_trip_plan …» не называла задержку рейса.
+ *
+ * Ревью той же правки: одиночный children «0» (и массив [0]) у агента —
+ * младенец до года, а не «детей нет» молча; в чате туриста — как прежде.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -152,6 +155,42 @@ describe('make_trip_plan: поле children — возрасты, и агент 
     const text = await executeKuzmichTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '2' });
     expect(text).toContain('Группа: 2 взр., ребёнок 2 лет, средняя подготовка');
     expect(text).not.toMatch(/поле children/);
+  });
+
+  // Ревью 22.10: одиночный «0» читался как «детей нет» молча. Агент, следуя
+  // описанию «возрасты, не число», так передаёт младенца — и семья с ним
+  // получала план без единого возрастного допуска (медведи — с 6 лет).
+  // Массив [0] строковое поле приводит к тому же «0».
+  it.each([
+    ['строкой "0"', '0'],
+    ['массивом [0]', [0]],
+  ])('MCP: children %s — один ребёнок до года, допуски применяются, прочтение названо', async (_label, children) => {
+    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children });
+    expect(r.isError).toBeUndefined();
+    // Движок получил младенца — от его возраста зависят допуски активностей.
+    expect(recommendMock).toHaveBeenCalledTimes(1);
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ adults: 2, children: [0] });
+    const text = r.content[0].text;
+    expect(text).toContain('Поле children «0» прочитал как одного ребёнка до года: поле — возрасты в годах, а не число детей. Детей нет — не передавай поле.');
+    expect(text).toContain('Группа: 2 взр. и 1 ребёнок, всего 3 чел.; возраст ребёнка: до года (поле children');
+  });
+
+  it('A2A: children "0" — тот же младенец и та же заметка', async () => {
+    const out = await runPublicTool({
+      toolName: 'make_trip_plan', rawArguments: { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '0' },
+      ip: '10.22.1.2', userAgent: 'a2a-test', self: false,
+    });
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ children: [0] });
+    expect(out.text).toContain('Поле children «0» прочитал как одного ребёнка до года');
+  });
+
+  it('чат туриста: «0» по-прежнему «детей нет» — Кузьмичу сказано не передавать поле без детей', async () => {
+    const text = await executeKuzmichTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '0' });
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ children: [] });
+    expect(text).toContain('Группа: 2 взр., средняя подготовка');
+    expect(text).not.toMatch(/до года|поле children/);
   });
 
   it('без детей пометки нет и у агента', async () => {

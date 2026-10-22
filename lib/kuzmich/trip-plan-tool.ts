@@ -274,9 +274,28 @@ export function readAdults(raw: string | undefined): { adults: number; given: bo
  * строкой «6,10»). Возраст — целое 0..17. Что не разобрано, не выбрасывается
  * молча: называется, и такой ребёнок в план не идёт — выдумывать ему возраст
  * нельзя, а от возраста зависят допуски активностей.
+ *
+ * Одиночный «0» значит разное в зависимости от того, кто заполнял поле
+ * (ревью 22.10). У внешнего агента (`mcp`, через MCP и A2A) описание поля —
+ * «возрасты, не число детей», и «0» — это младенец до года; туда же
+ * сворачивается массив `[0]` (строковое поле приводит его к «0»). Прочесть
+ * его как «детей нет» значило бы молча потерять ребёнка и не применить к
+ * семье ни одного возрастного допуска (медведи — с 6 лет). Ошибка в другую
+ * сторону — лишние допуски — видна: строка группы называет «до года», а
+ * заметка — прочтение поля и как сказать «детей нет». В чате туриста поле
+ * заполняет Кузьмич по описанию «детей нет — не передавай», и там «0»
+ * по-прежнему «детей нет».
  */
-export function readChildren(raw: string | undefined): { children: number[]; note: string | null } {
+export function readChildren(
+  raw: string | undefined, surface: DraftSurface = 'chat',
+): { children: number[]; note: string | null } {
   const t = (raw ?? '').trim();
+  if (t === '0' && surface === 'mcp') {
+    return {
+      children: [0],
+      note: 'Поле children «0» прочитал как одного ребёнка до года: поле — возрасты в годах, а не число детей. Детей нет — не передавай поле.',
+    };
+  }
   if (!t || /^(нет|0|-|\[\s*\])$/i.test(t)) return { children: [], note: null };
   const parts = t.replace(/^\[|\]$/g, '').split(/[,;\s]+/).filter(Boolean);
   const ages: number[] = [];
@@ -652,7 +671,7 @@ export async function makeTripPlanForKuzmich(
     : null;
 
   const group = readAdults(args.adults);
-  const kids = readChildren(args.children);
+  const kids = readChildren(args.children, opts.surface ?? 'chat');
   const budget = readBudgetTier(args.budget_tier);
 
   const start = parsePlanStart(args.when, Date.now());
