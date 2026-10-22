@@ -77,7 +77,10 @@ describe('карточка места', () => {
   it('снятое описание — словами, не тишиной', () => {
     render(<PlaceDescription name="Авачинский перевал" essence={null} description={null} descriptionWithdrawn placeId="p" />);
     expect(document.body.textContent).toMatch(/Описание этого места было написано не по источникам/);
-    expect(document.body.textContent).toMatch(/переписываем по справочникам/);
+    expect(document.body.textContent).toMatch(/Факты ниже — из\s+данных платформы/);
+    // Обещания переписать нет (1310, «всю не правду»): переписывать сотни
+    // снятых описаний некому, а работа, которой нет, — та же неправда.
+    expect(document.body.textContent).not.toMatch(/переписываем/);
   });
 
   it('переписали — строки о снятии нет, есть текст', () => {
