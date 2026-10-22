@@ -9,13 +9,19 @@
  * WRITE (через ядро Volcano OS: policy allow/deny + задача + события):
  *   op_create_tour    — создать черновик тура из текста
  *   op_fill_ai        — запустить AI-заполнение тура
- *   op_add_slots      — добавить слоты доступности
+ *   op_add_slots      — открыть даты тура (общей функцией lib/tours/availability-open)
  */
 
 import { pool } from '@/lib/db-pool';
 import { runAutoFillAI } from '@/app/api/operator/tours/auto-fill-ai/route';
 import type { AgentContext } from '../context-hub';
 import { managerMay, operatorAccess, type ManagerPermission } from '@/lib/operators/team-access';
+import {
+  MAX_SLOTS_PER_DATE, datesInRange, isCalendarDate, openTourDates,
+  type DateOpenKind, type DateOpenResult, type OpenDatesOutcome,
+} from '@/lib/tours/availability-open';
+import { longDay, windowLabel } from '@/lib/tours/request-window';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export interface KbFreshnessStats {
   rdc_total:        number;
@@ -312,84 +318,182 @@ export class OperatorAgency {
     }
   }
 
-  // ── Write: добавить слоты доступности ─────────────────────────────────────────────
+  // ── Write: открыть даты ───────────────────────────────────────────────────────────
 
+  /**
+   * «Открой даты» / «добавь слоты туру 42 с 2027-07-01 по 2027-07-31, 8 мест».
+   *
+   * Запись — общей функцией `openTourDates` (lib/tours/availability-open.ts,
+   * 22.10), той же, что у кабинета, с правилами чата кабинета (решения
+   * владельца 22.10): уже открытые даты не трогаются, закрытые оператором — не
+   * открываются (их открывают в кабинете), даты вне сезона тура, прошедшие и
+   * дальше года вперёд — тоже; ниже числа уже записанных места не ставятся.
+   * Ответ называет исход каждой даты.
+   *
+   * Число мест называет оператор. До 22.10 без числа подставлялось 10 —
+   * выдуманное число (§4.0): помощник открывал даты на десять мест, о которых
+   * никто не говорил. Теперь без числа — вопрос, и ничего не пишется.
+   */
   async addSlots(context: AgentContext, message: string): Promise<AgencyResult> {
     const cab = await this.cabinet(context.user.userId);
     if ('denied' in cab) return { response: cab.denied };
     const { partnerId } = cab;
 
-    // Парсим: tour ID, дата начала, дата конца, кол-во мест
-    const idMatch    = message.match(/тур(?:у|ам?)\s+(\d+)/i);
-    const datesMatch = message.match(/(\d{4}-\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2})/);
-    const slotsMatch = message.match(/(\d+)\s*(?:мест|чел|человек)/i);
+    // Парсим: tour ID, одна дата или две (с … по …), число мест
+    const idMatch = message.match(/тур(?:у|ам?)\s+(\d+)/i);
+    const isoDates = [...message.matchAll(/(?<![\d.-])(\d{4}-\d{2}-\d{2})(?![\d.])/g)].map((m) => m[1]!);
+    if (!idMatch || isoDates.length === 0 || isoDates.length > 2) {
+      return { response: ADD_SLOTS_HELP };
+    }
 
-    if (!idMatch || !datesMatch) {
+    const seats = seatsInMessage(message);
+    if (seats.kind === 'none') {
       return {
         response:
-          'Укажи ID тура, даты и (опционально) количество мест.\n' +
-          'Пример: "добавь слоты туру 42 с 2026-07-01 по 2026-07-31, 10 мест"',
+          'Сколько мест открыть на каждую дату? Напишите команду с числом, например: ' +
+          `"добавь слоты туру ${idMatch[1]} с ${isoDates[0]} по ${isoDates[1] ?? isoDates[0]}, 8 мест". Ничего не открыто.`,
       };
+    }
+    if (seats.kind === 'two') {
+      return { response: `Назвали два числа мест (${seats.values.join(' и ')}) — напишите одно. Ничего не открыто.` };
+    }
+    if (seats.kind === 'bad') {
+      return { response: `Мест на дату — от 1 до ${MAX_SLOTS_PER_DATE}, а названо ${seats.value}. Ничего не открыто.` };
     }
 
     const tourId   = parseInt(idMatch[1], 10);
-    const dateFrom = datesMatch[1];
-    const dateTo   = datesMatch[2];
-    const slots    = slotsMatch ? parseInt(slotsMatch[1], 10) : 10;
+    const dateFrom = isoDates[0]!;
+    const dateTo   = isoDates[1] ?? dateFrom;
+    const slots    = seats.value;
 
-    // Генерируем список дат между dateFrom и dateTo
-    const dates: string[] = [];
-    const cur = new Date(dateFrom);
-    const end = new Date(dateTo);
-    while (cur <= end) {
-      dates.push(cur.toISOString().slice(0, 10));
-      cur.setDate(cur.getDate() + 1);
-    }
+    const notADay = [dateFrom, dateTo].find((d) => !isCalendarDate(d));
+    if (notADay) return { response: `Такой даты нет в календаре: ${notADay}. Ничего не открыто.` };
+    if (dateTo < dateFrom) return { response: 'Некорректный диапазон дат: конец раньше начала.' };
+    const dates = datesInRange(dateFrom, dateTo);
+    if (dates.length === 0) return { response: 'Диапазон дат слишком большой (не больше 366 дней).' };
 
-    if (dates.length === 0) return { response: 'Некорректный диапазон дат.' };
-    if (dates.length > 366)  return { response: 'Диапазон дат слишком большой (макс. 366 дней).' };
-
-    // Через ядро Volcano OS (P2, 28.08): владение туром теперь проверяет
-    // policy (operatorOwnsTour, capability tour.add_slots) вместо инлайн-SQL
-    // здесь — тот же путь, что у createTour/set_tour_published/update_price.
+    // Через ядро Volcano OS (P2, 28.08): владение туром проверяет policy
+    // (operatorOwnsTour, capability tour.add_slots) — тот же путь, что у
+    // createTour/set_tour_published/update_price; сама запись ещё раз проверяет
+    // владение и активность тура — под блокировкой, в своей транзакции.
     // Ключа идемпотентности нет намеренно (тот же выбор, что у createTour):
-    // сам эффект уже безопасен к повтору (ON CONFLICT DO NOTHING на уровне
-    // строк ниже) — governed-action здесь даёт не защиту от дублирования
-    // (она уже есть), а единый аудит-след и policy вместо инлайн-владения.
+    // повтор безопасен сам — открытые даты при повторе приходят «уже открыты».
+    // Отказ базы — провал задачи ядра (след в журнале), а не «успех с нулём».
+    const today = kamchatkaToday();
     const { executeGovernedAction, hashInput } = await import('@/lib/agents/kernel');
-    const gov = await executeGovernedAction<{ inserted: number }>({
+    const gov = await executeGovernedAction<OpenDatesOutcome>({
       principal: { type: 'operator', id: String(partnerId) },
       capability: 'tour.add_slots',
       resource: { type: 'tour', id: String(tourId) },
       inputHash: hashInput({ partnerId, tourId, dateFrom, dateTo, slots }),
       execute: async () => {
-        let inserted = 0;
-        for (const date of dates) {
-          const { rowCount } = await pool.query(
-            `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots, is_cancelled)
-             VALUES ($1, $2, $3, 0, false)
-             ON CONFLICT (operator_tour_id, date) DO NOTHING`,
-            [tourId, date, slots]
-          );
-          inserted += rowCount ?? 0;
-        }
-        return { inserted };
+        const r = await openTourDates({
+          operatorId: String(partnerId),
+          tourId: String(tourId),
+          rows: dates.map((date) => ({ date, slots })),
+          mayPrice: false,
+          skipExisting: true,
+          closedDates: 'keep',
+          today,
+          enforceSeason: true,
+        });
+        if (r.ok || r.reason === 'tour_not_found') return r;
+        throw new Error(`база не ответила (SQLSTATE ${r.sqlstate ?? 'нет'}) — ничего не открыто`);
       },
-      summarize: (r) => `слоты тура ${tourId}: +${r.inserted} (${dateFrom} — ${dateTo}, ${slots}/день)`,
+      summarize: (r) => (r.ok
+        ? `даты тура ${tourId}: записано ${r.written} из ${r.perDate.length} (${dateFrom} — ${dateTo}, ${slots} мест)`
+        : `даты тура ${tourId}: тур не найден среди включённых туров оператора — ничего не открыто`),
     });
 
-    if (!gov.ok) return { response: `Запрос отклонён: ${gov.reason}` };
+    if (!gov.ok) return { response: `Даты не открыты: ${gov.reason}` };
     if (gov.duplicate) return { response: 'Этот запрос уже выполнялся — повтор не выполнялся.' };
 
-    const { inserted } = gov.result;
+    const outcome = gov.result;
+    if (!outcome.ok) {
+      return { response: `Тур ${tourId} не найден среди ваших включённых туров — даты не открыты.` };
+    }
     return {
-      response:
-        `Добавлено ${inserted} слотов для тура ${tourId}.\n` +
-        `Период: ${dateFrom} — ${dateTo}, ${slots} мест на день.\n` +
-        `(${dates.length - inserted} дат уже существовало)`,
-      data: { tourId, dateFrom, dateTo, slots, inserted },
+      response: addSlotsReport(outcome, slots),
+      data: { tourId, dateFrom, dateTo, slots, written: outcome.written, perDate: outcome.perDate },
     };
   }
+}
+
+const ADD_SLOTS_HELP =
+  'Укажи ID тура, даты и число мест.\n' +
+  'Пример: "добавь слоты туру 42 с 2027-07-01 по 2027-07-31, 8 мест" или "открой даты туру 42 2027-07-05, 8 мест"';
+
+type SeatsInMessage =
+  | { kind: 'none' }
+  | { kind: 'one'; value: number }
+  | { kind: 'two'; values: number[] }
+  | { kind: 'bad'; value: number };
+
+/**
+ * Число мест во фразе: «8 мест», «8 чел», «8 человек». Число берётся целиком:
+ * «1500 мест» — это 1500 (отказ), а не 500 с середины числа; хвост даты
+ * («2027-07-31 мест») числом мест не считается.
+ */
+export function seatsInMessage(message: string): SeatsInMessage {
+  const found = [...message.matchAll(/(?<![\d.,-])(\d+)(?![\d.,])\s*(?:мест|чел)/gi)].map((m) => Number(m[1]));
+  const distinct = [...new Set(found)];
+  if (distinct.length === 0) return { kind: 'none' };
+  if (distinct.length > 1) return { kind: 'two', values: distinct };
+  const value = distinct[0]!;
+  if (!Number.isInteger(value) || value < 1 || value > MAX_SLOTS_PER_DATE) return { kind: 'bad', value };
+  return { kind: 'one', value };
+}
+
+const LIST_LIMIT = 10;
+
+function listOf<T>(items: T[], show: (item: T) => string): string {
+  const shown = items.slice(0, LIST_LIMIT).map(show).join(', ');
+  return items.length > LIST_LIMIT ? `${shown} и ещё ${items.length - LIST_LIMIT}` : shown;
+}
+
+function only<K extends DateOpenKind>(perDate: DateOpenResult[], kind: K): Array<Extract<DateOpenResult, { result: K }>> {
+  return perDate.filter((r): r is Extract<DateOpenResult, { result: K }> => r.result === kind);
+}
+
+/** Ответ помощника: исход каждой даты словами, «открыто» — только записанное. */
+export function addSlotsReport(outcome: Extract<OpenDatesOutcome, { ok: true }>, slots: number): string {
+  const day = (r: { date: string }) => longDay(r.date);
+  const lines: string[] = [
+    outcome.written > 0
+      ? `Тур «${outcome.tour.title}», ${slots} мест на дату.`
+      : `Ничего не открыто. Тур «${outcome.tour.title}», ${slots} мест на дату.`,
+  ];
+  const opened = only(outcome.perDate, 'opened');
+  if (opened.length) lines.push(`Открыто (${opened.length}): ${listOf(opened, day)}`);
+  const reopened = only(outcome.perDate, 'reopened');
+  if (reopened.length) lines.push(`Открыто снова (${reopened.length}): ${listOf(reopened, day)}`);
+  const updated = only(outcome.perDate, 'updated');
+  if (updated.length) lines.push(`Места переписаны (${updated.length}): ${listOf(updated, (r) => `${day(r)} — было ${r.from}`)}`);
+  const already = only(outcome.perDate, 'already_open');
+  if (already.length) {
+    lines.push(`Уже были открыты, не трогал (${already.length}): ${listOf(already, (r) => `${day(r)} — ${r.slots} мест`)}`);
+  }
+  const booked = only(outcome.perDate, 'refused_booked');
+  if (booked.length) {
+    lines.push(`Не открыто — уже записано больше ${slots} (${booked.length}): ${listOf(booked, (r) => `${day(r)} — записано ${r.taken}`)}`);
+  }
+  const closed = only(outcome.perDate, 'refused_closed');
+  if (closed.length) {
+    lines.push(`Не открыто — дату закрыли вы, открыть её снова можно в кабинете, в календаре (${closed.length}): ` +
+      listOf(closed, (r) => (r.reason ? `${day(r)} («${r.reason}»)` : day(r))));
+  }
+  const season = only(outcome.perDate, 'refused_season');
+  if (season.length) {
+    const w = season[0]!;
+    const label = windowLabel({ kind: 'season', from: w.from, to: w.to, seasonStart: w.seasonStart, seasonEnd: w.seasonEnd });
+    lines.push(`Не открыто — вне сезона тура (${label}; сезон меняется в карточке тура) (${season.length}): ${listOf(season, day)}`);
+  }
+  const past = only(outcome.perDate, 'refused_past');
+  if (past.length) lines.push(`Не открыто — дата прошла (${past.length}): ${listOf(past, day)}`);
+  const far = only(outcome.perDate, 'refused_horizon');
+  if (far.length) lines.push(`Не открыто — дальше года вперёд, туристы такие даты не видят (${far.length}): ${listOf(far, day)}`);
+  if (outcome.written > 0 && !outcome.tour.isPublished) lines.push('Тур не опубликован — туристы даты пока не видят.');
+  return lines.join('\n');
 }
 
 // ── Всплеск регистраций операторов ───────────────────────────────────────────

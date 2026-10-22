@@ -68,7 +68,7 @@ export const CAPABILITY_REGISTRY: Readonly<Record<string, CapabilityEntry>> = {
   },
   'tour.add_slots': {
     principalTypes: ['operator'],
-    reason: 'оператор добавляет даты доступности СВОЕГО тура; ownership проверяет policy, эффект сам по себе идемпотентен (ON CONFLICT DO NOTHING на уровне строк)',
+    reason: 'оператор открывает даты СВОЕГО тура командой помощника кабинета; ownership проверяет policy, запись — общая функция lib/tours/availability-open (владение, активность и блокировка тура в одной транзакции с записью): уже открытые даты не трогает, закрытые оператором не открывает, прошедшие, дальше года и вне сезона тура не пишет, места ниже числа записанных не ставит; число мест называет оператор, умолчания нет; повтор безопасен — открытое приходит «уже открыто»',
     precommit: operatorOwnsTour,
   },
   'tour.create_draft': {

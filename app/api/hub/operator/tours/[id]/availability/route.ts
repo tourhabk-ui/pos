@@ -13,6 +13,7 @@ import {
 } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
+import { formatDateOnly } from '@/lib/dates/date-only';
 import { ZodError } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -35,11 +36,6 @@ export async function POST(
     const ctx = await requireOperatorTeam(request);
     if (ctx instanceof NextResponse) return ctx;
 
-    const tour = await getTourById(tourId);
-    if (!tour || tour.operator_id !== ctx.partnerId) {
-      return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
-    }
-
     const body = await request.json();
     const { dates } = AddAvailabilitySchema.parse(body);
     // Цена на дату — это цена: менеджеру команды только с правом владельца
@@ -49,13 +45,37 @@ export async function POST(
       return permissionDenied('can_edit_prices');
     }
 
-    await addAvailability(tourId, dates, mayPrice);
+    // Владение (тур кабинета, включён, не удалён) проверяет сама запись — под
+    // той же блокировкой тура, что у гейта брони (lib/tours/availability-open).
+    const outcome = await addAvailability(tourId, dates, mayPrice, ctx.partnerId);
+    if (!outcome.ok) {
+      if (outcome.reason === 'tour_not_found') {
+        return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+      }
+      return NextResponse.json({ error: 'Не удалось добавить даты' }, { status: 500 });
+    }
+
+    // Места ниже числа уже записанных не ставятся: такая дата называется с
+    // числом записанных, а не пропадает молча из ответа «добавлено».
+    const refused = outcome.perDate.flatMap((r) => (r.result === 'refused_booked' ? [{ date: r.date, taken: r.taken }] : []));
+    const refusedText = refused
+      .map((r) => `${formatDateOnly(r.date)} — уже записано ${r.taken}`)
+      .join('; ');
+    if (outcome.written === 0) {
+      return NextResponse.json(
+        { error: `Даты не открыты: мест меньше, чем уже записано (${refusedText})`, refused },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json(
       {
         success: true,
-        message: `Added ${dates.length} availability dates`,
-        dates_added: dates.length,
+        message: refused.length > 0
+          ? `Открыто дат: ${outcome.written}. Не открыто: ${refusedText}`
+          : `Открыто дат: ${outcome.written}`,
+        dates_added: outcome.written,
+        refused,
       },
       { status: 201 }
     );

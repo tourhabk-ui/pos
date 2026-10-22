@@ -30,8 +30,14 @@ interface TourCoverage {
 }
 
 interface BulkResult {
+  /** Открыто, включая открытые снова. */
   opened: number;
+  /** Были открыты — места переписаны (без «Не перезаписывать»). */
+  updated: number;
+  /** Были открыты — не тронуты («Не перезаписывать»). */
   skipped: number;
+  /** Не открыты: записано больше мест, чем в форме (места ниже записанных не ставятся). */
+  refused: Array<{ date: string; taken: number }>;
   total: number;
 }
 
@@ -468,14 +474,33 @@ export default function FreeDatesPanel() {
             )}
 
             {/* Результат */}
-            {result && (
+            {/* Зелёная строка — только когда есть что назвать успехом: при всех
+                датах в отказе она сказала бы «Открыто 0» цветом удачи. */}
+            {result && (result.opened + (result.updated ?? 0) + result.skipped > 0 || !(result.refused?.length)) && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
                 style={{ background: 'rgba(63,185,80,0.10)', color: 'var(--success)' }}>
                 <CheckCircle className="w-3.5 h-3.5 shrink-0" />
                 <div className="text-xs">
                   <span className="font-bold">Открыто {result.opened} дат</span>
+                  {(result.updated ?? 0) > 0 && ` · обновлено ${result.updated}`}
                   {result.skipped > 0 && ` · пропущено ${result.skipped}`}
                   {' '}из {result.total} в диапазоне
+                </div>
+              </div>
+            )}
+            {result && (result.refused?.length ?? 0) > 0 && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg border-l-4"
+                style={{ borderLeftColor: 'var(--warning)', color: 'var(--warning)' }}>
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <div className="text-xs">
+                  <span className="font-bold">Не открыто {result.refused.length}: уже записано больше мест</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {' — '}
+                    {result.refused.slice(0, 10)
+                      .map(r => `${formatDateOnly(r.date, { day: 'numeric', month: 'short' })} (записано ${r.taken})`)
+                      .join(', ')}
+                    {result.refused.length > 10 && ` и ещё ${result.refused.length - 10}`}
+                  </span>
                 </div>
               </div>
             )}

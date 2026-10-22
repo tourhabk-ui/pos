@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { openTourDates, type OpenDatesResult } from '@/lib/tours/availability-open';
 
 // ============================================================================
 // SCHEMAS
@@ -110,7 +111,9 @@ export const AddAvailabilitySchema = z.object({
   dates: z.array(
     z.object({
       date: z.string().date(),
-      available_slots: z.number().positive(),
+      // Целое от 1 до 500, как у массового открытия: дробное место в
+      // integer-колонку не ляжет, и запись упала бы на всей пачке.
+      available_slots: z.number().int().min(1).max(500),
       price_override: z.number().positive().optional(),
     })
   ).min(1).max(365),
@@ -283,45 +286,34 @@ export async function createTour(
 }
 
 /**
+ * Даты тура из кабинета (`POST /api/hub/operator/tours/[id]/availability`) —
+ * общей функцией записи дат (lib/tours/availability-open.ts, 22.10): владение,
+ * активность и блокировка тура — в одной транзакции с записью, открытая дата
+ * получает новые места, закрытая открывается снова, а ниже числа уже
+ * записанных места не опускаются (такая дата — `refused_booked` в ответе).
+ *
  * mayPrice — может ли вошедший ставить цену (владелец или менеджер с правом
  * can_edit_prices). Без права повторное открытие даты цену не трогает: до
  * 13.10 upsert писал base_price_override = NULL, и менеджер без права цен
  * молча сбрасывал цену даты на базовую.
+ *
+ * Одним выражением, а не запросом на дату (аудит 15.10, 1.15, P3-14). Повтор
+ * даты во входе — берётся последний.
  */
 export async function addAvailability(
   tourId: bigint,
   dates: Array<{ date: string; available_slots: number; price_override?: number }>,
   mayPrice: boolean,
-) {
-  // Одним выражением, а не запросом на дату (аудит 15.10, 1.15, P3-14): цикл
-  // без транзакции оставлял при отказе на середине половину дат открытой, и
-  // каждая дата занимала соединение общего пула. Повтор даты во входе — берётся
-  // последний: так вёл себя цикл, а ON CONFLICT одной строки дважды не правит.
-  const byDate = new Map<string, { slots: number; price: number | null }>();
-  for (const slot of dates) {
-    byDate.set(slot.date, { slots: slot.available_slots, price: slot.price_override || null });
-  }
-  const days = [...byDate.keys()];
-  await query(
-    `INSERT INTO tour_availability (operator_tour_id, date, available_slots, base_price_override)
-     SELECT $1::bigint, d.date, d.slots, d.price
-       FROM unnest($2::date[], $3::int[], $4::numeric[]) AS d(date, slots, price)
-     ON CONFLICT (operator_tour_id, date) DO UPDATE
-     SET available_slots = EXCLUDED.available_slots,
-         base_price_override = CASE WHEN $5::boolean THEN EXCLUDED.base_price_override ELSE tour_availability.base_price_override END,
-         -- Повторно открытая дата открывается и туристу: до 25.09 upsert
-         -- оставлял is_cancelled/deleted_at, ответ был 201, а /slots
-         -- дату по-прежнему скрывал.
-         is_cancelled = FALSE, cancellation_reason = NULL, deleted_at = NULL,
-         updated_at = NOW()`,
-    [
-      tourId.toString(),
-      days,
-      days.map((d) => byDate.get(d)!.slots),
-      days.map((d) => byDate.get(d)!.price),
-      mayPrice,
-    ]
-  );
+  operatorId: string,
+): Promise<OpenDatesResult> {
+  return openTourDates({
+    operatorId,
+    tourId: tourId.toString(),
+    rows: dates.map((slot) => ({ date: slot.date, slots: slot.available_slots, price: slot.price_override || null })),
+    mayPrice,
+    skipExisting: false,
+    closedDates: 'reopen',
+  });
 }
 
 export async function getAvailability(tourId: bigint, fromDate: string, toDate: string) {

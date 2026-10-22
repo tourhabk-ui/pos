@@ -8,10 +8,39 @@
  * погодные пороги; условия отмены, подвоз и публикация выбрасывались
  * молча — «Изменения сохранены», а в базе ничего.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CreateTourSchema, UpdateTourSchema } from '@/lib/api/operator-tours';
+
+// Даты тура пишутся своей транзакцией (lib/tours/availability-open.ts):
+// клиент пула отдаёт SQL, который реально уходит в базу.
+const sent: Array<[string, unknown[]]> = [];
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: vi.fn(),
+    connect: async () => ({
+      release: () => undefined,
+      query: async (sql: string, params: unknown[] = []) => {
+        sent.push([sql, params]);
+        if (sql.includes('FROM operator_tours WHERE id = $1 AND operator_id = $2')) {
+          return { rows: [{ title: 'Тур', max_participants: 10, is_published: true, season_start: null, season_end: null,
+            duration_type: null, multi_day_count: null, duration_hours: null }] };
+        }
+        if (sql.includes('FROM unnest($2::date[]) AS d(date)')) {
+          // Дата закрыта оператором — кабинет открывает её снова.
+          return { rows: (params[1] as string[]).map((date) => ({
+            date, has_row: true, deleted: false, available_slots: 0, is_cancelled: true,
+            cancellation_reason: 'Шторм', taken: 0,
+          })) };
+        }
+        if (sql.includes('INSERT INTO tour_availability')) return { rows: [], rowCount: (params[1] as string[]).length };
+        return { rows: [] };
+      },
+    }),
+  },
+}));
+
+import { CreateTourSchema, UpdateTourSchema, addAvailability } from '@/lib/api/operator-tours';
 import { categoryToTourTypes } from '@/lib/tours/form-category';
 import { isQuickFillField, parseQuickFillValue } from '@/lib/operator/quick-fill-fields';
 
@@ -84,8 +113,18 @@ describe('расписание', () => {
   const lib = read('lib/api/operator-tours.ts');
   const route = read('app/api/hub/operator/tours/[id]/availability/route.ts');
 
-  it('повторно открытая дата открывается и туристу', () => {
-    expect(lib).toMatch(/is_cancelled = FALSE, cancellation_reason = NULL, deleted_at = NULL/);
+  it('повторно открытая дата открывается и туристу', async () => {
+    // Вызов, а не поиск строки в исходнике: запись дат переехала в общую
+    // функцию (22.10). Поведение на настоящем PostgreSQL —
+    // tests/integration/tour-dates-open.pg.test.ts.
+    sent.length = 0;
+    const out = await addAvailability(7n, [{ date: '2027-07-20', available_slots: 6 }], false, 'cab-1');
+    expect(out).toMatchObject({ ok: true, written: 1, perDate: [{ date: '2027-07-20', result: 'reopened', reason: 'Шторм' }] });
+    const upsert = sent.find(([sql]) => sql.includes('INSERT INTO tour_availability'))![0];
+    const set = upsert.slice(upsert.indexOf('DO UPDATE SET'));
+    expect(set).toMatch(/is_cancelled\s*=\s*FALSE/);
+    expect(set).toMatch(/cancellation_reason\s*=\s*NULL/);
+    expect(set).toMatch(/deleted_at\s*=\s*NULL/);
   });
 
   it('отменённая дата оператору не показывается открытой', () => {

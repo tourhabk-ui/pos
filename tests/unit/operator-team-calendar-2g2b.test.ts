@@ -18,7 +18,14 @@ import { NextRequest } from 'next/server';
 
 const query = vi.fn();
 const dbQuery = vi.fn();
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a), connect: vi.fn() } }));
+// Запись дат идёт своей транзакцией (lib/tours/availability-open.ts): клиент
+// пула делегирует в тот же query, и его SQL судится так же.
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (...a: unknown[]) => query(...a),
+    connect: async () => ({ query: (...a: unknown[]) => query(...a), release: () => undefined }),
+  },
+}));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
 vi.mock('@/lib/auth/middleware', () => ({
   requireOperator: vi.fn().mockResolvedValue({
@@ -68,6 +75,26 @@ const json = (url: string, method: string, body: unknown) => new NextRequest(url
 });
 const upsertCall = () => query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO tour_availability'));
 const ownsTour = (sql: string) => sql.includes('FROM operator_tours WHERE id = $1 AND operator_id = $2');
+
+/**
+ * Ответы общей записи дат: тур кабинета, у каждой даты нет строки и броней,
+ * upsert пишет по строке на дату. Что запись делает на настоящей базе —
+ * tests/integration/tour-dates-open.pg.test.ts; здесь судится, с каким правом
+ * цены и от чьего кабинета её зовут роуты.
+ */
+function datesWrite(sql: string, params: unknown[]): unknown {
+  if (ownsTour(sql)) {
+    return { rows: [{ title: 'Тур', max_participants: 10, is_published: true, season_start: null, season_end: null,
+      duration_type: null, multi_day_count: null, duration_hours: null }] };
+  }
+  if (sql.includes('FROM unnest($2::date[]) AS d(date)')) {
+    return { rows: (params[1] as string[]).map((date) => ({
+      date, has_row: false, deleted: false, available_slots: null, is_cancelled: null, cancellation_reason: null, taken: 0,
+    })) };
+  }
+  if (sql.includes('INSERT INTO tour_availability')) return { rows: [], rowCount: (params[1] as string[]).length };
+  return { rows: [] };
+}
 
 beforeEach(() => {
   query.mockReset();
@@ -139,22 +166,49 @@ describe('массовое открытие дат', () => {
     expect(upsertCall()).toBeUndefined();
 
     query.mockReset();
-    db('manager', sql => sql.includes('FROM operator_tours WHERE id = $1') ? { rows: [{ '?column?': 1 }] } : { rows: [] });
+    db('manager', datesWrite);
     const res = await post({});
     expect(res.status).toBe(200);
     const [sql, params] = upsertCall()!;
     expect(sql).toMatch(/CASE WHEN \$5::boolean THEN EXCLUDED\.base_price_override\s+ELSE tour_availability\.base_price_override END/);
     expect(params[4]).toBe(false);
+    // Тур сверяется с кабинетом владельца, а не с аккаунтом менеджера, — тем же
+    // запросом, что берёт блокировку тура.
+    expect(query.mock.calls.find(([s]) => ownsTour(String(s)))![1]).toEqual(['7', CABINET]);
+    expect((await res.json()).data).toMatchObject({ opened: 3, updated: 0, skipped: 0, refused: [], total: 3 });
+  });
+
+  it('кабинет как раньше открывает закрытую дату снова и прошлое не проверяет; ниже записанных — отказ с числом', async () => {
+    const state: Record<string, Record<string, unknown>> = {
+      '2020-01-01': { has_row: true, deleted: false, available_slots: 0, is_cancelled: true, cancellation_reason: 'Шторм', taken: 0 },
+      '2020-01-02': { has_row: false, deleted: false, available_slots: null, is_cancelled: null, cancellation_reason: null, taken: 9 },
+      '2020-01-03': { has_row: false, deleted: false, available_slots: null, is_cancelled: null, cancellation_reason: null, taken: 0 },
+    };
+    db('owner', (sql, params) => sql.includes('FROM unnest($2::date[]) AS d(date)')
+      ? { rows: (params[1] as string[]).map((date) => ({ date, ...state[date] })) }
+      : datesWrite(sql, params));
+    const res = await post({ startDate: '2020-01-01', endDate: '2020-01-03' });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toMatchObject({ opened: 2, reopened: 1, updated: 0, skipped: 0, refused: [{ date: '2020-01-02', taken: 9 }], total: 3 });
+    expect(body.message).toMatch(/не открыто 1: уже записано больше мест/);
+    // В базу ушли только разрешённые даты.
+    expect(upsertCall()![1][1]).toEqual(['2020-01-01', '2020-01-03']);
   });
 
   it('сбой базы — лог и русский текст, а не текст ошибки базы', async () => {
-    db('owner', sql => {
-      if (sql.includes('FROM operator_tours WHERE id = $1')) return { rows: [{ '?column?': 1 }] };
-      throw Object.assign(new Error('column "base_price_override" does not exist'), { code: '42703' });
+    db('owner', (sql, params) => {
+      if (sql.includes('INSERT INTO tour_availability')) {
+        throw Object.assign(new Error('column "base_price_override" does not exist'), { code: '42703' });
+      }
+      return datesWrite(sql, params);
     });
     const res = await post({});
     expect(res.status).toBe(500);
     expect(JSON.stringify(await res.json())).not.toMatch(/column|base_price_override/);
+    // Отказ — откат транзакции, а не половина записанного.
+    expect(query.mock.calls.map(([s]) => s)).toContain('ROLLBACK');
+    expect(query.mock.calls.map(([s]) => s)).not.toContain('COMMIT');
   });
 });
 
@@ -213,24 +267,50 @@ describe('даты тура (роут 2г-1): та же дыра со сброс
     { params: Promise.resolve({ id: '7' }) },
   );
 
-  it('менеджер без права цен: цена — 403; без цены — даты без права ставить цену', async () => {
+  const written = (date: string) => ({
+    ok: true, tour: { title: 'Тур', maxParticipants: 10, isPublished: true },
+    perDate: [{ date, result: 'opened' }], written: 1,
+  });
+
+  it('менеджер без права цен: цена — 403; без цены — даты без права ставить цену, от кабинета владельца', async () => {
     db('manager');
-    getTourById.mockResolvedValue({ operator_id: CABINET });
+    addAvailability.mockResolvedValue(written('2026-11-01'));
     expect((await post([{ date: '2026-11-01', available_slots: 5, price_override: 9000 }])).status).toBe(403);
     expect(addAvailability).not.toHaveBeenCalled();
 
     expect((await post([{ date: '2026-11-01', available_slots: 5 }])).status).toBe(201);
-    expect(addAvailability).toHaveBeenCalledWith(7n, [{ date: '2026-11-01', available_slots: 5 }], false);
+    expect(addAvailability).toHaveBeenCalledWith(7n, [{ date: '2026-11-01', available_slots: 5 }], false, CABINET);
   });
 
-  it('upsert без права оставляет цену даты', async () => {
+  it('места ниже записанных — 409 с числом записанных, а не «добавлено»; тура нет — 404', async () => {
+    db('owner');
+    addAvailability.mockResolvedValue({
+      ok: true, tour: { title: 'Тур', maxParticipants: 10, isPublished: true },
+      perDate: [{ date: '2026-11-01', result: 'refused_booked', taken: 9 }], written: 0,
+    });
+    const res = await post([{ date: '2026-11-01', available_slots: 8 }]);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/уже записано 9/);
+    expect(body.refused).toEqual([{ date: '2026-11-01', taken: 9 }]);
+
+    addAvailability.mockResolvedValue({ ok: false, reason: 'tour_not_found' });
+    expect((await post([{ date: '2026-11-01', available_slots: 8 }])).status).toBe(404);
+    addAvailability.mockResolvedValue({ ok: false, reason: 'failed', sqlstate: '57P01' });
+    expect((await post([{ date: '2026-11-01', available_slots: 8 }])).status).toBe(500);
+  });
+
+  it('upsert без права оставляет цену даты; тур сверяется с кабинетом', async () => {
     const real = await vi.importActual<typeof import('@/lib/api/operator-tours')>('@/lib/api/operator-tours');
-    dbQuery.mockResolvedValue({ rows: [] });
-    await real.addAvailability(7n, [{ date: '2026-11-01', available_slots: 5 }], false);
-    const [sql, params] = dbQuery.mock.calls[0];
+    db('manager', datesWrite);
+    const outcome = await real.addAvailability(7n, [{ date: '2026-11-01', available_slots: 5 }], false, CABINET);
+    expect(outcome).toMatchObject({ ok: true, written: 1, perDate: [{ date: '2026-11-01', result: 'opened' }] });
+    const [sql, params] = upsertCall()!;
     // Цена даты без права не трогается: условие на флаге права. Поведение на
-    // настоящем PostgreSQL — tests/integration/tour-availability-batch.pg.test.ts.
+    // настоящем PostgreSQL — tests/integration/tour-dates-open.pg.test.ts и
+    // tests/integration/tour-availability-batch.pg.test.ts.
     expect(sql).toMatch(/base_price_override = CASE WHEN \$5::boolean THEN EXCLUDED\.base_price_override ELSE tour_availability\.base_price_override END/);
     expect(params[4]).toBe(false);
+    expect(query.mock.calls.find(([s]) => ownsTour(String(s)))![1]).toEqual(['7', CABINET]);
   });
 });
