@@ -369,7 +369,14 @@ describe('pg-тесты доходят до CI', () => {
     // никогда (миграция 1307). Схема — копия шаблона. Замер, не память:
     // scripts/ci/run-pg-tests.sh локально на PostgreSQL 16 — 34 файла,
     // 355 тестов, 46 с. При таймауте job в 15 минут размен честен.
-    const SEQUENTIAL_BUDGET = 34;
+    // Тридцать пятый (22.10, слово владельца «отключи агента выдумывающкюего
+    // описание мест») — `editor-places-paused`: очередь Editor идёт через VIEW
+    // agent_route_knowledge, и что место из неё выпало, а маршрут остался,
+    // решает отбор на сервере; мок ответил бы на любой SQL. Схема — копия
+    // шаблона. Замер, не память: scripts/ci/run-pg-tests.sh локально на
+    // PostgreSQL 16 — 35 файлов, 358 тестов, 61 с. При таймауте job в
+    // 15 минут размен честен.
+    const SEQUENTIAL_BUDGET = 35;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,

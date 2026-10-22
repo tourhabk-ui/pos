@@ -22,6 +22,10 @@
  * заменяет надежду на него. По той же причине место с описанием-дневником
  * («я поднялся», «мы шли») заметку не получает вовсе: пересказ выдумки —
  * та же выдумка.
+ *
+ * С 22.10 новых заметок нет вовсе — слово владельца «отключи агента
+ * выдумывающкюего описание мест» (lib/places/model-place-text.ts). Шаг 4 для
+ * стоящих заметок работает дальше: снятое им модель больше не переписывает.
  */
 
 import { honestSafetyFields, asProfileSource } from '@/lib/safety/profile-source';
@@ -34,6 +38,7 @@ import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { descriptionVoice } from '@/lib/places/description-voice';
 import { reviewClaims, reviewRewriteReason, type RewriteReason } from '@/lib/kuzmich/review-claims';
 import { placeZoneLabel } from '@/lib/places/zone-labels';
+import { MODEL_WRITES_PLACE_TEXT } from '@/lib/places/model-place-text';
 
 export interface KuzmichPlaceEnricherResult {
   processed: number;
@@ -46,6 +51,11 @@ export interface KuzmichPlaceEnricherResult {
   reset: number;
   /** Перепроверка не выполнилась — «снято 0» тогда не значит «снимать нечего». */
   recheck_failed: boolean;
+  /**
+   * Новые заметки не пишутся — слово владельца 22.10 (lib/places/model-place-text.ts).
+   * Ноль `enriched` тогда значит «выключено», а не «писать некому».
+   */
+  paused: boolean;
   duration_ms: number;
 }
 
@@ -290,6 +300,17 @@ export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPl
     logSwallowedFailure('kuzmich-place-enricher', 'перепроверка стоящих заметок', err);
   }
 
+  // Слово владельца 22.10: модель тексты мест не пишет. Перепроверка выше
+  // осталась — она не сочиняет, а снимает сказанное сверх данных места, и
+  // снятое теперь не переписывается моделью заново.
+  if (!MODEL_WRITES_PLACE_TEXT) {
+    return {
+      processed: 0, enriched: 0, skipped: 0, rejected: 0, errors: 0,
+      reset, recheck_failed: recheckFailed, paused: true,
+      duration_ms: Date.now() - start,
+    };
+  }
+
   // Описание-дневник — не источник фактов: заметка пересказала бы выдумку.
   // Такие места отсеиваются ДО партии, а не внутри неё: выбор случайный, и
   // при сотне дневников без заметки они съедали бы большую часть из двадцати.
@@ -350,6 +371,7 @@ export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPl
     errors,
     reset,
     recheck_failed: recheckFailed,
+    paused: false,
     duration_ms: Date.now() - start,
   };
 }

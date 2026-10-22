@@ -427,7 +427,8 @@ export const CRON_REGISTRY: CronEntry[] = [
   // ── Контент ──────────────────────────────────────────────────────────────
   {
     key: 'editor', label: 'Editor',
-    description: 'Туры с описанием <300 символов → AI переписывает.',
+    // Места не пишет с 22.10 — слово владельца (lib/places/model-place-text.ts).
+    description: 'Описания маршрутов короче 300 знаков → AI дописывает. Места — нет (слово владельца 22.10).',
     workflow: 'cron-editor.yml', cron: '0 22 * * *', schedule: 'ежедневно · 22:00 UTC (off-peak)',
     everyMin: DAY, tier: 'content', agentId: 'editor', triggerable: true,
   },
@@ -463,7 +464,9 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     key: 'kuzmich-places', label: 'Kuzmich Place Reviews',
-    description: 'Рецензии Кузьмича для мест (20/запуск).',
+    // Новых заметок нет с 22.10 — слово владельца (lib/places/model-place-text.ts);
+    // перепроверка стоящих идёт дальше и снимает сказанное сверх данных места.
+    description: 'Перепроверка заметок Кузьмича о местах. Новых не пишет (слово владельца 22.10).',
     workflow: 'cron-kuzmich-places.yml', cron: '33 0 * * *', schedule: 'ежедневно · 00:33 UTC',
     everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
   },
