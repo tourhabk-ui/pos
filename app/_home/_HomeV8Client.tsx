@@ -789,27 +789,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </section>
         )}
 
-        {/* III. КУЗЬМИЧ */}
-        <section>
-          <div className="shead"><h2>Проводник Кузьмич</h2><span className="line" /></div>
-          <div className="guide">
-            <div className="gtop">
-              <img
-                className="face"
-                src="/images/kuzmich/portrait-192.webp"
-                srcSet="/images/kuzmich/portrait-96.webp 96w, /images/kuzmich/portrait-192.webp 192w, /images/kuzmich/portrait-384.webp 384w"
-                sizes="72px"
-                width={72}
-                height={72}
-                alt="Кузьмич"
-                loading="lazy"
-                decoding="async"
-              />
-              <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам оператору.</q>
-            </div>
-            <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
-          </div>
-        </section>
+        {/* Блока «Проводник Кузьмич» больше нет (владелец 23.10: «да убери,
+            есть в нижней панели мишка»): Кузьмич встречает медальоном
+            таб-бара, а его чаты — в герое под «Поделиться». */}
 
         {/* V. ЦИФРЫ */}
         <section>
@@ -824,9 +806,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         </section>
 
         {/* Сбор поездки — действие Кузьмича, а не отдельная секция-двойник.
-            Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
-            блок проводника выше, и добавлял главной ещё один вход в то же
-            самое. Форма и её POST /api/leads остались нетронутыми, ссылка
+            Заголовок «Собрать поездку» снят: он повторял то, что обещал
+            блок проводника (снят 23.10), и добавлял главной ещё один вход в
+            то же самое. Форма и её POST /api/leads остались нетронутыми, ссылка
             Чаты Кузьмича — в герое, под «Поделиться». */}
         <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
@@ -1369,31 +1351,6 @@ const CSS = `
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
 .v7 .arrivals .k{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);flex:none}
 .v7 .arrivals .t{font:500 11.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-/* проводник */
-.v7 .guide{border-left:2px solid var(--success);padding:2px 0 2px 18px}
-.v7 .guide .gtop{display:flex;align-items:flex-start;gap:16px}
-/* Медальон-гравюра: у Кузьмича не было лица — секция была цитатой без говорящего.
-   Кремовый круг вшит в сам PNG, поэтому подложка не нужна ни в одной теме. */
-.v7 .guide .face{width:72px;height:72px;flex:none;border-radius:50%;object-fit:cover}
-.v7 .guide q{display:block;font:500 15px/1.5 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;quotes:"«" "»"}
-.v7 .guide .sig{margin-top:10px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
-.v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
-.v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
-.v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
-.v7 .guide .acts{margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
-/* Одна система вместо трёх разных стилей: главная кнопка сайта на всю
-   ширину, под ней — две равные кнопки мессенджеров с официальными знаками.
-   Цели не ниже 48px. */
-.v7 .guide .acts a{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none}
-.v7 .guide .acts a.ask-site{min-height:52px;padding:0 20px;border-radius:14px;background:var(--accent);color:var(--on-accent);font:700 15px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em;box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 32%,transparent);transition:background .15s,transform .15s}
-.v7 .guide .acts a.ask-site:active{transform:scale(.99)}
-.v7 .guide .messengers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.v7 .guide .acts a.msg{min-height:48px;padding:0 12px;gap:8px;border:1px solid var(--border-strong);border-radius:14px;background:var(--bg-card);color:var(--text-primary);font:600 14px/1 var(--font-outfit),system-ui,sans-serif;transition:border-color .15s,background .15s}
-.v7 .guide .acts a.msg svg{flex:none;display:block}
-@media (hover:hover){
-  .v7 .guide .acts a.ask-site:hover{background:var(--accent-hover)}
-  .v7 .guide .acts a.msg:hover{background:var(--bg-hover)}
-}
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
 .v7 .dataline::-webkit-scrollbar{display:none}
@@ -1502,7 +1459,6 @@ const CSS = `
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .qtools,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
-  .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
   .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}
   .v7 .lead .lfield{flex:1;min-width:200px}
