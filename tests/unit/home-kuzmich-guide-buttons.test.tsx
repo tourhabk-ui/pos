@@ -1,12 +1,13 @@
 /**
- * Блок «Проводник Кузьмич»: главная дорога — на сайт, рядом две равные
- * дороги в мессенджеры с официальными знаками. Судим рендером, не исходником.
+ * Действия Кузьмича: главная дорога — на сайт, рядом две равные дороги в
+ * мессенджеры с официальными знаками. На мобильной главной с 23.10 — столбик
+ * в герое под «Поделиться» (HeroKuzmichChats). Судим рендером, не исходником.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup, screen } from '@testing-library/react';
 import React from 'react';
 
-import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
+import { HeroKuzmichChats } from '@/components/homepage/HeroKuzmichChats';
 import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
 import { VedarChatIcon, VEDAR_CHAT_MARK_PATH } from '@/components/shared/MessengerIcons';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
@@ -15,9 +16,9 @@ import { join } from 'node:path';
 
 afterEach(() => cleanup());
 
-describe('действия блока «Проводник Кузьмич»', () => {
+describe('единая система действий Кузьмича', () => {
   it('главная кнопка — «Спросить на сайте» на /kuzmich', () => {
-    render(<KuzmichGuideActions />);
+    render(<KuzmichActions primaryHref="/kuzmich" />);
     const site = screen.getByRole('link', { name: 'Спросить на сайте' });
     expect(site.getAttribute('href')).toBe('/kuzmich');
     expect(site.className).toContain('min-h-[52px]');
@@ -30,7 +31,7 @@ describe('действия блока «Проводник Кузьмич»', ()
   });
 
   it('мессенджеры: без подписей, прежние адреса, официальные знаки', () => {
-    const { container } = render(<KuzmichGuideActions />);
+    const { container } = render(<KuzmichActions primaryHref="/kuzmich" />);
     const tg = screen.getByRole('link', { name: 'Telegram' });
     const max = screen.getByRole('link', { name: 'MAX' });
     expect(tg.getAttribute('href')).toBe(KUZMICH_TELEGRAM_URL);
@@ -53,7 +54,7 @@ describe('действия блока «Проводник Кузьмич»', ()
 
 describe('ряд стеклянных иконок Кузьмича', () => {
   it('три иконки-кнопки в один ряд, в порядке сайт — Telegram — MAX', () => {
-    render(<KuzmichGuideActions />);
+    render(<KuzmichActions primaryHref="/kuzmich" />);
     const links = screen.getAllByRole('link');
     expect(links.map((l) => l.getAttribute('aria-label'))).toEqual(['Спросить на сайте', 'Telegram', 'MAX']);
     for (const l of links) {
@@ -63,7 +64,7 @@ describe('ряд стеклянных иконок Кузьмича', () => {
   });
 
   it('главная кнопка — белое стекло как у соседей, без оранжевой подложки', () => {
-    render(<KuzmichGuideActions />);
+    render(<KuzmichActions primaryHref="/kuzmich" />);
     const site = screen.getByRole('link', { name: 'Спросить на сайте' });
     const tg = screen.getByRole('link', { name: 'Telegram' });
     const max = screen.getByRole('link', { name: 'MAX' });
@@ -90,6 +91,45 @@ describe('ряд стеклянных иконок Кузьмича', () => {
     }
     expect(links[0].className).toBe(links[1].className);
     expect(links[0].querySelector('[data-vedar-chat-variant="accent-bubble"]')).not.toBeNull();
+  });
+});
+
+// Слово владельца 23.10: «кнопки чатов хочу сделать ниже кнопки поделиться,
+// размер как у иконки поделиться, сверху вниз, нижняя будет наш сайт».
+describe('чаты Кузьмича в герое главной', () => {
+  it('сверху вниз: Telegram, MAX, чат на сайте — последним', () => {
+    render(<HeroKuzmichChats />);
+    const links = screen.getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('aria-label'))).toEqual(['Telegram', 'MAX', 'Спросить на сайте']);
+    expect(screen.getByRole('group', { name: 'Спросить Кузьмича' })).toBeTruthy();
+  });
+
+  it('те же адреса, что у единой системы; мессенджеры — в новой вкладке, сайт — нет', () => {
+    render(<HeroKuzmichChats />);
+    const tg = screen.getByRole('link', { name: 'Telegram' });
+    const max = screen.getByRole('link', { name: 'MAX' });
+    const site = screen.getByRole('link', { name: 'Спросить на сайте' });
+    expect(tg.getAttribute('href')).toBe(KUZMICH_TELEGRAM_URL);
+    expect(max.getAttribute('href')).toBe(KUZMICH_MAX_URL);
+    expect(site.getAttribute('href')).toBe('/kuzmich');
+    for (const l of [tg, max]) {
+      expect(l.getAttribute('target')).toBe('_blank');
+      expect(l.getAttribute('rel')).toContain('noopener');
+    }
+    expect(site.getAttribute('target')).toBeNull();
+  });
+
+  it('круглые кнопки героя без подписи, знаки по размеру круга «Поделиться»', () => {
+    render(<HeroKuzmichChats />);
+    for (const l of screen.getAllByRole('link')) {
+      expect(l.className).toBe('hero-chat');
+      expect(l.textContent?.trim()).toBe('');
+      expect(l.getAttribute('title')).toBe(l.getAttribute('aria-label'));
+    }
+    expect(screen.getByRole('link', { name: 'Telegram' }).querySelector('svg')?.getAttribute('width')).toBe('22');
+    expect(screen.getByRole('link', { name: 'MAX' }).querySelector('svg')?.getAttribute('width')).toBe('22');
+    const mark = screen.getByRole('link', { name: 'Спросить на сайте' }).querySelector('[data-vedar-chat-icon="true"]');
+    expect(mark?.getAttribute('data-vedar-chat-variant')).toBe('accent-bubble');
   });
 });
 
