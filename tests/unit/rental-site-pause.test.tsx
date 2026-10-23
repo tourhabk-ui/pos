@@ -64,8 +64,8 @@ import type { CarrierProfile } from '@/lib/transfers/charter-format';
 
 /** Пятница 23.10, полдень по Камчатке — пауза идёт. */
 const DURING = new Date('2026-10-23T00:00:00Z');
-/** Понедельник 26.10, 00:00 по Камчатке и позже — паузы нет. */
-const AFTER = new Date('2026-10-25T12:00:00Z');
+/** Вторник 27.10, 00:00 по Камчатке и позже — паузы нет. */
+const AFTER = new Date('2026-10-26T12:00:00Z');
 
 const company = (slug: string, name: string): RentalCompany => ({
   partnerId: `p-${slug}`, slug, name, shortDescription: null, logo: null, photos: [], phone: null, telegramHref: null,
@@ -92,15 +92,15 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('срок и предмет паузы', () => {
-  it('пауза — до понедельника 26.10, 00:00 по Камчатке (UTC+12), и прячет только «Лагуну»', () => {
+  it('пауза — до вторника 27.10, 00:00 по Камчатке (UTC+12), и прячет только «Лагуну»', () => {
     const kamchatka = new Date(Date.parse(RENTAL_SITE_PAUSE.until) + 12 * 3600_000);
     expect(kamchatka.getUTCDay()).toBe(1);
-    expect(kamchatka.toISOString().slice(0, 16)).toBe('2026-10-26T00:00');
+    expect(kamchatka.toISOString().slice(0, 16)).toBe('2026-10-27T00:00');
     expect(RENTAL_SITE_PAUSE.slugs).toEqual(['laguna-prokat']);
-    expect(RENTAL_SITE_PAUSE.returnsOn).toBe('в понедельник, 26 октября');
+    expect(RENTAL_SITE_PAUSE.returnsOn).toBe('во вторник, 27 октября');
   });
 
-  it('до срока спрятана, с первой секунды понедельника — нет; чужой прокатчик не спрятан никогда', () => {
+  it('до срока спрятана, с первой секунды вторника — нет; чужой прокатчик не спрятан никогда', () => {
     expect(rentalSitePauseActive(DURING)).toBe(true);
     expect(rentalHiddenOnSite('laguna-prokat', DURING)).toBe(true);
     expect(rentalHiddenOnSite('laguna-prokat', new Date(AFTER.getTime() - 1))).toBe(true);
@@ -122,11 +122,11 @@ describe('витрина /car-rental', () => {
     expect(container.querySelector('a[href^="/car-rental/laguna-prokat"]')).toBeNull();
   });
 
-  it('спрятан единственный — «вернётся в понедельник», а не «прокатчиков нет»', async () => {
+  it('спрятан единственный — «вернётся во вторник», а не «прокатчиков нет»', async () => {
     at(DURING);
     loaders.companies.mockResolvedValue([LAGUNA]);
     const { container } = render(await CarRentalRoute());
-    expect(txt(container)).toContain('Прокат вернётся на витрину в понедельник, 26 октября.');
+    expect(txt(container)).toContain('Прокат вернётся на витрину во вторник, 27 октября.');
     expect(txt(container)).not.toContain('Прокатчиков с прайсом пока нет');
     expect(txt(container)).not.toContain('Лагуна Прокат');
   });
@@ -162,8 +162,8 @@ describe('планер «Машина напрокат»', () => {
     at(DURING);
     loaders.companies.mockResolvedValue([LAGUNA]);
     const paused = await findCarRentalOffers();
-    expect(paused).toEqual({ state: 'paused', returnsOn: 'в понедельник, 26 октября' });
-    expect(carRentalPausedAnswer('в понедельник, 26 октября').message).toBe('Прокат автомобилей вернётся на сайт в понедельник, 26 октября');
+    expect(paused).toEqual({ state: 'paused', returnsOn: 'во вторник, 27 октября' });
+    expect(carRentalPausedAnswer('во вторник, 27 октября').message).toBe('Прокат автомобилей вернётся на сайт во вторник, 27 октября');
 
     loaders.companies.mockResolvedValue([LAGUNA, BAY]);
     const both = await findCarRentalOffers();
