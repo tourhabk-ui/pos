@@ -123,7 +123,7 @@ describe('запись канала', () => {
   it('Telegram — в колонку доставки И зеркалом в contacts JSONB', async () => {
     poolQueryMock.mockResolvedValue({ rows: [{ name: 'Камчатская рыбалка', previous: null }] });
     const r = await bindPartnerChannel(PID, 'telegram', 12345);
-    expect(r).toEqual({ ok: true, partnerName: 'Камчатская рыбалка', previousChatId: null, rebound: false });
+    expect(r).toEqual({ ok: true, partnerName: 'Камчатская рыбалка', slug: null, previousChatId: null, rebound: false });
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toMatch(/SET telegram_chat_id = \$1::bigint/);
     expect(sql).toMatch(/jsonb_build_object\('telegram_chat_id', \$1::text\)/);
@@ -177,12 +177,12 @@ describe('запись канала', () => {
     expect(tgSendMock.mock.calls[0][0].text).toContain('A&lt;b&gt;&amp;&quot;');
     expect(tgSendMock.mock.calls[0][0].text).not.toContain('<b>&');
     expect(maxSendMock.mock.calls[0]![1]).toContain('A&lt;b&gt;&amp;&quot;');
-    const t = bindReplyText('max', { ok: true, partnerName: 'A<b>&', previousChatId: null, rebound: false });
+    const t = bindReplyText('max', { ok: true, partnerName: 'A<b>&', slug: null, previousChatId: null, rebound: false });
     expect(t).toContain('A&lt;b&gt;&amp;');
   });
 
   it('ответ в Telegram честно говорит, что ПД туриста приходят только в MAX', () => {
-    const t = bindReplyText('telegram', { ok: true, partnerName: 'X', previousChatId: null, rebound: false });
+    const t = bindReplyText('telegram', { ok: true, partnerName: 'X', slug: null, previousChatId: null, rebound: false });
     expect(t).toMatch(/только в MAX/);
   });
 });
@@ -211,6 +211,54 @@ describe('обработчики ботов', () => {
     expect(src.slice(gate, i)).not.toMatch(/\n    \}\n/);
     expect(src).toMatch(/if \(opts\?\.verifiedOrigin === true\) \{\s*\n\s*const startArg = typeof update\.payload === 'string'/);
     expect(src).not.toMatch(/verifyPartnerLinkToken|partnerTokenFromStart/);
+  });
+
+  it('пилот проката в MAX называется прокатчиком; без флага, чужой slug и Telegram — прежний текст', async () => {
+    const { handlePartnerStart } = await import('@/lib/partners/bind-channel');
+    const t = createPartnerLinkToken(PID, Date.now());
+    if (!t.ok) throw new Error('нет токена');
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const start = `op_${t.token}`;
+
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', ' laguna-prokat , other ');
+    poolQueryMock.mockResolvedValue({ rows: [{ name: 'Лагуна <Прокат>', slug: 'Laguna-Prokat', previous: null }] });
+    expect(await handlePartnerStart(start, 'max', 5, reply)).toBe(true);
+    expect(String(reply.mock.calls[0][0])).toContain('подключены как прокатчик');
+    expect(String(reply.mock.calls[0][0])).toContain('Лагуна &lt;Прокат&gt;');
+    expect(String(reply.mock.calls[0][0])).not.toContain('<Прокат>');
+
+    reply.mockClear();
+    poolQueryMock.mockResolvedValue({ rows: [{ name: 'Чужой', slug: 'fishing', previous: null }] });
+    expect(await handlePartnerStart(start, 'max', 5, reply)).toBe(true);
+    expect(String(reply.mock.calls[0][0])).toMatch(/подключён к оператору/);
+    expect(String(reply.mock.calls[0][0])).not.toMatch(/прокатчик/);
+
+    reply.mockClear();
+    poolQueryMock.mockResolvedValue({ rows: [{ name: 'Лагуна Прокат', slug: 'laguna-prokat', previous: null }] });
+    expect(await handlePartnerStart(start, 'telegram', 5, reply)).toBe(true);
+    expect(String(reply.mock.calls[0][0])).toMatch(/только в MAX/);
+    expect(String(reply.mock.calls[0][0])).not.toMatch(/прокатчик/);
+
+    reply.mockClear();
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', '');
+    expect(await handlePartnerStart(start, 'max', 5, reply)).toBe(true);
+    expect(String(reply.mock.calls[0][0])).toMatch(/подключён к оператору/);
+    expect(String(reply.mock.calls[0][0])).not.toMatch(/прокатчик/);
+  });
+
+  it('обычный старт и ссылка администратора привязку партнёра не начинают', async () => {
+    const { handlePartnerStart } = await import('@/lib/partners/bind-channel');
+    const { adminTokenFromStart } = await import('@/lib/max/admin-link');
+    const reply = vi.fn();
+    poolQueryMock.mockClear();
+    const adm = `adm_${'a'.repeat(32)}`;
+    expect(await handlePartnerStart('', 'max', 5, reply)).toBe(false);
+    expect(await handlePartnerStart('lead', 'max', 5, reply)).toBe(false);
+    expect(await handlePartnerStart(adm, 'max', 5, reply)).toBe(false);
+    expect(poolQueryMock).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
+    expect(adminTokenFromStart(adm)).toBe('a'.repeat(32));
+    expect(partnerTokenFromStart(adm)).toBeNull();
   });
 
   it('handlePartnerStart: не наша ссылка — false; плохая — причина человеку; хорошая — запись', async () => {

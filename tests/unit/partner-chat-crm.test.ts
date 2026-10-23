@@ -53,7 +53,8 @@ describe('кто партнёр по чату', () => {
   it('найден по колонке своего канала; категория CRM — из шести ролей', async () => {
     query.mockResolvedValueOnce({ rows: [row()] });
     const r = await chat.findPartnerByChat('max', 777);
-    expect(r).toEqual({ outcome: 'found', partner: { partnerId: 'p-1', partnerName: 'Вулкан-Тур', category: 'guide', crmCategory: 'guide', userId: 'u-1' } });
+    expect(r).toEqual({ outcome: 'found', partner: { partnerId: 'p-1', partnerName: 'Вулкан-Тур', slug: null, category: 'guide', crmCategory: 'guide', userId: 'u-1' } });
+    expect(query.mock.calls[0][0]).toMatch(/NULLIF\(btrim\(slug\), ''\) AS slug/);
     expect(query.mock.calls[0][0]).toMatch(/WHERE max_chat_id = \$1/);
     expect(query.mock.calls[0][1]).toEqual([777]);
 
