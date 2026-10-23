@@ -28,6 +28,7 @@ import {
   CRM_WRITE_TOOL_NAMES, crmToolDefinitions, crmToolText, crmWriteSummary, executeCrmTool, type CrmToolContext,
 } from '@/lib/crm/tools';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { MY_TOURS_TOOL, MY_TOURS_TOOL_NAME, runMyToursSchedule } from '@/lib/kuzmich/operator-tours-tool';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 
@@ -149,8 +150,8 @@ async function buildOperatorContext(partnerId: string): Promise<string> {
   weekStart.setDate(now.getDate() - now.getDay());
 
   const [toursResult, bookingsResult, pendingResult] = await Promise.allSettled([
-    pool.query<{ id: number; title: string; base_price: number; is_active: boolean; available_slots: number | null }>(
-      `SELECT id, title, base_price, is_active,
+    pool.query<{ id: number; title: string; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null }>(
+      `SELECT id, title, base_price, is_active, is_published,
               available_slots, next_available_date::text
        FROM operator_tours
        WHERE operator_id = $1
@@ -204,7 +205,7 @@ async function buildOperatorContext(partnerId: string): Promise<string> {
     ? tours
         .map(
           t =>
-            `- "${t.title}" | ${Number(t.base_price).toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
+            `- "${t.title}" | ${Number(t.base_price).toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.is_published ? '' : ', скрыт с витрины'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
         )
         .join('\n')
     : toursFailed
@@ -260,6 +261,9 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
     lines.push(
       'О клиентах, входящих и задачах знаешь только то, что вернули инструменты crm_*. Чего инструмент не вернул — не утверждай.',
       'Клиента называй подписью из инструмента («Анна П.»). Телефонов и почт клиентов у тебя нет: связаться партнёр может из кабинета.',
+      ...(partner.category === 'operator'
+        ? ['Свои туры (и скрытые с витрины тоже) и открытые даты со свободными местами узнавай инструментом my_tours_schedule — не говори, что расписания или туров нет, не вызвав его.']
+        : []),
       'Записывай в CRM (касание, задачу, выполнение) только когда партнёр об этом просит, и коротко скажи, что записал.',
     );
   } else if (partner.crmCategory) {
@@ -282,12 +286,13 @@ async function partnerToolLoop(
   history: ChatMessage[],
   ctx: CrmToolContext,
   writes: string[],
+  operatorTours = false,
 ): Promise<string | null> {
   const msgs: ToolMsg[] = [
     { role: 'system', content: system },
     ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content } as ToolMsg)),
   ];
-  const tools = crmToolDefinitions(ctx.canWrite);
+  const tools = operatorTours ? [...crmToolDefinitions(ctx.canWrite), MY_TOURS_TOOL] : crmToolDefinitions(ctx.canWrite);
   const seen = new Set<string>();
 
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -297,6 +302,7 @@ async function partnerToolLoop(
 
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
     const outcomes = await runTurnTools(result.tool_calls, seen, async (name, args) => {
+      if (operatorTours && name === MY_TOURS_TOOL_NAME) return runMyToursSchedule(ctx.partnerId, args, ctx.nowMs);
       const r = await executeCrmTool(name, args, ctx);
       if (r.ok && CRM_WRITE_TOOL_NAMES.includes(name)) writes.push(crmWriteSummary(name, args));
       return crmToolText(r);
@@ -340,7 +346,7 @@ export async function processPartnerMessage(opts: {
       nowMs,
     };
     try {
-      answer = (await partnerToolLoop(withContext(partnerSystemPrompt(partner, nowMs, true)), history, ctx, writes))?.trim() ?? '';
+      answer = (await partnerToolLoop(withContext(partnerSystemPrompt(partner, nowMs, true)), history, ctx, writes, partner.category === 'operator'))?.trim() ?? '';
     } catch (err) {
       console.error('[partner-chat] цикл инструментов упал:', err instanceof Error ? err.message : String(err));
       answer = '';
