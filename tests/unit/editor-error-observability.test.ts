@@ -66,7 +66,9 @@ const ROUTE: RouteRow = {
   season: null, route_type: null, hazards: null, equipment: null, park_name: null,
 };
 
-const LONG_TEXT = 'Содержательное описание вулкана. '.repeat(15); // ~495 симв. >= 100
+// Пересказ фактов фикстуры: с 23.10 проверка правды сверяет и содержательные
+// слова, и текст, взятый не из фактов, до записи не доходит.
+const LONG_TEXT = 'Вулкан Тестовый высотой 2741 метр, рельеф — вулканический шлак, отмечен камнепад. '.repeat(4);
 
 function mockDb(opts: { routes: RouteRow[]; updateError?: Error }) {
   poolQueryMock.mockImplementation((sql: string) => {
@@ -145,6 +147,32 @@ describe('runEditor: наблюдаемость ошибок', () => {
     expect(result.error_samples[0]).toContain('db_update');
     expect(result.error_samples[0]).toContain('Вулкан Тестовый');
     expect(result.error_samples[0]).toContain('column ot.duration_days does not exist');
+  });
+
+  // Строгий Editor (23.10): «НЕТ» и отказ проверки правды строку не меняют,
+  // поэтому запись уходит на отдых — иначе прогон брал бы её каждую ночь.
+  it('«НЕТ» модели → no_source и отметка «не описал», а не ошибка', async () => {
+    mockDb({ routes: [ROUTE] });
+    callAIFastMock.mockResolvedValue('НЕТ. Из фактов известно только название.');
+
+    const result = await runEditor();
+
+    expect(result.no_source).toBe(1);
+    expect(result.errors).toBe(0);
+    const note = poolQueryMock.mock.calls.find(([sql]) => sql.includes('INSERT INTO editor_no_write'));
+    expect(note?.[1]?.slice(0, 3)).toEqual([ROUTE.id, ROUTE.kind, 'declined']);
+  });
+
+  it('текст не прошёл проверку правды → отметка «не описал» с причиной', async () => {
+    mockDb({ routes: [ROUTE] });
+    callAIFastMock.mockResolvedValue('Тропа идёт через березняк, с вершины открываются красивые виды на долину.');
+
+    const result = await runEditor();
+
+    expect(result.truth_rejected).toBe(1);
+    const note = poolQueryMock.mock.calls.find(([sql]) => sql.includes('INSERT INTO editor_no_write'));
+    expect(note?.[1]?.[2]).toBe('truth_rejected');
+    expect(String(note?.[1]?.[3])).toContain('слова не из источника');
   });
 
   it('SELECT очереди бросает → errors=1 + sample db_select', async () => {

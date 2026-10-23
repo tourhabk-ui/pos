@@ -92,7 +92,11 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          jq '{model: .model, items: [.items[] | select(.description != null) | {id: .id, description: .description}]}' \
+          # «НЕТ» модели уходит отдельным списком: прод ставит такие записи на
+          # отдых (миграция 1322), иначе очередь отдала бы их завтра снова.
+          jq '{model: .model,
+               items: [.items[] | select(.description != null) | {id: .id, description: .description}],
+               declined: [.items[] | select(.declined == true) | .id]}' \
             /tmp/editor-result.json > /tmp/editor-body.json
           COUNT=$(jq '.items | length' /tmp/editor-body.json)
           # Пустой прогон тоже доходит до прода, и выходить здесь нельзя.

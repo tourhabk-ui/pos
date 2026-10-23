@@ -11,6 +11,23 @@
  *
  * Места с 22.10 не пишет — слово владельца, выключатель
  * lib/places/model-place-text.ts (`editorKindSql` ниже).
+ *
+ * Ужесточён 23.10 (владелец: «Editor много выдумал его ужесточить промтном»):
+ *   · промпт — пересказ записанных фактов и ничего сверх: без выводов, советов,
+ *     оценок и описаний того, чего в фактах нет; мало фактов — короткий текст,
+ *     совсем нечего сказать — ответ «НЕТ», и запись не пишется;
+ *   · один ответ при низкой температуре вместо трёх вариантов с выбором
+ *     НАИМЕНЕЕ типичного: для справочного текста наименее типичный — это
+ *     самый сочинённый;
+ *   · очередь — пустые описания и только СОБСТВЕННЫЕ короткие тексты модели
+ *     (журнал 911). Короткий текст из источника, миграции или от человека
+ *     Editor не переписывает и источником не берёт: дописать его можно только
+ *     выдумкой (случай Микижи 27.09, теперь правилом для всех);
+ *   · прежний текст модели не источник фактов ни для промпта, ни для проверки
+ *     правды: иначе выдумка прошлого прогона узаконивала бы следующую;
+ *   · факты — русскими подписями, а не кодами (`volcano`, `avalanche`):
+ *     модель пересказывает слова источника, а не переводит их сама;
+ *   · проверка правды сверяет и содержательные слова (`editor-truth-gate`).
  */
 
 import { pool } from '@/lib/db-pool';
@@ -18,10 +35,14 @@ import { notOwnerDecidedSql } from '@/lib/places/owner-decided';
 import { callAIQualityOrNull, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
+import { parseVerbalizedSamples, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
 import { sanitizeGarbageDescriptions } from '@/lib/agents/evo/content-sanitizer';
 import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
-import { placeZoneLabel } from '@/lib/places/zone-labels';
+import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
+import { locationTypeLabelLower } from '@/lib/places/location-types';
+import { hazardLabel } from '@/lib/safety/hazard-labels';
+import { ACTIVITY_LABELS } from '@/lib/tours/labels';
+import { descriptionWrittenByModelSql } from '@/lib/places/description-by-model';
 import { MODEL_WRITES_PLACE_TEXT } from '@/lib/places/model-place-text';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
@@ -141,6 +162,24 @@ export interface RouteRow {
   waypoints?: Array<{ name: string; excerpt: string | null }> | null;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  vulkani:              'вулкан',
+  termalnye_istochniki: 'термальные источники',
+  geyzery:              'гейзеры',
+  eco:                  'экотуризм',
+  trekking:             'треккинг',
+  lakes:                'озёра',
+  rivers:               'реки',
+  mountains:            'горы',
+  rybalka:              'рыбалка',
+  morskie_progulki:     'морские прогулки',
+  vertoletnye_tury:     'вертолётные туры',
+  medvedi:              'наблюдение за медведями',
+  ekskursii:            'экскурсии',
+  dzhip:                'джип-туры',
+  ozera:                'озёра',
+};
+
 /**
  * Факты для промпта — только те, что ЕСТЬ. Отсутствующее не упоминается вовсе:
  * строка «высота: неизвестно» — это приглашение придумать высоту.
@@ -153,21 +192,22 @@ export function buildFacts(route: RouteRow): string[] {
     f.push(`${label}: ${String(v)}`);
   };
   put('род записи', route.kind === 'place' ? 'точка на карте' : route.kind === 'route' ? 'маршрут' : null);
-  put('тип объекта', route.location_type);
-  put('вид активности', route.activity_type);
+  put('категория', route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : null);
+  put('тип объекта', route.location_type ? locationTypeLabelLower(route.location_type) : null);
+  put('вид активности', route.activity_type ? (ACTIVITY_LABELS[route.activity_type] ?? route.activity_type) : null);
   put('зона', placeZoneLabel(route.zone));
   if (route.lat !== null && route.lng !== null) f.push(`координаты: ${route.lat}, ${route.lng}`);
   put('высота над уровнем моря, м', route.altitude_m);
   put('рельеф', route.terrain_type);
-  put('опасности точки', route.hazard_types);
-  put('сложность', route.difficulty_level);
-  put('до ближайшей медпомощи, км', route.nearest_medical_km);
+  put('опасности точки', route.hazard_types?.map(hazardLabel) ?? null);
+  put('сложность', route.difficulty_level ? (routeDifficultyLabel(route.difficulty_level) ?? route.difficulty_level) : null);
+  put('до ближайшей медицинской помощи, км', route.nearest_medical_km);
   put('дистанция маршрута, км', route.distance_km);
   put('набор высоты, м', route.elevation_gain_m);
   put('длительность, ч', route.duration_hours);
-  put('сезон', route.season);
-  put('тип маршрута', route.route_type);
-  put('опасности маршрута', route.hazards);
+  put('сезон', route.season ? (routeSeasonLabel(route.season) ?? route.season) : null);
+  put('тип маршрута', route.route_type ? (routeTypeLabel(route.route_type) ?? route.route_type) : null);
+  put('опасности маршрута', route.hazards?.map(hazardLabel) ?? null);
   put('снаряжение', route.equipment);
   // Не «природный парк» (14.10): park_name бывает памятником природы
   // («Вачкажец») и заповедником, а Editor пишет то, что ему назвали.
@@ -217,14 +257,73 @@ export function editorKindSql(alias: string): string {
   return MODEL_WRITES_PLACE_TEXT ? 'TRUE' : `${alias}.kind IS DISTINCT FROM 'place'`;
 }
 
-export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
+/**
+ * Условие очереди — одно на отбор и на счёт «в очереди» в отчёте: описания
+ * нет, либо оно короткое, отдохнуло неделю и это СОБСТВЕННЫЙ текст модели
+ * (последняя запись журнала 911 — писатель-модель, длина совпадает).
+ *
+ * До 23.10 очередь брала ЛЮБОЕ короткое описание, а прежний текст подавала
+ * модели источником: короткий текст из паспорта, миграции или от человека
+ * «дописывался» выдумкой (случай Микижи 27.09 закрыли только для текстов
+ * владельца), а выдумка прошлого прогона становилась фактом следующего.
+ * Теперь чужой короткий текст — ответ, а не недоработка, и Editor его не
+ * трогает. `minParam` и `restParam` — номера параметров запроса.
+ */
+export function editorQueueWhereSql(alias: string, minParam: string, restParam: string): string {
+  return `(${alias}.description IS NULL
+       OR (LENGTH(${alias}.description) < ${minParam}
+           AND ${alias}.updated_at < NOW() - make_interval(days => ${restParam})
+           AND ${descriptionWrittenByModelSql(`${alias}.id`, `${alias}.description`)}
+           -- Короткий текст по решению владельца — ответ, а не недоработка
+           -- (lib/places/owner-decided.ts, случай Микижи 27.09).
+           AND ${notOwnerDecidedSql(`${alias}.id`)}))
+      AND ${notWithdrawnSql(`${alias}.id`)}
+      AND ${editorKindSql(alias)}
+      -- Не описал — отдыхает (миграция 1322): «НЕТ» модели и отказ проверки
+      -- правды строку не меняют, и без отметки она возвращалась бы каждую ночь.
+      AND NOT EXISTS (SELECT 1 FROM editor_no_write enw
+                       WHERE enw.entity_id = ${alias}.id
+                         AND enw.attempted_at > NOW() - make_interval(days => ${restParam}))`;
+}
+
+/** Почему Editor не записал описание: исход, а не поломка. */
+export type EditorNoWriteOutcome = 'declined' | 'truth_rejected';
+
+/**
+ * Отметка «не описал» — запись уходит на отдых REATTEMPT_REST_DAYS (1322).
+ * Отказ отметки не отменяет прогон, но и не молчит: без неё строка просто
+ * вернётся завтра, и вызывающий узнаёт об этом из исключения.
+ */
+export async function recordEditorNoWrite(
+  route: Pick<RouteRow, 'id' | 'kind'>,
+  outcome: EditorNoWriteOutcome,
+  reason: string,
+  attemptedBy: string,
+  factsCount: number,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO editor_no_write (entity_id, entity_kind, outcome, reason, attempted_by, facts_count, attempted_at)
+     VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::int, NOW())
+     ON CONFLICT (entity_id) DO UPDATE
+       SET entity_kind = EXCLUDED.entity_kind, outcome = EXCLUDED.outcome, reason = EXCLUDED.reason,
+           attempted_by = EXCLUDED.attempted_by, facts_count = EXCLUDED.facts_count,
+           attempted_at = EXCLUDED.attempted_at`,
+    [route.id, route.kind ?? 'unknown', outcome, reason.slice(0, 500), attemptedBy.slice(0, 120), factsCount],
+  );
+}
+
+/**
+ * Очередь Editor. `onlyIds` — проверка «эти записи сейчас в очереди» для
+ * приёмника раннера: случайная выборка из BATCH_SIZE при очереди длиннее
+ * пачки не содержала бы записей, которые раннер только что описал.
+ */
+export async function findRoutesNeedingDescription(onlyIds?: string[]): Promise<RouteRow[]> {
   // NULL-описания — всегда в приоритете (реальные пробелы важнее полировки).
-  // Короткие (<300) берём только если их давно (>7 дней) никто не трогал —
-  // иначе честно-короткие ответы циклятся каждый прогон (см. REATTEMPT_REST_DAYS).
+  // Короткие — только свои, и только если их давно (>7 дней) никто не трогал
+  // (см. REATTEMPT_REST_DAYS и editorQueueWhereSql).
   // Присоединяются ровно те источники, что описаны в §4.1: профиль
   // безопасности точки — по ark_id, паспорт маршрута — по kamchatka_routes.
-  // VIEW сама отдаёт координаты, тип, зону, род и источник; их просто не
-  // спрашивали.
+  // VIEW сама отдаёт координаты, тип, зону, род и источник.
   const { rows } = await pool.query<RouteRow>(`
     SELECT
       ark.id, ark.title, ark.description, ark.category,
@@ -246,36 +345,13 @@ export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
     FROM agent_route_knowledge ark
     LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
     LEFT JOIN kamchatka_routes        kr  ON kr.ark_id = ark.id
-    WHERE (ark.description IS NULL
-       OR (LENGTH(ark.description) < $1 AND ark.updated_at < NOW() - make_interval(days => $3)
-           -- Короткий текст по решению владельца — ответ, а не недоработка
-           -- (lib/places/owner-decided.ts, случай Микижи 27.09).
-           AND ${notOwnerDecidedSql('ark.id')}))
-      AND ${notWithdrawnSql('ark.id')}
-      AND ${editorKindSql('ark')}
+    WHERE ${editorQueueWhereSql('ark', '$1', '$3')}
+      AND ($4::uuid[] IS NULL OR ark.id = ANY($4::uuid[]))
     ORDER BY (ark.description IS NULL) DESC, RANDOM()
     LIMIT $2
-  `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE, REATTEMPT_REST_DAYS]);
+  `, [MIN_DESCRIPTION_LENGTH, onlyIds ? Math.max(onlyIds.length, 1) : BATCH_SIZE, REATTEMPT_REST_DAYS, onlyIds ?? null]);
   return rows;
 }
-
-const CATEGORY_LABELS: Record<string, string> = {
-  vulkani:              'вулкан',
-  termalnye_istochniki: 'термальные источники',
-  geyzery:              'гейзеры',
-  eco:                  'экотуризм',
-  trekking:             'треккинг',
-  lakes:                'озёра',
-  rivers:               'реки',
-  mountains:            'горы',
-  rybalka:              'рыбалка',
-  morskie_progulki:     'морские прогулки',
-  vertoletnye_tury:     'вертолётные туры',
-  medvedi:              'наблюдение за медведями',
-  ekskursii:            'экскурсии',
-  dzhip:                'джип-туры',
-  ozera:                'озёра',
-};
 
 /**
  * Порог существует ради ОДНОГО: отсечь заглушку провайдера («Сервис временно
@@ -340,46 +416,67 @@ const SYSTEM_LEAN = `Ты эксперт по туризму на Камчатк
  * Промпт обязан быть один: две копии разойдутся, и половина описаний окажется
  * написана по другим правилам, чем вторая.
  */
+/**
+ * Строгий промпт (23.10, владелец: «Editor много выдумал его ужесточить
+ * промтном»). Принципы, а не перечень случаев (CLAUDE.md §8): каждое
+ * предложение опирается на строку фактов; выводов, советов и оценок нет;
+ * того, чего нет в фактах, нет и в тексте; нечего сказать — «НЕТ».
+ *
+ * Чего здесь больше нет и почему:
+ *   · «Ты эксперт по туризму на Камчатке» — роль эксперта зовёт его знания, а
+ *     своих знаний для этой работы у модели быть не должно;
+ *   · «что из них следует для подготовки» — просьба о выводе, которого в
+ *     данных нет: так появлялись «возьмите палки» и «подходит новичкам»;
+ *   · прежнее описание «как источник» — в очередь попадает только текст
+ *     самой модели, и выдумка прошлого прогона стала бы фактом этого;
+ *   · три варианта с выбором наименее типичного — см. `pickDescriptionFromAnswer`.
+ */
+const SYSTEM_STRICT = `Ты редактор справочника Ведара — платформы, главная задача которой безопасность туристов на Камчатке. Твоя работа — пересказать связным текстом факты о маршруте или месте, записанные в базе. Своих знаний для этой работы у тебя нет: ни о Камчатке, ни о похожих местах.
+
+Правила:
+1. Каждое предложение опирается на строку из списка фактов. Если для утверждения нельзя показать строку-источник, его не пиши.
+2. Не делай выводов из фактов: не советуй, что взять и как готовиться, не оценивай, кому подходит, насколько трудно или безопасно, чем интересно и как добраться, если этого нет в фактах.
+3. Не описывай того, чего в фактах нет: природу, растительность, животных, погоду, виды, историю, дорогу, состояние тропы.
+4. Числа, названия и опасности пиши только так, как они даны в фактах: без пересчёта и без новых.
+5. Длина следует за фактами: два факта — одно-два предложения. Ничего не добавляй ради объёма: растянуть текст можно только выдумкой.
+6. Если из фактов не складывается ни одного предложения сверх названия, ответь одним словом: НЕТ.
+
+Форма: справочный тон, третье лицо, без впечатлений и рекламных слов, без списков, markdown и emoji, на русском.`;
+
+/** Ответ «нечего написать» — разрешённый исход, а не провал. */
+export const EDITOR_DECLINE_WORD = 'НЕТ';
+
+/**
+ * Первое слово ответа — «нет» (в любом регистре, после разметки, кавычек и
+ * «Ответ:»). Описание маршрута с «нет» не начинается: так начинается рассказ
+ * о том, чего в данных нет.
+ */
+export function isDeclineAnswer(text: string): boolean {
+  const head = text.replace(/^[\s*_`«»"'„“”(\[]+/u, '').replace(/^ответ\s*[:—–-]?\s*[*_`«»"']*/iu, '');
+  return new RegExp(`^${EDITOR_DECLINE_WORD}(?![а-яёa-z])`, 'iu').test(head);
+}
+
+/**
+ * Температура строгого пересказа: варианты подачи здесь не нужны. Доходит до
+ * Qwen, xAI и OpenRouter на раннере; DeepSeek в режиме размышления её не
+ * применяет (так устроен его API), общий водопад в хвосте пути — тоже.
+ */
+export const EDITOR_TEMPERATURE = 0.2;
+
 export function buildDescriptionMessages(route: RouteRow, variant: EditorPromptVariant = 'full'): ChatMessage[] {
-  const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
   const facts = buildFacts(route);
   return [
-    {
-      role: 'system',
-      content: variant === 'lean' ? SYSTEM_LEAN : `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы Ведар. Главная задача платформы — безопасность туристов, поэтому каждое слово должно быть либо проверяемым фактом, либо честным обобщением без выдуманной конкретики.
-
-КРИТИЧНО — пиши ТОЛЬКО из переданных фактов:
-- Ниже тебе дан список фактов из базы. Это ВЕСЬ твой источник. Чего в списке нет — того не существует для тебя: не упоминай, не выводи, не додумывай.
-- НЕ придумывай числа: высоту, координаты, длину, перепад, температуру, расстояния, время в пути.
-- НЕ выдумывай факты о безопасности: броды, лавины, камнепады, активность вулкана, «безопасно для новичков». Неверный факт о безопасности может стоить туристу жизни.
-- Своими общими знаниями о Камчатке пользоваться ЗАПРЕЩЕНО. Похожие места бывают разными, а турист пойдёт именно в это.
-
-Длина следует за фактами, а не наоборот:
-- Пять фактов — несколько предложений. Два факта — две строки. Это НОРМАЛЬНЫЙ ответ, а не плохой.
-- Растягивать текст ради объёма запрещено: растянуть можно только выдумкой.
-
-Стиль:
-- Фактически точный, спокойный, без рекламных штампов («захватывающий», «незабываемый», «уникальный», «райский», «must-see»).
-- Без emoji, без markdown, без списков — связный текст на русском.`,
-    },
+    { role: 'system', content: variant === 'lean' ? SYSTEM_LEAN : SYSTEM_STRICT },
     {
       role: 'user',
-      content: `Напиши описание для туристического объекта Камчатки.
-Название: ${route.title}
-${categoryLabel ? `Тип: ${categoryLabel}` : ''}
+      content: `Название: ${route.title}
 
-ФАКТЫ ИЗ БАЗЫ — это весь твой источник:
+Факты из базы — весь твой источник:
 ${facts.map((f) => `- ${f}`).join('\n')}
-${route.description ? `\nИмеющееся описание (факты бери и из него): ${route.description}` : ''}
 
-Напиши связный текст, опираясь ТОЛЬКО на перечисленное: что это за объект, что о нём известно из фактов, что из них следует для подготовки.
-Длину определяют факты. Мало фактов — короткий текст, и это правильный ответ.
-Ничего сверх списка не добавляй: ни характера местности, ни впечатлений, ни того, «чем обычно интересны такие места».
-
-${verbalizedInstruction(3)}
-Каждый text — это готовое описание по правилам выше (те же запреты на выдуманную конкретику). Варианты должны отличаться подачей и акцентами, но все — фактически честные.`,
+Перескажи эти факты связным текстом по правилам. Ответь только текстом описания или словом ${EDITOR_DECLINE_WORD}.`,
     },
-];
+  ];
 }
 
 /**
@@ -401,8 +498,22 @@ export function pickDescriptionFromAnswer(raw: string | null): GenerationOutcome
     return { text: null, failReason: 'заглушка водопада: все провайдеры отказали' };
   }
 
+  // «НЕТ» — модель сказала, что из фактов нечего написать. Это исход
+  // «источника мало», а не провал генерации (§4.0, 23.10). Отказом считается
+  // ответ, ПЕРВОЕ слово которого «нет»: модели дописывают пояснение («НЕТ. Из
+  // записанного известно только название»), и такое пояснение — рассказ о
+  // данных, а не описание маршрута; записанное, оно стало бы текстом карточки.
+  if (isDeclineAnswer(text)) {
+    return { text: null, failReason: 'модель: из фактов нечего написать', noSource: true };
+  }
+
+  // Прежний промпт просил три варианта и брал НАИМЕНЕЕ вероятный — для
+  // справочного текста это самый сочинённый (23.10). Теперь вариант один; если
+  // модель всё же прислала массив вариантов, берётся САМЫЙ вероятный.
   const samples = parseVerbalizedSamples(text);
-  const picked = pickLeastTypical(samples, MIN_GENERATION_LENGTH);
+  const picked = samples.length > 0
+    ? [...samples].sort((a, b) => b.probability - a.probability).find((x) => x.text.length >= MIN_GENERATION_LENGTH)?.text ?? null
+    : null;
   const result = picked ?? (looksLikeVerbalizedJson(text) ? null : text);
 
   if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
@@ -413,15 +524,15 @@ export async function generateRouteDescription(
   route: RouteRow,
   variant: EditorPromptVariant = 'full',
 ): Promise<GenerationOutcome> {
-  const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
-
   // ТРЕТИЙ ИСХОД. Раньше их было два: «написал» и «провайдеры молчат». Записи,
   // о которых в базе нет ничего, кроме названия, всё равно уходили в модель —
   // и возвращались с текстом, взятым неоткуда. Теперь такая запись НЕ идёт в
   // модель вовсе: это не ошибка генерации, а честное «источника нет».
   // Заодно экономятся токены на самых бесполезных вызовах.
+  // Прежний текст источником не считается (23.10): в очередь попадает только
+  // собственный текст модели. Нет фактов — в модель не идём.
   const facts = buildFacts(route);
-  if (facts.length === 0 && !route.description) {
+  if (facts.length === 0) {
     return { text: null, failReason: 'источника нет: в базе только название', noSource: true };
   }
 
@@ -435,7 +546,7 @@ export async function generateRouteDescription(
     // Описания читают туристы — это контент, а не структурный ответ. Поэтому
     // качественный путь (сильнейшая модель по очереди), а не гонка на скорость,
     // где побеждала мелкая быстрая модель.
-    const answer = await callAIQualityOrNull(messages, { maxTokens: 1600 });
+    const answer = await callAIQualityOrNull(messages, { maxTokens: 1600, temperature: EDITOR_TEMPERATURE });
     if (answer === null) {
       return { text: null, failReason: 'все провайдеры отказали (DeepSeek/Qwen/waterfall) — ответа нет' };
     }
@@ -471,6 +582,14 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
 
   const improvedTitles: string[] = [];
   const improvedIds: string[] = [];
+
+  const noteNoWrite = async (route: RouteRow, outcome: EditorNoWriteOutcome, reason: string) => {
+    try {
+      await recordEditorNoWrite(route, outcome, reason, 'editor-ai', buildFacts(route).length);
+    } catch (err) {
+      addErrorSample(`отметка «не описал» «${route.title}»: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   // Ступень 4 — самокоррекция: перед регенерацией система откатывает (NULL)
   // описания-мусор из СВОИХ прошлых прогонов (сырой VS-JSON, отговорки модели,
@@ -516,8 +635,11 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     const { text: newDescription, failReason, noSource: lacksSource } =
       await generateRouteDescription(route);
     if (lacksSource) {
-      // Не ошибка: писать не из чего. В модель запись не ходила.
+      // Не ошибка: писать не из чего — фактов нет или модель ответила «НЕТ».
+      // Запись уходит на отдых (1322): иначе она вернулась бы завтра с тем же
+      // ответом и тем же вызовом модели.
       noSource++;
+      await noteNoWrite(route, 'declined', failReason ?? 'нечего написать');
       continue;
     }
     if (!newDescription || newDescription.length < MIN_GENERATION_LENGTH) {
@@ -528,12 +650,15 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     }
     // Проверка правды ДО записи (решение владельца 03.10). Не прошёл — текст
     // не пишется; прежнее описание остаётся, запись вернётся в очередь.
+    // Прежний текст — собственный текст модели или пустота: источником для
+    // проверки он не служит, иначе вчерашняя выдумка узаконила бы сегодняшнюю.
     const verdict = judgeGeneratedDescription(newDescription, {
-      facts: buildFacts(route), title: route.title, previous: route.description,
+      facts: buildFacts(route), title: route.title, previous: null,
     });
     if (!verdict.ok) {
       truthRejected++;
       addErrorSample(`не записано «${route.title}»: ${verdict.reasons.join('; ')}`);
+      await noteNoWrite(route, 'truth_rejected', verdict.reasons.join('; '));
       continue;
     }
     try {
@@ -568,7 +693,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     }
   }
 
-  if (improved > 0 || sanitized > 0 || truthRejected > 0) {
+  if (improved > 0 || sanitized > 0 || truthRejected > 0 || noSource > 0) {
     // Два числа вместо одного: queue — сколько Editor реально возьмёт на
     // следующих прогонах (NULL + короткие «отдохнувшие»); total_short — общий
     // разрыв качества, который плато на честно-неизвестных маршрутах (их
@@ -580,9 +705,8 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
         // Снятое в очередь не входит и в разрыв не считается: его пишут по
         // источникам люди, а не Editor.
         `SELECT
-           COUNT(*) FILTER (WHERE description IS NULL
-             OR (LENGTH(description) < $1 AND updated_at < NOW() - make_interval(days => $2)))::text AS queue,
-           COUNT(*) FILTER (WHERE description IS NULL OR LENGTH(description) < $1)::text AS total_short
+           COUNT(*) FILTER (WHERE ${editorQueueWhereSql('ark', '$1', '$2')})::text AS queue,
+           COUNT(*) FILTER (WHERE ark.description IS NULL OR LENGTH(ark.description) < $1)::text AS total_short
          FROM agent_route_knowledge ark
         WHERE ${notWithdrawnSql('ark.id')}
           AND ${editorKindSql('ark')}`,
@@ -598,6 +722,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       `(обработано: ${processed}, ошибок: ${errors})\n` +
       (sanitized > 0 ? `Санитар откатил мусор: ${sanitized} описаний → чистая регенерация\n` : '') +
       (truthRejected > 0 ? `Не записано по проверке правды: ${truthRejected}\n` : '') +
+      (noSource > 0 ? `Из фактов нечего написать («НЕТ»): ${noSource} — повтор через ${REATTEMPT_REST_DAYS} дн.\n` : '') +
       (stoppedEarly ? `Остановлен по бюджету времени — остаток доберёт следующий прогон\n` : '') +
       `В очереди на обработку: ${queue >= 0 ? queue : '?'} · всего коротких: ${totalShort >= 0 ? totalShort : '?'}\n\n` +
       (titlesList ? `<b>Улучшенные маршруты и локации:</b>\n${titlesList}` : ''),

@@ -1380,9 +1380,9 @@ export function completionTruncated(data: unknown): boolean {
 
 export async function callXai(
   messages: ChatMessage[],
-  opts: { purpose?: 'strong' | 'fast'; timeoutMs?: number; maxTokens?: number; rejectTruncated?: boolean } = {},
+  opts: { purpose?: 'strong' | 'fast'; timeoutMs?: number; maxTokens?: number; rejectTruncated?: boolean; temperature?: number } = {},
 ): Promise<string | null> {
-  const { purpose = 'fast', timeoutMs = purpose === 'fast' ? 30_000 : 90_000, maxTokens = 800, rejectTruncated = false } = opts;
+  const { purpose = 'fast', timeoutMs = purpose === 'fast' ? 30_000 : 90_000, maxTokens = 800, rejectTruncated = false, temperature = 0.4 } = opts;
   const apiKey = getXaiKey();
   if (!apiKey) { recordAiLegFailure('xai', 'no_key'); return null; }
   const model = await resolveXaiModel(purpose);
@@ -1398,7 +1398,7 @@ export async function callXai(
       },
       body: JSON.stringify({
         model,
-        temperature: 0.4,
+        temperature,
         max_tokens: maxTokens,
         messages: payload,
       }),
@@ -5281,7 +5281,9 @@ export async function callAIQuality(
   //    grok-4.6 отвечает за 43 с). Здесь генерируется ТЕКСТ для людей, и
   //    ночному крону эти секунды по карману; ставить его выше DeepSeek
   //    незачем — тот отвечает за треть секунды.
-  const xaiText = await callXai(messages, { purpose: 'strong', timeoutMs: 90_000, maxTokens, rejectTruncated: true });
+  // Температура вызывающего доходит и сюда (23.10): строгий пересказ Editor
+  // просит 0.2, и запасной флагман не должен писать его на 0.4.
+  const xaiText = await callXai(messages, { purpose: 'strong', timeoutMs: 90_000, maxTokens, rejectTruncated: true, temperature });
   if (xaiText?.trim()) return xaiText;
 
   // 4. Общий waterfall — включая флагманы, если релей настроен.
