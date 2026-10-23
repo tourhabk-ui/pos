@@ -1228,40 +1228,32 @@ const CSS = `
 .v7 nav.qt-top .qt-tx > span{font-size:11px}
 .v7 nav.qt-top .qt-plan .qt-tx > span,.v7 nav.qt-top .qt-tours .qt-tx > span,.v7 nav.qt-top .qt-transfer .qt-tx > span,.v7 nav.qt-top .qt-stay .qt-tx > span,.v7 nav.qt-top .qt-rental .qt-tx > span{display:none}
 .v7 nav.qt-top .qt-badge{width:9px;height:9px}
-/* Погода (23.10): длинная плитка во всю ширину сетки — сцена /weather в
-   миниатюре (.wx-scene из globals.css: фон по небу и времени суток, звёзды
-   ночью). Текст — только парами --wx-fg* на фоне сцены. Предупреждение —
-   кромкой --wx-warn, как у стекла поля. Узко (<380px) — два дня, не три.
-   Цвет текста — от сцены, а не от темы: «.v7 a{color:inherit}» сильнее
-   «.wx-scene», и до 23.10 ночью в светлой теме плитка писала тёмным по
-   тёмному (снимок владельца). Строки — над силуэтом гряды, не под ним.
-   Поля сцены /weather на телефоне (во всю ширину экрана) плитке не нужны. */
-.v7 nav.qt-top > .hw{grid-column:1 / -1;display:flex;flex-direction:column;justify-content:center;gap:5px;min-height:72px;margin:0;padding:8px 10px 9px 12px;border-radius:16px;box-shadow:none;text-decoration:none;transition:transform .13s ease}
-.v7 nav.qt-top > .hw.wx-scene{color:var(--wx-fg);border-width:1px}
-.v7 .hw-cap,.v7 .hw-row,.v7 .hw-warn{position:relative;z-index:1}
+/* Погода (23.10): длинная плитка во всю ширину сетки, ведёт на /weather.
+   С вечера 23.10 — стекло, как у соседних плиток («из-за виджета погоды
+   теряется всё остальное»): прежняя сцена неба в 98 px была самым ярким
+   пятном экрана и перекрикивала двери ниже. Колодец знака — как у плиток
+   ряда, температура — крупной лёгкой цифрой, место и ветер — строкой под
+   небом, дни — колонками справа; на узкой плитке остаются два дня, а не
+   половина третьего. Предупреждение — полосой снизу с кромкой --warning,
+   текст переносится, а не обрезается. */
+.v7 nav.qt-top > .hw{grid-column:1 / -1;container-type:inline-size;display:flex;flex-direction:column;justify-content:center;gap:6px;min-height:52px;margin:0;padding:6px 10px 6px 6px;border-radius:14px;border:1px solid var(--border);background:color-mix(in srgb,var(--bg-card) 78%,transparent);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%);color:var(--text-primary);text-decoration:none;overflow:hidden;transition:transform .13s ease}
 .v7 nav.qt-top > .hw:active{transform:scale(.985)}
 .v7 nav.qt-top > .hw:focus-visible{outline:2px solid var(--ocean);outline-offset:2px}
-.v7 nav.qt-top > .hw-off{background:color-mix(in srgb,var(--bg-card) 78%,transparent);border:1px solid var(--border);color:var(--text-primary);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
-.v7 .hw-cap{font:600 10px/1.2 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--wx-fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .hw-row{display:flex;align-items:center;gap:10px;min-width:0}
-.v7 .hw-now{display:flex;align-items:center;gap:6px;flex:none}
-.v7 .hw-temp{font:300 30px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.v7 .hw-row{display:flex;align-items:center;gap:8px;min-width:0}
+.v7 .hw-ic{flex:none;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--ocean);background:color-mix(in srgb,var(--ocean) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ocean) 18%,transparent)}
+.v7 .hw-temp{flex:none;font:400 24px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .v7 .hw-mid{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
-.v7 .hw-mid b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .hw-mid > span{font-size:11.5px;color:var(--wx-fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .hw-off .hw-mid > span{color:var(--text-secondary)}
-.v7 .hw-days{display:flex;gap:4px;flex:none}
-.v7 .hw-day{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:34px;padding:4px 3px;border-radius:10px;background:var(--wx-chip)}
-.v7 .hw-day i{font-style:normal;font-size:10px;color:var(--wx-fg-2)}
-.v7 .hw-day b{font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
-.v7 .hw-go{flex:none;color:var(--wx-fg-2)}
-.v7 .hw-off .hw-go{color:var(--text-muted)}
-.v7 .hw-warn{display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px 5px 10px;border-radius:2px 10px 10px 2px;background:var(--wx-chip);box-shadow:inset 3px 0 0 var(--wx-warn);font-size:11.5px;font-weight:600}
-.v7 .hw-warn-t{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .hw-warn-n{flex:none;font-weight:500;color:var(--wx-fg-2)}
-.v7 .hw-warn svg{flex:none;color:var(--wx-warn)}
-.v7 .hw-hills{position:absolute;left:0;right:0;bottom:0;width:100%;height:46%;fill:var(--wx-silhouette);pointer-events:none;z-index:0}
-@media (max-width:379px){.v7 .hw-day:nth-child(3){display:none}.v7 .hw-temp{font-size:26px}}
+.v7 .hw-mid b{font-size:13px;font-weight:600;line-height:1.25}
+.v7 .hw-mid > span{font-size:11.5px;line-height:1.3;color:var(--text-secondary)}
+.v7 .hw-nw{white-space:nowrap}
+.v7 .hw-days{display:flex;gap:2px;flex:none}
+.v7 .hw-day{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:30px}
+.v7 .hw-day i{font-style:normal;font-size:11px;line-height:1.2;color:var(--text-secondary)}
+.v7 .hw-day b{font-size:12px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.v7 .hw-warn{display:flex;flex-wrap:wrap;align-items:center;column-gap:6px;row-gap:1px;margin:0 -10px -6px -6px;padding:5px 10px 6px 12px;border-top:1px solid var(--border);background:color-mix(in srgb,var(--warning) 9%,transparent);box-shadow:inset 3px 0 0 var(--warning);font-size:12px;font-weight:600;line-height:1.3}
+.v7 .hw-warn svg{flex:none;color:var(--warning)}
+.v7 .hw-warn-n{font-weight:500;color:var(--text-secondary)}
+@container (max-width:330px){.v7 .hw-day:nth-child(3){display:none}}
 @media (prefers-reduced-motion:reduce){.v7 nav.qt-top > .hw{transition:none}.v7 nav.qt-top > .hw:active{transform:none}}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
