@@ -21,6 +21,7 @@
  * прокатчика, подтверждает менеджер Ведара. Обещать request_* здесь значило
  * бы обещать путь, которого нет (§4).
  */
+import { cyrillicToLatin } from '@/lib/text/slugify';
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import {
   bodyKindWord, driveWord, driverWord, rentalPagePath, seatsWords, transmissionWord,
@@ -75,8 +76,27 @@ export function matchOffers(offers: RentalOffer[], query: string): RentalOffer[]
   if (words.length === 0) return offers;
   return offers.filter((o) => {
     const h = haystack(o);
-    return words.every((w) => h.includes(w));
+    const hl = cyrillicToLatin(h);
+    return words.every((w) => h.includes(w) || hl.includes(latinOf(w)));
   });
+}
+
+/**
+ * Кириллица и латиница — одно слово (23.10, разбор владельца: агент спросил
+ * «танк», в прайсе стоит «Tank-300», и по-русски написанную марку поиск не
+ * находил). Слово запроса ищется как есть и в транслитерации — «танк» → tank,
+ * «сузуки» → suzuki, «камаз» ↔ «КамАЗ». У марок, чьё русское написание
+ * транслитом не получается, — явная таблица; правило — транслитерация, таблица
+ * только для неправильных случаев.
+ */
+const BRAND_SPELLINGS: Record<string, string> = {
+  джимни: 'jimny', тойота: 'toyota', тоета: 'toyota', ленд: 'land', лэнд: 'land', крузер: 'cruiser', крузак: 'cruiser',
+  трак: 'truck', мицубиси: 'mitsubishi', митсубиси: 'mitsubishi', паджеро: 'pajero', делика: 'delica', хайлюкс: 'hilux',
+  хендай: 'hyundai', хундай: 'hyundai', джили: 'geely', чери: 'chery', хайс: 'hiace', транзит: 'transit', форд: 'ford',
+};
+
+function latinOf(word: string): string {
+  return BRAND_SPELLINGS[word] ?? cyrillicToLatin(word);
 }
 
 /** Строка машины: «Suzuki Jimny — внедорожник, 4 места, автомат, 4WD, 105 л.с.: 7000 руб за сутки, залог 15000 руб, без водителя». */

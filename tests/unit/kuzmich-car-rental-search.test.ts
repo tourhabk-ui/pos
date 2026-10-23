@@ -153,6 +153,43 @@ describe('rentalAnswer: фильтр query', () => {
   });
 });
 
+describe('rentalAnswer: кириллица и латиница — одно слово (23.10: «танк» не находил Tank-300)', () => {
+  const TANK: RentalOffer = { ...JIMNY, id: 'o4', title: 'Tank-300', seats: 5, priceRubPerDay: 15000, depositRub: 30000 };
+  const SEVER: RentalOffer = { ...VAHTOVKA, id: 'o5', title: 'Sever Truck', bodyKind: 'offroad_truck' };
+  const CO: RentalCompany = { ...LAGUNA, offers: [JIMNY, HIACE, VAHTOVKA, TANK, SEVER] };
+
+  it('марка по-русски находит латинское название: «танк» — Tank-300, «сузуки» и «джимни» — Suzuki Jimny', () => {
+    const tank = rentalAnswer([CO], 'танк', BASE);
+    expect(tank).toContain('Tank-300');
+    expect(tank).not.toContain('Suzuki Jimny');
+    expect(tank).not.toMatch(/ничего нет/);
+    for (const q of ['сузуки', 'Джимни', 'сузуки джимни']) {
+      const out = rentalAnswer([CO], q, BASE);
+      expect(out, q).toContain('Suzuki Jimny');
+      expect(out, q).not.toContain('Tank-300');
+      expect(out, q).not.toMatch(/ничего нет/);
+    }
+  });
+
+  it('неправильные написания — по таблице: «тойота», «хайс» — Toyota HiAce; «север трак» — Sever Truck', () => {
+    for (const q of ['тойота', 'хайс', 'Тойота Хайс']) {
+      const out = rentalAnswer([CO], q, BASE);
+      expect(out, q).toContain('Toyota HiAce');
+      expect(out, q).not.toContain('Tank-300');
+    }
+    const sever = rentalAnswer([CO], 'север трак', BASE);
+    expect(sever).toContain('Sever Truck');
+    expect(sever).not.toContain('КамАЗ');
+  });
+
+  it('латиницей про русское название: «kamaz» находит «КамАЗ вахтовка»; чужое слово по-прежнему «ничего нет»', () => {
+    const out = rentalAnswer([CO], 'kamaz', BASE);
+    expect(out).toContain('КамАЗ вахтовка');
+    expect(out).not.toContain('Tank-300');
+    expect(rentalAnswer([CO], 'танк джимни', BASE)).toContain('в прайсе ничего нет');
+  });
+});
+
 describe('searchCarRentalForKuzmich: загрузчик и отказ', () => {
   it('прайс прочитан — ответ с машинами и адресом страницы прокатчика', async () => {
     const out = await searchCarRentalForKuzmich({ query: 'джип' });
