@@ -7,7 +7,7 @@
  * «Сообщение дошло, связка работает» — не вызвав ни одного инструмента. Дойти
  * было некуда: у Кузьмича нет инструмента, который что-то отправляет
  * оператору; заявка оператору идёт только через create_lead,
- * create_booking_request, create_stay_request или request_charter — другим
+ * create_booking_request, create_stay_request, request_charter или create_car_rental_request — другим
  * путём, с согласием человека. Модель отчиталась о действии, которого не
  * совершала. На живой заявке такой ответ стоит дороже: турист решит, что
  * оператор уведомлён, и будет ждать ответа, которого не будет.
@@ -41,7 +41,7 @@ import { isNegated } from './safety-eval';
  * он обязан попасть сюда вместе с производителем (§10.09).
  */
 export const DELIVERY_TOOLS: ReadonlySet<string> = new Set([
-  'create_lead', 'create_booking_request', 'create_stay_request', 'request_charter',
+  'create_lead', 'create_booking_request', 'create_stay_request', 'request_charter', 'create_car_rental_request',
 ]);
 
 /**

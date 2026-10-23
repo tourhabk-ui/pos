@@ -52,13 +52,13 @@ export const A2A_DESCRIPTION =
   'Vedar Kamchatka travel agent (Russia): live operator tours and availability, safety alerts and conditions, '
   + 'places, weather, volcano status, stays, gear, transfers, self-drive car rental and trip plans. Free-text questions (Russian or English) '
   + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
-  + 'four human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, '
+  + 'five human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
   + 'consent: true required), no instant booking, no payment through the agent, no auth. '
   + 'Русский: агент платформы Ведар о Камчатке: туры операторов с живой занятостью, безопасность мест и обстановка в крае, '
   + 'жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
   + 'отвечает Кузьмич, хранитель Камчатки, с теми же инструментами, что у MCP-сервера. Точный вызов инструмента — '
-  + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записи четыре и все — '
-  + 'заявки, которые подтверждает человек: create_lead, create_booking_request, create_stay_request, request_charter '
+  + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записей пять, и все — '
+  + 'заявки, которые подтверждает человек: create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request '
   + '(нужен consent: true — согласие человека на обработку имени и телефона). Брони и оплаты через агента нет. '
   + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
   // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
@@ -89,6 +89,7 @@ export const SKILL_TAGS: Record<string, string[]> = {
   create_booking_request: ['kamchatka', 'request', 'booking', 'human-confirmed', 'consent'],
   create_stay_request:    ['kamchatka', 'request', 'stay', 'human-confirmed', 'consent'],
   request_charter:        ['kamchatka', 'request', 'charter', 'vakhtovka', 'human-confirmed', 'consent'],
+  create_car_rental_request: ['kamchatka', 'request', 'car-rental', 'self-drive', 'human-confirmed', 'consent'],
   get_request_status:     ['kamchatka', 'request', 'status', 'operator-answer'],
 };
 

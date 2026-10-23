@@ -100,10 +100,9 @@ describe('rentalAnswer: три исхода', () => {
     }
   });
 
-  it('инструмента заявки на прокат нет — сказано на обеих поверхностях, request_* не обещается', () => {
+  it('на MCP заявка — create_car_rental_request, в чате инструмента заявки нет', () => {
     const mcp = rentalAnswer([LAGUNA], undefined, BASE, { surface: 'mcp' });
-    expect(mcp).toMatch(/Инструмента заявки на прокат в MCP нет/);
-    expect(mcp).not.toMatch(/request_\w+/);
+    expect(mcp).toMatch(/create_car_rental_request/);
     const chat = rentalAnswer([LAGUNA], undefined, BASE, { surface: 'chat' });
     expect(chat).toMatch(/инструмента заявки на прокат у агента нет/);
     expect(chat).not.toMatch(/request_\w+/);
@@ -219,7 +218,7 @@ describe('исполнитель Кузьмича и реестр', () => {
     expect(loadMock).toHaveBeenCalledTimes(1);
     expect(out).toContain('Suzuki Jimny');
     expect(out).not.toContain('Toyota HiAce');
-    expect(out).toMatch(/Инструмента заявки на прокат в MCP нет/);
+    expect(out).toMatch(/create_car_rental_request/);
   });
 
   it('схема: необязательные query, type и даты, лишние поля отброшены, у Кузьмича и MCP одна русская часть', () => {

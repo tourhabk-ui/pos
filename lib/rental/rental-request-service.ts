@@ -83,6 +83,8 @@ export interface SaveRentalLeadInput {
   consent: PdConsentRecord | null;
   isSelf: boolean;
   sourceUrl: string;
+  /** Свой ключ повтора (пробная заявка из MCP): иначе — rentalDedupPrefix. */
+  dedupPrefix?: string;
 }
 
 /**
@@ -92,7 +94,7 @@ export interface SaveRentalLeadInput {
  * не нужен. null — не записалась (причину пишет createLead).
  */
 export async function saveRentalLead(i: SaveRentalLeadInput): Promise<string | null> {
-  const existing = await findRecentLeadByCommentPrefix(i.phone, rentalDedupPrefix(i.facts.company.name, i.facts.dateFrom));
+  const existing = await findRecentLeadByCommentPrefix(i.phone, i.dedupPrefix ?? rentalDedupPrefix(i.facts.company.name, i.facts.dateFrom));
   if (existing) return existing;
   const leadId = await createLead({
     name: i.name,

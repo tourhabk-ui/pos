@@ -20,8 +20,8 @@ python3 vedar_mcp_bridge.py --schema vedar_tools.json   # снимок схем�
 `dashscope-intl.aliyuncs.com` — задаётся `LLM_BASE_URL`.
 
 Что мост держит сам:
-- четыре пишущих инструмента (`create_lead`, `create_booking_request`, `create_stay_request`,
-  `request_charter`) не уходят без `consent: true` от человека в этом диалоге;
+- пять пишущих инструментов (`create_lead`, `create_booking_request`, `create_stay_request`,
+  `request_charter`, `create_car_rental_request`) не уходят без `consent: true` от человека в этом диалоге;
 - системная подсказка: данные только из инструментов, безопасность перед советом, ответ на
   языке вопроса, заявка — не бронь, экстренный вызов 112;
 - в журнал Ведара мост представляется `vedar-mcp-bridge/<провайдер>` — в `/hub/admin/mcp`

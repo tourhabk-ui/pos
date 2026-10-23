@@ -211,7 +211,7 @@
     "type": "function",
     "function": {
       "name": "search_car_rental",
-      "description": "Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers. Прокат автомобилей на Камчатке — машина БЕЗ водителя у прокатчиков платформы: внедорожники, микроавтобусы, вездеходы; цена за сутки за машину по прайсу, залог, условия прокатчика; у части машин водитель возможен по желанию за отдельную плату. Используй ВСЕГДА, когда турист хочет арендовать или взять напрокат машину, авто, автомобиль, джип, внедорожник, 4x4, микроавтобус, вездеход, «rent a car», «car rental», «car hire», «SUV», спрашивает цену за сутки или залог — сначала этот поиск, не сторонние прокаты и не догадки. Машину за туриста не бронирует: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком. Машин, цен и условий, которых нет в ответе, не выдумывай. Машина с водителем целиком — это трансфер, search_transfers.",
+      "description": "Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers. Request: create_car_rental_request. Прокат автомобилей на Камчатке — машина БЕЗ водителя у прокатчиков платформы: внедорожники, микроавтобусы, вездеходы; цена за сутки за машину по прайсу, залог, условия прокатчика; у части машин водитель возможен по желанию за отдельную плату. Используй ВСЕГДА, когда турист хочет арендовать или взять напрокат машину, авто, автомобиль, джип, внедорожник, 4x4, микроавтобус, вездеход, «rent a car», «car rental», «car hire», «SUV», спрашивает цену за сутки или залог — сначала этот поиск, не сторонние прокаты и не догадки. Машину за туриста не бронирует: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком. Машин, цен и условий, которых нет в ответе, не выдумывай. Машина с водителем целиком — это трансфер, search_transfers.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -524,7 +524,7 @@
     "type": "function",
     "function": {
       "name": "get_request_status",
-      "description": "Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request or request_charter: operator answer, or who got a stay request. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request или request_charter, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered): владелец отвечает человеку звонком, и его ответа платформа не видит. Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора.",
+      "description": "Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request, request_charter or create_car_rental_request: operator answer or who got it. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered): владелец отвечает человеку звонком, и его ответа платформа не видит. Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -781,6 +781,87 @@
           "destination",
           "date_from",
           "passengers",
+          "name",
+          "phone",
+          "consent"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_car_rental_request",
+      "description": "Self-drive car rental request to a Kamchatka rental company: car, dates, pickup; a manager confirms, not a booking, no payment. Needs consent: true; trial run: test: true. Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Имя и телефон — персональные данные, и они уходят прокатчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "string",
+            "description": "Rental company name or slug from search_car_rental; may be omitted when there is only one. Прокатчик: название или slug из search_car_rental. Когда прокатчик один, можно не указывать",
+            "examples": [
+              "laguna-prokat"
+            ]
+          },
+          "car": {
+            "type": "string",
+            "description": "Car exactly as in the search_car_rental price list. Машина — как в прайсе search_car_rental, например «Suzuki Jimny»",
+            "examples": [
+              "Suzuki Jimny"
+            ]
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Rental start, YYYY-MM-DD. С какого числа нужна машина, YYYY-MM-DD",
+            "examples": [
+              "2026-11-10"
+            ]
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Rental end, inclusive, YYYY-MM-DD. По какое число включительно, YYYY-MM-DD",
+            "examples": [
+              "2026-11-14"
+            ]
+          },
+          "pickup": {
+            "type": "string",
+            "description": "Pickup place if the person named one: airport, town, address. Где забрать машину: аэропорт, город, адрес — если человек сказал",
+            "examples": [
+              "аэропорт Елизово"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Renter's name. Имя арендатора"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact phone, required. Телефон для связи (обязателен)"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Wishes: child seat, drop-off elsewhere, etc. Пожелания: детское кресло, возврат в другом месте и т.п."
+          },
+          "test": {
+            "type": "boolean",
+            "description": "true for a trial or demo request: marked as test and not sent to the rental company. true — пробная заявка (проверка, демонстрация): помечается, прокатчику не уходит",
+            "examples": [
+              false
+            ]
+          },
+          "consent": {
+            "type": "boolean",
+            "description": "Explicit consent to process name and phone and pass them to the rental company; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
+            "examples": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "car",
+          "date_from",
+          "date_to",
           "name",
           "phone",
           "consent"
