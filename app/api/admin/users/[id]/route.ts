@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { UserDetailRow, UserCheckRow, UserUpdateRow } from '@/lib/types/db-rows';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
+import { applyAdminRoleChange } from '@/lib/auth/admin-role-change';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,27 +71,19 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: 'Пользователь не найден' }, { status: 404 });
     }
 
-    const updates: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
-
-    if (parsed.data.role !== undefined) {
-      updates.push(`role = $${paramIndex}`);
-      values.push(parsed.data.role);
-      paramIndex++;
-    }
-
-    if (parsed.data.name !== undefined) {
-      updates.push(`name = $${paramIndex}`);
-      values.push(parsed.data.name);
-      paramIndex++;
-    }
-
-    values.push(id);
-    const result = await query<UserUpdateRow>(
-      `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING id, email, name, role, updated_at`,
-      values
-    );
+    // Роль — одной транзакцией с собственными ролями, отзывом сессий снятого
+    // админа и записью в журнал (lib/auth/admin-role-change, ревью 23.10):
+    // прежний `SET role` оставлял `admin` в preferences.roles, и снятый
+    // админ тут же возвращал его себе через switch-role.
+    const role = parsed.data.role;
+    const name = parsed.data.name;
+    const result = await transaction(async (client) => {
+      if (role !== undefined) await applyAdminRoleChange(client, id, role, adminOrResponse.userId);
+      if (name !== undefined) {
+        await client.query(`UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2`, [name, id]);
+      }
+      return client.query<UserUpdateRow>(`SELECT id, email, name, role, updated_at FROM users WHERE id = $1`, [id]);
+    });
 
     // Партнёрским ролям — партнёрский профиль (иначе кабинет пуст)
     if (parsed.data.role !== undefined) {
@@ -99,6 +92,8 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, data: result.rows[0] } as ApiResponse<UserUpdateRow>);
   } catch (error) {
+    const code = (error as { code?: string })?.code ?? 'нет SQLSTATE';
+    console.error('[admin/users PATCH] пользователь не обновлён, SQLSTATE', code);
     return NextResponse.json(
       { success: false, error: 'Ошибка при обновлении пользователя' } as ApiResponse<null>,
       { status: 500 }
