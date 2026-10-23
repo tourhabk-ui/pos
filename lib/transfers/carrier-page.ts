@@ -25,6 +25,7 @@ import { logText } from '@/lib/log/log-text';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { loadCarrierReviews, type CarrierReviewsBlock } from '@/lib/transfers/carrier-reviews';
 import { partnerHasRentalOffers } from '@/lib/rental/rental';
+import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 
 /** placeId → опасности; места без профиля безопасности в карте нет. */
 export type DestinationSafety = { state: 'ok'; byPlace: Record<string, string[]> } | { state: 'failed' };
@@ -80,8 +81,14 @@ async function loadDestinationSafety(placeIds: string[]): Promise<DestinationSaf
   }
 }
 
-/** Есть ли у перевозчика прайс проката: отказ — «не смогли», не «нет». */
-async function loadRentalLink(partnerId: string): Promise<CarrierRentalLink> {
+/**
+ * Есть ли у перевозчика прайс проката: отказ — «не смогли», не «нет».
+ * Прокат партнёра под паузой (lib/rental/site-pause, слово владельца 23.10)
+ * со страницы трансфера не ведёт: страница — сайт, а пауза прячет прокат
+ * от людей на сайте; базу тогда не спрашиваем вовсе.
+ */
+async function loadRentalLink(partnerId: string, slug: string): Promise<CarrierRentalLink> {
+  if (rentalHiddenOnSite(slug)) return { state: 'ok', has: false };
   try {
     return { state: 'ok', has: await partnerHasRentalOffers(partnerId) };
   } catch (err) {
@@ -98,7 +105,7 @@ export async function loadCarrierPage(slug: string): Promise<CarrierPageData | n
   const [safety, reviews, rental] = await Promise.all([
     loadDestinationSafety(placeIds),
     loadCarrierReviews(carrier.partnerId),
-    loadRentalLink(carrier.partnerId),
+    loadRentalLink(carrier.partnerId, carrier.slug),
   ]);
   return { carrier, safety, reviews, rental };
 }

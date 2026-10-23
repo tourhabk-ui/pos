@@ -82,6 +82,8 @@ export async function answerAgentMessage(
       toolRuns,
       provenance,
       timing,
+      // Агент, не человек на сайте: пауза проката (слово владельца 23.10) его не касается.
+      { agent: true },
     );
   } catch (err) {
     console.error('[a2a] цикл инструментов упал:', logText(err instanceof Error ? err.message : err, 300));

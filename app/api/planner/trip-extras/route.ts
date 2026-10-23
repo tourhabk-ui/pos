@@ -23,7 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
-import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER, CAR_RENTAL_UNAVAILABLE } from '@/lib/planner/trip-extras';
+import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER, CAR_RENTAL_UNAVAILABLE, carRentalPausedAnswer } from '@/lib/planner/trip-extras';
 import {
   findLodgingForStay, countUnzonedPublicLodging, findCharterOffers, findCarRentalOffers,
 } from '@/lib/planner/trip-extras-data';
@@ -111,8 +111,10 @@ export async function POST(req: NextRequest) {
     // Машина без водителя за сутки (23.10): три исхода — прокатчики с
     // прайсом / никого нет — прежнее «пока нет» / не смогли проверить.
     const rental = await findCarRentalOffers();
+    // Пустой из-за паузы владельца (lib/rental/site-pause) — «вернётся тогда-то».
     data.car = rental.state === 'ok'
       ? { state: 'ok', items: rental.items }
+      : rental.state === 'paused' ? carRentalPausedAnswer(rental.returnsOn)
       : rental.state === 'empty' ? CAR_RENTAL_ANSWER : CAR_RENTAL_UNAVAILABLE;
   }
 

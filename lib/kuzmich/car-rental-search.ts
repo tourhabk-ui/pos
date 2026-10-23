@@ -28,6 +28,7 @@ import {
   type RentalBodyKind, type RentalCompany, type RentalOffer,
 } from '@/lib/rental/rental-format';
 import { getPublicBaseUrl } from '@/lib/config';
+import { RENTAL_SITE_PAUSE, rentalOnSite } from '@/lib/rental/site-pause';
 
 export interface CarRentalSearchArgs {
   /** Слово о машине из вопроса: вид, модель или «с водителем». */
@@ -36,6 +37,13 @@ export interface CarRentalSearchArgs {
 
 export interface CarRentalSearchOpts {
   surface?: 'chat' | 'mcp';
+  /**
+   * Спрашивает внешний агент по A2A свободным текстом. Его ответ — как у MCP:
+   * пауза проката на сайте (lib/rental/site-pause) агентов не касается.
+   */
+  agent?: boolean;
+  /** Момент для паузы; по умолчанию — сейчас. */
+  now?: Date;
 }
 
 /** Деньги в тексте для модели — «7000 руб», как в search_transfers; без неразрывных пробелов. */
@@ -147,6 +155,21 @@ export function rentalAnswer(
   return `Прокат — машина без водителя, цена за сутки за машину; направление и дни задаёт арендатор. Что входит в цену, минимальный срок и требования к водителю на платформе не записаны — уточняются у прокатчика; расчёт напрямую с ним, через платформу не оплачивается.${noRequestTool}\n${blocks.join('\n')}`;
 }
 
+/**
+ * Прокат на сайте на паузе (слово владельца 23.10), и показать в чате некого.
+ * Не «проката нет»: прокатчик есть, сайт его прячет до названного дня.
+ */
+export function rentalPausedAnswer(base: string, returnsOn: string = RENTAL_SITE_PAUSE.returnsOn): string {
+  return `Прокат автомобилей без водителя на сайте сейчас не показывается — вернётся ${returnsOn}. `
+    + 'Прокатчиков, машин и цен не называй и не говори, что проката нет. '
+    + `Машину с водителем целиком можно заказать у перевозчиков — search_transfers, витрина ${base}/transfers.`;
+}
+
+/**
+ * Чат Кузьмича (сайт, виджет, Telegram, MAX) — люди на сайте: прокатчик под
+ * паузой (lib/rental/site-pause) им не показывается. MCP и агент по A2A
+ * получают прайс целиком — так решил владелец 23.10.
+ */
 export async function searchCarRentalForKuzmich(args: CarRentalSearchArgs, opts: CarRentalSearchOpts = {}): Promise<string> {
   const base = getPublicBaseUrl();
   let companies: RentalCompany[] | null;
@@ -156,6 +179,12 @@ export async function searchCarRentalForKuzmich(args: CarRentalSearchArgs, opts:
     // Имя проверки и SQLSTATE — в лог; ПД здесь нет (прайс, не люди).
     console.error('[car-rental-search] прайс не прочитан', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
     companies = null;
+  }
+  const forAgents = opts.surface === 'mcp' || opts.agent === true;
+  if (companies !== null && !forAgents) {
+    const { shown, hidden } = rentalOnSite(companies, opts.now);
+    if (shown.length === 0 && hidden > 0) return rentalPausedAnswer(base);
+    companies = shown;
   }
   return rentalAnswer(companies, args.query, base, opts);
 }

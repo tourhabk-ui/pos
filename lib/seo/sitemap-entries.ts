@@ -14,6 +14,7 @@ import { pool } from '@/lib/db-pool';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { rentalPagePath } from '@/lib/rental/rental-format';
 import { HAS_ACTIVE_RENTAL_OFFERS_SQL } from '@/lib/rental/rental';
+import { rentalOnSite } from '@/lib/rental/site-pause';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
@@ -400,7 +401,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
          AND ${HAS_ACTIVE_RENTAL_OFFERS_SQL('p')}
        ORDER BY p.updated_at DESC LIMIT 200`
     );
-    rentalPages = rows.map(row => ({
+    // Прокатчик под паузой (lib/rental/site-pause) в sitemap не стоит: его
+    // страница открывается только по прямой ссылке из MCP и A2A.
+    rentalPages = rentalOnSite(rows).shown.map(row => ({
       url: `${BASE}${rentalPagePath(row.slug)}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
