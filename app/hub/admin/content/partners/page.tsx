@@ -17,6 +17,7 @@ import {
   AlertCircle, CheckCircle, Upload, ImageIcon,
 } from 'lucide-react';
 import TildaPanel from '@/components/admin/TildaPanel';
+import { PartnerMaterialsConsentPanel } from '@/components/admin/PartnerMaterialsConsentPanel';
 import { PARTNER_GROUP_LABELS } from '@/lib/partners/partner-groups';
 import type { PartnerGroup } from '@/lib/partners/partner-groups';
 
@@ -769,6 +770,9 @@ export default function PartnersManagement() {
 
                 {/* Ключи Tilda API партнёра — общий блок с экраном «Операторы» */}
                 <TildaPanel operatorId={editId} />
+
+                {/* Согласие партнёра на материалы его сайта (1321, владелец 23.10). У нового партнёра id ещё нет. */}
+                {editId !== NEW_PARTNER && <PartnerMaterialsConsentPanel partnerId={editId} />}
 
                 {/* Toggles */}
                 <div className="space-y-2">

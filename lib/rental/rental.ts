@@ -25,6 +25,7 @@ import type {
 } from '@/lib/rental/rental-format';
 
 export * from '@/lib/rental/rental-format';
+import { ACTIVE_CONSENT_JSON_SQL, parseActiveConsent } from '@/lib/partners/material-consent';
 
 interface PartnerRow {
   id: string;
@@ -170,8 +171,10 @@ export async function loadRentalCompanyBySlug(slug: string): Promise<RentalCompa
     terms_source_url: string | null;
     terms_seen_on: string | null;
     also_carrier: boolean | null;
+    materials_consent: unknown;
   }>(
     `SELECT ${PARTNER_COLUMNS}, p.is_verified, p.description, p.legal_info,
+            ${ACTIVE_CONSENT_JSON_SQL('p')} AS materials_consent,
             t.items AS terms_items, t.source_url AS terms_source_url, t.seen_on::text AS terms_seen_on,
             EXISTS (
               SELECT 1 FROM transfer_charter_prices c WHERE c.partner_id = p.id AND c.is_active
@@ -194,6 +197,7 @@ export async function loadRentalCompanyBySlug(slug: string): Promise<RentalCompa
     legal: parseLegal(p.legal_info),
     terms: parseTerms({ items: p.terms_items, source_url: p.terms_source_url, seen_on: p.terms_seen_on }),
     alsoCarrier: p.also_carrier === true,
+    materialsConsent: parseActiveConsent(p.materials_consent),
   };
 }
 

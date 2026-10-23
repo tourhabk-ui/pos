@@ -26,6 +26,7 @@ import type {
 } from '@/lib/transfers/charter-format';
 
 export * from '@/lib/transfers/charter-format';
+import { ACTIVE_CONSENT_JSON_SQL, parseActiveConsent } from '@/lib/partners/material-consent';
 
 interface PartnerRow {
   id: string;
@@ -319,8 +320,8 @@ export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Pr
  * его ловит страница и говорит вслух (§4.0).
  */
 export async function loadCarrierBySlug(slug: string): Promise<CarrierProfile | null> {
-  const partner = await query<PartnerRow & { is_verified: boolean | null; description: string | null }>(
-    `SELECT ${PARTNER_COLUMNS}, p.is_verified, p.description
+  const partner = await query<PartnerRow & { is_verified: boolean | null; description: string | null; materials_consent: unknown }>(
+    `SELECT ${PARTNER_COLUMNS}, p.is_verified, p.description, ${ACTIVE_CONSENT_JSON_SQL('p')} AS materials_consent
        FROM partners p
       WHERE p.slug = $1
         AND p.is_public = TRUE
@@ -337,5 +338,6 @@ export async function loadCarrierBySlug(slug: string): Promise<CarrierProfile | 
     description: p.description,
     license: parseLicense(p.legal_info),
     passengerInsurance: parsePassengerInsurance(p.legal_info),
+    materialsConsent: parseActiveConsent(p.materials_consent),
   };
 }

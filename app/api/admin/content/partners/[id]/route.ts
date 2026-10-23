@@ -159,6 +159,20 @@ export async function PUT(
     setClauses.push(`logo_image = $${idx}`); values.push(logoImage || null); idx++;
     setClauses.push(`location = $${idx}`); values.push(JSON.stringify(location)); idx++;
     setClauses.push(`contact = $${idx}`); values.push(JSON.stringify(contact)); idx++;
+    // Сайт из формы — во все три места хранения (владелец 23.10, «почему сайт
+    // не заполнен»): витрина читает contacts.website, аудит сайта и скрейпер —
+    // колонку website (692). Иначе сайт, поправленный в админке, не доходил ни
+    // до кнопки «Сайт оператора», ни до проверки сайта. Пустое поле — снимает
+    // сайт везде: форма показывает объединённое значение (lib/partners/admin-contact).
+    const website = typeof contact.website === 'string' ? contact.website.trim() : '';
+    setClauses.push(`website = $${idx}`); values.push(website || null); idx++;
+    setClauses.push(
+      `contacts = CASE WHEN $${idx}::text IS NULL
+         THEN (CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END) - 'website'
+         ELSE jsonb_set(CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END, '{website}', to_jsonb($${idx}::text))
+       END`,
+    );
+    values.push(website || null); idx++;
     if (isVerified !== undefined) { setClauses.push(`is_verified = $${idx}`); values.push(isVerified); idx++; }
     if (isPublic !== undefined) { setClauses.push(`is_public = $${idx}`); values.push(isPublic); idx++; }
 

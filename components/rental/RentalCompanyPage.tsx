@@ -35,6 +35,7 @@ import {
   RENTAL_REQUEST_ANCHOR, minRentalPrice, orderOfferFromQuery, rentalRequisitesLine, rentalUnknownsText,
 } from '@/lib/rental/rental-format';
 import { rentalInstrument } from '@/lib/rental/rental-view';
+import { materialsConsentLine } from '@/lib/legal/partner-materials-consent';
 import type { RentalPageData } from '@/lib/rental/rental-page';
 
 /** Якорь формы заявки: на него ведут кнопка героя, «Заказать» у строк прайса и ссылки снаружи. */
@@ -156,6 +157,9 @@ export function RentalCompanyPage({ data, orderCar }: { data: RentalPageData; or
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Исполнитель: {rentalRequisitesLine(c.legal) ?? 'реквизиты на платформе не записаны'}
                     </p>
+                    {c.materialsConsent && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1" data-testid="materials-consent">{materialsConsentLine(c.materialsConsent)}</p>
+                    )}
                     {c.verified && (
                       <p className="text-[13px] text-[var(--success)] flex items-center gap-1.5 mt-1">
                         <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden /> Проверенный прокатчик

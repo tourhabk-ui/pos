@@ -16,6 +16,8 @@
 import { formatRub, type CharterLegal, type CharterPhoto } from '@/lib/transfers/charter-format';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 
+import type { MaterialsConsentPublic } from '@/lib/legal/partner-materials-consent';
+
 export type RentalBodyKind = 'car' | 'suv' | 'minibus' | 'offroad_truck' | 'vahtovka';
 export type RentalTransmission = 'automatic' | 'manual';
 export type RentalDrive = '4wd' | 'awd' | '2wd';
@@ -82,6 +84,8 @@ export interface RentalTerms {
  * карточки, плюс то, что нужно только странице.
  */
 export interface RentalCompanyProfile extends RentalCompany {
+  /** Действующее согласие партнёра на материалы сайта (1321); null или нет поля — не записано. */
+  materialsConsent?: MaterialsConsentPublic | null;
   description: string | null;
   /** partners.is_verified: true — проверен платформой, иначе отметки нет. */
   verified: boolean;

@@ -63,3 +63,32 @@ describe('GET /api/admin/content/partners/[id]', () => {
     expect(sql).toMatch(/\bwebsite\b/);
   });
 });
+
+describe('PUT /api/admin/content/partners/[id]: сайт — во все три места', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  const put = async (website: string) => {
+    queryMock.mockResolvedValue({ rows: [{ id: 'p-1' }], rowCount: 1 });
+    const { PUT } = await import('@/app/api/admin/content/partners/[id]/route');
+    const res = await PUT(new Request('http://x/api/admin/content/partners/p-1', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Лагуна Прокат', contact: { phone: '+79060835070', website } }),
+    }) as never, { params: Promise.resolve({ id: 'p-1' }) });
+    expect(res.status).toBe(200);
+    return { sql: String(queryMock.mock.calls[0][0]), values: queryMock.mock.calls[0][1] as unknown[] };
+  };
+
+  it('сайт из формы пишется в колонку website и в блок связи витрины contacts', async () => {
+    const { sql, values } = await put(' https://лагунапрокат.рф/ ');
+    expect(sql).toMatch(/\bwebsite = \$\d+/);
+    expect(sql).toMatch(/contacts = CASE/);
+    expect(sql).toMatch(/jsonb_set\([\s\S]*'\{website\}'/);
+    expect(values.filter((v) => v === 'https://лагунапрокат.рф/')).toHaveLength(2);
+  });
+
+  it('пустое поле снимает сайт везде, а не оставляет старый в витрине', async () => {
+    const { sql, values } = await put('');
+    expect(sql).toMatch(/- 'website'/);
+    expect(values.filter((v) => v === null).length).toBeGreaterThanOrEqual(2);
+  });
+});
