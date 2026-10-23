@@ -150,6 +150,9 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     expect(laguna.phone).toBe('+79001112233');
     // Посев 1318 + 1319: у «Лагуны Прокат» обложка, галерея и снимок у каждой машины — с подписью.
     const seeded = companies.find((c) => c.slug === 'laguna-prokat')!;
+    // Логотип — из 1320; у фикстур теста логотипа нет, и это честный null.
+    expect(seeded.logo).toBe('/images/laguna-prokat/laguna-logo.png');
+    expect(laguna.logo).toBeNull();
     expect(seeded.photos).toHaveLength(9);
     expect(seeded.photos[0]).toEqual({ url: '/images/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
     expect(seeded.offers.map((o) => o.photo)).toEqual([
@@ -222,6 +225,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     expect(carrier).toMatchObject({ legal: null, license: null, verified: false, phone: '+79060835070' });
     // 1319: обложка и галерея партнёра общие для перевозчика и прокатчика — девять кадров с подписью.
     expect(carrier.photos).toHaveLength(9);
+    expect(carrier.logo).toBe('/images/laguna-prokat/laguna-logo.png');
     expect(carrier.photos[0]).toEqual({ url: '/images/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
     expect(carrier.photos.map((ph) => ph.credit)).toEqual(Array(9).fill('Лагуна Прокат'));
 

@@ -53,7 +53,7 @@ const offer = (over: Partial<RentalOffer> = {}): RentalOffer => ({
 });
 
 const COMPANY: RentalCompanyProfile = {
-  partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат', shortDescription: null, description: null, verified: false,
+  partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат', shortDescription: null, description: null, verified: false, logo: null,
   photos: [], phone: '+79001112233', telegramHref: null, legal: null, terms: null, alsoCarrier: false,
   offers: [offer(), offer({ id: 'o-2', title: 'ГАЗ Соболь', priceRubPerDay: 25000, priceIsFrom: true, depositRub: null, driver: 'self' })],
 };

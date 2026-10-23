@@ -45,7 +45,7 @@ const line = (to: string, priceRub: number, place: { id: string; href: string; n
 
 const CARRIER: CarrierProfile = {
   partnerId: 'p-1', slug: 'shatun', name: 'Шатун',
-  shortDescription: 'Вахтовки на базе КамАЗ на 26 мест под заказ',
+  shortDescription: 'Вахтовки на базе КамАЗ на 26 мест под заказ', logo: null,
   description: 'Перевозчик: две вахтовки на базе КамАЗ, по 26 посадочных мест.',
   verified: true,
   vehicles: [

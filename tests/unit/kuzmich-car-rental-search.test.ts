@@ -42,7 +42,7 @@ const VAHTOVKA: RentalOffer = {
 };
 
 const LAGUNA: RentalCompany = {
-  partnerId: 'p1', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, photos: [],
+  partnerId: 'p1', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, photos: [], logo: null,
   offers: [JIMNY, HIACE, VAHTOVKA],
   phone: '+79140000000', telegramHref: 'https://t.me/+79140000000',
 };

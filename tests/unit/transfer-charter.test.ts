@@ -38,7 +38,7 @@ const SQL = read('migrations/1185_shatun_charter_carrier.sql');
 const CODE = SQL.replace(/--[^\n]*/g, '');
 
 const CARRIER: CharterCarrier = {
-  partnerId: 'c1', slug: 'shatun', name: 'Шатун', shortDescription: null,
+  partnerId: 'c1', slug: 'shatun', name: 'Шатун', shortDescription: null, logo: null,
   vehicles: [
     { kind: 'vahtovka', title: 'синяя', seats: 26 },
     { kind: 'vahtovka', title: 'оранжевая', seats: 26 },

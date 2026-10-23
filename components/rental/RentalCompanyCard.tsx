@@ -4,6 +4,7 @@ import { Car, ClipboardList, Phone, Send } from 'lucide-react';
 import { photoSrc } from '@/lib/images/variant';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { RentalOfferList } from '@/components/rental/RentalOfferList';
+import { PartnerLogo } from '@/components/shared/PartnerLogo';
 import { rentalOrderPath, rentalPagePath, rentalUnknownsText, type RentalCompany } from '@/lib/rental/rental-format';
 
 /**
@@ -62,9 +63,12 @@ export function RentalCompanyCard({ company }: { company: RentalCompany }) {
                 Прокат · машина без водителя
               </span>
             </p>
-            <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">
-              <Link href={rentalPagePath(company.slug)} className="hover:underline">{company.name}</Link>
-            </h3>
+            <div className="flex items-center gap-3">
+              <PartnerLogo src={company.logo} name={company.name} size="card" />
+              <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">
+                <Link href={rentalPagePath(company.slug)} className="hover:underline">{company.name}</Link>
+              </h3>
+            </div>
             {company.shortDescription && (
               <p className="text-sm text-[var(--text-secondary)] mt-1">{company.shortDescription}</p>
             )}

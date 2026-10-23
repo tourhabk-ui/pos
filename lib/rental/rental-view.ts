@@ -65,7 +65,7 @@ function offerJsonLd(o: RentalOffer): Record<string, unknown> {
  * знает (тот же урок, что InStock у тура, снятый 01.10).
  */
 export function rentalJsonLd(
-  c: Pick<RentalCompany, 'slug' | 'name' | 'shortDescription' | 'offers'> & { legal: CharterLegal | null },
+  c: Pick<RentalCompany, 'slug' | 'name' | 'shortDescription' | 'offers' | 'logo'> & { legal: CharterLegal | null },
   site: string,
 ): Record<string, unknown> {
   const url = `${site}${rentalPagePath(c.slug)}`;
@@ -77,6 +77,8 @@ export function rentalJsonLd(
     name: c.name,
     url,
     ...(c.shortDescription ? { description: c.shortDescription.slice(0, 500) } : {}),
+    // Логотип — полным адресом: разметка читается не только с нашего домена.
+    ...(c.logo ? { logo: `${site}${c.logo}` } : {}),
     ...(c.legal?.name ? { legalName: c.legal.name } : {}),
     ...(c.legal?.inn ? { taxID: c.legal.inn } : {}),
     ...(offers.length > 0 ? { makesOffer: offers } : {}),

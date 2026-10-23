@@ -39,7 +39,7 @@ const offer = (over: Partial<RentalOffer> = {}): RentalOffer => ({
 });
 
 const LAGUNA: RentalCompany = {
-  partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат', shortDescription: 'Внедорожники и микроавтобусы без водителя',
+  partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат', shortDescription: 'Внедорожники и микроавтобусы без водителя', logo: null,
   photos: [], phone: '+79001234567', telegramHref: null,
   offers: [
     offer(),

@@ -46,7 +46,7 @@ const offer = (over: Partial<RentalOffer> = {}): RentalOffer => ({
 
 const COMPANY: RentalCompanyProfile = {
   partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат',
-  shortDescription: 'Внедорожники и микроавтобусы без водителя',
+  shortDescription: 'Внедорожники и микроавтобусы без водителя', logo: null,
   description: 'Прокат автомобилей в Петропавловске-Камчатском.',
   photos: [], phone: '+79001234567', telegramHref: 'https://t.me/laguna',
   offers: [

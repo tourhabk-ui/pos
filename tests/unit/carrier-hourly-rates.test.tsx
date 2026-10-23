@@ -64,7 +64,7 @@ const RATES: CharterRate[] = [
 
 const ZH: CarrierProfile = {
   partnerId: 'p-zh', slug: 'zheltukhin', name: 'ИП Желтухин',
-  shortDescription: 'Микроавтобусы под заказ', description: 'Перевозчик: три микроавтобуса.', verified: false,
+  shortDescription: 'Микроавтобусы под заказ', description: 'Перевозчик: три микроавтобуса.', verified: false, logo: null,
   vehicles: [
     { kind: 'minibus', title: 'Mercedes-Benz Sprinter, В688НУ41', seats: null },
     { kind: 'minibus', title: 'Mercedes-Benz Sprinter, В333АС41', seats: null },
@@ -84,7 +84,7 @@ const ZH: CarrierProfile = {
 };
 
 const SHATUN: CharterCarrier = {
-  partnerId: 'p-sh', slug: 'shatun', name: 'Шатун', shortDescription: null,
+  partnerId: 'p-sh', slug: 'shatun', name: 'Шатун', shortDescription: null, logo: null,
   vehicles: [{ kind: 'vahtovka', title: 'КамАЗ-1', seats: 26 }, { kind: 'vahtovka', title: 'КамАЗ-2', seats: 26 }],
   destinations: [{ from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый', priceRub: 75000, note: null, conditions: 'при расчёте наличными', validYear: 2026, place: null }],
   extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: null,

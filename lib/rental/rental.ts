@@ -31,13 +31,14 @@ interface PartnerRow {
   slug: string;
   name: string;
   short_description: string | null;
+  logo_image: string | null;
   hero_image: string | null;
   gallery: unknown;
   gallery_credits: unknown;
   contacts: unknown;
 }
 
-const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.gallery_credits, p.contacts`;
+const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.logo_image, p.hero_image, p.gallery, p.gallery_credits, p.contacts`;
 
 /** Живой прайс проката у партнёра — один предикат на витрину, страницу и сайтмап. */
 export const HAS_ACTIVE_RENTAL_OFFERS_SQL = (alias: string) =>
@@ -115,6 +116,7 @@ function toRentalCompany(p: PartnerRow, offers: OfferRow[]): RentalCompany {
     slug: p.slug,
     name: p.name,
     shortDescription: p.short_description,
+    logo: p.logo_image ? p.logo_image : null,
     photos: parsePhotos(photos, p.gallery_credits),
     offers: offers.filter((o) => o.partner_id === p.id).map((o) => toOffer(o, p.gallery_credits)),
     phone: contacts.phone,

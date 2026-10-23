@@ -57,7 +57,7 @@ const line = (to: string, priceRub: number, note: string | null = null) => ({
 
 function carrier(over: Partial<CharterCarrier> = {}): CharterCarrier {
   return {
-    partnerId: 'partner-1', slug: 'shatun', name: 'Шатун', shortDescription: null,
+    partnerId: 'partner-1', slug: 'shatun', name: 'Шатун', shortDescription: null, logo: null,
     vehicles: [
       { kind: 'vahtovka', title: 'КамАЗ-1', seats: 26 },
       { kind: 'vahtovka', title: 'КамАЗ-2', seats: 26 },

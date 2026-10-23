@@ -49,7 +49,7 @@ const NOTICE: PartnerRequestNotice = {
 };
 
 const CARRIER: CharterCarrier = {
-  partnerId: 'p-lp', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null,
+  partnerId: 'p-lp', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, logo: null,
   vehicles: [{ kind: 'minibus', title: 'Ford Transit', seats: 17 }, { kind: 'vahtovka', title: 'Урал', seats: 25 }],
   destinations: [], extraDay: null, seatClasses: [],
   rates: [
