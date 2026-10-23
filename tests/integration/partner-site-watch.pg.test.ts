@@ -225,6 +225,39 @@ withPg('сайты партнёров: изменения против прош�
     expect(net.sent).toEqual([]);
   });
 
+  // Отчёт 23.10: 24 «изменения» «Местечка Камчатка» — менялись только цифры
+  // капчи формы (Contact Form 7, две формы на странице). Прежний снимок
+  // записан ещё с капчей: сравнение обязано выбросить её с обеих сторон.
+  it('прогон 5 — капча формы сменила цифры, снимок записан с капчей: молчим; цена сменилась — говорим', async () => {
+    const quiz = (q: string) =>
+      `<p>Защита от роботов: <span class="wpcf7-form-control-wrap"><label><span class="wpcf7-quiz-label">${q}</span> <input type="text" name="quiz-413" /></label></span></p>`;
+    const url = 'https://onepage-test.ru';
+    const { textHash } = await import('@/lib/partners/site-watch');
+    const oldText = 'Зимняя рыбалка\nЦена: 22 000 ₽\nПрограмма на 5 дней\nЗащита от роботов: 3+3=?\nЗащита от роботов: 5+5=?';
+    await pool.query(
+      `INSERT INTO partner_page_snapshots (partner_id, url, outcome, http_status, text_hash, text, event)
+       VALUES ($1::uuid, $2, 'ok', 200, $3, $4, 'changed')`,
+      [ONE_PAGE, url, textHash(oldText), oldText],
+    );
+    net.sent.length = 0;
+    net.pages.set(url, { status: 200, body: page('Зимняя рыбалка', '22 000').replace('</body>', `${quiz('1+1=?')}${quiz('4+4=?')}</body>`) });
+    const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
+    await runSiteWatch({ sleep: noSleep });
+    const quiet = (await snapshots(url)).at(-1);
+    expect(quiet).toMatchObject({ outcome: 'ok', event: 'same', diff: null });
+    expect(quiet?.text).not.toContain('Защита от роботов');
+    expect(net.sent.join('\n')).not.toContain('Одностраничный Тест');
+
+    net.sent.length = 0;
+    net.pages.set(url, { status: 200, body: page('Зимняя рыбалка', '25 000').replace('</body>', `${quiz('2+2=?')}</body>`) });
+    await runSiteWatch({ sleep: noSleep });
+    expect((await snapshots(url)).at(-1)).toMatchObject({
+      event: 'changed', diff: { removed: ['Цена: 22 000 ₽'], added: ['Цена: 25 000 ₽'] },
+    });
+    expect(net.sent.join('\n')).toContain('стало: Цена: 25 000 ₽');
+    expect(net.sent.join('\n')).not.toContain('Защита от роботов');
+  });
+
   it('крон-роут: без секрета — 401; с секретом — ответ с исходами', async () => {
     process.env.CRON_SECRET = 'test-secret';
     const { GET } = await import('@/app/api/cron/partner-site-watch/route');

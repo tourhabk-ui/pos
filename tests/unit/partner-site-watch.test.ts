@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  baselineMessage, diffLines, ownerMessage, pageText, robotsDisallows, textHash, watchEvent, WATCH_USER_AGENT,
+  baselineMessage, diffLines, meaningfulDiff, ownerMessage, pageText, robotsDisallows, textHash, watchEvent, WATCH_USER_AGENT,
   type PageReport,
 } from '@/lib/partners/site-watch';
 
@@ -35,6 +35,33 @@ describe('разница текстов', () => {
   it('месяц узнаётся словом, а не куском слова', () => {
     const d = diffLines('', 'Камартан у моря\nВыезд в мае: 3 мая');
     expect(d.added[0]).toBe('Выезд в мае: 3 мая');
+  });
+});
+
+// Отчёт 23.10: все показанные «изменения» 24 страниц «Местечка Камчатка» —
+// цифры капчи формы (Contact Form 7, `wpcf7-quiz`), две формы на странице.
+describe('капча формы — не изменение', () => {
+  const quiz = (q: string) =>
+    `<p>Защита от роботов: <span class="wpcf7-form-control-wrap"><label><span class="wpcf7-quiz-label">${q}</span> <input type="text" /></label></span></p>`;
+  const tour = (price: string, q1: string, q2: string) =>
+    `<h1>Озеро Толмачёва</h1><p>Цена: ${price} ₽</p>${quiz(q1)}${quiz(q2)}`;
+
+  it('строка «Защита от роботов: 4+4=?» в текст страницы не попадает; цена и даты — остаются', () => {
+    expect(pageText(tour('12 000', '4+4=?', '1+1=?'))).toBe('Озеро Толмачёва\nЦена: 12 000 ₽');
+    expect(textHash(pageText(tour('12 000', '4+4=?', '1+1=?')))).toBe(textHash(pageText(tour('12 000', '3+3=?', '5+5=?'))));
+    expect(pageText('<p>Выезд 12.07, 5 дней</p><p>Скидка 10+2=12%</p>')).toBe('Выезд 12.07, 5 дней\nСкидка 10+2=12%');
+  });
+
+  it('снимок, записанный с капчей, против нового текста без неё: разницы нет', () => {
+    expect(meaningfulDiff('Озеро\nЦена: 12 000 ₽\nЗащита от роботов: 3+3=?', 'Озеро\nЦена: 12 000 ₽')).toBeNull();
+    expect(meaningfulDiff('Защита от роботов: 3+3=?\nЗащита от роботов: 5+5=?', 'Защита от роботов: 2+2=?')).toBeNull();
+  });
+
+  it('перестановка и повтор тех же строк — не изменение; смена цены — изменение без капчи в разнице', () => {
+    expect(meaningfulDiff('a\nb\nb', 'b\na')).toBeNull();
+    expect(meaningfulDiff('Цена: 12 000 ₽\nЗащита от роботов: 3+3=?', 'Цена: 14 000 ₽')).toEqual({
+      removed: ['Цена: 12 000 ₽'], added: ['Цена: 14 000 ₽'],
+    });
   });
 });
 
