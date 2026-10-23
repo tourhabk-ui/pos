@@ -70,4 +70,89 @@ withPg('регистрация на настоящем PostgreSQL', () => {
     const res = await POST(req({ ...base, email: 'plain.tourist@example.com' }));
     expect(res.status).toBe(409);
   });
+
+  // Самоназначение администратора (находка 23.10). Список ролей человека —
+  // preferences.roles, и по нему switch-role пускает в роль. PUT /api/profile
+  // принимал preferences целиком: турист писал себе roles: ['admin'] и
+  // следующим запросом входил администратором. Ключи, которые назначает
+  // сервер, из профиля больше не пишутся — остальные настройки пишутся как раньше.
+  describe('настройки профиля не назначают роли', () => {
+    const authed = (url: string, method: string, token: string, body: unknown) =>
+      new NextRequest(`http://localhost${url}`, {
+        method,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+
+    it('турист пишет себе roles: [admin] — роли прежние, войти админом нельзя; прочие настройки сохранены', async () => {
+      const reg = await POST(req({ ...base, email: 'self.admin@example.com' }));
+      const { token, user } = await reg.json() as { token: string; user: { id: string } };
+      const { PUT } = await import('@/app/api/profile/route');
+      const { POST: SWITCH } = await import('@/app/api/auth/switch-role/route');
+
+      const put = await PUT(authed('/api/profile', 'PUT', token, {
+        preferences: { roles: ['admin'], operator_level: 'L3', force_password_change: false, travelStyle: 'active' },
+      }));
+      expect(put.status).toBe(200);
+      const after = await pool.query<{ role: string; preferences: Record<string, unknown> }>(
+        'SELECT role, preferences FROM users WHERE id = $1', [user.id],
+      );
+      expect(after.rows[0]!.role).toBe('tourist');
+      expect(after.rows[0]!.preferences.roles).toEqual(['tourist']);
+      expect(after.rows[0]!.preferences).not.toHaveProperty('operator_level');
+      expect(after.rows[0]!.preferences).not.toHaveProperty('force_password_change');
+      expect(after.rows[0]!.preferences.travelStyle).toBe('active');
+
+      const sw = await SWITCH(authed('/api/auth/switch-role', 'POST', token, { role: 'admin' }));
+      expect(sw.status).toBe(403);
+      const role = await pool.query<{ role: string }>('SELECT role FROM users WHERE id = $1', [user.id]);
+      expect(role.rows[0]!.role).toBe('tourist');
+    });
+
+    it('флаг «сменить пароль», поставленный сервером, профилем не снимается', async () => {
+      const reg = await POST(req({ ...base, email: 'forced.change@example.com' }));
+      const { token, user } = await reg.json() as { token: string; user: { id: string } };
+      await pool.query(
+        `UPDATE users SET preferences = preferences || '{"force_password_change": true}'::jsonb WHERE id = $1`, [user.id],
+      );
+      const { PUT } = await import('@/app/api/profile/route');
+      const put = await PUT(authed('/api/profile', 'PUT', token, { preferences: { theme: 'dark' } }));
+      expect(put.status).toBe(200);
+      const after = await pool.query<{ preferences: Record<string, unknown> }>('SELECT preferences FROM users WHERE id = $1', [user.id]);
+      expect(after.rows[0]!.preferences).toEqual({ roles: ['tourist'], force_password_change: true, theme: 'dark' });
+    });
+
+    it('перепись админов называет записанное до закрытия двери: id, роль и есть ли запись о выдаче — без почт', async () => {
+      // Записано раньше дверью профиля: активная роль турист, админ — в собственных.
+      const forged = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, role, password_hash, preferences)
+         VALUES ('forged.admin@example.com', 'Подделка', 'tourist', 'x', '{"roles":["tourist","admin"]}'::jsonb) RETURNING id::text AS id`,
+      );
+      // Выдан администратором: роль активна, в журнале role_change.
+      const granted = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, role, password_hash, preferences)
+         VALUES ('granted.admin@example.com', 'Выдан', 'admin', 'x', '{"roles":["admin"]}'::jsonb) RETURNING id::text AS id`,
+      );
+      await pool.query(
+        `INSERT INTO audit_log (entity_type, entity_id, action, data) VALUES ('user', $1, 'role_change', '{"role":"admin"}'::jsonb)`,
+        [granted.rows[0]!.id],
+      );
+      process.env.CRON_SECRET = process.env.CRON_SECRET || 'admin-census-test-secret';
+      const { GET } = await import('@/app/api/cron/admin-owners-census/route');
+      const res = await GET(new NextRequest('http://localhost/api/cron/admin-owners-census', {
+        headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+      }));
+      expect(res.status).toBe(200);
+      const body = await res.json() as { owners: Array<{ id: string; active_role: string; admin_in_owned: boolean; granted_on_record: boolean }> };
+      const byId = new Map(body.owners.map((o) => [o.id, o]));
+      expect(byId.get(forged.rows[0]!.id)).toMatchObject({ active_role: 'tourist', admin_in_owned: true, granted_on_record: false });
+      expect(byId.get(granted.rows[0]!.id)).toMatchObject({ active_role: 'admin', granted_on_record: true });
+      // Туристы без админа в переписи не стоят; почт и имён в ответе нет.
+      expect(body.owners).toHaveLength(2);
+      expect(JSON.stringify(body)).not.toMatch(/@example\.com|Подделка|Выдан/);
+
+      const denied = await GET(new NextRequest('http://localhost/api/cron/admin-owners-census'));
+      expect(denied.status).toBe(401);
+    });
+  });
 });

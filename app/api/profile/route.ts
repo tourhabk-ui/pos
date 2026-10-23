@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { verifyAuth } from '@/lib/auth';
 import { ApiResponse, User } from '@/types';
+import { userPreferencesSql } from '@/lib/auth/server-owned-preferences';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,7 +116,10 @@ export async function PUT(request: NextRequest) {
     params.push(phone.trim() || null);
   }
   if (preferences !== undefined) {
-    updates.push(`preferences = $${idx++}::jsonb`);
+    // Ключи, которые назначает сервер (роли, «сменить пароль», уровень
+    // оператора), из профиля не пишутся: роли из preferences пускают в
+    // switch-role, и турист назначал себе админа (находка 23.10).
+    updates.push(`preferences = ${userPreferencesSql(`$${idx++}`)}`);
     params.push(JSON.stringify(preferences));
   }
 
