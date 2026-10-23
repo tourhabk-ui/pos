@@ -20,11 +20,7 @@
  */
 import type { LucideIcon } from 'lucide-react';
 import {
-  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf,
-  Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
-  MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
-  Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert,
-  FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages,
+  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -72,6 +68,8 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Избранное',               href: '/wishlist',       icon: Heart },
       // Трансфер — машина целиком под заказ (владелец 13.10), не места в ней.
       { label: 'Трансфер: машина под заказ', href: '/transfers', icon: Bus },
+      // Прокат — машина без водителя, цена за сутки (23.10, 1317); водитель у перевозчика выше.
+      { label: 'Аренда автомобилей',         href: '/car-rental', icon: Car },
       { label: 'Планирование поездки',    href: '/partners',       icon: Plane },
       { label: 'Камчатская рыбалка',      href: '/hub/fishing',    icon: Fish },
       { label: 'Сертифицированные гиды',  href: '/guides',         icon: Award },

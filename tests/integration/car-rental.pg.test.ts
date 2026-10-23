@@ -15,10 +15,17 @@
  *     перевозчик» тем же запросом; partnerHasRentalOffers — три исхода у
  *     вызывающего;
  *   - отбор добивки лидов (FOLLOWUP_LEADS_SQL) не берёт заявку на прокат —
- *     ни с адресатом, ни после удаления прокатчика, когда адресат обнулён.
+ *     ни с адресатом, ни после удаления прокатчика, когда адресат обнулён;
+ *   - посев «Лагуна Прокат» (1318) — поведением загрузчиков на настоящей
+ *     схеме: перевозчик с двумя машинами и двумя тарифами за день разных
+ *     видов, прокатчик с тремя машинами и условиями, оба — один партнёр;
+ *     повтор 1318 ничего не плодит.
  *
- * Своя база `car_rental_test` — копия шаблона схемы. Без KERNEL_PG_TEST_URL
- * файл честно пропускается — «не прогнано», а не «прошло».
+ * Своя база `car_rental_test` — копия шаблона схемы, в котором доиграны ВСЕ
+ * миграции каталога, то есть и посев 1318: партнёр `laguna-prokat` в базе
+ * есть с самого начала, и фикстуры теста названы иначе, чтобы порядок по
+ * имени не зависел от id. Без KERNEL_PG_TEST_URL файл честно пропускается —
+ * «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -34,6 +41,7 @@ if (!PG_URL) {
 
 const TEST_DB = 'car_rental_test';
 const MIGRATION = join(process.cwd(), 'migrations', '1317_car_rental_offers.sql');
+const SEED = join(process.cwd(), 'migrations', '1318_laguna_prokat_carrier_and_rental.sql');
 
 withPg('прокат автомобилей на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
@@ -75,7 +83,8 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     await addOffer(partner.carsInactive, 'Снятая машина', { is_active: false });
     partner.hidden = await addPartner('Скрытый прокат', 'cars', 'cars-hidden', false);
     await addOffer(partner.hidden, 'Скрытая машина');
-    partner.laguna = await addPartner('Лагуна Прокат', 'transfer', 'laguna');
+    // Не «Лагуна Прокат»: посев 1318 уже в шаблоне, и тёзка сделал бы порядок по имени делом id.
+    partner.laguna = await addPartner('Прокат у залива', 'transfer', 'bay-rental');
     await addOffer(partner.laguna, 'Toyota Land Cruiser Prado', { seats: null, price_rub_per_day: 7000, deposit_rub: 30000, driver: 'optional' });
     await addOffer(partner.laguna, 'ГАЗ Соболь', { body_kind: 'minibus', seats: 7, price_rub_per_day: 25000, price_is_from: true });
     await pool.query(
@@ -102,7 +111,8 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     await pool.query(sql);
     await pool.query(sql);
     const { rows } = await pool.query<{ n: number }>('SELECT count(*)::int AS n FROM car_rental_offers');
-    expect(rows[0]!.n).toBe(5);
+    // Пять строк фикстур и три строки посева 1318 из шаблона.
+    expect(rows[0]!.n).toBe(8);
     const cons = await pool.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint WHERE conrelid = 'car_rental_offers'::regclass ORDER BY conname`,
     );
@@ -132,8 +142,8 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
   it('loadRentalCompanies: только партнёр с активной строкой, категория не спрашивается, порядок по алфавиту', async () => {
     const { loadRentalCompanies } = await import('@/lib/rental/rental');
     const companies = await loadRentalCompanies();
-    expect(companies.map((c) => c.slug)).toEqual(['laguna', 'op-rental']);
-    const laguna = companies.find((c) => c.slug === 'laguna')!;
+    expect(companies.map((c) => c.slug)).toEqual(['laguna-prokat', 'op-rental', 'bay-rental']);
+    const laguna = companies.find((c) => c.slug === 'bay-rental')!;
     expect(laguna.offers.map((o) => o.title)).toEqual(['Toyota Land Cruiser Prado', 'ГАЗ Соболь']);
     expect(laguna.offers[0]).toMatchObject({ seats: null, depositRub: 30000, driver: 'optional', priceIsFrom: false, pricesSeenOn: null });
     expect(laguna.offers[1]).toMatchObject({ seats: 7, priceIsFrom: true, depositRub: null });
@@ -142,9 +152,9 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
 
   it('loadRentalCompanyBySlug: условия, реквизиты, «также перевозчик»; скрытый и без живых строк — null', async () => {
     const { loadRentalCompanyBySlug, partnerHasRentalOffers } = await import('@/lib/rental/rental');
-    const laguna = await loadRentalCompanyBySlug('laguna');
+    const laguna = await loadRentalCompanyBySlug('bay-rental');
     expect(laguna).toMatchObject({
-      name: 'Лагуна Прокат', verified: false, alsoCarrier: true,
+      name: 'Прокат у залива', verified: false, alsoCarrier: true,
       legal: { name: 'ИП Лагунова Анна Петровна', inn: '410100000011', ogrn: null },
       terms: { items: ['Залог возвращается при возврате машины без повреждений', 'Выдача в городе'], sourceUrl: null, seenOn: '2026-10-23' },
     });
@@ -166,7 +176,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       return r.rows[0].id;
     };
     const plain = await lead('Без адресата', null, { interests: ['hiking'] }, null);
-    await lead('Арендатор', partner.laguna, { kind: 'car_rental', company_slug: 'laguna' }, PD_CONSENT_RENTAL_VERSION);
+    await lead('Арендатор', partner.laguna, { kind: 'car_rental', company_slug: 'bay-rental' }, PD_CONSENT_RENTAL_VERSION);
     const doomed = await pool.query<{ id: string }>(
       `INSERT INTO partners (name, category, contact, is_verified, is_public, slug)
        VALUES ('Прокат на удаление', 'cars', '{"phone":"+70000000000"}', FALSE, TRUE, 'cars-doomed') RETURNING id`,
@@ -181,5 +191,47 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
     const { rows } = await pool.query<{ id: string }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
     expect(rows.map((r) => r.id)).toEqual([plain]);
+  });
+
+  it('посев 1318 «Лагуна Прокат»: перевозчик с двумя тарифами за день разных видов и прокатчик с тремя машинами — один партнёр', async () => {
+    const { loadCarrierBySlug } = await import('@/lib/transfers/charter');
+    const { loadRentalCompanyBySlug } = await import('@/lib/rental/rental');
+
+    const carrier = await loadCarrierBySlug('laguna-prokat');
+    expect(carrier).not.toBeNull();
+    expect(carrier!.vehicles.map((v) => [v.kind, v.title, v.seats])).toEqual([
+      ['minibus', 'Ford Transit', 17], ['vahtovka', 'Урал ГИРД (вахтовка)', 25],
+    ]);
+    expect(carrier!.destinations).toEqual([]);
+    expect(carrier!.rates.map((r) => [r.unit, r.vehicleKind, r.priceRub, r.validYear])).toEqual([
+      ['day', 'minibus', 25000, null], ['day', 'vahtovka', 50000, null],
+    ]);
+    expect(carrier!.rates.every((r) => r.note === 'цена «от» — точную назовёт перевозчик')).toBe(true);
+    // Чего сайт не называл, того нет: юрлицо, лицензия, фото, отметка.
+    expect(carrier).toMatchObject({ legal: null, license: null, verified: false, photos: [], phone: '+79060835070' });
+
+    const rental = await loadRentalCompanyBySlug('laguna-prokat');
+    expect(rental).not.toBeNull();
+    expect(rental!.partnerId).toBe(carrier!.partnerId);
+    expect(rental!.offers.map((o) => [o.title, o.seats, o.driver, o.priceRubPerDay, o.priceIsFrom, o.depositRub])).toEqual([
+      ['Suzuki Jimny', 4, 'self', 7000, false, 15000],
+      ['Tank-300', 5, 'self', 15000, false, 30000],
+      ['Sever Truck', 8, 'optional', 35000, true, 50000],
+    ]);
+    expect(rental!.terms?.items).toHaveLength(8);
+    expect(rental!.terms?.seenOn).toBe('2026-10-23');
+    expect(rental).toMatchObject({ alsoCarrier: true, legal: null, verified: false });
+
+    // Повтор посева на настоящей схеме ничего не плодит.
+    const before = await pool.query<{ n: number }>(
+      `SELECT (SELECT count(*) FROM car_rental_offers)::int + (SELECT count(*) FROM transfer_charter_prices)::int
+            + (SELECT count(*) FROM transfer_fleet_vehicles)::int + (SELECT count(*) FROM partners WHERE slug = 'laguna-prokat')::int AS n`,
+    );
+    await pool.query(readFileSync(SEED, 'utf8'));
+    const after = await pool.query<{ n: number }>(
+      `SELECT (SELECT count(*) FROM car_rental_offers)::int + (SELECT count(*) FROM transfer_charter_prices)::int
+            + (SELECT count(*) FROM transfer_fleet_vehicles)::int + (SELECT count(*) FROM partners WHERE slug = 'laguna-prokat')::int AS n`,
+    );
+    expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
   });
 });

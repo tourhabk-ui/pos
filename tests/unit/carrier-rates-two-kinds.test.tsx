@@ -64,6 +64,7 @@ const DATA: CarrierPageData = {
   carrier: LAGUNA,
   safety: { state: 'ok', byPlace: {} },
   reviews: { state: 'ok', items: [], count: 0, average: null },
+  rental: { state: 'ok', has: true },
 };
 
 beforeEach(() => {
@@ -102,6 +103,12 @@ describe('страница перевозчика с двумя тарифами
     const text = plain(container.textContent);
     expect(text).toContain('микроавтобус: 25 000 ₽ за день · вахтовка: 50 000 ₽ за день за машину');
     expect(text).not.toContain('25 000 ₽ за день · 50 000 ₽ за день за машину');
+  });
+
+  it('у партнёра есть и прайс проката — страница перевозчика ведёт на страницу проката того же партнёра', () => {
+    render(<CarrierPage data={DATA} />);
+    const link = screen.getByRole('link', { name: /без водителя/i });
+    expect(link.getAttribute('href')).toBe('/car-rental/laguna-prokat');
   });
 
   it('разметка: два Offer с разными именами, оба за DAY', () => {
