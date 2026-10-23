@@ -42,6 +42,7 @@ import {
   saveTrackDraft, getTrackDraft, clearTrackDraft,
   type FieldTrackDraft,
 } from '@/lib/offline/db';
+import { geolocationWatch } from '@/lib/geo/current-position';
 
 /** Дольше этого без засечки — прибор молчит, и это надо сказать. */
 const SILENCE_MS = 45_000;
@@ -168,7 +169,10 @@ export function useTrackRecorder(): TrackRecorderApi {
    * перезапустился. false — прибора нет, запись не идёт.
    */
   const beginWatch = useCallback((name: string, continuing: boolean): boolean => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    // Объект геолокации без функций (заглушка браузера) — тот же отказ, что
+    // его отсутствие, а не падение экрана (23.10).
+    const geo = geolocationWatch();
+    if (!geo) {
       setError('Телефон не отдаёт геопозицию — запись невозможна');
       return false;
     }
@@ -186,7 +190,7 @@ export function useTrackRecorder(): TrackRecorderApi {
     setRejecting(null);
     sinceSaveRef.current = 0;
 
-    watchRef.current = navigator.geolocation.watchPosition(
+    watchRef.current = geo.watchPosition(
       pos => {
         lastFixRef.current = Date.now();
         const r = acceptFix(stateRef.current, {
@@ -276,8 +280,8 @@ export function useTrackRecorder(): TrackRecorderApi {
   }, [beginWatch]);
 
   const stopWatch = useCallback(() => {
-    if (watchRef.current !== null && typeof navigator !== 'undefined') {
-      navigator.geolocation.clearWatch(watchRef.current);
+    if (watchRef.current !== null) {
+      geolocationWatch()?.clearWatch(watchRef.current);
       watchRef.current = null;
     }
   }, []);

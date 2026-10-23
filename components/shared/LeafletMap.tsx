@@ -15,6 +15,7 @@ import { placeMarkerSvg } from '@/lib/map/place-marker-icons';
 import { resolveMarkerColor } from '@/lib/map/marker-colors';
 import { labelPinHtml, labelPinBox } from '@/lib/map/label-pin';
 import { fitDecision, fitPaddingTop, cornerRefitTop } from '@/lib/map/fit-when-sized';
+import { geolocationWatch } from '@/lib/geo/current-position';
 
 interface LeafletMapProps {
   markers?: MapMarker[];
@@ -672,7 +673,11 @@ export default function LeafletMap({
       }
 
       // GPS-позиция пользователя (синяя точка) — работает без интернета!
-      if (showUserLocation && typeof navigator !== 'undefined' && navigator.geolocation) {
+      // Геолокация без функций (заглушка браузера) — как её отсутствие: без
+      // синей точки, но карта работает. Раньше вызов падал здесь, внутри
+      // инициализации, и вся карта уходила в «не загрузилась» (23.10).
+      const geo = showUserLocation ? geolocationWatch() : null;
+      if (geo) {
         // Маркер «Я здесь»
         const userIcon = L.divIcon({
           html: `
@@ -717,7 +722,7 @@ export default function LeafletMap({
         let accuracyCircle: ReturnType<typeof L.circle> | null = null;
 
         // Отслеживание позиции в реальном времени
-        userLocationWatchId = navigator.geolocation.watchPosition(
+        userLocationWatchId = geo.watchPosition(
           (pos) => {
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
@@ -784,8 +789,8 @@ export default function LeafletMap({
     return () => {
       cancelled = true;
       // Останавливаем GPS-трекинг при размонтировании (экономит батарею)
-      if (userLocationWatchId !== null && typeof navigator !== 'undefined') {
-        navigator.geolocation.clearWatch(userLocationWatchId);
+      if (userLocationWatchId !== null) {
+        geolocationWatch()?.clearWatch(userLocationWatchId);
       }
       if (resizeObserver) {
         resizeObserver.disconnect();

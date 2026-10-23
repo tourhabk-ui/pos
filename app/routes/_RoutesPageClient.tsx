@@ -19,6 +19,7 @@ import { pageSlots } from '@/lib/seo/catalog-paging';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
 import { MarkerType } from '@/components/shared/leaflet-types';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -255,9 +256,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     setNearRadius(value);
     setPage(1);
     if (!value || geoRequestedRef.current) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    const geo = geolocationOnce();
+    if (!geo) return;
     geoRequestedRef.current = true;
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       (pos) => {
         setNearAnchor({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setNearLabel('от вас');

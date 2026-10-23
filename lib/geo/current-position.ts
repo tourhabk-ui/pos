@@ -27,12 +27,48 @@ export interface GeoOptions {
 
 export const GEO_DEFAULT_TIMEOUT_MS = 20_000;
 
+/**
+ * Геолокация, которой можно пользоваться, — или null («устройство не умеет»).
+ *
+ * Объект `navigator.geolocation` есть не значит, что он рабочий: 23.10
+ * карточка места упала у посетителя с «navigator.geolocation.watchPosition
+ * is not a function» — объект был, функции не было (урезанные встроенные
+ * браузеры и расширения приватности подменяют его заглушкой). Проверка
+ * «есть ли объект» стояла в четырнадцати файлах и такой браузер пропускала.
+ *
+ * Проверка — по той функции, которая нужна, а не по всем сразу: у такого
+ * браузера разовый запрос мог работать, и требовать от SOS слежения, чтобы
+ * спросить место один раз, значило бы отнять у него координаты.
+ */
+type GeoOnce = Pick<Geolocation, 'getCurrentPosition'>;
+type GeoWatch = Pick<Geolocation, 'watchPosition' | 'clearWatch'>;
+
+function rawGeolocation(): Partial<Geolocation> | null {
+  if (typeof navigator === 'undefined') return null;
+  return (navigator as { geolocation?: Partial<Geolocation> | null }).geolocation ?? null;
+}
+
+/** Разовый запрос места (getCurrentPosition). */
+export function geolocationOnce(): GeoOnce | null {
+  const geo = rawGeolocation();
+  return geo && typeof geo.getCurrentPosition === 'function' ? (geo as GeoOnce) : null;
+}
+
+/** Слежение за местом (watchPosition + clearWatch: без второй слежку не остановить). */
+export function geolocationWatch(): GeoWatch | null {
+  const geo = rawGeolocation();
+  return geo && typeof geo.watchPosition === 'function' && typeof geo.clearWatch === 'function'
+    ? (geo as GeoWatch)
+    : null;
+}
+
 export function requestPosition(opts: GeoOptions = {}): Promise<GeoResult> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+  const geo = geolocationOnce();
+  if (!geo) {
     return Promise.resolve({ ok: false, kind: 'unsupported' });
   }
   return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       (p) => resolve({
         ok: true,
         lat: p.coords.latitude,

@@ -27,6 +27,7 @@ import { MarkerType } from '@/components/shared/leaflet-types';
 import { calculatedLine } from '@/lib/map/line-standard';
 import { calculatedCarToLeafletCoordinates, type CalculatedCarRoute } from '@/lib/on-route/calculated-route';
 import type { RouteBuildResult } from '@/lib/on-route/route-build';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -131,12 +132,13 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
   const [state, setState] = useState<State>({ phase: 'idle' });
 
   const build = useCallback(function build() {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    const geo = geolocationOnce();
+    if (!geo) {
       setState({ phase: 'error', message: 'Геолокация недоступна в этом браузере' });
       return;
     }
     setState({ phase: 'locating' });
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       (pos) => {
         setState({ phase: 'building' });
         // Оба режима сразу (03.10): человек выбирает, видя время каждого, —

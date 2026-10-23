@@ -305,6 +305,7 @@ const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c
 
 import { RadarScope, AlertsTicker, SeismicPulse, VolcanoPulse, SRC_LABEL, fmtAgo, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
 import type { SafetyLiveData } from '@/app/_home/data';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 /**
  * Отметка обновления словами. Отсутствие отметки — не повод молчать: «время
@@ -550,8 +551,9 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
 
     // Геолокация необязательна: отказ или её отсутствие — законное
     // состояние (§4.0), чек-ин всё равно уходит, просто без координат.
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+    const geo = geolocationOnce();
+    if (geo) {
+      geo.getCurrentPosition(
         pos => submit(pos.coords.latitude, pos.coords.longitude),
         () => submit(null, null),
         { timeout: 4000 },

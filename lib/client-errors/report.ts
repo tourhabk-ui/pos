@@ -60,9 +60,31 @@ const NOISE: readonly RegExp[] = [
   /safari-(web-)?extension:\/\//,
 ];
 
+/**
+ * Событие DOM вместо ошибки (промис отклонён событием error у картинки,
+ * скрипта, соединения). JSON.stringify такого события даёт только
+ * {"isTrusted":true}: 23.10 так пришла ошибка с карточки маршрута, и
+ * понять по ней, что упало, было нельзя. Называем род события, у кого оно
+ * случилось и адрес ресурса — без query и фрагмента (там бывают ключи; сервер
+ * чистит и сам, scrub.ts).
+ */
+function describeEvent(err: unknown): string | null {
+  if (typeof Event === 'undefined' || !(err instanceof Event)) return null;
+  const t = err.target as
+    | (EventTarget & { tagName?: unknown; src?: unknown; href?: unknown; url?: unknown; error?: { name?: unknown } | null })
+    | null;
+  const who = !t ? '' : typeof t.tagName === 'string' ? t.tagName.toLowerCase() : (t.constructor?.name ?? '');
+  const rawUrl = !t ? '' : [t.src, t.href, t.url].find((u): u is string => typeof u === 'string' && u !== '') ?? '';
+  const url = rawUrl.startsWith('data:') ? 'data:' : rawUrl.split(/[?#]/)[0].slice(0, 200);
+  const inner = t && t.error && typeof t.error.name === 'string' ? t.error.name : '';
+  return [`Событие «${err.type || '?'}»`, who && `у ${who}`, url, inner && `(${inner})`].filter(Boolean).join(' ');
+}
+
 export function describeError(err: unknown): { message: string; stack?: string } {
   if (err instanceof Error) return { message: err.message || err.name || 'Error', stack: err.stack };
   if (typeof err === 'string') return { message: err };
+  const ev = describeEvent(err);
+  if (ev) return { message: ev };
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
     return { message: (err as { message: string }).message };
   }

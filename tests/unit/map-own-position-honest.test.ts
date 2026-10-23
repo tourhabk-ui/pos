@@ -26,7 +26,7 @@ const MAP = readFileSync(join(process.cwd(), 'components/shared/LeafletMap.tsx')
 
 /** Тело блока геолокации — от флага до конца watchPosition. */
 const geoBlock = MAP.slice(
-  MAP.indexOf('if (showUserLocation'),
+  MAP.indexOf('const geo = showUserLocation ? geolocationWatch()'),
   MAP.indexOf('}).catch(() => {'),
 );
 

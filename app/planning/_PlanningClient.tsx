@@ -99,6 +99,7 @@ import { isUuid } from '@/lib/text/slugify';
 import { coordIsTrustworthy, coordSourceLabel, asCoordSource, type CoordSource } from '@/lib/places/coord-source';
 import { useGeofenceZones, useGeofenceBreach, refreshGeofenceZones } from '@/hooks/useGeofence';
 import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
+import { geolocationOnce, geolocationWatch } from '@/lib/geo/current-position';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -1384,7 +1385,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     };
     window.addEventListener('deviceorientationabsolute', handleAbsolute as EventListener, true);
     window.addEventListener('deviceorientation', handleRelative as EventListener);
-    if ('geolocation' in navigator) {
+    // Объект геолокации без функций (заглушка) — как её отсутствие (23.10);
+    // разовый запрос и слежение проверяются порознь: есть одно — работает оно.
+    const geoOnce = geolocationOnce();
+    const geoWatch = geolocationWatch();
+    if (geoOnce || geoWatch) {
       /**
        * Первая точка — сразу, не дожидаясь спутников (03.10, владелец: «SOS
        * открывает координаты моментально, а на маршруте долго ищет»).
@@ -1417,11 +1422,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         });
       };
       const seedSilent = () => { /* голос об отказе — у слежения ниже */ };
-      navigator.geolocation.getCurrentPosition(seedFix, seedSilent,
+      geoOnce?.getCurrentPosition(seedFix, seedSilent,
         { enableHighAccuracy: false, maximumAge: Infinity, timeout: 1_000 });
-      navigator.geolocation.getCurrentPosition(seedFix, seedSilent,
+      geoOnce?.getCurrentPosition(seedFix, seedSilent,
         { enableHighAccuracy: false, maximumAge: 300_000, timeout: 15_000 });
-      watchRef.current = navigator.geolocation.watchPosition(
+      watchRef.current = geoWatch ? geoWatch.watchPosition(
         pos => {
           // Свежий timestamp с точностью в десятки километров — не GPS, а
           // сетевой/IP-фолбэк геолокации браузера (живой скрин владельца
@@ -1488,7 +1493,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           else setGpsMessage(err.code === 3 ? 'GPS не отвечает' : 'GPS недоступен здесь');
         },
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 }
-      );
+      ) : null;
     }
     const timer = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
@@ -1503,7 +1508,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     return () => {
       window.removeEventListener('deviceorientationabsolute', handleAbsolute as EventListener, true);
       window.removeEventListener('deviceorientation', handleRelative as EventListener);
-      if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+      if (watchRef.current !== null) geoWatch?.clearWatch(watchRef.current);
       clearInterval(timer);
       clearInterval(paceTimer);
       clearInterval(ageTimer);
@@ -3843,7 +3848,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // Кнопка, которую нажать нельзя, не показывается (правило FieldActionBar).
   const fieldActions = useMemo<FieldAction[]>(() => {
     const list: FieldAction[] = [];
-    const canGeo = typeof navigator !== 'undefined' && !!navigator.geolocation;
+    const canGeo = geolocationOnce() !== null;
 
     // Сохранить карту — первым и всегда на виду, не спрятанной под
     // разворотом листа: строка «Карта не сохранена — в поле не откроется»
