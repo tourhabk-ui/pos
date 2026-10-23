@@ -19,7 +19,13 @@
  *   - посев «Лагуна Прокат» (1318) — поведением загрузчиков на настоящей
  *     схеме: перевозчик с двумя машинами и двумя тарифами за день разных
  *     видов, прокатчик с тремя машинами и условиями, оба — один партнёр;
- *     повтор 1318 ничего не плодит.
+ *     повтор 1318 ничего не плодит;
+ *   - посев «Лагуна Экспедиция» (1323, слово владельца 23.10 «Сделай еще
+ *     лагуна экспедиция и телефон такой же»): одна видимая карточка
+ *     туроператора с реквизитами ООО «Экспедиция», телефон взят из строки
+ *     «Лагуны Прокат», имён людей и аккаунта нет (репозиторий открытый, полное
+ *     имя — ПД), список компаний её видит, повтор правку администратора не
+ *     перетирает.
  *
  * Своя база `car_rental_test` — копия шаблона схемы, в котором доиграны ВСЕ
  * миграции каталога, то есть и посев 1318: партнёр `laguna-prokat` в базе
@@ -42,6 +48,7 @@ if (!PG_URL) {
 const TEST_DB = 'car_rental_test';
 const MIGRATION = join(process.cwd(), 'migrations', '1317_car_rental_offers.sql');
 const SEED = join(process.cwd(), 'migrations', '1318_laguna_prokat_carrier_and_rental.sql');
+const EXPEDITION_SEED = join(process.cwd(), 'migrations', '1323_laguna_expedition_operator_card.sql');
 
 withPg('прокат автомобилей на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
@@ -252,5 +259,64 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
             + (SELECT count(*) FROM transfer_fleet_vehicles)::int + (SELECT count(*) FROM partners WHERE slug = 'laguna-prokat')::int AS n`,
     );
     expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
+  });
+
+  describe('посев 1323 «Лагуна Экспедиция»', () => {
+    interface CardRow {
+      name: string; category: string; is_public: boolean; is_verified: boolean; user_id: string | null;
+      contact: Record<string, unknown>; contacts: Record<string, unknown>; legal_info: Record<string, unknown>;
+      registry_number: string | null; website: string | null;
+    }
+    const card = async (): Promise<CardRow[]> => (await pool.query<CardRow>(
+      `SELECT name, category, is_public, is_verified, user_id::text AS user_id,
+              contact, contacts, legal_info, registry_number, website
+         FROM partners WHERE slug = 'laguna-expedition' OR legal_info->>'inn' = '9717173941'`,
+    )).rows;
+
+    it('одна видимая карточка туроператора с реквизитами ООО «Экспедиция», без отметки «проверено»', async () => {
+      const rows = await card();
+      expect(rows).toHaveLength(1);
+      const c = rows[0]!;
+      expect(c).toMatchObject({ name: 'Лагуна Экспедиция', category: 'operator', is_public: true, is_verified: false });
+      expect(c.legal_info).toEqual({ companyName: 'ООО «Экспедиция»', inn: '9717173941', ogrn: '1247700802546' });
+      expect(c.registry_number).toBe('РТО В031-00161-77/01703236');
+      expect(c.website).toBe('https://laguna-expedition.ru');
+      expect(c.contacts).toMatchObject({ telegram_channel: 'https://t.me/laguna_expedition', website: 'https://laguna-expedition.ru' });
+    });
+
+    it('телефон — тот же, что у «Лагуны Прокат», и на витрине, и в админке', async () => {
+      const { rows: [lp] } = await pool.query<{ contacts: Record<string, unknown> }>(
+        `SELECT contacts FROM partners WHERE slug = 'laguna-prokat'`,
+      );
+      expect(typeof lp?.contacts.phone).toBe('string');
+      const [c] = await card();
+      expect(c!.contacts.phone).toBe(lp!.contacts.phone);
+      expect(c!.contact.phone).toBe(lp!.contacts.phone);
+      expect(c!.contacts.telegram_contact).toBe(lp!.contacts.telegram_contact);
+    });
+
+    it('имён людей и аккаунта нет: аккаунт на имя заводит владелец из админки', async () => {
+      const [c] = await card();
+      expect(c!.user_id).toBeNull();
+      for (const field of [c!.contact, c!.contacts]) {
+        expect(Object.keys(field).filter((k) => /name/i.test(k))).toEqual([]);
+      }
+    });
+
+    it('список компаний /operators видит её — тем же правилом, что у страницы', async () => {
+      const { queryOperators, OperatorsQuerySchema } = await import('@/lib/operators/list-query');
+      const res = await queryOperators(OperatorsQuerySchema.parse({ search: 'Лагуна', limit: 50 }));
+      expect(res.items.map((i) => i.name)).toContain('Лагуна Экспедиция');
+    });
+
+    it('повтор миграции ничего не плодит и правку администратора не перетирает', async () => {
+      await pool.query(`UPDATE partners SET short_description = 'Правка администратора' WHERE slug = 'laguna-expedition'`);
+      await pool.query(readFileSync(EXPEDITION_SEED, 'utf8'));
+      expect(await card()).toHaveLength(1);
+      const { rows: [r] } = await pool.query<{ short_description: string }>(
+        `SELECT short_description FROM partners WHERE slug = 'laguna-expedition'`,
+      );
+      expect(r!.short_description).toBe('Правка администратора');
+    });
   });
 });
