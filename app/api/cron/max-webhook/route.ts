@@ -26,6 +26,10 @@
  * отвечает им, включая вход по MAX. Крон её не снимает — чей это хост и можно
  * ли его гасить, решает человек. Подписки чужих хостов на иные пути — другие
  * интеграции: они показаны в `other_subscriptions` как сведение, без красного.
+ * Каждый прогон ставит и список команд бота (`lib/max/bot-commands`,
+ * PATCH /me/commands, 23.10: подсказок «/start» в MAX не было). Исход — поле
+ * `bot_commands` ответа; его отказ в лог и в ответ, но прогон не красит:
+ * подписка — то, без чего бот молчит, подсказки команд — нет.
  * Env: MAX_BOT_TOKEN, CRON_SECRET.
  */
 
@@ -36,6 +40,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { type MaxActionOutcome, readMaxAction, scrubMaxReason } from '@/lib/max/subscription-response';
+import { syncMaxBotCommands, type MaxBotCommandsOutcome } from '@/lib/max/bot-commands';
 
 export const dynamic = 'force-dynamic';
 
@@ -255,7 +260,10 @@ export async function GET(req: Request): Promise<NextResponse> {
   // всё прочее — отказ с причиной. Адрес вебхука в причину не попадает — в
   // нём секрет.
   const t0 = Date.now();
-  const finish = (body: Record<string, unknown>, status = 200): NextResponse => {
+  // Исход установки команд — в каждый ответ после неё (шаг 0 ниже).
+  const commandsRun: { outcome?: MaxBotCommandsOutcome } = {};
+  const finish = (rawBody: Record<string, unknown>, status = 200): NextResponse => {
+    const body = commandsRun.outcome ? { ...rawBody, bot_commands: commandsRun.outcome } : rawBody;
     if (status === 200) {
       recordCronRun('max-webhook', t0, 'success');
     } else {
@@ -283,6 +291,9 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   const headers = { 'Content-Type': 'application/json', Authorization: token };
   const webhookUrl = expectedWebhookUrl();
+
+  // 0. Список команд бота — подсказки «/» в MAX. Отказ не красит прогон (шапка).
+  commandsRun.outcome = await syncMaxBotCommands(token);
 
   // 1. Что сейчас зарегистрировано в MAX
   let current: MaxSubscription[] = [];

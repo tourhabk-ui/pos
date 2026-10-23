@@ -30,7 +30,7 @@ afterEach(() => {
 describe('блок «Спросить Кузьмича»', () => {
   it('две ссылки с реальными URL Кузьмича из проекта', () => {
     expect(KUZMICH_TELEGRAM_URL).toBe('https://t.me/kuzmichai_bot?start=lead');
-    expect(KUZMICH_MAX_URL).toBe('https://max.ru/id4101147649_bot');
+    expect(KUZMICH_MAX_URL).toBe('https://max.ru/id4101147649_bot?start=lead');
     render(<KuzmichContacts />);
     const tg = screen.getByRole('link', { name: 'Telegram' });
     const max = screen.getByRole('link', { name: 'MAX' });
