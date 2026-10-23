@@ -28,6 +28,7 @@ import {
   type RentalBodyKind, type RentalCompany, type RentalOffer,
 } from '@/lib/rental/rental-format';
 import { getPublicBaseUrl } from '@/lib/config';
+import { RENTAL_MAX_DAYS, rentalDays } from '@/lib/rental/rental-request';
 
 export interface CarRentalSearchArgs {
   /** Слово о машине из вопроса: вид, модель или «с водителем». */
@@ -65,11 +66,14 @@ export function filterWords(query: string): string[] {
     .map((w) => WORD_ALIASES[w] ?? w);
 }
 
-/** Сутки проката между датами (10–14 ноября — 4 суток); null — дат нет или они кривые. */
-export function rentalDays(from?: string, to?: string): number | null {
-  if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
-  const d = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000;
-  return Number.isFinite(d) && d >= 1 && d <= 90 ? d : null;
+/**
+ * Сутки проката — тем же счётом, что форма на странице прокатчика (с 10 по 14
+ * ноября — 5 суток, lib/rental/rental-request); null — дат нет или они кривые.
+ */
+export function searchDays(from?: string, to?: string): number | null {
+  if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) return null;
+  const d = rentalDays(from, to);
+  return Number.isFinite(d) && d >= 1 && d <= RENTAL_MAX_DAYS ? d : null;
 }
 
 export interface CarRentalSearchOpts {
@@ -170,7 +174,7 @@ export function rentalAnswer(
     return `Прокатчиков с прайсом на платформе пока нет — это факт витрины, не сбой. Машин, прокатчиков и цен не выдумывай. Витрина: ${base}/car-rental.`;
   }
   const needle = (query ?? '').trim();
-  const days = rentalDays(filters.date_from, filters.date_to);
+  const days = searchDays(filters.date_from, filters.date_to);
   const blocks = companies.map((c) => {
     const typed = filters.type ? c.offers.filter((o) => o.bodyKind === filters.type) : c.offers;
     const hit = needle ? matchOffers(typed, needle) : typed;

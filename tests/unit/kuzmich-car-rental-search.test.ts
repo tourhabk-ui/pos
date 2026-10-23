@@ -263,8 +263,8 @@ describe('search_car_rental: слова просьбы, вид и даты (23.1
     const text = rentalAnswer([LAGUNA], undefined, BASE, { surface: 'mcp' }, { type: 'minibus', date_from: '2026-11-10', date_to: '2026-11-14' });
     expect(text).toContain('Toyota HiAce');
     expect(text).not.toContain('Suzuki Jimny');
-    expect(text).toContain('4 сут.');
-    expect(text).toContain('48000 руб');
+    expect(text).toContain('5 сут.');
+    expect(text).toContain('60000 руб');
     expect(text).toContain('подтверждает прокатчик');
   });
   it('кривые даты и чужой type не ломают вызов', () => {
