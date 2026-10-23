@@ -29,6 +29,7 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const PD_FILES: ReadonlyArray<{ file: string; extra: string[] }> = [
   // Лиды
   { file: 'lib/notifications/lead-notify.ts', extra: ['proposal.headline'] },
+  { file: 'lib/notifications/partner-request-notify.ts', extra: ['n.name', 'n.phone', 'n.comment'] },
   { file: 'lib/notifications/telegram-channel.ts', extra: ['booking.touristName', 'booking.touristEmail'] },
   { file: 'app/api/leads/route.ts', extra: ['leadName', 'proposal.headline'] },
   { file: 'app/api/cron/followups/route.ts', extra: ['row.message_text'] },

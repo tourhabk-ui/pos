@@ -15,6 +15,9 @@
  */
 
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
+import { logText } from '@/lib/log/log-text';
+import { notifyPartnerRequestPersonally } from '@/lib/notifications/partner-request-notify';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { isRealDate } from '@/lib/seat-requests/core';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
@@ -24,6 +27,7 @@ import {
   CHARTER_MAX_TRIP_DAYS,
   charterDedupPrefix,
   charterLeadComment,
+  charterRequestLines,
   charterSourceData,
   type CharterDoor,
   type CharterRequestFacts,
@@ -98,7 +102,7 @@ export interface SaveCharterLeadInput {
 export async function saveCharterLead(i: SaveCharterLeadInput): Promise<string | null> {
   const existing = await findRecentLeadByCommentPrefix(i.phone, charterDedupPrefix(i.facts.carrier.name, i.facts.dateFrom));
   if (existing) return existing;
-  return createLead({
+  const leadId = await createLead({
     name: i.name,
     phone: i.phone,
     comment: i.lead.comment,
@@ -112,4 +116,25 @@ export async function saveCharterLead(i: SaveCharterLeadInput): Promise<string |
     is_self: i.isSelf,
     skip_ai_processing: true,
   });
+  if (leadId && !i.isSelf) deliverToCarrier(leadId, i);
+  return leadId;
+}
+
+/**
+ * Лично перевозчику — в его MAX или Telegram (23.10). Не ждём: ответ человеку
+ * не зависит от доставки партнёру. Исход пишется в журнал лида
+ * (`partner_notified`), отказ — в лог без ПД. Свой визит владельца (is_self)
+ * партнёра не будит — как у заявки через MCP.
+ */
+function deliverToCarrier(leadId: string, i: SaveCharterLeadInput): void {
+  const partnerId = i.facts.carrier.partnerId;
+  void notifyPartnerRequestPersonally({
+    partnerId, leadId, kind: 'charter',
+    lines: charterRequestLines(i.facts),
+    name: i.name, phone: i.phone, comment: i.facts.comment,
+  })
+    .then((outcome) => recordPartnerDelivery(leadId, partnerId, outcome))
+    .catch((err: unknown) => {
+      console.error(`[charter-request] личная доставка перевозчику по заявке ${leadId} не удалась:`, logText(err instanceof Error ? err.message : err, 200));
+    });
 }

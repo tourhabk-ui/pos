@@ -186,6 +186,25 @@ function ratesRub(rates: readonly CharterRate[]): Record<string, number> {
   return Object.fromEntries(rates.map((r) => [kinds.size > 1 ? `${r.vehicleKind}/${r.unit}` : r.unit, r.priceRub]));
 }
 
+/**
+ * Факты заявки для САМОГО перевозчика (личное уведомление в MAX/Telegram,
+ * lib/notifications/partner-request-notify): без его же телефона и без заметок
+ * менеджеру («уточнить у перевозчика») — комментарий лида для него не годится
+ * дословно. ПД заказчика здесь нет: их добавляет уведомление в текст для MAX.
+ */
+export function charterRequestLines(f: CharterRequestFacts): string[] {
+  const lines = [
+    `Направление: ${f.destination}`,
+    `Даты: ${dateSpan(f)}`,
+    `Человек: ${f.passengers}`,
+  ];
+  if (f.plan.kind === 'priced') lines.push(`По прайсу: ${priceWords(f.plan.line)}`);
+  else if (f.plan.kind === 'rated') lines.push(`По прайсу: ${ratesWords(f.plan.rates).join('; ')} — часов поездки заказчик не называл`);
+  else lines.push('Такого направления в прайсе нет — цену называете вы');
+  if (f.plan.vehicles && f.plan.vehicles > 1) lines.push(`По числу мест нужно не меньше ${f.plan.vehicles} машин`);
+  return lines;
+}
+
 /** Чьей дверью пришла заявка: форма на странице перевозчика или инструмент MCP. */
 export type CharterDoor = 'form' | 'mcp';
 

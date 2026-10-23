@@ -77,6 +77,21 @@ export function rentalLeadComment(f: RentalRequestFacts): string {
   return `${rentalDedupPrefix(f.company.name, f.dateFrom)} ${tail.join('; ')}.`;
 }
 
+/**
+ * Факты заявки для САМОГО прокатчика (личное уведомление в MAX/Telegram,
+ * lib/notifications/partner-request-notify): без его же телефона и без заметок
+ * менеджеру. ПД заказчика здесь нет: их добавляет уведомление в текст для MAX.
+ */
+export function rentalRequestLines(f: RentalRequestFacts): string[] {
+  const lines = [
+    `Машина: ${offerWords(f.offer)}`,
+    `Даты: с ${f.dateFrom} по ${f.dateTo}, ${f.days} ${daysWord(f.days)}`,
+  ];
+  if (f.offer.priceIsFrom) lines.push('Цена в прайсе «от» — точную называете вы');
+  if (f.offer.depositRub !== null) lines.push(`Залог по прайсу: ${f.offer.depositRub} руб`);
+  return lines;
+}
+
 /** Чьей дверью пришла заявка. Пока дверь одна — форма на странице прокатчика. */
 export type RentalDoor = 'form';
 
