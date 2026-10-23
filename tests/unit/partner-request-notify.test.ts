@@ -62,7 +62,7 @@ const CARRIER: CharterCarrier = {
 
 const OFFER: RentalOffer = {
   id: 'o-1', title: 'Suzuki Jimny', bodyKind: 'suv', seats: 4, transmission: 'automatic', drive: '4wd', engineHp: 105,
-  priceRubPerDay: 7000, priceIsFrom: false, depositRub: 15000, driver: 'self', conditions: null, sourceUrl: null, pricesSeenOn: null,
+  priceRubPerDay: 7000, priceIsFrom: false, depositRub: 15000, driver: 'self', conditions: null, sourceUrl: null, pricesSeenOn: null, photo: null,
 };
 
 function charterFacts(over: Partial<CharterRequestFacts> = {}): CharterRequestFacts {

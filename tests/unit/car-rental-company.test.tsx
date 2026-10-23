@@ -41,7 +41,7 @@ vi.stubGlobal('fetch', fetchMock);
 const offer = (over: Partial<RentalOffer> = {}): RentalOffer => ({
   id: 'o-1', title: 'Toyota Land Cruiser Prado', bodyKind: 'suv', seats: 5, transmission: 'automatic', drive: '4wd',
   engineHp: 163, priceRubPerDay: 7000, priceIsFrom: false, depositRub: 30000, driver: 'optional',
-  conditions: 'Пробег без ограничений по асфальту', sourceUrl: 'https://example.test/price', pricesSeenOn: '2026-10-23', ...over,
+  conditions: 'Пробег без ограничений по асфальту', sourceUrl: 'https://example.test/price', pricesSeenOn: '2026-10-23', photo: null, ...over,
 });
 
 const COMPANY: RentalCompanyProfile = {

@@ -30,15 +30,15 @@ import type { RentalCompany, RentalOffer } from '@/lib/rental/rental-format';
 
 const JIMNY: RentalOffer = {
   id: 'o1', title: 'Suzuki Jimny', bodyKind: 'suv', seats: 4, transmission: 'automatic', drive: '4wd', engineHp: 105,
-  priceRubPerDay: 7000, priceIsFrom: false, depositRub: 15000, driver: 'self', conditions: null, sourceUrl: null, pricesSeenOn: '2026-10-23',
+  priceRubPerDay: 7000, priceIsFrom: false, depositRub: 15000, driver: 'self', conditions: null, sourceUrl: null, pricesSeenOn: '2026-10-23', photo: null,
 };
 const HIACE: RentalOffer = {
   id: 'o2', title: 'Toyota HiAce', bodyKind: 'minibus', seats: 12, transmission: 'automatic', drive: null, engineHp: null,
-  priceRubPerDay: 12000, priceIsFrom: false, depositRub: null, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null,
+  priceRubPerDay: 12000, priceIsFrom: false, depositRub: null, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null, photo: null,
 };
 const VAHTOVKA: RentalOffer = {
   id: 'o3', title: 'КамАЗ вахтовка', bodyKind: 'vahtovka', seats: null, transmission: 'manual', drive: '4wd', engineHp: null,
-  priceRubPerDay: 35000, priceIsFrom: true, depositRub: 50000, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null,
+  priceRubPerDay: 35000, priceIsFrom: true, depositRub: 50000, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null, photo: null,
 };
 
 const LAGUNA: RentalCompany = {

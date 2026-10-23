@@ -45,6 +45,8 @@ export interface RentalOffer {
   sourceUrl: string | null;
   /** YYYY-MM-DD, когда цена сверена; null — не записано. */
   pricesSeenOn: string | null;
+  /** Снимок этой машины с подписью (1319); null — снимка нет, строка идёт без него. */
+  photo: CharterPhoto | null;
 }
 
 /** Прокатчик для витрины /car-rental: только то, что нужно карточке. */
