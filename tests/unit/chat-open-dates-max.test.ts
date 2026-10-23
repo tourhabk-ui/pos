@@ -68,6 +68,12 @@ vi.mock('@/lib/tours/availability-open', async (orig) => ({
   openTourDatesTx: m.openTx,
   previewTourDates: m.preview,
 }));
+// Администратор в MAX (23.10) узнаётся раньше чата партнёра; здесь пишет
+// партнёр, не администратор, — база администраторов не участвует.
+vi.mock('@/lib/max/admin-link', () => ({
+  findMaxAdmin: async () => ({ outcome: 'none' }),
+  handleAdminStart: async () => false,
+}));
 vi.mock('@/lib/operators/chat-dates/switch', () => ({
   get CHAT_OPEN_DATES_ENABLED() { return m.switchOn.value; },
 }));

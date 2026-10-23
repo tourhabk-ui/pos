@@ -24,6 +24,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { maxBot } from '@/lib/partners/channel-link';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const ADMIN_LINK_PREFIX = 'adm_';
 export const ADMIN_LINK_TTL_MS = 10 * 60 * 1000;
@@ -145,7 +146,9 @@ export async function consumeAdminMaxLink(token: string, maxUserId: number, maxC
     await client.query('COMMIT');
     return { ok: true, userId: row.user_id, movedFromUserId: moved.rows[0]?.user_id ?? null };
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch((rbErr: unknown) => {
+      logSwallowedFailure('max/admin', 'откат погашения ссылки', rbErr);
+    });
     throw err;
   } finally {
     client.release();
