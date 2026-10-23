@@ -19,6 +19,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { openRouterAttribution } from '../lib/ai/attribution';
 import {
+  EDITOR_TEMPERATURE,
   buildDescriptionMessages,
   pickDescriptionFromAnswer,
   type RouteRow,
@@ -30,7 +31,7 @@ const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 
 interface Job { routes?: RouteRow[]; queue_total?: number }
 
-interface ResultItem { id: string; title: string; description?: string; skipped?: string }
+interface ResultItem { id: string; title: string; description?: string; skipped?: string; declined?: boolean }
 
 async function askOpenRouter(
   messages: Array<{ role: string; content: string }>,
@@ -45,7 +46,8 @@ async function askOpenRouter(
         authorization: `Bearer ${key}`,
         ...openRouterAttribution('editor'),
       },
-      body: JSON.stringify({ model, messages, max_tokens: 1600, temperature: 0.5 }),
+      // Температура — та же, что у прод-пути: строгий пересказ, не варианты (23.10).
+      body: JSON.stringify({ model, messages, max_tokens: 1600, temperature: EDITOR_TEMPERATURE }),
       signal: AbortSignal.timeout(90_000),
     });
     if (!res.ok) {
@@ -105,22 +107,32 @@ async function main(): Promise<void> {
     }
     const outcome = pickDescriptionFromAnswer(text);
     if (!outcome.text) {
-      items.push({ id: route.id, title: route.title, skipped: outcome.failReason ?? 'разбор не дал текста' });
+      // «НЕТ» — модель сказала, что из фактов нечего написать: исход, а не
+      // провал (23.10). Считается отдельно, чтобы ноль описаний при честных
+      // отказах не выглядел поломкой.
+      items.push({
+        id: route.id, title: route.title,
+        skipped: outcome.failReason ?? 'разбор не дал текста',
+        ...(outcome.noSource ? { declined: true } : {}),
+      });
       continue;
     }
     items.push({ id: route.id, title: route.title, description: outcome.text });
   }
 
   const written = items.filter((i) => i.description).length;
+  const declined = items.filter((i) => i.declined).length;
+  // Ноль описаний при честных «НЕТ» — исход «фактов мало», а не поломка; ноль
+  // описаний без единого ответа модели — отказ (§4.0).
+  const failed = written === 0 && declined === 0;
   writeFileSync(outPath, JSON.stringify({
-    model, asked, written, queue_total: job.queue_total ?? null,
-    error: written === 0 ? (firstError ?? 'ни одного описания не получено') : null,
+    model, asked, written, declined, queue_total: job.queue_total ?? null,
+    error: failed ? (firstError ?? 'ни одного описания не получено') : null,
     items,
   }, null, 2));
 
-  console.log(`модель: ${model}; запрошено: ${asked}; описаний получено: ${written}`);
-  // Ноль результатов при непустом входе — отказ, а не успех (§4.0).
-  if (routes.length > 0 && written === 0) {
+  console.log(`модель: ${model}; запрошено: ${asked}; описаний получено: ${written}; «нечего написать»: ${declined}`);
+  if (routes.length > 0 && failed) {
     console.error(`Ни одного описания. Первая причина: ${firstError ?? 'не записана'}`);
     process.exit(1);
   }

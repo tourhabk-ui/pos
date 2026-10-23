@@ -2,10 +2,15 @@
  * Описание по решению владельца не попадает ни в одну очередь машинного
  * описания (27.09, случай Микижи). Шапка — lib/places/owner-decided.ts.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { notOwnerDecidedSql, OWNER_DECISION_WRITER } from '@/lib/places/owner-decided';
+
+const poolQueryMock = vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>();
+vi.mock('@/lib/db-pool', () => ({
+  pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) },
+}));
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -18,10 +23,13 @@ describe('owner-decision не переписывается машинами', ()
     expect(sql).toContain(`written_by = '${OWNER_DECISION_WRITER}'`);
   });
 
-  it('Editor: отбор коротких описаний исключает решение владельца', () => {
-    const src = read('lib/agents/editor.ts');
-    const fn = src.slice(src.indexOf('export async function findRoutesNeedingDescription'));
-    expect(fn.slice(0, 2500)).toContain("notOwnerDecidedSql('ark.id')");
+  // Судится запрос, который отбор отправляет в базу, а не строка исходника;
+  // поведение на настоящем PostgreSQL — tests/integration/model-place-text.pg.test.ts.
+  it('Editor: отбор коротких описаний исключает решение владельца', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [] });
+    const { findRoutesNeedingDescription } = await import('@/lib/agents/editor');
+    await findRoutesNeedingDescription();
+    expect(String(poolQueryMock.mock.calls[0]?.[0] ?? '')).toContain(notOwnerDecidedSql('ark.id'));
   });
 
   it('enrich-places: и обычный отбор, и force исключают решение владельца', () => {

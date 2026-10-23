@@ -50,7 +50,7 @@ describe('правило одно на оба пути', () => {
   it('общие функции работают и без сети', () => {
     const messages = buildDescriptionMessages(route);
     expect(messages).toHaveLength(2);
-    expect(messages[0].content).toMatch(/ТОЛЬКО из переданных фактов/);
+    expect(messages[0].content).toMatch(/Каждое предложение опирается на строку из списка фактов/);
     expect(messages[1].content).toMatch(/Вулкан Горелый/);
 
     expect(pickDescriptionFromAnswer(null).text).toBeNull();
@@ -93,8 +93,9 @@ describe('тишина не считается успехом', () => {
     expect(RUNNER).toMatch(/process\.exit\(1\)/);
   });
 
-  it('ноль описаний при непустом входе краснит прогон', () => {
-    expect(RUNNER).toMatch(/routes\.length > 0 && written === 0/);
+  it('ноль описаний при непустом входе краснит прогон, а честные «НЕТ» — нет', () => {
+    expect(RUNNER).toMatch(/const failed = written === 0 && declined === 0/);
+    expect(RUNNER).toMatch(/routes\.length > 0 && failed/);
   });
 
   it('прод не отдал очередь — раннер краснеет, а не отчитывается «всё описано»', () => {

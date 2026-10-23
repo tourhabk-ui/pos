@@ -103,6 +103,71 @@ withPg('модель не пишет тексты мест (слово влад�
     });
   });
 
+  // Короткое описание Editor переписывает, только если это его собственный
+  // текст (23.10, владелец: «Editor много выдумал его ужесточить»). Чужой
+  // короткий текст — из паспорта, миграции, от человека — ответ, а не
+  // недоработка: дописать его можно только выдумкой.
+  describe('очередь Editor: короткое — только своё', () => {
+    const SHORT = 'Тропа к озеру, протяжённость 6 километров, сезон — лето.';
+    const ids: Record<string, string> = {};
+
+    async function shortRoute(title: string, daysAgo: number): Promise<string> {
+      const r = await pool.query<{ ark: string }>(
+        `INSERT INTO kamchatka_routes (category, title, is_visible, description, updated_at)
+         VALUES ('trekking', $1::text, TRUE, $2::text, NOW() - make_interval(days => $3))
+         RETURNING COALESCE(ark_id, id)::text AS ark`,
+        [title, SHORT, daysAgo],
+      );
+      return r.rows[0].ark;
+    }
+
+    async function routeWrote(ark: string, by: string, chars: number, minutesAgo: number): Promise<void> {
+      await pool.query(
+        `INSERT INTO description_provenance (entity_id, entity_kind, written_by, chars, written_at)
+         VALUES ($1::uuid, 'route', $2, $3, NOW() - make_interval(mins => $4))`,
+        [ark, by, chars, minutesAgo],
+      );
+    }
+
+    beforeAll(async () => {
+      ids.ownProd = await shortRoute('Свой текст Editor', 30);
+      await routeWrote(ids.ownProd, 'editor-ai', SHORT.length, 5);
+      ids.ownRunner = await shortRoute('Свой текст раннера', 30);
+      await routeWrote(ids.ownRunner, 'editor-ai-runner:some-model', SHORT.length, 5);
+      ids.noJournal = await shortRoute('Текст из миграции', 30);
+      ids.edited = await shortRoute('Текст модели, правленный человеком', 30);
+      await routeWrote(ids.edited, 'editor-ai', SHORT.length + 12, 5);
+      ids.human = await shortRoute('Текст администратора', 30);
+      await routeWrote(ids.human, 'admin:1', SHORT.length, 5);
+      ids.owner = await shortRoute('Решение владельца после модели', 30);
+      await routeWrote(ids.owner, 'editor-ai', SHORT.length, 30);
+      await routeWrote(ids.owner, 'owner-decision', SHORT.length, 5);
+      ids.fresh = await shortRoute('Свой текст, ещё не отдохнул', 1);
+      await routeWrote(ids.fresh, 'editor-ai', SHORT.length, 5);
+    });
+
+    it('сцена честная: все короткие маршруты видны в VIEW с переданной датой', async () => {
+      const { rows } = await pool.query<{ id: string; old: boolean }>(
+        `SELECT id::text, updated_at < NOW() - INTERVAL '7 days' AS old
+           FROM agent_route_knowledge WHERE id::text = ANY($1::text[])`,
+        [Object.values(ids)],
+      );
+      expect(rows).toHaveLength(Object.keys(ids).length);
+      expect(rows.find((r) => r.id === ids.fresh)?.old).toBe(false);
+      expect(rows.find((r) => r.id === ids.ownProd)?.old).toBe(true);
+    });
+
+    it('берёт только собственный отдохнувший текст модели', async () => {
+      const { findRoutesNeedingDescription } = await import('@/lib/agents/editor');
+      const queue = new Set((await findRoutesNeedingDescription()).map((r) => String(r.id)));
+      expect(queue.has(ids.ownProd)).toBe(true);
+      expect(queue.has(ids.ownRunner)).toBe(true);
+      for (const key of ['noJournal', 'edited', 'human', 'owner', 'fresh']) {
+        expect({ key, inQueue: queue.has(ids[key]) }).toEqual({ key, inQueue: false });
+      }
+    });
+  });
+
   describe('миграция 1309 — правилом карточки «написала модель»', () => {
     const TEXT = 'Озеро в кальдере, вода холодная круглый год, берег каменистый.';
     const EDITED = `${TEXT} Правлено человеком.`;

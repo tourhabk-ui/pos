@@ -10,9 +10,9 @@
  *  - текст короче порога отвергается тем же `MIN_GENERATION_LENGTH`, что у
  *    прод-пути;
  *  - текст проходит ту же проверку правды, что у прод-пути
- *    (`judgeGeneratedDescription`): числа и опасности только из источника,
- *    голос справки, без рекламных эпитетов. Раннер — другая модель, но
- *    правило записи одно;
+ *    (`judgeGeneratedDescription`): числа, опасности и содержательные слова
+ *    только из источника, голос справки, без рекламных эпитетов. Раннер —
+ *    другая модель, но правило записи одно;
  *  - запись должна БЫТЬ в очереди на описание — иначе раннер мог бы переписать
  *    любую строку базы, прислав чужой id;
  *  - происхождение пишется рядом с текстом (`description_provenance`), и в нём
@@ -97,8 +97,10 @@ export async function POST(req: NextRequest) {
       rejected.push({ id: item.id, reason: `короче порога ${MIN_GENERATION_LENGTH}` });
       continue;
     }
+    // Прежний текст — собственный текст модели или пустота (очередь Editor,
+    // 23.10): источником для проверки он не служит.
     const verdict = judgeGeneratedDescription(text, {
-      facts: buildFacts(route), title: route.title, previous: route.description,
+      facts: buildFacts(route), title: route.title, previous: null,
     });
     if (!verdict.ok) {
       rejected.push({ id: item.id, reason: `проверка правды: ${verdict.reasons.join('; ')}` });

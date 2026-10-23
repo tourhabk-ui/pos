@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { judgeGeneratedDescription, extractNumbers } from '@/lib/agents/editor-truth-gate';
+import { judgeGeneratedDescription, extractNumbers, novelContentWords } from '@/lib/agents/editor-truth-gate';
 
 const src = {
   title: 'Вулкан Авачинский',
@@ -70,6 +70,59 @@ describe('проверка правды', () => {
   });
 });
 
+// Выдумка без чисел и без слов-опасностей (23.10, владелец: «Editor много
+// выдумал»): до этого дня такие тексты проходили проверку целиком.
+describe('слова не из источника', () => {
+  const route = {
+    title: 'Перевал Тестовый',
+    facts: [
+      'род записи: маршрут',
+      'вид активности: треккинг',
+      'дистанция маршрута, км: 12',
+      'набор высоты, м: 900',
+      'сезон: лето',
+      'тип маршрута: радиальный',
+      'опасности маршрута: броды',
+      'снаряжение: треккинговые ботинки',
+    ],
+    previous: null,
+  };
+
+  it('честный пересказ фактов проходит', () => {
+    const text = 'Перевал Тестовый — радиальный маршрут для треккинга протяжённостью 12 километров '
+      + 'с набором высоты 900 метров. Сезон — лето. На маршруте отмечены броды; '
+      + 'требуются треккинговые ботинки.';
+    expect(judgeGeneratedDescription(text, route)).toEqual({ ok: true, reasons: [] });
+  });
+
+  it.each([
+    ['природа', 'Тропа идёт через березняк, с перевала открываются красивые виды на долину.'],
+    ['совет', 'Перед выходом стоит взять палки и запас воды, обувь лучше выбрать удобную.'],
+    ['оценка', 'Маршрут несложный и подойдёт семьям с детьми, интересен любителям фотографии.'],
+    ['дорога', 'Добраться до начала маршрута можно на автомобиле из города.'],
+    ['погода', 'Погода здесь переменчива, часто дует сильный ветер и выпадает туман.'],
+  ])('выдумка «%s» — отказ с названными словами', (_kind, invented) => {
+    const v = judgeGeneratedDescription(`Перевал Тестовый: маршрут 12 километров. ${invented}`, route);
+    expect(v.ok).toBe(false);
+    expect(v.reasons.join(' ')).toContain('слова не из источника');
+  });
+
+  it('одно новое слово-связка допускается, второе — уже факт', () => {
+    expect(judgeGeneratedDescription('Перевал Тестовый — пологий маршрут: 12 километров.', route).ok).toBe(true);
+    expect(judgeGeneratedDescription('Перевал Тестовый — пологий лесной маршрут: 12 километров.', route).ok)
+      .toBe(false);
+  });
+
+  it('формы слова и «ё» не считаются новыми словами', () => {
+    expect(novelContentWords('Летом на маршрутах отмечены броды, нужны треккинговые ботинки.', route.facts.join(' ')))
+      .toEqual([]);
+  });
+
+  it('короткая общая начальная часть — не основа: «камни» не из «Камчатки»', () => {
+    expect(novelContentWords('Камни на склоне.', 'Камчатка')).toEqual(['камни', 'склоне']);
+  });
+});
+
 describe('оба пути записи зовут проверку до UPDATE', () => {
   for (const file of ['lib/agents/editor.ts', 'app/api/cron/editor-result/route.ts']) {
     it(file, () => {
@@ -79,6 +132,9 @@ describe('оба пути записи зовут проверку до UPDATE',
       expect(judge).toBeGreaterThan(-1);
       expect(update).toBeGreaterThan(-1);
       expect(judge).toBeLessThan(update);
+      // Прежний текст в очереди — собственный текст модели (23.10): источником
+      // для проверки он не служит, иначе вчерашняя выдумка узаконила бы сегодняшнюю.
+      expect(code).not.toMatch(/previous:\s*route\.description/);
     });
   }
 });

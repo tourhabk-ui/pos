@@ -66,7 +66,9 @@ const ROUTE: RouteRow = {
   season: null, route_type: null, hazards: null, equipment: null, park_name: null,
 };
 
-const LONG_TEXT = 'Содержательное описание вулкана. '.repeat(15); // ~495 симв. >= 100
+// Пересказ фактов фикстуры: с 23.10 проверка правды сверяет и содержательные
+// слова, и текст, взятый не из фактов, до записи не доходит.
+const LONG_TEXT = 'Вулкан Тестовый высотой 2741 метр, рельеф — вулканический шлак, отмечен камнепад. '.repeat(4);
 
 function mockDb(opts: { routes: RouteRow[]; updateError?: Error }) {
   poolQueryMock.mockImplementation((sql: string) => {
