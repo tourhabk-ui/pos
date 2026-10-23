@@ -49,7 +49,7 @@ export function RentalOfferList({ offers, orderSlug, compact = false }: {
                   <Image src={photoSrc(o.photo.url, 320)} alt={`${o.title}: фото машины`} fill sizes="80px" className="object-cover" />
                 </div>
               )}
-              <dt className="min-w-0 flex-1 basis-40 text-sm text-[var(--text-primary)]">
+              <dt className="min-w-0 flex-1 text-sm text-[var(--text-primary)]">
                 <span className="block font-semibold">{o.title}</span>
                 <span className="block text-xs text-[var(--text-secondary)] mt-0.5">{offerFactsLine(o)}</span>
                 <span className="block text-xs text-[var(--text-muted)] mt-0.5">{driverWord(o.driver)}</span>

@@ -31,7 +31,8 @@ describe('строка прайса проката на телефоне', () =>
     const button = screen.getByRole('link', { name: 'Заказать машину: Suzuki Jimny' });
     const dd = button.closest('dd') as HTMLElement;
     expect(dd.textContent).toContain(priceOnScreen(offer()));
-    expect(classes(dd)).toEqual(expect.arrayContaining(['w-full', 'sm:w-auto']));
+    // Полоса цены — строкой: цена слева, «Заказать» у правого края, не под ценой.
+    expect(classes(dd)).toEqual(expect.arrayContaining(['flex', 'justify-between', 'w-full', 'sm:w-auto']));
     expect(classes(button)).toContain('shrink-0');
 
     const row = dd.parentElement as HTMLElement;
@@ -39,6 +40,9 @@ describe('строка прайса проката на телефоне', () =>
     const dt = row.querySelector('dt') as HTMLElement;
     expect(dt.textContent).toContain('Suzuki Jimny');
     expect(classes(dt)).toEqual(expect.arrayContaining(['min-w-0', 'flex-1']));
+    // Без собственной ширины-основы: при 320 px название остаётся рядом со
+    // снимком (basis-40 = 160 px выталкивало его под снимок, ревью 23.10).
+    expect(classes(dt).some((c) => /^basis-/.test(c))).toBe(false);
     // Снимок не растягивается и не сжимается: ширина фиксирована.
     const photo = row.querySelector('[title="Фото: Лагуна Прокат"]') as HTMLElement;
     expect(classes(photo)).toEqual(expect.arrayContaining(['w-20', 'shrink-0']));
