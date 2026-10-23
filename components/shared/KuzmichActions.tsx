@@ -8,9 +8,17 @@ import { TelegramIcon, MaxIcon, VedarChatIcon } from '@/components/shared/Messen
  * Не выдумывать новые инвайты: другого MAX-URL у бота в проекте нет
  * (id4101147649_biz в футере — канал, не бот). KuzmichContacts реэкспортирует
  * эти константы, чтобы прежние импорты не расходились.
+ *
+ * Обе ссылки — со стартом (`?start=lead`). У MAX это не украшение (вопрос
+ * владельца 23.10: «почему при переходе по кнопке max в чате макс нет
+ * команды /start»): событие bot_started MAX присылает боту, когда человек
+ * переходит по ссылке со стартом (dev.max.ru, «диплинк бота»). Без него
+ * человек, уже писавший боту, открывал пустой чат: ни приветствия, ни меню
+ * тем. С ним вебхук (app/api/max/kuzmich) отвечает как на /start. Метка
+ * `lead` разборщики ссылок подключения не трогают (lib/max/verified-press).
  */
 export const KUZMICH_TELEGRAM_URL = 'https://t.me/kuzmichai_bot?start=lead';
-export const KUZMICH_MAX_URL = 'https://max.ru/id4101147649_bot';
+export const KUZMICH_MAX_URL = 'https://max.ru/id4101147649_bot?start=lead';
 
 /**
  * Единая система действий Кузьмича: один ряд из трёх стеклянных

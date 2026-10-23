@@ -519,7 +519,7 @@ export function buildOpenApiDocument(base: string): Json {
       properties: { kind: { const: 'data' }, data: ref('ToolCallData') },
     },
     ToolCallData: {
-      description: 'Один из публичных инструментов с его аргументами. Записывающие (create_lead, create_booking_request, create_stay_request, request_charter) — заявки, которые подтверждает человек; им нужен consent: true.',
+      description: 'Один из публичных инструментов с его аргументами. Записывающие (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request) — заявки, которые подтверждает человек; им нужен consent: true.',
       oneOf: toolNames.map((n) => ref(`ToolCall_${n}`)),
     },
     ...toolCalls,
@@ -971,7 +971,7 @@ export function buildOpenApiDocument(base: string): Json {
       description:
         'Публичный API платформы Ведар (Камчатка) для агентов, которым недоступны MCP и A2A-клиенты. '
         + 'Всё без авторизации. Запись — только заявки через инструменты create_lead, create_booking_request, '
-        + 'create_stay_request, request_charter (A2A DataPart или MCP tools/call), их подтверждает человек; '
+        + 'create_stay_request, request_charter, create_car_rental_request (A2A DataPart или MCP tools/call), их подтверждает человек; '
         + 'мгновенной брони и оплаты нет. Данные на русском. Экстренный вызов на Камчатке — 112. '
         + 'Public Vedar API for Kamchatka travel agents without MCP or A2A clients: read endpoints, A2A REST binding, MCP endpoint. '
         + 'Requests are human-confirmed; no instant booking or payment.'

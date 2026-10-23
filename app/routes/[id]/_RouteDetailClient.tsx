@@ -56,6 +56,7 @@ import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } f
 import { locationTypeLabel } from '@/lib/places/location-types';
 import BottomNav from '@/components/shared/BottomNav';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
+import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -1689,7 +1690,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
                     <MessageSquare className="w-3.5 h-3.5" /> Telegram
                   </a>
                   <a
-                    href="https://max.ru/id4101147649_bot"
+                    href={KUZMICH_MAX_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"

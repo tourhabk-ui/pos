@@ -101,6 +101,7 @@ interface ActiveTrip {
 
 export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weather: HomeWeather }) {
   const { safety, seismic, radar, plates, explore, feed, stats } = data;
+  const rentalDoor = data.rentalDoor !== false;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
   // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
@@ -502,11 +503,15 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») —
               дверь в /car-rental: машина без водителя, цена за сутки за машину
               (схема 1317). Четыре двери одним рядом по четверти ширины: пятая
-              плитка новым рядом съела бы первый экран (владелец 25.09). */}
-          <Link href="/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя, цена за сутки за машину">
-            <span className="qt-ic"><Car size={19} strokeWidth={1.8} aria-hidden /></span>
-            <span className="qt-tx"><b>Прокат</b><span>без водителя</span></span>
-          </Link>
+              плитка новым рядом съела бы первый экран (владелец 25.09). Пока
+              прокат на сайте на паузе (lib/rental/site-pause), двери нет, а
+              три оставшиеся встают по трети ряда (правило :has в стилях). */}
+          {rentalDoor && (
+            <Link href="/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя, цена за сутки за машину">
+              <span className="qt-ic"><Car size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Прокат</b><span>без водителя</span></span>
+            </Link>
+          )}
         </nav>
 
         {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09): тур с
@@ -785,27 +790,9 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           </section>
         )}
 
-        {/* III. КУЗЬМИЧ */}
-        <section>
-          <div className="shead"><h2>Проводник Кузьмич</h2><span className="line" /></div>
-          <div className="guide">
-            <div className="gtop">
-              <img
-                className="face"
-                src="/images/kuzmich/portrait-192.webp"
-                srcSet="/images/kuzmich/portrait-96.webp 96w, /images/kuzmich/portrait-192.webp 192w, /images/kuzmich/portrait-384.webp 384w"
-                sizes="72px"
-                width={72}
-                height={72}
-                alt="Кузьмич"
-                loading="lazy"
-                decoding="async"
-              />
-              <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам оператору.</q>
-            </div>
-            <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
-          </div>
-        </section>
+        {/* Блока «Проводник Кузьмич» больше нет (владелец 23.10: «да убери,
+            есть в нижней панели мишка»): Кузьмич встречает медальоном
+            таб-бара, а его чаты — в герое под «Поделиться». */}
 
         {/* V. ЦИФРЫ */}
         <section>
@@ -820,9 +807,9 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
         </section>
 
         {/* Сбор поездки — действие Кузьмича, а не отдельная секция-двойник.
-            Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
-            блок проводника выше, и добавлял главной ещё один вход в то же
-            самое. Форма и её POST /api/leads остались нетронутыми, ссылка
+            Заголовок «Собрать поездку» снят: он повторял то, что обещал
+            блок проводника (снят 23.10), и добавлял главной ещё один вход в
+            то же самое. Форма и её POST /api/leads остались нетронутыми, ссылка
             Чаты Кузьмича — в герое, под «Поделиться». */}
         <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
@@ -1206,6 +1193,8 @@ const CSS = `
 .v7 .qtools > .qt{grid-column:span 6}
 .v7 .qtools > .qt-tours,.v7 .qtools > .qt-transfer,.v7 .qtools > .qt-stay,.v7 .qtools > .qt-rental{grid-column:span 3;flex-direction:column;justify-content:center;text-align:center;gap:5px;padding:9px 6px}
 .v7 .qt-tours .qt-tx,.v7 .qt-transfer .qt-tx,.v7 .qt-stay .qt-tx,.v7 .qt-rental .qt-tx{align-items:center;max-width:100%}
+/* Прокат на паузе (lib/rental/site-pause): двери «Прокат» нет — три оставшиеся по трети ряда, без дыры на месте четвёртой. Браузер без :has оставит четверти — дыра, но не поломка. */
+.v7 .qtools:not(:has(> .qt-rental)) > .qt-tours,.v7 .qtools:not(:has(> .qt-rental)) > .qt-transfer,.v7 .qtools:not(:has(> .qt-rental)) > .qt-stay{grid-column:span 4}
 .v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .qt:hover{background:var(--bg-hover)}
 .v7 .qt:active{transform:scale(.98)}
@@ -1391,31 +1380,6 @@ const CSS = `
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
 .v7 .arrivals .k{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);flex:none}
 .v7 .arrivals .t{font:500 11.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-/* проводник */
-.v7 .guide{border-left:2px solid var(--success);padding:2px 0 2px 18px}
-.v7 .guide .gtop{display:flex;align-items:flex-start;gap:16px}
-/* Медальон-гравюра: у Кузьмича не было лица — секция была цитатой без говорящего.
-   Кремовый круг вшит в сам PNG, поэтому подложка не нужна ни в одной теме. */
-.v7 .guide .face{width:72px;height:72px;flex:none;border-radius:50%;object-fit:cover}
-.v7 .guide q{display:block;font:500 15px/1.5 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;quotes:"«" "»"}
-.v7 .guide .sig{margin-top:10px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
-.v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
-.v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
-.v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
-.v7 .guide .acts{margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
-/* Одна система вместо трёх разных стилей: главная кнопка сайта на всю
-   ширину, под ней — две равные кнопки мессенджеров с официальными знаками.
-   Цели не ниже 48px. */
-.v7 .guide .acts a{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none}
-.v7 .guide .acts a.ask-site{min-height:52px;padding:0 20px;border-radius:14px;background:var(--accent);color:var(--on-accent);font:700 15px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.01em;box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 32%,transparent);transition:background .15s,transform .15s}
-.v7 .guide .acts a.ask-site:active{transform:scale(.99)}
-.v7 .guide .messengers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.v7 .guide .acts a.msg{min-height:48px;padding:0 12px;gap:8px;border:1px solid var(--border-strong);border-radius:14px;background:var(--bg-card);color:var(--text-primary);font:600 14px/1 var(--font-outfit),system-ui,sans-serif;transition:border-color .15s,background .15s}
-.v7 .guide .acts a.msg svg{flex:none;display:block}
-@media (hover:hover){
-  .v7 .guide .acts a.ask-site:hover{background:var(--accent-hover)}
-  .v7 .guide .acts a.msg:hover{background:var(--bg-hover)}
-}
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
 .v7 .dataline::-webkit-scrollbar{display:none}
@@ -1524,7 +1488,6 @@ const CSS = `
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .qtools,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
-  .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
   .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}
   .v7 .lead .lfield{flex:1;min-width:200px}

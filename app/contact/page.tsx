@@ -3,6 +3,7 @@ import { Header } from '@/components/layout/Header';
 import ContactClient from './_ContactClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
+import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 
 export const metadata: Metadata = {
   // На странице и форма заявки, и реквизиты с почтой (аудит vedarai.ru 01.10).
@@ -83,7 +84,7 @@ export default function ContactPage() {
                 <dt className="text-[var(--text-muted)]">Кузьмич, помощник Ведара</dt>
                 <dd className="flex flex-wrap gap-x-4 gap-y-1">
                   <a href="https://t.me/kuzmichai_bot" className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">Telegram</a>
-                  <a href="https://max.ru/id4101147649_bot" className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">MAX</a>
+                  <a href={KUZMICH_MAX_URL} className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">MAX</a>
                 </dd>
               </div>
               <div>

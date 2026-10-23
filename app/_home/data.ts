@@ -42,6 +42,7 @@ import { alertOrigin } from '@/lib/safety/alert-origin';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
 import { varietyByType } from '@/lib/home/explore-variety';
+import { rentalSitePauseActive } from '@/lib/rental/site-pause';
 
 export interface SafetyAlert {
   title: string;
@@ -229,6 +230,12 @@ export interface HomeV8Data {
   transfer: TransferPlate | null;
   /** Жильё в ленте туров (10.10); null — нет объекта с ценой и фото или база не ответила. */
   stay: StayPlate | null;
+  /**
+   * Дверь «Прокат» в ряду инструментов. false — прокат на сайте на паузе
+   * (lib/rental/site-pause, слово владельца 23.10): плитка вела бы на
+   * пустую витрину. Нет поля — дверь есть.
+   */
+  rentalDoor?: boolean;
   /** Места для «Исследовать»; пусто — блока нет (причина отказа в логе). */
   explore: ExplorePlace[];
   feed: FeedItem[];
@@ -908,5 +915,5 @@ export async function getHomeV8Data(): Promise<HomeV8Data> {
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, transfer, stay, explore, feed: feedItems, stats, elements };
+  return { ...live, zones, plates, transfer, stay, rentalDoor: !rentalSitePauseActive(), explore, feed: feedItems, stats, elements };
 }

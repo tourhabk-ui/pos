@@ -59,6 +59,7 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
       'create_booking_request',
       'create_stay_request',
       'request_charter',
+      'create_car_rental_request',
       'get_request_status',
     ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);

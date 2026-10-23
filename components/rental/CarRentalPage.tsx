@@ -63,6 +63,9 @@ export function CarRentalPage({ rental }: { rental: RentalState }) {
                 {rental.companies.map((c) => <RentalCompanyCard key={c.partnerId} company={c} />)}
               </div>
             </>
+          ) : rental.pausedReturnsOn ? (
+            // Прокатчик есть, его прячет пауза (слово владельца 23.10), — не «прокатчиков нет».
+            <p className="text-sm text-[var(--text-secondary)]">Прокат вернётся на витрину {rental.pausedReturnsOn}.</p>
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">Прокатчиков с прайсом пока нет.</p>
           )}

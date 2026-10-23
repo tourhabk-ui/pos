@@ -6,6 +6,7 @@ import { loadRentalPage } from '@/lib/rental/rental-page';
 import { loadRentalCompanyBySlug } from '@/lib/rental/rental';
 import { minRentalPrice, rentalPagePath } from '@/lib/rental/rental-format';
 import { rentalJsonLd } from '@/lib/rental/rental-view';
+import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 import { formatRub } from '@/lib/transfers/charter-format';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { brandedTitle, fitTitleRequired, RENTAL_TITLE_TAILS } from '@/lib/seo/title-fit';
@@ -18,6 +19,10 @@ import { brandedTitle, fitTitleRequired, RENTAL_TITLE_TAILS } from '@/lib/seo/ti
  * Прайс читается из базы на каждый запрос (цены меняются, а в Docker-сборке
  * базы нет). Прокатчика нет — 404; отказ базы — ошибка страницы, а не
  * «прокатчика нет» (§4.0).
+ *
+ * Прокатчик под паузой (lib/rental/site-pause, слово владельца 23.10)
+ * открывается по прямой ссылке — на неё ведут ответы MCP и A2A, и заявка
+ * оставляется только здесь, — но не индексируется и в sitemap не стоит.
  */
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +49,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
     title: brandedTitle(title),
     description,
     alternates: { canonical: url },
+    ...(rentalHiddenOnSite(company.slug) ? { robots: { index: false, follow: false } } : {}),
     openGraph: {
       title,
       description,

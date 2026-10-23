@@ -33,7 +33,7 @@ export const MCP_TITLE_ZH = 'Vedar（维达尔）— 堪察加旅游平台';
 export const MCP_DESCRIPTION_ZH =
   'Vedar（vedarai.ru，俄文名 Ведар）是俄罗斯堪察加半岛的旅游平台，向 AI 代理开放 MCP 服务器与 A2A 接口：'
   + '本地旅行社的团队游及其真实余位、地点与路线的安全信息和当前状况（火山、地震、天气预警）、住宿、装备租赁、接送、天气、行程规划。'
-  + '写操作只有四种申请（选团 create_lead、指定团和日期的预订申请 create_booking_request、住宿申请 create_stay_request、包车申请 request_charter），'
+  + '写操作只有五种申请（选团 create_lead、指定团和日期的预订申请 create_booking_request、住宿申请 create_stay_request、包车申请 request_charter、租车申请 create_car_rental_request），'
   + '均由人工确认，无在线支付，无需认证，按 IP 限流。平台数据为俄文，工具参数以俄文或英文为佳。堪察加紧急电话：112。';
 
 /** Хвост описания агента A2A — та же суть, короче. */
@@ -280,7 +280,7 @@ export function llmsSectionZh(base: string): string {
     `- Vedar（${base}，俄文名 Ведар）是堪察加半岛的旅游平台：地点与路线目录、安全信息（火山活动、地震、天气预警）、本地旅行社的团队游及真实余位、住宿、接送、行程规划。`,
     '- 平台内容为俄文；引用时请链接本文件中的页面地址。堪察加：俄罗斯远东半岛，联合国教科文组织世界遗产“堪察加火山群”，300 多座火山（29 座活火山），旅游季 6–9 月，时区 UTC+12。',
     `- AI 代理接口：MCP 服务器 ${base}/api/mcp（JSON-RPC 2.0，Streamable HTTP，无需认证），清单 ${base}/.well-known/mcp.json；A2A 代理卡片 ${base}/.well-known/agent-card.json，JSON-RPC ${base}/api/a2a。`,
-    '- 写操作仅限四种申请（create_lead、create_booking_request、create_stay_request、request_charter），均由人工确认；无在线支付。',
+    '- 写操作仅限五种申请（create_lead、create_booking_request、create_stay_request、request_charter、create_car_rental_request），均由人工确认；无在线支付。',
     ...llmsClientLines(base),
     '- 紧急情况：堪察加紧急电话 112。',
   ].join('\n');
@@ -305,7 +305,7 @@ export const ZH_PAGE = {
     '地点与路线的安全信息和当前状况：火山活动、地震、天气预警',
     '住宿、装备租赁、包车交通、天气预报、行程规划',
   ],
-  booking: '预订只有四种申请：选团（create_lead）、指定团和日期的预订申请（create_booking_request）、住宿申请（create_stay_request）、包车申请（request_charter）。均由人工确认；无在线支付，款项直接付给旅行社。',
+  booking: '预订只有五种申请：选团（create_lead）、指定团和日期的预订申请（create_booking_request）、住宿申请（create_stay_request）、包车申请（request_charter）、租车申请（create_car_rental_request）。均由人工确认；无在线支付，款项直接付给旅行社。',
   agents: 'AI 代理可通过 MCP 服务器（JSON-RPC 2.0，Streamable HTTP，无需认证）、A2A 代理卡或 OpenAPI 3.1 描述接入；工具参数以俄文或英文为佳。',
   emergency: '堪察加紧急电话：112。',
   /** Каталог не прочитан — говорится вслух, а не пустым списком (§4.0). */
@@ -320,7 +320,7 @@ export const ZH_PAGE = {
  */
 export const OPENAPI_DESCRIPTION_ZH =
   '中文：Vedar（维达尔，vedarai.ru）是俄罗斯堪察加半岛旅游平台的公开 API，面向无法使用 MCP 或 A2A 客户端的代理。无需认证；'
-  + '写操作仅限四种申请（create_lead、create_booking_request、create_stay_request、request_charter），均由人工确认，无即时预订与支付。'
+  + '写操作仅限五种申请（create_lead、create_booking_request、create_stay_request、request_charter、create_car_rental_request），均由人工确认，无即时预订与支付。'
   + '数据为俄文。堪察加紧急电话 112。';
 
 /**
@@ -360,7 +360,7 @@ export function llmsZhFile(base: string): string {
     `- ${ZH_PAGE.booking}`,
     '- 住宿：search_accommodations 查询，create_stay_request 提交住宿申请。',
     '- 接送与包车：search_transfers 查询，request_charter 提交包车申请。',
-    '- 租车（无司机，按天计价）：search_car_rental 查询；租车申请在租车公司页面提交，由人工确认。',
+    '- 租车（无司机，按天计价）：search_car_rental 查询；create_car_rental_request 提交租车申请（或在租车公司页面提交），由人工确认。',
     '',
     llmsSectionZh(base),
     '',

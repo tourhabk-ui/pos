@@ -100,9 +100,13 @@ export interface RentalCompanyProfile extends RentalCompany {
 /**
  * Что экран знает о прокатчиках: три исхода, не два. Пустой список при `ok` —
  * «искали, никого нет»; `failed` — «не смогли проверить», и экран обязан
- * сказать это вслух, а не промолчать.
+ * сказать это вслух, а не промолчать. `pausedReturnsOn` — часть прокатчиков
+ * спрятана паузой (lib/rental/site-pause): пустая витрина тогда говорит, когда
+ * прокат вернётся, а не «прокатчиков нет».
  */
-export type RentalState = { state: 'ok'; companies: RentalCompany[] } | { state: 'failed' };
+export type RentalState =
+  | { state: 'ok'; companies: RentalCompany[]; pausedReturnsOn?: string }
+  | { state: 'failed' };
 
 /** Адрес страницы прокатчика — один на все ссылки: витрина, планер, сайтмап, переадресация. */
 export function rentalPagePath(slug: string): string {

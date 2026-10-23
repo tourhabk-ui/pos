@@ -157,6 +157,18 @@ export const CAR_RENTAL_ANSWER = {
   hint: 'Доехать можно трансфером перевозчика или выбрать тур, где транспорт уже включён.',
 };
 
+/**
+ * Прокатчики есть, но сайт их сейчас не показывает — пауза владельца 23.10
+ * (lib/rental/site-pause). Не «проката нет»: называется, когда вернётся.
+ */
+export function carRentalPausedAnswer(returnsOn: string) {
+  return {
+    state: 'not_offered' as const,
+    message: `Прокат автомобилей вернётся на сайт ${returnsOn}`,
+    hint: CAR_RENTAL_ANSWER.hint,
+  };
+}
+
 export const CAR_RENTAL_UNAVAILABLE = {
   state: 'unavailable' as const,
   message: 'Не смогли проверить прокат автомобилей',

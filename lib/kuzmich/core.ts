@@ -2110,7 +2110,15 @@ export function toolOutputHasData(content: string): boolean {
  * не тратятся платные внешние квоты (шапка app/api/mcp/route.ts), и ответ
  * читает чужой ИИ, а не Кузьмич, который знает, откуда текст.
  */
-export interface ToolSurface { surface?: 'chat' | 'mcp' }
+export interface ToolSurface {
+  surface?: 'chat' | 'mcp';
+  /**
+   * Свободный вопрос внешнего агента по A2A (lib/a2a/chat). Поверхность та же,
+   * что у чата, но то, что спрятано от людей на сайте (пауза проката,
+   * lib/rental/site-pause), агенту отдаётся, как MCP.
+   */
+  agent?: boolean;
+}
 
 async function executeTool(name: string, args: Record<string, string>, opts: ToolSurface = {}): Promise<string> {
   try {
@@ -2219,7 +2227,10 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // прайс прокатчиков тем же загрузчиком, что у /car-rental. Отказ базы
       // возвращается словами «не смог проверить», а не «проката нет».
       const { searchCarRentalForKuzmich } = await import('@/lib/kuzmich/car-rental-search');
-      return await searchCarRentalForKuzmich({ query: args.query, type: args.type as import('@/lib/rental/rental-format').RentalBodyKind | undefined, date_from: args.date_from, date_to: args.date_to }, { surface: opts.surface });
+      return await searchCarRentalForKuzmich(
+        { query: args.query, type: args.type as import('@/lib/rental/rental-format').RentalBodyKind | undefined, date_from: args.date_from, date_to: args.date_to },
+        { surface: opts.surface, agent: opts.agent },
+      );
     }
     if (name === 'search_gear') {
       const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');
@@ -2307,6 +2318,9 @@ export async function aiChatAgentLoop(
   // Наружная отметка времени и ходов (аудит 15.10, A19): вызывающий пишет её
   // в замер ответа (lib/kuzmich/answer-timing). Опциональна, как и всё выше.
   timing?: AgentLoopTiming,
+  // Кто спрашивает, для инструментов: агент по A2A получает то, что спрятано
+  // от людей на сайте (пауза проката). Нет — чат человека.
+  toolSurface: ToolSurface = {},
 ): Promise<string | null> {
   // Потолок ожидания (аудит 15.10, A19): после KUZMICH_ANSWER_CEILING_MS цикл
   // не начинает новый ход модели или инструмента, а отдаёт собранное с
@@ -2372,9 +2386,9 @@ export async function aiChatAgentLoop(
     }
     if (d.kind === 'rebind') {
       console.warn(`[kuzmich-place-guard] ${name}: «${d.from}» заменён на названный в разговоре «${d.to}»`);
-      return executeTool(name, d.args);
+      return executeTool(name, d.args, toolSurface);
     }
-    return executeTool(name, args);
+    return executeTool(name, args, toolSurface);
   };
 
   for (let turn = 0; turn < 4; turn++) {

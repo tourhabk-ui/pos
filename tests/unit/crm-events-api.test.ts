@@ -135,7 +135,6 @@ describe('словарь ленты — один в коде и в схеме', 
    */
   const KNOWN_UNPRODUCED_ACTORS: Readonly<Record<string, string>> = {
     kuzmich: 'шаг 1д: Кузьмич партнёра пишет касания через addContactTouch',
-    mcp: 'шаг 1д: MCP партнёра пишет касания через addContactTouch',
   };
 
   it('CHECK актёра совпадает с ACTOR_KINDS', () => {

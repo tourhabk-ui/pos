@@ -94,6 +94,7 @@ export function consentBy(source: string | null | undefined, at: Date | string |
 /** Пишущие инструменты, чьи данные уходят не туроператору (lib/mcp/public-tools). */
 const STAY_TOOL_NAME = 'create_stay_request';
 const CHARTER_TOOL_NAME = 'request_charter';
+const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
 
 /**
  * На передачу кому согласие по заявке этого инструмента. Данные заявки на
@@ -103,6 +104,7 @@ const CHARTER_TOOL_NAME = 'request_charter';
 export function consentPurposeForTool(toolName: string): ConsentPurpose {
   if (toolName === STAY_TOOL_NAME) return 'stay';
   if (toolName === CHARTER_TOOL_NAME) return 'carrier';
+  if (toolName === CAR_RENTAL_TOOL_NAME) return 'rental';
   return 'operator';
 }
 

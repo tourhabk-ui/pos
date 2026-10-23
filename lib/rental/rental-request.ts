@@ -93,12 +93,12 @@ export function rentalRequestLines(f: RentalRequestFacts): string[] {
 }
 
 /** Чьей дверью пришла заявка. Пока дверь одна — форма на странице прокатчика. */
-export type RentalDoor = 'form';
+export type RentalDoor = 'form' | 'mcp';
 
 /** Структурные поля в source_data лида — чтобы заявку можно было разобрать, не парся комментарий. */
 export function rentalSourceData(f: RentalRequestFacts, door: RentalDoor = 'form'): Record<string, unknown> {
   return {
-    source: door === 'form' ? 'car_rental_page' : door,
+    source: door === 'form' ? 'car_rental_page' : 'mcp',
     kind: 'car_rental',
     company_id: f.company.partnerId,
     company_slug: f.company.slug,
