@@ -46,8 +46,9 @@ describe('строка прайса проката на телефоне', () =>
 
   it('строка без снимка и без кнопки устроена так же: полоса цены во всю ширину', () => {
     const bare = offer({ photo: null, depositRub: null, priceIsFrom: true });
-    render(<RentalOfferList offers={[bare]} />);
-    const dd = screen.getByText(priceOnScreen(bare)).closest('dd') as HTMLElement;
+    const { container } = render(<RentalOfferList offers={[bare]} />);
+    const dd = container.querySelector('dd') as HTMLElement;
+    expect(dd.textContent).toBe(priceOnScreen(bare));
     expect(classes(dd)).toEqual(expect.arrayContaining(['w-full', 'sm:w-auto']));
     expect(dd.querySelector('a')).toBeNull();
   });
