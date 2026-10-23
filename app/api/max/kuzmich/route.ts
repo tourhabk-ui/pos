@@ -46,6 +46,7 @@ import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
+import { findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 import {
@@ -587,6 +588,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       }
 
       const chatId = update.chat_id;
+      // Администратор подключает свой MAX одноразовой ссылкой из админки
+      // (lib/max/admin-link, слово владельца 23.10). Привязывается человек —
+      // user_id апдейта, без отката на id чата.
+      const starterId = typeof update.user?.user_id === 'number' ? update.user.user_id : null;
+      if (await handleAdminStart(startArg, starterId, chatId, (text) => maxReply(chatId, text))) return;
       if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
       // Менеджер команды оператора — свой чат к уведомлениям кабинета (2г-4).
       if (await handleMemberStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
@@ -598,6 +604,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (startAction !== null) {
         console.error(`[max/kuzmich] ссылка старта (${startAction}) из незаверенного апдейта — не применена`);
         await maxReply(update.chat_id, UNVERIFIED_START_REPLY[startAction]);
+        return;
+      }
+    }
+
+    // Администратор на «Старт» — своё приветствие и список того, что можно
+    // спросить, а не туристское меню. Только по заверенному апдейту: человек
+    // из тела незаверенного запроса — то, что прислал кто угодно.
+    if (opts?.verifiedOrigin === true && typeof update.user?.user_id === 'number') {
+      const admin = await findMaxAdmin(update.user.user_id);
+      if (admin.outcome === 'admin') {
+        const { adminGreeting } = await import('@/lib/max/admin-chat');
+        await maxReply(update.chat_id, adminGreeting(admin.name));
         return;
       }
     }
@@ -637,6 +655,31 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     const attachments = msg.body.attachments ?? [];
     const userName = msg.sender?.name ?? null;
     const userId = msg.sender?.user_id ?? null;
+
+    // ── АДМИНИСТРАТОР (слово владельца 23.10) ─────────────────────────────
+    // Раньше всех веток: вложения ниже создали бы лид из номера
+    // администратора и отправили бы голос в зарубежную модель, а помощник
+    // партнёра забрал бы чат, если он ещё и привязан к карточке. Права —
+    // заново на каждом сообщении (lib/max/admin-link): заверенный апдейт,
+    // личный диалог, человек MAX привязан и его аккаунт сейчас владеет ролью
+    // администратора. Группы и незаверенные апдейты базу здесь не трогают.
+    if (opts?.verifiedOrigin === true && msg.recipient.chat_type === 'dialog' && typeof userId === 'number') {
+      const admin = await findMaxAdmin(userId);
+      if (admin.outcome === 'admin') {
+        const { ADMIN_CHAT_TEXT, handleAdminMessage } = await import('@/lib/max/admin-chat');
+        if (!text) {
+          await maxReply(chatId, ADMIN_CHAT_TEXT.textOnly);
+          return;
+        }
+        await handleAdminMessage({ text, name: admin.name, chatId, reply: maxReply });
+        return;
+      }
+      // «Не смог проверить» (база не ответила; причина — в логе самой
+      // проверки) идёт дальше обычным путём: кто пишет, неизвестно, и ответ
+      // «права администратора не проверены» туристу был бы чужим. Обычный
+      // путь ПД туристов не показывает, так что администратору он ничего
+      // лишнего не откроет — только не узнает его на одно сообщение.
+    }
 
     // Фото → Gemini Vision
     const photoAtt = attachments.find(a => a.type === 'image');

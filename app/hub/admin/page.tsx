@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import DaySummaryStrip from './_DaySummary';
+import AdminMaxLink from './_AdminMaxLink';
 
 /* ═══════════════════════════════════════════
    Types
@@ -318,6 +319,9 @@ export default function AdminDashboard() {
 
       {/* ─── За сутки: люди, MCP, A2A, Кузьмич (слово владельца 22.10) ─── */}
       <DaySummaryStrip />
+
+      {/* ─── MAX администратора (слово владельца 23.10) ─── */}
+      <AdminMaxLink />
 
       {/* ─── Pending banners ─── */}
       {((data.pendingTours ?? 0) > 0 || (data.pendingPartners ?? 0) > 0) && (
