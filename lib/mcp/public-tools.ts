@@ -233,7 +233,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
   search_accommodations: { title: 'Stays',                 lead: 'Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
   search_transfers:      { title: 'Transfers',             lead: 'Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter.' },
-  search_car_rental:     { title: 'Car rental',            lead: 'Use when the user asks to rent a car in Kamchatka: self-drive cars from platform rental companies, price per day per vehicle, deposit and terms from the price list. With a driver: search_transfers.' },
+  search_car_rental:     { title: 'Car rental',            lead: 'Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
@@ -305,6 +305,9 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   search_car_rental: {
     query: { lead: 'A word about the car: body type (SUV, minibus, off-road truck), model, or "with driver"; empty — the whole price list.', example: 'внедорожник' },
+    type: { lead: 'Body type if known: car, suv (SUV/4x4), minibus, offroad_truck, vahtovka.', example: 'suv' },
+    date_from: { lead: 'Rental start, YYYY-MM-DD: used to count days and the price-list total; the provider confirms availability.', example: '2026-11-10' },
+    date_to: { lead: 'Rental end, YYYY-MM-DD.', example: '2026-11-14' },
   },
   search_gear: {
     query: { lead: 'What to rent: tent, sleeping bag, trekking poles, a brand.', example: 'палатка' },

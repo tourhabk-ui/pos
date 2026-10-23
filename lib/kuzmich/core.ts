@@ -2219,7 +2219,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // прайс прокатчиков тем же загрузчиком, что у /car-rental. Отказ базы
       // возвращается словами «не смог проверить», а не «проката нет».
       const { searchCarRentalForKuzmich } = await import('@/lib/kuzmich/car-rental-search');
-      return await searchCarRentalForKuzmich({ query: args.query }, { surface: opts.surface });
+      return await searchCarRentalForKuzmich({ query: args.query, type: args.type as import('@/lib/rental/rental-format').RentalBodyKind | undefined, date_from: args.date_from, date_to: args.date_to }, { surface: opts.surface });
     }
     if (name === 'search_gear') {
       const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');

@@ -211,15 +211,43 @@
     "type": "function",
     "function": {
       "name": "search_car_rental",
-      "description": "Use when the user asks to rent a car in Kamchatka: self-drive cars from platform rental companies, price per day per vehicle, deposit and terms from the price list. With a driver: search_transfers. Прокат автомобилей на Камчатке — машина БЕЗ водителя у прокатчиков платформы: внедорожники, микроавтобусы, вездеходы; цена за сутки за машину по прайсу, залог, условия прокатчика; у части машин водитель возможен по желанию за отдельную плату. Используй, когда турист хочет взять машину напрокат, спрашивает про аренду авто, джипа, внедорожника, цену за сутки, залог. Машину за туриста не бронирует: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком. Машин, цен и условий, которых нет в ответе, не выдумывай. Машина с водителем целиком — это трансфер, search_transfers.",
+      "description": "Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers. Прокат автомобилей на Камчатке — машина БЕЗ водителя у прокатчиков платформы: внедорожники, микроавтобусы, вездеходы; цена за сутки за машину по прайсу, залог, условия прокатчика; у части машин водитель возможен по желанию за отдельную плату. Используй ВСЕГДА, когда турист хочет арендовать или взять напрокат машину, авто, автомобиль, джип, внедорожник, 4x4, микроавтобус, вездеход, «rent a car», «car rental», «car hire», «SUV», спрашивает цену за сутки или залог — сначала этот поиск, не сторонние прокаты и не догадки. Машину за туриста не бронирует: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком. Машин, цен и условий, которых нет в ответе, не выдумывай. Машина с водителем целиком — это трансфер, search_transfers.",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
-            "description": "A word about the car: body type (SUV, minibus, off-road truck), model, or \"with driver\"; empty — the whole price list. Слово о машине из вопроса — вид (внедорожник, микроавтобус, вездеход), модель или «с водителем»; без него — весь прайс",
+            "description": "A word about the car: body type (SUV, minibus, off-road truck), model, or \"with driver\"; empty — the whole price list. Слово о машине из вопроса — вид (внедорожник, микроавтобус, вездеход), модель или «с водителем»; без него — весь прайс. Слова «аренда», «прокат», «rent a car» можно не убирать",
             "examples": [
               "внедорожник"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "car",
+              "suv",
+              "minibus",
+              "offroad_truck",
+              "vahtovka"
+            ],
+            "description": "Body type if known: car, suv (SUV/4x4), minibus, offroad_truck, vahtovka. Вид кузова, если известен: car — легковая, suv — внедорожник/4x4, minibus — микроавтобус, offroad_truck — вездеход, vahtovka — вахтовка",
+            "examples": [
+              "suv"
+            ]
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Rental start, YYYY-MM-DD: used to count days and the price-list total; the provider confirms availability. Начало проката, YYYY-MM-DD — для расчёта суток и суммы по прайсу",
+            "examples": [
+              "2026-11-10"
+            ]
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Rental end, YYYY-MM-DD. Конец проката, YYYY-MM-DD",
+            "examples": [
+              "2026-11-14"
             ]
           }
         },
