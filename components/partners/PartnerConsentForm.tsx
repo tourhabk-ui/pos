@@ -4,12 +4,15 @@
  * Форма согласия партнёра на использование материалов его сайта (миграция
  * 1321, решение владельца 23.10). Доказательство — ключ одноразовой ссылки в
  * адресе (#…): сначала спрашиваем, чья это ссылка и годится ли она, потом
- * объём, текст согласия, подпись и две галочки.
+ * текст согласия, подпись и две галочки.
  *
- * Текст согласия собирается из выбранного объёма той же функцией, что знает
- * версию (lib/legal/partner-materials-consent): партнёр видит ровно то, под чем
- * подписывается. Отправка неактивна, пока не хватает чего-то, и под кнопкой
- * сказано чего (тот же урок, что форма заявки на машину, 14.10).
+ * Выбора «где показывать» и «какие материалы» нет (ревью 23.10): исполнить его
+ * нечем, и галочка обещала бы то, чего платформа не делает. Текст один и
+ * говорит, как Ведар использует материалы на самом деле. Его собирает та же
+ * функция, что сервер (`consentDocument`), и страница отправляет его на
+ * сверку: разошёлся с серверным — подписи нет, партнёр видит, что обновить.
+ * Отправка неактивна и выглядит неактивной, пока чего-то не хватает, и
+ * причина связана с кнопкой (тот же урок, что форма заявки на машину, 14.10).
  *
  * В запрос уходит СОСТОЯНИЕ галочек, а не литерал true (pd-consent-registry).
  */
@@ -18,8 +21,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Loader2 } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import {
-  CONSENT_SURFACES, MATERIAL_KINDS, MATERIAL_WORDS, REQUIRED_SURFACE, SURFACE_WORDS,
-  authorityStatement, materialsConsentParagraphs, siteWords, type ConsentSurface, type MaterialKind,
+  authorityStatement, consentDateWords, consentDocument, materialsConsentParagraphs, siteWords,
 } from '@/lib/legal/partner-materials-consent';
 import { PARTNER_CONSENT_PATH, isConsentKeyShape } from '@/lib/partners/material-consent-rules';
 
@@ -33,8 +35,6 @@ type Sending = 'idle' | 'sending' | 'sent';
 
 export function PartnerConsentForm() {
   const [basis, setBasis] = useState<Basis>({ kind: 'checking' });
-  const [materials, setMaterials] = useState<MaterialKind[]>(['photos', 'logo', 'texts', 'prices']);
-  const [surfaces, setSurfaces] = useState<ConsentSurface[]>([...CONSENT_SURFACES]);
   const [signerName, setSignerName] = useState('');
   const [signerRole, setSignerRole] = useState('');
   const [authority, setAuthority] = useState(false);
@@ -81,20 +81,15 @@ export function PartnerConsentForm() {
   }, []);
 
   const paragraphs = useMemo(() => (basis.kind === 'link'
-    ? materialsConsentParagraphs({ partnerName: basis.partnerName, sites: basis.sites, materials, surfaces })
-    : []), [basis, materials, surfaces]);
+    ? materialsConsentParagraphs({ partnerName: basis.partnerName, sites: basis.sites })
+    : []), [basis]);
 
   const missing: string[] = [];
-  if (materials.length === 0) missing.push('отметьте хотя бы один вид материалов');
   if (signerName.trim().length < 2) missing.push('имя и фамилию');
   if (signerRole.trim().length < 2) missing.push('должность');
   if (!authority) missing.push('подтверждение полномочий');
   if (!pdConsent) missing.push('согласие на обработку имени и должности');
   const ready = missing.length === 0;
-
-  function toggle<T extends string>(list: T[], item: T, set: (v: T[]) => void) {
-    set(list.includes(item) ? list.filter((x) => x !== item) : [...list, item]);
-  }
 
   async function submit() {
     if (basis.kind !== 'link' || !ready) return;
@@ -106,7 +101,9 @@ export function PartnerConsentForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: basis.key, signer_name: signerName, signer_role: signerRole,
-          materials, surfaces, authority, pd_consent: pdConsent,
+          // Ровно тот текст, что на экране: сервер собирает свой и сверяет.
+          text: consentDocument({ partnerName: basis.partnerName, sites: basis.sites }),
+          authority, pd_consent: pdConsent,
         }),
       });
       const body = await res.json().catch(() => null) as { success?: boolean; error?: string; data?: { granted_on?: string } } | null;
@@ -129,11 +126,11 @@ export function PartnerConsentForm() {
     return (
       <div className="ds-card p-5" role="status">
         <p className="inline-flex items-center gap-2 text-[var(--success)] font-medium">
-          <Check className="w-5 h-5" aria-hidden /> Спасибо — согласие записано{grantedOn ? ` (${grantedOn})` : ''}.
+          <Check className="w-5 h-5" aria-hidden /> Спасибо — согласие записано{grantedOn ? ` ${consentDateWords(grantedOn)}` : ''}.
         </p>
         <p className="text-sm text-[var(--text-secondary)] mt-2">
-          Ведар показывает материалы «{basis.partnerName}» в выбранных местах. Отозвать согласие можно в любой момент — напишите
-          менеджеру Ведара в MAX или Telegram.
+          Ведар использует материалы «{basis.partnerName}» так, как сказано в тексте согласия. Отозвать его можно в любой
+          момент — напишите менеджеру Ведара в MAX или Telegram.
         </p>
       </div>
     );
@@ -177,36 +174,10 @@ export function PartnerConsentForm() {
         )}
         {basis.currentOn && (
           <p className="text-xs text-[var(--text-muted)]">
-            Действующее согласие от {basis.currentOn}. Новое заменит его.
+            Действующее согласие от {consentDateWords(basis.currentOn)}. Новое заменит его.
           </p>
         )}
       </section>
-
-      <fieldset className="space-y-1">
-        <legend className="ds-label mb-2">Что можно брать с сайта</legend>
-        {MATERIAL_KINDS.map((k) => (
-          <label key={k} className="flex items-center gap-3 min-h-[44px] cursor-pointer text-sm text-[var(--text-primary)]">
-            <input type="checkbox" className="w-5 h-5 shrink-0 accent-[var(--accent)]"
-              checked={materials.includes(k)} onChange={() => toggle(materials, k, setMaterials)} />
-            {MATERIAL_WORDS[k]}
-          </label>
-        ))}
-      </fieldset>
-
-      <fieldset className="space-y-1">
-        <legend className="ds-label mb-2">Где Ведар может их показывать</legend>
-        {CONSENT_SURFACES.map((x) => (
-          <label key={x} className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer text-sm text-[var(--text-primary)]">
-            <input type="checkbox" className="w-5 h-5 shrink-0 accent-[var(--accent)] mt-0.5"
-              checked={surfaces.includes(x)} disabled={x === REQUIRED_SURFACE}
-              onChange={() => toggle(surfaces, x, setSurfaces)} />
-            <span>
-              {SURFACE_WORDS[x]}
-              {x === REQUIRED_SURFACE && <span className="block text-xs text-[var(--text-muted)]">Всегда: без вашей страницы согласие ни о чём.</span>}
-            </span>
-          </label>
-        ))}
-      </fieldset>
 
       <section className="ds-card p-5 space-y-3" aria-labelledby="consent-text">
         <h2 id="consent-text" className="ds-label">Текст согласия</h2>
@@ -224,7 +195,7 @@ export function PartnerConsentForm() {
         <label className="block">
           <span className="ds-label">Должность или кем вы приходитесь партнёру</span>
           <input className="ds-input mt-1 w-full" value={signerRole} onChange={(e) => setSignerRole(e.target.value)}
-            placeholder="Например: владелец, директор, менеджер" maxLength={120} />
+            autoComplete="organization-title" placeholder="Например: владелец, директор, менеджер" maxLength={120} />
         </label>
         <label htmlFor="consent-authority" className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer text-xs leading-relaxed text-[var(--text-secondary)]">
           <input id="consent-authority" type="checkbox" className="w-5 h-5 shrink-0 accent-[var(--accent)]"
@@ -239,12 +210,18 @@ export function PartnerConsentForm() {
       )}
 
       <div>
-        <button type="submit" className="ds-btn ds-btn-primary w-full sm:w-auto"
-          disabled={!ready || !pdConsent || sending === 'sending'} aria-disabled={!ready}>
+        {/* Неактивная — и выглядит неактивной, причина связана с кнопкой
+            (ревью 23.10; тот же урок, что форма заявки на машину, 14.10). */}
+        <button type="submit"
+          className="ds-btn ds-btn-primary w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!ready || sending === 'sending'}
+          aria-describedby={ready ? undefined : 'consent-missing'}>
           {sending === 'sending' ? 'Записываем…' : 'Подписать согласие'}
         </button>
         {!ready && (
-          <p className="text-xs text-[var(--text-muted)] mt-2">Чтобы подписать, осталось: {missing.join(', ')}.</p>
+          <p id="consent-missing" className="text-sm text-[var(--text-secondary)] mt-2">
+            Чтобы подписать, осталось: {missing.join(', ')}.
+          </p>
         )}
       </div>
     </form>

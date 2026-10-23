@@ -4,10 +4,6 @@
  * отзыв о перевозчике (1235): ключ во фрагменте адреса, в базе только хэш,
  * 30 дней, новая ссылка гасит прежнюю.
  */
-import {
-  CONSENT_SURFACES, MATERIAL_KINDS, REQUIRED_SURFACE, type ConsentSurface, type MaterialKind,
-} from '@/lib/legal/partner-materials-consent';
-
 export const PARTNER_CONSENT_INVITE_DAYS = 30;
 export const PARTNER_CONSENT_PATH = '/partner-consent';
 
@@ -46,20 +42,17 @@ export function consentInviteProblemText(reason: InviteProblem): string {
   }
 }
 
-/** Виды материалов: только известные, без повторов, хотя бы один; порядок — канонический. */
-export function normalizeMaterials(raw: readonly unknown[]): MaterialKind[] | null {
-  const set = new Set(raw.filter((x): x is MaterialKind => (MATERIAL_KINDS as readonly unknown[]).includes(x)));
-  // Повтор или чужое слово — не «почти то же», а отказ: объём читается дословно.
-  if (set.size === 0 || set.size !== raw.length) return null;
-  return MATERIAL_KINDS.filter((k) => set.has(k));
-}
+/** Потолок длины текста, присланного страницей на сверку: документ ~2 тыс. знаков. */
+export const CONSENT_TEXT_MAX = 6000;
 
-/** Где показывать: только известные, без повторов; своя страница — всегда. */
-export function normalizeSurfaces(raw: readonly unknown[]): ConsentSurface[] | null {
-  const set = new Set(raw.filter((x): x is ConsentSurface => (CONSENT_SURFACES as readonly unknown[]).includes(x)));
-  if (set.size !== raw.length) return null;
-  set.add(REQUIRED_SURFACE);
-  return CONSENT_SURFACES.filter((x) => set.has(x));
+export type GrantProblem = InviteProblem | 'text_changed';
+
+/** Текст ответа, когда подписать не вышло. */
+export function grantProblemText(reason: GrantProblem): string {
+  if (reason === 'text_changed') {
+    return 'Текст согласия изменился, пока страница была открыта. Обновите страницу и прочитайте его заново.';
+  }
+  return consentInviteProblemText(reason);
 }
 
 /** Имя подписанта: буквы, пробелы, дефис и точка, 2–120 знаков. */

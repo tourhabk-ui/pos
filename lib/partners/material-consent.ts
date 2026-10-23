@@ -9,13 +9,14 @@
 import { createHash, randomBytes } from 'crypto';
 import { query, transaction } from '@/lib/database';
 import {
-  CONSENT_SURFACES, MATERIAL_KINDS, PARTNER_MATERIALS_CONSENT_VERSION,
-  type ConsentSurface, type MaterialKind, type MaterialsConsentPublic,
+  PARTNER_MATERIALS_CONSENT_VERSION, consentDocument, type MaterialsConsentPublic,
 } from '@/lib/legal/partner-materials-consent';
 
 export type { MaterialsConsentPublic };
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
-import { PARTNER_CONSENT_INVITE_DAYS, consentInviteVerdict, type InviteProblem } from '@/lib/partners/material-consent-rules';
+import {
+  PARTNER_CONSENT_INVITE_DAYS, consentInviteVerdict, type GrantProblem, type InviteProblem,
+} from '@/lib/partners/material-consent-rules';
 
 export function hashConsentKey(key: string): string {
   return createHash('sha256').update(key).digest('hex');
@@ -24,40 +25,44 @@ export function hashConsentKey(key: string): string {
 export interface MaterialsConsentAdmin extends MaterialsConsentPublic {
   id: string;
   textVersion: string;
+  signedText: string;
   signerName: string;
   signerRole: string;
   revokedAt: string | null;
+  /** YYYY-MM-DD по Камчатке; null — не отозвано. */
+  revokedOn: string | null;
   revokeReason: string | null;
 }
 
 interface ConsentRow {
   id: string;
   text_version: string;
-  materials: string[];
-  surfaces: string[];
+  signed_text: string;
   sites: string[];
   signer_name: string;
   signer_role: string;
   granted_on: string;
   revoked_at: string | null;
+  revoked_on: string | null;
   revoke_reason: string | null;
 }
 
-const CONSENT_COLUMNS = `c.id::text AS id, c.text_version, c.materials, c.surfaces, c.sites, c.signer_name, c.signer_role,
+const CONSENT_COLUMNS = `c.id::text AS id, c.text_version, c.signed_text, c.sites, c.signer_name, c.signer_role,
   to_char(c.granted_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS granted_on,
-  c.revoked_at::text AS revoked_at, c.revoke_reason`;
+  c.revoked_at::text AS revoked_at,
+  to_char(c.revoked_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS revoked_on, c.revoke_reason`;
 
 function toAdmin(r: ConsentRow): MaterialsConsentAdmin {
   return {
     id: r.id,
     textVersion: r.text_version,
-    materials: r.materials as MaterialKind[],
-    surfaces: r.surfaces as ConsentSurface[],
+    signedText: r.signed_text,
     sites: r.sites ?? [],
     signerName: r.signer_name,
     signerRole: r.signer_role,
     grantedOn: r.granted_on,
     revokedAt: r.revoked_at,
+    revokedOn: r.revoked_on,
     revokeReason: r.revoke_reason,
   };
 }
@@ -70,8 +75,6 @@ function toAdmin(r: ConsentRow): MaterialsConsentAdmin {
 export const ACTIVE_CONSENT_JSON_SQL = (alias: string) => `(
   SELECT jsonb_build_object(
            'grantedOn', to_char(c.granted_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD'),
-           'materials', to_jsonb(c.materials),
-           'surfaces', to_jsonb(c.surfaces),
            'sites', to_jsonb(c.sites))
     FROM partner_material_consents c
    WHERE c.partner_id = ${alias}.id AND c.revoked_at IS NULL
@@ -86,13 +89,8 @@ function isStringArray(v: unknown): v is string[] {
 export function parseActiveConsent(v: unknown): MaterialsConsentPublic | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
-  if (typeof o.grantedOn !== 'string' || !isStringArray(o.materials) || !isStringArray(o.surfaces) || !isStringArray(o.sites)) return null;
-  return {
-    grantedOn: o.grantedOn,
-    materials: o.materials as MaterialKind[],
-    surfaces: o.surfaces as ConsentSurface[],
-    sites: o.sites,
-  };
+  if (typeof o.grantedOn !== 'string' || !isStringArray(o.sites)) return null;
+  return { grantedOn: o.grantedOn, sites: o.sites };
 }
 
 /** История согласий партнёра для админки, новые сверху. */
@@ -108,19 +106,29 @@ export async function loadPartnerConsents(partnerId: string): Promise<MaterialsC
   return rows.map(toAdmin);
 }
 
+/**
+ * Ссылка партнёра для админки: даты по Камчатке и состояние, посчитанное на
+ * сервере тем же правилом, что проверяет ключ (`consentInviteVerdict`), — без
+ * разбора дат в браузере и без «действует до» у просроченной (ревью 23.10).
+ */
 export interface InviteState {
-  issuedAt: string;
-  expiresAt: string;
-  usedAt: string | null;
+  issuedOn: string;
+  expiresOn: string;
+  state: 'pending' | 'expired' | 'used';
 }
 
-export async function loadConsentInvite(partnerId: string): Promise<InviteState | null> {
-  const { rows } = await query<{ issued_at: string; expires_at: string; used_at: string | null }>(
-    `SELECT issued_at::text, expires_at::text, used_at::text FROM partner_consent_invites WHERE partner_id = $1`,
+export async function loadConsentInvite(partnerId: string, now: number = Date.now()): Promise<InviteState | null> {
+  const { rows } = await query<{ issued_on: string; expires_on: string; expires_at: string; used_at: string | null }>(
+    `SELECT to_char(issued_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS issued_on,
+            to_char(expires_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS expires_on,
+            expires_at::text AS expires_at, used_at::text AS used_at
+       FROM partner_consent_invites WHERE partner_id = $1`,
     [partnerId],
   );
   const r = rows[0];
-  return r ? { issuedAt: r.issued_at, expiresAt: r.expires_at, usedAt: r.used_at } : null;
+  if (!r) return null;
+  const v = consentInviteVerdict({ expiresAt: r.expires_at, usedAt: r.used_at }, now);
+  return { issuedOn: r.issued_on, expiresOn: r.expires_on, state: v.ok ? 'pending' : v.reason === 'used' ? 'used' : 'expired' };
 }
 
 /** Сайты партнёра из трёх мест хранения (как lib/partners/site-watch-run), без повторов. */
@@ -180,7 +188,7 @@ export type ConsentInviteCheck =
   | { state: 'ok'; partnerName: string; sites: string[]; current: MaterialsConsentPublic | null }
   | { state: InviteProblem };
 
-/** Кто партнёр по ключу ссылки и что он уже разрешил — без имени прежнего подписанта. */
+/** Кто партнёр по ключу ссылки и есть ли действующее согласие — без имени прежнего подписанта. */
 export async function checkConsentInvite(key: string, now: number = Date.now()): Promise<ConsentInviteCheck> {
   const { rows } = await query<InviteRow>(INVITE_SQL, [hashConsentKey(key)]);
   const row = rows[0];
@@ -198,7 +206,7 @@ export async function checkConsentInvite(key: string, now: number = Date.now()):
 
 export type GrantConsentResult =
   | { ok: true; grantedOn: string; partnerName: string }
-  | { ok: false; reason: InviteProblem };
+  | { ok: false; reason: GrantProblem };
 
 /** Причина, с которой гаснет прежнее согласие, когда партнёр подписал новое. */
 export const SUPERSEDED_REASON = 'Заменено новым согласием партнёра';
@@ -206,6 +214,9 @@ export const SUPERSEDED_REASON = 'Заменено новым согласием
 /**
  * Записать согласие по ключу. Транзакция: ссылка проверяется под FOR UPDATE и
  * гасится той же транзакцией, что пишет согласие (две вкладки не запишут два).
+ * Текст собирает сервер из имени и сайтов партнёра и сверяет с тем, что
+ * показала страница (`shownText`): разошлись — 'text_changed', записи нет.
+ * Пишется собранный сервером текст, присланный — только сверяется.
  * Прежнее действующее согласие не удаляется, а гаснет с причиной «заменено
  * новым»: иначе после отзыва нового старое снова считалось бы действующим.
  */
@@ -213,8 +224,7 @@ export async function grantMaterialsConsent(p: {
   key: string;
   signerName: string;
   signerRole: string;
-  materials: MaterialKind[];
-  surfaces: ConsentSurface[];
+  shownText: string;
   pd: PdConsentRecord;
   now?: number;
 }): Promise<GrantConsentResult> {
@@ -228,6 +238,9 @@ export async function grantMaterialsConsent(p: {
     const partner = await client.query<PartnerRow>(PARTNER_SQL, [row.partner_id]);
     const pr = partner.rows[0];
     if (!pr) return { ok: false, reason: 'unknown' } as const;
+    const sites = uniqueSites(pr.sites ?? []);
+    const signedText = consentDocument({ partnerName: pr.name, sites });
+    if (p.shownText !== signedText) return { ok: false, reason: 'text_changed' } as const;
 
     await client.query(
       `UPDATE partner_material_consents SET revoked_at = NOW(), revoke_reason = $2
@@ -236,16 +249,12 @@ export async function grantMaterialsConsent(p: {
     );
     const ins = await client.query<{ granted_on: string }>(
       `INSERT INTO partner_material_consents
-         (partner_id, text_version, materials, surfaces, sites, signer_name, signer_role, source,
+         (partner_id, text_version, signed_text, sites, signer_name, signer_role, source,
           pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
-       VALUES ($1::uuid, $2, $3::text[], $4::text[], $5::text[], $6, $7, 'link', $8, $9, $10, $11)
+       VALUES ($1::uuid, $2, $3, $4::text[], $5, $6, 'link', $7, $8, $9, $10)
        RETURNING to_char(granted_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS granted_on`,
       [
-        // Канонический порядок объёма — здесь, а не только в роуте: запись
-        // читается дословно и сравнивается между версиями.
-        row.partner_id, PARTNER_MATERIALS_CONSENT_VERSION,
-        MATERIAL_KINDS.filter((k) => p.materials.includes(k)), CONSENT_SURFACES.filter((x) => p.surfaces.includes(x)),
-        uniqueSites(pr.sites ?? []),
+        row.partner_id, PARTNER_MATERIALS_CONSENT_VERSION, signedText, sites,
         p.signerName, p.signerRole, p.pd.at, p.pd.ip, p.pd.source, p.pd.version,
       ],
     );

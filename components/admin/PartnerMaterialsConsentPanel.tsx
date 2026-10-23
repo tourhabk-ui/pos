@@ -5,47 +5,42 @@
  * партнёра в админке (миграция 1321, решение владельца 23.10: «нужна форма
  * согласия об использовании матерьялов сайтов партнеров на нашем сайте»).
  *
- * Показывает три исхода, а не два (§4.0): согласие есть (кто, когда, объём) /
- * согласия нет / не смогли прочитать. Выпускает одноразовую ссылку на 30 дней
- * с готовым текстом для пересылки в MAX или Telegram (ключ показывается один
- * раз, в базе только хэш) и записывает отзыв со слов партнёра с причиной.
+ * Четыре исхода, а не два (§4.0 и ревью 23.10): согласие действует (кто,
+ * когда, сайты, текст) / отозвано (когда, чьи слова — и что теперь сделать:
+ * снять материалы, как обещает текст) / не было / не смогли прочитать.
+ * «Отозвано» и «не было» — разные состояния: после отзыва звать партнёра
+ * подписать снова — неверный следующий шаг.
+ *
+ * Выпускает одноразовую ссылку на 30 дней с готовым текстом для пересылки в
+ * MAX или Telegram (ключ показывается один раз, в базе только хэш) и
+ * записывает отзыв со слов партнёра с причиной.
  */
 
 import { useEffect, useState } from 'react';
-import { Check, Copy, FileSignature, Loader2, Link2, XCircle } from 'lucide-react';
-import {
-  CONSENT_SURFACES, MATERIAL_KINDS, MATERIAL_WORDS, SURFACE_WORDS, siteWords,
-  type ConsentSurface, type MaterialKind,
-} from '@/lib/legal/partner-materials-consent';
+import { AlertTriangle, Check, Copy, FileSignature, Loader2, Link2, XCircle } from 'lucide-react';
+import { consentDateWords, siteWords } from '@/lib/legal/partner-materials-consent';
 
 interface ConsentView {
   id: string;
   grantedOn: string;
   textVersion: string;
-  materials: MaterialKind[];
-  surfaces: ConsentSurface[];
+  signedText: string;
   sites: string[];
   signerName: string;
   signerRole: string;
   revokedAt: string | null;
+  revokedOn: string | null;
   revokeReason: string | null;
 }
 
-interface InviteView { issuedAt: string; expiresAt: string; usedAt: string | null }
+interface InviteView { issuedOn: string; expiresOn: string; state: 'pending' | 'expired' | 'used' }
 
 type Load =
   | { state: 'loading' }
   | { state: 'ok'; consents: ConsentView[]; invite: InviteView | null }
   | { state: 'failed'; message: string };
 
-const SURFACE_SHORT: Record<ConsentSurface, string> = {
-  own_page: 'своя страница',
-  showcases: 'общие витрины',
-  assistants: 'Кузьмич и ИИ-агенты',
-  channel: 'каналы Ведара',
-};
-
-/** Чтение состояния: три исхода, отказ — словами, а не «согласия нет». */
+/** Чтение состояния: отказ — словами, а не «согласия нет». */
 async function fetchConsents(partnerId: string): Promise<Load> {
   try {
     const res = await fetch(`/api/admin/partners/${partnerId}/material-consent`);
@@ -60,6 +55,31 @@ async function fetchConsents(partnerId: string): Promise<Load> {
     return { state: 'failed', message: 'Нет связи с сервером — согласия не прочитаны.' };
   }
 }
+
+type Status =
+  | { kind: 'active'; consent: ConsentView }
+  | { kind: 'revoked'; last: ConsentView }
+  | { kind: 'never' };
+
+/** Согласия приходят новыми сверху: нет действующего, но есть история — значит, отозвано. */
+function statusOf(consents: readonly ConsentView[]): Status {
+  const active = consents.find((c) => !c.revokedAt);
+  if (active) return { kind: 'active', consent: active };
+  const last = consents[0];
+  return last ? { kind: 'revoked', last } : { kind: 'never' };
+}
+
+const BADGE: Record<Status['kind'], { text: (s: Status) => string; cls: string }> = {
+  active: {
+    text: (s) => (s.kind === 'active' ? `действует с ${consentDateWords(s.consent.grantedOn)}` : ''),
+    cls: 'text-[var(--success)] border-[var(--success)]',
+  },
+  revoked: {
+    text: (s) => (s.kind === 'revoked' && s.last.revokedOn ? `отозвано ${consentDateWords(s.last.revokedOn)}` : 'отозвано'),
+    cls: 'text-[var(--warning)] border-[var(--warning)]',
+  },
+  never: { text: () => 'не было', cls: 'text-[var(--text-muted)] border-[var(--border)]' },
+};
 
 export function PartnerMaterialsConsentPanel({ partnerId }: { partnerId: string }) {
   const [load, setLoad] = useState<Load>({ state: 'loading' });
@@ -112,7 +132,8 @@ export function PartnerMaterialsConsentPanel({ partnerId }: { partnerId: string 
     try { await navigator.clipboard.writeText(text); setCopied(true); } catch { setError('Не удалось скопировать — выделите текст вручную.'); }
   }
 
-  const active = load.state === 'ok' ? load.consents.find((c) => !c.revokedAt) ?? null : null;
+  const status: Status | null = load.state === 'ok' ? statusOf(load.consents) : null;
+  const invite = load.state === 'ok' ? load.invite : null;
 
   return (
     <section className="mt-3 border-t border-[var(--border)] pt-3 space-y-2" aria-labelledby="materials-consent-title">
@@ -120,9 +141,9 @@ export function PartnerMaterialsConsentPanel({ partnerId }: { partnerId: string 
         <h3 id="materials-consent-title" className="flex items-center gap-2 text-xs font-medium text-[var(--text-primary)]">
           <FileSignature className="w-4 h-4 text-[var(--text-muted)]" aria-hidden /> Согласие на материалы сайта
         </h3>
-        {load.state === 'ok' && (
-          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${active ? 'text-[var(--success)] border-[var(--success)]' : 'text-[var(--text-muted)] border-[var(--border)]'}`}>
-            {active ? `есть, от ${active.grantedOn}` : 'нет'}
+        {status && (
+          <span data-testid="consent-badge" className={`text-[11px] px-2 py-0.5 rounded-full border ${BADGE[status.kind].cls}`}>
+            {BADGE[status.kind].text(status)}
           </span>
         )}
       </div>
@@ -134,29 +155,53 @@ export function PartnerMaterialsConsentPanel({ partnerId }: { partnerId: string 
       )}
       {load.state === 'failed' && <p className="text-xs text-[var(--warning)]" role="alert">{load.message}</p>}
 
-      {load.state === 'ok' && active && (
+      {status?.kind === 'active' && (
         <div className="text-xs text-[var(--text-secondary)] space-y-1" data-testid="consent-active">
-          <p>Подписал: {active.signerName}, {active.signerRole}. Текст версии {active.textVersion}.</p>
-          <p>Материалы: {MATERIAL_KINDS.filter((k) => active.materials.includes(k)).map((k) => MATERIAL_WORDS[k]).join(', ')}.</p>
-          <p>Где: {CONSENT_SURFACES.filter((x) => active.surfaces.includes(x)).map((x) => SURFACE_SHORT[x]).join(', ')}.</p>
-          {active.sites.length > 0 && <p>Сайты: {active.sites.map(siteWords).join(', ')}.</p>}
+          <p>Подписал: {status.consent.signerName}, {status.consent.signerRole}. Текст версии {status.consent.textVersion}.</p>
+          {status.consent.sites.length > 0 && <p>Сайты: {status.consent.sites.map(siteWords).join(', ')}.</p>}
+          <details>
+            <summary className="cursor-pointer text-[var(--ocean)]">Текст, под которым подписались</summary>
+            <p className="mt-1 whitespace-pre-line text-[var(--text-primary)]">{status.consent.signedText}</p>
+          </details>
         </div>
       )}
-      {load.state === 'ok' && !active && (
-        <p className="text-xs text-[var(--text-secondary)]">
-          Согласие не записано. Материалы с сайта партнёра показываются без его подписи — пошлите ему ссылку.
+      {status?.kind === 'revoked' && (
+        <div className="text-xs text-[var(--text-secondary)] space-y-1" data-testid="consent-revoked">
+          <p>
+            Согласие от {consentDateWords(status.last.grantedOn)} отозвано
+            {status.last.revokedOn ? ` ${consentDateWords(status.last.revokedOn)}` : ''}
+            {status.last.revokeReason ? `: ${status.last.revokeReason}` : ''}.
+          </p>
+          <p className="flex items-start gap-1.5 text-[var(--text-primary)]">
+            <AlertTriangle className="w-3.5 h-3.5 text-[var(--warning)] shrink-0 mt-0.5" aria-hidden />
+            <span>
+              Снимите с показа материалы, взятые с сайта партнёра: снимки, логотип, видео, тексты. Так обещает текст
+              согласия, а сама система их не снимает — она не знает, какой материал откуда.
+            </span>
+          </p>
+        </div>
+      )}
+      {status?.kind === 'never' && (
+        <p className="text-xs text-[var(--text-secondary)]" data-testid="consent-never">
+          Согласие не записано. Если на Ведаре стоят материалы с сайта партнёра, они показываются без его подписи — пошлите
+          ему ссылку.
         </p>
       )}
-      {load.state === 'ok' && load.invite && !load.invite.usedAt && !issued && (
-        <p className="text-[11px] text-[var(--text-muted)]">Ссылка выпущена {load.invite.issuedAt.slice(0, 10)}, действует до {load.invite.expiresAt.slice(0, 10)}, ещё не подписана.</p>
+
+      {invite && !issued && (
+        <p className="text-[11px] text-[var(--text-muted)]" data-testid="consent-invite">
+          {invite.state === 'pending' && `Ссылка выпущена ${consentDateWords(invite.issuedOn)}, действует до ${consentDateWords(invite.expiresOn)}, ещё не подписана.`}
+          {invite.state === 'expired' && `Ссылка от ${consentDateWords(invite.issuedOn)} истекла ${consentDateWords(invite.expiresOn)}, не подписана.`}
+          {invite.state === 'used' && `Последняя ссылка от ${consentDateWords(invite.issuedOn)} использована.`}
+        </p>
       )}
 
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => void issue()} disabled={busy}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50">
-          <Link2 className="w-3.5 h-3.5" aria-hidden /> {load.state === 'ok' && load.invite ? 'Новая ссылка на согласие' : 'Ссылка на согласие'}
+          <Link2 className="w-3.5 h-3.5" aria-hidden /> {invite ? 'Новая ссылка на согласие' : 'Ссылка на согласие'}
         </button>
-        {active && !revoking && (
+        {status?.kind === 'active' && !revoking && (
           <button type="button" onClick={() => setRevoking(true)} disabled={busy}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50">
             <XCircle className="w-3.5 h-3.5" aria-hidden /> Отозвать
@@ -174,7 +219,7 @@ export function PartnerMaterialsConsentPanel({ partnerId }: { partnerId: string 
               {copied ? <Check className="w-3.5 h-3.5 text-[var(--success)]" aria-hidden /> : <Copy className="w-3.5 h-3.5" aria-hidden />}
               {copied ? 'Скопировано' : 'Скопировать текст'}
             </button>
-            <span className="text-[11px] text-[var(--text-muted)]">Ссылка показана один раз, действует до {issued.expiresAt.slice(0, 10)}. Прежняя погашена.</span>
+            <span className="text-[11px] text-[var(--text-muted)]">Ссылка показана один раз, действует 30 дней. Прежняя погашена.</span>
           </div>
         </div>
       )}
@@ -194,7 +239,9 @@ export function PartnerMaterialsConsentPanel({ partnerId }: { partnerId: string 
       )}
 
       {error && <p className="text-xs text-[var(--danger)]" role="alert">{error}</p>}
-      <p className="text-[11px] text-[var(--text-muted)]">{SURFACE_WORDS.own_page[0]?.toUpperCase()}{SURFACE_WORDS.own_page.slice(1)} входит в согласие всегда; остальное партнёр отмечает сам.</p>
+      <p className="text-[11px] text-[var(--text-muted)]">
+        Объём один для всех и назван в тексте согласия: где Ведар на деле показывает материалы и кому их передаёт.
+      </p>
     </section>
   );
 }

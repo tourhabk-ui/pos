@@ -14,7 +14,7 @@ const { queryMock } = vi.hoisted(() => ({ queryMock: vi.fn() }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: async () => ({ userId: 'admin', role: 'admin' }) }));
 
-import { adminContactView } from '@/lib/partners/admin-contact';
+import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
 import { GET } from '@/app/api/admin/content/partners/[id]/route';
 
 const LAGUNA_CONTACTS = {
@@ -33,9 +33,17 @@ describe('adminContactView', () => {
   });
 
   it('своё значение contact главнее; пустая строка — не значение', () => {
-    const view = adminContactView({ website: 'https://own.test', email: '  ' }, LAGUNA_CONTACTS, 'https://column.test');
-    expect(view.website).toBe('https://own.test');
+    const view = adminContactView({ phone: '+70000000000', email: '  ' }, LAGUNA_CONTACTS, 'https://column.test');
+    expect(view.phone).toBe('+70000000000');
     expect(view.email).toBe('prokatlaguna@yandex.ru');
+  });
+
+  it('сайт — сперва тот, что на витрине: его меняет оператор в кабинете, а регистрация пишет contact', () => {
+    // Оператор зарегистрировался с old-site, потом сменил сайт в кабинете.
+    expect(adminContactView({ website: 'https://old-site.ru' }, { website: 'https://new-site.ru' }, null).website).toBe('https://new-site.ru');
+    expect(adminContactView({ website: 'https://own.test' }, {}, 'https://column.test').website).toBe('https://own.test');
+    expect(adminContactView({ website: '  ' }, [], 'https://column.test').website).toBe('https://column.test');
+    expect(adminContactView({ website: '  ' }, {}, null)).not.toHaveProperty('website');
   });
 
   it('чего нет нигде — поля нет; мусор вместо объекта не роняет', () => {
@@ -64,31 +72,65 @@ describe('GET /api/admin/content/partners/[id]', () => {
   });
 });
 
-describe('PUT /api/admin/content/partners/[id]: сайт — во все три места', () => {
+describe('websiteWrite — поменял ли администратор сайт', () => {
+  const row = { contact: { website: 'https://old-site.ru' }, contacts: { website: 'https://new-site.ru' }, website: null };
+
+  it('сохранение без правки сайта его не пишет — правка оператора не откатывается', () => {
+    expect(websiteWrite(row, 'https://new-site.ru')).toEqual({ changed: false });
+    expect(websiteWrite(row, '  https://new-site.ru ')).toEqual({ changed: false });
+  });
+
+  it('новый сайт — пишется; пустое поле — снимает сайт', () => {
+    expect(websiteWrite(row, 'https://third.ru')).toEqual({ changed: true, value: 'https://third.ru' });
+    expect(websiteWrite(row, '')).toEqual({ changed: true, value: null });
+    expect(websiteWrite({ contact: {}, contacts: {}, website: null }, '')).toEqual({ changed: false });
+  });
+});
+
+describe('PUT /api/admin/content/partners/[id]: сайт — во все три места, только если поменян', () => {
   beforeEach(() => queryMock.mockReset());
 
-  const put = async (website: string) => {
-    queryMock.mockResolvedValue({ rows: [{ id: 'p-1' }], rowCount: 1 });
+  const put = async (website: string, current: Record<string, unknown> = { contact: { phone: '+79060835070' }, contacts: LAGUNA_CONTACTS, website: null }) => {
+    queryMock.mockImplementation(async (sql: string) => (/^SELECT contact, contacts, website/.test(sql)
+      ? { rows: [current], rowCount: 1 }
+      : { rows: [{ id: 'p-1' }], rowCount: 1 }));
     const { PUT } = await import('@/app/api/admin/content/partners/[id]/route');
     const res = await PUT(new Request('http://x/api/admin/content/partners/p-1', {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Лагуна Прокат', contact: { phone: '+79060835070', website } }),
     }) as never, { params: Promise.resolve({ id: 'p-1' }) });
-    expect(res.status).toBe(200);
-    return { sql: String(queryMock.mock.calls[0][0]), values: queryMock.mock.calls[0][1] as unknown[] };
+    const update = queryMock.mock.calls.find((c) => String(c[0]).startsWith('UPDATE partners'));
+    return { status: res.status, sql: String(update?.[0] ?? ''), values: (update?.[1] ?? []) as unknown[] };
   };
 
-  it('сайт из формы пишется в колонку website и в блок связи витрины contacts', async () => {
-    const { sql, values } = await put(' https://лагунапрокат.рф/ ');
+  it('поменянный сайт пишется в колонку website и в блок связи витрины contacts', async () => {
+    const { status, sql, values } = await put(' https://другой-сайт.рф/ ');
+    expect(status).toBe(200);
     expect(sql).toMatch(/\bwebsite = \$\d+/);
-    expect(sql).toMatch(/contacts = CASE/);
     expect(sql).toMatch(/jsonb_set\([\s\S]*'\{website\}'/);
-    expect(values.filter((v) => v === 'https://лагунапрокат.рф/')).toHaveLength(2);
+    expect(values.filter((v) => v === 'https://другой-сайт.рф/')).toHaveLength(2);
+  });
+
+  it('сайт не трогали — ни колонка website, ни contacts не переписываются', async () => {
+    const { status, sql } = await put('https://лагунапрокат.рф/');
+    expect(status).toBe(200);
+    expect(sql).not.toMatch(/\bwebsite = /);
+    expect(sql).not.toMatch(/contacts = /);
   });
 
   it('пустое поле снимает сайт везде, а не оставляет старый в витрине', async () => {
     const { sql, values } = await put('');
     expect(sql).toMatch(/- 'website'/);
     expect(values.filter((v) => v === null).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('партнёра нет — 404 до записи', async () => {
+    queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+    const { PUT } = await import('@/app/api/admin/content/partners/[id]/route');
+    const res = await PUT(new Request('http://x', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'X', contact: {} }),
+    }) as never, { params: Promise.resolve({ id: 'p-404' }) });
+    expect(res.status).toBe(404);
+    expect(queryMock.mock.calls.some((c) => String(c[0]).startsWith('UPDATE'))).toBe(false);
   });
 });

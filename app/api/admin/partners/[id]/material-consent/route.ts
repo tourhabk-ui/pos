@@ -68,7 +68,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const url = partnerConsentUrl(getPublicBaseUrl(), res.key);
     const text =
       `Здравствуйте! Это Ведар (vedarai.ru). Чтобы мы показывали туристам фото, логотип и описание «${res.partnerName}» ` +
-      `с вашего сайта, нужно ваше согласие. Прочитайте текст и подпишите по ссылке — это займёт минуту:\n${url}\n` +
+      `с вашего сайта, нужно ваше согласие. В тексте сказано, где и как мы их используем. Прочитайте его и подпишите по ссылке:\n${url}\n` +
       'Ссылка личная и действует 30 дней. Отозвать согласие можно в любой момент сообщением нам.';
     return NextResponse.json({ success: true, data: { url, text, expires_at: res.expiresAt, shown_once: true } });
   } catch (err) {

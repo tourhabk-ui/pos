@@ -3,21 +3,26 @@
  * решение владельца 23.10: «нужна форма согласия об использовании матерьялов
  * сайтов партнеров на нашем сайте»). Судится вызовом и рендером:
  *
- *   · текст согласия собирается из выбранного объёма и называет партнёра,
- *     сайты, виды материалов и места показа; своя страница — всегда;
+ *   · текст один для всех и называет партнёра, сайты, где Ведар использует
+ *     материалы и как; обещаний, которых платформа не исполняет («с указанием
+ *     источника», «не передаёт третьим лицам», «в выбранных местах»), нет
+ *     (ревью 23.10);
  *   · правила ссылки и подписи: форма ключа, срок, «использована», имя и
- *     должность, нормализация объёма;
+ *     должность, «текст изменился»;
  *   · согласие подписанта на ПД — свой текст и своя версия (не «туроператору»);
- *   · POST /api/partner-consent: без галочки ПД, без полномочий, без объёма —
- *     400 и записи нет; устаревшая ссылка — 410 словами; удачная запись — с
- *     версией 'partner-signer' и нормализованным объёмом;
+ *   · POST /api/partner-consent: без галочки ПД, без полномочий, без текста —
+ *     400 и записи нет; разошёлся текст — 409; устаревшая ссылка — 410
+ *     словами; удачная запись — с текстом страницы на сверку и версией
+ *     'partner-signer';
  *   · форма: без ключа — правило словами; с ключом — название партнёра и
- *     текст; кнопка неактивна с причиной, пока не хватает; в запрос уходит
- *     СОСТОЯНИЕ галочек;
- *   · строка «с согласия партнёра от …» — на его странице перевозчика и
- *     прокатчика только при записи, на карточках общих витрин — никогда;
- *   · админский роут: ссылка с ключом во фрагменте и текстом для пересылки,
- *     отказ базы — «не значит, что согласия нет», отзыв — с причиной.
+ *     текст, галочек объёма нет; кнопка неактивна, выглядит неактивной и
+ *     связана с причиной; в запрос уходит СОСТОЯНИЕ галочек и показанный текст;
+ *   · страница не отдаёт адрес с ключом в Метрику;
+ *   · строка «партнёр разрешил …» — на его странице перевозчика и прокатчика
+ *     только при записи, на карточках общих витрин — никогда;
+ *   · админка: роут (ссылка, отказ базы, отзыв) и панель — рендером во всех
+ *     исходах: действует / отозвано (снять материалы) / не было / сбой /
+ *     ссылка истекла.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -51,13 +56,15 @@ vi.mock('@/lib/partners/material-consent', async (orig) => {
 });
 
 import {
-  PARTNER_MATERIALS_CONSENT_VERSION, authorityStatement, materialsConsentLine, materialsConsentParagraphs, siteWords,
+  PARTNER_MATERIALS_CONSENT_VERSION, authorityStatement, consentDocument, materialsConsentLine, materialsConsentParagraphs,
+  siteWords,
 } from '@/lib/legal/partner-materials-consent';
 import { consentWording, PD_CONSENT_VERSION } from '@/lib/legal/pd-consent';
 import {
-  consentInviteVerdict, isConsentKeyShape, normalizeMaterials, normalizeSignerName, normalizeSignerRole, normalizeSurfaces,
-  partnerConsentUrl,
+  consentInviteVerdict, grantProblemText, isConsentKeyShape, normalizeSignerName, normalizeSignerRole, partnerConsentUrl,
 } from '@/lib/partners/material-consent-rules';
+import { shouldTrackPath } from '@/lib/analytics/metrika';
+import { PartnerMaterialsConsentPanel } from '@/components/admin/PartnerMaterialsConsentPanel';
 import { parseActiveConsent } from '@/lib/partners/material-consent';
 import { POST as submitConsent } from '@/app/api/partner-consent/route';
 import { POST as checkInviteRoute } from '@/app/api/partner-consent/invite/route';
@@ -80,27 +87,46 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); window.location.hash = ''; vi.unstubAllGlobals(); });
 
+const LAGUNA = { partnerName: 'Лагуна Прокат', sites: ['https://лагунапрокат.рф/'] };
+
 describe('текст согласия', () => {
-  it('называет партнёра, сайты, виды материалов и места показа; своя страница — всегда', () => {
+  it('называет партнёра, сайты, где и как Ведар использует материалы, отзыв', () => {
     expect(KEY).toHaveLength(32);
-    const text = materialsConsentParagraphs({
-      partnerName: 'Лагуна Прокат', sites: ['https://лагунапрокат.рф/'], materials: ['photos', 'logo'], surfaces: ['own_page', 'assistants'],
-    }).join('\n');
+    const text = materialsConsentParagraphs(LAGUNA).join('\n');
     expect(text).toContain('«Лагуна Прокат» разрешает Ведару (vedarai.ru)');
     expect(text).toContain('лагунапрокат.рф');
-    expect(text).toContain('фотографии и логотип');
-    expect(text).toContain('страница партнёра на Ведаре');
-    expect(text).toContain('ответы помощника Кузьмича');
-    expect(text).not.toContain('общие витрины');
-    expect(text).toMatch(/не даёт партнёру места выше/);
-    expect(text).toMatch(/отозвать/i);
+    expect(text).toContain('фотографии, видео, логотип');
+    expect(text).toMatch(/Где Ведар их использует: на странице партнёра/);
+    expect(text).toMatch(/языковые модели, в том числе зарубежные/);
+    expect(text).toMatch(/не даёт ему места выше/);
+    expect(text).toMatch(/Отозвать можно/);
+    expect(text).toMatch(/отозвать у них не может/);
     expect(authorityStatement('Лагуна Прокат')).toContain('от имени «Лагуна Прокат»');
     expect(PARTNER_MATERIALS_CONSENT_VERSION).toBe('2026-10-23');
   });
 
-  it('строка на странице партнёра: что, откуда и дата по-русски', () => {
-    expect(materialsConsentLine({ grantedOn: '2026-10-23', materials: ['logo', 'photos'], sites: ['https://лагунапрокат.рф/'] }))
-      .toBe('Фотографии и логотип — с сайта лагунапрокат.рф, с согласия партнёра от 23.10.2026.');
+  it('обещаний, которых платформа не исполняет, в тексте нет (ревью 23.10)', () => {
+    const text = consentDocument(LAGUNA);
+    // Источник называют не все поверхности; передача площадкам и агентам есть
+    // по построению; выбора мест показа нет.
+    for (const promise of [/указани[ея]м? источника/i, /третьим лицам/i, /выбранн/i, /не меняет/i]) {
+      expect(text).not.toMatch(promise);
+    }
+  });
+
+  it('документ — абзацы и подтверждение полномочий; без сайтов — без пустых скобок', () => {
+    const doc = consentDocument(LAGUNA);
+    expect(doc.split('\n\n')).toEqual([...materialsConsentParagraphs(LAGUNA), authorityStatement('Лагуна Прокат')]);
+    expect(consentDocument({ partnerName: 'Без сайта', sites: [] })).not.toContain('()');
+  });
+
+  it('строка на странице партнёра — факт записи, а не происхождение показанного', () => {
+    expect(materialsConsentLine({ grantedOn: '2026-10-23', sites: ['https://лагунапрокат.рф/'] }))
+      .toBe('Партнёр разрешил Ведару показывать материалы своего сайта лагунапрокат.рф: согласие от 23.10.2026.');
+    expect(materialsConsentLine({ grantedOn: '2026-10-23', sites: [] }))
+      .toBe('Партнёр разрешил Ведару показывать материалы своих сайтов: согласие от 23.10.2026.');
+    expect(materialsConsentLine({ grantedOn: '2026-10-23', sites: ['https://a.test', 'https://b.test/'] }))
+      .toBe('Партнёр разрешил Ведару показывать материалы своих сайтов a.test, b.test: согласие от 23.10.2026.');
     expect(siteWords('https://example.test/')).toBe('example.test');
   });
 
@@ -110,6 +136,10 @@ describe('текст согласия', () => {
     expect(w.version).not.toBe(PD_CONSENT_VERSION);
     expect(w.text).toMatch(/учёта согласия партнёра/);
     expect(w.text).not.toMatch(/туроператору/);
+  });
+
+  it('страница согласия не отдаёт адрес с ключом в Метрику', () => {
+    expect(shouldTrackPath('/partner-consent')).toBe(false);
   });
 });
 
@@ -124,14 +154,9 @@ describe('правила ссылки и подписи', () => {
     expect(consentInviteVerdict({ expiresAt: '2026-11-22T00:00:00Z', usedAt: '2026-10-23' }, now)).toEqual({ ok: false, reason: 'used' });
   });
 
-  it('объём: известное, без повторов; своя страница добавляется сама', () => {
-    expect(normalizeMaterials(['logo', 'photos'])).toEqual(['photos', 'logo']);
-    expect(normalizeMaterials([])).toBeNull();
-    expect(normalizeMaterials(['photos', 'photos'])).toBeNull();
-    expect(normalizeMaterials(['photos', 'чужое'])).toBeNull();
-    expect(normalizeSurfaces(['channel'])).toEqual(['own_page', 'channel']);
-    expect(normalizeSurfaces([])).toEqual(['own_page']);
-    expect(normalizeSurfaces(['channel', 'нечто'])).toBeNull();
+  it('«текст изменился» — своими словами, остальное — как у ссылки', () => {
+    expect(grantProblemText('text_changed')).toMatch(/Обновите страницу/);
+    expect(grantProblemText('expired')).toMatch(/Срок ссылки истёк/);
   });
 
   it('имя — буквами; должность — свободным текстом без управляющих знаков', () => {
@@ -145,35 +170,44 @@ describe('правила ссылки и подписи', () => {
   it('разбор действующего согласия: мусор — «записи нет», а не выдумка', () => {
     expect(parseActiveConsent(null)).toBeNull();
     expect(parseActiveConsent({ grantedOn: 1 })).toBeNull();
-    expect(parseActiveConsent({ grantedOn: '2026-10-23', materials: ['photos'], surfaces: ['own_page'], sites: [] }))
-      .toEqual({ grantedOn: '2026-10-23', materials: ['photos'], surfaces: ['own_page'], sites: [] });
+    expect(parseActiveConsent({ grantedOn: '2026-10-23', sites: 'не массив' })).toBeNull();
+    expect(parseActiveConsent({ grantedOn: '2026-10-23', sites: ['https://a.test'] }))
+      .toEqual({ grantedOn: '2026-10-23', sites: ['https://a.test'] });
   });
 });
 
 describe('POST /api/partner-consent', () => {
   const good = {
-    key: KEY, signer_name: 'Анна Петрова', signer_role: 'владелец', materials: ['logo', 'photos'], surfaces: ['showcases'],
+    key: KEY, signer_name: 'Анна Петрова', signer_role: 'владелец', text: consentDocument(LAGUNA),
     authority: true, pd_consent: true,
   };
 
-  it('без согласия на ПД, без полномочий, без объёма — 400, записи нет', async () => {
-    for (const bad of [{ ...good, pd_consent: false }, { ...good, authority: false }, { ...good, materials: [] }, { ...good, signer_name: '1' }]) {
+  it('без согласия на ПД, без полномочий, без текста, без имени — 400, записи нет', async () => {
+    const { text: _omit, ...noText } = good;
+    void _omit;
+    for (const bad of [{ ...good, pd_consent: false }, { ...good, authority: false }, noText, { ...good, signer_name: '1' }]) {
       const res = await submitConsent(jsonReq('http://x/api/partner-consent', bad));
       expect(res.status).toBe(400);
     }
     expect(grantMock).not.toHaveBeenCalled();
   });
 
-  it('удачно — запись с нормализованным объёмом и согласием подписанта своей версии', async () => {
+  it('удачно — текст страницы уходит на сверку, согласие подписанта своей версии', async () => {
     grantMock.mockResolvedValue({ ok: true, grantedOn: '2026-10-23', partnerName: 'Лагуна Прокат' });
     const res = await submitConsent(jsonReq('http://x/api/partner-consent', good));
     expect(res.status).toBe(200);
-    const arg = grantMock.mock.calls[0]![0] as { materials: string[]; surfaces: string[]; signerName: string; pd: { version: string; ip: string; source: string } };
-    expect(arg.materials).toEqual(['photos', 'logo']);
-    expect(arg.surfaces).toEqual(['own_page', 'showcases']);
+    const arg = grantMock.mock.calls[0]![0] as { shownText: string; signerName: string; pd: { version: string; ip: string; source: string } };
+    expect(arg.shownText).toBe(consentDocument(LAGUNA));
     expect(arg.signerName).toBe('Анна Петрова');
     expect(arg.pd.version).toBe('2026-10-23-partner-signer');
     expect(arg.pd.source).toBe('partner-consent-page');
+  });
+
+  it('текст разошёлся с серверным — 409 «обновите страницу»', async () => {
+    grantMock.mockResolvedValueOnce({ ok: false, reason: 'text_changed' });
+    const res = await submitConsent(jsonReq('http://x/api/partner-consent', good));
+    expect(res.status).toBe(409);
+    expect((await res.json() as { error: string }).error).toMatch(/Обновите страницу/);
   });
 
   it('ссылка устарела или использована — 410 словами; не найдена — 404; отказ базы — 503', async () => {
@@ -207,7 +241,7 @@ describe('страница /partner-consent: форма', () => {
     expect(screen.queryByRole('button', { name: /Подписать/ })).toBeNull();
   });
 
-  it('с ключом — партнёр и текст; кнопка неактивна с причиной; в запрос уходит состояние галочек', async () => {
+  it('с ключом — партнёр и текст без галочек объёма; кнопка неактивна, выглядит неактивной и связана с причиной; в запрос уходят состояние галочек и показанный текст', async () => {
     window.location.hash = `#${KEY}`;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/partner-consent/invite') {
@@ -219,10 +253,15 @@ describe('страница /partner-consent: форма', () => {
     render(<PartnerConsentForm />);
     expect(await screen.findByRole('heading', { name: 'Лагуна Прокат' })).toBeTruthy();
     expect(screen.getByText(/разрешает Ведару \(vedarai\.ru\)/)).toBeTruthy();
+    // Галочек объёма нет: их нечем исполнить. Галочки две — полномочия и ПД.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+    expect(screen.queryByText(/Где Ведар может их показывать/)).toBeNull();
 
     const button = screen.getByRole('button', { name: 'Подписать согласие' }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(screen.getByText(/Чтобы подписать, осталось:/).textContent).toMatch(/согласие на обработку имени и должности/);
+    expect(button.className).toMatch(/disabled:opacity-50/);
+    const why = document.getElementById(button.getAttribute('aria-describedby') ?? '');
+    expect(why?.textContent).toMatch(/Чтобы подписать, осталось:.*согласие на обработку имени и должности/);
 
     fireEvent.change(screen.getByLabelText('Имя и фамилия'), { target: { value: 'Анна Петрова' } });
     fireEvent.change(screen.getByLabelText('Должность или кем вы приходитесь партнёру'), { target: { value: 'владелец' } });
@@ -232,13 +271,17 @@ describe('страница /partner-consent: форма', () => {
     fireEvent.click(button);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const sent = JSON.parse(String((fetchMock.mock.calls[1]![1] as RequestInit).body)) as Record<string, unknown>;
-    expect(sent).toMatchObject({ key: KEY, authority: true, pd_consent: true, signer_name: 'Анна Петрова' });
-    expect(await screen.findByText(/согласие записано/)).toBeTruthy();
+    expect(sent).toMatchObject({ key: KEY, authority: true, pd_consent: true, signer_name: 'Анна Петрова', text: consentDocument(LAGUNA) });
+    expect(sent).not.toHaveProperty('materials');
+    expect(sent).not.toHaveProperty('surfaces');
+    const done = await screen.findByRole('status');
+    expect(done.textContent).toMatch(/согласие записано 23\.10\.2026/);
+    expect(done.textContent).not.toMatch(/выбранных/);
   });
 });
 
-describe('строка «с согласия партнёра» — только на его странице и только при записи', () => {
-  const consent = { grantedOn: '2026-10-23', materials: ['photos', 'logo'] as const, surfaces: ['own_page'] as const, sites: ['https://лагунапрокат.рф/'] };
+describe('строка «партнёр разрешил» — только на его странице и только при записи', () => {
+  const consent = { grantedOn: '2026-10-23', sites: ['https://лагунапрокат.рф/'] };
   const CARRIER: CarrierProfile = {
     partnerId: 'p-1', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, logo: null,
     description: null, verified: false, vehicles: [], seatClasses: [], destinations: [], extraDay: null, rates: [],
@@ -250,10 +293,10 @@ describe('строка «с согласия партнёра» — только
     partnerId: 'p-1', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, logo: null, photos: [], offers: [],
     phone: null, telegramHref: null, description: null, verified: false, legal: null, terms: null, alsoCarrier: false,
   };
-  const LINE = 'Фотографии и логотип — с сайта лагунапрокат.рф, с согласия партнёра от 23.10.2026.';
+  const LINE = 'Партнёр разрешил Ведару показывать материалы своего сайта лагунапрокат.рф: согласие от 23.10.2026.';
 
   it('страница перевозчика: строка в блоке «Перевозчик» при записи; без записи — нет', () => {
-    const a = render(<CarrierPage data={{ ...DATA, carrier: { ...CARRIER, materialsConsent: { ...consent, materials: [...consent.materials], surfaces: [...consent.surfaces] } } }} />);
+    const a = render(<CarrierPage data={{ ...DATA, carrier: { ...CARRIER, materialsConsent: consent } }} />);
     const line = screen.getByTestId('materials-consent');
     expect(line.textContent).toBe(LINE);
     expect(line.closest('[aria-labelledby="carrier-who"]')).not.toBeNull();
@@ -263,7 +306,7 @@ describe('строка «с согласия партнёра» — только
   });
 
   it('страница прокатчика: то же в блоке «Прокатчик»', () => {
-    const a = render(<RentalCompanyPage data={{ company: { ...COMPANY, materialsConsent: { ...consent, materials: [...consent.materials], surfaces: [...consent.surfaces] } } }} />);
+    const a = render(<RentalCompanyPage data={{ company: { ...COMPANY, materialsConsent: consent } }} />);
     const line = screen.getByTestId('materials-consent');
     expect(line.textContent).toBe(LINE);
     expect(line.closest('[aria-labelledby="rental-who"]')).not.toBeNull();
@@ -274,10 +317,10 @@ describe('строка «с согласия партнёра» — только
 
   it('карточки общих витрин строки не несут никогда', () => {
     const a = render(<CharterCard carrier={CARRIER} />);
-    expect(a.container.textContent).not.toMatch(/с согласия партнёра/);
+    expect(a.container.textContent).not.toMatch(/разрешил Ведару|согласие от/);
     a.unmount();
     const b = render(<RentalCompanyCard company={COMPANY} />);
-    expect(b.container.textContent).not.toMatch(/с согласия партнёра/);
+    expect(b.container.textContent).not.toMatch(/разрешил Ведару|согласие от/);
   });
 });
 
@@ -313,5 +356,63 @@ describe('админский роут согласия', () => {
     revokeMock.mockResolvedValueOnce({ ok: true, revoked: 1 });
     expect((await adminPatch(jsonReq('http://x', { reason: 'Написал в MAX 25.10: снять фото' }, 'PATCH'), ctx)).status).toBe(200);
     expect(revokeMock).toHaveBeenLastCalledWith(PARTNER_ID, 'Написал в MAX 25.10: снять фото');
+  });
+});
+
+describe('панель согласия в админке — рендером во всех исходах', () => {
+  const base = {
+    id: '1', grantedOn: '2026-10-23', textVersion: '2026-10-23', signedText: consentDocument(LAGUNA),
+    sites: ['https://лагунапрокат.рф/'], signerName: 'Анна Петрова', signerRole: 'владелец',
+    revokedAt: null, revokedOn: null, revokeReason: null,
+  };
+  const serve = (data: unknown, ok = true) => vi.stubGlobal('fetch', vi.fn(async () =>
+    new Response(JSON.stringify(ok ? { success: true, data } : { success: false, error: 'Не смогли прочитать согласия партнёра — сбой базы. Это не значит, что согласия нет.' }),
+      { status: ok ? 200 : 503 })));
+
+  it('действует: кто подписал, сайты и сам текст; отозвать можно', async () => {
+    serve({ consents: [base], invite: { issuedOn: '2026-10-23', expiresOn: '2026-11-22', state: 'used' } });
+    render(<PartnerMaterialsConsentPanel partnerId={PARTNER_ID} />);
+    expect((await screen.findByTestId('consent-badge')).textContent).toBe('действует с 23.10.2026');
+    const box = screen.getByTestId('consent-active');
+    expect(box.textContent).toMatch(/Анна Петрова, владелец/);
+    expect(box.textContent).toMatch(/лагунапрокат\.рф/);
+    expect(box.textContent).toContain('«Лагуна Прокат» разрешает Ведару');
+    expect(screen.getByRole('button', { name: /Отозвать/ })).toBeTruthy();
+  });
+
+  it('отозвано: дата и чьи слова, и что сделать — снять материалы; звать подписать снова не предлагает', async () => {
+    serve({
+      consents: [{ ...base, revokedAt: '2026-10-25 01:00:00+00', revokedOn: '2026-10-25', revokeReason: 'Написал в MAX 25.10: снять фото' }],
+      invite: null,
+    });
+    render(<PartnerMaterialsConsentPanel partnerId={PARTNER_ID} />);
+    expect((await screen.findByTestId('consent-badge')).textContent).toBe('отозвано 25.10.2026');
+    const box = screen.getByTestId('consent-revoked');
+    expect(box.textContent).toMatch(/отозвано 25\.10\.2026: Написал в MAX 25\.10: снять фото/);
+    expect(box.textContent).toMatch(/Снимите с показа материалы, взятые с сайта партнёра/);
+    expect(screen.queryByText(/пошлите ему ссылку/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Отозвать/ })).toBeNull();
+  });
+
+  it('не было: прямо так и сказано', async () => {
+    serve({ consents: [], invite: null });
+    render(<PartnerMaterialsConsentPanel partnerId={PARTNER_ID} />);
+    expect((await screen.findByTestId('consent-badge')).textContent).toBe('не было');
+    expect(screen.getByTestId('consent-never').textContent).toMatch(/Согласие не записано/);
+  });
+
+  it('просроченная ссылка — «истекла», а не «действует до»', async () => {
+    serve({ consents: [], invite: { issuedOn: '2026-09-01', expiresOn: '2026-10-01', state: 'expired' } });
+    render(<PartnerMaterialsConsentPanel partnerId={PARTNER_ID} />);
+    const line = await screen.findByTestId('consent-invite');
+    expect(line.textContent).toMatch(/истекла 01\.10\.2026/);
+    expect(line.textContent).not.toMatch(/действует до/);
+  });
+
+  it('сбой чтения — словами, без значка «не было»', async () => {
+    serve(null, false);
+    render(<PartnerMaterialsConsentPanel partnerId={PARTNER_ID} />);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/не значит, что согласия нет/);
+    expect(screen.queryByTestId('consent-badge')).toBeNull();
   });
 });

@@ -6,10 +6,12 @@
  * аккаунта, доказательство — ключ одноразовой ссылки от менеджера Ведара.
  * Без ключа писать некуда.
  *
- * Обязательны: объём (виды материалов; своя страница входит всегда),
- * подтверждение полномочий и согласие подписанта на обработку его имени и
- * должности (purpose 'partner-signer') — оно пишется той же вставкой, что и
- * согласие партнёра. Отказ базы — 503 с SQLSTATE в логе, а не «записано».
+ * Обязательны: текст, который показала страница (сервер собирает свой и
+ * сверяет — разошлись, 409 и подписи нет), подтверждение полномочий и
+ * согласие подписанта на обработку его имени и должности (purpose
+ * 'partner-signer') — оно пишется той же вставкой, что и согласие партнёра.
+ * Выбора объёма нет: он один и назван в тексте (ревью 23.10). Отказ базы —
+ * 503 с SQLSTATE в логе, а не «записано».
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,8 +20,8 @@ import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { grantMaterialsConsent } from '@/lib/partners/material-consent';
 import {
-  PARTNER_CONSENT_SOURCE, consentInviteProblemText, isConsentKeyShape, normalizeMaterials, normalizeSignerName,
-  normalizeSignerRole, normalizeSurfaces,
+  CONSENT_TEXT_MAX, PARTNER_CONSENT_SOURCE, grantProblemText, isConsentKeyShape, normalizeSignerName,
+  normalizeSignerRole,
 } from '@/lib/partners/material-consent-rules';
 import { logText } from '@/lib/log/log-text';
 
@@ -31,8 +33,7 @@ const Body = z.object({
   key: z.string().refine(isConsentKeyShape, 'Ссылка не распознана — откройте её из сообщения целиком'),
   signer_name: z.string().max(200),
   signer_role: z.string().max(200),
-  materials: z.array(z.string()).max(10),
-  surfaces: z.array(z.string()).max(10),
+  text: z.string().max(CONSENT_TEXT_MAX),
   authority: z.boolean(),
   pd_consent: z.boolean(),
 });
@@ -53,18 +54,15 @@ export async function POST(req: NextRequest) {
   if (!signerName) return fail(400, 'Укажите имя и фамилию буквами — от 2 до 120 знаков.');
   const signerRole = normalizeSignerRole(b.signer_role);
   if (!signerRole) return fail(400, 'Укажите должность или кем вы приходитесь партнёру — от 2 до 120 знаков.');
-  const materials = normalizeMaterials(b.materials);
-  if (!materials) return fail(400, 'Отметьте хотя бы один вид материалов.');
-  const surfaces = normalizeSurfaces(b.surfaces);
-  if (!surfaces) return fail(400, 'Не распознали, где показывать материалы. Обновите страницу.');
   if (b.authority !== true) return fail(400, 'Подтвердите, что вправе дать согласие от имени партнёра.');
   const pd = buildConsentRecord(b.pd_consent, ip, PARTNER_CONSENT_SOURCE, 'partner-signer');
   if (!pd) return fail(400, 'Нужно согласие на обработку имени и должности — без него согласие партнёра не записать.');
 
   try {
-    const res = await grantMaterialsConsent({ key: b.key, signerName, signerRole, materials, surfaces, pd });
+    const res = await grantMaterialsConsent({ key: b.key, signerName, signerRole, shownText: b.text, pd });
     if (!res.ok) {
-      return fail(res.reason === 'unknown' ? 404 : 410, consentInviteProblemText(res.reason));
+      const status = res.reason === 'unknown' ? 404 : res.reason === 'text_changed' ? 409 : 410;
+      return fail(status, grantProblemText(res.reason));
     }
     return NextResponse.json({ success: true, data: { granted_on: res.grantedOn, partner_name: res.partnerName } });
   } catch (err) {

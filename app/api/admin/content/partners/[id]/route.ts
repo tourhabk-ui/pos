@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
-import { adminContactView } from '@/lib/partners/admin-contact';
+import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -145,6 +145,20 @@ export async function PUT(
       );
     }
 
+    // Сайт пишется, только если администратор его поменял (ревью 23.10):
+    // сравнение — с тем, что форма показала при открытии, по текущей строке.
+    const currentRes = await query<{ contact: unknown; contacts: unknown; website: string | null }>(
+      'SELECT contact, contacts, website FROM partners WHERE id = $1',
+      [id],
+    );
+    if (currentRes.rows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Партнёр не найден' },
+        { status: 404 }
+      );
+    }
+    const site = websiteWrite(currentRes.rows[0], contact.website);
+
     // Build dynamic SET clause
     const setClauses: string[] = [];
     const values: unknown[] = [];
@@ -159,20 +173,23 @@ export async function PUT(
     setClauses.push(`logo_image = $${idx}`); values.push(logoImage || null); idx++;
     setClauses.push(`location = $${idx}`); values.push(JSON.stringify(location)); idx++;
     setClauses.push(`contact = $${idx}`); values.push(JSON.stringify(contact)); idx++;
-    // Сайт из формы — во все три места хранения (владелец 23.10, «почему сайт
-    // не заполнен»): витрина читает contacts.website, аудит сайта и скрейпер —
-    // колонку website (692). Иначе сайт, поправленный в админке, не доходил ни
-    // до кнопки «Сайт оператора», ни до проверки сайта. Пустое поле — снимает
-    // сайт везде: форма показывает объединённое значение (lib/partners/admin-contact).
-    const website = typeof contact.website === 'string' ? contact.website.trim() : '';
-    setClauses.push(`website = $${idx}`); values.push(website || null); idx++;
-    setClauses.push(
-      `contacts = CASE WHEN $${idx}::text IS NULL
-         THEN (CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END) - 'website'
-         ELSE jsonb_set(CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END, '{website}', to_jsonb($${idx}::text))
-       END`,
-    );
-    values.push(website || null); idx++;
+    // Поменянный сайт — во все три места хранения (владелец 23.10, «почему
+    // сайт не заполнен»): витрина читает contacts.website, аудит сайта и
+    // скрейпер — колонку website (692). Пустое поле снимает сайт везде.
+    // Непустой массив в contacts не трогается (люди «Камчатской рыбалки»,
+    // 840–844) — так же, как у app/api/admin/operators/[id]/contacts.
+    if (site.changed) {
+      setClauses.push(`website = $${idx}`); values.push(site.value); idx++;
+      setClauses.push(
+        `contacts = CASE
+           WHEN jsonb_typeof(contacts) = 'array' AND contacts <> '[]'::jsonb THEN contacts
+           WHEN $${idx}::text IS NULL
+             THEN (CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END) - 'website'
+           ELSE jsonb_set(CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END, '{website}', to_jsonb($${idx}::text))
+         END`,
+      );
+      values.push(site.value); idx++;
+    }
     if (isVerified !== undefined) { setClauses.push(`is_verified = $${idx}`); values.push(isVerified); idx++; }
     if (isPublic !== undefined) { setClauses.push(`is_public = $${idx}`); values.push(isPublic); idx++; }
 
