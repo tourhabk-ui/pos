@@ -1,18 +1,27 @@
 {
-  "timeout": 30,
-  "run": 990,
-  "note": "22.10. ТОЛЬКО ЧТЕНИЕ. DNS перед переносом fishingkam.ru на приложение Ведара: какие A/NS/MX стоят у домена сейчас (REG.RU) и на какой адрес смотрит vedarai.ru — то есть что владельцу менять на REG.RU и что не трогать (почта).",
+  "timeout": 60,
+  "run": 991,
+  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. После влития #2703 (партнёр сайта по id, а не по slug): предпросмотр сайта «Камчатской рыбалки» на vedarai.ru/partner-site/fishingkam — страница из базы, закрыта от поисковиков, canonical на https://fishingkam.ru/; его robots.txt и sitemap.xml.",
   "urls": [
-    "https://dns.google/resolve?name=vedarai.ru&type=A",
-    "https://dns.google/resolve?name=fishingkam.ru&type=A",
-    "https://dns.google/resolve?name=www.fishingkam.ru&type=A",
-    "https://dns.google/resolve?name=fishingkam.ru&type=NS",
-    "https://dns.google/resolve?name=fishingkam.ru&type=MX",
-    "https://dns.google/resolve?name=fishingkam.ru&type=TXT"
+    "https://vedarai.ru/partner-site/fishingkam",
+    "https://vedarai.ru/partner-site/fishingkam/robots.txt",
+    "https://vedarai.ru/partner-site/fishingkam/sitemap.xml"
   ],
+  "until": "fishingkam.ru",
+  "retries": 20,
+  "retryDelay": 60,
   "text": true,
-  "bytes": 1500,
+  "bytes": 8000,
   "grep": [
-    "\"Status\":0"
+    "noindex",
+    "<link rel=\"canonical\" href=\"https://fishingkam.ru/\"",
+    "Туры и цены",
+    "ООО «Камчатская рыбалка»",
+    "Оплатить",
+    "Сайт работает на платформе",
+    "application/ld+json",
+    "manifest.json",
+    "Цена по запросу",
+    "Сайт Ведар"
   ]
 }
