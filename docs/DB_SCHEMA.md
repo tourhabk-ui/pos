@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-23 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1321_partner_material_consents.sql`.
+> Снято 2026-10-23 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1322_editor_no_write_rest.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 287 |
+| Таблиц | 288 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3823 |
+| Колонок | 3830 |
 | Внешних ключей | 337 |
-| Таблиц без единого FK в обе стороны | 84 |
+| Таблиц без единого FK в обе стороны | 85 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 26 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
+| [Прочее](#прочее) | 27 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -1428,6 +1428,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **content_translations** · 12 кол. · PK id · reviewed_by → users.id · индексов 3
 
 `id bigint!=` `entity_type varchar!` `entity_id text!` `field varchar!` `lang varchar!` `source_hash character!` `text text!` `back_translation text` `model varchar!` `translated_at timestamptz!=` `reviewed_by uuid` `reviewed_at timestamptz`
+
+**editor_no_write** · 7 кол. · PK entity_id · индексов 2
+
+`entity_id uuid!` `entity_kind text!` `outcome text!` `reason text!` `attempted_by text!` `facts_count integer!=` `attempted_at timestamptz!=`
 
 **model_catalog** · 9 кол. · PK model_id · индексов 3
 
