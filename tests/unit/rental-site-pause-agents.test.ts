@@ -37,7 +37,7 @@ import type { ToolRun } from '@/lib/agents/eval/grounding';
 import type { RentalCompany } from '@/lib/rental/rental-format';
 
 const DURING = new Date('2026-10-23T00:00:00Z');
-const AFTER = new Date('2026-10-25T12:00:00Z');
+const AFTER = new Date('2026-10-26T12:00:00Z');
 
 const LAGUNA: RentalCompany = {
   partnerId: 'p-lp', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, logo: null, photos: [],
@@ -80,13 +80,13 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('чат Кузьмича — люди на сайте: в паузу прайса «Лагуны» нет', () => {
-  it('цикл чата: инструмент отвечает «вернётся в понедельник», без машин, цен и адреса прокатчика', async () => {
+  it('цикл чата: инструмент отвечает «вернётся во вторник», без машин, цен и адреса прокатчика', async () => {
     at(DURING);
     modelAsksRental();
     const runs: ToolRun[] = [];
     await aiChatAgentLoop('Сколько стоит джип напрокат?', 'Кузьмич', [], [], runs);
     const out = runs.find((r) => r.name === 'search_car_rental')?.output ?? '';
-    expect(out).toContain('вернётся в понедельник, 26 октября');
+    expect(out).toContain('вернётся во вторник, 27 октября');
     expect(out).toContain('не говори, что проката нет');
     expect(out).not.toMatch(/Suzuki Jimny|Лагуна|7000|car-rental\/laguna-prokat/);
   });
