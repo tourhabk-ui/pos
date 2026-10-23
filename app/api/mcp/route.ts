@@ -67,6 +67,7 @@ import { buildCharterLead, checkCharterDates, saveCharterLead } from '@/lib/tran
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
 import { rentalDays, rentalDedupPrefix } from '@/lib/rental/rental-request';
+import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
 import { buildRentalLead, checkRentalDates, saveRentalLead } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
 import { recordSourceEventQuietly } from '@/lib/crm/events';
@@ -553,6 +554,7 @@ const carRentalRequestArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
   test: z.boolean().optional(),
+  confirmation: z.string().trim().max(64, 'Код подтверждения длиннее 64 символов').optional(),
   consent: consentField,
 });
 
@@ -633,6 +635,31 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const TEST_MARK = 'ТЕСТ. ';
   if (isTest) { lead.sourceData.test = true; lead.comment = TEST_MARK + lead.comment; }
   refuseSilentLead(name, phone, lead.comment, lead.sourceData);
+
+  // Два шага: без кода — черновик человеку, заявка не создаётся. Согласие
+  // ставит человек, а не агент; код привязан к полям заявки.
+  const confirmFields: RentalConfirmFields = {
+    company: company.slug, car: offer.title, dateFrom, dateTo, name, phone,
+    pickup: parsed.data.pickup ?? '', comment: parsed.data.comment ?? '', test: isTest,
+  };
+  const draft = `${isTest ? 'Пробная заявка (тест, прокатчику не передаётся)' : 'Заявка'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.)`
+    + `${parsed.data.pickup ? `, где забрать: ${parsed.data.pickup}` : ''}; имя: ${name}, телефон: ${phone}.`;
+  const askHuman = 'Покажи это человеку и прямо спроси: «Согласны ли вы на обработку имени и телефона и их передачу прокатчику и отправить заявку?» '
+    + 'Только после явного «да» самого человека повтори вызов с теми же полями, consent: true и confirmation';
+  if (!parsed.data.confirmation) {
+    const code = issueRentalConfirmation(confirmFields);
+    if (!code) throw new McpUserError('Подтверждение заявок временно недоступно — заявка не создана, повторите позже.', 'confirm_unavailable');
+    return `Черновик, заявка ещё НЕ создана. ${draft} ${askHuman}: "${code}" (код действует ${RENTAL_CONFIRM_TTL_MIN} мин). Не ставь consent: true сам и не придумывай имя и телефон.`;
+  }
+  const check = checkRentalConfirmation(parsed.data.confirmation, confirmFields);
+  if (check === 'unavailable') throw new McpUserError('Подтверждение заявок временно недоступно — заявка не создана, повторите позже.', 'confirm_unavailable');
+  if (check !== 'ok') {
+    const code = issueRentalConfirmation(confirmFields);
+    return `Код подтверждения ${check === 'expired' ? 'истёк' : 'не подходит к этим данным (поля изменились)'} — заявка не создана. Новый черновик: ${draft} ${askHuman}: "${code}".`;
+  }
+  if (parsed.data.consent !== true) {
+    return `Без согласия человека заявка не создаётся. ${draft} ${askHuman}: "${parsed.data.confirmation}".`;
+  }
 
   // Телефон уходит прокатчику — согласие текстом, который его и называет.
   const pd_consent = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental');

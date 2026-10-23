@@ -114,7 +114,7 @@ export const STAY_REQUEST_TOOL = {
  */
 export const CAR_RENTAL_REQUEST_TOOL = {
   name: 'create_car_rental_request',
-  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Имя и телефон — персональные данные, и они уходят прокатчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит.',
+  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Два шага. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код confirmation. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона и их передачу прокатчику и на отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит, шаги те же.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -127,7 +127,8 @@ export const CAR_RENTAL_REQUEST_TOOL = {
       phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
       comment: { type: 'string', description: 'Пожелания: детское кресло, возврат в другом месте и т.п.' },
       test: { type: 'boolean', description: 'true — пробная заявка (проверка, демонстрация): помечается, прокатчику не уходит' },
-      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
+      confirmation: { type: 'string', description: 'Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. На шаге 1 — false. true — только когда человек сам ответил «да» на вопрос о согласии; агент не ставит true за человека.' },
     },
     required: ['car', 'date_from', 'date_to', 'name', 'phone', 'consent'],
   },
@@ -271,7 +272,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter.' },
   create_booking_request: { title: 'Booking request',      lead: 'Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead.' },
   create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Needs consent: true, otherwise refused. For tours use create_booking_request.' },
-  create_car_rental_request: { title: 'Car rental request', lead: 'Self-drive car rental request to a Kamchatka rental company: car, dates, pickup; a manager confirms, not a booking, no payment. Needs consent: true; trial run: test: true.' },
+  create_car_rental_request: { title: 'Car rental request', lead: 'Two-step Kamchatka self-drive car rental request: step 1 returns a draft and confirmation code; step 2 only after the person explicitly agrees. Never set consent yourself.' },
   request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers.' },
   // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
   // зовёт только их); форма ответа — по документации OpenAI.
@@ -404,7 +405,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     phone: { lead: 'Contact phone, required.' },
     comment: { lead: 'Wishes: child seat, drop-off elsewhere, etc.' },
     test: { lead: 'true for a trial or demo request: marked as test and not sent to the rental company.', example: false },
-    consent: { lead: 'Explicit consent to process name and phone and pass them to the rental company; ask the person and pass true, otherwise the request is not created.', example: true },
+    confirmation: { lead: 'Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created.' },
+    consent: { lead: 'false on step 1. true only after the person themselves said yes to passing name and phone to the rental company; never set it on their behalf.', example: false },
   },
   request_charter: {
     destination: { lead: 'Where to go: a word from the carrier price list or your own destination.', example: 'Горелый' },
