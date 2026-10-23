@@ -47,6 +47,8 @@ const m = vi.hoisted(() => ({
   loginReject: vi.fn(),
   partnerStart: vi.fn(),
   memberStart: vi.fn(),
+  adminStart: vi.fn(),
+  findAdmin: vi.fn(),
   bindTourist: vi.fn(),
   seatMine: vi.fn(),
   seatAnswer: vi.fn(),
@@ -76,6 +78,8 @@ vi.mock('@/lib/auth/max-login', () => ({
 }));
 vi.mock('@/lib/partners/bind-channel', () => ({ handlePartnerStart: m.partnerStart }));
 vi.mock('@/lib/operators/member-channel', () => ({ handleMemberStart: m.memberStart }));
+// MAX администратора (23.10): ссылка `adm_` и опознание на каждом сообщении.
+vi.mock('@/lib/max/admin-link', () => ({ handleAdminStart: m.adminStart, findMaxAdmin: m.findAdmin }));
 vi.mock('@/lib/seat-requests/service', () => ({
   bindTouristChat: m.bindTourist, requestBelongsToMaxChat: m.seatMine, answerSeatRequest: m.seatAnswer,
 }));
@@ -134,7 +138,7 @@ const repliesTo = (chatId: number) =>
 const ACTION_HANDLERS = [
   m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal,
   m.login, m.loginConfirm, m.loginReject,
-  m.partnerStart, m.memberStart, m.bindTourist, m.createLead, m.partnerMessage,
+  m.partnerStart, m.memberStart, m.adminStart, m.findAdmin, m.bindTourist, m.createLead, m.partnerMessage,
 ];
 
 function expectNothingChanged(): void {
@@ -161,6 +165,8 @@ beforeEach(() => {
   m.loginReject.mockResolvedValue(true);
   m.partnerStart.mockResolvedValue(true);
   m.memberStart.mockResolvedValue(true);
+  m.adminStart.mockImplementation(async (arg: string) => arg.startsWith('adm_'));
+  m.findAdmin.mockResolvedValue({ outcome: 'none' });
   m.bindTourist.mockResolvedValue({ ok: true, notified: false });
   m.createLead.mockResolvedValue('lead-id-1');
   vi.stubEnv('MAX_BOT_TOKEN', 'test-token');
@@ -323,11 +329,12 @@ describe('ключ задан: запрос без него не обрабат�
 
 // ── Ссылки старта ───────────────────────────────────────────────────────────
 
-const STARTS: Array<{ payload: string; kind: 'login' | 'link'; applied: () => unknown }> = [
+const STARTS: Array<{ payload: string; kind: 'login' | 'link' | 'admin'; applied: () => unknown }> = [
   { payload: 'login-abcdefgh12345678', kind: 'login', applied: () => expect(m.login).toHaveBeenCalledTimes(1) },
   { payload: `sr_${'a'.repeat(32)}`, kind: 'link', applied: () => expect(m.bindTourist).toHaveBeenCalledWith('a'.repeat(32), 'max', 77) },
   { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function)) },
   { payload: 'om_signed-token', kind: 'link', applied: () => expect(m.memberStart).toHaveBeenCalledWith('om_signed-token', 'max', 77, expect.any(Function)) },
+  { payload: `adm_${'b'.repeat(32)}`, kind: 'admin', applied: () => expect(m.adminStart).toHaveBeenCalledWith(`adm_${'b'.repeat(32)}`, 77, expect.any(Function)) },
 ];
 
 describe('ссылки старта: вход и подключение чата — только из заверенного апдейта', () => {

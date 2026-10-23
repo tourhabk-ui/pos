@@ -196,4 +196,246 @@ withPg('вход через MAX подтверждается вопросом в
     );
     expect(rows[0].max_user_id).toBeNull();
   });
+
+  // ── Администратор в MAX (слово владельца 23.10, «1а») ─────────────────────
+  //
+  // Ссылку выдаёт себе сам администратор (POST /api/admin/max-link), «Старт»
+  // по ней привязывает человека MAX; права перечитываются на каждом
+  // сообщении. Всё — против схемы прода: настоящая выдача, погашение,
+  // привязка, ответы с ПД через sendPdAlert в его же MAX.
+  describe('администратор в MAX — одноразовая ссылка из админки (23.10)', () => {
+    const ADMIN_MAX = 720_001;
+    const OTHER_MAX = 720_002;
+    let adminId = '';
+    let adminToken = '';
+
+    async function issueLink(): Promise<{ status: number; link?: string }> {
+      const { POST } = await import('@/app/api/admin/max-link/route');
+      const res = await POST(new NextRequest('https://vedarai.ru/api/admin/max-link', {
+        method: 'POST', headers: { authorization: `Bearer ${adminToken}` },
+      }));
+      const body = (await res.json()) as { data?: { link?: string } };
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      return { status: res.status, link: body.data?.link };
+    }
+
+    const startArg = (link: string): string => new URL(link).searchParams.get('start') ?? '';
+
+    const startWith = (payload: string, userId: number, verified = true) => bot({
+      update_type: 'bot_started', timestamp: Date.now(), chat_id: userId + 5,
+      user: { user_id: userId, name: 'Админ' }, payload,
+    }, verified);
+
+    const say = (text: string, userId: number) => bot({
+      update_type: 'message_created', timestamp: Date.now(),
+      message: {
+        sender: { user_id: userId, name: 'Админ' },
+        recipient: { chat_id: userId + 5, chat_type: 'dialog' },
+        body: { mid: `m-${text.length}`, seq: 1, text },
+      },
+    });
+
+    async function binding(): Promise<{ max_user_id: string } | undefined> {
+      const { rows } = await pool.query<{ max_user_id: string }>(
+        'SELECT max_user_id::text FROM admin_max_bindings WHERE user_id = $1', [adminId],
+      );
+      return rows[0];
+    }
+
+    const setAdmin = (on: boolean) => pool.query(
+      `UPDATE users SET role = $2,
+              preferences = jsonb_build_object('roles', CASE WHEN $3 THEN '["tourist","admin"]'::jsonb ELSE '["tourist"]'::jsonb END)
+        WHERE id = $1`,
+      [adminId, on ? 'admin' : 'tourist', on],
+    );
+
+    beforeAll(async () => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role, preferences)
+         VALUES ('max-admin@test.invalid', 'Админ Тест', 'x', 'admin', '{"roles":["tourist","admin"]}')
+         RETURNING id::text AS id`,
+      );
+      adminId = rows[0].id;
+      const { createToken } = await import('@/lib/auth/jwt');
+      adminToken = await createToken({ userId: adminId, email: 'max-admin@test.invalid', role: 'admin' });
+    });
+
+    beforeEach(async () => {
+      await setAdmin(true);
+      // Снятие роли отзывает сессии — каждая проверка начинает с живой.
+      await pool.query('DELETE FROM user_sessions WHERE user_id = $1', [adminId]);
+      await pool.query(
+        `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+        [adminId, adminToken],
+      );
+      await pool.query('DELETE FROM admin_max_bindings');
+      await pool.query('DELETE FROM admin_max_link_tokens');
+    });
+
+    it('ссылка → «Старт» → привязан человек MAX, чат знает администратора; ключ в базе — только хеш', async () => {
+      const issued = await issueLink();
+      expect(issued.status).toBe(200);
+      const arg = startArg(issued.link!);
+      expect(arg).toMatch(/^adm_[A-Za-z0-9_-]{32}$/);
+      const { rows: stored } = await pool.query<{ token_hash: string }>('SELECT token_hash FROM admin_max_link_tokens');
+      expect(stored).toHaveLength(1);
+      expect(stored[0].token_hash).not.toContain(arg.slice(4));
+
+      await startWith(arg, ADMIN_MAX);
+      expect(sent[sent.length - 1].text).toContain('подключён к Ведару как администратор');
+      expect(await binding()).toEqual({ max_user_id: String(ADMIN_MAX) });
+      // Состояние для админки — ISO 8601: текстовую форму PostgreSQL Safari не разбирает.
+      const { adminMaxStatus } = await import('@/lib/max/admin-link');
+      const status = await adminMaxStatus(adminId);
+      expect(status.bound).toBe(true);
+      expect(status.boundAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      sent.length = 0;
+      await startWith('', ADMIN_MAX);
+      expect(sent[0].text).toContain('Вы подключены как администратор Ведара, Админ Тест');
+      expect(sent[0].text).not.toContain('Я Кузьмич');
+    });
+
+    it('«заявки» с контактами туриста уходят только в личный MAX администратора, не в рабочий чат', async () => {
+      await pool.query(
+        `INSERT INTO leads (name, phone, route_title, status, created_at)
+         VALUES ('Турист Проверочный', '+70000000001', 'Вулкан Горелый', 'new', NOW() - INTERVAL '3 hours')`,
+      );
+      await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+      sent.length = 0;
+      await say('заявки', ADMIN_MAX);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].chatId).toBe(ADMIN_MAX + 5);
+      expect(sent[0].text).toContain('Заявки без ответа человека: 1');
+      expect(sent[0].text).toContain('Турист Проверочный, +70000000001');
+      expect(sent[0].text).toContain('больше двух часов');
+      await pool.query(`DELETE FROM leads WHERE phone = '+70000000001'`);
+    });
+
+    it('чтение против схемы прода: ни одна команда не отвечает «не прочиталось»', async () => {
+      await pool.query(
+        `INSERT INTO agent_run_history (agent_id, status, ended_at, metadata)
+         VALUES ('watchdog', 'success', NOW() - INTERVAL '10 minutes', '{"alerts":[{"type":"lead_stale"},{"type":"lead_stale"}]}')`,
+      );
+      const { adminReplyFor } = await import('@/lib/max/admin-read');
+      for (const cmd of ['dates', 'bookings', 'leads', 'summary', 'health'] as const) {
+        const reply = await adminReplyFor(cmd);
+        expect(reply.text, cmd).not.toMatch(/не прочитал|не собрал|не загрузилось/);
+      }
+      const health = await adminReplyFor('health');
+      expect(health.text).toContain('10 мин назад');
+      expect(health.text).toContain('тревог: 2 (lead_stale)');
+    });
+
+    it('ссылка одна: второе нажатие — «уже использована», привязка не переходит к нажавшему', async () => {
+      const arg = startArg((await issueLink()).link!);
+      await startWith(arg, ADMIN_MAX);
+      await startWith(arg, OTHER_MAX);
+      expect(sent[sent.length - 1].text).toContain('уже использована');
+      expect((await binding())?.max_user_id).toBe(String(ADMIN_MAX));
+    });
+
+    it('тот же человек нажал свою ссылку ещё раз — «уже подключён», без «подключали не вы»', async () => {
+      const arg = startArg((await issueLink()).link!);
+      await startWith(arg, ADMIN_MAX);
+      await startWith(arg, ADMIN_MAX);
+      const last = sent[sent.length - 1].text;
+      expect(last).toContain('Этот MAX уже подключён');
+      expect(last).not.toContain('подключали не вы');
+    });
+
+    it('«Отключить» снимает привязку и гасит выданную, но не нажатую ссылку', async () => {
+      await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+      const pending = startArg((await issueLink()).link!);
+      const { DELETE } = await import('@/app/api/admin/max-link/route');
+      const res = await DELETE(new NextRequest('https://vedarai.ru/api/admin/max-link', {
+        method: 'DELETE', headers: { authorization: `Bearer ${adminToken}` },
+      }));
+      expect(await res.json()).toEqual({ success: true, data: { unbound: true } });
+      expect(await binding()).toBeUndefined();
+      await startWith(pending, OTHER_MAX);
+      expect(sent[sent.length - 1].text).toContain('не найдена');
+      expect(await binding()).toBeUndefined();
+    });
+
+    it('снятие роли в админке отключает MAX и гасит выданные ссылки; вернут роль — подключать заново', async () => {
+      await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+      await issueLink();
+      const { applyAdminRoleChange } = await import('@/lib/auth/admin-role-change');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await applyAdminRoleChange(client, adminId, 'tourist', adminId);
+        await client.query('COMMIT');
+      } finally {
+        client.release();
+      }
+      expect(await binding()).toBeUndefined();
+      const { rows } = await pool.query('SELECT 1 FROM admin_max_link_tokens WHERE used_at IS NULL');
+      expect(rows).toHaveLength(0);
+      await setAdmin(true);
+      const { findMaxAdmin } = await import('@/lib/max/admin-link');
+      expect(await findMaxAdmin(ADMIN_MAX)).toEqual({ outcome: 'none' });
+    });
+
+    it('новая ссылка отзывает прежнюю, непогашенную', async () => {
+      const first = startArg((await issueLink()).link!);
+      await issueLink();
+      await startWith(first, ADMIN_MAX);
+      expect(sent[sent.length - 1].text).toContain('не найдена');
+      expect(await binding()).toBeUndefined();
+    });
+
+    it('просроченная ссылка — «устарела», ничего не привязано', async () => {
+      const arg = startArg((await issueLink()).link!);
+      await pool.query(`UPDATE admin_max_link_tokens SET expires_at = NOW() - INTERVAL '1 second'`);
+      await startWith(arg, ADMIN_MAX);
+      expect(sent[sent.length - 1].text).toContain('устарела');
+      expect(await binding()).toBeUndefined();
+    });
+
+    it('роль снята до «Старт» — подключения нет, ссылка погашена', async () => {
+      const arg = startArg((await issueLink()).link!);
+      await setAdmin(false);
+      await startWith(arg, ADMIN_MAX);
+      expect(sent[sent.length - 1].text).toContain('больше нет роли администратора');
+      expect(await binding()).toBeUndefined();
+      const { rows } = await pool.query<{ used: boolean }>('SELECT used_at IS NOT NULL AS used FROM admin_max_link_tokens');
+      expect(rows.map((r) => r.used)).toEqual([true]);
+    });
+
+    it('роль снята после подключения — следующий «Старт» встречает туриста, а не администратора', async () => {
+      await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+      await setAdmin(false);
+      sent.length = 0;
+      await startWith('', ADMIN_MAX);
+      expect(sent[0].text).toContain('Я Кузьмич');
+      expect(sent.map((x) => x.text).join('\n')).not.toContain('администратор');
+      const { findMaxAdmin } = await import('@/lib/max/admin-link');
+      expect(await findMaxAdmin(ADMIN_MAX)).toEqual({ outcome: 'none' });
+    });
+
+    it('снятому администратору новая ссылка не выдаётся', async () => {
+      await setAdmin(false);
+      const { issueAdminMaxLink } = await import('@/lib/max/admin-link');
+      expect(await issueAdminMaxLink(adminId)).toEqual({ ok: false, reason: 'not_admin' });
+      const { rows } = await pool.query('SELECT 1 FROM admin_max_link_tokens');
+      expect(rows).toHaveLength(0);
+    });
+
+    it('незаверенный апдейт со ссылкой ничего не привязывает и говорит это', async () => {
+      vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+      try {
+        const arg = startArg((await issueLink()).link!);
+        await startWith(arg, ADMIN_MAX, false);
+        const { UNVERIFIED_START_REPLY } = await import('@/lib/max/verified-press');
+        expect(sent[sent.length - 1].text).toBe(UNVERIFIED_START_REPLY.admin);
+        expect(await binding()).toBeUndefined();
+        const { rows } = await pool.query<{ used: boolean }>('SELECT used_at IS NOT NULL AS used FROM admin_max_link_tokens');
+        expect(rows.map((r) => r.used)).toEqual([false]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  });
 });

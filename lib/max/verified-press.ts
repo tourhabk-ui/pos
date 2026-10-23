@@ -75,7 +75,7 @@ export const MAX_LOGIN_TEXT = {
 } as const;
 
 /** Ссылка старта бота, по которой что-то меняется. */
-export type MaxStartAction = 'login' | 'link';
+export type MaxStartAction = 'login' | 'link' | 'admin';
 
 /** Действие текстом или вложением в чате. */
 export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
@@ -100,12 +100,14 @@ export function pressActionOf(payload: string): MaxPressAction | null {
 /**
  * Вид ссылки старта: `login-` — вход на сайт через MAX
  * (`lib/auth/max-login`); `sr_` — чат туриста к запросу мест, `op_` — чат
- * кабинета партнёра, `om_` — чат менеджера команды. Форму токена здесь не
- * проверяем: это делают сами разборщики и только по заверенному апдейту.
+ * кабинета партнёра, `om_` — чат менеджера команды, `adm_` — MAX
+ * администратора (`lib/max/admin-link`). Форму токена здесь не проверяем:
+ * это делают сами разборщики и только по заверенному апдейту.
  */
 export function startActionOf(payload: unknown): MaxStartAction | null {
   if (typeof payload !== 'string') return null;
   if (payload.startsWith('login-')) return 'login';
+  if (payload.startsWith('adm_')) return 'admin';
   if (payload.startsWith('sr_') || payload.startsWith('op_') || payload.startsWith('om_')) return 'link';
   return null;
 }
@@ -141,6 +143,8 @@ export const UNVERIFIED_START_REPLY: Record<MaxStartAction, string> = {
     + 'Войдите на сайте другим способом.',
   link: 'Подключение чата через MAX сейчас недоступно: бот не может проверить ссылку, и повтор не поможет. '
     + 'Напишите администратору платформы.',
+  admin: 'Подключение MAX администратора сейчас недоступно: бот не может проверить ссылку, и повтор не поможет. '
+    + 'Админка работает на сайте vedarai.ru.',
 };
 
 /** Ответ на незаверенное действие в чате (только без ключа). */

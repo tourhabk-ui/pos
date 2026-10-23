@@ -13,7 +13,7 @@
  * - назначение `admin` кладёт `admin` в собственные роли;
  * - любая другая роль убирает `admin` из собственных ролей, и если админ у
  *   человека был — его сессии отзываются (войти заново он сможет, админом —
- *   нет);
+ *   нет), а MAX администратора отключается вместе с выданными ссылками;
  * - смена пишется в audit_log (`role_change`: роль, прежняя роль, кто сменил,
  *   сколько сессий отозвано). Не записалась — смены нет: выдача админа без
  *   следа — ровно то, что перепись admin-owners-census не смогла бы отличить
@@ -73,6 +73,13 @@ export async function applyAdminRoleChange(
   if (ownedAdminBefore && role !== 'admin') {
     const revoked = await db.query(`DELETE FROM user_sessions WHERE user_id = $1`, [userId]);
     sessionsRevoked = revoked.rowCount ?? 0;
+    // MAX администратора (1324) — тоже дверь: вернут роль — подключат заново,
+    // а не получат молча прежний чат с контактами туристов.
+    await db.query(
+      `WITH links AS (DELETE FROM admin_max_link_tokens WHERE user_id = $1)
+       DELETE FROM admin_max_bindings WHERE user_id = $1`,
+      [userId],
+    );
   }
 
   await db.query(
