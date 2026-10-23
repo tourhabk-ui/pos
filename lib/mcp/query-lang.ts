@@ -150,7 +150,7 @@ export const LOCALIZABLE_FIELDS: readonly string[] = [
 /** Инструменты, чьи аргументы переводятся. Пишущие сюда не входят: там имя и телефон человека. */
 export const LOCALIZABLE_TOOLS: ReadonlySet<string> = new Set([
   'search', 'get_tours', 'get_tour_details', 'get_place_info', 'get_guardian_context', 'get_weather',
-  'get_volcano_status', 'search_accommodations', 'search_transfers', 'search_gear', 'make_trip_plan',
+  'get_volcano_status', 'search_accommodations', 'search_transfers', 'search_car_rental', 'search_gear', 'make_trip_plan',
   'get_tour_availability',
 ]);
 

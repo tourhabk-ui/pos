@@ -1558,6 +1558,10 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
   max_bot:             'MAX-бот',
   widget:              'Виджет партнёра',
   booking_intake_bot:  'AI-бронирование',
+  // Заявки на машину и прокат (13.10, 23.10): форма на странице партнёра или агент через MCP.
+  transfer_page:       'Страница перевозчика',
+  car_rental_page:     'Страница прокатчика',
+  mcp:                 'Агент через MCP',
 };
 
 const LEAD_INTEREST_LABELS: Record<string, string> = {

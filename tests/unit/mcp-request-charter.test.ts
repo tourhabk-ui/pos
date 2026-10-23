@@ -22,6 +22,9 @@ const createLeadMock = vi.hoisted(() => vi.fn(async () => 'lead-1'));
 const recentLeadMock = vi.hoisted(() => vi.fn(async () => null as string | null));
 const carriersMock = vi.hoisted(() => vi.fn());
 
+// Личная доставка перевозчику (23.10) после записи — свой сторож; здесь она не нужна.
+vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequestPersonally: vi.fn(async () => ({ state: 'no_channel' })) }));
+vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: vi.fn(async () => true) }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...(a as [])),
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...(a as [])),

@@ -10,6 +10,9 @@
  */
 
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
+import { logText } from '@/lib/log/log-text';
+import { notifyPartnerRequestPersonally } from '@/lib/notifications/partner-request-notify';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { isRealDate } from '@/lib/seat-requests/core';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
@@ -22,6 +25,7 @@ import {
   rentalSourceData,
   type RentalDoor,
   type RentalRequestFacts,
+  rentalRequestLines,
 } from '@/lib/rental/rental-request';
 
 /**
@@ -90,7 +94,7 @@ export interface SaveRentalLeadInput {
 export async function saveRentalLead(i: SaveRentalLeadInput): Promise<string | null> {
   const existing = await findRecentLeadByCommentPrefix(i.phone, rentalDedupPrefix(i.facts.company.name, i.facts.dateFrom));
   if (existing) return existing;
-  return createLead({
+  const leadId = await createLead({
     name: i.name,
     phone: i.phone,
     comment: i.lead.comment,
@@ -102,4 +106,25 @@ export async function saveRentalLead(i: SaveRentalLeadInput): Promise<string | n
     is_self: i.isSelf,
     skip_ai_processing: true,
   });
+  if (leadId && !i.isSelf) deliverToCompany(leadId, i);
+  return leadId;
+}
+
+/**
+ * Лично прокатчику — в его MAX или Telegram (23.10). Не ждём: ответ человеку
+ * не зависит от доставки партнёру. Исход пишется в журнал лида
+ * (`partner_notified`), отказ — в лог без ПД. Свой визит владельца (is_self)
+ * партнёра не будит.
+ */
+function deliverToCompany(leadId: string, i: SaveRentalLeadInput): void {
+  const partnerId = i.facts.company.partnerId;
+  void notifyPartnerRequestPersonally({
+    partnerId, leadId, kind: 'car_rental',
+    lines: rentalRequestLines(i.facts),
+    name: i.name, phone: i.phone, comment: i.facts.comment,
+  })
+    .then((outcome) => recordPartnerDelivery(leadId, partnerId, outcome))
+    .catch((err: unknown) => {
+      console.error(`[rental-request] личная доставка прокатчику по заявке ${leadId} не удалась:`, logText(err instanceof Error ? err.message : err, 200));
+    });
 }

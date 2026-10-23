@@ -360,6 +360,7 @@ export function llmsZhFile(base: string): string {
     `- ${ZH_PAGE.booking}`,
     '- 住宿：search_accommodations 查询，create_stay_request 提交住宿申请。',
     '- 接送与包车：search_transfers 查询，request_charter 提交包车申请。',
+    '- 租车（无司机，按天计价）：search_car_rental 查询；租车申请在租车公司页面提交，由人工确认。',
     '',
     llmsSectionZh(base),
     '',

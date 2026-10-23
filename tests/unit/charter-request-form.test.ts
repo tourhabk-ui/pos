@@ -25,6 +25,10 @@ const { createLeadMock, recentLeadMock, carrierBySlug, dbQuery } = vi.hoisted(()
   dbQuery: vi.fn(),
 }));
 
+const { notifyMock, recordMock } = vi.hoisted(() => ({ notifyMock: vi.fn(), recordMock: vi.fn() }));
+// Личная доставка перевозчику (23.10) — свой модуль со своим сторожем; здесь — что её зовут и чем.
+vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequestPersonally: (...a: unknown[]) => notifyMock(...a) }));
+vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: (...a: unknown[]) => recordMock(...a) }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...a),
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
@@ -73,6 +77,8 @@ const post = (b: unknown) => {
 };
 
 beforeEach(() => {
+  notifyMock.mockReset().mockResolvedValue({ state: 'no_channel' });
+  recordMock.mockReset().mockResolvedValue(true);
   createLeadMock.mockReset().mockResolvedValue('lead-1');
   recentLeadMock.mockReset().mockResolvedValue(null);
   carrierBySlug.mockReset().mockResolvedValue(CARRIER);
@@ -99,13 +105,27 @@ describe('POST /api/charter-requests: заявка ложится перевоз
     expect(recentLeadMock).toHaveBeenCalledWith('+79001234567', `[Заявка на машину] «Шатун», с ${body().date_from},`);
   });
 
-  it('повтор: прежняя заявка, второй нет; ответ неотличим от первого', async () => {
+  it('после записи заявка уходит перевозчику лично: факты без его телефона, ПД заказчика; исход — в журнал лида', async () => {
+    notifyMock.mockResolvedValue({ state: 'delivered', channel: 'max' });
+    await post(body({ comment: 'С палатками' }));
+    await vi.waitFor(() => expect(notifyMock).toHaveBeenCalledTimes(1));
+    const n = notifyMock.mock.calls[0]![0] as { partnerId: string; leadId: string; kind: string; lines: string[]; name: string; phone: string; comment: string | null };
+    expect(n).toMatchObject({ partnerId: 'p-1', leadId: 'lead-1', kind: 'charter', phone: '+79001234567', comment: 'С палатками' });
+    expect(n.lines).toEqual(expect.arrayContaining([expect.stringContaining('Направление: Вулкан Горелый'), 'Человек: 8', 'По прайсу: Вулкан Горелый 75000 руб за машину']));
+    expect(n.lines.join('\n')).not.toMatch(/уточнить у перевозчика|телефон перевозчика/);
+    await vi.waitFor(() => expect(recordMock).toHaveBeenCalledWith('lead-1', 'p-1', { state: 'delivered', channel: 'max' }));
+  });
+
+  it('повтор: прежняя заявка, второй нет; ответ неотличим от первого; перевозчика второй раз не будят', async () => {
     const first = await (await post(body())).json();
     recentLeadMock.mockResolvedValue('lead-1');
     createLeadMock.mockClear();
+    notifyMock.mockClear();
     const again = await (await post(body())).json();
     expect(createLeadMock).not.toHaveBeenCalled();
     expect(again).toEqual(first);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifyMock).not.toHaveBeenCalled();
   });
 
   it('направления нет в прайсе — заявка принимается, цену назовёт перевозчик', async () => {

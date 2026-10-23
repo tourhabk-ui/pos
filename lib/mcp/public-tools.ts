@@ -177,6 +177,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   get_volcano_status:    READ,
   search_accommodations: READ,
   search_transfers:      READ,
+  search_car_rental:     READ,
   search_gear:           READ,
   make_trip_plan:        { ...READ, openWorldHint: true },
   // Правка черновика плана (#2224). Черновик — внутреннее состояние самого
@@ -232,6 +233,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
   search_accommodations: { title: 'Stays',                 lead: 'Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
   search_transfers:      { title: 'Transfers',             lead: 'Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter.' },
+  search_car_rental:     { title: 'Car rental',            lead: 'Use when the user asks to rent a car in Kamchatka: self-drive cars from platform rental companies, price per day per vehicle, deposit and terms from the price list. With a driver: search_transfers.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
@@ -300,6 +302,9 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   search_transfers: {
     place: { lead: 'Destination or origin keyword; empty — the whole price list.', example: 'Горелый' },
+  },
+  search_car_rental: {
+    query: { lead: 'A word about the car: body type (SUV, minibus, off-road truck), model, or "with driver"; empty — the whole price list.', example: 'внедорожник' },
   },
   search_gear: {
     query: { lead: 'What to rent: tent, sleeping bag, trekking poles, a brand.', example: 'палатка' },
@@ -464,6 +469,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.5.1',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи четыре: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter) и заявка владельцу жилья на даты (create_stay_request) — все подтверждает человек.',
+  version: '2.6.0',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записи четыре: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter) и заявка владельцу жилья на даты (create_stay_request) — все подтверждает человек.',
 } as const;

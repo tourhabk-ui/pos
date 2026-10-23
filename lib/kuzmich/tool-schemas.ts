@@ -223,6 +223,15 @@ const searchTransfersSchema = z.object({
   place: looseString(100).optional(),
 });
 
+// ── search_car_rental ───────────────────────────────────────────────────────
+// Прокат автомобилей — машина БЕЗ водителя за сутки у прокатчиков платформы
+// (схема 1317, владелец 23.10 «пока берем аренду автомобилей и трансфер»).
+// Не трансфер: там машина с водителем целиком (search_transfers). Фильтр
+// один — слово о машине (вид, модель, «с водителем»); без него — весь прайс.
+const searchCarRentalSchema = z.object({
+  query: looseString(80).optional(),
+});
+
 interface ToolSpec {
   definition: ToolDefinition;
   schema: z.ZodTypeAny;
@@ -363,6 +372,23 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: searchTransfersSchema,
+  },
+  search_car_rental: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'search_car_rental',
+        description: 'Прокат автомобилей на Камчатке — машина БЕЗ водителя у прокатчиков платформы: внедорожники, микроавтобусы, вездеходы; цена за сутки за машину по прайсу, залог, условия прокатчика; у части машин водитель возможен по желанию за отдельную плату. Используй, когда турист хочет взять машину напрокат, спрашивает про аренду авто, джипа, внедорожника, цену за сутки, залог. Машину за туриста не бронирует: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком. Машин, цен и условий, которых нет в ответе, не выдумывай. Машина с водителем целиком — это трансфер, search_transfers.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Слово о машине из вопроса — вид (внедорожник, микроавтобус, вездеход), модель или «с водителем»; без него — весь прайс' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: searchCarRentalSchema,
   },
   search_gear: {
     definition: {

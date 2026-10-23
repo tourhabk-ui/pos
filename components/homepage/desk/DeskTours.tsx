@@ -214,6 +214,11 @@ export function DeskTours({ plates, transfer = null, stay = null, total }: { pla
             Жильё
             <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </Link>
+          {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») — тот же адрес, что у плитки телефона. */}
+          <Link href="/car-rental" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+            Прокат
+            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
+          </Link>
           <Link href="/catalog" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
             {total != null && total > 0 ? `Все туры (${total})` : 'Все туры'}
             <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />

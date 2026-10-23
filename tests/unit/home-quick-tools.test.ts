@@ -49,12 +49,12 @@ describe('плитки на главной', () => {
 
   it('плитки рядами, а не полноширинными карточками', () => {
     expect(tools).not.toBe('');
-    // С 10.10 сетка в шесть долей: верхние плитки — по половине (span 3),
-    // три двери «Туры / Трансфер / Жильё» — по трети (span 2). Полноширинной
-    // карточки по-прежнему нет.
-    expect(HOME).toMatch(/\.v7 \.qtools\{[^}]*grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
-    expect(HOME).toMatch(/\.v7 \.qtools > \.qt\{grid-column:span 3\}/);
-    expect(HOME).not.toMatch(/grid-column:1 ?\/ ?-1|grid-column:span 6/);
+    // С 23.10 сетка в двенадцать долей: верхние плитки — по половине (span 6),
+    // четыре двери «Туры / Трансфер / Жильё / Прокат» — по четверти (span 3).
+    // Полноширинной карточки по-прежнему нет.
+    expect(HOME).toMatch(/\.v7 \.qtools\{[^}]*grid-template-columns:repeat\(12,minmax\(0,1fr\)\)/);
+    expect(HOME).toMatch(/\.v7 \.qtools > \.qt\{grid-column:span 6\}/);
+    expect(HOME).not.toMatch(/grid-column:1 ?\/ ?-1|grid-column:span 12/);
     expect(HOME).not.toMatch(/className="planline"|<section className="live">/);
   });
 
@@ -180,7 +180,7 @@ describe('верхний ряд компактный (владелец 20.10)', 
   const H = HOME;
   it('пилюли тонкие, подписи скрыты, свежесть радара видна', () => {
     expect(H).toMatch(/\.v7 nav\.qt-top > \.qt\{min-height:44px/);
-    expect(H).toMatch(/\.v7 nav\.qt-top \.qt-plan \.qt-tx > span,[^{]*\.qt-stay \.qt-tx > span\{display:none\}/);
+    expect(H).toMatch(/\.v7 nav\.qt-top \.qt-plan \.qt-tx > span,[^{]*\.qt-stay \.qt-tx > span,[^{]*\.qt-rental \.qt-tx > span\{display:none\}/);
     expect(H).not.toMatch(/qt-radar \.qt-tx > span\{display:none/);
   });
 });

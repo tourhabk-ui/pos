@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 
 describe('KUZMICH_TOOLS (generated from the registry)', () => {
-  it('exposes exactly the 14 known tools with their JSON-schema definitions intact', () => {
+  it('exposes exactly the 15 known tools with their JSON-schema definitions intact', () => {
     const names = KUZMICH_TOOLS.map(t => t.function.name).sort();
     expect(names).toEqual([
       // edit_trip_plan — правка плана по ID черновика (#2224, решение владельца 08.10).
@@ -22,7 +22,11 @@ describe('KUZMICH_TOOLS (generated from the registry)', () => {
       // safety_status — обстановка по краю целиком (05.08): внешний агент
       // спрашивает это первым, а по месту дальше идёт в get_guardian_context.
       'safety_status',
-      'search_accommodations', 'search_gear', 'search_kamchatka', 'search_taaft',
+      'search_accommodations',
+      // search_car_rental — прокат машины БЕЗ водителя за сутки (схема 1317,
+      // владелец 23.10): не трансфер, у того машина с водителем целиком.
+      'search_car_rental',
+      'search_gear', 'search_kamchatka', 'search_taaft',
       // search_transfers удалён 01.09 (читал таблицы, которых на проде не было,
       // и выдавал поломку за факт) и вернулся 02.09 поверх витрины схемы 926.
       // С 13.10 отвечает прайсом машины целиком (владелец: «бронируют целую

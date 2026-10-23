@@ -25,6 +25,10 @@ const { createLeadMock, recentLeadMock, companyBySlug, dbQuery } = vi.hoisted(()
   dbQuery: vi.fn(),
 }));
 
+const { notifyMock, recordMock } = vi.hoisted(() => ({ notifyMock: vi.fn(), recordMock: vi.fn() }));
+// Личная доставка прокатчику (23.10) — свой модуль со своим сторожем; здесь — что её зовут и чем.
+vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequestPersonally: (...a: unknown[]) => notifyMock(...a) }));
+vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: (...a: unknown[]) => recordMock(...a) }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...a),
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
@@ -74,6 +78,8 @@ beforeEach(() => {
   recentLeadMock.mockReset().mockResolvedValue(null);
   companyBySlug.mockReset().mockResolvedValue(COMPANY);
   dbQuery.mockReset();
+  notifyMock.mockReset().mockResolvedValue({ state: 'no_channel' });
+  recordMock.mockReset().mockResolvedValue(true);
 });
 
 describe('POST /api/car-rental-requests: заявка ложится прокатчику', () => {
@@ -241,5 +247,27 @@ describe('загрузчик прокатчика (lib/rental/rental)', () => {
     const listSql = String(dbQuery.mock.calls[0]![0]).replace(/\s+/g, ' ');
     expect(listSql).toContain('ORDER BY lower(p.name), p.id');
     expect(listSql).not.toMatch(/category/);
+  });
+});
+
+describe('POST /api/car-rental-requests: после записи — лично прокатчику', () => {
+  it('факты машины и дат без телефона прокатчика, ПД заказчика; исход доставки — в журнал лида', async () => {
+    await post(body({ comment: 'Нужны цепи' }));
+    await vi.waitFor(() => expect(notifyMock).toHaveBeenCalledTimes(1));
+    const n = notifyMock.mock.calls[0]![0] as { partnerId: string; leadId: string; kind: string; lines: string[]; phone: string; comment: string | null };
+    expect(n).toMatchObject({ partnerId: 'p-1', leadId: 'lead-1', kind: 'car_rental', phone: '+79001234567', comment: 'Нужны цепи' });
+    const lines = n.lines.join('\n').replace(/\u00a0/g, ' ');
+    expect(lines).toContain('Машина: Toyota Land Cruiser Prado — 7 000 ₽/сутки');
+    expect(lines).toContain(`Даты: с ${addDays(today, 30)} по ${addDays(today, 32)}, 3 дня`);
+    expect(lines).toContain('Залог по прайсу: 30000 руб');
+    expect(lines).not.toMatch(/телефон прокатчика|79001112233|уточнить у прокатчика/);
+    await vi.waitFor(() => expect(recordMock).toHaveBeenCalledWith('lead-1', 'p-1', { state: 'no_channel' }));
+  });
+
+  it('повтор заявки прокатчика второй раз не будит', async () => {
+    recentLeadMock.mockResolvedValue('lead-1');
+    await post(body());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifyMock).not.toHaveBeenCalled();
   });
 });

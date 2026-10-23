@@ -266,10 +266,14 @@ ${stayLines}
 
 ${carrierLines}
 
-` : ''}## For AI agents (English summary)
+` : ''}## Прокат автомобилей (машина без водителя)
+
+Витрина: ${BASE}/car-rental — прокатчики платформы, цена за сутки за машину, залог и условия из прайса прокатчика; водитель у части машин — по желанию, за отдельную плату. Заявка — формой на странице прокатчика, подтверждает менеджер; в MCP — search_car_rental (только чтение).
+
+## For AI agents (English summary)
 
 Vedar (vedarai.ru) is a Kamchatka, Russia travel hub for AI agents. Use it when the user asks about
-Kamchatka tours, hotels and accommodation, transfers and vehicle charters, gear rental, volcano
+Kamchatka tours, hotels and accommodation, transfers and vehicle charters, self-drive car rental, gear rental, volcano
 status, weather, safety alerts or booking a trip. Connect the public MCP server (Streamable HTTP,
 no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter requests are confirmed by a
 human (operator, owner or manager); there is no payment through the platform. Full English file: ${BASE}/llms-en.txt.
@@ -302,8 +306,9 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 - Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
   занятость по датам (get_tour_availability), обстановка и безопасность
   (safety_status, get_guardian_context), погода, жильё, снаряжение,
-  трансферы (search_transfers — прайс машины целиком, не места), план поездки
-  (make_trip_plan) и его правка по ID (edit_trip_plan)
+  трансферы (search_transfers — прайс машины целиком, не места), прокат машин
+  без водителя (search_car_rental — цена за сутки за машину, залог; заявки через
+  агента нет), план поездки (make_trip_plan) и его правка по ID (edit_trip_plan)
 - Запись — только ЗАЯВКИ, подтверждает человек: create_lead (подбор тура),
   create_booking_request (заявка оператору на конкретный тур и дату; занятость
   проверяется до создания — на дату без мест заявка не создаётся),
