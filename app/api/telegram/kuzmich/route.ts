@@ -613,6 +613,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // подтверждения. Здесь записи нет, и помощник фразу не получает —
         // он сказал бы «открыл», не открыв.
         await tgReply(chatId, telegramDatesText());
+      } else if (await (await import('@/lib/rental/car-calendar-flow')).handleRentalCalendarText({
+        partner, text, nowMs: Date.now(), dialog: true, canMark: false,
+        send: async (body) => { await tgReply(chatId, body); },
+      })) {
+        // Календарь проката читается и здесь. Кнопок отметки в Telegram нет:
+        // «Свободна» / «Занята» пишутся в MAX, и текст это говорит.
       } else {
         await processPartnerMessage({ chatId, text, fromName, partner, reply: tgReply });
       }

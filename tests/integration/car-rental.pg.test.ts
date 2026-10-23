@@ -334,4 +334,39 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       expect(await card()).toHaveLength(0);
     });
   });
+
+  it('календарь 1325: отметку пишет только хозяин машины, чужой источник не проходит', async () => {
+    const file = join(process.cwd(), 'migrations', '1325_rental_car_busy.sql');
+    await pool.query(readFileSync(file, 'utf8'));
+    await pool.query(readFileSync(file, 'utf8'));
+    const { rows: [offer] } = await pool.query<{ id: string; partner_id: string }>(
+      `SELECT o.id::text AS id, o.partner_id::text AS partner_id
+         FROM car_rental_offers o
+         JOIN partners p ON p.id = o.partner_id
+        WHERE p.slug = 'laguna-prokat' AND o.title = 'Suzuki Jimny'`,
+    );
+    expect(offer?.id).toBeTruthy();
+    const { setOperatorMark, loadCalendarMarks } = await import('@/lib/rental/car-calendar-store');
+    const day = '2026-11-01';
+    expect(await setOperatorMark(offer!.partner_id, offer!.id, day, true)).toBe('saved');
+    expect(await setOperatorMark('00000000-0000-4000-8000-000000000099', offer!.id, day, false)).toBe('not_yours');
+    const marks = await loadCalendarMarks(offer!.id, day, day);
+    expect(marks).not.toBe('db_error');
+    if (marks === 'db_error') return;
+    expect(marks.get(day)).toBe(true);
+    expect(await setOperatorMark(offer!.partner_id, offer!.id, day, false)).toBe('saved');
+    const cleared = await loadCalendarMarks(offer!.id, day, day);
+    expect(cleared).not.toBe('db_error');
+    if (cleared === 'db_error') return;
+    expect(cleared.get(day)).toBe(false);
+    const { rows: count } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM rental_car_busy WHERE offer_id = $1 AND day = $2::date`,
+      [offer!.id, day],
+    );
+    expect(count[0]?.n).toBe(1);
+    expect(await sqlState(pool.query(
+      `INSERT INTO rental_car_busy (offer_id, day, busy, source) VALUES ($1, '2026-11-02', true, 'nope')`,
+      [offer!.id],
+    ))).toBe('23514');
+  });
 });

@@ -30,6 +30,8 @@ import {
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { MY_TOURS_TOOL, MY_TOURS_TOOL_NAME, runMyToursSchedule } from '@/lib/kuzmich/operator-tours-tool';
 import { isFleetAsk, RENTAL_FLEET_TOOL, RENTAL_FLEET_TOOL_NAME, runOperatorRentalFleet } from '@/lib/kuzmich/operator-rental-fleet';
+import { RENTAL_CALENDAR_TOOL, RENTAL_CALENDAR_TOOL_NAME } from '@/lib/rental/car-calendar';
+import { rentalCalendarToolText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
@@ -273,7 +275,7 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
         ? ['Свои туры (и скрытые с витрины тоже) и открытые даты со свободными местами узнавай инструментом my_tours_schedule — не говори, что расписания или туров нет, не вызвав его.']
         : []),
       ...(isRentalPilotSlug(partner.slug)
-        ? ['Свои машины проката (и скрытые из прайса тоже), цену за сутки и залог узнавай инструментом operator_rental_fleet. Цену, залог, модель и видимость, которых инструмент не вернул, не называй. Занятость машины на дату этот инструмент не знает — не говори, что машина свободна или занята.']
+        ? ['Свои машины проката (и скрытые из прайса тоже), цену за сутки и залог узнавай инструментом operator_rental_fleet. Цену, залог, модель и видимость, которых инструмент не вернул, не называй. Занятость на ближайшие 30 дней по Камчатке узнавай инструментом operator_rental_calendar: день «не отмечено» — это не «свободна». Отметку ставит только кнопка в MAX; инструмент её не ставит, и ты не говори, что отметил.']
         : []),
       'Записывай в CRM (касание, задачу, выполнение) только когда партнёр об этом просит, и коротко скажи, что записал.',
     );
@@ -307,7 +309,7 @@ async function partnerToolLoop(
   const tools = [
     ...crmToolDefinitions(ctx.canWrite),
     ...(operatorTours ? [MY_TOURS_TOOL] : []),
-    ...(rentalFleet ? [RENTAL_FLEET_TOOL] : []),
+    ...(rentalFleet ? [RENTAL_FLEET_TOOL, RENTAL_CALENDAR_TOOL] : []),
   ];
   const seen = new Set<string>();
 
@@ -321,6 +323,10 @@ async function partnerToolLoop(
       if (operatorTours && name === MY_TOURS_TOOL_NAME) return runMyToursSchedule(ctx.partnerId, args, ctx.nowMs);
       if (rentalFleet && name === RENTAL_FLEET_TOOL_NAME) {
         return runOperatorRentalFleet(ctx.partnerId, rentalFleet.partnerName, rentalFleet.slug, args, ctx.nowMs);
+      }
+      if (rentalFleet && name === RENTAL_CALENDAR_TOOL_NAME) {
+        const car = typeof args.car === 'string' ? args.car : '';
+        return rentalCalendarToolText(ctx.partnerId, car, ctx.nowMs ?? Date.now());
       }
       const r = await executeCrmTool(name, args, ctx);
       if (r.ok && CRM_WRITE_TOOL_NAMES.includes(name)) writes.push(crmWriteSummary(name, args));
