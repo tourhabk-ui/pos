@@ -21,12 +21,17 @@
  * (loadCharterCarriers). Места в поездках (схема 926) планер больше не
  * предлагает: до 13.10 он искал «места на всю группу» на даты поездки, а
  * такого товара нет — перевозчик сдаёт машину целиком.
+ *
+ * Машина напрокат — прайс прокатчиков тем же загрузчиком, что у /car-rental
+ * (loadRentalCompanies, схема 1317, решение владельца 23.10): машина без
+ * водителя, цена за сутки за машину. До 23.10 ответ был один — «пока нет».
  */
 
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { roomNightsSql } from '@/lib/stay/availability';
 import { loadCharterCarriers, describeFleet } from '@/lib/transfers/charter';
+import { loadRentalCompanies, minRentalPrice } from '@/lib/rental/rental';
 import { sqlState } from '@/lib/guides/db-failure';
 import {
   LODGING_OPTIONS_PER_STAY, stayPriceForGroup, type LodgingStay, type StayPrice,
@@ -209,6 +214,46 @@ export async function findCharterOffers(): Promise<CheckOutcome<CharterOffer>> {
     };
   } catch (err) {
     logExtrasFailure('прайс машин под заказ', err);
+    return { state: 'unavailable' };
+  }
+}
+
+/**
+ * Прокатчик к плану: машина без водителя за сутки (23.10). Только то, что
+ * нужно строке плана; телефон и прайс целиком — на странице прокатчика, куда
+ * ведёт строка.
+ */
+export interface RentalOfferSummary {
+  slug: string;
+  name: string;
+  /** Сколько машин в прайсе. */
+  offers: number;
+  /** Самая низкая цена за сутки, ₽ за машину; null — прайс пуст (не бывает у прокатчика витрины). */
+  priceFromRub: number | null;
+  /** Хоть у одной машины водитель по желанию (цена водителя отдельно). */
+  driverOptional: boolean;
+}
+
+/**
+ * Машина напрокат к плану — прокатчики с живым прайсом. От дат плана не
+ * зависит: прайс за сутки один, а даты арендатор пишет в заявке прокатчику.
+ */
+export async function findCarRentalOffers(): Promise<CheckOutcome<RentalOfferSummary>> {
+  try {
+    const companies = await loadRentalCompanies();
+    if (companies.length === 0) return { state: 'empty' };
+    return {
+      state: 'ok',
+      items: companies.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        offers: c.offers.length,
+        priceFromRub: minRentalPrice(c),
+        driverOptional: c.offers.some((o) => o.driver === 'optional'),
+      })),
+    };
+  } catch (err) {
+    logExtrasFailure('прайс проката автомобилей', err);
     return { state: 'unavailable' };
   }
 }

@@ -2,8 +2,8 @@
 
 /**
  * «Что ещё нужно» на экране результата планера (решение владельца 26.09):
- * настоящее жильё на ночи плана, перевозчики «под заказ» и честный ответ про
- * аренду машин.
+ * настоящее жильё на ночи плана, перевозчики «под заказ» и прокатчики с
+ * прайсом за сутки без водителя (23.10; до того — честное «пока нет»).
  *
  * Здесь только то, что лежит на платформе. Оценка стоимости проживания и
  * транспорта — выше, в «Оценке стоимости», и подписана оценкой: одно не
@@ -24,8 +24,11 @@ import { BedDouble, Bus, Car, Star, ArrowRight, AlertTriangle, BadgeCheck, Check
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 import { stayLink } from '@/lib/stay/stay-link';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
+import { rentalPagePath } from '@/lib/rental/rental-format';
 import { stayKey, type ChoiceSelection } from '@/lib/planner/plan-choices';
-import type { TripExtrasData, LodgingStayView, LodgingOptionView, CharterOfferView } from './planner-types';
+import type {
+  TripExtrasData, LodgingStayView, LodgingOptionView, CharterOfferView, RentalOfferSummaryView,
+} from './planner-types';
 
 /** Состав плана: для ссылок на жильё с гостями. */
 export interface ExtrasParty {
@@ -227,6 +230,33 @@ function CharterOfferRow({ o }: { o: CharterOfferView }) {
   );
 }
 
+function carsRu(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n} машина`;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} машины`;
+  return `${n} машин`;
+}
+
+/** Строка прокатчика: цена «от» за сутки без водителя; нет цены — не выдумывается. */
+export function rentalOfferLine(o: Pick<RentalOfferSummaryView, 'priceFromRub' | 'offers' | 'driverOptional'>): string {
+  const price = o.priceFromRub !== null ? `от ${fmtRub(o.priceFromRub)} за сутки без водителя` : 'Цену назовёт прокатчик';
+  const driver = o.driverOptional ? ' · водитель по желанию, цена отдельно' : '';
+  return `${price} · ${carsRu(o.offers)} в прайсе${driver}`;
+}
+
+/** Прокатчик (23.10): машина без водителя за сутки; строка ведёт на его прайс и заявку. В план не берётся — цена зависит от дней и машины. */
+function RentalOfferRow({ o }: { o: RentalOfferSummaryView }) {
+  return (
+    <li data-testid="rental-offer" className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5">
+      <Link href={rentalPagePath(o.slug)} className="text-sm font-medium text-[var(--text-primary)]">
+        {o.name}
+      </Link>
+      <p className="text-xs text-[var(--text-secondary)] mt-0.5">{rentalOfferLine(o)}</p>
+    </li>
+  );
+}
+
 export function TripExtrasSection({ load, ...choice }: {
   load: ExtrasLoad;
 } & ExtrasChoiceProps) {
@@ -313,12 +343,28 @@ export function TripExtrasSection({ load, ...choice }: {
           )}
 
           {load.data.car && (
-            <div className="space-y-1" data-testid="extras-car">
+            <div className="space-y-2" data-testid="extras-car">
               <p className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
                 <Car className="w-4 h-4 text-[var(--ocean)]" />Машина напрокат
               </p>
-              <p className="text-sm text-[var(--text-primary)]">{load.data.car.message}</p>
-              <p className="text-xs text-[var(--text-secondary)]">{load.data.car.hint}</p>
+              {load.data.car.state === 'ok' && (
+                <>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Без водителя, цена за сутки за машину по прайсу прокатчика. Даты и машину укажете в заявке на его странице; машину подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком.
+                  </p>
+                  <ul className="space-y-1.5">
+                    {load.data.car.items.map((o) => <RentalOfferRow key={o.slug} o={o} />)}
+                  </ul>
+                  <CatalogueLink href="/car-rental">Все прокатчики</CatalogueLink>
+                </>
+              )}
+              {load.data.car.state === 'not_offered' && (
+                <>
+                  <p className="text-sm text-[var(--text-primary)]">{load.data.car.message}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">{load.data.car.hint}</p>
+                </>
+              )}
+              {load.data.car.state === 'unavailable' && <Unavailable what="прокат автомобилей" />}
             </div>
           )}
         </>

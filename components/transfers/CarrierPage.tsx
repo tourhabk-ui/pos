@@ -21,7 +21,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Car, ChevronRight, ShieldCheck, Phone, Send, MessageCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { LazyClip } from '@/components/media/LazyClip';
@@ -40,6 +40,7 @@ import {
 } from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
 import { carrierInstrument, includedUnknowns, minCharterPrice } from '@/lib/transfers/carrier-view';
+import { rentalPagePath } from '@/lib/rental/rental-format';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
 
 /** Якорь формы заявки: на него ведут кнопка героя, «Заказать» у строк прайса и ссылки снаружи. */
@@ -56,7 +57,7 @@ function H2({ id, children }: { id?: string; children: React.ReactNode }) {
  * прайса): форма открывается с ним выбранным. Не строка прайса — не берётся.
  */
 export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?: unknown }) {
-  const { carrier: c, safety, reviews } = data;
+  const { carrier: c, safety, reviews, rental } = data;
   const instrument = carrierInstrument(c);
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
@@ -237,6 +238,21 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                 )}
               </div>
             </section>
+
+            {/* Машины без водителя у того же партнёра (схема 1317, 23.10): ссылка
+                на страницу проката. Не смогли проверить — ссылки нет, отказ в
+                логе (carrier-page): выдумывать прайс проката здесь нечем. */}
+            {rental.state === 'ok' && rental.has && (
+              <section aria-labelledby="carrier-rental">
+                <H2 id="carrier-rental">Машина без водителя</H2>
+                <Link href={rentalPagePath(c.slug)} className="ds-card p-5 flex items-start gap-3 hover:bg-[var(--bg-hover)] transition-colors duration-200">
+                  <Car className="w-5 h-5 text-[var(--ocean)] shrink-0 mt-0.5" aria-hidden />
+                  <span className="text-sm text-[var(--text-primary)]">
+                    Машины без водителя у этого партнёра — на странице проката.
+                  </span>
+                </Link>
+              </section>
+            )}
 
             <CarrierReviews reviews={reviews} />
 

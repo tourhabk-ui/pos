@@ -8,7 +8,10 @@
  *   · опасности мест по направлениям — по месту / место без профиля
  *     («не записаны» ≠ «безопасно») / не смогли;
  *   · отзывы — список со сводкой по видимым / пусто / не смогли (миграция
- *     1235, lib/transfers/carrier-reviews).
+ *     1235, lib/transfers/carrier-reviews);
+ *   · прокат — есть ли у партнёра живой прайс машин без водителя (схема 1317,
+ *     23.10): есть — ссылка на страницу проката / нет / не смогли (ссылки нет,
+ *     отказ в логе).
  * Отказ второстепенной части не роняет страницу: прайс и заявка важнее.
  *
  * Поездок с местами здесь нет (владелец 13.10: «бронируют целую машину а не
@@ -21,14 +24,19 @@ import type { CarrierProfile } from '@/lib/transfers/charter-format';
 import { logText } from '@/lib/log/log-text';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { loadCarrierReviews, type CarrierReviewsBlock } from '@/lib/transfers/carrier-reviews';
+import { partnerHasRentalOffers } from '@/lib/rental/rental';
 
 /** placeId → опасности; места без профиля безопасности в карте нет. */
 export type DestinationSafety = { state: 'ok'; byPlace: Record<string, string[]> } | { state: 'failed' };
+
+/** У партнёра есть живой прайс проката (машины без водителя, 1317) — или не смогли проверить. */
+export type CarrierRentalLink = { state: 'ok'; has: boolean } | { state: 'failed' };
 
 export interface CarrierPageData {
   carrier: CarrierProfile;
   safety: DestinationSafety;
   reviews: CarrierReviewsBlock;
+  rental: CarrierRentalLink;
 }
 
 function logFailure(what: string, err: unknown): void {
@@ -72,14 +80,25 @@ async function loadDestinationSafety(placeIds: string[]): Promise<DestinationSaf
   }
 }
 
+/** Есть ли у перевозчика прайс проката: отказ — «не смогли», не «нет». */
+async function loadRentalLink(partnerId: string): Promise<CarrierRentalLink> {
+  try {
+    return { state: 'ok', has: await partnerHasRentalOffers(partnerId) };
+  } catch (err) {
+    logFailure('прайс проката не прочитан', err);
+    return { state: 'failed' };
+  }
+}
+
 /** null — такого перевозчика нет; отказ чтения перевозчика — исключение. */
 export async function loadCarrierPage(slug: string): Promise<CarrierPageData | null> {
   const carrier = await loadCarrierBySlug(slug);
   if (!carrier) return null;
   const placeIds = [...new Set(carrier.destinations.flatMap((d) => (d.place ? [d.place.id] : [])))];
-  const [safety, reviews] = await Promise.all([
+  const [safety, reviews, rental] = await Promise.all([
     loadDestinationSafety(placeIds),
     loadCarrierReviews(carrier.partnerId),
+    loadRentalLink(carrier.partnerId),
   ]);
-  return { carrier, safety, reviews };
+  return { carrier, safety, reviews, rental };
 }

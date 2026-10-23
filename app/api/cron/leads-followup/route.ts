@@ -30,7 +30,7 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
-import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToCarrier } from '@/lib/leads/followup-scope';
+import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToPartnerOnly } from '@/lib/leads/followup-scope';
 import { sqlState } from '@/lib/guides/db-failure';
 
 export const dynamic = 'force-dynamic';
@@ -129,9 +129,10 @@ export async function GET(request: NextRequest) {
 
     for (const lead of leadsRes.rows) {
       const sd: LeadSourceData = lead.source_data ?? {};
-      // Заявку на машину другому партнёру не отдаём ни по одной ветке (#2447):
-      // выборка её уже не берёт, а здесь — на случай, если выборку поправят.
-      if (addressedToCarrier(sd, lead.pd_consent_version)) continue;
+      // Заявку на машину перевозчика и на прокат автомобиля другому партнёру
+      // не отдаём ни по одной ветке (#2447, 23.10): выборка их уже не берёт, а
+      // здесь — на случай, если выборку поправят.
+      if (addressedToPartnerOnly(sd, lead.pd_consent_version)) continue;
       const interests = sd.interests ?? [];
       const alreadyNotified = sd.notified_operators ?? [];
       const followupCount = sd.followup_count ?? 0;

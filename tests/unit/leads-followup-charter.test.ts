@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * Добивка лидов не отдаёт заявку на машину чужому партнёру (#2447) — вызовом
- * обработчика, а не чтением SQL.
+ * Добивка лидов не отдаёт заявку на машину и на прокат чужому партнёру
+ * (#2447; прокат — 23.10) — вызовом обработчика, а не чтением SQL.
  *
  * Заявка на машину (`request_charter`, форма на /transfers/[slug]) адресована
  * перевозчику, и согласие человека — на «передачу перевозчику». До 13.10 крон
@@ -27,11 +27,14 @@ vi.mock('@/lib/crm/events', () => ({ recordSourceEventQuietly: vi.fn(), statusCh
 vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
 
 import { GET } from '@/app/api/cron/leads-followup/route';
-import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
-import { addressedToCarrier, FOLLOWUP_LEADS_SQL } from '@/lib/leads/followup-scope';
+import { PD_CONSENT_CARRIER_VERSION, PD_CONSENT_RENTAL_VERSION } from '@/lib/legal/pd-consent';
+import { addressedToPartnerOnly, FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } from '@/lib/leads/followup-scope';
 
 const CHARTER = { id: 'l-charter', name: 'Иван Машинов', phone: '+79990000001', source_data: { kind: 'charter', carrier_slug: 'shatun' }, pd_consent_version: PD_CONSENT_CARRIER_VERSION };
 const CONSENT_ONLY = { id: 'l-consent', name: 'Пётр Согласов', phone: '+79990000002', source_data: {}, pd_consent_version: PD_CONSENT_CARRIER_VERSION };
+// Заявка на прокат автомобиля (23.10): адресат — прокатчик, согласие «прокату автомобилей».
+const RENTAL = { id: 'l-rental', name: 'Олег Арендов', phone: '+79990000004', source_data: { kind: 'car_rental', company_slug: 'laguna' }, pd_consent_version: PD_CONSENT_RENTAL_VERSION };
+const RENTAL_CONSENT_ONLY = { id: 'l-rental-consent', name: 'Зоя Прокатова', phone: '+79990000005', source_data: {}, pd_consent_version: PD_CONSENT_RENTAL_VERSION };
 const PLAIN = { id: 'l-plain', name: 'Анна Обычная', phone: '+79990000003', source_data: { interests: ['volcano'] }, pd_consent_version: '2026-09-01' };
 const OPERATOR = { name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' };
 
@@ -47,8 +50,8 @@ beforeEach(() => {
   queryMock.mockImplementation(async (sql: string, params?: unknown[]) => {
     if (sql === FOLLOWUP_LEADS_SQL) {
       leadsParams = params;
-      // Пул «пропустил» заявки на машину — проверяется второй замок, в цикле.
-      return { rows: [CHARTER, CONSENT_ONLY, PLAIN] };
+      // Пул «пропустил» заявки на машину и на прокат — проверяется второй замок, в цикле.
+      return { rows: [CHARTER, CONSENT_ONLY, RENTAL, RENTAL_CONSENT_ONLY, PLAIN] };
     }
     if (/COUNT\(\*\) AS total/.test(sql)) return { rows: [{ total: '1', with_telegram: '0', with_max: '1' }] };
     if (/FROM partners p/.test(sql)) return { rows: [OPERATOR] };
@@ -65,22 +68,23 @@ const call = () => GET(new NextRequest('https://vedarai.ru/api/cron/leads-follow
 }));
 
 describe('добивка лидов и заявка на машину', () => {
-  it('заявка на машину не уходит никому; обычный лид — следующему оператору', async () => {
+  it('заявка на машину и на прокат не уходит никому; обычный лид — следующему оператору', async () => {
     const res = await call();
     expect(res.status).toBe(200);
     const json = await res.json() as { processed: number };
     expect(json.processed).toBe(1);
 
-    // Выборка спрошена с версией согласия «перевозчику» — её она и исключает.
-    expect(leadsParams).toEqual([PD_CONSENT_CARRIER_VERSION]);
+    // Выборка спрошена с версиями согласия «перевозчику» и «прокату автомобилей» — их она и исключает.
+    expect(leadsParams).toEqual([PD_CONSENT_CARRIER_VERSION, PD_CONSENT_RENTAL_VERSION]);
+    expect([...FOLLOWUP_LEADS_PARAMS]).toEqual(leadsParams);
 
     expect(alertMock).toHaveBeenCalledTimes(1);
     const sent = JSON.stringify(alertMock.mock.calls);
     expect(sent).toContain('Анна Обычная');
-    expect(sent).not.toMatch(/Иван Машинов|Пётр Согласов|\+79990000001|\+79990000002/);
+    expect(sent).not.toMatch(/Иван Машинов|Пётр Согласов|Олег Арендов|Зоя Прокатова|\+7999000000[1245]/);
     expect(alertMock.mock.calls[0]![0]).toMatchObject({ to: { maxChatId: '555' } });
 
-    // Заявки на машину не помечены как добитые и не эскалированы: их ведёт менеджер.
+    // Заявки на машину и на прокат не помечены как добитые и не эскалированы: их ведёт менеджер.
     const updates = queryMock.mock.calls.filter(([sql]) => /UPDATE leads/.test(String(sql)));
     expect(updates.map(([, params]) => (params as unknown[])[1])).toEqual(['l-plain']);
   });
@@ -98,20 +102,26 @@ describe('добивка лидов и заявка на машину', () => {
 
 describe('выборка добивки — первый замок', () => {
   // SQL — артефакт, и его судят по смыслу гейта (CLAUDE.md, «Сторож судит
-  // поведение»): заявка на машину и согласие «перевозчику» в выборку не входят.
-  // Что сервер такой запрос принимает и отбирает верно, проверено на
-  // настоящем PostgreSQL при правке (13.10).
-  it('исключает заявку на машину по роду и по версии согласия', () => {
+  // поведение»): заявка на машину, заявка на прокат и согласия «перевозчику» и
+  // «прокату автомобилей» в выборку не входят. Что сервер такой запрос
+  // принимает и отбирает верно, проверено на настоящем PostgreSQL
+  // (leads-followup.pg, car-rental.pg).
+  it('исключает заявку на машину и на прокат по роду и по версии согласия', () => {
     expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(source_data->>'kind', ''\) <> 'charter'/);
+    expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(source_data->>'kind', ''\) <> 'car_rental'/);
     expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(pd_consent_version, ''\) <> \$1/);
+    expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(pd_consent_version, ''\) <> \$2/);
   });
 });
 
-describe('addressedToCarrier', () => {
-  it('заявка на машину или согласие «перевозчику» — адресована перевозчику; прочее — нет', () => {
-    expect(addressedToCarrier({ kind: 'charter' }, null)).toBe(true);
-    expect(addressedToCarrier({}, PD_CONSENT_CARRIER_VERSION)).toBe(true);
-    expect(addressedToCarrier({ kind: 'tour' }, '2026-09-01')).toBe(false);
-    expect(addressedToCarrier(null, null)).toBe(false);
+describe('addressedToPartnerOnly', () => {
+  it('заявка на машину или на прокат, согласие «перевозчику» или «прокату» — адресована одному партнёру; прочее — нет', () => {
+    expect(addressedToPartnerOnly({ kind: 'charter' }, null)).toBe(true);
+    expect(addressedToPartnerOnly({}, PD_CONSENT_CARRIER_VERSION)).toBe(true);
+    expect(addressedToPartnerOnly({ kind: 'car_rental' }, null)).toBe(true);
+    expect(addressedToPartnerOnly({}, PD_CONSENT_RENTAL_VERSION)).toBe(true);
+    expect(addressedToPartnerOnly({ kind: 'tour' }, '2026-09-01')).toBe(false);
+    expect(addressedToPartnerOnly({ kind: 42 }, null)).toBe(false);
+    expect(addressedToPartnerOnly(null, null)).toBe(false);
   });
 });

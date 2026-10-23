@@ -8,7 +8,8 @@
  *   - трансфер — перевозчики «под заказ»: машина целиком, цена за машину
  *     (13.10; до этого — «места на всю группу» в поездках на даты плана,
  *     товар, которого нет);
- *   - машина — честное «пока нет».
+ *   - машина — прокатчики с прайсом за сутки без водителя (23.10, схема
+ *     1317); никого нет — честное «пока нет», не смогли — так и сказано.
  *
  * Отдельным роутом, а не полем /api/planner/recommend: план правится на
  * экране (перестановка, удаление дней), и предложения пересчитываются по
@@ -22,9 +23,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
-import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER } from '@/lib/planner/trip-extras';
+import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER, CAR_RENTAL_UNAVAILABLE } from '@/lib/planner/trip-extras';
 import {
-  findLodgingForStay, countUnzonedPublicLodging, findCharterOffers,
+  findLodgingForStay, countUnzonedPublicLodging, findCharterOffers, findCarRentalOffers,
 } from '@/lib/planner/trip-extras-data';
 
 export const dynamic = 'force-dynamic';
@@ -107,7 +108,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (needs.car) {
-    data.car = CAR_RENTAL_ANSWER;
+    // Машина без водителя за сутки (23.10): три исхода — прокатчики с
+    // прайсом / никого нет — прежнее «пока нет» / не смогли проверить.
+    const rental = await findCarRentalOffers();
+    data.car = rental.state === 'ok'
+      ? { state: 'ok', items: rental.items }
+      : rental.state === 'empty' ? CAR_RENTAL_ANSWER : CAR_RENTAL_UNAVAILABLE;
   }
 
   return NextResponse.json({ success: true, data });

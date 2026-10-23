@@ -26,6 +26,7 @@ import { OperatorGallery } from '@/components/operator/OperatorGallery';
 import { OperatorLegalInfo } from '@/components/operator/OperatorLegalInfo';
 import { OperatorLeadForm } from '@/components/operators/OperatorLeadForm';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
+import { rentalPagePath } from '@/lib/rental/rental-format';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,7 @@ function parseCount(value: string | null | undefined): number {
 // вместо слова. Неизвестный ключ по-прежнему печатается как есть, не прячется.
 const CATEGORY_LABEL: Record<string, string> = {
   operator: 'Туроператор', transfer: 'Перевозчик', guide: 'Гид', stay: 'Жильё', gear: 'Прокат', agent: 'Агент',
+  cars: 'Прокат автомобилей',
 };
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -181,6 +183,9 @@ export default async function OperatorProfilePage(
   // «Проверенный оператор», FAQ про туры и без формы заказа машины. Старые
   // ссылки и короткий адрес vedarai.ru/<slug> (rewrite сюда) ведут туда.
   if (profile.category === 'transfer') permanentRedirect(carrierPagePath(profile.slug));
+  // Прокат автомобилей — тоже не туроператор (23.10): машина без водителя за
+  // сутки, своя страница с прайсом и заявкой.
+  if (profile.category === 'cars') permanentRedirect(rentalPagePath(profile.slug));
 
   const services  = extractServices(profile.services);
   const features  = extractFeatures(profile.features);

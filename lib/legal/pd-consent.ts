@@ -58,14 +58,28 @@ export const PD_CONSENT_GEAR_TEXT =
   'Согласен на обработку персональных данных и их передачу прокату снаряжения для связи по заявке';
 export const PD_CONSENT_GEAR_VERSION = '2026-10-15-gear';
 
-/** Кому передаются данные по заявке: туроператору (по умолчанию), владельцу жилья, перевозчику или прокату снаряжения. */
-export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear';
+/**
+ * Вариант для заявки на прокат автомобиля (23.10, решение владельца «пока
+ * берем аренду автомобилей и трансфер», витрина /car-rental, схема 1317):
+ * телефон арендатора уходит прокату автомобилей — не туроператору и не
+ * перевозчику, хотя партнёр может быть одним и тем же юрлицом. Согласие
+ * называет получателя по роду заявки, а не по карточке партнёра: человек
+ * соглашался на передачу тому, у кого берёт машину (то же правило, что
+ * 08.10, 10.10, 13.10 и 15.10).
+ */
+export const PD_CONSENT_RENTAL_TEXT =
+  'Согласен на обработку персональных данных и их передачу прокату автомобилей для связи по заявке';
+export const PD_CONSENT_RENTAL_VERSION = '2026-10-23-rental';
+
+/** Кому передаются данные по заявке: туроператору (по умолчанию), владельцу жилья, перевозчику, прокату снаряжения или прокату автомобилей. */
+export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear' | 'rental';
 
 /** Текст и версия согласия для цели заявки — единственный выбор между ними. */
 export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
   if (purpose === 'stay') return { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION };
   if (purpose === 'carrier') return { text: PD_CONSENT_CARRIER_TEXT, version: PD_CONSENT_CARRIER_VERSION };
   if (purpose === 'gear') return { text: PD_CONSENT_GEAR_TEXT, version: PD_CONSENT_GEAR_VERSION };
+  if (purpose === 'rental') return { text: PD_CONSENT_RENTAL_TEXT, version: PD_CONSENT_RENTAL_VERSION };
   return { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
 }
 

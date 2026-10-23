@@ -24,7 +24,12 @@
  *     заявки и согласие «перевозчику» — второй замок отбора);
  *   L6 — псевдолид чата виджета (до 15.10): `Widget: mestechko`, телефона
  *     нет, `source_data.type = 'widget'`, без адресата, 3 часа → не заявка:
- *     ни добивке, ни счёту сторожа «лиды >2ч» (аудит 15.10, WID-safety).
+ *     ни добивке, ни счёту сторожа «лиды >2ч» (аудит 15.10, WID-safety);
+ *   прокатчик E — адресат заявки на прокат автомобиля (23.10, схема 1317);
+ *   прокатчик F — адресат заявки на прокат, затем удалён (адресат обнулён);
+ *   L7 — прокат E, 3 часа                         → остаётся у E;
+ *   L8 — прокат удалённого F, 3 часа              → не уходит никому (род
+ *     `car_rental` и согласие «прокату автомобилей» — тот же второй замок).
  *
  * Вторая часть (аудит 15.10, W3-pseudo) — остальные читатели `new`, где
  * псевдолид рождает тревогу или работу модели: счёт «лидов без обработки
@@ -40,7 +45,7 @@
  * пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
+import { PD_CONSENT_CARRIER_VERSION, PD_CONSENT_RENTAL_VERSION } from '@/lib/legal/pd-consent';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 vi.mock('@/lib/notifications/pd-alert', () => ({
@@ -79,7 +84,7 @@ const A_MAX_CHAT = '7000001';
 
 withPg('крон добивки лидов на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
-  const ids = { l1: '', l2: '', l3: '', l4: '', l5: '', l6: '' };
+  const ids = { l1: '', l2: '', l3: '', l4: '', l5: '', l6: '', l7: '', l8: '' };
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
@@ -105,6 +110,8 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     const b = await partner('Оператор Б', 'operator', 'op-b', null);
     const c = await partner('Перевозчик В', 'transfer', 'carrier-c', null);
     const d = await partner('Перевозчик Г', 'transfer', 'carrier-d', null);
+    const e = await partner('Прокат Д', 'cars', 'rental-e', null);
+    const f = await partner('Прокат Е', 'cars', 'rental-f', null);
     for (const operatorId of [a, b]) {
       await pool.query(
         `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, activity_type, difficulty, duration_hours)
@@ -127,6 +134,9 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     ids.l4 = await lead('Свежая без адресата', null, '30 minutes', {});
     ids.l5 = await lead('Машина удалённого', d, '3 hours', { kind: 'charter' }, PD_CONSENT_CARRIER_VERSION);
     await pool.query(`DELETE FROM partners WHERE id = $1`, [d]);
+    ids.l7 = await lead('Арендатор машины', e, '3 hours', { kind: 'car_rental' }, PD_CONSENT_RENTAL_VERSION);
+    ids.l8 = await lead('Прокат удалённого', f, '3 hours', { kind: 'car_rental' }, PD_CONSENT_RENTAL_VERSION);
+    await pool.query(`DELETE FROM partners WHERE id = $1`, [f]);
     // Так его писал чат виджета до 15.10: createLead без телефона и согласия.
     const pseudo = await pool.query<{ id: string }>(
       `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, source_channel, created_at)
@@ -146,9 +156,9 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
   it('отбор берёт только лид без адресата и старше 2 часов', async () => {
     // Предпосылка второго замка: у заявки удалённого перевозчика адресата больше нет.
     const orphan = await pool.query<{ operator_id: string | null }>(
-      `SELECT operator_id::text AS operator_id FROM leads WHERE id = $1`, [ids.l5],
+      `SELECT operator_id::text AS operator_id FROM leads WHERE id = ANY($1::uuid[])`, [[ids.l5, ids.l8]],
     );
-    expect(orphan.rows[0]?.operator_id).toBeNull();
+    expect(orphan.rows.map((r) => r.operator_id)).toEqual([null, null]);
 
     const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
     const { rows } = await pool.query<{ id: string }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
@@ -179,17 +189,19 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     expect(params.text).not.toContain('Заказчик машины');
     expect(params.text).not.toContain('Заявка на тур Б');
     expect(params.text).not.toContain('Машина удалённого');
+    expect(params.text).not.toContain('Арендатор машины');
+    expect(params.text).not.toContain('Прокат удалённого');
     expect(params.text).not.toContain('Widget: mestechko');
 
     const state = await pool.query<{ id: string; status: string; notified: unknown; last_followup: string | null }>(
       `SELECT id::text AS id, status, source_data->'notified_operators' AS notified,
               source_data->>'last_followup' AS last_followup
          FROM leads WHERE id = ANY($1::uuid[]) ORDER BY name`,
-      [[ids.l1, ids.l2, ids.l3, ids.l5, ids.l6]],
+      [[ids.l1, ids.l2, ids.l3, ids.l5, ids.l6, ids.l7, ids.l8]],
     );
     const byId = new Map(state.rows.map((r) => [r.id, r]));
     expect(byId.get(ids.l1)?.notified).toEqual(['op-a']);
-    for (const addressed of [ids.l2, ids.l3, ids.l5, ids.l6]) {
+    for (const addressed of [ids.l2, ids.l3, ids.l5, ids.l6, ids.l7, ids.l8]) {
       expect(byId.get(addressed)?.status).toBe('new');
       expect(byId.get(addressed)?.notified).toBeNull();
       expect(byId.get(addressed)?.last_followup).toBeNull();

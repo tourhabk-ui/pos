@@ -43,7 +43,7 @@ export function PdConsentCheckbox({
   checked: boolean;
   onChange: (v: boolean) => void;
   id?: string;
-  /** Кому уходят данные: туроператору (по умолчанию), владельцу жилья, перевозчику или прокату снаряжения. Текст и версия — из lib/legal/pd-consent. */
+  /** Кому уходят данные: туроператору (по умолчанию), владельцу жилья, перевозчику, прокату снаряжения или прокату автомобилей. Текст и версия — из lib/legal/pd-consent. */
   purpose?: PdConsentPurpose;
 }) {
   return (

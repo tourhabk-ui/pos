@@ -95,6 +95,7 @@ const DATA: CarrierPageData = {
   carrier: ZH,
   safety: { state: 'ok', byPlace: {} },
   reviews: { state: 'ok', items: [], count: 0, average: null },
+  rental: { state: 'ok', has: false },
 };
 
 beforeEach(() => {

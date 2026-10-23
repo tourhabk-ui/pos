@@ -72,6 +72,7 @@ const DATA: CarrierPageData = {
   carrier: CARRIER,
   safety: { state: 'ok', byPlace: { 'pl-gor': ['volcanic_gas', 'weather'] } },
   reviews: { state: 'ok', items: [], count: 0, average: null },
+  rental: { state: 'ok', has: false },
 };
 
 const headings = (c: HTMLElement) => [...c.querySelectorAll('h2')].map((h) => h.textContent?.trim());

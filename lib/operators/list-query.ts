@@ -15,7 +15,8 @@
  *     давали «Операторы не найдены» — объявление без производителя (10.09);
  *   - перевозчики (`category = 'transfer'`) в список «Операторы Камчатки» не
  *     входят: перевозчик не туроператор, его страница — /transfers/[slug]
- *     (CLAUDE.md §14).
+ *     (CLAUDE.md §14); прокат автомобилей (`category = 'cars'`, 23.10) — тоже,
+ *     его страница — /car-rental/[slug].
  * Живой тур — то же условие, что у каталога и MCP get_tours (шлюз витрины
  * `publicTourSql`), своего здесь нет.
  */
@@ -84,6 +85,9 @@ function listedPartner(alias: string): string[] {
     `${alias}.is_public = TRUE`,
     `${alias}.slug IS NOT NULL`,
     `${alias}.category <> 'transfer'`,
+    // Прокат автомобилей — не туроператор (23.10): его страница —
+    // /car-rental/[slug], машина без водителя за сутки.
+    `${alias}.category <> 'cars'`,
   ];
 }
 

@@ -141,6 +141,8 @@ const CONSENT_FORMS = [
   'components/transfers/CharterRequestForm.tsx',
   // Заявка на аренду снаряжения (15.10, A13): шлёт СОСТОЯНИЕ галочки «прокату».
   'components/gear/GearBookingForm.tsx',
+  // Заявка на прокат автомобиля (23.10, /car-rental): шлёт СОСТОЯНИЕ галочки «прокату автомобилей».
+  'components/rental/RentalRequestForm.tsx',
 ];
 
 /**
@@ -214,6 +216,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/requests/consent/route.ts',
   'app/api/charter-requests/route.ts',
   'app/api/gear/rentals/route.ts',
+  'app/api/car-rental-requests/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {
