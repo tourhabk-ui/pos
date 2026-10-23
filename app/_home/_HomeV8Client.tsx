@@ -99,6 +99,7 @@ interface ActiveTrip {
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const { safety, seismic, radar, plates, explore, feed, stats } = data;
+  const rentalDoor = data.rentalDoor !== false;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
   // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
@@ -494,11 +495,15 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») —
               дверь в /car-rental: машина без водителя, цена за сутки за машину
               (схема 1317). Четыре двери одним рядом по четверти ширины: пятая
-              плитка новым рядом съела бы первый экран (владелец 25.09). */}
-          <Link href="/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя, цена за сутки за машину">
-            <span className="qt-ic"><Car size={19} strokeWidth={1.8} aria-hidden /></span>
-            <span className="qt-tx"><b>Прокат</b><span>без водителя</span></span>
-          </Link>
+              плитка новым рядом съела бы первый экран (владелец 25.09). Пока
+              прокат на сайте на паузе (lib/rental/site-pause), двери нет, а
+              три оставшиеся встают по трети ряда (правило :has в стилях). */}
+          {rentalDoor && (
+            <Link href="/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя, цена за сутки за машину">
+              <span className="qt-ic"><Car size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Прокат</b><span>без водителя</span></span>
+            </Link>
+          )}
         </nav>
 
         {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09): тур с
@@ -1205,6 +1210,8 @@ const CSS = `
 .v7 .qtools > .qt{grid-column:span 6}
 .v7 .qtools > .qt-tours,.v7 .qtools > .qt-transfer,.v7 .qtools > .qt-stay,.v7 .qtools > .qt-rental{grid-column:span 3;flex-direction:column;justify-content:center;text-align:center;gap:5px;padding:9px 6px}
 .v7 .qt-tours .qt-tx,.v7 .qt-transfer .qt-tx,.v7 .qt-stay .qt-tx,.v7 .qt-rental .qt-tx{align-items:center;max-width:100%}
+/* Прокат на паузе (lib/rental/site-pause): двери «Прокат» нет — три оставшиеся по трети ряда, без дыры на месте четвёртой. Браузер без :has оставит четверти — дыра, но не поломка. */
+.v7 .qtools:not(:has(> .qt-rental)) > .qt-tours,.v7 .qtools:not(:has(> .qt-rental)) > .qt-transfer,.v7 .qtools:not(:has(> .qt-rental)) > .qt-stay{grid-column:span 4}
 .v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .qt:hover{background:var(--bg-hover)}
 .v7 .qt:active{transform:scale(.98)}

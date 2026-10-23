@@ -9,6 +9,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { withTransferPlate, isTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
 import { withStayPlate, isStayPlate, type StayPlate } from '@/lib/home/stay-plate';
+import { rentalSitePauseActive } from '@/lib/rental/site-pause';
 
 /**
  * «Можно поехать» — туры витрины крупной карточкой и строками (доска
@@ -188,7 +189,15 @@ function StayRow({ t }: { t: StayPlate }) {
   );
 }
 
-export function DeskTours({ plates, transfer = null, stay = null, total }: { plates: readonly Plate[]; transfer?: TransferPlate | null; stay?: StayPlate | null; total: number | null }) {
+export function DeskTours({ plates, transfer = null, stay = null, total, rentalDoor = !rentalSitePauseActive() }: {
+  plates: readonly Plate[]; transfer?: TransferPlate | null; stay?: StayPlate | null; total: number | null;
+  /**
+   * false — прокат на сайте на паузе (lib/rental/site-pause): ссылка вела бы
+   * на пустую витрину. По умолчанию — по самой паузе: компонент серверный,
+   * главная force-dynamic, и часы читаются на каждый запрос.
+   */
+  rentalDoor?: boolean;
+}) {
   const first = plates[0];
   // Трансфер встаёт между турами по общему правилу ленты (после второго тура);
   // первый тур — крупная карточка, строки — всё, что после него.
@@ -214,11 +223,14 @@ export function DeskTours({ plates, transfer = null, stay = null, total }: { pla
             Жильё
             <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </Link>
-          {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») — тот же адрес, что у плитки телефона. */}
-          <Link href="/car-rental" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
-            Прокат
-            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
-          </Link>
+          {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») — тот же адрес, что у плитки телефона.
+              Пока прокат на сайте на паузе (lib/rental/site-pause), ссылки нет — как и плитки телефона. */}
+          {rentalDoor && (
+            <Link href="/car-rental" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+              Прокат
+              <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
+            </Link>
+          )}
           <Link href="/catalog" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
             {total != null && total > 0 ? `Все туры (${total})` : 'Все туры'}
             <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />

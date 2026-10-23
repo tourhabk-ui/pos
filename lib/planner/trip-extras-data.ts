@@ -32,6 +32,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { roomNightsSql } from '@/lib/stay/availability';
 import { loadCharterCarriers, describeFleet } from '@/lib/transfers/charter';
 import { loadRentalCompanies, minRentalPrice } from '@/lib/rental/rental';
+import { RENTAL_SITE_PAUSE, rentalOnSite } from '@/lib/rental/site-pause';
 import { sqlState } from '@/lib/guides/db-failure';
 import {
   LODGING_OPTIONS_PER_STAY, stayPriceForGroup, type LodgingStay, type StayPrice,
@@ -237,11 +238,16 @@ export interface RentalOfferSummary {
 /**
  * Машина напрокат к плану — прокатчики с живым прайсом. От дат плана не
  * зависит: прайс за сутки один, а даты арендатор пишет в заявке прокатчику.
+ * Планер — экран сайта: прокатчик под паузой (lib/rental/site-pause) в нём
+ * не показывается. Пустой из-за паузы список — `paused`, а не `empty`:
+ * прокатчик есть, и экран говорит, когда он вернётся, а не «проката нет».
  */
-export async function findCarRentalOffers(): Promise<CheckOutcome<RentalOfferSummary>> {
+export async function findCarRentalOffers(): Promise<CheckOutcome<RentalOfferSummary> | { state: 'paused'; returnsOn: string }> {
   try {
-    const companies = await loadRentalCompanies();
-    if (companies.length === 0) return { state: 'empty' };
+    const { shown: companies, hidden } = rentalOnSite(await loadRentalCompanies());
+    if (companies.length === 0) {
+      return hidden > 0 ? { state: 'paused', returnsOn: RENTAL_SITE_PAUSE.returnsOn } : { state: 'empty' };
+    }
     return {
       state: 'ok',
       items: companies.map((c) => ({

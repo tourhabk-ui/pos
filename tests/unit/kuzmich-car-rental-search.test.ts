@@ -192,7 +192,8 @@ describe('rentalAnswer: кириллица и латиница — одно сл
 
 describe('searchCarRentalForKuzmich: загрузчик и отказ', () => {
   it('прайс прочитан — ответ с машинами и адресом страницы прокатчика', async () => {
-    const out = await searchCarRentalForKuzmich({ query: 'джип' });
+    // Момент после паузы проката на сайте (lib/rental/site-pause): здесь судится путь загрузчика, а не пауза.
+    const out = await searchCarRentalForKuzmich({ query: 'джип' }, { now: new Date('2026-11-01T00:00:00Z') });
     expect(loadMock).toHaveBeenCalledTimes(1);
     expect(out).toContain('Suzuki Jimny');
     expect(out).toContain('https://vedarai.ru/car-rental/laguna-prokat');
