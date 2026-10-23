@@ -110,15 +110,22 @@ export function postsFromSearchRecent(j: unknown): XPost[] {
   return out;
 }
 
-function detailOf(body: string): string {
-  try {
-    const j = JSON.parse(body) as Record<string, unknown>;
-    const parts = ['title', 'detail', 'reason'].map((k) => (typeof j[k] === 'string' ? (j[k] as string) : '')).filter(Boolean);
-    if (parts.length > 0) return parts.join(' · ');
-  } catch {
-    /* не JSON — ниже срез тела */
-  }
+/** Срез тела ответа для причины отказа — когда ответ не JSON или без знакомых полей. */
+function excerpt(body: string): string {
   return body.replace(/\s+/g, ' ').slice(0, 160);
+}
+
+function detailOf(body: string): string {
+  let j: Record<string, unknown>;
+  try {
+    j = JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    // Не JSON (страница ошибки, пустое тело) — это не сбой разбора, а форма
+    // ответа: в причину уходит срез тела как есть.
+    return excerpt(body);
+  }
+  const parts = ['title', 'detail', 'reason'].map((k) => (typeof j[k] === 'string' ? (j[k] as string) : '')).filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : excerpt(body);
 }
 
 /**
@@ -164,12 +171,13 @@ async function bearerFromAppKeys(
   }
   const body = await res.text();
   if (!res.ok) return { error: nameXApiFailure(res.status, body, res.headers).replace('X API:', 'X API (обмен ключа на bearer):') };
+  let j: { access_token?: unknown };
   try {
-    const j = JSON.parse(body) as { access_token?: unknown };
-    if (typeof j.access_token === 'string' && j.access_token) return { token: j.access_token };
+    j = JSON.parse(body) as { access_token?: unknown };
   } catch {
-    /* ниже */
+    return { error: `X API (обмен ключа на bearer): ответ не JSON — ${excerpt(body)}` };
   }
+  if (typeof j.access_token === 'string' && j.access_token) return { token: j.access_token };
   return { error: 'X API (обмен ключа на bearer): в ответе нет access_token' };
 }
 
