@@ -12,6 +12,7 @@ import LottiePlayer from '@/components/ui/LottiePlayer';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 import RescueChat from '@/components/safety/RescueChat';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -270,10 +271,11 @@ export default function SosPage() {
     // Место уже известно локатору — шлём его сразу. Прежде отправка всякий
     // раз начинала свой поиск (до 8 секунд) даже при координатах на экране.
     const known = bestFixRef.current;
-    if (!known && typeof navigator !== 'undefined' && navigator.geolocation) {
+    const geo = known ? null : geolocationOnce();
+    if (geo) {
       try {
         position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
+          geo.getCurrentPosition(resolve, reject, {
             enableHighAccuracy: true,
             timeout: 8000,
             maximumAge: 0,

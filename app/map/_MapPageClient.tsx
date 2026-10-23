@@ -65,6 +65,7 @@ import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 import { clipAtWord } from '@/lib/text/clip-at-word';
 import { withClosure } from '@/lib/safety/place-closure';
 import { useInsetAbove, useInsetBelow } from '@/hooks/useInsetBelow';
+import { geolocationWatch } from '@/lib/geo/current-position';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -300,9 +301,10 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
 
   // GPS-трекинг — работает БЕЗ интернета!
   useEffect(() => {
-    if (!showMyLocation || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    const geo = showMyLocation ? geolocationWatch() : null;
+    if (!geo) return;
 
-    const watchId = navigator.geolocation.watchPosition(
+    const watchId = geo.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
@@ -317,7 +319,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => geo.clearWatch(watchId);
   }, [showMyLocation]);
 
   // SOS-контакты захардкожены — НЕ зависят от IndexedDB, работают ВСЕГДА.

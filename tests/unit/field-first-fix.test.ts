@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 const SRC = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf8');
 const seedAt = SRC.indexOf('const seedFix = (pos: GeolocationPosition)');
-const watchAt = SRC.indexOf('watchRef.current = navigator.geolocation.watchPosition(');
+const watchAt = SRC.indexOf('watchRef.current = geoWatch ? geoWatch.watchPosition(');
 const seed = SRC.slice(seedAt, watchAt);
 
 describe('первая точка на маршруте — без ожидания спутников', () => {

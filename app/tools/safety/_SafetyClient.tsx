@@ -65,6 +65,7 @@ const LOCATION_LABELS: Record<string, string> = {
 
 /** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
 import { activityLabel } from '@/lib/tours/labels';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 export function SafetyClient() {
   const [mode, setMode] = useState<Mode>('place');
@@ -150,9 +151,10 @@ export function SafetyClient() {
   const canSubmit = mode === 'route' ? !!selectedRoute : !!selectedPlace;
 
   const handleGPS = () => {
-    if (!navigator.geolocation) { setError('GPS недоступен на этом устройстве'); return; }
+    const geo = geolocationOnce();
+    if (!geo) { setError('GPS недоступен на этом устройстве'); return; }
     setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       pos => {
         setGpsLoading(false);
         void analyze({ lat: pos.coords.latitude, lng: pos.coords.longitude });

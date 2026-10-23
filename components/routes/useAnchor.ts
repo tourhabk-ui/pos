@@ -9,6 +9,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import type { GeoPoint } from './place-horizons';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 export const PK: GeoPoint = { lat: 53.0195, lng: 158.6505 };
 const PK_LABEL = 'от Петропавловска';
@@ -20,9 +21,10 @@ export function useAnchor(): { anchor: GeoPoint; label: string; requestGeo: () =
 
   const requestGeo = useCallback(() => {
     if (requested.current) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    const geo = geolocationOnce();
+    if (!geo) return;
     requested.current = true;
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       (pos) => {
         setAnchor({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setLabel('от вас');

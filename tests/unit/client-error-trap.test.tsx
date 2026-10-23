@@ -75,6 +75,26 @@ describe('перехватчик окна', () => {
     expect(sent[1].payload).toMatchObject({ kind: 'unhandledrejection', message: 'rejected fetch' });
   });
 
+  it('промис, отклонённый событием, называет род события, элемент и адрес без query — не {"isTrusted":true}', async () => {
+    // 23.10: с карточки маршрута пришло ровно {"isTrusted":true} — что упало, не понять.
+    const { beacon } = armBeacon();
+    window.history.pushState({}, '', '/routes/buhta-poludennaya-o-beringa');
+    const { default: Trap } = await import('@/components/shared/ClientErrorTrap');
+    render(React.createElement(Trap));
+
+    const img = document.createElement('img');
+    img.src = 'https://vedarai.ru/api/images/route/abc.jpg?token=secret#x';
+    const ev = new Event('error');
+    img.addEventListener('error', () => fireRejection(ev));
+    img.dispatchEvent(ev);
+    const sent = await drain(beacon);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload.kind).toBe('unhandledrejection');
+    expect(sent[0].payload.message).toBe('Событие «error» у img https://vedarai.ru/api/images/route/abc.jpg');
+    expect(String(sent[0].payload.message)).not.toContain('token');
+  });
+
   it('шум не шлётся: чужой «Script error.», расширение браузера, ResizeObserver', async () => {
     const { beacon } = armBeacon();
     const { default: Trap } = await import('@/components/shared/ClientErrorTrap');

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { geolocationWatch } from '@/lib/geo/current-position';
 
 const LS_KEY = 'tourhab_last_gps';
 
@@ -70,8 +71,11 @@ export function useOfflineGPS(): OfflineGPSState {
     // Порог 300м: GPS-чип даёт 3-30м, вышки сотовой — 300-5000м.
     // Позиции хуже 300м игнорируем — иначе геофенс срабатывает на случайный объект.
     const MAX_ACCURACY_M = 300;
-    if ('geolocation' in navigator) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
+    // Объект геолокации без функций (заглушка) — как её отсутствие: кэш
+    // остаётся последним известным, страница не падает (23.10).
+    const geo = geolocationWatch();
+    if (geo) {
+      watchIdRef.current = geo.watchPosition(
         (pos) => {
           if (pos.coords.accuracy > MAX_ACCURACY_M) return; // вышка сотовой — игнорировать
           writeCache(pos);
@@ -95,8 +99,8 @@ export function useOfflineGPS(): OfflineGPSState {
     return () => {
       window.removeEventListener('online',  onOnline);
       window.removeEventListener('offline', onOffline);
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
+      if (watchIdRef.current !== null && geo) {
+        geo.clearWatch(watchIdRef.current);
       }
       clearInterval(ticker);
     };

@@ -51,6 +51,7 @@ import { withTransferPlate, isTransferPlate } from '@/lib/home/transfer-plate';
 import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
 import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 
 const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан', 'Термы', 'Хели-ски'];
@@ -944,9 +945,10 @@ function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void 
   const [openProto, setOpenProto] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !navigator.geolocation) { if (open) setGeoState('deny'); return; }
+    const geo = open ? geolocationOnce() : null;
+    if (!geo) { if (open) setGeoState('deny'); return; }
     setGeoState('idle');
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGeoState('ok'); },
       () => setGeoState('deny'),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },

@@ -119,7 +119,7 @@ describe('точность в десятки километров — не GPS, 
       expect(cbStart).toBeGreaterThan(0);
       expect(SCREEN.slice(cbStart, at)).toContain('fixAccuracyPlausible(pos.coords.accuracy)');
     }
-    const watchAt = SCREEN.indexOf('navigator.geolocation.watchPosition(');
+    const watchAt = SCREEN.indexOf('geoWatch.watchPosition(');
     const setCoordsAt = SCREEN.indexOf('setCoords(', watchAt);
     const guardAt = SCREEN.indexOf('fixAccuracyPlausible(pos.coords.accuracy)', watchAt);
     expect(watchAt).toBeGreaterThan(0);

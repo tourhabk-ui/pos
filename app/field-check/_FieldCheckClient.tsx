@@ -47,6 +47,7 @@ import { QueueRefusals, type RefusalRow } from '@/components/field/QueueRefusals
 // Сжатие снимка — общее с наблюдениями с экрана маршрута (lib/images/shrink-photo):
 // два полевых контура шлют фото одним способом, иначе разойдутся с лимитами приёмников.
 import { shrinkPhoto } from '@/lib/images/shrink-photo';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 const TAG_KEY = 'field_check_trip_tag';
 const DONE_KEY = 'field_check_done_v1';
@@ -352,13 +353,14 @@ export function FieldCheckClient() {
 
   const locate = useCallback(() => {
     setError(null);
-    if (!('geolocation' in navigator)) {
+    const geo = geolocationOnce();
+    if (!geo) {
       setError('Телефон не отдаёт координаты — введите их вручную');
       setShowMore(true);
       return;
     }
     setLoading(true);
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       pos => {
         const f = {
           lat: pos.coords.latitude,
@@ -565,11 +567,12 @@ export function FieldCheckClient() {
 
   const takeMyFix = useCallback(() => {
     setCoordError(null);
-    if (!('geolocation' in navigator)) {
+    const geo = geolocationOnce();
+    if (!geo) {
       setCoordError('Телефон не отдаёт координаты');
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    geo.getCurrentPosition(
       // Свежий фикс, а не тот, по которому строился список: между открытием
       // экрана и этим нажатием человек дошёл до объекта.
       pos => setObjCoord({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: 'my_fix' }),
@@ -602,7 +605,7 @@ export function FieldCheckClient() {
    */
   const barActions = useMemo<FieldAction[]>(() => {
     const list: FieldAction[] = [];
-    const canGeo = typeof navigator !== 'undefined' && !!navigator.geolocation;
+    const canGeo = geolocationOnce() !== null;
 
     if (canGeo) {
       list.push({

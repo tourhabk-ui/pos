@@ -54,6 +54,7 @@ import { Minus, Plus } from 'lucide-react';
  * своя карта была картинкой, а не картой.
  */
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { geolocationWatch } from '@/lib/geo/current-position';
 
 export interface VedarMapLine {
   /** [lng, lat] — порядок GeoJSON, не Leaflet. */
@@ -1272,13 +1273,14 @@ export default function VedarMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !showUserLocation) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    const geo = geolocationWatch();
+    if (!geo) return;
     // Каждое включение кнопки «моё место» — снова «вот вы»: повторное нажатие
     // обязано вернуть камеру к человеку, а не молчать.
     autoCenterDoneRef.current = false;
 
     let marker: Marker | null = null;
-    const watchId = navigator.geolocation.watchPosition(
+    const watchId = geo.watchPosition(
       async (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords;
         setGeoDenied(false);
@@ -1327,7 +1329,7 @@ export default function VedarMap({
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
     );
     return () => {
-      navigator.geolocation.clearWatch(watchId);
+      geo.clearWatch(watchId);
       marker?.remove();
       userMarkerRef.current = null;
     };

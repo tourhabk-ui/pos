@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
+import { geolocationOnce } from '@/lib/geo/current-position';
 
 export const LAST_ONLINE_POS_KEY = 'vedar_last_online_pos';
 
 export function LastPositionTracker() {
   useEffect(() => {
-    if (!navigator.geolocation || !navigator.permissions) return;
+    const found = geolocationOnce();
+    if (!found || !navigator.permissions) return;
+    const geo: NonNullable<typeof found> = found;
 
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -19,7 +22,7 @@ export function LastPositionTracker() {
         return;
       }
 
-      navigator.geolocation.getCurrentPosition(
+      geo.getCurrentPosition(
         (pos) => {
           try {
             localStorage.setItem(LAST_ONLINE_POS_KEY, JSON.stringify({

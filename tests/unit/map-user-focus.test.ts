@@ -26,13 +26,13 @@ describe('«вот вы» — центр и масштаб', () => {
   });
 
   it('каждое включение снова центрирует: флаг сбрасывается в начале эффекта', () => {
-    const eff = MAP.slice(MAP.indexOf('// ── Своё положение'), MAP.indexOf('navigator.geolocation.watchPosition'));
+    const eff = MAP.slice(MAP.indexOf('// ── Своё положение'), MAP.indexOf('geo.watchPosition('));
     expect(eff).toMatch(/autoCenterDoneRef\.current = false;/);
   });
 });
 
 describe('точка «я» различима', () => {
-  const eff = MAP.slice(MAP.indexOf('// ── Своё положение'), MAP.indexOf('navigator.geolocation.clearWatch'));
+  const eff = MAP.slice(MAP.indexOf('// ── Своё положение'), MAP.indexOf('geo.clearWatch('));
 
   it('ореол 44 px и точка 22 px — крупнее кружка места', () => {
     expect(eff).toMatch(/width:44px;height:44px/);
