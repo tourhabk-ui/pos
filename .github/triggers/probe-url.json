@@ -1,24 +1,26 @@
 {
   "timeout": 60,
-  "run": 993,
-  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. Дайджест ошибок браузера: «Loading chunk 52619 failed (timeout)» 7 раз на /partner-site/kamchatskaya-rybalka, ни разу с телефона. Есть ли этот чанк в текущей сборке, какого он размера и что в нём (по строкам из модулей).",
+  "run": 994,
+  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. После выката #2731: мобильная главная с телефонным UA — виджет погоды «Погода · Петропавловск» между «Радаром» и «Турами», ссылка на /weather; и сам /api/weather/home.",
+  "ua": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
   "urls": [
-    "https://vedarai.ru/_next/static/chunks/52619-c48a18d6f62d2371.js"
+    "https://vedarai.ru/",
+    "https://vedarai.ru/api/weather/home"
   ],
   "text": false,
-  "bytes": 1200,
+  "bytes": 600,
   "grep": [
-    "leaflet",
-    "maplibre",
-    "Kuzmich",
-    "serviceWorker",
-    "partner-site",
-    "not-found",
-    "geolocation",
-    "lucide",
-    "OperatorLeadForm",
-    "PdConsent",
-    "yandex",
-    "metrika"
+    "Погода · ",
+    "class=\"hw ",
+    "hw wx-scene",
+    "hw hw-off",
+    "data-wx-scene",
+    "href=\"/weather\"",
+    "загружаем прогноз",
+    "прогноз сейчас не загрузился",
+    "Инструменты поездки",
+    "\"kind\":\"ok\"",
+    "\"kind\":\"failed\"",
+    "hw-warn"
   ]
 }
