@@ -1,9 +1,11 @@
 /**
  * Пилот кабинета прокатчика в MAX.
  *
- * Включается только списком slug в RENTAL_OPERATOR_PILOT_SLUGS (через
- * запятую). Пустая или отсутствующая переменная — кабинет выключен у всех,
- * включая «Лагуну»: чужой оператор и перевозчик этот путь не видят.
+ * Включается списком slug в RENTAL_OPERATOR_PILOT_SLUGS (через запятую).
+ * Переменная не задана — список равен одному названному пилоту
+ * `laguna-prokat`: остальные операторы этот путь не видят, а кабинет «Лагуны»
+ * не ждёт ручной записи в панели. Пустая строка — никого: так кабинет
+ * выключают, не снимая код.
  *
  * Привязка чата — та же ссылка op_, что у любого партнёра
  * (lib/partners/channel-link): её выдаёт администратор, «Старт» по ней пишет
@@ -16,8 +18,12 @@
 
 import { escapeHtml } from '@/lib/text/escape-html';
 
+/** Пилот, когда переменную не задали. Пустая строка его не включает. */
+const NAMED_PILOT_WHEN_UNSET = ['laguna-prokat'] as const;
+
 export function rentalPilotSlugs(raw: string | undefined = process.env.RENTAL_OPERATOR_PILOT_SLUGS): readonly string[] {
-  if (!raw) return [];
+  if (raw === undefined) return [...NAMED_PILOT_WHEN_UNSET];
+  if (raw.trim() === '') return [];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const part of raw.split(',')) {
