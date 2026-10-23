@@ -42,6 +42,7 @@ import {
 import { photoSrc } from '@/lib/images/variant';
 import { carrierInstrument, includedUnknowns, minCharterPrice } from '@/lib/transfers/carrier-view';
 import { rentalPagePath } from '@/lib/rental/rental-format';
+import { materialsConsentLine } from '@/lib/legal/partner-materials-consent';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
 
 /** Якорь формы заявки: на него ведут кнопка героя, «Заказать» у строк прайса и ссылки снаружи. */
@@ -203,6 +204,9 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Исполнитель: {charterRequisitesLine(c.legal) ?? 'реквизиты перевозчика не записаны на платформе'}
                     </p>
+                    {c.materialsConsent && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1" data-testid="materials-consent">{materialsConsentLine(c.materialsConsent)}</p>
+                    )}
                     {/* Лицензия и страхование — только записанное и с источником:
                         номер по выписке — со статусом на дату выписки; «есть» со
                         слов — так и сказано (владелец 15.10: «только факты»). */}

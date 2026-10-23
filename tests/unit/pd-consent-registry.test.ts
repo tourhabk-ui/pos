@@ -69,6 +69,10 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
     note: 'миграция 1284, восьмая копия — типы как у 911. Заявка на аренду снаряжения (аудит 15.10, A13): имя, телефон и почта уходят прокату, согласие — вариант «прокату снаряжения» (PD_CONSENT_GEAR_VERSION), в той же вставке. Колонки NULLABLE: у заявок до 15.10 согласия не спрашивали, и «не записано» ≠ «отказано»',
   },
+  partner_material_consents: {
+    fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
+    note: 'миграция 1321, девятая копия — типы как у 911. Подписант согласия партнёра на материалы сайта (владелец 23.10): имя и должность представителя никому не передаются, согласие — вариант «учёт подписанта» (PD_CONSENT_PARTNER_SIGNER_VERSION), в той же вставке, NOT NULL: без него согласие партнёра не записывается',
+  },
 };
 
 describe('где живёт согласие', () => {
@@ -143,6 +147,8 @@ const CONSENT_FORMS = [
   'components/gear/GearBookingForm.tsx',
   // Заявка на прокат автомобиля (23.10, /car-rental): шлёт СОСТОЯНИЕ галочки «прокату автомобилей».
   'components/rental/RentalRequestForm.tsx',
+  // Согласие партнёра на материалы сайта (23.10, 1321): шлёт СОСТОЯНИЕ галочки подписанта.
+  'components/partners/PartnerConsentForm.tsx',
 ];
 
 /**
@@ -217,6 +223,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/charter-requests/route.ts',
   'app/api/gear/rentals/route.ts',
   'app/api/car-rental-requests/route.ts',
+  'app/api/partner-consent/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

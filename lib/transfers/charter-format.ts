@@ -8,6 +8,8 @@
 
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 
+import type { MaterialsConsentPublic } from '@/lib/legal/partner-materials-consent';
+
 export type CharterVehicleKind = 'jeep' | 'vahtovka' | 'minibus' | 'other';
 
 export interface CharterVehicle {
@@ -266,6 +268,8 @@ export const INSURANCE_WORDS_LINE = 'Страхование пассажиров
  * и rates пусты, extraDay null.
  */
 export interface CarrierProfile extends CharterCarrier {
+  /** Действующее согласие партнёра на материалы сайта (1321); null или нет поля — не записано. */
+  materialsConsent?: MaterialsConsentPublic | null;
   /** partners.is_verified: true — проверен платформой, иначе отметки нет. */
   verified: boolean;
   description: string | null;

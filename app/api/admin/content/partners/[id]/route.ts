@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
+import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,9 @@ interface PartnerRow {
   location: Record<string, unknown> | null;
   is_public: boolean;
   contact: Record<string, unknown>;
+  /** Блок связи витрины и колонка сайта (692): форма дополняет из них пустые поля. */
+  contacts: unknown;
+  website: string | null;
   rating: string;
   review_count: string;
   is_verified: boolean;
@@ -43,7 +47,7 @@ export async function GET(
     const result = await query<PartnerRow>(
       `SELECT id, user_id, name, category, description,
               short_description, slug, hero_image, logo_image,
-              location, is_public, contact, rating, review_count,
+              location, is_public, contact, contacts, website, rating, review_count,
               is_verified, created_at, updated_at
        FROM partners
        WHERE id = $1`,
@@ -71,7 +75,7 @@ export async function GET(
         logoImage: row.logo_image ?? '',
         location: row.location ?? {},
         isPublic: row.is_public ?? false,
-        contact: row.contact ?? {},
+        contact: adminContactView(row.contact, row.contacts, row.website),
         rating: parseFloat(row.rating) || 0,
         reviewCount: parseInt(row.review_count) || 0,
         isVerified: row.is_verified,
@@ -141,6 +145,20 @@ export async function PUT(
       );
     }
 
+    // Сайт пишется, только если администратор его поменял (ревью 23.10):
+    // сравнение — с тем, что форма показала при открытии, по текущей строке.
+    const currentRes = await query<{ contact: unknown; contacts: unknown; website: string | null }>(
+      'SELECT contact, contacts, website FROM partners WHERE id = $1',
+      [id],
+    );
+    if (currentRes.rows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Партнёр не найден' },
+        { status: 404 }
+      );
+    }
+    const site = websiteWrite(currentRes.rows[0], contact.website);
+
     // Build dynamic SET clause
     const setClauses: string[] = [];
     const values: unknown[] = [];
@@ -155,6 +173,23 @@ export async function PUT(
     setClauses.push(`logo_image = $${idx}`); values.push(logoImage || null); idx++;
     setClauses.push(`location = $${idx}`); values.push(JSON.stringify(location)); idx++;
     setClauses.push(`contact = $${idx}`); values.push(JSON.stringify(contact)); idx++;
+    // Поменянный сайт — во все три места хранения (владелец 23.10, «почему
+    // сайт не заполнен»): витрина читает contacts.website, аудит сайта и
+    // скрейпер — колонку website (692). Пустое поле снимает сайт везде.
+    // Непустой массив в contacts не трогается (люди «Камчатской рыбалки»,
+    // 840–844) — так же, как у app/api/admin/operators/[id]/contacts.
+    if (site.changed) {
+      setClauses.push(`website = $${idx}`); values.push(site.value); idx++;
+      setClauses.push(
+        `contacts = CASE
+           WHEN jsonb_typeof(contacts) = 'array' AND contacts <> '[]'::jsonb THEN contacts
+           WHEN $${idx}::text IS NULL
+             THEN (CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END) - 'website'
+           ELSE jsonb_set(CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END, '{website}', to_jsonb($${idx}::text))
+         END`,
+      );
+      values.push(site.value); idx++;
+    }
     if (isVerified !== undefined) { setClauses.push(`is_verified = $${idx}`); values.push(isVerified); idx++; }
     if (isPublic !== undefined) { setClauses.push(`is_public = $${idx}`); values.push(isPublic); idx++; }
 

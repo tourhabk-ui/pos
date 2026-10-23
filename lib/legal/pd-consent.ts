@@ -71,16 +71,39 @@ export const PD_CONSENT_RENTAL_TEXT =
   'Согласен на обработку персональных данных и их передачу прокату автомобилей для связи по заявке';
 export const PD_CONSENT_RENTAL_VERSION = '2026-10-23-rental';
 
-/** Кому передаются данные по заявке: туроператору (по умолчанию), владельцу жилья, перевозчику, прокату снаряжения или прокату автомобилей. */
-export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear' | 'rental';
+/**
+ * Вариант для подписанта согласия партнёра на материалы (23.10, миграция
+ * 1321): имя и должность представителя партнёра — его персональные данные.
+ * Они не передаются никому: нужны, чтобы согласие партнёра было чьим-то, а не
+ * анонимным. Поэтому текст говорит об учёте, а не о передаче.
+ */
+export const PD_CONSENT_PARTNER_SIGNER_TEXT =
+  'Согласен на обработку моих персональных данных (имя и должность) для учёта согласия партнёра на использование материалов';
+export const PD_CONSENT_PARTNER_SIGNER_VERSION = '2026-10-23-partner-signer';
+
+/**
+ * Для чего согласие: передача по заявке туроператору (по умолчанию), владельцу
+ * жилья, перевозчику, прокату снаряжения или прокату автомобилей — либо учёт
+ * подписанта согласия партнёра на материалы.
+ */
+export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear' | 'rental' | 'partner-signer';
 
 /** Текст и версия согласия для цели заявки — единственный выбор между ними. */
 export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
-  if (purpose === 'stay') return { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION };
-  if (purpose === 'carrier') return { text: PD_CONSENT_CARRIER_TEXT, version: PD_CONSENT_CARRIER_VERSION };
-  if (purpose === 'gear') return { text: PD_CONSENT_GEAR_TEXT, version: PD_CONSENT_GEAR_VERSION };
-  if (purpose === 'rental') return { text: PD_CONSENT_RENTAL_TEXT, version: PD_CONSENT_RENTAL_VERSION };
-  return { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
+  // Исчерпывающий выбор: новый purpose без своей ветки — ошибка tsc, а не
+  // тихий текст «туроператору» с его версией в записи.
+  switch (purpose) {
+    case 'operator': return { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
+    case 'stay': return { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION };
+    case 'carrier': return { text: PD_CONSENT_CARRIER_TEXT, version: PD_CONSENT_CARRIER_VERSION };
+    case 'gear': return { text: PD_CONSENT_GEAR_TEXT, version: PD_CONSENT_GEAR_VERSION };
+    case 'rental': return { text: PD_CONSENT_RENTAL_TEXT, version: PD_CONSENT_RENTAL_VERSION };
+    case 'partner-signer': return { text: PD_CONSENT_PARTNER_SIGNER_TEXT, version: PD_CONSENT_PARTNER_SIGNER_VERSION };
+    default: {
+      const never: never = purpose;
+      return never;
+    }
+  }
 }
 
 /** Куда ведёт ссылка рядом с галочкой. */
