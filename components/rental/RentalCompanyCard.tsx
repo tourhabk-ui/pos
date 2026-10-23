@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Car, ClipboardList, Phone, Send } from 'lucide-react';
 import { photoSrc } from '@/lib/images/variant';
+import { plural } from '@/lib/home/data-freshness';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { RentalOfferList } from '@/components/rental/RentalOfferList';
 import { PartnerLogo } from '@/components/shared/PartnerLogo';
@@ -56,30 +57,31 @@ export function RentalCompanyCard({ company }: { company: RentalCompany }) {
       )}
 
       <div className="flex flex-col flex-1 p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="mb-2">
-              <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>
-                Прокат · машина без водителя
-              </span>
-            </p>
-            <div className="flex items-center gap-3">
-              <PartnerLogo src={company.logo} name={company.name} size="card" />
-              <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">
-                <Link href={rentalPagePath(company.slug)} className="hover:underline">{company.name}</Link>
-              </h3>
-            </div>
-            {company.shortDescription && (
-              <p className="text-sm text-[var(--text-secondary)] mt-1">{company.shortDescription}</p>
-            )}
-            <p className="text-xs text-[var(--text-secondary)] mt-1 inline-flex items-center gap-1.5">
-              <Car className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden />
-              {company.offers.length === 1 ? '1 машина в прайсе' : `${company.offers.length} машин в прайсе`}
-            </p>
+        {/* Чип и ссылка — одной строкой сверху; имя и описание — во всю ширину
+            карточки. Владелец 23.10 (снимок с телефона): ссылка справа держала
+            колонку на всю высоту блока, и описание шло в половину экрана. */}
+        <div>
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>
+              Прокат · машина без водителя
+            </span>
+            <Link href={rentalPagePath(company.slug)} className="text-xs text-[var(--ocean)] underline shrink-0">
+              Страница прокатчика
+            </Link>
           </div>
-          <Link href={rentalPagePath(company.slug)} className="text-xs text-[var(--ocean)] underline shrink-0">
-            Страница прокатчика
-          </Link>
+          <div className="flex items-center gap-3">
+            <PartnerLogo src={company.logo} name={company.name} size="card" />
+            <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">
+              <Link href={rentalPagePath(company.slug)} className="hover:underline">{company.name}</Link>
+            </h3>
+          </div>
+          {company.shortDescription && (
+            <p className="text-sm text-[var(--text-secondary)] mt-1">{company.shortDescription}</p>
+          )}
+          <p className="text-xs text-[var(--text-secondary)] mt-1 inline-flex items-center gap-1.5">
+            <Car className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden />
+            {company.offers.length} {plural(company.offers.length, 'машина', 'машины', 'машин')} в прайсе
+          </p>
         </div>
 
         <RentalOfferList offers={company.offers} orderSlug={company.slug} compact />
