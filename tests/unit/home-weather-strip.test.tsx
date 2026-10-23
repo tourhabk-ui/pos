@@ -9,16 +9,27 @@
  *  - бюджет главной: прогноз не успел — «pending», главная не ждёт 12 с;
  *  - плитка — рендером: ведёт на /weather, называет погоду словами для
  *    диктора, без прогноза — «не загрузился» и ни одной выдуманной цифры,
- *    «pending» дотягивает данные из /api/weather/home.
+ *    «pending» дотягивает данные из /api/weather/home;
+ *  - цвет — каскадом настоящего CSS главной и сцены из globals.css: текст
+ *    плитки берёт палитру сцены, а не темы страницы.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
 import { homeWeatherFrom, loadHomeWeatherWithin } from '@/lib/weather/home-widget';
 import { HOME_WEATHER_ENDPOINT, type HomeWeather } from '@/lib/weather/home-widget-types';
 import { weatherScene } from '@/lib/weather/scene';
 import { HomeWeatherStrip } from '@/components/homepage/HomeWeatherStrip';
 import type { PlaceWeather, WarningsRead } from '@/lib/weather/weather-page';
+import HomeV8Client from '@/app/_home/_HomeV8Client';
+import type { HomeV8Data } from '@/app/_home/data';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -149,5 +160,78 @@ describe('плитка на главной', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     render(<HomeWeatherStrip initial={{ kind: 'pending' }} />);
     await waitFor(() => expect(screen.getByRole('link').textContent).toContain('прогноз сейчас не загрузился'));
+  });
+});
+
+// Снимок владельца 23.10 («видишь баг?»): ночью в светлой теме «+4°»,
+// «Малооблачно», «+7°» и строка предупреждения — тёмным по тёмно-синему.
+// Правило главной «.v7 a{color:inherit}» сильнее «.wx-scene{color:…}», и
+// ссылка брала цвет текста темы страницы. В тёмной теме днём было бы обратное:
+// светлое по светлому небу. jsdom считает каскад и наследование, но не
+// раскрывает var(): поэтому сравнивается, какой токен победил.
+describe('цвет плитки — от сцены, не от темы страницы', () => {
+  const globals = readFileSync('app/globals.css', 'utf-8');
+  const SCENE_CSS = globals.slice(globals.indexOf('.wx-scene {'), globals.indexOf('/* SectionSwipeBar'));
+  const DATA: HomeV8Data = {
+    safety: { activeCount: 0, maxSeverity: 0, alerts: [], volcanoes: [], updatedAt: null },
+    seismic: { events: [], source: 'none', updatedAt: null, checkedAt: null },
+    radar: { hazards: [], center: { lat: 53.04, lng: 158.65, label: 'Петропавловск-Камчатский' } },
+    zones: { open: 0, total: 0, updatedAt: null },
+    plates: [], transfer: null, stay: null, explore: [], feed: [], stats: [], elements: [],
+  };
+  const WARN: WarningsRead = {
+    kind: 'ok', checkedAt: '2026-10-23T02:00:00Z',
+    items: [{ title: 'Ветер — жёлтый уровень (север края)', text: '', severity: 1, until: null }],
+  };
+  const NIGHT = { ...OK, now: { ...(OK as Extract<PlaceWeather, { kind: 'ok' }>).now!, isDay: false, weatherCode: 1 } } as PlaceWeather;
+
+  function home(weather: HomeWeather) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    // Порядок как на сайте: globals.css в <head>, CSS главной — в её <style> ниже.
+    const scene = document.createElement('style');
+    scene.textContent = SCENE_CSS;
+    document.head.appendChild(scene);
+    const { container } = render(<HomeV8Client data={DATA} weather={weather} />);
+    const tile = container.querySelector<HTMLElement>('a[href="/weather"]');
+    if (!tile) throw new Error('плитки погоды на главной нет');
+    return { tile, done: () => scene.remove() };
+  }
+  const color = (el: Element | null) => (el ? getComputedStyle(el).color : 'нет элемента');
+
+  it.each([
+    ['ночь', NIGHT, 'night-clear'],
+    ['день', OK, 'day-cloud'],
+  ])('%s: температура, небо, дни и предупреждение — цветом сцены', (_n, w, sceneName) => {
+    const { tile, done } = home(homeWeatherFrom(w, WARN, NOW));
+    expect(tile.getAttribute('data-wx-scene')).toBe(sceneName);
+    expect(color(tile)).toBe('var(--wx-fg)');
+    for (const sel of ['.hw-temp', '.hw-mid b', '.hw-day b', '.hw-warn-t']) {
+      expect([sel, color(tile.querySelector(sel))]).toEqual([sel, 'var(--wx-fg)']);
+    }
+    // Кромка и знак предупреждения — оттенком сцены, а не --warning страницы.
+    expect(color(tile.querySelector('.hw-warn svg'))).toBe('var(--wx-warn)');
+    expect(getComputedStyle(tile.querySelector('.hw-warn')!).boxShadow).toContain('var(--wx-warn)');
+    // Строки — над силуэтом гряды, а не под ним.
+    for (const sel of ['.hw-cap', '.hw-row', '.hw-warn']) {
+      const st = getComputedStyle(tile.querySelector(sel)!);
+      expect([sel, st.position, st.zIndex]).toEqual([sel, 'relative', '1']);
+    }
+    expect(getComputedStyle(tile.querySelector('.hw-hills')!).zIndex).toBe('0');
+    done();
+  });
+
+  it('у сцены есть оттенок предупреждения для ночи и для дня', () => {
+    const night = SCENE_CSS.slice(SCENE_CSS.indexOf('.wx-scene {'), SCENE_CSS.indexOf('}'));
+    const dayStart = SCENE_CSS.indexOf('.wx-scene[data-wx-scene="day-clear"],');
+    const day = SCENE_CSS.slice(dayStart, SCENE_CSS.indexOf('}', dayStart));
+    expect(night).toMatch(/--wx-warn:\s*#/);
+    expect(day).toMatch(/--wx-warn:\s*#/);
+  });
+
+  it('прогноза нет — сцены нет, и плитка пишет цветами страницы', () => {
+    const { tile, done } = home({ kind: 'failed' });
+    expect(tile.classList.contains('wx-scene')).toBe(false);
+    expect(color(tile)).toBe('var(--text-primary)');
+    done();
   });
 });

@@ -733,6 +733,10 @@ body {
   --wx-scene-border: rgba(160, 205, 240, 0.28);
   /* Солнце знаков и дуги дня (Samsung-стиль, 22.10): тёплый, а не цвет иконок. */
   --wx-sun: #ffc95a;
+  /* Кромка и знак предупреждения на сцене: оттенок --warning той темы, чьей
+     яркости сцена (ночью — тёмной, днём — светлой). --warning страницы на
+     ночной сцене при светлой теме тускнел (снимок владельца 23.10). */
+  --wx-warn: #D29922;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -783,6 +787,7 @@ body {
   --wx-silhouette: rgba(35, 86, 128, 0.26);
   --wx-scene-border: rgba(110, 170, 220, 0.45);
   --wx-sun: #e89a00;
+  --wx-warn: #876316;
 }
 .wx-scene[data-wx-scene="day-clear"] {
   --wx-bg: linear-gradient(180deg, #6fb2e6 0%, #9cccf0 48%, #d3ecf9 100%);
