@@ -32,6 +32,44 @@ import { getPublicBaseUrl } from '@/lib/config';
 export interface CarRentalSearchArgs {
   /** Слово о машине из вопроса: вид, модель или «с водителем». */
   query?: string;
+  /** Вид кузова, если агент знает его точно. */
+  type?: RentalBodyKind;
+  /** Даты проката YYYY-MM-DD — только для расчёта суток; занятость машин на платформе не ведётся. */
+  date_from?: string;
+  date_to?: string;
+}
+
+/**
+ * Слова самой просьбы, а не машины (23.10, диалог моделей: «аренда
+ * внедорожника» и «rent a car 4x4» приходили целиком в query, и каждое слово
+ * обязано было найтись в машине — «аренда» не находилось нигде). Эти слова
+ * из фильтра выбрасываются.
+ */
+const REQUEST_WORDS = new Set([
+  'аренда', 'аренду', 'арендовать', 'арендую', 'прокат', 'прокате', 'напрокат', 'взять', 'снять', 'машина', 'машину', 'машины',
+  'авто', 'автомобиль', 'автомобиля', 'автомобили', 'на', 'камчатке', 'камчатка', 'сутки', 'день', 'дней', 'хочу', 'нужен', 'нужна',
+  'car', 'cars', 'rent', 'rental', 'rentals', 'hire', 'self', 'drive', 'kamchatka', 'in', 'for', 'the', 'an', 'to', 'vehicle',
+]);
+
+/** Английские и разговорные слова о машине → слово прайса. */
+const WORD_ALIASES: Record<string, string> = {
+  suv: 'внедорожник', jeep: 'внедорожник', '4x4': '4wd', '4х4': '4wd', offroad: 'внедорожник', внедорожника: 'внедорожник',
+  внедорожники: 'внедорожник', джипа: 'джип', minibus: 'микроавтобус', van: 'микроавтобус', микроавтобуса: 'микроавтобус',
+  вездехода: 'вездеход', вахтовку: 'вахтовка', automatic: 'автомат', manual: 'механика', sedan: 'седан',
+};
+
+/** Слова фильтра без слов просьбы, с заменой синонимов. */
+export function filterWords(query: string): string[] {
+  return norm(query).split(/[^a-zа-я0-9]+/u)
+    .filter((w) => w.length >= 2 && !REQUEST_WORDS.has(w))
+    .map((w) => WORD_ALIASES[w] ?? w);
+}
+
+/** Сутки проката между датами (10–14 ноября — 4 суток); null — дат нет или они кривые. */
+export function rentalDays(from?: string, to?: string): number | null {
+  if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const d = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000;
+  return Number.isFinite(d) && d >= 1 && d <= 90 ? d : null;
 }
 
 export interface CarRentalSearchOpts {
@@ -72,7 +110,7 @@ function haystack(o: RentalOffer): string {
  * сдаётся каждая.
  */
 export function matchOffers(offers: RentalOffer[], query: string): RentalOffer[] {
-  const words = norm(query).split(/[^a-zа-я0-9]+/u).filter((w) => w.length >= 2);
+  const words = filterWords(query);
   if (words.length === 0) return offers;
   return offers.filter((o) => {
     const h = haystack(o);
@@ -100,7 +138,7 @@ function latinOf(word: string): string {
 }
 
 /** Строка машины: «Suzuki Jimny — внедорожник, 4 места, автомат, 4WD, 105 л.с.: 7000 руб за сутки, залог 15000 руб, без водителя». */
-function offerLine(o: RentalOffer): string {
+function offerLine(o: RentalOffer, days: number | null = null): string {
   const facts = [bodyKindWord(o.bodyKind)];
   if (o.seats !== null) facts.push(seatsWords(o.seats));
   if (o.transmission) facts.push(transmissionWord(o.transmission));
@@ -109,6 +147,7 @@ function offerLine(o: RentalOffer): string {
   const price = `${o.priceIsFrom ? 'от ' : ''}${rub(o.priceRubPerDay)} за сутки`;
   const money = [price];
   if (o.depositRub !== null) money.push(`залог ${rub(o.depositRub)}`);
+  if (days !== null) money.push(`за ${days} сут. по прайсу ${o.priceIsFrom ? 'от ' : ''}${rub(o.priceRubPerDay * days)}`);
   money.push(o.driver === 'optional' ? 'водитель по желанию, цена отдельно' : 'без водителя');
   return `${o.title} — ${facts.join(', ')}: ${money.join(', ')}`;
 }
@@ -122,6 +161,7 @@ export function rentalAnswer(
   query: string | undefined,
   base: string,
   opts: CarRentalSearchOpts = {},
+  filters: Pick<CarRentalSearchArgs, 'type' | 'date_from' | 'date_to'> = {},
 ): string {
   if (companies === null) {
     return `Не смог проверить прайс проката — сбой на нашей стороне. Не говори, что проката нет; предложи посмотреть позже на ${base}/car-rental.`;
@@ -130,11 +170,15 @@ export function rentalAnswer(
     return `Прокатчиков с прайсом на платформе пока нет — это факт витрины, не сбой. Машин, прокатчиков и цен не выдумывай. Витрина: ${base}/car-rental.`;
   }
   const needle = (query ?? '').trim();
+  const days = rentalDays(filters.date_from, filters.date_to);
   const blocks = companies.map((c) => {
-    const hit = needle ? matchOffers(c.offers, needle) : c.offers;
+    const typed = filters.type ? c.offers.filter((o) => o.bodyKind === filters.type) : c.offers;
+    const hit = needle ? matchOffers(typed, needle) : typed;
+    const filtered = Boolean(needle || filters.type);
     const shown = hit.length > 0 ? hit : c.offers;
-    const miss = needle && hit.length === 0 ? `По запросу «${needle}» в прайсе ничего нет; весь прайс: ` : '';
-    const lines = shown.map(offerLine).join('; ');
+    const label = needle || (filters.type ? bodyKindWord(filters.type) : '');
+    const miss = filtered && hit.length === 0 ? `По запросу «${label}» в прайсе ничего нет; весь прайс: ` : '';
+    const lines = shown.map((o) => offerLine(o, days)).join('; ');
     return `${c.name}. ${miss}${lines}. Условия проката, заявка и связь — на странице прокатчика: ${base}${rentalPagePath(c.slug)}`;
   });
   // Инструмента заявки на прокат нет ни у Кузьмича, ни у внешнего агента:
@@ -144,7 +188,10 @@ export function rentalAnswer(
   const noRequestTool = opts.surface === 'mcp'
     ? ' Инструмента заявки на прокат в MCP нет: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком.'
     : ' Заявка — формой на странице прокатчика; инструмента заявки на прокат у агента нет.';
-  return `Прокат — машина без водителя, цена за сутки за машину; направление и дни задаёт арендатор. Что входит в цену, минимальный срок и требования к водителю на платформе не записаны — уточняются у прокатчика; расчёт напрямую с ним, через платформу не оплачивается.${noRequestTool}\n${blocks.join('\n')}`;
+  const dates = days !== null
+    ? ` Даты ${filters.date_from} — ${filters.date_to}: ${days} сут.; занятость машин на эти даты платформа не ведёт — подтверждает прокатчик.`
+    : '';
+  return `Прокат — машина без водителя, цена за сутки за машину; направление и дни задаёт арендатор.${dates} Что входит в цену, минимальный срок и требования к водителю на платформе не записаны — уточняются у прокатчика; расчёт напрямую с ним, через платформу не оплачивается.${noRequestTool}\n${blocks.join('\n')}`;
 }
 
 export async function searchCarRentalForKuzmich(args: CarRentalSearchArgs, opts: CarRentalSearchOpts = {}): Promise<string> {
@@ -157,5 +204,5 @@ export async function searchCarRentalForKuzmich(args: CarRentalSearchArgs, opts:
     console.error('[car-rental-search] прайс не прочитан', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
     companies = null;
   }
-  return rentalAnswer(companies, args.query, base, opts);
+  return rentalAnswer(companies, args.query, base, opts, { type: args.type, date_from: args.date_from, date_to: args.date_to });
 }

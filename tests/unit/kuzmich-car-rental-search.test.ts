@@ -221,9 +221,9 @@ describe('исполнитель Кузьмича и реестр', () => {
     expect(out).toMatch(/Инструмента заявки на прокат в MCP нет/);
   });
 
-  it('схема: один необязательный query, лишние поля отброшены, у Кузьмича и MCP одна русская часть', () => {
+  it('схема: необязательные query, type и даты, лишние поля отброшены, у Кузьмича и MCP одна русская часть', () => {
     const kuzmich = KUZMICH_TOOLS.find((t) => t.function.name === 'search_car_rental')!;
-    expect(Object.keys(kuzmich.function.parameters.properties)).toEqual(['query']);
+    expect(Object.keys(kuzmich.function.parameters.properties)).toEqual(['query', 'type', 'date_from', 'date_to']);
     expect(kuzmich.function.parameters.required).toEqual([]);
     expect(validateToolArgs('search_car_rental', { query: 'джип', seats: '4', date: '2026-10-30' })).toEqual({ ok: true, args: { query: 'джип' } });
     expect(validateToolArgs('search_car_rental', {})).toEqual({ ok: true, args: {} });
@@ -243,9 +243,31 @@ describe('исполнитель Кузьмича и реестр', () => {
     expect(TOOL_ENGLISH.search_car_rental.lead).toMatch(/\bKamchatka\b/);
     expect(TOOL_ENGLISH.search_car_rental.lead).toContain('search_transfers');
     expect(mcp.annotations?.readOnlyHint).toBe(true);
-    expect(Object.keys((mcp.inputSchema as { properties: Record<string, unknown> }).properties)).toEqual(['query']);
+    expect(Object.keys((mcp.inputSchema as { properties: Record<string, unknown> }).properties)).toEqual(['query', 'type', 'date_from', 'date_to']);
     const manifest = JSON.parse(readFileSync('server.json', 'utf-8')) as { version: string };
     expect(manifest.version).toBe(MCP_SERVER_INFO.version);
     expect(MCP_SERVER_INFO.description).toMatch(/прокат машин/);
+  });
+});
+
+describe('search_car_rental: слова просьбы, вид и даты (23.10)', () => {
+  it('«аренда внедорожника» и «rent a car 4x4» находят джип, а не «ничего нет»', () => {
+    for (const q of ['аренда внедорожника', 'rent a car 4x4', 'car rental SUV', 'прокат джипа']) {
+      const text = rentalAnswer([LAGUNA], q, BASE, { surface: 'mcp' });
+      expect(text, q).toContain('Suzuki Jimny');
+      expect(text, q).not.toContain('ничего нет');
+      expect(text, q).not.toContain('Toyota HiAce');
+    }
+  });
+  it('type=minibus отбирает микроавтобус; даты дают сутки и сумму по прайсу', () => {
+    const text = rentalAnswer([LAGUNA], undefined, BASE, { surface: 'mcp' }, { type: 'minibus', date_from: '2026-11-10', date_to: '2026-11-14' });
+    expect(text).toContain('Toyota HiAce');
+    expect(text).not.toContain('Suzuki Jimny');
+    expect(text).toContain('4 сут.');
+    expect(text).toContain('48000 руб');
+    expect(text).toContain('подтверждает прокатчик');
+  });
+  it('кривые даты и чужой type не ломают вызов', () => {
+    expect(validateToolArgs('search_car_rental', { type: 'tank', date_from: 'завтра' }).ok).toBe(true);
   });
 });
