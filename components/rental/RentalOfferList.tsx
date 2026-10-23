@@ -35,7 +35,12 @@ export function RentalOfferList({ offers, orderSlug, compact = false }: {
       <dl>
         {offers.map((o) => (
           <div key={o.id} className="py-2.5 border-b border-[var(--border)]">
-            <div className="flex items-start justify-between gap-3">
+            {/* На телефоне строка в две полосы: снимок с названием и фактами, под
+                ними цена и «Заказать» во всю ширину (dd — w-full); от sm — одна
+                строка. Владелец 23.10 (снимок с телефона): четыре колонки в 360 px
+                давили название на цену, факты шли по слову в строке, кнопка уходила
+                за край экрана. */}
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap">
               {o.photo && (
                 <div
                   className="relative w-20 h-14 shrink-0 rounded-lg overflow-hidden bg-[var(--bg-hover)]"
@@ -49,8 +54,8 @@ export function RentalOfferList({ offers, orderSlug, compact = false }: {
                 <span className="block text-xs text-[var(--text-secondary)] mt-0.5">{offerFactsLine(o)}</span>
                 <span className="block text-xs text-[var(--text-muted)] mt-0.5">{driverWord(o.driver)}</span>
               </dt>
-              <dd className="flex items-center gap-3 shrink-0">
-                <span className="text-right">
+              <dd className="flex w-full items-center justify-between gap-3 sm:w-auto sm:shrink-0 sm:justify-end">
+                <span className="text-left sm:text-right">
                   <span className="block whitespace-nowrap text-base font-bold tabular-nums text-[var(--text-primary)]">{priceOnScreen(o)}</span>
                   {o.depositRub !== null && (
                     <span className="block text-xs text-[var(--text-muted)]">залог {formatRub(o.depositRub)}</span>
@@ -60,7 +65,7 @@ export function RentalOfferList({ offers, orderSlug, compact = false }: {
                   <Link
                     href={rentalOrderPath(orderSlug, o.title)}
                     prefetch={false}
-                    className="ds-btn ds-btn-secondary px-3"
+                    className="ds-btn ds-btn-secondary px-3 shrink-0"
                     aria-label={`Заказать машину: ${o.title}`}
                   >
                     Заказать

@@ -27,7 +27,7 @@ export function RentalHero({ name, photos, children }: {
   const captions = photos.map((ph) => `Фото: ${ph.credit ?? name}`);
 
   return (
-    <header className="relative overflow-hidden" style={{ height: 'min(60vh, 520px)', minHeight: 360, background: 'var(--bg-hover)' }}>
+    <header className="relative overflow-hidden flex flex-col justify-end" style={{ minHeight: 'max(360px, min(60vh, 520px))', background: 'var(--bg-hover)' }}>
       {hero ? (
         <button type="button" className="absolute inset-0 w-full h-full" onClick={() => setOpen(0)}
           aria-label={`Открыть фото: ${name}`}>
@@ -40,7 +40,11 @@ export function RentalHero({ name, photos, children }: {
       )}
       {/* Скрим без прозрачного окна посередине: верх держит шапку, низ — текст. */}
       <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/50 via-black/25 to-black/85" />
-      <div className="absolute inset-x-0 bottom-0 pointer-events-none">
+      {/* Текст — в потоке, а не поверх: длинное описание и полоса фактов
+          растят героя, а не уезжают под шапку (снимок с телефона 23.10 —
+          логотип прокатчика обрезало сверху). pt-24 — место под прозрачную
+          шапку сайта. */}
+      <div className="relative pt-24 pointer-events-none">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 pointer-events-auto">{children}</div>
       </div>
       {hero && (

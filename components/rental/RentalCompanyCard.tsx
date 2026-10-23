@@ -61,8 +61,8 @@ export function RentalCompanyCard({ company }: { company: RentalCompany }) {
             карточки. Владелец 23.10 (снимок с телефона): ссылка справа держала
             колонку на всю высоту блока, и описание шло в половину экрана. */}
         <div>
-          <div className="flex items-start justify-between gap-3 mb-2">
-            <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 mb-2">
+            <span className="inline-flex whitespace-nowrap px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>
               Прокат · машина без водителя
             </span>
             <Link href={rentalPagePath(company.slug)} className="text-xs text-[var(--ocean)] underline shrink-0">
