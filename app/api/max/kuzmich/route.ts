@@ -740,6 +740,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReply(chatId, UNVERIFIED_CHAT_REPLY.partner);
           return;
         }
+        // «/сводка» — числа по запросам мест (пилот «Камчатская рыбалка»,
+        // флаг по партнёру). Только числа, тур и дата — без ПД туриста.
+        const summary = await import('@/lib/seat-requests/summary');
+        if (summary.isSummaryCommand(text) && summary.summaryEnabledFor(lookup.partner.partnerId)) {
+          const read = await summary.readSeatSummary(lookup.partner.partnerId);
+          await maxReply(chatId, read === 'db_error' ? summary.SUMMARY_DB_ERROR : summary.summaryText(read));
+          return;
+        }
         // Поток дат смотрит каждое сообщение партнёра: не про даты — false, но
         // поправка («нет, 4 места»), ушедшая помощнику, снимает действующее
         // предложение туроператора (пятый ревью 22.10).
