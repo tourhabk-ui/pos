@@ -61,6 +61,13 @@ export type CharterRateUnit = 'hour' | 'day';
  */
 export interface CharterRate {
   unit: CharterRateUnit;
+  /**
+   * Вид машины, за который эта цена (миграция 1318: у «Лагуна Прокат» день
+   * микроавтобуса и день вахтовки стоят по-разному). Пока у перевозчика один
+   * вид, слова его не называют; два вида — называют у каждого тарифа, иначе
+   * «25 000 ₽ за день» читалось бы ценой вахтовки.
+   */
+  vehicleKind: CharterVehicleKind;
   priceRub: number;
   note: string | null;
   conditions: string | null;
@@ -82,12 +89,46 @@ export function rateOnScreen(r: Pick<CharterRate, 'unit' | 'priceRub'>): string 
   return `${formatRub(r.priceRub)} ${RATE_WORDS[r.unit].per}`;
 }
 
+type RateKindPick = Pick<CharterRate, 'vehicleKind'>;
+
+/**
+ * Слово вида машины у тарифа — только когда у перевозчика тарифы на РАЗНЫЕ
+ * виды машин (1318): у одного вида оно лишнее, у двух без него цена читается
+ * не про ту машину. null — вид не называется.
+ */
+export function rateKindWord(r: RateKindPick, all: readonly RateKindPick[]): string | null {
+  const kinds = new Set(all.map((x) => x.vehicleKind));
+  return kinds.size > 1 ? KIND_FORM[r.vehicleKind] : null;
+}
+
+/** Подпись тарифа с видом машины, когда видов несколько: «Полный день — микроавтобус». */
+export function rateLabelOf(r: Pick<CharterRate, 'unit' | 'vehicleKind'>, all: readonly RateKindPick[]): string {
+  const kind = rateKindWord(r, all);
+  return kind ? `${rateLabel(r.unit)} — ${kind}` : rateLabel(r.unit);
+}
+
+/** Цена на экране с видом машины, когда видов несколько: «микроавтобус: 25 000 ₽ за день». */
+export function rateOnScreenOf(r: Pick<CharterRate, 'unit' | 'priceRub' | 'vehicleKind'>, all: readonly RateKindPick[]): string {
+  const kind = rateKindWord(r, all);
+  return kind ? `${kind}: ${rateOnScreen(r)}` : rateOnScreen(r);
+}
+
+/** Ключ тарифа в списках: вид и единица — у двух видов единица одна и та же. */
+export function rateKey(r: Pick<CharterRate, 'unit' | 'vehicleKind'>): string {
+  return `${r.vehicleKind}/${r.unit}`;
+}
+
 /**
  * Тариф словами для ответа агенту и менеджеру — «4500 руб за час работы
- * машины», в той же форме денег, что строки направлений («75000 руб»).
+ * машины», в той же форме денег, что строки направлений («75000 руб»). Виды
+ * машин разные — впереди вид: «микроавтобус — 25000 руб за полный день…».
  */
-export function rateWords(r: Pick<CharterRate, 'unit' | 'priceRub' | 'note'>): string {
-  return `${r.priceRub} руб ${RATE_WORDS[r.unit].agent}${r.note ? ` (${r.note})` : ''}`;
+export function rateWords(
+  r: Pick<CharterRate, 'unit' | 'priceRub' | 'note' | 'vehicleKind'>,
+  all: readonly RateKindPick[] = [r],
+): string {
+  const kind = rateKindWord(r, all);
+  return `${kind ? `${kind} — ` : ''}${r.priceRub} руб ${RATE_WORDS[r.unit].agent}${r.note ? ` (${r.note})` : ''}`;
 }
 
 /** Порядок тарифов: сначала час, потом день — как их называет перевозчик. */

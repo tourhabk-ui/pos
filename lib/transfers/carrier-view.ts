@@ -8,7 +8,7 @@
  * догадку (§4.0).
  */
 
-import { carrierPagePath, fleetCapacity, rateLabel, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { carrierPagePath, fleetCapacity, rateLabelOf, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 export interface InstrumentCell {
   k: string;
@@ -107,7 +107,7 @@ export function carrierJsonLd(
         priceCurrency: 'RUB',
         unitCode: r.unit === 'hour' ? 'HUR' : 'DAY',
       },
-      itemOffered: { '@type': 'Service', name: `Машина целиком: ${rateLabel(r.unit).toLowerCase()}` },
+      itemOffered: { '@type': 'Service', name: `Машина целиком: ${rateLabelOf(r, c.rates).toLowerCase()}` },
     })),
   ];
   return {

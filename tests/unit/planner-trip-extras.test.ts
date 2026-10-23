@@ -199,7 +199,7 @@ describe('трансфер: машина целиком под заказ (вл�
     const r = await findCharterOffers();
     expect(r).toEqual({
       state: 'ok',
-      items: [{ slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 2, hourRub: null, dayRub: null }],
+      items: [{ slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 2, hourRub: null, dayRub: null, ratesFrom: false }],
     });
     expect(JSON.stringify(r)).not.toMatch(/9294560102|t\.me|wa\.me|phone/);
   });
@@ -207,7 +207,7 @@ describe('трансфер: машина целиком под заказ (вл�
   it('направлений в прайсе нет — цена не выдумывается', async () => {
     charterMock.mockResolvedValue([carrier({ destinations: [], vehicles: [] })]);
     expect(await findCharterOffers()).toEqual({
-      state: 'ok', items: [{ slug: 'shatun', name: 'Шатун', fleet: null, priceFromRub: null, destinations: 0, hourRub: null, dayRub: null }],
+      state: 'ok', items: [{ slug: 'shatun', name: 'Шатун', fleet: null, priceFromRub: null, destinations: 0, hourRub: null, dayRub: null, ratesFrom: false }],
     });
   });
 
@@ -218,8 +218,8 @@ describe('трансфер: машина целиком под заказ (вл�
       // Вместимости парка без привязки к машине (1292): строка их и называет.
       seatClasses: [12, 24],
       rates: [
-        { unit: 'hour', priceRub: 4500, note: null, conditions: null, validYear: null },
-        { unit: 'day', priceRub: 45000, note: null, conditions: null, validYear: null },
+        { unit: 'hour', vehicleKind: 'minibus', priceRub: 4500, note: null, conditions: null, validYear: null },
+        { unit: 'day', vehicleKind: 'minibus', priceRub: 45000, note: null, conditions: null, validYear: null },
       ],
     })]);
     const r = await findCharterOffers();
@@ -227,7 +227,7 @@ describe('трансфер: машина целиком под заказ (вл�
       state: 'ok',
       items: [{
         slug: 'zheltukhin', name: 'ИП Желтухин', fleet: '1 × микроавтобус: на 12 и на 24 места',
-        priceFromRub: null, destinations: 0, hourRub: 4500, dayRub: 45000,
+        priceFromRub: null, destinations: 0, hourRub: 4500, dayRub: 45000, ratesFrom: false,
       }],
     });
     const { charterOfferPrice } = await import('@/app/planner/TripExtrasSection');

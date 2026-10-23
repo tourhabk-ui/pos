@@ -17,7 +17,7 @@
 import { useState, type FormEvent } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
-import { formatRub, rateOnScreen, type CharterRate } from '@/lib/transfers/charter-format';
+import { formatRub, rateOnScreenOf, type CharterRate } from '@/lib/transfers/charter-format';
 
 /** Своё направление вместо строки прайса. */
 const OTHER = '__other__';
@@ -34,7 +34,7 @@ interface Props {
    * ехать — пишет заказчик, и ответ после отправки называет эту цену, а не
    * «направления нет в прайсе».
    */
-  rates?: Array<Pick<CharterRate, 'unit' | 'priceRub'>>;
+  rates?: Array<Pick<CharterRate, 'unit' | 'priceRub' | 'vehicleKind'>>;
 }
 
 interface Sent {
@@ -164,7 +164,7 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
             </p>
           ) : rates.length > 0 ? (
             <p className="text-sm text-[var(--text-secondary)]">
-              По прайсу: {rates.map(rateOnScreen).join(' · ')} за машину. Сколько часов займёт поездка и итоговую сумму
+              По прайсу: {rates.map((r) => rateOnScreenOf(r, rates)).join(' · ')} за машину. Сколько часов займёт поездка и итоговую сумму
               назовёт перевозчик.
             </p>
           ) : (

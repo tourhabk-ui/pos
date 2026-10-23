@@ -166,13 +166,24 @@ export function charterLeadComment(f: CharterRequestFacts): string {
   tail.push(f.dateTo ? `по ${f.dateTo}` : 'дата возвращения не указана');
   tail.push(`направление «${f.destination}»`, `человек: ${f.passengers}`);
   if (f.plan.kind === 'priced') tail.push(`по прайсу: ${priceWords(f.plan.line)}`);
-  else if (f.plan.kind === 'rated') tail.push(`цена за время работы машины: ${f.plan.rates.map(rateWords).join(', ')} — сколько часов займёт поездка, уточнить у перевозчика`);
+  else if (f.plan.kind === 'rated') tail.push(`цена за время работы машины: ${ratesWords(f.plan.rates).join(', ')} — сколько часов займёт поездка, уточнить у перевозчика`);
   else tail.push('в прайсе такого направления нет — цену назовёт перевозчик');
   if (f.plan.vehicles && f.plan.vehicles > 1) tail.push(`по числу мест нужно не меньше ${f.plan.vehicles} машин (цена в прайсе — за одну)`);
   tail.push(SEASON_UNKNOWN_MANAGER);
   if (f.carrier.phone) tail.push(`телефон перевозчика: ${f.carrier.phone}`);
   if (f.comment) tail.push(`пожелания: ${f.comment}`);
   return `${charterDedupPrefix(f.carrier.name, f.dateFrom)} ${tail.join('; ')}.`;
+}
+
+/** Тарифы словами, с видом машины у каждого, когда видов несколько. */
+function ratesWords(rates: readonly CharterRate[]): string[] {
+  return rates.map((r) => rateWords(r, rates));
+}
+
+/** Тарифы числами: один вид машины — по единице («hour», «day»), несколько — «вид/единица». */
+function ratesRub(rates: readonly CharterRate[]): Record<string, number> {
+  const kinds = new Set(rates.map((r) => r.vehicleKind));
+  return Object.fromEntries(rates.map((r) => [kinds.size > 1 ? `${r.vehicleKind}/${r.unit}` : r.unit, r.priceRub]));
 }
 
 /** Чьей дверью пришла заявка: форма на странице перевозчика или инструмент MCP. */
@@ -192,9 +203,10 @@ export function charterSourceData(f: CharterRequestFacts, door: CharterDoor = 'm
     price_line_rub: f.plan.kind === 'priced' ? f.plan.line.priceRub : null,
     in_price_list: f.plan.kind === 'priced',
     // Цена за час и за день (1292) — числами, как строка прайса: менеджер
-    // разбирает заявку, не парся комментарий.
+    // разбирает заявку, не парся комментарий. Тарифы на разные виды машин
+    // (1318) — ключ «вид/единица», иначе два «day» затёрли бы друг друга.
     rates_rub: f.plan.kind === 'rated'
-      ? Object.fromEntries(f.plan.rates.map((r) => [r.unit, r.priceRub]))
+      ? ratesRub(f.plan.rates)
       : null,
     vehicles_needed: f.plan.vehicles,
   };
@@ -214,7 +226,7 @@ export function charterAcceptedText(f: CharterRequestFacts, phone: string, baseU
   const price = f.plan.kind === 'priced'
     ? ` По прайсу: ${priceWords(f.plan.line)}.${extra} Сколько дней входит в цену и что в неё включено, прайс не говорит — это уточняется у перевозчика; итоговой суммы платформа не называет.`
     : f.plan.kind === 'rated'
-      ? ` Цена у перевозчика — за время работы машины, направление задаёт заказчик: ${f.plan.rates.map(rateWords).join('; ')}. Сколько часов займёт поездка и что входит в цену, прайс не говорит — это уточняется у перевозчика; итоговой суммы платформа не называет.`
+      ? ` Цена у перевозчика — за время работы машины, направление задаёт заказчик: ${ratesWords(f.plan.rates).join('; ')}. Сколько часов займёт поездка и что входит в цену, прайс не говорит — это уточняется у перевозчика; итоговой суммы платформа не называет.`
       : ` Направления «${f.destination}» в прайсе нет — это заказ вне прайса, цену называет перевозчик. Прайс: ${c.destinations.map(priceWords).join('; ')}.${extra}`;
   const cars = f.plan.vehicles && f.plan.vehicles > 1
     ? ` По числу мест нужно не меньше ${f.plan.vehicles} машин (в парке ${describeFleet(c.vehicles, c.seatClasses)}); цена в прайсе — за одну машину.`

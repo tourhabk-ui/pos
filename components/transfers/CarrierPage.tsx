@@ -36,7 +36,7 @@ import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import {
   CHARTER_REQUEST_ANCHOR, INSURANCE_WORDS_LINE, charterRequisitesLine, describeFleet, formatRub, licenseLine,
-  orderDestinationFromQuery, rateOnScreen,
+  orderDestinationFromQuery, rateKey, rateOnScreenOf,
 } from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
 import { carrierInstrument, includedUnknowns, minCharterPrice } from '@/lib/transfers/carrier-view';
@@ -266,9 +266,9 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                 ) : c.rates.length > 0 && (
                   <p className="text-sm text-[var(--text-secondary)] mt-1">
                     {c.rates.map((r, i) => (
-                      <span key={r.unit}>
+                      <span key={rateKey(r)}>
                         {i > 0 && ' · '}
-                        <span className="font-semibold text-[var(--accent)] whitespace-nowrap">{rateOnScreen(r)}</span>
+                        <span className="font-semibold text-[var(--accent)] whitespace-nowrap">{rateOnScreenOf(r, c.rates)}</span>
                       </span>
                     ))}
                     {' '}за машину; куда ехать — пишете в заявке

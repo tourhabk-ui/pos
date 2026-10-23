@@ -178,6 +178,8 @@ export interface CharterOfferView {
    */
   hourRub?: number | null;
   dayRub?: number | null;
+  /** true — тарифы на разные виды машин (1318): hourRub/dayRub — самая низкая, экран говорит «от». */
+  ratesFrom?: boolean;
 }
 
 export interface TripExtrasData {

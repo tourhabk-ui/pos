@@ -70,6 +70,17 @@ export interface CharterOffer {
   hourRub: number | null;
   /** Цена за машину за полный день (1292), ₽; null — такой цены нет. */
   dayRub: number | null;
+  /**
+   * true — тарифы на разные виды машин (1318), и hourRub/dayRub — самая низкая
+   * из них: экран говорит «от». false — тариф один, цена точная.
+   */
+  ratesFrom: boolean;
+}
+
+/** Самый низкий тариф единицы; null — тарифа нет. */
+function minRate(rates: readonly { unit: 'hour' | 'day'; priceRub: number }[], unit: 'hour' | 'day'): number | null {
+  const prices = rates.filter((r) => r.unit === unit).map((r) => r.priceRub);
+  return prices.length > 0 ? Math.min(...prices) : null;
 }
 
 function logExtrasFailure(check: string, err: unknown): void {
@@ -191,8 +202,9 @@ export async function findCharterOffers(): Promise<CheckOutcome<CharterOffer>> {
         fleet: describeFleet(c.vehicles, c.seatClasses),
         priceFromRub: c.destinations.length > 0 ? Math.min(...c.destinations.map((d) => d.priceRub)) : null,
         destinations: c.destinations.length,
-        hourRub: c.rates.find((r) => r.unit === 'hour')?.priceRub ?? null,
-        dayRub: c.rates.find((r) => r.unit === 'day')?.priceRub ?? null,
+        hourRub: minRate(c.rates, 'hour'),
+        dayRub: minRate(c.rates, 'day'),
+        ratesFrom: new Set(c.rates.map((r) => r.vehicleKind)).size > 1,
       })),
     };
   } catch (err) {

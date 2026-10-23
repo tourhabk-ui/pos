@@ -202,11 +202,13 @@ function directionsRu(n: number): string {
  * у цены за время работы (1292) — «N в час · M за день за машину»; цены нет —
  * «назовёт перевозчик».
  */
-export function charterOfferPrice(o: Pick<CharterOfferView, 'priceFromRub' | 'destinations' | 'hourRub' | 'dayRub'>): string {
+export function charterOfferPrice(o: Pick<CharterOfferView, 'priceFromRub' | 'destinations' | 'hourRub' | 'dayRub' | 'ratesFrom'>): string {
   if (o.priceFromRub !== null) return `от ${fmtRub(o.priceFromRub)} за машину · ${directionsRu(o.destinations)} в прайсе`;
+  // Тарифы на разные виды машин (1318) — названа самая низкая, и это «от».
+  const from = o.ratesFrom === true ? 'от ' : '';
   const byTime = [
-    typeof o.hourRub === 'number' ? `${fmtRub(o.hourRub)} в час` : null,
-    typeof o.dayRub === 'number' ? `${fmtRub(o.dayRub)} за день` : null,
+    typeof o.hourRub === 'number' ? `${from}${fmtRub(o.hourRub)} в час` : null,
+    typeof o.dayRub === 'number' ? `${from}${fmtRub(o.dayRub)} за день` : null,
   ].filter(Boolean);
   if (byTime.length > 0) return `${byTime.join(' · ')} за машину · направление — ваше`;
   return 'Цену машины назовёт перевозчик';

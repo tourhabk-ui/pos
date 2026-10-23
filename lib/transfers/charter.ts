@@ -263,6 +263,7 @@ function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRo
     rates: sortRates(mine.flatMap((r) => (r.line_kind === 'per_hour' || r.line_kind === 'per_day'
       ? [{
         unit: r.line_kind === 'per_hour' ? 'hour' as const : 'day' as const,
+        vehicleKind: r.vehicle_kind,
         priceRub: r.price_rub,
         note: r.price_note,
         conditions: r.conditions,
