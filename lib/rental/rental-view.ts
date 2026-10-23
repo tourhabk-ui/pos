@@ -7,6 +7,7 @@
  * нигде — страница говорит «уточняется у прокатчика» (§4.0).
  */
 
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 import { formatRub, type CharterLegal } from '@/lib/transfers/charter-format';
 import {
   bodyKindWord, driverWord, minRentalDeposit, minRentalPrice, rentalPagePath, type RentalCompany, type RentalOffer,
@@ -78,7 +79,9 @@ export function rentalJsonLd(
     url,
     ...(c.shortDescription ? { description: c.shortDescription.slice(0, 500) } : {}),
     // Логотип — полным адресом: разметка читается не только с нашего домена.
-    ...(c.logo ? { logo: `${site}${c.logo}` } : {}),
+    // Из админки в logo_image ложится полный адрес хранилища — его к сайту не
+    // клеят (то же правило, что у снимков тура: absolutePhotoUrls).
+    ...(c.logo ? { logo: absolutePhotoUrls([c.logo], site)[0] } : {}),
     ...(c.legal?.name ? { legalName: c.legal.name } : {}),
     ...(c.legal?.inn ? { taxID: c.legal.inn } : {}),
     ...(offers.length > 0 ? { makesOffer: offers } : {}),

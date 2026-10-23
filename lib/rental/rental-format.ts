@@ -55,7 +55,10 @@ export interface RentalCompany {
   slug: string;
   name: string;
   shortDescription: string | null;
-  /** Логотип партнёра — partners.logo_image, путь под public/; null — логотипа нет. */
+  /**
+   * Логотип партнёра — partners.logo_image: путь под public/ (миграция партнёра)
+   * или полный адрес хранилища (загрузка из админки); null — логотипа нет.
+   */
   logo: string | null;
   /** Герой первым, затем галерея; без повторов. Может быть пусто. */
   photos: CharterPhoto[];

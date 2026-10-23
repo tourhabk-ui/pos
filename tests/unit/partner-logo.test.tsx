@@ -162,6 +162,12 @@ describe('логотип партнёра: разметка для поиско�
     expect(carrierJsonLd(CARRIER, 'https://vedarai.ru').logo).toBe('https://vedarai.ru/images/laguna-prokat/laguna-logo.png');
     expect('logo' in carrierJsonLd({ ...CARRIER, logo: null }, 'https://vedarai.ru')).toBe(false);
   });
+
+  it('логотип, загруженный из админки, лежит в хранилище полным адресом — к сайту он не клеится', () => {
+    const s3 = 'https://s3.twcstorage.ru/bucket/partners/p-1/logo-1.png';
+    expect(rentalJsonLd({ ...COMPANY, logo: s3 }, 'https://vedarai.ru').logo).toBe(s3);
+    expect(carrierJsonLd({ ...CARRIER, logo: s3 }, 'https://vedarai.ru').logo).toBe(s3);
+  });
 });
 
 describe('логотип партнёра: загрузчики читают partners.logo_image', () => {
@@ -192,6 +198,9 @@ describe('логотип партнёра: загрузчики читают par
     expect((await loadCarrierBySlug('laguna-prokat'))?.logo).toBe(LOGO);
     dbQuery.mockImplementation(answer(''));
     expect((await loadCarrierBySlug('laguna-prokat'))?.logo).toBeNull();
+    // Полный адрес хранилища (загрузка из админки) проходит как есть.
+    dbQuery.mockImplementation(answer('https://s3.twcstorage.ru/bucket/partners/p-1/logo-1.png'));
+    expect((await loadCarrierBySlug('laguna-prokat'))?.logo).toBe('https://s3.twcstorage.ru/bucket/partners/p-1/logo-1.png');
     const partnerSql = dbQuery.mock.calls.map((c) => String(c[0])).find((s) => s.includes('FROM partners')) ?? '';
     expect(partnerSql).toContain('p.logo_image');
   });

@@ -9,6 +9,7 @@
  */
 
 import { carrierPagePath, fleetCapacity, rateLabelOf, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 export interface InstrumentCell {
   k: string;
@@ -118,7 +119,9 @@ export function carrierJsonLd(
     url,
     ...(c.shortDescription ? { description: c.shortDescription.slice(0, 500) } : {}),
     // Логотип — полным адресом: разметка читается не только с нашего домена.
-    ...(c.logo ? { logo: `${site}${c.logo}` } : {}),
+    // Из админки в logo_image ложится полный адрес хранилища — его к сайту не
+    // клеят (то же правило, что у снимков тура: absolutePhotoUrls).
+    ...(c.logo ? { logo: absolutePhotoUrls([c.logo], site)[0] } : {}),
     ...(c.legal?.name ? { legalName: c.legal.name } : {}),
     ...(c.legal?.inn ? { taxID: c.legal.inn } : {}),
     ...(offers.length > 0 ? { makesOffer: offers } : {}),
