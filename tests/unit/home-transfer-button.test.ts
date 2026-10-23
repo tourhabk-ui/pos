@@ -88,7 +88,7 @@ describe('кнопка «Прокат» на главной (владелец 23
   });
 
   it('у цели есть скелет перехода: витрина проката читает прайс из базы', () => {
-    expect(existsSync(join(process.cwd(), 'app/car-rental/loading.tsx'))).toBe(true);
-    expect(read('app/car-rental/loading.tsx')).toMatch(/RouteLoading/);
+    expect(existsSync(join(process.cwd(), 'app/car-rental/(list)/loading.tsx'))).toBe(true);
+    expect(read('app/car-rental/(list)/loading.tsx')).toMatch(/RouteLoading/);
   });
 });

@@ -29,7 +29,7 @@ vi.mock('@/lib/rental/rental', async () => {
 });
 
 import { CarRentalPage } from '@/components/rental/CarRentalPage';
-import CarRentalRoute from '@/app/car-rental/page';
+import CarRentalRoute from '@/app/car-rental/(list)/page';
 import { rentalOrderPath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
 
 const offer = (over: Partial<RentalOffer> = {}): RentalOffer => ({
