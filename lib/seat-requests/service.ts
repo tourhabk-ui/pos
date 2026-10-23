@@ -26,6 +26,7 @@
  * возвращает её вызывающему.
  */
 
+import { TEST_STAND_PARTNER_IDS } from '@/lib/seat-requests/test-stand';
 import { pool } from '@/lib/db-pool';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -206,8 +207,9 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
       `SELECT operator_id, title, price_unit, season_start::text, season_end::text,
               duration_type, multi_day_count, duration_hours
          FROM operator_tours
-        WHERE id = $1 AND is_active = true AND is_published = true AND deleted_at IS NULL`,
-      [input.tourId],
+        WHERE id = $1 AND is_active = true AND deleted_at IS NULL
+          AND (is_published = true OR operator_id = ANY($2::uuid[]))`,
+      [input.tourId, TEST_STAND_PARTNER_IDS],
     ));
   } catch (err) { logFail('тур не прочитан', err); return { ok: false, reason: 'check_failed' }; }
   if (!tour) return { ok: false, reason: 'tour_not_found' };
