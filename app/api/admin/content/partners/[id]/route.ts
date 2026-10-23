@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
+import { adminContactView } from '@/lib/partners/admin-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,9 @@ interface PartnerRow {
   location: Record<string, unknown> | null;
   is_public: boolean;
   contact: Record<string, unknown>;
+  /** Блок связи витрины и колонка сайта (692): форма дополняет из них пустые поля. */
+  contacts: unknown;
+  website: string | null;
   rating: string;
   review_count: string;
   is_verified: boolean;
@@ -43,7 +47,7 @@ export async function GET(
     const result = await query<PartnerRow>(
       `SELECT id, user_id, name, category, description,
               short_description, slug, hero_image, logo_image,
-              location, is_public, contact, rating, review_count,
+              location, is_public, contact, contacts, website, rating, review_count,
               is_verified, created_at, updated_at
        FROM partners
        WHERE id = $1`,
@@ -71,7 +75,7 @@ export async function GET(
         logoImage: row.logo_image ?? '',
         location: row.location ?? {},
         isPublic: row.is_public ?? false,
-        contact: row.contact ?? {},
+        contact: adminContactView(row.contact, row.contacts, row.website),
         rating: parseFloat(row.rating) || 0,
         reviewCount: parseInt(row.review_count) || 0,
         isVerified: row.is_verified,
