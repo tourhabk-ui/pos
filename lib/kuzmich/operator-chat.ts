@@ -29,6 +29,8 @@ import {
 } from '@/lib/crm/tools';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { MY_TOURS_TOOL, MY_TOURS_TOOL_NAME, runMyToursSchedule } from '@/lib/kuzmich/operator-tours-tool';
+import { isFleetAsk, RENTAL_FLEET_TOOL, RENTAL_FLEET_TOOL_NAME, runOperatorRentalFleet } from '@/lib/kuzmich/operator-rental-fleet';
+import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 
@@ -270,6 +272,9 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
       ...(partner.category === 'operator'
         ? ['Свои туры (и скрытые с витрины тоже) и открытые даты со свободными местами узнавай инструментом my_tours_schedule — не говори, что расписания или туров нет, не вызвав его.']
         : []),
+      ...(isRentalPilotSlug(partner.slug)
+        ? ['Свои машины проката (и скрытые из прайса тоже), цену за сутки и залог узнавай инструментом operator_rental_fleet. Цену, залог, модель и видимость, которых инструмент не вернул, не называй. Занятость машины на дату этот инструмент не знает — не говори, что машина свободна или занята.']
+        : []),
       'Записывай в CRM (касание, задачу, выполнение) только когда партнёр об этом просит, и коротко скажи, что записал.',
     );
   } else if (partner.crmCategory) {
@@ -293,12 +298,17 @@ async function partnerToolLoop(
   ctx: CrmToolContext,
   writes: string[],
   operatorTours = false,
+  rentalFleet: { partnerName: string; slug: string | null } | null = null,
 ): Promise<string | null> {
   const msgs: ToolMsg[] = [
     { role: 'system', content: system },
     ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content } as ToolMsg)),
   ];
-  const tools = operatorTours ? [...crmToolDefinitions(ctx.canWrite), MY_TOURS_TOOL] : crmToolDefinitions(ctx.canWrite);
+  const tools = [
+    ...crmToolDefinitions(ctx.canWrite),
+    ...(operatorTours ? [MY_TOURS_TOOL] : []),
+    ...(rentalFleet ? [RENTAL_FLEET_TOOL] : []),
+  ];
   const seen = new Set<string>();
 
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -309,6 +319,9 @@ async function partnerToolLoop(
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
     const outcomes = await runTurnTools(result.tool_calls, seen, async (name, args) => {
       if (operatorTours && name === MY_TOURS_TOOL_NAME) return runMyToursSchedule(ctx.partnerId, args, ctx.nowMs);
+      if (rentalFleet && name === RENTAL_FLEET_TOOL_NAME) {
+        return runOperatorRentalFleet(ctx.partnerId, rentalFleet.partnerName, rentalFleet.slug, args, ctx.nowMs);
+      }
       const r = await executeCrmTool(name, args, ctx);
       if (r.ok && CRM_WRITE_TOOL_NAMES.includes(name)) writes.push(crmWriteSummary(name, args));
       return crmToolText(r);
@@ -333,6 +346,15 @@ export async function processPartnerMessage(opts: {
 
   await saveMsg(chatId, 'operator_tg', 'user', text, null, fromName);
 
+  // «Покажи машины» — прайс из базы, без модели: модель на этот вопрос
+  // выдумывала цену, когда инструмента не было.
+  if (isRentalPilotSlug(partner.slug) && isFleetAsk(text)) {
+    const fleet = await runOperatorRentalFleet(partner.partnerId, partner.partnerName, partner.slug ?? null, {}, nowMs);
+    await saveMsg(chatId, 'operator_tg', 'assistant', fleet, null, null);
+    await reply(chatId, fleet);
+    return;
+  }
+
   const [history, bizContext] = await Promise.all([
     getHistory(chatId, 'operator_tg'),
     partner.category === 'operator' ? buildOperatorContext(partner.partnerId) : Promise.resolve(''),
@@ -352,7 +374,17 @@ export async function processPartnerMessage(opts: {
       nowMs,
     };
     try {
-      answer = (await partnerToolLoop(withContext(partnerSystemPrompt(partner, nowMs, true)), history, ctx, writes, partner.category === 'operator'))?.trim() ?? '';
+      const fleetCtx = isRentalPilotSlug(partner.slug)
+        ? { partnerName: partner.partnerName, slug: partner.slug ?? null }
+        : null;
+      answer = (await partnerToolLoop(
+        withContext(partnerSystemPrompt(partner, nowMs, true)),
+        history,
+        ctx,
+        writes,
+        partner.category === 'operator',
+        fleetCtx,
+      ))?.trim() ?? '';
     } catch (err) {
       console.error('[partner-chat] цикл инструментов упал:', err instanceof Error ? err.message : String(err));
       answer = '';

@@ -170,6 +170,22 @@ describe('ответ партнёру', () => {
     expect(bookingsSql).not.toMatch(/tourist_name|tourist_email|tourist_phone/);
   });
 
+  it('прокатчик пилота на «покажи машины» получает прайс, модель не зовётся', async () => {
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
+    query.mockResolvedValue({ rows: [{
+      title: 'Suzuki Jimny', body_kind: 'suv', price_rub_per_day: 7000, price_is_from: false,
+      deposit_rub: null, is_active: true, driver: 'self',
+    }] });
+    await chat.processPartnerMessage({
+      chatId: 9, text: 'покажи машины', fromName: null, reply, nowMs: NOW,
+      partner: { ...guide, partnerName: 'Лагуна Прокат', slug: 'laguna-prokat', category: 'transfer', crmCategory: 'transfer' },
+    });
+    expect(callToolsWaterfall).not.toHaveBeenCalled();
+    expect(callAIWaterfallOrNull).not.toHaveBeenCalled();
+    expect(String(reply.mock.calls[0][1])).toContain('Suzuki Jimny');
+    expect(String(reply.mock.calls[0][1])).toContain('залог не записан');
+  });
+
   it('приветствие называет то, что помощник умеет этой роли', () => {
     expect(chat.partnerGreeting(guide)).toMatch(/кто ждёт ответа.*задачу с напоминанием/s);
     expect(chat.partnerGreeting({ ...guide, crmCategory: null })).not.toMatch(/задачу/);

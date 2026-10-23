@@ -1,6 +1,7 @@
 // @vitest-environment node
 /**
- * Кабинет прокатчика в MAX включается только списком RENTAL_OPERATOR_PILOT_SLUGS.
+ * Кабинет прокатчика в MAX: список RENTAL_OPERATOR_PILOT_SLUGS, а если
+ * переменная не задана — только laguna-prokat. Пустая строка выключает всех.
  * Ссылка op_ пишет чат партнёра; обычный «Старт» и ссылка администратора adm_
  * (#2746) привязку прокатчика не создают.
  */
@@ -73,11 +74,17 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('список пилота', () => {
-  it('пустая переменная — никого; slug сравнивается без регистра и пробелов, дубли схлопываются', () => {
-    expect(rentalPilotSlugs(undefined)).toEqual([]);
+  it('пустая переменная — никого; не задана — только названный пилот; регистр и пробелы не важны', () => {
     expect(rentalPilotSlugs('')).toEqual([]);
     expect(rentalPilotSlugs('  , , ')).toEqual([]);
     expect(isRentalPilotSlug('laguna-prokat', '')).toBe(false);
+    const previous = process.env.RENTAL_OPERATOR_PILOT_SLUGS;
+    delete process.env.RENTAL_OPERATOR_PILOT_SLUGS;
+    expect(rentalPilotSlugs()).toEqual(['laguna-prokat']);
+    expect(isRentalPilotSlug('laguna-prokat')).toBe(true);
+    expect(isRentalPilotSlug('fishing')).toBe(false);
+    if (previous === undefined) delete process.env.RENTAL_OPERATOR_PILOT_SLUGS;
+    else process.env.RENTAL_OPERATOR_PILOT_SLUGS = previous;
     expect(rentalPilotSlugs(' Laguna-Prokat , laguna-prokat , fishing ')).toEqual(['laguna-prokat', 'fishing']);
     expect(isRentalPilotSlug('LAGUNA-PROKAT', 'laguna-prokat')).toBe(true);
     expect(isRentalPilotSlug('fishing', 'laguna-prokat')).toBe(false);
