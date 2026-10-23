@@ -169,6 +169,37 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
   }
 }
 
+/** Календарь проката: правим то же сообщение, иначе шлём новое. Кнопки — `rb:`. */
+function rentalCalendarSend(chatId: number) {
+  return async (
+    text: string,
+    buttons: Array<Array<{ text: string; payload: string; intent?: 'positive' | 'negative' }>>,
+    editMid: string | null,
+  ): Promise<void> => {
+    const rows = buttons.map((row) => row.map((b) => (
+      b.intent
+        ? { type: 'callback' as const, text: b.text, payload: b.payload, intent: b.intent }
+        : { type: 'callback' as const, text: b.text, payload: b.payload }
+    )));
+    const api = getApi();
+    if (editMid && api) {
+      try {
+        const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
+          text,
+          format: 'html',
+          attachments: [{ type: 'inline_keyboard', payload: { buttons: rows } }],
+        });
+        if (res?.success !== false) return;
+        console.error('[max/kuzmich] правка календаря проката не принята MAX — отправляю новым сообщением');
+      } catch (err) {
+        logFailure('правка календаря проката', err);
+      }
+    }
+    if (rows.length === 0) await maxReply(chatId, text);
+    else await maxReplyWithButtons(chatId, text, rows);
+  };
+}
+
 /** Ответ потока дат в чат кабинета: кнопки — callback с payload `od:`. */
 function datesSend(chatId: number): DatesSend {
   return async (text, buttons) => {
@@ -470,6 +501,22 @@ async function handleActionPress(
     const lookup = await findPartnerByChat('max', chatId);
     const { handleOperatorDatesPress } = await import('@/lib/operators/chat-dates/flow');
     await handleOperatorDatesPress({ payload, chatId, lookup, send: datesSend(chatId) });
+    return;
+  }
+
+  // Календарь проката: «Свободна» / «Занята». Только личный диалог и только
+  // чат привязанного пилота. Чужой payload машину не отмечает.
+  if (action === 'rental') {
+    if (chatType !== 'dialog') {
+      console.error(`[max/kuzmich] нажатие (rental) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      await maxReply(chatId, 'Календарь проката отмечается в личном диалоге с ботом. Отметка не записана.');
+      return;
+    }
+    const lookup = await findPartnerByChat('max', chatId);
+    const { handleRentalCalendarPress } = await import('@/lib/rental/car-calendar-flow');
+    await handleRentalCalendarPress({
+      lookup, payload, nowMs: Date.now(), editMid: pressed?.mid ?? null, send: rentalCalendarSend(chatId),
+    });
     return;
   }
 
@@ -866,6 +913,16 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           sentAtMs: Number.isFinite(update.timestamp) ? update.timestamp : null,
         });
         if (handled) return;
+        const { handleRentalCalendarText } = await import('@/lib/rental/car-calendar-flow');
+        const calendar = await handleRentalCalendarText({
+          partner: lookup.partner,
+          text,
+          nowMs: Date.now(),
+          dialog,
+          canMark: true,
+          send: rentalCalendarSend(chatId),
+        });
+        if (calendar) return;
         const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
         await processPartnerMessage({ chatId, text, fromName: userName, partner: lookup.partner, reply: maxReply });
         return;
