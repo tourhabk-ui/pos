@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import {
-  charterFootnote, charterOrderPath, formatRub, rateLabel, rateOnScreen, type CharterCarrier,
+  charterFootnote, charterOrderPath, formatRub, rateKey, rateLabelOf, rateOnScreen, type CharterCarrier,
 } from '@/lib/transfers/charter-format';
 
 /**
@@ -61,12 +61,13 @@ export function CharterPriceList({ carrier, orderSlug }: {
             </dd>
           </div>
         ))}
+        {/* Тарифы на разные виды машин (1318) подписаны видом: «Полный день — микроавтобус». */}
         {carrier.rates.map((r) => (
           <div
-            key={r.unit}
+            key={rateKey(r)}
             className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border)]"
           >
-            <dt className="min-w-0 text-sm text-[var(--text-primary)]">{rateLabel(r.unit)}</dt>
+            <dt className="min-w-0 text-sm text-[var(--text-primary)]">{rateLabelOf(r, carrier.rates)}</dt>
             <dd className="flex items-center gap-3 shrink-0">
               <span className="text-right">
                 <span className="block whitespace-nowrap text-base font-bold tabular-nums text-[var(--text-primary)]">{rateOnScreen(r)}</span>
@@ -77,7 +78,7 @@ export function CharterPriceList({ carrier, orderSlug }: {
                   href={charterOrderPath(orderSlug)}
                   prefetch={false}
                   className="ds-btn ds-btn-secondary px-3"
-                  aria-label={`Заказать машину: ${rateLabel(r.unit).toLowerCase()}`}
+                  aria-label={`Заказать машину: ${rateLabelOf(r, carrier.rates).toLowerCase()}`}
                 >
                   Заказать
                 </Link>

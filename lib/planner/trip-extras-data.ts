@@ -21,12 +21,17 @@
  * (loadCharterCarriers). Места в поездках (схема 926) планер больше не
  * предлагает: до 13.10 он искал «места на всю группу» на даты поездки, а
  * такого товара нет — перевозчик сдаёт машину целиком.
+ *
+ * Машина напрокат — прайс прокатчиков тем же загрузчиком, что у /car-rental
+ * (loadRentalCompanies, схема 1317, решение владельца 23.10): машина без
+ * водителя, цена за сутки за машину. До 23.10 ответ был один — «пока нет».
  */
 
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { roomNightsSql } from '@/lib/stay/availability';
 import { loadCharterCarriers, describeFleet } from '@/lib/transfers/charter';
+import { loadRentalCompanies, minRentalPrice } from '@/lib/rental/rental';
 import { sqlState } from '@/lib/guides/db-failure';
 import {
   LODGING_OPTIONS_PER_STAY, stayPriceForGroup, type LodgingStay, type StayPrice,
@@ -70,6 +75,17 @@ export interface CharterOffer {
   hourRub: number | null;
   /** Цена за машину за полный день (1292), ₽; null — такой цены нет. */
   dayRub: number | null;
+  /**
+   * true — тарифы на разные виды машин (1318), и hourRub/dayRub — самая низкая
+   * из них: экран говорит «от». false — тариф один, цена точная.
+   */
+  ratesFrom: boolean;
+}
+
+/** Самый низкий тариф единицы; null — тарифа нет. */
+function minRate(rates: readonly { unit: 'hour' | 'day'; priceRub: number }[], unit: 'hour' | 'day'): number | null {
+  const prices = rates.filter((r) => r.unit === unit).map((r) => r.priceRub);
+  return prices.length > 0 ? Math.min(...prices) : null;
 }
 
 function logExtrasFailure(check: string, err: unknown): void {
@@ -191,12 +207,53 @@ export async function findCharterOffers(): Promise<CheckOutcome<CharterOffer>> {
         fleet: describeFleet(c.vehicles, c.seatClasses),
         priceFromRub: c.destinations.length > 0 ? Math.min(...c.destinations.map((d) => d.priceRub)) : null,
         destinations: c.destinations.length,
-        hourRub: c.rates.find((r) => r.unit === 'hour')?.priceRub ?? null,
-        dayRub: c.rates.find((r) => r.unit === 'day')?.priceRub ?? null,
+        hourRub: minRate(c.rates, 'hour'),
+        dayRub: minRate(c.rates, 'day'),
+        ratesFrom: new Set(c.rates.map((r) => r.vehicleKind)).size > 1,
       })),
     };
   } catch (err) {
     logExtrasFailure('прайс машин под заказ', err);
+    return { state: 'unavailable' };
+  }
+}
+
+/**
+ * Прокатчик к плану: машина без водителя за сутки (23.10). Только то, что
+ * нужно строке плана; телефон и прайс целиком — на странице прокатчика, куда
+ * ведёт строка.
+ */
+export interface RentalOfferSummary {
+  slug: string;
+  name: string;
+  /** Сколько машин в прайсе. */
+  offers: number;
+  /** Самая низкая цена за сутки, ₽ за машину; null — прайс пуст (не бывает у прокатчика витрины). */
+  priceFromRub: number | null;
+  /** Хоть у одной машины водитель по желанию (цена водителя отдельно). */
+  driverOptional: boolean;
+}
+
+/**
+ * Машина напрокат к плану — прокатчики с живым прайсом. От дат плана не
+ * зависит: прайс за сутки один, а даты арендатор пишет в заявке прокатчику.
+ */
+export async function findCarRentalOffers(): Promise<CheckOutcome<RentalOfferSummary>> {
+  try {
+    const companies = await loadRentalCompanies();
+    if (companies.length === 0) return { state: 'empty' };
+    return {
+      state: 'ok',
+      items: companies.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        offers: c.offers.length,
+        priceFromRub: minRentalPrice(c),
+        driverOptional: c.offers.some((o) => o.driver === 'optional'),
+      })),
+    };
+  } catch (err) {
+    logExtrasFailure('прайс проката автомобилей', err);
     return { state: 'unavailable' };
   }
 }

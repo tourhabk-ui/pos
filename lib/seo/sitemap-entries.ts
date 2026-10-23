@@ -12,6 +12,8 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
+import { rentalPagePath } from '@/lib/rental/rental-format';
+import { HAS_ACTIVE_RENTAL_OFFERS_SQL } from '@/lib/rental/rental';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
@@ -134,6 +136,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/accommodations`,       lastModified: RECENT,      changeFrequency: 'daily',   priority: 0.8 },
     // Трансферы: машина целиком под заказ (13.10; витрина мест в поездках снята).
     { url: `${BASE}/transfers`,            lastModified: new Date('2026-09-02'), changeFrequency: 'daily', priority: 0.7 },
+    // Аренда автомобилей: машина без водителя за сутки (23.10, схема 1317).
+    { url: `${BASE}/car-rental`,           lastModified: new Date('2026-10-23'), changeFrequency: 'daily', priority: 0.6 },
     { url: `${BASE}/collections`,          lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/trending`,             lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.7 },
     { url: `${BASE}/blog`,                 lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.75 },
@@ -385,6 +389,27 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('перевозчики', e);
   }
 
+  // Страницы прокатчиков /car-rental/[slug] (витрина проката, 23.10). Условие
+  // то же, что у самой страницы: публичный партнёр со slug и живым прайсом
+  // проката — не категория карточки («Лагуна Прокат» заведена перевозчиком).
+  let rentalPages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
+      `SELECT p.slug, p.updated_at FROM partners p
+       WHERE p.slug IS NOT NULL AND p.is_public = TRUE
+         AND ${HAS_ACTIVE_RENTAL_OFFERS_SQL('p')}
+       ORDER BY p.updated_at DESC LIMIT 200`
+    );
+    rentalPages = rows.map(row => ({
+      url: `${BASE}${rentalPagePath(row.slug)}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'weekly' as const,
+      priority: 0.6,
+    }));
+  } catch (e) {
+    fail('прокатчики', e);
+  }
+
   // Карточки парков (01.10): с серверной отрисовкой у них есть содержимое —
   // прежде страница собиралась в браузере, и поисковик видел 12–13 слов.
   let parkPages: MetadataRoute.Sitemap = [];
@@ -461,6 +486,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ...collectionPages,
     ...operatorPages,
     ...carrierPages,
+    ...rentalPages,
     ...parkPages,
     ...zhDetailPages,
   ];

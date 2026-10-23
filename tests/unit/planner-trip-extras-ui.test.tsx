@@ -7,7 +7,9 @@
  *   — отмеченное уходит в /api/planner/trip-extras вместе с текущими днями;
  *     здоровье туда не уходит;
  *   — результат показывает настоящие варианты, «на платформе нет» с каталогом,
- *     «не смогли проверить» при отказе и честное «пока нет» про машину;
+ *     «не смогли проверить» при отказе; машина напрокат — прокатчики с ценой
+ *     «от» за сутки без водителя (23.10), честное «пока нет» и «не смогли» —
+ *     тремя исходами;
  *   — оценка движка подписана оценкой, чтобы не спутать её с предложениями.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -61,8 +63,16 @@ const EXTRAS = {
       { slug: 'bez-praisa', name: 'Без прайса', fleet: null, priceFromRub: null, destinations: 0 },
     ],
   },
-  car: { state: 'not_offered', message: 'Аренды автомобилей на платформе пока нет', hint: 'Доехать можно трансфером перевозчика или выбрать тур, где транспорт уже включён.' },
+  car: {
+    state: 'ok',
+    items: [
+      { slug: 'laguna', name: 'Лагуна Прокат', offers: 2, priceFromRub: 7000, driverOptional: true },
+      { slug: 'bez-ceny', name: 'Без цены', offers: 1, priceFromRub: null, driverOptional: false },
+    ],
+  },
 };
+const CAR_NOT_OFFERED = { state: 'not_offered', message: 'Аренды автомобилей на платформе пока нет', hint: 'Доехать можно трансфером перевозчика или выбрать тур, где транспорт уже включён.' };
+const CAR_UNAVAILABLE = { state: 'unavailable', message: 'Не смогли проверить прокат автомобилей' };
 
 let extrasReply: { ok: boolean; json: unknown } = { ok: true, json: { success: true, data: EXTRAS } };
 
@@ -184,10 +194,16 @@ describe('результат: настоящее, пустое, непровер
     // Прайса нет — цена не выдумана.
     expect(bare!.textContent).toMatch(/Цену машины назовёт перевозчик/);
     expect(transfer.textContent).not.toMatch(/свободно|за место ·|мест\)|Все поездки/);
-    // Машина — «пока нет», без ссылок.
+    // Машина напрокат (23.10): прокатчик, цена «от» за сутки без водителя,
+    // ссылка на его страницу; цены нет — не выдумана; каталог проката рядом.
     const car = within(section).getByTestId('extras-car');
-    expect(car.textContent).toMatch(/Аренды автомобилей на платформе пока нет/);
-    expect(car.querySelector('a')).toBeNull();
+    expect(car.textContent).toMatch(/без водителя/);
+    const [laguna, noPrice] = within(car).getAllByTestId('rental-offer');
+    expect(within(laguna!).getByText('Лагуна Прокат').closest('a')?.getAttribute('href')).toBe('/car-rental/laguna');
+    expect(laguna!.textContent?.replace(/\u00a0/g, ' ')).toMatch(/от 7 000 ₽ за сутки без водителя · 2 машины в прайсе · водитель по желанию, цена отдельно/);
+    expect(noPrice!.textContent).toMatch(/Цену назовёт прокатчик/);
+    expect(within(car).getByText('Все прокатчики').closest('a')?.getAttribute('href')).toBe('/car-rental');
+    expect(car.textContent).not.toMatch(/за место|за человека|пока нет/);
 
     // Смета на группу (#2304): ориентир подписан ориентиром у каждой строки и
     // под итогом. Ночь прилёта в Авачинской зоне считается, ночь тура с
@@ -199,6 +215,28 @@ describe('результат: настоящее, пустое, непровер
     expect(within(estimate).getByText('Трансферы аэропорта')).toBeTruthy();
     expect(within(estimate).queryByText(/Западной зоне/)).toBeNull();
     expect(estimate.textContent).toMatch(/ориентир по средним ценам/);
+  });
+
+  it('машина напрокат: никого с прайсом — честное «пока нет» без ссылок; не смогли проверить — словами', async () => {
+    extrasReply = { ok: true, json: { success: true, data: { car: CAR_NOT_OFFERED } } };
+    toStep3();
+    fireEvent.click(need('car'));
+    build();
+    const section = await screen.findByTestId('trip-extras');
+    const car = await within(section).findByTestId('extras-car');
+    expect(car.textContent).toMatch(/Аренды автомобилей на платформе пока нет/);
+    expect(car.textContent).toMatch(/Доехать можно трансфером перевозчика/);
+    expect(car.querySelector('a')).toBeNull();
+    cleanup();
+
+    extrasReply = { ok: true, json: { success: true, data: { car: CAR_UNAVAILABLE } } };
+    toStep3();
+    fireEvent.click(need('car'));
+    build();
+    const section2 = await screen.findByTestId('trip-extras');
+    const car2 = await within(section2).findByTestId('extras-car');
+    expect(car2.textContent).toMatch(/Не смогли проверить прокат автомобилей/);
+    expect(car2.textContent).not.toMatch(/пока нет/);
   });
 
   it('отказ сервера — «не смогли проверить», а не «вариантов нет»', async () => {

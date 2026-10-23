@@ -56,6 +56,7 @@ const DATA: CarrierPageData = {
   carrier: CARRIER,
   safety: { state: 'ok', byPlace: {} },
   reviews: { state: 'ok', items: [], count: 0, average: null },
+  rental: { state: 'ok', has: false },
 };
 
 const form = () => document.getElementById(CHARTER_REQUEST_ANCHOR) as HTMLElement;

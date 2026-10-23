@@ -121,8 +121,8 @@ describe('POST /api/charter-requests: заявка ложится перевоз
       ...CARRIER, partnerId: 'p-zh', slug: 'zheltukhin', name: 'ИП Желтухин', destinations: [],
       vehicles: [{ kind: 'minibus', title: 'Sprinter', seats: null }, { kind: 'minibus', title: 'Transit', seats: null }],
       rates: [
-        { unit: 'hour', priceRub: 4500, note: null, conditions: null, validYear: null },
-        { unit: 'day', priceRub: 45000, note: null, conditions: null, validYear: null },
+        { unit: 'hour', vehicleKind: 'minibus', priceRub: 4500, note: null, conditions: null, validYear: null },
+        { unit: 'day', vehicleKind: 'minibus', priceRub: 45000, note: null, conditions: null, validYear: null },
       ],
     });
     // 60 человек: вместимость не записана — отказа «мест в парке всего N» нет, решает перевозчик.

@@ -79,3 +79,5 @@ export const ROUTE_TITLE_TAILS = [' — маршрут на Камчатке', '
 export const TOUR_TITLE_TAILS = [' — тур на Камчатке', ' — тур'] as const;
 export const OPERATOR_TITLE_TAILS = [' — туроператор Камчатки', ' — туроператор'] as const;
 export const CARRIER_TITLE_TAILS = [' — машина под заказ на Камчатке', ' — машина под заказ'] as const;
+/** Хвосты страницы прокатчика (витрина проката 23.10): машина без водителя, не «под заказ» перевозчика. */
+export const RENTAL_TITLE_TAILS = [' — аренда автомобилей на Камчатке', ' — аренда автомобилей'] as const;

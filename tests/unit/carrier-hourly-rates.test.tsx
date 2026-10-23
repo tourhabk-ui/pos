@@ -58,8 +58,8 @@ const ROOT = process.cwd();
 const plain = (s: string | null | undefined): string => (s ?? '').replace(/[\u00a0\u202f]/g, ' ');
 
 const RATES: CharterRate[] = [
-  { unit: 'hour', priceRub: 4500, note: null, conditions: 'фиксированных направлений нет; дальние поездки — по договорённости', validYear: null },
-  { unit: 'day', priceRub: 45000, note: null, conditions: 'фиксированных направлений нет; дальние поездки — по договорённости', validYear: null },
+  { unit: 'hour', vehicleKind: 'minibus', priceRub: 4500, note: null, conditions: 'фиксированных направлений нет; дальние поездки — по договорённости', validYear: null },
+  { unit: 'day', vehicleKind: 'minibus', priceRub: 45000, note: null, conditions: 'фиксированных направлений нет; дальние поездки — по договорённости', validYear: null },
 ];
 
 const ZH: CarrierProfile = {
@@ -95,6 +95,7 @@ const DATA: CarrierPageData = {
   carrier: ZH,
   safety: { state: 'ok', byPlace: {} },
   reviews: { state: 'ok', items: [], count: 0, average: null },
+  rental: { state: 'ok', has: false },
 };
 
 beforeEach(() => {

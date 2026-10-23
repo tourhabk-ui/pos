@@ -52,7 +52,7 @@ export function charterAnswer(
     // Цена за время работы (1292): направлений нет, куда ехать — задаёт
     // заказчик. «Направления нет в прайсе» тут было бы неправдой: прайс не
     // про направления, и любое направление считается по часам или дням.
-    const rates = c.rates.length > 0 ? `${c.rates.map(rateWords).join('; ')}` : '';
+    const rates = c.rates.length > 0 ? `${c.rates.map((r) => rateWords(r, c.rates)).join('; ')}` : '';
     if (c.destinations.length === 0 && rates) {
       return `${head} Цена за машину целиком — за время работы, направление задаёт заказчик: ${rates}.${tail}`;
     }

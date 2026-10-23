@@ -178,6 +178,8 @@ export interface CharterOfferView {
    */
   hourRub?: number | null;
   dayRub?: number | null;
+  /** true — тарифы на разные виды машин (1318): hourRub/dayRub — самая низкая, экран говорит «от». */
+  ratesFrom?: boolean;
 }
 
 export interface TripExtrasData {
@@ -185,5 +187,17 @@ export interface TripExtrasData {
     | { state: 'no_dates' }
     | { state: 'checked'; stays: LodgingStayView[]; nightsInTours: number; unzonedCount: number | null };
   transfer?: ExtrasOutcome<CharterOfferView>;
-  car?: { state: 'not_offered'; message: string; hint: string };
+  car?:
+    | { state: 'ok'; items: RentalOfferSummaryView[] }
+    | { state: 'not_offered'; message: string; hint: string }
+    | { state: 'unavailable'; message: string };
+}
+
+/** Прокатчик к плану — машина без водителя за сутки (форма lib/planner/trip-extras-data, RentalOfferSummary). */
+export interface RentalOfferSummaryView {
+  slug: string;
+  name: string;
+  offers: number;
+  priceFromRub: number | null;
+  driverOptional: boolean;
 }
