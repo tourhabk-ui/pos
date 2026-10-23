@@ -61,8 +61,9 @@ describe('блок «Спросить Кузьмича»', () => {
     expect(read('app/catalog/(list)/page.tsx')).toContain('KuzmichContacts');
     expect(read('components/transfers/CarrierPage.tsx')).toContain('KuzmichActions');
     expect(read('app/catalog/tours/[id]/_TourDetailClient.tsx')).toContain('KuzmichActions');
-    expect(read('app/_home/_HomeV8Client.tsx')).toContain('KuzmichGuideActions');
-    expect(read('components/homepage/KuzmichGuideActions.tsx')).toContain('KuzmichActions');
+    // Мобильная главная: чаты — столбиком в герое под «Поделиться» (23.10).
+    expect(read('app/_home/_HomeV8Client.tsx')).toContain('HeroKuzmichChats');
+    expect(read('components/homepage/HeroKuzmichChats.tsx')).toContain('KUZMICH_TELEGRAM_URL');
     // Десктопная главная — отдельное дерево (DeskHelp), не HomeV8Client.
     expect(read('components/homepage/desk/DeskHelp.tsx')).toContain('KuzmichActions');
     // Единая система и её адреса живут в одном месте.

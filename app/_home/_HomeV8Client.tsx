@@ -18,7 +18,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Bus, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
-import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
+import { HeroKuzmichChats } from '@/components/homepage/HeroKuzmichChats';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -315,8 +315,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             сломанным. Прятать overflow нельзя, это спрятало бы действие
             целиком. Смысл: по решению владельца 29.07 тур — не первое
             обещание главной, а следующий шаг после ответа «куда мне можно».
-            Действие не потеряно: в блоке Кузьмича стоят ссылки на его
-            Telegram и MAX (владелец 19.10, вместо устаревшей кнопки). */}
+            Действие не потеряно: в герое под «Поделиться» стоят ссылки на
+            Telegram и MAX Кузьмича и его чат на сайте (владелец 23.10). */}
       </div></div>
 
       {/* ГЕРОЙ — фото-первый, композиция north-star макета (31.07): вордмарк
@@ -351,14 +351,20 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <Logo size={30} mono />
               <span className="hb-word" aria-hidden>Ведар</span>
             </div>
-            <ShareButton
-              className="hero-share"
-              referral
-              size={18}
-              title="Ведар — Камчатка"
-              text="Маршруты, безопасность и проверенные туры по Камчатке"
-              referralText="Приглашаю в Ведар: маршруты и проверенные туры по Камчатке. По моей ссылке — бонус на первую поездку"
-            />
+            {/* Под «Поделиться» — чаты Кузьмича столбиком того же размера
+                (владелец 23.10). Столбик не в потоке: герой не растёт, и
+                первый экран не теряет места; заголовок слева его не задевает. */}
+            <div className="hero-acts">
+              <ShareButton
+                className="hero-share"
+                referral
+                size={18}
+                title="Ведар — Камчатка"
+                text="Маршруты, безопасность и проверенные туры по Камчатке"
+                referralText="Приглашаю в Ведар: маршруты и проверенные туры по Камчатке. По моей ссылке — бонус на первую поездку"
+              />
+              <HeroKuzmichChats />
+            </div>
           </div>
           <div className="hero-sp" />
           {trip ? (
@@ -797,7 +803,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам оператору.</q>
             </div>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
-            <KuzmichGuideActions />
           </div>
         </section>
 
@@ -817,7 +822,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
             блок проводника выше, и добавлял главной ещё один вход в то же
             самое. Форма и её POST /api/leads остались нетронутыми, ссылка
-            Ссылки у Кузьмича выше ведут в его Telegram и MAX. */}
+            Чаты Кузьмича — в герое, под «Поделиться». */}
         <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
@@ -1154,6 +1159,16 @@ const CSS = `
 /* Стекло — поверх фото, где ему и место по §2. */
 .v7 .hero-share{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:999px;background:rgba(0,0,0,.40);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.95);cursor:pointer;transition:background .2s}
 .v7 .hero-share:hover{background:rgba(0,0,0,.55)}
+/* Чаты Кузьмича под «Поделиться» (владелец 23.10): тот же круг и то же стекло.
+   Столбик вне потока — высота героя прежняя. Видимый круг 40px, как у
+   «Поделиться», а цель пальца — 44px за счёт невидимого поля. */
+.v7 .hero-acts{position:relative;flex:none}
+.v7 .hero-chats{position:absolute;top:48px;right:0;z-index:1;display:flex;flex-direction:column;gap:8px}
+.v7 .hero-chat{position:relative;width:40px;height:40px;display:grid;place-items:center;border-radius:999px;background:rgba(0,0,0,.40);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);transition:background .2s}
+.v7 .hero-chat::before{content:'';position:absolute;inset:-2px;border-radius:999px}
+.v7 .hero-chat:hover{background:rgba(0,0,0,.55)}
+.v7 .hero-chat:focus-visible{outline:2px solid rgba(255,255,255,.9);outline-offset:2px}
+@media (prefers-reduced-transparency:reduce){.v7 .hero-chat{backdrop-filter:none;background:rgba(0,0,0,.72)}}
 .v7 .hb-word{font:700 24px/1 var(--font-playfair),Georgia,serif;color:rgba(255,255,255,.95)}
 .v7 .hero-sp{flex:1;min-height:28px}
 /* Телефон (владелец 20.10): плитки сразу под строкой KVERT, без пустого фото снизу. */
