@@ -18,6 +18,10 @@ import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/Kuzmi
 import { VedarChatIcon, VEDAR_CHAT_MARK_PATH } from '@/components/shared/MessengerIcons';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import HomeV8Client from '@/app/_home/_HomeV8Client';
+import type { HomeWeather } from '@/lib/weather/home-widget-types';
+
+/** Виджет погоды главной (23.10) здесь не предмет проверки: исход без сети и без цифр. */
+const NO_WEATHER: HomeWeather = { kind: 'failed' };
 import type { HomeV8Data } from '@/app/_home/data';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -172,7 +176,7 @@ describe('мобильная главная: Кузьмич в герое и в 
 
   it('нет заголовка и портрета проводника; чаты в герое и медальон таб-бара ведут к Кузьмичу', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
-    const { container } = render(<HomeV8Client data={DATA} />);
+    const { container } = render(<HomeV8Client data={DATA} weather={NO_WEATHER} />);
     const headings = [...container.querySelectorAll('h2')].map((h) => h.textContent?.trim());
     expect(headings).not.toContain('Проводник Кузьмич');
     expect(container.querySelector('img[src*="kuzmich/portrait"]')).toBeNull();

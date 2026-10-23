@@ -38,7 +38,8 @@ describe('порядок доски', () => {
   });
 
   it('мобильное дерево не тронуто: только HomeV8Client', () => {
-    expect(MOBILE).toMatch(/<HomeV8Client data=\{homeData\} \/>/);
+    // С 23.10 у главной телефона второй пропс — виджет погоды (HomeWeatherStrip).
+    expect(MOBILE).toMatch(/<HomeV8Client data=\{homeData\} weather=\{weather\} \/>/);
     expect(MOBILE).not.toMatch(/Desk/);
   });
 

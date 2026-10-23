@@ -637,7 +637,9 @@ describe('5. входы на страницу', () => {
 
   it('сводка, мобильная и десктопная главная ведут на погоду', () => {
     expect(read('app/svodka/page.tsx')).toMatch(/<Link href="\/weather"/);
-    expect(read('app/_home/_HomeV8Client.tsx')).toMatch(/href="\/weather"/);
+    // С 23.10 вход с мобильной главной — виджет погоды между рядами плиток
+    // (рендер — tests/unit/home-weather-strip.test.tsx).
+    expect(read('components/homepage/HomeWeatherStrip.tsx')).toMatch(/href="\/weather"/);
     const desk = read('components/homepage/desk/DeskHero.tsx');
     expect(desk).toMatch(/href: '\/weather\/avachinsky'/);
     // Плитка не показывает «худшее за сутки» при частях дня (#2249).

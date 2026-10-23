@@ -16,9 +16,11 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Bus, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, Bus, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 import { HeroKuzmichChats } from '@/components/homepage/HeroKuzmichChats';
+import { HomeWeatherStrip } from '@/components/homepage/HomeWeatherStrip';
+import type { HomeWeather } from '@/lib/weather/home-widget-types';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -97,7 +99,7 @@ interface ActiveTrip {
   progress: { day: number | null; total: number | null; phase: 'before' | 'during' | 'after' | 'unknown' };
 }
 
-export default function HomeV8Client({ data }: { data: HomeV8Data }) {
+export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weather: HomeWeather }) {
   const { safety, seismic, radar, plates, explore, feed, stats } = data;
   const rentalDoor = data.rentalDoor !== false;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
@@ -465,6 +467,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <span className="qt-st" suppressHydrationWarning>{freshnessShort(fresh)}</span>
             </span>
           </Link>
+          {/* Погода (владелец 23.10: «между кнопками своя поездка и радар ниже
+              нужно добавить длинный стильный виджет с погодой, при нажатии
+              переход на страницу погоды»). Во всю ширину сетки, между рядом
+              инструментов и рядом разделов; та же сцена и тот же прогноз, что у
+              /weather — components/homepage/HomeWeatherStrip. */}
+          <HomeWeatherStrip initial={weather} />
           {/* Туры (владелец 09.10: «туры тогда тоже сделай кнопкой») — дверь в
               витрину /catalog, как «Туры» нижнего меню. Вторым рядом с
               «Трансфером»: ряд инструментов стал сеткой 2×2 вместо третьей
@@ -754,15 +762,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </a>
           </nav>
 
-          {/* Погода по местам (08.10, решение владельца): прогноз на неделю и
-              предупреждения Росгидромета — то, что смотрят перед выходом.
-              Строкой под сеткой, а не пятой плиткой: сетка 2×2 держит четыре
-              (владелец 25.09: «место жалко на главной»). */}
-          <Link className="wx-go" href="/weather" aria-label="Погода по местам маршрутов: прогноз на 7 дней и предупреждения Росгидромета">
-            <CloudSun size={16} strokeWidth={1.8} aria-hidden />
-            <span>Погода по местам на 7 дней</span>
-            <span aria-hidden>→</span>
-          </Link>
+          {/* Строка «Погода по местам на 7 дней» снята 23.10: вход на /weather —
+              виджет погоды в первом ряду инструментов (HomeWeatherStrip). */}
 
         </section>
 
@@ -1227,6 +1228,35 @@ const CSS = `
 .v7 nav.qt-top .qt-tx > span{font-size:11px}
 .v7 nav.qt-top .qt-plan .qt-tx > span,.v7 nav.qt-top .qt-tours .qt-tx > span,.v7 nav.qt-top .qt-transfer .qt-tx > span,.v7 nav.qt-top .qt-stay .qt-tx > span,.v7 nav.qt-top .qt-rental .qt-tx > span{display:none}
 .v7 nav.qt-top .qt-badge{width:9px;height:9px}
+/* Погода (23.10): длинная плитка во всю ширину сетки — сцена /weather в
+   миниатюре (.wx-scene из globals.css: фон по небу и времени суток, звёзды
+   ночью). Текст — только парами --wx-fg* на фоне сцены. Предупреждение —
+   кромкой --warning, как у стекла поля. Узко (<380px) — два дня, не три. */
+.v7 nav.qt-top > .hw{grid-column:1 / -1;display:flex;flex-direction:column;justify-content:center;gap:5px;min-height:72px;padding:8px 10px 9px 12px;border-radius:16px;box-shadow:none;text-decoration:none;transition:transform .13s ease}
+.v7 nav.qt-top > .hw:active{transform:scale(.985)}
+.v7 nav.qt-top > .hw:focus-visible{outline:2px solid var(--ocean);outline-offset:2px}
+.v7 nav.qt-top > .hw-off{background:color-mix(in srgb,var(--bg-card) 78%,transparent);border:1px solid var(--border);color:var(--text-primary);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
+.v7 .hw-cap{font:600 10px/1.2 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--wx-fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .hw-row{display:flex;align-items:center;gap:10px;min-width:0}
+.v7 .hw-now{display:flex;align-items:center;gap:6px;flex:none}
+.v7 .hw-temp{font:300 30px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.v7 .hw-mid{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.v7 .hw-mid b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .hw-mid > span{font-size:11.5px;color:var(--wx-fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .hw-off .hw-mid > span{color:var(--text-secondary)}
+.v7 .hw-days{display:flex;gap:4px;flex:none}
+.v7 .hw-day{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:34px;padding:4px 3px;border-radius:10px;background:var(--wx-chip)}
+.v7 .hw-day i{font-style:normal;font-size:10px;color:var(--wx-fg-2)}
+.v7 .hw-day b{font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.v7 .hw-go{flex:none;color:var(--wx-fg-2)}
+.v7 .hw-off .hw-go{color:var(--text-muted)}
+.v7 .hw-warn{display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px 5px 10px;border-radius:2px 10px 10px 2px;background:var(--wx-chip);box-shadow:inset 3px 0 0 var(--warning);font-size:11.5px;font-weight:600}
+.v7 .hw-warn-t{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .hw-warn-n{flex:none;font-weight:500;color:var(--wx-fg-2)}
+.v7 .hw-warn svg{flex:none;color:var(--warning)}
+.v7 .hw-hills{position:absolute;left:0;right:0;bottom:0;width:100%;height:46%;fill:var(--wx-silhouette);pointer-events:none;z-index:0}
+@media (max-width:379px){.v7 .hw-day:nth-child(3){display:none}.v7 .hw-temp{font-size:26px}}
+@media (prefers-reduced-motion:reduce){.v7 nav.qt-top > .hw{transition:none}.v7 nav.qt-top > .hw:active{transform:none}}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
 @media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}
@@ -1296,7 +1326,6 @@ const CSS = `
 .v7 .plate.place .row{padding-top:5px}
 .v7 .plate.place .cap{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .v7 .stools{margin:0}
-.v7 .wx-go{display:flex;align-items:center;gap:8px;min-height:44px;margin-top:8px;font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
 /* Регистрация в МЧС — тёплая подложка (--warning): просьба, не тревога (--danger только SOS). */
 .v7 .mchsline{background:color-mix(in srgb,var(--warning) 10%,var(--bg-card));border-color:color-mix(in srgb,var(--warning) 30%,transparent)}
 .v7 .mchsline .qt-ic{color:color-mix(in srgb,var(--warning) 80%,var(--text-primary));background:color-mix(in srgb,var(--warning) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warning) 28%,transparent)}
