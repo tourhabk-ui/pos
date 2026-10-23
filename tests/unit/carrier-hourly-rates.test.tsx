@@ -245,7 +245,10 @@ describe('страница перевозчика с ценой за час и �
     expect(strip.textContent).toContain('Микроавтобус');
     expect(strip.textContent).toContain('3');
     expect(strip.textContent).toContain('за час или за день');
-    expect(carrierInstrument({ vehicles: ZH.vehicles, destinations: [], rates: [RATES[0]!], seatClasses: [] }).at(-1)).toEqual({ k: 'Цена', v: 'за час' });
+    // Одна единица — числом от самой низкой строки, как у проката (23.10).
+    const one = carrierInstrument({ vehicles: ZH.vehicles, destinations: [], rates: [RATES[0]!], seatClasses: [] }).at(-1)!;
+    expect(one.k).toBe('Цена');
+    expect(plain(one.v)).toBe(`от ${plain(rateOnScreen(RATES[0]!))}`);
     // Не записаны ни места машин, ни вместимости парка — ячейки «Мест» нет вовсе.
     expect(carrierInstrument({ vehicles: ZH.vehicles, destinations: [], rates: RATES, seatClasses: [] }).map((c) => c.k))
       .toEqual(['Машина', 'Машин', 'Цена']);

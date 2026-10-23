@@ -21,6 +21,12 @@ import {
  * Цена строки — тем же голосом, что цена карточки тура: крупный жирный
  * tabular-nums цветом основного текста, а не мелкой акцентной подписью.
  * Размер скромнее турного (text-base, не text-lg): строк в прайсе много.
+ *
+ * На телефоне строка в две полосы: направление или тариф — первая, цена с
+ * «Заказать» — вторая во всю ширину; от sm — одна строка. Снимок /transfers
+ * с телефона 23.10: «Полный день — микроавтобус» шло по слову в строке,
+ * пометка «от» налезала на тире, кнопка уходила за край карточки и страница
+ * становилась шире экрана (та же болезнь, что строка проката в #2714).
  */
 export function CharterPriceList({ carrier, orderSlug }: {
   carrier: Pick<CharterCarrier, 'destinations' | 'extraDay' | 'rates'>;
@@ -33,9 +39,9 @@ export function CharterPriceList({ carrier, orderSlug }: {
         {carrier.destinations.map((d) => (
           <div
             key={`${d.from}/${d.to}`}
-            className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border)]"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2 border-b border-[var(--border)] sm:flex-nowrap sm:justify-between"
           >
-            <dt className="min-w-0 text-sm text-[var(--text-primary)]">
+            <dt className="min-w-0 flex-1 text-sm text-[var(--text-primary)]">
               {d.place ? (
                 <Link href={d.place.href} className="text-[var(--ocean)] hover:underline">{d.to}</Link>
               ) : d.to}
@@ -43,8 +49,8 @@ export function CharterPriceList({ carrier, orderSlug }: {
                 <span className="block text-xs text-[var(--text-muted)]">место: {d.place.name}</span>
               )}
             </dt>
-            <dd className="flex items-center gap-3 shrink-0">
-              <span className="text-right">
+            <dd className="flex w-full items-center justify-between gap-3 sm:w-auto sm:shrink-0 sm:justify-end">
+              <span className="text-left sm:text-right">
                 <span className="block text-base font-bold tabular-nums text-[var(--text-primary)]">{formatRub(d.priceRub)}</span>
                 {d.note && <span className="block text-xs text-[var(--text-muted)]">{d.note}</span>}
               </span>
@@ -52,7 +58,7 @@ export function CharterPriceList({ carrier, orderSlug }: {
                 <Link
                   href={charterOrderPath(orderSlug, d.to)}
                   prefetch={false}
-                  className="ds-btn ds-btn-secondary px-3"
+                  className="ds-btn ds-btn-secondary px-3 shrink-0"
                   aria-label={`Заказать машину: ${d.to}`}
                 >
                   Заказать
@@ -65,11 +71,11 @@ export function CharterPriceList({ carrier, orderSlug }: {
         {carrier.rates.map((r) => (
           <div
             key={rateKey(r)}
-            className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border)]"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2 border-b border-[var(--border)] sm:flex-nowrap sm:justify-between"
           >
-            <dt className="min-w-0 text-sm text-[var(--text-primary)]">{rateLabelOf(r, carrier.rates)}</dt>
-            <dd className="flex items-center gap-3 shrink-0">
-              <span className="text-right">
+            <dt className="min-w-0 flex-1 text-sm text-[var(--text-primary)]">{rateLabelOf(r, carrier.rates)}</dt>
+            <dd className="flex w-full items-center justify-between gap-3 sm:w-auto sm:shrink-0 sm:justify-end">
+              <span className="text-left sm:text-right">
                 <span className="block whitespace-nowrap text-base font-bold tabular-nums text-[var(--text-primary)]">{rateOnScreen(r)}</span>
                 {r.note && <span className="block text-xs text-[var(--text-muted)]">{r.note}</span>}
               </span>
@@ -77,7 +83,7 @@ export function CharterPriceList({ carrier, orderSlug }: {
                 <Link
                   href={charterOrderPath(orderSlug)}
                   prefetch={false}
-                  className="ds-btn ds-btn-secondary px-3"
+                  className="ds-btn ds-btn-secondary px-3 shrink-0"
                   aria-label={`Заказать машину: ${rateLabelOf(r, carrier.rates).toLowerCase()}`}
                 >
                   Заказать

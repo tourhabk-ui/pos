@@ -8,7 +8,9 @@
  * догадку (§4.0).
  */
 
-import { carrierPagePath, fleetCapacity, rateLabelOf, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
+import {
+  carrierPagePath, fleetCapacity, formatRub, rateLabelOf, rateOnScreen, vehicleKindWord, type CharterCarrier,
+} from '@/lib/transfers/charter-format';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 export interface InstrumentCell {
@@ -62,7 +64,11 @@ export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinat
   if (c.vehicles.length > 1) cells.push({ k: 'Машин', v: String(c.vehicles.length) });
   const origins = carrierOrigins(c);
   if (origins.length > 0) cells.push({ k: 'Откуда', v: origins.join(', ') });
-  if (c.destinations.length > 0) cells.push({ k: 'Цена', v: 'за машину' });
+  // Цена — числом, как у проката («от 7 000 ₽ в сутки»): «Цена: за день» без
+  // числа ничего не говорило (разбор витрины 23.10). Самая низкая строка
+  // прайса; у тарифов разной единицы (час и день) числа не сравнимы — словами.
+  const min = minCharterPrice(c);
+  if (min !== null) cells.push({ k: 'Цена', v: `от ${formatRub(min)} за машину` });
   else if (c.rates.length > 0) cells.push({ k: 'Цена', v: rateCellWords(c.rates) });
   return cells;
 }
@@ -72,11 +78,16 @@ function orWords(ns: readonly number[]): string {
   return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} или ${ns[ns.length - 1]}` : String(ns[0]);
 }
 
-/** «за час или за день» — за какое время берёт цену перевозчик без направлений. */
+/**
+ * Цена перевозчика без направлений: у тарифов одной единицы — от самой низкой
+ * («от 25 000 ₽ за день»), у часа и дня вместе — словами («за час или за
+ * день»): 4 500 в час и 45 000 за день на одной шкале не сравнить.
+ */
 function rateCellWords(rates: CharterCarrier['rates']): string {
   const units = new Set(rates.map((r) => r.unit));
-  if (units.has('hour') && units.has('day')) return 'за час или за день';
-  return units.has('hour') ? 'за час' : 'за день';
+  if (units.size > 1) return 'за час или за день';
+  const cheapest = rates.reduce((a, b) => (b.priceRub < a.priceRub ? b : a));
+  return `от ${rateOnScreen(cheapest)}`;
 }
 
 /**

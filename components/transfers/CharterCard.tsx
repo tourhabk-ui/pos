@@ -67,8 +67,8 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
       {/* Чип и ссылка — одной строкой сверху; имя и парк — во всю ширину (как у
           карточки прокатчика: ссылка справа зажимала текст в полэкрана, 23.10). */}
       <div>
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>Под заказ · целая машина</span>
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 mb-2">
+          <span className="inline-flex whitespace-nowrap px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>Под заказ · целая машина</span>
           <Link
             href={carrierPagePath(carrier.slug)}
             className="text-xs text-[var(--ocean)] underline shrink-0"
