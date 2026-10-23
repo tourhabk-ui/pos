@@ -8,6 +8,7 @@ import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import BottomNav from '@/components/shared/BottomNav'
 import HomeV8Client from './_home/_HomeV8Client'
 import { getHomeV8Data, fetchPlates, fetchTransferPlate, fetchStayPlate } from './_home/data'
+import { loadHomeWeatherWithin } from '@/lib/weather/home-widget'
 import { homeTreeFor } from '@/lib/home/device-tree'
 import { queryCatalogSummaryForPage } from '@/lib/search'
 import { loadDeskBrief } from '@/lib/home/desk-brief'
@@ -75,14 +76,17 @@ export default async function Page() {
 
   // ── Мобильное дерево: только v8, только для телефонов ──────────────
   if (isMobile) {
-    const homeData = await getHomeV8Data();
+    // Погода — здесь, а не в data.ts: data.ts читают и клиентские модули
+    // (типы), и серверный загрузчик прогноза протащил бы им цепочку до
+    // node:crypto. Не дольше бюджета: холодный кэш не держит главную до 12 с.
+    const [homeData, weather] = await Promise.all([getHomeV8Data(), loadHomeWeatherWithin()]);
     return (
       <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
         <OnSiteBanner />
         <main className="flex-1">
           {/* Новая Главная v8 «Воронка» — фото-герой, радар безопасности,
               карусель, реальная сейсмика. Своя навигация и SOS. */}
-          <HomeV8Client data={homeData} />
+          <HomeV8Client data={homeData} weather={weather} />
         </main>
       </div>
     );

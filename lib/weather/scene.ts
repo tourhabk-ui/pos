@@ -10,6 +10,9 @@
 import type { ForecastHour } from '@/lib/planner/intelligence';
 import type { PlaceWeather } from '@/lib/weather/weather-page';
 import { hhmm } from '@/lib/weather/weather-format';
+import { weatherSky, type WeatherSky } from '@/lib/weather/sky';
+
+export { weatherSky, type WeatherSky } from '@/lib/weather/sky';
 
 export type OkWeather = Extract<PlaceWeather, { kind: 'ok' }>;
 
@@ -22,18 +25,6 @@ export function currentHour(w: Pick<OkWeather, 'hours' | 'now'>): ForecastHour |
     if (hit) return hit;
   }
   return w.hours[0];
-}
-
-export type WeatherSky = 'clear' | 'cloud' | 'fog' | 'rain' | 'snow' | 'storm';
-
-export function weatherSky(code: number | null): WeatherSky {
-  if (code === null) return 'cloud';
-  if (code === 0 || code === 1) return 'clear';
-  if (code === 2 || code === 3) return 'cloud';
-  if (code <= 48) return 'fog';
-  if (code >= 95) return 'storm';
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
-  return 'rain';
 }
 
 /**

@@ -6,7 +6,7 @@
  * Числа приходят уже строками («+4», «−1»): правило записи температуры одно —
  * fmtTemp из weather-format, и в браузере его второй раз не заводят.
  */
-import type { WeatherSky } from '@/lib/weather/scene';
+import type { WeatherSky } from '@/lib/weather/sky';
 
 export interface HomeWeatherDay {
   date: string;

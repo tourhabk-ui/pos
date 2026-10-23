@@ -28,7 +28,6 @@ import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
 import { orderPlates } from '@/lib/home/plate-facts';
 import { toTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
-import { loadHomeWeatherWithin, type HomeWeather } from '@/lib/weather/home-widget';
 import { toStayPlate, type StayPlate, type StayPlateRow } from '@/lib/home/stay-plate';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
@@ -235,11 +234,6 @@ export interface HomeV8Data {
   feed: FeedItem[];
   stats: Stat[];
   elements: Element[];
-  /**
-   * Виджет погоды между рядами плиток (23.10): прогноз Петропавловска с
-   * /weather. «pending» — не успел за бюджет главной, виджет дотянет сам.
-   */
-  weather: HomeWeather;
 }
 
 // Центр радара по умолчанию — Петропавловск-Камчатский (клиент заменит на геолокацию).
@@ -905,16 +899,14 @@ export async function fetchStayPlate(): Promise<StayPlate | null> {
 }
 
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, transfer, stay, explore, feedItems, counts, weather] = await Promise.all([
+  const [live, zones, plates, transfer, stay, explore, feedItems, counts] = await Promise.all([
     getSafetyLiveData(),
     fetchZones(), fetchPlates(), fetchTransferPlate(), fetchStayPlate(), fetchExplore(), fetchFeed(),
     getPlatformCounts().catch(() => null),
-    // Не дольше бюджета: холодный кэш прогноза не держит главную до 12 с.
-    loadHomeWeatherWithin(),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, transfer, stay, explore, feed: feedItems, stats, elements, weather };
+  return { ...live, zones, plates, transfer, stay, explore, feed: feedItems, stats, elements };
 }

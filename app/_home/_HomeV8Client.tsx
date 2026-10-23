@@ -20,6 +20,7 @@ import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mounta
 import BottomNav from '@/components/shared/BottomNav';
 import { HeroKuzmichChats } from '@/components/homepage/HeroKuzmichChats';
 import { HomeWeatherStrip } from '@/components/homepage/HomeWeatherStrip';
+import type { HomeWeather } from '@/lib/weather/home-widget-types';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
@@ -98,7 +99,7 @@ interface ActiveTrip {
   progress: { day: number | null; total: number | null; phase: 'before' | 'during' | 'after' | 'unknown' };
 }
 
-export default function HomeV8Client({ data }: { data: HomeV8Data }) {
+export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weather: HomeWeather }) {
   const { safety, seismic, radar, plates, explore, feed, stats } = data;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
@@ -470,7 +471,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               переход на страницу погоды»). Во всю ширину сетки, между рядом
               инструментов и рядом разделов; та же сцена и тот же прогноз, что у
               /weather — components/homepage/HomeWeatherStrip. */}
-          <HomeWeatherStrip initial={data.weather} />
+          <HomeWeatherStrip initial={weather} />
           {/* Туры (владелец 09.10: «туры тогда тоже сделай кнопкой») — дверь в
               витрину /catalog, как «Туры» нижнего меню. Вторым рядом с
               «Трансфером»: ряд инструментов стал сеткой 2×2 вместо третьей
