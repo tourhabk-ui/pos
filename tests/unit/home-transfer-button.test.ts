@@ -73,8 +73,12 @@ describe('кнопка «Прокат» на главной (владелец 23
   it('телефон: четвёртая дверь в ряду после «Жилья», ведёт на /car-rental, подпись — без водителя', () => {
     const c = read('app/_home/_HomeV8Client.tsx');
     const nav = c.slice(c.indexOf('className="qtools qt-top"'), c.indexOf('</nav>', c.indexOf('className="qtools qt-top"')));
-    expect(nav).toMatch(/<Link href="\/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя[^"]*"/);
-    expect(nav).toMatch(/<b>Прокат<\/b><span>без водителя<\/span>/);
+    const door = nav.indexOf('href="/car-rental"');
+    expect(door).toBeGreaterThan(nav.indexOf('href="/accommodations"'));
+    const tile = nav.slice(nav.lastIndexOf('<Link', door), nav.indexOf('</Link>', door));
+    expect(tile).toContain('className="qt qt-rental"');
+    expect(tile).toMatch(/aria-label="Прокат автомобилей: машина без водителя[^"]*"/);
+    expect(tile).toMatch(/<b>Прокат<\/b><span>без водителя<\/span>/);
     // Четыре двери в верхнем ряду стоят значком над подписью: в строку «Трансфер» в четверть 360px не помещается.
     expect(c).toMatch(/\.v7 nav\.qt-top > \.qt-tours,\.v7 nav\.qt-top > \.qt-transfer,\.v7 nav\.qt-top > \.qt-stay,\.v7 nav\.qt-top > \.qt-rental\{flex-direction:column/);
     expect(c).toMatch(/\.v7 nav\.qt-top \.qt-rental \.qt-tx > span\{display:none\}|\.qt-rental \.qt-tx > span\{display:none\}/);
