@@ -29,10 +29,29 @@ export const TEXT_CAP = 60_000;
 export type PageOutcome = 'ok' | 'gone' | 'failed' | 'robots';
 
 /**
+ * Строка, которая меняется при каждом открытии страницы и о туре ничего не
+ * говорит: арифметическая капча формы («Защита от роботов: 4+4=?», Contact
+ * Form 7 `wpcf7-quiz`). Отчёт 23.10 назвал «изменениями» 24 страницы
+ * «Местечка Камчатка», и во всех показанных строках менялись только цифры
+ * капчи — по две формы на странице, свои цифры у каждой. Признак узкий:
+ * пример со знаком «=?», цена или дата так не пишутся.
+ */
+const VOLATILE_LINE = /\d+\s*[+\-−×*xх]\s*\d+\s*=\s*\?/i;
+
+export function isVolatileLine(line: string): boolean {
+  return VOLATILE_LINE.test(line);
+}
+
+/** Текст без строк-капч — для сравнения со снимком, записанным до 23.10. */
+export function withoutVolatileLines(text: string): string {
+  return text.split('\n').filter((l) => !isVolatileLine(l)).join('\n');
+}
+
+/**
  * Видимый текст страницы строками: без скриптов, стилей и разметки, сущности
- * развёрнуты, пробелы схлопнуты, пустые строки выброшены. Сравнивается именно
- * он — смена вёрстки, счётчиков в скриптах и CDN-адресов изменением не
- * считается, смена цены или даты в тексте — считается.
+ * развёрнуты, пробелы схлопнуты, пустые строки и строки-капчи выброшены.
+ * Сравнивается именно он — смена вёрстки, счётчиков в скриптах, CDN-адресов и
+ * цифр капчи изменением не считается, смена цены или даты в тексте — считается.
  */
 export function pageText(html: string): string {
   const text = decodeHtmlEntities(htmlToText(html))
@@ -40,7 +59,7 @@ export function pageText(html: string): string {
     .replace(/&#(\d{1,7});/g, (_, d: string) => safeChar(Number(d)));
   const lines = text.split('\n')
     .map((l) => l.replace(/[\s ]+/g, ' ').trim())
-    .filter((l) => l.length > 0);
+    .filter((l) => l.length > 0 && !isVolatileLine(l));
   return lines.join('\n').slice(0, TEXT_CAP);
 }
 
@@ -79,6 +98,18 @@ export function diffLines(prev: string, next: string): TextDiff {
   const added = [...new Set(b.filter((l) => !inA.has(l)))];
   const first = (xs: string[]) => [...xs.filter((l) => MATTERS.test(l)), ...xs.filter((l) => !MATTERS.test(l))];
   return { removed: first(removed), added: first(added) };
+}
+
+/**
+ * Разница, которую стоит показать человеку: строки-капчи выброшены из обоих
+ * текстов (прошлый снимок мог быть записан с ними), и если после этого не
+ * пропало и не появилось ни одной строки — изменения нет, null. Так молчат и
+ * смена одной капчи, и перестановка или повтор тех же строк: хэш у таких
+ * текстов разный, а сказано на странице то же.
+ */
+export function meaningfulDiff(prevText: string, nextText: string): TextDiff | null {
+  const d = diffLines(withoutVolatileLines(prevText), withoutVolatileLines(nextText));
+  return d.removed.length === 0 && d.added.length === 0 ? null : d;
 }
 
 /**

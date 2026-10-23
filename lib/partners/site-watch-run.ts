@@ -25,7 +25,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { notifyOwnerPartnerSites } from '@/lib/telegram/admin-notify';
 import type { TgSendOutcome } from '@/lib/notifications/tg-send';
 import {
-  WATCH_USER_AGENT, baselineMessage, diffLines, ownerMessage, pageText, robotsDisallows, textHash, watchEvent,
+  WATCH_USER_AGENT, baselineMessage, meaningfulDiff, ownerMessage, pageText, robotsDisallows, textHash, watchEvent,
   type PageOutcome, type PageReport, type Snapshot, type TextDiff, type WatchedPage,
 } from '@/lib/partners/site-watch';
 
@@ -168,9 +168,15 @@ export async function runSiteWatch(opts: { sleep?: (ms: number) => Promise<void>
     const h = await history(page.url);
     const read = await readPage(page.url, robotsCache);
     const hash = read.text !== null ? textHash(read.text) : null;
-    const event = watchEvent({ outcome: read.outcome, hash }, h.prev, h.prev2, h.okHash);
+    let event = watchEvent({ outcome: read.outcome, hash }, h.prev, h.prev2, h.okHash);
     let diff: TextDiff | undefined;
-    if (event.kind === 'changed' && read.text !== null) diff = diffLines(h.okText ?? '', read.text);
+    if (event.kind === 'changed' && read.text !== null) {
+      // Хэш другой, а строки те же (капча, перестановка, повтор) — «без
+      // перемен». Новый текст всё равно сохраняется ниже: он становится
+      // точкой сравнения, и завтра тот же шум не всплывёт снова.
+      const d = meaningfulDiff(h.okText ?? '', read.text);
+      if (d) diff = d; else event = { kind: 'same' };
+    }
     // Текст — при первом чтении и при смене; одинаковый не копится.
     const keepText = read.outcome === 'ok' && (h.okHash === null || hash !== h.okHash);
     await pool.query(
