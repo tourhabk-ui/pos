@@ -125,7 +125,12 @@ export async function POST(request: NextRequest) {
     `INSERT INTO audit_log (entity_type, entity_id, action, data, ip_address, created_at)
      VALUES ('user', $1, 'role_switch', $2, $3, NOW())`,
     [user.id, JSON.stringify({ from: user.role, to: target }), getClientIp(request.headers)],
-  ).catch(() => {});
+  ).catch((err: unknown) => {
+    // Переключение уже сделано — ответ не роняем, но «записи нет» обязано быть
+    // видно: по этим строкам перепись admin-owners-census судит, как у человека
+    // появился админ (§4.0, ревью 23.10).
+    console.error('[auth/switch-role] аудит переключения не записан, SQLSTATE', (err as { code?: string })?.code ?? 'нет SQLSTATE');
+  });
 
   const response = NextResponse.json({
     success: true,

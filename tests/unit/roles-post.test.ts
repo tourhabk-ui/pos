@@ -16,6 +16,9 @@ import type { NextRequest } from 'next/server';
 const queryMock = vi.fn();
 vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
+  // Смена роли в PATCH идёт транзакцией (lib/auth/admin-role-change): клиент
+  // транзакции — тот же мок, чтобы все запросы были видны одним списком.
+  transaction: (cb: (client: { query: typeof queryMock }) => unknown) => cb({ query: queryMock }),
 }));
 
 const requireAdminMock = vi.fn();
@@ -55,6 +58,12 @@ function mockDb(opts: { userExists?: boolean; partnerExists?: boolean } = { user
     }
     if (sql.includes('INSERT INTO partners')) return Promise.resolve({ rows: [{ id: 'p-new' }] });
     if (sql.includes('INSERT INTO audit_log')) return Promise.resolve({ rows: [] });
+    if (sql.includes('SELECT role, preferences FROM users')) {
+      return Promise.resolve({ rows: opts.userExists === false ? [] : [{ role: 'tourist', preferences: { roles: ['tourist'] } }] });
+    }
+    if (sql.includes('SELECT id, email, name, role, updated_at FROM users')) {
+      return Promise.resolve({ rows: [{ id: USER_ID, email: 'u@x.ru', name: 'Юзер', role: 'stay', updated_at: '2026-10-23' }] });
+    }
     if (sql.includes('SELECT id, role FROM users')) {
       return Promise.resolve({ rows: opts.userExists === false ? [] : [{ id: USER_ID, role: 'tourist' }] });
     }
@@ -133,6 +142,9 @@ describe('PATCH /api/admin/users/[id]', () => {
     const insertCall = queryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO partners'))!;
     expect(insertCall).toBeDefined();
     expect((insertCall[1] as unknown[])[2]).toBe('stay');
+    // Смена роли записана в журнал с автором (ревью 23.10).
+    const auditCall = queryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO audit_log'))!;
+    expect(JSON.parse((auditCall[1] as unknown[])[1] as string)).toMatchObject({ role: 'stay', from: 'tourist', changedBy: 'admin-1' });
   });
 
   it('смена имени без роли — партнёрский профиль не трогается', async () => {
