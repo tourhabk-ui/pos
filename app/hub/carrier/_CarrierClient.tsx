@@ -17,7 +17,7 @@
  * таблицы этот экран не ходит.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Truck, Inbox, Plus, Check, X, AlertCircle } from 'lucide-react';
+import { Bus, Inbox, Plus, Check, X, AlertCircle } from 'lucide-react';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface Vehicle { id: string; kind: string; title: string; seats: number | null; notes: string | null; is_active: boolean }
@@ -81,7 +81,7 @@ export default function CarrierClient() {
         <p className={`text-sm mb-4 ${flash.kind === 'ok' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{flash.text}</p>
       )}
 
-      <h2 className="ds-h2 mb-3 flex items-center gap-2"><Truck size={16} /> Парк</h2>
+      <h2 className="ds-h2 mb-3 flex items-center gap-2"><Bus size={16} /> Парк</h2>
       <Fleet vehicles={vehicles} onChanged={reloadAll} say={say} />
 
       {showRequests && (

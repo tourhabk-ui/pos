@@ -1,4 +1,6 @@
+import Image from 'next/image';
 import Link from 'next/link';
+import { photoSrc } from '@/lib/images/variant';
 import { formatRub } from '@/lib/transfers/charter-format';
 import { driverWord, offerFactsLine, priceOnScreen, rentalOrderPath, type RentalOffer } from '@/lib/rental/rental-format';
 
@@ -18,6 +20,10 @@ import { driverWord, offerFactsLine, priceOnScreen, rentalOrderPath, type Rental
  *
  * Цена строки — тем же голосом, что цена карточки тура: крупный жирный
  * tabular-nums цветом основного текста.
+ *
+ * Снимок машины (1319, владелец 23.10 «бери фото автомобилей») — слева от
+ * названия, вариантом 320 px; подпись автора — в title. Нет снимка — строка
+ * без него, место под картинку не резервируется.
  */
 export function RentalOfferList({ offers, orderSlug, compact = false }: {
   offers: ReadonlyArray<RentalOffer>;
@@ -30,7 +36,15 @@ export function RentalOfferList({ offers, orderSlug, compact = false }: {
         {offers.map((o) => (
           <div key={o.id} className="py-2.5 border-b border-[var(--border)]">
             <div className="flex items-start justify-between gap-3">
-              <dt className="min-w-0 text-sm text-[var(--text-primary)]">
+              {o.photo && (
+                <div
+                  className="relative w-20 h-14 shrink-0 rounded-lg overflow-hidden bg-[var(--bg-hover)]"
+                  title={o.photo.credit ? `Фото: ${o.photo.credit}` : undefined}
+                >
+                  <Image src={photoSrc(o.photo.url, 320)} alt={`${o.title}: фото машины`} fill sizes="80px" className="object-cover" />
+                </div>
+              )}
+              <dt className="min-w-0 flex-1 text-sm text-[var(--text-primary)]">
                 <span className="block font-semibold">{o.title}</span>
                 <span className="block text-xs text-[var(--text-secondary)] mt-0.5">{offerFactsLine(o)}</span>
                 <span className="block text-xs text-[var(--text-muted)] mt-0.5">{driverWord(o.driver)}</span>

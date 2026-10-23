@@ -4,7 +4,7 @@
  * и распознавание UUID (роутинг отличает slug от uuid).
  */
 import { describe, it, expect } from 'vitest';
-import { slugify, isUuid, SLUG_MAX_LEN } from '@/lib/text/slugify';
+import { cyrillicToLatin, slugify, isUuid, SLUG_MAX_LEN } from '@/lib/text/slugify';
 
 describe('slugify', () => {
   it('транслитерирует кириллицу и разделяет дефисами', () => {
@@ -55,5 +55,12 @@ describe('isUuid', () => {
     expect(isUuid('vulkan-gorelyj')).toBe(false);
     expect(isUuid('dolina-gejzerov-2')).toBe(false);
     expect(isUuid('')).toBe(false);
+  });
+});
+
+describe('cyrillicToLatin', () => {
+  it('та же карта, что у slug, без замены знаков: «Танк-300 Сузуки» → tank-300 suzuki', () => {
+    expect(cyrillicToLatin('Танк-300 Сузуки')).toBe('tank-300 suzuki');
+    expect(cyrillicToLatin('Tank 300')).toBe('tank 300');
   });
 });

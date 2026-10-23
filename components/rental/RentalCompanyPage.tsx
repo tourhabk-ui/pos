@@ -25,6 +25,7 @@ import { Footer } from '@/components/layout/Footer';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { RentalHero } from '@/components/rental/RentalHero';
+import { PartnerLogo } from '@/components/shared/PartnerLogo';
 import { RentalOfferList } from '@/components/rental/RentalOfferList';
 import { RentalRequestForm } from '@/components/rental/RentalRequestForm';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
@@ -66,6 +67,7 @@ export function RentalCompanyPage({ data, orderCar }: { data: RentalPageData; or
           <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
           <Link href="/car-rental" className={CRUMB}>Аренда автомобилей</Link>
         </nav>
+        <PartnerLogo src={c.logo} name={c.name} size="hero" className="mb-3" />
         <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-white mb-2">Прокатчик · машины без водителя</p>
         <h1 className="font-playfair text-white font-bold leading-tight" style={{ fontSize: 'clamp(30px,5vw,52px)' }}>{c.name}</h1>
         {c.shortDescription && (
@@ -141,7 +143,9 @@ export function RentalCompanyPage({ data, orderCar }: { data: RentalPageData; or
               <div className="ds-card p-5 space-y-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="w-14 h-14 rounded-full overflow-hidden shrink-0 relative bg-[var(--bg-hover)] flex items-center justify-center" aria-hidden>
-                    {c.photos[0] ? (
+                    {c.logo ? (
+                      <Image src={c.logo} alt="" fill className="object-contain" sizes="56px" />
+                    ) : c.photos[0] ? (
                       <Image src={photoSrc(c.photos[0].url, 320)} alt="" fill className="object-cover" sizes="56px" />
                     ) : (
                       <span className="font-playfair text-xl font-bold text-[var(--text-primary)]">{c.name.charAt(0).toUpperCase()}</span>

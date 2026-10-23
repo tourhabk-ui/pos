@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Bus, ClipboardList, MessageCircle, Phone, Send } from 'lucide-react';
 import { LazyClip } from '@/components/media/LazyClip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
+import { PartnerLogo } from '@/components/shared/PartnerLogo';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { photoSrc } from '@/lib/images/variant';
@@ -68,7 +69,10 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
           <p className="mb-2">
             <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold text-[var(--text-secondary)]" style={chipStyle}>Под заказ · целая машина</span>
           </p>
-          <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">{carrier.name}</h3>
+          <div className="flex items-center gap-3">
+            <PartnerLogo src={carrier.logo} name={carrier.name} size="card" />
+            <h3 className="font-playfair text-xl font-bold text-[var(--text-primary)]">{carrier.name}</h3>
+          </div>
           {fleet && (
             <p className="text-xs text-[var(--text-secondary)] mt-1 inline-flex items-center gap-1.5">
               <Bus className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden /> {fleet}

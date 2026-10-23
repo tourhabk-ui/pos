@@ -148,6 +148,20 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     expect(laguna.offers[0]).toMatchObject({ seats: null, depositRub: 30000, driver: 'optional', priceIsFrom: false, pricesSeenOn: null });
     expect(laguna.offers[1]).toMatchObject({ seats: 7, priceIsFrom: true, depositRub: null });
     expect(laguna.phone).toBe('+79001112233');
+    // Посев 1318 + 1319: у «Лагуны Прокат» обложка, галерея и снимок у каждой машины — с подписью.
+    const seeded = companies.find((c) => c.slug === 'laguna-prokat')!;
+    // Логотип — из 1320; у фикстур теста логотипа нет, и это честный null.
+    expect(seeded.logo).toBe('/images/laguna-prokat/laguna-logo.png');
+    expect(laguna.logo).toBeNull();
+    expect(seeded.photos).toHaveLength(9);
+    expect(seeded.photos[0]).toEqual({ url: '/images/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
+    expect(seeded.offers.map((o) => o.photo)).toEqual([
+      { url: '/images/laguna-prokat/laguna-suzuki-jimny.jpg', credit: 'Лагуна Прокат' },
+      { url: '/images/laguna-prokat/laguna-tank300-row.jpg', credit: 'Лагуна Прокат' },
+      { url: '/images/laguna-prokat/laguna-sever-truck.jpg', credit: 'Лагуна Прокат' },
+    ]);
+    // Строка без снимка — null, не пустая строка и не выдуманный путь.
+    expect(laguna.offers.map((o) => o.photo)).toEqual([null, null]);
   });
 
   it('loadRentalCompanyBySlug: условия, реквизиты, «также перевозчик»; скрытый и без живых строк — null', async () => {
@@ -208,7 +222,12 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     ]);
     expect(carrier!.rates.every((r) => r.note === 'цена «от» — точную назовёт перевозчик')).toBe(true);
     // Чего сайт не называл, того нет: юрлицо, лицензия, фото, отметка.
-    expect(carrier).toMatchObject({ legal: null, license: null, verified: false, photos: [], phone: '+79060835070' });
+    expect(carrier).toMatchObject({ legal: null, license: null, verified: false, phone: '+79060835070' });
+    // 1319: обложка и галерея партнёра общие для перевозчика и прокатчика — девять кадров с подписью.
+    expect(carrier.photos).toHaveLength(9);
+    expect(carrier.logo).toBe('/images/laguna-prokat/laguna-logo.png');
+    expect(carrier.photos[0]).toEqual({ url: '/images/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
+    expect(carrier.photos.map((ph) => ph.credit)).toEqual(Array(9).fill('Лагуна Прокат'));
 
     const rental = await loadRentalCompanyBySlug('laguna-prokat');
     expect(rental).not.toBeNull();

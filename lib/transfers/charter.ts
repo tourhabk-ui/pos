@@ -32,6 +32,7 @@ interface PartnerRow {
   slug: string;
   name: string;
   short_description: string | null;
+  logo_image: string | null;
   hero_image: string | null;
   gallery: unknown;
   video_url: string | null;
@@ -45,7 +46,7 @@ interface PartnerRow {
 }
 
 /** Колонки партнёра, которые разбирает toCharterCarrier; один список на оба загрузчика. */
-const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.legal_info, p.contacts, p.fleet_seat_classes`;
+const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.logo_image, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.legal_info, p.contacts, p.fleet_seat_classes`;
 
 interface PriceRow {
   partner_id: string;
@@ -240,6 +241,7 @@ function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRo
     slug: p.slug,
     name: p.name,
     shortDescription: p.short_description,
+    logo: p.logo_image ? p.logo_image : null,
     vehicles: vehicles
       .filter((v) => v.partner_id === p.id)
       .map((v) => ({ kind: v.kind, title: v.title, seats: v.seats })),

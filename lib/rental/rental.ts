@@ -31,13 +31,14 @@ interface PartnerRow {
   slug: string;
   name: string;
   short_description: string | null;
+  logo_image: string | null;
   hero_image: string | null;
   gallery: unknown;
   gallery_credits: unknown;
   contacts: unknown;
 }
 
-const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.gallery_credits, p.contacts`;
+const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.logo_image, p.hero_image, p.gallery, p.gallery_credits, p.contacts`;
 
 /** Живой прайс проката у партнёра — один предикат на витрину, страницу и сайтмап. */
 export const HAS_ACTIVE_RENTAL_OFFERS_SQL = (alias: string) =>
@@ -60,6 +61,7 @@ interface OfferRow {
   source_url: string | null;
   /** DATE отдаётся текстом (::text), чтобы не зависеть от часового пояса драйвера. */
   prices_seen_on: string | null;
+  photo_url: string | null;
 }
 
 interface TermsRow {
@@ -72,7 +74,7 @@ async function loadOffers(ids: string[]): Promise<OfferRow[]> {
   const { rows } = await query<OfferRow>(
     `SELECT o.id::text AS id, o.partner_id::text AS partner_id, o.title, o.body_kind, o.seats, o.transmission,
             o.drive, o.engine_hp, o.price_rub_per_day, o.price_is_from, o.deposit_rub, o.driver, o.conditions,
-            o.source_url, o.prices_seen_on::text AS prices_seen_on
+            o.source_url, o.prices_seen_on::text AS prices_seen_on, o.photo_url
        FROM car_rental_offers o
       WHERE o.is_active AND o.partner_id::text = ANY($1::text[])
       ORDER BY o.sort_order, o.price_rub_per_day, o.title`,
@@ -81,7 +83,9 @@ async function loadOffers(ids: string[]): Promise<OfferRow[]> {
   return rows;
 }
 
-function toOffer(r: OfferRow): RentalOffer {
+/** Подпись снимка машины — из той же карты, что у галереи партнёра: кадры одни и те же. */
+function toOffer(r: OfferRow, credits: unknown): RentalOffer {
+  const photo = typeof r.photo_url === 'string' && r.photo_url.length > 0 ? parsePhotos([r.photo_url], credits)[0] ?? null : null;
   return {
     id: r.id,
     title: r.title,
@@ -97,6 +101,7 @@ function toOffer(r: OfferRow): RentalOffer {
     conditions: r.conditions,
     sourceUrl: r.source_url,
     pricesSeenOn: r.prices_seen_on,
+    photo,
   };
 }
 
@@ -111,8 +116,9 @@ function toRentalCompany(p: PartnerRow, offers: OfferRow[]): RentalCompany {
     slug: p.slug,
     name: p.name,
     shortDescription: p.short_description,
+    logo: p.logo_image ? p.logo_image : null,
     photos: parsePhotos(photos, p.gallery_credits),
-    offers: offers.filter((o) => o.partner_id === p.id).map(toOffer),
+    offers: offers.filter((o) => o.partner_id === p.id).map((o) => toOffer(o, p.gallery_credits)),
     phone: contacts.phone,
     telegramHref: contacts.telegramHref,
   };

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, BedDouble, CalendarCheck, CalendarX, MessageSquareText, RotateCcw, Truck } from 'lucide-react';
+import { ArrowRight, BedDouble, Bus, CalendarCheck, CalendarX, MessageSquareText, RotateCcw } from 'lucide-react';
 import type { Plate } from '@/app/_home/data';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
@@ -145,7 +145,7 @@ function TransferRow({ t }: { t: TransferPlate }) {
             style={{ backgroundImage: `url('${photoSrc(t.imageUrl, 640)}')` }}
             aria-hidden
           />
-        ) : <Truck size={28} aria-hidden />}
+        ) : <Bus size={28} aria-hidden />}
       </span>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="line-clamp-1 text-[13px] text-[var(--text-secondary)]">

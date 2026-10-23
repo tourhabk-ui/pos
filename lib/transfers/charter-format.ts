@@ -184,6 +184,11 @@ export interface CharterCarrier {
   slug: string;
   name: string;
   shortDescription: string | null;
+  /**
+   * Логотип партнёра — partners.logo_image: путь под public/ (миграция партнёра)
+   * или полный адрес хранилища (загрузка из админки); null — логотипа нет.
+   */
+  logo: string | null;
   vehicles: CharterVehicle[];
   /**
    * Вместимости машин парка без привязки к машине (1292): [12, 24] — «есть на

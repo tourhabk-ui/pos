@@ -50,7 +50,7 @@ const RATES: CharterRate[] = [
 
 const LAGUNA: CarrierProfile = {
   partnerId: 'p-lp', slug: 'laguna-prokat', name: 'Лагуна Прокат',
-  shortDescription: 'Машины напрокат и микроавтобус с водителем', description: 'Прокат при СПА-отеле «Лагуна».', verified: false,
+  shortDescription: 'Машины напрокат и микроавтобус с водителем', description: 'Прокат при СПА-отеле «Лагуна».', verified: false, logo: null,
   vehicles: [
     { kind: 'minibus', title: 'Ford Transit', seats: 17 },
     { kind: 'vahtovka', title: 'Урал ГИРД (вахтовка)', seats: 25 },

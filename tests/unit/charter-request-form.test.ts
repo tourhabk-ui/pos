@@ -51,7 +51,7 @@ const line = (to: string, priceRub: number, note: string | null = null) => ({
 });
 
 const CARRIER: CarrierProfile = {
-  partnerId: 'p-1', slug: 'shatun', name: 'Шатун', shortDescription: null, description: null, verified: true,
+  partnerId: 'p-1', slug: 'shatun', name: 'Шатун', shortDescription: null, description: null, verified: true, logo: null,
   vehicles: [
     { kind: 'vahtovka', title: 'КамАЗ-1', seats: 26 },
     { kind: 'vahtovka', title: 'КамАЗ-2', seats: 26 },

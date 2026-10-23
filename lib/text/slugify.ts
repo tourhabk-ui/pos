@@ -16,6 +16,15 @@ const RU_MAP: Record<string, string> = {
   ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
 };
 
+/**
+ * Кириллица → латиница той же картой, что slug, в нижнем регистре. Нужна и вне
+ * slug: поиск проката сравнивает «танк» с «Tank-300» (23.10), и вторая карта
+ * разошлась бы с первой.
+ */
+export function cyrillicToLatin(input: string): string {
+  return input.toLowerCase().replace(/[а-яё]/g, (c) => RU_MAP[c] ?? c);
+}
+
 /** Максимальная длина slug (совпадает с VARCHAR-лимитом колонки в миграции). */
 export const SLUG_MAX_LEN = 80;
 
@@ -25,9 +34,7 @@ export const SLUG_MAX_LEN = 80;
  * слово). Пустой результат (например, из чистых символов) → ''.
  */
 export function slugify(input: string): string {
-  const translit = input
-    .toLowerCase()
-    .replace(/[а-яё]/g, (c) => RU_MAP[c] ?? c);
+  const translit = cyrillicToLatin(input);
 
   let s = translit
     .replace(/[^a-z0-9]+/g, '-')

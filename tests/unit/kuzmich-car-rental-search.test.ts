@@ -30,19 +30,19 @@ import type { RentalCompany, RentalOffer } from '@/lib/rental/rental-format';
 
 const JIMNY: RentalOffer = {
   id: 'o1', title: 'Suzuki Jimny', bodyKind: 'suv', seats: 4, transmission: 'automatic', drive: '4wd', engineHp: 105,
-  priceRubPerDay: 7000, priceIsFrom: false, depositRub: 15000, driver: 'self', conditions: null, sourceUrl: null, pricesSeenOn: '2026-10-23',
+  priceRubPerDay: 7000, priceIsFrom: false, depositRub: 15000, driver: 'self', conditions: null, sourceUrl: null, pricesSeenOn: '2026-10-23', photo: null,
 };
 const HIACE: RentalOffer = {
   id: 'o2', title: 'Toyota HiAce', bodyKind: 'minibus', seats: 12, transmission: 'automatic', drive: null, engineHp: null,
-  priceRubPerDay: 12000, priceIsFrom: false, depositRub: null, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null,
+  priceRubPerDay: 12000, priceIsFrom: false, depositRub: null, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null, photo: null,
 };
 const VAHTOVKA: RentalOffer = {
   id: 'o3', title: 'КамАЗ вахтовка', bodyKind: 'vahtovka', seats: null, transmission: 'manual', drive: '4wd', engineHp: null,
-  priceRubPerDay: 35000, priceIsFrom: true, depositRub: 50000, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null,
+  priceRubPerDay: 35000, priceIsFrom: true, depositRub: 50000, driver: 'optional', conditions: null, sourceUrl: null, pricesSeenOn: null, photo: null,
 };
 
 const LAGUNA: RentalCompany = {
-  partnerId: 'p1', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, photos: [],
+  partnerId: 'p1', slug: 'laguna-prokat', name: 'Лагуна Прокат', shortDescription: null, photos: [], logo: null,
   offers: [JIMNY, HIACE, VAHTOVKA],
   phone: '+79140000000', telegramHref: 'https://t.me/+79140000000',
 };
@@ -150,6 +150,43 @@ describe('rentalAnswer: фильтр query', () => {
     const out = rentalAnswer([LAGUNA, second], 'джип', BASE);
     expect(out).toContain('Лагуна Прокат. Suzuki Jimny');
     expect(out).toContain('Второй прокат. По запросу «джип» в прайсе ничего нет; весь прайс: Toyota HiAce');
+  });
+});
+
+describe('rentalAnswer: кириллица и латиница — одно слово (23.10: «танк» не находил Tank-300)', () => {
+  const TANK: RentalOffer = { ...JIMNY, id: 'o4', title: 'Tank-300', seats: 5, priceRubPerDay: 15000, depositRub: 30000 };
+  const SEVER: RentalOffer = { ...VAHTOVKA, id: 'o5', title: 'Sever Truck', bodyKind: 'offroad_truck' };
+  const CO: RentalCompany = { ...LAGUNA, offers: [JIMNY, HIACE, VAHTOVKA, TANK, SEVER] };
+
+  it('марка по-русски находит латинское название: «танк» — Tank-300, «сузуки» и «джимни» — Suzuki Jimny', () => {
+    const tank = rentalAnswer([CO], 'танк', BASE);
+    expect(tank).toContain('Tank-300');
+    expect(tank).not.toContain('Suzuki Jimny');
+    expect(tank).not.toMatch(/ничего нет/);
+    for (const q of ['сузуки', 'Джимни', 'сузуки джимни']) {
+      const out = rentalAnswer([CO], q, BASE);
+      expect(out, q).toContain('Suzuki Jimny');
+      expect(out, q).not.toContain('Tank-300');
+      expect(out, q).not.toMatch(/ничего нет/);
+    }
+  });
+
+  it('неправильные написания — по таблице: «тойота», «хайс» — Toyota HiAce; «север трак» — Sever Truck', () => {
+    for (const q of ['тойота', 'хайс', 'Тойота Хайс']) {
+      const out = rentalAnswer([CO], q, BASE);
+      expect(out, q).toContain('Toyota HiAce');
+      expect(out, q).not.toContain('Tank-300');
+    }
+    const sever = rentalAnswer([CO], 'север трак', BASE);
+    expect(sever).toContain('Sever Truck');
+    expect(sever).not.toContain('КамАЗ');
+  });
+
+  it('латиницей про русское название: «kamaz» находит «КамАЗ вахтовка»; чужое слово по-прежнему «ничего нет»', () => {
+    const out = rentalAnswer([CO], 'kamaz', BASE);
+    expect(out).toContain('КамАЗ вахтовка');
+    expect(out).not.toContain('Tank-300');
+    expect(rentalAnswer([CO], 'танк джимни', BASE)).toContain('в прайсе ничего нет');
   });
 });
 

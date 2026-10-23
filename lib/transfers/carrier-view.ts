@@ -9,6 +9,7 @@
  */
 
 import { carrierPagePath, fleetCapacity, rateLabelOf, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 export interface InstrumentCell {
   k: string;
@@ -85,7 +86,7 @@ function rateCellWords(rates: CharterCarrier['rates']): string {
  * нет: система их не знает (тот же урок, что InStock у тура, снятый 01.10).
  */
 export function carrierJsonLd(
-  c: Pick<CharterCarrier, 'slug' | 'name' | 'shortDescription' | 'destinations' | 'rates' | 'legal'>,
+  c: Pick<CharterCarrier, 'slug' | 'name' | 'shortDescription' | 'destinations' | 'rates' | 'legal' | 'logo'>,
   site: string,
 ): Record<string, unknown> {
   const url = `${site}${carrierPagePath(c.slug)}`;
@@ -117,6 +118,10 @@ export function carrierJsonLd(
     name: c.name,
     url,
     ...(c.shortDescription ? { description: c.shortDescription.slice(0, 500) } : {}),
+    // Логотип — полным адресом: разметка читается не только с нашего домена.
+    // Из админки в logo_image ложится полный адрес хранилища — его к сайту не
+    // клеят (то же правило, что у снимков тура: absolutePhotoUrls).
+    ...(c.logo ? { logo: absolutePhotoUrls([c.logo], site)[0] } : {}),
     ...(c.legal?.name ? { legalName: c.legal.name } : {}),
     ...(c.legal?.inn ? { taxID: c.legal.inn } : {}),
     ...(offers.length > 0 ? { makesOffer: offers } : {}),

@@ -35,11 +35,11 @@ import { rentalOrderPath, type RentalCompany, type RentalOffer } from '@/lib/ren
 const offer = (over: Partial<RentalOffer> = {}): RentalOffer => ({
   id: 'o-1', title: 'Toyota Land Cruiser Prado', bodyKind: 'suv', seats: 5, transmission: 'automatic', drive: '4wd',
   engineHp: null, priceRubPerDay: 7000, priceIsFrom: false, depositRub: 30000, driver: 'optional',
-  conditions: null, sourceUrl: null, pricesSeenOn: null, ...over,
+  conditions: null, sourceUrl: null, pricesSeenOn: null, photo: null, ...over,
 });
 
 const LAGUNA: RentalCompany = {
-  partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат', shortDescription: 'Внедорожники и микроавтобусы без водителя',
+  partnerId: 'p-1', slug: 'laguna', name: 'Лагуна Прокат', shortDescription: 'Внедорожники и микроавтобусы без водителя', logo: null,
   photos: [], phone: '+79001234567', telegramHref: null,
   offers: [
     offer(),

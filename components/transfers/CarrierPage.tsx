@@ -29,6 +29,7 @@ import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
+import { PartnerLogo } from '@/components/shared/PartnerLogo';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { CarrierReviews } from '@/components/transfers/CarrierReviews';
@@ -76,6 +77,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
           <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
           <Link href="/transfers" className={CRUMB}>Трансферы</Link>
         </nav>
+        <PartnerLogo src={c.logo} name={c.name} size="hero" className="mb-3" />
         <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-white mb-2">Перевозчик · под заказ</p>
         <h1 className="font-playfair text-white font-bold leading-tight" style={{ fontSize: 'clamp(30px,5vw,52px)' }}>{c.name}</h1>
         {c.shortDescription && (
@@ -187,7 +189,9 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
               <div className="ds-card p-5 space-y-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="w-14 h-14 rounded-full overflow-hidden shrink-0 relative bg-[var(--bg-hover)] flex items-center justify-center" aria-hidden>
-                    {c.photos[0] ? (
+                    {c.logo ? (
+                      <Image src={c.logo} alt="" fill className="object-contain" sizes="56px" />
+                    ) : c.photos[0] ? (
                       <Image src={photoSrc(c.photos[0].url, 320)} alt="" fill className="object-cover" sizes="56px" />
                     ) : (
                       <span className="font-playfair text-xl font-bold text-[var(--text-primary)]">{c.name.charAt(0).toUpperCase()}</span>

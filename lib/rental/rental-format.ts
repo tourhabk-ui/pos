@@ -45,6 +45,8 @@ export interface RentalOffer {
   sourceUrl: string | null;
   /** YYYY-MM-DD, когда цена сверена; null — не записано. */
   pricesSeenOn: string | null;
+  /** Снимок этой машины с подписью (1319); null — снимка нет, строка идёт без него. */
+  photo: CharterPhoto | null;
 }
 
 /** Прокатчик для витрины /car-rental: только то, что нужно карточке. */
@@ -53,6 +55,11 @@ export interface RentalCompany {
   slug: string;
   name: string;
   shortDescription: string | null;
+  /**
+   * Логотип партнёра — partners.logo_image: путь под public/ (миграция партнёра)
+   * или полный адрес хранилища (загрузка из админки); null — логотипа нет.
+   */
+  logo: string | null;
   /** Герой первым, затем галерея; без повторов. Может быть пусто. */
   photos: CharterPhoto[];
   /** Живые строки прайса в порядке прокатчика. */

@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Truck, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Bus, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 
@@ -474,7 +474,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               в раздел. Подпись короткая: в полширины на 360px длинная
               обрезалась бы; полная — в aria-label. */}
           <Link href="/transfers" className="qt qt-transfer" aria-label="Трансфер: машина целиком под заказ, цена за машину">
-            <span className="qt-ic"><Truck size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-ic"><Bus size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Трансфер</b><span>машина под заказ</span></span>
           </Link>
           {/* Жильё (владелец 10.10: «кнопку на главную жильё») — дверь в
@@ -518,7 +518,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                       <Link href={p.href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                         {!p.imageUrl && <span className="noimg" />}
                       </div></Link>
-                      <span className="kind"><Truck aria-hidden size={12} />Трансфер под заказ</span>
+                      <span className="kind"><Bus aria-hidden size={12} />Трансфер под заказ</span>
                       <div className="row"><b>{p.title}</b></div>
                       {p.destinations.length > 0 && <div className="cap">{p.destinations.join(' · ')}</div>}
                       <div className="facts">
