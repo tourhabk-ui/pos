@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, CloudSun, Truck, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 import { KuzmichGuideActions } from '@/components/homepage/KuzmichGuideActions';
 
@@ -484,6 +484,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <Link href="/accommodations" className="qt qt-stay" aria-label="Жильё на Камчатке: гостевые дома и базы, цены и заявка хозяину">
             <span className="qt-ic"><BedDouble size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Жильё</b><span>дома и базы</span></span>
+          </Link>
+          {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») —
+              дверь в /car-rental: машина без водителя, цена за сутки за машину
+              (схема 1317). Четыре двери одним рядом по четверти ширины: пятая
+              плитка новым рядом съела бы первый экран (владелец 25.09). */}
+          <Link href="/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя, цена за сутки за машину">
+            <span className="qt-ic"><Car size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Прокат</b><span>без водителя</span></span>
           </Link>
         </nav>
 
@@ -1177,10 +1185,11 @@ const CSS = `
 .v7 .hchip .hc-l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .hchip{background:color-mix(in srgb,var(--hc,var(--text-secondary)) 14%,var(--bg-card));border-color:color-mix(in srgb,var(--hc,var(--text-secondary)) 45%,transparent)}
 .v7 .hchip svg{color:var(--hc,var(--text-secondary))}
-.v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
-.v7 .qtools > .qt{grid-column:span 3}
-.v7 .qtools > .qt-tours,.v7 .qtools > .qt-transfer,.v7 .qtools > .qt-stay{grid-column:span 2;flex-direction:column;justify-content:center;text-align:center;gap:5px;padding:9px 6px}
-.v7 .qt-tours .qt-tx,.v7 .qt-transfer .qt-tx,.v7 .qt-stay .qt-tx{align-items:center;max-width:100%}
+/* Сетка 12 колонок: «Своя поездка» и «Радар» — по половине, четыре двери (Туры, Трансфер, Жильё, Прокат — 23.10) — по четверти ряда. */
+.v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px}
+.v7 .qtools > .qt{grid-column:span 6}
+.v7 .qtools > .qt-tours,.v7 .qtools > .qt-transfer,.v7 .qtools > .qt-stay,.v7 .qtools > .qt-rental{grid-column:span 3;flex-direction:column;justify-content:center;text-align:center;gap:5px;padding:9px 6px}
+.v7 .qt-tours .qt-tx,.v7 .qt-transfer .qt-tx,.v7 .qt-stay .qt-tx,.v7 .qt-rental .qt-tx{align-items:center;max-width:100%}
 .v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .qt:hover{background:var(--bg-hover)}
 .v7 .qt:active{transform:scale(.98)}
@@ -1205,13 +1214,14 @@ const CSS = `
 .v7 nav.qt-top{gap:6px;margin-bottom:18px}
 .v7 nav.qt-top > .qt{min-height:44px;gap:7px;padding:5px 10px 5px 6px;border-radius:14px;background:color-mix(in srgb,var(--bg-card) 78%,transparent);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
 .v7 nav.qt-top > .qt-radar{background:color-mix(in srgb,var(--success) 10%,color-mix(in srgb,var(--bg-card) 78%,transparent))}
-.v7 nav.qt-top > .qt-tours,.v7 nav.qt-top > .qt-transfer,.v7 nav.qt-top > .qt-stay{flex-direction:row;justify-content:center;min-height:44px;padding:4px 6px;gap:6px}
+/* Четыре двери в четверть ширины: значок над подписью — в строку «Трансфер» на 360px не помещается. */
+.v7 nav.qt-top > .qt-tours,.v7 nav.qt-top > .qt-transfer,.v7 nav.qt-top > .qt-stay,.v7 nav.qt-top > .qt-rental{flex-direction:column;justify-content:center;min-height:50px;padding:5px 2px 4px;gap:2px}
 .v7 nav.qt-top .qt-ic{width:28px;height:28px;border-radius:9px}
 .v7 nav.qt-top .qt-ic svg{width:16px;height:16px}
 .v7 nav.qt-top .qt-tx{gap:1px}
 .v7 nav.qt-top .qt-tx b{font-size:12.5px}
 .v7 nav.qt-top .qt-tx > span{font-size:11px}
-.v7 nav.qt-top .qt-plan .qt-tx > span,.v7 nav.qt-top .qt-tours .qt-tx > span,.v7 nav.qt-top .qt-transfer .qt-tx > span,.v7 nav.qt-top .qt-stay .qt-tx > span{display:none}
+.v7 nav.qt-top .qt-plan .qt-tx > span,.v7 nav.qt-top .qt-tours .qt-tx > span,.v7 nav.qt-top .qt-transfer .qt-tx > span,.v7 nav.qt-top .qt-stay .qt-tx > span,.v7 nav.qt-top .qt-rental .qt-tx > span{display:none}
 .v7 nav.qt-top .qt-badge{width:9px;height:9px}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */

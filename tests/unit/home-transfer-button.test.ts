@@ -32,8 +32,13 @@ describe('кнопка «Трансфер» на главной', () => {
     expect(nav.indexOf('qt-tours')).toBeLessThan(nav.indexOf('qt-transfer'));
     // С 10.10 (владелец: «кнопку на главную жильё») Туры, Трансфер и Жильё —
     // три двери по трети ширины; ни одна не растягивается на весь ряд.
-    expect(c).toMatch(/\.v7 \.qtools > \.qt-tours,\.v7 \.qtools > \.qt-transfer,\.v7 \.qtools > \.qt-stay\{grid-column:span 2/);
+    // С 23.10 (владелец: «и кнопку на главную прокат добавляем») дверей четыре —
+    // сетка 12 колонок, каждая дверь по четверти ряда; пятая плитка новым рядом
+    // съела бы первый экран.
+    expect(c).toMatch(/\.v7 \.qtools\{[^}]*grid-template-columns:repeat\(12,/);
+    expect(c).toMatch(/\.v7 \.qtools > \.qt-tours,\.v7 \.qtools > \.qt-transfer,\.v7 \.qtools > \.qt-stay,\.v7 \.qtools > \.qt-rental\{grid-column:span 3/);
     expect(nav.indexOf('qt-transfer')).toBeLessThan(nav.indexOf('qt-stay'));
+    expect(nav.indexOf('qt-stay')).toBeLessThan(nav.indexOf('qt-rental'));
     // подпись в полширины не длиннее, чем у соседей, — иначе обрежется на 360px
     for (const sub of [...nav.matchAll(/<b>[^<]+<\/b><span>([^<]+)<\/span>/g)].map((m) => m[1]!)) {
       expect(sub.length, sub).toBeLessThanOrEqual(16);
@@ -61,5 +66,29 @@ describe('кнопка «Трансфер» на главной', () => {
   it('у цели есть скелет перехода: страница читает прайс из базы и открывается не мгновенно', () => {
     expect(existsSync(join(process.cwd(), 'app/transfers/(list)/loading.tsx'))).toBe(true);
     expect(read('app/transfers/(list)/loading.tsx')).toMatch(/RouteLoading/);
+  });
+});
+
+describe('кнопка «Прокат» на главной (владелец 23.10: «и кнопку на главную прокат добавляем»)', () => {
+  it('телефон: четвёртая дверь в ряду после «Жилья», ведёт на /car-rental, подпись — без водителя', () => {
+    const c = read('app/_home/_HomeV8Client.tsx');
+    const nav = c.slice(c.indexOf('className="qtools qt-top"'), c.indexOf('</nav>', c.indexOf('className="qtools qt-top"')));
+    expect(nav).toMatch(/<Link href="\/car-rental" className="qt qt-rental" aria-label="Прокат автомобилей: машина без водителя[^"]*"/);
+    expect(nav).toMatch(/<b>Прокат<\/b><span>без водителя<\/span>/);
+    // Четыре двери в верхнем ряду стоят значком над подписью: в строку «Трансфер» в четверть 360px не помещается.
+    expect(c).toMatch(/\.v7 nav\.qt-top > \.qt-tours,\.v7 nav\.qt-top > \.qt-transfer,\.v7 nav\.qt-top > \.qt-stay,\.v7 nav\.qt-top > \.qt-rental\{flex-direction:column/);
+    expect(c).toMatch(/\.v7 nav\.qt-top \.qt-rental \.qt-tx > span\{display:none\}|\.qt-rental \.qt-tx > span\{display:none\}/);
+  });
+
+  it('десктоп: ссылка «Прокат» в ряду шапки «Можно поехать», ряд переносится', () => {
+    const d = read('components/homepage/desk/DeskTours.tsx');
+    expect(d).toMatch(/href="\/car-rental"[\s\S]{0,260}Прокат/);
+    expect(d.indexOf('href="/accommodations"')).toBeLessThan(d.indexOf('href="/car-rental"'));
+    expect(d.indexOf('href="/car-rental"')).toBeLessThan(d.indexOf('href="/catalog"'));
+  });
+
+  it('у цели есть скелет перехода: витрина проката читает прайс из базы', () => {
+    expect(existsSync(join(process.cwd(), 'app/car-rental/loading.tsx'))).toBe(true);
+    expect(read('app/car-rental/loading.tsx')).toMatch(/RouteLoading/);
   });
 });
