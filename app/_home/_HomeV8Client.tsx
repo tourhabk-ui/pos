@@ -1231,8 +1231,14 @@ const CSS = `
 /* Погода (23.10): длинная плитка во всю ширину сетки — сцена /weather в
    миниатюре (.wx-scene из globals.css: фон по небу и времени суток, звёзды
    ночью). Текст — только парами --wx-fg* на фоне сцены. Предупреждение —
-   кромкой --warning, как у стекла поля. Узко (<380px) — два дня, не три. */
-.v7 nav.qt-top > .hw{grid-column:1 / -1;display:flex;flex-direction:column;justify-content:center;gap:5px;min-height:72px;padding:8px 10px 9px 12px;border-radius:16px;box-shadow:none;text-decoration:none;transition:transform .13s ease}
+   кромкой --wx-warn, как у стекла поля. Узко (<380px) — два дня, не три.
+   Цвет текста — от сцены, а не от темы: «.v7 a{color:inherit}» сильнее
+   «.wx-scene», и до 23.10 ночью в светлой теме плитка писала тёмным по
+   тёмному (снимок владельца). Строки — над силуэтом гряды, не под ним.
+   Поля сцены /weather на телефоне (во всю ширину экрана) плитке не нужны. */
+.v7 nav.qt-top > .hw{grid-column:1 / -1;display:flex;flex-direction:column;justify-content:center;gap:5px;min-height:72px;margin:0;padding:8px 10px 9px 12px;border-radius:16px;box-shadow:none;text-decoration:none;transition:transform .13s ease}
+.v7 nav.qt-top > .hw.wx-scene{color:var(--wx-fg);border-width:1px}
+.v7 .hw-cap,.v7 .hw-row,.v7 .hw-warn{position:relative;z-index:1}
 .v7 nav.qt-top > .hw:active{transform:scale(.985)}
 .v7 nav.qt-top > .hw:focus-visible{outline:2px solid var(--ocean);outline-offset:2px}
 .v7 nav.qt-top > .hw-off{background:color-mix(in srgb,var(--bg-card) 78%,transparent);border:1px solid var(--border);color:var(--text-primary);-webkit-backdrop-filter:blur(12px) saturate(140%);backdrop-filter:blur(12px) saturate(140%)}
@@ -1250,10 +1256,10 @@ const CSS = `
 .v7 .hw-day b{font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
 .v7 .hw-go{flex:none;color:var(--wx-fg-2)}
 .v7 .hw-off .hw-go{color:var(--text-muted)}
-.v7 .hw-warn{display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px 5px 10px;border-radius:2px 10px 10px 2px;background:var(--wx-chip);box-shadow:inset 3px 0 0 var(--warning);font-size:11.5px;font-weight:600}
+.v7 .hw-warn{display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px 5px 10px;border-radius:2px 10px 10px 2px;background:var(--wx-chip);box-shadow:inset 3px 0 0 var(--wx-warn);font-size:11.5px;font-weight:600}
 .v7 .hw-warn-t{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .hw-warn-n{flex:none;font-weight:500;color:var(--wx-fg-2)}
-.v7 .hw-warn svg{flex:none;color:var(--warning)}
+.v7 .hw-warn svg{flex:none;color:var(--wx-warn)}
 .v7 .hw-hills{position:absolute;left:0;right:0;bottom:0;width:100%;height:46%;fill:var(--wx-silhouette);pointer-events:none;z-index:0}
 @media (max-width:379px){.v7 .hw-day:nth-child(3){display:none}.v7 .hw-temp{font-size:26px}}
 @media (prefers-reduced-motion:reduce){.v7 nav.qt-top > .hw{transition:none}.v7 nav.qt-top > .hw:active{transform:none}}
