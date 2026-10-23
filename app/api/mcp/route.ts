@@ -30,7 +30,7 @@ import { localizeToolArgs, langNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
@@ -64,6 +64,12 @@ import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { charterAcceptedText, pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
 import { buildCharterLead, checkCharterDates, saveCharterLead } from '@/lib/transfers/charter-request-service';
+import { loadRentalCompanies } from '@/lib/rental/rental';
+import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
+import { rentalDays } from '@/lib/rental/rental-request';
+import { buildRentalLead, checkRentalDates, saveRentalLead } from '@/lib/rental/rental-request-service';
+import { matchOffers } from '@/lib/kuzmich/car-rental-search';
+import { recordSourceEventQuietly } from '@/lib/crm/events';
 import { getPublicBaseUrl } from '@/lib/config';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
@@ -531,6 +537,123 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   return accepted + keyLine(await issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name));
 }
 
+// ── create_car_rental_request (владелец 23.10) ─────────────────
+// Заявка прокатчику на машину без водителя — тем же путём, что форма на
+// странице прокатчика (lib/rental/rental-request-service): даты, лид, повтор,
+// личная доставка прокатчику (в Telegram — без ПД, заглушкой). Машина — строка
+// прайса этого прокатчика: чужой текст машиной не становится. test: true —
+// пробная заявка: помечена, вне счёта спроса, прокатчику не уходит.
+const carRentalRequestArgsSchema = z.object({
+  company: z.string().trim().max(100, 'Название прокатчика длиннее 100 символов').optional(),
+  car: z.string().trim().min(1, 'Укажите машину из прайса search_car_rental').max(120, 'Название машины длиннее 120 символов'),
+  date_from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата начала аренды в формате YYYY-MM-DD'),
+  date_to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата возврата в формате YYYY-MM-DD'),
+  pickup: z.string().trim().max(200, 'Место получения длиннее 200 символов').optional(),
+  name: personName,
+  phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
+  comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
+  test: z.boolean().optional(),
+  consent: consentField,
+});
+
+const lc = (v: string) => v.toLowerCase().replace(/ё/g, 'е').trim();
+
+/** Прокатчик по названию или slug; один на платформе — он и есть. */
+function pickRentalCompany(companies: RentalCompany[], want: string | undefined):
+  | { kind: 'ok'; company: RentalCompany } | { kind: 'none' } | { kind: 'ambiguous' | 'unknown'; names: string[] } {
+  if (companies.length === 0) return { kind: 'none' };
+  const names = companies.map((c) => c.name);
+  if (!want) return companies.length === 1 ? { kind: 'ok', company: companies[0] } : { kind: 'ambiguous', names };
+  const w = lc(want);
+  const hit = companies.find((c) => lc(c.slug) === w || lc(c.name) === w)
+    ?? companies.find((c) => lc(c.name).includes(w) || w.includes(lc(c.name)));
+  return hit ? { kind: 'ok', company: hit } : { kind: 'unknown', names };
+}
+
+/** Машина прайса: точное название, без регистра, или единственная по словам. */
+function pickRentalOffer(offers: RentalOffer[], want: string): RentalOffer | RentalOffer[] {
+  const exact = offers.find((o) => o.title === want) ?? offers.find((o) => lc(o.title) === lc(want));
+  if (exact) return exact;
+  const hits = matchOffers(offers, want);
+  return hits.length === 1 ? hits[0] : hits;
+}
+
+async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
+  const parsed = carRentalRequestArgsSchema.safeParse(rawArgs);
+  if (!parsed.success) {
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
+  }
+  const { date_from: dateFrom, date_to: dateTo, name } = parsed.data;
+  const isTest = parsed.data.test === true;
+  const phone = normalizePhone(parsed.data.phone);
+  if (!phone) {
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
+  }
+
+  const dates = checkRentalDates(dateFrom, dateTo, kamchatkaToday());
+  if (!dates.ok) {
+    switch (dates.reason) {
+      case 'not_in_calendar':
+        throw new McpUserError('Такой даты нет в календаре — заявка не создана. Проверьте даты.', 'date_not_in_calendar');
+      case 'past':
+        return `Дата начала аренды ${dateFrom} уже прошла — заявка не создана. Назовите дату не раньше ${dates.today}.`;
+      case 'too_far':
+        return `Дата начала аренды ${dateFrom} слишком далека: прайс прокатчика годовой — заявка не создана. Назовите дату в пределах ${dates.maxDaysAhead} дней.`;
+      case 'bad_return':
+        return `Дата возврата ${dateTo} не может быть раньше начала или позже чем через ${dates.maxDays} дн. — заявка не создана. Уточните даты.`;
+    }
+  }
+
+  const companies = await loadRentalCompanies().catch((err: unknown) => {
+    console.error('[mcp/create_car_rental_request] прокатчики не прочитаны', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
+    throw new McpUserError('Не удалось проверить прокатчиков — заявка не создана, повторите позже.', 'rental_lookup_failed');
+  });
+  const pick = pickRentalCompany(companies, parsed.data.company);
+  if (pick.kind === 'none') return 'Прокатчиков с прайсом сейчас нет на платформе — заявка не создана. Можно оставить заявку на подбор через create_lead.';
+  if (pick.kind === 'ambiguous') return `Прокатчиков несколько (${pick.names.join(', ')}) — укажите, кому адресовать заявку (параметр company). Заявка не создана.`;
+  if (pick.kind !== 'ok') return `Прокатчик «${parsed.data.company}» не найден среди тех, у кого есть прайс (${pick.names.join(', ')}). Заявка не создана.`;
+  const company = pick.company;
+
+  const offer = pickRentalOffer(company.offers, parsed.data.car);
+  if (Array.isArray(offer)) {
+    const list = (offer.length > 1 ? offer : company.offers).map((o) => o.title).join(', ');
+    return `Машины «${parsed.data.car}» нет в прайсе «${company.name}» как одной строки — назовите одну из: ${list}. Заявка не создана.`;
+  }
+
+  const notes = [
+    isTest ? 'ТЕСТ — пробная заявка, прокатчику не передаётся' : '',
+    parsed.data.pickup ? `где забрать: ${parsed.data.pickup}` : '',
+    parsed.data.comment ?? '',
+  ].filter(Boolean).join('; ');
+  const facts = { company, offer, dateFrom, dateTo, days: rentalDays(dateFrom, dateTo), comment: notes || null };
+  const lead = buildRentalLead(facts, 'mcp');
+  if (parsed.data.pickup) lead.sourceData.pickup = parsed.data.pickup;
+  if (isTest) lead.sourceData.test = true;
+  refuseSilentLead(name, phone, lead.comment, lead.sourceData);
+
+  // Телефон уходит прокатчику — согласие текстом, который его и называет.
+  const pd_consent = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental');
+  const leadId = await saveRentalLead({
+    facts, lead, name, phone, consent: pd_consent,
+    // Пробная заявка — как свой визит владельца: с пометкой, вне счёта спроса, прокатчика не будит.
+    isSelf: ctx.self || isTest,
+    sourceUrl: 'mcp://vedar/car-rental',
+  });
+  if (!leadId) throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+
+  // Журнал CRM прокатчика: без имени и телефона.
+  await recordSourceEventQuietly({
+    kind: 'change', sourceKind: 'lead', sourceId: leadId, actorKind: 'mcp',
+    title: `${isTest ? 'Пробная заявка' : 'Заявка'} на прокат из MCP: ${offer.title}, ${dateFrom} — ${dateTo}`,
+    payload: { tool: CAR_RENTAL_REQUEST_TOOL.name, car: offer.title, date_from: dateFrom, date_to: dateTo, days: facts.days, test: isTest },
+  });
+
+  const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
+  const accepted = `${isTest ? 'Пробная заявка принята (помечена как тест, прокатчику не передаётся)' : 'Заявка принята'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}`
+    + `${offer.depositRub !== null ? `, залог ${offer.depositRub} руб` : ''}. Это заявка, не бронь: менеджер Ведара свяжется по телефону ${phone} и подтвердит с прокатчиком; оплаты через платформу нет, расчёт напрямую с прокатчиком. Страница прокатчика: ${getPublicBaseUrl()}${rentalPagePath(company.slug)}`;
+  return accepted + keyLine(await issueRequestKey({ leadId }, CAR_RENTAL_REQUEST_TOOL.name));
+}
+
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
@@ -704,6 +827,9 @@ async function executeTool(
   }
   if (name === REQUEST_CHARTER_TOOL.name) {
     return executeRequestCharter(rawArgs, ctx);
+  }
+  if (name === CAR_RENTAL_REQUEST_TOOL.name) {
+    return executeCarRentalRequest(rawArgs, ctx);
   }
   // Пара коннекторов ChatGPT (search/fetch, ступень 2): не из реестра
   // Кузьмича, свои схемы и свой исполнитель (lib/mcp/connector-tools).

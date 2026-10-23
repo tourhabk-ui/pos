@@ -34,7 +34,7 @@ export const A2A_AGENT_NOTE =
   '\n\nТы отвечаешь другому ИИ-агенту по протоколу A2A, а не человеку напрямую: без приветствий и обращений, '
   + 'коротко, фактами из инструментов, на языке вопроса (русский или английский). Если данных в инструментах нет — '
   + 'скажи это прямо. Заявки ты не оформляешь: агент делает их сам структурированным вызовом инструментов '
-  + 'create_lead, create_booking_request, create_stay_request или request_charter с согласием человека (consent: true).';
+  + 'create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request с согласием человека (consent: true).';
 
 export const A2A_CHAT_FAILED_TEXT =
   'Кузьмич сейчас не смог ответить — это сбой на стороне Ведара, а не «данных нет». '

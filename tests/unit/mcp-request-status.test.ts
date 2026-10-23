@@ -58,12 +58,12 @@ describe('объявление', () => {
     expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.state.enum).toEqual([...REQUEST_STATES]);
   });
 
-  it('описание называет все четыре пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
+  it('описание называет все пять пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
     for (const w of WRITE_TOOL_NAMES) {
       expect(GET_REQUEST_STATUS_TOOL.description).toContain(w);
       expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toContain(w);
     }
-    expect(WRITE_TOOL_NAMES.size).toBe(4);
+    expect(WRITE_TOOL_NAMES.size).toBe(5);
     expect(GET_REQUEST_STATUS_TOOL.description).toContain(`${REQUEST_KEY_TTL_DAYS} дней`);
     expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.kind.enum).toEqual([...REQUEST_KINDS]);
   });
@@ -391,12 +391,12 @@ describe('роут MCP', () => {
     expect(ROUTE).toMatch(/toolName === REQUEST_STATUS_TOOL_NAME \? parseStructured\(text\)/);
   });
 
-  it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка, жильё', () => {
+  it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка, жильё, прокат', () => {
     // Бронь и вахтовка: повтор и новая заявка выходят одним return, ключ
     // выдаётся в нём — на существующий лид или только что созданный.
     // Жильё (14.10) проверено вызовом роута: tests/unit/mcp-stay-request.test.ts.
     const issued = ROUTE.match(/keyLine\(await issueRequestKey\(/g) ?? [];
-    expect(issued.length).toBe(4);
+    expect(issued.length).toBe(5);
     expect(ROUTE).toContain("issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name)");
     expect(ROUTE).toContain('keyLine(statusKey)');
     expect(ROUTE).toContain("issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name)");

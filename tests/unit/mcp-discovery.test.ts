@@ -55,7 +55,7 @@ describe('наружу — только то, что можно', () => {
     // даты и цену подтверждает хозяин. Мгновенной брони и оплаты наружу
     // по-прежнему нет.
     const writers = PUBLIC_MCP_TOOLS.filter((t) => /create|book|order|pay|cancel|delete|update/i.test(t.name));
-    expect(writers.map((t) => t.name).sort()).toEqual(['create_booking_request', 'create_lead', 'create_stay_request']);
+    expect(writers.map((t) => t.name).sort()).toEqual(['create_booking_request', 'create_car_rental_request', 'create_lead', 'create_stay_request']);
   });
 
   it('мгновенной брони и оплаты наружу нет', () => {

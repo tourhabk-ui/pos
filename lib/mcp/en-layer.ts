@@ -19,7 +19,7 @@ export function llmsEnFile(base: string): string {
     '',
     '- Vedar is NOT Booking.com, Ostrovok, Viator or a tour operator: it does not sell or fulfil tours itself. Local operators fulfil services under their own names.',
     '- MCP here means Model Context Protocol (the AI-agent protocol), not a partner, channel or marketing programme.',
-    '- The only write operations are four human-confirmed requests: create_lead (tour selection), create_booking_request (specific tour and date), create_stay_request (accommodation), request_charter (whole-vehicle charter). No online payment.',
+    '- The only write operations are five human-confirmed requests: create_lead (tour selection), create_booking_request (specific tour and date), create_stay_request (accommodation), request_charter (whole-vehicle charter), create_car_rental_request (self-drive car rental). No online payment.',
     '- Platform content is primarily in Russian; tour names and data are in Russian. Tool arguments work best in Russian or English.',
     '',
     '## Key facts',

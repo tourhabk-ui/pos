@@ -104,6 +104,36 @@ export const STAY_REQUEST_TOOL = {
 } as const;
 
 /**
+ * create_car_rental_request — заявка прокатчику на машину без водителя
+ * (владелец 23.10 «пробная заявка на автомобиль … для наглядности»). Идёт
+ * тем же путём, что форма на странице прокатчика (lib/rental/
+ * rental-request-service): лид менеджеру Ведара и прокатчику, повтор за
+ * сутки — прежняя заявка. Это не бронь: занятость машин платформа не ведёт,
+ * оплаты нет. test: true — пробная заявка: помечена, вне счёта спроса,
+ * прокатчику не уходит.
+ */
+export const CAR_RENTAL_REQUEST_TOOL = {
+  name: 'create_car_rental_request',
+  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Имя и телефон — персональные данные, и они уходят прокатчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      company: { type: 'string', description: 'Прокатчик: название или slug из search_car_rental. Когда прокатчик один, можно не указывать' },
+      car: { type: 'string', description: 'Машина — как в прайсе search_car_rental, например «Suzuki Jimny»' },
+      date_from: { type: 'string', description: 'С какого числа нужна машина, YYYY-MM-DD' },
+      date_to: { type: 'string', description: 'По какое число включительно, YYYY-MM-DD' },
+      pickup: { type: 'string', description: 'Где забрать машину: аэропорт, город, адрес — если человек сказал' },
+      name: { type: 'string', description: 'Имя арендатора' },
+      phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
+      comment: { type: 'string', description: 'Пожелания: детское кресло, возврат в другом месте и т.п.' },
+      test: { type: 'boolean', description: 'true — пробная заявка (проверка, демонстрация): помечается, прокатчику не уходит' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
+    },
+    required: ['car', 'date_from', 'date_to', 'name', 'phone', 'consent'],
+  },
+} as const;
+
+/**
  * request_charter — заявка на ЦЕЛУЮ МАШИНУ у перевозчика «под заказ» — вахтовку
  * или микроавтобус (решение владельца 10.10: «трансфер работает не по маршруту,
  * а по заказам»; второй перевозчик с ценой за час и за день — 1292).
@@ -200,6 +230,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   create_booking_request: WRITE,
   create_stay_request:   WRITE,
   request_charter:       WRITE,
+  create_car_rental_request: WRITE,
 };
 
 /**
@@ -233,19 +264,20 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
   search_accommodations: { title: 'Stays',                 lead: 'Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
   search_transfers:      { title: 'Transfers',             lead: 'Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter.' },
-  search_car_rental:     { title: 'Car rental',            lead: 'Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers.' },
+  search_car_rental:     { title: 'Car rental',            lead: 'Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers. Request: create_car_rental_request.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter.' },
   create_booking_request: { title: 'Booking request',      lead: 'Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead.' },
   create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Needs consent: true, otherwise refused. For tours use create_booking_request.' },
+  create_car_rental_request: { title: 'Car rental request', lead: 'Self-drive car rental request to a Kamchatka rental company: car, dates, pickup; a manager confirms, not a booking, no payment. Needs consent: true; trial run: test: true.' },
   request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers.' },
   // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
   // зовёт только их); форма ответа — по документации OpenAI.
   search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
   fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
-  get_request_status:    { title: 'Request status',        lead: 'Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request or request_charter: operator answer, or who got a stay request. No personal data.' },
+  get_request_status:    { title: 'Request status',        lead: 'Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request, request_charter or create_car_rental_request: operator answer or who got it. No personal data.' },
 };
 
 /**
@@ -362,6 +394,18 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     comment: { lead: 'Wishes for the owner.' },
     consent: { lead: "Explicit consent to process name and phone and pass them to the stay's owner; ask the person and pass true, otherwise the request is not created.", example: true },
   },
+  create_car_rental_request: {
+    company: { lead: 'Rental company name or slug from search_car_rental; may be omitted when there is only one.', example: 'laguna-prokat' },
+    car: { lead: 'Car exactly as in the search_car_rental price list.', example: 'Suzuki Jimny' },
+    date_from: { lead: 'Rental start, YYYY-MM-DD.', example: '2026-11-10' },
+    date_to: { lead: 'Rental end, inclusive, YYYY-MM-DD.', example: '2026-11-14' },
+    pickup: { lead: 'Pickup place if the person named one: airport, town, address.', example: 'аэропорт Елизово' },
+    name: { lead: "Renter's name." },
+    phone: { lead: 'Contact phone, required.' },
+    comment: { lead: 'Wishes: child seat, drop-off elsewhere, etc.' },
+    test: { lead: 'true for a trial or demo request: marked as test and not sent to the rental company.', example: false },
+    consent: { lead: 'Explicit consent to process name and phone and pass them to the rental company; ask the person and pass true, otherwise the request is not created.', example: true },
+  },
   request_charter: {
     destination: { lead: 'Where to go: a word from the carrier price list or your own destination.', example: 'Горелый' },
     date_from: { lead: 'Departure date, YYYY-MM-DD.', example: '2027-07-15' },
@@ -438,6 +482,7 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   withAnnotations(BOOKING_REQUEST_TOOL),
   withAnnotations(STAY_REQUEST_TOOL),
   withAnnotations(REQUEST_CHARTER_TOOL),
+  withAnnotations(CAR_RENTAL_REQUEST_TOOL),
 ];
 
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
@@ -448,7 +493,7 @@ export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name)
  * this set from readOnlyHint would put plan editing under the strict
  * 5-per-hour request limit and label it as sending data to a human.
  */
-// Human-work writes: the four request tools. They send a traveller's
+// Human-work writes: the five request tools. They send a traveller's
 // name/phone to the platform/operator and therefore need explicit consent
 // and the strict write rate limit. edit_trip_plan is a write by annotation
 // (it persists an anonymous draft) but is deliberately not in this set:
@@ -458,6 +503,7 @@ export const WRITE_TOOL_NAMES = new Set([
   'create_booking_request',
   'create_stay_request',
   'request_charter',
+  'create_car_rental_request',
 ]);
 
 /**
@@ -472,6 +518,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.6.0',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записи четыре: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter) и заявка владельцу жилья на даты (create_stay_request) — все подтверждает человек.',
+  version: '2.7.0',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
 } as const;

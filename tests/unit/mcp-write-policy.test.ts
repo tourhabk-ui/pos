@@ -129,7 +129,7 @@ describe('согласие спрашивается и объясняется', 
 
   it('все заявочные инструменты ТРЕБУЮТ consent в схеме', () => {
     const required = [...TOOLS.matchAll(/required:\s*\[([^\]]*)\]/g)].map((m) => m[1]);
-    expect(required.length).toBe(4);
+    expect(required.length).toBe(5);
     for (const r of required) expect(r).toContain("'consent'");
   });
 });
