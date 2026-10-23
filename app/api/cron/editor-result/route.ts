@@ -18,14 +18,19 @@
  *  - происхождение пишется рядом с текстом (`description_provenance`), и в нём
  *    видно, что писал раннер, а не прод: `editor-ai-runner`. Без этого
  *    машинный текст неотличим от текста из источника, а два пути — друг от
- *    друга.
+ *    друга;
+ *  - «не описал» тоже записывается (миграция 1322): id, на которые модель
+ *    ответила «НЕТ» (`declined`), и тексты, отвергнутые проверкой правды,
+ *    уходят на отдых, иначе завтра очередь отдала бы их снова.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { findRoutesNeedingDescription, buildFacts, MIN_GENERATION_LENGTH, type RouteRow } from '@/lib/agents/editor';
+import {
+  findRoutesNeedingDescription, buildFacts, recordEditorNoWrite, MIN_GENERATION_LENGTH, type RouteRow,
+} from '@/lib/agents/editor';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
 
@@ -52,6 +57,8 @@ const BodySchema = z.object({
     id: z.string().uuid(),
     description: z.string().min(1).max(5000),
   })).max(20),
+  /** id, на которые модель ответила «НЕТ»: из фактов нечего написать (23.10). */
+  declined: z.array(z.string().uuid()).max(20).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -67,15 +74,19 @@ export async function POST(req: NextRequest) {
     );
   }
   const { model, items } = parsed.data;
+  const declinedIds = [...new Set(parsed.data.declined ?? [])];
 
   // Очередь — она же список разрешённых к записи. Раннер получил её из
   // editor-job; здесь проверяем заново, потому что между запросом и ответом
-  // прошло время, а доверять присланному id нельзя.
+  // прошло время, а доверять присланному id нельзя. Проверяются ровно
+  // присланные id: случайная пачка из очереди длиннее пачки их бы не
+  // содержала, и описанное раннером отвергалось как «нет в очереди».
   const started_at = new Date();
+  const runnerBy = `editor-ai-runner:${model}`.slice(0, 120);
 
   let queue: RouteRow[];
   try {
-    queue = await findRoutesNeedingDescription();
+    queue = await findRoutesNeedingDescription([...new Set([...items.map((i) => i.id), ...declinedIds])]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
     console.error('[editor-result] очередь не прочиталась:', msg);
@@ -85,6 +96,25 @@ export async function POST(req: NextRequest) {
 
   let written = 0;
   const rejected: Array<{ id: string; reason: string }> = [];
+  let noWriteNoteFailed = 0;
+  const noteNoWrite = async (route: RouteRow, outcome: 'declined' | 'truth_rejected', reason: string) => {
+    try {
+      await recordEditorNoWrite(route, outcome, reason, runnerBy, buildFacts(route).length);
+    } catch (err) {
+      // Без отметки запись вернётся завтра — не беда, но и не молча.
+      noWriteNoteFailed += 1;
+      console.error('[editor-result] отметка «не описал» не записана:', route.id,
+        err instanceof Error ? err.message : 'unknown');
+    }
+  };
+
+  let declinedNoted = 0;
+  for (const id of declinedIds) {
+    const route = byId.get(id);
+    if (!route) continue; // уже не в очереди — отдыхать нечему
+    await noteNoWrite(route, 'declined', 'модель: из фактов нечего написать');
+    declinedNoted += 1;
+  }
 
   for (const item of items) {
     const route = byId.get(item.id);
@@ -104,6 +134,7 @@ export async function POST(req: NextRequest) {
     });
     if (!verdict.ok) {
       rejected.push({ id: item.id, reason: `проверка правды: ${verdict.reasons.join('; ')}` });
+      await noteNoWrite(route, 'truth_rejected', verdict.reasons.join('; '));
       continue;
     }
 
@@ -125,7 +156,7 @@ export async function POST(req: NextRequest) {
         `INSERT INTO description_provenance
            (entity_id, entity_kind, entity_title, written_by, facts_given, facts_count, chars, previous_chars)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
-        [route.id, route.kind ?? 'unknown', route.title, `editor-ai-runner:${model}`.slice(0, 120),
+        [route.id, route.kind ?? 'unknown', route.title, runnerBy,
          JSON.stringify(facts), facts.length, text.length, route.description?.length ?? null],
       );
     } catch (err) {
@@ -159,7 +190,10 @@ export async function POST(req: NextRequest) {
     error_msg: rejected.length > 0
       ? `отвергнуто ${rejected.length}: ${rejected.slice(0, 3).map((r) => r.reason).join('; ')}`
       : undefined,
-    metadata: { model, queue_len: queue.length, rejected: rejected.slice(0, 10) },
+    metadata: {
+      model, declined: declinedIds.length, declined_noted: declinedNoted,
+      no_write_note_failed: noWriteNoteFailed, rejected: rejected.slice(0, 10),
+    },
   });
 
   return NextResponse.json({
@@ -168,6 +202,7 @@ export async function POST(req: NextRequest) {
     // Отвергнутое называется поимённо: «принято 3 из 5» без причин — это
     // потеря работы модели без следа.
     rejected,
-    queue_left: Math.max(0, queue.length - written),
+    declined: declinedIds.length,
+    declined_noted: declinedNoted,
   });
 }

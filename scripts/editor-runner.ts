@@ -122,16 +122,18 @@ async function main(): Promise<void> {
 
   const written = items.filter((i) => i.description).length;
   const declined = items.filter((i) => i.declined).length;
-  // Ноль описаний при честных «НЕТ» — исход «фактов мало», а не поломка; ноль
-  // описаний без единого ответа модели — отказ (§4.0).
-  const failed = written === 0 && declined === 0;
+  const errored = items.filter((i) => !i.description && !i.declined).length;
+  // Ноль описаний при одних честных «НЕТ» — исход «фактов мало», а не поломка.
+  // Ноль описаний, где хоть одна запись упала на провайдере или разборе, —
+  // отказ (§4.0): одно «НЕТ» не прячет одиннадцать ответов 429.
+  const failed = written === 0 && (declined === 0 || errored > 0);
   writeFileSync(outPath, JSON.stringify({
-    model, asked, written, declined, queue_total: job.queue_total ?? null,
+    model, asked, written, declined, errored, queue_total: job.queue_total ?? null,
     error: failed ? (firstError ?? 'ни одного описания не получено') : null,
     items,
   }, null, 2));
 
-  console.log(`модель: ${model}; запрошено: ${asked}; описаний получено: ${written}; «нечего написать»: ${declined}`);
+  console.log(`модель: ${model}; запрошено: ${asked}; описаний получено: ${written}; «нечего написать»: ${declined}; сбоев: ${errored}`);
   if (routes.length > 0 && failed) {
     console.error(`Ни одного описания. Первая причина: ${firstError ?? 'не записана'}`);
     process.exit(1);

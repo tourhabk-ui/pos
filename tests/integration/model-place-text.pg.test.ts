@@ -42,7 +42,7 @@ withPg('модель не пишет тексты мест (слово влад�
     pool = new Pool({ connectionString: dbUrl, max: 2 });
     process.env.DATABASE_URL = dbUrl;
     process.env.DATABASE_SSL = 'false';
-    await pool.query('TRUNCATE places, kamchatka_routes, description_provenance CASCADE');
+    await pool.query('TRUNCATE places, kamchatka_routes, description_provenance, editor_no_write CASCADE');
   }, 120_000);
 
   afterAll(async () => {
@@ -157,6 +157,13 @@ withPg('модель не пишет тексты мест (слово влад�
       expect(rows.find((r) => r.id === ids.ownProd)?.old).toBe(true);
     });
 
+    it('отбор по присланным id — только из очереди и только эти', async () => {
+      const { findRoutesNeedingDescription } = await import('@/lib/agents/editor');
+      const got = (await findRoutesNeedingDescription([ids.ownProd, ids.human])).map((r) => String(r.id));
+      expect(got).toEqual([ids.ownProd]);
+      expect(await findRoutesNeedingDescription([])).toEqual([]);
+    });
+
     it('берёт только собственный отдохнувший текст модели', async () => {
       const { findRoutesNeedingDescription } = await import('@/lib/agents/editor');
       const queue = new Set((await findRoutesNeedingDescription()).map((r) => String(r.id)));
@@ -165,6 +172,92 @@ withPg('модель не пишет тексты мест (слово влад�
       for (const key of ['noJournal', 'edited', 'human', 'owner', 'fresh']) {
         expect({ key, inQueue: queue.has(ids[key]) }).toEqual({ key, inQueue: false });
       }
+    });
+  });
+
+  // «НЕТ» модели и отказ проверки правды строку не меняют; без отметки она
+  // возвращалась бы на каждом прогоне (ревью 23.10, миграция 1322).
+  describe('очередь Editor: не описал — отдыхает', () => {
+    const rest: Record<string, string> = {};
+
+    async function emptyRoute(title: string): Promise<string> {
+      const r = await pool.query<{ ark: string }>(
+        `INSERT INTO kamchatka_routes (category, title, is_visible, description)
+         VALUES ('trekking', $1::text, TRUE, NULL)
+         RETURNING COALESCE(ark_id, id)::text AS ark`,
+        [title],
+      );
+      return r.rows[0].ark;
+    }
+
+    beforeAll(async () => {
+      rest.declinedNow = await emptyRoute('Отказ сегодня');
+      rest.declinedOld = await emptyRoute('Отказ неделю назад');
+      rest.rejectedByRunner = await emptyRoute('Раннер: выдумка');
+      rest.declinedByRunner = await emptyRoute('Раннер: НЕТ');
+      const { recordEditorNoWrite } = await import('@/lib/agents/editor');
+      await recordEditorNoWrite({ id: rest.declinedNow, kind: 'route' }, 'declined', 'модель: нечего написать', 'editor-ai', 2);
+      await recordEditorNoWrite({ id: rest.declinedOld, kind: 'route' }, 'declined', 'модель: нечего написать', 'editor-ai', 2);
+      await pool.query(
+        `UPDATE editor_no_write SET attempted_at = NOW() - INTERVAL '8 days' WHERE entity_id = $1::uuid`,
+        [rest.declinedOld],
+      );
+    });
+
+    it('свежий отказ не берётся, отказ старше недели — берётся снова', async () => {
+      const { findRoutesNeedingDescription } = await import('@/lib/agents/editor');
+      const queue = new Set((await findRoutesNeedingDescription()).map((r) => String(r.id)));
+      expect(queue.has(rest.declinedNow)).toBe(false);
+      expect(queue.has(rest.declinedOld)).toBe(true);
+    });
+
+    it('повторная отметка обновляет одну строку, а не копит историю', async () => {
+      const { recordEditorNoWrite } = await import('@/lib/agents/editor');
+      await recordEditorNoWrite({ id: rest.declinedNow, kind: 'route' }, 'truth_rejected', 'слова не из источника', 'editor-ai', 3);
+      const { rows } = await pool.query<{ n: string; outcome: string }>(
+        `SELECT COUNT(*)::text AS n, MAX(outcome) AS outcome FROM editor_no_write WHERE entity_id = $1::uuid`,
+        [rest.declinedNow],
+      );
+      expect(rows[0]).toEqual({ n: '1', outcome: 'truth_rejected' });
+    });
+
+    it('приёмник раннера ставит на отдых «НЕТ» и текст, отвергнутый проверкой правды', async () => {
+      process.env.CRON_SECRET = 'test-cron-secret';
+      const { NextRequest } = await import('next/server');
+      const { POST } = await import('@/app/api/cron/editor-result/route');
+      const res = await POST(new NextRequest('http://localhost/api/cron/editor-result', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test-cron-secret', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'test-model',
+          items: [{
+            id: rest.rejectedByRunner,
+            description: 'Тропа идёт через березняк, с перевала открываются красивые виды на долину и озёра.',
+          }],
+          declined: [rest.declinedByRunner],
+        }),
+      }));
+      expect(res.status).toBe(200);
+      const body = await res.json() as { written: number; rejected: Array<{ id: string; reason: string }>; declined_noted: number };
+      expect(body.written).toBe(0);
+      expect(body.rejected.map((r) => r.id)).toEqual([rest.rejectedByRunner]);
+      expect(body.rejected[0].reason).toContain('проверка правды');
+      expect(body.declined_noted).toBe(1);
+
+      const { rows } = await pool.query<{ entity_id: string; outcome: string; attempted_by: string }>(
+        `SELECT entity_id::text, outcome, attempted_by FROM editor_no_write
+          WHERE entity_id = ANY($1::uuid[]) ORDER BY outcome`,
+        [[rest.rejectedByRunner, rest.declinedByRunner]],
+      );
+      expect(rows).toEqual([
+        { entity_id: rest.declinedByRunner, outcome: 'declined', attempted_by: 'editor-ai-runner:test-model' },
+        { entity_id: rest.rejectedByRunner, outcome: 'truth_rejected', attempted_by: 'editor-ai-runner:test-model' },
+      ]);
+
+      const { findRoutesNeedingDescription } = await import('@/lib/agents/editor');
+      const queue = new Set((await findRoutesNeedingDescription()).map((r) => String(r.id)));
+      expect(queue.has(rest.rejectedByRunner)).toBe(false);
+      expect(queue.has(rest.declinedByRunner)).toBe(false);
     });
   });
 

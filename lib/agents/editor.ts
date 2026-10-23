@@ -201,7 +201,7 @@ export function buildFacts(route: RouteRow): string[] {
   put('рельеф', route.terrain_type);
   put('опасности точки', route.hazard_types?.map(hazardLabel) ?? null);
   put('сложность', route.difficulty_level ? (routeDifficultyLabel(route.difficulty_level) ?? route.difficulty_level) : null);
-  put('до ближайшей медпомощи, км', route.nearest_medical_km);
+  put('до ближайшей медицинской помощи, км', route.nearest_medical_km);
   put('дистанция маршрута, км', route.distance_km);
   put('набор высоты, м', route.elevation_gain_m);
   put('длительность, ч', route.duration_hours);
@@ -278,10 +278,46 @@ export function editorQueueWhereSql(alias: string, minParam: string, restParam: 
            -- (lib/places/owner-decided.ts, случай Микижи 27.09).
            AND ${notOwnerDecidedSql(`${alias}.id`)}))
       AND ${notWithdrawnSql(`${alias}.id`)}
-      AND ${editorKindSql(alias)}`;
+      AND ${editorKindSql(alias)}
+      -- Не описал — отдыхает (миграция 1322): «НЕТ» модели и отказ проверки
+      -- правды строку не меняют, и без отметки она возвращалась бы каждую ночь.
+      AND NOT EXISTS (SELECT 1 FROM editor_no_write enw
+                       WHERE enw.entity_id = ${alias}.id
+                         AND enw.attempted_at > NOW() - make_interval(days => ${restParam}))`;
 }
 
-export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
+/** Почему Editor не записал описание: исход, а не поломка. */
+export type EditorNoWriteOutcome = 'declined' | 'truth_rejected';
+
+/**
+ * Отметка «не описал» — запись уходит на отдых REATTEMPT_REST_DAYS (1322).
+ * Отказ отметки не отменяет прогон, но и не молчит: без неё строка просто
+ * вернётся завтра, и вызывающий узнаёт об этом из исключения.
+ */
+export async function recordEditorNoWrite(
+  route: Pick<RouteRow, 'id' | 'kind'>,
+  outcome: EditorNoWriteOutcome,
+  reason: string,
+  attemptedBy: string,
+  factsCount: number,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO editor_no_write (entity_id, entity_kind, outcome, reason, attempted_by, facts_count, attempted_at)
+     VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::int, NOW())
+     ON CONFLICT (entity_id) DO UPDATE
+       SET entity_kind = EXCLUDED.entity_kind, outcome = EXCLUDED.outcome, reason = EXCLUDED.reason,
+           attempted_by = EXCLUDED.attempted_by, facts_count = EXCLUDED.facts_count,
+           attempted_at = EXCLUDED.attempted_at`,
+    [route.id, route.kind ?? 'unknown', outcome, reason.slice(0, 500), attemptedBy.slice(0, 120), factsCount],
+  );
+}
+
+/**
+ * Очередь Editor. `onlyIds` — проверка «эти записи сейчас в очереди» для
+ * приёмника раннера: случайная выборка из BATCH_SIZE при очереди длиннее
+ * пачки не содержала бы записей, которые раннер только что описал.
+ */
+export async function findRoutesNeedingDescription(onlyIds?: string[]): Promise<RouteRow[]> {
   // NULL-описания — всегда в приоритете (реальные пробелы важнее полировки).
   // Короткие — только свои, и только если их давно (>7 дней) никто не трогал
   // (см. REATTEMPT_REST_DAYS и editorQueueWhereSql).
@@ -310,9 +346,10 @@ export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
     LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
     LEFT JOIN kamchatka_routes        kr  ON kr.ark_id = ark.id
     WHERE ${editorQueueWhereSql('ark', '$1', '$3')}
+      AND ($4::uuid[] IS NULL OR ark.id = ANY($4::uuid[]))
     ORDER BY (ark.description IS NULL) DESC, RANDOM()
     LIMIT $2
-  `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE, REATTEMPT_REST_DAYS]);
+  `, [MIN_DESCRIPTION_LENGTH, onlyIds ? Math.max(onlyIds.length, 1) : BATCH_SIZE, REATTEMPT_REST_DAYS, onlyIds ?? null]);
   return rows;
 }
 
@@ -409,7 +446,21 @@ const SYSTEM_STRICT = `Ты редактор справочника Ведара
 /** Ответ «нечего написать» — разрешённый исход, а не провал. */
 export const EDITOR_DECLINE_WORD = 'НЕТ';
 
-/** Температура строгого пересказа: варианты подачи здесь не нужны. */
+/**
+ * Первое слово ответа — «нет» (в любом регистре, после разметки, кавычек и
+ * «Ответ:»). Описание маршрута с «нет» не начинается: так начинается рассказ
+ * о том, чего в данных нет.
+ */
+export function isDeclineAnswer(text: string): boolean {
+  const head = text.replace(/^[\s*_`«»"'„“”(\[]+/u, '').replace(/^ответ\s*[:—–-]?\s*[*_`«»"']*/iu, '');
+  return new RegExp(`^${EDITOR_DECLINE_WORD}(?![а-яёa-z])`, 'iu').test(head);
+}
+
+/**
+ * Температура строгого пересказа: варианты подачи здесь не нужны. Доходит до
+ * Qwen, xAI и OpenRouter на раннере; DeepSeek в режиме размышления её не
+ * применяет (так устроен его API), общий водопад в хвосте пути — тоже.
+ */
 export const EDITOR_TEMPERATURE = 0.2;
 
 export function buildDescriptionMessages(route: RouteRow, variant: EditorPromptVariant = 'full'): ChatMessage[] {
@@ -448,8 +499,11 @@ export function pickDescriptionFromAnswer(raw: string | null): GenerationOutcome
   }
 
   // «НЕТ» — модель сказала, что из фактов нечего написать. Это исход
-  // «источника мало», а не провал генерации (§4.0, 23.10).
-  if (text.replace(/[.!\s«»"]/g, '').toUpperCase() === EDITOR_DECLINE_WORD) {
+  // «источника мало», а не провал генерации (§4.0, 23.10). Отказом считается
+  // ответ, ПЕРВОЕ слово которого «нет»: модели дописывают пояснение («НЕТ. Из
+  // записанного известно только название»), и такое пояснение — рассказ о
+  // данных, а не описание маршрута; записанное, оно стало бы текстом карточки.
+  if (isDeclineAnswer(text)) {
     return { text: null, failReason: 'модель: из фактов нечего написать', noSource: true };
   }
 
@@ -529,6 +583,14 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   const improvedTitles: string[] = [];
   const improvedIds: string[] = [];
 
+  const noteNoWrite = async (route: RouteRow, outcome: EditorNoWriteOutcome, reason: string) => {
+    try {
+      await recordEditorNoWrite(route, outcome, reason, 'editor-ai', buildFacts(route).length);
+    } catch (err) {
+      addErrorSample(`отметка «не описал» «${route.title}»: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   // Ступень 4 — самокоррекция: перед регенерацией система откатывает (NULL)
   // описания-мусор из СВОИХ прошлых прогонов (сырой VS-JSON, отговорки модели,
   // заглушки). NULL сразу попадает в findRoutesNeedingDescription ниже и
@@ -573,8 +635,11 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     const { text: newDescription, failReason, noSource: lacksSource } =
       await generateRouteDescription(route);
     if (lacksSource) {
-      // Не ошибка: писать не из чего. В модель запись не ходила.
+      // Не ошибка: писать не из чего — фактов нет или модель ответила «НЕТ».
+      // Запись уходит на отдых (1322): иначе она вернулась бы завтра с тем же
+      // ответом и тем же вызовом модели.
       noSource++;
+      await noteNoWrite(route, 'declined', failReason ?? 'нечего написать');
       continue;
     }
     if (!newDescription || newDescription.length < MIN_GENERATION_LENGTH) {
@@ -593,6 +658,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     if (!verdict.ok) {
       truthRejected++;
       addErrorSample(`не записано «${route.title}»: ${verdict.reasons.join('; ')}`);
+      await noteNoWrite(route, 'truth_rejected', verdict.reasons.join('; '));
       continue;
     }
     try {
@@ -627,7 +693,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     }
   }
 
-  if (improved > 0 || sanitized > 0 || truthRejected > 0) {
+  if (improved > 0 || sanitized > 0 || truthRejected > 0 || noSource > 0) {
     // Два числа вместо одного: queue — сколько Editor реально возьмёт на
     // следующих прогонах (NULL + короткие «отдохнувшие»); total_short — общий
     // разрыв качества, который плато на честно-неизвестных маршрутах (их
@@ -656,6 +722,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       `(обработано: ${processed}, ошибок: ${errors})\n` +
       (sanitized > 0 ? `Санитар откатил мусор: ${sanitized} описаний → чистая регенерация\n` : '') +
       (truthRejected > 0 ? `Не записано по проверке правды: ${truthRejected}\n` : '') +
+      (noSource > 0 ? `Из фактов нечего написать («НЕТ»): ${noSource} — повтор через ${REATTEMPT_REST_DAYS} дн.\n` : '') +
       (stoppedEarly ? `Остановлен по бюджету времени — остаток доберёт следующий прогон\n` : '') +
       `В очереди на обработку: ${queue >= 0 ? queue : '?'} · всего коротких: ${totalShort >= 0 ? totalShort : '?'}\n\n` +
       (titlesList ? `<b>Улучшенные маршруты и локации:</b>\n${titlesList}` : ''),

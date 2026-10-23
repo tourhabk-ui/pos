@@ -73,6 +73,23 @@ describe('smokeTestEditorWrites', () => {
     expect(url).toContain('telegram.org');
   });
 
+  // Строгий Editor (23.10): «НЕТ» модели — исход, а не поломка. Прогон, где
+  // всё взятое оказалось без материала, не будит «провайдеры не ответили».
+  it('всё взятое без материала (no_source = processed) → честный ноль, без Telegram', async () => {
+    const result = await smokeTestEditorWrites(0, [], 4, 0, [], 4);
+
+    expect(result.verdict).toBe('passed');
+    expect(result.kind).toBe('nothing_to_write');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('часть «НЕТ», часть сбоев → по-прежнему провал прогона', async () => {
+    const result = await smokeTestEditorWrites(0, [], 4, 2, ['провайдер: 429'], 2);
+
+    expect(result.verdict).toBe('failed');
+    expect(result.kind).toBe('all_errors');
+  });
+
   it('ok: agent claims 5, DB confirms 3+3=6 rows meeting the ≥300 contract → passed + kind ok', async () => {
     mockPoolQuery.mockResolvedValue({ rows: [{ written: '3', goal: '3' }] });
 

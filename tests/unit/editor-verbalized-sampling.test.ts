@@ -73,6 +73,26 @@ describe('generateRouteDescription: один строгий ответ', () => {
     }
   });
 
+  it('«НЕТ» с пояснением — тоже отказ: пояснение о данных не становится описанием', async () => {
+    for (const answer of [
+      'НЕТ. Из записанных сведений о маршруте известно только название и координаты.',
+      'НЕТ — в фактах указаны только координаты и источник данных.',
+      'Нет: кроме координат и источника данных, сведений о маршруте нет.',
+      '**НЕТ**',
+      'Ответ: НЕТ',
+    ]) {
+      callAIFastMock.mockResolvedValueOnce(answer);
+      const out = await generateRouteDescription(ROUTE);
+      expect({ answer, text: out.text, noSource: out.noSource }).toEqual({ answer, text: null, noSource: true });
+    }
+  });
+
+  it('описание, где «нет» стоит не первым словом, — не отказ', async () => {
+    const plain = 'Вулкан Тестовый: радиальный маршрут 12 километров, сезон — лето; в фактах нет опасностей.';
+    callAIFastMock.mockResolvedValueOnce(plain);
+    expect((await generateRouteDescription(ROUTE)).text).toBe(plain);
+  });
+
   it('пустой ответ → провал генерации', async () => {
     callAIFastMock.mockResolvedValue(null);
     const out = await generateRouteDescription(ROUTE);

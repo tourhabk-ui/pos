@@ -33,7 +33,7 @@ export interface SmokeResult {
   /** Проверка пройдена ДОКАЗАННО. Не путать с «не нашли проблем». */
   passed: boolean;
   verdict: SmokeVerdict;
-  kind: 'ok' | 'silent_fail' | 'partial_write' | 'under_spec' | 'all_errors'
+  kind: 'ok' | 'silent_fail' | 'partial_write' | 'under_spec' | 'all_errors' | 'nothing_to_write'
       | 'zero_processed' | 'skip' | 'db_error';
   claimed: number;
   actual: number;
@@ -57,6 +57,8 @@ function sendTgAlertAsync(text: string): void {
  * @param ids       — editor result.improved_ids (ark_id строк которые агент заявил что тронул)
  * @param processed — editor result.processed (сколько обработано; 0 = пустая очередь или поломка)
  * @param errors    — editor result.errors (для детекции "processed > 0 && all errors")
+ * @param noSource  — editor result.no_source: писать было не из чего (фактов нет
+ *                    или модель ответила «НЕТ», 23.10). Это исход, а не поломка.
  */
 export async function smokeTestEditorWrites(
   improved: number,
@@ -64,10 +66,22 @@ export async function smokeTestEditorWrites(
   processed: number,
   errors: number,
   errorSamples: string[] = [],
+  noSource = 0,
 ): Promise<SmokeResult> {
   // Честный ноль: агент не нашёл маршрутов без описания
   if (processed === 0) {
     return { passed: true, verdict: 'passed', kind: 'zero_processed', claimed: 0, actual: 0, message: 'Очередь пуста — нечего обрабатывать' };
+  }
+
+  // Тоже честный ноль: всё, что взял, оказалось без материала для текста
+  // (строгий Editor, 23.10). Провайдеры ответили, ошибок нет — записи ушли на
+  // отдых. Записывать такой прогон провалом значит каждую ночь будить
+  // ложной тревогой «провайдеры не ответили».
+  if (improved === 0 && errors === 0 && noSource > 0 && noSource === processed) {
+    return {
+      passed: true, verdict: 'passed', kind: 'nothing_to_write', claimed: 0, actual: 0,
+      message: `Из фактов нечего написать: ${noSource} — записи отдыхают до следующей попытки`,
+    };
   }
 
   // Подозрительный ноль: обработал N, но не улучшил ни одного (все errors)

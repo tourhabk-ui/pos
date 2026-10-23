@@ -93,9 +93,15 @@ describe('тишина не считается успехом', () => {
     expect(RUNNER).toMatch(/process\.exit\(1\)/);
   });
 
-  it('ноль описаний при непустом входе краснит прогон, а честные «НЕТ» — нет', () => {
-    expect(RUNNER).toMatch(/const failed = written === 0 && declined === 0/);
+  it('ноль описаний при непустом входе краснит прогон, а одни честные «НЕТ» — нет', () => {
+    // Одно «НЕТ» не прячет сбои провайдера на остальных записях (ревью 23.10).
+    expect(RUNNER).toMatch(/const failed = written === 0 && \(declined === 0 \|\| errored > 0\)/);
     expect(RUNNER).toMatch(/routes\.length > 0 && failed/);
+  });
+
+  it('«НЕТ» доходит до прода отдельным списком — иначе запись не уходит на отдых', () => {
+    expect(WF).toMatch(/declined: \[\.items\[\] \| select\(\.declined == true\) \| \.id\]/);
+    expect(RESULT).toMatch(/declined: z\.array\(z\.string\(\)\.uuid\(\)\)/);
   });
 
   it('прод не отдал очередь — раннер краснеет, а не отчитывается «всё описано»', () => {

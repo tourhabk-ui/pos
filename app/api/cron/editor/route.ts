@@ -39,6 +39,7 @@ export async function GET(req: Request) {
       result.processed ?? 0,
       result.errors ?? 0,
       result.error_samples ?? [],
+      result.no_source ?? 0,
     );
 
     // DB-запись всегда, независимо от результата Telegram (он уже ушёл выше как void)
