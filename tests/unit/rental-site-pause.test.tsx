@@ -94,7 +94,7 @@ afterEach(() => { vi.useRealTimers(); });
 describe('срок и предмет паузы', () => {
   it('пауза — до вторника 27.10, 00:00 по Камчатке (UTC+12), и прячет только «Лагуну»', () => {
     const kamchatka = new Date(Date.parse(RENTAL_SITE_PAUSE.until) + 12 * 3600_000);
-    expect(kamchatka.getUTCDay()).toBe(1);
+    expect(kamchatka.getUTCDay()).toBe(2);
     expect(kamchatka.toISOString().slice(0, 16)).toBe('2026-10-27T00:00');
     expect(RENTAL_SITE_PAUSE.slugs).toEqual(['laguna-prokat']);
     expect(RENTAL_SITE_PAUSE.returnsOn).toBe('во вторник, 27 октября');
