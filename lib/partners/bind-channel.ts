@@ -30,11 +30,12 @@ import { telegramService } from '@/lib/notifications/telegram';
 import { maxSendDm } from '@/lib/notifications/max-channel';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
+import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-pilot';
 
 export type PartnerChannel = 'telegram' | 'max';
 
 export type BindResult =
-  | { ok: true; partnerName: string; previousChatId: string | null; rebound: boolean }
+  | { ok: true; partnerName: string; slug: string | null; previousChatId: string | null; rebound: boolean }
   | { ok: false; reason: 'not_found' | 'db_error' };
 
 const CHANNEL_LABEL: Record<PartnerChannel, string> = { telegram: 'Telegram', max: 'MAX' };
@@ -61,17 +62,17 @@ export async function bindPartnerChannel(
               updated_at = NOW()
          FROM (SELECT id, telegram_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
-        RETURNING p.name, prev.old AS previous`
+        RETURNING p.name, p.slug, prev.old AS previous`
     : `UPDATE partners p
           SET max_chat_id = $1::bigint,
               updated_at = NOW()
          FROM (SELECT id, max_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
-        RETURNING p.name, prev.old AS previous`;
+        RETURNING p.name, p.slug, prev.old AS previous`;
 
-  let row: { name: string; previous: string | null } | undefined;
+  let row: { name: string; slug: string | null; previous: string | null } | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ name: string; previous: string | null }>(sql, [String(chatId), partnerId]));
+    ({ rows: [row] } = await pool.query<{ name: string; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId]));
   } catch (err) {
     const e = err as { message?: string; code?: string };
     console.error(
@@ -86,7 +87,8 @@ export async function bindPartnerChannel(
   const previous = row.previous;
   const rebound = previous !== null && previous !== String(chatId);
   await announceBinding(channel, row.name, previous, rebound);
-  return { ok: true, partnerName: row.name, previousChatId: previous, rebound };
+  const slug = typeof row.slug === 'string' && row.slug.trim() !== '' ? row.slug : null;
+  return { ok: true, partnerName: row.name, slug, previousChatId: previous, rebound };
 }
 
 /**
@@ -168,6 +170,11 @@ export async function handlePartnerStart(
     return true;
   }
   const bound = await bindPartnerChannel(check.partnerId, channel, chatId);
-  await reply(bindReplyText(channel, bound));
+  // Прокатчик из пилота узнаёт себя по роли. Остальным партнёрам — прежний
+  // текст, и в Telegram тоже: там по-прежнему нет персональных данных.
+  const text = bound.ok && channel === 'max' && isRentalPilotSlug(bound.slug)
+    ? rentalPilotBoundText(bound.partnerName)
+    : bindReplyText(channel, bound);
+  await reply(text);
   return true;
 }

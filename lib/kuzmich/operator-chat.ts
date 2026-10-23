@@ -35,6 +35,11 @@ type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 export interface PartnerChatContext {
   partnerId: string;
   partnerName: string;
+  /**
+   * `partners.slug`. null — в строке slug пуст. Поле необязательно у старых
+   * вызовов: отсутствие значит «пилот проката не узнан», не «slug пуст в базе».
+   */
+  slug?: string | null;
   /** `partners.category` как записан. */
   category: string;
   /**
@@ -67,8 +72,8 @@ const CHAT_COLUMN = { telegram: 'telegram_chat_id', max: 'max_chat_id' } as cons
  */
 export async function findPartnerByChat(channel: keyof typeof CHAT_COLUMN, chatId: number): Promise<PartnerChatLookup> {
   try {
-    const { rows } = await pool.query<{ id: string; name: string; category: string; user_id: string | null; profile_status: string | null }>(
-      `SELECT id::text AS id, COALESCE(company_name, name) AS name, category,
+    const { rows } = await pool.query<{ id: string; slug: string | null; name: string; category: string; user_id: string | null; profile_status: string | null }>(
+      `SELECT id::text AS id, NULLIF(btrim(slug), '') AS slug, COALESCE(company_name, name) AS name, category,
               user_id::text AS user_id, profile_status
          FROM partners
         WHERE ${CHAT_COLUMN[channel]} = $1
@@ -83,6 +88,7 @@ export async function findPartnerByChat(channel: keyof typeof CHAT_COLUMN, chatI
       partner: {
         partnerId: row.id,
         partnerName: row.name,
+        slug: typeof row.slug === 'string' && row.slug.trim() !== '' ? row.slug : null,
         category: row.category,
         crmCategory: crmCategoryFor(row.category, row.profile_status),
         userId: row.user_id,

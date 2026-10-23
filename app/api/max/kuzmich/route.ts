@@ -39,6 +39,7 @@ import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
+import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
@@ -616,6 +617,19 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (admin.outcome === 'admin') {
         const { adminGreeting } = await import('@/lib/max/admin-chat');
         await maxReply(update.chat_id, adminGreeting(admin.name));
+        return;
+      }
+    }
+
+    // Прокатчик пилота уже привязан: обычный «Старт» без ссылки привязку не
+    // пишет и не открывает туристское меню. Ссылку op_ разобрал
+    // handlePartnerStart выше. Ссылка администратора adm_ (#2746) — другая
+    // дверь: она привязывает человека с ролью администратора, не карточку
+    // прокатчика, и до этого места не доходит.
+    if (opts?.verifiedOrigin === true) {
+      const boundPilot = await findPartnerByChat('max', update.chat_id);
+      if (boundPilot.outcome === 'found' && isRentalPilotSlug(boundPilot.partner.slug)) {
+        await maxReply(update.chat_id, rentalPilotGreeting(boundPilot.partner.partnerName));
         return;
       }
     }
