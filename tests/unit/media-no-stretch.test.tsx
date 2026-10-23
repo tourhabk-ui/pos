@@ -152,7 +152,7 @@ describe('ролик перевозчика: рамка 16:9 не шире 42rem
 
   it('карточка на витрине рисует тот же плеер', () => {
     const carrier = {
-      partnerId: 'p-1', slug: 'shatun', name: 'Шатун', shortDescription: null, vehicles: [], destinations: [],
+      partnerId: 'p-1', slug: 'shatun', name: 'Шатун', shortDescription: null, vehicles: [], destinations: [], logo: null,
       extraDay: null, rates: [], seatClasses: [], photos: [], clips: [], legal: null, video: VIDEO, phone: null, telegramHref: null, whatsappHref: null,
     } satisfies CharterCarrier;
     const { container } = render(<CharterCard carrier={carrier} />);

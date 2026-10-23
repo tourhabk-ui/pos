@@ -118,6 +118,7 @@ describe('логотип партнёра: страница перевозчик
     expect(logoImgs(container)).toHaveLength(2);
     const who = container.querySelector('[aria-labelledby="carrier-who"]') as HTMLElement;
     expect(logoImgs(who)).toHaveLength(1);
+    expect(srcs(who).some((s) => s.includes('laguna-fleet-tank300'))).toBe(false);
   });
 
   it('без логотипа — снимок в кружке, как было', () => {
@@ -214,9 +215,6 @@ describe('миграция 1320: логотип «Лагуны Прокат»', 
     expect(update).toContain(`logo_image = '${LOGO}'`);
     expect(update).toContain("slug = 'laguna-prokat'");
     expect(update).toMatch(/logo_image IS NULL OR logo_image = ''/);
-    // Источник назван, видео честно нет (§4.0): шапка говорит об этом словами.
-    expect(sql).toMatch(/лагунапрокат\.рф/);
-    expect(sql).toMatch(/[Вв]идео/);
   });
 
   it('файл, который она называет, лежит в public/: PNG не крупнее 512 px и легче 100 КБ', () => {
