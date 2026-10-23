@@ -1,27 +1,18 @@
 {
   "timeout": 60,
-  "run": 991,
-  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. После влития #2703 (партнёр сайта по id, а не по slug): предпросмотр сайта «Камчатской рыбалки» на vedarai.ru/partner-site/fishingkam — страница из базы, закрыта от поисковиков, canonical на https://fishingkam.ru/; его robots.txt и sitemap.xml.",
+  "run": 992,
+  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. Уточнение 991: canonical предпросмотра — Next для пути «/» отдаёт адрес без завершающего слеша (resolve-url.js); значок вкладки — логотип партнёра; og:url — домен партнёра.",
   "urls": [
-    "https://vedarai.ru/partner-site/fishingkam",
-    "https://vedarai.ru/partner-site/fishingkam/robots.txt",
-    "https://vedarai.ru/partner-site/fishingkam/sitemap.xml"
+    "https://vedarai.ru/partner-site/fishingkam"
   ],
-  "until": "fishingkam.ru",
-  "retries": 20,
-  "retryDelay": 60,
-  "text": true,
-  "bytes": 8000,
+  "text": false,
+  "bytes": 400,
   "grep": [
-    "noindex",
-    "<link rel=\"canonical\" href=\"https://fishingkam.ru/\"",
-    "Туры и цены",
-    "ООО «Камчатская рыбалка»",
-    "Оплатить",
-    "Сайт работает на платформе",
-    "application/ld+json",
-    "manifest.json",
-    "Цена по запросу",
-    "Сайт Ведар"
+    "<link rel=\"canonical\" href=\"https://fishingkam.ru\"",
+    "<meta property=\"og:url\" content=\"https://fishingkam.ru",
+    "<meta name=\"robots\" content=\"noindex, nofollow\"",
+    "rel=\"icon\" href=\"/images/fishingkam",
+    "<title>Рыбалка на Камчатке — туры на реку Камчатку с проживанием</title>",
+    "rel=\"manifest\""
   ]
 }
