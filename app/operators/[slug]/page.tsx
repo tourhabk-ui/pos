@@ -8,6 +8,7 @@ import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow, OperatorPageTourRow } from '@/lib/types/db-rows';
+import { ACTIVE_CONSENT_JSON_SQL, parseActiveConsent } from '@/lib/partners/material-consent';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { priceUnitLabel } from '@/lib/tours/labels';
 import {
@@ -74,7 +75,8 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
             rating::text, review_count::text, is_verified,
             registry_status, registry_number,
             to_char(registry_checked_at AT TIME ZONE 'Asia/Kamchatka', 'DD.MM.YYYY') AS registry_checked_at,
-            created_at::text
+            created_at::text,
+            ${ACTIVE_CONSENT_JSON_SQL('partners')} AS materials_consent
      FROM partners
      WHERE slug = ANY($1) AND is_public = TRUE
      ORDER BY CASE
@@ -481,6 +483,7 @@ export default async function OperatorProfilePage(
               registryNumber={profile.registry_number}
               registryStatus={profile.registry_status}
               registryCheckedAt={profile.registry_checked_at}
+              materialsConsent={parseActiveConsent(profile.materials_consent)}
             />
           </div>
 

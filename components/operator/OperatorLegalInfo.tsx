@@ -13,10 +13,17 @@
  * или «с реестром не сверен», если сверки не было. Номера нет — строки нет:
  * отсутствие записи у нас не значит отсутствия в реестре.
  *
- * Сторож: tests/unit/operator-legal-info.test.tsx.
+ * Здесь же — строка о записанном согласии партнёра на материалы его сайта
+ * (миграция 1321): только при неотозванной записи, на его собственной
+ * странице, как у перевозчика и прокатчика (§0, перепись 23.10 нашла, что у
+ * туроператора её не было).
+ *
+ * Сторожа: tests/unit/operator-legal-info.test.tsx,
+ * tests/unit/partner-materials-consent.test.tsx.
  */
 
 import type { LegalInfo } from '@/lib/operators/profile-parse';
+import { materialsConsentLine, type MaterialsConsentPublic } from '@/lib/legal/partner-materials-consent';
 
 interface Props {
   legal: LegalInfo | string | null;
@@ -25,6 +32,8 @@ interface Props {
   registryStatus: string | null;
   /** Дата последней сверки, «ДД.ММ.ГГГГ»; нет — null. */
   registryCheckedAt: string | null;
+  /** Действующее согласие партнёра на материалы сайта; нет записи — null. */
+  materialsConsent?: MaterialsConsentPublic | null;
 }
 
 function registryNote(status: string | null, checkedAt: string | null): { text: string; warn: boolean } {
@@ -49,9 +58,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export function OperatorLegalInfo({ legal, registryNumber, registryStatus, registryCheckedAt }: Props) {
+export function OperatorLegalInfo({ legal, registryNumber, registryStatus, registryCheckedAt, materialsConsent }: Props) {
   const number = registryNumber?.trim() || null;
-  if (!legal && !number) return null;
+  if (!legal && !number && !materialsConsent) return null;
   const note = number ? registryNote(registryStatus, registryCheckedAt) : null;
 
   return (
@@ -80,6 +89,11 @@ export function OperatorLegalInfo({ legal, registryNumber, registryStatus, regis
           <Row label="Реестровый номер туроператора">
             {number}
             <span className={`block text-xs ${note.warn ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}`}>{note.text}</span>
+          </Row>
+        )}
+        {materialsConsent && (
+          <Row label="Материалы сайта">
+            <span data-testid="materials-consent">{materialsConsentLine(materialsConsent)}</span>
           </Row>
         )}
       </dl>

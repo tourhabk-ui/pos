@@ -1360,6 +1360,8 @@ export interface OperatorProfileRow {
   /** Дата последней сверки с реестром, «ДД.ММ.ГГГГ» по Камчатке; не сверялся — null. */
   registry_checked_at: string | null;
   created_at: string;
+  /** Действующее согласие на материалы сайта (1321), JSON из ACTIVE_CONSENT_JSON_SQL; читает только страница оператора. */
+  materials_consent?: unknown;
 }
 
 /** Тур в блоке «Туры» страницы оператора /operators/[slug] (operator_tours). */

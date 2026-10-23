@@ -74,6 +74,7 @@ import { CarrierPage } from '@/components/transfers/CarrierPage';
 import { CharterCard } from '@/components/transfers/CharterCard';
 import { RentalCompanyPage } from '@/components/rental/RentalCompanyPage';
 import { RentalCompanyCard } from '@/components/rental/RentalCompanyCard';
+import { OperatorLegalInfo } from '@/components/operator/OperatorLegalInfo';
 import type { CarrierProfile } from '@/lib/transfers/charter-format';
 import type { RentalCompanyProfile } from '@/lib/rental/rental-format';
 
@@ -96,13 +97,26 @@ describe('текст согласия', () => {
     expect(text).toContain('«Лагуна Прокат» разрешает Ведару (vedarai.ru)');
     expect(text).toContain('лагунапрокат.рф');
     expect(text).toContain('фотографии, видео, логотип');
-    expect(text).toMatch(/Где Ведар их использует: на странице партнёра/);
+    expect(text).toContain('со своих сайтов и страниц (лагунапрокат.рф)');
+    expect(text).toMatch(/Где Ведар их показывает: на странице партнёра/);
     expect(text).toMatch(/языковые модели, в том числе зарубежные/);
     expect(text).toMatch(/не даёт ему места выше/);
     expect(text).toMatch(/Отозвать можно/);
-    expect(text).toMatch(/отозвать у них не может/);
     expect(authorityStatement('Лагуна Прокат')).toContain('от имени «Лагуна Прокат»');
     expect(PARTNER_MATERIALS_CONSENT_VERSION).toBe('2026-10-23');
+  });
+
+  it('называет то, что перепись путей 23.10 нашла в коде: получателей, хранение, изменения, чтение сайта', () => {
+    const text = consentDocument(LAGUNA);
+    for (const fact of [
+      /турагенты/, /площадки объявлений — через открытые выгрузки/, /собирают данные для обучения моделей/,
+      /сервисы веб-аналитики/, /открытом репозитории кода Ведара на GitHub \(США\)/, /хранилище Timeweb \(Россия\)/,
+      /пересказывать и дополнять своими словами/, /на экране может подкрашивать/, /цену — показывать словом «от»/,
+      /Раз в сутки Ведар читает главную страницу сайта партнёра/, /озвучивает ответы/, /английском/,
+      /размещённые партнёром на сторонних площадках/, /вручную снимает с показа/, /Ведар удалить не может/,
+    ]) {
+      expect(text, String(fact)).toMatch(fact);
+    }
   });
 
   it('обещаний, которых платформа не исполняет, в тексте нет (ревью 23.10)', () => {
@@ -313,6 +327,14 @@ describe('строка «партнёр разрешил» — только на
     a.unmount();
     render(<RentalCompanyPage data={{ company: COMPANY }} />);
     expect(screen.queryByTestId('materials-consent')).toBeNull();
+  });
+
+  it('страница туроператора: строка в «Юридической информации» при записи; без записи — нет, и пустого блока тоже', () => {
+    const a = render(<OperatorLegalInfo legal={null} registryNumber={null} registryStatus={null} registryCheckedAt={null} materialsConsent={consent} />);
+    expect(screen.getByTestId('materials-consent').textContent).toBe(LINE);
+    a.unmount();
+    const b = render(<OperatorLegalInfo legal={null} registryNumber={null} registryStatus={null} registryCheckedAt={null} materialsConsent={null} />);
+    expect(b.container.textContent).toBe('');
   });
 
   it('карточки общих витрин строки не несут никогда', () => {
