@@ -1,18 +1,24 @@
 {
   "timeout": 60,
-  "run": 992,
-  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. Уточнение 991: canonical предпросмотра — Next для пути «/» отдаёт адрес без завершающего слеша (resolve-url.js); значок вкладки — логотип партнёра; og:url — домен партнёра.",
+  "run": 993,
+  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. Дайджест ошибок браузера: «Loading chunk 52619 failed (timeout)» 7 раз на /partner-site/kamchatskaya-rybalka, ни разу с телефона. Есть ли этот чанк в текущей сборке, какого он размера и что в нём (по строкам из модулей).",
   "urls": [
-    "https://vedarai.ru/partner-site/fishingkam"
+    "https://vedarai.ru/_next/static/chunks/52619-c48a18d6f62d2371.js"
   ],
   "text": false,
-  "bytes": 400,
+  "bytes": 1200,
   "grep": [
-    "<link rel=\"canonical\" href=\"https://fishingkam.ru\"",
-    "<meta property=\"og:url\" content=\"https://fishingkam.ru",
-    "<meta name=\"robots\" content=\"noindex, nofollow\"",
-    "rel=\"icon\" href=\"/images/fishingkam",
-    "<title>Рыбалка на Камчатке — туры на реку Камчатку с проживанием</title>",
-    "rel=\"manifest\""
+    "leaflet",
+    "maplibre",
+    "Kuzmich",
+    "serviceWorker",
+    "partner-site",
+    "not-found",
+    "geolocation",
+    "lucide",
+    "OperatorLeadForm",
+    "PdConsent",
+    "yandex",
+    "metrika"
   ]
 }
