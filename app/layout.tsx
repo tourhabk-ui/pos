@@ -280,7 +280,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   "https://t.me/kamchatka_real",
                   "https://github.com/tourhabk-ui/pos",
                   "https://registry.modelcontextprotocol.io/v0.1/servers?search=ru.vedarai%2Fmcp",
-                  "https://smithery.ai/servers/tourhabk/vedar"
+                  "https://smithery.ai/servers/tourhabk/vedar",
+                  // Владелец 24.10: «карт-бланш на продвижение» — открытые
+                  // примеры подключения MCP и боты Кузьмича в Telegram и MAX.
+                  "https://github.com/tourhabk-ui/vedar-mcp-examples",
+                  "https://t.me/kuzmichai_bot",
+                  "https://max.ru/id4101147649_bot"
                 ]
               }
             ])
