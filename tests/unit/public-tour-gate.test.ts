@@ -356,6 +356,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const NOT_SHOWCASE = 'не витрина';
 const FULL_COPY = 'витрина, все три флага руками: сегодня совпадает со шлюзом, разойдётся при первой его правке';
 const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
+  'app/seat-request/test/page.tsx': { n: 1, why: `${NOT_SHOWCASE}: тестовый стенд 24.10 — только неопубликованный тур тестового оператора, по прямой ссылке` },
   'app/api/admin/ai-assistant/route.ts': { n: 1, why: `${NOT_SHOWCASE}: счёт активных туров в контекст ассистента админки` },
   'app/api/admin/content/tours/route.ts': { n: 1, why: `${NOT_SHOWCASE}: фильтр админки по статусу — видит все состояния намеренно` },
   'app/api/admin/stats/route.ts': { n: 1, why: `${NOT_SHOWCASE}: сводка админки «активных туров»` },
@@ -665,6 +666,7 @@ const CENSUS_SKIP: Record<string, string> = {
  * причиной. Самоустаревает: файл ушёл из переписи — запись удаляется.
  */
 const NOT_TOURIST_SELECTION: Record<string, string> = {
+  'app/seat-request/test/page.tsx': 'тестовый стенд пилота рыбалки (24.10): тур тестового оператора по прямой ссылке, витрины нет',
   'app/api/reviews/route.ts': 'отбор отзывов, а не туров: правдивый отзыв туриста не убирается вместе с туром (§0), название тура — подпись к нему',
   'app/api/reviews/my/route.ts': 'свои отзывы туриста о турах, на которых он был',
   'app/api/hub/bookings/[id]/route.ts': 'бронь туриста по её ключу: тур — тот, что он купил, даже если его сняли с витрины потом',

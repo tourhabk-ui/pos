@@ -8,10 +8,13 @@
  */
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { TEST_STAND_PARTNER_IDS } from '@/lib/seat-requests/test-stand';
 
 /** Партнёры, которым доступна /сводка. Пилот — «Камчатская рыбалка». */
 export const SUMMARY_PARTNER_IDS: ReadonlySet<string> = new Set([
   '0aaa4f05-b479-418b-9d54-2b909783dfd7',
+  // Тестовый стенд (lib/seat-requests/test-stand), 24.10.
+  ...TEST_STAND_PARTNER_IDS,
 ]);
 
 export function summaryEnabledFor(partnerId: string): boolean {

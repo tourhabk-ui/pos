@@ -95,6 +95,7 @@
  * она принадлежит атрибуции, которая решается именно здесь.
  */
 
+import { TEST_STAND_PARTNER_IDS } from '@/lib/seat-requests/test-stand';
 import type { PoolClient } from 'pg';
 import { honestTourPrice } from '@/lib/tours/honest-price';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
@@ -495,10 +496,11 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
               ot.multi_day_count, ot.duration_hours, ot.price_unit,
               ot.duration_type, ot.season_start::text, ot.season_end::text
          FROM operator_tours ot
-        WHERE ot.id = $1 AND ot.is_active = true AND ot.is_published = true
+        WHERE ot.id = $1 AND ot.is_active = true
+          AND (ot.is_published = true OR ot.operator_id = ANY($2::uuid[]))
           AND ot.deleted_at IS NULL
         FOR UPDATE`,
-      [input.tourId],
+      [input.tourId, TEST_STAND_PARTNER_IDS],
     );
     if (tourResult.rows.length === 0) {
       throw new ReserveError('NOT_FOUND', 'Тур не найден или больше не доступен.');
