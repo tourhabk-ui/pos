@@ -334,7 +334,7 @@ const STARTS: Array<{ payload: string; kind: 'login' | 'link' | 'admin'; applied
   { payload: `sr_${'a'.repeat(32)}`, kind: 'link', applied: () => expect(m.bindTourist).toHaveBeenCalledWith('a'.repeat(32), 'max', 77) },
   { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function)) },
   { payload: 'om_signed-token', kind: 'link', applied: () => expect(m.memberStart).toHaveBeenCalledWith('om_signed-token', 'max', 77, expect.any(Function)) },
-  { payload: `adm_${'b'.repeat(32)}`, kind: 'admin', applied: () => expect(m.adminStart).toHaveBeenCalledWith(`adm_${'b'.repeat(32)}`, 77, 77, expect.any(Function)) },
+  { payload: `adm_${'b'.repeat(32)}`, kind: 'admin', applied: () => expect(m.adminStart).toHaveBeenCalledWith(`adm_${'b'.repeat(32)}`, 77, expect.any(Function)) },
 ];
 
 describe('ссылки старта: вход и подключение чата — только из заверенного апдейта', () => {

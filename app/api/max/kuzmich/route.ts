@@ -592,7 +592,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // (lib/max/admin-link, слово владельца 23.10). Привязывается человек —
       // user_id апдейта, без отката на id чата.
       const starterId = typeof update.user?.user_id === 'number' ? update.user.user_id : null;
-      if (await handleAdminStart(startArg, starterId, chatId, (text) => maxReply(chatId, text))) return;
+      if (await handleAdminStart(startArg, starterId, (text) => maxReply(chatId, text))) return;
       if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
       // Менеджер команды оператора — свой чат к уведомлениям кабинета (2г-4).
       if (await handleMemberStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;

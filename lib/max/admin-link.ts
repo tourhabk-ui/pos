@@ -88,16 +88,18 @@ export async function issueAdminMaxLink(
 
 export type ConsumeAdminLink =
   | { ok: true; userId: string; movedFromUserId: string | null }
-  | { ok: false; reason: 'invalid' | 'used' | 'expired' | 'not_admin' };
+  | { ok: false; reason: 'invalid' | 'used' | 'already_yours' | 'expired' | 'not_admin' };
 
 /**
  * Погасить ссылку и привязать человека MAX — одной транзакцией на одном
  * соединении. Строка ключа берётся FOR UPDATE: второе нажатие той же ссылки
  * ждёт первое и видит used_at. Ссылка гасится и тогда, когда роль уже снята
  * (not_admin): повторно её не нажать. Человек MAX, привязанный к другому
- * администратору, переходит к выдавшему ссылку (movedFromUserId).
+ * администратору, переходит к выдавшему ссылку (movedFromUserId). Повторное
+ * нажатие тем же человеком MAX, который по ней и подключён, — already_yours:
+ * «подключали не вы» ему было бы неправдой.
  */
-export async function consumeAdminMaxLink(token: string, maxUserId: number, maxChatId: number): Promise<ConsumeAdminLink> {
+export async function consumeAdminMaxLink(token: string, maxUserId: number): Promise<ConsumeAdminLink> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -111,7 +113,14 @@ export async function consumeAdminMaxLink(token: string, maxUserId: number, maxC
     );
     const row = found.rows[0];
     if (!row) { await client.query('ROLLBACK'); return { ok: false, reason: 'invalid' }; }
-    if (row.used) { await client.query('ROLLBACK'); return { ok: false, reason: 'used' }; }
+    if (row.used) {
+      const mine = await client.query(
+        `SELECT 1 FROM admin_max_bindings WHERE user_id = $1::uuid AND max_user_id = $2::bigint`,
+        [row.user_id, maxUserId],
+      );
+      await client.query('ROLLBACK');
+      return { ok: false, reason: mine.rowCount === 1 ? 'already_yours' : 'used' };
+    }
     if (row.expired) { await client.query('ROLLBACK'); return { ok: false, reason: 'expired' }; }
 
     const stamped = await client.query(
@@ -137,11 +146,11 @@ export async function consumeAdminMaxLink(token: string, maxUserId: number, maxC
       [maxUserId, row.user_id],
     );
     await client.query(
-      `INSERT INTO admin_max_bindings (user_id, max_user_id, max_chat_id, bound_at)
-       VALUES ($1::uuid, $2::bigint, $3::bigint, NOW())
+      `INSERT INTO admin_max_bindings (user_id, max_user_id, bound_at)
+       VALUES ($1::uuid, $2::bigint, NOW())
        ON CONFLICT (user_id) DO UPDATE
-         SET max_user_id = EXCLUDED.max_user_id, max_chat_id = EXCLUDED.max_chat_id, bound_at = NOW()`,
-      [row.user_id, maxUserId, maxChatId],
+         SET max_user_id = EXCLUDED.max_user_id, bound_at = NOW()`,
+      [row.user_id, maxUserId],
     );
     await client.query('COMMIT');
     return { ok: true, userId: row.user_id, movedFromUserId: moved.rows[0]?.user_id ?? null };
@@ -183,20 +192,31 @@ export async function findMaxAdmin(maxUserId: number): Promise<MaxAdminLookup> {
   }
 }
 
+/** boundAt — ISO 8601: текстовую форму PostgreSQL («… 10:00:00+00») Safari не разбирает. */
 export interface AdminMaxStatus { bound: boolean; boundAt: string | null }
 
 /** Подключён ли MAX у этого администратора — для админки. Отказ базы бросается. */
 export async function adminMaxStatus(userId: string): Promise<AdminMaxStatus> {
-  const { rows } = await pool.query<{ bound_at: string }>(
-    `SELECT bound_at::text AS bound_at FROM admin_max_bindings WHERE user_id = $1::uuid`,
+  const { rows } = await pool.query<{ bound_at: Date }>(
+    `SELECT bound_at FROM admin_max_bindings WHERE user_id = $1::uuid`,
     [userId],
   );
-  return rows[0] ? { bound: true, boundAt: rows[0].bound_at } : { bound: false, boundAt: null };
+  return rows[0] ? { bound: true, boundAt: new Date(rows[0].bound_at).toISOString() } : { bound: false, boundAt: null };
 }
 
-/** Отключить MAX администратора. true — привязка была. Отказ базы бросается. */
+/**
+ * Отключить MAX администратора: привязку и выданные, но не погашенные ссылки
+ * — «Отключить» не оставляет ни одной двери. true — привязка была. Отказ базы
+ * бросается.
+ */
 export async function unbindAdminMax(userId: string): Promise<boolean> {
-  const res = await pool.query(`DELETE FROM admin_max_bindings WHERE user_id = $1::uuid`, [userId]);
+  const res = await pool.query(
+    `WITH links AS (
+       DELETE FROM admin_max_link_tokens WHERE user_id = $1::uuid AND used_at IS NULL
+     )
+     DELETE FROM admin_max_bindings WHERE user_id = $1::uuid`,
+    [userId],
+  );
   return (res.rowCount ?? 0) > 0;
 }
 
@@ -207,6 +227,7 @@ export const ADMIN_MAX_TEXT = {
   invalid: 'Ссылка подключения администратора не найдена. Возьмите новую в админке: «Подключить MAX администратора».',
   malformed: 'Ссылка подключения администратора повреждена. Возьмите новую в админке.',
   used: 'Эта ссылка подключения уже использована. Если MAX подключали не вы — отключите его в админке и возьмите новую ссылку.',
+  alreadyYours: 'Этот MAX уже подключён как администратор — по этой же ссылке. Делать ничего не нужно.',
   expired: 'Ссылка подключения устарела: она живёт 10 минут. Возьмите новую в админке.',
   notAdmin: 'Подключение не выполнено: у аккаунта, выдавшего ссылку, больше нет роли администратора.',
   noUser: 'Подключение не выполнено: MAX не сообщил, кто нажал «Старт». Откройте ссылку ещё раз из личного чата с ботом.',
@@ -221,7 +242,6 @@ export const ADMIN_MAX_TEXT = {
 export async function handleAdminStart(
   arg: string,
   maxUserId: number | null,
-  maxChatId: number,
   reply: (text: string) => Promise<void>,
 ): Promise<boolean> {
   const token = adminTokenFromStart(arg);
@@ -230,14 +250,16 @@ export async function handleAdminStart(
   if (maxUserId === null) { await reply(ADMIN_MAX_TEXT.noUser); return true; }
   let res: ConsumeAdminLink;
   try {
-    res = await consumeAdminMaxLink(token, maxUserId, maxChatId);
+    res = await consumeAdminMaxLink(token, maxUserId);
   } catch (err) {
     console.error('[max/admin] ссылка подключения не погашена, SQLSTATE', (err as { code?: string })?.code ?? 'нет SQLSTATE');
     await reply(ADMIN_MAX_TEXT.failed);
     return true;
   }
   if (!res.ok) {
-    await reply(res.reason === 'not_admin' ? ADMIN_MAX_TEXT.notAdmin : ADMIN_MAX_TEXT[res.reason]);
+    const text = { invalid: ADMIN_MAX_TEXT.invalid, used: ADMIN_MAX_TEXT.used, already_yours: ADMIN_MAX_TEXT.alreadyYours,
+      expired: ADMIN_MAX_TEXT.expired, not_admin: ADMIN_MAX_TEXT.notAdmin }[res.reason];
+    await reply(text);
     return true;
   }
   await reply(res.movedFromUserId ? `${ADMIN_MAX_TEXT.bound}\n\n${ADMIN_MAX_TEXT.moved}` : ADMIN_MAX_TEXT.bound);

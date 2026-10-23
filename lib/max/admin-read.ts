@@ -120,30 +120,28 @@ export async function readOpenDates(nowMs: number = Date.now()): Promise<AdminRe
   const from = kamchatkaToday(nowMs);
   const to = new Date(Date.parse(from) + (ADMIN_DATES_DAYS - 1) * 86400000).toISOString().slice(0, 10);
   const cache = createPlannerCache();
-  const byOperator = new Map<string, string[]>();
+  // Строка — тур целиком, с оператором впереди: «и ещё N» считает туры, и
+  // заголовок оператора не остаётся без туров под ним, когда список обрезан.
+  const items: string[] = [];
   let withDates = 0;
   let unchecked = 0;
   for (const t of tours) {
-    let line: string;
+    const who = `${escapeHtml(t.operator ?? 'оператор не указан')} · ${escapeHtml(t.title)}`;
     try {
       const slots = await fetchAvailabilityForTour(t.id, from, to, cache);
       if (slots.length === 0) {
-        line = `• ${escapeHtml(t.title)}: открытых дат нет`;
+        items.push(`• ${who}: открытых дат нет`);
       } else {
         withDates++;
         const shown = slots.slice(0, 8).map((s) => `${dm(s.date)} — ${s.remaining}`).join(', ');
-        line = `• ${escapeHtml(t.title)}: ${shown}${slots.length > 8 ? ` и ещё ${slots.length - 8}` : ''}`;
+        items.push(`• ${who}: ${shown}${slots.length > 8 ? ` и ещё ${slots.length - 8}` : ''}`);
       }
     } catch (err) {
       console.error('[max/admin] даты тура не проверены, SQLSTATE', sqlstate(err));
       unchecked++;
-      line = `• ${escapeHtml(t.title)}: даты не проверились`;
+      items.push(`• ${who}: даты не проверились`);
     }
-    const op = t.operator ?? 'Оператор не указан';
-    byOperator.set(op, [...(byOperator.get(op) ?? []), line]);
   }
-  const items: string[] = [];
-  for (const [op, lines] of byOperator) items.push('', `<b>${escapeHtml(op)}</b>`, ...lines);
   const head = [
     `<b>Открытые даты ${dm(from)}–${dm(to)}</b> (по Камчатке; число — свободные места с учётом броней)`,
     `Туров на витрине: ${tours.length}${tours.length === TOURS_LIMIT ? ' (показаны первые)' : ''}, с открытыми датами: ${withDates}`

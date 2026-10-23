@@ -26,13 +26,17 @@ type Link =
   | { kind: 'ready'; link: string; expiresAt: string }
   | { kind: 'error'; error: string };
 
-const kamchatkaTime = (iso: string, withDate: boolean): string =>
-  new Date(iso).toLocaleString('ru-RU', {
+/** Время по Камчатке; дата, которую браузер не разобрал, — пустая строка, а не «Invalid Date». */
+function kamchatkaTime(iso: string, withDate: boolean): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('ru-RU', {
     timeZone: 'Asia/Kamchatka',
     ...(withDate ? { day: 'numeric', month: 'long' } : {}),
     hour: '2-digit',
     minute: '2-digit',
   });
+}
 
 async function readStatus(): Promise<Status> {
   try {
@@ -57,6 +61,9 @@ export default function AdminMaxLink() {
   const [link, setLink] = useState<Link>({ kind: 'none' });
   const [confirmUnbind, setConfirmUnbind] = useState(false);
   const [unbinding, setUnbinding] = useState(false);
+  // Отказ отключения — отдельно от состояния: привязка осталась, и страница
+  // должна говорить «не отключено», а не «не загрузилось».
+  const [unbindError, setUnbindError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
 
@@ -91,18 +98,19 @@ export default function AdminMaxLink() {
 
   async function unbind() {
     setUnbinding(true);
+    setUnbindError(null);
     try {
       const res = await fetch('/api/admin/max-link', { method: 'DELETE' });
       const body = await readJson(res);
       if (!res.ok || !body?.success) {
-        setStatus({ kind: 'failed', error: typeof body?.error === 'string' ? body.error : `Сервер ответил ${res.status}` });
+        setUnbindError(typeof body?.error === 'string' ? body.error : `Сервер ответил ${res.status}`);
         return;
       }
       setConfirmUnbind(false);
       setLink({ kind: 'none' });
       setStatus({ kind: 'unbound' });
     } catch {
-      setStatus({ kind: 'failed', error: 'Нет связи с сервером' });
+      setUnbindError('Нет связи с сервером');
     } finally {
       setUnbinding(false);
     }
@@ -171,12 +179,21 @@ export default function AdminMaxLink() {
             <button type="button" onClick={unbind} disabled={unbinding} className="ds-btn ds-btn-danger text-xs px-2 py-1">
               {unbinding ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-label="Отключаю" /> : 'Да, отключить'}
             </button>
-            <button type="button" onClick={() => setConfirmUnbind(false)} className="ds-btn ds-btn-secondary text-xs px-2 py-1">
+            <button
+              type="button"
+              onClick={() => { setConfirmUnbind(false); setUnbindError(null); }}
+              className="ds-btn ds-btn-secondary text-xs px-2 py-1"
+            >
               Нет
             </button>
           </span>
         )}
       </div>
+      {status.kind === 'bound' && unbindError && (
+        <p className="text-xs text-[var(--danger)]" role="alert">
+          Не отключено: {unbindError}. MAX администратора всё ещё подключён — нажмите «Да, отключить» ещё раз.
+        </p>
+      )}
 
       {link.kind === 'error' && <p className="text-xs text-[var(--danger)]" role="alert">{link.error}</p>}
       {link.kind === 'ready' && (

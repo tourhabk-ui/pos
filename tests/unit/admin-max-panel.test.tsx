@@ -68,6 +68,32 @@ describe('обзор админки — MAX администратора', () =>
     expect(calls).toContain('DELETE');
   });
 
+  it('отключение не удалось — остаётся «подключён», сказано «не отключено», повтор на месте', async () => {
+    stub({
+      GET: [{ body: { success: true, data: { bound: true, bound_at: '2026-10-23T09:00:00.000Z' } } }],
+      DELETE: [
+        { status: 500, body: { success: false, error: 'База не ответила, попробуйте позже' } },
+        { body: { success: true, data: { unbound: true } } },
+      ],
+    });
+    const panel = await show();
+    await panel.findByText('подключён 23 октября в 21:00');
+    fireEvent.click(panel.getByRole('button', { name: 'Отключить' }));
+    fireEvent.click(panel.getByRole('button', { name: 'Да, отключить' }));
+    expect((await panel.findByRole('alert')).textContent).toContain('Не отключено: База не ответила');
+    expect(panel.getByText('подключён 23 октября в 21:00')).toBeTruthy();
+    expect(panel.queryByText(/не загрузилось/)).toBeNull();
+    fireEvent.click(panel.getByRole('button', { name: 'Да, отключить' }));
+    expect(await panel.findByText('не подключён')).toBeTruthy();
+  });
+
+  it('дату, которую браузер не разобрал, не показывает как «Invalid Date»', async () => {
+    stub({ GET: [{ body: { success: true, data: { bound: true, bound_at: 'не дата' } } }] });
+    const panel = await show();
+    expect(await panel.findByText('подключён')).toBeTruthy();
+    expect(panel.queryByText(/Invalid/)).toBeNull();
+  });
+
   it('состояние не прочиталось — «не загрузилось», а не «не подключён»', async () => {
     stub({ GET: [{ status: 500, body: { success: false, error: 'База не ответила, попробуйте позже' } }] });
     const panel = await show();

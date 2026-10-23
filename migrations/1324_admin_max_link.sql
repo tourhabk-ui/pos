@@ -12,7 +12,8 @@
 --
 -- Привязан ЧЕЛОВЕК MAX (max_user_id из заверенного апдейта), а не чат: в
 -- личном диалоге MAX id чата и id человека — разные числа, а права решает,
--- кто пишет. max_chat_id — только адрес для ответа.
+-- кто пишет. Чат не хранится: бот отвечает в тот, откуда пришло сообщение,
+-- а колонка без читателя была бы проводом в никуда (CLAUDE.md, 10.09).
 --
 -- Права не хранятся здесь: на каждом сообщении бот заново читает, есть ли у
 -- пользователя роль администратора (users.role или preferences.roles), —
@@ -40,7 +41,6 @@ CREATE INDEX IF NOT EXISTS idx_admin_max_link_tokens_user
 CREATE TABLE IF NOT EXISTS admin_max_bindings (
   user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   max_user_id  BIGINT NOT NULL UNIQUE,
-  max_chat_id  BIGINT NOT NULL,
   bound_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -50,7 +50,5 @@ COMMENT ON TABLE admin_max_bindings IS
   'Какой человек MAX — администратор этого аккаунта. Права каждый раз читаются из users заново.';
 COMMENT ON COLUMN admin_max_bindings.max_user_id IS
   'id человека в MAX из заверенного апдейта (не id диалога).';
-COMMENT ON COLUMN admin_max_bindings.max_chat_id IS
-  'Личный диалог с ботом — только адрес для ответов.';
 
 COMMIT;

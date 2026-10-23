@@ -235,9 +235,9 @@ withPg('вход через MAX подтверждается вопросом в
       },
     });
 
-    async function binding(): Promise<{ max_user_id: string; max_chat_id: string } | undefined> {
-      const { rows } = await pool.query<{ max_user_id: string; max_chat_id: string }>(
-        'SELECT max_user_id::text, max_chat_id::text FROM admin_max_bindings WHERE user_id = $1', [adminId],
+    async function binding(): Promise<{ max_user_id: string } | undefined> {
+      const { rows } = await pool.query<{ max_user_id: string }>(
+        'SELECT max_user_id::text FROM admin_max_bindings WHERE user_id = $1', [adminId],
       );
       return rows[0];
     }
@@ -258,14 +258,16 @@ withPg('вход через MAX подтверждается вопросом в
       adminId = rows[0].id;
       const { createToken } = await import('@/lib/auth/jwt');
       adminToken = await createToken({ userId: adminId, email: 'max-admin@test.invalid', role: 'admin' });
-      await pool.query(
-        `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
-        [adminId, adminToken],
-      );
     });
 
     beforeEach(async () => {
       await setAdmin(true);
+      // Снятие роли отзывает сессии — каждая проверка начинает с живой.
+      await pool.query('DELETE FROM user_sessions WHERE user_id = $1', [adminId]);
+      await pool.query(
+        `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+        [adminId, adminToken],
+      );
       await pool.query('DELETE FROM admin_max_bindings');
       await pool.query('DELETE FROM admin_max_link_tokens');
     });
@@ -281,7 +283,12 @@ withPg('вход через MAX подтверждается вопросом в
 
       await startWith(arg, ADMIN_MAX);
       expect(sent[sent.length - 1].text).toContain('подключён к Ведару как администратор');
-      expect(await binding()).toEqual({ max_user_id: String(ADMIN_MAX), max_chat_id: String(ADMIN_MAX + 5) });
+      expect(await binding()).toEqual({ max_user_id: String(ADMIN_MAX) });
+      // Состояние для админки — ISO 8601: текстовую форму PostgreSQL Safari не разбирает.
+      const { adminMaxStatus } = await import('@/lib/max/admin-link');
+      const status = await adminMaxStatus(adminId);
+      expect(status.bound).toBe(true);
+      expect(status.boundAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
       sent.length = 0;
       await startWith('', ADMIN_MAX);
@@ -326,6 +333,49 @@ withPg('вход через MAX подтверждается вопросом в
       await startWith(arg, OTHER_MAX);
       expect(sent[sent.length - 1].text).toContain('уже использована');
       expect((await binding())?.max_user_id).toBe(String(ADMIN_MAX));
+    });
+
+    it('тот же человек нажал свою ссылку ещё раз — «уже подключён», без «подключали не вы»', async () => {
+      const arg = startArg((await issueLink()).link!);
+      await startWith(arg, ADMIN_MAX);
+      await startWith(arg, ADMIN_MAX);
+      const last = sent[sent.length - 1].text;
+      expect(last).toContain('Этот MAX уже подключён');
+      expect(last).not.toContain('подключали не вы');
+    });
+
+    it('«Отключить» снимает привязку и гасит выданную, но не нажатую ссылку', async () => {
+      await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+      const pending = startArg((await issueLink()).link!);
+      const { DELETE } = await import('@/app/api/admin/max-link/route');
+      const res = await DELETE(new NextRequest('https://vedarai.ru/api/admin/max-link', {
+        method: 'DELETE', headers: { authorization: `Bearer ${adminToken}` },
+      }));
+      expect(await res.json()).toEqual({ success: true, data: { unbound: true } });
+      expect(await binding()).toBeUndefined();
+      await startWith(pending, OTHER_MAX);
+      expect(sent[sent.length - 1].text).toContain('не найдена');
+      expect(await binding()).toBeUndefined();
+    });
+
+    it('снятие роли в админке отключает MAX и гасит выданные ссылки; вернут роль — подключать заново', async () => {
+      await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+      await issueLink();
+      const { applyAdminRoleChange } = await import('@/lib/auth/admin-role-change');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await applyAdminRoleChange(client, adminId, 'tourist', adminId);
+        await client.query('COMMIT');
+      } finally {
+        client.release();
+      }
+      expect(await binding()).toBeUndefined();
+      const { rows } = await pool.query('SELECT 1 FROM admin_max_link_tokens WHERE used_at IS NULL');
+      expect(rows).toHaveLength(0);
+      await setAdmin(true);
+      const { findMaxAdmin } = await import('@/lib/max/admin-link');
+      expect(await findMaxAdmin(ADMIN_MAX)).toEqual({ outcome: 'none' });
     });
 
     it('новая ссылка отзывает прежнюю, непогашенную', async () => {
