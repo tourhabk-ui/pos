@@ -15,14 +15,18 @@
 --
 -- ── Источник остальных полей ──────────────────────────────────────────────
 -- Сайт оператора laguna-expedition.ru, снятый 23.10.2026: меню и подвал
--- главной. Юрлицо ООО «Экспедиция», ИНН 9717173941, ОГРН 1247700802546,
--- регистрационный номер туроператора В031-00161-77/01703236 — из подвала (те
--- же реквизиты записаны в docs/partners/blue-lagoon-call.md, «Что сверено
--- 23.10»). С ЕГРЮЛ и реестром туроператоров не сверялись: `registry_status`
--- не трогается, отметки «в реестре» страница не рисует. Telegram t.me/
--- laguna_expedition — канал («Камчатка | туры и экскурсии»), поэтому
--- `telegram_channel`; MAX — ссылка с сайта оператора. Город и адрес офиса на
--- сайте не названы — в `location` только край. Описание пересказывает меню
+-- главной, страницы /contacts и /rekvizity. Юрлицо ООО «Экспедиция», ИНН
+-- 9717173941, ОГРН 1247700802546, регистрационный номер туроператора
+-- В031-00161-77/01703236 — из подвала (те же реквизиты записаны в
+-- docs/partners/blue-lagoon-call.md, «Что сверено 23.10»), юридический адрес
+-- в Москве — с /rekvizity. С ЕГРЮЛ и реестром туроператоров не сверялись:
+-- `registry_status` не трогается, отметки «в реестре» страница не рисует.
+-- Telegram t.me/laguna_expedition — канал («Камчатка | туры и экскурсии»),
+-- поэтому `telegram_channel`; MAX — ссылка с сайта оператора. Офис на
+-- Камчатке — с /contacts: Паратунка, ул. Невельского, 6, на территории
+-- СПА-отеля «Лагуна», павильон «Река» (там же /contacts называет и
+-- московский адрес — он юридический и стоит в реквизитах). Адреса — фирмы, не
+-- людей. Описание пересказывает меню
 -- сайта: многодневные туры (осенние, зимние, Новый год и каникулы),
 -- однодневные экскурсии (вездеход Sever Truck, внедорожники Tank-300,
 -- вертолётные, за снегоходом, этнические программы), трансферы; проживание в
@@ -41,7 +45,11 @@
 --
 -- Видна сразу (`is_public`), как «Лагуна Прокат»: владелец ведёт разговор с
 -- группой «Лагуна» и сам велел завести карточку. В списке компаний /operators
--- она стоит по алфавиту с честным «туров пока нет».
+-- она стоит по алфавиту; строки фактов о турах под ней нет, пока у неё нет
+-- живых туров (lib/operators/tour-facts: нет туров — нет строки, а не «0»).
+--
+-- Телефона нет у «Лагуны Прокат» — карточки не будет: без телефона это не
+-- «телефон такой же», а карточка без связи. Исход называется в конце.
 --
 -- IDEMPOTENT. Повтор по slug, названию или ИНН ничего не добавляет и правки
 -- администратора не перетирает. Исход называется вслух в конце.
@@ -73,14 +81,19 @@ SELECT
     'telegram_contact', (SELECT NULLIF(btrim(lp.contacts->>'telegram_contact'), '') FROM partners lp WHERE lp.slug = 'laguna-prokat' LIMIT 1),
     'telegram_channel', 'https://t.me/laguna_expedition',
     'max',              'https://max.ru/u/f9LHodD0cOIBFMRMpY4sXOKCAxf4FQ3LcSK3ygsCzQD8WWMt5CrCm0hkNWw',
-    'website',          'https://laguna-expedition.ru'
+    'website',          'https://laguna-expedition.ru',
+    'address',          'Паратунка, ул. Невельского, 6, на территории СПА-отеля «Лагуна», павильон «Река»'
   )),
-  jsonb_build_object('region', 'Камчатский край'),
+  jsonb_build_object(
+    'region',  'Камчатский край',
+    'address', 'Елизовский район, с. Паратунка, ул. Невельского, 6'
+  ),
   'https://laguna-expedition.ru',
   jsonb_build_object(
     'companyName', 'ООО «Экспедиция»',
     'inn',         '9717173941',
-    'ogrn',        '1247700802546'
+    'ogrn',        '1247700802546',
+    'address',     '127521, г. Москва, проезд 12-й Марьиной Рощи, д. 8, стр. 1'
   ),
   'РТО В031-00161-77/01703236',
   0, 0, FALSE, TRUE, NOW()
@@ -89,25 +102,35 @@ WHERE NOT EXISTS (
    WHERE slug = 'laguna-expedition'
       OR lower(name) LIKE '%лагуна экспедиц%'
       OR legal_info->>'inn' = '9717173941'
+)
+  AND EXISTS (
+  SELECT 1 FROM partners lp
+   WHERE lp.slug = 'laguna-prokat' AND NULLIF(btrim(lp.contacts->>'phone'), '') IS NOT NULL
 );
 
--- Исход называется вслух: карточка одна, и телефон у неё тот же, что у «Лагуны Прокат».
+-- Исход называется вслух: карточка одна, и телефон у неё есть и тот же, что у
+-- «Лагуны Прокат». «Нет телефона у обеих» совпадением не считается.
 DO $$
 DECLARE
+  v_source int;
   v_n int;
   v_same int;
 BEGIN
+  SELECT count(*) INTO v_source FROM partners
+   WHERE slug = 'laguna-prokat' AND NULLIF(btrim(contacts->>'phone'), '') IS NOT NULL;
   SELECT count(*) INTO v_n FROM partners
    WHERE slug = 'laguna-expedition' OR legal_info->>'inn' = '9717173941';
   SELECT count(*) INTO v_same FROM partners e
     JOIN partners lp ON lp.slug = 'laguna-prokat'
    WHERE e.slug = 'laguna-expedition'
-     AND e.contacts->>'phone' IS NOT DISTINCT FROM lp.contacts->>'phone';
-  IF v_n <> 1 THEN
+     AND e.contacts->>'phone' IS NOT NULL
+     AND e.contacts->>'phone' = lp.contacts->>'phone';
+  IF v_source = 0 THEN
+    RAISE WARNING '[1323] «Лагуна Экспедиция» не заведена: у «Лагуны Прокат» нет телефона, «такой же» взять неоткуда';
+  ELSIF v_n <> 1 THEN
     RAISE WARNING '[1323] «Лагуна Экспедиция»: найдено % карточек по slug или ИНН (нужна ровно одна)', v_n;
-  END IF;
-  IF v_same <> 1 THEN
-    RAISE WARNING '[1323] «Лагуна Экспедиция»: телефон не совпал с «Лагуной Прокат» (карточка могла быть заведена раньше)';
+  ELSIF v_same <> 1 THEN
+    RAISE WARNING '[1323] «Лагуна Экспедиция»: телефона нет или он не совпал с «Лагуной Прокат» (карточка могла быть заведена раньше)';
   END IF;
 END $$;
 

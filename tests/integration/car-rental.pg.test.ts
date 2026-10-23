@@ -278,10 +278,17 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       expect(rows).toHaveLength(1);
       const c = rows[0]!;
       expect(c).toMatchObject({ name: 'Лагуна Экспедиция', category: 'operator', is_public: true, is_verified: false });
-      expect(c.legal_info).toEqual({ companyName: 'ООО «Экспедиция»', inn: '9717173941', ogrn: '1247700802546' });
+      expect(c.legal_info).toEqual({
+        companyName: 'ООО «Экспедиция»', inn: '9717173941', ogrn: '1247700802546',
+        address: '127521, г. Москва, проезд 12-й Марьиной Рощи, д. 8, стр. 1',
+      });
       expect(c.registry_number).toBe('РТО В031-00161-77/01703236');
       expect(c.website).toBe('https://laguna-expedition.ru');
-      expect(c.contacts).toMatchObject({ telegram_channel: 'https://t.me/laguna_expedition', website: 'https://laguna-expedition.ru' });
+      expect(c.contacts).toMatchObject({
+        telegram_channel: 'https://t.me/laguna_expedition',
+        website: 'https://laguna-expedition.ru',
+        address: 'Паратунка, ул. Невельского, 6, на территории СПА-отеля «Лагуна», павильон «Река»',
+      });
     });
 
     it('телефон — тот же, что у «Лагуны Прокат», и на витрине, и в админке', async () => {
@@ -317,6 +324,14 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
         `SELECT short_description FROM partners WHERE slug = 'laguna-expedition'`,
       );
       expect(r!.short_description).toBe('Правка администратора');
+    });
+
+    // Последним: портит телефон «Лагуны Прокат» в базе этого файла.
+    it('у «Лагуны Прокат» нет телефона — карточки без связи не будет', async () => {
+      await pool.query(`DELETE FROM partners WHERE slug = 'laguna-expedition'`);
+      await pool.query(`UPDATE partners SET contacts = contacts - 'phone' WHERE slug = 'laguna-prokat'`);
+      await pool.query(readFileSync(EXPEDITION_SEED, 'utf8'));
+      expect(await card()).toHaveLength(0);
     });
   });
 });
