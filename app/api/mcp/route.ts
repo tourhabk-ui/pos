@@ -66,7 +66,7 @@ import { charterAcceptedText, pickCarrier, planCharterRequest } from '@/lib/tran
 import { buildCharterLead, checkCharterDates, saveCharterLead } from '@/lib/transfers/charter-request-service';
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
-import { rentalDays } from '@/lib/rental/rental-request';
+import { rentalDays, rentalDedupPrefix } from '@/lib/rental/rental-request';
 import { buildRentalLead, checkRentalDates, saveRentalLead } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
 import { recordSourceEventQuietly } from '@/lib/crm/events';
@@ -628,7 +628,10 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const facts = { company, offer, dateFrom, dateTo, days: rentalDays(dateFrom, dateTo), comment: notes || null };
   const lead = buildRentalLead(facts, 'mcp');
   if (parsed.data.pickup) lead.sourceData.pickup = parsed.data.pickup;
-  if (isTest) lead.sourceData.test = true;
+  // Пробная живёт под своим ключом повтора: настоящая заявка с тем же
+  // телефоном и датой не должна склеиться с ней и остаться недоставленной.
+  const TEST_MARK = 'ТЕСТ. ';
+  if (isTest) { lead.sourceData.test = true; lead.comment = TEST_MARK + lead.comment; }
   refuseSilentLead(name, phone, lead.comment, lead.sourceData);
 
   // Телефон уходит прокатчику — согласие текстом, который его и называет.
@@ -638,6 +641,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     // Пробная заявка — как свой визит владельца: с пометкой, вне счёта спроса, прокатчика не будит.
     isSelf: ctx.self || isTest,
     sourceUrl: 'mcp://vedar/car-rental',
+    ...(isTest ? { dedupPrefix: TEST_MARK + rentalDedupPrefix(company.name, dateFrom) } : {}),
   });
   if (!leadId) throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
 

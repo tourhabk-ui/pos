@@ -22,4 +22,9 @@ describe('create_car_rental_request', () => {
     expect(ROUTE).toMatch(/recordSourceEventQuietly\(/);
     expect(ROUTE).toMatch(/admitWrite\([^)]*'rental'\)/);
   });
+
+  it('пробная заявка — свой ключ повтора: настоящая с тем же телефоном и датой не склеивается с ней', () => {
+    expect(ROUTE).toMatch(/dedupPrefix: TEST_MARK \+ rentalDedupPrefix\(/);
+    expect(ROUTE).toMatch(/lead\.comment = TEST_MARK \+ lead\.comment/);
+  });
 });
