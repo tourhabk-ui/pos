@@ -30,9 +30,9 @@ No plugin? Put the same row into `~/.dsh/profiles/web/cordis.patch.yml` (identic
 
 Or add it by URL in a settings panel (`dsh-mcp-center`, `dsh-mcp-panel`, `dsh-mcp-connector`): type Streamable HTTP, URL `https://vedarai.ru/api/mcp`, auth none.
 
-## Tools (20)
+## Tools (21)
 
-Read: `get_tours`, `get_tour_details`, `get_tour_availability`, `get_place_info`, `get_volcano_status`, `safety_status`, `get_guardian_context`, `get_weather`, `search_accommodations`, `search_gear`, `search_transfers`, `make_trip_plan`, `edit_trip_plan`, `get_request_status`, `search`, `fetch`.
+Read: `get_tours`, `get_tour_details`, `get_tour_availability`, `get_place_info`, `get_volcano_status`, `safety_status`, `get_guardian_context`, `get_weather`, `search_accommodations`, `search_gear`, `search_transfers`, `search_car_rental`, `make_trip_plan`, `edit_trip_plan`, `get_request_status`, `search`, `fetch`.
 
 Write, four requests confirmed by a human, no online payment: `create_lead`, `create_booking_request`, `create_stay_request`, `request_charter`.
 

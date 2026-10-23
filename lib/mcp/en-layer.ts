@@ -9,7 +9,7 @@ export function llmsEnFile(base: string): string {
   return [
     `# ${MCP_TITLE_EN_FILE}`,
     '',
-    `> Vedar (vedarai.ru, Russian name: Ведар, Chinese name: 维达尔) is a travel platform for the Kamchatka Peninsula, Russia: tours by local operators, accommodation, transfers and vehicle charters, gear rental, volcano and safety status, weather and trip planning. It is free for tourists. Booking requests are confirmed by a human partner; there is no instant booking and no payment through the platform.`,
+    `> Vedar (vedarai.ru, Russian name: Ведар, Chinese name: 维达尔) is a travel platform for the Kamchatka Peninsula, Russia: tours by local operators, accommodation, transfers and vehicle charters, self-drive car rental, gear rental, volcano and safety status, weather and trip planning. It is free for tourists. Booking requests are confirmed by a human partner; there is no instant booking and no payment through the platform.`,
     '',
     `MCP server for AI assistants: ${base}/api/mcp (Streamable HTTP, JSON-RPC 2.0, no auth required). Docs: ${base}/mcp. Manifest: ${base}/.well-known/mcp.json. A2A agent card: ${base}/.well-known/agent-card.json.`,
     '',
@@ -37,6 +37,7 @@ export function llmsEnFile(base: string): string {
     `- Tours catalogue: ${base}/catalog`,
     `- Accommodation: ${base}/accommodations`,
     `- Transfers: ${base}/transfers`,
+    `- Car rental (self-drive): ${base}/car-rental`,
     '',
   ].join('\n');
 }

@@ -210,6 +210,26 @@
   {
     "type": "function",
     "function": {
+      "name": "search_car_rental",
+      "description": "Use when the user asks to rent a car in Kamchatka: self-drive cars from platform rental companies, price per day per vehicle, deposit and terms from the price list. With a driver: search_transfers. Прокат автомобилей на Камчатке — машина БЕЗ водителя у прокатчиков платформы: внедорожники, микроавтобусы, вездеходы; цена за сутки за машину по прайсу, залог, условия прокатчика; у части машин водитель возможен по желанию за отдельную плату. Используй, когда турист хочет взять машину напрокат, спрашивает про аренду авто, джипа, внедорожника, цену за сутки, залог. Машину за туриста не бронирует: заявка — формой на странице прокатчика, подтверждает менеджер Ведара, расчёт — напрямую с прокатчиком. Машин, цен и условий, которых нет в ответе, не выдумывай. Машина с водителем целиком — это трансфер, search_transfers.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "A word about the car: body type (SUV, minibus, off-road truck), model, or \"with driver\"; empty — the whole price list. Слово о машине из вопроса — вид (внедорожник, микроавтобус, вездеход), модель или «с водителем»; без него — весь прайс",
+            "examples": [
+              "внедорожник"
+            ]
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "search_gear",
       "description": "Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops. Найти прокат туристического снаряжения на Камчатке из платформы Ведар с ценами за сутки. Используй когда турист спрашивает где арендовать/взять напрокат снаряжение: палатку, спальник, треккинговые палки, рюкзак, кошки, газовую горелку и т.д. Пустая выдача — норма: прокатов на платформе пока может не быть вовсе, ответ так и скажет; адреса прокатов не выдумывай.",
       "parameters": {

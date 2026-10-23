@@ -50,12 +50,12 @@ export const CHAT_SKILL_ID = 'kuzmich-chat';
 // Русский текст — следом, без сокращений; китайский хвост — последним.
 export const A2A_DESCRIPTION =
   'Vedar Kamchatka travel agent (Russia): live operator tours and availability, safety alerts and conditions, '
-  + 'places, weather, volcano status, stays, gear, transfers and trip plans. Free-text questions (Russian or English) '
+  + 'places, weather, volcano status, stays, gear, transfers, self-drive car rental and trip plans. Free-text questions (Russian or English) '
   + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
   + 'four human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, '
   + 'consent: true required), no instant booking, no payment through the agent, no auth. '
   + 'Русский: агент платформы Ведар о Камчатке: туры операторов с живой занятостью, безопасность мест и обстановка в крае, '
-  + 'жильё, снаряжение, трансферы, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
+  + 'жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
   + 'отвечает Кузьмич, хранитель Камчатки, с теми же инструментами, что у MCP-сервера. Точный вызов инструмента — '
   + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записи четыре и все — '
   + 'заявки, которые подтверждает человек: create_lead, create_booking_request, create_stay_request, request_charter '
@@ -79,6 +79,7 @@ export const SKILL_TAGS: Record<string, string[]> = {
   get_volcano_status:     ['kamchatka', 'volcano', 'kvert', 'seismicity'],
   search_accommodations:  ['kamchatka', 'stays', 'accommodation', 'hotels'],
   search_transfers:       ['kamchatka', 'transfers', 'charter', 'vakhtovka'],
+  search_car_rental:      ['kamchatka', 'car-rental', 'self-drive', 'suv', 'price-per-day'],
   search_gear:            ['kamchatka', 'gear', 'rental'],
   make_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'weather'],
   edit_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'edit'],
@@ -112,6 +113,7 @@ const ARG_EXAMPLES: Record<string, Record<string, unknown>> = {
   get_volcano_status: { volcano: 'Шивелуч' },
   search_accommodations: { zone: 'Паратунка' },
   search_transfers: { place: 'Горелый' },
+  search_car_rental: { query: 'внедорожник' },
   search_gear: { query: 'палатка' },
   make_trip_plan: { days: '5', interests: 'вулканы, медведи', when: 'август' },
   search: { query: 'Курильское озеро медведи' },
@@ -129,6 +131,7 @@ const TEXT_EXAMPLES: Record<string, string[]> = {
   get_tour_availability: ['Есть ли места на Курильское озеро 12 августа на двоих?'],
   safety_status: ['Какая обстановка на Камчатке сейчас: вулканы, землетрясения, погода?'],
   get_guardian_context: ['Опасно ли идти на Горелый в эти выходные?'],
+  search_car_rental: ['Сколько стоит взять внедорожник напрокат на сутки без водителя?', 'Rent a self-drive SUV in Kamchatka: price per day and deposit'],
   make_trip_plan: ['Составь план на 5 дней: вулканы и медведи, август, двое взрослых'],
 };
 
@@ -154,7 +157,7 @@ export function buildSkills(): AgentSkill[] {
     description:
       'Свободный вопрос текстом (TextPart), по-русски или по-английски. Отвечает Кузьмич — хранитель Камчатки — '
       + 'данными из инструментов платформы: туры и занятость, безопасность и обстановка, места, погода, жильё, '
-      + 'трансферы, план поездки. Заявки в этом режиме не оформляются: для них — навыки create_* с DataPart. '
+      + 'трансферы, прокат машин без водителя, план поездки. Заявки в этом режиме не оформляются: для них — навыки create_* с DataPart. '
       + 'Free-text question in Russian or English, answered with platform data; requests only via create_* skills.',
     tags: ['kamchatka', 'assistant', 'free-text', 'travel', 'safety'],
     examples: TEXT_EXAMPLES[CHAT_SKILL_ID] ?? [],
