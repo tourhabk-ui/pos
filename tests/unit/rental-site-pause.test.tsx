@@ -54,6 +54,10 @@ import { collectSitemapEntriesWithStatus } from '@/lib/seo/sitemap-entries';
 import { loadCarrierPage } from '@/lib/transfers/carrier-page';
 import { DeskTours } from '@/components/homepage/desk/DeskTours';
 import HomeV8Client from '@/app/_home/_HomeV8Client';
+import type { HomeWeather } from '@/lib/weather/home-widget-types';
+
+/** Виджет погоды главной (23.10) здесь не предмет проверки: исход без сети и без цифр. */
+const NO_WEATHER: HomeWeather = { kind: 'failed' };
 import type { HomeV8Data } from '@/app/_home/data';
 import type { RentalCompany, RentalCompanyProfile } from '@/lib/rental/rental-format';
 import type { CarrierProfile } from '@/lib/transfers/charter-format';
@@ -236,11 +240,11 @@ describe('двери «Прокат» на главной', () => {
       plates: [], transfer: null, stay: null, explore: [], feed: [], stats: [], elements: [],
     };
     const doors = (c: HTMLElement) => [...c.querySelectorAll('nav[aria-label="Инструменты поездки"] > a')].map((a) => a.getAttribute('href'));
-    const off = render(<HomeV8Client data={{ ...data, rentalDoor: false }} />);
-    expect(doors(off.container)).toEqual(['/planner', '/safety#radar', '/catalog', '/transfers', '/accommodations']);
+    const off = render(<HomeV8Client data={{ ...data, rentalDoor: false }} weather={NO_WEATHER} />);
+    expect(doors(off.container)).toEqual(['/planner', '/safety#radar', '/weather', '/catalog', '/transfers', '/accommodations']);
     off.unmount();
-    const on = render(<HomeV8Client data={data} />);
-    expect(doors(on.container)).toEqual(['/planner', '/safety#radar', '/catalog', '/transfers', '/accommodations', '/car-rental']);
+    const on = render(<HomeV8Client data={data} weather={NO_WEATHER} />);
+    expect(doors(on.container)).toEqual(['/planner', '/safety#radar', '/weather', '/catalog', '/transfers', '/accommodations', '/car-rental']);
     vi.unstubAllGlobals();
   });
 });
