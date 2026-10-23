@@ -1,8 +1,8 @@
 /**
- * Небо по коду WMO — без импортов: его читают и сервер (сцена страницы
- * погоды, lib/weather/scene), и браузер (тип виджета главной,
- * lib/weather/home-widget-types). Модуль с импортами здесь протащил бы в
- * клиентский бандл цепочку до node:crypto (сторож client-no-node-builtins).
+ * Небо по коду WMO — без импортов: его читает сцена страницы погоды
+ * (lib/weather/scene), а её правила зовут и клиентские модули. Модуль с
+ * импортами здесь протащил бы в клиентский бандл цепочку до node:crypto
+ * (сторож client-no-node-builtins).
  */
 export type WeatherSky = 'clear' | 'cloud' | 'fog' | 'rain' | 'snow' | 'storm';
 

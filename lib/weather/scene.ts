@@ -1,10 +1,10 @@
 /**
  * Сцена погоды: небо и время суток из уже полученного прогноза.
  *
- * Одно правило на страницу погоды (/weather, components/weather/WeatherView)
- * и на виджет главной (lib/weather/home-widget): фон по небу и периоду
- * (.wx-scene в app/globals.css) обязан совпадать там и там, иначе на главной
- * «день, ясно», а на странице, куда ведёт виджет, — «ночь, пасмурно».
+ * Фон по небу и периоду (.wx-scene в app/globals.css) — у героя страницы
+ * погоды (/weather, components/weather/WeatherView). Виджет главной
+ * (lib/weather/home-widget) берёт отсюда день или ночь для своего знака:
+ * иначе на главной «день», а на странице, куда он ведёт, — «ночь».
  * Новых данных сцена не просит.
  */
 import type { ForecastHour } from '@/lib/planner/intelligence';

@@ -6,9 +6,10 @@
  * Источник — тот же, что у /weather, Кузьмича и экрана безопасности:
  * `loadPlaceWeather` → `fetchForecastDays` (кэш на три часа общий, своего
  * запроса к Open-Meteo виджет не делает), место — Петропавловск, как у
- * страницы /weather. Сцена (фон по небу и времени суток) — правило
+ * страницы /weather. День или ночь (знак луны или солнца) — правило
  * lib/weather/scene, то же, что у героя страницы: виджет и страница, куда он
- * ведёт, не расходятся.
+ * ведёт, не расходятся. Фона сцены у плитки с вечера 23.10 нет: она стекло,
+ * как соседние плитки главной.
  *
  * ── Исходы (§4.0) ──────────────────────────────────────────────────────────
  *  - ok      — прогноз есть; чего в нём нет (температуры, ветра), того нет и в
@@ -67,9 +68,6 @@ export function homeWeatherFrom(w: PlaceWeather, warnings: WarningsRead, now: Da
     isDay: scene.period === 'day',
     sky: (w.now?.description ?? hour?.description ?? (day ? skyWords(day) : null))?.toLowerCase() ?? null,
     wind: windKmh === null ? null : windLine(windKmh),
-    scene: scene.name,
-    period: scene.period,
-    skyKind: scene.sky,
     days: w.days
       .filter((d) => d.date > today)
       .slice(0, HOME_WEATHER_DAYS)
