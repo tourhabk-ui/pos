@@ -265,7 +265,9 @@ describe('max-webhook — отметка под ключом реестра max-
   const call = async () => (await import('@/app/api/cron/max-webhook/route')).GET(new Request('https://vedarai.ru/api/cron/max-webhook', { headers: { authorization: 'Bearer cron-test' } }));
 
   it('подписка на месте — success', async () => {
-    maxFetch.mockResolvedValue(new Response(JSON.stringify({ subscriptions: [{ url: 'https://vedarai.ru/api/max/kuzmich' }] }), { status: 200 }));
+    // Свой ответ на каждый вызов: крон зовёт MAX дважды (команды бота, затем
+    // подписки), а тело одного Response читается один раз.
+    maxFetch.mockImplementation(async () => new Response(JSON.stringify({ subscriptions: [{ url: 'https://vedarai.ru/api/max/kuzmich' }] }), { status: 200 }));
     const res = await call();
     expect(res.status).toBe(200);
     expect(runRows()).toEqual([{ agentId: agentOf('max-webhook'), status: 'success' }]);
