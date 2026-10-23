@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-23 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1318_laguna_prokat_carrier_and_rental.sql`.
+> Снято 2026-10-23 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1320_laguna_prokat_logo.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 285 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3802 |
+| Колонок | 3803 |
 | Внешних ключей | 335 |
 | Таблиц без единого FK в обе стороны | 84 |
 
@@ -1397,9 +1397,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `task_id varchar!` `record jsonb!` `created_at timestamptz!=` `expires_at timestamptz!`
 
-**car_rental_offers** · 19 кол. · PK id · partner_id → partners.id · индексов 3
+**car_rental_offers** · 20 кол. · PK id · partner_id → partners.id · индексов 3
 
-`id uuid!=` `partner_id uuid!` `title varchar!` `body_kind varchar!` `seats integer` `transmission varchar` `drive varchar` `engine_hp integer` `price_rub_per_day integer!` `price_is_from boolean!=` `deposit_rub integer` `driver varchar!` `conditions text` `source_url text` `prices_seen_on date` `sort_order integer!=` `is_active boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `partner_id uuid!` `title varchar!` `body_kind varchar!` `seats integer` `transmission varchar` `drive varchar` `engine_hp integer` `price_rub_per_day integer!` `price_is_from boolean!=` `deposit_rub integer` `driver varchar!` `conditions text` `source_url text` `prices_seen_on date` `sort_order integer!=` `is_active boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=` `photo_url text`
 
 **car_rental_terms** · 5 кол. · PK partner_id · partner_id → partners.id · индексов 1
 
