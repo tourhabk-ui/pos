@@ -3,14 +3,22 @@
  * мессенджеры с официальными знаками. На мобильной главной с 23.10 — столбик
  * в герое под «Поделиться» (HeroKuzmichChats). Судим рендером, не исходником.
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup, screen } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, cleanup, screen, within } from '@testing-library/react';
 import React from 'react';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 import { HeroKuzmichChats } from '@/components/homepage/HeroKuzmichChats';
 import { KUZMICH_TELEGRAM_URL, KUZMICH_MAX_URL } from '@/components/shared/KuzmichContacts';
 import { VedarChatIcon, VEDAR_CHAT_MARK_PATH } from '@/components/shared/MessengerIcons';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
+import HomeV8Client from '@/app/_home/_HomeV8Client';
+import type { HomeV8Data } from '@/app/_home/data';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -147,5 +155,33 @@ describe('фирменный знак чата Ведара', () => {
     expect(paths.some((n) => (n.getAttribute('fill') ?? '').includes('--accent') && (n.getAttribute('stroke') ?? '').includes('--accent'))).toBe(true);
     expect(paths.some((n) => n.getAttribute('d') === VEDAR_CHAT_MARK_PATH && n.getAttribute('fill') === '#FFFFFF')).toBe(true);
     expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+// Владелец 23.10: «“Проводник Кузьмич” да убери, есть в нижней панели мишка».
+// На мобильной главной Кузьмич — медальон таб-бара и чаты в герое; блока с
+// портретом и цитатой ниже по странице нет.
+describe('мобильная главная: Кузьмич в герое и в таб-баре, блока «Проводник Кузьмич» нет', () => {
+  const DATA: HomeV8Data = {
+    safety: { activeCount: 0, maxSeverity: 0, alerts: [], volcanoes: [], updatedAt: null },
+    seismic: { events: [], source: 'none', updatedAt: null, checkedAt: null },
+    radar: { hazards: [], center: { lat: 53.04, lng: 158.65, label: 'Петропавловск-Камчатский' } },
+    zones: { open: 0, total: 0, updatedAt: null },
+    plates: [], transfer: null, stay: null, explore: [], feed: [], stats: [], elements: [],
+  };
+
+  it('нет заголовка и портрета проводника; чаты в герое и медальон таб-бара ведут к Кузьмичу', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const { container } = render(<HomeV8Client data={DATA} />);
+    const headings = [...container.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+    expect(headings).not.toContain('Проводник Кузьмич');
+    expect(container.querySelector('img[src*="kuzmich/portrait"]')).toBeNull();
+
+    const hero = screen.getByRole('group', { name: 'Спросить Кузьмича' });
+    expect(within(hero).getByRole('link', { name: 'Спросить на сайте' }).getAttribute('href')).toBe('/kuzmich');
+
+    const tabbar = screen.getByRole('navigation', { name: 'Основная навигация' });
+    expect(within(tabbar).getByRole('link', { name: 'Кузьмич' }).getAttribute('href')).toBe('/kuzmich');
+    vi.unstubAllGlobals();
   });
 });

@@ -46,6 +46,9 @@ function fakeMax(initial: string[], opts: {
     } else if (method === 'POST') {
       const target = (JSON.parse(String(init?.body)) as { url: string }).url;
       reply = opts.onPost ? opts.onPost(target, subs) : (subs.add(target), new Response(JSON.stringify({ success: true }), { status: 200 }));
+    } else if (method === 'PATCH') {
+      // Список команд бота (lib/max/bot-commands) — к подпискам не относится.
+      reply = new Response(JSON.stringify({ success: true }), { status: 200 });
     } else {
       const target = decodeURIComponent(url.split('url=')[1] ?? '');
       reply = opts.onDelete ? opts.onDelete(target, subs) : (subs.delete(target), new Response(JSON.stringify({ success: true }), { status: 200 }));
@@ -86,10 +89,12 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
   });
 
   it('подписка на месте → noop, повторно не регистрирует', async () => {
-    const fetchMock = vi.fn(async (_url: string, opts?: { method?: string }) => {
+    const fetchMock = vi.fn(async (url: string, opts?: { method?: string }) => {
       if (!opts || opts.method === 'GET' || opts.method === undefined) {
         return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK }] }), { status: 200 });
       }
+      // Список команд бота ставится каждым прогоном (lib/max/bot-commands, 23.10).
+      if (opts.method === 'PATCH' && url.endsWith('/me/commands')) return ok();
       throw new Error('POST не должен вызываться, когда подписка уже есть');
     });
     // Запросы к API MAX идут через maxFetch (корень Минцифры) — подменяем его.
@@ -99,8 +104,24 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.action).toBe('noop');
-    // ровно один вызов — только GET-проверка, без POST-регистрации
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(body.bot_commands).toEqual({ state: 'ok' });
+    // GET-проверка и команды бота — без POST-регистрации
+    expect(fetchMock.mock.calls.map((c) => (c[1] as { method?: string } | undefined)?.method ?? 'GET')).toEqual(['PATCH', 'GET']);
+  });
+
+  it('команды бота не поставились — исход в ответе и в логе, а подписка решает цвет прогона', async () => {
+    const fetchMock = vi.fn(async (url: string, opts?: { method?: string }) => {
+      if (opts?.method === 'PATCH' && url.endsWith('/me/commands')) return new Response('{}', { status: 503 });
+      return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK }] }), { status: 200 });
+    });
+    vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const res = await callRoute();
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.bot_commands).toEqual({ state: 'failed', reason: 'HTTP 503' });
+    expect(errorLog.mock.calls.map((c) => String(c[0])).join('\n')).toContain('[max/bot-commands]');
   });
 
   it('подписки нет → регистрирует заново, и повторный список это подтверждает', async () => {

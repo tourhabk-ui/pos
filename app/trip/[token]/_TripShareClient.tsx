@@ -13,6 +13,7 @@ import { withReferral } from '@/lib/referral/link';
 import { tourPath } from '@/lib/tours/tour-url';
 import { dayPriceLine } from '@/lib/planner/day-price';
 import { OfflineSave } from './_OfflineSave';
+import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -307,7 +308,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               onClick={() => funnelBeacon('plan_sent_to_telegram', token)}>
               <ExternalLink className="w-4 h-4" />Telegram
             </a>
-            <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"
+            <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
               style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
               <ExternalLink className="w-4 h-4" />MAX

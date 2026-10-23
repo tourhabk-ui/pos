@@ -54,6 +54,7 @@ import type {
 } from './planner-types';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { tourPath } from '@/lib/tours/tour-url';
+import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -2878,7 +2879,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   onClick={() => funnelBeacon('plan_sent_to_telegram', tripId ?? undefined)}>
                   <ExternalLink className="w-3.5 h-3.5" />Telegram
                 </a>
-                <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"
+                <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
                   style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
                   <ExternalLink className="w-3.5 h-3.5" />MAX
