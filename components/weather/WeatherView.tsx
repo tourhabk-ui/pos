@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import {
-  AlertTriangle, CalendarDays, ChevronDown, Clock, Cloud, CloudFog, CloudLightning, CloudMoon, CloudRain, CloudSnow, CloudSun,
-  Compass, Droplets, Eye, Gauge, MapPin, Moon, Phone, Sun, Sunrise, Thermometer, Umbrella, Wind,
+  AlertTriangle, CalendarDays, ChevronDown, Clock, Cloud, CloudSun,
+  Compass, Droplets, Eye, Gauge, MapPin, Phone, Sun, Sunrise, Thermometer, Umbrella, Wind,
 } from 'lucide-react';
-import type { ForecastDay, ForecastHour } from '@/lib/planner/intelligence';
+import type { ForecastDay } from '@/lib/planner/intelligence';
 import { METEOALERT_PAGE } from '@/lib/services/safety/meteoalert';
 import {
   DEFAULT_WEATHER_SLUG, WEATHER_GROUP_LABELS, WEATHER_PLACES, weatherPlaceHref, type WeatherPlaceGroup,
@@ -15,6 +15,11 @@ import {
   skyWords, tempRange, uvWords, visibilityLine, warningsSummary, windDirectionWords, windLine,
 } from '@/lib/weather/weather-format';
 import { PRECIP_DRY_MM } from '@/lib/weather/day-parts';
+import { currentHour, weatherScene, type OkWeather } from '@/lib/weather/scene';
+import { ConditionIcon } from '@/components/weather/ConditionIcon';
+
+// Страница погоды отдаёт правила сцены и наружу: их судят тесты страницы.
+export { weatherScene, weatherSky, type WeatherSky } from '@/lib/weather/scene';
 import {
   arcPoint, daylightFraction, minutesOf, ringDash, tempCurve, uvMarkerPercent, windArrowRotation,
 } from '@/lib/weather/wx-instruments';
@@ -51,22 +56,6 @@ const CURVE_H = 72;
 
 function addDays(iso: string, n: number): string {
   return new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-}
-
-function ConditionIcon({ code, isDay, size = 22, wx = false, className = '' }: {
-  code: number | null; isDay?: boolean; size?: number; wx?: boolean; className?: string;
-}) {
-  const tone = wx ? 'text-[var(--wx-icon)]' : 'text-[var(--ocean)]';
-  const sun = wx ? 'text-[var(--wx-sun)]' : 'text-[var(--ocean)]';
-  const cls = (t: string) => `shrink-0 ${t} ${className}`.trim();
-  if (code === null) return <Cloud size={size} aria-hidden className={cls(tone)} />;
-  if (code === 0) return isDay === false ? <Moon size={size} aria-hidden className={cls(tone)} /> : <Sun size={size} aria-hidden className={cls(sun)} />;
-  if (code <= 2) return isDay === false ? <CloudMoon size={size} aria-hidden className={cls(tone)} /> : <CloudSun size={size} aria-hidden className={cls(tone)} />;
-  if (code === 3) return <Cloud size={size} aria-hidden className={cls(tone)} />;
-  if (code <= 48) return <CloudFog size={size} aria-hidden className={cls(tone)} />;
-  if (code >= 95) return <CloudLightning size={size} aria-hidden className={cls(tone)} />;
-  if ((code >= 71 && code <= 77) || code >= 85) return <CloudSnow size={size} aria-hidden className={cls(tone)} />;
-  return <CloudRain size={size} aria-hidden className={cls(tone)} />;
 }
 
 /** День ли в этот час — по восходу и закату его дня; не знаем — undefined. */
@@ -230,58 +219,7 @@ function PlaceSwitcher({ current, scene = false }: { current: string; scene?: bo
   );
 }
 
-/* ── Сцена: период и небо из уже имеющихся данных ─────────────────────── */
-
-type OkWeather = Extract<PlaceWeather, { kind: 'ok' }>;
-
-function currentHour(w: OkWeather): ForecastHour | null {
-  if (!w.hours || w.hours.length === 0) return null;
-  const prefix = w.now?.time ? w.now.time.slice(0, 13) : null;
-  if (prefix) {
-    const hit = w.hours.find((h) => h.time.startsWith(prefix));
-    if (hit) return hit;
-  }
-  return w.hours[0];
-}
-
-export type WeatherSky = 'clear' | 'cloud' | 'fog' | 'rain' | 'snow' | 'storm';
-
-export function weatherSky(code: number | null): WeatherSky {
-  if (code === null) return 'cloud';
-  if (code === 0 || code === 1) return 'clear';
-  if (code === 2 || code === 3) return 'cloud';
-  if (code <= 48) return 'fog';
-  if (code >= 95) return 'storm';
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
-  return 'rain';
-}
-
-/**
- * День или ночь для сцены: сначала is_day источника; если его нет —
- * местное время прогноза между восходом и закатом этого дня; дальше —
- * час того же местного времени. Новых данных сцена не просит.
- */
-export function weatherScene(w: OkWeather, today: string): { name: string; period: 'day' | 'night'; sky: WeatherSky } {
-  const day = w.days.find((d) => d.date === today) ?? w.days[0];
-  const hour = currentHour(w);
-  const code = w.now?.weatherCode ?? hour?.weatherCode ?? day?.weatherCode ?? null;
-  const sky = weatherSky(code);
-  let period: 'day' | 'night' | null = null;
-  if (w.now?.isDay === true) period = 'day';
-  else if (w.now?.isDay === false) period = 'night';
-  if (period === null) {
-    const nowHm = hhmm(w.now?.time ?? hour?.time);
-    const sunrise = hhmm(day?.sunrise);
-    const sunset = hhmm(day?.sunset);
-    if (nowHm && sunrise && sunset) period = nowHm >= sunrise && nowHm < sunset ? 'day' : 'night';
-    else if (nowHm) {
-      const h = Number(nowHm.slice(0, 2));
-      period = h >= 7 && h < 20 ? 'day' : 'night';
-    }
-  }
-  const resolved = period ?? 'day';
-  return { name: `${resolved}-${sky}`, period: resolved, sky };
-}
+/* ── Сцена: период и небо — lib/weather/scene (общая с виджетом главной) ── */
 
 /** Силуэт Камчатки одним слоем: дальняя гряда и конус вулкана. */
 function SceneSilhouette() {

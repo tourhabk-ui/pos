@@ -54,7 +54,10 @@ describe('плитки на главной', () => {
     // Полноширинной карточки по-прежнему нет.
     expect(HOME).toMatch(/\.v7 \.qtools\{[^}]*grid-template-columns:repeat\(12,minmax\(0,1fr\)\)/);
     expect(HOME).toMatch(/\.v7 \.qtools > \.qt\{grid-column:span 6\}/);
-    expect(HOME).not.toMatch(/grid-column:1 ?\/ ?-1|grid-column:span 12/);
+    // Во всю ширину сетки — только виджет погоды (владелец 23.10: «длинный
+    // стильный виджет с погодой» между рядами); других полноширинных плиток нет.
+    const fullWidth = [...HOME.matchAll(/(?:^|\n)([^{\n]*)\{[^}]*grid-column:(?:1 ?\/ ?-1|span 12)/g)].map((m) => m[1].trim());
+    expect(fullWidth).toEqual(['.v7 nav.qt-top > .hw']);
     expect(HOME).not.toMatch(/className="planline"|<section className="live">/);
   });
 
