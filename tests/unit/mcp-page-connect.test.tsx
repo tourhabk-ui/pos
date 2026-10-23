@@ -79,10 +79,10 @@ describe('/mcp: таблица написаний транспорта', () => {
 });
 
 describe('/mcp: правда о записях и лимитах', () => {
-  it('записей четыре, подтверждает человек; лимиты — числа сервера; мост mcp-remote назван', () => {
+  it('записей пять, подтверждает человек; лимиты — числа сервера; мост mcp-remote назван', () => {
     const { container } = page();
     const text = container.textContent ?? '';
-    expect(text).toContain('Записей четыре');
+    expect(text).toContain('Записей пять');
     expect(text).not.toMatch(/записи две/);
     expect(text).toContain('подтверждает её человек');
     expect(text).toContain(`чтение — ${MCP_READ_PER_MINUTE} вызовов в минуту`);
