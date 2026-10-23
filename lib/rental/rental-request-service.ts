@@ -124,6 +124,7 @@ function deliverToCompany(leadId: string, i: SaveRentalLeadInput): void {
     partnerId, leadId, kind: 'car_rental',
     lines: rentalRequestLines(i.facts),
     name: i.name, phone: i.phone, comment: i.facts.comment,
+    companySlug: i.facts.company.slug,
   })
     .then((outcome) => recordPartnerDelivery(leadId, partnerId, outcome))
     .catch((err: unknown) => {

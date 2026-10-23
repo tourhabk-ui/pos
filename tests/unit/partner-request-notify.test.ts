@@ -9,7 +9,8 @@
  *   · адрес — только партнёра (`to`), без отката на рабочий чат платформы;
  *   · ПД заказчика — только в тексте для MAX; заглушка для Telegram без ПД и
  *     без слов про кабинет (у перевозчика и прокатчика кабинета заявок нет);
- *   · кнопок нет: действие в личном чате бот не принимает, ссылки некуда;
+ *   · у заявки на машину кнопок нет; у проката пилота — «Беру» / «Не могу»
+ *     (payload, без url: в заглушку Telegram такие кнопки не попадают);
  *   · исходов четыре: доставлено / заглушка / нет канала / адрес не прочитался;
  *   · факты для партнёра — без его телефона и без заметок менеджеру;
  *   · оба сервиса записи зовут доставку после createLead, пишут исход в журнал
@@ -30,7 +31,7 @@ vi.mock('@/lib/leads/create', () => ({
 vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: (...a: unknown[]) => recordMock(...a) }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
-import { notifyPartnerRequestPersonally, partnerRequestTexts, type PartnerRequestNotice } from '@/lib/notifications/partner-request-notify';
+import { notifyPartnerRequestPersonally, partnerRequestButtons, partnerRequestTexts, type PartnerRequestNotice } from '@/lib/notifications/partner-request-notify';
 import { charterRequestLines, planCharterRequest, type CharterRequestFacts } from '@/lib/transfers/charter-request';
 import { rentalRequestLines, type RentalRequestFacts } from '@/lib/rental/rental-request';
 import { saveCharterLead } from '@/lib/transfers/charter-request-service';
@@ -134,6 +135,36 @@ describe('доставка: адрес партнёра, четыре исход
     quiet.mockRestore();
   });
 
+  it('прокат пилота — кнопки «Беру» и «Не могу» без ссылок; перевозчик, чужой slug и пустой список — без кнопок', async () => {
+    const leadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const rental: PartnerRequestNotice = {
+      ...NOTICE, kind: 'car_rental', leadId, companySlug: 'laguna-prokat',
+      lines: ['Машина: Suzuki Jimny — 7 000 ₽/сутки, без водителя'],
+    };
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
+    const buttons = partnerRequestButtons(rental);
+    expect(buttons).toEqual([
+      { text: 'Беру', payload: `rr:y:${leadId}` },
+      { text: 'Не могу', payload: `rr:n:${leadId}` },
+    ]);
+    expect(buttons?.every((b) => !('url' in b))).toBe(true);
+    expect(partnerRequestTexts(rental).text).toContain('«Беру» отмечает эти дни занятыми');
+    expect(partnerRequestTexts(rental).stub).not.toContain('Беру');
+    expect(partnerRequestTexts(rental).stub).not.toContain('+79001234567');
+
+    reachMock.mockResolvedValue(BOUND);
+    expect(await notifyPartnerRequestPersonally(rental)).toEqual({ state: 'delivered', channel: 'max' });
+    expect(lastPd().buttons).toEqual(buttons);
+    expect(lastPd().stub).not.toContain('Анна');
+
+    expect(partnerRequestButtons({ ...rental, kind: 'charter', companySlug: 'laguna-prokat' })).toBeUndefined();
+    expect(partnerRequestButtons({ ...rental, companySlug: 'fishing' })).toBeUndefined();
+    expect(partnerRequestButtons({ ...rental, leadId: 'lead-7' })).toBeUndefined();
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', '');
+    expect(partnerRequestButtons(rental)).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
   it('заглушка и отказ — не доставка', async () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     reachMock.mockResolvedValue(BOUND);
@@ -214,8 +245,23 @@ describe('сервисы записи зовут доставку после cre
     await flush();
     expect(lastPd().text).toContain('Новая заявка на прокат с Ведара');
     expect(lastPd().text).toContain('Машина: Suzuki Jimny');
+    expect(lastPd().buttons).toBeUndefined();
     expect(recordMock).toHaveBeenCalledWith('lead-7', 'p-lp', { state: 'delivered', channel: 'max' });
 
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
+    createLeadMock.mockResolvedValue('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    await saveRentalLead({
+      facts: rentalFacts(), lead: { comment: '[Заявка на прокат] …', sourceData: { kind: 'car_rental' } },
+      name: 'Анна Петрова', phone: '+79001234567', consent: null, isSelf: false, sourceUrl: 'https://vedarai.ru/car-rental/laguna-prokat',
+    });
+    await flush();
+    expect(lastPd().buttons).toEqual([
+      { text: 'Беру', payload: 'rr:y:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      { text: 'Не могу', payload: 'rr:n:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+    ]);
+    vi.unstubAllEnvs();
+
+    createLeadMock.mockResolvedValue('lead-7');
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     reachMock.mockRejectedValue(new Error('сеть упала, телефон +79001234567 не при чём'));
     const again = await saveRentalLead({

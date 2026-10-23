@@ -43,7 +43,8 @@ export function isRentalPilotSlug(slug: string | null | undefined, raw?: string)
 /** Ответ в MAX после «Старт» по ссылке op_, когда партнёр в пилоте. Канал шлёт HTML. */
 export function rentalPilotBoundText(partnerName: string): string {
   return `Готово: вы подключены как прокатчик «${escapeHtml(partnerName)}». `
-    + 'Сюда будут приходить заявки на прокат с именем и телефоном заказчика.';
+    + 'Сюда будут приходить заявки на прокат с именем и телефоном заказчика. '
+    + 'Под заявкой — «Беру» и «Не могу»: «Беру» отмечает эти дни занятыми.';
 }
 
 /**
@@ -52,5 +53,6 @@ export function rentalPilotBoundText(partnerName: string): string {
  */
 export function rentalPilotGreeting(partnerName: string): string {
   return `Вы подключены как прокатчик «${escapeHtml(partnerName)}». `
-    + 'Этот «Старт» без ссылки ничего не переключает: чат уже ваш, заявки на прокат приходят сюда.';
+    + 'Этот «Старт» без ссылки ничего не переключает: чат уже ваш, заявки на прокат приходят сюда. '
+    + 'На заявке — «Беру» и «Не могу».';
 }

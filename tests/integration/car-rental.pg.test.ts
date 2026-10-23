@@ -369,4 +369,45 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       [offer!.id],
     ))).toBe('23514');
   });
+
+  it('«Беру» отмечает дни заявки source=request и пишет журнал; чужая машина — нет', async () => {
+    const { rows: [offer] } = await pool.query<{ id: string; partner_id: string }>(
+      `SELECT o.id::text AS id, o.partner_id::text AS partner_id
+         FROM car_rental_offers o
+         JOIN partners p ON p.id = o.partner_id
+        WHERE p.slug = 'laguna-prokat' AND o.title = 'Suzuki Jimny'`,
+    );
+    expect(offer?.id).toBeTruthy();
+    const { rows: [lead] } = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, created_at)
+       VALUES ('Заказчик', '+79990001122', 'тест', 'new', $1, $2::jsonb, NOW())
+       RETURNING id::text AS id`,
+      [offer!.partner_id, JSON.stringify({
+        kind: 'car_rental', company_id: offer!.partner_id, offer_id: offer!.id,
+        offer_title: 'Suzuki Jimny', date_from: '2026-11-10', date_to: '2026-11-12',
+      })],
+    );
+    const {
+      loadOwnedRentalRequest, markRequestBusy, readPartnerAnswer, writePartnerAnswer,
+    } = await import('@/lib/rental/request-answer-store');
+    const loaded = await loadOwnedRentalRequest(offer!.partner_id, lead!.id);
+    expect(loaded.outcome).toBe('ok');
+    if (loaded.outcome !== 'ok') return;
+    expect(loaded.request.offerId).toBe(offer!.id);
+    expect(await readPartnerAnswer(lead!.id)).toBe('none');
+    const marked = await markRequestBusy(offer!.partner_id, offer!.id, '2026-11-10', '2026-11-12', lead!.id);
+    expect(marked).toEqual({ outcome: 'saved', marked: 3 });
+    const { rows: busy } = await pool.query<{ day: string; source: string; lead_id: string; busy: boolean }>(
+      `SELECT day::text AS day, source, lead_id::text AS lead_id, busy
+         FROM rental_car_busy WHERE offer_id = $1 AND day >= '2026-11-10' AND day <= '2026-11-12'
+         ORDER BY day`,
+      [offer!.id],
+    );
+    expect(busy.map((r) => r.day)).toEqual(['2026-11-10', '2026-11-11', '2026-11-12']);
+    expect(busy.every((r) => r.busy && r.source === 'request' && r.lead_id === lead!.id)).toBe(true);
+    expect(await markRequestBusy('00000000-0000-4000-8000-000000000099', offer!.id, '2026-11-10', '2026-11-12', lead!.id)).toEqual({ outcome: 'not_yours' });
+    expect(await writePartnerAnswer(lead!.id, 'take', { days_marked: 3 })).toBe('saved');
+    expect(await readPartnerAnswer(lead!.id)).toBe('take');
+    expect(await loadOwnedRentalRequest('00000000-0000-4000-8000-000000000099', lead!.id)).toEqual({ outcome: 'not_yours' });
+  });
 });

@@ -1,0 +1,185 @@
+/**
+ * Чтение заявки проката и запись ответа прокатчика.
+ * Партнёр — из привязанного чата: чужой lead_id строку не создаёт.
+ * Отказ базы — отдельный исход, с SQLSTATE в логе, без ПД.
+ */
+
+import { pool } from '@/lib/db-pool';
+import { isLeadId, rentalSpanDays, type RequestAnswer } from '@/lib/rental/request-answer';
+
+export interface OwnedRentalRequest {
+  leadId: string;
+  offerId: string | null;
+  title: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+}
+
+export type LoadRequest =
+  | { outcome: 'ok'; request: OwnedRentalRequest }
+  | { outcome: 'missing' | 'not_yours' | 'not_rental' | 'db_error' };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+export async function loadOwnedRentalRequest(partnerId: string, leadId: string): Promise<LoadRequest> {
+  if (!isLeadId(leadId) || !isLeadId(partnerId)) return { outcome: 'missing' };
+  try {
+    const { rows } = await pool.query<{ id: string; operator_id: string | null; source_data: unknown }>(
+      `SELECT id::text AS id, operator_id::text AS operator_id, source_data
+         FROM leads
+        WHERE id = $1::uuid`,
+      [leadId],
+    );
+    const row = rows[0];
+    if (!row) return { outcome: 'missing' };
+    if (row.operator_id !== partnerId) return { outcome: 'not_yours' };
+    const data = asRecord(row.source_data);
+    if (!data || data.kind !== 'car_rental') return { outcome: 'not_rental' };
+    const companyId = asText(data.company_id);
+    if (companyId && companyId !== partnerId) return { outcome: 'not_yours' };
+    const offerId = asText(data.offer_id);
+    return {
+      outcome: 'ok',
+      request: {
+        leadId: row.id,
+        offerId: offerId && isLeadId(offerId) ? offerId.toLowerCase() : null,
+        title: asText(data.offer_title),
+        dateFrom: asText(data.date_from),
+        dateTo: asText(data.date_to),
+      },
+    };
+  } catch (err) {
+    console.error('[rental-request-answer] заявка не прочитана, SQLSTATE', (err as { code?: string }).code ?? 'нет');
+    return { outcome: 'db_error' };
+  }
+}
+
+export type ResolveOffer =
+  | { outcome: 'ok'; offerId: string; title: string }
+  | { outcome: 'none' | 'ambiguous' | 'db_error' };
+
+/**
+ * Машина заявки в прайсе этого прокатчика. id из заявки — если он его.
+ * Иначе одно точное название. Два совпадения — не выбираем: чужую машину
+ * занятой не помечаем.
+ */
+export async function resolveRequestOffer(
+  partnerId: string,
+  offerId: string | null,
+  title: string | null,
+): Promise<ResolveOffer> {
+  try {
+    if (offerId && isLeadId(offerId)) {
+      const { rows } = await pool.query<{ id: string; title: string }>(
+        `SELECT id::text AS id, title
+           FROM car_rental_offers
+          WHERE partner_id = $1::uuid AND id = $2::uuid`,
+        [partnerId, offerId],
+      );
+      const row = rows[0];
+      if (row) return { outcome: 'ok', offerId: row.id, title: row.title };
+      return { outcome: 'none' };
+    }
+    const name = title?.trim() ?? '';
+    if (!name) return { outcome: 'none' };
+    const { rows } = await pool.query<{ id: string; title: string }>(
+      `SELECT id::text AS id, title
+         FROM car_rental_offers
+        WHERE partner_id = $1::uuid AND lower(btrim(title)) = lower(btrim($2::text))
+        LIMIT 2`,
+      [partnerId, name],
+    );
+    if (rows.length === 1) return { outcome: 'ok', offerId: rows[0]!.id, title: rows[0]!.title };
+    if (rows.length === 0) return { outcome: 'none' };
+    return { outcome: 'ambiguous' };
+  } catch (err) {
+    console.error('[rental-request-answer] машина заявки не прочитана, SQLSTATE', (err as { code?: string }).code ?? 'нет');
+    return { outcome: 'db_error' };
+  }
+}
+
+export type MarkRequest = { outcome: 'saved'; marked: number } | { outcome: 'not_yours' | 'bad_dates' | 'db_error' };
+
+/**
+ * «Беру»: дни заявки заняты, source `request`, lead_id — эта заявка.
+ * Чужой offer не создаёт строк. Повтор той же заявки перезаписывает те же дни.
+ */
+export async function markRequestBusy(
+  partnerId: string,
+  offerId: string,
+  dateFrom: string,
+  dateTo: string,
+  leadId: string,
+): Promise<MarkRequest> {
+  const days = rentalSpanDays(dateFrom, dateTo);
+  if (!days) return { outcome: 'bad_dates' };
+  try {
+    const { rows } = await pool.query<{ day: string }>(
+      `INSERT INTO rental_car_busy (offer_id, day, busy, source, lead_id)
+       SELECT o.id, d.day::date, TRUE, 'request', $4::uuid
+         FROM car_rental_offers o
+         CROSS JOIN unnest($3::text[]) AS d(day)
+        WHERE o.id = $1::uuid AND o.partner_id = $2::uuid
+       ON CONFLICT (offer_id, day) DO UPDATE
+         SET busy = TRUE,
+             source = 'request',
+             lead_id = EXCLUDED.lead_id,
+             updated_at = NOW()
+       RETURNING day::text AS day`,
+      [offerId, partnerId, days, leadId],
+    );
+    if (rows.length === 0) return { outcome: 'not_yours' };
+    if (rows.length !== days.length) {
+      console.error('[rental-request-answer] отмечено дней', rows.length, 'из', days.length);
+      return { outcome: 'db_error' };
+    }
+    return { outcome: 'saved', marked: rows.length };
+  } catch (err) {
+    console.error('[rental-request-answer] дни заявки не отмечены, SQLSTATE', (err as { code?: string }).code ?? 'нет');
+    return { outcome: 'db_error' };
+  }
+}
+
+export async function readPartnerAnswer(leadId: string): Promise<RequestAnswer | 'none' | 'db_error'> {
+  try {
+    const { rows } = await pool.query<{ answer: string | null }>(
+      `SELECT details->>'answer' AS answer
+         FROM lead_activity_log
+        WHERE lead_id = $1::uuid AND action = 'partner_answered'
+        ORDER BY id DESC
+        LIMIT 1`,
+      [leadId],
+    );
+    const answer = rows[0]?.answer;
+    if (answer === 'take' || answer === 'decline') return answer;
+    return 'none';
+  } catch (err) {
+    console.error('[rental-request-answer] журнал ответа не прочитан, SQLSTATE', (err as { code?: string }).code ?? 'нет');
+    return 'db_error';
+  }
+}
+
+export async function writePartnerAnswer(
+  leadId: string,
+  answer: RequestAnswer,
+  details: Record<string, unknown>,
+): Promise<'saved' | 'db_error'> {
+  try {
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1::uuid, 'partner', 'partner_answered', $2::jsonb)`,
+      [leadId, JSON.stringify({ answer, ...details })],
+    );
+    return 'saved';
+  } catch (err) {
+    console.error('[rental-request-answer] ответ в журнал не записан, SQLSTATE', (err as { code?: string }).code ?? 'нет');
+    return 'db_error';
+  }
+}
