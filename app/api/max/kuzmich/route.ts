@@ -63,7 +63,8 @@ type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
   | { type: 'callback'; text: string; payload: string; intent?: ButtonIntent }
   | { type: 'link'; text: string; url: string }
-  | { type: 'request_contact'; text: string };
+  | { type: 'request_contact'; text: string }
+  | { type: 'message'; text: string };
 
 export const dynamic = 'force-dynamic';
 
@@ -429,6 +430,7 @@ async function handleActionPress(
   verified: boolean,
   presserId: number | null,
   chatType: string | null,
+  pressed?: { mid: string; text: string | null } | null,
 ): Promise<void> {
   if (!chatId) {
     console.error(`[max/kuzmich] нажатие (${action}) без чата сообщения — не применено`);
@@ -481,7 +483,14 @@ async function handleActionPress(
       return;
     }
     const result = await answerSeatRequest(seat.requestId, { kind: seat.kind }, 'max');
-    await maxReply(chatId, operatorReplyText(result));
+    const reply = operatorReplyText(result);
+    // Пилот «Камчатская рыбалка»: правим само сообщение запроса — «✓ Ответ
+    // дан», кнопки ответа убраны. Не вышло — ответ отдельным сообщением.
+    if (pressed?.mid && (result.ok || result.reason === 'already_answered')
+        && await editAnsweredRequest(chatId, pressed.mid, pressed.text, reply)) {
+      return;
+    }
+    await maxReply(chatId, reply);
     return;
   }
 
@@ -494,6 +503,34 @@ async function handleActionPress(
     return;
   }
   await handleLeadCallback(payload, chatId);
+}
+
+/**
+ * Правка сообщения запроса мест после ответа (пилот, флаг summaryEnabledFor).
+ * true — правка принята MAX; false — не пилот или правка не удалась.
+ */
+async function editAnsweredRequest(chatId: number, mid: string, originalText: string | null, reply: string): Promise<boolean> {
+  const api = getApi();
+  if (!api) return false;
+  const lookup = await findPartnerByChat('max', chatId);
+  const { summaryEnabledFor } = await import('@/lib/seat-requests/summary');
+  if (lookup.outcome !== 'found' || !summaryEnabledFor(lookup.partner.partnerId)) return false;
+  const edit = await import('@/lib/seat-requests/answer-edit');
+  try {
+    const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(mid, {
+      text: edit.answeredEditText(originalText, reply),
+      format: 'html',
+      attachments: [{ type: 'inline_keyboard', payload: { buttons: edit.afterAnswerButtons() } }],
+    });
+    if (res?.success === false) {
+      console.error('[max/kuzmich] правка сообщения запроса не принята MAX — ответ отдельным сообщением');
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logFailure('правка сообщения запроса мест', err);
+    return false;
+  }
 }
 
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
@@ -748,6 +785,21 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReply(chatId, read === 'db_error' ? summary.SUMMARY_DB_ERROR : summary.summaryText(read));
           return;
         }
+        // «Следующая заявка» — ожидающий запрос с ближайшим сроком, с кнопками.
+        if (summary.summaryEnabledFor(lookup.partner.partnerId)) {
+          const next = await import('@/lib/seat-requests/answer-edit');
+          if (next.isNextCommand(text)) {
+            const r = await next.readNextPending(lookup.partner.partnerId);
+            if (r === 'db_error' || r === null) {
+              await maxReply(chatId, r === null ? next.NEXT_NONE : next.NEXT_DB_ERROR);
+            } else {
+              const { operatorAnswerUrl } = await import('@/lib/seat-requests/service');
+              const card = next.nextRequestCard(r, operatorAnswerUrl(r.id));
+              await maxReplyWithButtons(chatId, card.text, card.buttons);
+            }
+            return;
+          }
+        }
         // Поток дат смотрит каждое сообщение партнёра: не про даты — false, но
         // поправка («нет, 4 места»), ушедшая помощнику, снимает действующее
         // предложение туроператора (пятый ревью 22.10).
@@ -806,7 +858,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (pressAction !== null) {
       const presserId = typeof update.callback.user?.user_id === 'number' ? update.callback.user.user_id : null;
       const chatType = typeof update.message?.recipient.chat_type === 'string' ? update.message.recipient.chat_type : null;
-      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true, presserId, chatType);
+      const mid = typeof update.message?.body?.mid === 'string' ? update.message.body.mid : null;
+      const pressed = mid ? { mid, text: update.message?.body?.text ?? null } : null;
+      await handleActionPress(pressAction, payload, messageChatId, opts?.verifiedOrigin === true, presserId, chatType, pressed);
       return;
     }
 
