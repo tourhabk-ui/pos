@@ -93,7 +93,7 @@ export interface XPost {
   url: string;
   /** ISO-дата поста по данным xAI; null — модель дату не назвала. */
   postedAt: string | null;
-  /** Суть поста по-русски, до 200 знаков. */
+  /** Суть поста до 200 знаков: от xAI — пересказ по-русски, от X API — текст поста как есть. */
   summary: string;
 }
 
@@ -120,6 +120,16 @@ export interface XSearchDiag {
   emptyAnswerHead?: string;
   /** Отказы отдельных запросов, если остальные прошли. */
   chunkErrors?: string[];
+  /** Откуда посты (23.10): X API ключом владельца или xAI как запасной путь. */
+  source?: 'x_api' | 'xai';
+  /** Посты от xAI, потому что X API не ответил — и вот почему. */
+  fallbackFrom?: string;
+  /** Имя переменной, из которой взят ключ X (имя, не значение). */
+  credentialsFrom?: string;
+  /** search/recent вернул не всё: за окно больше ста постов. */
+  truncated?: boolean;
+  /** Остаток лимита X на окно и когда оно откроется. */
+  rateLimit?: { remaining: number; resetAt: string | null };
 }
 
 export type XSearchResult =

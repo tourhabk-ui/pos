@@ -64,9 +64,10 @@ jobs:
 
       # Посты X — с раннера (29.09): с прода api.x.ai закрыт по региону
       # (ai-debug run 13: «This service is not available in your region»).
-      # Владелец: «читался с гитхаба, с таймвеб геоблок». Раннер делает поиск
-      # (scripts/scout-x-fetch.ts, та же searchX, что была на проде) и кладёт
-      # результат в файл; следующий шаг отдаёт его проду телом запроса.
+      # Владелец: «читался с гитхаба, с таймвеб геоблок». Раннер читает X
+      # (scripts/scout-x-fetch.ts: с 23.10 X API ключом владельца, xAI —
+      # запасной путь) и кладёт результат в файл; следующий шаг отдаёт его
+      # проду телом запроса.
       # continue-on-error: сбой X не должен останавливать выпуск по
       # остальным источникам — прод без файла скажет «раннер ничего не
       # передал», а не «постов нет».
@@ -78,9 +79,14 @@ jobs:
       - name: Зависимости для поиска по X
         continue-on-error: true
         run: npm ci --ignore-scripts
-      - name: Посты X через xAI — с раннера
+      - name: Посты X — с раннера (X API, запасной путь xAI)
         continue-on-error: true
         env:
+          # Прямое чтение X ключом владельца (23.10): bearer — как есть, пара
+          # ключ+секрет — обменом на bearer. Нет ни того ни другого — xAI.
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_KEY_SECRET: ${{ secrets.X_API_KEY_SECRET }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           # Расход поиска уходит в книги прода через usage-sink (CRON_SECRET):
           # с раннера БД закрыта файрволом.

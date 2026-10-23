@@ -266,10 +266,13 @@ describe('связка раннер → прод', () => {
   const ROUTE = read('app/api/cron/scout-digest/route.ts');
   const SCRIPT = read('scripts/scout-x-fetch.ts');
 
-  it('раннер ищет той же searchX, с ключом xAI и CRON_SECRET для книг расхода', () => {
-    expect(SCRIPT).toContain("import { searchX, type XSearchResult } from '@/lib/ai/xai-x-search'");
-    expect(SCRIPT).toContain('searchX({ handles: X_HANDLES, hours: X_SEARCH_WINDOW_HOURS })');
-    const step = WF.slice(WF.indexOf('- name: Посты X через xAI — с раннера'), WF.indexOf('- name: Scout Digest'));
+  it('раннер читает X через общий выбор пути (та же searchX — запасной), с ключом xAI и CRON_SECRET для книг расхода', () => {
+    expect(SCRIPT).toContain("import { readXForScout } from '@/lib/x/scout-x-read'");
+    expect(SCRIPT).toContain('readXForScout({ handles: X_HANDLES, hours: X_SEARCH_WINDOW_HOURS })');
+    const chooser = read('lib/x/scout-x-read.ts');
+    expect(chooser).toContain("import { searchX, type XSearchResult } from '@/lib/ai/xai-x-search'");
+    expect(chooser).toContain('viaXai: searchX');
+    const step = WF.slice(WF.indexOf('- name: Посты X — с раннера'), WF.indexOf('- name: Scout Digest'));
     expect(step).toContain('XAI_API_KEY: ${{ secrets.XAI_API_KEY }}');
     expect(step).toContain('CRON_SECRET: ${{ secrets.CRON_SECRET }}');
     expect(step).toContain('npx tsx scripts/scout-x-fetch.ts /tmp/x-source.json');
