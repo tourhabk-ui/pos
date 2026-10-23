@@ -41,6 +41,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // сюда не приезжал транзитивно.
   'a2a-census': ['db_read'],
   'abandoned-bookings': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
+  // 23.10: у кого роль администратора — только чтение users и audit_log.
+  'admin-owners-census': ['db_read'],
   // 12.10: перепись входов для агентов по семействам ботов — только чтение
   // agent_entry_hits; список путей берёт из модуля без базы, чтобы db_write
   // счётчика сюда не приезжал транзитивно.
