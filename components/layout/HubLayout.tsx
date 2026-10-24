@@ -100,10 +100,10 @@ export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole, 
                 (оператор/админ) бара нет и SOS в шапке не навязываем. */}
             {isTourist && <EmergencyAction />}
             {showSensitiveMaskToggle && <SensitiveMaskToggle />}
-            <button onClick={toggleTheme} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
+            <button onClick={toggleTheme} className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <Link href="/profile" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Личный кабинет">
+            <Link href="/profile" className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Личный кабинет">
               <User size={20} />
             </Link>
             {/* «Выйти» (#1778): до 10.09 ни у одной роли не было выхода из

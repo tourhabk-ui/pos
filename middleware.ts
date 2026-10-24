@@ -157,7 +157,9 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
     const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com";
     const styleSrc = "'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com";
     const imgSrc = "'self' data: https: blob:";
-    const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru";
+    const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru https://web.telegram.org https://oauth.telegram.org";
+    // Виджет входа и страница бота. Без frame-src iframe падает под default-src 'self'.
+    const frameSrc = "'self' https://oauth.telegram.org https://web.telegram.org https://t.me";
     const fontSrc = "'self' data: https://*.yandex.ru";
     const workerSrc = "'self' blob:";
     // Клипы туров лежат в хранилище (решение владельца 09.10, миграция 1190).
@@ -167,12 +169,12 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
     if (pathname && pathname.startsWith('/widget/')) {
       response.headers.set(
         'Content-Security-Policy',
-        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc}; frame-ancestors *;`
+        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc}; frame-src ${frameSrc}; frame-ancestors *;`
       );
     } else {
       response.headers.set(
         'Content-Security-Policy',
-        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; media-src ${mediaSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc};`
+        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; media-src ${mediaSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc}; frame-src ${frameSrc};`
       );
     }
   }

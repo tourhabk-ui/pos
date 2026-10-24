@@ -332,18 +332,25 @@ export default function OnboardingClient() {
   const [loading, setLoading] = useState(true);
   const [finishError, setFinishError] = useState<string | null>(null);
 
+  const [blocked, setBlocked] = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/hub/operator/profile')
-      .then(r => r.json())
-      .then((j: unknown) => {
-        if (typeof j === 'object' && j !== null && 'data' in j) {
+      .then(async (r) => {
+        const j: unknown = await r.json().catch(() => null);
+        if (typeof j === 'object' && j !== null && 'data' in j && (j as { data: OperatorProfile | null }).data) {
           const data = (j as { data: OperatorProfile }).data;
           setProfile(data);
-          // If already done, redirect to hub
-          if (data?.onboarding_completed) router.replace('/hub/operator');
+          if (data.onboarding_completed) router.replace('/hub/operator');
+          return;
         }
+        const code = typeof j === 'object' && j !== null && 'code' in j ? (j as { code?: string }).code : undefined;
+        const error = typeof j === 'object' && j !== null && 'error' in j ? (j as { error?: string }).error : undefined;
+        setBlocked(code === 'admin_no_company' && error
+          ? error
+          : 'Профиль ещё не открылся. Обновите страницу.');
       })
-      .catch(() => {})
+      .catch(() => setBlocked('Нет связи — настройка не открылась. Обновите страницу.'))
       .finally(() => setLoading(false));
   }, [router]);
 
@@ -367,7 +374,9 @@ export default function OnboardingClient() {
 
   if (!profile) {
     return (
-      <div className="text-center py-20 text-[var(--text-secondary)]">Профиль не найден</div>
+      <div className="text-center py-20 text-[var(--text-secondary)]" role="status">
+        {blocked ?? 'Открываем настройку профиля…'}
+      </div>
     );
   }
 

@@ -19,6 +19,7 @@
  */
 import { useEffect, useState } from 'react';
 import { BellOff, ExternalLink, MessageCircle, X } from 'lucide-react';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface Channel {
   reachable: boolean;
@@ -52,11 +53,17 @@ function readLinks(json: unknown): Links | null {
 const LINK_CLASS =
   'shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-lg text-xs font-medium transition-colors duration-200';
 
+const DISMISS_KEY = 'vedar.partner-channel-banner.dismissed';
+
+function readDismissed(): boolean {
+  try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
+}
+
 export function PartnerChannelBanner() {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [links, setLinks] = useState<Links | null>(null);
   const [linksFailed, setLinksFailed] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(readDismissed);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -79,27 +86,30 @@ export function PartnerChannelBanner() {
 
   if (!channel || channel.max || dismissed) return null;
   const none = !channel.reachable;
+  const sentence = linksFailed
+    ? 'Ссылка для подключения сейчас не выдаётся — попробуйте позже.'
+    : none
+      ? 'Не подключён ни MAX, ни Telegram — новые заявки и напоминания о задачах до вас не дойдут. Ссылка действует 72 часа.'
+      : 'Заявки и напоминания приходят в Telegram без имён и телефонов клиентов: их платформа отправляет только в MAX. Откроется бот Ведара — нажмите «Старт». Ссылка действует 72 часа.';
+
+  function hide() {
+    setDismissed(true);
+    try { localStorage.setItem(DISMISS_KEY, '1'); } catch (err) {
+      logSwallowedFailure('partner-channel-banner', 'сохранение свёрнутой плашки', err);
+    }
+  }
 
   return (
     <div
       role="status"
-      className={`mx-5 mt-5 flex items-start gap-3 flex-wrap sm:flex-nowrap rounded-lg border bg-[var(--bg-card)] px-4 py-3 ${none ? 'border-[var(--warning)]' : 'border-[var(--border)]'}`}
+      className={`mx-3 mt-3 flex items-center gap-2 min-h-[44px] rounded-lg border bg-[var(--bg-card)] px-2 ${none ? 'border-[var(--warning)]' : 'border-[var(--border)]'}`}
     >
       {none
-        ? <BellOff className="w-4 h-4 mt-0.5 text-[var(--warning)] shrink-0" />
-        : <MessageCircle className="w-4 h-4 mt-0.5 text-[var(--ocean)] shrink-0" />}
-      <div className="flex-1 min-w-[200px] space-y-1">
-        <p className="text-sm text-[var(--text-primary)]">
-          {none
-            ? 'Не подключён ни MAX, ни Telegram — новые заявки и напоминания о задачах до вас не дойдут.'
-            : 'Заявки и напоминания приходят в Telegram без имён и телефонов клиентов: их платформа отправляет только в MAX.'}
-        </p>
-        <p className="text-xs text-[var(--text-muted)]">
-          {linksFailed
-            ? 'Ссылка для подключения сейчас не выдаётся — попробуйте позже.'
-            : 'Откроется бот Ведара — нажмите «Старт», и чат подключится к карточке вашей компании. Ссылка действует 72 часа.'}
-        </p>
-      </div>
+        ? <BellOff className="w-4 h-4 text-[var(--warning)] shrink-0" />
+        : <MessageCircle className="w-4 h-4 text-[var(--ocean)] shrink-0" />}
+      <p className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]" title={sentence}>
+        {sentence}
+      </p>
       {links && (
         <a href={links.max} target="_blank" rel="noopener noreferrer" className={`${LINK_CLASS} ds-btn-primary`}>
           Подключить MAX
@@ -119,9 +129,9 @@ export function PartnerChannelBanner() {
       )}
       <button
         type="button"
-        onClick={() => setDismissed(true)}
+        onClick={hide}
         aria-label="Скрыть подсказку"
-        className="shrink-0 inline-flex items-center justify-center w-11 h-11 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors duration-200"
+        className="shrink-0 inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors duration-200"
       >
         <X className="w-4 h-4" />
       </button>

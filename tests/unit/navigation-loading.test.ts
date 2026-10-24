@@ -82,6 +82,13 @@ describe('service worker: висящая сеть заканчивается т�
     expect(calls.length).toBeGreaterThanOrEqual(3); // объявление + два вызова
   });
 
+  it('отказ сети всегда заканчивается Response, а не undefined', () => {
+    expect(SW).toMatch(/function emptyOffline/);
+    expect(SW).toMatch(/function cachedOrOffline/);
+    expect(SW).not.toMatch(/return cached \|\| caches\.match\('\/offline'\)/);
+    expect(SW).toMatch(/done\(cachedOrOffline\(request\)\)/);
+  });
+
   it('по таймауту отдаётся кэш, а без кэша сеть ждут дальше', () => {
     // Обрывать медленную, но живую загрузку нечем заменить: белый экран через
     // 4 секунды был бы враньём наоборот.

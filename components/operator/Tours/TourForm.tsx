@@ -51,6 +51,7 @@ function validate(data: TourFormData): FieldErrors {
 export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: TourFormProps) {
   const [loading, setLoading]       = useState(false);
   const [routes, setRoutes]         = useState<KamchatkaRoute[]>([]);
+  const [routeQuery, setRouteQuery] = useState('');
   const [errors, setErrors]         = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState('');
   const [uploading, setUploading]   = useState(false);
@@ -155,11 +156,16 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
     }
   }
 
+  const routeOptions = routes.filter((r) => {
+    const q = routeQuery.trim().toLowerCase();
+    return q.length === 0 || r.title.toLowerCase().includes(q);
+  });
+
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-6">
+    <form onSubmit={handleSubmit} noValidate className="space-y-6 min-w-0">
 
       {/* Основная информация */}
-      <section className="ds-card p-6 space-y-5">
+      <section className="ds-card p-4 sm:p-6 min-w-0 space-y-5">
         <h2 className="ds-h2">Основная информация</h2>
 
         {/* Название */}
@@ -250,19 +256,30 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
             Базовый маршрут
             <span className="ml-2 text-[var(--text-muted)] text-xs font-normal">(необязательно)</span>
           </label>
+          <input
+            type="search"
+            value={routeQuery}
+            onChange={e => setRouteQuery(e.target.value)}
+            placeholder="Найти маршрут по названию"
+            aria-label="Найти маршрут"
+            className="ds-input w-full min-w-0 mb-2"
+          />
           <select
             id="tour-route"
             value={formData.routeId ?? ''}
             onChange={e => handleChange('routeId', e.target.value || undefined)}
-            className="ds-input w-full"
+            className="ds-input w-full min-w-0"
           >
             <option value="">— без привязки к маршруту —</option>
-            {routes.map(r => (
+            {routeOptions.map(r => (
               <option key={r.id} value={r.id}>
-                {r.title}{r.sourceName ? ` (${r.sourceName})` : ''}
+                {r.title}
               </option>
             ))}
           </select>
+          {routeQuery.trim() && routeOptions.length === 0 && (
+            <p className="text-xs text-[var(--text-muted)] mt-1">Такого маршрута нет</p>
+          )}
           {routes.length === 0 && (
             <p className="text-xs text-[var(--text-muted)] mt-1">Нет маршрутов для этой категории</p>
           )}
@@ -270,10 +287,10 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
       </section>
 
       {/* Параметры */}
-      <section className="ds-card p-6 space-y-5">
+      <section className="ds-card p-4 sm:p-6 min-w-0 space-y-5">
         <h2 className="ds-h2">Параметры</h2>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 md:grid-cols-4 gap-4 min-w-0">
           {/* Длительность */}
           <div id="field-duration">
             <label htmlFor="tour-duration" className="ds-label mb-1">
@@ -352,7 +369,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
       </section>
 
       {/* Главное фото */}
-      <section className="ds-card p-6 space-y-3">
+      <section className="ds-card p-4 sm:p-6 min-w-0 space-y-3">
         <h2 className="ds-h2">Главное фото</h2>
 
         {formData.tourImage ? (
@@ -400,18 +417,18 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
       </section>
 
       {/* Включено */}
-      <section className="ds-card p-6 space-y-4">
+      <section className="ds-card p-4 sm:p-6 space-y-4 min-w-0">
         <h2 className="ds-h2">Включено в стоимость</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-col min-[480px]:flex-row gap-2 min-w-0">
           <input
             type="text"
             value={newInclude}
             onChange={e => setNewInclude(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addInclude())}
             placeholder="Транспорт от места сбора, снаряжение..."
-            className="ds-input flex-1 text-sm"
+            className="ds-input w-full min-w-0 flex-1 text-sm"
           />
-          <button type="button" onClick={addInclude} className="ds-btn ds-btn-secondary text-sm px-4">
+          <button type="button" onClick={addInclude} className="ds-btn ds-btn-secondary text-sm px-4 shrink-0 min-h-[44px]">
             Добавить
           </button>
         </div>
@@ -430,18 +447,18 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
       </section>
 
       {/* Не включено */}
-      <section className="ds-card p-6 space-y-4">
+      <section className="ds-card p-4 sm:p-6 min-w-0 space-y-4">
         <h2 className="ds-h2">Не включено в стоимость</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-col min-[480px]:flex-row gap-2 min-w-0">
           <input
             type="text"
             value={newExclude}
             onChange={e => setNewExclude(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addExclude())}
             placeholder="Личное снаряжение, питание в пути..."
-            className="ds-input flex-1 text-sm"
+            className="ds-input w-full min-w-0 flex-1 text-sm"
           />
-          <button type="button" onClick={addExclude} className="ds-btn ds-btn-secondary text-sm px-4">
+          <button type="button" onClick={addExclude} className="ds-btn ds-btn-secondary text-sm px-4 shrink-0 min-h-[44px]">
             Добавить
           </button>
         </div>

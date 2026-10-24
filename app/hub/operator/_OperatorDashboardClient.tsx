@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { OperatorMetricsGrid } from '@/components/operator/Dashboard/OperatorMetricsGrid';
 import { RecentBookingsTable } from '@/components/operator/Dashboard/RecentBookingsTable';
 import { TopToursTable } from '@/components/operator/Dashboard/TopToursTable';
@@ -113,25 +112,13 @@ function FirstStepsPanel({ hasTours, onboardingDone }: { hasTours: boolean; onbo
 }
 
 export default function OperatorDashboardClient() {
-  const router = useRouter();
   const [data, setData] = useState<OperatorDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState('30');
-  const [onboardingDone, setOnboardingDone] = useState(true); // optimistic
-
-  // Check onboarding status; redirect if not completed
-  useEffect(() => {
-    fetch('/api/hub/operator/profile')
-      .then(r => r.json())
-      .then((j: unknown) => {
-        const profile = (j as { data?: { onboarding_completed?: boolean } }).data;
-        const completed = profile?.onboarding_completed ?? false;
-        setOnboardingDone(completed);
-        if (!completed) router.replace('/hub/operator/onboarding');
-      })
-      .catch(() => {});
-  }, [router]);
+  // Незавершённый онбординг сюда не доходит: ворота кабинета уводят на настройку
+  // раньше, чем дашборд запрашивает данные.
+  const onboardingDone = true;
 
   const fetchDashboardData = useCallback(async () => {
     try {
