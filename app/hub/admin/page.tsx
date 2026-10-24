@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import DaySummaryStrip from './_DaySummary';
-import AdminMaxLink from './_AdminMaxLink';
+import AdminMessengers from './_AdminMessengers';
 
 /* ═══════════════════════════════════════════
    Types
@@ -320,8 +320,8 @@ export default function AdminDashboard() {
       {/* ─── За сутки: люди, MCP, A2A, Кузьмич (слово владельца 22.10) ─── */}
       <DaySummaryStrip />
 
-      {/* ─── MAX администратора (слово владельца 23.10) ─── */}
-      <AdminMaxLink />
+      {/* ─── Мессенджеры администратора: MAX (23.10) и Telegram (24.10) ─── */}
+      <AdminMessengers />
 
       {/* ─── Pending banners ─── */}
       {((data.pendingTours ?? 0) > 0 || (data.pendingPartners ?? 0) > 0) && (

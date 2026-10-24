@@ -1,18 +1,17 @@
 'use client';
 
 /**
- * «MAX администратора» на обзоре админки (слово владельца 23.10: «Я админ и
- * чат должен знать что админ подключен со всеми правами»; способ «1а»).
- * Кнопка выдаёт одноразовую ссылку на 10 минут; администратор открывает её в
- * своём MAX и жмёт «Старт» — бот узнаёт его на каждом сообщении, пока у
- * аккаунта есть роль администратора. Правила — lib/max/admin-link.
+ * «Мессенджеры администратора» на обзоре админки.
  *
+ * MAX — слово владельца 23.10 («1а»). Telegram — 24.10: «нет привязки админа
+ * к Telegram», тот же способ: одноразовая ссылка на 10 минут и «Старт».
  * Состояние, которое не прочиталось, так и названо (§4.0): «не загрузилось»
- * вместо «не подключён».
+ * вместо «не подключён». Имя бота Telegram, которое не подтвердил getMe,
+ * так и сказано — ссылка при этом не прячется.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Check, Copy, Loader2, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Check, Copy, Loader2, MessageCircle, Send, AlertTriangle, type LucideIcon } from 'lucide-react';
 
 type Status =
   | { kind: 'loading' }
@@ -23,8 +22,42 @@ type Status =
 type Link =
   | { kind: 'none' }
   | { kind: 'issuing' }
-  | { kind: 'ready'; link: string; expiresAt: string }
+  | { kind: 'ready'; link: string; expiresAt: string; botUnverified: string | null }
   | { kind: 'error'; error: string };
+
+interface MessengerSpec {
+  id: 'max' | 'telegram';
+  title: string;
+  endpoint: string;
+  icon: LucideIcon;
+  connectLabel: string;
+  unbindQuestion: string;
+  blurb: string;
+  openHint: string;
+}
+
+const MESSENGERS: MessengerSpec[] = [
+  {
+    id: 'max',
+    title: 'MAX',
+    endpoint: '/api/admin/max-link',
+    icon: MessageCircle,
+    connectLabel: 'Подключить MAX администратора',
+    unbindQuestion: 'Отключить MAX администратора?',
+    blurb: 'В личном чате с ботом Ведара в MAX бот узнаёт вас как администратора: брони, заявки, открытые даты, сводка суток и состояние сторожа. Права проверяются на каждом сообщении — снимут роль на сайте, снимутся и там.',
+    openHint: 'Откройте ссылку там, где ваш MAX, и нажмите «Старт».',
+  },
+  {
+    id: 'telegram',
+    title: 'Telegram',
+    endpoint: '/api/admin/telegram-link',
+    icon: Send,
+    connectLabel: 'Подключить Telegram администратора',
+    unbindQuestion: 'Отключить Telegram администратора?',
+    blurb: 'В личном чате с ботом Ведара в Telegram — те же кнопки. Контакты туристов здесь не показываются: они остаются в MAX. Права проверяются на каждом сообщении.',
+    openHint: 'Откройте ссылку в Telegram и нажмите «Старт».',
+  },
+];
 
 /** Время по Камчатке; дата, которую браузер не разобрал, — пустая строка, а не «Invalid Date». */
 function kamchatkaTime(iso: string, withDate: boolean): string {
@@ -38,44 +71,30 @@ function kamchatkaTime(iso: string, withDate: boolean): string {
   });
 }
 
-async function readStatus(): Promise<Status> {
-  try {
-    const res = await fetch('/api/admin/max-link', { cache: 'no-store' });
-    const body = await readJson(res);
-    if (!res.ok || !body?.success || !body.data) {
-      return { kind: 'failed', error: typeof body?.error === 'string' ? body.error : `Сервер ответил ${res.status}` };
-    }
-    const boundAt = typeof body.data.bound_at === 'string' ? body.data.bound_at : null;
-    return body.data.bound === true ? { kind: 'bound', boundAt } : { kind: 'unbound' };
-  } catch {
-    return { kind: 'failed', error: 'Нет связи с сервером' };
-  }
-}
-
 async function readJson(res: Response): Promise<{ success?: boolean; error?: unknown; data?: Record<string, unknown> } | null> {
   return res.json().catch(() => null) as Promise<{ success?: boolean; error?: unknown; data?: Record<string, unknown> } | null>;
 }
 
-export default function AdminMaxLink() {
+function MessengerRow({ spec }: { spec: MessengerSpec }) {
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [link, setLink] = useState<Link>({ kind: 'none' });
   const [confirmUnbind, setConfirmUnbind] = useState(false);
   const [unbinding, setUnbinding] = useState(false);
-  // Отказ отключения — отдельно от состояния: привязка осталась, и страница
-  // должна говорить «не отключено», а не «не загрузилось».
   const [unbindError, setUnbindError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const titleId = `admin-messenger-${spec.id}`;
+  const Icon = spec.icon;
 
   useEffect(() => {
     let alive = true;
-    readStatus().then((next) => { if (alive) setStatus(next); });
+    readStatus(spec.endpoint).then((next) => { if (alive) setStatus(next); });
     return () => { alive = false; };
-  }, []);
+  }, [spec.endpoint]);
 
   async function recheck() {
     setStatus({ kind: 'loading' });
-    setStatus(await readStatus());
+    setStatus(await readStatus(spec.endpoint));
   }
 
   async function issue() {
@@ -83,14 +102,19 @@ export default function AdminMaxLink() {
     setCopied(false);
     setCopyError(null);
     try {
-      const res = await fetch('/api/admin/max-link', { method: 'POST' });
+      const res = await fetch(spec.endpoint, { method: 'POST' });
       const body = await readJson(res);
       const data = body?.data;
       if (!res.ok || !body?.success || typeof data?.link !== 'string' || typeof data.expires_at !== 'string') {
         setLink({ kind: 'error', error: typeof body?.error === 'string' ? body.error : `Сервер ответил ${res.status}` });
         return;
       }
-      setLink({ kind: 'ready', link: data.link, expiresAt: data.expires_at });
+      const botUnverified = spec.id !== 'telegram' || data.bot_source === 'getMe'
+        ? null
+        : (typeof data.bot_reason === 'string' && data.bot_reason.length > 0
+          ? data.bot_reason
+          : 'Telegram не подтвердил имя бота');
+      setLink({ kind: 'ready', link: data.link, expiresAt: data.expires_at, botUnverified });
     } catch {
       setLink({ kind: 'error', error: 'Нет связи с сервером' });
     }
@@ -100,7 +124,7 @@ export default function AdminMaxLink() {
     setUnbinding(true);
     setUnbindError(null);
     try {
-      const res = await fetch('/api/admin/max-link', { method: 'DELETE' });
+      const res = await fetch(spec.endpoint, { method: 'DELETE' });
       const body = await readJson(res);
       if (!res.ok || !body?.success) {
         setUnbindError(typeof body?.error === 'string' ? body.error : `Сервер ответил ${res.status}`);
@@ -128,13 +152,10 @@ export default function AdminMaxLink() {
   }
 
   return (
-    <section
-      aria-labelledby="admin-max-title"
-      className="p-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] space-y-2 text-sm"
-    >
+    <div role="group" aria-labelledby={titleId} className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <MessageCircle className="w-4 h-4 text-[var(--ocean)] shrink-0" aria-hidden />
-        <h2 id="admin-max-title" className="font-semibold text-[var(--text-primary)]">MAX администратора</h2>
+        <Icon className="w-4 h-4 text-[var(--ocean)] shrink-0" aria-hidden />
+        <h3 id={titleId} className="font-semibold text-[var(--text-primary)]">{spec.title}</h3>
         {status.kind === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--text-muted)]" aria-label="Загрузка" />}
         {status.kind === 'bound' && (
           <span className="text-xs px-2 py-0.5 rounded bg-[var(--success)]/15 text-[var(--success)]">
@@ -152,10 +173,7 @@ export default function AdminMaxLink() {
         )}
       </div>
 
-      <p className="text-xs text-[var(--text-secondary)]">
-        В личном чате с ботом Ведара в MAX бот узнаёт вас как администратора: брони, заявки, открытые даты,
-        сводка суток и состояние сторожа. Права проверяются на каждом сообщении — снимут роль на сайте, снимутся и там.
-      </p>
+      <p className="text-xs text-[var(--text-secondary)]">{spec.blurb}</p>
 
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -166,7 +184,7 @@ export default function AdminMaxLink() {
         >
           {link.kind === 'issuing'
             ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-label="Выдаю ссылку" />
-            : status.kind === 'bound' ? 'Подключить заново' : 'Подключить MAX администратора'}
+            : status.kind === 'bound' ? 'Подключить заново' : spec.connectLabel}
         </button>
         {status.kind === 'bound' && !confirmUnbind && (
           <button type="button" onClick={() => setConfirmUnbind(true)} className="ds-btn ds-btn-secondary text-xs px-2 py-1">
@@ -175,7 +193,7 @@ export default function AdminMaxLink() {
         )}
         {status.kind === 'bound' && confirmUnbind && (
           <span className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
-            Отключить MAX администратора?
+            {spec.unbindQuestion}
             <button type="button" onClick={unbind} disabled={unbinding} className="ds-btn ds-btn-danger text-xs px-2 py-1">
               {unbinding ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-label="Отключаю" /> : 'Да, отключить'}
             </button>
@@ -191,7 +209,7 @@ export default function AdminMaxLink() {
       </div>
       {status.kind === 'bound' && unbindError && (
         <p className="text-xs text-[var(--danger)]" role="alert">
-          Не отключено: {unbindError}. MAX администратора всё ещё подключён — нажмите «Да, отключить» ещё раз.
+          Не отключено: {unbindError}. {spec.title} администратора всё ещё подключён — нажмите «Да, отключить» ещё раз.
         </p>
       )}
 
@@ -199,10 +217,14 @@ export default function AdminMaxLink() {
       {link.kind === 'ready' && (
         <div className="space-y-1.5">
           <p className="text-xs text-[var(--text-secondary)]">
-            Откройте ссылку там, где ваш MAX, и нажмите «Старт». Ссылка одна, действует до{' '}
-            {kamchatkaTime(link.expiresAt, false)} по Камчатке. Никому её не пересылайте: кто нажмёт «Старт»,
-            тот и станет администратором в чате.
+            {spec.openHint} Ссылка одна, действует до {kamchatkaTime(link.expiresAt, false)} по Камчатке.
+            Никому её не пересылайте: кто нажмёт «Старт», тот и станет администратором в чате.
           </p>
+          {link.botUnverified && (
+            <p className="text-xs text-[var(--text-secondary)]" role="status">
+              Имя бота не проверено у Telegram: {link.botUnverified}. Если ссылка не откроется, возьмите новую чуть позже.
+            </p>
+          )}
           <a
             href={link.link}
             target="_blank"
@@ -223,6 +245,35 @@ export default function AdminMaxLink() {
           {copyError && <p className="text-xs text-[var(--danger)]" role="alert">{copyError}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+async function readStatus(endpoint: string): Promise<Status> {
+  try {
+    const res = await fetch(endpoint, { cache: 'no-store' });
+    const body = await readJson(res);
+    if (!res.ok || !body?.success || !body.data) {
+      return { kind: 'failed', error: typeof body?.error === 'string' ? body.error : `Сервер ответил ${res.status}` };
+    }
+    const boundAt = typeof body.data.bound_at === 'string' ? body.data.bound_at : null;
+    return body.data.bound === true ? { kind: 'bound', boundAt } : { kind: 'unbound' };
+  } catch {
+    return { kind: 'failed', error: 'Нет связи с сервером' };
+  }
+}
+
+export default function AdminMessengers() {
+  return (
+    <section
+      aria-labelledby="admin-messengers-title"
+      className="p-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] space-y-4 text-sm"
+    >
+      <h2 id="admin-messengers-title" className="font-semibold text-[var(--text-primary)]">Мессенджеры администратора</h2>
+      <p className="text-xs text-[var(--text-secondary)]">
+        Один аккаунт можно подключить к MAX и к Telegram. Ссылка живёт 10 минут и привязывает человека, который нажмёт «Старт».
+      </p>
+      {MESSENGERS.map((spec) => <MessengerRow key={spec.id} spec={spec} />)}
     </section>
   );
 }

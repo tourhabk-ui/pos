@@ -21,6 +21,12 @@ import { parseRentalCabinetPress, rentalCabinetAsk, telegramCabinetMarkup, type 
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { menuMarkup, type MenuButton } from '@/lib/roles/chat-menu';
+import {
+  handleTelegramAdminTurn,
+  TELEGRAM_ADMIN_DENY,
+  TELEGRAM_ADMIN_UNCHECKED,
+  telegramAdminCallbackGate,
+} from '@/lib/telegram/admin-chat';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
@@ -435,7 +441,7 @@ interface TgUpdate {
     id:   string;
     from: { id: number };
     data: string;
-    message?: { chat: { id: number } };
+    message?: { chat: { id: number; type?: string } };
   };
 }
 
@@ -493,9 +499,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await tgAnswerCallback(cq.id);
         const press = parseRoleMenuPress(cq.data);
         if (press?.role === 'admin') {
-          const adminIds = [process.env.TELEGRAM_CHAT_ID, process.env.TELEGRAM_OWNER_ID];
-          if (!adminIds.some((id) => id !== undefined && id !== '' && id === String(cq.from.id))) {
-            await tgReply(chatId, 'Эта кнопка — кабинет администратора. В этом чате её не выполняю.');
+          const pressedIn = cq.message?.chat?.type;
+          if (pressedIn === 'group' || pressedIn === 'supergroup' || pressedIn === 'channel') {
+            await tgReply(chatId, 'Кнопки кабинета работают в личном диалоге.');
+            return NextResponse.json({ ok: true });
+          }
+          const legacy = [process.env.TELEGRAM_CHAT_ID, process.env.TELEGRAM_OWNER_ID]
+            .some((id) => id !== undefined && id !== '' && id === String(cq.from.id));
+          const gate = await telegramAdminCallbackGate(cq.from.id, legacy);
+          if (gate === 'unchecked') {
+            await tgReply(chatId, TELEGRAM_ADMIN_UNCHECKED);
+            return NextResponse.json({ ok: true });
+          }
+          if (gate === 'deny') {
+            await tgReply(chatId, TELEGRAM_ADMIN_DENY);
             return NextResponse.json({ ok: true });
           }
           const screen = await roleMenuScreen({
@@ -574,6 +591,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const isPrivate = chatType === 'private';
     const isGroup   = chatType === 'group' || chatType === 'supergroup';
 
+    const sayAdmin = async (body: string, buttons?: MenuButton[][]) => {
+      const row = buttons?.[0];
+      if (row?.length) await tgReply(chatId, body, { reply_markup: menuMarkup(row) });
+      else await tgReply(chatId, body);
+    };
+
+    // Ссылка администратора adt_ — раньше консоли владельца: иначе «Старт»
+    // по ссылке из админки ушёл бы в /approve_. Чужой /start (op_, sr_) не
+    // забирается. Группа сюда не входит.
+    if (isPrivate && fromId > 0 && msg.text && /^\/start\s+\S/.test(msg.text.trim())) {
+      const turn = await handleTelegramAdminTurn({
+        text: msg.text.trim(),
+        fromId,
+        nowMs: Date.now(),
+        reply: sayAdmin,
+      });
+      if (turn === 'handled') return NextResponse.json({ ok: true });
+    }
+
     // ── Владелец в личке → admin pipeline ─────────────────────────────────
     //
     // Ветка открывает PlatformAgent с role:'admin' и публикацию в канал, а
@@ -648,6 +684,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (isPrivate && msg.text?.trim().toLowerCase().startsWith('/partner')) {
       await tgReply(chatId, PARTNER_EMAIL_BIND_CLOSED);
       return NextResponse.json({ ok: true });
+    }
+
+    // Привязанный администратор — раньше кабинета партнёра. Владелец этой
+    // двери остаётся на своей консоли выше: /approve_ не должен уйти в меню.
+    // «Не смог проверить» — pass, обычный путь. Группа уже вышла и таблицу
+    // не спрашивает.
+    if (isPrivate && fromId > 0 && fromId !== ownerId) {
+      const turn = await handleTelegramAdminTurn({
+        text: msg.text?.trim() ?? null,
+        fromId,
+        nowMs: Date.now(),
+        reply: sayAdmin,
+      });
+      if (turn === 'handled') return NextResponse.json({ ok: true });
+      if (turn === 'tourist' && msg.text) {
+        await processMessage({
+          chatId, text: msg.text.trim(), userName: fromName,
+          userId: fromId, mode: 'tourist', createdVia: 'telegram',
+          pending, reply: tgReply, platform: 'tg', afterReply: afterAiReply,
+        });
+        return NextResponse.json({ ok: true });
+      }
     }
 
     // ── ЛИЧКА: партнёр? ──────────────────────────────────────────────────
