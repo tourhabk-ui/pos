@@ -40,18 +40,16 @@ import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
-import { catalogFacts, loadShowcaseTours, wantsCatalogCards } from '@/lib/telegram/tourist-tours';
+import { catalogFacts, loadShowcaseTours } from '@/lib/telegram/tourist-tours';
 import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
+import { collapseRepeatedReply, requestButton, telegramOfferLinks } from '@/lib/kuzmich/answer-quality';
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
-import { isCarRentalAsk } from '@/lib/ai/booking-intent';
-import { rentalSitePauseActive } from '@/lib/rental/site-pause';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
-import { htmlToText, stripTags } from '@/lib/html/text';
-import { decodeHtmlEntities } from '@/lib/html/entities';
+import { stripTags } from '@/lib/html/text';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { parseInterestsFromText, findRoutesByInterests } from '@/lib/planner/interests';
 import {
@@ -334,39 +332,27 @@ const KUZMICH_FAILED_TEXT = 'Не получилось ответить — сб
  * KUZMICH_FAILED_TEXT — и на «мы заблудились» он обязан нести блок тоже.
  * Второй раз блок не встаёт: withSosBlock видит в ответе 112 и МЧС.
  */
-/** Текст карточек без тегов — его и запоминает история. Разбор HTML один, lib/html. */
-function plainShown(html: string): string {
-  return decodeHtmlEntities(htmlToText(html));
-}
-
 async function answerByKuzmich(opts: {
   chatId: number;
   text: string;
   userId: number | null;
-  /** Личка туриста: клавиатура и карточки каталога. Кабинет и группа — без них. */
+  /** Личка туриста: клавиатура. Кабинет и группа — без неё. */
   tourist?: boolean;
 }): Promise<void> {
-  let extra = '';
-  let inline: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | undefined;
-  let contextNote = '';
-  // Пауза проката — та же фраза, что у кнопки и у инструмента на сайте.
-  // Модель иначе спрашивает тип и даты, будто витрина открыта. Фраза
-  // ставится в ответ сама: модель может её не повторить.
-  let pauseLine = '';
-  if (opts.tourist && isCarRentalAsk(opts.text) && rentalSitePauseActive() && !detectEmergency(opts.text).detected) {
-    pauseLine = touristRentalText();
-    contextNote = `${pauseLine} Скажи это туристу. Не спрашивай тип машины и даты, пока витрина скрыта.`;
-  }
-  if (opts.tourist && wantsCatalogCards(opts.text) && !detectEmergency(opts.text).detected) {
-    const facts = catalogFacts(opts.text, await loadShowcaseTours(opts.text));
-    contextNote = facts.note;
-    extra = facts.html;
-    inline = facts.inline;
-  }
+  // Один ответ на сообщение. Список туров, пауза проката и цена прошлого
+  // варианта собираются в aiChat (resolveCommercialTurn) и сюда не дописываются
+  // второй раз: раньше пауза ставилась и текстом, и просьбой модели сказать то же.
   const reply: ReplyFn = (id, answer) => {
-    const withPause = pauseLine ? `${pauseLine}\n\n${answer}` : answer;
-    const body = extra ? `${withSosBlock(withPause, opts.text).text}\n\n${extra}` : withSosBlock(withPause, opts.text).text;
-    const markup = opts.tourist ? (inline ?? touristReplyMarkup()) : undefined;
+    // Текст одного сообщения: повтор паузы и цена без ссылки сюда не доходят.
+    // Кабинет проката идёт другим отправителем и эту функцию не зовёт.
+    const shown = telegramOfferLinks(collapseRepeatedReply(answer));
+    const body = withSosBlock(shown, opts.text).text;
+    const offer = requestButton(body);
+    // Кнопка ведёт на форму, которая создаёт заявку. Клавиатуру туриста
+    // на этом сообщении не заменяем второй ссылкой: пауза проката кнопки не получает.
+    const markup = offer
+      ? { inline_keyboard: [[{ text: offer.text, url: offer.url }]] }
+      : (opts.tourist ? touristReplyMarkup() : undefined);
     return sendKuzmichReply(id, body, markup);
   };
   try {
@@ -375,8 +361,6 @@ async function answerByKuzmich(opts: {
       // Имя не пишется: историю читают по роли и тексту, имя в ней не
       // читает никто — хранить его незачем (минимизация ПД, 152-ФЗ).
       userId: opts.userId, userName: null, platform: 'tg',
-      contextNote: contextNote || undefined,
-      shownFacts: [pauseLine, extra ? plainShown(extra) : ''].filter(Boolean).join('\n\n') || undefined,
     });
   } catch (err) {
     logSwallowedFailure('telegram/webhook', 'ответ Кузьмича', err);

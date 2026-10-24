@@ -40,6 +40,9 @@ import {
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
+import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
@@ -231,7 +234,7 @@ export async function POST(request: NextRequest) {
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
     // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
     // KUZMICH_SYSTEM (обязательный get_guardian_context) + живые контексты
-    const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
+    const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
 
     // Серверная SOS-страховка (как в /api/ai/chat): признаки ЧП известны из
     // вопроса ДО генерации — блок 112/МЧС уходит первыми токенами стрима,
@@ -297,16 +300,40 @@ export async function POST(request: NextRequest) {
           const streamToolRuns: ToolRun[] = [];
           const streamProvenance: { provider?: string } = {};
           const streamTiming = newLoopTiming();
-          if (safeRole === 'tourist') {
+          let commercialHit = false;
+          if (safeRole === 'tourist' && !sosDetection.detected) {
+            const historyText = history
+              .filter((item) => item.role === 'assistant')
+              .map((item) => item.content)
+              .join('\n\n');
+            try {
+              const turn = await resolveCommercialTurn(message.trim(), { history: historyText, surface: 'web' });
+              if (turn) {
+                fullAnswer = turn.visible;
+                commercialHit = true;
+              }
+            } catch (err) {
+              logSwallowedFailure('ai-chat-stream', 'коммерческий ответ', err);
+            }
+          }
+          let loopAnswered = false;
+          if (safeRole === 'tourist' && !commercialHit) {
             try {
               fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [], streamToolRuns, streamProvenance, streamTiming)) ?? '';
+              loopAnswered = Boolean(fullAnswer.trim());
             } catch (err) {
               // Фолбэк на прежний стрим ниже; отказ цикла — в лог, не молча (§4.0).
               logSwallowedFailure('ai-chat-stream', 'цикл инструментов Кузьмича', err);
               fullAnswer = '';
             }
           }
-          const loopAnswered = fullAnswer !== '';
+          if (loopAnswered) {
+            const priceSource = streamToolRuns
+              .filter((run) => run.producedData && run.output)
+              .map((run) => run.output)
+              .join('\n');
+            fullAnswer = dropUnsourcedPrices(fullAnswer, priceSource).text;
+          }
           // Ответ модели до сторожей — его оценивает грейдер, как на сайте.
           let modelAnswer = fullAnswer;
           // Данные хода, которыми обосновывается километраж.
@@ -392,15 +419,18 @@ export async function POST(request: NextRequest) {
             void recordKuzmichAnswer({
               surface: 'web-stream',
               elapsedMs: Date.now() - answerStartedAt,
-              turns: loopAnswered ? streamTiming.turns : null,
-              toolRounds: loopAnswered ? streamTiming.toolRounds : null,
-              path: loopAnswered ? 'tools' : 'single',
+              turns: commercialHit ? 0 : (loopAnswered ? streamTiming.turns : null),
+              toolRounds: commercialHit ? 0 : (loopAnswered ? streamTiming.toolRounds : null),
+              path: commercialHit ? 'single' : (loopAnswered ? 'tools' : 'single'),
               provider: loopAnswered ? (streamProvenance.provider ?? null) : null,
               ceilingHit: streamTiming.ceilingHit,
             });
+          }
+          if (safeRole === 'tourist' && !commercialHit) {
             // Исход ответа в стриме — грейдеру, как с сайта (аудит 15.10, 1.14):
             // ключ сессии грейдер хэширует сам, ПД чистит сам, потолок в сутки
             // общий. У запасного стрима инструментов не было — журнал пуст ([]).
+            // Сборщик витрины модель не звал — оценивать его текст как ответ модели нельзя.
             void gradeKuzmichResponse(message.trim(), modelAnswer, storableSessionId, {
               surface: 'web-stream',
               toolRuns: loopAnswered ? streamToolRuns : [],

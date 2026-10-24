@@ -470,6 +470,9 @@ describe('турист: клавиатура, порядок ответов, д�
   });
 
   it('«сколько стоит?» видит туры и цену, которые человек уже видел', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-24T00:00:00.000Z'));
+    try {
     m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
       const q = String(sql);
       if (q.includes('INSERT INTO tg_conversations')) {
@@ -483,20 +486,35 @@ describe('турист: клавиатура, порядок ответов, д�
         return { rows: [{
           id: 7, slug: 'k-vulkanu', title: 'К вулкану',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 1,
-          season_start: '2027-07-01', season_end: '2027-09-01',
+          season_start: '2026-09-01', season_end: '2026-10-31',
           activity_type: 'volcano', location_name: 'Авачинский',
         }] };
       }
       return { rows: [] };
     });
-    m.tools.mockResolvedValue({ content: 'На вулканы есть туры.', provider: 'deepseek' });
     await post('туры на вулканы');
-    m.tools.mockClear();
+    expect(m.tools).not.toHaveBeenCalled();
+    const first = sent().join('\n');
+    expect(first).toContain('К вулкану');
+    expect(first).toMatch(/180/);
+    expect(first).toContain('https://vedarai.ru/catalog/tours/k-vulkanu');
+    const firstMarkup = m.tgSend.mock.calls[0]?.[0] as {
+      replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url: string }>> };
+    };
+    expect(firstMarkup.replyMarkup?.inline_keyboard).toEqual([[{
+      text: 'Отправить запрос оператору',
+      url: 'https://vedarai.ru/catalog/tours/k-vulkanu',
+    }]]);
     await post('Сколько стоит?');
-    const seen = modelInput();
-    expect(seen).toContain('На вулканы есть туры.');
-    expect(seen).toContain('180');
-    expect(seen).toContain('Сколько стоит?');
+    expect(m.tools).not.toHaveBeenCalled();
+    const second = sent().at(-1) ?? '';
+    expect(second).toContain('К вулкану');
+    expect(second).toMatch(/180/);
+    expect(second).toContain('https://vedarai.ru/catalog/tours/k-vulkanu');
+    expect(second).toContain('Отправить запрос оператору');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('«хочу арендовать авто» говорит про паузу витрины той же фразой, что кнопка', async () => {
@@ -508,7 +526,8 @@ describe('турист: клавиатура, порядок ответов, д�
       expect(out).toContain('не показывается');
       expect(out).toContain('27 октября');
       expect(out).not.toMatch(/Лагуна|FLO/i);
-      expect(modelInput()).toContain('27 октября');
+      expect(out.split('не показывается').length - 1).toBe(1);
+      expect(m.tools).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -528,15 +547,21 @@ describe('турист: клавиатура, порядок ответов, д�
       return { rows: [] };
     });
     await post('Что посмотреть за 5 дней в июле?');
-    const seen = modelInput();
-    expect(seen).toContain('25 августа 2027');
-    expect(seen).toContain('июле');
+    expect(m.tools).not.toHaveBeenCalled();
     const out = sent().join('\n');
-    expect(out).toContain('https://vedarai.ru/catalog/tours/pyat-dney');
-    expect(out).toContain('180');
+    expect(out).toContain('нет тура, который идёт');
+    expect(out).toContain('Отправить запрос оператору');
+    expect(out).not.toContain('https://vedarai.ru/catalog/tours/pyat-dney');
+    expect(out).not.toContain('180');
+    expect(out).not.toContain('августа 2027');
     expect(out).not.toMatch(/подключён к оператору/);
-    const last = m.tgSend.mock.calls.at(-1)?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ url?: string }>> } };
-    expect(last.replyMarkup?.inline_keyboard?.[0]?.[0]?.url).toBe('https://vedarai.ru/catalog/tours/pyat-dney');
+    const last = m.tgSend.mock.calls.at(-1)?.[0] as {
+      replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>> };
+    };
+    expect(last.replyMarkup?.inline_keyboard).toEqual([[{
+      text: 'Отправить запрос оператору',
+      url: 'https://vedarai.ru/catalog',
+    }]]);
   });
 });
 
@@ -601,9 +626,12 @@ describe('кабинет проката на живом вебхуке', () => {
 
   it('просьба туриста в том же чате идёт в мозг без строки кабинета', async () => {
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
-    expect(m.tools).toHaveBeenCalled();
+    expect(m.tools).not.toHaveBeenCalled();
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
-    expect(body.text).toContain('Ответ Кузьмича');
+    expect(body.text).toContain('не показывается');
+    expect((body.text ?? '').split('vedarai.ru/transfers').length - 1).toBe(1);
+    expect(body.text).not.toContain('Отправить запрос');
+    expect(body.text).not.toMatch(/Лагуна|Кабинет проката/);
     expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
       'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Задать вопрос',
@@ -643,8 +671,12 @@ describe('меню роли на живом вебхуке', () => {
 
   it('«найди мне в аренду автомобиль» — мозг туриста, без меню роли', async () => {
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
-    expect(m.tools).toHaveBeenCalled();
-    const body = m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
+    expect(m.tools).not.toHaveBeenCalled();
+    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
+    expect(body.text).toContain('не показывается');
+    expect((body.text ?? '').split('vedarai.ru/transfers').length - 1).toBe(1);
+    expect(body.text).not.toContain('Отправить запрос');
+    expect(body.text).not.toMatch(/Кабинет|Входящие/);
     expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toContain('Аренда авто');
   });

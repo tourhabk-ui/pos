@@ -14,6 +14,9 @@ import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
+import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
@@ -143,14 +146,14 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 
 3. НАВИГАТОР ПО ТУРАМ И МАРШРУТАМ
   Помогаешь выбрать маршрут по сезону, уровню подготовки, интересам.
-  Показываешь только реальные туры из данных ниже. Называешь цену как ориентир.
+  Показываешь только реальные туры из блока фактов этого хода, каждый со своей карточкой. Цену называешь дословно, как она записана. Вилку и пересчёт не делаешь.
   Финальные детали (доступность мест, погода, состав) подтверждает оператор.
   Когда рекомендуешь тур — объясни одним предложением ПОЧЕМУ именно он подходит этому человеку.
 
 ЖЁСТКИЕ ПРАВИЛА ФОРМАТИРОВАНИЯ (нарушение = сбой системы):
 - НИКАКИХ ЭМОДЗИ. Совсем. Никогда. Ни одного символа эмодзи в ответе — это не украшение, это баг.
 - НИКАКОЙ MARKDOWN-РАЗМЕТКИ: никаких ** жирный **, * курсив *, # заголовки, [текст](ссылки). Только обычный текст.
-- ПЕРЕЧИСЛЕНИЕ — СПИСКОМ. Несколько туров, групп, шагов или видов — каждый с новой строки, строка начинается с «- ». Группу называй в той же строке: «- Однодневные: …», «- Вертолётные: …», «- Многодневные: …». Не склеивай такие группы в один абзац. Два-три коротких слова можно оставить через запятую: «Рыбалка, вулканы, медведи.» Если турист просит перечислить ВЕСЬ каталог целиком ("перечисли все туры", "весь список") — по одному пункту на строку, и число пунктов обязано совпадать со строками ID в данных ниже, ни одна не пропущена.
+- ПЕРЕЧИСЛЕНИЕ — СПИСКОМ. Несколько туров, групп, шагов или видов — каждый с новой строки, строка начинается с «- ». Группу называй в той же строке: «- Однодневные: …», «- Вертолётные: …», «- Многодневные: …». Не склеивай такие группы в один абзац. Два-три коротких слова можно оставить через запятую: «Рыбалка, вулканы, медведи.» Туры, трансфер, жильё и прокат называй только из блока фактов этого хода — каждый пункт со своей карточкой. Общий каталог выше списком не пересказывай и цену из него не бери: нет строки этого хода — так и скажи, без цифры.
 - ЦЕЛОСТНОСТЬ СЧЁТА: количество туров/мест, которое ты называешь, и то, что ты перечисляешь — обязаны совпадать со строками в данных ниже, каждая с отдельным ID. Если турист поймал тебя на расхождении (сказал одно число, перечислил другое) — это твоя ошибка счёта или пересказа, а не свойство данных: признай её и перечитай каталог заново. НИКОГДА не объясняй расхождение выдумкой — «это дубли», «техническая особенность базы», «два из них совпадают» — если инструмент не сказал этого прямо, отдельный ID означает отдельный реальный тур.
 - МАКСИМУМ ОДИН ВОПРОС в ответе. Если нужно уточнить несколько вещей — выбери САМЫЙ важный вопрос и задай только его. Несколько вопросов подряд — запрещено.
 - Внутренние теги из контекста — тип:fishing, тип:eco, ID123 — это служебные данные только для тебя. НИКОГДА не включай их в ответ пользователю.
@@ -2512,6 +2515,48 @@ export async function aiChat(opts: {
     : [...historyResult.history, { role: 'user', content: userContent }];
   const historySummary = historyResult.summary;
 
+  // Тур, трансфер, жильё и прокат — текстом из витрины этого хода, без модели:
+  // модель перечисляла каталог из промпта и расходилась с карточками.
+  if (!detectEmergency(userContent).detected) {
+    const historyText = history
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.content)
+      .join('\n\n');
+    try {
+      const turn = await resolveCommercialTurn(userContent, {
+        history: historyText,
+        surface: platform === 'max' ? 'max' : 'telegram',
+      });
+      if (turn) {
+        const started = Date.now();
+        const finished = finishKuzmichAnswer({
+          surface: platform === 'max' ? 'max' : 'telegram',
+          answer: turn.visible,
+          question: userContent,
+          toolRuns: [],
+          context: turn.visible,
+        });
+        if (persist && !isAIErrorResponse(finished.text)) {
+          await saveMsg(chatId, mode, 'assistant', finished.text, userId, userName);
+        }
+        await reply(chatId, finished.text);
+        void recordKuzmichAnswer({
+          surface: platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other',
+          elapsedMs: Date.now() - started,
+          turns: 0,
+          toolRounds: 0,
+          path: 'single',
+          provider: null,
+          ceilingHit: false,
+        });
+        if (afterReply) await afterReply(chatId, finished.text);
+        return;
+      }
+    } catch (err) {
+      logSwallowedFailure('kuzmich', 'коммерческий ответ', err);
+    }
+  }
+
   // Строим системный промпт с маркером для prompt caching:
   // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
@@ -2608,6 +2653,11 @@ export async function aiChat(opts: {
   // Грейдер и синтез заметок получают ОРИГИНАЛЬНЫЙ ответ модели — без поправок
   // и блока 112, иначе boilerplate портит оценку и утекает в память бота.
   const claimRuns = usedAgentLoopAnswer ? toolRuns : null;
+  const priceSource = (claimRuns ?? [])
+    .filter((run) => run.producedData && run.output)
+    .map((run) => run.output)
+    .join('\n');
+  answer = dropUnsourcedPrices(answer, priceSource).text;
   const finished = finishKuzmichAnswer({
     surface: platform === 'max' ? 'max' : 'telegram',
     answer,

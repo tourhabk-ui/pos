@@ -147,3 +147,70 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
     return `${a.name}${a.type ? ` [${a.type}]` : ''} — ${price}${where ? `. ${where}` : ''}.${about} ${base}/accommodations/${a.id}.${book}`;
   }).join('\n\n');
 }
+
+export interface StayFactRow {
+  name: string;
+  /** null — цены в строке нет. Диапазон — только если в базе две цены. */
+  priceText: string | null;
+  url: string;
+  zone: string | null;
+  mentionsSprings: boolean;
+}
+
+function stayPriceText(fromRaw: string | null, toRaw: string | null): string | null {
+  const from = fromRaw ? Math.round(Number(fromRaw)) : null;
+  const to = toRaw ? Math.round(Number(toRaw)) : null;
+  if (!from || !Number.isFinite(from) || from <= 0) return null;
+  if (to && Number.isFinite(to) && to > from) return `от ${from} до ${to} руб/ночь`;
+  return `от ${from} руб/ночь`;
+}
+
+/** Строки витрины для ответа человеку. Отказ базы — `{ ok: false }`, не пустой список. */
+export async function loadStayFacts(zone: string | readonly string[] | null): Promise<{ ok: true; items: StayFactRow[] } | { ok: false }> {
+  const zones = (Array.isArray(zone) ? zone : zone ? [zone] : [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const conds: string[] = [publicAccommodationSql('')];
+  const params: unknown[] = [];
+  if (zones.length > 0) {
+    const parts: string[] = [];
+    for (const item of zones) {
+      params.push(containsPattern(item));
+      parts.push(`(location_zone ILIKE $${params.length} OR name ILIKE $${params.length} OR address ILIKE $${params.length})`);
+    }
+    conds.push(`(${parts.join(' OR ')})`);
+  }
+  try {
+    const { rows } = await pool.query<AccommodationRow>(
+      `SELECT id, name, type, address, location_zone, price_per_night_from, price_per_night_to,
+              short_description, rating, external_booking_url,
+              (contact_phone IS NOT NULL) AS has_contact_phone,
+              NOT EXISTS (
+                SELECT 1 FROM accommodation_rooms r WHERE r.accommodation_id = accommodations.id AND r.is_active = true
+              ) AS no_rooms
+       FROM accommodations
+       WHERE ${conds.join(' AND ')}
+       ORDER BY rating DESC NULLS LAST
+       LIMIT 12`,
+      params,
+    );
+    const base = appBase();
+    return {
+      ok: true,
+      items: rows.map((row) => {
+        const about = `${row.name} ${row.short_description ?? ''} ${row.location_zone ?? ''}`;
+        return {
+          name: row.name,
+          priceText: stayPriceText(row.price_per_night_from, row.price_per_night_to),
+          url: `${base}/accommodations/${row.id}`,
+          zone: row.location_zone,
+          mentionsSprings: /источник/i.test(about),
+        };
+      }),
+    };
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет кода';
+    console.error(`[loadStayFacts] запрос к accommodations не выполнен, SQLSTATE=${code}`);
+    return { ok: false };
+  }
+}
