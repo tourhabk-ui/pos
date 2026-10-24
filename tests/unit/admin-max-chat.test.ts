@@ -187,6 +187,29 @@ describe('администратор в MAX: ответы', () => {
     expect(m.adminReply).not.toHaveBeenCalled();
   });
 
+  it('просьба туриста — Кузьмич туриста, не подсказка команд', async () => {
+    await post(VERIFIED, message('найди мне в аренду автомобиль'));
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: ADMIN_CHAT, text: 'найди мне в аренду автомобиль', mode: 'max', verifiedOrigin: true,
+    }));
+    expect(m.adminReply).not.toHaveBeenCalled();
+    expect(repliesTo(ADMIN_CHAT).join('\n')).not.toContain(ADMIN_CHAT_TEXT.notUnderstood);
+  });
+
+  it('«забронировать тур» — Кузьмич туриста, не сводка броней', async () => {
+    await post(VERIFIED, message('хочу забронировать тур'));
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: ADMIN_CHAT, text: 'хочу забронировать тур', mode: 'max', verifiedOrigin: true,
+    }));
+    expect(m.adminReply).not.toHaveBeenCalled();
+  });
+
+  it('команда кабинета остаётся чтением администратора', async () => {
+    await post(VERIFIED, message('Покажи брони'));
+    expect(m.adminReply).toHaveBeenCalledWith('bookings', undefined);
+    expect(m.processMessage).not.toHaveBeenCalled();
+  });
+
   it('номер без текста от администратора — не заявка и не модель', async () => {
     await post(VERIFIED, message('', { attachments: [{ type: 'contact', payload: { vcf_info: 'TEL:+79140000000' } }] }));
     expect(repliesTo(ADMIN_CHAT)).toEqual([ADMIN_CHAT_TEXT.textOnly]);

@@ -139,6 +139,28 @@ describe('Кузьмич в Telegram ведёт ссылки подключен�
     expect(m.processMessage).not.toHaveBeenCalled();
   });
 
+  it('привязанный чат: аренда машины — Кузьмич туриста, не помощник CRM', async () => {
+    m.findPartner.mockResolvedValue({
+      outcome: 'found',
+      partner: { partnerId: PARTNER_ID, partnerName: 'Лагуна', category: 'operator', crmCategory: 'operator', userId: 'u1', slug: 'laguna-prokat' },
+    });
+    await route.POST(update('найди мне в аренду автомобиль'));
+    expect(m.processPartner).not.toHaveBeenCalled();
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: CHAT, text: 'найди мне в аренду автомобиль', mode: 'tourist',
+    }));
+  });
+
+  it('привязанный чат: «запиши» остаётся помощнику CRM', async () => {
+    m.findPartner.mockResolvedValue({
+      outcome: 'found',
+      partner: { partnerId: PARTNER_ID, partnerName: 'Лагуна', category: 'operator', crmCategory: 'operator', userId: 'u1', slug: 'laguna-prokat' },
+    });
+    await route.POST(update('запиши, что звонил'));
+    expect(m.processMessage).not.toHaveBeenCalled();
+    expect(m.processPartner).toHaveBeenCalledWith(expect.objectContaining({ chatId: CHAT, text: 'запиши, что звонил' }));
+  });
+
   it('голый /start — приветствие туристу, как прежде: ни одной привязки', async () => {
     await route.POST(update('/start'));
     expect(m.query.mock.calls.some(([sql]) => /UPDATE partners/.test(sql as string))).toBe(false);
