@@ -1,16 +1,16 @@
 /**
  * Нажатие «Беру» / «Не могу» в личном чате прокатчика пилота.
- * Пишет журнал, «Беру» отмечает дни заявки занятыми, менеджеру шлёт факт
- * без персональных данных заказчика и просит править то же сообщение.
+ * Ответ и отметка дней — одна транзакция: второе нажатие дни не меняет.
+ * Менеджеру уходит один факт без персональных данных заказчика.
  */
 
 import { tgSend } from '@/lib/notifications/tg-send';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import {
-  managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText, type RequestAnswer,
+  managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText,
 } from '@/lib/rental/request-answer';
 import {
-  loadOwnedRentalRequest, markRequestBusy, readPartnerAnswer, resolveRequestOffer, writePartnerAnswer,
+  claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer,
 } from '@/lib/rental/request-answer-store';
 
 export interface AnswerActor {
@@ -82,89 +82,55 @@ export async function handleRentalRequestAnswer(opts: {
   }
   const request = loaded.request;
 
-  const prior = await readPartnerAnswer(request.leadId);
-  if (prior === 'db_error') {
-    await say({ kind: 'unread' }, false);
-    return;
-  }
-  if (prior === 'take' || prior === 'decline') {
-    await say({ kind: 'already', answer: prior }, true);
-    return;
-  }
-
-  const finish = async (
-    answer: RequestAnswer,
-    tell: Parameters<typeof partnerAnswerText>[0],
-    extra: { carTitle: string | null; from: string | null; to: string | null; marked: number | null },
-  ) => {
-    const written = await writePartnerAnswer(request.leadId, answer, {
-      offer_id: request.offerId,
-      car_title: extra.carTitle,
-      date_from: extra.from,
-      date_to: extra.to,
-      days_marked: extra.marked,
-    });
-    if (written === 'db_error') {
-      await say({ kind: 'retry' }, false);
-      return;
-    }
-    try {
-      await notify(managerAnswerText({
-        partnerName: partner.partnerName,
-        leadId: request.leadId,
-        answer,
-        carTitle: extra.carTitle,
-        from: extra.from,
-        to: extra.to,
-        marked: extra.marked,
-      }));
-    } catch (err) {
-      console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
-    }
-    await say(tell, true);
-  };
-
-  if (press.answer === 'decline') {
-    await finish('decline', { kind: 'decline' }, {
-      carTitle: request.title, from: request.dateFrom, to: request.dateTo, marked: null,
-    });
-    return;
-  }
-
-  const offer = await resolveRequestOffer(partner.partnerId, request.offerId, request.title);
-  if (offer.outcome === 'db_error') {
+  const offer = press.answer === 'take'
+    ? await resolveRequestOffer(partner.partnerId, request.offerId, request.title)
+    : null;
+  if (offer?.outcome === 'db_error') {
     await say({ kind: 'retry' }, false);
     return;
   }
-  if (offer.outcome !== 'ok') {
-    await finish('take', { kind: 'take_no_car' }, {
-      carTitle: request.title, from: request.dateFrom, to: request.dateTo, marked: null,
-    });
+  const span = offer?.outcome === 'ok' ? spanOrNull(request.dateFrom, request.dateTo) : null;
+  const carTitle = offer?.outcome === 'ok' ? offer.title : request.title;
+  const claimed = await claimPartnerAnswer({
+    leadId: request.leadId,
+    answer: press.answer,
+    partnerId: partner.partnerId,
+    offerId: offer?.outcome === 'ok' ? offer.offerId : request.offerId,
+    carTitle,
+    dateFrom: span?.from ?? request.dateFrom,
+    dateTo: span?.to ?? request.dateTo,
+    mark: offer?.outcome === 'ok' && span
+      ? { offerId: offer.offerId, dateFrom: span.from, dateTo: span.to }
+      : null,
+  });
+  if (claimed.outcome === 'db_error') {
+    await say({ kind: 'retry' }, false);
     return;
   }
-  const span = spanOrNull(request.dateFrom, request.dateTo);
-  if (!span) {
-    await finish('take', { kind: 'take_bad_dates' }, {
-      carTitle: offer.title, from: request.dateFrom, to: request.dateTo, marked: null,
-    });
+  if (claimed.outcome === 'already') {
+    await say({ kind: 'already', answer: claimed.answer }, true);
     return;
   }
 
-  const marked = await markRequestBusy(
-    partner.partnerId, offer.offerId, span.from, span.to, request.leadId,
-  );
-  if (marked.outcome !== 'saved') {
-    if (marked.outcome === 'db_error') {
-      await say({ kind: 'retry' }, false);
-      return;
-    }
-    await finish('take', marked.outcome === 'bad_dates' ? { kind: 'take_bad_dates' } : { kind: 'take_no_car' }, {
-      carTitle: offer.title, from: span.from, to: span.to, marked: null,
-    });
-    return;
+  const tell = press.answer === 'decline'
+    ? { kind: 'decline' as const }
+    : claimed.marked !== null && span
+      ? { kind: 'take' as const, from: span.from, to: span.to, marked: claimed.marked }
+      : offer?.outcome === 'ok' && !span
+        ? { kind: 'take_bad_dates' as const }
+        : { kind: 'take_no_car' as const };
+  try {
+    await notify(managerAnswerText({
+      partnerName: partner.partnerName,
+      leadId: request.leadId,
+      answer: press.answer,
+      carTitle,
+      from: request.dateFrom,
+      to: request.dateTo,
+      marked: press.answer === 'take' ? claimed.marked : null,
+    }));
+  } catch (err) {
+    console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
-  const daysMarked = marked.marked;
-  await finish('take', { kind: 'take', from: span.from, to: span.to, marked: daysMarked }, {
-    carTitle: offer.title, from: span.from, to: span.to, marked: daysMarked,
-  });
+  await say(tell, true);
 }

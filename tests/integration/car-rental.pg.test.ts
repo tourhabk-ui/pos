@@ -388,15 +388,30 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       })],
     );
     const {
-      loadOwnedRentalRequest, markRequestBusy, readPartnerAnswer, writePartnerAnswer,
+      claimPartnerAnswer, loadOwnedRentalRequest, readPartnerAnswer,
     } = await import('@/lib/rental/request-answer-store');
     const loaded = await loadOwnedRentalRequest(offer!.partner_id, lead!.id);
     expect(loaded.outcome).toBe('ok');
     if (loaded.outcome !== 'ok') return;
     expect(loaded.request.offerId).toBe(offer!.id);
     expect(await readPartnerAnswer(lead!.id)).toBe('none');
-    const marked = await markRequestBusy(offer!.partner_id, offer!.id, '2026-11-10', '2026-11-12', lead!.id);
-    expect(marked).toEqual({ outcome: 'saved', marked: 3 });
+    const claim = {
+      leadId: lead!.id,
+      partnerId: offer!.partner_id,
+      offerId: offer!.id,
+      carTitle: 'Suzuki Jimny',
+      dateFrom: '2026-11-10',
+      dateTo: '2026-11-12',
+      mark: { offerId: offer!.id, dateFrom: '2026-11-10', dateTo: '2026-11-12' },
+    };
+    const [first, second] = await Promise.all([
+      claimPartnerAnswer({ ...claim, answer: 'take' }),
+      claimPartnerAnswer({ ...claim, answer: 'take' }),
+    ]);
+    expect([first, second].filter((r) => r.outcome === 'saved')).toEqual([{ outcome: 'saved', marked: 3 }]);
+    expect([first, second].filter((r) => r.outcome === 'already')).toEqual([{ outcome: 'already', answer: 'take' }]);
+    expect(await readPartnerAnswer(lead!.id)).toBe('take');
+    expect(await claimPartnerAnswer({ ...claim, answer: 'decline' })).toEqual({ outcome: 'already', answer: 'take' });
     const { rows: busy } = await pool.query<{ day: string; source: string; lead_id: string; busy: boolean }>(
       `SELECT day::text AS day, source, lead_id::text AS lead_id, busy
          FROM rental_car_busy WHERE offer_id = $1 AND day >= '2026-11-10' AND day <= '2026-11-12'
@@ -405,9 +420,11 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     );
     expect(busy.map((r) => r.day)).toEqual(['2026-11-10', '2026-11-11', '2026-11-12']);
     expect(busy.every((r) => r.busy && r.source === 'request' && r.lead_id === lead!.id)).toBe(true);
-    expect(await markRequestBusy('00000000-0000-4000-8000-000000000099', offer!.id, '2026-11-10', '2026-11-12', lead!.id)).toEqual({ outcome: 'not_yours' });
-    expect(await writePartnerAnswer(lead!.id, 'take', { days_marked: 3 })).toBe('saved');
-    expect(await readPartnerAnswer(lead!.id)).toBe('take');
+    const { rows: answers } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`,
+      [lead!.id],
+    );
+    expect(answers[0]?.n).toBe(1);
     expect(await loadOwnedRentalRequest('00000000-0000-4000-8000-000000000099', lead!.id)).toEqual({ outcome: 'not_yours' });
   });
 });

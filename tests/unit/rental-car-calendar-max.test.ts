@@ -31,7 +31,12 @@ vi.mock('@/lib/max/max-fetch', () => ({
   }),
   maxFetch: vi.fn(),
 }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => m.pool(...a) } }));
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (...a: unknown[]) => m.pool(...a),
+    connect: async () => ({ query: (...a: unknown[]) => m.pool(...a), release: () => undefined }),
+  },
+}));
 vi.mock('@/lib/ai/providers', () => ({
   callToolsWaterfall: (...a: unknown[]) => m.tools(...a),
   callAIWaterfallOrNull: vi.fn(async () => null),

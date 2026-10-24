@@ -11,7 +11,12 @@ import {
 import { handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
 
 const pool = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => pool(...a) } }));
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (...a: unknown[]) => pool(...a),
+    connect: async () => ({ query: (...a: unknown[]) => pool(...a), release: () => undefined }),
+  },
+}));
 
 const PARTNER = '22222222-2222-4222-8222-222222222222';
 const OFFER = '11111111-1111-4111-8111-111111111111';
@@ -124,6 +129,36 @@ describe('поток ответа', () => {
     expect(managers[0]).toContain('не могу');
     expect(managers[0]).not.toContain(PHONE);
     expect(sent[0]?.text).toContain('не могу');
+  });
+
+  it('второе нажатие, даже другим ответом, дни не занимает и менеджера не будит', async () => {
+    let saved: string | null = null;
+    sent.length = 0;
+    managers.length = 0;
+    pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
+      const s = String(sql);
+      if (/FROM leads/.test(s)) return { rows: [leadRow()] };
+      if (/lead_activity_log/.test(s) && /SELECT/.test(s)) return { rows: saved ? [{ answer: saved }] : [] };
+      if (/INSERT INTO lead_activity_log/.test(s)) {
+        saved = 'take';
+        return { rows: [{ id: '1' }] };
+      }
+      if (/INSERT INTO rental_car_busy/.test(s)) {
+        const days = Array.isArray(params?.[2]) ? params[2] as string[] : [];
+        return { rows: days.map((day) => ({ day })) };
+      }
+      if (/FROM car_rental_offers/.test(s)) return { rows: [{ id: OFFER, title: 'Suzuki Jimny' }] };
+      return { rows: [] };
+    });
+    await press(`rr:y:${LEAD}`);
+    await press(`rr:n:${LEAD}`);
+    const busy = pool.mock.calls.filter((c) => /INSERT INTO rental_car_busy/.test(String(c[0])));
+    const journal = pool.mock.calls.filter((c) => /INSERT INTO lead_activity_log/.test(String(c[0])));
+    expect(busy).toHaveLength(1);
+    expect(journal).toHaveLength(1);
+    expect(managers).toHaveLength(1);
+    expect(sent.at(-1)?.text).toContain('уже записан: беру');
+    expect(pool.mock.calls.some((c) => /pg_advisory_xact_lock/.test(String(c[0])))).toBe(true);
   });
 
   it('повтор не пишет дни и менеджера не будит', async () => {
