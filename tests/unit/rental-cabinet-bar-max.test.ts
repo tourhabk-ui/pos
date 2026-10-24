@@ -148,3 +148,38 @@ describe('строка кабинета в MAX', () => {
     expect(String(call?.[1])).not.toMatch(/\d[\d\s]*₽/);
   });
 });
+
+describe('меню роли оператора в MAX', () => {
+  const OP = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const s = String(sql);
+      if (/admin_max_bindings/.test(s)) return { rows: [] };
+      if (/FROM partners/.test(s)) {
+        return { rows: [{ id: OP, slug: 'mesto-kamchatka', name: 'Местечко', category: 'operator', user_id: null, profile_status: null }] };
+      }
+      return { rows: [] };
+    });
+  });
+
+  it('«Старт» привязанного оператора — справка роли, не меню туриста', async () => {
+    await post({
+      update_type: 'bot_started', timestamp: 1, chat_id: CHAT, payload: '', user: { user_id: CHAT, name: 'Оператор' },
+    });
+    expect(m.processMessage).not.toHaveBeenCalled();
+    const call = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Кабинет оператора'));
+    expect(call).toBeTruthy();
+    expect(barPayloads(call!)).toEqual(['rm:op:in', 'rm:op:hp']);
+    expect(String(call?.[1])).not.toMatch(/₽/);
+  });
+
+  it('«Входящие» — список без модели и без строки проката', async () => {
+    await post(message('Входящие'));
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(m.processMessage).not.toHaveBeenCalled();
+    const call = m.maxSend.mock.calls.at(-1);
+    expect(String(call?.[1])).toContain('Входящие');
+    expect(barPayloads(call!)).toEqual(['rm:op:in', 'rm:op:hp']);
+  });
+});

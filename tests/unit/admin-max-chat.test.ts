@@ -159,6 +159,7 @@ describe('администратор в MAX: ответы', () => {
     expect(m.pdAlert).toHaveBeenCalledWith({
       text: PD_TEXT,
       stub: expect.any(String),
+      buttons: expect.arrayContaining([expect.objectContaining({ payload: 'rm:ad:bk' })]),
       to: { maxChatId: ADMIN_CHAT, telegramChatId: null },
     });
     expect(m.pdAlert.mock.calls[0][0].stub).not.toMatch(/\+7|Турист/);

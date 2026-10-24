@@ -20,6 +20,10 @@ import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAI
 import { parseRentalCabinetPress, rentalCabinetAsk, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
+import { menuMarkup, type MenuButton } from '@/lib/roles/chat-menu';
+import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
+import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { PlatformAgent } from '@/lib/agents';
@@ -52,6 +56,10 @@ async function botToken(): Promise<string> {
   if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
   if (!_cachedToken) _cachedToken = await getSetting('telegram_bot_token');
   return _cachedToken ?? '';
+}
+
+function roleRows(buttons: MenuButton[][]): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+  return { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) };
 }
 
 async function tgReply(chatId: number, text: string, extra?: Record<string, unknown>): Promise<void> {
@@ -481,6 +489,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ ok: true });
       }
 
+      if (parseRoleMenuPress(cq.data)) {
+        await tgAnswerCallback(cq.id);
+        const press = parseRoleMenuPress(cq.data);
+        if (press?.role === 'admin') {
+          const adminIds = [process.env.TELEGRAM_CHAT_ID, process.env.TELEGRAM_OWNER_ID];
+          if (!adminIds.some((id) => id !== undefined && id !== '' && id === String(cq.from.id))) {
+            await tgReply(chatId, 'Эта кнопка — кабинет администратора. В этом чате её не выполняю.');
+            return NextResponse.json({ ok: true });
+          }
+          const screen = await roleMenuScreen({
+            role: 'admin', action: press.action, channel: 'telegram', partner: null, nowMs: Date.now(),
+          });
+          await tgReply(chatId, screen.text, { reply_markup: menuMarkup(adminMenu()) });
+          return NextResponse.json({ ok: true });
+        }
+        await tryRoleMenuTelegramPress({
+          chatId,
+          payload: cq.data,
+          send: async (body, buttons) => {
+            if (buttons.length === 0) await tgReply(chatId, body);
+            else await tgReply(chatId, body, { reply_markup: roleRows(buttons) });
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       if (cq.data === 'rate_good') {
         await saveRating(chatId, 'tourist', 5);
         await tgAnswerCallback(cq.id, 'Спасибо!');
@@ -628,11 +662,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (partner && msg.text && boundChatLane(msg.text) !== 'tourist') {
       const text = msg.text.trim();
       const pilot = isRentalPilotSlug(partner.slug);
+      const menu = partnerMenu(partner);
       const say = async (body: string, buttons: CabinetButton[][] = []) => {
         if (pilot) await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
+        else if (menu) await tgReply(chatId, body, { reply_markup: menuMarkup(menu, buttons) });
         else await tgReply(chatId, body);
       };
-      if (text === '/start') {
+      const role = menuRoleOf(partner);
+      if (role && (text === '/start' || roleMenuAsk(text) !== null)) {
+        const asked = roleMenuAsk(text);
+        const screen = await roleMenuScreen({
+          role,
+          action: text === '/start' || asked === 'help' ? 'help' : 'inbox',
+          channel: 'telegram',
+          partner,
+          nowMs: Date.now(),
+        });
+        await say(screen.text);
+      } else if (text === '/start') {
         await say(partnerGreeting(partner));
       } else if (partner.category === 'operator' && chatDatesIntent(text) === 'dates'
         && await (await import('@/lib/operators/chat-dates/flow')).isOperatorDatesPhrase(text, partner.partnerId)) {

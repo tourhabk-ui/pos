@@ -474,3 +474,56 @@ describe('кабинет проката на живом вебхуке', () => {
     expect(body.replyMarkup).toBeUndefined();
   });
 });
+
+describe('меню роли на живом вебхуке', () => {
+  const PARTNER = '11111111-1111-4111-8111-111111111111';
+  const CHAT = 5151;
+
+  function lastRow(call = 0): string[] {
+    const markup = (m.tgSend.mock.calls[call]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data: string }>> } }).replyMarkup;
+    const last = markup?.inline_keyboard?.[markup.inline_keyboard.length - 1] ?? [];
+    return last.map((b) => b.callback_data);
+  }
+
+  beforeEach(() => {
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) return { rows: [] };
+      if (q.includes('FROM partners')) {
+        return { rows: [{ id: PARTNER, slug: 'mesto-kamchatka', name: 'Местечко', category: 'operator', user_id: null, profile_status: null }] };
+      }
+      return { rows: [] };
+    });
+  });
+
+  it('«Входящие» — список кабинета со строкой роли, не мозг туриста', async () => {
+    await post('Входящие', { chat: CHAT, from: CHAT });
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(sent()[0]).toContain('Входящие');
+    expect(sent().join('\n')).not.toMatch(/\+7|телефон/i);
+    expect(lastRow()).toEqual(['rm:op:in', 'rm:op:hp']);
+    expect(lastRow().join(' ')).not.toContain('rk:');
+  });
+
+  it('«найди мне в аренду автомобиль» — мозг туриста, без меню роли', async () => {
+    await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
+    expect(m.tools).toHaveBeenCalled();
+    const body = m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: unknown };
+    expect(body.replyMarkup).toBeUndefined();
+  });
+
+  it('«как дела» остаётся помощнику кабинета, строка роли под ответом', async () => {
+    m.tools.mockResolvedValue({ content: 'Дела в порядке', provider: 'deepseek' });
+    await post('как дела', { chat: CHAT, from: CHAT });
+    expect(m.tools).toHaveBeenCalled();
+    expect(sent()).toEqual(['Дела в порядке']);
+    expect(lastRow()).toEqual(['rm:op:in', 'rm:op:hp']);
+  });
+
+  it('/help администратора несёт шесть кнопок чтения', async () => {
+    await post('/help', { chat: ADMIN, from: ADMIN });
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(sent()[0]).toContain('Команды Кузьмича');
+    expect(lastRow()).toEqual(['rm:ad:dt', 'rm:ad:bk', 'rm:ad:ld', 'rm:ad:sm', 'rm:ad:hl', 'rm:ad:hp']);
+  });
+});
