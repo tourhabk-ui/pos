@@ -162,14 +162,35 @@ async function sendHTML(chatId: string, text: string): Promise<void> {
   await telegramService.sendMessage({ chatId, text, parseMode: 'HTML' });
 }
 
-/** Ответ кабинета проката: та же строка кнопок под текстом. */
+/**
+ * Ответ кабинета проката: та же строка кнопок под текстом.
+ *
+ * Свободная реплика кабинета — ответ модели, и в нём бывает голый `<`.
+ * Прежняя отправка слала текст как есть и не смотрела на ответ Bot API:
+ * 400 «can't parse entities» глотался, прокатчик не получал ничего.
+ * Тот же разбор, что у ответа туриста: сначала HTML, который Bot API
+ * примет; не принял — второй раз без тегов. Кнопки остаются на обеих
+ * попытках. Не принят и второй — отказ в лог (§4.0).
+ */
 async function sendRentalCabinet(chatId: string, text: string, buttons: CabinetButton[][] = []): Promise<void> {
-  await telegramService.sendMessage({
+  const clean = sanitizeForTelegram(text);
+  const replyMarkup = telegramCabinetMarkup(buttons);
+  const html = await telegramService.sendMessage({
     chatId,
-    text,
+    text: repairTelegramHtml(clean),
     parseMode: 'HTML',
-    replyMarkup: telegramCabinetMarkup(buttons),
+    replyMarkup,
   });
+  if (html.success) return;
+  const plain = await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(esc(stripTags(clean))),
+    parseMode: 'HTML',
+    replyMarkup,
+  });
+  if (!plain.success) {
+    console.error('[telegram/webhook] ответ кабинета не доставлен', { html: html.error, plain: plain.error });
+  }
 }
 
 // ── Поиск пользователя по Telegram ID ────────────────────────────────────────
