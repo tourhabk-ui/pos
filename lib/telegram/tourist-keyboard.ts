@@ -5,7 +5,7 @@
  * «Аренда авто» — просьба туриста, не вход в кабинет проката.
  */
 
-import { RENTAL_SITE_PAUSE, rentalSitePauseActive } from '@/lib/rental/site-pause';
+import { rentalPauseForTourist, rentalSitePauseActive } from '@/lib/rental/site-pause';
 
 export const TOURIST_BUTTONS = [
   'Подобрать тур',
@@ -49,11 +49,7 @@ export function matchTouristButton(text: string): TouristButton | null {
  * эта строка не открывает.
  */
 export function touristRentalText(now: Date = new Date()): string {
-  if (rentalSitePauseActive(now)) {
-    return 'Прокат автомобилей без водителя на сайте сейчас не показывается — '
-      + `вернётся ${RENTAL_SITE_PAUSE.returnsOn}. Прокатчиков и цен не называю: витрина их прячет. `
-      + 'Машину с водителем можно смотреть у перевозчиков: https://vedarai.ru/transfers';
-  }
+  if (rentalSitePauseActive(now)) return rentalPauseForTourist();
   return 'Аренда автомобиля без водителя — на витрине Ведара: https://vedarai.ru/car-rental . '
     + 'Цену берёте с карточки прокатчика, я её от себя не называю.';
 }

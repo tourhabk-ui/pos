@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { emphasizeTripDays } from '@/lib/telegram/kuzmich-format';
-import { detectTourIntent } from '@/lib/ai/booking-intent';
+import { detectTourIntent, wantsTourCards } from '@/lib/ai/booking-intent';
 import { catalogFacts, seasonOverlaps, showcaseLookup, showcaseQuery, type CatalogTour } from '@/lib/telegram/tourist-tours';
 import { enqueueTelegramChat, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { matchTouristButton, touristRentalText, touristReplyMarkup } from '@/lib/telegram/tourist-keyboard';
@@ -51,6 +51,9 @@ describe('даты тура против месяца в вопросе', () => 
   it('«посмотреть погоду» и «за 3 дня до вылета» туры не тянут', () => {
     expect(detectTourIntent('Что посмотреть за 5 дней летом').detected).toBe(true);
     expect(detectTourIntent('посмотреть погоду на завтра').detected).toBe(false);
+    expect(wantsTourCards('Хочу арендовать авто')).toBe(false);
+    expect(wantsTourCards('хочу')).toBe(false);
+    expect(wantsTourCards('туры на вулканы')).toBe(true);
     expect(detectTourIntent('за 3 дня до вылета').detected).toBe(false);
     expect(catalogFacts('посмотреть погоду на завтра', { ok: true, tours: [FIVE] }).html).toBe('');
     expect(catalogFacts('за 3 дня до вылета', { ok: true, tours: [FIVE] }).html).toBe('');

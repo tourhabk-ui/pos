@@ -60,6 +60,25 @@ export function isSightseeingQuestion(text: string): boolean {
   return SIGHTSEEING.test(text.toLowerCase().replace(/ё/g, 'е'));
 }
 
+/** Аренда машины без водителя. «Хочу» само по себе туром не делает этот вопрос. */
+export function isCarRentalAsk(text: string): boolean {
+  const lower = text.toLowerCase().replace(/ё/g, 'е');
+  return /аренд|прокат/.test(lower) && /авто|машин|автомобил/.test(lower) && !/(?<![а-яе])тур/.test(lower);
+}
+
+/**
+ * Карточки каталога под ответом. «Хочу арендовать авто» их не получает:
+ * слово «хочу» есть в признаках тура, а витрина туров тут ни при чём.
+ */
+export function wantsTourCards(text: string): boolean {
+  if (isCarRentalAsk(text)) return false;
+  const intent = detectTourIntent(text);
+  if (!intent.detected) return false;
+  if (intent.activityType || isSightseeingQuestion(text)) return true;
+  const lower = text.toLowerCase().replace(/ё/g, 'е');
+  return /(?<![а-яе])тур(?!ист)|поездк|экскурс|поход|трекк|программ/.test(lower);
+}
+
 function keywordHit(lower: string, kw: string): boolean {
   const rx = WORD_START_KEYWORDS[kw];
   return rx ? rx.test(lower) : lower.includes(kw);

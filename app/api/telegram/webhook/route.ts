@@ -47,6 +47,8 @@ import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
+import { isCarRentalAsk } from '@/lib/ai/booking-intent';
+import { rentalSitePauseActive } from '@/lib/rental/site-pause';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { stripTags } from '@/lib/html/text';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -331,6 +333,21 @@ const KUZMICH_FAILED_TEXT = 'Не получилось ответить — сб
  * KUZMICH_FAILED_TEXT — и на «мы заблудились» он обязан нести блок тоже.
  * Второй раз блок не встаёт: withSosBlock видит в ответе 112 и МЧС.
  */
+/** Текст карточек без тегов — его и запоминает история. */
+function plainShown(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/[a-z0-9]+>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function answerByKuzmich(opts: {
   chatId: number;
   text: string;
@@ -341,6 +358,14 @@ async function answerByKuzmich(opts: {
   let extra = '';
   let inline: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | undefined;
   let contextNote = '';
+  // Пауза проката — та же фраза, что у кнопки и у инструмента на сайте.
+  // Модель иначе спрашивает тип и даты, будто витрина открыта. Фраза
+  // ставится в ответ сама: модель может её не повторить.
+  let pauseLine = '';
+  if (opts.tourist && isCarRentalAsk(opts.text) && rentalSitePauseActive() && !detectEmergency(opts.text).detected) {
+    pauseLine = touristRentalText();
+    contextNote = `${pauseLine} Скажи это туристу. Не спрашивай тип машины и даты, пока витрина скрыта.`;
+  }
   if (opts.tourist && wantsCatalogCards(opts.text) && !detectEmergency(opts.text).detected) {
     const facts = catalogFacts(opts.text, await loadShowcaseTours(opts.text));
     contextNote = facts.note;
@@ -348,7 +373,8 @@ async function answerByKuzmich(opts: {
     inline = facts.inline;
   }
   const reply: ReplyFn = (id, answer) => {
-    const body = extra ? `${withSosBlock(answer, opts.text).text}\n\n${extra}` : withSosBlock(answer, opts.text).text;
+    const withPause = pauseLine ? `${pauseLine}\n\n${answer}` : answer;
+    const body = extra ? `${withSosBlock(withPause, opts.text).text}\n\n${extra}` : withSosBlock(withPause, opts.text).text;
     const markup = opts.tourist ? (inline ?? touristReplyMarkup()) : undefined;
     return sendKuzmichReply(id, body, markup);
   };
@@ -359,6 +385,7 @@ async function answerByKuzmich(opts: {
       // читает никто — хранить его незачем (минимизация ПД, 152-ФЗ).
       userId: opts.userId, userName: null, platform: 'tg',
       contextNote: contextNote || undefined,
+      shownFacts: [pauseLine, extra ? plainShown(extra) : ''].filter(Boolean).join('\n\n') || undefined,
     });
   } catch (err) {
     logSwallowedFailure('telegram/webhook', 'ответ Кузьмича', err);

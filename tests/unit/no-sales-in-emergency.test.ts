@@ -35,7 +35,7 @@ describe('при ЧП пути продажи закрыты', () => {
   });
 
   it('агент бронирования не запускается при ЧП', () => {
-    expect(chat).toMatch(/if \(!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow\)/);
+    expect(chat).toMatch(/if \(!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow && !isCarRentalAsk\(message\.trim\(\)\)\)/);
   });
 
   it('карточки туров (и форма брони из них) не показываются при ЧП', () => {

@@ -67,7 +67,10 @@ export class TelegramNotificationService {
           chat_id: message.chatId,
           text: message.text,
           parse_mode: message.parseMode || 'HTML',
-          reply_markup: message.replyMarkup
+          reply_markup: message.replyMarkup,
+          // Большая карточка ссылки закрывает ответ. У туров ссылка и так кнопкой.
+          disable_web_page_preview: true,
+          link_preview_options: { is_disabled: true },
         }),
         // Без предела зависший Telegram держал бы вызывающего до конца его
         // собственного таймаута — у сторожа невозвращения это вся очередь.

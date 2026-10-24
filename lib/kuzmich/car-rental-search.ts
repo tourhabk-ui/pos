@@ -29,7 +29,7 @@ import {
 } from '@/lib/rental/rental-format';
 import { getPublicBaseUrl } from '@/lib/config';
 import { RENTAL_MAX_DAYS, rentalDays } from '@/lib/rental/rental-request';
-import { RENTAL_SITE_PAUSE, rentalOnSite } from '@/lib/rental/site-pause';
+import { RENTAL_SITE_PAUSE, rentalOnSite, rentalPauseForTourist } from '@/lib/rental/site-pause';
 
 export interface CarRentalSearchArgs {
   /** Слово о машине из вопроса: вид, модель или «с водителем». */
@@ -211,8 +211,8 @@ export function rentalAnswer(
  * Не «проката нет»: прокатчик есть, сайт его прячет до названного дня.
  */
 export function rentalPausedAnswer(base: string, returnsOn: string = RENTAL_SITE_PAUSE.returnsOn): string {
-  return `Прокат автомобилей без водителя на сайте сейчас не показывается — вернётся ${returnsOn}. `
-    + 'Прокатчиков, машин и цен не называй и не говори, что проката нет. '
+  return `${rentalPauseForTourist(returnsOn)} `
+    + 'Не спрашивай тип машины и даты, будто витрина открыта. Прокатчиков, машин и цен не называй и не говори, что проката нет. '
     + `Машину с водителем целиком можно заказать у перевозчиков — search_transfers, витрина ${base}/transfers.`;
 }
 

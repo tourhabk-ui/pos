@@ -13,6 +13,38 @@
  *   новой вкладки и без потери офлайн-кэша.
  */
 
+const LIST_ITEM = /^(?:[-•–]|\d+[.)])\s+(.+)$/;
+
+export type ChatBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'list'; items: string[] };
+
+/** Строки «- …» и «1. …» — список. Остальное — абзацы. Пустая строка список закрывает. */
+export function chatBlocks(text: string): ChatBlock[] {
+  const blocks: ChatBlock[] = [];
+  let items: string[] = [];
+  const flush = () => {
+    if (items.length === 0) return;
+    blocks.push({ kind: 'list', items });
+    items = [];
+  };
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    const item = LIST_ITEM.exec(line);
+    if (item) items.push(item[1]);
+    else {
+      flush();
+      blocks.push({ kind: 'text', text: line });
+    }
+  }
+  flush();
+  return blocks;
+}
+
 export interface ChatChunk {
   text: string;
   /** Для ссылки: куда вести. Внутренний путь начинается с «/». */

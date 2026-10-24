@@ -28,7 +28,7 @@ import {
   synthesizeUserNotes,
   addViewedTour,
 } from '@/lib/ai/user-memory';
-import { detectTourIntent, findRelevantTours, type TourSuggestion } from '@/lib/ai/booking-intent';
+import { detectTourIntent, findRelevantTours, isCarRentalAsk, wantsTourCards, type TourSuggestion } from '@/lib/ai/booking-intent';
 import { recordEngagementSignal } from '@/lib/kuzmich/engagement';
 import { buildRAGContext, buildGeoContext } from '@/lib/ai/rag-context';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
@@ -315,7 +315,7 @@ export async function POST(request: NextRequest) {
 
     // Agentic Booking: authenticated tourists with booking/tour intent → SDK tool calling
     let touristSdkAnswered = false;
-    if (!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow) {
+    if (!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow && !isCarRentalAsk(message.trim())) {
       const intentResult = detectTourIntent(message.trim());
       if (intentResult.detected) {
         try {
@@ -379,7 +379,7 @@ export async function POST(request: NextRequest) {
     let tourSuggestions: TourSuggestion[] = [];
     if (safeRole === 'tourist' && !emergencyNow) {
       const intentResult = detectTourIntent(rawMessage);
-      if (intentResult.detected) {
+      if (intentResult.detected && wantsTourCards(rawMessage)) {
         tourSuggestions = await findRelevantTours(intentResult.activityType, intentResult.rawWords);
       }
     }

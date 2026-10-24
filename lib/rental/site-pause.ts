@@ -39,6 +39,17 @@ export const RENTAL_SITE_PAUSE: RentalSitePause = {
   returnsOn: 'во вторник, 27 октября',
 };
 
+/**
+ * Фраза, которую читает человек, пока витрина проката скрыта.
+ * Кнопка бота, свободный вопрос и подсказка модели начинают с неё:
+ * день возврата — returnsOn, не вторая дата рядом.
+ */
+export function rentalPauseForTourist(returnsOn: string = RENTAL_SITE_PAUSE.returnsOn): string {
+  return `Прокат автомобилей без водителя на сайте сейчас не показывается — вернётся ${returnsOn}. `
+    + 'Прокатчиков и цен здесь нет: витрина их прячет. '
+    + 'Машину с водителем можно смотреть у перевозчиков: https://vedarai.ru/transfers';
+}
+
 /** Идёт ли пауза в этот момент. */
 export function rentalSitePauseActive(now: Date = new Date(), pause: RentalSitePause = RENTAL_SITE_PAUSE): boolean {
   return pause.slugs.length > 0 && now.getTime() < Date.parse(pause.until);
