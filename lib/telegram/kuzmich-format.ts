@@ -9,9 +9,20 @@
  * тип ключа.
  */
 
-/** Снять эмодзи (эмотиконы, символы, флаги). */
+/** Снять эмодзи (эмотиконы, символы, флаги). Переносы строк не схлопывать: дни программы — список, не абзац. */
 function stripEmoji(s: string): string {
-  return s.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/\s{2,}/g, ' ');
+  return s.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/[^\S\n]{2,}/g, ' ');
+}
+
+/**
+ * «День 1 — …» в Telegram читается заголовком дня.
+ * Модель пишет обычный текст: жирным строку делает отправка, не промпт.
+ */
+export function emphasizeTripDays(raw: string): string {
+  return raw.replace(/(^|\n)([ \t]*)(День\s+\d+[^\n]*)/g, (_all, lead: string, space: string, day: string) => {
+    if (day.includes('<b>')) return `${lead}${space}${day}`;
+    return `${lead}${space}<b>${day.trim()}</b>`;
+  });
 }
 
 /** Остатки markdown → HTML Telegram, неподдерживаемое — прочь, эмодзи — прочь. */

@@ -37,6 +37,10 @@ import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
+import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
+import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
+import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
+import { catalogFacts, loadShowcaseTours, wantsCatalogCards } from '@/lib/telegram/tourist-tours';
 import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -44,7 +48,6 @@ import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
-import { sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { stripTags } from '@/lib/html/text';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { parseInterestsFromText, findRoutesByInterests } from '@/lib/planner/interests';
@@ -176,6 +179,16 @@ async function sendHTML(chatId: string, text: string): Promise<void> {
   await telegramService.sendMessage({ chatId, text, parseMode: 'HTML' });
 }
 
+/** Личка туриста: та же HTML-отправка и постоянная клавиатура. Кабинету её не ставим. */
+async function sendTourist(chatId: string, text: string): Promise<void> {
+  await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(text),
+    parseMode: 'HTML',
+    replyMarkup: touristReplyMarkup(),
+  });
+}
+
 /**
  * Ответ кабинета проката: та же строка кнопок под текстом.
  *
@@ -287,14 +300,18 @@ const KUZMICH_TG_MODE = 'tourist';
  * получал ничего, а отказ не попадал никуда. Не принят HTML — второй раз
  * простым текстом; не принят и он — отказ в лог (§4.0).
  */
-async function sendKuzmichReply(chatId: number, text: string): Promise<void> {
-  const clean = sanitizeForTelegram(text);
+async function sendKuzmichReply(
+  chatId: number,
+  text: string,
+  replyMarkup?: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | ReturnType<typeof touristReplyMarkup>,
+): Promise<void> {
+  const clean = emphasizeTripDays(sanitizeForTelegram(text.replace(/TourHab/g, 'Ведар')));
   const html = await telegramService.sendMessage({
-    chatId: String(chatId), text: repairTelegramHtml(clean), parseMode: 'HTML',
+    chatId: String(chatId), text: repairTelegramHtml(clean), parseMode: 'HTML', replyMarkup,
   });
   if (html.success) return;
   const plain = await telegramService.sendMessage({
-    chatId: String(chatId), text: repairTelegramHtml(esc(stripTags(clean))), parseMode: 'HTML',
+    chatId: String(chatId), text: repairTelegramHtml(esc(stripTags(clean))), parseMode: 'HTML', replyMarkup,
   });
   if (!plain.success) {
     console.error('[telegram/webhook] ответ Кузьмича не доставлен', { html: html.error, plain: plain.error });
@@ -318,18 +335,64 @@ async function answerByKuzmich(opts: {
   chatId: number;
   text: string;
   userId: number | null;
+  /** Личка туриста: клавиатура и карточки каталога. Кабинет и группа — без них. */
+  tourist?: boolean;
 }): Promise<void> {
-  const reply: ReplyFn = (id, answer) => sendKuzmichReply(id, withSosBlock(answer, opts.text).text);
+  let extra = '';
+  let inline: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | undefined;
+  let contextNote = '';
+  if (opts.tourist && wantsCatalogCards(opts.text) && !detectEmergency(opts.text).detected) {
+    const facts = catalogFacts(opts.text, await loadShowcaseTours(opts.text));
+    contextNote = facts.note;
+    extra = facts.html;
+    inline = facts.inline;
+  }
+  const reply: ReplyFn = (id, answer) => {
+    const body = extra ? `${withSosBlock(answer, opts.text).text}\n\n${extra}` : withSosBlock(answer, opts.text).text;
+    const markup = opts.tourist ? (inline ?? touristReplyMarkup()) : undefined;
+    return sendKuzmichReply(id, body, markup);
+  };
   try {
     await aiChat({
       chatId: opts.chatId, text: opts.text, mode: KUZMICH_TG_MODE, reply,
       // Имя не пишется: историю читают по роли и тексту, имя в ней не
       // читает никто — хранить его незачем (минимизация ПД, 152-ФЗ).
       userId: opts.userId, userName: null, platform: 'tg',
+      contextNote: contextNote || undefined,
     });
   } catch (err) {
     logSwallowedFailure('telegram/webhook', 'ответ Кузьмича', err);
     await reply(opts.chatId, KUZMICH_FAILED_TEXT);
+  }
+}
+
+async function answerTouristButton(chatId: string, button: TouristButton): Promise<void> {
+  if (button === 'Погода') {
+    await sendTourist(chatId, await getWeather());
+    return;
+  }
+  if (button === 'Операторы') {
+    await sendTourist(chatId, await getOperatorsList());
+    return;
+  }
+  if (button === 'Аренда авто') {
+    await sendTourist(chatId, touristRentalText());
+    return;
+  }
+  if (button === 'Задать вопрос') {
+    await sendTourist(chatId, TOURIST_ASK_TEXT);
+    return;
+  }
+  const facts = catalogFacts('подобрать тур', await loadShowcaseTours('подобрать тур'));
+  if (facts.html) await sendTourist(chatId, facts.html);
+  else await sendTourist(chatId, 'В каталоге Ведара сейчас нет живого тура. Название и цену я не выдумываю.');
+  if (facts.inline) {
+    await telegramService.sendMessage({
+      chatId,
+      text: 'Карточки — по кнопкам. Цена на кнопке из каталога.',
+      parseMode: 'HTML',
+      replyMarkup: facts.inline,
+    });
   }
 }
 
@@ -390,7 +453,7 @@ async function getOperatorsList(): Promise<string> {
       `SELECT name, slug FROM partners WHERE is_public = TRUE ORDER BY name LIMIT 10`
     );
     if (!res.rows.length) return 'Список операторов пока пуст.';
-    const lines = ['<b>Операторы на TourHab:</b>', ''];
+    const lines = ['<b>Операторы на Ведаре:</b>', ''];
     res.rows.forEach(p => {
       lines.push(`🏔 <a href="https://vedarai.ru/operators/${p.slug}">${esc(p.name)}</a>`);
     });
@@ -711,6 +774,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // 200 сразу, ход — в очереди чата. Иначе Bot API присылает следующий
+  // апдейт, пока модель ещё отвечает на предыдущий.
+  const work = enqueueTelegramChat(telegramChatKey(update), async () => {
+    try {
+      await deliverTelegramUpdate(update);
+    } catch (err) {
+      console.error('[telegram/webhook] апдейт не обработан', err instanceof Error ? err.message : err);
+    }
+  });
+  if (webhookAwaitsHandler()) await work;
+  return NextResponse.json({ ok: true });
+}
+
+async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
+
   // ── Текстовые сообщения ───────────────────────────────────────────────────
   if (update.message?.text && update.message.chat) {
     const chatId  = String(update.message.chat.id);
@@ -742,7 +820,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // Администратор по привязке из админки (adt_, миграция 1330). Личный чат:
@@ -759,14 +837,15 @@ export async function POST(request: NextRequest) {
           else await sendHTML(chatId, body);
         },
       });
-      if (turn === 'handled') return NextResponse.json({ ok: true });
+      if (turn === 'handled') return;
       if (turn === 'tourist') {
         await answerByKuzmich({
           chatId: update.message.chat.id,
           text,
           userId: update.message.from?.id ?? null,
+          tourist: true,
         });
-        return NextResponse.json({ ok: true });
+        return;
       }
     }
 
@@ -784,20 +863,20 @@ export async function POST(request: NextRequest) {
         if (!check.ok) {
           console.error(`[telegram-webhook] ссылка привязки оператора отклонена: ${check.reason}`);
           await sendHTML(chatId, badLinkReplyText(check.reason));
-          return NextResponse.json({ ok: true });
+          return;
         }
         const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
         const boundText = bindReplyText('telegram', bound);
         if (bound.ok && isRentalPilotSlug(bound.slug)) await sendRentalCabinet(chatId, boundText);
         else await sendHTML(chatId, boundText);
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /start om_{token} — менеджер команды оператора подключает этот чат к
       // уведомлениям кабинета (CRM 2г-4). Пишется в ЕГО строку команды, а не в
       // карточку партнёра: чат кабинета остаётся за владельцем.
       if (await handleMemberStart(arg, 'telegram', update.message.chat.id, (t) => sendHTML(chatId, t))) {
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /start sr_{ключ статуса} — турист хочет получить ответ оператора на
@@ -806,7 +885,7 @@ export async function POST(request: NextRequest) {
       if (seatToken !== null) {
         const bound = await bindTouristChat(seatToken, 'telegram', update.message.chat.id);
         await sendHTML(chatId, touristBindReplyText(bound));
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /start link_{token} — привязка email-аккаунта к Telegram
@@ -820,7 +899,7 @@ export async function POST(request: NextRequest) {
             '',
             'Получи новую в личном кабинете: Профиль → Подключить Telegram.',
           ].join('\n'));
-          return NextResponse.json({ ok: true });
+          return;
         }
 
         // Связываем telegram_id с аккаунтом
@@ -833,7 +912,7 @@ export async function POST(request: NextRequest) {
 
         if (!linkRes.rows[0]) {
           await sendHTML(chatId, 'Аккаунт уже привязан к другому Telegram. Обратись в поддержку.');
-          return NextResponse.json({ ok: true });
+          return;
         }
 
         const { name, role } = linkRes.rows[0];
@@ -861,7 +940,7 @@ export async function POST(request: NextRequest) {
           isNewUser: false,
         });
 
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /start lead — турист хочет оставить заявку
@@ -880,7 +959,7 @@ export async function POST(request: NextRequest) {
           '',
           '<i>Пришлю персональное предложение прямо сюда через 1–2 минуты.</i>',
         ].join('\n'));
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /start без параметра — у привязанного прокатчика это кабинет, не меню туриста.
@@ -890,7 +969,7 @@ export async function POST(request: NextRequest) {
         fromName: update.message.from?.first_name ?? null,
         send: (body, buttons) => sendRentalCabinet(chatId, body, buttons),
       })) {
-        return NextResponse.json({ ok: true });
+        return;
       }
       if (!admin && await tryRoleMenuTelegramMessage({
         chatId: update.message.chat.id,
@@ -898,7 +977,7 @@ export async function POST(request: NextRequest) {
         fromName: update.message.from?.first_name ?? null,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
       })) {
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /start без параметра — проверяем знаем ли мы этого пользователя
@@ -913,37 +992,32 @@ export async function POST(request: NextRequest) {
           agent: 'Кабинет агента',
           admin: 'Командный центр',
         };
-        await sendHTML(chatId, [
-          `<b>${roleLabel[linkedUser.role] ?? 'Привет'}, ${firstName}!</b>`,
+        const greeting = [
+          `<b>${roleLabel[linkedUser.role] ?? 'Привет'}, ${esc(firstName)}!</b>`,
           '',
-          'Твой личный канал активен. Команды:',
+          'Твой личный канал на Ведаре активен. Команды:',
           '/help — всё что я умею',
           '/route — случайный маршрут',
           '/weather — погода сейчас',
           '',
           'Или просто спроси — отвечу.',
-        ].join('\n'));
+        ].join('\n');
+        if (!admin && linkedUser.role === 'tourist') await sendTourist(chatId, greeting);
+        else await sendHTML(chatId, greeting);
       } else {
-        await sendHTML(chatId, [
+        const greeting = [
           '<b>Привет! Я — Кузьмич.</b>',
           '',
-          'Камчадал в третьем поколении, прошёл больше 300 маршрутов.',
-          'Знаю Камчатку как свои пять пальцев — вулканы, медведи, рыбалка, термалки.',
+          'Помогаю спланировать поездку по Камчатке на Ведаре: маршрут, сезон, погода и туры из каталога.',
           '',
-          '<b>Что умею:</b>',
-          '/route — случайный маршрут',
-          '/weather — погода сейчас',
-          '/tip — совет путешественнику',
-          '/operators — список партнёров',
-          '/sezon — что актуально прямо сейчас',
-          '/help — полный список',
+          'Кнопки внизу: подобрать тур, погода, аренда авто, операторы. Или пишите своими словами.',
           '',
-          'Или просто спроси — отвечу честно.',
-          '',
-          'Уже зарегистрирован на <a href="https://vedarai.ru">vedarai.ru</a>? Привяжи аккаунт в профиле — и я буду знать о твоих поездках.',
-        ].join('\n'));
+          'Уже есть аккаунт на <a href="https://vedarai.ru">vedarai.ru</a>? Привяжите Telegram в профиле.',
+        ].join('\n');
+        if (admin) await sendHTML(chatId, greeting);
+        else await sendTourist(chatId, greeting);
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /login — magic link для входа на сайт (только для привязанных admin/operator/guide)
@@ -956,7 +1030,7 @@ export async function POST(request: NextRequest) {
           'Зарегистрируйся на <a href="https://vedarai.ru">vedarai.ru</a>',
           'и привяжи Telegram в разделе Профиль.',
         ].join('\n'));
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // Генерируем magic token (15 минут)
@@ -978,7 +1052,7 @@ export async function POST(request: NextRequest) {
         '',
         `<a href="${link}">Войти в систему →</a>`,
       ].join('\n'));
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /help
@@ -1002,14 +1076,14 @@ export async function POST(request: NextRequest) {
       ].filter(s => s !== '').join('\n');
       if (admin) await sendRoleRows(chatId, helpText, [adminMenu()]);
       else await sendHTML(chatId, helpText);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /weather
     if (text.startsWith('/weather')) {
       const weather = await getWeather();
       await sendHTML(chatId, weather);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /tip
@@ -1019,14 +1093,14 @@ export async function POST(request: NextRequest) {
         { role: 'user', content: 'Дай один конкретный практический совет туристу, который едет на Камчатку первый раз. Не общие слова — что-то реально полезное из личного опыта.' },
       ], getModelForAgent('kuzmich'));
       await sendHTML(chatId, tip);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /operators
     if (text.startsWith('/operators')) {
       const list = await getOperatorsList();
       await sendHTML(chatId, list);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /route
@@ -1041,10 +1115,10 @@ export async function POST(request: NextRequest) {
           '',
           desc,
           '',
-          `<a href="https://vedarai.ru/routes/${route.id}">Подробнее на TourHab →</a>`,
+          `<a href="https://vedarai.ru/routes/${route.id}">Подробнее на Ведаре →</a>`,
         ].filter(Boolean).join('\n'));
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /sezon
@@ -1057,7 +1131,7 @@ export async function POST(request: NextRequest) {
         text: `Сейчас ${month}. Один конкретный совет: что стоит делать туристу на Камчатке прямо сейчас?`,
         userId: update.message.from?.id ?? null,
       });
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // ── Admin-команды ─────────────────────────────────────────────────────────
@@ -1066,34 +1140,34 @@ export async function POST(request: NextRequest) {
     if (text.startsWith('/stats')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const stats = await getStats();
       await sendHTML(chatId, stats);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /leads
     if (text.startsWith('/leads')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const leads = await getLastLeads();
       await sendHTML(chatId, leads);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /groups — мониторинг Telegram-групп (только admin)
     if (text.startsWith('/groups')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const groups = await groupMonitor.getMonitoredGroups();
       if (!groups.length) {
         await sendHTML(chatId, 'Группы ещё не добавлены.\n\nДобавь бота в туристическую группу в Telegram — он начнёт собирать разведку автоматически.\n\n<i>Не забудь отключить privacy mode в BotFather: /setprivacy → Disabled</i>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const lines = ['<b>Мониторируемые группы:</b>', ''];
       for (const g of groups) {
@@ -1119,14 +1193,14 @@ export async function POST(request: NextRequest) {
         }
       }
       await sendHTML(chatId, lines.join('\n'));
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /digest — AI дайджест платформы (только admin)
     if (text.startsWith('/digest')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       await sendHTML(chatId, 'Формирую дайджест...');
       try {
@@ -1136,19 +1210,19 @@ export async function POST(request: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err);
         await sendHTML(chatId, `Ошибка дайджеста: <code>${esc(msg)}</code>`);
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /agent <text> — прямой вызов PlatformAgent (только admin)
     if (text.startsWith('/agent')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const agentMsg = text.slice('/agent'.length).trim();
       if (!agentMsg) {
         await sendHTML(chatId, 'Использование: <code>/agent &lt;запрос&gt;</code>\nПример: <code>/agent мои туры</code>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       await sendHTML(chatId, 'Обрабатываю...');
       try {
@@ -1159,14 +1233,14 @@ export async function POST(request: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err);
         await sendHTML(chatId, `Ошибка агента: <code>${esc(msg)}</code>`);
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /migrate — применить миграцию (только admin)
     if (text.startsWith('/migrate')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       try {
         await query(`
@@ -1182,14 +1256,14 @@ export async function POST(request: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err);
         await sendHTML(chatId, `❌ Migration error: <code>${esc(msg)}</code>`);
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /diag — диагностика env vars (только admin)
     if (text.startsWith('/diag')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b>');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const vars = [
         ['TELEGRAM_BOT_TOKEN',      process.env.TELEGRAM_BOT_TOKEN],
@@ -1206,14 +1280,14 @@ export async function POST(request: NextRequest) {
         lines.push(`${ok ? '✅' : '❌'} <code>${name}</code>${preview}`);
       }
       await sendHTML(chatId, lines.join('\n'));
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // /post
     if (text.startsWith('/post')) {
       if (!admin) {
         await sendHTML(chatId, '<b>Нет прав.</b> Команда только для администратора.');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const parts = text.split(/\s+/);
       const kind = parts[1];
@@ -1224,19 +1298,19 @@ export async function POST(request: NextRequest) {
         await sendHTML(chatId, 'Генерирую сезонный пост…');
         const result = await postSezonToChannel();
         await sendHTML(chatId, result.ok ? 'Сезонный пост опубликован.' : `Ошибка: ${result.error}`);
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /post friend <slug>
       if (kind === 'friend') {
         if (!arg) {
           await sendHTML(chatId, 'Используй: <code>/post friend soulful</code>');
-          return NextResponse.json({ ok: true });
+          return;
         }
         await sendHTML(chatId, `Генерирую пост про друзей (${arg})…`);
         const result = await postFriendToChannel(arg);
         await sendHTML(chatId, result.ok ? 'Пост опубликован.' : `Ошибка: ${result.error ?? 'неизвестная'}`);
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // /post agents — диаграмма + пост про агентную оркестрацию в @ai_hub_money
@@ -1246,7 +1320,7 @@ export async function POST(request: NextRequest) {
         const channel = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
         if (!token || !channel) {
           await sendHTML(chatId, 'TELEGRAM_BOT_TOKEN или TELEGRAM_AI_CHANNEL_ID не задан');
-          return NextResponse.json({ ok: true });
+          return;
         }
         const base = (process.env.NEXT_PUBLIC_SITE_URL
           // Предикат общий (lib/config): регулярка без якоря считала внутренним
@@ -1294,7 +1368,7 @@ export async function POST(request: NextRequest) {
         } catch (e) {
           await sendHTML(chatId, `Сбой: ${e instanceof Error ? e.message : 'fetch error'}`);
         }
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       if (!kind || !arg) {
@@ -1307,7 +1381,7 @@ export async function POST(request: NextRequest) {
           '<code>/post friend soulful</code>  — пост про друзей',
           '<code>/post agents</code>  — пост про агентную оркестрацию (AI-канал)',
         ].join('\n'));
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       let result: { ok: boolean; error?: string };
@@ -1317,10 +1391,10 @@ export async function POST(request: NextRequest) {
         result = await postRouteToChannel(arg);
       } else {
         await sendHTML(chatId, 'Используй: <code>operator</code>, <code>route</code>, <code>sezon</code> или <code>friend</code>.');
-        return NextResponse.json({ ok: true });
+        return;
       }
       await sendHTML(chatId, result.ok ? '✅ Пост опубликован.' : `❌ Ошибка: ${result.error ?? 'неизвестная'}`);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // Контроль выхода в Telegram не ставится: он собирает телефоны, а
@@ -1330,7 +1404,7 @@ export async function POST(request: NextRequest) {
     const watchRedirect = telegramWatchRedirect(text);
     if (watchRedirect) {
       await sendHTML(chatId, watchRedirect);
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // Кабинет прокатчика — до мозга туриста. Просьба туриста в этом чате
@@ -1341,7 +1415,7 @@ export async function POST(request: NextRequest) {
       fromName: update.message.from?.first_name ?? null,
       send: (body, buttons) => sendRentalCabinet(chatId, body, buttons),
     })) {
-      return NextResponse.json({ ok: true });
+      return;
     }
     if (!admin && !text.startsWith('/') && await tryRoleMenuTelegramMessage({
       chatId: update.message.chat.id,
@@ -1349,7 +1423,7 @@ export async function POST(request: NextRequest) {
       fromName: update.message.from?.first_name ?? null,
       send: (body, buttons) => sendRoleRows(chatId, body, buttons),
     })) {
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // Любой обычный текст → проверяю телефон или AI Кузьмич
@@ -1361,6 +1435,15 @@ export async function POST(request: NextRequest) {
       // при признаках беды (lib/safety/sos-detector).
       const emergency = detectEmergency(text).detected;
       const withSos = (reply: string): string => withSosBlock(reply, text).text;
+
+      // Кнопка клавиатуры — не текст заявки. Клавиатура остаётся на экране
+      // после /start lead (ссылка сайта ?start=lead), и «Подобрать тур»
+      // иначе записывался описанием поездки.
+      const button = !admin ? matchTouristButton(text) : null;
+      if (button) {
+        await answerTouristButton(chatId, button);
+        return;
+      }
 
       // Пользователь в процессе оформления заявки через /start lead
       const pendingLead = pendingLeadFlow.get(chatId);
@@ -1376,7 +1459,7 @@ export async function POST(request: NextRequest) {
           chatId, pendingLead.firstName, fromId,
           update.message?.from?.username ?? null, text
         ).catch((err) => console.error('[tg webhook] createLeadFromTelegramFlow failed:', err));
-        return NextResponse.json({ ok: true });
+        return;
       }
 
       // Check if text looks like phone number
@@ -1395,7 +1478,7 @@ export async function POST(request: NextRequest) {
           // User responded with phone after seeing tours
           await createLeadFromBot(chatId, phoneText, lastIntests);
           await sendHTML(chatId, '✅ Спасибо! Оператор свяжется с вами в ближайшее время.');
-          return NextResponse.json({ ok: true });
+          return;
         }
       }
 
@@ -1440,14 +1523,14 @@ export async function POST(request: NextRequest) {
               'Продолжай писать здесь — я передам ответ.',
             ].join('\n')));
           }
-          return NextResponse.json({ ok: true });
+          return;
         } else if (!emergency) {
           // Незарегистрированный пользователь — направляем к регистрации.
           // В беде — не направляем: «зарегистрируйтесь» первым сообщением
           // человеку, который заблудился, только отодвигает ответ Кузьмича с
           // блоком 112 ниже (TG-BRAIN).
           await sendHTML(chatId, [
-            'Для обращения в поддержку нужен аккаунт на TourHab.',
+            'Для обращения в поддержку нужен аккаунт на Ведаре.',
             '',
             'Зарегистрируйся на <a href="https://vedarai.ru/auth/register">vedarai.ru</a> и привяжи Telegram в профиле.',
             'Или опиши проблему — помогу решить здесь.',
@@ -1463,7 +1546,7 @@ export async function POST(request: NextRequest) {
           try {
             const agentResult = await PlatformAgent.dispatch({ message: text, role: 'admin' });
             await sendHTML(chatId, withSos(agentResult.response));
-            return NextResponse.json({ ok: true });
+            return;
           } catch (err) {
             // На ошибке агента отвечает Кузьмич; отказ агента — в лог.
             logSwallowedFailure('telegram/webhook', 'PlatformAgent по свободному тексту админа', err);
@@ -1476,8 +1559,9 @@ export async function POST(request: NextRequest) {
         chatId: update.message.chat.id,
         text,
         userId: update.message.from?.id ?? null,
+        tourist: !admin,
       });
-      return NextResponse.json({ ok: true });
+      return;
     }
   }
 
@@ -1495,7 +1579,7 @@ export async function POST(request: NextRequest) {
         payload: data,
         send: (body, buttons) => sendRentalCabinet(callbackChatId, body, buttons),
       });
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     const rolePress = parseRoleMenuPress(data);
@@ -1504,30 +1588,30 @@ export async function POST(request: NextRequest) {
       const privateChat = (cq.message?.chat?.type ?? 'private') === 'private';
       if (!privateChat) {
         await sendHTML(callbackChatId, 'Кнопки кабинета работают в личном диалоге.');
-        return NextResponse.json({ ok: true });
+        return;
       }
       if (rolePress.role === 'admin') {
         const gate = await telegramAdminCallbackGate(senderChatId, isAdmin(senderChatId));
         if (gate === 'unchecked') {
           await sendHTML(callbackChatId, TELEGRAM_ADMIN_UNCHECKED);
-          return NextResponse.json({ ok: true });
+          return;
         }
         if (gate === 'deny') {
           await sendHTML(callbackChatId, TELEGRAM_ADMIN_DENY);
-          return NextResponse.json({ ok: true });
+          return;
         }
         const screen = await roleMenuScreen({
           role: 'admin', action: rolePress.action, channel: 'telegram', partner: null, nowMs: Date.now(),
         });
         await sendRoleRows(callbackChatId, screen.text, [adminMenu()]);
-        return NextResponse.json({ ok: true });
+        return;
       }
       await tryRoleMenuTelegramPress({
         chatId: cq.message?.chat?.id ?? senderChatId,
         payload: data,
         send: (body, buttons) => sendRoleRows(callbackChatId, body, buttons),
       });
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // ── Admin quick-action кнопки (из дайджеста) ──────────────────────────
@@ -1585,7 +1669,7 @@ export async function POST(request: NextRequest) {
           'Примеры: "покажи лиды за сегодня", "сколько пользователей"',
         ].join('\n'));
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // ── Кнопки статуса лида (только admin) ────────────────────────────────
@@ -1595,7 +1679,7 @@ export async function POST(request: NextRequest) {
     if (leadPrefix) {
       if (!isAdmin(senderChatId)) {
         await telegramService.answerCallback(cq.id, 'Нет прав');
-        return NextResponse.json({ ok: true });
+        return;
       }
       const leadId = data.slice(leadPrefix.length + 1);
       const res = await applyLeadStatus(leadPrefix, leadId);
@@ -1609,7 +1693,7 @@ export async function POST(request: NextRequest) {
         await telegramService.answerCallback(cq.id, 'Не удалось изменить статус');
         await sendHTML(callbackChatId, `Статус заявки <code>${leadId}</code> не изменён: ${res.reason}`);
       }
-      return NextResponse.json({ ok: true });
+      return;
     }
 
     // Кнопок confirm_/cancel_ не шлёт никто (заявка оператору уходит со
@@ -1618,8 +1702,8 @@ export async function POST(request: NextRequest) {
     // обработчик без производителя). Подтверждение — кабинет оператора.
     await telegramService.answerCallback(cq.id);
 
-    return NextResponse.json({ ok: true });
+    return;
   }
 
-  return NextResponse.json({ ok: true });
+  return;
 }
