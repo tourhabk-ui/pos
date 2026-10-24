@@ -616,7 +616,9 @@ describe('кабинет проката на живом вебхуке', () => {
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
     expect(m.tools).not.toHaveBeenCalled();
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
-    expect(body.text).toContain('Отправить запрос перевозчику');
+    expect(body.text).toContain('не показывается');
+    expect((body.text ?? '').split('vedarai.ru/transfers').length - 1).toBe(1);
+    expect(body.text).not.toContain('Отправить запрос');
     expect(body.text).not.toMatch(/Лагуна|Кабинет проката/);
     expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
@@ -659,7 +661,9 @@ describe('меню роли на живом вебхуке', () => {
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
     expect(m.tools).not.toHaveBeenCalled();
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
-    expect(body.text).toContain('Отправить запрос перевозчику');
+    expect(body.text).toContain('не показывается');
+    expect((body.text ?? '').split('vedarai.ru/transfers').length - 1).toBe(1);
+    expect(body.text).not.toContain('Отправить запрос');
     expect(body.text).not.toMatch(/Кабинет|Входящие/);
     expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toContain('Аренда авто');

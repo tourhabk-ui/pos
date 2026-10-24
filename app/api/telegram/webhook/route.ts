@@ -46,6 +46,7 @@ import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
+import { collapseRepeatedReply, telegramOfferLinks } from '@/lib/kuzmich/answer-quality';
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { stripTags } from '@/lib/html/text';
@@ -342,7 +343,10 @@ async function answerByKuzmich(opts: {
   // варианта собираются в aiChat (resolveCommercialTurn) и сюда не дописываются
   // второй раз: раньше пауза ставилась и текстом, и просьбой модели сказать то же.
   const reply: ReplyFn = (id, answer) => {
-    const body = withSosBlock(answer, opts.text).text;
+    // Текст одного сообщения: повтор паузы и цена без ссылки сюда не доходят.
+    // Кабинет проката идёт другим отправителем и эту функцию не зовёт.
+    const shown = telegramOfferLinks(collapseRepeatedReply(answer));
+    const body = withSosBlock(shown, opts.text).text;
     const markup = opts.tourist ? touristReplyMarkup() : undefined;
     return sendKuzmichReply(id, body, markup);
   };

@@ -130,11 +130,20 @@ export function seasonOverlaps(tour: CatalogTour, months: number[] | null): bool
   return months.some((month) => have.includes(month));
 }
 
-/** Окно названного сезона или месяца. Нет сезона в вопросе — null (тогда судит «сегодня»). */
+/**
+ * Окно названного сезона или месяца. Нет сезона в вопросе — null (тогда судит «сегодня»).
+ * Если сегодня уже внутри этого окна, начало сдвигается на сегодня: заезд,
+ * который кончился в сентябре, 25 октября «осенью» доступным не называется.
+ */
 export function questionWindow(question: string, now: Date = new Date()): DateWindow | null {
   const months = askedMonths(question);
   if (!months) return null;
-  return windowForMonths(months, calendarDay(now));
+  const window = windowForMonths(months, calendarDay(now));
+  const today = calendarDay(now).iso;
+  if (today > window.start && today <= window.end) {
+    return { ...window, start: today };
+  }
+  return window;
 }
 
 export function ruDate(iso: string | null): string | null {

@@ -15,6 +15,7 @@ import { calendarDay, ruDate } from '@/lib/kuzmich/season-window';
 import { rentalPauseForTourist } from '@/lib/rental/site-pause';
 import { touristRentalText } from '@/lib/telegram/tourist-keyboard';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
+import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { tourPath } from '@/lib/tours/tour-url';
 
@@ -388,11 +389,61 @@ function composeStays(input: ComposeInput): CommercialAnswer {
 
 function composeRental(input: ComposeInput): CommercialAnswer {
   const line = touristRentalText(input.now);
-  const url = joinUrl(input.base, input.pauseActive ? '/transfers' : '/car-rental');
+  // Пауза уже содержит одну ссылку на перевозчиков. Вторая фраза
+  // «Отправить запрос» с тем же адресом — это второе сообщение другим текстом.
+  if (input.pauseActive) {
+    return {
+      visible: dedupeParagraphs([todayLine(input.now), line].join('\n\n')),
+      tours: [],
+    };
+  }
+  const url = joinUrl(input.base, '/car-rental');
   return {
     visible: dedupeParagraphs([todayLine(input.now), line, requestCta('перевозчику', url, input.surface)].join('\n\n')),
     tours: [],
   };
+}
+
+/**
+ * Один ответ в Telegram, если пауза проката уже сказана.
+ * Повтор того же абзаца и вторая формулировка с той же ссылкой /transfers
+ * не уходят. Кабинет проката эта функция не читает.
+ */
+export function collapseRepeatedReply(text: string): string {
+  const parts = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  let pauseKept = false;
+  const out: string[] = [];
+  for (const part of parts) {
+    const key = part.replace(/\s+/g, ' ');
+    if (seen.has(key)) continue;
+    if (pauseKept && /vedarai\.ru\/transfers/.test(part) && /Отправить запрос|не показывается|прокат/i.test(part)) {
+      continue;
+    }
+    if (/не показывается/.test(part)) pauseKept = true;
+    seen.add(key);
+    out.push(part);
+  }
+  return out.join('\n\n');
+}
+
+/**
+ * Строка списка с ценой становится ссылкой на карточку.
+ * Цена в пункте без адреса vedarai.ru не отправляется.
+ */
+export function telegramOfferLinks(text: string): string {
+  return text.split('\n').map((line) => {
+    const trimmed = line.trim();
+    const item = /^- (.+?) — (.+?) — (https:\/\/vedarai\.ru\/\S+)/.exec(trimmed);
+    if (item) {
+      const url = item[3].replace(/[),.;]+$/, '');
+      return `- <a href="${url}">${escapeHtml(item[1])}</a> — ${escapeHtml(item[2])}`;
+    }
+    if (/^- /.test(trimmed) && /₽|руб/i.test(trimmed) && !/https:\/\/vedarai\.ru\//.test(trimmed)) {
+      return '- цена без карточки каталога не названа';
+    }
+    return line;
+  }).join('\n');
 }
 
 function composeFollowUp(input: ComposeInput): CommercialAnswer {

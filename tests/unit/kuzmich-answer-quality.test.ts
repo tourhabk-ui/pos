@@ -15,11 +15,14 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   bookingAgentOwns,
+  collapseRepeatedReply,
   composeCommercial,
   dropUnsourcedPrices,
   rubleAmounts,
+  telegramOfferLinks,
   type ComposeInput,
 } from '@/lib/kuzmich/answer-quality';
+import { questionWindow } from '@/lib/telegram/tourist-tours';
 import { calendarDay, overlapsWindow, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
 
@@ -159,7 +162,8 @@ describe('семь вопросов подряд', () => {
     expect(text).toContain('не показывается');
     expect(text).not.toMatch(/Лагуна/i);
     expect(rubleAmounts(text)).toEqual([]);
-    expect(text).toContain('Отправить запрос перевозчику');
+    expect(text).not.toContain('Отправить запрос');
+    expect(text.split('vedarai.ru/transfers').length - 1).toBe(1);
     const pause = text.split('не показывается').length - 1;
     expect(pause).toBe(1);
     const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -292,6 +296,71 @@ describe('прод 24.10, сборка 19:53Z: двенадцать туров �
       expect(answer!.visible).not.toContain(hidden.title);
       expect(rubleAmounts(answer!.visible)).not.toContain(Number(hidden.base_price));
     }
+  });
+});
+
+describe('Telegram 25.10.2026: дешёвые туры со ссылкой, чужой сезон и вторая фраза проката', () => {
+  const NOW_25 = new Date('2026-10-24T12:00:00.000Z');
+
+  function volcano(partial: Partial<CatalogTour> & Pick<CatalogTour, 'id' | 'title' | 'base_price'>): CatalogTour {
+    return {
+      slug: `t-${partial.id}`,
+      price_unit: 'per_person',
+      multi_day_count: 1,
+      activity_type: 'volcano',
+      season_start: '2026-09-01',
+      season_end: '2026-11-30',
+      ...partial,
+    };
+  }
+
+  it('окно осени начинается с сегодня, заезд до 25 октября не идёт', () => {
+    const autumn = questionWindow('Какие туры на вулканы есть осенью?', NOW_25);
+    expect(autumn).toEqual({ start: '2026-10-25', end: '2026-11-30', label: 'осень 2026' });
+  });
+
+  it('Горелый, Дачные и перевал — с ценой и ссылкой; Ключевская и вертолёт до октября 2027 — нет', () => {
+    const answer = composeCommercial({
+      ...input('Какие туры на вулканы есть осенью? Перечисли списком с ценами', ''),
+      now: NOW_25,
+      tours: {
+        ok: true,
+        tours: [
+          volcano({ id: 1, slug: 'klyuchevskaya', title: 'Ключевская сопка', base_price: 320000, season_start: '2026-07-01', season_end: '2026-09-30' }),
+          volcano({ id: 2, slug: 'heli', title: 'Вертолёт к вулканам', base_price: 180000, activity_type: 'helicopter', season_start: '2027-06-01', season_end: '2027-10-01' }),
+          volcano({ id: 3, slug: 'gorely', title: 'Горелый', base_price: 15000 }),
+          volcano({ id: 4, slug: 'dachnye', title: 'Дачные источники', base_price: 18000 }),
+          volcano({ id: 5, slug: 'avacha-pass', title: 'Авачинский перевал', base_price: 22000 }),
+        ],
+      },
+    });
+    expect(answer).not.toBeNull();
+    const text = answer!.visible;
+    expect(text).not.toMatch(/Ключевск|Вертолёт/);
+    expect(text).not.toMatch(/320\s*000|180\s*000/);
+    expect(text).not.toMatch(/сезон до/);
+    expect(text).not.toContain('2027');
+    expect(text).not.toMatch(/ноябр/i);
+    const lines = namedLines(text);
+    expect(lines).toHaveLength(3);
+    expect(lines.every((line) => /https:\/\/vedarai\.ru\/catalog\/tours\//.test(line))).toBe(true);
+    expect(answer!.tours.map((tour) => tour.slug)).toEqual(['gorely', 'dachnye', 'avacha-pass']);
+    const linked = telegramOfferLinks(text);
+    expect(linked).toContain('<a href="https://vedarai.ru/catalog/tours/gorely">Горелый</a>');
+    expect(linked).toContain('<a href="https://vedarai.ru/catalog/tours/dachnye">Дачные источники</a>');
+    expect(linked).toContain('<a href="https://vedarai.ru/catalog/tours/avacha-pass">Авачинский перевал</a>');
+    expect(linked).not.toMatch(/320/);
+  });
+
+  it('две формулировки паузы с одной ссылкой схлопываются в одну', () => {
+    const doubled = [
+      'Прокат автомобилей без водителя на сайте сейчас не показывается — вернётся во вторник, 27 октября. Машину с водителем можно смотреть у перевозчиков: https://vedarai.ru/transfers',
+      'Витрина проката скрыта до 27 октября. Отправить запрос перевозчику: https://vedarai.ru/transfers',
+    ].join('\n\n');
+    const once = collapseRepeatedReply(doubled);
+    expect(once.split('не показывается').length - 1).toBe(1);
+    expect(once.split('vedarai.ru/transfers').length - 1).toBe(1);
+    expect(once).not.toContain('Отправить запрос');
   });
 });
 
