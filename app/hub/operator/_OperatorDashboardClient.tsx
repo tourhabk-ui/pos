@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { OperatorMetricsGrid } from '@/components/operator/Dashboard/OperatorMetricsGrid';
 import { RecentBookingsTable } from '@/components/operator/Dashboard/RecentBookingsTable';
@@ -11,6 +11,7 @@ import { MchsRegistrationPanel } from '@/components/operator/Dashboard/MchsRegis
 import { OperatorEarningsCard } from '@/components/operator/OperatorEarningsCard';
 import { OperatorDashboardData } from '@/types/operator';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { OperatorCabinetFacts } from '@/components/operator/OperatorCabinetGate';
 import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
   CheckCircle2, Circle, ArrowRight, Plus,
   Wallet, TrendingUp, CalendarDays, CalendarClock, Trophy, ClipboardList,
@@ -29,14 +30,24 @@ function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: Re
 
 // ─── First-steps checklist for new operators ─────────────────────────────────
 
-function FirstStepsPanel({ hasTours, onboardingDone }: { hasTours: boolean; onboardingDone: boolean }) {
+function FirstStepsPanel({
+  hasTours,
+  onboardingDone,
+  viewer,
+}: {
+  hasTours: boolean;
+  onboardingDone: boolean;
+  viewer: 'owner' | 'manager' | null;
+}) {
   const steps = [
     {
       done: onboardingDone,
       label: 'Заполнить профиль компании',
-      desc: 'Название, описание, контакты',
+      desc: viewer === 'manager'
+        ? 'Это делает владелец компании'
+        : 'Название, описание, контакты',
       href: '/hub/operator/onboarding',
-      action: 'Заполнить',
+      action: viewer === 'manager' ? 'Кто заполняет' : 'Заполнить',
     },
     {
       done: hasTours,
@@ -116,9 +127,11 @@ export default function OperatorDashboardClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState('30');
-  // Незавершённый онбординг сюда не доходит: ворота кабинета уводят на настройку
-  // раньше, чем дашборд запрашивает данные.
-  const onboardingDone = true;
+  // Владельца с черновиком сюда не пускают. Менеджера пускают — и шаг профиля
+  // берётся из того же ответа, что и ворота, а не отмечается выполненным заранее.
+  const facts = useContext(OperatorCabinetFacts);
+  const onboardingDone = facts?.onboardingCompleted === true;
+  const viewer = facts?.viewer ?? null;
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -176,7 +189,7 @@ export default function OperatorDashboardClient() {
         />
       ) : !data ? (
         <>
-          <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} />
+          <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} viewer={viewer} />
           <EmptyState
             icon={<BarChart3 className="w-10 h-10 text-[var(--text-muted)]" />}
             title="Нет данных"
@@ -187,7 +200,7 @@ export default function OperatorDashboardClient() {
         <div className="space-y-5">
           {/* Show first-steps if no tours yet */}
           {data.topTours.length === 0 && (
-            <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} />
+            <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} viewer={viewer} />
           )}
           <OperatorMetricsGrid metrics={data.metrics} />
           <MchsRegistrationPanel />

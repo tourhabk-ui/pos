@@ -10,7 +10,7 @@
  * Это только владелец: менеджер компании форму не сохраняет и в кабинет входит.
  * Админ без своей компании партнёра не получает: одна фраза, как открыть кабинет.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
 const ONBOARDING = '/hub/operator/onboarding';
@@ -19,10 +19,16 @@ type Viewer = 'owner' | 'manager';
 
 type Gate =
   | { kind: 'loading' }
-  | { kind: 'ready'; at: boolean; viewer: Viewer }
+  | { kind: 'ready'; at: boolean; viewer: Viewer; completed: boolean }
   | { kind: 'onboarding'; at: boolean }
   | { kind: 'admin'; at: boolean }
   | { kind: 'failed'; message: string; at: boolean };
+
+/** Факт профиля, который ворота уже прочитали. Дашборд не выдумывает «заполнено». */
+export const OperatorCabinetFacts = createContext<{
+  onboardingCompleted: boolean;
+  viewer: Viewer;
+} | null>(null);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -48,7 +54,7 @@ async function readGate(at: boolean): Promise<Exclude<Gate, { kind: 'loading' }>
   const data = isRecord(json) ? json.data : null;
   const completed = isRecord(data) && data.onboarding_completed === true;
   const viewer: Viewer = isRecord(data) && data.viewer === 'manager' ? 'manager' : 'owner';
-  if (completed || viewer === 'manager') return { kind: 'ready', at, viewer };
+  if (completed || viewer === 'manager') return { kind: 'ready', at, viewer, completed };
   return { kind: 'onboarding', at };
 }
 
@@ -121,11 +127,14 @@ export function OperatorCabinetGate({
     return <>{quiet(children)}</>;
   }
 
-  if (gate.viewer === 'manager' && onOnboarding) {
-    return <>{ready(
-      <Status>Настройку профиля завершает владелец компании. Разделы кабинета — в меню.</Status>,
-    )}</>;
-  }
+  const facts = { onboardingCompleted: gate.completed, viewer: gate.viewer };
+  const body = gate.viewer === 'manager' && onOnboarding
+    ? <Status>Настройку профиля завершает владелец компании. Разделы кабинета — в меню.</Status>
+    : children;
 
-  return <>{ready(children)}</>;
+  return (
+    <OperatorCabinetFacts.Provider value={facts}>
+      {ready(body)}
+    </OperatorCabinetFacts.Provider>
+  );
 }
