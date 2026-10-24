@@ -58,6 +58,7 @@ describe('operator_rental_fleet', () => {
     expect(out).toContain('Итоговой суммы');
     expect(out).toContain('скрыт');
     expect(out).toContain('черновик');
+    expect(out).not.toContain('<');
     expect(out).not.toMatch(/свободна|занята/);
   });
 

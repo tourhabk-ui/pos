@@ -70,6 +70,12 @@ describe('разбор фразы', () => {
     expect(parseOfferEdit(`описание Jimny: ${'а'.repeat(2001)}`)).toMatchObject({ ok: false, reason: 'too_long' });
   });
 
+  it('подсказка для MAX не содержит угловых скобок: канал шлёт HTML', async () => {
+    const { offerEditFormatHint } = await import('@/lib/rental/offer-edit');
+    expect(offerEditFormatHint()).not.toContain('<');
+    expect(offerEditFormatHint()).toContain('одним числом');
+  });
+
   it('ответ экранирует название и текст и не обещает, что сайт уже изменён', () => {
     const text = offerEditSavedText({
       title: 'Jimny <b>',
