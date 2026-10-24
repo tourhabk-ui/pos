@@ -418,6 +418,26 @@ describe('чат партнёра: помощник кабинета — тол�
     await post(VERIFIED, message('запиши касание с Иваном'));
     expect(m.partnerMessage).toHaveBeenCalledWith(expect.objectContaining({ chatId: 77, partner }));
   });
+
+  it('просьба туриста в привязанном чате идёт Кузьмичу туриста, не помощнику CRM', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner });
+    await post(VERIFIED, message('найди мне в аренду автомобиль'));
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: 77, text: 'найди мне в аренду автомобиль', mode: 'max', verifiedOrigin: true,
+    }));
+  });
+
+  it('незаверенная просьба туриста в привязанном чате — Кузьмич, без помощника CRM', async () => {
+    keyless();
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner });
+    await post(UNVERIFIED[0]!, message('найди мне в аренду автомобиль'));
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'найди мне в аренду автомобиль', verifiedOrigin: false,
+    }));
+    expect(repliesTo(77)).not.toContain(UNVERIFIED_CHAT_REPLY.partner);
+  });
 });
 
 describe('ключа нет: вопросы Кузьмичу и кнопки тем — из любого источника, по одному', () => {

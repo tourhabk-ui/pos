@@ -38,6 +38,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
+import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
 import { pool } from '@/lib/db-pool';
@@ -336,6 +337,37 @@ function hasTourRecommendation(text: string): boolean {
  */
 function offersBooking(verified: boolean, reply: string): boolean {
   return verified && reply !== '' && hasTourRecommendation(reply);
+}
+
+/** Текст туриста — Кузьмич туриста, в том числе из привязанного чата. */
+async function deliverTouristText(opts: {
+  chatId: number;
+  text: string;
+  userName: string | null;
+  userId: number | null;
+  verified: boolean;
+  reply: (chatId: number, text: string) => Promise<void>;
+  replyButtons: (chatId: number, text: string, buttons: MaxButton[][]) => Promise<void>;
+}): Promise<void> {
+  let capturedReply = '';
+  await processMessage({
+    chatId: opts.chatId,
+    text: opts.text,
+    userName: opts.userName,
+    userId: opts.userId,
+    mode: 'max',
+    createdVia: 'max',
+    pending,
+    reply: async (id, msg) => {
+      capturedReply = msg;
+      await opts.reply(id, msg);
+    },
+    platform: 'max',
+    verifiedOrigin: opts.verified,
+  });
+  if (offersBooking(opts.verified, capturedReply)) {
+    await opts.replyButtons(opts.chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
+  }
 }
 
 const BOOKING_BUTTONS: MaxButton[][] = [
@@ -767,6 +799,16 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReply(chatId, ADMIN_CHAT_TEXT.textOnly);
           return;
         }
+        // Команда кабинета остаётся администратору. Просьба туриста (аренда,
+        // тур, трансфер, план поездки) — Кузьмичу туриста: иначе «не понял
+        // команду», и прайс проката из этого чата не прочитать.
+        const { adminCommandOf } = await import('@/lib/max/admin-read');
+        if (adminCommandOf(text) === null && !/^\/start\b/i.test(text.trim()) && boundChatLane(text) === 'tourist') {
+          await deliverTouristText({
+            chatId, text, userName, userId, verified: true, reply: maxReply, replyButtons: maxReplyWithButtons,
+          });
+          return;
+        }
         await handleAdminMessage({ text, name: admin.name, chatId, reply: maxReply });
         return;
       }
@@ -895,11 +937,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // сообщение идёт Кузьмичу, как раньше.
       const datesIntent = chatDatesIntent(text);
       const dialog = msg.recipient.chat_type === 'dialog';
-      // Партнёр по привязанному чату — к помощнику партнёра (CRM 1д). «Не
-      // смогли проверить» записано в лог самой проверкой и ведёт в туристский
-      // поток — как в Telegram. Кроме фразы про даты: туристский Кузьмич
-      // ответил бы на «открой субботы июля» по-своему, а «не смог проверить»
-      // не равно «это турист» (§4.0).
+      // Привязанный чат: кабинет — помощнику партнёра (CRM 1д), просьба
+      // туриста — Кузьмичу туриста (`boundChatLane`). «Не смогли проверить»
+      // записано в лог самой проверкой и ведёт в туристский поток — как в
+      // Telegram. Кроме фразы про даты: туристский Кузьмич ответил бы на
+      // «открой субботы июля» по-своему, а «не смог проверить» не равно
+      // «это турист» (§4.0).
       const lookup = await findPartnerByChat('max', chatId);
       if (lookup.outcome !== 'none' && datesIntent === 'dates' && !dialog) {
         console.error(`[max/kuzmich] фраза про даты не из личного диалога (${chatTypeForLog(msg.recipient.chat_type)}) — без предложения`);
@@ -908,7 +951,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(chatId, DATES_TEXT.partnerUnknown);
         return;
       }
-      if (lookup.outcome === 'found') {
+      // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
+      // отвечает про клиентов и свои туры и отказывает в аренде. Кабинет
+      // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному
+      // апдейту. Незаверенная просьба туриста идёт Кузьмичу как обычный
+      // вопрос, без записи в CRM.
+      if (lookup.outcome === 'found' && boundChatLane(text) !== 'tourist') {
         // Помощник кабинета пишет в CRM партнёра (касания, задачи) — только по
         // заверенному апдейту: чат партнёра в теле прислал бы кто угодно.
         if (opts?.verifiedOrigin !== true) {
@@ -963,20 +1011,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         return;
       }
 
-      let capturedReply = '';
-      const capturingReply = async (id: number, msg: string) => {
-        capturedReply = msg;
-        await maxReply(id, msg);
-      };
-      await processMessage({
+      await deliverTouristText({
         chatId, text, userName, userId,
-        mode: 'max', createdVia: 'max', pending, reply: capturingReply,
-        platform: 'max',
-        verifiedOrigin: opts?.verifiedOrigin === true,
+        verified: opts?.verifiedOrigin === true,
+        reply: maxReply,
+        replyButtons: maxReplyWithButtons,
       });
-      if (offersBooking(opts?.verifiedOrigin === true, capturedReply)) {
-        await maxReplyWithButtons(chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
-      }
     }
     return;
   }

@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
+import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
 import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
@@ -603,7 +604,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // чем ответить партнёру как туристу один раз.
     const lookup = isPrivate ? await findPartnerByChat('telegram', chatId) : null;
     const partner = lookup?.outcome === 'found' ? lookup.partner : null;
-    if (partner && msg.text) {
+    // Та же развилка, что в MAX: просьба туриста (аренда, тур, трансфер,
+    // план поездки) идёт Кузьмичу туриста, кабинет — помощнику партнёра.
+    if (partner && msg.text && boundChatLane(msg.text) !== 'tourist') {
       const text = msg.text.trim();
       if (text === '/start') {
         await tgReply(chatId, partnerGreeting(partner));
