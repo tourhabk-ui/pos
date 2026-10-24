@@ -27,6 +27,11 @@ interface TrafficData {
   not_found: Array<{ path: string; hits: number }>;
   funnel: Array<{ tourId: number; title: string; isPublished: boolean; views: number; viewerDays: number; bookings: number }>;
   uniques_since: string | null;
+  /** Топ суточных хэшей адреса. rows === null — не сосчитано, не «адресов нет». */
+  addresses?: {
+    day: string;
+    rows: Array<{ hash: string; hits: number; ua: string }> | null;
+  } | null;
 }
 
 function fmtDate(iso: string): string {
@@ -114,6 +119,8 @@ export default function AdminTrafficPage() {
         намеренно. Пути /hub/admin и служебные не учитываются. Старые строки по
         User-Agent не переклассифицированы: он в журнал не писался. Автоматический
         браузер с обычным адресом Chrome в «люди» не входит с этого обновления.
+        Адрес с более чем 30 просмотрами за камчатские сутки без перехода и без
+        времени на странице — бот; адрес сервера — свой. Сырой IP в журнал не пишется.
         {data?.uniques_since && (
           <> Уникальные считаются с {fmtDate(data.uniques_since)} (раньше хэш не
           писался, ретроактивно посчитать нельзя — только просмотры).</>
@@ -163,6 +170,45 @@ export default function AdminTrafficPage() {
                 <p className="text-xs text-[var(--ocean)] mt-0.5">{k.sub}</p>
               </div>
             ))}
+          </div>
+
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">
+              Топ адресов{data.addresses?.day ? ` · ${fmtDate(data.addresses.day)} по Камчатке` : ''}
+            </p>
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              Суточный хэш адреса, первые 12 знаков — не сам IP. На следующие сутки хэш другой.
+              Сырой адрес и полный User-Agent не хранятся: в столбце UA — семейство, «не записано» или «несколько».
+              Просмотры до появления колонки в список не входят: адреса у них не было.
+              Больше 30 просмотров за эти сутки без перехода и без времени на странице — бот.
+              Адрес нашего сервера — свой.
+            </p>
+            {data.addresses?.rows == null ? (
+              <p className="text-xs text-[var(--text-muted)]">Топ адресов не сосчитан.</p>
+            ) : data.addresses.rows.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">За эти сутки строк с хэшем адреса нет.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="text-left font-medium pb-2">Хэш</th>
+                      <th className="text-right font-medium pb-2">Визиты</th>
+                      <th className="text-left font-medium pb-2 pl-4">UA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.addresses.rows.map(row => (
+                      <tr key={row.hash} className="border-t border-[var(--border)]">
+                        <td className="py-1.5 pr-3 font-mono text-[var(--text-secondary)]">{row.hash}</td>
+                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{row.hits.toLocaleString('ru-RU')}</td>
+                        <td className="py-1.5 pl-4 text-[var(--text-secondary)]">{row.ua}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Роботы и глубина визита — два вопроса к любому счётчику */}

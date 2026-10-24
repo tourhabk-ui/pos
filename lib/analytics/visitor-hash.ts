@@ -17,6 +17,24 @@ export function visitorHash(ip: string, userAgent: string, day: string, salt: st
     .slice(0, 32);
 }
 
+/**
+ * Суточный хэш адреса, без User-Agent.
+ *
+ * visitor_hash мешает адрес с браузером, и два браузера с одного IP дают
+ * два хэша — по нему нельзя ответить «это один адрес?». Здесь в хэше только
+ * день, соль и адрес. День в строку кладёт вызывающий: для витрины это
+ * камчатские сутки, не UTC-день visitor_hash, иначе всплеск на границе
+ * полуночи UTC разъедется на два хэша и порог его не увидит.
+ * На следующие сутки хэш другой. Сырой адрес в хэше не восстановить.
+ */
+export function ipHash(ip: string, day: string, salt: string): string {
+  const normalized = ip.trim().toLowerCase().replace(/^::ffff:/, '');
+  return createHash('sha256')
+    .update(`${day}:${salt}:${normalized}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
 /** День в формате YYYY-MM-DD (UTC) — граница смены хэша. */
 export function currentDay(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);

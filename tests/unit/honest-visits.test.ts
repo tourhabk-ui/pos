@@ -9,10 +9,15 @@ import { readFileSync } from 'fs';
 import { NextRequest } from 'next/server';
 import { createToken } from '@/lib/auth/jwt';
 import { classifyPageHit } from '@/lib/analytics/visit-class';
+import { classifyAddressBurst } from '@/lib/analytics/address-burst';
+import { queryAddressTop } from '@/lib/analytics/address-top';
+import { ipHash } from '@/lib/analytics/visitor-hash';
+import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
 import { isAiFamily } from '@/lib/analytics/bot-detect';
 import { isPlatformBoxIp, platformBoxAddresses } from '@/lib/analytics/box-ip';
 import { isStaffOwnVisit } from '@/lib/analytics/staff-visit';
 import { POST } from '@/app/api/analytics/hit/route';
+import { POST as dwellPost } from '@/app/api/analytics/dwell/route';
 
 const query = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
@@ -215,5 +220,191 @@ describe('старые строки не удаляются', () => {
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS ua_family');
     expect(sql).not.toMatch(/DELETE\s+FROM\s+page_views/i);
     expect(sql).not.toMatch(/UPDATE\s+page_views/i);
+  });
+
+  it('хэш адреса добавляется без переписывания старых строк', () => {
+    const sql = readFileSync('migrations/1329_page_views_ip_hash.sql', 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS ip_hash');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS anomaly_bot');
+    expect(sql).not.toMatch(/DELETE\s+FROM\s+page_views/i);
+    expect(sql).not.toMatch(/UPDATE\s+page_views/i);
+  });
+});
+
+describe('порог адреса', () => {
+  const person = { isBot: false, isSelf: false, priorInteraction: false, fromPath: null };
+
+  it('31-й просмотр без взаимодействия — бот, 30-й — ещё человек', () => {
+    expect(classifyAddressBurst({ ...person, priorHits: 30 }).reclass).toBe('burst');
+    expect(classifyAddressBurst({ ...person, priorHits: 30 }).anomaly).toBe(true);
+    expect(classifyAddressBurst({ ...person, priorHits: 30 }).isBot).toBe(true);
+    expect(classifyAddressBurst({ ...person, priorHits: 29 }).reclass).toBeNull();
+    expect(classifyAddressBurst({ ...person, priorHits: 29 }).isBot).toBe(false);
+  });
+
+  it('переход или время на странице порог не включает', () => {
+    expect(classifyAddressBurst({ ...person, priorHits: 80, fromPath: '/catalog' }).reclass).toBe('release');
+    expect(classifyAddressBurst({ ...person, priorHits: 80, fromPath: '/catalog' }).isBot).toBe(false);
+    expect(classifyAddressBurst({ ...person, priorHits: 80, priorInteraction: true }).isBot).toBe(false);
+  });
+
+  it('адрес сервера остаётся своим: порог не делает его уличным ботом', () => {
+    const box = classifyAddressBurst({ ...person, isSelf: true, priorHits: 100 });
+    expect(box.anomaly).toBe(false);
+    expect(box.isBot).toBe(false);
+    expect(box.reclass).toBe('burst');
+  });
+
+  it('уже бот по адресу браузера не получает метку, которую снимет время на странице', () => {
+    const bot = classifyAddressBurst({ ...person, isBot: true, priorHits: 100 });
+    expect(bot.anomaly).toBe(false);
+    expect(bot.isBot).toBe(true);
+    expect(bot.reclass).toBe('burst');
+  });
+});
+
+describe('хэш адреса', () => {
+  it('один адрес в одни сутки — один хэш, без сырого IP и без браузера', () => {
+    const a = ipHash('203.0.113.7', '2026-10-24', 's');
+    expect(a).toBe(ipHash('::ffff:203.0.113.7', '2026-10-24', 's'));
+    expect(a).not.toBe(ipHash('203.0.113.7', '2026-10-25', 's'));
+    expect(a).not.toBe(ipHash('203.0.113.8', '2026-10-24', 's'));
+    expect(a).not.toContain('203');
+    expect(a).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('камчатские сутки 24.10 начинаются в 12:00 UTC', () => {
+    const bounds = kamchatkaDayBounds(new Date('2026-10-23T12:00:00.000Z'));
+    expect(bounds.day).toBe('2026-10-24');
+    expect(bounds.end.getTime() - bounds.start.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+});
+
+describe('приём маяка: всплеск с одного адреса', () => {
+  beforeEach(() => {
+    query.mockReset();
+  });
+
+  function withStats(hits: number, interaction: boolean) {
+    query.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('AS hits')) return { rows: [{ hits, interaction }] };
+      return { rows: [{ id: '9' }] };
+    });
+  }
+
+  function updates(): string[] {
+    return query.mock.calls.map((c) => String(c[0])).filter((sql) => sql.includes('SET is_bot'));
+  }
+
+  it('31-й просмотр без взаимодействия — бот, сырого IP в параметрах нет', async () => {
+    withStats(30, false);
+    const json = await post({ ip: '203.0.113.40' });
+    expect(json.audience).toBe('bot');
+    const params = inserted();
+    expect(params[5]).toBe(true);
+    expect(params[7]).toBe(false);
+    expect(params[8]).toBeNull();
+    expect(params[11]).toMatch(/^[0-9a-f]{32}$/);
+    expect(params[12]).toBe(true);
+    const burst = updates().find((sql) => sql.includes('anomaly_bot = TRUE'));
+    expect(burst).toContain('NOT is_self');
+    expect(burst).not.toMatch(/DELETE/i);
+    expect(JSON.stringify(query.mock.calls)).not.toContain('203.0.113.40');
+  });
+
+  it('переход внутри визита порог не включает и снимает прежнюю метку', async () => {
+    withStats(80, false);
+    const json = await post({ ip: '203.0.113.41', body: hitBody({ fromPath: '/catalog' }) });
+    expect(json.audience).toBe('person');
+    expect(inserted()[12]).toBe(false);
+    expect(updates().some((sql) => sql.includes('anomaly_bot = FALSE') && sql.includes('NOT is_self'))).toBe(true);
+  });
+
+  it('адрес коробки при том же всплеске остаётся своим', async () => {
+    withStats(100, false);
+    const json = await post({ ip: '127.0.0.1' });
+    expect(json.audience).toBe('self');
+    expect(inserted()[5]).toBe(false);
+    expect(inserted()[7]).toBe(true);
+    expect(inserted()[12]).toBe(false);
+    expect(updates().some((sql) => sql.includes('NOT is_self'))).toBe(true);
+    expect(JSON.stringify(query.mock.calls)).not.toContain('127.0.0.1');
+  });
+
+  it('колонки ещё нет — просмотр пишется, порог не выдумывается', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('AS hits')) {
+        throw Object.assign(new Error('column ip_hash does not exist'), { code: '42703' });
+      }
+      return { rows: [{ id: '1' }] };
+    });
+    const json = await post({ ip: '203.0.113.42' });
+    expect(json.audience).toBe('person');
+    expect(updates()).toEqual([]);
+  });
+
+  it('без адреса заголовка хэш пустой, а не петля', async () => {
+    query.mockResolvedValue({ rows: [{ id: '1' }] });
+    const json = await post({});
+    expect(json.audience).toBe('person');
+    expect(inserted()[11]).toBeNull();
+    expect(inserted()[7]).toBe(false);
+  });
+});
+
+describe('время на странице снимает только метку порога', () => {
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+  });
+
+  it('сначала пишет dwell один раз, затем снимает anomaly_bot за камчатские сутки', async () => {
+    const res = await dwellPost(new NextRequest('http://localhost/api/analytics/dwell', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.50' },
+      body: JSON.stringify({ id: '15', ms: 1200 }),
+    }));
+    expect(res.status).toBe(200);
+    const sqls = query.mock.calls.map((c) => String(c[0]));
+    expect(sqls[0]).toContain('dwell_ms IS NULL');
+    expect(sqls[1]).toContain('anomaly_bot = $2');
+    expect(query.mock.calls[1][1]).toEqual(['15', false]);
+    expect(sqls[1]).toContain('NOT p.is_self');
+    expect(sqls[1]).toContain('Asia/Kamchatka');
+    expect(sqls.join('\n')).not.toMatch(/DELETE/i);
+    expect(JSON.stringify(query.mock.calls)).not.toContain('203.0.113.50');
+  });
+});
+
+describe('топ адресов', () => {
+  it('отдаёт усечённый хэш, визиты и короткое семейство', async () => {
+    const bounds = kamchatkaDayBounds(new Date('2026-10-23T12:00:00.000Z'));
+    const top = await queryAddressTop(async (sql) => {
+      expect(sql).toContain('left(ip_hash, 12)');
+      expect(sql).not.toMatch(/user_agent/i);
+      return {
+        rows: [
+          { hash: 'a'.repeat(32), hits: '40', family_n: 1, family: 'browser' },
+          { hash: 'b'.repeat(32), hits: 2, family_n: 3, family: 'browser' },
+          { hash: 'c'.repeat(32), hits: 1, family_n: 0, family: null },
+          { hash: 'not-hex!!!!!', hits: 9, family_n: 1, family: 'x' },
+        ],
+      };
+    }, bounds);
+    expect(top.day).toBe('2026-10-24');
+    expect(top.errorCode).toBeNull();
+    expect(top.rows).toEqual([
+      { hash: 'aaaaaaaaaaaa', hits: 40, ua: 'browser' },
+      { hash: 'bbbbbbbbbbbb', hits: 2, ua: 'несколько' },
+      { hash: 'cccccccccccc', hits: 1, ua: 'не записано' },
+    ]);
+  });
+
+  it('отказ запроса — не пустой список', async () => {
+    const top = await queryAddressTop(async () => {
+      throw Object.assign(new Error('column ip_hash does not exist'), { code: '42703' });
+    }, kamchatkaDayBounds(new Date('2026-10-23T12:00:00.000Z')));
+    expect(top.rows).toBeNull();
+    expect(top.errorCode).toBe('42703');
   });
 });

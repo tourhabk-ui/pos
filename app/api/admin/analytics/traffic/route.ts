@@ -25,6 +25,8 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { aiFamilyArraySql } from '@/lib/analytics/bot-detect';
+import { queryAddressTop } from '@/lib/analytics/address-top';
+import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
 
 export const dynamic = 'force-dynamic';
 
@@ -253,6 +255,11 @@ export async function GET(request: NextRequest) {
     const t = totals.rows[0];
     const cov = coverage.rows[0];
     const s = sessions.rows[0];
+    const bounds = kamchatkaDayBounds();
+    const addresses = await queryAddressTop((sql, params) => pool.query(sql, params), bounds);
+    if (addresses.errorCode) {
+      console.error('[analytics/traffic] топ адресов не сосчитан:', addresses.errorCode);
+    }
     return NextResponse.json({
       success: true,
       data: {
@@ -305,6 +312,7 @@ export async function GET(request: NextRequest) {
         // Показываем подпись, только если есть строки БЕЗ хэша (значит уники
         // начались позже просмотров и раннее посчитать нельзя)
         uniques_since: cov?.has_unhashed ? (cov.uniques_since ?? null) : null,
+        addresses: { day: addresses.day, rows: addresses.rows },
       },
     });
   } catch (error) {

@@ -22,6 +22,16 @@ export function kamchatkaDate(now: Date): string {
   return new Date(now.getTime() + OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/** Камчатские сутки, в которых лежит `now`: дата и полуоткрытый интервал [start, end). */
+export function kamchatkaDayBounds(now: Date = new Date()): { day: string; start: Date; end: Date } {
+  const day = kamchatkaDate(now);
+  return {
+    day,
+    start: kamchatkaDayStart(day),
+    end: kamchatkaDayStart(shiftDate(day, 1)),
+  };
+}
+
 /** Момент (UTC), с которого начинаются камчатские сутки `date`. */
 export function kamchatkaDayStart(date: string): Date {
   const [y, m, d] = date.split('-').map(Number);

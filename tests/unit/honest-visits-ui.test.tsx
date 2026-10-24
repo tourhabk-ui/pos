@@ -27,6 +27,13 @@ const traffic = {
     not_found: [],
     funnel: [],
     uniques_since: null,
+    addresses: {
+      day: '2026-10-24',
+      rows: [
+        { hash: 'a1b2c3d4e5f6', hits: 48, ua: 'browser' },
+        { hash: 'fff000111222', hits: 2, ua: 'не записано' },
+      ],
+    },
   },
 };
 
@@ -73,5 +80,25 @@ describe('страница посещаемости', () => {
     // Большая цифра карточки «сегодня» — 12 людей, не 40 ботов.
     expect(screen.getAllByText('12').length).toBeGreaterThan(0);
     expect(screen.queryByText('52')).toBeNull();
+    expect(screen.getByText(/Топ адресов/)).toBeTruthy();
+    expect(screen.getByText('a1b2c3d4e5f6')).toBeTruthy();
+    expect(screen.getByText('48')).toBeTruthy();
+    expect(screen.getByText('browser')).toBeTruthy();
+    expect(screen.getByText('не записано')).toBeTruthy();
+    expect(screen.getByText(/адреса у них не было/)).toBeTruthy();
+    expect(screen.queryByText('203.0.113.1')).toBeNull();
+  });
+
+  it('несосчитанный топ адресов не показывает ноль', async () => {
+    const unknown = {
+      ...traffic,
+      data: { ...traffic.data, addresses: { day: '2026-10-24', rows: null } },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      json: async () => (String(url).includes('funnel-window') ? funnel : unknown),
+    })));
+    render(<AdminTrafficPage />);
+    expect(await screen.findByText('Топ адресов не сосчитан.')).toBeTruthy();
+    expect(screen.queryByText('За эти сутки строк с хэшем адреса нет.')).toBeNull();
   });
 });
