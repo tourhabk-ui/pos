@@ -217,6 +217,84 @@ describe('семь вопросов подряд', () => {
   });
 });
 
+describe('прод 24.10, сборка 19:53Z: двенадцать туров и три карточки', () => {
+  const prodPrompt = 'Какие туры на вулканы есть осенью? Перечисли списком с ценами';
+
+  function volcano(partial: Partial<CatalogTour> & Pick<CatalogTour, 'id' | 'title' | 'base_price'>): CatalogTour {
+    return {
+      slug: `t-${partial.id}`,
+      price_unit: 'per_person',
+      multi_day_count: 1,
+      activity_type: 'volcano',
+      season_start: '2026-09-01',
+      season_end: '2026-11-30',
+      ...partial,
+    };
+  }
+
+  it('Ключевская вне осени не названа, у каждого тура ссылка и та же карточка', () => {
+    const klyuchevskaya = volcano({
+      id: 1,
+      slug: 'klyuchevskaya',
+      title: 'Ключевская сопка',
+      base_price: 320000,
+      season_start: '2026-07-01',
+      season_end: '2026-08-20',
+    });
+    const nextAutumn = Array.from({ length: 8 }, (_, i) => volcano({
+      id: 10 + i,
+      title: `Заезд ${i} следующего года`,
+      base_price: 510000 + i,
+      season_start: '2027-08-25',
+      season_end: '2027-09-30',
+    }));
+    const live = [
+      volcano({ id: 2, slug: 'ava', title: 'Авачинский осенью', base_price: 15000 }),
+      volcano({ id: 3, slug: 'gorely', title: 'Горелый осенью', base_price: 42000 }),
+      volcano({ id: 4, slug: 'mutnovsky', title: 'Мутновский осенью', base_price: 88000 }),
+    ];
+    const answer = composeCommercial({
+      ...input(prodPrompt, ''),
+      tours: { ok: true, tours: [klyuchevskaya, ...nextAutumn, ...live] },
+    });
+    expect(answer).not.toBeNull();
+    const text = answer!.visible;
+    expect(text).not.toMatch(/Ключевск/);
+    expect(text).not.toMatch(/320\s*000/);
+    expect(text).not.toContain('2027');
+    expect(text).not.toContain('этого заезда нет');
+    const lines = namedLines(text);
+    expect(lines).toHaveLength(answer!.tours.length);
+    expect(lines.every((line) => /https:\/\/vedarai\.ru\/catalog\/tours\//.test(line))).toBe(true);
+    expect(answer!.tours.map((tour) => tour.slug)).toEqual(['ava', 'gorely', 'mutnovsky']);
+    expect(rubleAmounts(text).sort((a, b) => a - b)).toEqual([15000, 42000, 88000]);
+  });
+
+  it('двенадцать живых: цена только у тура со ссылкой, остальные без названия и цены', () => {
+    const dozen = Array.from({ length: 12 }, (_, i) => volcano({
+      id: 100 + i,
+      slug: `live-${i}`,
+      title: `Осенний тур ${i}`,
+      base_price: 10000 * (i + 1),
+    }));
+    const answer = composeCommercial({
+      ...input(prodPrompt, ''),
+      tours: { ok: true, tours: dozen },
+    });
+    expect(answer).not.toBeNull();
+    const lines = namedLines(answer!.visible);
+    expect(lines).toHaveLength(8);
+    expect(lines).toHaveLength(answer!.tours.length);
+    expect(lines.every((line) => line.includes('https://'))).toBe(true);
+    expect(rubleAmounts(answer!.visible)).toEqual(dozen.slice(0, 8).map((tour) => Number(tour.base_price)));
+    expect(answer!.visible).toContain('Ещё 4');
+    for (const hidden of dozen.slice(8)) {
+      expect(answer!.visible).not.toContain(hidden.title);
+      expect(rubleAmounts(answer!.visible)).not.toContain(Number(hidden.base_price));
+    }
+  });
+});
+
 describe('оценка и пауза источника', () => {
   it('вилка-ориентир вырезается, цена из источника остаётся', () => {
     const dropped = dropUnsourcedPrices('Ориентир на человека: 4 500–6 750 ₽.', 'от 15 000 ₽/чел.');
