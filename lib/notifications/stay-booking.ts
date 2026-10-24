@@ -15,6 +15,7 @@
  */
 
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { INCOMING_ANSWER_HINT, incomingAnswerButtons } from '@/lib/requests/incoming-card';
 import { reachForPartner } from '@/lib/partners/reach';
 import { sendPartnerNotice, type NoticeTarget } from '@/lib/partners/notice';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -103,16 +104,18 @@ export async function notifyNewStayBooking(p: StayBookingNotifyPayload): Promise
     ...common,
     contacts.length > 0 ? 'Имя и телефон гостя — в MAX и в кабинете.' : 'Контактов гостя в брони нет.',
   ].join('\n');
-  const buttons = [{ text: 'Открыть брони', url: `${getPublicBaseUrl()}/hub/stay/bookings` }];
+  const link = { text: 'Открыть брони', url: `${getPublicBaseUrl()}/hub/stay/bookings` };
+  const actions = incomingAnswerButtons('stay_booking', p.bookingId) ?? [];
+  const ownerText = actions.length > 0 ? `${text}\n\n${INCOMING_ANSWER_HINT}` : text;
 
-  const adminRes = await sendPdAlert({ text, stub, buttons });
+  const adminRes = await sendPdAlert({ text, stub, buttons: [link] });
   if (!adminRes.delivered) {
     console.error(`[notifyNewStayBooking] админу ПД не доставлены (${adminRes.channel}) — ${adminRes.reason}`);
   }
 
   if (p.ownerMaxChatId || p.ownerTelegramChatId) {
     const ownerRes = await sendPdAlert({
-      text, stub, buttons,
+      text: ownerText, stub, buttons: [link, ...actions],
       to: { maxChatId: p.ownerMaxChatId, telegramChatId: p.ownerTelegramChatId },
     });
     if (!ownerRes.delivered) {

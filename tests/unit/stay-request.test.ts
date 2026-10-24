@@ -131,7 +131,8 @@ describe('роут: кто может принять заявку и куда о
   });
 
   it('хозяину — строго в его адрес, оператору платформы — всегда; три исхода', () => {
-    expect(SERVICE).toMatch(/sendPdAlert\(\{ text, stub: ownerStub, buttons: \[card\], to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
+    expect(SERVICE).toMatch(/sendPdAlert\(\{ text: ownerText, stub: ownerStub, buttons: \[card, \.\.\.actions\], to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
+    expect(SERVICE).toMatch(/incomingAnswerButtons\('stay_request', requestId\)/);
     expect(SERVICE).toMatch(/const adminRes = await sendPdAlert\(\{\s*text,\s*stub: platformStub,\s*buttons: \[card, \{ text: 'Заявки гостей', url: `\$\{base\}\$\{STAY_REQUESTS_ADMIN_PATH\}` \}\],\s*\}\)/);
     expect(SERVICE).toMatch(/ownerDelivered \? 'owner' : adminRes\.delivered \? 'platform' : 'none'/);
     // «Не дошло никому» — не успех.

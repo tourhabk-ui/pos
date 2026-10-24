@@ -13,6 +13,7 @@
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { getPublicBaseUrl } from '@/lib/config';
+import { incomingAnswerButtons } from '@/lib/requests/incoming-card';
 
 async function tgSend(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -96,7 +97,10 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     seat_request: 'Запрос мест (вы подтвердили места)',
   };
 
-  // Общая часть — без ПД: её видно в обоих каналах.
+  const answerButtons = incomingAnswerButtons('booking', String(payload.booking_id)) ?? [];
+  // Общая часть — без ПД: её видно в обоих каналах и у команды. Фраза про
+  // кнопки здесь, а не только у оператора: текст команды и текст оператора
+  // остаются одним, и фраза правдива для того, у кого кнопок нет.
   const common = [
     `<b>Новая бронь #${payload.booking_id}</b>`,
     `Тур: ${esc(payload.tour_title)}`,
@@ -105,6 +109,9 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     `Участников: ${payload.participants}`,
     `Цена: ${priceStr}`,
     payload.via ? `Источник: ${viaLabel[payload.via] ?? payload.via}` : null,
+    answerButtons.length > 0
+      ? 'Ответ кнопками — в MAX у оператора. Статус брони и оплату кнопки не меняют.'
+      : null,
   ].filter(Boolean) as string[];
 
   const contacts = [
@@ -143,7 +150,7 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     const opRes = await sendPdAlert({
       text,
       stub,
-      buttons: [link],
+      buttons: [link, ...answerButtons],
       to: {
         maxChatId: payload.operator_max_chat_id,
         telegramChatId: payload.operator_telegram_chat_id,

@@ -12,6 +12,7 @@
 
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { INCOMING_ANSWER_HINT, incomingAnswerButtons } from '@/lib/requests/incoming-card';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -43,16 +44,18 @@ export async function notifyNewGearRental(p: GearRentalNotifyPayload): Promise<v
 
   const text = [...common, `Клиент: ${esc(p.customerName)}, ${esc(p.customerPhone)}`].join('\n');
   const stub = [...common, 'Имя и телефон клиента — в MAX и в кабинете.'].join('\n');
-  const buttons = [{ text: 'Подтвердить', url: `${getPublicBaseUrl()}/hub/gear/rentals` }];
+  const link = { text: 'Открыть заявки', url: `${getPublicBaseUrl()}/hub/gear/rentals` };
+  const actions = incomingAnswerButtons('gear', p.rentalId) ?? [];
+  const partnerText = actions.length > 0 ? `${text}\n\n${INCOMING_ANSWER_HINT}` : text;
 
-  const adminRes = await sendPdAlert({ text, stub, buttons });
+  const adminRes = await sendPdAlert({ text, stub, buttons: [link] });
   if (!adminRes.delivered) {
     console.error(`[notifyNewGearRental] админу ПД не доставлены (${adminRes.channel}) — ${adminRes.reason}`);
   }
 
   if (p.partnerMaxChatId || p.partnerChatId) {
     const partnerRes = await sendPdAlert({
-      text, stub, buttons,
+      text: partnerText, stub, buttons: [link, ...actions],
       to: { maxChatId: p.partnerMaxChatId, telegramChatId: p.partnerChatId },
     });
     if (!partnerRes.delivered) {

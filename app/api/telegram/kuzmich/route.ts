@@ -482,6 +482,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const cq = update.callback_query;
       const chatId = cq.message?.chat.id ?? cq.from.id;
 
+      if (cq.data.startsWith('ia:')) {
+        await tgAnswerCallback(cq.id);
+        const pressedIn = cq.message?.chat?.type;
+        if (pressedIn === 'group' || pressedIn === 'supergroup' || pressedIn === 'channel') {
+          await tgReply(chatId, 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.');
+          return NextResponse.json({ ok: true });
+        }
+        const lookup = await findPartnerByChat('telegram', chatId);
+        const { handleIncomingAnswer } = await import('@/lib/requests/incoming-answer-flow');
+        await handleIncomingAnswer({
+          lookup,
+          payload: cq.data,
+          editMid: null,
+          originalText: null,
+          send: async (body) => { await tgReply(chatId, body); },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       if (parseRentalCabinetPress(cq.data) || cq.data.startsWith('rr:')) {
         await tgAnswerCallback(cq.id);
         const { tryRentalCabinetTelegramPress } = await import('@/lib/rental/cabinet-telegram');
