@@ -1191,9 +1191,13 @@ export async function eraseUser(
     ['tourist_wishlist', `DELETE FROM tourist_wishlist
       WHERE tourist_id IN (SELECT id FROM tourist_profiles WHERE user_id = $1)`],
     ['tourist_profiles', `DELETE FROM tourist_profiles WHERE user_id = $1`],
-    // MAX администратора (1324): id его человека в MAX и одноразовые ссылки.
+    // MAX администратора (1324) и Telegram (1330): id его человека в мессенджере
+    // и одноразовые ссылки. Внешний ключ с ON DELETE CASCADE снял бы их и так;
+    // явный шаг — чтобы стирание не зависело от того, объявлен ли ключ на проде.
     ['admin_max_link_tokens', `DELETE FROM admin_max_link_tokens WHERE user_id = $1`],
     ['admin_max_bindings', `DELETE FROM admin_max_bindings WHERE user_id = $1`],
+    ['admin_tg_link_tokens', `DELETE FROM admin_tg_link_tokens WHERE user_id = $1`],
+    ['admin_tg_bindings', `DELETE FROM admin_tg_bindings WHERE user_id = $1`],
     ['user_sessions', `DELETE FROM user_sessions WHERE user_id = $1`],
     ['users', `UPDATE users SET
         email = 'deleted-' || id::text || '@deleted.invalid',
