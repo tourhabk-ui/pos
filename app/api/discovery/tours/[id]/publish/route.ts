@@ -11,6 +11,7 @@ import {
 } from '@/lib/services';
 import { requireOperator } from '@/lib/auth/middleware';
 import { verifyTourOwnership } from '@/lib/auth/operator-helpers';
+import { pingTourChanged } from '@/lib/seo/indexnow';
 
 // ============================================================================
 // POST - ОПУБЛИКОВАТЬ ТУР
@@ -51,6 +52,8 @@ export async function POST(
       updatedTour = await tourService.unpublish(id);
       message = 'Tour unpublished successfully';
     }
+
+    pingTourChanged(id);
 
     return NextResponse.json(
       {

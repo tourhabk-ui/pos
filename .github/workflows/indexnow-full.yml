@@ -1,0 +1,67 @@
+name: IndexNow — весь sitemap (один раз после выкладки)
+
+# Пинг имеет смысл только после того, как файл ключа открылся на проде:
+# иначе приёмник не подтвердит владение хостом. Ждём свою сборку, затем
+# зовём крон полной подачи. В шаге — HTTP нашего роута и статусы
+# api.indexnow.org и Яндекса из тела ответа.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/indexnow-full.json'
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: indexnow-full
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Секрет на месте
+        run: |
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::секрет CRON_SECRET не задан — позвать роут нечем"
+            exit 1
+          fi
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Подать sitemap в IndexNow и Яндекс
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          HTTP=$(curl -sS -o /tmp/indexnow.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/indexnow-full") || HTTP="000"
+          echo "HTTP $HTTP"
+          python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
+          {
+            echo '## IndexNow — весь sitemap'
+            echo ''
+            echo "HTTP роута $HTTP"
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::IndexNow не принял sitemap (HTTP $HTTP) — статусы приёмников в теле ответа"
+            exit 1
+          fi

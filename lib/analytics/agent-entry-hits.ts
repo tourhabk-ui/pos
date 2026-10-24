@@ -9,9 +9,11 @@
  * видно, кто вообще дошёл.
  *
  * Хранится не визит, а счётчик: сутки × путь × семейство (реестр семейств —
- * lib/analytics/bot-detect.ts). Сырой User-Agent и IP не хранятся — та же
- * граница, что у `mcp_clients` (миграция 872). Запись не ждётся и ответ не
- * роняет; отказ базы пишется в лог с SQLSTATE, а не глушится (§4.0).
+ * lib/analytics/bot-detect.ts). В этой таблице сырой User-Agent и IP не
+ * хранятся. Сырую строку ИИ-краулера, YandexBot и Bingbot пишет
+ * recordAiCrawlerUa в ai_crawler_ua (миграция 1332) — только её, людей нет.
+ * Запись не ждётся и ответ не роняет; отказ базы пишется в лог с SQLSTATE,
+ * а не глушится (§4.0).
  *
  * Читает перепись `GET /api/cron/agent-entry-census`.
  * Сторож: tests/unit/agents-china-layer.test.ts.
@@ -19,6 +21,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { botFamily } from '@/lib/analytics/bot-detect';
+import { recordAiCrawlerUa } from '@/lib/analytics/ai-crawler-ua';
 import { logText } from '@/lib/log/log-text';
 
 import { AGENT_ENTRY_HTML_PATHS, zhEntryPath, type AgentEntryPath } from '@/lib/analytics/agent-entry-paths';
@@ -31,6 +34,7 @@ export function recordAgentEntryHit(path: AgentEntryPath, userAgent: string | nu
   // обходчик, его визит считает page_views. Без этой отсечки перепись
   // краулеров стала бы вторым счётчиком посещаемости.
   if (family === 'browser' && AGENT_ENTRY_HTML_PATHS.has(path)) return;
+  recordAiCrawlerUa(path, userAgent);
   void pool
     .query(
       `INSERT INTO agent_entry_hits (day, path, family, hits)

@@ -4,6 +4,7 @@ import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { OpTourPublishRow } from '@/lib/types/db-rows';
+import { pingTourChanged } from '@/lib/seo/indexnow';
 
 /**
  * POST /api/operator/tours/[id]/publish
@@ -95,6 +96,8 @@ export async function POST(
       `UPDATE operator_tours SET is_active = true, is_published = true, updated_at = NOW() WHERE id = $1`,
       [id]
     );
+
+    pingTourChanged(id);
 
     return NextResponse.json({
       success: true,

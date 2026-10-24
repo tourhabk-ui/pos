@@ -15,6 +15,8 @@ interface TrafficData {
   bots: { month_hits: number };
   /** Просмотры ИИ-краулеров. null с сервера не приходит: числа или ошибка всей страницы. */
   ai?: { today: number; week: number; month: number } | null;
+  /** Сырые User-Agent за 7 суток. null — не прочитано. Пустой список — никого не было. */
+  ai_user_agents?: Array<{ user_agent: string; family: string; hits: number }> | null;
   /** Свои заходы (cookie владельца) за 30 дней и с какого дня метка ставилась. */
   self?: { month_hits: number; since: string | null };
   daily: Array<{ day: string; hits: number; uniques: number }>;
@@ -32,6 +34,31 @@ interface TrafficData {
     day: string;
     rows: Array<{ hash: string; hits: number; ua: string }> | null;
   } | null;
+}
+
+/** Только чтение: строка User-Agent и сколько раз за 7 суток. */
+function AiCrawlerUaLine({ rows }: { rows: Array<{ user_agent: string; family: string; hits: number }> | null | undefined }) {
+  if (rows == null) {
+    return <p className="text-[11px] text-[var(--text-muted)] mt-1">Сырые User-Agent за 7 суток не прочитаны.</p>;
+  }
+  if (rows.length === 0) {
+    return (
+      <p className="text-[11px] text-[var(--text-muted)] mt-1">
+        За 7 суток таких User-Agent нет. Журнал начат с этой выкладки: раньше сырая строка не хранилась.
+      </p>
+    );
+  }
+  return (
+    <ul className="mt-1 space-y-0.5">
+      {rows.map((row) => (
+        <li key={`${row.family}:${row.user_agent}`} className="text-[11px] text-[var(--text-secondary)] break-all">
+          <span className="font-mono tabular-nums text-[var(--text-primary)]">{row.hits.toLocaleString('ru-RU')}</span>
+          {' · '}
+          {row.user_agent}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function fmtDate(iso: string): string {
@@ -227,6 +254,7 @@ export default function AdminTrafficPage() {
                     ? `Сегодня ${data.ai.today.toLocaleString('ru-RU')}, за 7 дней ${data.ai.week.toLocaleString('ru-RU')}. В «боты» и в людей не входят.`
                     : 'Семейство краулера прочитать не удалось.'}
                 </p>
+                <AiCrawlerUaLine rows={data.ai_user_agents} />
               </div>
             </div>
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 flex items-center gap-3">

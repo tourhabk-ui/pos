@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
       // Отказ IndexNow — словами протокола, не догадкой.
       status: result.status ?? null,
       error: result.error ?? null,
+      endpoints: result.endpoints ?? null,
     },
     { status: ok ? 200 : 502 },
   );

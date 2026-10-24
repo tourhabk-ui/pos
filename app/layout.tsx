@@ -5,6 +5,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
 import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
+import { recordAiCrawlerUa } from '@/lib/analytics/ai-crawler-ua';
 import { partnerSiteOfRequest } from '@/lib/partner-sites/request';
 
 const playfairDisplay = Playfair_Display({
@@ -177,7 +178,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // объявляли язык раздела только заголовком Content-Language — теперь
   // корректный <html lang> важнее, заголовки разделов при этом сохранены.
   const requestHeaders = await headers();
-  const lang = htmlLangForPath(requestHeaders.get(ROOT_LANG_HEADER));
+  const pagePath = requestHeaders.get(ROOT_LANG_HEADER);
+  const lang = htmlLangForPath(pagePath);
+  // Сырой UA краулера на HTML-странице. /zh пишет его сам (recordZhEntryHit),
+  // иначе один заход посчитался бы дважды.
+  if (!pagePath?.startsWith('/zh')) {
+    recordAiCrawlerUa(pagePath, requestHeaders.get('user-agent'));
+  }
   // Сайт партнёра на его домене (fishingkam.ru, 22.10): разметка «Ведар —
   // организация, сайт vedarai.ru» на чужом домене приписала бы сайт партнёра
   // Ведару. Свою разметку организации ставит сама страница партнёра.

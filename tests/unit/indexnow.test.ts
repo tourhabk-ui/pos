@@ -29,8 +29,9 @@ describe('ключ и файл подтверждения', () => {
     const robots = read('app/robots.ts');
     expect(robots).not.toMatch(/indexnow/i);
     // Ключ живёт вне /api/ — иначе краулер, уважающий robots, не смог бы
-    // подтвердить владение.
-    expect(read('lib/seo/indexnow.ts')).toMatch(/\/indexnow\.txt/);
+    // подтвердить владение. Адрес в пинге — /<ключ>.txt, как в протоколе.
+    expect(read('lib/seo/indexnow.ts')).toContain('INDEXNOW_KEY}.txt');
+    expect(read(`app/${INDEXNOW_KEY}.txt/route.ts`)).toMatch(/INDEXNOW_KEY/);
   });
 });
 
@@ -43,6 +44,16 @@ describe('пинг подключён к путям записи тура', () =
   it('оба PATCH-пути пингуют изменение', () => {
     for (const file of WRITERS) {
       expect(read(file), `${file} не пингует IndexNow`).toMatch(/pingTourChanged\(tourId\)/);
+    }
+  });
+
+  it('публикация тура тоже пингует канонический адрес', () => {
+    for (const file of [
+      'app/api/operator/tours/[id]/publish/route.ts',
+      'app/api/discovery/tours/[id]/publish/route.ts',
+    ]) {
+      expect(read(file), file).toMatch(/pingTourChanged\(/);
+      expect(read(file), file).not.toMatch(/await pingTourChanged/);
     }
   });
 

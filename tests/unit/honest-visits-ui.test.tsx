@@ -87,6 +87,35 @@ describe('страница посещаемости', () => {
     expect(screen.getByText('не записано')).toBeTruthy();
     expect(screen.getByText(/адреса у них не было/)).toBeTruthy();
     expect(screen.queryByText('203.0.113.1')).toBeNull();
+    // Поля нет — это «не прочитано», а не «краулеров не было».
+    expect(screen.getByText('Сырые User-Agent за 7 суток не прочитаны.')).toBeTruthy();
+  });
+
+  it('сырой User-Agent краулера читается, пустой журнал не врёт нулём', async () => {
+    const withUa = {
+      ...traffic,
+      data: {
+        ...traffic.data,
+        ai_user_agents: [
+          { user_agent: 'Mozilla/5.0 (compatible; GPTBot/1.2)', family: 'gptbot', hits: 4 },
+        ],
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      json: async () => (String(url).includes('funnel-window') ? funnel : withUa),
+    })));
+    render(<AdminTrafficPage />);
+    const line = await screen.findByText(/GPTBot\/1\.2/);
+    expect(line.textContent).toBe('4 · Mozilla/5.0 (compatible; GPTBot/1.2)');
+
+    cleanup();
+    const empty = { ...traffic, data: { ...traffic.data, ai_user_agents: [] } };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      json: async () => (String(url).includes('funnel-window') ? funnel : empty),
+    })));
+    render(<AdminTrafficPage />);
+    expect(await screen.findByText(/Журнал начат с этой выкладки/)).toBeTruthy();
+    expect(screen.queryByText('Mozilla/5.0 (compatible; GPTBot/1.2)')).toBeNull();
   });
 
   it('несосчитанный топ адресов не показывает ноль', async () => {
