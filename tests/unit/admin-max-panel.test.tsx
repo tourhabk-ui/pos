@@ -57,14 +57,17 @@ describe('обзор админки — мессенджеры админист�
     });
     const { max: panel } = await show();
     expect(await panel.findByText('не подключён')).toBeTruthy();
-    fireEvent.click(panel.getByRole('button', { name: 'Подключить MAX администратора' }));
+    fireEvent.click(panel.getByRole('button', { name: 'Подключить' }));
     const a = await panel.findByRole('link', { name: LINK });
     expect(a.getAttribute('href')).toBe(LINK);
     expect(a.getAttribute('rel')).toContain('noopener');
-    // 10:10 UTC — 22:10 по Камчатке.
-    expect(panel.getByText(/действует до 22:10 по Камчатке/)).toBeTruthy();
-    expect(panel.getByText(/Никому её не пересылайте/)).toBeTruthy();
-    expect(panel.getByRole('button', { name: 'Скопировать ссылку' })).toBeTruthy();
+    // Одна строка: куда нажать и до которого часа. 10:10 UTC — 22:10 по Камчатке.
+    expect(panel.getByText('Откройте в MAX и нажмите Старт — до 22:10.')).toBeTruthy();
+    expect(await panel.findByRole('img', { name: 'QR-код: откройте в MAX и нажмите Старт' })).toBeTruthy();
+    const ability = panel.getByText(/Никому её не пересылайте/);
+    expect(ability.closest('details')?.querySelector('summary')?.textContent).toContain('Что умеет бот');
+    expect(panel.getByRole('button', { name: 'Скопировать' })).toBeTruthy();
+    expect(panel.getByRole('button', { name: 'Подключить' })).toBeTruthy();
   });
 
   it('MAX подключён → дата подключения, «Отключить» спрашивает и отключает', async () => {
@@ -75,7 +78,8 @@ describe('обзор админки — мессенджеры админист�
       },
     });
     const { max: panel } = await show();
-    expect(await panel.findByText('подключён 23 октября в 21:00')).toBeTruthy();
+    expect(await panel.findByText('подключён')).toBeTruthy();
+    expect(panel.getByText('23 октября в 21:00')).toBeTruthy();
     expect(panel.getByRole('button', { name: 'Подключить заново' })).toBeTruthy();
     fireEvent.click(panel.getByRole('button', { name: 'Отключить' }));
     expect(calls).not.toContain('max DELETE');
@@ -95,11 +99,12 @@ describe('обзор админки — мессенджеры админист�
       },
     });
     const { max: panel } = await show();
-    await panel.findByText('подключён 23 октября в 21:00');
+    await panel.findByText('подключён');
+    expect(panel.getByText('23 октября в 21:00')).toBeTruthy();
     fireEvent.click(panel.getByRole('button', { name: 'Отключить' }));
     fireEvent.click(panel.getByRole('button', { name: 'Да, отключить' }));
     expect((await panel.findByRole('alert')).textContent).toContain('Не отключено: База не ответила');
-    expect(panel.getByText('подключён 23 октября в 21:00')).toBeTruthy();
+    expect(panel.getByText('подключён')).toBeTruthy();
     expect(panel.queryByText(/не загрузилось/)).toBeNull();
     fireEvent.click(panel.getByRole('button', { name: 'Да, отключить' }));
     expect(await panel.findByText('не подключён')).toBeTruthy();
@@ -133,7 +138,7 @@ describe('обзор админки — мессенджеры админист�
     });
     const { max: panel } = await show();
     await panel.findByText('не подключён');
-    fireEvent.click(panel.getByRole('button', { name: 'Подключить MAX администратора' }));
+    fireEvent.click(panel.getByRole('button', { name: 'Подключить' }));
     expect(await panel.findByRole('alert')).toBeTruthy();
     expect(panel.getByText('У аккаунта больше нет роли администратора')).toBeTruthy();
     expect(panel.queryByRole('link')).toBeNull();
@@ -152,7 +157,7 @@ describe('обзор админки — мессенджеры админист�
       },
     });
     const { telegram } = await show();
-    fireEvent.click(await telegram.findByRole('button', { name: 'Подключить Telegram администратора' }));
+    fireEvent.click(await telegram.findByRole('button', { name: 'Подключить' }));
     const a = await telegram.findByRole('link', { name: TG_LINK });
     expect(a.getAttribute('href')).toBe(TG_LINK);
     expect(telegram.getByText(/Имя бота не проверено у Telegram: getMe не ответил/)).toBeTruthy();
@@ -166,8 +171,26 @@ describe('обзор админки — мессенджеры админист�
       telegram: { GET: [{ body: { success: true, data: { bound: true, bound_at: '2026-10-23T09:00:00.000Z' } } }] },
     });
     const { max, telegram } = await show();
-    expect(await telegram.findByText('подключён 23 октября в 21:00')).toBeTruthy();
+    expect(await telegram.findByText('подключён')).toBeTruthy();
+    expect(telegram.getByText('23 октября в 21:00')).toBeTruthy();
     expect(await max.findByText('не подключён')).toBeTruthy();
     expect(telegram.getByRole('button', { name: 'Подключить заново' })).toBeTruthy();
+    expect(max.getByRole('button', { name: 'Подключить' })).toBeTruthy();
+  });
+
+  it('плитки равные: одна колонка на узком экране, две начиная со sm', async () => {
+    stub({});
+    const { region } = await show();
+    expect(await region.findAllByText('не подключён')).toHaveLength(2);
+    const list = region.getByRole('list');
+    expect(list.className).toContain('grid-cols-1');
+    expect(list.className).toContain('sm:grid-cols-2');
+    const items = region.getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(region.getAllByText('Что умеет бот')).toHaveLength(2);
+    const maxMark = region.getByRole('group', { name: 'MAX' }).querySelector('path');
+    const tgMark = region.getByRole('group', { name: 'Telegram' }).querySelector('path');
+    expect(maxMark?.getAttribute('d')?.startsWith('M21.47')).toBe(true);
+    expect(tgMark?.getAttribute('d')?.startsWith('M54.3')).toBe(true);
   });
 });
