@@ -147,21 +147,6 @@ async function markBusyOn(
   return { outcome: 'saved', marked: rows.length };
 }
 
-export async function markRequestBusy(
-  partnerId: string,
-  offerId: string,
-  dateFrom: string,
-  dateTo: string,
-  leadId: string,
-): Promise<MarkRequest> {
-  try {
-    return await markBusyOn(pool, partnerId, offerId, dateFrom, dateTo, leadId);
-  } catch (err) {
-    console.error('[rental-request-answer] дни заявки не отмечены, SQLSTATE', (err as { code?: string }).code ?? 'нет');
-    return { outcome: 'db_error' };
-  }
-}
-
 async function readAnswerOn(db: Sql, leadId: string): Promise<RequestAnswer | 'none'> {
   const { rows } = await db.query<{ answer: string | null }>(
     `SELECT details->>'answer' AS answer
@@ -181,24 +166,6 @@ export async function readPartnerAnswer(leadId: string): Promise<RequestAnswer |
     return await readAnswerOn(pool, leadId);
   } catch (err) {
     console.error('[rental-request-answer] журнал ответа не прочитан, SQLSTATE', (err as { code?: string }).code ?? 'нет');
-    return 'db_error';
-  }
-}
-
-export async function writePartnerAnswer(
-  leadId: string,
-  answer: RequestAnswer,
-  details: Record<string, unknown>,
-): Promise<'saved' | 'db_error'> {
-  try {
-    await pool.query(
-      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
-       VALUES ($1::uuid, 'partner', 'partner_answered', $2::jsonb)`,
-      [leadId, JSON.stringify({ answer, ...details })],
-    );
-    return 'saved';
-  } catch (err) {
-    console.error('[rental-request-answer] ответ в журнал не записан, SQLSTATE', (err as { code?: string }).code ?? 'нет');
     return 'db_error';
   }
 }
