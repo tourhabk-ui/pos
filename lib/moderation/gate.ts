@@ -16,8 +16,12 @@
  *
  * Возможным это делает совпадение схемы: у `accommodations` и `gear_items`
  * одни и те же колонки-шлюзы (`is_active`, `moderation_status`) и один и тот
- * же смысл. Появись третья таблица с другими именами — она получит здесь
+ * же смысл. Появись третья витрина с другими именами — она получит здесь
  * свой алиас, а не своё правило.
+ *
+ * Черновик правки прайса проката (`rental_offer_edits`) — не третья витрина:
+ * у него нет `is_active`, и сам черновик турист не видит. Решение «применить
+ * правку к живой строке» — тот же `moderatedKind`: published, и только он.
  *
  * ── Чего здесь нет ────────────────────────────────────────────────────────
  *
@@ -75,4 +79,13 @@ export function moderatedKind(row: {
       : { kind: 'hidden_by_owner', public: false };
     default: return { kind: 'unknown', public: false };
   }
+}
+
+/**
+ * Черновик можно перенести на живую строку только когда решение — «опубликовано».
+ * pending, rejected и неизвестный статус правку не применяют: третьего исхода
+ * «раз статус не тот, значит уже на сайте» здесь нет.
+ */
+export function draftMayApply(status: string): boolean {
+  return moderatedKind({ is_active: true, moderation_status: status }).kind === 'published';
 }

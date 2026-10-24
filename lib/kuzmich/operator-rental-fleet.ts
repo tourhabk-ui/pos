@@ -105,11 +105,14 @@ export async function runOperatorRentalFleet(
     ? `На сайте для людей прокат сейчас скрыт (${RENTAL_SITE_PAUSE.returnsOn} вернётся на витрину). Страница по прямой ссылке открыта. Это про витрину, не про отдельные машины.`
     : null;
 
+  const editHint = 'Новую цену за сутки или описание напишите отдельным сообщением. Цена: слово «цена», название как в списке, рубли одним числом. Описание: слово «описание», название, двоеточие и текст. Это черновик: на сайте остаётся текущая строка, пока правку не одобрят. Фото эта команда не меняет.';
+
   if (rows.length === 0) {
     const empty = q
       ? `В прайсе нет машины, в названии которой есть «${escapeHtml(q)}».`
       : 'В прайсе нет ни одной машины.';
-    return pause ? `${empty}\n${pause}` : empty;
+    const head = pause ? `${empty}\n${pause}` : empty;
+    return `${head}\n${editHint}`;
   }
 
   const lines = [
@@ -121,5 +124,6 @@ export async function runOperatorRentalFleet(
     const visible = r.is_active ? 'в прайсе' : 'скрыта из прайса';
     lines.push(`- ${escapeHtml(r.title)} | ${kindWord(r.body_kind)} | ${price} | ${depositLine(r.deposit_rub)} | ${visible} | ${driverLine(r.driver)}`);
   }
+  lines.push(editHint);
   return lines.join('\n');
 }

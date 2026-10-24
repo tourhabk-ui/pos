@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
-import { Shield, Check, X, Loader2, Star, Flag, MessageSquare, AlertCircle } from 'lucide-react';
+import { RentalEditQueue, type RentalEditCard } from '@/components/admin/RentalEditQueue';
+import { Shield, Check, X, Loader2, Star, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface PendingReview {
   id: string; touristName: string; subjectName: string;
@@ -14,6 +15,11 @@ export default function ModerationClient() {
   const [error, setError]       = useState('');
   const [reviews, setReviews]   = useState<PendingReview[]>([]);
   const [acting, setActing]     = useState<string | null>(null);
+  const [edits, setEdits] = useState<RentalEditCard[]>([]);
+  const [editsLoading, setEditsLoading] = useState(true);
+  const [editsError, setEditsError] = useState('');
+  const [actingEdit, setActingEdit] = useState<string | null>(null);
+  const [editActionError, setEditActionError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,7 +51,42 @@ export default function ModerationClient() {
     }
   }, []);
 
+  const loadEdits = useCallback(async () => {
+    setEditsLoading(true);
+    setEditsError('');
+    try {
+      const res = await fetch('/api/admin/moderation/rental-edits');
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; data?: { edits?: RentalEditCard[] } } | null;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setEdits(Array.isArray(json.data?.edits) ? json.data.edits : []);
+    } catch (e) {
+      setEditsError(e instanceof Error ? e.message : 'Не смог загрузить правки прайса');
+    } finally {
+      setEditsLoading(false);
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadEdits(); }, [loadEdits]);
+
+  async function decideEdit(id: string, action: 'approve' | 'reject', reason?: string) {
+    setActingEdit(id);
+    setEditActionError('');
+    try {
+      const res = await fetch(`/api/admin/moderation/rental-edits/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'reject' ? { action, reason } : { action }),
+      });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setEdits((prev) => prev.filter((row) => row.id !== id));
+    } catch (e) {
+      setEditActionError(e instanceof Error ? e.message : 'Не смог записать решение');
+    } finally {
+      setActingEdit(null);
+    }
+  }
 
   async function moderate(id: string, action: 'approve' | 'delete') {
     setActing(id);
@@ -78,6 +119,17 @@ export default function ModerationClient() {
             </span>
           )}
         </div>
+
+        <RentalEditQueue
+          loading={editsLoading}
+          error={editsError}
+          edits={edits}
+          actingId={actingEdit}
+          actionError={editActionError}
+          onRetry={loadEdits}
+          onApprove={(id) => decideEdit(id, 'approve')}
+          onReject={(id, reason) => decideEdit(id, 'reject', reason)}
+        />
 
         {loading ? (
           <div className="flex justify-center py-16">

@@ -57,6 +57,8 @@ describe('operator_rental_fleet', () => {
     expect(out).toContain('скрыта из прайса');
     expect(out).toContain('Итоговой суммы');
     expect(out).toContain('скрыт');
+    expect(out).toContain('черновик');
+    expect(out).not.toContain('<');
     expect(out).not.toMatch(/свободна|занята/);
   });
 
@@ -83,11 +85,15 @@ describe('operator_rental_fleet', () => {
     const out = await runOperatorRentalFleet('p-1', 'Лагуна', 'laguna-prokat', {}, NOW);
     expect(out).toContain('НЕ УДАЛОСЬ');
     expect(out).not.toContain('нет ни одной');
+    expect(out).not.toContain('черновик');
   });
 
   it('инструмент в подсказке только у пилота', () => {
     expect(partnerSystemPrompt(partner, NOW, true)).toMatch(/operator_rental_fleet/);
+    expect(partnerSystemPrompt(partner, NOW, true)).toMatch(/черновик/);
+    expect(partnerSystemPrompt(partner, NOW, true)).toMatch(/не говори, что они уже на сайте/);
     expect(partnerSystemPrompt({ ...partner, slug: 'fishing' }, NOW, true)).not.toMatch(/operator_rental_fleet/);
+    expect(partnerSystemPrompt({ ...partner, slug: 'fishing' }, NOW, true)).not.toMatch(/черновик/);
     expect(partnerSystemPrompt({ ...partner, slug: null }, NOW, true)).not.toMatch(/operator_rental_fleet/);
   });
 });
