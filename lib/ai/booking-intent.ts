@@ -51,8 +51,14 @@ const WORD_START_KEYWORDS: Record<string, RegExp> = {
 /**
  * «Что посмотреть за 5 дней?» не содержит слова «тур», и карточки каталога
  * к ответу не подмешивались. Это вопрос к витрине, даже без вида занятия.
+ * Голое «посмотреть» и «за N дней» — не вопрос: «посмотреть погоду» и
+ * «за 3 дня до вылета» туры не тянут.
  */
-const SIGHTSEEING = /посмотреть|что\s+увидеть|куда\s+(?:сходить|съездить)|за\s+\d{1,2}\s+дн/;
+const SIGHTSEEING = /что\s+посмотреть|посмотреть\s+за\s+\d{1,2}\s+дн|что\s+увидеть|куда\s+(?:сходить|съездить)/;
+
+export function isSightseeingQuestion(text: string): boolean {
+  return SIGHTSEEING.test(text.toLowerCase().replace(/ё/g, 'е'));
+}
 
 function keywordHit(lower: string, kw: string): boolean {
   const rx = WORD_START_KEYWORDS[kw];
@@ -90,7 +96,7 @@ export function detectTourIntent(text: string): {
 } {
   const lower = text.toLowerCase();
 
-  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw)) || SIGHTSEEING.test(lower);
+  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw)) || isSightseeingQuestion(text);
   if (!detected) return { detected: false, activityType: null, rawWords: '' };
 
   const kw = activityKeyword(lower);

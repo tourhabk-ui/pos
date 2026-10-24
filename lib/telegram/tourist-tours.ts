@@ -6,7 +6,7 @@
  * не текст модели. Кнопки ведут на карточку vedarai.ru.
  */
 
-import { detectTourIntent } from '@/lib/ai/booking-intent';
+import { detectTourIntent, isSightseeingQuestion } from '@/lib/ai/booking-intent';
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -61,8 +61,7 @@ export function wantsCatalogCards(text: string): boolean {
   const lower = text.toLowerCase().replace(/ё/g, 'е');
   const rental = /аренд|прокат/.test(lower) && /авто|машин|автомобил/.test(lower) && !/(?<![а-яе])тур/.test(lower);
   if (rental) return false;
-  if (detectTourIntent(text).detected) return true;
-  return /посмотреть|что\s+увидеть|куда\s+(?:сходить|съездить)|за\s+\d{1,2}\s+дн/.test(lower);
+  return detectTourIntent(text).detected;
 }
 
 /** Названный месяц важнее «летом»: «в июле летом» — это июль. */
@@ -175,7 +174,8 @@ const EMPTY: CatalogFacts = { note: '', html: '' };
 /** Вопрос именно к витрине: пустой каталог надо сказать, а не промолчать. */
 function insistsOnTours(text: string): boolean {
   const t = text.toLowerCase().replace(/ё/g, 'е');
-  return /посмотреть|за\s+\d{1,2}\s+дн|подобрать тур|покажи\s+тур|какие\s+тур|(?<![а-яе])тур(ы|ов|а|е|у)?(?![а-яе])/.test(t);
+  return isSightseeingQuestion(t)
+    || /подобрать тур|покажи\s+тур|какие\s+тур|(?<![а-яе])тур(ы|ов|а|е|у)?(?![а-яе])/.test(t);
 }
 
 export function catalogFacts(
