@@ -41,6 +41,10 @@ import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmi
 import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
+import {
+  parseRentalCabinetPress, rentalCabinetAsk, rentalCabinetBar, withRentalCabinetBar, type CabinetButton,
+} from '@/lib/rental/cabinet-bar';
+import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
@@ -63,6 +67,20 @@ import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
+
+function toMaxButtons(rows: CabinetButton[][]): MaxButton[][] {
+  return rows.map((row) => row.map((b) => (
+    b.intent
+      ? { type: 'callback' as const, text: b.text, payload: b.payload, intent: b.intent }
+      : { type: 'callback' as const, text: b.text, payload: b.payload }
+  )));
+}
+
+/** Строка кабинета — последней, под кнопками самого ответа. */
+function maxCabinetButtons(content: CabinetButton[][]): MaxButton[][] {
+  return toMaxButtons(withRentalCabinetBar(content));
+}
+
 type MaxButton =
   | { type: 'callback'; text: string; payload: string; intent?: ButtonIntent }
   | { type: 'link'; text: string; url: string }
@@ -170,16 +188,23 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
   }
 }
 
-/** Ответ «Беру» / «Не могу»: правим то же сообщение и снимаем кнопки. */
-function rentalAnswerSend(chatId: number) {
+/**
+ * Ответ «Беру» / «Не могу»: правим то же сообщение и снимаем кнопки заявки.
+ * У пилота на их месте остаётся строка кабинета.
+ */
+function rentalAnswerSend(chatId: number, bar: boolean) {
+  const buttons = bar ? maxCabinetButtons([]) : [];
   return async (text: string, editMid: string | null): Promise<void> => {
     const api = getApi();
+    const attachments = buttons.length
+      ? [{ type: 'inline_keyboard', payload: { buttons } }]
+      : [];
     if (editMid && api) {
       try {
         const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
           text,
           format: 'html',
-          attachments: [],
+          attachments,
         });
         if (res?.success !== false) return;
         console.error('[max/kuzmich] правка ответа на заявку проката не принята MAX — отправляю новым сообщением');
@@ -187,24 +212,21 @@ function rentalAnswerSend(chatId: number) {
         logFailure('правка ответа на заявку проката', err);
       }
     }
-    await maxReply(chatId, text);
+    if (buttons.length) await maxReplyWithButtons(chatId, text, buttons);
+    else await maxReply(chatId, text);
   };
 }
 
 /** Календарь проката: правим то же сообщение, иначе шлём новое. Кнопки — `rb:`. */
-function rentalCalendarSend(chatId: number) {
+function rentalCalendarSend(chatId: number, bar: boolean) {
   return async (
     text: string,
     buttons: Array<Array<{ text: string; payload: string; intent?: 'positive' | 'negative' }>>,
     editMid: string | null,
   ): Promise<void> => {
-    const rows = buttons.map((row) => row.map((b) => (
-      b.intent
-        ? { type: 'callback' as const, text: b.text, payload: b.payload, intent: b.intent }
-        : { type: 'callback' as const, text: b.text, payload: b.payload }
-    )));
+    const rows = bar ? maxCabinetButtons(buttons) : toMaxButtons(buttons);
     const api = getApi();
-    if (editMid && api) {
+    if (editMid && api && rows.length > 0) {
       try {
         const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
           text,
@@ -223,16 +245,14 @@ function rentalCalendarSend(chatId: number) {
 }
 
 /** Ответ потока дат в чат кабинета: кнопки — callback с payload `od:`. */
-function datesSend(chatId: number): DatesSend {
+function datesSend(chatId: number, bar = false): DatesSend {
   return async (text, buttons) => {
-    if (!buttons?.length) {
+    const rows = bar ? maxCabinetButtons(buttons ?? []) : toMaxButtons(buttons ?? []);
+    if (rows.length === 0) {
       await maxReply(chatId, text);
       return;
     }
-    await maxReplyWithButtons(chatId, text, buttons.map((row) => row.map((b) => (
-      b.intent ? { type: 'callback' as const, text: b.text, payload: b.payload, intent: b.intent }
-        : { type: 'callback' as const, text: b.text, payload: b.payload }
-    ))));
+    await maxReplyWithButtons(chatId, text, rows);
   };
 }
 
@@ -555,7 +575,8 @@ async function handleActionPress(
     }
     const lookup = await findPartnerByChat('max', chatId);
     const { handleOperatorDatesPress } = await import('@/lib/operators/chat-dates/flow');
-    await handleOperatorDatesPress({ payload, chatId, lookup, send: datesSend(chatId) });
+    const bar = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
+    await handleOperatorDatesPress({ payload, chatId, lookup, send: datesSend(chatId, bar) });
     return;
   }
 
@@ -571,6 +592,7 @@ async function handleActionPress(
       return;
     }
     const lookup = await findPartnerByChat('max', chatId);
+    const bar = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
     if (payload.startsWith('rr:')) {
       const { handleRentalRequestAnswer } = await import('@/lib/rental/request-answer-flow');
       await handleRentalRequestAnswer({
@@ -578,13 +600,13 @@ async function handleActionPress(
         payload,
         editMid: pressed?.mid ?? null,
         originalText: pressed?.text ?? null,
-        send: rentalAnswerSend(chatId),
+        send: rentalAnswerSend(chatId, bar),
       });
       return;
     }
     const { handleRentalCalendarPress } = await import('@/lib/rental/car-calendar-flow');
     await handleRentalCalendarPress({
-      lookup, payload, nowMs: Date.now(), editMid: pressed?.mid ?? null, send: rentalCalendarSend(chatId),
+      lookup, payload, nowMs: Date.now(), editMid: pressed?.mid ?? null, send: rentalCalendarSend(chatId, bar),
     });
     return;
   }
@@ -710,7 +732,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // user_id апдейта, без отката на id чата.
       const starterId = typeof update.user?.user_id === 'number' ? update.user.user_id : null;
       if (await handleAdminStart(startArg, starterId, (text) => maxReply(chatId, text))) return;
-      if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
+      if (await handlePartnerStart(startArg, 'max', chatId, async (text, buttons) => {
+        if (buttons?.length) await maxReplyWithButtons(chatId, text, toMaxButtons(buttons.map((row) => [...row])));
+        else await maxReply(chatId, text);
+      })) return;
       // Менеджер команды оператора — свой чат к уведомлениям кабинета (2г-4).
       if (await handleMemberStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
     } else {
@@ -745,7 +770,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (opts?.verifiedOrigin === true) {
       const boundPilot = await findPartnerByChat('max', update.chat_id);
       if (boundPilot.outcome === 'found' && isRentalPilotSlug(boundPilot.partner.slug)) {
-        await maxReply(update.chat_id, rentalPilotGreeting(boundPilot.partner.partnerName));
+        await maxReplyWithButtons(update.chat_id, rentalPilotGreeting(boundPilot.partner.partnerName), maxCabinetButtons([]));
         return;
       }
     }
@@ -946,6 +971,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // «открой субботы июля» по-своему, а «не смог проверить» не равно
       // «это турист» (§4.0).
       const lookup = await findPartnerByChat('max', chatId);
+      const pilot = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
+      const say = async (body: string) => {
+        if (pilot) await maxReplyWithButtons(chatId, body, maxCabinetButtons([]));
+        else await maxReply(chatId, body);
+      };
       if (lookup.outcome !== 'none' && datesIntent === 'dates' && !dialog) {
         console.error(`[max/kuzmich] фраза про даты не из личного диалога (${chatTypeForLog(msg.recipient.chat_type)}) — без предложения`);
       }
@@ -964,7 +994,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (lookup.outcome === 'found' && boundChatLane(text) === 'tourist' && opts?.verifiedOrigin === true) {
         const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
         const handled = await handleOperatorDatesText({
-          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId), dialog,
+          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId, pilot), dialog,
           sentAtMs: Number.isFinite(update.timestamp) ? update.timestamp : null,
         });
         if (handled) return;
@@ -982,7 +1012,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         const summary = await import('@/lib/seat-requests/summary');
         if (summary.isSummaryCommand(text) && summary.summaryEnabledFor(lookup.partner.partnerId)) {
           const read = await summary.readSeatSummary(lookup.partner.partnerId);
-          await maxReply(chatId, read === 'db_error' ? summary.SUMMARY_DB_ERROR : summary.summaryText(read));
+          await say(read === 'db_error' ? summary.SUMMARY_DB_ERROR : summary.summaryText(read));
           return;
         }
         // «Следующая заявка» — ожидающий запрос с ближайшим сроком, с кнопками.
@@ -991,11 +1021,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           if (next.isNextCommand(text)) {
             const r = await next.readNextPending(lookup.partner.partnerId);
             if (r === 'db_error' || r === null) {
-              await maxReply(chatId, r === null ? next.NEXT_NONE : next.NEXT_DB_ERROR);
+              await say(r === null ? next.NEXT_NONE : next.NEXT_DB_ERROR);
             } else {
               const { operatorAnswerUrl } = await import('@/lib/seat-requests/service');
               const card = next.nextRequestCard(r, operatorAnswerUrl(r.id));
-              await maxReplyWithButtons(chatId, card.text, card.buttons);
+              const rows = pilot
+                ? [...card.buttons, ...toMaxButtons([rentalCabinetBar()])]
+                : card.buttons;
+              await maxReplyWithButtons(chatId, card.text, rows);
             }
             return;
           }
@@ -1005,7 +1038,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         // предложение туроператора (пятый ревью 22.10).
         const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
         const handled = await handleOperatorDatesText({
-          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId), dialog,
+          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId, pilot), dialog,
           sentAtMs: Number.isFinite(update.timestamp) ? update.timestamp : null,
         });
         if (handled) return;
@@ -1016,11 +1049,31 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           nowMs: Date.now(),
           dialog,
           canMark: true,
-          send: rentalCalendarSend(chatId),
+          send: rentalCalendarSend(chatId, pilot),
         });
         if (calendar) return;
+        const asked = rentalCabinetAsk(text);
+        if (pilot && (asked === 'requests' || asked === 'edits' || asked === 'help')) {
+          await openRentalCabinetScreen({
+            action: asked,
+            partner: {
+              partnerId: lookup.partner.partnerId,
+              partnerName: lookup.partner.partnerName,
+              slug: lookup.partner.slug,
+            },
+            channel: 'max',
+            dialog,
+            send: async (body, buttons) => {
+              await maxReplyWithButtons(chatId, body, maxCabinetButtons(buttons));
+            },
+          });
+          return;
+        }
         const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
-        await processPartnerMessage({ chatId, text, fromName: userName, partner: lookup.partner, reply: maxReply });
+        await processPartnerMessage({
+          chatId, text, fromName: userName, partner: lookup.partner,
+          reply: async (_id, body) => { await say(body); },
+        });
         return;
       }
 
@@ -1054,6 +1107,47 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // и ничего не показывает — и компилируется в обеих версиях.
     await api.answerOnCallback(update.callback.callback_id)
       .catch((err: unknown) => logFailure('подтверждение нажатия', err));
+
+    // Строка кабинета прокатчика. Не кнопка-действие с записью: она открывает
+    // уже существующие чтения. Чат — только из сообщения с кнопкой.
+    const barAction = parseRentalCabinetPress(payload);
+    if (barAction) {
+      const barPresserId = typeof update.callback.user?.user_id === 'number' ? update.callback.user.user_id : null;
+      const barChatType = typeof update.message?.recipient.chat_type === 'string' ? update.message.recipient.chat_type : null;
+      if (opts?.verifiedOrigin !== true) {
+        console.error('[max/kuzmich] кнопка кабинета проката из незаверенного апдейта — не выполнена');
+        if (messageChatId) await maxReply(messageChatId, UNVERIFIED_CHAT_REPLY.partner);
+        return;
+      }
+      if (!messageChatId) {
+        if (barPresserId) await maxReplyToUser(barPresserId, 'Кнопка кабинета проката без сообщения. Ничего не открыл.');
+        return;
+      }
+      if (barChatType !== 'dialog') {
+        await maxReply(messageChatId, 'Кнопки кабинета проката работают в личном диалоге.');
+        return;
+      }
+      const barLookup = await findPartnerByChat('max', messageChatId);
+      if (barLookup.outcome === 'unavailable') {
+        await maxReply(messageChatId, 'Не удалось проверить, чей это чат. Кнопку не выполнил.');
+        return;
+      }
+      if (barLookup.outcome !== 'found' || !isRentalPilotSlug(barLookup.partner.slug)) {
+        await maxReply(messageChatId, 'Эта кнопка — кабинет проката. В этом чате её не выполняю.');
+        return;
+      }
+      const barPartner = barLookup.partner;
+      await openRentalCabinetScreen({
+        action: barAction,
+        partner: { partnerId: barPartner.partnerId, partnerName: barPartner.partnerName, slug: barPartner.slug },
+        channel: 'max',
+        dialog: true,
+        send: async (text, buttons) => {
+          await maxReplyWithButtons(messageChatId, text, maxCabinetButtons(buttons));
+        },
+      });
+      return;
+    }
 
     // Кнопки-действия: ответ на запрос мест и кнопки лида.
     const pressAction = pressActionOf(payload);
