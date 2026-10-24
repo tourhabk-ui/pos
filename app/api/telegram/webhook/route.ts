@@ -34,6 +34,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { notTestPartnerSql } from '@/lib/partners/test-profile';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
@@ -452,7 +453,7 @@ async function getWeather(): Promise<string> {
 async function getOperatorsList(): Promise<string> {
   try {
     const res = await query<OperatorRow>(
-      `SELECT name, slug FROM partners WHERE is_public = TRUE ORDER BY name LIMIT 10`
+      `SELECT name, slug FROM partners WHERE is_public = TRUE AND ${notTestPartnerSql()} ORDER BY name LIMIT 10`
     );
     if (!res.rows.length) return 'Список операторов пока пуст.';
     const lines = ['<b>Операторы на Ведаре:</b>', ''];

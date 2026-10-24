@@ -9,6 +9,7 @@
  */
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { notTestPartnerSql } from '@/lib/partners/test-profile';
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -356,6 +357,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
          -- Страница оператора открывается только при is_public; без этого
          -- условия sitemap раздавал адреса, отвечающие 404 (Н9).
          AND is_public = TRUE
+         AND ${notTestPartnerSql()}
        ORDER BY updated_at DESC LIMIT 200`
     );
     operatorPages = rows.map(row => ({

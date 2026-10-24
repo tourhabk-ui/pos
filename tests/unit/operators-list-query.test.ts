@@ -51,6 +51,16 @@ beforeEach(() => { query.mockReset(); errSpy = vi.spyOn(console, 'error').mockIm
 afterEach(() => { errSpy.mockRestore(); });
 
 describe('queryOperators: факты и виды из данных', () => {
+  it('тестовый профиль не входит в список и в кнопки видов', async () => {
+    db(null);
+    await queryOperators({ page: 1, limit: 12 });
+    const sqls = query.mock.calls.map((c) => String(c[0]));
+    const list = sqls.find((s) => s.includes('FROM partners p'));
+    const facets = sqls.find((s) => s.includes('SELECT DISTINCT ot.activity_type'));
+    expect(list).toContain('p.is_test IS NOT TRUE');
+    expect(facets).toContain('p.is_test IS NOT TRUE');
+  });
+
   it('факты у компании с турами, ноль — у компании без живых туров', async () => {
     db(null);
     const r = await queryOperators({ page: 1, limit: 12 });

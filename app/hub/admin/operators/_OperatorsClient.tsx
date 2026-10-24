@@ -30,6 +30,8 @@ interface OperatorRow {
   applied_at: string | null;
   is_verified: boolean;
   is_public: boolean;
+  /** Тестовый профиль скрыт с витрины. Ставит только администратор. */
+  is_test?: boolean;
   profile_review_comment: string | null;
   /** NULL у карточки без аккаунта (заведена миграцией, user_id пуст). */
   email: string | null;
@@ -421,6 +423,42 @@ export function OperatorCard({
   const [widgetSaving, setWidgetSaving] = useState(false);
   const [widgetToggling, setWidgetToggling] = useState(false);
   const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [isTest, setIsTest] = useState(op.is_test === true);
+  const [testSaving, setTestSaving] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  async function toggleTestProfile() {
+    if (testSaving) return;
+    const next = !isTest;
+    setIsTest(next);
+    setTestError(null);
+    setTestSaving(true);
+    try {
+      const res = await fetch(`/api/admin/operators/${op.id}/test-profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_test: next }),
+      });
+      const json: unknown = await res.json().catch(() => null);
+      const saved = json && typeof json === 'object' && 'data' in json
+        ? (json as { data?: { is_test?: unknown } }).data?.is_test
+        : undefined;
+      if (!res.ok || typeof saved !== 'boolean') {
+        setIsTest(!next);
+        const error = json && typeof json === 'object' && typeof (json as { error?: unknown }).error === 'string'
+          ? (json as { error: string }).error
+          : `сервер ответил ${res.status}`;
+        setTestError(`Отметка не сохранена: ${error}`);
+        return;
+      }
+      setIsTest(saved);
+    } catch {
+      setIsTest(!next);
+      setTestError('Отметка не сохранена: нет связи с сервером');
+    } finally {
+      setTestSaving(false);
+    }
+  }
 
   // Тумблер верит ответу сервера, а не своему клику: до 15.10 он
   // переключался сразу и ответ PATCH не читал — отказ выглядел как «Включён»
@@ -469,6 +507,11 @@ export function OperatorCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {isTest && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium text-[var(--warning)] border border-[var(--warning)]">
+              Тест
+            </span>
+          )}
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[op.profile_status] ?? STATUS_CLS.none}`}>
             {TAB_LABELS[op.profile_status] ?? op.profile_status}
           </span>
@@ -507,6 +550,23 @@ export function OperatorCard({
           {op.description && (
             <p className="mt-3 text-sm text-[var(--text-secondary)] line-clamp-3">{op.description}</p>
           )}
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => { void toggleTestProfile(); }}
+              disabled={testSaving}
+              aria-pressed={isTest}
+              className="min-h-11 px-3 rounded-lg border border-[var(--border)] text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-60"
+            >
+              {testSaving
+                ? 'Сохранение…'
+                : isTest
+                  ? 'Тестовый профиль — скрыт с витрины. Вернуть'
+                  : 'Скрыть с витрины как тестовый профиль'}
+            </button>
+            {testError && <p className="mt-1 text-xs text-[var(--danger)]">{testError}</p>}
+          </div>
 
           {op.profile_review_comment && (
             <div className="mt-3 px-3 py-2 bg-[var(--danger)]/5 border border-[var(--danger)]/15 rounded-lg">

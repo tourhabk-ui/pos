@@ -10,6 +10,7 @@ import { query } from '@/lib/database';
 import type { OperatorProfileRow, OperatorPageTourRow } from '@/lib/types/db-rows';
 import { ACTIVE_CONSENT_JSON_SQL, parseActiveConsent } from '@/lib/partners/material-consent';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { notTestPartnerSql } from '@/lib/partners/test-profile';
 import { priceUnitLabel } from '@/lib/tours/labels';
 import {
   extractServices, extractFeatures, extractContacts, extractFaq,
@@ -78,7 +79,7 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
             created_at::text,
             ${ACTIVE_CONSENT_JSON_SQL('partners')} AS materials_consent
      FROM partners
-     WHERE slug = ANY($1) AND is_public = TRUE
+     WHERE slug = ANY($1) AND is_public = TRUE AND ${notTestPartnerSql()}
      ORDER BY CASE
        WHEN slug = $2 THEN 0
        WHEN slug = 'kamchatskaya-rybalka' THEN 1

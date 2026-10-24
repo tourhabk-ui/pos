@@ -2,7 +2,6 @@
 
 import { ReactNode } from 'react';
 import { HubLayout } from '@/components/layout/HubLayout';
-import { ChatWidget } from '@/components/chat/ChatWidget';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { ForcePasswordChangeBanner } from '@/components/operator/ForcePasswordChangeBanner';
 import { MemberChannelBanner } from '@/components/operator/MemberChannelBanner';
@@ -35,8 +34,10 @@ function OpenCabinet({ children }: { children: ReactNode }) {
           копий уведомлений (2г-4). Пока место не узнано — ни того ни другого:
           менеджеру не мелькнёт чужой баннер со ссылкой, которую ему не дадут. */}
       {seat.state === 'loading' ? null : isManagerSeat(seat) ? <MemberChannelBanner /> : <PartnerChannelBanner />}
-      <div className="min-w-0 max-w-full pb-20">{children}</div>
-      <ChatWidget />
+      {/* Плавающая кнопка чата кабинета здесь не стоит: на 390px она
+          накрывала «Создать тур» в редакторе (24.10). Разговоры остаются
+          в API; в этом кабинете кнопки нет. */}
+      <div className="min-w-0 max-w-full">{children}</div>
     </HubLayout>
   );
 }
