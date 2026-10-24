@@ -168,9 +168,9 @@ describe('меню роли оператора в MAX', () => {
       update_type: 'bot_started', timestamp: 1, chat_id: CHAT, payload: '', user: { user_id: CHAT, name: 'Оператор' },
     });
     expect(m.processMessage).not.toHaveBeenCalled();
-    const call = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Кабинет оператора'));
+    const call = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Кабинет туроператора'));
     expect(call).toBeTruthy();
-    expect(barPayloads(call!)).toEqual(['rm:op:in', 'rm:op:hp']);
+    expect(barPayloads(call!)).toEqual(['rm:op:in', 'opd:tours', 'opd:seats', 'rm:op:hp', 'sup:new']);
     expect(String(call?.[1])).not.toMatch(/₽/);
   });
 

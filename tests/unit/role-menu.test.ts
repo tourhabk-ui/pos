@@ -90,6 +90,10 @@ describe('меню роли', () => {
     expect(roleMenuAsk('Входящие')).toBe('inbox');
     expect(roleMenuAsk('мои входящие')).toBe('inbox');
     expect(roleMenuAsk('Помощь')).toBe('help');
+    expect(roleMenuAsk('Новые заявки')).toBe('inbox');
+    expect(roleMenuAsk('Мои заявки')).toBe('inbox');
+    expect(roleMenuAsk('Мои туры и цены')).toBe('tours');
+    expect(roleMenuAsk('Обновить места')).toBe('seats');
     expect(roleMenuAsk('заявки')).toBeNull();
     expect(roleMenuAsk('покажи входящие')).toBeNull();
     expect(roleMenuAsk('найди мне в аренду автомобиль')).toBeNull();

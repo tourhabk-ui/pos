@@ -32,11 +32,21 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-pilot';
+import { operatorBoundText, operatorDeskButtons } from '@/lib/telegram/operator-desk';
 
 export type PartnerChannel = 'telegram' | 'max';
 
 export type BindResult =
-  | { ok: true; partnerName: string; slug: string | null; previousChatId: string | null; rebound: boolean }
+  | {
+      ok: true;
+      partnerName: string;
+      /** Название на витрине: company_name, иначе name. */
+      displayName: string;
+      category: string | null;
+      slug: string | null;
+      previousChatId: string | null;
+      rebound: boolean;
+    }
   | { ok: false; reason: 'not_found' | 'db_error' };
 
 const CHANNEL_LABEL: Record<PartnerChannel, string> = { telegram: 'Telegram', max: 'MAX' };
@@ -63,17 +73,21 @@ export async function bindPartnerChannel(
               updated_at = NOW()
          FROM (SELECT id, telegram_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
-        RETURNING p.name, p.slug, prev.old AS previous`
+        RETURNING p.name,
+                  COALESCE(NULLIF(btrim(p.company_name), ''), p.name) AS display_name,
+                  p.category, p.slug, prev.old AS previous`
     : `UPDATE partners p
           SET max_chat_id = $1::bigint,
               updated_at = NOW()
          FROM (SELECT id, max_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
-        RETURNING p.name, p.slug, prev.old AS previous`;
+        RETURNING p.name,
+                  COALESCE(NULLIF(btrim(p.company_name), ''), p.name) AS display_name,
+                  p.category, p.slug, prev.old AS previous`;
 
-  let row: { name: string; slug: string | null; previous: string | null } | undefined;
+  let row: { name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null } | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ name: string; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId]));
+    ({ rows: [row] } = await pool.query<{ name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId]));
   } catch (err) {
     const e = err as { message?: string; code?: string };
     console.error(
@@ -89,7 +103,11 @@ export async function bindPartnerChannel(
   const rebound = previous !== null && previous !== String(chatId);
   await announceBinding(channel, row.name, previous, rebound);
   const slug = typeof row.slug === 'string' && row.slug.trim() !== '' ? row.slug : null;
-  return { ok: true, partnerName: row.name, slug, previousChatId: previous, rebound };
+  const displayName = typeof row.display_name === 'string' && row.display_name.trim() !== ''
+    ? row.display_name
+    : row.name;
+  const category = typeof row.category === 'string' && row.category.trim() !== '' ? row.category : null;
+  return { ok: true, partnerName: row.name, displayName, category, slug, previousChatId: previous, rebound };
 }
 
 /**
@@ -140,6 +158,20 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
   return `Готово: ${CHANNEL_LABEL[channel]} подключён к оператору «${escapeHtml(result.partnerName)}». ${tail}`;
 }
 
+/**
+ * Текст после записи чата. Туроператор (не пилот проката) узнаёт свою роль
+ * словами кабинета. Пилот — своим текстом в MAX. Остальные — прежней фразой.
+ */
+export function channelBoundText(channel: PartnerChannel, result: BindResult): string {
+  if (result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)) {
+    return operatorBoundText(result.displayName || result.partnerName);
+  }
+  if (result.ok && isRentalPilotSlug(result.slug) && channel === 'max') {
+    return rentalPilotBoundText(result.partnerName);
+  }
+  return bindReplyText(channel, result);
+}
+
 /** Текст для недействительной ссылки. */
 export function badLinkReplyText(reason: 'malformed' | 'bad_signature' | 'expired' | 'no_secret'): string {
   if (reason === 'expired') return 'Ссылка для подключения устарела (действует 72 часа). Попросите у администратора платформы новую.';
@@ -174,12 +206,14 @@ export async function handlePartnerStart(
     return true;
   }
   const bound = await bindPartnerChannel(check.partnerId, channel, chatId);
-  // Прокатчик из пилота узнаёт себя по роли. Остальным партнёрам — прежний
-  // текст, и в Telegram тоже: там по-прежнему нет персональных данных.
   const pilot = bound.ok && isRentalPilotSlug(bound.slug);
-  const text = pilot && channel === 'max'
-    ? rentalPilotBoundText(bound.partnerName)
-    : bindReplyText(channel, bound);
-  await reply(text, pilot ? [rentalCabinetBar()] : undefined);
+  const desk = bound.ok && bound.category === 'operator' && !pilot;
+  const text = channelBoundText(channel, bound);
+  const buttons = pilot
+    ? [rentalCabinetBar()]
+    : desk && channel === 'max'
+      ? operatorDeskButtons()
+      : undefined;
+  await reply(text, buttons);
   return true;
 }

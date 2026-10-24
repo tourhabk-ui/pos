@@ -65,7 +65,8 @@ import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
-import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, badLinkReplyText, channelBoundText } from '@/lib/partners/bind-channel';
+import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { tryRentalCabinetTelegramMessage, tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
@@ -73,6 +74,9 @@ import { type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, parseRoleMenuPress } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
+import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
+import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
+import { setOperatorChatCommands } from '@/lib/telegram/role-commands';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
@@ -233,6 +237,54 @@ async function sendRoleRows(chatId: string, text: string, buttons: MenuButton[][
   await sendHtmlKeyboard(chatId, text, roleKeyboard(buttons), 'ответ меню роли');
 }
 
+/** Постоянные кнопки телефона. Пустой inline их не заменяет. */
+async function sendOperatorKeyboard(chatId: string, text: string): Promise<void> {
+  const clean = sanitizeForTelegram(text);
+  const html = await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(clean),
+    parseMode: 'HTML',
+    replyMarkup: operatorReplyMarkup(),
+  });
+  if (html.success) return;
+  const plain = await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(esc(stripTags(clean))),
+    parseMode: 'HTML',
+    replyMarkup: operatorReplyMarkup(),
+  });
+  if (!plain.success) {
+    console.error('[telegram/webhook] клавиатура оператора не доставлена', { html: html.error, plain: plain.error });
+  }
+}
+
+async function sendRenewCode(chatId: string, text: string): Promise<void> {
+  await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(sanitizeForTelegram(text)),
+    parseMode: 'HTML',
+    replyMarkup: { inline_keyboard: [[{ text: 'Получить новый', url: bindCodeRenewUrl() }]] },
+  });
+}
+
+async function replyOperatorBound(
+  chatId: string,
+  numericChatId: number,
+  bound: Awaited<ReturnType<typeof bindPartnerChannel>>,
+): Promise<void> {
+  const text = channelBoundText('telegram', bound);
+  if (bound.ok && isRentalPilotSlug(bound.slug)) {
+    await sendRentalCabinet(chatId, text);
+    return;
+  }
+  if (bound.ok && bound.category === 'operator') {
+    await sendOperatorKeyboard(chatId, text);
+    void setOperatorChatCommands(numericChatId);
+    return;
+  }
+  await sendHTML(chatId, text);
+}
+
 // ── Поиск пользователя по Telegram ID ────────────────────────────────────────
 
 interface LinkedUser {
@@ -263,6 +315,10 @@ const SUPPORT_TRIGGERS = [
 ];
 
 function isSupportRequest(text: string): boolean {
+  // Точные подписи кнопок кабинета тикет не создают. «Помощь» — справка;
+  // обращение пишет только кнопка «Написать в поддержку».
+  const exact = text.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ');
+  if (exact === 'помощь' || exact === 'справка') return false;
   const lower = text.toLowerCase();
   return SUPPORT_TRIGGERS.some(trigger => lower.includes(trigger));
 }
@@ -871,6 +927,29 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     if (text.startsWith('/start')) {
       const arg = text.slice('/start'.length).trim();
 
+      // /start ABC123 — код из кабинета туроператора. Пишет чат в карточку
+      // партнёра, не в users.telegram_id: администратор в «Войти как»
+      // не получает командный центр.
+      if (normalizeBindCode(arg)) {
+        const consumed = await consumeBindCode(arg, 'telegram', update.message.chat.id);
+        if (!consumed.ok) {
+          console.error(`[telegram-webhook] код привязки не подошёл: ${consumed.reason}`);
+          const missed = consumed.reason === 'db_error'
+            ? 'Не удалось проверить код — база не ответила. Попробуйте через несколько минут.'
+            : bindCodeMissedText();
+          await sendRenewCode(chatId, missed);
+          return;
+        }
+        const byCode = await bindPartnerChannel(consumed.partnerId, 'telegram', update.message.chat.id);
+        if (!byCode.ok) {
+          console.error(`[telegram-webhook] код принят, карточка не записана: ${byCode.reason}`);
+          await sendRenewCode(chatId, 'Не удалось сохранить привязку. Нажмите «Получить новый».');
+          return;
+        }
+        await replyOperatorBound(chatId, update.message.chat.id, byCode);
+        return;
+      }
+
       // /start op_{token} — оператор подключает этот чат к получению заявок
       // (ссылку выдал администратор, lib/partners/channel-link). Пишется в
       // карточку ПАРТНЁРА, а не человека: у импортированных операторов
@@ -884,9 +963,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
           return;
         }
         const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
-        const boundText = bindReplyText('telegram', bound);
-        if (bound.ok && isRentalPilotSlug(bound.slug)) await sendRentalCabinet(chatId, boundText);
-        else await sendHTML(chatId, boundText);
+        await replyOperatorBound(chatId, update.message.chat.id, bound);
         return;
       }
 
@@ -994,6 +1071,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         text: '/start',
         fromName: update.message.from?.first_name ?? null,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
+        sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
       })) {
         return;
       }
@@ -1071,6 +1149,20 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         `<a href="${link}">Войти в систему →</a>`,
       ].join('\n'));
       return;
+    }
+
+    // Команды кабинета туроператора — раньше туристской справки.
+    const deskHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    if (!admin && (deskHead === '/help' || deskHead === '/requests' || deskHead === '/tours' || deskHead === '/seats')) {
+      if (await tryRoleMenuTelegramMessage({
+        chatId: update.message.chat.id,
+        text,
+        fromName: update.message.from?.first_name ?? null,
+        send: (body, buttons) => sendRoleRows(chatId, body, buttons),
+        sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
+      })) {
+        return;
+      }
     }
 
     // /help
@@ -1589,6 +1681,22 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     const senderChatId   = cq.from.id;
     const callbackChatId = String(cq.message?.chat?.id ?? senderChatId);
     const data           = cq.data ?? '';
+
+    if (isOperatorDeskPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const privateDesk = (cq.message?.chat?.type ?? 'private') === 'private';
+      if (!privateDesk) {
+        await sendHTML(callbackChatId, 'Кнопки кабинета работают в личном диалоге.');
+        return;
+      }
+      const desk = await operatorDeskPress({
+        channel: 'telegram',
+        chatId: cq.message?.chat?.id ?? senderChatId,
+        payload: data,
+      });
+      if (desk) await sendRoleRows(callbackChatId, desk.text, desk.buttons);
+      return;
+    }
 
     if (parseRentalCabinetPress(data) || data.startsWith('rr:')) {
       await telegramService.answerCallback(cq.id);

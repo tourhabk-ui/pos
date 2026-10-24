@@ -53,7 +53,8 @@ import { createLead } from '@/lib/leads/create';
 import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
-import { handlePartnerStart } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
+import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
@@ -68,6 +69,9 @@ import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
 import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
+import { loadInbox } from '@/lib/crm/inbox';
+import { operatorDeskButtons, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
+import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 
@@ -734,6 +738,34 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       }
 
       const chatId = update.chat_id;
+      if (normalizeBindCode(startArg)) {
+        const consumed = await consumeBindCode(startArg, 'max', chatId);
+        if (!consumed.ok) {
+          console.error(`[max/kuzmich] код привязки не подошёл: ${consumed.reason}`);
+          const missed = consumed.reason === 'db_error'
+            ? 'Не удалось проверить код — база не ответила. Попробуйте через несколько минут.'
+            : bindCodeMissedText();
+          await maxReplyWithButtons(chatId, missed, [[{ type: 'link', text: 'Получить новый', url: bindCodeRenewUrl() }]]);
+          return;
+        }
+        const bound = await bindPartnerChannel(consumed.partnerId, 'max', chatId);
+        if (!bound.ok) {
+          console.error(`[max/kuzmich] код принят, карточка не записана: ${bound.reason}`);
+          await maxReplyWithButtons(chatId, 'Не удалось сохранить привязку. Нажмите «Получить новый».', [[{ type: 'link', text: 'Получить новый', url: bindCodeRenewUrl() }]]);
+          return;
+        }
+        const text = channelBoundText('max', bound);
+        const pilot = bound.ok && isRentalPilotSlug(bound.slug);
+        const desk = bound.ok && bound.category === 'operator' && !pilot;
+        const buttons = pilot
+          ? toMaxButtons([rentalCabinetBar()])
+          : desk
+            ? toMaxButtons(operatorDeskButtons())
+            : null;
+        if (buttons) await maxReplyWithButtons(chatId, text, buttons);
+        else await maxReply(chatId, text);
+        return;
+      }
       // Администратор подключает свой MAX одноразовой ссылкой из админки
       // (lib/max/admin-link, слово владельца 23.10). Привязывается человек —
       // user_id апдейта, без отката на id чата.
@@ -783,6 +815,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (boundPilot.outcome === 'found') {
         const role = menuRoleOf(boundPilot.partner);
         const row = partnerMenu(boundPilot.partner);
+        if (role === 'operator' && row) {
+          await maxReplyWithButtons(update.chat_id, operatorHelpText(), toMaxButtons(operatorDeskButtons()));
+          return;
+        }
         if (role && row) {
           const screen = await roleMenuScreen({
             role, action: 'help', channel: 'max', partner: boundPilot.partner, nowMs: Date.now(),
@@ -1081,8 +1117,28 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         if (calendar) return;
         const role = menuRoleOf(lookup.partner);
         const askedRole = roleMenuAsk(text);
-        if (role && (text.trim() === '/start' || askedRole !== null)) {
-          const action = text.trim() === '/start' || askedRole === 'help' ? 'help' as const : 'inbox' as const;
+        const slashHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+        if (role === 'operator' && (askedRole === 'tours' || askedRole === 'seats' || slashHead === '/tours' || slashHead === '/seats')) {
+          const which = askedRole === 'seats' || slashHead === '/seats' ? 'seats' : 'tours';
+          const body = which === 'tours'
+            ? operatorToursReply(await loadOperatorTours(lookup.partner.partnerId))
+            : operatorSeatsText();
+          await say(body);
+          return;
+        }
+        if (role === 'operator' && (text.trim() === '/start' || slashHead === '/help' || askedRole === 'help')) {
+          await maxReplyWithButtons(chatId, operatorHelpText(), toMaxButtons(operatorDeskButtons()));
+          return;
+        }
+        if (role === 'operator' && (askedRole === 'inbox' || slashHead === '/requests')) {
+          const inbox = await loadInbox(lookup.partner.partnerId, 'operator', lookup.partner.userId, { nowMs: Date.now() });
+          const view = operatorInboxView(inbox);
+          const row = partnerMenu(lookup.partner) ?? [];
+          await maxReplyWithButtons(chatId, view.text, toMaxButtons(appendMenu(view.buttons, row)));
+          return;
+        }
+        if (role && (text.trim() === '/start' || slashHead === '/help' || slashHead === '/requests' || askedRole !== null)) {
+          const action = text.trim() === '/start' || slashHead === '/help' || askedRole === 'help' ? 'help' as const : 'inbox' as const;
           const screen = await roleMenuScreen({
             role, action, channel: 'max', partner: lookup.partner, nowMs: Date.now(),
           });
@@ -1144,6 +1200,21 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // и ничего не показывает — и компилируется в обеих версиях.
     await api.answerOnCallback(update.callback.callback_id)
       .catch((err: unknown) => logFailure('подтверждение нажатия', err));
+
+    if (isOperatorDeskPayload(payload)) {
+      if (opts?.verifiedOrigin !== true) {
+        console.error('[max/kuzmich] кнопка кабинета туроператора из незаверенного апдейта — не выполнена');
+        if (messageChatId) await maxReply(messageChatId, UNVERIFIED_CHAT_REPLY.partner);
+        return;
+      }
+      if (!messageChatId) return;
+      const desk = await operatorDeskPress({ channel: 'max', chatId: messageChatId, payload });
+      if (desk) {
+        if (desk.buttons.length) await maxReplyWithButtons(messageChatId, desk.text, toMaxButtons(desk.buttons));
+        else await maxReply(messageChatId, desk.text);
+      }
+      return;
+    }
 
     // Строка кабинета прокатчика. Не кнопка-действие с записью: она открывает
     // уже существующие чтения. Чат — только из сообщения с кнопкой.

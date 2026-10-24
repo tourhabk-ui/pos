@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import {
   Building2, Loader2, Save, AlertCircle, CheckCircle,
-  MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock, Send, ExternalLink,
+  MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock,
 } from 'lucide-react';
 import { profileStatusView } from '@/lib/operator/profile-status';
+import { MessengerConnectCard, type MessengerCodeView } from '@/components/operator/MessengerConnectCard';
 
 const INPUT = 'w-full min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
 const INPUT_RO = 'w-full min-h-[44px] px-4 bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg text-[var(--text-secondary)] cursor-not-allowed select-none';
@@ -58,7 +59,7 @@ export default function OperatorProfileClient() {
   const [profileStatus, setProfileStatus] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
   const [tgNotify, setTgNotify] = useState<TelegramNotifications>({ status: 'unknown', source: null });
-  const [tgLink, setTgLink] = useState<string | null>(null);
+  const [messenger, setMessenger] = useState<MessengerCodeView | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -92,15 +93,7 @@ export default function OperatorProfileClient() {
         const tg = d.telegram_notifications ?? { status: 'unknown', source: null };
         setTgNotify(tg);
         if (tg.status === 'not_connected') {
-          // Личная ссылка на бота (/start link_…), живёт 30 минут —
-          // берётся тем же роутом, что и баннер кабинета.
-          try {
-            const linkRes = await fetch('/api/telegram/connect');
-            const linkJson = await linkRes.json() as { linked?: boolean; link?: string };
-            if (!cancelled && linkJson.link) setTgLink(linkJson.link);
-          } catch (err) {
-            console.error('[operator/profile] ссылка на бота не получена:', err instanceof Error ? err.message : err);
-          }
+          await issueMessengerCode(() => cancelled);
         }
       } catch {
         if (!cancelled) setFetchError('Не удалось загрузить профиль. Проверьте соединение.');
@@ -110,6 +103,65 @@ export default function OperatorProfileClient() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  async function issueMessengerCode(isCancelled: () => boolean = () => false) {
+    setMessenger((prev) => ({
+      loading: true,
+      error: null,
+      code: prev?.code ?? null,
+      telegramUrl: prev?.telegramUrl ?? null,
+      maxUrl: prev?.maxUrl ?? null,
+      telegramQr: prev?.telegramQr ?? null,
+      maxQr: prev?.maxQr ?? null,
+    }));
+    try {
+      const res = await fetch('/api/hub/operator/messenger-code', { method: 'POST' });
+      const json = await res.json() as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+        telegramUrl?: string;
+        maxUrl?: string;
+        telegramQr?: string | null;
+        maxQr?: string | null;
+      };
+      if (isCancelled()) return;
+      if (!json.success || !json.code || !json.telegramUrl || !json.maxUrl) {
+        setMessenger({
+          loading: false,
+          error: json.error ?? 'Не удалось выдать код',
+          code: null,
+          telegramUrl: null,
+          maxUrl: null,
+          telegramQr: null,
+          maxQr: null,
+        });
+        return;
+      }
+      setMessenger({
+        loading: false,
+        error: null,
+        code: json.code,
+        telegramUrl: json.telegramUrl,
+        maxUrl: json.maxUrl,
+        telegramQr: json.telegramQr ?? null,
+        maxQr: json.maxQr ?? null,
+      });
+    } catch (err) {
+      console.error('[operator/profile] код мессенджера не выдан:', err instanceof Error ? err.message : err);
+      if (!isCancelled()) {
+        setMessenger({
+          loading: false,
+          error: 'Не удалось выдать код. Проверьте соединение.',
+          code: null,
+          telegramUrl: null,
+          maxUrl: null,
+          telegramQr: null,
+          maxQr: null,
+        });
+      }
+    }
+  }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -303,41 +355,11 @@ export default function OperatorProfileClient() {
               </div>
             </div>
 
-            {/* Уведомления о бронях */}
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-3">
-              <div className="flex items-center gap-2">
-                <Send className="w-5 h-5 text-[var(--ocean)]" />
-                <h2 className="text-base font-semibold text-[var(--text-primary)]">Уведомления о бронях в Telegram</h2>
-              </div>
-              <p className={`text-sm font-medium ${
-                tgNotify.status === 'connected' ? 'text-[var(--success)]'
-                  : tgNotify.status === 'not_connected' ? 'text-[var(--warning)]'
-                  : 'text-[var(--text-muted)]'
-              }`}>
-                {tgNotify.status === 'connected' ? 'Подключены'
-                  : tgNotify.status === 'not_connected' ? 'Не подключены'
-                  : 'Статус неизвестен — не удалось проверить'}
-              </p>
-              {tgNotify.status !== 'connected' && (
-                <p className="text-sm text-[var(--text-secondary)]">
-                  Подключаются через бота: нажмите «Подключить Telegram» — откроется бот
-                  по личной ссылке и сам отправит команду <code>/start link_…</code>.
-                  Ссылка действует 30 минут. Поле «Telegram для клиентов» выше —
-                  это контакт для туристов, уведомления туда не приходят.
-                </p>
-              )}
-              {tgNotify.status === 'not_connected' && tgLink && (
-                <a
-                  href={tgLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ds-btn ds-btn-secondary inline-flex items-center gap-2 min-h-[44px] px-4"
-                >
-                  Подключить Telegram
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              )}
-            </div>
+            <MessengerConnectCard
+              status={tgNotify.status}
+              panel={messenger}
+              onIssue={() => { void issueMessengerCode(); }}
+            />
 
             {/* Локация */}
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">

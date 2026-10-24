@@ -105,12 +105,20 @@ function norm(text: string): string {
   return text.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ');
 }
 
-/** Точная фраза кнопки. «покажи входящие» и «заявки» сюда не входят. */
-export function roleMenuAsk(text: string): 'inbox' | 'help' | null {
+export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats';
+
+/** Точная фраза кнопки. «покажи входящие» и голое «заявки» сюда не входят. */
+export function roleMenuAsk(text: string): RoleAsk | null {
   switch (norm(text)) {
     case 'входящие':
     case 'мои входящие':
+    case 'новые заявки':
+    case 'мои заявки':
       return 'inbox';
+    case 'мои туры и цены':
+      return 'tours';
+    case 'обновить места':
+      return 'seats';
     case 'помощь':
     case 'справка':
       return 'help';
