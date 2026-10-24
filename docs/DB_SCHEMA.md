@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-23 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1325_rental_car_busy.sql`.
+> Снято 2026-10-24 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1326_rental_partner_answer_once.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -997,7 +997,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=` `is_self boolean!=`
 
-**lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 3
+**lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 4
 
 `id bigint!=` `lead_id uuid!` `actor varchar!=` `action varchar!` `details jsonb=` `created_at timestamp=`
 
