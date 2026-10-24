@@ -25,6 +25,7 @@ import { HeroPhoto } from '@/components/media/HeroPhoto';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import type { TourClip } from '@/lib/tours/tour-clips';
 import { TourClips } from '@/components/tours/TourClips';
+import { KraiStatusSlot } from '@/components/tours/KraiStatusSlot';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
@@ -581,7 +582,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
     // Нижней навигации на карточке тура НЕТ (решение владельца 24.09,
     // развилка 5: навигацию даёт общая шапка), поэтому и резерва под неё нет —
     // прежние pb-40 и mb-[60px] держали пустую полосу под то, чего нет.
-    <div className="pb-24 lg:pb-0" style={{ background: 'var(--bg-primary)' }}>
+    <div className="pb-36 lg:pb-0" style={{ background: 'var(--bg-primary)' }}>
       {/* Общая шапка: логотип, тема, ЛК и единственная SOS. Над фото героя —
           прозрачная, после прокрутки — сплошная (overPhoto). Монтируется здесь,
           в клиенте, а не в page.tsx: обе страницы карточки (§11) получают её
@@ -613,28 +614,12 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(8,11,14,.55) 0%, rgba(8,11,14,.18) 20%, rgba(8,11,14,.35) 40%, rgba(8,11,14,.88) 100%)' }} />
 
         {/* Под шапкой: статус дня (стекло разрешено — это контекст, §2).
-            SOS здесь больше нет — она в общей шапке, фиксированной на каждом
-            экране; вторая кнопка того же действия на экране запрещена (#887). */}
-        {dayStatus && (
-          <div className="absolute left-4 right-4 z-[2] flex items-start" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 72px)' }}>
-            <Link
-              href="/safety"
-              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
-              style={{ fontFamily: FM, minHeight: 44 }}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}
-              />
-              {/* Подпись именно «в крае»: индикатор отражает обстановку по
-                  Камчатке целиком, а не по этому туру. Без такой подписи точка
-                  читалась бы как оценка безопасности конкретной поездки. */}
-              Обстановка в крае
-            </Link>
-            {/* Пилюли сезона здесь НЕТ: сезон уже стоит в полосе фактов внизу
-                героя. Два одинаковых «Июн — Сен» на одном экране — небрежность. */}
-          </div>
-        )}
+            Слот занят и до ответа: иначе чип появляется и сдвигает герой.
+            SOS здесь больше нет — она в общей шапке (#887).
+            Подпись именно «в крае»: индикатор отражает обстановку по
+            Камчатке целиком, а не по этому туру. Пилюли сезона здесь нет —
+            сезон стоит в полосе фактов внизу героя. */}
+        <KraiStatusSlot hasAlert={dayStatus ? dayStatus.hasAlert : null} />
 
         {/* Заголовок конкретного события здесь НЕ печатаем. /api/public/safety-status
             отдаёт максимальный по краю алерт без привязки к географии тура: на
@@ -1284,14 +1269,14 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
-        <div className="flex items-center gap-3 px-4 py-2.5">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+          <div className="min-w-0 sm:flex-1">
             <div className="flex items-baseline gap-1.5">
               <span className="text-[var(--accent)] whitespace-nowrap" style={{ fontFamily: FD, fontWeight: 700, fontSize: 19, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
               <span className="text-xs text-[var(--text-secondary)] truncate">{priceLabel}</span>
             </div>
           </div>
-          <a href="#booking" tabIndex={barShown ? undefined : -1} className="ds-btn ds-btn-primary text-sm shrink-0" style={{ minHeight: 44 }}>
+          <a href="#booking" tabIndex={barShown ? undefined : -1} className="ds-btn ds-btn-primary text-sm w-full sm:w-auto justify-center" style={{ minHeight: 44 }}>
             Узнать свободные даты
           </a>
         </div>

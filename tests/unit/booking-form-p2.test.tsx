@@ -150,11 +150,11 @@ describe('П2: календарь управляется датой формы',
     const cell = await dayCell(d);
     fireEvent.click(cell);
     expect(cell).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByText(/Сначала выберите дату заезда/)).toBeNull();
+    expect(screen.queryByText(/Осталось заполнить: дату заезда/)).toBeNull();
 
     fireEvent.click(cell);
     expect(cell).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByText(/Сначала выберите дату заезда/)).toBeInTheDocument();
+    expect(screen.getByText(/Осталось заполнить: дату заезда/)).toBeInTheDocument();
     expect(screen.queryByText(/^Выбрано:/)).toBeNull();
   });
 
@@ -169,7 +169,7 @@ describe('П2: календарь управляется датой формы',
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Следующий месяц' })); });
     expect(line().textContent).toBe(before);
-    expect(screen.queryByText(/Сначала выберите дату заезда/)).toBeNull();
+    expect(screen.queryByText(/Осталось заполнить: дату заезда/)).toBeNull();
   });
 
   it('предвыбранная дата (?date=) — календарь открывается на её месяце и показывает её', async () => {
@@ -204,7 +204,13 @@ describe('П2: поля, подписи, итог', () => {
     expect(screen.getByLabelText(/Количество участников/).tagName).toBe('SELECT');
     expect(screen.getByLabelText('Пожелания оператору').tagName).toBe('TEXTAREA');
     // Ручной ввод даты (слотов нет) связан с подписью «Дата заезда».
-    await waitFor(() => expect(screen.getByLabelText(/Дата заезда/)).toHaveAttribute('type', 'date'));
+    // Формат — дд.мм.гггг: нативный type=date на телефоне без ru-локали рисует mm/dd/yyyy.
+    await waitFor(() => {
+      const date = screen.getByLabelText(/Дата заезда/);
+      expect(date).toHaveAttribute('type', 'text');
+      expect(date).toHaveAttribute('lang', 'ru');
+      expect(date).toHaveAttribute('placeholder', 'дд.мм.гггг');
+    });
   });
 
   it('email обязателен и уходит в запрос (решение владельца 04.10, пересматривает 24.09)', async () => {

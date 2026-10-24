@@ -10,7 +10,7 @@ import TourDateField from '@/components/marketplace/TourDateField';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
-import { normalizePhone } from '@/lib/mcp/normalize-phone';
+import { maskRuPhone, normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
 import { cancellationTermsLine, type TourRefundTerms } from '@/lib/payments/tour-refund';
@@ -199,7 +199,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   // Человек начал править — прежний отказ больше не про то, что на экране.
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({ ...prev, [name]: name === 'tourist_phone' ? maskRuPhone(value) : value }));
     setError(null);
   };
   const setDate = (date: string) => {
@@ -334,8 +334,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           У этого тура нет расписания: оператор собирает группы под запрос. Назовите дату и число людей —
           оператор ответит в мессенджер в течение 2 часов. Если места есть, заявка сразу станет подтверждённой,
           {platformAcceptsPayments()
-            ? 'и по ссылке из ответа её можно будет оплатить.'
-            : 'а оплату вы внесёте оператору напрямую — Ведар платежи не принимает.'}
+            ? ' и по ссылке из ответа её можно будет оплатить.'
+            : ' а оплату вы внесёте оператору напрямую — Ведар платежи не принимает.'}
         </p>
         {seasonWindow && (
           <p className="text-sm text-[var(--text-primary)] leading-relaxed">
@@ -583,6 +583,22 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             (issue #1780), человек жал и не понимал, что не так.
             При отправке текст остаётся рядом со спиннером — ширина кнопки
             не прыгает, и видно, что происходит. */}
+        {/* Причина, по которой кнопка выключена, называется КОНКРЕТНАЯ и стоит
+            НАД кнопкой (аудит 24.10): под кнопкой её не видно, пока не
+            прокрутишь, и «в календаре выше» врало, когда даты вводишь в поле.
+            Текст — основным цветом, предупреждает иконка: жёлтый текст на
+            белом давал 2.5:1. */}
+        {!formData.booking_date ? (
+          <p id="booking-submit-hint" className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--warning)]" aria-hidden="true" />
+            Осталось заполнить: дату заезда.
+          </p>
+        ) : !pdConsent ? (
+          <p id="booking-submit-hint" className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--warning)]" aria-hidden="true" />
+            Отметьте согласие на обработку данных — без него мы не сможем связаться с вами.
+          </p>
+        ) : null}
         <button
           type="submit"
           disabled={loading || !formData.booking_date || !pdConsent}
@@ -602,25 +618,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             </>
           )}
         </button>
-        {/* Причина, по которой кнопка выключена, называется КОНКРЕТНАЯ. Одно
-            «заполните форму» на два разных препятствия заставляет искать
-            глазами, чего не хватает (урок #1780). Текст — основным цветом,
-            предупреждает иконка: жёлтый текст на белом давал 2.5:1. */}
-        {!formData.booking_date ? (
-          <p id="booking-submit-hint" className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--warning)]" aria-hidden="true" />
-            Сначала выберите дату заезда в календаре выше.
-          </p>
-        ) : !pdConsent ? (
-          <p id="booking-submit-hint" className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--warning)]" aria-hidden="true" />
-            Отметьте согласие на обработку данных — без него мы не сможем связаться с вами.
-          </p>
-        ) : (
+        {formData.booking_date && pdConsent ? (
           <p className="text-xs text-[var(--text-secondary)]">
             После создания заявки откроется страница заявки с дальнейшими шагами. Оператор получит уведомление автоматически.
           </p>
-        )}
+        ) : null}
       </div>
     </form>
   );

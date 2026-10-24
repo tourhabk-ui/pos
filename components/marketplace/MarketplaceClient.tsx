@@ -182,12 +182,31 @@ function TourCardSkeleton() {
  * Факт в герое — из серверной сводки: «8 туров от 13 000 ₽». Сводки нет —
  * строки нет, а не выдуманное число и не «—» (§4.0).
  */
-function HeroSection({ summary }: { summary: CatalogSummary | null }) {
-  const fact = summary && summary.total > 0
-    ? `${summary.total} ${plural(summary.total, 'тур', 'тура', 'туров')}${summary.minPrice != null ? ` от ${rub(summary.minPrice)}` : ''}`
-    : null;
+function HeroSection({
+  summary,
+  narrowed,
+  resultCount,
+}: {
+  summary: CatalogSummary | null;
+  /** Фильтр или поиск уже сузили выдачу — в герое число этой выдачи, не всей витрины. */
+  narrowed: boolean;
+  /**
+   * null — ещё считаем. undefined — посчитать не удалось.
+   * Число — ответ фильтра. Прежнюю сводку в эти два исхода не подставляем.
+   */
+  resultCount: number | null | undefined;
+}) {
+  const fact = narrowed
+    ? (resultCount === null
+      ? 'Считаем туры…'
+      : resultCount === undefined
+        ? 'Не удалось посчитать'
+        : `${resultCount} ${plural(resultCount, 'тур', 'тура', 'туров')}`)
+    : (summary && summary.total > 0
+      ? `${summary.total} ${plural(summary.total, 'тур', 'тура', 'туров')}${summary.minPrice != null ? ` от ${rub(summary.minPrice)}` : ''}`
+      : null);
   return (
-    <section className="relative overflow-hidden mb-4 sm:mb-8" aria-label="Туры на Камчатку">
+    <section className="relative overflow-hidden mb-3 sm:mb-8" aria-label="Туры на Камчатку">
       {/* Герой шёл оригиналом JPEG 1280 px, 576 КБ, в клетку 412×151 на телефоне
           (аудит 02.10). srcSet из нарезанных WebP: 640 — 46 КБ, 1280 — 260 КБ. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -201,24 +220,24 @@ function HeroSection({ summary }: { summary: CatalogSummary | null }) {
         className="absolute inset-0 w-full h-full object-cover"
       />
       <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/55 to-black/20" />
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-12 lg:py-14">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-12 lg:py-14">
         {/* «Туры на Камчатку» — ровно запрос, с которым сюда приходят
             (аудит SEO 29.09, вечер); «Туры Камчатки» его не содержал. */}
         <h1
-          className="text-[28px] sm:text-4xl lg:text-5xl font-bold text-white leading-tight"
+          className="text-2xl sm:text-4xl lg:text-5xl font-bold text-white leading-tight"
           style={{ fontFamily: 'var(--font-playfair)' }}
         >
           Туры на Камчатку
         </h1>
         {fact && (
-          <p className="mt-1 text-base sm:text-lg text-white/90 font-medium tabular-nums">
+          <p className="mt-1 text-sm sm:text-lg text-white/90 font-medium tabular-nums">
             {fact}
           </p>
         )}
         <p className="hidden sm:block mt-2 text-base text-white/80 leading-relaxed max-w-lg">
           Готовые туры от операторов: состав, цена и даты — до заявки.
         </p>
-        <div className="flex gap-2 sm:gap-3 mt-3 sm:mt-6">
+        <div className="flex gap-2 sm:gap-3 mt-2 sm:mt-6">
           <a href="#tours" className="ds-btn ds-btn-primary px-4 sm:px-5 whitespace-nowrap">
             Смотреть туры
             <ArrowRight className="w-4 h-4" />
@@ -569,7 +588,7 @@ export default function MarketplaceClient({
   // Deep-link: параметры адреса применяются один раз при входе.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    const search = sp.get('search') ?? '';
+    const search = sp.get('search') || sp.get('q') || '';
     setSearchTerm(search);
     setDebouncedSearch(search);
     setActivityFilter(sp.get('activity_type') ?? '');
@@ -805,11 +824,21 @@ export default function MarketplaceClient({
   const emptyTitle = activityFilter && !debouncedSearch && activeFiltersCount === 0
     ? 'Готовых туров по направлению пока нет'
     : 'Туров по этому запросу нет';
+  const pendingSearch = searchTerm !== debouncedSearch;
+  const narrowed = Boolean(
+    debouncedSearch || activityFilter || difficulty || priceRange || durationType || (pendingSearch && searchTerm),
+  );
+  const counting = narrowed && (loading || pendingSearch);
+  // Отказ запроса — не прежнее число: «37» при упавшем фильтре было бы ответом, которого нет.
+  const countFailed = narrowed && !counting && Boolean(error);
+  const allChipCount = (!activityFilter && (debouncedSearch || activeFiltersCount > 0) && !counting && !countFailed)
+    ? total
+    : (summary?.total ?? total);
 
   return (
     <div className="ds-page pb-8">
       {/* ─── Hero (на всю ширину, без отрицательных полей) ─── */}
-      <HeroSection summary={summary} />
+      <HeroSection summary={summary} narrowed={narrowed} resultCount={counting ? null : countFailed ? undefined : total} />
 
       {/* Локальная обёртка контента: поля и ширина. Общий .ds-page не трогаем. */}
       <div className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
@@ -820,21 +849,20 @@ export default function MarketplaceClient({
               прогон 14: heading-order). Видимого заголовка здесь нет намеренно —
               герой над списком уже называет страницу. */}
           <h2 className="sr-only">Список туров</h2>
-          {/* Направления — одна строка чипов со счётчиком. Вид — значком из
-              единого словаря и числом (владелец 16.10: «заменим надписи на
-              иконки»): ряд словами не помещался в экран и обрезался посреди
-              слова. Слово видно у выбранного вида — чтобы было ясно, что
-              выбрано, — и там, где значок сам не скажет (iconSpeaksInRow).
-              Полное название — в доступном имени и подсказке. */}
+          {/* Направления — одна строка чипов со счётчиком и горизонтальной
+              прокруткой. Подпись вида видна всегда (аудит 24.10): значок без
+              слова обрезал смысл, а ряд не влезал — поэтому он листается,
+              а не режется посреди слова. Значок остаётся там, где он один
+              на вид (iconSpeaksInRow, 16.10). */}
           {chips.length > 0 && (
             <div className="flex gap-2 overflow-x-auto pb-1 mb-3 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0" role="group" aria-label="Направления">
               <button
                 type="button"
                 aria-pressed={activityFilter === ''}
                 onClick={() => setActivityFilter('')}
-                className={`flex-shrink-0 ${CHIP_BASE} ${activityFilter === '' ? CHIP_ON : CHIP_OFF}`}
+                className={`flex-shrink-0 whitespace-nowrap ${CHIP_BASE} ${activityFilter === '' ? CHIP_ON : CHIP_OFF}`}
               >
-                Все{summary ? ` · ${summary.total}` : ''}
+                Все · {allChipCount}
               </button>
               {chips.map(c => {
                 const on = activityFilter === c.value;
@@ -849,10 +877,10 @@ export default function MarketplaceClient({
                     aria-label={`${label} — ${c.count} ${plural(c.count, 'тур', 'тура', 'туров')}`}
                     title={label}
                     onClick={() => setActivityFilter(on ? '' : c.value)}
-                    className={`flex-shrink-0 gap-1.5 ${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+                    className={`flex-shrink-0 gap-1.5 whitespace-nowrap ${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
                   >
                     {speaks && <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden />}
-                    <span className="tabular-nums">{speaks && !on ? c.count : `${label} · ${c.count}`}</span>
+                    <span className="tabular-nums">{label} · {c.count}</span>
                   </button>
                 );
               })}
@@ -865,7 +893,7 @@ export default function MarketplaceClient({
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" aria-hidden />
               <input
                 type="search"
-                placeholder="Поиск по названию"
+                placeholder="Поиск туров"
                 aria-label="Поиск тура по названию"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
@@ -930,10 +958,11 @@ export default function MarketplaceClient({
             </div>
           )}
 
-          {/* Results count (на телефоне число уже в чипах и герое) */}
-          {!loading && !error && total > 0 && (
-            <p className="hidden sm:block text-sm text-[var(--text-secondary)] mb-5">
-              {total} {plural(total, 'тур', 'тура', 'туров')}
+          {/* Сколько туров в текущей выдаче. На телефоне эта строка была
+              скрыта, и герой со сводкой «37 туров» не менялся от фильтра. */}
+          {!error && (
+            <p data-testid="catalog-result-count" className="text-sm text-[var(--text-secondary)] mb-3 sm:mb-5 tabular-nums">
+              {counting ? 'Считаем туры…' : `${total} ${plural(total, 'тур', 'тура', 'туров')}`}
             </p>
           )}
 

@@ -35,7 +35,7 @@ describe('форма брони: число уходит числом, выкл�
   });
   it('без даты кнопка выглядит выключенной и объясняет причину', () => {
     expect(src).toMatch(/disabled:opacity-50/);
-    expect(src).toMatch(/Сначала выберите дату заезда/);
+    expect(src).toMatch(/Осталось заполнить: дату заезда/);
     expect(src).toMatch(/aria-describedby=/);
   });
 });

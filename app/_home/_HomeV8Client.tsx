@@ -16,7 +16,8 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Waves, Droplets, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, Bus, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
+import { Waves, Droplets, Sun, Moon, Menu, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Clock, Pause, Play, Bus, Ticket, BedDouble, Car, type LucideIcon } from 'lucide-react';
+import { REQUISITES } from '@/lib/legal/requisites';
 import BottomNav from '@/components/shared/BottomNav';
 import { HeroKuzmichChats } from '@/components/homepage/HeroKuzmichChats';
 import { HomeWeatherStrip } from '@/components/homepage/HomeWeatherStrip';
@@ -282,11 +283,12 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
     <div className="v7 v8" id="v8root">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      {/* шапка — только функциональное: статус, СОС, тема, ЛК. Бренда здесь
-          нет вовсе (итерация north-star 31.07): с брендом даже короткое
-          состояние пилюли требовало 427px, то есть на всех ходовых ширинах
-          он и так был скрыт. Вордмарк живёт в герое, где ширина не
-          конкурирует со статусом безопасности. */}
+      {/* шапка — только функциональное: статус, СОС, ЛК, меню «Ещё».
+          Темы здесь нет (аудит 24.10): бургер встал на её место, тема —
+          в герое на фото. Бренда здесь нет вовсе (итерация north-star 31.07):
+          с брендом даже короткое состояние пилюли требовало 427px, то есть
+          на всех ходовых ширинах он и так был скрыт. Вордмарк живёт в герое,
+          где ширина не конкурирует со статусом безопасности. */}
       <div className="topbar"><div className="in">
         <span className="sp" />
         {/* Обстановка одной строкой. Ведёт к радару на этой же странице — не
@@ -300,17 +302,15 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
         {/* Иконки поиска здесь больше нет. Она была кнопкой без обработчика:
             выглядела рабочей и не делала ничего. Настоящий поиск — карточкой
             сразу под героем, и место в узкой шапке освободилось. */}
-        <button
-          className="icn"
-          aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-          onClick={() => chooseTheme(theme === 'dark' ? 'light' : 'dark')}
-        >
-          {theme === 'dark'
-            ? <Sun className="li" size={19} strokeWidth={2} />
-            : <Moon className="li" size={19} strokeWidth={2} />}
-        </button>
         <Link href="/profile" className="icn" aria-label="Личный кабинет">
           <User className="li" size={19} strokeWidth={2} />
+        </Link>
+        {/* «Ещё» — тот же вход, что в шапке внутренних страниц (/menu).
+            Стоит на месте переключателя темы: пятая кнопка в 44px не
+            сходится с пилюлей обстановки на 390px (бюджет 02.09). Тема —
+            в герое, на фото, где ширина свободна. */}
+        <Link href="/menu" className="icn" aria-label="Ещё — все разделы">
+          <Menu className="li" size={19} strokeWidth={2} />
         </Link>
         {/* Кнопка «Хочу тур» из шапки убрана. Две причины сошлись.
             Измерение: при 390 px шапка выходила за экран (scrollWidth 417 px),
@@ -358,6 +358,16 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                 (владелец 23.10). Столбик не в потоке: герой не растёт, и
                 первый экран не теряет места; заголовок слева его не задевает. */}
             <div className="hero-acts">
+              <button
+                type="button"
+                className="hero-share"
+                aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+                onClick={() => chooseTheme(theme === 'dark' ? 'light' : 'dark')}
+              >
+                {theme === 'dark'
+                  ? <Sun size={18} strokeWidth={2} aria-hidden />
+                  : <Moon size={18} strokeWidth={2} aria-hidden />}
+              </button>
               <ShareButton
                 className="hero-share"
                 referral
@@ -843,6 +853,19 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           </div>
         </section>
 
+        {/* Компактный подвал (аудит 24.10): страница кончалась формой, и та
+            уходила под таб-бар. Реквизиты — из единственного источника.
+            Отступ под таб-бар даёт padding-bottom у .v7. */}
+        <footer className="home-foot">
+          <p>
+            {REQUISITES.shortName} · ИНН {REQUISITES.inn}
+            {' · '}
+            <Link href="/legal/offer">Оферта</Link>
+            {' · '}
+            <Link href="/legal/privacy">Конфиденциальность</Link>
+          </p>
+        </footer>
+
         {/* Ряда разделов («Туристам», «Рыбалка», «Операторам», «Гидам»,
             «Жильё», «Снаряжение») внизу больше нет — владелец 26.09: «подвал
             вообще не то и не работает, убрать». Разделы доступны из таб-бара
@@ -1150,7 +1173,7 @@ const CSS = `
 /* Чаты Кузьмича под «Поделиться» (владелец 23.10): тот же круг и то же стекло.
    Столбик вне потока — высота героя прежняя. Видимый круг 40px, как у
    «Поделиться», а цель пальца — 44px за счёт невидимого поля. */
-.v7 .hero-acts{position:relative;flex:none}
+.v7 .hero-acts{position:relative;flex:none;display:flex;align-items:flex-start;gap:8px}
 .v7 .hero-chats{position:absolute;top:48px;right:0;z-index:1;display:flex;flex-direction:column;gap:8px}
 .v7 .hero-chat{position:relative;width:40px;height:40px;display:grid;place-items:center;border-radius:999px;background:rgba(0,0,0,.40);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);transition:background .2s}
 .v7 .hero-chat::before{content:'';position:absolute;inset:-2px;border-radius:999px}
@@ -1405,13 +1428,14 @@ const CSS = `
 .v7 .lead .lfield{display:flex;flex-direction:column;gap:6px;min-width:0}
 .v7 .lead .lfield>label{font:600 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .lead .lfield>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
-.v7 .lead .field{display:flex;border:1px solid var(--border);background:var(--bg-card)}
+.v7 .lead .field{display:flex;flex-direction:column;border:1px solid var(--border);background:var(--bg-card)}
 /* min-width:0 (аудит 24.09, #3/#35): без него поле не ужималось ниже своей
    встроенной ширины, и «Отправить» выезжала за рамку (на 360px — за экран,
    scrollWidth 367). */
 .v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field input::placeholder,.v7 .lead .lfield>input::placeholder{color:var(--text-muted)}
-.v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
+.v7 .lead .field button{flex:none;width:100%;min-height:44px;border:0;border-top:1px solid var(--border);background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
+@media (min-width:480px){.v7 .lead .field{flex-direction:row}.v7 .lead .field button{width:auto;border-top:0}}
 .v7 .lead .field button:disabled{opacity:.6}
 .v7 .lead .err{margin-top:6px;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
 /* Сноски формы — Outfit 12px --text-secondary (было JetBrains Mono 8.5px
@@ -1420,6 +1444,8 @@ const CSS = `
 .v7 .lead .fine{margin-top:9px;font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .lead .fine a{color:var(--ocean);text-decoration:underline;text-underline-offset:2px}
 .v7 .lead .ok{margin-top:14px;padding:12px;border:1px solid color-mix(in srgb,var(--success) 40%,transparent);font:500 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--success);display:none}
+.v7 .home-foot{margin-top:28px;padding:16px 0 4px;border-top:1px solid var(--border);font:400 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);text-align:center}
+.v7 .home-foot a{color:var(--ocean);text-decoration:underline;text-underline-offset:2px}
 .v7 .lead.sent .ok{display:block}
 .v7 .lead.sent .field2,.v7 .lead.sent .chips,.v7 .lead.sent .fine,.v7 .lead.sent .err{display:none}
 /* хабы */
