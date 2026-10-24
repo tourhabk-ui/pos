@@ -63,7 +63,8 @@ export function isSightseeingQuestion(text: string): boolean {
 /** Аренда машины без водителя. «Хочу» само по себе туром не делает этот вопрос. */
 export function isCarRentalAsk(text: string): boolean {
   const lower = text.toLowerCase().replace(/ё/g, 'е');
-  return /аренд|прокат/.test(lower) && /авто|машин|автомобил/.test(lower) && !/(?<![а-яе])тур/.test(lower);
+  // «турист» — не упоминание тура: тот же запрет (?!ист), что у интереса к туру.
+  return /аренд|прокат/.test(lower) && /авто|машин|автомобил/.test(lower) && !/(?<![а-яе])тур(?!ист)/.test(lower);
 }
 
 /**
