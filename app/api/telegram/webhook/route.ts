@@ -46,7 +46,7 @@ import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
-import { collapseRepeatedReply, telegramOfferLinks } from '@/lib/kuzmich/answer-quality';
+import { collapseRepeatedReply, requestButton, telegramOfferLinks } from '@/lib/kuzmich/answer-quality';
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { stripTags } from '@/lib/html/text';
@@ -347,7 +347,12 @@ async function answerByKuzmich(opts: {
     // Кабинет проката идёт другим отправителем и эту функцию не зовёт.
     const shown = telegramOfferLinks(collapseRepeatedReply(answer));
     const body = withSosBlock(shown, opts.text).text;
-    const markup = opts.tourist ? touristReplyMarkup() : undefined;
+    const offer = requestButton(body);
+    // Кнопка ведёт на форму, которая создаёт заявку. Клавиатуру туриста
+    // на этом сообщении не заменяем второй ссылкой: пауза проката кнопки не получает.
+    const markup = offer
+      ? { inline_keyboard: [[{ text: offer.text, url: offer.url }]] }
+      : (opts.tourist ? touristReplyMarkup() : undefined);
     return sendKuzmichReply(id, body, markup);
   };
   try {

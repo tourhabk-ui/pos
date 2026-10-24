@@ -166,12 +166,19 @@ function stayPriceText(fromRaw: string | null, toRaw: string | null): string | n
 }
 
 /** Строки витрины для ответа человеку. Отказ базы — `{ ok: false }`, не пустой список. */
-export async function loadStayFacts(zone: string | null): Promise<{ ok: true; items: StayFactRow[] } | { ok: false }> {
+export async function loadStayFacts(zone: string | readonly string[] | null): Promise<{ ok: true; items: StayFactRow[] } | { ok: false }> {
+  const zones = (Array.isArray(zone) ? zone : zone ? [zone] : [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
   const conds: string[] = [publicAccommodationSql('')];
   const params: unknown[] = [];
-  if (zone) {
-    params.push(containsPattern(zone));
-    conds.push(`(location_zone ILIKE $${params.length} OR name ILIKE $${params.length} OR address ILIKE $${params.length})`);
+  if (zones.length > 0) {
+    const parts: string[] = [];
+    for (const item of zones) {
+      params.push(containsPattern(item));
+      parts.push(`(location_zone ILIKE $${params.length} OR name ILIKE $${params.length} OR address ILIKE $${params.length})`);
+    }
+    conds.push(`(${parts.join(' OR ')})`);
   }
   try {
     const { rows } = await pool.query<AccommodationRow>(

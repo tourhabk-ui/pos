@@ -188,9 +188,24 @@ function pdLine(surface: CommercialSurface): string {
   return 'Имя и телефон — в форме на сайте, с согласием. Сам я заявку не отправляю.';
 }
 
-/** Предложение отправить запрос. Заявка создаётся формой, не этой фразой. */
+/**
+ * Предложение отправить запрос. В Telegram из этой строки делается кнопка
+ * с тем же адресом. Заявку создаёт форма на сайте (карточка тура, форма
+ * перевозчика, карточка жилья) или MAX — с именем, телефоном и согласием.
+ * Чат сам строку заявки не пишет и кнопки ответа партнёра не рисует.
+ */
 export function requestCta(who: string, url: string, surface: CommercialSurface): string {
   return `Отправить запрос ${who}: ${url}. ${pdLine(surface)} Запрос появится у партнёра, когда форма отправлена.`;
+}
+
+/** Кнопка под ответом в Telegram. Нет строки «Отправить запрос» — кнопки нет. */
+export function requestButton(text: string): { text: string; url: string } | null {
+  const match = /Отправить запрос ([^:\n]+): (https:\/\/\S+)/.exec(text);
+  if (!match) return null;
+  const label = `Отправить запрос ${match[1].trim()}`.slice(0, 64);
+  const url = match[2].replace(/[),.;]+$/, '');
+  if (!/^https:\/\/vedarai\.ru\//.test(url)) return null;
+  return { text: label, url };
 }
 
 export function dedupeParagraphs(text: string): string {
@@ -248,13 +263,45 @@ function placeNeedles(text: string): string[] {
   return out;
 }
 
+function boardFor(topic: CommercialTopic, base: string): string {
+  if (topic === 'transfer' || topic === 'rental') return joinUrl(base, '/transfers');
+  if (topic === 'lodging') return joinUrl(base, '/accommodations');
+  return joinUrl(base, '/catalog');
+}
+
+function topicWord(topic: CommercialTopic): string {
+  if (topic === 'lodging') return 'жильё';
+  if (topic === 'transfer') return 'трансфер';
+  if (topic === 'rental') return 'прокат';
+  return 'туры';
+}
+
+/** Тариф «за час / за день» — цена из прайса, даже если в строке нет города. */
+function isTariffLine(line: string): boolean {
+  return /руб за час|руб за полн|руб за день|руб за смену/.test(norm(line));
+}
+
+function linesForTransfer(item: TransferItem, needles: string[]): string[] {
+  if (needles.length === 0) return item.lines;
+  const places = item.lines.filter((line) => needles.some((needle) => norm(line).includes(needle)));
+  const picked = [...places];
+  for (const line of item.lines) {
+    if (isTariffLine(line) && !picked.includes(line)) picked.push(line);
+  }
+  return picked;
+}
+
 function composeTours(input: ComposeInput): CommercialAnswer {
   const picked = pickToursForAnswer(input.question, input.tours, input.now);
   const catalog = joinUrl(input.base, '/catalog');
   if (picked.kind !== 'list') {
     const line = picked.line || 'В каталоге нет тура под этот запрос. Цену не называю.';
     return {
-      visible: dedupeParagraphs([todayLine(input.now), line, requestCta('оператору', catalog, input.surface)].join('\n\n')),
+      visible: dedupeParagraphs([
+        todayLine(input.now),
+        `Туры из каталога:\n${line}`,
+        requestCta('оператору', catalog, input.surface),
+      ].join('\n\n')),
       tours: [],
     };
   }
@@ -282,7 +329,7 @@ function composeTransfers(input: ComposeInput): CommercialAnswer {
     return {
       visible: dedupeParagraphs([
         todayLine(input.now),
-        'Прайс трансфера сейчас не прочитан. Цену и перевозчика не называю.',
+        'Трансфер из прайса:\nПрайс трансфера сейчас не прочитан. Цену и перевозчика не называю.',
         requestCta('перевозчику', board, input.surface),
       ].join('\n\n')),
       tours: [],
@@ -291,26 +338,31 @@ function composeTransfers(input: ComposeInput): CommercialAnswer {
   const hidden = input.pauseActive ? new Set(input.pauseSlugs) : new Set<string>();
   const visible = input.transfers.items.filter((item) => !hidden.has(item.slug));
   if (visible.length === 0) {
-    const line = input.transfers.items.length > 0
+    const hiddenOnly = input.transfers.items.length > 0;
+    const line = hiddenOnly
       ? `${rentalPauseForTourist()} Перевозчика, которого сайт сейчас прячет, в этот ответ не ставлю.`
       : 'Перевозчиков с прайсом под заказ на платформе нет. Цену не называю.';
+    // Пауза уже содержит ссылку на /transfers. Вторая фраза с тем же адресом
+    // снова даёт два текста на один вопрос.
+    const tail = hiddenOnly ? [] : [requestCta('перевозчику', board, input.surface)];
     return {
-      visible: dedupeParagraphs([todayLine(input.now), line, requestCta('перевозчику', board, input.surface)].join('\n\n')),
+      visible: dedupeParagraphs([todayLine(input.now), `Трансфер из прайса:\n${line}`, ...tail].join('\n\n')),
       tours: [],
     };
   }
   const needles = placeNeedles(input.question);
   const lines: string[] = [];
-  for (const item of visible.slice(0, 8)) {
-    const matched = needles.length === 0
-      ? item.lines
-      : item.lines.filter((line) => needles.some((needle) => norm(line).includes(needle)));
-    const price = (matched.length > 0 ? matched : []).join(', ');
-    if (!price) {
+  for (const item of visible) {
+    if (lines.length >= 8) break;
+    const picked = linesForTransfer(item, needles);
+    if (picked.length === 0) {
       lines.push(`- ${item.name} — направления из вопроса в прайсе нет, цену не подставляю — ${item.url}`);
       continue;
     }
-    lines.push(`- ${item.name} — ${price} — ${item.url}`);
+    for (const price of picked) {
+      if (lines.length >= 8) break;
+      lines.push(`- ${item.name} — ${price} — ${item.url}`);
+    }
   }
   const people = peopleCount(input.question);
   const perCar = people
@@ -319,13 +371,14 @@ function composeTransfers(input: ComposeInput): CommercialAnswer {
   const more = visible.length > 8
     ? `Ещё ${visible.length - 8} перевозчиков не называю. Витрина: ${board}`
     : '';
-  const first = visible[0];
+  const priced = visible.filter((item) => linesForTransfer(item, needles).length > 0);
+  const ctaUrl = priced.length === 1 ? priced[0].url : board;
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
       ['Трансфер из прайса:', ...lines, more].filter(Boolean).join('\n'),
       perCar,
-      requestCta('перевозчику', first?.url ?? board, input.surface),
+      requestCta('перевозчику', ctaUrl, input.surface),
     ].join('\n\n')),
     tours: [],
   };
@@ -337,7 +390,7 @@ function composeStays(input: ComposeInput): CommercialAnswer {
     return {
       visible: dedupeParagraphs([
         todayLine(input.now),
-        'Витрину жилья сейчас не прочитал. Цену и объект не называю.',
+        'Жильё из витрины:\nВитрину жилья сейчас не прочитал. Цену и объект не называю.',
         requestCta('владельцу жилья', board, input.surface),
       ].join('\n\n')),
       tours: [],
@@ -355,13 +408,14 @@ function composeStays(input: ComposeInput): CommercialAnswer {
     return {
       visible: dedupeParagraphs([
         todayLine(input.now),
-        `В витрине жилья ${where} ничего нет. Другое место вместо него не подставляю. Цену не называю.`,
-        requestCta('владельцу жилья', board, input.surface),
+        `Жильё из витрины:\nВ витрине жилья ${where} ничего нет. Другое место и тур из другого списка вместо него не подставляю. Цену не называю.`,
+        requestCta('владельцам жилья', board, input.surface),
       ].join('\n\n')),
       tours: [],
     };
   }
   const shown = pool.slice(0, 8);
+  const stayCta = shown.length === 1 ? shown[0].url : board;
   const lines = shown.map((item) => (
     `- ${item.name} — ${item.priceText ?? 'цена не указана'} — ${item.url}`
   ));
@@ -381,7 +435,7 @@ function composeStays(input: ComposeInput): CommercialAnswer {
       ['Жильё из витрины:', ...lines, more].filter(Boolean).join('\n'),
       perNight,
       springs,
-      requestCta('владельцу жилья', shown[0]?.url ?? board, input.surface),
+      requestCta('владельцу жилья', stayCta, input.surface),
     ].join('\n\n')),
     tours: [],
   };
@@ -452,7 +506,7 @@ function composeFollowUp(input: ComposeInput): CommercialAnswer {
   const same = hint ? lists.filter((list) => list.topic === hint) : lists;
   const last = same.length > 0 ? same[same.length - 1] : null;
   const board = joinUrl(input.base, '/catalog');
-  if (!last || last.offers.length === 0) {
+  if (!last) {
     return {
       visible: dedupeParagraphs([
         'Не вижу списка, к которому это относится. Напишите, что смотреть: тур, трансфер, жильё или прокат. Цену наугад не беру.',
@@ -461,13 +515,25 @@ function composeFollowUp(input: ComposeInput): CommercialAnswer {
       tours: [],
     };
   }
+  const who = last.offers.length === 0 && last.topic === 'lodging'
+    ? 'владельцам жилья'
+    : whoFor(last.topic);
+  const topicBoard = boardFor(last.topic, input.base);
+  if (last.offers.length === 0) {
+    return {
+      visible: dedupeParagraphs([
+        `В прошлом ответе тема — ${topicWord(last.topic)}, и варианта с ценой там не было. Более ранний список другой темы не беру. Если речь о нём — напишите, о каком.`,
+        requestCta(who, topicBoard, input.surface),
+      ].join('\n\n')),
+      tours: [],
+    };
+  }
   const n = ordinal(input.question);
-  const who = whoFor(last.topic);
   if (n === null && last.offers.length > 1) {
     return {
       visible: dedupeParagraphs([
         'В прошлом ответе несколько вариантов, и неясно, какой считать. Назовите номер или название. Цену наугад не беру.',
-        requestCta(who, last.offers[0]?.url ?? board, input.surface),
+        requestCta(who, topicBoard, input.surface),
       ].join('\n\n')),
       tours: [],
     };
@@ -494,9 +560,32 @@ function composeFollowUp(input: ComposeInput): CommercialAnswer {
 }
 
 /**
- * Ответ на коммерческий вопрос или null, если это не он
- * (тогда говорит модель, и цены ещё режет `dropUnsourcedPrices`).
+ * Что читать из витрины, прежде чем собирать ответ.
+ * Те же признаки, что у сборщика: «где жить» и «что посмотреть» не должны
+ * получать пустой список, который ещё не смотрели в базе.
  */
+export function commercialSources(question: string): {
+  tours: boolean;
+  transfers: boolean;
+  stays: boolean;
+  stayZones: string[];
+} {
+  if (detectEmergency(question).detected) {
+    return { tours: false, transfers: false, stays: false, stayZones: [] };
+  }
+  const follow = isPriceFollowUp(question) && !asksNewList(question);
+  if (follow || isCarRentalAsk(question)) {
+    return { tours: false, transfers: false, stays: false, stayZones: [] };
+  }
+  const stays = isLodgingAsk(question);
+  return {
+    tours: asksTourOffer(question),
+    transfers: isTransferAsk(question),
+    stays,
+    stayZones: stays ? placeNeedles(question) : [],
+  };
+}
+
 export function composeCommercial(input: ComposeInput): CommercialAnswer | null {
   if (detectEmergency(input.question).detected) return null;
   const follow = isPriceFollowUp(input.question) && !asksNewList(input.question);

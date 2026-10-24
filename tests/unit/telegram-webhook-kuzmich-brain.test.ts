@@ -498,6 +498,13 @@ describe('турист: клавиатура, порядок ответов, д�
     expect(first).toContain('К вулкану');
     expect(first).toMatch(/180/);
     expect(first).toContain('https://vedarai.ru/catalog/tours/k-vulkanu');
+    const firstMarkup = m.tgSend.mock.calls[0]?.[0] as {
+      replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url: string }>> };
+    };
+    expect(firstMarkup.replyMarkup?.inline_keyboard).toEqual([[{
+      text: 'Отправить запрос оператору',
+      url: 'https://vedarai.ru/catalog/tours/k-vulkanu',
+    }]]);
     await post('Сколько стоит?');
     expect(m.tools).not.toHaveBeenCalled();
     const second = sent().at(-1) ?? '';
@@ -548,8 +555,13 @@ describe('турист: клавиатура, порядок ответов, д�
     expect(out).not.toContain('180');
     expect(out).not.toContain('августа 2027');
     expect(out).not.toMatch(/подключён к оператору/);
-    const last = m.tgSend.mock.calls.at(-1)?.[0] as { replyMarkup?: { inline_keyboard?: unknown } };
-    expect(last.replyMarkup?.inline_keyboard).toBeUndefined();
+    const last = m.tgSend.mock.calls.at(-1)?.[0] as {
+      replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>> };
+    };
+    expect(last.replyMarkup?.inline_keyboard).toEqual([[{
+      text: 'Отправить запрос оператору',
+      url: 'https://vedarai.ru/catalog',
+    }]]);
   });
 });
 

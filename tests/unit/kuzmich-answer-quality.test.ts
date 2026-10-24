@@ -16,8 +16,10 @@ import { describe, expect, it } from 'vitest';
 import {
   bookingAgentOwns,
   collapseRepeatedReply,
+  commercialSources,
   composeCommercial,
   dropUnsourcedPrices,
+  requestButton,
   rubleAmounts,
   telegramOfferLinks,
   type ComposeInput,
@@ -396,6 +398,79 @@ describe('оценка и пауза источника', () => {
     expect(follow!.visible).toContain('несколько вариантов');
     expect(rubleAmounts(follow!.visible)).toEqual([]);
     expect(follow!.visible).toContain('Отправить запрос перевозчику');
+  });
+
+  it('Елизово — Петропавловск: тариф Желтухина со ссылкой, Лагуна на паузе скрыта', () => {
+    const listed = composeCommercial({
+      ...input('Нужен трансфер из аэропорта Елизово в Петропавловск на 3 человек', ''),
+      transfers: {
+        ok: true,
+        items: [
+          {
+            slug: 'zheltukhin',
+            name: 'ИП Желтухин',
+            lines: ['4500 руб за час работы машины'],
+            url: `${BASE}/transfers/zheltukhin#charter-request`,
+          },
+          {
+            slug: 'laguna-prokat',
+            name: 'Лагуна Прокат',
+            lines: ['25000 руб за полный день работы машины'],
+            url: `${BASE}/transfers/laguna-prokat#charter-request`,
+          },
+        ],
+      },
+    });
+    const text = listed!.visible;
+    expect(text).toContain('ИП Желтухин');
+    expect(text).toContain('4500 руб за час работы машины');
+    expect(text).toContain(`${BASE}/transfers/zheltukhin#charter-request`);
+    expect(text).not.toMatch(/Лагуна/i);
+    expect(text).not.toContain('25000');
+    expect(text).not.toMatch(/6\s*750/);
+    expect(text).toContain('сумму не считаю');
+    expect(namedLines(text).every((line) => line.includes('https://'))).toBe(true);
+    expect(requestButton(text)).toEqual({
+      text: 'Отправить запрос перевозчику',
+      url: `${BASE}/transfers/zheltukhin#charter-request`,
+    });
+    const follow = composeCommercial(input('Сколько это стоит?', text));
+    expect(follow!.visible).toContain('4500 руб за час работы машины');
+    expect(follow!.visible).toContain(`${BASE}/transfers/zheltukhin#charter-request`);
+    expect(follow!.visible).not.toMatch(/6\s*750/);
+    expect(follow!.visible).not.toMatch(/4\s*500\s*[–—-]\s*6/);
+    expect(follow!.visible).not.toMatch(/Лагуна/i);
+    expect(rubleAmounts(follow!.visible)).toEqual([4500]);
+  });
+
+  it('пустая Паратунка не отдаёт «первый вариант» джипу из прошлого списка', () => {
+    const jeep = composeCommercial(input('Какие туры на вулканы есть осенью? Списком с ценами', ''));
+    const stay = composeCommercial({
+      ...input('Где остановиться в Паратунке на 3 ночи с горячими источниками?', jeep!.visible),
+      stays: { ok: true, items: [] },
+    });
+    expect(stay!.visible).toContain('Жильё из витрины');
+    expect(stay!.visible).toContain('по Паратунке ничего нет');
+    expect(stay!.visible).toContain('Отправить запрос владельцам жилья');
+    expect(stay!.visible).toContain(`${BASE}/accommodations`);
+    expect(stay!.visible).not.toContain('Авачинский');
+    expect(requestButton(stay!.visible)?.url).toBe(`${BASE}/accommodations`);
+    const follow = composeCommercial(input('Сколько стоит первый вариант?', `${jeep!.visible}\n\n${stay!.visible}`));
+    expect(follow!.visible).toContain('жильё');
+    expect(follow!.visible).not.toContain('Авачинский');
+    expect(follow!.visible).not.toMatch(/15\s*000/);
+    expect(follow!.visible).toContain(`${BASE}/accommodations`);
+    expect(rubleAmounts(follow!.visible)).toEqual([]);
+  });
+
+  it('«где жить» и «что посмотреть» читают свою витрину, не пустой список', () => {
+    expect(commercialSources('Где жить в Елизово на 2 ночи?')).toMatchObject({
+      tours: false,
+      stays: true,
+      stayZones: ['елизов'],
+    });
+    expect(commercialSources('Что посмотреть за 5 дней в июле?').tours).toBe(true);
+    expect(commercialSources('Где остановиться в Паратунке?').stayZones).toEqual(['паратунк']);
   });
 
   it('Лагуна на паузе не попадает в туры', () => {
