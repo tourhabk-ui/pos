@@ -33,6 +33,7 @@ import { isFleetAsk, RENTAL_FLEET_TOOL, RENTAL_FLEET_TOOL_NAME, runOperatorRenta
 import { RENTAL_CALENDAR_TOOL, RENTAL_CALENDAR_TOOL_NAME } from '@/lib/rental/car-calendar';
 import { rentalCalendarToolText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
+import { handleRentalOfferEdit } from '@/lib/rental/offer-edit-flow';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 
@@ -275,7 +276,7 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
         ? ['Свои туры (и скрытые с витрины тоже) и открытые даты со свободными местами узнавай инструментом my_tours_schedule — не говори, что расписания или туров нет, не вызвав его.']
         : []),
       ...(isRentalPilotSlug(partner.slug)
-        ? ['Свои машины проката (и скрытые из прайса тоже), цену за сутки и залог узнавай инструментом operator_rental_fleet. Цену, залог, модель и видимость, которых инструмент не вернул, не называй. Занятость на ближайшие 30 дней по Камчатке узнавай инструментом operator_rental_calendar: день «не отмечено» — это не «свободна». Отметку ставит только кнопка в MAX; инструмент её не ставит, и ты не говори, что отметил.']
+        ? ['Свои машины проката (и скрытые из прайса тоже), цену за сутки и залог узнавай инструментом operator_rental_fleet. Цену, залог, модель и видимость, которых инструмент не вернул, не называй. Занятость на ближайшие 30 дней по Камчатке узнавай инструментом operator_rental_calendar: день «не отмечено» — это не «свободна». Отметку ставит только кнопка в MAX; инструмент её не ставит, и ты не говори, что отметил. Цену и описание машины ты не меняешь и не говори, что они уже на сайте: прокатчик пишет «цена <название> <рубли за сутки>» или «описание <название>: текст», это черновик до одобрения.']
         : []),
       'Записывай в CRM (касание, задачу, выполнение) только когда партнёр об этом просит, и коротко скажи, что записал.',
     );
@@ -351,6 +352,19 @@ export async function processPartnerMessage(opts: {
   const nowMs = opts.nowMs ?? Date.now();
 
   await saveMsg(chatId, 'operator_tg', 'user', text, null, fromName);
+
+  // Цена и описание — черновик на модерацию, без модели: число из фразы
+  // прокатчика, на сайт не попадает, пока его не одобрят.
+  const edited = await handleRentalOfferEdit({
+    partnerId: partner.partnerId,
+    slug: partner.slug ?? null,
+    text,
+  });
+  if (edited !== null) {
+    await saveMsg(chatId, 'operator_tg', 'assistant', edited, null, null);
+    await reply(chatId, edited);
+    return;
+  }
 
   // «Покажи машины» — прайс из базы, без модели: модель на этот вопрос
   // выдумывала цену, когда инструмента не было.

@@ -427,4 +427,98 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     expect(answers[0]?.n).toBe(1);
     expect(await loadOwnedRentalRequest('00000000-0000-4000-8000-000000000099', lead!.id)).toEqual({ outcome: 'not_yours' });
   });
+
+  it('черновик цены и описания не меняет прайс; одобрение меняет, отказ — нет', async () => {
+    const { rows: [jimny] } = await pool.query<{
+      id: string; partner_id: string; price: number; conditions: string | null;
+    }>(
+      `SELECT o.id::text AS id, o.partner_id::text AS partner_id,
+              o.price_rub_per_day AS price, o.conditions
+         FROM car_rental_offers o
+         JOIN partners p ON p.id = o.partner_id
+        WHERE p.slug = 'laguna-prokat' AND o.title = 'Suzuki Jimny'`,
+    );
+    expect(jimny?.price).toBe(7000);
+    expect(jimny?.conditions).toBeNull();
+    const {
+      findOwnedOffer, savePendingOfferEdit, decideOfferEdit,
+    } = await import('@/lib/rental/offer-edit-store');
+    const found = await findOwnedOffer(jimny!.partner_id, 'suzuki jimny');
+    expect(found.outcome).toBe('one');
+    if (found.outcome !== 'one') return;
+    expect(await savePendingOfferEdit({
+      partnerId: jimny!.partner_id, offer: found.offer, priceRub: 8500, conditions: null,
+    })).toMatchObject({ outcome: 'saved', draftPrice: 8500, draftConditions: null });
+    expect(await savePendingOfferEdit({
+      partnerId: jimny!.partner_id, offer: found.offer, priceRub: null, conditions: 'Без ограничения пробега по асфальту',
+    })).toMatchObject({
+      outcome: 'saved', draftPrice: 8500, draftConditions: 'Без ограничения пробега по асфальту',
+    });
+    const mid = await pool.query<{ price_rub_per_day: number; conditions: string | null }>(
+      `SELECT price_rub_per_day, conditions FROM car_rental_offers WHERE id = $1`,
+      [jimny!.id],
+    );
+    expect(mid.rows[0]).toEqual({ price_rub_per_day: 7000, conditions: null });
+    const { rows: pending } = await pool.query<{ id: string; n: number }>(
+      `SELECT id::text AS id, count(*) OVER ()::int AS n
+         FROM rental_offer_edits WHERE offer_id = $1 AND moderation_status = 'pending'`,
+      [jimny!.id],
+    );
+    expect(pending).toHaveLength(1);
+    expect(await decideOfferEdit({
+      id: pending[0]!.id, action: 'approve', reason: null, moderatedBy: null,
+    })).toMatchObject({ outcome: 'approved', title: 'Suzuki Jimny' });
+    const after = await pool.query<{ price_rub_per_day: number; conditions: string | null }>(
+      `SELECT price_rub_per_day, conditions FROM car_rental_offers WHERE id = $1`,
+      [jimny!.id],
+    );
+    expect(after.rows[0]).toEqual({
+      price_rub_per_day: 8500, conditions: 'Без ограничения пробега по асфальту',
+    });
+    expect(await decideOfferEdit({
+      id: pending[0]!.id, action: 'reject', reason: 'повтор', moderatedBy: null,
+    })).toEqual({ outcome: 'already' });
+    const still = await pool.query<{ price_rub_per_day: number; conditions: string | null }>(
+      `SELECT price_rub_per_day, conditions FROM car_rental_offers WHERE id = $1`,
+      [jimny!.id],
+    );
+    expect(still.rows[0]).toEqual({
+      price_rub_per_day: 8500, conditions: 'Без ограничения пробега по асфальту',
+    });
+
+    const { rows: [tank] } = await pool.query<{ id: string; partner_id: string }>(
+      `SELECT o.id::text AS id, o.partner_id::text AS partner_id
+         FROM car_rental_offers o
+         JOIN partners p ON p.id = o.partner_id
+        WHERE p.slug = 'laguna-prokat' AND o.title = 'Tank-300'`,
+    );
+    const tankFound = await findOwnedOffer(tank!.partner_id, 'Tank-300');
+    expect(tankFound.outcome).toBe('one');
+    if (tankFound.outcome !== 'one') return;
+    expect(await savePendingOfferEdit({
+      partnerId: tank!.partner_id, offer: tankFound.offer, priceRub: 16000, conditions: null,
+    })).toMatchObject({ outcome: 'saved', draftPrice: 16000 });
+    const { rows: [tankEdit] } = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM rental_offer_edits WHERE offer_id = $1 AND moderation_status = 'pending'`,
+      [tank!.id],
+    );
+    expect(await decideOfferEdit({
+      id: tankEdit!.id, action: 'reject', reason: 'не та цифра', moderatedBy: null,
+    })).toMatchObject({ outcome: 'rejected' });
+    const tankLive = await pool.query<{ price_rub_per_day: number }>(
+      `SELECT price_rub_per_day FROM car_rental_offers WHERE id = $1`,
+      [tank!.id],
+    );
+    expect(tankLive.rows[0]?.price_rub_per_day).toBe(15000);
+
+    expect(await findOwnedOffer(partner.operatorWithPrice, 'Suzuki Jimny')).toEqual({ outcome: 'missing' });
+    expect(await sqlState(pool.query(
+      `INSERT INTO rental_offer_edits (offer_id, partner_id, price_rub_per_day) VALUES ($1, $2, 0)`,
+      [jimny!.id, jimny!.partner_id],
+    ))).toBe('23514');
+    expect(await sqlState(pool.query(
+      `INSERT INTO rental_offer_edits (offer_id, partner_id) VALUES ($1, $2)`,
+      [jimny!.id, jimny!.partner_id],
+    ))).toBe('23514');
+  });
 });
