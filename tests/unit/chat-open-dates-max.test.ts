@@ -397,6 +397,20 @@ describe('пятый ревью 22.10: поправка, ушедшая помо
     m.pool.mockImplementation(async (sql: string) => (RETIRE.test(String(sql)) ? { rows: [], rowCount: 1 } : { rows: [], rowCount: 0 }));
   };
 
+  it('план поездки с числом — Кузьмичу туриста, действующее предложение дат снято', async () => {
+    active();
+    await post(VERIFIED, message('спланируй поездку на 5 дней'));
+    expect(retires()).toEqual([['superseded', String(CHAT)]]);
+    expect(repliesTo(CHAT)).toEqual([
+      'Прежнее предложение дат снято — по нему ничего не открыто. Если хотели его поправить, напишите фразу целиком: даты, тур и места.',
+    ]);
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'спланируй поездку на 5 дней', mode: 'max',
+    }));
+    expectNoInsertNoOpen();
+  });
+
   it.each(CORRECTIONS)('«%s» при действующем предложении — снято со строкой «напишите фразу целиком», текст — помощнику', async (text) => {
     active();
     await post(VERIFIED, message(text));

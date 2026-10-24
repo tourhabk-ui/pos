@@ -799,11 +799,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReply(chatId, ADMIN_CHAT_TEXT.textOnly);
           return;
         }
-        // Команда кабинета остаётся администратору. Просьба туриста (аренда,
-        // тур, трансфер, план поездки) — Кузьмичу туриста: иначе «не понял
-        // команду», и прайс проката из этого чата не прочитать.
-        const { adminCommandOf } = await import('@/lib/max/admin-read');
-        if (adminCommandOf(text) === null && !/^\/start\b/i.test(text.trim()) && boundChatLane(text) === 'tourist') {
+        // Просьба туриста — Кузьмичу туриста раньше разбора команды.
+        // Иначе «хочу забронировать тур» читается как «брони»: в команде
+        // администратора подстрока «брон» где угодно. Кабинет («покажи брони»,
+        // «даты», «сводка») классификатор оставляет кабинетом.
+        if (!/^\/start\b/i.test(text.trim()) && boundChatLane(text) === 'tourist') {
           await deliverTouristText({
             chatId, text, userName, userId, verified: true, reply: maxReply, replyButtons: maxReplyWithButtons,
           });
@@ -956,6 +956,17 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному
       // апдейту. Незаверенная просьба туриста идёт Кузьмичу как обычный
       // вопрос, без записи в CRM.
+      // Поток дат всё равно смотрит заверенную просьбу: «спланируй поездку
+      // на 5 дней» — не команда открыть даты, но цифра в ней снимает
+      // действующую кнопку «Открыть». Иначе старая кнопка пишет даты.
+      if (lookup.outcome === 'found' && boundChatLane(text) === 'tourist' && opts?.verifiedOrigin === true) {
+        const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
+        const handled = await handleOperatorDatesText({
+          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId), dialog,
+          sentAtMs: Number.isFinite(update.timestamp) ? update.timestamp : null,
+        });
+        if (handled) return;
+      }
       if (lookup.outcome === 'found' && boundChatLane(text) !== 'tourist') {
         // Помощник кабинета пишет в CRM партнёра (касания, задачи) — только по
         // заверенному апдейту: чат партнёра в теле прислал бы кто угодно.
