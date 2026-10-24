@@ -407,6 +407,69 @@ describe('доставка ответа', () => {
   });
 });
 
+describe('турист: клавиатура, порядок ответов, даты каталога', () => {
+  it('/start — клавиатура Ведара, без текста кабинета оператора', async () => {
+    await post('/start');
+    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { keyboard?: Array<Array<{ text: string }>> } };
+    expect(body.text).toContain('Ведар');
+    expect(body.text).not.toMatch(/TourHab|подключён к оператору|MAX/);
+    expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
+      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Задать вопрос',
+    ]);
+    expect(m.tools).not.toHaveBeenCalled();
+  });
+
+  it('два вопроса одного чата отвечают по порядку, даже если первый ход длинный', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    m.tools.mockImplementation(async () => {
+      calls += 1;
+      const mine = calls;
+      if (mine === 1) await gate;
+      return { content: mine === 1 ? 'ОТВЕТ-ПЕРВЫЙ' : 'ОТВЕТ-ВТОРОЙ', provider: 'deepseek' };
+    });
+    const first = post('первый вопрос про тропу');
+    await new Promise<void>((resolve, reject) => {
+      const timer = setInterval(() => { if (calls >= 1) { clearInterval(timer); resolve(); } }, 5);
+      setTimeout(() => { clearInterval(timer); reject(new Error('модель не вызвана')); }, 3000);
+    });
+    const second = post('второй вопрос про берег');
+    release();
+    await Promise.all([first, second]);
+    const texts = sent();
+    const i1 = texts.findIndex((t) => t.includes('ОТВЕТ-ПЕРВЫЙ'));
+    const i2 = texts.findIndex((t) => t.includes('ОТВЕТ-ВТОРОЙ'));
+    expect(i1).toBeGreaterThanOrEqual(0);
+    expect(i2).toBeGreaterThan(i1);
+  });
+
+  it('июль получает даты каталога, а не выдуманный заезд', async () => {
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) return { rows: [] };
+      if (q.includes('multi_day_count DESC NULLS LAST')) {
+        return { rows: [{
+          id: 7, slug: 'pyat-dney', title: 'Пять дней по Камчатке',
+          base_price: 180000, price_unit: 'per_person', multi_day_count: 5,
+          season_start: '2027-08-25', season_end: '2027-09-30',
+        }] };
+      }
+      return { rows: [] };
+    });
+    await post('Что посмотреть за 5 дней в июле?');
+    const seen = modelInput();
+    expect(seen).toContain('25 августа 2027');
+    expect(seen).toContain('июле');
+    const out = sent().join('\n');
+    expect(out).toContain('https://vedarai.ru/catalog/tours/pyat-dney');
+    expect(out).toContain('180');
+    expect(out).not.toMatch(/подключён к оператору/);
+    const last = m.tgSend.mock.calls.at(-1)?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ url?: string }>> } };
+    expect(last.replyMarkup?.inline_keyboard?.[0]?.[0]?.url).toBe('https://vedarai.ru/catalog/tours/pyat-dney');
+  });
+});
+
 describe('кабинет проката на живом вебхуке', () => {
   const PARTNER = '22222222-2222-4222-8222-222222222222';
   const CHAT = 4242;
@@ -469,9 +532,12 @@ describe('кабинет проката на живом вебхуке', () => {
   it('просьба туриста в том же чате идёт в мозг без строки кабинета', async () => {
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
     expect(m.tools).toHaveBeenCalled();
-    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: unknown };
+    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
     expect(body.text).toContain('Ответ Кузьмича');
-    expect(body.replyMarkup).toBeUndefined();
+    expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
+    expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
+      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Задать вопрос',
+    ]);
   });
 });
 
@@ -508,8 +574,9 @@ describe('меню роли на живом вебхуке', () => {
   it('«найди мне в аренду автомобиль» — мозг туриста, без меню роли', async () => {
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
     expect(m.tools).toHaveBeenCalled();
-    const body = m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: unknown };
-    expect(body.replyMarkup).toBeUndefined();
+    const body = m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
+    expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
+    expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toContain('Аренда авто');
   });
 
   it('«как дела» остаётся помощнику кабинета, строка роли под ответом', async () => {

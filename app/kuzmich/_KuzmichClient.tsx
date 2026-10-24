@@ -17,6 +17,7 @@ import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
+import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // ── Типы ──────────────────────────────────────────────────────────
@@ -448,11 +449,19 @@ export default function KuzmichClient() {
           аватара; пузырь пользователя справа, как был. С sm: — прежняя раскладка. */}
 
       {/* Навигация */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-6">
         <Link href="/" className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
           <ArrowLeft className="w-4 h-4" /> Главная
         </Link>
         <div className="flex-1" />
+        <a
+          href={KUZMICH_TELEGRAM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline"
+        >
+          Кузьмич в Telegram
+        </a>
         <Link href="/request" className="flex items-center gap-1.5 text-sm text-[var(--ocean)] hover:underline">
           Оставить заявку <ArrowRight className="w-3.5 h-3.5" />
         </Link>

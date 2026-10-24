@@ -639,6 +639,7 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'lib/kuzmich/tour-availability-tool.ts': 'инструмент дат Кузьмича',
   'lib/agents/sdk/tourist-tools.ts': 'инструменты туриста: поиск, подробности, даты, сравнение',
   'lib/ai/booking-intent.ts': 'туры в чате по намерению',
+  'lib/telegram/tourist-tours.ts': 'кнопки туров в Telegram-боте туриста',
   'lib/kuzmich/engagement.ts': 'напоминание туристу о туре в Telegram',
   'lib/embed/widget-chat.ts': 'чат виджета на сайте партнёра',
   'lib/mcp/connector-tools.ts': 'MCP-коннекторы (ChatGPT)',

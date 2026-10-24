@@ -48,6 +48,12 @@ const WORD_START_KEYWORDS: Record<string, RegExp> = {
   'tour': /(?<![a-z])tour(?!ist)/,
 };
 
+/**
+ * «Что посмотреть за 5 дней?» не содержит слова «тур», и карточки каталога
+ * к ответу не подмешивались. Это вопрос к витрине, даже без вида занятия.
+ */
+const SIGHTSEEING = /посмотреть|что\s+увидеть|куда\s+(?:сходить|съездить)|за\s+\d{1,2}\s+дн/;
+
 function keywordHit(lower: string, kw: string): boolean {
   const rx = WORD_START_KEYWORDS[kw];
   return rx ? rx.test(lower) : lower.includes(kw);
@@ -84,7 +90,7 @@ export function detectTourIntent(text: string): {
 } {
   const lower = text.toLowerCase();
 
-  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw));
+  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw)) || SIGHTSEEING.test(lower);
   if (!detected) return { detected: false, activityType: null, rawWords: '' };
 
   const kw = activityKeyword(lower);

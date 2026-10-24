@@ -10,8 +10,12 @@ interface TelegramMessage {
   replyMarkup?: {
     inline_keyboard?: Array<Array<{
       text: string;
-      callback_data: string;
+      callback_data?: string;
+      url?: string;
     }>>;
+    keyboard?: Array<Array<{ text: string }>>;
+    resize_keyboard?: boolean;
+    is_persistent?: boolean;
   };
 }
 

@@ -160,7 +160,7 @@ async function handleLeadAction(
 async function sendStartMessage(chatId: number, name: string | null): Promise<void> {
   const greeting = name ? `Привет, ${name}!` : 'Привет!';
   const text = [
-    `${greeting} Я Кузьмич — AI-агент платформы TourHab.`,
+    `${greeting} Я Кузьмич — помощник Ведара по Камчатке.`,
     '',
     '<b>Что умею:</b>',
     '- Подобрать тур: рыбалка, вулканы, медведи, термальные источники...',
