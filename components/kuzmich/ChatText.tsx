@@ -17,7 +17,7 @@ function Chunks({ text }: { text: string }) {
   );
 }
 
-/** Текст ответа Кузьмича: ссылки кликабельны, пункты «- » и «1.» — списком. */
+/** Текст ответа Кузьмича: ссылки кликабельны, пункты «- », «1.» и «Заголовок: …» — списком. */
 export default function ChatText({ text }: { text: string }) {
   return (
     <div className="flex flex-col gap-2">
