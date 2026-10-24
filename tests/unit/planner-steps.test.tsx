@@ -80,8 +80,9 @@ const next = () => fireEvent.click(screen.getByRole('button', { name: /Даль�
 const heading = () => screen.getByRole('heading', { level: 2 }).textContent;
 
 function fillDates() {
-  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
-  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-12' } });
+  // Поле — «дд.мм.гггг», и 2030 за пределом max (+2 года от сегодня).
+  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '03.08.2027' } });
+  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '12.08.2027' } });
 }
 
 describe('четыре шага по порядку', () => {
@@ -93,7 +94,7 @@ describe('четыре шага по порядку', () => {
     // Быстрый путь — сверху первого шага.
     expect(screen.getByLabelText(/Опишите поездку/)).toBeTruthy();
     fillDates();
-    expect(screen.getByText('9 дней на Камчатке')).toBeTruthy();
+    expect(screen.getByText('10 календарных дней · 9 ночей')).toBeTruthy();
     next();
     expect(screen.getByText('шаг 2 из 4')).toBeTruthy();
     expect(heading()).toBe('Кто едет');
@@ -155,10 +156,10 @@ describe('новое доходит до движка', () => {
     expect(body.healthNotes).toBe('колено, астма');
     expect(body.mobilityLevel).toBe('limited');
     expect(body.travelStyle).toBe('self');
-    // 3–12 августа: по датам 1 день отдыха (lib/planner/travel-style,
-    // suggestRestDays), плюс один нажатием «+» — 2 (владелец 26.09: «от дат,
-    // с возможностью корректировки»).
-    expect(body.restDays).toBe(2);
+    // 3–12 августа 2027: 10 календарных дней, suggestRestDays даёт 2,
+    // плюс один нажатием «+» — 3 (владелец 26.09: «от дат, с возможностью
+    // корректировки»). Раньше форма считала ночи и уходила в запрос с 2.
+    expect(body.restDays).toBe(3);
     expect(body.interests).toEqual(['volcano']);
 
     // Заметки движка — на экране результата.

@@ -4,7 +4,7 @@
  * BookingFormClient — дата заезда теперь выбирается по календарю доступности
  * (/api/tours/[id]/slots), если у тура есть открытые слоты. Контракт:
  * слоты есть → AvailabilityCalendar, клик по дате пишет booking_date;
- * слотов нет / фетч упал → прежний ручной <input type="date"> (календарь
+ * слотов нет / фетч упал → ручной ввод «дд.мм.гггг» (календарь
  * операторов опционален — отсутствие строк tour_availability = даты свободны);
  * «Ввести дату вручную» — явный переход на ручной ввод при живом календаре.
  */
@@ -92,15 +92,39 @@ describe('BookingFormClient — календарь доступности', () =
     await waitFor(() => expect(submit).not.toBeDisabled());
   });
 
-  it('слотов нет → прежний ручной input type=date', async () => {
+  it('слотов нет → ручной ввод дд.мм.гггг, подсказка над кнопкой', async () => {
     mockSlots([]);
 
     render(<BookingFormClient tourId={7} basePrice={5000} />);
 
-    await waitFor(() => {
-      expect(document.querySelector('input[name="booking_date"]')).not.toBeNull();
+    const input = await waitFor(() => {
+      const el = document.querySelector('input[name="booking_date"]');
+      expect(el).not.toBeNull();
+      return el as HTMLInputElement;
     });
+    expect(input.type).toBe('text');
+    expect(input.placeholder).toBe('дд.мм.гггг');
+    expect(input.lang).toBe('ru');
     expect(screen.queryByRole('group', { name: 'Доступные даты' })).toBeNull();
+    const hint = screen.getByText(/Осталось заполнить: дату заезда/);
+    const submit = screen.getByRole('button', { name: /Оставить заявку/ });
+    expect(hint.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.change(input, { target: { value: '15062035' } });
+    expect(input.value).toBe('15.06.2035');
+  });
+
+  it('телефон набирается маской +7', async () => {
+    mockSlots([]);
+    render(<BookingFormClient tourId={7} basePrice={5000} />);
+    await waitFor(() => expect(document.querySelector('input[name="booking_date"]')).not.toBeNull());
+    const phone = screen.getByLabelText('Телефон *');
+    fireEvent.change(phone, { target: { value: '9001234567' } });
+    expect(phone).toHaveValue('+7 900 123-45-67');
+  });
+
+  it('без оплаты между «подтверждённой» и «а оплату» есть пробел', () => {
+    render(<BookingFormClient tourId={7} basePrice={5000} askSeatsFirst />);
+    expect(screen.getByText(/подтверждённой, а оплату/)).toBeInTheDocument();
   });
 
   it('фетч слотов упал → ручной input, форма не ломается', async () => {

@@ -27,7 +27,8 @@ export interface ParsedMarketplaceParams {
 export function parseMarketplaceSearchParams(
   sp: Record<string, string | string[] | undefined>
 ): ParsedMarketplaceParams {
-  const search = first(sp.search).slice(0, 200);
+  // `q` — алиас `search`: его шлют поисковики и ИИ-агенты. Явный search важнее.
+  const search = (first(sp.search) || first(sp.q)).slice(0, 200);
   const activityType = first(sp.activity_type).slice(0, 60);
   const sortRaw = first(sp.sort);
   const sort = (SORT_VALUES as readonly string[]).includes(sortRaw)

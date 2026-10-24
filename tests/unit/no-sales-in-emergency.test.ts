@@ -20,6 +20,12 @@ describe('интерес к туру не видит «турист»', () => {
     expect(detectTourIntent('I am a tourist and lost').detected).toBe(false);
   });
 
+  it('«что посмотреть за N дней» — интерес к каталогу, вид занятия не выдуман', () => {
+    const r = detectTourIntent('Что посмотреть за 5 дней?');
+    expect(r.detected).toBe(true);
+    expect(r.activityType).toBeNull();
+  });
+
   it('«тур», «туры», «турбаза», «tour» — по-прежнему интерес', () => {
     for (const t of ['хочу тур на вулкан', 'туры на медведей', 'турбаза у озера', 'book a tour']) {
       expect(detectTourIntent(t).detected, t).toBe(true);

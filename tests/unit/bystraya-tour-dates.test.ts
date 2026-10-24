@@ -161,7 +161,7 @@ describe('поле выбора даты', () => {
   });
 
   it('ручной ввод остаётся доступен: слоты у операторов опциональны', () => {
-    expect(field).toMatch(/type="date"/);
+    expect(field).toMatch(/RuDateInput/);
     expect(field).toMatch(/Ввести дату вручную/);
   });
 

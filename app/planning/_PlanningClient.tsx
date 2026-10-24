@@ -6027,6 +6027,20 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
    */
   const tabBarRef = useRef<HTMLDivElement | null>(null);
   const [tabBarH, setTabBarH] = useState(0);
+  // Лендинг «Планирование» открывается с верха. Полевая вкладка и якорь
+  // (наблюдение, SOS) сами решают, куда смотреть.
+  useLayoutEffect(() => {
+    if (tab !== 'planning') return;
+    try {
+      if (window.location.hash) return;
+      if (new URLSearchParams(window.location.search).get('obs') === '1') return;
+      window.history.scrollRestoration = 'manual';
+    } catch (err) {
+      console.error('[planning] не удалось прочитать адрес страницы', err);
+    }
+    window.scrollTo(0, 0);
+  }, [tab]);
+
   useLayoutEffect(() => {
     const el = tabBarRef.current;
     if (!el) return;

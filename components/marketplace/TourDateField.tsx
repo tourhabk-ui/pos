@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
+import { RuDateInput } from '@/components/forms/RuDateInput';
 
 /**
  * Поле выбора даты заезда.
@@ -63,17 +64,14 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
   const handleEmpty = useCallback(() => setMode(m => (m === 'manual' ? m : 'empty')), []);
 
   const manualInput = (
-    <input
-      type="date"
+    <RuDateInput
       id={inputId}
       name={inputName}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange}
       min={seasonWindow && seasonWindow.from > minDate() ? seasonWindow.from : minDate()}
       max={seasonWindow?.to}
-      className="ds-input w-full"
-      aria-invalid={invalid || undefined}
-      style={invalid ? { borderColor: 'var(--danger)' } : undefined}
+      invalid={invalid}
       required
     />
   );

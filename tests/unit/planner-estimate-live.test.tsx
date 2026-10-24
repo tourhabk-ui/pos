@@ -72,8 +72,8 @@ async function buildPlan() {
   render(<PlannerClient />);
   // Местный: без дней на самолёт, ночей дома и трансфера аэропорта.
   fireEvent.click(screen.getByRole('radio', { name: /Живу на Камчатке/ }));
-  fireEvent.change(screen.getByLabelText('Первый день поездки'), { target: { value: '2030-08-03' } });
-  fireEvent.change(screen.getByLabelText('Последний день поездки'), { target: { value: '2030-08-05' } });
+  fireEvent.change(screen.getByLabelText('Первый день поездки'), { target: { value: '03.08.2027' } });
+  fireEvent.change(screen.getByLabelText('Последний день поездки'), { target: { value: '05.08.2027' } });
   next(); next(); next();
   fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
   fireEvent.click(screen.getByRole('button', { name: /Собрать маршрут/ }));
@@ -118,9 +118,19 @@ describe('смета на группу в /planner', () => {
     expect(sd.day_plan).toBeUndefined();
   });
 
+  it('помощник стоит в потоке плана, кружок fixed — только с lg', async () => {
+    await buildPlan();
+    const helper = screen.getByRole('button', { name: 'Помощник путешественника' });
+    expect(helper.className).toContain('lg:fixed');
+    expect(helper.className).not.toMatch(/(^|\s)fixed(\s|$)/);
+    const add = screen.getByRole('button', { name: 'Добавить день' });
+    expect(add.compareDocumentPosition(helper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('удалили день с туром — смета пересчиталась без него', async () => {
     const estimate = await buildPlan();
     fireEvent.click(deleteButtonOf('Мутновский вулкан'));
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить' }));
     expect(screen.queryByText('30 000 ₽ за группу')).toBeNull();
     expect(text(estimate)).toContain('Итого на группу20 000 — 24 000 ₽');
   });

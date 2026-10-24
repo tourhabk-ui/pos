@@ -21,7 +21,7 @@
  * старый адрес /marketplace) и для SQL источника данных.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, screen, within, fireEvent, act } from '@testing-library/react';
+import { render, cleanup, screen, within, fireEvent, act, waitFor } from '@testing-library/react';
 import React from 'react';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,6 +32,7 @@ import {
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { activityLabel } from '@/lib/tours/labels';
+import { parseMarketplaceSearchParams } from '@/lib/tours/marketplace-page';
 import { activityIcon } from '@/lib/tours/activity-icons';
 
 vi.mock('next/image', () => ({
@@ -302,7 +303,11 @@ describe('сводка витрины: направления только с т
     storefront();
     const group = screen.getByRole('group', { name: 'Направления' });
     const chips = within(group).getAllByRole('button');
-    expect(chips.map((b) => b.textContent)).toEqual(['Все · 37', '7', '8']);
+    expect(chips.map((b) => b.textContent)).toEqual([
+      'Все · 37',
+      `${activityLabel('fishing', true)} · 7`,
+      `${activityLabel('jeep_safari', true)} · 8`,
+    ]);
     expect(chips[1]!.querySelector('svg')?.classList.contains(fish)).toBe(true);
     expect(chips[2]!.querySelector('svg')?.classList.contains(car)).toBe(true);
     expect(chips.slice(1).map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -326,7 +331,7 @@ describe('сводка витрины: направления только с т
       expect(chips.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
       expect(chips[1]!.textContent).toBe(`${activityLabel('fishing', true)} · 7`);
       expect(chips[1]!.querySelector('svg')?.classList.contains(iconToken('fishing'))).toBe(true);
-      expect(chips[2]!.textContent).toBe('8');
+      expect(chips[2]!.textContent).toBe(`${activityLabel('jeep_safari', true)} · 8`);
     } finally {
       window.history.replaceState({}, '', '/catalog');
     }
@@ -355,11 +360,48 @@ describe('сводка витрины: направления только с т
       `${activityLabel('horseback', true)} · 1`,
       `${activityLabel('rafting', true)} · 2`,
       `${activityLabel('surf', true)} · 1`,
-      '2',
+      `${activityLabel('helicopter', true)} · 2`,
     ]);
     // Общий билет и две одинаковые волны значком не рисуются; вертолёт — свой и один.
     for (const b of chips.slice(1, 4)) expect(b.querySelector('svg')).toBeNull();
     expect(chips[4]!.querySelector('svg')?.classList.contains(iconToken('helicopter'))).toBe(true);
+  });
+
+  it('разбор адреса: q — алиас search, явный search важнее', () => {
+    expect(parseMarketplaceSearchParams({ q: 'рыбалка' }).filters.search).toBe('рыбалка');
+    expect(parseMarketplaceSearchParams({ search: 'море', q: 'рыбалка' }).filters.search).toBe('море');
+    expect(parseMarketplaceSearchParams({}).filters.search).toBeUndefined();
+  });
+
+  it('отказ фильтра не оставляет в герое прежние «37 туров»', async () => {
+    window.history.replaceState({}, '', '/catalog?q=нерка');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('no', { status: 500 })));
+    try {
+      storefront();
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Не удалось загрузить/));
+      const hero = screen.getByRole('region', { name: 'Туры на Камчатку' });
+      expect(hero).toHaveTextContent('Не удалось посчитать');
+      expect(hero).not.toHaveTextContent('37 туров');
+    } finally {
+      window.history.replaceState({}, '', '/catalog');
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('?q= — алиас поиска, счётчик выдачи берёт ответ фильтра, а не сводку', async () => {
+    window.history.replaceState({}, '', '/catalog?q=нерка');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ tours: [], total: 2 }), { status: 200 })));
+    try {
+      storefront();
+      await waitFor(() => expect(screen.getByLabelText('Поиск тура по названию')).toHaveValue('нерка'));
+      await waitFor(() => expect(screen.getByTestId('catalog-result-count')).toHaveTextContent('2 тура'), { timeout: 2000 });
+      expect(screen.getByRole('region', { name: 'Туры на Камчатку' })).toHaveTextContent('2 тура');
+      expect(screen.getByRole('region', { name: 'Туры на Камчатку' })).not.toHaveTextContent('37 туров');
+      expect(within(screen.getByRole('group', { name: 'Направления' })).getAllByRole('button')[0]).toHaveTextContent('Все · 2');
+    } finally {
+      window.history.replaceState({}, '', '/catalog');
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -367,6 +409,7 @@ describe('доступность и цели нажатия (рендер)', () 
   it('поиск, очистка, сортировка и фильтры подписаны; панель фильтров раскрывается с aria-expanded', () => {
     const { container } = storefront();
     const search = screen.getByLabelText('Поиск тура по названию');
+    expect(search).toHaveAttribute('placeholder', 'Поиск туров');
     expect(screen.queryByRole('button', { name: 'Очистить поиск' })).toBeNull();
     fireEvent.change(search, { target: { value: 'сплав' } });
     expect(screen.getByRole('button', { name: 'Очистить поиск' })).toBeInTheDocument();

@@ -362,6 +362,7 @@ export function PlannerMapOverlay({
   const failedInDay = editing !== null && status === 'failed';
 
   return (
+    <>
     <div
       ref={panelRef}
       data-theme="dark"
@@ -506,12 +507,15 @@ export function PlannerMapOverlay({
           {open && showLegend && truncatedLine && (
             <p className="mt-1.5 text-[11px] leading-snug text-[var(--glass-fg)]">{truncatedLine}</p>
           )}
-          {open && showLegend && (
-            <p className="mt-1.5 text-[11px] leading-snug text-[var(--glass-fg-muted)]">{hint}</p>
-          )}
         </div>
       )}
 
     </div>
+    {open && showLegend && (
+      <p data-theme="dark" className={`${GLASS} absolute bottom-3 left-3 right-14 z-10 text-sm leading-snug text-[var(--glass-fg-muted)] pointer-events-none`}>
+        {hint}
+      </p>
+    )}
+    </>
   );
 }

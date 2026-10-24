@@ -13,7 +13,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Страницы где виджет не нужен
-const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
+const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/planner', '/ai-assistant', '/sos', '/register', '/safety/offline'];
 
 interface BookingFormData {
   tourId: number;

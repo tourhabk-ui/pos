@@ -18,6 +18,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, X, Send, MessageCircle, Phone, ExternalLink, Copy, Check } from 'lucide-react';
+import { RuDateInput } from '@/components/forms/RuDateInput';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -276,7 +277,7 @@ export function SeatRequestForm({
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="ds-label">Дата</span>
-                <input type="date" required min={seasonWindow && seasonWindow.from > today ? seasonWindow.from : today} max={seasonWindow?.to} value={date} onChange={e => setDate(e.target.value)} className="ds-input w-full" />
+                <RuDateInput required min={seasonWindow && seasonWindow.from > today ? seasonWindow.from : today} max={seasonWindow?.to} value={date} onChange={setDate} ariaLabel="Дата" />
               </label>
               <label className="block">
                 <span className="ds-label">Человек</span>

@@ -60,7 +60,7 @@ const ROOM = '11111111-1111-4111-8111-111111111111';
 const EXTRAS = {
   lodging: {
     state: 'checked', nightsInTours: 1, unzonedCount: 0,
-    stays: [{ zone: 'avachinsky', zoneName: 'Авачинская зона', checkIn: '2030-08-03', checkOut: '2030-08-04', nights: 1,
+    stays: [{ zone: 'avachinsky', zoneName: 'Авачинская зона', checkIn: '2027-08-03', checkOut: '2027-08-04', nights: 1,
       result: { state: 'ok', items: [{
         id: 'acc-1', name: 'Дом у вулкана', type: 'guesthouse', priceFrom: 6000, rating: null, reviewCount: 0, isVerified: true,
         stay: { kind: 'priced', total: 12000, rooms: 1, roomId: ROOM, roomName: 'Двухместный', maxGuests: 2 },
@@ -94,8 +94,8 @@ const next = () => fireEvent.click(screen.getByRole('button', { name: /Даль�
 
 async function planWithExtras() {
   render(<PlannerClient />);
-  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
-  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-12' } });
+  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '03.08.2027' } });
+  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '12.08.2027' } });
   next();
   next();
   fireEvent.click(document.querySelector('[data-need="lodging"]')!);
@@ -157,14 +157,14 @@ describe('/planner: взять в план', { timeout: 15_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Отправить заявку' }));
     await waitFor(() => expect(calls.some((c) => c.url === '/api/leads')).toBe(true));
     const plan = (calls.find((c) => c.url === '/api/leads')!.body!.source_data as { plan: Record<string, unknown> }).plan;
-    expect(plan.lodging).toEqual([expect.objectContaining({ accommodation_id: 'acc-1', total: 12000, check_in: '2030-08-03' })]);
+    expect(plan.lodging).toEqual([expect.objectContaining({ accommodation_id: 'acc-1', total: 12000, check_in: '2027-08-03' })]);
     expect(plan).not.toHaveProperty('transfers');
   });
 
   it('ссылки: объект — с датами стоянки, составом и номером; перевозчик — на его прайс и заявку', async () => {
     const section = await planWithExtras();
     expect(within(section).getByText('Дом у вулкана').closest('a')?.getAttribute('href'))
-      .toBe(`/accommodations/acc-1?check_in=2030-08-03&check_out=2030-08-04&adults=2&children=0&room=${ROOM}`);
+      .toBe(`/accommodations/acc-1?check_in=2027-08-03&check_out=2027-08-04&adults=2&children=0&room=${ROOM}`);
     expect(within(section).getByText('Шатун').closest('a')?.getAttribute('href')).toBe('/transfers/shatun');
   });
 });
