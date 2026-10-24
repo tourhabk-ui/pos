@@ -59,6 +59,10 @@ import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partn
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { tryRentalCabinetTelegramMessage, tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
+import { type MenuButton } from '@/lib/roles/chat-menu';
+import { adminMenu, parseRoleMenuPress } from '@/lib/roles/role-menu';
+import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
@@ -130,7 +134,7 @@ interface TelegramUpdate {
   callback_query?: {
     id: string;
     from: { id: number; username?: string };
-    message?: { chat: { id: number } };
+    message?: { chat: { id: number; type?: string } };
     data?: string;
   };
 }
@@ -172,25 +176,35 @@ async function sendHTML(chatId: string, text: string): Promise<void> {
  * примет; не принял — второй раз без тегов. Кнопки остаются на обеих
  * попытках. Не принят и второй — отказ в лог (§4.0).
  */
-async function sendRentalCabinet(chatId: string, text: string, buttons: CabinetButton[][] = []): Promise<void> {
+async function sendHtmlKeyboard(
+  chatId: string,
+  text: string,
+  replyMarkup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> },
+  logLabel: string,
+): Promise<void> {
   const clean = sanitizeForTelegram(text);
-  const replyMarkup = telegramCabinetMarkup(buttons);
   const html = await telegramService.sendMessage({
-    chatId,
-    text: repairTelegramHtml(clean),
-    parseMode: 'HTML',
-    replyMarkup,
+    chatId, text: repairTelegramHtml(clean), parseMode: 'HTML', replyMarkup,
   });
   if (html.success) return;
   const plain = await telegramService.sendMessage({
-    chatId,
-    text: repairTelegramHtml(esc(stripTags(clean))),
-    parseMode: 'HTML',
-    replyMarkup,
+    chatId, text: repairTelegramHtml(esc(stripTags(clean))), parseMode: 'HTML', replyMarkup,
   });
   if (!plain.success) {
-    console.error('[telegram/webhook] ответ кабинета не доставлен', { html: html.error, plain: plain.error });
+    console.error(`[telegram/webhook] ${logLabel} не доставлен`, { html: html.error, plain: plain.error });
   }
+}
+
+async function sendRentalCabinet(chatId: string, text: string, buttons: CabinetButton[][] = []): Promise<void> {
+  await sendHtmlKeyboard(chatId, text, telegramCabinetMarkup(buttons), 'ответ кабинета');
+}
+
+function roleKeyboard(buttons: MenuButton[][]): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+  return { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) };
+}
+
+async function sendRoleRows(chatId: string, text: string, buttons: MenuButton[][]): Promise<void> {
+  await sendHtmlKeyboard(chatId, text, roleKeyboard(buttons), 'ответ меню роли');
 }
 
 // ── Поиск пользователя по Telegram ID ────────────────────────────────────────
@@ -843,6 +857,14 @@ export async function POST(request: NextRequest) {
       })) {
         return NextResponse.json({ ok: true });
       }
+      if (!admin && await tryRoleMenuTelegramMessage({
+        chatId: update.message.chat.id,
+        text: '/start',
+        fromName: update.message.from?.first_name ?? null,
+        send: (body, buttons) => sendRoleRows(chatId, body, buttons),
+      })) {
+        return NextResponse.json({ ok: true });
+      }
 
       // /start без параметра — проверяем знаем ли мы этого пользователя
       const linkedUser = await getUserByTelegramId(fromId);
@@ -929,7 +951,7 @@ export async function POST(request: NextRequest) {
       const adminBlock = admin
         ? '\n<b>Админ:</b>\n/stats — статистика\n/leads — последние заявки\n/groups — мониторинг групп\n/digest — AI дайджест\n/agent &lt;текст&gt; — PlatformAgent\n/post operator &lt;slug&gt;\n/post route &lt;uuid&gt;\n/post sezon — AI-пост в канал'
         : '';
-      await sendHTML(chatId, [
+      const helpText = [
         '<b>Команды Кузьмича:</b>',
         '',
         '/route — случайный маршрут из каталога',
@@ -942,7 +964,9 @@ export async function POST(request: NextRequest) {
         'Или просто напиши вопрос — отвечу как местный.',
         '',
         '<a href="https://vedarai.ru/routes">Все маршруты →</a>',
-      ].filter(s => s !== '').join('\n'));
+      ].filter(s => s !== '').join('\n');
+      if (admin) await sendRoleRows(chatId, helpText, [adminMenu()]);
+      else await sendHTML(chatId, helpText);
       return NextResponse.json({ ok: true });
     }
 
@@ -1284,6 +1308,14 @@ export async function POST(request: NextRequest) {
     })) {
       return NextResponse.json({ ok: true });
     }
+    if (!admin && !text.startsWith('/') && await tryRoleMenuTelegramMessage({
+      chatId: update.message.chat.id,
+      text,
+      fromName: update.message.from?.first_name ?? null,
+      send: (body, buttons) => sendRoleRows(chatId, body, buttons),
+    })) {
+      return NextResponse.json({ ok: true });
+    }
 
     // Любой обычный текст → проверяю телефон или AI Кузьмич
     if (!text.startsWith('/')) {
@@ -1427,6 +1459,33 @@ export async function POST(request: NextRequest) {
         chatId: cq.message?.chat?.id ?? senderChatId,
         payload: data,
         send: (body, buttons) => sendRentalCabinet(callbackChatId, body, buttons),
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    const rolePress = parseRoleMenuPress(data);
+    if (rolePress) {
+      await telegramService.answerCallback(cq.id);
+      const privateChat = (cq.message?.chat?.type ?? 'private') === 'private';
+      if (!privateChat) {
+        await sendHTML(callbackChatId, 'Кнопки кабинета работают в личном диалоге.');
+        return NextResponse.json({ ok: true });
+      }
+      if (rolePress.role === 'admin') {
+        if (!isAdmin(senderChatId)) {
+          await sendHTML(callbackChatId, 'Эта кнопка — кабинет администратора. В этом чате её не выполняю.');
+          return NextResponse.json({ ok: true });
+        }
+        const screen = await roleMenuScreen({
+          role: 'admin', action: rolePress.action, channel: 'telegram', partner: null, nowMs: Date.now(),
+        });
+        await sendRoleRows(callbackChatId, screen.text, [adminMenu()]);
+        return NextResponse.json({ ok: true });
+      }
+      await tryRoleMenuTelegramPress({
+        chatId: cq.message?.chat?.id ?? senderChatId,
+        payload: data,
+        send: (body, buttons) => sendRoleRows(callbackChatId, body, buttons),
       });
       return NextResponse.json({ ok: true });
     }

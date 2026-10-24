@@ -234,7 +234,9 @@ withPg('«открой даты словами» на настоящем Postgre
     expect(lastTo(CHAT_A)?.text).toMatch(/Понял так:[\s\S]*Вулкан Горелый[\s\S]*Мест на каждый выезд: 8[\s\S]*Откроются \(2\)/);
     expect(await rows(tour.gorely)).toEqual([]);
     const id = proposalId(CHAT_A);
-    expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual([`od:o:${id}`, `od:x:${id}`]);
+    expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual([
+      `od:o:${id}`, `od:x:${id}`, 'rm:op:in', 'rm:op:hp',
+    ]);
 
     await press(CHAT_A, `od:o:${id}`);
     expect(lastTo(CHAT_A)?.text).toMatch(/^Готово, «Вулкан Горелый», 8 мест на выезд\.\nОткрыты \(2\)/);
@@ -521,7 +523,7 @@ withPg('«открой даты словами» на настоящем Postgre
     const hiddenText = lastTo(CHAT_A)?.text ?? '';
     expect(hiddenText).toMatch(/^Туры «Каньон Ветровой \((?:летний|зимний)\)», «Каньон Ветровой \((?:летний|зимний)\)» скрыты[\s\S]*Ничего не открыто\.$/);
     for (const t of ['«Каньон Ветровой (летний)»', '«Каньон Ветровой (зимний)»']) expect(hiddenText).toContain(t);
-    expect(buttons(lastTo(CHAT_A))).toEqual([]);
+    expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:hp']);
     const after = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM operator_chat_date_proposals WHERE chat_id = $1`, [CHAT_A])).rows[0]!.n;
     expect(after).toBe(before);
     expect(await rows(summer)).toEqual([]);
@@ -698,7 +700,7 @@ withPg('«открой даты словами» на настоящем Postgre
     ])('«%s» — отказ, строки предложения нет, календарь не тронут', async (text) => {
       const before = await count();
       await say(CHAT_A, text);
-      expect(buttons(lastTo(CHAT_A))).toEqual([]);
+      expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:hp']);
       expect(await count()).toBe(before);
       expect((await rows(tour.gorely)).some((r) => r.date === day(60) || r.date === day(61))).toBe(false);
     });

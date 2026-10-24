@@ -13,6 +13,7 @@
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ADMIN_HELP_TEXT, adminCommandOf, adminReplyFor } from '@/lib/max/admin-read';
+import { adminMenu } from '@/lib/roles/role-menu';
 
 export const ADMIN_CHAT_TEXT = {
   textOnly: 'Как администратор принимаю в MAX только текст: фото, голос и номера здесь не обрабатываю.',
@@ -54,6 +55,7 @@ export async function handleAdminMessage(opts: {
   const sent = await sendPdAlert({
     text: res.text,
     stub: 'Ответ администратору в MAX не доставлен.',
+    buttons: adminMenu(),
     to: { maxChatId: chatId, telegramChatId: null },
   });
   if (!sent.delivered) {

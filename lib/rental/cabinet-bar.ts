@@ -6,7 +6,10 @@
  * не из кнопки. «Мои машины» и «Календарь» зовут уже существующие
  * чтения прайса и календаря; «Заявки» — список с «Беру» / «Не могу»;
  * «Правки» — черновики на модерации; «Помощь» — справка без цен.
+ * Клеится строка общим правилом `appendMenu`: у других ролей свой набор.
  */
+
+import { appendMenu } from '@/lib/roles/chat-menu';
 
 export interface CabinetButton {
   text: string;
@@ -32,10 +35,7 @@ export function rentalCabinetBar(): CabinetButton[] {
 
 /** Последняя строка уже эта — вторую не клеим. */
 export function withRentalCabinetBar(rows: CabinetButton[][]): CabinetButton[][] {
-  const bar = rentalCabinetBar();
-  const last = rows[rows.length - 1];
-  if (last && last.length === bar.length && last.every((b, i) => b.payload === bar[i]?.payload)) return rows;
-  return [...rows, bar];
+  return appendMenu(rows, rentalCabinetBar());
 }
 
 export function parseRentalCabinetPress(payload: string): RentalCabinetAction | null {
