@@ -1341,6 +1341,9 @@ export const ERASE_KEEP: Readonly<Record<string, KeepEntry>> = {
   gear_items: {
     reason: 'ссылка moderated_by — на модератора; name — название снаряжения, а не имя человека',
   },
+  'rental_offer_edits.moderation_reason': {
+    reason: 'ссылка moderated_by — на администратора, который решил правку цены или описания машины; текст — причина по строке прайса, а не данные этого человека',
+  },
   guide_certifications: {
     reason: 'ссылка reviewed_by — на проверявшего администратора; имя в строке — аттестованного гида из реестра, не его',
   },
