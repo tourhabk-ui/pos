@@ -56,6 +56,9 @@ import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
+import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
+import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
+import { tryRentalCabinetTelegramMessage, tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
@@ -157,6 +160,37 @@ function isAdmin(userId: number): boolean {
 
 async function sendHTML(chatId: string, text: string): Promise<void> {
   await telegramService.sendMessage({ chatId, text, parseMode: 'HTML' });
+}
+
+/**
+ * Ответ кабинета проката: та же строка кнопок под текстом.
+ *
+ * Свободная реплика кабинета — ответ модели, и в нём бывает голый `<`.
+ * Прежняя отправка слала текст как есть и не смотрела на ответ Bot API:
+ * 400 «can't parse entities» глотался, прокатчик не получал ничего.
+ * Тот же разбор, что у ответа туриста: сначала HTML, который Bot API
+ * примет; не принял — второй раз без тегов. Кнопки остаются на обеих
+ * попытках. Не принят и второй — отказ в лог (§4.0).
+ */
+async function sendRentalCabinet(chatId: string, text: string, buttons: CabinetButton[][] = []): Promise<void> {
+  const clean = sanitizeForTelegram(text);
+  const replyMarkup = telegramCabinetMarkup(buttons);
+  const html = await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(clean),
+    parseMode: 'HTML',
+    replyMarkup,
+  });
+  if (html.success) return;
+  const plain = await telegramService.sendMessage({
+    chatId,
+    text: repairTelegramHtml(esc(stripTags(clean))),
+    parseMode: 'HTML',
+    replyMarkup,
+  });
+  if (!plain.success) {
+    console.error('[telegram/webhook] ответ кабинета не доставлен', { html: html.error, plain: plain.error });
+  }
 }
 
 // ── Поиск пользователя по Telegram ID ────────────────────────────────────────
@@ -704,7 +738,9 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: true });
         }
         const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
-        await sendHTML(chatId, bindReplyText('telegram', bound));
+        const boundText = bindReplyText('telegram', bound);
+        if (bound.ok && isRentalPilotSlug(bound.slug)) await sendRentalCabinet(chatId, boundText);
+        else await sendHTML(chatId, boundText);
         return NextResponse.json({ ok: true });
       }
 
@@ -795,6 +831,16 @@ export async function POST(request: NextRequest) {
           '',
           '<i>Пришлю персональное предложение прямо сюда через 1–2 минуты.</i>',
         ].join('\n'));
+        return NextResponse.json({ ok: true });
+      }
+
+      // /start без параметра — у привязанного прокатчика это кабинет, не меню туриста.
+      if (!admin && await tryRentalCabinetTelegramMessage({
+        chatId: update.message.chat.id,
+        text: '/start',
+        fromName: update.message.from?.first_name ?? null,
+        send: (body, buttons) => sendRentalCabinet(chatId, body, buttons),
+      })) {
         return NextResponse.json({ ok: true });
       }
 
@@ -1228,6 +1274,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // Кабинет прокатчика — до мозга туриста. Просьба туриста в этом чате
+    // остаётся Кузьмичу (boundChatLane внутри). Админский чат не перехватываем.
+    if (!admin && !text.startsWith('/') && await tryRentalCabinetTelegramMessage({
+      chatId: update.message.chat.id,
+      text,
+      fromName: update.message.from?.first_name ?? null,
+      send: (body, buttons) => sendRentalCabinet(chatId, body, buttons),
+    })) {
+      return NextResponse.json({ ok: true });
+    }
+
     // Любой обычный текст → проверяю телефон или AI Кузьмич
     if (!text.startsWith('/')) {
       // Блок 112 — на каждом ответе туристу в этой ветке (аудит 15.10,
@@ -1363,6 +1420,16 @@ export async function POST(request: NextRequest) {
     const senderChatId   = cq.from.id;
     const callbackChatId = String(cq.message?.chat?.id ?? senderChatId);
     const data           = cq.data ?? '';
+
+    if (parseRentalCabinetPress(data) || data.startsWith('rr:')) {
+      await telegramService.answerCallback(cq.id);
+      await tryRentalCabinetTelegramPress({
+        chatId: cq.message?.chat?.id ?? senderChatId,
+        payload: data,
+        send: (body, buttons) => sendRentalCabinet(callbackChatId, body, buttons),
+      });
+      return NextResponse.json({ ok: true });
+    }
 
     // ── Admin quick-action кнопки (из дайджеста) ──────────────────────────
     if (data.startsWith('admin:') && isAdmin(senderChatId)) {

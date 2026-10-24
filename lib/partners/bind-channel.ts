@@ -30,6 +30,7 @@ import { telegramService } from '@/lib/notifications/telegram';
 import { maxSendDm } from '@/lib/notifications/max-channel';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
+import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-pilot';
 
 export type PartnerChannel = 'telegram' | 'max';
@@ -159,7 +160,10 @@ export async function handlePartnerStart(
   arg: string,
   channel: PartnerChannel,
   chatId: number,
-  reply: (text: string) => Promise<unknown>,
+  reply: (
+    text: string,
+    buttons?: ReadonlyArray<ReadonlyArray<{ text: string; payload: string }>>,
+  ) => Promise<unknown>,
 ): Promise<boolean> {
   const token = partnerTokenFromStart(arg);
   if (token === null) return false;
@@ -172,9 +176,10 @@ export async function handlePartnerStart(
   const bound = await bindPartnerChannel(check.partnerId, channel, chatId);
   // Прокатчик из пилота узнаёт себя по роли. Остальным партнёрам — прежний
   // текст, и в Telegram тоже: там по-прежнему нет персональных данных.
-  const text = bound.ok && channel === 'max' && isRentalPilotSlug(bound.slug)
+  const pilot = bound.ok && isRentalPilotSlug(bound.slug);
+  const text = pilot && channel === 'max'
     ? rentalPilotBoundText(bound.partnerName)
     : bindReplyText(channel, bound);
-  await reply(text);
+  await reply(text, pilot ? [rentalCabinetBar()] : undefined);
   return true;
 }

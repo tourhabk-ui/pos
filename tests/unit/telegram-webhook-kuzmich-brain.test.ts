@@ -406,3 +406,71 @@ describe('доставка ответа', () => {
     expect(sent()).toEqual(['Ответ <u>с подчёркиванием</u>', 'Ответ с подчёркиванием']);
   });
 });
+
+describe('кабинет проката на живом вебхуке', () => {
+  const PARTNER = '22222222-2222-4222-8222-222222222222';
+  const CHAT = 4242;
+
+  beforeEach(() => {
+    vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) return { rows: [] };
+      if (q.includes('FROM partners')) {
+        return { rows: [{ id: PARTNER, slug: 'laguna-prokat', name: 'Лагуна Прокат', category: 'transfer', user_id: null, profile_status: null }] };
+      }
+      return { rows: [] };
+    });
+  });
+
+  it('«Помощь» — справка со строкой кнопок, не мозг туриста', async () => {
+    await post('Помощь', { chat: CHAT, from: CHAT });
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(sent()).toEqual([expect.stringContaining('Кабинет проката')]);
+    const markup = (m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data: string }>> } }).replyMarkup;
+    const last = markup?.inline_keyboard?.[markup.inline_keyboard.length - 1] ?? [];
+    expect(last.map((b) => b.callback_data)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+  });
+
+  function cabinetMarkup(call: number): string[] {
+    const markup = (m.tgSend.mock.calls[call]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data: string }>> } }).replyMarkup;
+    const last = markup?.inline_keyboard?.[markup.inline_keyboard.length - 1] ?? [];
+    return last.map((b) => b.callback_data);
+  }
+
+  it('ответ модели с голым `<` доходит экранированным, строка кнопок на месте', async () => {
+    m.tools.mockResolvedValue({ content: 'Залог < 5000 & ветер', provider: 'deepseek' });
+    await post('как дела', { chat: CHAT, from: CHAT });
+    expect(sent()).toEqual(['Залог &lt; 5000 &amp; ветер']);
+    expect(cabinetMarkup(0)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+  });
+
+  it('Bot API не принял HTML кабинета — второй раз без тегов, кнопки те же', async () => {
+    m.tgSend
+      .mockResolvedValueOnce({ success: false, error: "can't parse entities" })
+      .mockResolvedValueOnce({ success: true });
+    m.tools.mockResolvedValue({ content: 'Ответ <u>с подчёркиванием</u>', provider: 'deepseek' });
+    await post('как дела', { chat: CHAT, from: CHAT });
+    expect(sent()).toEqual(['Ответ <u>с подчёркиванием</u>', 'Ответ с подчёркиванием']);
+    expect(cabinetMarkup(0)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+    expect(cabinetMarkup(1)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+  });
+
+  it('не принят и простой текст — отказ в логе, вебхук не делает вид, что отправил', async () => {
+    m.tgSend.mockResolvedValue({ success: false, error: 'bot blocked' });
+    m.tools.mockResolvedValue({ content: 'Короткий ответ', provider: 'deepseek' });
+    const res = await post('как дела', { chat: CHAT, from: CHAT });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sent()).toHaveLength(2);
+    const logged = vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+    expect(logged.some((l) => l.includes('ответ кабинета не доставлен'))).toBe(true);
+  });
+
+  it('просьба туриста в том же чате идёт в мозг без строки кабинета', async () => {
+    await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
+    expect(m.tools).toHaveBeenCalled();
+    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: unknown };
+    expect(body.text).toContain('Ответ Кузьмича');
+    expect(body.replyMarkup).toBeUndefined();
+  });
+});

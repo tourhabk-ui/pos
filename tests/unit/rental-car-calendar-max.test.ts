@@ -229,8 +229,13 @@ describe('нажатие rr: ответ на заявку', () => {
     expect(String(journal?.[1]?.[1] ?? '')).toContain('"answer":"take"');
     expect(String(journal?.[1]?.[1] ?? '')).not.toContain(phone);
     expect(m.edit).toHaveBeenCalled();
-    const extra = m.edit.mock.calls[0]?.[1] as { text?: string; attachments?: unknown[] };
-    expect(extra.attachments).toEqual([]);
+    const extra = m.edit.mock.calls[0]?.[1] as {
+      text?: string;
+      attachments?: Array<{ payload?: { buttons?: Array<Array<{ payload?: string }>> } }>;
+    };
+    const payloads = (extra.attachments ?? []).flatMap((a) => a.payload?.buttons ?? []).flat().map((b) => b.payload);
+    expect(payloads).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+    expect(payloads.join(' ')).not.toContain('rr:');
     expect(extra.text).toContain('беру');
     expect(extra.text).toContain('2026-11-10');
     expect(extra.text).toContain(phone);

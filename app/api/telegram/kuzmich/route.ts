@@ -17,6 +17,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
 import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
 import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
+import { parseRentalCabinetPress, rentalCabinetAsk, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
+import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
+import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { PlatformAgent } from '@/lib/agents';
@@ -465,6 +468,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const cq = update.callback_query;
       const chatId = cq.message?.chat.id ?? cq.from.id;
 
+      if (parseRentalCabinetPress(cq.data) || cq.data.startsWith('rr:')) {
+        await tgAnswerCallback(cq.id);
+        const { tryRentalCabinetTelegramPress } = await import('@/lib/rental/cabinet-telegram');
+        await tryRentalCabinetTelegramPress({
+          chatId,
+          payload: cq.data,
+          send: async (body, buttons) => {
+            await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
+          },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       if (cq.data === 'rate_good') {
         await saveRating(chatId, 'tourist', 5);
         await tgAnswerCallback(cq.id, 'Спасибо!');
@@ -580,7 +596,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (isPrivate && msg.text && /^\/start\s+\S/.test(msg.text.trim())) {
       const arg = msg.text.trim().slice('/start'.length).trim();
       const reply = (t: string) => tgReply(chatId, t);
-      if (await handlePartnerStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });
+      if (await handlePartnerStart(arg, 'telegram', chatId, async (t, buttons) => {
+        if (buttons?.length) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(buttons.map((row) => [...row])) });
+        else await reply(t);
+      })) return NextResponse.json({ ok: true });
       if (await handleMemberStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });
       const seatToken = statusTokenFromStart(arg);
       if (seatToken !== null) {
@@ -608,22 +627,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // план поездки) идёт Кузьмичу туриста, кабинет — помощнику партнёра.
     if (partner && msg.text && boundChatLane(msg.text) !== 'tourist') {
       const text = msg.text.trim();
+      const pilot = isRentalPilotSlug(partner.slug);
+      const say = async (body: string, buttons: CabinetButton[][] = []) => {
+        if (pilot) await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
+        else await tgReply(chatId, body);
+      };
       if (text === '/start') {
-        await tgReply(chatId, partnerGreeting(partner));
+        await say(partnerGreeting(partner));
       } else if (partner.category === 'operator' && chatDatesIntent(text) === 'dates'
         && await (await import('@/lib/operators/chat-dates/flow')).isOperatorDatesPhrase(text, partner.partnerId)) {
         // «Открой даты словами» (22.10) — только в MAX: там есть кнопка
         // подтверждения. Здесь записи нет, и помощник фразу не получает —
         // он сказал бы «открыл», не открыв.
-        await tgReply(chatId, telegramDatesText());
+        await say(telegramDatesText());
+      } else if (pilot && (rentalCabinetAsk(text) === 'requests' || rentalCabinetAsk(text) === 'edits' || rentalCabinetAsk(text) === 'help')) {
+        const asked = rentalCabinetAsk(text);
+        if (asked) {
+          await openRentalCabinetScreen({
+            action: asked,
+            partner: { partnerId: partner.partnerId, partnerName: partner.partnerName, slug: partner.slug },
+            channel: 'telegram',
+            dialog: true,
+            send: say,
+          });
+        }
       } else if (await (await import('@/lib/rental/car-calendar-flow')).handleRentalCalendarText({
         partner, text, nowMs: Date.now(), dialog: true, canMark: false,
-        send: async (body) => { await tgReply(chatId, body); },
+        send: async (body, buttons) => { await say(body, buttons); },
       })) {
         // Календарь проката читается и здесь. Кнопок отметки в Telegram нет:
         // «Свободна» / «Занята» пишутся в MAX, и текст это говорит.
       } else {
-        await processPartnerMessage({ chatId, text, fromName, partner, reply: tgReply });
+        await processPartnerMessage({
+          chatId, text, fromName, partner,
+          reply: async (id, body) => { await say(body); void id; },
+        });
       }
       return NextResponse.json({ ok: true });
     }

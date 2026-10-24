@@ -14,6 +14,7 @@
  */
 
 import { isFleetAsk } from '@/lib/kuzmich/operator-rental-fleet';
+import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
 import { calendarAsk } from '@/lib/rental/car-calendar';
 import { isOfferEditAsk } from '@/lib/rental/offer-edit';
 import { isNextCommand } from '@/lib/seat-requests/answer-edit';
@@ -49,7 +50,7 @@ const ASK = word('найд\\p{L}*|подбер\\p{L}*|хочу|хотим|нуж
 const HOW_MUCH = /сколько\s+стоит/u;
 
 function isCabinet(raw: string, t: string): boolean {
-  if (isFleetAsk(raw) || calendarAsk(raw) !== null || isOfferEditAsk(raw)) return true;
+  if (isFleetAsk(raw) || calendarAsk(raw) !== null || isOfferEditAsk(raw) || rentalCabinetAsk(raw) !== null) return true;
   if (isSummaryCommand(raw) || isNextCommand(raw)) return true;
   if (CRM.test(t) || OWN.test(t)) return true;
   if (WHO.test(t) && /ждет/.test(t)) return true;
