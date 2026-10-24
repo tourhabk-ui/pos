@@ -7,6 +7,7 @@
  * стартовали разом: 404 профиля, 403 на /me, канал и дашборд, и вспышка
  * «Профиль не найден». Пока профиль не прочитан, этих запросов нет.
  * Онбординг не завершён — тихий переход на настройку, без остальных экранов.
+ * Это только владелец: менеджер компании форму не сохраняет и в кабинет входит.
  * Админ без своей компании партнёра не получает: одна фраза, как открыть кабинет.
  */
 import { useEffect, useState, type ReactNode } from 'react';
@@ -14,9 +15,11 @@ import { usePathname, useRouter } from 'next/navigation';
 
 const ONBOARDING = '/hub/operator/onboarding';
 
+type Viewer = 'owner' | 'manager';
+
 type Gate =
   | { kind: 'loading' }
-  | { kind: 'ready'; at: boolean }
+  | { kind: 'ready'; at: boolean; viewer: Viewer }
   | { kind: 'onboarding'; at: boolean }
   | { kind: 'admin'; at: boolean }
   | { kind: 'failed'; message: string; at: boolean };
@@ -44,7 +47,9 @@ async function readGate(at: boolean): Promise<Exclude<Gate, { kind: 'loading' }>
   }
   const data = isRecord(json) ? json.data : null;
   const completed = isRecord(data) && data.onboarding_completed === true;
-  return completed ? { kind: 'ready', at } : { kind: 'onboarding', at };
+  const viewer: Viewer = isRecord(data) && data.viewer === 'manager' ? 'manager' : 'owner';
+  if (completed || viewer === 'manager') return { kind: 'ready', at, viewer };
+  return { kind: 'onboarding', at };
 }
 
 function Status({ children }: { children: ReactNode }) {
@@ -114,6 +119,12 @@ export function OperatorCabinetGate({
   if (gate.kind === 'onboarding') {
     if (!onOnboarding) return <>{quiet(<Status>Открываем настройку профиля…</Status>)}</>;
     return <>{quiet(children)}</>;
+  }
+
+  if (gate.viewer === 'manager' && onOnboarding) {
+    return <>{ready(
+      <Status>Настройку профиля завершает владелец компании. Разделы кабинета — в меню.</Status>,
+    )}</>;
   }
 
   return <>{ready(children)}</>;

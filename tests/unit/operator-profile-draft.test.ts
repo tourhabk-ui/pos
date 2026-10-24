@@ -68,9 +68,40 @@ describe('GET /api/hub/operator/profile без строки партнёра', (
     const res = await GET(req);
     expect(res.status).toBe(200);
     expect(ensure).toHaveBeenCalledWith('op-1', 'operator');
-    const body = await res.json() as { data: { onboarding_completed: boolean; company_name: string } };
+    const body = await res.json() as { data: { onboarding_completed: boolean; company_name: string; viewer: string } };
     expect(body.data.onboarding_completed).toBe(false);
     expect(body.data.company_name).toBe('Черновик');
+    expect(body.data.viewer).toBe('owner');
+  });
+
+  it('менеджер назван менеджером и не видит ставку', async () => {
+    const ctx = {
+      userId: 'mgr-1',
+      email: 'm@x.ru',
+      role: 'operator',
+      partnerId: 'p-1',
+      access: { kind: 'manager', partnerId: 'p-1', memberId: 'mem-1', perms: {} },
+    };
+    team.mockResolvedValueOnce(ctx);
+    query.mockResolvedValueOnce({
+      rows: [{
+        id: 'p-1',
+        company_name: 'Компания',
+        onboarding_completed: false,
+        payout_method: 'sbp',
+        commission_current: 10,
+      }],
+    });
+    reach.mockResolvedValueOnce(null);
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    expect(ensure).not.toHaveBeenCalled();
+    const body = await res.json() as {
+      data: { viewer: string; payout_method: string | null; commission_current: number | null };
+    };
+    expect(body.data.viewer).toBe('manager');
+    expect(body.data.payout_method).toBeNull();
+    expect(body.data.commission_current).toBeNull();
   });
 
   it('отказ базы при черновике — 503, а не «профиль не найден»', async () => {

@@ -33,8 +33,10 @@ describe('плашка канала партнёра', () => {
     const tg = await screen.findByRole('link', { name: /Подключить Telegram/ });
     const close = screen.getByRole('button', { name: 'Скрыть подсказку' });
     expect(tg.className).toMatch(/min-h-\[44px\]/);
+    expect(tg.parentElement?.className).toMatch(/flex-wrap/);
     expect(close.className).toMatch(/min-h-\[44px\]/);
     expect(close.className).toMatch(/min-w-\[44px\]/);
+    expect(close.parentElement?.className).not.toBe(tg.parentElement?.className);
     fireEvent.click(close);
     expect(screen.queryByRole('link', { name: /Подключить Telegram/ })).toBeNull();
     unmount();

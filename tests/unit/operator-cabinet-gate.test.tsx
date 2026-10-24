@@ -112,4 +112,31 @@ describe('ворота кабинета оператора', () => {
     expect(screen.getByText('экран')).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
   });
+
+  it('менеджер незавершённой компании входит в кабинет, а не на форму владельца', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { onboarding_completed: false, viewer: 'manager' } }),
+    })));
+    mount();
+    expect(await screen.findByText('экран')).toBeTruthy();
+    expect(screen.getByTestId('ready')).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText(/владельца компании/)).toBeNull();
+  });
+
+  it('менеджер на странице настройки видит, кто её завершает', async () => {
+    path.value = '/hub/operator/onboarding';
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { onboarding_completed: false, viewer: 'manager' } }),
+    })));
+    mount();
+    expect(await screen.findByText(/Настройку профиля завершает владелец компании/)).toBeTruthy();
+    expect(screen.queryByText('экран')).toBeNull();
+    expect(screen.getByTestId('ready')).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
 });

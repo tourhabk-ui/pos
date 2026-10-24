@@ -99,9 +99,16 @@ async function readProfile(ctx: OperatorTeamContext) {
   const visible = ctx.access.kind === 'owner'
     ? row
     : { ...row, payout_method: null, payout_verified: null, commission_current: null };
+  // Кто читает: ворота кабинета уводят на настройку только владельца.
+  // Менеджер компании с незавершённым профилем иначе застревает на форме,
+  // которую ему не дать сохранить.
   return NextResponse.json({
     success: true,
-    data: { ...visible, telegram_notifications: await telegramNotifications(partnerId) },
+    data: {
+      ...visible,
+      viewer: ctx.access.kind,
+      telegram_notifications: await telegramNotifications(partnerId),
+    },
   });
 }
 
