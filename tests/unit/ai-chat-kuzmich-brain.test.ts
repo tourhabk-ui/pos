@@ -43,7 +43,8 @@ vi.mock('@/lib/ai/user-memory', () => ({
   synthesizeUserNotes: vi.fn(),
   addViewedTour: vi.fn(),
 }));
-vi.mock('@/lib/ai/booking-intent', () => ({
+vi.mock('@/lib/ai/booking-intent', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/ai/booking-intent')>()),
   detectTourIntent: () => ({ detected: false, activityType: null, rawWords: [] }),
   findRelevantTours: vi.fn().mockResolvedValue([]),
 }));

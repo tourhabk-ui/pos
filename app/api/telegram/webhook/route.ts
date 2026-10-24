@@ -50,7 +50,8 @@ import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/
 import { isCarRentalAsk } from '@/lib/ai/booking-intent';
 import { rentalSitePauseActive } from '@/lib/rental/site-pause';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
-import { stripTags } from '@/lib/html/text';
+import { htmlToText, stripTags } from '@/lib/html/text';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { parseInterestsFromText, findRoutesByInterests } from '@/lib/planner/interests';
 import {
@@ -333,19 +334,9 @@ const KUZMICH_FAILED_TEXT = 'Не получилось ответить — сб
  * KUZMICH_FAILED_TEXT — и на «мы заблудились» он обязан нести блок тоже.
  * Второй раз блок не встаёт: withSosBlock видит в ответе 112 и МЧС.
  */
-/** Текст карточек без тегов — его и запоминает история. */
+/** Текст карточек без тегов — его и запоминает история. Разбор HTML один, lib/html. */
 function plainShown(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/[a-z0-9]+>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return decodeHtmlEntities(htmlToText(html));
 }
 
 async function answerByKuzmich(opts: {
