@@ -995,7 +995,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // «это турист» (§4.0).
       const lookup = await findPartnerByChat('max', chatId);
       const pilot = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
-      const menu = lookup.outcome === 'found'
+      // В группе кнопку кабинета нажал бы любой участник. Меню — только в личном диалоге.
+      const menu = lookup.outcome === 'found' && dialog
         ? (pilot ? rentalCabinetBar() : partnerMenu(lookup.partner))
         : null;
       const say = async (body: string) => {
