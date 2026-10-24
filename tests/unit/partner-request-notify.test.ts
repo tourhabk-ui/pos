@@ -9,7 +9,8 @@
  *   · адрес — только партнёра (`to`), без отката на рабочий чат платформы;
  *   · ПД заказчика — только в тексте для MAX; заглушка для Telegram без ПД и
  *     без слов про кабинет (у перевозчика и прокатчика кабинета заявок нет);
- *   · у заявки на машину кнопок нет; у проката пилота — «Беру» / «Не могу»
+ *   · у заявки на машину — «Принять / Нет мест / Уточнить / Свяжусь сам»,
+ *     если id разбирается; у проката пилота — «Беру» / «Не могу»
  *     (payload, без url: в заглушку Telegram такие кнопки не попадают);
  *   · исходов четыре: доставлено / заглушка / нет канала / адрес не прочитался;
  *   · факты для партнёра — без его телефона и без заметок менеджеру;
@@ -135,7 +136,7 @@ describe('доставка: адрес партнёра, четыре исход
     quiet.mockRestore();
   });
 
-  it('прокат пилота — кнопки «Беру» и «Не могу» без ссылок; перевозчик, чужой slug и пустой список — без кнопок', async () => {
+  it('прокат пилота — «Беру» и «Не могу»; перевозчик с uuid — четыре ответа; чужой slug и неразборный id — без кнопок', async () => {
     const leadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const rental: PartnerRequestNotice = {
       ...NOTICE, kind: 'car_rental', leadId, companySlug: 'laguna-prokat',
@@ -157,7 +158,17 @@ describe('доставка: адрес партнёра, четыре исход
     expect(lastPd().buttons).toEqual(buttons);
     expect(lastPd().stub).not.toContain('Анна');
 
-    expect(partnerRequestButtons({ ...rental, kind: 'charter', companySlug: 'laguna-prokat' })).toBeUndefined();
+    const charterButtons = partnerRequestButtons({ ...rental, kind: 'charter', companySlug: 'laguna-prokat' });
+    expect(charterButtons).toEqual([
+      { text: 'Принять', payload: `ia:a:l:${leadId}` },
+      { text: 'Нет мест', payload: `ia:n:l:${leadId}` },
+      { text: 'Уточнить', payload: `ia:c:l:${leadId}` },
+      { text: 'Свяжусь сам', payload: `ia:m:l:${leadId}` },
+    ]);
+    expect(partnerRequestTexts({ ...rental, kind: 'charter' }).text).toContain('Это ответ, не подтверждение брони');
+    expect(partnerRequestTexts({ ...rental, kind: 'charter' }).text).not.toContain('Беру');
+    expect(partnerRequestTexts({ ...rental, kind: 'charter' }).stub).not.toContain('Принять');
+    expect(partnerRequestTexts({ ...rental, kind: 'charter' }).stub).not.toContain('+79001234567');
     expect(partnerRequestButtons({ ...rental, companySlug: 'fishing' })).toBeUndefined();
     expect(partnerRequestButtons({ ...rental, leadId: 'lead-7' })).toBeUndefined();
     vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', '');

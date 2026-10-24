@@ -50,6 +50,18 @@ describe('копия брони команде кабинета', () => {
     expect(msg.stub).not.toContain('Анна Петрова');
     expect(msg.stub).not.toContain('+79990001122');
     expect(msg.buttons).toEqual([LINK]);
+    expect(toOperator.buttons).toEqual([
+      LINK,
+      { text: 'Принять', payload: 'ia:a:b:77' },
+      { text: 'Нет мест', payload: 'ia:n:b:77' },
+      { text: 'Уточнить', payload: 'ia:c:b:77' },
+      { text: 'Свяжусь сам', payload: 'ia:m:b:77' },
+    ]);
+    expect(toOperator.text).toContain('Статус брони и оплату кнопки не меняют');
+    expect(toOperator.text).toContain('Анна Петрова');
+    expect(toOperator.stub).not.toContain('Анна Петрова');
+    const admin = sent().find(s => !s.to);
+    expect(admin?.buttons).toEqual([LINK]);
   });
 
   it('кабинет не назван — команде ничего', async () => {

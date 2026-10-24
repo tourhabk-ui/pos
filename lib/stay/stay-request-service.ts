@@ -16,6 +16,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { INCOMING_ANSWER_HINT, incomingAnswerButtons } from '@/lib/requests/incoming-card';
 import { getPublicBaseUrl } from '@/lib/config';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { containsPattern } from '@/lib/db/like';
@@ -134,14 +135,17 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   });
   const base = getPublicBaseUrl();
   const card = { text: 'Карточка объекта', url: `${base}/accommodations/${i.accommodationId}` };
+  const actions = incomingAnswerButtons('stay_request', requestId) ?? [];
+  const ownerText = actions.length > 0 ? `${text}\n\n${INCOMING_ANSWER_HINT}` : text;
 
   // Хозяину — только если у него есть адрес: без него strict-режим всё равно
   // ответил бы «не смог», а звать отправку заведомо впустую незачем.
+  // Четыре ответа — только ему. Оператору платформы остаётся ссылка.
   let ownerChannel: StayOwnerChannel = 'no_address';
   let ownerReason = 'у хозяина нет подключённого MAX или Telegram';
   let ownerDelivered = false;
   if (obj.max_chat_id || obj.telegram_chat_id) {
-    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
+    const r = await sendPdAlert({ text: ownerText, stub: ownerStub, buttons: [card, ...actions], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
     ownerChannel = r.channel;
     ownerReason = r.reason;
     ownerDelivered = r.delivered;

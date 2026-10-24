@@ -21,6 +21,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/notifications/pd-alert';
 import { reachForPartner } from '@/lib/partners/reach';
 import { notifyTeam } from '@/lib/operators/team-notify';
+import { INCOMING_ANSWER_HINT, incomingAnswerButtons } from '@/lib/requests/incoming-card';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -164,9 +165,10 @@ function personalDeliveryLine(fp: { name: string; outcome: PersonalLeadOutcome |
  *
  * Адрес — только его: `reachForPartner` → `sendPdAlert({ to })`, строго, без
  * отката на рабочий чат платформы (прецедент notifyNewBooking: ПД туриста в
- * чужой чат — не доставка). Кнопка одна, и это ссылка: действие (payload) бот
- * принимает только из рабочего чата (max/kuzmich, telegram/kuzmich), в личном
- * чате оператора оно было бы мёртвым.
+ * чужой чат — не доставка). Ему лично — ссылка в кабинет и четыре ответа
+ * «Принять / Нет мест / Уточнить / Свяжусь сам»: нажатие пишет ответ и не
+ * подтверждает бронь. Копии команды — только ссылка: чужой чат заявку не
+ * закрывает. В Telegram уходят ссылки, не действия.
  *
  * Отказ не глушится: каждый исход, кроме доставки, назван в логе и
  * возвращается вызывающему — тот показывает его рабочему чату.
@@ -204,11 +206,15 @@ export async function notifyPartnerNewLeadPersonally(params: {
     'Имя и телефон — в кабинете: в Telegram они не передаются.',
   ].filter(Boolean).join('\n');
 
-  const buttons = [{ text: 'Открыть заявку', url: `${baseUrl}/hub/operator/leads/${params.leadId}` }];
+  const link = { text: 'Открыть заявку', url: `${baseUrl}/hub/operator/leads/${params.leadId}` };
+  const actions = incomingAnswerButtons('lead', params.leadId) ?? [];
+  const partnerButtons = [link, ...actions];
+  const partnerText = actions.length > 0 ? `${text}\n\n${INCOMING_ANSWER_HINT}` : text;
 
   // Менеджеры команды кабинета (CRM 2г-4) — до проверки адреса кабинета: у
   // команды свои адреса, и заявка доходит до неё, даже если у кабинета канала нет.
-  await notifyTeam(params.operatorId, { text, stub, buttons }, `заявка ${params.leadId}`);
+  // Кнопок ответа у команды нет: нажатие принял бы чужой чат.
+  await notifyTeam(params.operatorId, { text, stub, buttons: [link] }, `заявка ${params.leadId}`);
 
   const reach = await reachForPartner(params.operatorId);
   if (reach === null) {
@@ -221,9 +227,9 @@ export async function notifyPartnerNewLeadPersonally(params: {
   }
 
   const res = await sendPdAlert({
-    text,
+    text: partnerText,
     stub,
-    buttons,
+    buttons: partnerButtons,
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return { state: 'delivered', channel: 'max' };
