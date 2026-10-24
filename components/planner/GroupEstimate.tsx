@@ -34,46 +34,46 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
   const unpricedOffers = lines.some((l) => !l.total && l.source === 'offer');
   return (
     <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1" data-testid="price-estimate">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] px-1">
+      <p className="text-sm font-semibold text-[var(--text-primary)] px-1">
         Смета на группу · {people} чел.
       </p>
       <ul className="space-y-1">
         {lines.map((l, i) => (
           <li key={`${l.kind}-${i}`} className="flex items-start justify-between gap-2 px-1">
             <span className="min-w-0">
-              <span className="block text-[10px] text-[var(--text-secondary)]">{l.label}</span>
-              <span className="block text-[9px] text-[var(--text-muted)]">
+              <span className="block text-sm text-[var(--text-secondary)]">{l.label}</span>
+              <span className="block text-sm text-[var(--text-muted)]">
                 {l.basis}{l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}
               </span>
               {l.source !== 'estimate' && l.note && (
-                <span className="block text-[9px] text-[var(--warning)]">{l.note}</span>
+                <span className="block text-sm text-[var(--warning)]">{l.note}</span>
               )}
             </span>
-            <span className="text-[10px] text-[var(--text-secondary)] shrink-0 text-right">
+            <span className="text-sm text-[var(--text-secondary)] shrink-0 text-right">
               {l.total ? range(l.total) : 'цена не указана'}
             </span>
           </li>
         ))}
       </ul>
       <div className="flex items-center justify-between px-1 pt-1 border-t border-[var(--border)]">
-        <span className="text-xs font-medium text-[var(--text-secondary)]">Итого на группу</span>
+        <span className="text-sm font-medium text-[var(--text-secondary)]">Итого на группу</span>
         <span className="text-sm font-semibold text-[var(--accent)]">{range(total)}</span>
       </div>
       <div className="flex items-center justify-between px-1">
-        <span className="text-[10px] text-[var(--text-muted)]">На человека</span>
-        <span className="text-[10px] text-[var(--text-secondary)]">{range(perPerson)}</span>
+        <span className="text-sm text-[var(--text-muted)]">На человека</span>
+        <span className="text-sm text-[var(--text-secondary)]">{range(perPerson)}</span>
       </div>
       {unpriced.length > 0 && (
-        <p className="text-[9px] text-[var(--warning)] px-1">
+        <p className="text-sm text-[var(--warning)] px-1">
           Не вошло в итог: {unpriced.join('; ')} — {unpricedOffers
             ? 'цену назовут оператор или хозяин жилья.'
             : 'сумму смотрите в карточке тура.'}
         </p>
       )}
       {assumptions.map((a) => (
-        <p key={a} className="text-[9px] text-[var(--text-muted)] px-1">{a}</p>
+        <p key={a} className="text-sm text-[var(--text-muted)] px-1">{a}</p>
       ))}
-      <p className="text-[9px] text-[var(--text-muted)] px-1">
+      <p className="text-sm text-[var(--text-muted)] px-1">
         {sourcesLine(fromTours, fromOffers, fromEstimates)}
         {' '}Без авиабилетов Москва — Камчатка (25 000-60 000 ₽). Смета пересчитывается после каждой правки плана.
       </p>

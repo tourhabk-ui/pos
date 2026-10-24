@@ -29,6 +29,9 @@ import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
 import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal, replaceRefusalShort } from '@/lib/planner/plan-ops';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
+import { tripCalendarDays } from '@/lib/planner/flow-balance';
+import { stayPhraseFromCounts, tripStayPhrase } from '@/lib/planner/trip-span';
+import { isoToRuDate, RuDateInput } from '@/components/forms/RuDateInput';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
 import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount } from '@/lib/planner/map-markers';
 import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
@@ -147,6 +150,12 @@ const TRANSPORT_OPTIONS: Record<TransportType, { label: string; Icon: React.Elem
   helicopter: { label: 'Вертолёт', Icon: activityIcon('helicopter'), priceAdd: 25000 },
 };
 
+const RISK_MODES = [
+  { value: 'safe_only', label: 'Безопасный', desc: 'Обычный план. Предупреждения из данных остаются в списке — режим их не прячет и не обещает, что опасных дней нет.' },
+  { value: 'adventure', label: 'Приключение', desc: 'Тот же план и отдельная строка: в днях могут быть действующие предупреждения МЧС. Нужны опыт и снаряжение.' },
+  { value: 'available', label: 'Свободные', desc: 'Тот же набор дней. Места этот режим не отбирает: где календарь пуст, их спрашивают у оператора.' },
+] as const;
+
 const ACTIVITY_DEFAULT_TRANSPORT: Record<string, TransportType> = {
   trekking: 'walking', fishing: 'boat', bears: 'helicopter',
   helicopter: 'helicopter', thermal: 'walking', hot_spring: 'walking',
@@ -164,8 +173,9 @@ function maxDate(): string {
 }
 function calcDays(from: string, to: string): number | null {
   if (!from || !to) return null;
-  const diff = new Date(to).getTime() - new Date(from).getTime();
-  return diff > 0 ? Math.round(diff / 86400000) : null;
+  // Календарные дни, как у движка (tripCalendarDays): 1–8 июля — это 8, не 7.
+  const days = tripCalendarDays(from, to);
+  return days > 0 ? days : null;
 }
 function fmt(n: number): string { return n.toLocaleString('ru-RU'); }
 function trunc(s: string | null | undefined, len: number): string {
@@ -242,10 +252,9 @@ const PLANNER_STEPS: ReadonlyArray<{ n: PlannerStep; title: string; lead: string
 /** Потолок заметки о здоровье — тот же, что проверяет /api/planner/recommend. */
 const HEALTH_NOTES_MAX = 300;
 
-/** «5 авг.» — дата сводки анкеты. */
+/** «05.08.2027» — дата сводки анкеты. Битая строка остаётся как есть. */
 function shortDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  return isoToRuDate(iso) || iso;
 }
 
 /** «1 день / 2 дня / 5 дней». */
@@ -334,12 +343,13 @@ function TransportSelector({ selected, onChange, zone }: {
           <button key={key} type="button"
             title={`${label}${priceAdd > 0 ? ` (+${fmt(priceAdd)} ₽)` : ''}`}
             onClick={() => onChange(key)}
-            className={`flex items-center justify-center w-8 h-8 rounded-md transition-all border text-xs ${
+            className={`min-h-[44px] min-w-[44px] px-1 flex flex-col items-center justify-center gap-0.5 rounded-md transition-all border text-[11px] leading-none ${
               active
-                ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--on-accent)]'
                 : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] bg-[var(--bg-hover)]'
             }`}>
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-4 h-4" />
+            <span>{label}</span>
           </button>
         );
       })}
@@ -388,9 +398,9 @@ function DayPriceTag({ day }: { day: DayPlan }) {
   if (p.kind === 'none') return null;
   return (
     <div className="text-right shrink-0" data-testid="day-price">
-      <p className={`text-xs font-semibold ${p.kind === 'missing' ? 'text-[var(--warning)]' : 'text-[var(--accent)]'}`}>{p.main}</p>
-      <p className="text-[10px] text-[var(--text-muted)]">{p.kind === 'missing' ? 'для вашей группы' : p.unit}</p>
-      {p.kind === 'tour' && p.label && <p className="text-[10px] text-[var(--success)]">{p.label}</p>}
+      <p className={`text-sm font-semibold ${p.kind === 'missing' ? 'text-[var(--warning)]' : 'text-[var(--accent)]'}`}>{p.main}</p>
+      <p className="text-sm text-[var(--text-muted)]">{p.kind === 'missing' ? 'для вашей группы' : p.unit}</p>
+      {p.kind === 'tour' && p.label && <p className="text-sm text-[var(--success)]">{p.label}</p>}
     </div>
   );
 }
@@ -404,6 +414,7 @@ function DayCard({
   const { Icon: TransIcon } = TRANSPORT_OPTIONS[transport];
   const FlightIcon = idx === 0 ? PlaneLanding : PlaneTakeoff;
   const [showDetail, setShowDetail] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Day type styling
   const isSpecialDay = day.type !== 'activity';
@@ -442,7 +453,7 @@ function DayCard({
       <div ref={onRef}>
         {/* Row 1 — clickable to toggle edit */}
         <div
-          className="flex items-center gap-2 px-3 pt-3 pb-1.5 cursor-pointer"
+          className="flex items-start gap-2 px-3 pt-3 pb-1.5 cursor-pointer"
           onClick={() => onToggleEdit(day.day)}
         >
           {isConfirmed
@@ -464,8 +475,8 @@ function DayCard({
             {idx + 1}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <p className="text-xs font-medium text-[var(--text-primary)] truncate">{day.title}</p>
+            <div className="flex items-start gap-1.5 min-w-0">
+              <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-[var(--text-primary)] line-clamp-2 whitespace-normal">{day.title}</p>
               {isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
                   style={{ background: `color-mix(in srgb, ${typeConf.color} 15%, transparent)`, color: typeConf.color }}>
@@ -504,7 +515,7 @@ function DayCard({
           <DayPriceTag day={day} />
         </div>
         {/* Row 2 — transport + actions */}
-        <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5 pt-0.5">
           {day.type === 'activity' && !isConfirmed && (
             <TransportSelector selected={transport} onChange={t => onTransportChange(day.day, t)} zone={day.zone} />
           )}
@@ -513,29 +524,47 @@ function DayCard({
           )}
           <div className="flex-1" />
           {/* Detail toggle */}
-          <button type="button" title="Подробнее" onClick={(e) => { e.stopPropagation(); setShowDetail(v => !v); }}
-            className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors bg-[var(--bg-hover)] ${
+          <button type="button" title="Подробнее" aria-label="Подробнее" onClick={(e) => { e.stopPropagation(); setShowDetail(v => !v); }}
+            className={`min-h-[44px] min-w-[44px] px-1 flex flex-col items-center justify-center rounded-md border transition-colors bg-[var(--bg-hover)] text-[13px] leading-none ${
               showDetail
                 ? 'border-[var(--accent)] text-[var(--accent)]'
                 : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)]'
             }`}>
-            <Eye className="w-3.5 h-3.5" />
+            <Eye className="w-4 h-4" />
+            <span>Ещё</span>
           </button>
           {isEditing && (
-            <button type="button" title="Показать на карте" onClick={onShowMap}
-              className="lg:hidden w-7 h-7 flex items-center justify-center rounded-md border border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10 transition-colors">
-              <MapIcon className="w-3.5 h-3.5" />
+            <button type="button" title="Показать на карте" aria-label="Показать на карте" onClick={onShowMap}
+              className="lg:hidden min-h-[44px] min-w-[44px] px-1 flex flex-col items-center justify-center rounded-md border border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10 transition-colors text-[13px] leading-none">
+              <MapIcon className="w-4 h-4" />
+              <span>Карта</span>
             </button>
           )}
-          <button type="button" title="Операторы" onClick={() => onShowPartners(day.activityType)}
-            className="w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--ocean)] hover:border-[var(--ocean)] transition-colors bg-[var(--bg-hover)]">
-            <Users className="w-3.5 h-3.5" />
+          <button type="button" title="Операторы" aria-label="Операторы" onClick={() => onShowPartners(day.activityType)}
+            className="min-h-[44px] min-w-[44px] px-1 flex flex-col items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--ocean)] hover:border-[var(--ocean)] transition-colors bg-[var(--bg-hover)] text-[13px] leading-none">
+            <Users className="w-4 h-4" />
+            <span>Туры</span>
           </button>
           {!isLocked && !isConfirmed && (
-            <button type="button" title="Удалить день" onClick={() => onDelete(day.day)}
-              className="w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--danger)] hover:border-[var(--danger)] transition-colors bg-[var(--bg-hover)]">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            confirmDelete ? (
+              <div className="ml-2 pl-2 border-l border-[var(--border)] flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <button type="button" onClick={() => onDelete(day.day)}
+                  className="min-h-[44px] px-3 rounded-md border border-[var(--danger)] text-sm font-medium text-[var(--danger)] bg-[var(--bg-card)]">
+                  Удалить
+                </button>
+                <button type="button" onClick={() => setConfirmDelete(false)}
+                  className="min-h-[44px] px-3 rounded-md border border-[var(--border)] text-sm text-[var(--text-secondary)] bg-[var(--bg-card)]">
+                  Оставить
+                </button>
+              </div>
+            ) : (
+              <button type="button" title="Удалить день" aria-label="Удалить день"
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+                className="ml-2 min-h-[44px] min-w-[44px] px-1 flex flex-col items-center justify-center rounded-md border border-[var(--danger)]/40 text-[var(--danger)] hover:border-[var(--danger)] transition-colors bg-[var(--bg-card)] text-[13px] leading-none">
+                <Trash2 className="w-4 h-4" />
+                <span>Удалить</span>
+              </button>
+            )
           )}
         </div>
         {/* Top matching tour — ведёт на КАРТОЧКУ ТУРА с бронью, не на страницу
@@ -552,9 +581,9 @@ function DayCard({
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <Star className="w-3 h-3 text-[var(--warning)] shrink-0" />
-              <span className="text-[10px] text-[var(--text-secondary)] truncate">{topTour.title}</span>
+              <span className="text-sm text-[var(--text-secondary)] line-clamp-2 whitespace-normal">{topTour.title}</span>
             </div>
-            <span className="text-[10px] font-semibold text-[var(--ocean)] whitespace-nowrap">
+            <span className="text-sm font-semibold text-[var(--ocean)] text-right shrink-0 max-w-[46%]">
               от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
             </span>
           </a>
@@ -975,24 +1004,27 @@ function CompanionWidget({ days, arrival, departure }: {
   if (!open) {
     return (
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-[var(--accent)] text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
+        className="mt-1.5 w-full min-h-[44px] rounded-lg bg-[var(--accent)] text-white shadow-lg flex items-center justify-center gap-2 lg:fixed lg:bottom-6 lg:right-6 lg:z-40 lg:mt-0 lg:h-12 lg:w-12 lg:min-h-0 lg:rounded-full lg:gap-0 hover:scale-105 transition-transform"
         title="Помощник путешественника"
+        aria-label="Помощник путешественника"
       >
         <MessageCircle className="w-5 h-5" />
+        <span className="lg:sr-only text-sm font-medium">Помощник</span>
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 w-80 max-h-[70vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-xl flex flex-col overflow-hidden">
+    <div className="fixed bottom-3 left-3 right-3 z-40 max-h-[70vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-xl flex flex-col overflow-hidden lg:left-auto lg:bottom-6 lg:right-6 lg:w-80">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-hover)]">
         <div className="flex items-center gap-2">
           <MessageCircle className="w-4 h-4 text-[var(--accent)]" />
           <span className="text-sm font-semibold text-[var(--text-primary)]">Помощник</span>
         </div>
-        <button onClick={() => setOpen(false)}
-          className="w-6 h-6 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+        <button type="button" onClick={() => setOpen(false)} aria-label="Закрыть помощника"
+          className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -1365,6 +1397,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     [days, planProfile, arrival, planChoices],
   );
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
+  const stayPhrase = useMemo(() => tripStayPhrase(arrival, departure), [arrival, departure]);
 
   // planner_started — первое осмысленное действие в анкете, один раз за сессию
   // компонента (стратегия 14.08). Приход с плиткой намерения (?mood=...) — тоже
@@ -1424,12 +1457,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setTransportByDay(prev => ({ ...prev, [dayNum]: t })), []);
 
   // Load top tour per activity type when days change
+  const tripMonth = /^\d{4}-(\d{2})-\d{2}$/.test(arrival) ? Number(arrival.slice(5, 7)) : null;
   useEffect(() => {
     const uniqueActivities = [...new Set(days.map(d => d.activityType))].filter(
-      at => !loadedActivitiesRef.current.has(at)
+      at => !loadedActivitiesRef.current.has(`${at}:${tripMonth ?? ''}`)
     );
     if (uniqueActivities.length === 0) return;
-    uniqueActivities.forEach(at => loadedActivitiesRef.current.add(at));
+    uniqueActivities.forEach(at => loadedActivitiesRef.current.add(`${at}:${tripMonth ?? ''}`));
     void Promise.all(uniqueActivities.map(async (at) => {
       try {
         // Find the zone of the first day with this activity
@@ -1437,14 +1471,23 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         const zone = dayWithActivity?.zone ?? '';
         const params = new URLSearchParams({ activity_type: at, limit: '1' });
         if (zone) params.set('zone', zone);
+        if (tripMonth) params.set('month', String(tripMonth));
         const res = await fetch(`/api/planner/tours-for-day?${params.toString()}`);
         const data: { success: boolean; tours?: TourPreview[] } = await res.json();
         if (data.success && data.tours && data.tours.length > 0) {
           setToursPerActivity(prev => ({ ...prev, [at]: data.tours![0] }));
+        } else if (data.success) {
+          setToursPerActivity(prev => {
+            const next = { ...prev };
+            delete next[at];
+            return next;
+          });
         }
-      } catch { /* silent -- tours are optional */ }
+      } catch (err) {
+        console.error('[planner] тур на день не загрузился', at, err instanceof Error ? err.message : err);
+      }
     }));
-  }, [days]);
+  }, [days, tripMonth]);
 
   // Toggle edit mode on a day
   const toggleEditDay = useCallback((dayId: number) => {
@@ -2140,9 +2183,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           <PlaneLanding className="w-4 h-4 text-[var(--ocean)]" />{isLocal ? 'Первый день' : 'Прилёт'}
         </legend>
         <div className={isLocal ? 'grid gap-2' : 'grid grid-cols-[1.4fr_1fr] gap-2'}>
-          <input type="date" aria-label={isLocal ? 'Первый день поездки' : 'Дата прилёта'} value={arrival} min={today()} max={maxDate()}
-            onChange={e => { setStepError(''); setArrival(e.target.value); if (departure && departure <= e.target.value) setDeparture(''); }}
-            className="ds-input w-full text-sm" />
+          <RuDateInput ariaLabel={isLocal ? 'Первый день поездки' : 'Дата прилёта'} value={arrival} min={today()} max={maxDate()}
+            onChange={(iso) => { setStepError(''); setArrival(iso); if (departure && iso && departure <= iso) setDeparture(''); }} />
           {!isLocal && (
             <input type="time" aria-label="Время прилёта" value={flightArrivalTime}
               onChange={e => setFlightArrivalTime(e.target.value)}
@@ -2156,9 +2198,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           <PlaneTakeoff className="w-4 h-4 text-[var(--ocean)]" />{isLocal ? 'Последний день' : 'Отъезд'}
         </legend>
         <div className={isLocal ? 'grid gap-2' : 'grid grid-cols-[1.4fr_1fr] gap-2'}>
-          <input type="date" aria-label={isLocal ? 'Последний день поездки' : 'Дата отъезда'} value={departure} min={arrival || today()} max={maxDate()}
-            onChange={e => { setStepError(''); setDeparture(e.target.value); }}
-            className="ds-input w-full text-sm" />
+          <RuDateInput ariaLabel={isLocal ? 'Последний день поездки' : 'Дата отъезда'} value={departure} min={arrival || today()} max={maxDate()}
+            onChange={(iso) => { setStepError(''); setDeparture(iso); }} />
           {!isLocal && (
             <input type="time" aria-label="Время вылета" value={flightDepartureTime}
               onChange={e => setFlightDepartureTime(e.target.value)}
@@ -2168,15 +2209,15 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       </fieldset>
 
       <p className="text-sm font-medium flex items-center gap-2 min-h-[1.5rem]" aria-live="polite">
-        {tripDays != null && tripDays > 0 ? (
+        {stayPhrase ? (
           <>
-            <CalendarDays className="w-4 h-4 text-[var(--success)]" />
+            <CalendarDays className="w-4 h-4 text-[var(--success)] shrink-0" />
             <span className="text-[var(--text-primary)]">
-              {tripDays} {pluralDaysRu(tripDays)} на Камчатке
+              {stayPhrase}
             </span>
           </>
         ) : (
-          <span className="text-[var(--text-muted)]">Выберите обе даты — посчитаем дни</span>
+          <span className="text-[var(--text-muted)]">Выберите обе даты — посчитаем дни и ночи</span>
         )}
       </p>
 
@@ -2390,15 +2431,11 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
       {/* Risk Mode — как было (решение владельца 26.09: блок не переименовывать) */}
       <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] flex items-center gap-1">
-          <ShieldAlert className="w-3 h-3" />Режим маршрутов
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-1">
+          <ShieldAlert className="w-4 h-4 text-[var(--ocean)]" />Режим маршрутов
         </p>
         <div className="grid grid-cols-3 gap-1">
-          {([
-            { value: 'safe_only', label: 'Безопасный', desc: 'Только проверенные, без alerts' },
-            { value: 'adventure', label: 'Приключение', desc: 'Все маршруты включая опасные' },
-            { value: 'available', label: 'Свободные', desc: 'Все что есть по наличию мест' },
-          ] as const).map(m => (
+          {RISK_MODES.map(m => (
             <button
               key={m.value}
               type="button"
@@ -2416,12 +2453,13 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             </button>
           ))}
         </div>
-        {riskMode === 'adventure' && (
-          <p className="text-[10px] text-[var(--warning)] flex items-start gap-1">
-            <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-            Включены маршруты с предупреждениями МЧС. Требуется опыт и снаряжение.
-          </p>
-        )}
+        <ul className="space-y-1.5">
+          {RISK_MODES.map(m => (
+            <li key={m.value} className={`text-sm leading-snug ${riskMode === m.value ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+              <span className="font-medium">{m.label}. </span>{m.desc}
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* Что ещё нужно (решение владельца 26.09): в результате — настоящие
@@ -2467,15 +2505,17 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         onToggle={id => setPlaces(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />
       <SelectGroup title="Активности" items={ACTIVITIES} selected={activities}
         onToggle={id => setActivities(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />
-      {allInterests.length === 0 && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-2">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">Не знаете, что выбрать?</p>
-          <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-            Оставьте заявку — подберём готовый пакет под ваши даты и бюджет: размещение, трансфер и программу.
-          </p>
-          {contactBlock}
-        </div>
-      )}
+      <div className="min-h-[9.5rem]">
+        {allInterests.length === 0 && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-2">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Не знаете, что выбрать?</p>
+            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+              Оставьте заявку — подберём готовый пакет под ваши даты и бюджет: размещение, трансфер и программу.
+            </p>
+            {contactBlock}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -2483,6 +2523,14 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
   const stepsView = (
     <div className="px-4 pt-5 space-y-6" style={{ paddingBottom: CONTENT_BOTTOM_CLEARANCE }}>
+      {loading && (
+        <div role="status" aria-live="polite" data-testid="plan-assembly" className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-3">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Собираем маршрут</p>
+          <p className="text-sm text-[var(--text-secondary)] leading-snug">Сверяем сезон и даты, раскладываем дни, считаем смету.</p>
+          <div className="h-16 rounded-lg bg-[var(--bg-hover)] animate-pulse motion-reduce:animate-none" />
+          <div className="h-16 rounded-lg bg-[var(--bg-hover)] animate-pulse motion-reduce:animate-none" />
+        </div>
+      )}
       {stepHeader}
       {STEP_VIEWS[step]}
     </div>
@@ -2490,8 +2538,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
   /** Короткая сводка анкеты над результатом: каждая строка открывает свой шаг. */
   const summaryRows: Array<{ n: PlannerStep; label: string; value: string }> = [
-    { n: 1, label: 'Когда', value: tripDays
-      ? `${TRIP_ORIGIN_LABEL[tripOrigin].label}, ${shortDate(arrival)} — ${shortDate(departure)}, ${tripDays} ${pluralDaysRu(tripDays)}`
+    { n: 1, label: 'Когда', value: stayPhrase
+      ? `${TRIP_ORIGIN_LABEL[tripOrigin].label}, ${shortDate(arrival)} — ${shortDate(departure)}, ${stayPhrase}`
       : 'даты не выбраны' },
     { n: 2, label: 'Кто едет', value: `${adults} взр.${childAges.length > 0 ? `, детей ${childAges.length}` : ''}` },
     { n: 3, label: 'Как', value: `${TRAVEL_STYLE_LABEL[travelStyle].label}${restDaysToSend > 0 ? `, отдых ${restDaysToSend}` : ''}` },
@@ -2504,9 +2552,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
     <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] divide-y divide-[var(--border)]">
       {summaryRows.map((r) => (
         <button key={r.n} type="button" onClick={() => { setStep(r.n); setFormOpen(true); }}
-          className="w-full flex items-center gap-3 px-4 min-h-[44px] py-2 text-left transition-colors duration-200 motion-reduce:transition-none hover:bg-[var(--bg-hover)]">
-          <span className="w-24 shrink-0 text-xs text-[var(--text-muted)]">{r.label}</span>
-          <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] truncate">{r.value}</span>
+          className="w-full flex items-start gap-3 px-4 min-h-[44px] py-2 text-left transition-colors duration-200 motion-reduce:transition-none hover:bg-[var(--bg-hover)]">
+          <span className="w-24 shrink-0 text-sm text-[var(--text-muted)]">{r.label}</span>
+          <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] whitespace-normal break-words">{r.value}</span>
           <Pencil className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
         </button>
       ))}
@@ -2577,36 +2625,32 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       {recommendation && (
         <>
           {recommendation.warnings && recommendation.warnings.length > 0 && (
-            <div className="space-y-1.5">
-              {recommendation.warnings.filter(w => w.severity === 'critical').map((w, i) => (
-                <div key={`crit-${i}`} className="flex items-start gap-2 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-lg">
-                  <ShieldAlert className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--danger)]">
-                    {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-              {recommendation.warnings.filter(w => w.severity === 'important').map((w, i) => (
-                <div key={`imp-${i}`} className="flex items-start gap-2 p-3 bg-[var(--warning)]/10 border border-[var(--warning)]/30 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--warning)]">
-                    {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
-                    {w.type === 'crowd' && <span className="font-bold mr-1">Загрузка</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-              {recommendation.warnings.filter(w => w.severity === 'info').map((w, i) => (
-                <div key={`info-${i}`} className="flex items-start gap-2 p-3 bg-[var(--ocean)]/10 border border-[var(--ocean)]/20 rounded-lg">
-                  <Info className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--ocean)]">
-                    {w.type === 'crowd' && <span className="font-bold mr-1">Загрузка</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-            </div>
+            <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+              <summary className="min-h-[44px] px-3 py-2 text-sm cursor-pointer list-none flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0" />
+                <span className="text-[var(--text-primary)]">
+                  {recommendation.warnings.some(w => w.severity === 'critical')
+                    ? `Важно: ${recommendation.warnings.filter(w => w.severity === 'critical').length}. Всего предупреждений: ${recommendation.warnings.length}`
+                    : `Предупреждения: ${recommendation.warnings.length}`}
+                </span>
+              </summary>
+              <div className="px-3 pb-3 space-y-2">
+                {recommendation.warnings.map((w, i) => (
+                  <div key={`${w.severity}-${i}`} className="flex items-start gap-2">
+                    {w.severity === 'critical'
+                      ? <ShieldAlert className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
+                      : w.severity === 'important'
+                        ? <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" />
+                        : <Info className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />}
+                    <p className={`text-sm ${w.severity === 'critical' ? 'text-[var(--danger)]' : w.severity === 'important' ? 'text-[var(--warning)]' : 'text-[var(--ocean)]'}`}>
+                      {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
+                      {w.type === 'crowd' && w.severity !== 'critical' && <span className="font-bold mr-1">Загрузка</span>}
+                      {w.message}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
 
           {/* Zones */}
@@ -2638,8 +2682,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           {days.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
-                  {days.length} {days.length === 1 ? 'день' : days.length < 5 ? 'дня' : 'дней'}
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  {stayPhraseFromCounts(days.length, Math.max(0, days.length - 1))}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)]">
                   {/* Открытый день не заменяют — так и сказано, а не «кликните карту». */}
@@ -2754,10 +2798,15 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
               {/* Add day */}
               <button type="button" onClick={addDay}
-                className="mt-1.5 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-[var(--border)] text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors">
+                className="mt-1.5 w-full min-h-[44px] flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-[var(--border)] text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors">
                 <Plus className="w-3.5 h-3.5" />
                 Добавить день
               </button>
+
+              {/* Помощник на телефоне — строкой под «Добавить день», не
+                  кружком поверх плана. На широком экране та же кнопка
+                  становится fixed (lg:) и висит над картой. */}
+              <CompanionWidget days={days} arrival={arrival} departure={departure} />
 
               {estimate && <GroupEstimateBlock estimate={estimate} />}
             </div>
@@ -2946,16 +2995,16 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
       {/* Карточка маршрута по нажатию на точку. На телефоне — выше подписи
           OpenStreetMap в правом нижнем углу: её закрывать нельзя (лицензия
-          тайлов требует, чтобы она была видна). Когда план есть, в том же
-          углу висит кнопка чата помощника (CompanionWidget, fixed bottom-6
-          right-6, 48 px) — карточка встаёт над ней, иначе кнопка ложилась на
-          ссылку «Открыть страницу маршрута».
+          тайлов требует, чтобы она была видна). Кнопка помощника на телефоне
+          в колонке плана, не поверх карты, поэтому карточку над ней не
+          поднимаем. На широком экране помощник fixed в правом нижнем углу,
+          а карточка слева (lg:right-auto) его не встречает.
           Сверху карточку ограничивает низ колонки плашек (overlayBottom):
           прижатая к низу, она на 360×640 закрывала «Повторить». Низ прежний;
           не помещается — карточка прокручивается внутри, а не наезжает. */}
       {selectedRoute && (
         <div
-          className={`absolute ${days.length > 0 ? 'bottom-24' : 'bottom-8'} lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10 flex flex-col justify-end pointer-events-none`}
+          className="absolute bottom-8 lg:bottom-4 left-4 right-4 lg:right-auto lg:w-80 z-10 flex flex-col justify-end pointer-events-none"
           style={{ top: overlayBottom }}
         >
           <div className="min-h-0 overflow-y-auto overscroll-contain rounded-lg pointer-events-auto">
@@ -3034,10 +3083,6 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         />
       )}
 
-      {/* Companion widget — available during trip planning */}
-      {days.length > 0 && (
-        <CompanionWidget days={days} arrival={arrival} departure={departure} />
-      )}
     </div>
   );
 }

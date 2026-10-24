@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
+import BottomNav from '@/components/shared/BottomNav';
 import KuzmichClient from './_KuzmichClient';
 
 export const metadata: Metadata = {
@@ -14,6 +15,7 @@ export default function KuzmichPage() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <KuzmichClient />
+      <BottomNav activePath="/kuzmich" />
     </div>
   );
 }

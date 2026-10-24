@@ -53,6 +53,13 @@ function keywordHit(lower: string, kw: string): boolean {
   return rx ? rx.test(lower) : lower.includes(kw);
 }
 
+/**
+ * «Что посмотреть за 5 дней?» не содержит слова «тур», и карточки каталога
+ * к ответу не подмешивались (24.10). Это вопрос к витрине, даже без вида
+ * занятия: тип тогда пустой, и подбор берёт живые туры каталога.
+ */
+const SIGHTSEEING = /посмотреть|что\s+увидеть|куда\s+(?:сходить|съездить)|за\s+\d{1,2}\s+дн/;
+
 // Maps message tokens → operator_tours.activity_type values
 const ACTIVITY_MAP: Record<string, string> = {
   рыбалк: 'fishing',    fishing:    'fishing',
@@ -84,7 +91,7 @@ export function detectTourIntent(text: string): {
 } {
   const lower = text.toLowerCase();
 
-  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw));
+  const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw)) || SIGHTSEEING.test(lower);
   if (!detected) return { detected: false, activityType: null, rawWords: '' };
 
   const kw = activityKeyword(lower);

@@ -18,6 +18,7 @@ import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { RuDateInput } from '@/components/forms/RuDateInput';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -66,6 +67,24 @@ const CHIPS: { icon: LucideIcon; text: string }[] = [
   { icon: Fish,        text: 'Рыбалка на чавычу в июле' },
   { icon: Users,       text: 'Семейный тур с детьми' },
 ];
+
+function ChipRow({ onPick, compact }: { onPick: (text: string) => void; compact?: boolean }) {
+  return (
+    <div className={compact
+      ? 'flex gap-2 overflow-x-auto px-3 py-2 border-t border-[var(--border)]'
+      : 'flex flex-wrap justify-center gap-2'}>
+      {CHIPS.map(chip => (
+        <button key={chip.text} type="button" onClick={() => onPick(chip.text)}
+          className={`flex items-center gap-1.5 shrink-0 text-xs text-[var(--text-secondary)] border border-[var(--border)] rounded-full hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all ${
+            compact ? 'min-h-[44px] px-3' : 'px-4 py-2'
+          }`}>
+          <chip.icon size={13} />
+          {chip.text}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ── BookingFormCard ────────────────────────────────────────────────
 
@@ -188,13 +207,15 @@ function BookingFormCard({
         {/* Дата + Участники */}
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="ds-label mb-1 flex items-center gap-1.5">
+            <label htmlFor="kuzmich-booking-date" className="ds-label mb-1 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5" /> Дата
             </label>
-            <input
-              required type="date" value={date} min={minDateStr}
-              onChange={e => setDate(e.target.value)}
-              className="ds-input w-full text-sm py-2"
+            <RuDateInput
+              id="kuzmich-booking-date"
+              required
+              value={date}
+              min={minDateStr}
+              onChange={setDate}
             />
           </div>
           <div>
@@ -361,6 +382,19 @@ export default function KuzmichClient() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
+  function startNewChat() {
+    const sid = crypto?.randomUUID?.() ?? `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      localStorage.setItem('th_kuzmich_session', sid);
+    } catch (err) {
+      console.error('[kuzmich] новая сессия не сохранилась', err);
+    }
+    setSessionId(sid);
+    setMessages([]);
+    setInput('');
+    clearImage();
+  }
+
   // Отправка сообщения
   const send = useCallback(async (text: string) => {
     if ((!text.trim() && !imageFile) || loading) return;
@@ -440,7 +474,7 @@ export default function KuzmichClient() {
   const hasMessages = messages.length > 0;
 
   return (
-    <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
+    <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pt-20 pb-[calc(var(--bottom-nav-h,76px)+16px)] md:pb-6">
       {/* Поля на телефоне (владелец 03.10: «поля забирают очень много полезного
           места»). Отступ страницы, рамка карточки, внутренний отступ, аватар с
           зазором и предел 85 % складывались: из 390 px под ответ оставалось
@@ -453,6 +487,10 @@ export default function KuzmichClient() {
           <ArrowLeft className="w-4 h-4" /> Главная
         </Link>
         <div className="flex-1" />
+        <button type="button" onClick={startNewChat}
+          className="min-h-[44px] px-3 text-sm text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors">
+          Новый чат
+        </button>
         <Link href="/request" className="flex items-center gap-1.5 text-sm text-[var(--ocean)] hover:underline">
           Оставить заявку <ArrowRight className="w-3.5 h-3.5" />
         </Link>
@@ -573,15 +611,7 @@ export default function KuzmichClient() {
         {!hasMessages && (
           <div className="p-5 flex-1 flex flex-col justify-end">
             <p className="text-xs text-[var(--text-muted)] mb-3 text-center">Быстрые запросы:</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {CHIPS.map(chip => (
-                <button key={chip.text} type="button" onClick={() => send(chip.text)}
-                  className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] border border-[var(--border)] rounded-full px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all">
-                  <chip.icon size={13} />
-                  {chip.text}
-                </button>
-              ))}
-            </div>
+            <ChipRow onPick={send} />
           </div>
         )}
 
@@ -603,6 +633,10 @@ export default function KuzmichClient() {
             </div>
           </div>
         )}
+
+        {/* Чипы остаются и когда история восстановилась: иначе после
+            перезагрузки быстрых запросов нет, пока человек не сотрёт чат. */}
+        {hasMessages && <ChipRow onPick={send} compact />}
 
         {/* Ввод */}
         <div className="flex items-center gap-3 p-4 border-t border-[var(--border)]">
@@ -630,7 +664,7 @@ export default function KuzmichClient() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
-            placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Опишите мечту о путешествии...'}
+            placeholder={imagePreview ? 'Подпись к фото' : 'Куда и на сколько дней'}
             className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none"
           />
           <button type="button" onClick={() => send(input)} disabled={(!input.trim() && !imageFile) || loading}

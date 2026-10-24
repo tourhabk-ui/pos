@@ -209,8 +209,8 @@ beforeEach(() => {
 
 /** Анкета до четвёртого шага: даты и «Дальше». */
 function toInterests() {
-  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
-  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-12' } });
+  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '03.08.2027' } });
+  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '12.08.2027' } });
   for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole('button', { name: /Дальше/ }));
 }
 
@@ -668,6 +668,7 @@ describe('на настоящем экране планировщика', () => 
     await screen.findByRole('button', { name: 'Заменить день 2' });
     // День 2 удалён в плане — правка дня закрылась, карточка точки осталась.
     fireEvent.click(screen.getAllByTitle('Удалить день')[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить' }));
     const select = await screen.findByRole('combobox', { name: 'Какой день заменить' }) as HTMLSelectElement;
     expect(select.value).toBe('1');
     fireEvent.click(screen.getByRole('button', { name: 'Заменить' }));

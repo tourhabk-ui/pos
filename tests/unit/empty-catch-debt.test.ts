@@ -161,7 +161,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/p/[code]/_SelectionClient.tsx': 1,
   'app/places/[id]/_PlaceDetailClient.tsx': 1,
   'app/places/[id]/opengraph-image.tsx': 1,
-  'app/planner/_PlannerClient.tsx': 2,
+  'app/planner/_PlannerClient.tsx': 1,
   'app/planning/_PlanningClient.tsx': 35,
   'app/register/page.tsx': 2,
   'app/return/ReturnClient.tsx': 1,

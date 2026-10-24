@@ -101,8 +101,8 @@ const next = () => fireEvent.click(screen.getByRole('button', { name: /Даль�
 
 function toStep3() {
   render(<PlannerClient />);
-  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
-  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-12' } });
+  fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '03.08.2027' } });
+  fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '12.08.2027' } });
   next();
   next();
 }
@@ -120,8 +120,8 @@ describe('шаг 3: «Что ещё нужно»', () => {
     render(<PlannerClient />);
     // На первом шаге галочки трансфера больше нет — она переехала на шаг 3.
     expect(screen.queryByText(/Встреча в аэропорту/)).toBeNull();
-    fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
-    fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-12' } });
+    fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '03.08.2027' } });
+    fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '12.08.2027' } });
     next();
     next();
     const block = screen.getByTestId('needs-block');
@@ -150,8 +150,8 @@ describe('шаг 3: «Что ещё нужно»', () => {
 describe('результат: настоящее, пустое, непроверенное, честное «нет»', () => {
   it('отмеченное уходит с текущими днями; здоровье — нет', async () => {
     render(<PlannerClient />);
-    fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
-    fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-12' } });
+    fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '03.08.2027' } });
+    fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '12.08.2027' } });
     next();
     fireEvent.change(screen.getByLabelText(/Ограничения по здоровью/), { target: { value: 'астма' } });
     next();
@@ -163,8 +163,8 @@ describe('результат: настоящее, пустое, непровер
     await waitFor(() => expect(calls.some((c) => c.url === '/api/planner/trip-extras')).toBe(true));
     const body = calls.find((c) => c.url === '/api/planner/trip-extras')?.body ?? {};
     expect(body.needs).toEqual({ lodging: true, transfer: true, car: true });
-    expect(body.arrivalDate).toBe('2030-08-03');
-    expect(body.departureDate).toBe('2030-08-12');
+    expect(body.arrivalDate).toBe('2027-08-03');
+    expect(body.departureDate).toBe('2027-08-12');
     expect(body.adults).toBe(2);
     expect(body.days).toEqual([
       { day: 1, type: 'arrival', zone: 'avachinsky', lodgingIncluded: null },

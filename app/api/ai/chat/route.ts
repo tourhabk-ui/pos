@@ -37,6 +37,7 @@ import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
+import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
@@ -248,7 +249,10 @@ export async function POST(request: NextRequest) {
       buildRAGContext(message.trim(), safeRole, geo),
       safeRole === 'tourist' ? buildAgentInsightsForTourist() : Promise.resolve(''),
     ]);
-    const systemPrompt = basePrompt + geoContext + ragContext + memContext + agentInsights;
+    // «СЕГОДНЯ» — до генерации дней: без даты модель расписывает пик июля
+    // и следом отменяет его («уже не сезон»). Справка не из базы.
+    const dateNote = `\n\n${kamchatkaDateContext()}`;
+    const systemPrompt = basePrompt + dateNote + geoContext + ragContext + memContext + agentInsights;
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
 
     // Замер ответа Кузьмича туристу (аудит 15.10, A19): от начала ответа до
@@ -362,7 +366,7 @@ export async function POST(request: NextRequest) {
     let loopAnswered = false;
     if (!answer && safeRole === 'tourist') {
       try {
-        const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
+        const kuzmichSystem = KUZMICH_SYSTEM + dateNote + geoContext + ragContext + memContext + agentInsights;
         answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance, webTiming);
         loopAnswered = Boolean(answer?.trim());
       } catch (err) {
