@@ -37,6 +37,10 @@ import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
+import { bookingAgentOwns, dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
+import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
+import type { CatalogTour } from '@/lib/telegram/tourist-tours';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
@@ -313,6 +317,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Тур, трансфер, жильё, прокат и «сколько стоит первый» — из витрины этого
+    // хода, тем же сборщиком, что Telegram и MAX. Модель эти вопросы не пишет.
+    let commercialTours: CatalogTour[] = [];
+    let commercialHit = false;
+    if (!answer && safeRole === 'tourist' && !emergencyNow && !(isAuthenticated && bookingAgentOwns(message.trim()))) {
+      const historyText = history
+        .filter((message) => message.role === 'assistant')
+        .map((message) => message.content)
+        .join('\n\n');
+      try {
+        const turn = await resolveCommercialTurn(message.trim(), { history: historyText, surface: 'web' });
+        if (turn) {
+          answer = turn.visible;
+          commercialTours = turn.tours;
+          commercialHit = true;
+        }
+      } catch (err) {
+        logSwallowedFailure('ai-chat', 'коммерческий ответ', err);
+      }
+    }
+
     // Agentic Booking: authenticated tourists with booking/tour intent → SDK tool calling
     let touristSdkAnswered = false;
     if (!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow && !isCarRentalAsk(message.trim())) {
@@ -362,7 +387,7 @@ export async function POST(request: NextRequest) {
     let loopAnswered = false;
     if (!answer && safeRole === 'tourist') {
       try {
-        const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
+        const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
         answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance, webTiming);
         loopAnswered = Boolean(answer?.trim());
       } catch (err) {
@@ -373,11 +398,42 @@ export async function POST(request: NextRequest) {
     answer ??= await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
     // Ответ модели до поправок сторожей и SOS-блока — его и оценивает грейдер,
     // как в Telegram и MAX: иначе он судил бы нашу вставку, а не модель.
-    const modelAnswer = answer;
+    const modelAnswer = commercialHit ? '' : answer;
+    if (!commercialHit && answer && !touristSdkAnswered) {
+      const priceSource = (loopAnswered ? webToolRuns : [])
+        .filter((run) => run.producedData && run.output)
+        .map((run) => run.output)
+        .join('\n');
+      answer = dropUnsourcedPrices(answer, priceSource).text;
+    }
 
     // Tour suggestions — only for tourist role, и никогда при признаках ЧП.
+    // Карточки — те же туры, что в тексте. Чужой срез «три из поиска» не подмешивается.
     let tourSuggestions: TourSuggestion[] = [];
-    if (safeRole === 'tourist' && !emergencyNow) {
+    if (commercialHit) {
+      tourSuggestions = commercialTours.flatMap((tour) => {
+        const price = Number(tour.base_price);
+        if (!Number.isFinite(price) || price <= 0) return [];
+        const card: TourSuggestion = {
+          id: tour.id,
+          slug: tour.slug,
+          title: tour.title,
+          description: tour.description ?? null,
+          base_price: price,
+          price_unit: tour.price_unit,
+          multi_day_count: tour.multi_day_count,
+          duration_hours: null,
+          activity_type: tour.activity_type ?? null,
+          location_type: null,
+          location: tour.location_name ?? null,
+          tour_image: null,
+          operator_name: tour.operator_name ?? '',
+          operator_slug: null,
+          operator_public: null,
+        };
+        return [card];
+      });
+    } else if (safeRole === 'tourist' && !emergencyNow) {
       const intentResult = detectTourIntent(rawMessage);
       if (intentResult.detected && wantsTourCards(rawMessage)) {
         tourSuggestions = await findRelevantTours(intentResult.activityType, intentResult.rawWords);
@@ -431,7 +487,7 @@ export async function POST(request: NextRequest) {
     // чистка ПД и хэш сессии — внутри грейдера. Журнал инструментов есть
     // только у цикла Кузьмича: у одиночного вызова инструментов не было ([]),
     // агент брони журнала не ведёт (undefined — «не проверено», не «заземлено»).
-    if (safeRole === 'tourist') {
+    if (safeRole === 'tourist' && !commercialHit) {
       void gradeKuzmichResponse(rawMessage, modelAnswer, storableSessionId, {
         surface: 'web',
         toolRuns: loopAnswered ? webToolRuns : touristSdkAnswered ? undefined : [],

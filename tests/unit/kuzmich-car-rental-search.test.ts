@@ -259,12 +259,13 @@ describe('search_car_rental: слова просьбы, вид и даты (23.1
       expect(text, q).not.toContain('Toyota HiAce');
     }
   });
-  it('type=minibus отбирает микроавтобус; даты дают сутки и сумму по прайсу', () => {
+  it('type=minibus отбирает микроавтобус; даты дают сутки, сумму за них прайс не считает', () => {
     const text = rentalAnswer([LAGUNA], undefined, BASE, { surface: 'mcp' }, { type: 'minibus', date_from: '2026-11-10', date_to: '2026-11-14' });
     expect(text).toContain('Toyota HiAce');
     expect(text).not.toContain('Suzuki Jimny');
     expect(text).toContain('5 сут.');
-    expect(text).toContain('60000 руб');
+    expect(text).toContain('12000 руб за сутки');
+    expect(text).not.toContain('60000');
     expect(text).toContain('подтверждает прокатчик');
   });
   it('кривые даты и чужой type не ломают вызов', () => {

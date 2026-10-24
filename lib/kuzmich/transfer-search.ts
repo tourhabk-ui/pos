@@ -21,6 +21,7 @@
 import { loadCharterCarriers, charterFootnote, describeFleet, matchDestinations, type CharterCarrier } from '@/lib/transfers/charter';
 import { getPublicBaseUrl } from '@/lib/config';
 import { carrierPagePath, rateWords } from '@/lib/transfers/charter-format';
+import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 
 export interface TransferSearchArgs {
   /** Куда или откуда — слово из вопроса человека. */
@@ -91,6 +92,14 @@ export async function searchTransfersForKuzmich(args: TransferSearchArgs, opts: 
   } catch (err) {
     console.error('[kuzmich/search_transfers]', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
     carriers = null;
+  }
+  // Пауза проката (Лагуна) — источник для человека, не кабинет. MCP прайс видит.
+  if (carriers && opts.surface !== 'mcp') {
+    const hidden = carriers.filter((c) => rentalHiddenOnSite(c.slug));
+    carriers = carriers.filter((c) => !rentalHiddenOnSite(c.slug));
+    if (hidden.length > 0 && carriers.length === 0) {
+      return `Перевозчик, которого сайт сейчас прячет, в ответ человеку не входит. Витрина: ${base}/transfers.`;
+    }
   }
   return charterAnswer(carriers, args.place, base, opts);
 }

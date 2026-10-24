@@ -149,8 +149,11 @@ function latinOf(word: string): string {
   return BRAND_SPELLINGS[word] ?? cyrillicToLatin(word);
 }
 
-/** Строка машины: «Suzuki Jimny — внедорожник, 4 места, автомат, 4WD, 105 л.с.: 7000 руб за сутки, залог 15000 руб, без водителя». */
-function offerLine(o: RentalOffer, days: number | null = null): string {
+/**
+ * Строка машины. Цена — за сутки, как в прайсе.
+ * Сумму «за N суток» не считаем: произведение суток на цену — оценка, не строка прайса.
+ */
+function offerLine(o: RentalOffer): string {
   const facts = [bodyKindWord(o.bodyKind)];
   if (o.seats !== null) facts.push(seatsWords(o.seats));
   if (o.transmission) facts.push(transmissionWord(o.transmission));
@@ -159,7 +162,6 @@ function offerLine(o: RentalOffer, days: number | null = null): string {
   const price = `${o.priceIsFrom ? 'от ' : ''}${rub(o.priceRubPerDay)} за сутки`;
   const money = [price];
   if (o.depositRub !== null) money.push(`залог ${rub(o.depositRub)}`);
-  if (days !== null) money.push(`за ${days} сут. по прайсу ${o.priceIsFrom ? 'от ' : ''}${rub(o.priceRubPerDay * days)}`);
   money.push(o.driver === 'optional' ? 'водитель по желанию, цена отдельно' : 'без водителя');
   return `${o.title} — ${facts.join(', ')}: ${money.join(', ')}`;
 }
@@ -190,7 +192,7 @@ export function rentalAnswer(
     const shown = hit.length > 0 ? hit : c.offers;
     const label = needle || (filters.type ? bodyKindWord(filters.type) : '');
     const miss = filtered && hit.length === 0 ? `По запросу «${label}» в прайсе ничего нет; весь прайс: ` : '';
-    const lines = shown.map((o) => offerLine(o, days)).join('; ');
+    const lines = shown.map((o) => offerLine(o)).join('; ');
     return `${c.name}. ${miss}${lines}. Условия проката, заявка и связь — на странице прокатчика: ${base}${rentalPagePath(c.slug)}`;
   });
   // Инструмента заявки на прокат нет ни у Кузьмича, ни у внешнего агента:

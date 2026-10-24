@@ -20,30 +20,28 @@ const FIVE: CatalogTour = {
 };
 
 describe('даты тура против месяца в вопросе', () => {
-  it('июль не получает заезд 25 августа — 30 сентября', () => {
+  it('июль не получает заезд 25 августа — 30 сентября другого года', () => {
     expect(seasonOverlaps(FIVE, [7])).toBe(false);
-    const facts = catalogFacts('Что посмотреть за 5 дней в июле?', { ok: true, tours: [FIVE] });
-    expect(facts.note).toContain('25 августа 2027');
-    expect(facts.note).toContain('30 сентября 2027');
-    expect(facts.note).toContain('июле');
-    expect(facts.note).toContain('180');
-    expect(facts.html).toContain('https://vedarai.ru/catalog/tours/pyat-dney');
-    expect(facts.html).toContain('В июле этого заезда нет.');
-    expect(facts.html).not.toContain('не расписывай');
-    expect(facts.note).toContain('не расписывай');
-    expect(facts.html).not.toMatch(/от 0 /);
-    expect(facts.inline?.inline_keyboard[0]?.[0]?.url).toBe('https://vedarai.ru/catalog/tours/pyat-dney');
+    const now = new Date('2026-10-24T00:00:00Z');
+    const facts = catalogFacts('Что посмотреть за 5 дней в июле?', { ok: true, tours: [FIVE] }, now);
+    expect(facts.note).toContain('нет тура, который идёт');
+    expect(facts.note).not.toContain('Пять дней');
+    expect(facts.note).not.toMatch(/180/);
+    expect(facts.html).not.toContain('pyat-dney');
+    expect(facts.html).not.toContain('августа 2027');
+    expect(facts.inline).toBeUndefined();
   });
 
   it('лето называет месяцы, которых в сезоне нет, и не выдумывает цену', () => {
-    const facts = catalogFacts('что посмотреть за 5 дней летом', { ok: true, tours: [FIVE] });
+    const now = new Date('2026-10-24T00:00:00Z');
+    const facts = catalogFacts('что посмотреть за 5 дней летом', { ok: true, tours: [FIVE] }, now);
     expect(facts.note).toContain('июне');
     expect(facts.note).toContain('июле');
     expect(facts.note).toContain('25 августа 2027');
     const bare = catalogFacts('что посмотреть за 5 дней летом', {
       ok: true,
       tours: [{ ...FIVE, base_price: null }],
-    });
+    }, now);
     expect(bare.note).toContain('цена не указана');
     expect(bare.note).not.toMatch(/от 0/);
   });
@@ -68,7 +66,7 @@ describe('даты тура против месяца в вопросе', () => 
     const facts = catalogFacts('что посмотреть за 5 дней', {
       ok: true,
       tours: [{ ...FIVE, price_unit: 'неизвестно' }],
-    });
+    }, new Date('2027-09-10T00:00:00Z'));
     expect(facts.note).toContain('не называй её ценой с человека');
     expect(facts.html).not.toContain('не называй');
     expect(facts.html).toContain('не записано');
@@ -83,7 +81,7 @@ describe('даты тура против месяца в вопросе', () => 
       activity_type: 'fishing',
       multi_day_count: 7,
     };
-    const facts = catalogFacts('хочу на рыбалку', { ok: true, tours: [FIVE, fish] });
+    const facts = catalogFacts('хочу на рыбалку', { ok: true, tours: [FIVE, fish] }, new Date('2027-09-10T00:00:00Z'));
     expect(facts.note).toContain('Рыбалка на неделю');
     expect(facts.note).not.toContain('Пять дней');
     expect(facts.html).toContain('/catalog/tours/rybalka');
@@ -114,7 +112,8 @@ describe('даты тура против месяца в вопросе', () => 
       location_name: 'Авачинский перевал',
       multi_day_count: 1,
     };
-    const facts = catalogFacts('хочу на Авачинский', { ok: true, tours: [other, jeep] });
+    const inSeason = new Date('2027-09-10T00:00:00Z');
+    const facts = catalogFacts('хочу на Авачинский', { ok: true, tours: [other, jeep] }, inSeason);
     expect(facts.note).toContain('Джип на перевал');
     expect(facts.note).not.toContain('Ключевск');
     expect(facts.html).toContain('/catalog/tours/jeep-ava');
@@ -132,7 +131,7 @@ describe('даты тура против месяца в вопросе', () => 
       activity_type: 'rafting',
       multi_day_count: 2,
     };
-    const facts = catalogFacts('что посмотреть за 5 дней у реки', { ok: true, tours: [FIVE, raft] });
+    const facts = catalogFacts('что посмотреть за 5 дней у реки', { ok: true, tours: [FIVE, raft] }, new Date('2027-09-10T00:00:00Z'));
     expect(showcaseLookup('что посмотреть за 5 дней у реки').kind).toBe('general');
     expect(facts.note).toContain('Пять дней по Камчатке');
     expect(facts.note).not.toContain('нет живого тура этого вида');

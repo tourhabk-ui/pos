@@ -9,10 +9,15 @@
 import { askedActivity, detectTourIntent, isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
 import { namedVolcanoes, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { pool } from '@/lib/db-pool';
+import { calendarDay, coversDay, overlapsWindow, windowForMonths, type DateWindow } from '@/lib/kuzmich/season-window';
+import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
+
+/** Сколько туров называем вместе с карточкой. Остальные — числом, без имён и цен. */
+export const NAMED_TOUR_CAP = 8;
 
 const SITE = 'https://vedarai.ru';
 
@@ -53,6 +58,9 @@ export interface CatalogTour {
   description?: string | null;
   season_start: string | null;
   season_end: string | null;
+  /** partners.slug. Пауза проката прячет этого партнёра из источников ответа. */
+  operator_slug?: string | null;
+  operator_name?: string | null;
 }
 
 export interface CatalogFacts {
@@ -110,12 +118,23 @@ function seasonMonths(start: string | null, end: string | null): number[] | null
   return out;
 }
 
-/** true — месяц вопроса внутри сезона; null — сезон не записан; false — мимо. */
+/**
+ * Месяц вопроса есть среди месяцев сезона, без года.
+ * Доступность этим больше не решается: год режет `questionWindow`.
+ * Функция остаётся для сверки «июль не входит в август–сентябрь».
+ */
 export function seasonOverlaps(tour: CatalogTour, months: number[] | null): boolean | null {
   if (!months || months.length === 0) return true;
   const have = seasonMonths(tour.season_start, tour.season_end);
   if (!have) return null;
   return months.some((month) => have.includes(month));
+}
+
+/** Окно названного сезона или месяца. Нет сезона в вопросе — null (тогда судит «сегодня»). */
+export function questionWindow(question: string, now: Date = new Date()): DateWindow | null {
+  const months = askedMonths(question);
+  if (!months) return null;
+  return windowForMonths(months, calendarDay(now));
 }
 
 export function ruDate(iso: string | null): string | null {
@@ -240,6 +259,88 @@ function buttonLabel(tour: CatalogTour): string {
 
 const EMPTY: CatalogFacts = { note: '', html: '' };
 
+export interface PickedTours {
+  kind: 'not_tour' | 'unread' | 'none' | 'list';
+  /** Что сказать, когда списка нет. */
+  line: string;
+  tours: CatalogTour[];
+  unnamedMore: number;
+  window: DateWindow | null;
+  /** Подпись окна или «сегодня, …». */
+  windowLabel: string | null;
+}
+
+function onSite(tour: CatalogTour, now: Date): boolean {
+  if (!tour.operator_slug) return true;
+  return !rentalHiddenOnSite(tour.operator_slug, now);
+}
+
+/**
+ * Туры, которые можно назвать доступными на этот вопрос.
+ * Сезон без пересечения с окном (или с сегодняшним днём) в список не входит.
+ * Партнёр на паузе проката из источников убран.
+ */
+export function pickToursForAnswer(
+  question: string,
+  loaded: { ok: true; tours: CatalogTour[]; complete?: boolean } | { ok: false },
+  now: Date = new Date(),
+): PickedTours {
+  const empty: PickedTours = { kind: 'not_tour', line: '', tours: [], unnamedMore: 0, window: null, windowLabel: null };
+  if (!wantsCatalogCards(question)) return empty;
+  if (!loaded.ok) {
+    if (!insistsOnTours(question)) return empty;
+    return {
+      ...empty,
+      kind: 'unread',
+      line: 'Каталог туров сейчас не прочитан. Цены и названия туров не называю — их не из чего взять.',
+    };
+  }
+  const window = questionWindow(question, now);
+  const today = calendarDay(now);
+  const lookup = showcaseLookup(question);
+  const matched = selectTours(question, loaded.tours).filter((tour) => onSite(tour, now));
+  const sawAll = loaded.complete !== false && (lookup.kind !== 'general' || loaded.tours.length < SHOWCASE_LIMIT);
+  if (lookup.kind !== 'general' && matched.length === 0 && loaded.tours.length > 0) {
+    if (!sawAll) return empty;
+    const line = lookup.kind === 'volcano'
+      ? 'В каталоге Ведара нет живого тура к этому вулкану. Тур к другому вулкану вместо него не называю и цену не выдумываю.'
+      : 'В каталоге Ведара нет живого тура этого вида. Чужой тур вместо него не называю и цену не выдумываю.';
+    return { ...empty, kind: 'none', line };
+  }
+  const poolTours = matched;
+  const days = askedDays(question);
+  const byDuration = poolTours.filter((tour) => durationMatches(tour, days));
+  const source = byDuration.length > 0 ? byDuration : poolTours;
+  const running = source.filter((tour) => (
+    window
+      ? overlapsWindow(tour.season_start, tour.season_end, window)
+      : coversDay(tour.season_start, tour.season_end, today.iso)
+  ));
+  const windowLabel = window?.label ?? `сегодня, ${ruDate(today.iso) ?? today.iso}`;
+  if (running.length === 0) {
+    if (!insistsOnTours(question) && lookup.kind === 'general' && !window) return empty;
+    const when = window
+      ? `На ${window.label} (${ruDate(window.start) ?? window.start} — ${ruDate(window.end) ?? window.end}) в каталоге нет тура, который идёт.`
+      : `На сегодня (${ruDate(today.iso) ?? today.iso}) в каталоге нет тура, который идёт.`;
+    return {
+      ...empty,
+      kind: 'none',
+      line: `${when} Заезд другого года доступным не называю. Цену не называю.`,
+      window,
+      windowLabel,
+    };
+  }
+  const tours = running.slice(0, NAMED_TOUR_CAP);
+  return {
+    kind: 'list',
+    line: '',
+    tours,
+    unnamedMore: running.length - tours.length,
+    window,
+    windowLabel,
+  };
+}
+
 /** Вопрос именно к витрине: пустой каталог надо сказать, а не промолчать. */
 function insistsOnTours(text: string): boolean {
   const t = text.toLowerCase().replace(/ё/g, 'е');
@@ -250,55 +351,28 @@ function insistsOnTours(text: string): boolean {
 export function catalogFacts(
   question: string,
   loaded: { ok: true; tours: CatalogTour[]; complete?: boolean } | { ok: false },
+  now: Date = new Date(),
 ): CatalogFacts {
-  if (!wantsCatalogCards(question)) return EMPTY;
-  if (!loaded.ok) {
-    if (!insistsOnTours(question)) return EMPTY;
-    const line = 'Каталог туров сейчас не прочитан. Цены и названия туров не называй — их не из чего взять.';
-    return { note: line, html: line };
-  }
-  const months = askedMonths(question);
-  const days = askedDays(question);
-  const lookup = showcaseLookup(question);
-  const matched = selectTours(question, loaded.tours);
-  // Срез «40 самых длинных» — не весь каталог: «такого тура нет» по нему врало бы.
-  // Запрос по месту или виду читает каталог целиком, пустой ответ тогда честный.
-  const sawAll = loaded.complete !== false && (lookup.kind !== 'general' || loaded.tours.length < SHOWCASE_LIMIT);
-  if (lookup.kind !== 'general' && matched.length === 0 && loaded.tours.length > 0) {
-    if (!sawAll) return EMPTY;
-    const line = lookup.kind === 'volcano'
-      ? 'В каталоге Ведара нет живого тура к этому вулкану. Тур к другому вулкану вместо него не называй и цену не выдумывай.'
-      : 'В каталоге Ведара нет живого тура этого вида. Чужой тур вместо него не называй и цену не выдумывай.';
-    const html = lookup.kind === 'volcano'
-      ? 'В каталоге Ведара нет живого тура к этому вулкану.'
-      : 'В каталоге Ведара нет живого тура этого вида.';
-    return { note: line, html };
-  }
-  const poolTours = matched;
-  const byDuration = poolTours.filter((tour) => durationMatches(tour, days));
-  const source = byDuration.length > 0 ? byDuration : poolTours;
-  const fitting = source.filter((tour) => seasonOverlaps(tour, months) !== false);
-  const missed = source.filter((tour) => seasonOverlaps(tour, months) === false);
-  const show = (fitting.length > 0 ? fitting : missed).slice(0, 3);
-  if (show.length === 0) {
-    if (!insistsOnTours(question)) return EMPTY;
-    const line = 'В каталоге Ведара сейчас нет живого тура под этот запрос. Цену и название тура не выдумывай.';
-    return { note: line, html: line };
-  }
-
-  const when = months ? `Вопрос про ${monthList(months)}.` : 'Месяц в вопросе не назван.';
+  const picked = pickToursForAnswer(question, loaded, now);
+  if (picked.kind === 'not_tour') return EMPTY;
+  if (picked.kind !== 'list') return { note: picked.line, html: picked.line };
+  const show = picked.tours;
+  const months = picked.window ? askedMonths(question) : null;
+  const when = picked.windowLabel
+    ? `Вопрос про ${picked.windowLabel}.`
+    : 'Месяц в вопросе не назван. Называю только туры, чей сезон идёт сегодня.';
   const rows = show.map((tour) => {
     const windowNote = modelWindow(missedMonths(tour, months));
     return `«${tour.title}»: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
   });
-  const missedNote = fitting.length > 0 && missed.length > 0
-    ? ` Есть туры той же длины вне этих месяцев (${missed.slice(0, 2).map((tour) => `«${tour.title}», ${seasonPhrase(tour)}`).join('; ')}). В программу этих месяцев их не ставь.`
+  const more = picked.unnamedMore > 0
+    ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю.`
     : '';
   const note = [
-    'ФАКТЫ КАТАЛОГА НА ЭТОТ ВОПРОС. Цену, название и даты бери только отсюда. Чего нет в списке — не называй.',
+    'ФАКТЫ КАТАЛОГА НА ЭТОТ ВОПРОС. Цену, название и даты бери только отсюда. Чего нет в списке — не называй. Заезд вне этого окна доступным не называй.',
     when,
     ...rows,
-    missedNote,
+    more,
   ].filter(Boolean).join('\n');
 
   const htmlRows = show.map((tour) => {
@@ -314,8 +388,10 @@ export function catalogFacts(
 
 const SHOWCASE_SELECT = `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count,
               ot.activity_type, ot.location_name, LEFT(ot.description, 400) AS description,
-              ot.season_start::text AS season_start, ot.season_end::text AS season_end
+              ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+              p.slug AS operator_slug, p.name AS operator_name
          FROM operator_tours ot
+         JOIN partners p ON p.id = ot.operator_id
         WHERE ${publicTourSql('ot')}`;
 
 /** Запрос витрины: место и вид ищутся по всему каталогу, не по 40 самым длинным. */
