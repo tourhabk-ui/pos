@@ -87,7 +87,9 @@ describe('схема и сбор поведения', () => {
   it('приём события пишет визит, предыдущий путь и метку бота', () => {
     expect(HIT).toContain('sessionId');
     expect(HIT).toContain('fromPath');
-    expect(HIT).toContain('isBotUserAgent');
+    // Класс (человек / бот / ИИ / свой) считается в одном месте, приём его пишет.
+    expect(HIT).toContain('classifyPageHit');
+    expect(read('lib/analytics/visit-class.ts')).toContain('isBotUserAgent');
     // id нужен клиенту, чтобы дослать время на странице.
     expect(HIT).toContain('RETURNING id');
   });

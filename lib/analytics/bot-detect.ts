@@ -27,6 +27,12 @@ export interface BotFamily {
   vendor: string;
   /** Подстроки User-Agent (нижний регистр), которыми бот сам называет себя. */
   markers: readonly string[];
+  /**
+   * ИИ-краулер. На витрине посещаемости это отдельная строка «ИИ-краулеры»,
+   * не общая куча ботов (владелец 24.10). Поисковый бот того же вендора
+   * флага не получает: Googlebot — бот, Google-Extended — ИИ.
+   */
+  ai?: boolean;
 }
 
 /**
@@ -35,31 +41,40 @@ export interface BotFamily {
  * обходчика, а не «sogou»: это слово носят и браузеры Sogou у живых людей.
  */
 export const BOT_FAMILIES: readonly BotFamily[] = [
-  { family: 'google',      vendor: 'Google',                  markers: ['googlebot', 'google-extended', 'googleother'] },
-  { family: 'yandex',      vendor: 'Яндекс',                  markers: ['yandexbot', 'yandeximages', 'yandexmobilebot'] },
-  { family: 'bing',        vendor: 'Microsoft',               markers: ['bingbot', 'bingpreview'] },
+  // Длинный токен раньше короткого: «applebot» иначе съедает Applebot-Extended.
+  { family: 'google-extended', vendor: 'Google (обучение моделей)', markers: ['google-extended'], ai: true },
+  { family: 'google',      vendor: 'Google',                  markers: ['googlebot', 'googleother', 'adsbot-google', 'mediapartners-google', 'storebot-google', 'google-inspectiontool', 'feedfetcher-google'] },
+  { family: 'yandex',      vendor: 'Яндекс',                  markers: ['yandexbot', 'yandeximages', 'yandexmobilebot', 'yandexaccessibilitybot', 'yandexrenderresourcesbot', 'yandexscreenshotbot', 'yandexvideo', 'yandexwebmaster', 'yandexmetrika', 'yandexdirect', 'yandexnews', 'yandexmarket'] },
+  { family: 'bing',        vendor: 'Microsoft',               markers: ['bingbot', 'bingpreview', 'msnbot', 'adidxbot'] },
   { family: 'yahoo',       vendor: 'Yahoo',                   markers: ['slurp'] },
-  { family: 'openai',      vendor: 'OpenAI',                  markers: ['gptbot', 'oai-searchbot', 'chatgpt-user'] },
-  { family: 'anthropic',   vendor: 'Anthropic',               markers: ['claudebot', 'anthropic-ai', 'claude-web', 'claude-user', 'claude-searchbot'] },
-  { family: 'perplexity',  vendor: 'Perplexity',              markers: ['perplexitybot', 'perplexity-user'] },
+  { family: 'openai',      vendor: 'OpenAI',                  markers: ['gptbot', 'oai-searchbot', 'chatgpt-user'], ai: true },
+  { family: 'anthropic',   vendor: 'Anthropic',               markers: ['claudebot', 'anthropic-ai', 'claude-web', 'claude-user', 'claude-searchbot'], ai: true },
+  { family: 'perplexity',  vendor: 'Perplexity',              markers: ['perplexitybot', 'perplexity-user'], ai: true },
+  { family: 'you',         vendor: 'You.com',                 markers: ['youbot'], ai: true },
+  { family: 'cohere',      vendor: 'Cohere',                  markers: ['cohere-ai'], ai: true },
+  { family: 'ai2',         vendor: 'AI2',                     markers: ['ai2bot'], ai: true },
+  { family: 'mistral',     vendor: 'Mistral',                 markers: ['mistralai-user', 'mistralai'], ai: true },
+  { family: 'xai',         vendor: 'xAI',                     markers: ['grokbot', 'xai-grok'], ai: true },
   { family: 'baidu',       vendor: 'Baidu, КНР',              markers: ['baiduspider'] },
   { family: 'bytedance',   vendor: 'ByteDance, КНР',          markers: ['bytespider'] },
   { family: 'huawei',      vendor: 'Huawei, КНР',             markers: ['petalbot'] },
   { family: 'alibaba',     vendor: 'Alibaba (Shenma), КНР',   markers: ['yisouspider'] },
   { family: 'tencent',     vendor: 'Tencent (Sogou), КНР',    markers: ['sogou web spider'] },
   { family: '360',         vendor: '360 Search, КНР',         markers: ['360spider'] },
-  { family: 'deepseek',    vendor: 'DeepSeek, КНР',           markers: ['deepseekbot'] },
+  { family: 'deepseek',    vendor: 'DeepSeek, КНР',           markers: ['deepseekbot'], ai: true },
   // Аудит 15.10, CN-detect: семейства не было, и визиты Kimi в переписи входов
   // уходили в «other-bot». Три обходчика — по первоисточнику
   // kimi.com/policies/kimi-crawlers (15.10): KimiBot (обучение), Kimi-SearchBot
   // (поисковый индекс Kimi), Kimi-User (запрос человека). Токены «Kimi»,
   // «Qwenbot», «Doubao» из чужих блок-листов и «chatglm-spider» не берутся:
   // у них нет первоисточника, и перепись называла бы то, чего не знает.
-  { family: 'kimi',        vendor: 'Moonshot (Kimi), КНР',    markers: ['kimibot', 'kimi-searchbot', 'kimi-user'] },
+  { family: 'kimi',        vendor: 'Moonshot (Kimi), КНР',    markers: ['kimibot', 'kimi-searchbot', 'kimi-user'], ai: true },
+  { family: 'apple-extended', vendor: 'Apple (обучение моделей)', markers: ['applebot-extended'], ai: true },
   { family: 'apple',       vendor: 'Apple',                   markers: ['applebot'] },
   { family: 'meta',        vendor: 'Meta',                    markers: ['meta-externalagent', 'facebookexternalhit'] },
   { family: 'amazon',      vendor: 'Amazon',                  markers: ['amazonbot'] },
-  { family: 'duckduckgo',  vendor: 'DuckDuckGo',              markers: ['duckduckbot', 'duckassistbot'] },
+  { family: 'duckassist',  vendor: 'DuckDuckGo (ответы)',     markers: ['duckassistbot'], ai: true },
+  { family: 'duckduckgo',  vendor: 'DuckDuckGo',              markers: ['duckduckbot'] },
   { family: 'commoncrawl', vendor: 'Common Crawl',            markers: ['ccbot'] },
   { family: 'seo-tools',   vendor: 'SEO-сканеры',             markers: ['ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot'] },
   { family: 'messengers',  vendor: 'Превью мессенджеров и соцсетей', markers: ['telegrambot', 'whatsapp', 'skypeuripreview', 'discordbot', 'linkedinbot', 'twitterbot', 'vkshare'] },
@@ -70,7 +85,7 @@ const GENERIC_MARKERS = ['bot', 'crawler', 'spider', 'crawling'] as const;
 
 /** Инструменты, мониторинг, headless — не краулер и не человек. */
 const TOOL_MARKERS = [
-  'headlesschrome', 'phantomjs', 'puppeteer', 'playwright', 'selenium',
+  'headlesschrome', 'phantomjs', 'puppeteer', 'playwright', 'selenium', 'webdriver', 'cypress',
   'curl/', 'wget/', 'python-requests', 'httpx', 'go-http-client',
   'axios/', 'node-fetch', 'lighthouse', 'pingdom', 'uptimerobot',
 ] as const;
@@ -81,6 +96,26 @@ const BOT_MARKERS: readonly string[] = [
   ...BOT_FAMILIES.flatMap((f) => f.markers),
   ...TOOL_MARKERS,
 ];
+
+/** Семейства ИИ-краулеров — те же метки, что пишутся в page_views.ua_family. */
+export const AI_FAMILY_NAMES: readonly string[] = BOT_FAMILIES.filter((f) => f.ai === true).map((f) => f.family);
+
+export function isAiFamily(family: string | null | undefined): boolean {
+  return !!family && AI_FAMILY_NAMES.includes(family);
+}
+
+/**
+ * Литерал массива для SQL. Имена — из реестра, не из запроса: иначе витрина
+ * и приём события разошлись бы в первый же день. Чужой символ — ошибка
+ * сборки списка, а не дыра в запросе.
+ */
+export function aiFamilyArraySql(): string {
+  const names = AI_FAMILY_NAMES.map((n) => {
+    if (!/^[a-z0-9-]+$/.test(n)) throw new Error(`семейство «${n}» не литерал`);
+    return `'${n}'`;
+  });
+  return `ARRAY[${names.join(',')}]::text[]`;
+}
 
 export function isBotUserAgent(userAgent: string | null | undefined): boolean {
   if (!userAgent) return true; // безымянный клиент — не браузер человека

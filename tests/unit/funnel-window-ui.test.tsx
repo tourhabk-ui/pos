@@ -15,6 +15,7 @@ const baseReport = (over: Record<string, unknown> = {}) => ({
   window: { kind: 'day', label: 'Сегодня, 29.09 (сутки по Камчатке)', date: '2026-09-29', days: null, partial: true, visitor_unit: 'people' },
   counts: { visits: 5, tour_views: 3, booking_starts: 1, leads: 2, bookings: 1, paid: 0 },
   bot_views: 4,
+  visit_aside: { bots: 2, selfs: 1, ai: 3 },
   verdict: null,
   verdict_state: 'no_broken_link',
   unknown_inputs: [],
@@ -57,6 +58,9 @@ describe('воронка за период — экран', () => {
     await screen.findByText('Сегодня, 29.09 (сутки по Камчатке)');
     expect(screen.getByText(/Сутки ещё не закончились/)).toBeTruthy();
     expect(screen.getByText('Просмотры туров', { selector: 'p' }).nextElementSibling?.textContent).toBe('3');
+    // Большая цифра визитов — люди. Боты и свои рядом, ИИ — отдельной строкой.
+    expect(screen.getByText('боты: 2, свои: 1')).toBeTruthy();
+    expect(screen.getByText(/ИИ-краулеры: 3/)).toBeTruthy();
   });
 
   it('замер упал: «нет данных», а не ноль — и сказано, что не сосчитано', async () => {

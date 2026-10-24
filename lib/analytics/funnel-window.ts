@@ -39,6 +39,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { aiFamilyArraySql } from '@/lib/analytics/bot-detect';
 import { pickFunnelFinding, funnelSampleShortfall, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
 import {
   DAY_MS, KAMCHATKA_TIMEZONE_LABEL,
@@ -247,10 +248,12 @@ const TOUR_PATH = `(path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tour
 export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = pool) {
   const startedAt = Date.now();
   const p = windowParams(w);
+  const AI = aiFamilyArraySql();
 
   const [
     views, starts, leadRows, bookingRows,
     viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, leadSources, bookingStatuses,
+    aside,
   ] = await Promise.all([
     // Верх воронки — собственная метрика. Пути обеих публичных карточек тура:
     // /catalog и /marketplace рендерят одну реализацию (§11).
@@ -354,6 +357,26 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
         WHERE ${WINDOW_SQL} GROUP BY booking_status ORDER BY n DESC`,
       p,
     )).rows),
+
+    // Рядом с «визитами» (люди): боты, свои и ИИ-краулеры — те же сутки и
+    // тот же суточный хэш, поэтому N в подписи — та же единица, что большое
+    // число. Отказ этого замера не обнуляет визиты: колонки ua_family ещё
+    // нет — люди остаются, подпись говорит «не сосчитано».
+    measure('page_views.aside', async () => (await exec.query<{
+      bot_visits: number; self_visits: number; ai_visits: number;
+    }>(
+      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_self)::int AS self_visits,
+              COUNT(DISTINCT visitor_hash) FILTER (
+                WHERE is_bot AND NOT is_self AND ua_family = ANY (${AI})
+              )::int AS ai_visits,
+              COUNT(DISTINCT visitor_hash) FILTER (
+                WHERE is_bot AND NOT is_self
+                  AND (ua_family IS NULL OR NOT (ua_family = ANY (${AI})))
+              )::int AS bot_visits
+         FROM page_views
+        WHERE ${WINDOW_SQL} AND visitor_hash IS NOT NULL`,
+      p,
+    )).rows[0] ?? { bot_visits: 0, self_visits: 0, ai_visits: 0 }),
   ]);
 
   const counts = {
@@ -393,6 +416,12 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     window_days: w.days,
     counts,
     bot_views: views.value?.bot_views ?? null,
+    // null — замер подписи не удался. Это не ноль ботов.
+    visit_aside: aside.failed || !aside.value ? null : {
+      bots: aside.value.bot_visits,
+      selfs: aside.value.self_visits,
+      ai: aside.value.ai_visits,
+    },
     // Вердикт — от того же судьи, что в петле эволюции.
     verdict: verdict
       ? { title: verdict.title, severity: verdict.severity, suggestion: verdict.suggestion }

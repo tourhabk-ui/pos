@@ -11,10 +11,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getClientIp, getTrustedClientIpOrNull } from '@/lib/rate-limit';
 import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
-import { isBotUserAgent } from '@/lib/analytics/bot-detect';
 import { isSelfVisit } from '@/lib/analytics/self-visit';
+import { isStaffOwnVisit } from '@/lib/analytics/staff-visit';
+import { isPlatformBoxIp } from '@/lib/analytics/box-ip';
+import { classifyPageHit } from '@/lib/analytics/visit-class';
 import { deviceClass } from '@/lib/analytics/visit-sources';
 
 const HitSchema = z.object({
@@ -26,6 +28,10 @@ const HitSchema = z.object({
   fromPath:  z.string().max(500).optional(),
   /** Заход на несуществующий адрес: ошибка поведения, а не просто просмотр. */
   notFound:  z.boolean().optional(),
+  /** Маяк PageViewTracker. Нет поля — вызов не из браузера человека. */
+  beacon:    z.boolean().optional(),
+  /** navigator.webdriver: автоматический браузер сам это сообщает. */
+  webdriver: z.boolean().optional(),
 });
 
 const hitLimiter = createRateLimiter({ windowMs: 10_000, max: 20 });
@@ -52,6 +58,7 @@ export async function POST(req: NextRequest) {
   }
 
   const userAgent = req.headers.get('user-agent') ?? '';
+  const cookie = req.headers.get('cookie');
 
   // Суточный хэш посетителя вместо сырых IP/UA (152-ФЗ) — считаем
   // уникальных за день, длинного профиля не строим by design
@@ -62,33 +69,61 @@ export async function POST(req: NextRequest) {
     process.env.CRON_SECRET ?? 'vedar',
   );
 
-  // Строку бота НЕ выбрасываем, а помечаем: доля не-людей — величина,
-  // которую надо видеть, а не прятать.
-  const isBot = isBotUserAgent(userAgent);
-  // Свой заход (cookie владельца) тоже не выбрасывается, а помечается:
-  // панели считают внешних без него (lib/analytics/self-visit, 02.10).
-  const isSelf = isSelfVisit(req.headers.get('cookie'));
+  // Строку бота и своего НЕ выбрасываем, а помечаем. «Люди» на витрине —
+  // audience person: не бот, не ИИ-краулер, не свой, и маяк был.
+  // Адрес для «свой» — только если заголовок его назвал. Нет заголовка —
+  // не коробка (getClientIp подставил бы 127.0.0.1 всем таким запросам).
+  const classified = classifyPageHit({
+    userAgent,
+    webdriver: parsed.data.webdriver === true,
+    clientBeacon: parsed.data.beacon === true,
+    own: isSelfVisit(req.headers.get('cookie'))
+      || await isStaffOwnVisit(cookie)
+      || isPlatformBoxIp(getTrustedClientIpOrNull(req.headers)),
+  });
+  const isBot = classified.isBot;
+  const isSelf = classified.isSelf;
 
   // Класс устройства (mobile / tablet / desktop) — не сам UA (152-ФЗ).
+  // Боту класс не пишем: иначе автопроверка с компьютера попадает в «компьютер».
   const device = isBot ? null : deviceClass(userAgent);
   const base = [path, referrer ?? null, hash, sessionId ?? null, fromPath ?? null, isBot, notFound === true, isSelf];
 
   let res = await pool.query<{ id: string }>(
-    `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self, device)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self, device, ua_family, client_beacon)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
-    [...base, device],
-  ).catch((e: { code?: string }) => (e?.code === '42703' ? undefined : null));
-  // Колонки device ещё нет (миграция 1304 не доехала) — пишем как раньше,
-  // счётчик не должен теряться из-за новой колонки.
+    [...base, device, classified.family, parsed.data.beacon === true],
+  ).catch((e: { code?: string; message?: string }) => {
+    if (e?.code === '42703') return undefined;
+    console.error('[analytics/hit] запись не удалась:', e?.code ?? 'нет SQLSTATE', (e?.message ?? '').slice(0, 200));
+    return null;
+  });
+  // Колонки device / ua_family / client_beacon ещё нет — пишем прежним
+  // составом. is_bot и is_self уже выставлены, «люди» не раздуваются.
+  if (res === undefined) {
+    res = await pool.query<{ id: string }>(
+      `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self, device)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [...base, device],
+    ).catch((e: { code?: string; message?: string }) => {
+      if (e?.code === '42703') return undefined;
+      console.error('[analytics/hit] запись без семейства не удалась:', e?.code ?? 'нет SQLSTATE', (e?.message ?? '').slice(0, 200));
+      return null;
+    });
+  }
   if (res === undefined) {
     res = await pool.query<{ id: string }>(
       `INSERT INTO page_views (path, referrer, visitor_hash, session_id, from_path, is_bot, is_not_found, is_self)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
       base,
-    ).catch(() => null); // не критично: страница не должна страдать из-за счётчика
+    ).catch((e: { code?: string; message?: string }) => {
+      console.error('[analytics/hit] запись прежним составом не удалась:', e?.code ?? 'нет SQLSTATE', (e?.message ?? '').slice(0, 200));
+      return null;
+    });
   }
 
-  return NextResponse.json({ ok: true, id: res?.rows[0]?.id ?? null });
+  return NextResponse.json({ ok: true, id: res?.rows[0]?.id ?? null, audience: classified.audience });
 }

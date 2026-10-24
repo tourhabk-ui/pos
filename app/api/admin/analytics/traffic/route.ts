@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { safeMsg } from '@/lib/errors/sanitize';
+import { aiFamilyArraySql } from '@/lib/analytics/bot-detect';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,29 +38,42 @@ const OWN_HOST_RE = 'vedarai\\.ru|tourhab\\.ru|tourhabk\\.ru|localhost';
  */
 const HUMAN = 'is_bot = FALSE AND is_self = FALSE';
 
+/** Чужие боты без ИИ-семейства. NULL семьи — старая строка: User-Agent не хранился, это не ИИ. */
+const BOT_ONLY = (ai: string) => `is_bot AND NOT is_self AND (ua_family IS NULL OR NOT (ua_family = ANY (${ai})))`;
+const AI_ONLY = (ai: string) => `is_bot AND NOT is_self AND ua_family = ANY (${ai})`;
+
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request);
   if (auth instanceof NextResponse) return auth;
 
   try {
+    const AI = aiFamilyArraySql();
     const [totals, daily, topPaths, topReferrers, coverage, edges, pages, topExitPages, sessions, notFound, funnel] = await Promise.all([
       pool.query<{
         today_hits: string; today_uniques: string;
+        today_bot_hits: string; today_self_hits: string; today_ai_hits: string;
         week_hits: string; week_visitor_days: string;
+        week_bot_hits: string; week_self_hits: string; week_ai_hits: string;
         month_hits: string; month_visitor_days: string;
-        month_bot_hits: string;
-        month_self_hits: string;
+        month_bot_hits: string; month_self_hits: string; month_ai_hits: string;
         self_since: string | null;
       }>(`
         SELECT
           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${HUMAN}) AS today_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= CURRENT_DATE AND ${HUMAN} AND visitor_hash IS NOT NULL) AS today_uniques,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${BOT_ONLY(AI)}) AS today_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND is_self) AS today_self_hits,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${AI_ONLY(AI)}) AS today_ai_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${HUMAN}) AS week_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${HUMAN} AND visitor_hash IS NOT NULL) AS week_visitor_days,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${BOT_ONLY(AI)}) AS week_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND is_self) AS week_self_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${AI_ONLY(AI)}) AS week_ai_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN}) AS month_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN} AND visitor_hash IS NOT NULL) AS month_visitor_days,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND is_bot) AS month_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${BOT_ONLY(AI)}) AS month_bot_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND is_self) AS month_self_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${AI_ONLY(AI)}) AS month_ai_hits,
           to_char(MIN(created_at) FILTER (WHERE is_self), 'YYYY-MM-DD') AS self_since
         FROM page_views
       `),
@@ -243,11 +257,18 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         totals: {
-          today: { hits: Number(t.today_hits), uniques: Number(t.today_uniques) },
-          week:  { hits: Number(t.week_hits),  visitorDays: Number(t.week_visitor_days) },
-          month: { hits: Number(t.month_hits), visitorDays: Number(t.month_visitor_days) },
+          today: { hits: Number(t.today_hits), uniques: Number(t.today_uniques), bots: Number(t.today_bot_hits), selfs: Number(t.today_self_hits) },
+          week:  { hits: Number(t.week_hits),  visitorDays: Number(t.week_visitor_days), bots: Number(t.week_bot_hits), selfs: Number(t.week_self_hits) },
+          month: { hits: Number(t.month_hits), visitorDays: Number(t.month_visitor_days), bots: Number(t.month_bot_hits), selfs: Number(t.month_self_hits) },
         },
+        // month_hits оставлен: прежняя карточка краулеров читала его. Это боты
+        // без ИИ и без своих — та же цифра, что «боты» у карточки 30 дней.
         bots: { month_hits: Number(t.month_bot_hits) },
+        ai: {
+          today: Number(t.today_ai_hits),
+          week: Number(t.week_ai_hits),
+          month: Number(t.month_ai_hits),
+        },
         // Свои заходы за 30 дней и с какого дня метка вообще ставилась: до
         // этого дня свои и чужие в цифрах выше неразличимы.
         self: { month_hits: Number(t.month_self_hits), since: t.self_since },
