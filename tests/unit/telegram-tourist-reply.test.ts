@@ -28,6 +28,9 @@ describe('даты тура против месяца в вопросе', () => 
     expect(facts.note).toContain('июле');
     expect(facts.note).toContain('180');
     expect(facts.html).toContain('https://vedarai.ru/catalog/tours/pyat-dney');
+    expect(facts.html).toContain('В июле этого заезда нет.');
+    expect(facts.html).not.toContain('не расписывай');
+    expect(facts.note).toContain('не расписывай');
     expect(facts.html).not.toMatch(/от 0 /);
     expect(facts.inline?.inline_keyboard[0]?.[0]?.url).toBe('https://vedarai.ru/catalog/tours/pyat-dney');
   });
@@ -52,6 +55,39 @@ describe('даты тура против месяца в вопросе', () => 
     expect(catalogFacts('посмотреть погоду на завтра', { ok: true, tours: [FIVE] }).html).toBe('');
     expect(catalogFacts('за 3 дня до вылета', { ok: true, tours: [FIVE] }).html).toBe('');
     expect(catalogFacts('за 3 дня до вылета', { ok: false }).note).toBe('');
+  });
+
+  it('указание модели про единицу цены в карточку туристу не попадает', () => {
+    const facts = catalogFacts('что посмотреть за 5 дней', {
+      ok: true,
+      tours: [{ ...FIVE, price_unit: 'неизвестно' }],
+    });
+    expect(facts.note).toContain('не называй её ценой с человека');
+    expect(facts.html).not.toContain('не называй');
+    expect(facts.html).toContain('не записано');
+  });
+
+  it('рыбалка не запирается на чужой длинный тур', () => {
+    const fish: CatalogTour = {
+      ...FIVE,
+      id: 2,
+      slug: 'rybalka',
+      title: 'Рыбалка на неделю',
+      activity_type: 'fishing',
+      multi_day_count: 7,
+    };
+    const facts = catalogFacts('хочу на рыбалку', { ok: true, tours: [FIVE, fish] });
+    expect(facts.note).toContain('Рыбалка на неделю');
+    expect(facts.note).not.toContain('Пять дней');
+    expect(facts.html).toContain('/catalog/tours/rybalka');
+    expect(facts.html).not.toContain('pyat-dney');
+  });
+
+  it('вопрос про вулкан без такого тура чужой не подставляет', () => {
+    const facts = catalogFacts('хочу на вулкан', { ok: true, tours: [FIVE] });
+    expect(facts.note).toContain('нет живого тура этого вида');
+    expect(facts.html).not.toContain('pyat-dney');
+    expect(facts.inline).toBeUndefined();
   });
 
   it('аренда авто не подмешивает туры', () => {

@@ -6,7 +6,8 @@
  * не текст модели. Кнопки ведут на карточку vedarai.ru.
  */
 
-import { detectTourIntent, isSightseeingQuestion } from '@/lib/ai/booking-intent';
+import { askedActivity, detectTourIntent, isSightseeingQuestion } from '@/lib/ai/booking-intent';
+import { namedVolcanoes } from '@/lib/ai/tour-place-relevance';
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -47,6 +48,8 @@ export interface CatalogTour {
   base_price: number | string | null;
   price_unit: string | null;
   multi_day_count: number | null;
+  activity_type?: string | null;
+  location_name?: string | null;
   season_start: string | null;
   season_end: string | null;
 }
@@ -145,14 +148,59 @@ function monthList(months: number[]): string {
   return months.map((m) => MONTH_PREP[m - 1] ?? String(m)).join(', ');
 }
 
-/** Месяцы вопроса, в которые этот заезд не попадает. Пустая строка — попадает во все. */
-function outsideMonths(tour: CatalogTour, months: number[] | null): string {
-  if (!months) return '';
+/** Месяцы вопроса, в которые этот заезд не попадает. */
+function missedMonths(tour: CatalogTour, months: number[] | null): number[] {
+  if (!months) return [];
   const have = seasonMonths(tour.season_start, tour.season_end);
-  if (!have) return '';
-  const outside = months.filter((month) => !have.includes(month));
+  if (!have) return [];
+  return months.filter((month) => !have.includes(month));
+}
+
+/** Модели: не расписывать заезд на месяц, которого в сезоне нет. */
+function modelWindow(outside: number[]): string {
   if (outside.length === 0) return '';
   return ` В ${monthList(outside)} этого заезда нет — не расписывай его на эти месяцы, назови фактические даты.`;
+}
+
+/** Туристу: факт, без указания модели. */
+function humanWindow(outside: number[]): string {
+  if (outside.length === 0) return '';
+  return `В ${monthList(outside)} этого заезда нет.`;
+}
+
+/**
+ * Цена на карточке туристу. Предупреждение «не называй ценой с человека»
+ * остаётся в записке модели, в сообщение его не кладём.
+ */
+function touristPrice(tour: CatalogTour): string {
+  const labeled = priceFromUnit(tour.base_price, tour.price_unit);
+  if (!labeled) return 'цена не указана';
+  return labeled.replace(
+    ' (за что назначена цена — не записано, не называй её ценой с человека)',
+    ' (за что назначена цена — не записано)',
+  );
+}
+
+function askFocus(question: string): { word: string | null; type: string | null; volcanoes: string[] } | null {
+  const hint = askedActivity(question);
+  const volcanoes = namedVolcanoes(question);
+  if (!hint.word && volcanoes.length === 0) return null;
+  return { word: hint.word, type: hint.type, volcanoes };
+}
+
+function matchesAsk(
+  tour: CatalogTour,
+  ask: { word: string | null; type: string | null; volcanoes: string[] },
+): boolean {
+  const title = tour.title.toLowerCase().replace(/ё/g, 'е');
+  const word = ask.word?.replace(/ё/g, 'е') ?? '';
+  if (word && title.includes(word)) return true;
+  if (ask.type && tour.activity_type === ask.type) return true;
+  if (ask.volcanoes.length > 0) {
+    const mentioned = namedVolcanoes([tour.title, tour.location_name ?? ''].join(' '));
+    if (mentioned.some((name) => ask.volcanoes.includes(name))) return true;
+  }
+  return false;
 }
 
 function tourUrl(tour: CatalogTour): string {
@@ -190,7 +238,15 @@ export function catalogFacts(
   }
   const months = askedMonths(question);
   const days = askedDays(question);
-  const poolTours = loaded.tours;
+  const focus = askFocus(question);
+  const matched = focus ? loaded.tours.filter((tour) => matchesAsk(tour, focus)) : loaded.tours;
+  // Пустой каталог молчит, если вопрос не про витрину («когда идти на вулкан»).
+  // Каталог есть, а этого вида нет — чужой длинный тур в ответ не запираем.
+  if (focus && loaded.tours.length > 0 && matched.length === 0) {
+    const line = 'В каталоге Ведара нет живого тура этого вида. Чужой тур вместо него не называй и цену не выдумывай.';
+    return { note: line, html: 'В каталоге Ведара нет живого тура этого вида.' };
+  }
+  const poolTours = matched;
   const byDuration = poolTours.filter((tour) => durationMatches(tour, days));
   const source = byDuration.length > 0 ? byDuration : poolTours;
   const fitting = source.filter((tour) => seasonOverlaps(tour, months) !== false);
@@ -204,7 +260,7 @@ export function catalogFacts(
 
   const when = months ? `Вопрос про ${monthList(months)}.` : 'Месяц в вопросе не назван.';
   const rows = show.map((tour) => {
-    const windowNote = outsideMonths(tour, months);
+    const windowNote = modelWindow(missedMonths(tour, months));
     return `«${tour.title}»: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
   });
   const missedNote = fitting.length > 0 && missed.length > 0
@@ -218,8 +274,8 @@ export function catalogFacts(
   ].filter(Boolean).join('\n');
 
   const htmlRows = show.map((tour) => {
-    const aside = outsideMonths(tour, months);
-    return `<a href="${tourUrl(tour)}">${escapeHtml(tour.title)}</a> — ${escapeHtml(daysPhrase(tour))}, ${escapeHtml(seasonPhrase(tour))}, ${escapeHtml(endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit)))}${aside ? ` ${escapeHtml(aside.trim())}` : ''}`;
+    const aside = humanWindow(missedMonths(tour, months));
+    return `<a href="${tourUrl(tour)}">${escapeHtml(tour.title)}</a> — ${escapeHtml(daysPhrase(tour))}, ${escapeHtml(seasonPhrase(tour))}, ${escapeHtml(endSentence(touristPrice(tour)))}${aside ? ` ${escapeHtml(aside)}` : ''}`;
   });
   const html = [`<b>Из каталога Ведара</b>`, ...htmlRows].join('\n');
   const inline = {
@@ -232,6 +288,7 @@ export async function loadShowcaseTours(): Promise<{ ok: true; tours: CatalogTou
   try {
     const { rows } = await pool.query<CatalogTour>(
       `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count,
+              ot.activity_type, ot.location_name,
               ot.season_start::text AS season_start, ot.season_end::text AS season_end
          FROM operator_tours ot
         WHERE ${publicTourSql('ot')}

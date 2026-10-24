@@ -408,6 +408,19 @@ describe('доставка ответа', () => {
 });
 
 describe('турист: клавиатура, порядок ответов, даты каталога', () => {
+  it('кнопка во время заявки не становится её текстом', async () => {
+    await post('/start lead');
+    await post('Подобрать тур');
+    expect(sent().some((t) => t.includes('Заявка принята'))).toBe(false);
+    expect(m.createLead).not.toHaveBeenCalled();
+    await post('вулканы в августе, двое');
+    expect(sent().some((t) => t.includes('Заявка принята'))).toBe(true);
+    expect(m.createLead).toHaveBeenCalled();
+    const comment = (m.createLead.mock.calls[0]?.[0] as { comment?: string } | undefined)?.comment;
+    expect(comment).toContain('вулканы в августе');
+    expect(comment).not.toContain('Подобрать тур');
+  });
+
   it('/start — клавиатура Ведара, без текста кабинета оператора', async () => {
     await post('/start');
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { keyboard?: Array<Array<{ text: string }>> } };

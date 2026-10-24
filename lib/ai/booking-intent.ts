@@ -88,6 +88,12 @@ function activityKeyword(lower: string): string | null {
   return null;
 }
 
+/** Вид занятия в вопросе. Нет слова из словаря — оба поля пустые, каталог не сужается. */
+export function askedActivity(text: string): { type: string | null; word: string | null } {
+  const word = activityKeyword(text.toLowerCase());
+  return { type: word ? ACTIVITY_MAP[word]! : null, word };
+}
+
 // ── Detect booking/tour intent ────────────────────────────────────
 export function detectTourIntent(text: string): {
   detected: boolean;

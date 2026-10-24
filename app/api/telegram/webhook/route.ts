@@ -1436,6 +1436,15 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       const emergency = detectEmergency(text).detected;
       const withSos = (reply: string): string => withSosBlock(reply, text).text;
 
+      // Кнопка клавиатуры — не текст заявки. Клавиатура остаётся на экране
+      // после /start lead (ссылка сайта ?start=lead), и «Подобрать тур»
+      // иначе записывался описанием поездки.
+      const button = !admin ? matchTouristButton(text) : null;
+      if (button) {
+        await answerTouristButton(chatId, button);
+        return;
+      }
+
       // Пользователь в процессе оформления заявки через /start lead
       const pendingLead = pendingLeadFlow.get(chatId);
       if (pendingLead) {
@@ -1546,12 +1555,6 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       }
 
       // Regular AI chat — общий мозг Кузьмича (TG-BRAIN)
-      const button = !admin ? matchTouristButton(text) : null;
-      if (button) {
-        await answerTouristButton(chatId, button);
-        return;
-      }
-
       await answerByKuzmich({
         chatId: update.message.chat.id,
         text,
