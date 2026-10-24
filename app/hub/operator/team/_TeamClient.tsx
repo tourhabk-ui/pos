@@ -309,12 +309,12 @@ export default function TeamClient() {
               <fieldset className="space-y-2">
                 <legend className="ds-label">Кроме заявок, броней и клиентов разрешить</legend>
                 {PERMS.map(p => (
-                  <label key={p.key} className="flex items-start gap-2 cursor-pointer">
+                  <label key={p.key} className="flex items-center gap-3 min-h-[44px] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={perms[p.key]}
                       onChange={e => setPerms(prev => ({ ...prev, [p.key]: e.target.checked }))}
-                      className="w-4 h-4 mt-0.5 accent-[var(--accent)]"
+                      className="w-5 h-5 accent-[var(--accent)]"
                     />
                     <span className="text-sm text-[var(--text-primary)]">
                       {p.title} <span className="text-[var(--text-secondary)]">— {p.hint}</span>
@@ -338,10 +338,10 @@ export default function TeamClient() {
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 min-w-0 break-all text-xs text-[var(--text-primary)] bg-[var(--bg-hover)] rounded-lg px-2 py-1.5">{fresh.url}</code>
-                <button type="button" onClick={() => void copyLink(fresh.url)} className="ds-btn ds-btn-secondary" aria-label="Скопировать ссылку">
+                <button type="button" onClick={() => void copyLink(fresh.url)} className="ds-btn ds-btn-secondary min-w-[44px] min-h-[44px]" aria-label="Скопировать ссылку">
                   <Copy className="w-4 h-4" />
                 </button>
-                <button type="button" onClick={() => void share(fresh.url)} className="ds-btn ds-btn-secondary" aria-label="Поделиться ссылкой">
+                <button type="button" onClick={() => void share(fresh.url)} className="ds-btn ds-btn-secondary min-w-[44px] min-h-[44px]" aria-label="Поделиться ссылкой">
                   <Share2 className="w-4 h-4" />
                 </button>
               </div>

@@ -105,8 +105,8 @@ export default function OperatorReviewsClient() {
 
       {state.kind === 'ready' && (
         <>
-          <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-            <input type="checkbox" checked={onlyUnreplied} onChange={(e) => setOnlyUnreplied(e.target.checked)} />
+          <label className="flex items-center gap-3 min-h-[44px] text-sm text-[var(--text-secondary)]">
+            <input type="checkbox" checked={onlyUnreplied} onChange={(e) => setOnlyUnreplied(e.target.checked)} className="w-5 h-5 accent-[var(--accent)]" />
             Только без ответа
           </label>
           {shown.length === 0 ? (

@@ -62,7 +62,7 @@ export default function IntegrationsPageClient() {
   };
 
   return (
-    <div className="p-5 lg:p-6 space-y-5">
+    <div className="p-4 sm:p-5 lg:p-6 space-y-5 min-w-0 overflow-x-clip">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Интеграции</h1>
@@ -79,27 +79,27 @@ export default function IntegrationsPageClient() {
           </p>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 min-w-0">
           {SALES_CHANNELS.map((ch) => (
-            <div key={ch.id} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+            <div key={ch.id} className="min-w-0 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 sm:p-5">
               <h3 className="font-semibold text-[var(--text-primary)]">{ch.name}</h3>
 
-              <div className="mt-3 flex items-center gap-2">
-                <code className="flex-1 min-w-0 truncate px-3 py-2 bg-[var(--bg-hover)] rounded-md text-xs text-[var(--text-secondary)]" title={ch.feedUrl}>
+              <div className="mt-3 flex flex-col gap-2 min-w-0">
+                <code className="block w-full min-w-0 break-all px-3 py-2 bg-[var(--bg-hover)] rounded-md text-xs text-[var(--text-secondary)]">
                   {ch.feedUrl}
                 </code>
                 <button
                   type="button"
                   onClick={() => copyFeed(ch.id, ch.feedUrl)}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+                  className="self-start min-h-[44px] inline-flex items-center gap-1.5 px-3 rounded-md text-xs font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
                 >
                   {copied === ch.id ? <Check className="w-3.5 h-3.5 text-[var(--success)]" /> : <Copy className="w-3.5 h-3.5" />}
                   {copied === ch.id ? 'Скопировано' : 'Копировать'}
                 </button>
               </div>
 
-              <ol className="mt-3 space-y-1.5 text-sm text-[var(--text-secondary)] list-decimal list-inside">
-                {ch.steps.map((s) => <li key={s}>{s}</li>)}
+              <ol className="mt-3 space-y-1.5 text-sm text-[var(--text-secondary)] list-decimal list-inside break-words">
+                {ch.steps.map((s) => <li key={s} className="break-words">{s}</li>)}
               </ol>
               <p className="mt-2 text-xs text-[var(--text-muted)]">{ch.note}</p>
             </div>

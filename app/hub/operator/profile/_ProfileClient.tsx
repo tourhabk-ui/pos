@@ -213,7 +213,12 @@ export default function OperatorProfileClient() {
               {category && (
                 <div>
                   <label className="block text-sm mb-1 text-[var(--text-secondary)]">Категория</label>
-                  <input value={category} readOnly tabIndex={-1} className={INPUT_RO} />
+                  <input
+                    value={category === 'operator' ? 'Туроператор' : category}
+                    readOnly
+                    tabIndex={-1}
+                    className={INPUT_RO}
+                  />
                 </div>
               )}
 

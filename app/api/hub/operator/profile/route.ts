@@ -4,7 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperatorOwner, requireOperatorTeam } from '@/lib/operators/team-access';
+import { requireOperatorOwner, requireOperatorTeam, type OperatorTeamContext } from '@/lib/operators/team-access';
+import { requireOperator } from '@/lib/auth/middleware';
+import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { query } from '@/lib/database';
 import { reachForPartner } from '@/lib/partners/reach';
 import { isCleared, mergeClearable } from '@/lib/operator/profile-patch';
@@ -38,11 +40,42 @@ async function telegramNotifications(partnerId: string): Promise<{
   };
 }
 
-export async function GET(request: NextRequest) {
-  // Профиль читает и менеджер команды (CRM 2г), но без денег: способ и
-  // проверка выплат, ставка комиссии ему не показываются.
-  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
-  if (ctx instanceof NextResponse) return ctx;
+const ADMIN_NO_COMPANY = {
+  success: false as const,
+  code: 'admin_no_company' as const,
+  error: 'У этой учётной записи нет кабинета туроператора. Откройте его через «Войти как → Туроператор».',
+};
+
+/**
+ * Черновик профиля — только роли operator.
+ *
+ * «Войти как → Туроператор» зовёт ensurePartnerForRole и глотает отказ,
+ * поэтому кабинет открывался без строки partners. Админу строку не заводим:
+ * до 25.09 так в каталог попадали сотрудники платформы.
+ */
+async function healOperatorDraft(request: NextRequest): Promise<OperatorTeamContext | NextResponse> {
+  const auth = await requireOperator(request);
+  if (auth instanceof NextResponse) return auth;
+  if (auth.role === 'admin') {
+    return NextResponse.json(ADMIN_NO_COMPANY, { status: 404 });
+  }
+  if (auth.role !== 'operator') {
+    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
+  }
+  try {
+    await ensurePartnerForRole(auth.userId, 'operator');
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
+    console.error('[hub/operator/profile] черновик профиля не создан, SQLSTATE', code);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось открыть кабинет — попробуйте позже' },
+      { status: 503 },
+    );
+  }
+  return requireOperatorTeam(request, { noProfileStatus: 404 });
+}
+
+async function readProfile(ctx: OperatorTeamContext) {
   const partnerId = ctx.partnerId;
 
   const r = await query(`
@@ -66,10 +99,30 @@ export async function GET(request: NextRequest) {
   const visible = ctx.access.kind === 'owner'
     ? row
     : { ...row, payout_method: null, payout_verified: null, commission_current: null };
+  // Кто читает: ворота кабинета уводят на настройку только владельца.
+  // Менеджер компании с незавершённым профилем иначе застревает на форме,
+  // которую ему не дать сохранить.
   return NextResponse.json({
     success: true,
-    data: { ...visible, telegram_notifications: await telegramNotifications(partnerId) },
+    data: {
+      ...visible,
+      viewer: ctx.access.kind,
+      telegram_notifications: await telegramNotifications(partnerId),
+    },
   });
+}
+
+export async function GET(request: NextRequest) {
+  // Профиль читает и менеджер команды (CRM 2г), но без денег: способ и
+  // проверка выплат, ставка комиссии ему не показываются.
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) {
+    if (ctx.status !== 404) return ctx;
+    const healed = await healOperatorDraft(request);
+    if (healed instanceof NextResponse) return healed;
+    return readProfile(healed);
+  }
+  return readProfile(ctx);
 }
 
 /**

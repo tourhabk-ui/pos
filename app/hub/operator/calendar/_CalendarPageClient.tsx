@@ -587,14 +587,16 @@ export default function CalendarPageClient() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-3">
             <button onClick={prevMonth}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
+              aria-label="Предыдущий месяц"
+              className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
               <ChevronLeft className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
             </button>
             <h2 className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>
               {MONTHS_RU[month - 1]} {year}
             </h2>
             <button onClick={nextMonth}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
+              aria-label="Следующий месяц"
+              className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
               <ChevronRight className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
             </button>
           </div>

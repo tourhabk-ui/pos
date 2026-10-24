@@ -7,9 +7,14 @@
  *  - владелец и «не узнали» — баннер чата кабинета, как было до команды;
  *  - менеджер — свой баннер: копии уведомлений в его мессенджер.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import React from 'react';
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/hub/operator',
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
 
 const seat = vi.hoisted(() => ({ value: { state: 'loading' } as unknown }));
 vi.mock('@/components/operator/use-operator-seat', async (orig) => ({
@@ -28,7 +33,18 @@ import OperatorHubLayout from '@/app/hub/operator/layout';
 
 const perms = { can_edit_prices: false, can_cancel_bookings: false };
 
-afterEach(() => cleanup());
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ success: true, data: { onboarding_completed: true } }),
+  })));
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('баннер мессенджера в кабинете оператора', () => {
   it.each([
@@ -36,10 +52,10 @@ describe('баннер мессенджера в кабинете операто
     ['владелец', { state: 'ok', kind: 'owner', perms }, ['баннер чата кабинета']],
     ['не узнали (сбой /me)', { state: 'unknown' }, ['баннер чата кабинета']],
     ['менеджер', { state: 'ok', kind: 'manager', perms }, ['баннер менеджера']],
-  ])('%s', (_name, value, expected) => {
+  ])('%s', async (_name, value, expected) => {
     seat.value = value;
     render(<OperatorHubLayout><main>экран</main></OperatorHubLayout>);
-    expect(screen.getByText('экран')).toBeTruthy();
+    expect(await screen.findByText('экран')).toBeTruthy();
     const shown = ['баннер чата кабинета', 'баннер менеджера'].filter(t => screen.queryByText(t));
     expect(shown).toEqual(expected);
   });

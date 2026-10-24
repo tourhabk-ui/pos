@@ -10,7 +10,7 @@
 // за всю историю. Деплой идёт на каждый пуш в main, с 02.09 их прошло 1301 —
 // столько наборов чанков успело осесть. Впредь копиться не даст эвикция статики
 // (evictOldStaticAssets ниже), а этот бамп разбирает уже накопленное.
-const CACHE_NAME = 'kamchatour-v32';
+const CACHE_NAME = 'kamchatour-v33';
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
 const MAX_TRIP_PAGES = 10;  // планы поездок /trip/[token] — свой план + пара чужих по ссылкам
@@ -507,6 +507,7 @@ function cacheIfOk(request, response, afterCache) {
  * Навигация с таймаутом. По таймауту отдаём кэш, если он есть; иначе ждём сеть
  * дальше. `shouldCache` — сохранять ли удачный ответ (у разных веток свои
  * правила: whitelist кэширует всё, общая ветка — только главную и /tours).
+ * Отказ без копии страницы отдаёт cachedOrOffline — всегда Response.
  */
 function navigateWithTimeout(request, shouldCache, afterCache) {
   return new Promise((resolve) => {
@@ -517,7 +518,7 @@ function navigateWithTimeout(request, shouldCache, afterCache) {
       if (shouldCache) cacheIfOk(request, response, afterCache);
       done(response);
     }).catch(() => {
-      done(caches.match(request).then((cached) => cached || caches.match('/offline')));
+      done(cachedOrOffline(request));
     });
 
     setTimeout(() => {
@@ -679,10 +680,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match('/offline');
-        })
+        .catch(() => cachedOrOffline(request))
     );
     return;
   }
@@ -709,10 +707,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match('/offline');
-        })
+        .catch(() => cachedOrOffline(request))
     );
     return;
   }
@@ -744,6 +739,23 @@ self.addEventListener('fetch', (event) => {
     navigateWithTimeout(request, url.pathname === '/' || url.pathname === '/tours')
   );
 });
+
+/** Пустой кэш — всё равно Response: иначе respondWith падает TypeError. */
+function emptyOffline() {
+  return new Response('', {
+    status: 503,
+    statusText: 'Offline',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
+function offlineDocument() {
+  return caches.match('/offline').then((page) => page || emptyOffline(), () => emptyOffline());
+}
+
+function cachedOrOffline(request) {
+  return caches.match(request).then((cached) => cached || offlineDocument(), () => offlineDocument());
+}
 
 // ── Web Push ──────────────────────────────────────────────────────────────────
 

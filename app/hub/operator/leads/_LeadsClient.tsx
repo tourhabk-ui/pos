@@ -279,7 +279,7 @@ export default function LeadsClient() {
                 type="button"
                 onClick={() => setViewPersist('list')}
                 aria-pressed={view === 'list'}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                className={`inline-flex items-center gap-1.5 min-h-[44px] px-3 transition-colors ${
                   view === 'list' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
                 }`}
               >
@@ -290,7 +290,7 @@ export default function LeadsClient() {
                 type="button"
                 onClick={() => setViewPersist('board')}
                 aria-pressed={view === 'board'}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                className={`inline-flex items-center gap-1.5 min-h-[44px] px-3 transition-colors ${
                   view === 'board' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
                 }`}
               >
@@ -358,7 +358,7 @@ export default function LeadsClient() {
             <button
               key={opt.value}
               onClick={() => setStatusFilter(opt.value)}
-              className={`px-3 py-1 rounded-full text-sm transition-colors ${
+              className={`min-h-[44px] px-3 rounded-full text-sm transition-colors inline-flex items-center ${
                 statusFilter === opt.value
                   ? 'bg-[var(--accent)] text-white'
                   : 'ds-btn text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

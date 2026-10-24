@@ -100,15 +100,17 @@ export default function AnalyticsClient() {
           <select
             value={period}
             onChange={e => setPeriod(e.target.value)}
-            className="px-2.5 py-1.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+            className="min-h-[44px] px-3 text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
           >
             <option value="7">7 дней</option>
             <option value="30">30 дней</option>
             <option value="90">90 дней</option>
           </select>
           <button
+            type="button"
             onClick={fetchAnalytics}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+            aria-label="Обновить аналитику"
+            className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
           >
             <RefreshCw className="w-3 h-3" />
           </button>
@@ -142,7 +144,7 @@ export default function AnalyticsClient() {
         <MetricCard
           icon={TrendingUp}
           label="Конверсия"
-          value={`${data.conversion.rate.toFixed(2)}%`}
+          value={`${new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(data.conversion.rate)} %`}
           subtext={`${data.conversion.pageViews} просмотров`}
         />
       </div>

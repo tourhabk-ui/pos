@@ -417,8 +417,8 @@ export default function BookingsManagementClient() {
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs text-[var(--text-muted)]">Источник:</span>
             {(['direct_contact', 'website', 'api'] as const).map(v => (
-              <label key={v} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input type="radio" name="via" value={v} checked={form.created_via === v} onChange={() => setForm(f => ({ ...f, created_via: v }))} className="accent-[var(--accent)]" />
+              <label key={v} className="flex items-center gap-2 min-h-[44px] text-sm cursor-pointer">
+                <input type="radio" name="via" value={v} checked={form.created_via === v} onChange={() => setForm(f => ({ ...f, created_via: v }))} className="w-5 h-5 accent-[var(--accent)]" />
                 <span className="text-[var(--text-secondary)]">
                   {v === 'direct_contact' ? 'Звонок/мессенджер' : v === 'website' ? 'Сайт' : 'API'}
                 </span>
