@@ -16,11 +16,14 @@
  *     строго, без отката на рабочий чат платформы);
  *   · ПД (имя, телефон, пожелания) — только в тексте для MAX; в заглушке для
  *     Telegram их нет, и она НЕ зовёт в кабинет;
- *   · кнопок нет у заявки на машину перевозчика: ссылку давать некуда.
- *     У заявки на прокат пилота (`RENTAL_OPERATOR_PILOT_SLUGS`, без переменной
- *     — `laguna-prokat`) под текстом для MAX две кнопки «Беру» / «Не могу»
- *     (`rr:`). Это действия, не ссылки: в заглушку Telegram они не попадают
- *     (`pd-alert` отдаёт туда только кнопки с url, этот файл не трогает);
+ *   · у заявки на машину перевозчика под текстом для MAX четыре кнопки
+ *     «Принять / Нет мест / Уточнить / Свяжусь сам» (`ia:`). Это и есть
+ *     карточка «Беру / Не могу» для трансфера: отдельной пары нет. Нажатие
+ *     пишет ответ и не подтверждает заказ. В заглушку Telegram действия не
+ *     попадают (`pd-alert` отдаёт туда только кнопки с url);
+ *   · у заявки на прокат пилота (`RENTAL_OPERATOR_PILOT_SLUGS`, без переменной
+ *     — `laguna-prokat`) остаются «Беру» / «Не могу» (`rr:`): «Беру» отмечает
+ *     дни в календаре, и эти слова перед демо не меняются;
  *   · исходы — четыре (§4.0): доставлено / заглушка / нет канала / адрес не
  *     прочитался, и каждый, кроме доставки, назван в логе без ПД.
  *
@@ -36,6 +39,7 @@ import { reachForPartner } from '@/lib/partners/reach';
 import type { PersonalLeadOutcome } from '@/lib/notifications/lead-notify';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
+import { INCOMING_ANSWER_HINT, incomingAnswerButtons } from '@/lib/requests/incoming-card';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -61,10 +65,16 @@ const HEADLINE: Record<PartnerRequestKind, string> = {
   car_rental: 'Новая заявка на прокат с Ведара',
 };
 
-/** «Беру» / «Не могу» — только прокат пилота и только с uuid заявки. */
+/**
+ * Прокат пилота — «Беру» / «Не могу». Перевозчик — четыре ответа на заявку.
+ * Чужой прокат и id, который не разобрать, остаются без кнопок.
+ */
 export function partnerRequestButtons(n: PartnerRequestNotice): PdAlertButton[] | undefined {
-  if (n.kind !== 'car_rental' || !isRentalPilotSlug(n.companySlug)) return undefined;
-  return rentalAnswerButtons(n.leadId);
+  if (n.kind === 'car_rental') {
+    if (!isRentalPilotSlug(n.companySlug)) return undefined;
+    return rentalAnswerButtons(n.leadId);
+  }
+  return incomingAnswerButtons('lead', n.leadId);
 }
 
 /** Текст с ПД (MAX) и заглушка без ПД (Telegram) из одних фактов. */
@@ -79,7 +89,8 @@ export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; st
     n.comment ? `<b>Пожелания:</b> ${esc(n.comment.slice(0, 200))}` : '',
     '',
     'Менеджер Ведара согласует заказ с вами и подтвердит заказчику.',
-    buttons ? '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.' : '',
+    buttons && n.kind === 'car_rental' ? '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.' : '',
+    buttons && n.kind === 'charter' ? INCOMING_ANSWER_HINT : '',
   ].filter(Boolean).join('\n');
   const stub = [
     ...common,

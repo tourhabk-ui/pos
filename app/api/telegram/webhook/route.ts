@@ -1574,6 +1574,26 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     const callbackChatId = String(cq.message?.chat?.id ?? senderChatId);
     const data           = cq.data ?? '';
 
+    if (data.startsWith('ia:')) {
+      await telegramService.answerCallback(cq.id);
+      const privateChat = (cq.message?.chat?.type ?? 'private') === 'private';
+      if (!privateChat) {
+        await sendHTML(callbackChatId, 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.');
+        return NextResponse.json({ ok: true });
+      }
+      const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');
+      const { handleIncomingAnswer } = await import('@/lib/requests/incoming-answer-flow');
+      const lookup = await findPartnerByChat('telegram', cq.message?.chat?.id ?? senderChatId);
+      await handleIncomingAnswer({
+        lookup,
+        payload: data,
+        editMid: null,
+        originalText: null,
+        send: async (body) => { await sendHTML(callbackChatId, body); },
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     if (parseRentalCabinetPress(data) || data.startsWith('rr:')) {
       await telegramService.answerCallback(cq.id);
       await tryRentalCabinetTelegramPress({

@@ -195,6 +195,32 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
  * Ответ «Беру» / «Не могу»: правим то же сообщение и снимаем кнопки заявки.
  * У пилота на их месте остаётся строка кабинета.
  */
+/** Ответ на входящую заявку: снимаем четыре кнопки, строку кабинета оставляем. */
+function incomingAnswerSend(chatId: number, menu: CabinetButton[] | null) {
+  const rows = menu?.length ? toMaxButtons([menu]) : [];
+  return async (text: string, editMid: string | null): Promise<void> => {
+    const api = getApi();
+    const attachments = rows.length
+      ? [{ type: 'inline_keyboard', payload: { buttons: rows } }]
+      : [];
+    if (editMid && api) {
+      try {
+        const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
+          text,
+          format: 'html',
+          attachments,
+        });
+        if (res?.success !== false) return;
+        console.error('[max/kuzmich] правка ответа на заявку не принята MAX — отправляю новым сообщением');
+      } catch (err) {
+        logFailure('правка ответа на заявку', err);
+      }
+    }
+    if (rows.length) await maxReplyWithButtons(chatId, text, rows);
+    else await maxReply(chatId, text);
+  };
+}
+
 function rentalAnswerSend(chatId: number, bar: boolean) {
   const buttons = bar ? maxCabinetButtons([]) : [];
   return async (text: string, editMid: string | null): Promise<void> => {
@@ -614,6 +640,29 @@ async function handleActionPress(
     const { handleRentalCalendarPress } = await import('@/lib/rental/car-calendar-flow');
     await handleRentalCalendarPress({
       lookup, payload, nowMs: Date.now(), editMid: pressed?.mid ?? null, send: rentalCalendarSend(chatId, bar),
+    });
+    return;
+  }
+
+  // «Принять / Нет мест / Уточнить / Свяжусь сам». Только личный диалог.
+  // Чей чат — из привязки, не из кнопки. Бронь и оплату это не меняет.
+  if (action === 'incoming') {
+    if (chatType !== 'dialog') {
+      console.error(`[max/kuzmich] нажатие (incoming) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      await maxReply(chatId, 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.');
+      return;
+    }
+    const lookup = await findPartnerByChat('max', chatId);
+    const menu = lookup.outcome === 'found'
+      ? (isRentalPilotSlug(lookup.partner.slug) ? rentalCabinetBar() : partnerMenu(lookup.partner))
+      : null;
+    const { handleIncomingAnswer } = await import('@/lib/requests/incoming-answer-flow');
+    await handleIncomingAnswer({
+      lookup,
+      payload,
+      editMid: pressed?.mid ?? null,
+      originalText: pressed?.text ?? null,
+      send: incomingAnswerSend(chatId, menu),
     });
     return;
   }

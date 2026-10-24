@@ -11,8 +11,9 @@
  *  - адрес берётся у ОПЕРАТОРА (`to`), без отката на рабочий чат: ПД туриста
  *    в чужой чат — не доставка (pd-alert, строгий режим);
  *  - ПД — только в тексте для MAX, в заглушке для Telegram их нет;
- *  - кнопка одна и это ссылка: действие (payload) бот принимает лишь из
- *    рабочего чата платформы, в личном чате оно было бы мёртвым;
+ *  - оператору лично — ссылка и четыре ответа (Принять / Нет мест / Уточнить /
+ *    Свяжусь сам), если id заявки разбирается; команде — только ссылка;
+ *    заглушка Telegram без имени, телефона и без текста кнопок;
  *  - исходов четыре: доставлено / заглушка / нет канала / адрес не прочитался
  *    — «не смог» не выдаётся за «доставлено»;
  *  - рабочий чат видит, дошло ли до оператора лично и кого привязывать;
@@ -50,9 +51,12 @@ beforeEach(() => {
 });
 
 describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД только в MAX', () => {
-  it('привязанный оператор: ПД в его MAX, заглушка без ПД, кнопка — только ссылка в кабинет', async () => {
+  it('привязанный оператор: ПД в его MAX, заглушка без ПД, четыре ответа и ссылка', async () => {
+    const leadId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     reachMock.mockResolvedValue(BOUND);
-    const outcome = await notifyPartnerNewLeadPersonally({ ...LEAD, origin: 'форма на вашей странице на Ведаре', sourceUrl: 'https://vedarai.ru/mestechko' });
+    const outcome = await notifyPartnerNewLeadPersonally({
+      ...LEAD, leadId, origin: 'форма на вашей странице на Ведаре', sourceUrl: 'https://vedarai.ru/mestechko',
+    });
     expect(outcome).toEqual({ state: 'delivered', channel: 'max' });
     expect(reachMock).toHaveBeenCalledWith('op-mestechko');
     expect(pdMock).toHaveBeenCalledTimes(1);
@@ -61,14 +65,23 @@ describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД
     expect(args.text).toContain('Анна');
     expect(args.text).toContain('+79990000000');
     expect(args.text).toContain('Толбачик');
+    expect(args.text).toContain('Это ответ, не подтверждение брони');
     expect(args.stub).not.toContain('Анна');
     expect(args.stub).not.toContain('+79990000000');
-    expect(args.stub).toContain('lead-1');
+    expect(args.stub).not.toContain('Принять');
+    expect(args.stub).toContain(leadId);
     expect(args.text).toContain('форма на вашей странице на Ведаре');
     expect(args.stub).toContain('https://vedarai.ru/mestechko');
-    expect(args.buttons).toHaveLength(1);
-    expect(args.buttons?.[0].url).toBe('https://vedarai.ru/hub/operator/leads/lead-1');
-    expect(args.buttons?.some((b) => 'payload' in b)).toBe(false);
+    expect(args.buttons).toEqual([
+      { text: 'Открыть заявку', url: `https://vedarai.ru/hub/operator/leads/${leadId}` },
+      { text: 'Принять', payload: `ia:a:l:${leadId}` },
+      { text: 'Нет мест', payload: `ia:n:l:${leadId}` },
+      { text: 'Уточнить', payload: `ia:c:l:${leadId}` },
+      { text: 'Свяжусь сам', payload: `ia:m:l:${leadId}` },
+    ]);
+    const [, teamMsg] = teamMock.mock.calls[0] as [string, { text: string; buttons: Array<Record<string, string>> }];
+    expect(teamMsg.buttons).toEqual([{ text: 'Открыть заявку', url: `https://vedarai.ru/hub/operator/leads/${leadId}` }]);
+    expect(teamMsg.text).not.toContain('Это ответ, не подтверждение брони');
   });
 
   it('оператор не привязан → no_channel, кабинету ничего не шлётся; команде — тот же текст своим адресом', async () => {
@@ -133,10 +146,12 @@ describe('роут /api/leads — по исходнику', () => {
     expect(ROUTE).toMatch(/FROM partners WHERE slug = \$1 AND \(widget_enabled = true OR is_public = true\)/);
   });
 
-  it('в личном уведомлении нет кнопок-действий — в личном чате бот их не принимает', () => {
+  it('лично оператору — четыре ответа и ссылка; команде — только ссылка', () => {
     const fn = NOTIFY.slice(NOTIFY.indexOf('export async function notifyPartnerNewLeadPersonally'));
+    expect(fn).toMatch(/incomingAnswerButtons\('lead', params\.leadId\)/);
+    expect(fn).toMatch(/buttons: \[link\]/);
+    expect(fn).toMatch(/buttons: partnerButtons/);
     expect(fn).toMatch(/to: \{ maxChatId: reach\.maxChatId, telegramChatId: reach\.telegramChatId \}/);
-    expect(fn).not.toMatch(/payload:/);
     expect(fn).toMatch(/reachForPartner\(params\.operatorId\)/);
   });
 

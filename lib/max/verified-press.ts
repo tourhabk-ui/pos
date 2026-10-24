@@ -52,7 +52,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'incoming';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -88,8 +88,10 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
  * надо» / выбор тура под предложением открыть даты из чата кабинета
  * (`lib/operators/chat-dates`, 22.10), `rb:` — отметка дня в календаре
  * проката (`lib/rental/car-calendar`), `rr:` — «Беру» / «Не могу» на заявке
- * проката (`lib/rental/request-answer`). Прочие кнопки (темы, «Оформить
- * заявку», «Другой вариант») только отвечают в чат.
+ * проката (`lib/rental/request-answer`), `ia:` — «Принять / Нет мест /
+ * Уточнить / Свяжусь сам» на входящей заявке (`lib/requests/incoming-card`).
+ * Прочие кнопки (темы, «Оформить заявку», «Другой вариант») только отвечают
+ * в чат.
  */
 export function pressActionOf(payload: string): MaxPressAction | null {
   if (payload.startsWith('sr:')) return 'seat';
@@ -97,6 +99,7 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
   if (payload.startsWith('od:')) return 'dates';
   if (payload.startsWith('rb:') || payload.startsWith('rr:')) return 'rental';
+  if (payload.startsWith('ia:')) return 'incoming';
   return null;
 }
 
@@ -127,6 +130,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Откройте даты в кабинете, в календаре.',
   rental: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Отметка дня и ответ на заявку не записаны.',
+  incoming: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Ответ на заявку не записан.',
 };
 
 /**
@@ -141,6 +146,7 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
   login: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Начните вход на сайте заново.',
   dates: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Напишите фразу ещё раз или откройте даты в кабинете.',
   rental: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Отметка дня и ответ на заявку не записаны.',
+  incoming: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ответ на заявку не записан.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */
