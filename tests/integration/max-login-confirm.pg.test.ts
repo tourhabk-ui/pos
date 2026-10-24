@@ -270,6 +270,8 @@ withPg('вход через MAX подтверждается вопросом в
       );
       await pool.query('DELETE FROM admin_max_bindings');
       await pool.query('DELETE FROM admin_max_link_tokens');
+      await pool.query('DELETE FROM admin_tg_bindings');
+      await pool.query('DELETE FROM admin_tg_link_tokens');
     });
 
     it('ссылка → «Старт» → привязан человек MAX, чат знает администратора; ключ в базе — только хеш', async () => {
@@ -361,6 +363,15 @@ withPg('вход через MAX подтверждается вопросом в
     it('снятие роли в админке отключает MAX и гасит выданные ссылки; вернут роль — подключать заново', async () => {
       await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
       await issueLink();
+      await pool.query(
+        `INSERT INTO admin_tg_bindings (user_id, telegram_user_id) VALUES ($1, 880009)`,
+        [adminId],
+      );
+      await pool.query(
+        `INSERT INTO admin_tg_link_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, 'tg-role-off-hash', NOW() + INTERVAL '5 minutes')`,
+        [adminId],
+      );
       const { applyAdminRoleChange } = await import('@/lib/auth/admin-role-change');
       const client = await pool.connect();
       try {
@@ -373,6 +384,8 @@ withPg('вход через MAX подтверждается вопросом в
       expect(await binding()).toBeUndefined();
       const { rows } = await pool.query('SELECT 1 FROM admin_max_link_tokens WHERE used_at IS NULL');
       expect(rows).toHaveLength(0);
+      expect((await pool.query('SELECT 1 FROM admin_tg_bindings WHERE user_id = $1', [adminId])).rows).toHaveLength(0);
+      expect((await pool.query('SELECT 1 FROM admin_tg_link_tokens WHERE user_id = $1', [adminId])).rows).toHaveLength(0);
       await setAdmin(true);
       const { findMaxAdmin } = await import('@/lib/max/admin-link');
       expect(await findMaxAdmin(ADMIN_MAX)).toEqual({ outcome: 'none' });
@@ -436,6 +449,32 @@ withPg('вход через MAX подтверждается вопросом в
       } finally {
         vi.unstubAllEnvs();
       }
+    });
+
+    it('Telegram: ссылка adt_ гасится, привязан человек, в базе только хеш', async () => {
+      const { issueAdminTelegramLink, consumeAdminTelegramLink } = await import('@/lib/telegram/admin-link');
+      const { hashAdminLinkToken } = await import('@/lib/max/admin-link');
+      const issued = await issueAdminTelegramLink(adminId, 'kuzmichai_bot');
+      expect(issued.ok).toBe(true);
+      if (!issued.ok) return;
+      const arg = new URL(issued.link).searchParams.get('start') ?? '';
+      expect(arg).toMatch(/^adt_[A-Za-z0-9_-]{32}$/);
+      const token = arg.slice('adt_'.length);
+      const { rows: stored } = await pool.query<{ token_hash: string }>('SELECT token_hash FROM admin_tg_link_tokens');
+      expect(stored).toHaveLength(1);
+      expect(stored[0].token_hash).toBe(hashAdminLinkToken(token));
+      expect(stored[0].token_hash).not.toContain(token);
+
+      const consumed = await consumeAdminTelegramLink(token, 880_001);
+      expect(consumed).toEqual({ ok: true, userId: adminId, movedFromUserId: null });
+      const bound = await pool.query<{ telegram_user_id: string }>(
+        'SELECT telegram_user_id::text FROM admin_tg_bindings WHERE user_id = $1',
+        [adminId],
+      );
+      expect(bound.rows[0]?.telegram_user_id).toBe('880001');
+
+      const again = await consumeAdminTelegramLink(token, 880_001);
+      expect(again).toEqual({ ok: false, reason: 'already_yours' });
     });
   });
 });

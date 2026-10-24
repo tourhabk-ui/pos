@@ -14,7 +14,11 @@
  *   <текст>    — Кузьмич: общий мозг lib/kuzmich/core (aiChat) с историей,
  *                инструментами, блоком 112 и чисткой телефонов и почт
  *
- * Admin (только TELEGRAM_CHAT_ID):
+ * Admin:
+ *   TELEGRAM_CHAT_ID — консоль (/stats, /post, статус заявки), если этот чат
+ *   не забрала привязка администратора.
+ *   Привязка из админки (adt_, lib/telegram/admin-link) — кабинет чтения
+ *   с теми же кнопками, что в MAX. Контакты туристов сюда не отдаются.
  *   /stats              — статистика платформы
  *   /leads              — последние 5 заявок
  *   /digest             — AI дайджест платформы (лиды, брони, рекомендации)
@@ -76,6 +80,12 @@ import { createLead } from '@/lib/leads/create';
 import { isTechnicalHost } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { applyLeadStatus, LEAD_STATUS_ACTIONS } from '@/lib/leads/status-action';
+import {
+  handleTelegramAdminTurn,
+  TELEGRAM_ADMIN_DENY,
+  TELEGRAM_ADMIN_UNCHECKED,
+  telegramAdminCallbackGate,
+} from '@/lib/telegram/admin-chat';
 
 export const dynamic = 'force-dynamic';
 
@@ -733,6 +743,31 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ ok: true });
+    }
+
+    // Администратор по привязке из админки (adt_, миграция 1330). Личный чат:
+    // группы уже вышли выше и таблицу привязки не спрашивают. Чужой /start
+    // (op_, link_, lead) ход не забирает. Консоль TELEGRAM_CHAT_ID ниже
+    // остаётся тем, кого привязка не забрала.
+    if (chatType === 'private' && fromId > 0) {
+      const turn = await handleTelegramAdminTurn({
+        text,
+        fromId,
+        nowMs: Date.now(),
+        reply: async (body, buttons) => {
+          if (buttons?.length) await sendRoleRows(chatId, body, buttons);
+          else await sendHTML(chatId, body);
+        },
+      });
+      if (turn === 'handled') return NextResponse.json({ ok: true });
+      if (turn === 'tourist') {
+        await answerByKuzmich({
+          chatId: update.message.chat.id,
+          text,
+          userId: update.message.from?.id ?? null,
+        });
+        return NextResponse.json({ ok: true });
+      }
     }
 
     // /start [link_{token}] — привязка аккаунта или приветствие
@@ -1472,8 +1507,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       if (rolePress.role === 'admin') {
-        if (!isAdmin(senderChatId)) {
-          await sendHTML(callbackChatId, 'Эта кнопка — кабинет администратора. В этом чате её не выполняю.');
+        const gate = await telegramAdminCallbackGate(senderChatId, isAdmin(senderChatId));
+        if (gate === 'unchecked') {
+          await sendHTML(callbackChatId, TELEGRAM_ADMIN_UNCHECKED);
+          return NextResponse.json({ ok: true });
+        }
+        if (gate === 'deny') {
+          await sendHTML(callbackChatId, TELEGRAM_ADMIN_DENY);
           return NextResponse.json({ ok: true });
         }
         const screen = await roleMenuScreen({
