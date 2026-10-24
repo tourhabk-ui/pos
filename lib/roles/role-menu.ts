@@ -59,6 +59,8 @@ export interface MenuPartner {
   partnerId: string;
   category: string;
   slug?: string | null;
+  /** `partners.user_id`. Нет аккаунта — непрочитанное чата кабинета не считается. */
+  userId?: string | null;
 }
 
 /** null — этой записи меню роли нет (пилот проката, агент, снаряжение, чужая категория). Админ сюда не входит: его меню не из карточки партнёра. */

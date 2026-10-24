@@ -44,7 +44,7 @@ export async function roleMenuScreen(opts: {
   if (opts.action !== 'inbox') {
     return { text: 'Такой кнопки в этом кабинете нет.', pd: false };
   }
-  const inbox = await loadInbox(opts.partner.partnerId, role, null, { nowMs: opts.nowMs });
+  const inbox = await loadInbox(opts.partner.partnerId, role, opts.partner.userId ?? null, { nowMs: opts.nowMs });
   return { text: inboxMenuText(inbox), pd: false };
 }
 

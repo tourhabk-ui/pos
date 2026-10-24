@@ -520,6 +520,32 @@ describe('меню роли на живом вебхуке', () => {
     expect(lastRow()).toEqual(['rm:op:in', 'rm:op:hp']);
   });
 
+  it('«открой субботы июля, 8 мест» — это в MAX, помощник даты не открывает', async () => {
+    await post('открой субботы июля, 8 мест', { chat: CHAT, from: CHAT });
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(sent()[0]).toMatch(/^Открыть даты словами можно в MAX/);
+    expect(lastRow()).toEqual(['rm:op:in', 'rm:op:hp']);
+  });
+
+  it('«Входящие» называют непрочитанные чата, если у партнёра есть аккаунт', async () => {
+    const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('FROM partners')) {
+        return { rows: [{ id: PARTNER, slug: 'mesto-kamchatka', name: 'Местечко', category: 'operator', user_id: USER, profile_status: null }] };
+      }
+      return { rows: [] };
+    });
+    m.db.mockImplementation(async (sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('conversation_participants')) return { rows: [{ total: '4' }] };
+      return { rows: [] };
+    });
+    await post('Входящие', { chat: CHAT, from: CHAT });
+    expect(sent()[0]).toContain('Непрочитанных сообщений в чате кабинета: 4');
+    expect(sent().join('\n')).not.toMatch(/\+7|Анна/);
+  });
+
   it('/help администратора несёт шесть кнопок чтения', async () => {
     await post('/help', { chat: ADMIN, from: ADMIN });
     expect(m.tools).not.toHaveBeenCalled();

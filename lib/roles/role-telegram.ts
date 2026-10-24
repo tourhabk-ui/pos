@@ -5,6 +5,9 @@
 
 import { findPartnerByChat, processPartnerMessage } from '@/lib/kuzmich/operator-chat';
 import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { isOperatorDatesPhrase } from '@/lib/operators/chat-dates/flow';
+import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
+import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import {
   menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
@@ -46,6 +49,15 @@ export async function tryRoleMenuTelegramMessage(opts: {
   const asked = roleMenuAsk(opts.text);
   if (asked === 'inbox') {
     await open('inbox');
+    return true;
+  }
+  // Даты словами в Telegram не пишутся: кнопки подтверждения нет. Фраза
+  // туроператора получает тот же ответ, что вторая дверь, и до помощника
+  // не доходит — иначе он может сказать «открыл», не открыв.
+  if (partner.category === 'operator'
+    && chatDatesIntent(opts.text) === 'dates'
+    && await isOperatorDatesPhrase(opts.text, partner.partnerId)) {
+    await send(telegramDatesText(), []);
     return true;
   }
   await processPartnerMessage({
