@@ -167,13 +167,22 @@ export async function POST(req: NextRequest) {
 
   if (res && addressHash && address?.reclass) {
     const sql = address.reclass === 'burst'
-      ? `UPDATE page_views
+      ? `UPDATE page_views AS p
             SET is_bot = TRUE, anomaly_bot = TRUE
-          WHERE ip_hash = $1
-            AND NOT is_self
-            AND NOT is_bot
-            AND created_at >= $2
-            AND created_at < $3`
+          WHERE p.ip_hash = $1
+            AND NOT p.is_self
+            AND NOT p.is_bot
+            AND p.created_at >= $2
+            AND p.created_at < $3
+            AND p.from_path IS NULL
+            AND p.dwell_ms IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM page_views AS seen
+               WHERE seen.ip_hash = p.ip_hash
+                 AND seen.created_at >= $2
+                 AND seen.created_at < $3
+                 AND (seen.from_path IS NOT NULL OR seen.dwell_ms IS NOT NULL)
+            )`
       : `UPDATE page_views
             SET is_bot = FALSE, anomaly_bot = FALSE
           WHERE ip_hash = $1

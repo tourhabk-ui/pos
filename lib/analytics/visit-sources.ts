@@ -12,7 +12,7 @@
  * — только класс (mobile / tablet / desktop) из UA, сам UA не хранится.
  */
 import { pool } from '@/lib/db-pool';
-import { aiFamilyArraySql, isOwnReferrer } from '@/lib/analytics/bot-detect';
+import { AI_FAMILY_NAMES, isOwnReferrer } from '@/lib/analytics/bot-detect';
 import { WINDOW_SQL, windowParams, measure, type FunnelWindow, type FunnelExecutor } from '@/lib/analytics/funnel-window';
 
 export type Device = 'mobile' | 'tablet' | 'desktop';
@@ -84,7 +84,7 @@ export interface VisitBreakdown {
 export async function buildVisitBreakdown(w: FunnelWindow, exec: FunnelExecutor = pool): Promise<VisitBreakdown> {
   const params = windowParams(w);
   const BASE = `${WINDOW_SQL} AND is_bot = FALSE AND is_self = FALSE AND visitor_hash IS NOT NULL`;
-  const AI = aiFamilyArraySql();
+  const asideParams = [...params, AI_FAMILY_NAMES];
 
   const first = await measure('visits.first_hit', async () => (await exec.query<{ referrer: string | null; path: string }>(
     `SELECT DISTINCT ON (visitor_hash) referrer, path
@@ -100,15 +100,15 @@ export async function buildVisitBreakdown(w: FunnelWindow, exec: FunnelExecutor 
   }>(
     `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_self)::int AS selfs,
             COUNT(DISTINCT visitor_hash) FILTER (
-              WHERE is_bot AND NOT is_self AND ua_family = ANY (${AI})
+              WHERE is_bot AND NOT is_self AND ua_family = ANY ($3::text[])
             )::int AS ai,
             COUNT(DISTINCT visitor_hash) FILTER (
               WHERE is_bot AND NOT is_self
-                AND (ua_family IS NULL OR NOT (ua_family = ANY (${AI})))
+                AND (ua_family IS NULL OR NOT (ua_family = ANY ($3::text[])))
             )::int AS bots
        FROM page_views
       WHERE ${WINDOW_SQL} AND visitor_hash IS NOT NULL`,
-    params,
+    asideParams,
   )).rows[0] ?? { bots: 0, selfs: 0, ai: 0 });
 
   const dev = await measure('visits.device', async () => {

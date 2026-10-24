@@ -97,24 +97,15 @@ const BOT_MARKERS: readonly string[] = [
   ...TOOL_MARKERS,
 ];
 
-/** Семейства ИИ-краулеров — те же метки, что пишутся в page_views.ua_family. */
+/**
+ * Семейства ИИ-краулеров — те же метки, что пишутся в page_views.ua_family.
+ * В текст SQL список не подставляют: витрина и приём берут его параметром
+ * `$n::text[]`. Вшитый литерал сторож воронки считает значением.
+ */
 export const AI_FAMILY_NAMES: readonly string[] = BOT_FAMILIES.filter((f) => f.ai === true).map((f) => f.family);
 
 export function isAiFamily(family: string | null | undefined): boolean {
   return !!family && AI_FAMILY_NAMES.includes(family);
-}
-
-/**
- * Литерал массива для SQL. Имена — из реестра, не из запроса: иначе витрина
- * и приём события разошлись бы в первый же день. Чужой символ — ошибка
- * сборки списка, а не дыра в запросе.
- */
-export function aiFamilyArraySql(): string {
-  const names = AI_FAMILY_NAMES.map((n) => {
-    if (!/^[a-z0-9-]+$/.test(n)) throw new Error(`семейство «${n}» не литерал`);
-    return `'${n}'`;
-  });
-  return `ARRAY[${names.join(',')}]::text[]`;
 }
 
 export function isBotUserAgent(userAgent: string | null | undefined): boolean {

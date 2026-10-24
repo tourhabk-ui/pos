@@ -39,7 +39,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { aiFamilyArraySql } from '@/lib/analytics/bot-detect';
+import { AI_FAMILY_NAMES } from '@/lib/analytics/bot-detect';
 import { pickFunnelFinding, funnelSampleShortfall, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
 import {
   DAY_MS, KAMCHATKA_TIMEZONE_LABEL,
@@ -248,7 +248,7 @@ const TOUR_PATH = `(path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tour
 export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = pool) {
   const startedAt = Date.now();
   const p = windowParams(w);
-  const AI = aiFamilyArraySql();
+  const asideParams = [...p, AI_FAMILY_NAMES];
 
   const [
     views, starts, leadRows, bookingRows,
@@ -367,15 +367,15 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     }>(
       `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_self)::int AS self_visits,
               COUNT(DISTINCT visitor_hash) FILTER (
-                WHERE is_bot AND NOT is_self AND ua_family = ANY (${AI})
+                WHERE is_bot AND NOT is_self AND ua_family = ANY ($3::text[])
               )::int AS ai_visits,
               COUNT(DISTINCT visitor_hash) FILTER (
                 WHERE is_bot AND NOT is_self
-                  AND (ua_family IS NULL OR NOT (ua_family = ANY (${AI})))
+                  AND (ua_family IS NULL OR NOT (ua_family = ANY ($3::text[])))
               )::int AS bot_visits
          FROM page_views
         WHERE ${WINDOW_SQL} AND visitor_hash IS NOT NULL`,
-      p,
+      asideParams,
     )).rows[0] ?? { bot_visits: 0, self_visits: 0, ai_visits: 0 }),
   ]);
 

@@ -7,8 +7,12 @@
  * и это пишется в лог: молчаливый отказ снова посчитал бы сотрудника туристом.
  *
  * Идентификатор и почта из токена никуда не пишутся.
+ * Отозванная сессия — не свой заход: подпись без строки в user_sessions
+ * ещё годная до семи дней, и вышедший админ иначе остался бы «своим».
+ * Сессию не удалось прочитать — тоже не свой, и это пишется в лог:
+ * «не смог проверить» не выдаётся за «сотрудник на месте».
  */
-import { verifyToken } from '@/lib/auth/jwt';
+import { verifySessionToken } from '@/lib/auth/jwt';
 
 const STAFF_ROLES = new Set(['admin', 'operator']);
 
@@ -29,8 +33,12 @@ export async function isStaffOwnVisit(cookieHeader: string | null | undefined): 
   const token = cookieValue(cookieHeader, 'auth_token');
   if (!token) return false;
   try {
-    const payload = await verifyToken(token);
-    return payload != null && STAFF_ROLES.has(payload.role);
+    const check = await verifySessionToken(token);
+    if (check.status === 'unchecked') {
+      console.error('[staff-visit] сессия не проверена — заход не считаю своим');
+      return false;
+    }
+    return check.status === 'valid' && STAFF_ROLES.has(check.payload.role);
   } catch (err) {
     console.error('[staff-visit] роль не проверена:', err instanceof Error ? err.message : 'ошибка');
     return false;

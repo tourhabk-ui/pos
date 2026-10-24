@@ -30,7 +30,6 @@ const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KH
 
 withPg('порог адреса на PostgreSQL', () => {
   let pool: import('pg').Pool;
-  let close: (() => Promise<void>) | null = null;
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
@@ -39,12 +38,18 @@ withPg('порог адреса на PostgreSQL', () => {
     process.env.DATABASE_SSL = 'false';
     process.env.CRON_SECRET = SALT;
     pool = new Pool({ connectionString: dbUrl, max: 2 });
-    close = () => pool.end();
+    // Иначе FATAL 57P01 на закрывающемся сокете роняет процесс после зелёного теста.
+    pool.on('error', () => undefined);
     await pool.query('TRUNCATE page_views');
   });
 
   afterAll(async () => {
-    if (close) await close();
+    // Приём и доклад ходят пулом приложения. Не закрыть его до DROP — сеанс
+    // остаётся, FORCE обрывает его, клиент без слушателя роняет прогон (57P01).
+    const { pool: appPool } = await import('@/lib/db-pool');
+    appPool.on('error', () => undefined);
+    await Promise.resolve(appPool.end()).catch(() => undefined);
+    await pool?.end().catch(() => undefined);
     if (PG_URL) await dropTestDatabase(PG_URL, TEST_DB);
   });
 

@@ -20,7 +20,15 @@ import { POST } from '@/app/api/analytics/hit/route';
 import { POST as dwellPost } from '@/app/api/analytics/dwell/route';
 
 const query = vi.fn();
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (...a: unknown[]) => query(...a),
+    connect: async () => ({
+      query: (...a: unknown[]) => query(...a),
+      release: () => undefined,
+    }),
+  },
+}));
 
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -135,16 +143,24 @@ describe('адрес коробки и роль', () => {
     expect(isPlatformBoxIp('', known)).toBe(false);
   });
 
-  it('админ и оператор — свои, турист и битый токен — нет', async () => {
+  it('админ и оператор с живой сессией — свои, турист, отзыв и битый токен — нет', async () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'honest-visits-test-secret-32chars';
+    query.mockResolvedValue({ rows: [{ id: 'session' }] });
     const admin = await createToken({ userId: 'u-admin', email: 'a@example.com', role: 'admin' });
     const operator = await createToken({ userId: 'u-op', email: 'o@example.com', role: 'operator' });
     const tourist = await createToken({ userId: 'u-t', email: 't@example.com', role: 'tourist' });
     expect(await isStaffOwnVisit(`auth_token=${admin}`)).toBe(true);
     expect(await isStaffOwnVisit(`theme=dark; auth_token=${operator}`)).toBe(true);
     expect(await isStaffOwnVisit(`auth_token=${tourist}`)).toBe(false);
+    query.mockResolvedValueOnce({ rows: [] });
+    expect(await isStaffOwnVisit(`auth_token=${admin}`)).toBe(false);
     expect(await isStaffOwnVisit('auth_token=not-a-jwt')).toBe(false);
     expect(await isStaffOwnVisit(null)).toBe(false);
+    query.mockRejectedValueOnce(new Error('сессия не прочитана'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(await isStaffOwnVisit(`auth_token=${operator}`)).toBe(false);
+    expect(err.mock.calls.some((c) => String(c[0]).includes('[staff-visit]'))).toBe(true);
+    err.mockRestore();
   });
 });
 
@@ -307,7 +323,10 @@ describe('приём маяка: всплеск с одного адреса', (
     expect(params[11]).toMatch(/^[0-9a-f]{32}$/);
     expect(params[12]).toBe(true);
     const burst = updates().find((sql) => sql.includes('anomaly_bot = TRUE'));
-    expect(burst).toContain('NOT is_self');
+    expect(burst).toContain('NOT p.is_self');
+    expect(burst).toContain('p.from_path IS NULL');
+    expect(burst).toContain('p.dwell_ms IS NULL');
+    expect(burst).toMatch(/NOT EXISTS[\s\S]*seen\.from_path IS NOT NULL OR seen\.dwell_ms IS NOT NULL/);
     expect(burst).not.toMatch(/DELETE/i);
     expect(JSON.stringify(query.mock.calls)).not.toContain('203.0.113.40');
   });
@@ -327,7 +346,7 @@ describe('приём маяка: всплеск с одного адреса', (
     expect(inserted()[5]).toBe(false);
     expect(inserted()[7]).toBe(true);
     expect(inserted()[12]).toBe(false);
-    expect(updates().some((sql) => sql.includes('NOT is_self'))).toBe(true);
+    expect(updates().some((sql) => sql.includes('NOT p.is_self'))).toBe(true);
     expect(JSON.stringify(query.mock.calls)).not.toContain('127.0.0.1');
   });
 

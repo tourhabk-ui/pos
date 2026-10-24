@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { safeMsg } from '@/lib/errors/sanitize';
-import { aiFamilyArraySql } from '@/lib/analytics/bot-detect';
+import { AI_FAMILY_NAMES } from '@/lib/analytics/bot-detect';
 import { queryAddressTop } from '@/lib/analytics/address-top';
 import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
 
@@ -40,16 +40,15 @@ const OWN_HOST_RE = 'vedarai\\.ru|tourhab\\.ru|tourhabk\\.ru|localhost';
  */
 const HUMAN = 'is_bot = FALSE AND is_self = FALSE';
 
-/** Чужие боты без ИИ-семейства. NULL семьи — старая строка: User-Agent не хранился, это не ИИ. */
-const BOT_ONLY = (ai: string) => `is_bot AND NOT is_self AND (ua_family IS NULL OR NOT (ua_family = ANY (${ai})))`;
-const AI_ONLY = (ai: string) => `is_bot AND NOT is_self AND ua_family = ANY (${ai})`;
+/** Чужие боты без ИИ-семейства. NULL семьи — старая строка: User-Agent не хранился, это не ИИ. Список семейств — $1, не литерал. */
+const BOT_ONLY = `is_bot AND NOT is_self AND (ua_family IS NULL OR NOT (ua_family = ANY ($1::text[])))`;
+const AI_ONLY = `is_bot AND NOT is_self AND ua_family = ANY ($1::text[])`;
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request);
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const AI = aiFamilyArraySql();
     const [totals, daily, topPaths, topReferrers, coverage, edges, pages, topExitPages, sessions, notFound, funnel] = await Promise.all([
       pool.query<{
         today_hits: string; today_uniques: string;
@@ -63,22 +62,22 @@ export async function GET(request: NextRequest) {
         SELECT
           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${HUMAN}) AS today_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= CURRENT_DATE AND ${HUMAN} AND visitor_hash IS NOT NULL) AS today_uniques,
-          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${BOT_ONLY(AI)}) AS today_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${BOT_ONLY}) AS today_bot_hits,
           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND is_self) AS today_self_hits,
-          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${AI_ONLY(AI)}) AS today_ai_hits,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${AI_ONLY}) AS today_ai_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${HUMAN}) AS week_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${HUMAN} AND visitor_hash IS NOT NULL) AS week_visitor_days,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${BOT_ONLY(AI)}) AS week_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${BOT_ONLY}) AS week_bot_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND is_self) AS week_self_hits,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${AI_ONLY(AI)}) AS week_ai_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${AI_ONLY}) AS week_ai_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN}) AS month_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN} AND visitor_hash IS NOT NULL) AS month_visitor_days,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${BOT_ONLY(AI)}) AS month_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${BOT_ONLY}) AS month_bot_hits,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND is_self) AS month_self_hits,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${AI_ONLY(AI)}) AS month_ai_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${AI_ONLY}) AS month_ai_hits,
           to_char(MIN(created_at) FILTER (WHERE is_self), 'YYYY-MM-DD') AS self_since
         FROM page_views
-      `),
+      `, [AI_FAMILY_NAMES]),
       pool.query<{ day: string; hits: string; uniques: string }>(`
         SELECT
           to_char(created_at::date, 'YYYY-MM-DD') AS day,
