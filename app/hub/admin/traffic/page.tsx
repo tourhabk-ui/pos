@@ -8,11 +8,13 @@ import SelfVisitToggle from './_SelfVisitToggle';
 
 interface TrafficData {
   totals: {
-    today: { hits: number; uniques: number };
-    week: { hits: number; visitorDays: number };
-    month: { hits: number; visitorDays: number };
+    today: { hits: number; uniques: number; bots: number; selfs: number };
+    week: { hits: number; visitorDays: number; bots: number; selfs: number };
+    month: { hits: number; visitorDays: number; bots: number; selfs: number };
   };
   bots: { month_hits: number };
+  /** Просмотры ИИ-краулеров. null с сервера не приходит: числа или ошибка всей страницы. */
+  ai?: { today: number; week: number; month: number } | null;
   /** Свои заходы (cookie владельца) за 30 дней и с какого дня метка ставилась. */
   self?: { month_hits: number; since: string | null };
   daily: Array<{ day: string; hits: number; uniques: number }>;
@@ -25,6 +27,11 @@ interface TrafficData {
   not_found: Array<{ path: string; hits: number }>;
   funnel: Array<{ tourId: number; title: string; isPublished: boolean; views: number; viewerDays: number; bookings: number }>;
   uniques_since: string | null;
+  /** Топ суточных хэшей адреса. rows === null — не сосчитано, не «адресов нет». */
+  addresses?: {
+    day: string;
+    rows: Array<{ hash: string; hits: number; ua: string }> | null;
+  } | null;
 }
 
 function fmtDate(iso: string): string {
@@ -105,11 +112,15 @@ export default function AdminTrafficPage() {
       </div>
 
       <p className="text-xs text-[var(--text-muted)]">
-        Первичный счётчик платформы (page_views), только люди — краулеры
-        помечаются и вынесены отдельной строкой. Уникальные — по суточному хэшу,
+        Первичный счётчик платформы (page_views). Большая цифра — только люди.
+        Рядом — боты и свои заходы; ИИ-краулеры — отдельной строкой. Уникальные — по суточному хэшу,
         сырые IP не хранятся. За неделю и месяц это <b>человеко-дни</b>, а не
         разные люди: хэш меняется каждые сутки, длинный профиль не строится
-        намеренно. Пути /hub/admin и служебные не учитываются.
+        намеренно. Пути /hub/admin и служебные не учитываются. Старые строки по
+        User-Agent не переклассифицированы: он в журнал не писался. Автоматический
+        браузер с обычным адресом Chrome в «люди» не входит с этого обновления.
+        Адрес с более чем 30 просмотрами за камчатские сутки без перехода и без
+        времени на странице — бот; адрес сервера — свой. Сырой IP в журнал не пишется.
         {data?.uniques_since && (
           <> Уникальные считаются с {fmtDate(data.uniques_since)} (раньше хэш не
           писался, ретроактивно посчитать нельзя — только просмотры).</>
@@ -143,9 +154,9 @@ export default function AdminTrafficPage() {
           {/* KPI */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'Сегодня', hits: data.totals.today.hits, sub: `${data.totals.today.uniques.toLocaleString('ru-RU')} уникальных` },
-              { label: '7 дней', hits: data.totals.week.hits, sub: `${data.totals.week.visitorDays.toLocaleString('ru-RU')} человеко-дней` },
-              { label: '30 дней', hits: data.totals.month.hits, sub: `${data.totals.month.visitorDays.toLocaleString('ru-RU')} человеко-дней` },
+              { label: 'Сегодня', hits: data.totals.today.hits, bots: data.totals.today.bots, selfs: data.totals.today.selfs, sub: `${data.totals.today.uniques.toLocaleString('ru-RU')} уникальных` },
+              { label: '7 дней', hits: data.totals.week.hits, bots: data.totals.week.bots, selfs: data.totals.week.selfs, sub: `${data.totals.week.visitorDays.toLocaleString('ru-RU')} человеко-дней` },
+              { label: '30 дней', hits: data.totals.month.hits, bots: data.totals.month.bots, selfs: data.totals.month.selfs, sub: `${data.totals.month.visitorDays.toLocaleString('ru-RU')} человеко-дней` },
             ].map(k => (
               <div key={k.label} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3">
                 <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">{k.label}</p>
@@ -153,9 +164,51 @@ export default function AdminTrafficPage() {
                   <span className="text-xl font-semibold font-mono text-[var(--text-primary)]">{k.hits.toLocaleString('ru-RU')}</span>
                   <span className="text-xs text-[var(--text-secondary)]">просмотров</span>
                 </div>
+                <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                  боты: {k.bots.toLocaleString('ru-RU')}, свои: {k.selfs.toLocaleString('ru-RU')}
+                </p>
                 <p className="text-xs text-[var(--ocean)] mt-0.5">{k.sub}</p>
               </div>
             ))}
+          </div>
+
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">
+              Топ адресов{data.addresses?.day ? ` · ${fmtDate(data.addresses.day)} по Камчатке` : ''}
+            </p>
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              Суточный хэш адреса, первые 12 знаков — не сам IP. На следующие сутки хэш другой.
+              Сырой адрес и полный User-Agent не хранятся: в столбце UA — семейство, «не записано» или «несколько».
+              Просмотры до появления колонки в список не входят: адреса у них не было.
+              Больше 30 просмотров за эти сутки без перехода и без времени на странице — бот.
+              Адрес нашего сервера — свой.
+            </p>
+            {data.addresses?.rows == null ? (
+              <p className="text-xs text-[var(--text-muted)]">Топ адресов не сосчитан.</p>
+            ) : data.addresses.rows.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">За эти сутки строк с хэшем адреса нет.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="text-left font-medium pb-2">Хэш</th>
+                      <th className="text-right font-medium pb-2">Визиты</th>
+                      <th className="text-left font-medium pb-2 pl-4">UA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.addresses.rows.map(row => (
+                      <tr key={row.hash} className="border-t border-[var(--border)]">
+                        <td className="py-1.5 pr-3 font-mono text-[var(--text-secondary)]">{row.hash}</td>
+                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{row.hits.toLocaleString('ru-RU')}</td>
+                        <td className="py-1.5 pl-4 text-[var(--text-secondary)]">{row.ua}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Роботы и глубина визита — два вопроса к любому счётчику */}
@@ -164,10 +217,15 @@ export default function AdminTrafficPage() {
               <Bot className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs text-[var(--text-primary)]">
-                  <span className="font-mono font-semibold">{data.bots.month_hits.toLocaleString('ru-RU')}</span> просмотров за 30 дней — краулеры
+                  ИИ-краулеры:{' '}
+                  <span className="font-mono font-semibold">
+                    {data.ai ? `${data.ai.month.toLocaleString('ru-RU')} за 30 дней` : 'не сосчитано'}
+                  </span>
                 </p>
                 <p className="text-[11px] text-[var(--text-muted)]">
-                  {pct(data.bots.month_hits, data.bots.month_hits + data.totals.month.hits)}% всего трафика. В цифры выше не входят
+                  {data.ai
+                    ? `Сегодня ${data.ai.today.toLocaleString('ru-RU')}, за 7 дней ${data.ai.week.toLocaleString('ru-RU')}. В «боты» и в людей не входят.`
+                    : 'Семейство краулера прочитать не удалось.'}
                 </p>
               </div>
             </div>

@@ -38,6 +38,8 @@ interface Report {
   };
   counts: Counts;
   bot_views: number | null;
+  /** Люди — в counts.visits. Рядом: боты, свои, ИИ. null — замер не удался. */
+  visit_aside?: { bots: number; selfs: number; ai: number } | null;
   verdict: { title: string; severity: string; suggestion: string } | null;
   verdict_state: 'unknown' | 'broken_link' | 'insufficient_sample' | 'no_broken_link';
   unknown_inputs: string[];
@@ -234,6 +236,13 @@ export default function FunnelWindow() {
                     {num(v)}
                   </p>
                   <p className="text-[10px] text-[var(--text-muted)]">{s.hint}</p>
+                  {s.key === 'visits' && (
+                    <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                      {r.visit_aside
+                        ? `боты: ${r.visit_aside.bots.toLocaleString('ru-RU')}, свои: ${r.visit_aside.selfs.toLocaleString('ru-RU')}`
+                        : 'боты и свои: не сосчитано'}
+                    </p>
+                  )}
                 </>
               );
               if (s.key === 'visits') {
@@ -271,6 +280,7 @@ export default function FunnelWindow() {
                     : `Сломанного звена не видно. За окно: заявок ${num(r.counts.leads)}, броней ${num(r.counts.bookings)}, оплат ${num(r.counts.paid)}${(r.counts.bookings ?? 0) === 0 ? ' — до брони в системе поток пока не дошёл' : ''}.`}
             </p>
             <p className="text-[11px] text-[var(--text-muted)]">
+              ИИ-краулеры: {r.visit_aside ? r.visit_aside.ai.toLocaleString('ru-RU') : 'не сосчитано'}.{' '}
               {r.bot_views !== null && `Краулеры: ${r.bot_views.toLocaleString('ru-RU')} просмотров — в цифры выше не входят. `}
               Последний просмотр записан: {fmtKamchatka(r.liveness.views_last_at) ?? 'нет данных'}
               {'; '}

@@ -20,6 +20,7 @@ interface Breakdown {
   landing: Array<{ path: string; visits: number }> | null;
   devices: Array<{ device: string; visits: number }> | null;
   device_since: string | null;
+  aside?: { bots: number; selfs: number; ai: number } | null;
   failed: Array<{ measure: string; error: string }>;
 }
 
@@ -77,6 +78,18 @@ export default function VisitsBreakdown({ query, onClose }: { query: string; onC
           <p className="text-sm font-semibold text-[var(--text-primary)] truncate">
             {d ? `${d.window.label} · ${d.visits === null ? 'нет данных' : d.visits.toLocaleString('ru-RU')}` : '…'}
           </p>
+          {d && (
+            <>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                {d.aside
+                  ? `боты: ${d.aside.bots.toLocaleString('ru-RU')}, свои: ${d.aside.selfs.toLocaleString('ru-RU')}`
+                  : 'боты и свои: не сосчитано'}
+              </p>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                ИИ-краулеры: {d.aside ? d.aside.ai.toLocaleString('ru-RU') : 'не сосчитано'}
+              </p>
+            </>
+          )}
         </div>
         <button type="button" onClick={onClose} aria-label="Свернуть" className="p-1.5 -m-1 rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)]">
           <X className="w-4 h-4" />
@@ -131,7 +144,7 @@ export default function VisitsBreakdown({ query, onClose }: { query: string; onC
           <p className="text-[10px] text-[var(--text-muted)]">
             Источник и страница входа — по первому просмотру человека за период, поэтому строки складываются в число визитов.
             {d.window.visitor_unit === 'visitor_days' && ' На нескольких сутках визиты — человеко-дни.'}
-            {' '}Краулеры и ваши заходы не учитываются. Город и страна не хранятся.
+            {' '}В число визитов входят только люди. Краулеры и ваши заходы — в строке над таблицей, не внутри неё. Старые строки по User-Agent не переклассифицированы: он в журнал не писался. Город и страна не хранятся.
             {' '}«Напрямую» — браузер не передал, откуда переход (закладка, ввод адреса, часть приложений).
           </p>
         </>

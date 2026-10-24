@@ -12,7 +12,7 @@
  * — только класс (mobile / tablet / desktop) из UA, сам UA не хранится.
  */
 import { pool } from '@/lib/db-pool';
-import { isOwnReferrer } from '@/lib/analytics/bot-detect';
+import { AI_FAMILY_NAMES, isOwnReferrer } from '@/lib/analytics/bot-detect';
 import { WINDOW_SQL, windowParams, measure, type FunnelWindow, type FunnelExecutor } from '@/lib/analytics/funnel-window';
 
 export type Device = 'mobile' | 'tablet' | 'desktop';
@@ -73,12 +73,18 @@ export interface VisitBreakdown {
   devices: Array<{ device: Device | 'unknown'; visits: number }> | null;
   /** С какого момента пишется класс устройства (ISO), null — ещё ни одной строки. */
   device_since: string | null;
+  /**
+   * Боты, свои и ИИ-краулеры за то же окно, в тех же суточных хэшах.
+   * null — замер не удался, это не ноль.
+   */
+  aside: { bots: number; selfs: number; ai: number } | null;
   failed: Array<{ measure: string; error: string }>;
 }
 
 export async function buildVisitBreakdown(w: FunnelWindow, exec: FunnelExecutor = pool): Promise<VisitBreakdown> {
   const params = windowParams(w);
   const BASE = `${WINDOW_SQL} AND is_bot = FALSE AND is_self = FALSE AND visitor_hash IS NOT NULL`;
+  const asideParams = [...params, AI_FAMILY_NAMES];
 
   const first = await measure('visits.first_hit', async () => (await exec.query<{ referrer: string | null; path: string }>(
     `SELECT DISTINCT ON (visitor_hash) referrer, path
@@ -89,6 +95,22 @@ export async function buildVisitBreakdown(w: FunnelWindow, exec: FunnelExecutor 
 
   // Отдельным замером: колонка device появилась миграцией 1304, и её отказ
   // не должен гасить источники.
+  const aside = await measure('visits.aside', async () => (await exec.query<{
+    bots: number; selfs: number; ai: number;
+  }>(
+    `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_self)::int AS selfs,
+            COUNT(DISTINCT visitor_hash) FILTER (
+              WHERE is_bot AND NOT is_self AND ua_family = ANY ($3::text[])
+            )::int AS ai,
+            COUNT(DISTINCT visitor_hash) FILTER (
+              WHERE is_bot AND NOT is_self
+                AND (ua_family IS NULL OR NOT (ua_family = ANY ($3::text[])))
+            )::int AS bots
+       FROM page_views
+      WHERE ${WINDOW_SQL} AND visitor_hash IS NOT NULL`,
+    asideParams,
+  )).rows[0] ?? { bots: 0, selfs: 0, ai: 0 });
+
   const dev = await measure('visits.device', async () => {
     const rows = (await exec.query<{ device: string | null; visits: number }>(
       `SELECT d.device, COUNT(*)::int AS visits FROM (
@@ -134,6 +156,7 @@ export async function buildVisitBreakdown(w: FunnelWindow, exec: FunnelExecutor 
   const failed: VisitBreakdown['failed'] = [];
   if (first.failed) failed.push({ measure: 'источники и страницы входа', error: first.failed });
   if (dev.failed) failed.push({ measure: 'устройства', error: dev.failed });
+  if (aside.failed) failed.push({ measure: 'боты и свои', error: aside.failed });
 
   return {
     visits: first.value ? first.value.length : null,
@@ -144,6 +167,7 @@ export async function buildVisitBreakdown(w: FunnelWindow, exec: FunnelExecutor 
       visits: r.visits,
     })) : null,
     device_since: dev.value?.since ?? null,
+    aside: aside.failed || !aside.value ? null : aside.value,
     failed,
   };
 }

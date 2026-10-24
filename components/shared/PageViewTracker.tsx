@@ -118,6 +118,10 @@ export default function PageViewTracker() {
         // Next рендерит not-found.tsx, не меняя адрес: страницу опознаём по
         // маркеру, который она сама ставит (см. app/not-found.tsx).
         notFound: document.documentElement.dataset.notFound === '1' || undefined,
+        // Приём без этих полей — не маяк. webdriver автоматический браузер
+        // выставляет сам; обычный Chrome туриста — false.
+        beacon: true,
+        webdriver: navigator.webdriver === true,
       }),
     })
       .then(r => r.json())

@@ -36,10 +36,35 @@ export async function POST(req: NextRequest) {
   // dwell_ms IS NULL — дописываем ровно один раз: повторный beacon (браузеры
   // умеют слать pagehide и visibilitychange подряд) не должен затирать первое,
   // честное значение вторым, снятым уже после ухода.
-  await pool.query(
+  const wrote = await pool.query(
     `UPDATE page_views SET dwell_ms = $2 WHERE id = $1 AND dwell_ms IS NULL`,
     [String(parsed.data.id), parsed.data.ms],
-  ).catch(() => { /* некритично: счётчик не должен ломать страницу */ });
+  ).then(() => true).catch((e: { code?: string }) => {
+    console.error('[analytics/dwell] время не записано:', e?.code ?? 'нет SQLSTATE');
+    return false;
+  });
+
+  // Время на странице — взаимодействие. Снимаем только метку порога
+  // (anomaly_bot) за те же камчатские сутки, не бота по адресу браузера
+  // и не свой заход. Колонки ещё нет — 42703, строка времени уже записана.
+  if (wrote) {
+    await pool.query(
+      `UPDATE page_views AS p
+          SET is_bot = $2, anomaly_bot = $2
+         FROM page_views AS touched
+        WHERE touched.id = $1
+          AND touched.ip_hash IS NOT NULL
+          AND p.ip_hash = touched.ip_hash
+          AND p.anomaly_bot
+          AND NOT p.is_self
+          AND p.created_at >= (date_trunc('day', touched.created_at AT TIME ZONE 'Asia/Kamchatka') AT TIME ZONE 'Asia/Kamchatka')
+          AND p.created_at < (date_trunc('day', touched.created_at AT TIME ZONE 'Asia/Kamchatka') AT TIME ZONE 'Asia/Kamchatka') + INTERVAL '1 day'`,
+      [String(parsed.data.id), false],
+    ).catch((e: { code?: string }) => {
+      if (e?.code === '42703') return;
+      console.error('[analytics/dwell] метка порога не снята:', e?.code ?? 'нет SQLSTATE');
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }
