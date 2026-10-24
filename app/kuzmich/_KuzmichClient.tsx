@@ -344,6 +344,8 @@ export default function KuzmichClient() {
         alert('Не удалось сжать фото до 5 МБ. Попробуйте снимок поменьше или сделайте скриншот.');
         return;
       }
+      imageFileRef.current = prepared;
+      imagePreviewRef.current = dataUrl;
       setImageFile(prepared);
       setImagePreview(dataUrl);
       setImageNote(compressed ? `Фото сжато до ${(prepared.size / 1_000_000).toFixed(1)} МБ для отправки` : null);
@@ -356,26 +358,51 @@ export default function KuzmichClient() {
   }
 
   function clearImage() {
+    imageFileRef.current = null;
+    imagePreviewRef.current = null;
     setImageFile(null);
     setImagePreview(null);
     setImageNote(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  // Отправка сообщения
+  const busyRef = useRef(false);
+  const queuedRef = useRef<string | null>(null);
+  const [queuedHint, setQueuedHint] = useState(false);
+  const messagesRef = useRef(messages);
+  const imageFileRef = useRef<File | null>(null);
+  const imagePreviewRef = useRef<string | null>(null);
+  const sendRef = useRef<(text: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    if (!busyRef.current) messagesRef.current = messages;
+  }, [messages]);
+
+  // Отправка сообщения. Enter во время ответа не пропадает: текст встаёт
+  // в очередь и уходит, когда текущий ответ дописан.
   const send = useCallback(async (text: string) => {
-    if ((!text.trim() && !imageFile) || loading) return;
+    if (!text.trim() && !imageFileRef.current) return;
+    if (busyRef.current) {
+      if (text.trim()) {
+        queuedRef.current = text.trim();
+        setQueuedHint(true);
+        setInput('');
+      }
+      return;
+    }
+    busyRef.current = true;
 
     // Конвертируем изображение в base64
     let imageBase64: string | undefined;
     let imageMimeType: string | undefined;
     let previewUrl: string | undefined;
 
-    if (imageFile && imagePreview) {
-      const base64Data = imagePreview.split(',')[1];
+    const fileNow = imageFileRef.current;
+    const previewNow = imagePreviewRef.current;
+    if (fileNow && previewNow) {
+      const base64Data = previewNow.split(',')[1];
       imageBase64 = base64Data;
-      imageMimeType = imageFile.type;
-      previewUrl = imagePreview;
+      imageMimeType = fileNow.type;
+      previewUrl = previewNow;
     }
 
     const userMsg: Message = {
@@ -383,6 +410,8 @@ export default function KuzmichClient() {
       content: text.trim() || '(фото)',
       ...(previewUrl ? { imagePreview: previewUrl } : {}),
     };
+    const prior = messagesRef.current.slice(-10).map(m => ({ role: m.role, content: m.content }));
+    messagesRef.current = [...messagesRef.current, userMsg];
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     clearImage();
@@ -396,7 +425,7 @@ export default function KuzmichClient() {
           message: text.trim() || 'Что на этом фото?',
           sessionId,
           role: 'tourist',
-          history: messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
+          history: prior,
           ...(imageBase64 ? { imageBase64, imageMimeType } : {}),
           ...utmRef.current,
         }),
@@ -415,14 +444,25 @@ export default function KuzmichClient() {
         ...(data.data?.tours?.length ? { tours: data.data.tours } : {}),
         ...(data.data?.bookingForm ? { bookingForm: data.data.bookingForm } : {}),
       };
+      messagesRef.current = [...messagesRef.current, assistantMsg];
       setMessages(prev => [...prev, assistantMsg]);
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Нет связи. Попробуйте позже.' }]);
+      const fail: Message = { role: 'assistant', content: 'Нет связи. Попробуйте позже.' };
+      messagesRef.current = [...messagesRef.current, fail];
+      setMessages(prev => [...prev, fail]);
     } finally {
+      busyRef.current = false;
       setLoading(false);
       inputRef.current?.focus();
+      const next = queuedRef.current;
+      queuedRef.current = null;
+      setQueuedHint(false);
+      if (next) void sendRef.current(next);
     }
-  }, [loading, sessionId, messages, imageFile, imagePreview]);
+  }, [sessionId]);
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
 
   // Подтверждение бронирования
   function onBookingConfirmed(msgIndex: number, bookingId: number, tourTitle: string, accessToken: string) {
@@ -642,11 +682,14 @@ export default function KuzmichClient() {
             placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Опишите мечту о путешествии...'}
             className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none"
           />
-          <button type="button" onClick={() => send(input)} disabled={(!input.trim() && !imageFile) || loading}
+          <button type="button" onClick={() => send(input)} disabled={!input.trim() && !imageFile}
             className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity hover:opacity-90">
             <Send size={16} />
           </button>
         </div>
+        {queuedHint && (
+          <p className="px-4 pb-3 text-xs text-[var(--text-muted)]">Сообщение уйдёт, когда Кузьмич допишет ответ.</p>
+        )}
       </div>
 
       {/* Подсказка */}

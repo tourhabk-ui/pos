@@ -131,8 +131,12 @@ beforeEach(() => {
   vi.stubEnv('TELEGRAM_CHAT_ID', String(ADMIN));
   // Наружу из теста ничего не ходит: подменён и сам fetch.
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('сеть в тестах закрыта')));
-  m.pool.mockImplementation(async (sql: unknown) => {
+  m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
     const q = String(sql);
+    if (q.includes('INSERT INTO tg_conversations')) {
+      m.history.push({ role: String(params?.[2] ?? ''), content: String(params?.[3] ?? '') });
+      return { rows: [] };
+    }
     if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) {
       // Запрос истории — по убыванию времени, код разворачивает сам.
       return { rows: [...m.history].reverse() };
@@ -432,15 +436,18 @@ describe('турист: клавиатура, порядок ответов, д�
     expect(m.tools).not.toHaveBeenCalled();
   });
 
-  it('два вопроса одного чата отвечают по порядку, даже если первый ход длинный', async () => {
+  it('три вопроса одного чата отвечают по порядку, и следующий видит прошлый ответ', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => { release = resolve; });
     let calls = 0;
-    m.tools.mockImplementation(async () => {
+    let secondSeen = '';
+    m.tools.mockImplementation(async (msgs: unknown) => {
       calls += 1;
       const mine = calls;
       if (mine === 1) await gate;
-      return { content: mine === 1 ? 'ОТВЕТ-ПЕРВЫЙ' : 'ОТВЕТ-ВТОРОЙ', provider: 'deepseek' };
+      if (mine === 2) secondSeen = JSON.stringify(msgs);
+      const text = mine === 1 ? 'ОТВЕТ-ПЕРВЫЙ' : mine === 2 ? 'ОТВЕТ-ВТОРОЙ' : 'ОТВЕТ-ТРЕТИЙ';
+      return { content: text, provider: 'deepseek' };
     });
     const first = post('первый вопрос про тропу');
     await new Promise<void>((resolve, reject) => {
@@ -448,13 +455,63 @@ describe('турист: клавиатура, порядок ответов, д�
       setTimeout(() => { clearInterval(timer); reject(new Error('модель не вызвана')); }, 3000);
     });
     const second = post('второй вопрос про берег');
+    const third = post('третий вопрос про цену');
     release();
-    await Promise.all([first, second]);
+    await Promise.all([first, second, third]);
     const texts = sent();
     const i1 = texts.findIndex((t) => t.includes('ОТВЕТ-ПЕРВЫЙ'));
     const i2 = texts.findIndex((t) => t.includes('ОТВЕТ-ВТОРОЙ'));
+    const i3 = texts.findIndex((t) => t.includes('ОТВЕТ-ТРЕТИЙ'));
     expect(i1).toBeGreaterThanOrEqual(0);
     expect(i2).toBeGreaterThan(i1);
+    expect(i3).toBeGreaterThan(i2);
+    expect(secondSeen).toContain('ОТВЕТ-ПЕРВЫЙ');
+    expect(secondSeen).toContain('первый вопрос про тропу');
+  });
+
+  it('«сколько стоит?» видит туры и цену, которые человек уже видел', async () => {
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
+      const q = String(sql);
+      if (q.includes('INSERT INTO tg_conversations')) {
+        m.history.push({ role: String(params?.[2] ?? ''), content: String(params?.[3] ?? '') });
+        return { rows: [] };
+      }
+      if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) {
+        return { rows: [...m.history].reverse() };
+      }
+      if (q.includes('multi_day_count DESC NULLS LAST')) {
+        return { rows: [{
+          id: 7, slug: 'k-vulkanu', title: 'К вулкану',
+          base_price: 180000, price_unit: 'per_person', multi_day_count: 1,
+          season_start: '2027-07-01', season_end: '2027-09-01',
+          activity_type: 'volcano', location_name: 'Авачинский',
+        }] };
+      }
+      return { rows: [] };
+    });
+    m.tools.mockResolvedValue({ content: 'На вулканы есть туры.', provider: 'deepseek' });
+    await post('туры на вулканы');
+    m.tools.mockClear();
+    await post('Сколько стоит?');
+    const seen = modelInput();
+    expect(seen).toContain('На вулканы есть туры.');
+    expect(seen).toContain('180');
+    expect(seen).toContain('Сколько стоит?');
+  });
+
+  it('«хочу арендовать авто» говорит про паузу витрины той же фразой, что кнопка', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-24T12:00:00.000Z'));
+    try {
+      await post('Хочу арендовать авто');
+      const out = sent().join('\n');
+      expect(out).toContain('не показывается');
+      expect(out).toContain('27 октября');
+      expect(out).not.toMatch(/Лагуна|FLO/i);
+      expect(modelInput()).toContain('27 октября');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('июль получает даты каталога, а не выдуманный заезд', async () => {

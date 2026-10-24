@@ -6,7 +6,7 @@
  * не текст модели. Кнопки ведут на карточку vedarai.ru.
  */
 
-import { askedActivity, detectTourIntent, isSightseeingQuestion } from '@/lib/ai/booking-intent';
+import { askedActivity, detectTourIntent, isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
 import { namedVolcanoes, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
@@ -62,9 +62,7 @@ export interface CatalogFacts {
 }
 
 export function wantsCatalogCards(text: string): boolean {
-  const lower = text.toLowerCase().replace(/ё/g, 'е');
-  const rental = /аренд|прокат/.test(lower) && /авто|машин|автомобил/.test(lower) && !/(?<![а-яе])тур/.test(lower);
-  if (rental) return false;
+  if (isCarRentalAsk(text)) return false;
   return detectTourIntent(text).detected;
 }
 

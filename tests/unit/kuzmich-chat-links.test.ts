@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { chatLinkChunks } from '@/lib/kuzmich/chat-links';
+import { chatBlocks, chatLinkChunks } from '@/lib/kuzmich/chat-links';
 
 // 03.10, скрин владельца: «ссылка в чате не активная».
 describe('ссылки в ответе Кузьмича', () => {
@@ -24,6 +24,17 @@ describe('ссылки в ответе Кузьмича', () => {
   it('не http(s) ссылкой не становится; текст без ссылок — один кусок', () => {
     expect(chatLinkChunks('javascript:alert(1)').every(c => !c.href)).toBe(true);
     expect(chatLinkChunks('просто текст')).toEqual([{ text: 'просто текст' }]);
+  });
+
+  it('пункты с новой строки становятся списком, обычный текст — нет', () => {
+    expect(chatBlocks('Сезон короткий.\n- берег\n- сопка\n\nДень 1 — переход')).toEqual([
+      { kind: 'text', text: 'Сезон короткий.' },
+      { kind: 'list', items: ['берег', 'сопка'] },
+      { kind: 'text', text: 'День 1 — переход' },
+    ]);
+    expect(chatBlocks('1. первое\n2) второе')).toEqual([
+      { kind: 'list', items: ['первое', 'второе'] },
+    ]);
   });
 
   it('оба чата рисуют ответ через ChatText, сообщение человека — текстом', () => {
