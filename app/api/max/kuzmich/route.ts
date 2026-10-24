@@ -345,11 +345,13 @@ async function deliverTouristText(opts: {
   text: string;
   userName: string | null;
   userId: number | null;
-  verified: boolean;
+  /** Тот же флаг, что у вебхука: `opts?.verifiedOrigin` вызывающего. */
+  verifiedOrigin: boolean | undefined;
   reply: (chatId: number, text: string) => Promise<void>;
   replyButtons: (chatId: number, text: string, buttons: MaxButton[][]) => Promise<void>;
 }): Promise<void> {
   let capturedReply = '';
+  const verified = opts?.verifiedOrigin === true;
   await processMessage({
     chatId: opts.chatId,
     text: opts.text,
@@ -363,9 +365,9 @@ async function deliverTouristText(opts: {
       await opts.reply(id, msg);
     },
     platform: 'max',
-    verifiedOrigin: opts.verified,
+    verifiedOrigin: opts?.verifiedOrigin === true,
   });
-  if (offersBooking(opts.verified, capturedReply)) {
+  if (offersBooking(verified, capturedReply)) {
     await opts.replyButtons(opts.chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
   }
 }
@@ -805,7 +807,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         // «даты», «сводка») классификатор оставляет кабинетом.
         if (!/^\/start\b/i.test(text.trim()) && boundChatLane(text) === 'tourist') {
           await deliverTouristText({
-            chatId, text, userName, userId, verified: true, reply: maxReply, replyButtons: maxReplyWithButtons,
+            chatId, text, userName, userId, verifiedOrigin: opts?.verifiedOrigin, reply: maxReply, replyButtons: maxReplyWithButtons,
           });
           return;
         }
@@ -1024,7 +1026,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
       await deliverTouristText({
         chatId, text, userName, userId,
-        verified: opts?.verifiedOrigin === true,
+        verifiedOrigin: opts?.verifiedOrigin,
         reply: maxReply,
         replyButtons: maxReplyWithButtons,
       });
