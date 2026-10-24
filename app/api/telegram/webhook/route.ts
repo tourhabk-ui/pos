@@ -342,7 +342,7 @@ async function answerByKuzmich(opts: {
   let inline: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | undefined;
   let contextNote = '';
   if (opts.tourist && wantsCatalogCards(opts.text) && !detectEmergency(opts.text).detected) {
-    const facts = catalogFacts(opts.text, await loadShowcaseTours());
+    const facts = catalogFacts(opts.text, await loadShowcaseTours(opts.text));
     contextNote = facts.note;
     extra = facts.html;
     inline = facts.inline;
@@ -383,7 +383,7 @@ async function answerTouristButton(chatId: string, button: TouristButton): Promi
     await sendTourist(chatId, TOURIST_ASK_TEXT);
     return;
   }
-  const facts = catalogFacts('подобрать тур', await loadShowcaseTours());
+  const facts = catalogFacts('подобрать тур', await loadShowcaseTours('подобрать тур'));
   if (facts.html) await sendTourist(chatId, facts.html);
   else await sendTourist(chatId, 'В каталоге Ведара сейчас нет живого тура. Название и цену я не выдумываю.');
   if (facts.inline) {

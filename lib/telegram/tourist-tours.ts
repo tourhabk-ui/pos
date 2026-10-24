@@ -7,7 +7,7 @@
  */
 
 import { askedActivity, detectTourIntent, isSightseeingQuestion } from '@/lib/ai/booking-intent';
-import { namedVolcanoes } from '@/lib/ai/tour-place-relevance';
+import { namedVolcanoes, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -50,6 +50,7 @@ export interface CatalogTour {
   multi_day_count: number | null;
   activity_type?: string | null;
   location_name?: string | null;
+  description?: string | null;
   season_start: string | null;
   season_end: string | null;
 }
@@ -181,26 +182,48 @@ function touristPrice(tour: CatalogTour): string {
   );
 }
 
-function askFocus(question: string): { word: string | null; type: string | null; volcanoes: string[] } | null {
-  const hint = askedActivity(question);
+const SHOWCASE_LIMIT = 40;
+
+/**
+ * Чем сужать каталог.
+ *
+ * Названный вулкан — место, не тип: джип и вертолёт к нему остаются,
+ * восхождение на другой вулкан с типом volcano — нет (урок 13.10).
+ * «Что посмотреть у реки» — не запрос только сплава: слово «река» в таком
+ * вопросе вид занятия не назначает.
+ */
+export function showcaseLookup(question: string):
+  | { kind: 'general' }
+  | { kind: 'volcano'; patterns: string[] }
+  | { kind: 'activity'; type: string; word: string } {
   const volcanoes = namedVolcanoes(question);
-  if (!hint.word && volcanoes.length === 0) return null;
-  return { word: hint.word, type: hint.type, volcanoes };
+  if (volcanoes.length > 0) {
+    const patterns = volcanoNamePatterns(volcanoes);
+    if (patterns.length > 0) return { kind: 'volcano', patterns };
+  }
+  if (isSightseeingQuestion(question)) return { kind: 'general' };
+  const hint = askedActivity(question);
+  if (!hint.word || !hint.type) return { kind: 'general' };
+  return { kind: 'activity', type: hint.type, word: hint.word.replace(/ё/g, 'е') };
 }
 
-function matchesAsk(
-  tour: CatalogTour,
-  ask: { word: string | null; type: string | null; volcanoes: string[] },
-): boolean {
-  const title = tour.title.toLowerCase().replace(/ё/g, 'е');
-  const word = ask.word?.replace(/ё/g, 'е') ?? '';
-  if (word && title.includes(word)) return true;
-  if (ask.type && tour.activity_type === ask.type) return true;
-  if (ask.volcanoes.length > 0) {
-    const mentioned = namedVolcanoes([tour.title, tour.location_name ?? ''].join(' '));
-    if (mentioned.some((name) => ask.volcanoes.includes(name))) return true;
+function tourText(tour: CatalogTour): string {
+  return [tour.title, tour.location_name ?? '', tour.description ?? ''].join(' ');
+}
+
+function selectTours(question: string, tours: CatalogTour[]): CatalogTour[] {
+  const lookup = showcaseLookup(question);
+  if (lookup.kind === 'volcano') {
+    const asked = namedVolcanoes(question);
+    return tours.filter((tour) => namedVolcanoes(tourText(tour)).some((name) => asked.includes(name)));
   }
-  return false;
+  if (lookup.kind === 'activity') {
+    return tours.filter((tour) => {
+      const title = tour.title.toLowerCase().replace(/ё/g, 'е');
+      return tour.activity_type === lookup.type || title.includes(lookup.word);
+    });
+  }
+  return tours;
 }
 
 function tourUrl(tour: CatalogTour): string {
@@ -228,7 +251,7 @@ function insistsOnTours(text: string): boolean {
 
 export function catalogFacts(
   question: string,
-  loaded: { ok: true; tours: CatalogTour[] } | { ok: false },
+  loaded: { ok: true; tours: CatalogTour[]; complete?: boolean } | { ok: false },
 ): CatalogFacts {
   if (!wantsCatalogCards(question)) return EMPTY;
   if (!loaded.ok) {
@@ -238,13 +261,20 @@ export function catalogFacts(
   }
   const months = askedMonths(question);
   const days = askedDays(question);
-  const focus = askFocus(question);
-  const matched = focus ? loaded.tours.filter((tour) => matchesAsk(tour, focus)) : loaded.tours;
-  // Пустой каталог молчит, если вопрос не про витрину («когда идти на вулкан»).
-  // Каталог есть, а этого вида нет — чужой длинный тур в ответ не запираем.
-  if (focus && loaded.tours.length > 0 && matched.length === 0) {
-    const line = 'В каталоге Ведара нет живого тура этого вида. Чужой тур вместо него не называй и цену не выдумывай.';
-    return { note: line, html: 'В каталоге Ведара нет живого тура этого вида.' };
+  const lookup = showcaseLookup(question);
+  const matched = selectTours(question, loaded.tours);
+  // Срез «40 самых длинных» — не весь каталог: «такого тура нет» по нему врало бы.
+  // Запрос по месту или виду читает каталог целиком, пустой ответ тогда честный.
+  const sawAll = loaded.complete !== false && (lookup.kind !== 'general' || loaded.tours.length < SHOWCASE_LIMIT);
+  if (lookup.kind !== 'general' && matched.length === 0 && loaded.tours.length > 0) {
+    if (!sawAll) return EMPTY;
+    const line = lookup.kind === 'volcano'
+      ? 'В каталоге Ведара нет живого тура к этому вулкану. Тур к другому вулкану вместо него не называй и цену не выдумывай.'
+      : 'В каталоге Ведара нет живого тура этого вида. Чужой тур вместо него не называй и цену не выдумывай.';
+    const html = lookup.kind === 'volcano'
+      ? 'В каталоге Ведара нет живого тура к этому вулкану.'
+      : 'В каталоге Ведара нет живого тура этого вида.';
+    return { note: line, html };
   }
   const poolTours = matched;
   const byDuration = poolTours.filter((tour) => durationMatches(tour, days));
@@ -284,18 +314,47 @@ export function catalogFacts(
   return { note, html, inline };
 }
 
-export async function loadShowcaseTours(): Promise<{ ok: true; tours: CatalogTour[] } | { ok: false }> {
-  try {
-    const { rows } = await pool.query<CatalogTour>(
-      `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count,
-              ot.activity_type, ot.location_name,
+const SHOWCASE_SELECT = `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count,
+              ot.activity_type, ot.location_name, LEFT(ot.description, 400) AS description,
               ot.season_start::text AS season_start, ot.season_end::text AS season_end
          FROM operator_tours ot
-        WHERE ${publicTourSql('ot')}
-        ORDER BY ot.multi_day_count DESC NULLS LAST, ot.base_price ASC NULLS LAST
-        LIMIT 40`,
-    );
-    return { ok: true, tours: rows };
+        WHERE ${publicTourSql('ot')}`;
+
+/** Запрос витрины: место и вид ищутся по всему каталогу, не по 40 самым длинным. */
+export function showcaseQuery(question: string): { sql: string; params: unknown[] } {
+  const order = 'ORDER BY ot.multi_day_count DESC NULLS LAST, ot.base_price ASC NULLS LAST';
+  const lookup = showcaseLookup(question);
+  if (lookup.kind === 'volcano') {
+    return {
+      sql: `${SHOWCASE_SELECT}
+          AND translate(concat_ws(' ', ot.title, ot.location_name, coalesce(ot.description, '')), 'Ёё', 'Ее') ILIKE ANY($1::text[])
+        ${order}
+        LIMIT ${SHOWCASE_LIMIT}`,
+      params: [lookup.patterns],
+    };
+  }
+  if (lookup.kind === 'activity') {
+    return {
+      sql: `${SHOWCASE_SELECT}
+          AND (ot.activity_type = $1 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $2)
+        ${order}
+        LIMIT ${SHOWCASE_LIMIT}`,
+      params: [lookup.type, `%${lookup.word}%`],
+    };
+  }
+  return {
+    sql: `${SHOWCASE_SELECT}
+        ${order}
+        LIMIT ${SHOWCASE_LIMIT}`,
+    params: [],
+  };
+}
+
+export async function loadShowcaseTours(question = ''): Promise<{ ok: true; tours: CatalogTour[]; complete: boolean } | { ok: false }> {
+  try {
+    const { sql, params } = showcaseQuery(question);
+    const { rows } = await pool.query<CatalogTour>(sql, params);
+    return { ok: true, tours: rows, complete: rows.length < SHOWCASE_LIMIT };
   } catch (err) {
     const code = (err as { code?: string } | null)?.code;
     console.error('[tourist-tours] каталог не прочитан', code ? `SQLSTATE ${code}` : (err instanceof Error ? err.message.slice(0, 200) : 'нет SQLSTATE'));

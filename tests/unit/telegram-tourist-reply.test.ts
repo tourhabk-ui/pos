@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { emphasizeTripDays } from '@/lib/telegram/kuzmich-format';
 import { detectTourIntent } from '@/lib/ai/booking-intent';
-import { catalogFacts, seasonOverlaps, type CatalogTour } from '@/lib/telegram/tourist-tours';
+import { catalogFacts, seasonOverlaps, showcaseLookup, showcaseQuery, type CatalogTour } from '@/lib/telegram/tourist-tours';
 import { enqueueTelegramChat, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { matchTouristButton, touristRentalText, touristReplyMarkup } from '@/lib/telegram/tourist-keyboard';
 
@@ -88,6 +88,57 @@ describe('даты тура против месяца в вопросе', () => 
     expect(facts.note).toContain('нет живого тура этого вида');
     expect(facts.html).not.toContain('pyat-dney');
     expect(facts.inline).toBeUndefined();
+  });
+
+  it('названный вулкан берёт джип к нему и не берёт восхождение на другой', () => {
+    const other: CatalogTour = {
+      ...FIVE,
+      id: 3,
+      slug: 'klyuchi',
+      title: 'Восхождение на Ключевскую сопку',
+      activity_type: 'volcano',
+    };
+    const jeep: CatalogTour = {
+      ...FIVE,
+      id: 4,
+      slug: 'jeep-ava',
+      title: 'Джип на перевал',
+      activity_type: 'jeep',
+      location_name: 'Авачинский перевал',
+      multi_day_count: 1,
+    };
+    const facts = catalogFacts('хочу на Авачинский', { ok: true, tours: [other, jeep] });
+    expect(facts.note).toContain('Джип на перевал');
+    expect(facts.note).not.toContain('Ключевск');
+    expect(facts.html).toContain('/catalog/tours/jeep-ava');
+    const onlyOther = catalogFacts('хочу на Авачинский', { ok: true, tours: [other] });
+    expect(onlyOther.note).toContain('нет живого тура к этому вулкану');
+    expect(onlyOther.html).not.toContain('klyuchi');
+  });
+
+  it('«что посмотреть у реки» не становится запросом только сплава', () => {
+    const raft: CatalogTour = {
+      ...FIVE,
+      id: 8,
+      slug: 'splav',
+      title: 'Сплав по реке',
+      activity_type: 'rafting',
+      multi_day_count: 2,
+    };
+    const facts = catalogFacts('что посмотреть за 5 дней у реки', { ok: true, tours: [FIVE, raft] });
+    expect(showcaseLookup('что посмотреть за 5 дней у реки').kind).toBe('general');
+    expect(facts.note).toContain('Пять дней по Камчатке');
+    expect(facts.note).not.toContain('нет живого тура этого вида');
+  });
+
+  it('срез длинных туров не объявляет, что вида в каталоге нет', () => {
+    const facts = catalogFacts('хочу на рыбалку', { ok: true, tours: [FIVE], complete: false });
+    expect(facts.html).toBe('');
+    expect(facts.note).toBe('');
+    const query = showcaseQuery('хочу на Авачинский');
+    expect(query.sql).toContain('ILIKE ANY');
+    expect(query.sql).not.toContain('activity_type =');
+    expect(query.params[0]).toEqual(expect.arrayContaining([expect.stringMatching(/%авачин/i)]));
   });
 
   it('аренда авто не подмешивает туры', () => {
