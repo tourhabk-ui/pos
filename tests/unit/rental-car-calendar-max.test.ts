@@ -31,7 +31,12 @@ vi.mock('@/lib/max/max-fetch', () => ({
   }),
   maxFetch: vi.fn(),
 }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => m.pool(...a) } }));
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (...a: unknown[]) => m.pool(...a),
+    connect: async () => ({ query: (...a: unknown[]) => m.pool(...a), release: () => undefined }),
+  },
+}));
 vi.mock('@/lib/ai/providers', () => ({
   callToolsWaterfall: (...a: unknown[]) => m.tools(...a),
   callAIWaterfallOrNull: vi.fn(async () => null),
@@ -61,7 +66,7 @@ const TODAY = kamchatkaDate(new Date());
 
 const post = (url: string, body: unknown) => max.POST(new NextRequest(url, { method: 'POST', body: JSON.stringify(body) }));
 
-function press(payload: string, opts: { chatId?: number | null; chatType?: string } = {}) {
+function press(payload: string, opts: { chatId?: number | null; chatType?: string; text?: string } = {}) {
   return {
     update_type: 'message_callback',
     timestamp: Date.now(),
@@ -69,7 +74,7 @@ function press(payload: string, opts: { chatId?: number | null; chatType?: strin
     ...(opts.chatId === null ? {} : {
       message: {
         recipient: { chat_id: opts.chatId ?? CHAT, chat_type: opts.chatType ?? 'dialog' },
-        body: { mid: 'mid-cal', seq: 1, text: 'календарь' },
+        body: { mid: 'mid-cal', seq: 1, text: opts.text ?? 'календарь' },
       },
     }),
   };
@@ -170,5 +175,69 @@ describe('фраза «календарь»', () => {
     await post(VERIFIED, message('календарь', 'chat'));
     expect(sqls().some((s) => /car_rental_offers/.test(s))).toBe(false);
     expect(m.maxSend.mock.calls.map((c) => String(c[1])).join('\n')).toMatch(/личном диалоге/);
+  });
+});
+
+describe('нажатие rr: ответ на заявку', () => {
+  const LEAD = '33333333-3333-4333-8333-333333333333';
+  const payload = `rr:y:${LEAD}`;
+
+  it('без ключа не читает заявку и ничего не пишет', async () => {
+    await post('http://localhost/api/max/kuzmich', press(payload));
+    expect(m.maxSend).not.toHaveBeenCalled();
+    expect(sqls().some((s) => /FROM leads/.test(s))).toBe(false);
+    expect(sqls().some((s) => /INSERT INTO rental_car_busy/.test(s))).toBe(false);
+  });
+
+  it('не из личного диалога не пишет', async () => {
+    await post(VERIFIED, press(payload, { chatType: 'chat' }));
+    expect(sqls().some((s) => /INSERT INTO rental_car_busy/.test(s))).toBe(false);
+    expect(m.maxSend.mock.calls.map((c) => String(c[1])).join('\n')).toMatch(/личном диалоге/);
+  });
+
+  it('заверенное «Беру» отмечает дни заявки, снимает кнопки и не шлёт телефон менеджеру', async () => {
+    const phone = '+79001234567';
+    const fetchMock = vi.fn(async () => ({ ok: true, text: async () => '' }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', 'tg-test');
+    vi.stubEnv('TELEGRAM_CHAT_ID', '42');
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
+      const s = String(sql);
+      if (/admin_max_bindings/.test(s)) return { rows: [] };
+      if (/FROM partners/.test(s)) {
+        return { rows: [{ id: PARTNER, slug: 'laguna-prokat', name: 'Лагуна Прокат', category: 'transfer', user_id: null, profile_status: null }] };
+      }
+      if (/FROM leads/.test(s)) {
+        return { rows: [{
+          id: LEAD, operator_id: PARTNER,
+          source_data: { kind: 'car_rental', company_id: PARTNER, offer_id: OFFER, offer_title: 'Suzuki Jimny', date_from: '2026-11-10', date_to: '2026-11-11' },
+        }] };
+      }
+      if (/lead_activity_log/.test(s) && /SELECT/.test(s)) return { rows: [] };
+      if (/INSERT INTO lead_activity_log/.test(s)) return { rows: [{ id: '1' }] };
+      if (/INSERT INTO rental_car_busy/.test(s) && /request/.test(s)) {
+        const days = Array.isArray(params?.[2]) ? params[2] as string[] : [];
+        return { rows: days.map((day) => ({ day })) };
+      }
+      if (/FROM car_rental_offers/.test(s)) return { rows: [{ id: OFFER, title: 'Suzuki Jimny', is_active: true }] };
+      return { rows: [] };
+    });
+    await post(VERIFIED, press(payload, { text: `Заявка\nТелефон: ${phone}` }));
+    const insert = m.pool.mock.calls.find((c) => /INSERT INTO rental_car_busy/.test(String(c[0])) && /request/.test(String(c[0])));
+    expect(insert?.[1]).toEqual([OFFER, PARTNER, ['2026-11-10', '2026-11-11'], LEAD]);
+    const journal = m.pool.mock.calls.find((c) => /INSERT INTO lead_activity_log/.test(String(c[0])));
+    expect(String(journal?.[1]?.[1] ?? '')).toContain('"answer":"take"');
+    expect(String(journal?.[1]?.[1] ?? '')).not.toContain(phone);
+    expect(m.edit).toHaveBeenCalled();
+    const extra = m.edit.mock.calls[0]?.[1] as { text?: string; attachments?: unknown[] };
+    expect(extra.attachments).toEqual([]);
+    expect(extra.text).toContain('беру');
+    expect(extra.text).toContain('2026-11-10');
+    expect(extra.text).toContain(phone);
+    const bodies = fetchMock.mock.calls.map((c) => JSON.stringify(c[1] ?? {}));
+    expect(bodies.join('\n')).toContain('беру');
+    expect(bodies.join('\n')).not.toContain(phone);
+    expect(bodies.join('\n')).not.toContain('Анна');
+    vi.unstubAllGlobals();
   });
 });

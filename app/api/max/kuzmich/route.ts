@@ -169,6 +169,27 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
   }
 }
 
+/** Ответ «Беру» / «Не могу»: правим то же сообщение и снимаем кнопки. */
+function rentalAnswerSend(chatId: number) {
+  return async (text: string, editMid: string | null): Promise<void> => {
+    const api = getApi();
+    if (editMid && api) {
+      try {
+        const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
+          text,
+          format: 'html',
+          attachments: [],
+        });
+        if (res?.success !== false) return;
+        console.error('[max/kuzmich] правка ответа на заявку проката не принята MAX — отправляю новым сообщением');
+      } catch (err) {
+        logFailure('правка ответа на заявку проката', err);
+      }
+    }
+    await maxReply(chatId, text);
+  };
+}
+
 /** Календарь проката: правим то же сообщение, иначе шлём новое. Кнопки — `rb:`. */
 function rentalCalendarSend(chatId: number) {
   return async (
@@ -504,15 +525,29 @@ async function handleActionPress(
     return;
   }
 
-  // Календарь проката: «Свободна» / «Занята». Только личный диалог и только
-  // чат привязанного пилота. Чужой payload машину не отмечает.
+  // Календарь проката (`rb:`) и ответ на заявку (`rr:`). Только личный диалог
+  // и только чат привязанного пилота. Чужой payload машину не отмечает.
   if (action === 'rental') {
     if (chatType !== 'dialog') {
       console.error(`[max/kuzmich] нажатие (rental) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
-      await maxReply(chatId, 'Календарь проката отмечается в личном диалоге с ботом. Отметка не записана.');
+      const line = payload.startsWith('rr:')
+        ? 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.'
+        : 'Календарь проката отмечается в личном диалоге с ботом. Отметка не записана.';
+      await maxReply(chatId, line);
       return;
     }
     const lookup = await findPartnerByChat('max', chatId);
+    if (payload.startsWith('rr:')) {
+      const { handleRentalRequestAnswer } = await import('@/lib/rental/request-answer-flow');
+      await handleRentalRequestAnswer({
+        lookup,
+        payload,
+        editMid: pressed?.mid ?? null,
+        originalText: pressed?.text ?? null,
+        send: rentalAnswerSend(chatId),
+      });
+      return;
+    }
     const { handleRentalCalendarPress } = await import('@/lib/rental/car-calendar-flow');
     await handleRentalCalendarPress({
       lookup, payload, nowMs: Date.now(), editMid: pressed?.mid ?? null, send: rentalCalendarSend(chatId),

@@ -16,8 +16,11 @@
  *     строго, без отката на рабочий чат платформы);
  *   · ПД (имя, телефон, пожелания) — только в тексте для MAX; в заглушке для
  *     Telegram их нет, и она НЕ зовёт в кабинет;
- *   · кнопок нет: действие (payload) в личном чате бот не принимает, а ссылку
- *     партнёру давать некуда — заявку подтверждает менеджер;
+ *   · кнопок нет у заявки на машину перевозчика: ссылку давать некуда.
+ *     У заявки на прокат пилота (`RENTAL_OPERATOR_PILOT_SLUGS`, без переменной
+ *     — `laguna-prokat`) под текстом для MAX две кнопки «Беру» / «Не могу»
+ *     (`rr:`). Это действия, не ссылки: в заглушку Telegram они не попадают
+ *     (`pd-alert` отдаёт туда только кнопки с url, этот файл не трогает);
  *   · исходы — четыре (§4.0): доставлено / заглушка / нет канала / адрес не
  *     прочитался, и каждый, кроме доставки, назван в логе без ПД.
  *
@@ -28,9 +31,11 @@
  * Сторож: tests/unit/partner-request-notify.test.ts.
  */
 
-import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { sendPdAlert, type PdAlertButton } from '@/lib/notifications/pd-alert';
 import { reachForPartner } from '@/lib/partners/reach';
 import type { PersonalLeadOutcome } from '@/lib/notifications/lead-notify';
+import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
+import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -47,6 +52,8 @@ export interface PartnerRequestNotice {
   name: string;
   phone: string;
   comment: string | null;
+  /** Slug прокатчика. Кнопки «Беру» / «Не могу» — только у пилота и только на прокате. */
+  companySlug?: string | null;
 }
 
 const HEADLINE: Record<PartnerRequestKind, string> = {
@@ -54,9 +61,16 @@ const HEADLINE: Record<PartnerRequestKind, string> = {
   car_rental: 'Новая заявка на прокат с Ведара',
 };
 
+/** «Беру» / «Не могу» — только прокат пилота и только с uuid заявки. */
+export function partnerRequestButtons(n: PartnerRequestNotice): PdAlertButton[] | undefined {
+  if (n.kind !== 'car_rental' || !isRentalPilotSlug(n.companySlug)) return undefined;
+  return rentalAnswerButtons(n.leadId);
+}
+
 /** Текст с ПД (MAX) и заглушка без ПД (Telegram) из одних фактов. */
 export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; stub: string } {
   const common = [`<b>${HEADLINE[n.kind]}</b>`, ...n.lines.map((l) => esc(l))];
+  const buttons = partnerRequestButtons(n);
   const text = [
     ...common,
     '',
@@ -65,6 +79,7 @@ export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; st
     n.comment ? `<b>Пожелания:</b> ${esc(n.comment.slice(0, 200))}` : '',
     '',
     'Менеджер Ведара согласует заказ с вами и подтвердит заказчику.',
+    buttons ? '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.' : '',
   ].filter(Boolean).join('\n');
   const stub = [
     ...common,
@@ -91,6 +106,7 @@ export async function notifyPartnerRequestPersonally(n: PartnerRequestNotice): P
   const res = await sendPdAlert({
     text,
     stub,
+    buttons: partnerRequestButtons(n),
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return { state: 'delivered', channel: 'max' };

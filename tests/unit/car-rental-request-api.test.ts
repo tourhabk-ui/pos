@@ -105,6 +105,7 @@ describe('POST /api/car-rental-requests: заявка ложится прока�
     expect(lead.pd_consent).toMatchObject({ version: PD_CONSENT_RENTAL_VERSION, source: 'car-rental-page', ip: '10.0.0.1' });
     expect(lead.source_data).toEqual({
       source: 'car_rental_page', kind: 'car_rental', company_id: 'p-1', company_slug: 'laguna',
+      offer_id: 'o-1',
       offer_title: 'Toyota Land Cruiser Prado', date_from: addDays(today, 30), date_to: addDays(today, 32), days: 3,
       price_rub_per_day: 7000, price_is_from: false, driver: 'optional',
     });
