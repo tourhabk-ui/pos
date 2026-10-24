@@ -31,6 +31,9 @@ export const GATES: Record<string, Gate> = {
   'app/api/hub/crm/channel/route.ts': { seat: 'owner' },
   'app/api/hub/crm/channel/link/route.ts': { seat: 'owner' },
   'app/api/mcp/partner/oauth/authorize/route.ts': { seat: 'owner' },
+  // Код «/start ABC123» привязывает чат к карточке партнёра — настройка канала
+  // кабинета: выдаёт его только владелец карточки (requirePartnerOwner).
+  'app/api/hub/operator/messenger-code/route.ts': { seat: 'owner' },
 
   // ── Команда: владелец и менеджер ──
   'app/api/hub/operator/me/route.ts': { seat: 'team' },
