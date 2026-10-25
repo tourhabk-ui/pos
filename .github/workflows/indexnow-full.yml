@@ -34,12 +34,16 @@ jobs:
             exit 1
           fi
 
+      # Ключ /<key>.txt и /api/cron/indexnow-full едут этим же коммитом.
+      # Не дождались сборки — отказ: на старом проде ключа нет, и пинг
+      # ответил бы 404, а маркер одноразовый.
       - name: Дождаться своей сборки на проде
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
         run: bash scripts/wait-for-deploy.sh
 
       - name: Подать sitemap в IndexNow и Яндекс

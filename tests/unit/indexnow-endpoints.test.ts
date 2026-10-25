@@ -124,6 +124,8 @@ describe('полная подача после выкладки', () => {
     expect(wait).toBeGreaterThan(0);
     expect(call).toBeGreaterThan(wait);
     expect(yml).toMatch(/timeout-minutes:\s*80/);
+    const waitStep = yml.slice(yml.indexOf('Дождаться своей сборки'), wait);
+    expect(waitStep).toMatch(/REQUIRE_FRESH:\s*'1'/);
     expect(yml).toContain('.github/triggers/indexnow-full.json');
     const marker = JSON.parse(readFileSync('.github/triggers/indexnow-full.json', 'utf8')) as { run: number };
     expect(marker.run).toBe(1);
