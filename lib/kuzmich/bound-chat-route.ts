@@ -29,6 +29,7 @@
  * на его вопрос, а не дела кабинета, и у кабинета нет ни 112, ни разговора.
  */
 
+import { VEHICLE_WORDS } from '@/lib/ai/vehicle-words';
 import { isFleetAsk } from '@/lib/kuzmich/operator-rental-fleet';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
@@ -58,7 +59,8 @@ const OPEN_DATES = /(?:открой|открыть|закрой|закрыть|�
 const DATE_WORD = word('дат\\p{L}*|суббот\\p{L}*|воскресен\\p{L}*|понедельник\\p{L}*|вторник\\p{L}*|сред\\p{L}*|четверг\\p{L}*|пятниц\\p{L}*|мест\\p{L}*|июл\\p{L}*|август\\p{L}*|сентябр\\p{L}*|октябр\\p{L}*|ноябр\\p{L}*|декабр\\p{L}*|январ\\p{L}*|феврал\\p{L}*|март\\p{L}*|апрел\\p{L}*|ма[йя]\\p{L}*|июн\\p{L}*');
 const RENTAL = word('аренд\\p{L}*|прокат\\p{L}*') ;
 const RENTAL_EN = /rent a car|car rental|car hire/u;
-const VEHICLE = word('автомобил\\p{L}*|машин\\p{L}*|авто|джип\\p{L}*|внедорожник\\p{L}*|suv|вездеход\\p{L}*');
+// Словарь вида машины — общий с isCarRentalAsk (lib/ai/vehicle-words).
+const VEHICLE = word(VEHICLE_WORDS);
 const TOUR = word('тур(?:а|ы|ов|е|у|ом)?|экскурси\\p{L}*');
 const TRANSFER = word('трансфер\\p{L}*|transfer');
 const WITH_DRIVER = /машин\p{L}*\s+с\s+водител\p{L}*/u;

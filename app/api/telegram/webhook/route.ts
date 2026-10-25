@@ -41,6 +41,7 @@ import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/li
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
 import { catalogFacts, loadShowcaseTours } from '@/lib/telegram/tourist-tours';
+import { touristOperatorsList } from '@/lib/telegram/operators-list';
 import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -156,7 +157,6 @@ interface TelegramUpdate {
 }
 
 interface RouteRow { id: string; title: string; category: string; description: string | null }
-interface OperatorRow { name: string; slug: string }
 /** Список заявок для Telegram: ПД не читаются — их здесь не показывают. */
 interface LeadRow { id: string; route_title: string | null; created_at: string; status: string }
 interface StatsRow {
@@ -376,7 +376,7 @@ async function answerTouristButton(chatId: string, button: TouristButton): Promi
     return;
   }
   if (button === 'Операторы') {
-    await sendTourist(chatId, await getOperatorsList());
+    await sendTourist(chatId, await touristOperatorsList());
     return;
   }
   if (button === 'Аренда авто') {
@@ -446,25 +446,6 @@ async function getWeather(): Promise<string> {
     ].filter(Boolean).join('\n');
   } catch {
     return 'Погода временно недоступна. Зайди позже.';
-  }
-}
-
-// ── Список операторов ─────────────────────────────────────────────────────────
-
-async function getOperatorsList(): Promise<string> {
-  try {
-    const res = await query<OperatorRow>(
-      `SELECT name, slug FROM partners WHERE is_public = TRUE ORDER BY name LIMIT 10`
-    );
-    if (!res.rows.length) return 'Список операторов пока пуст.';
-    const lines = ['<b>Операторы на Ведаре:</b>', ''];
-    res.rows.forEach(p => {
-      lines.push(`🏔 <a href="https://vedarai.ru/operators/${p.slug}">${esc(p.name)}</a>`);
-    });
-    lines.push('', '<a href="https://vedarai.ru/operators">Все операторы →</a>');
-    return lines.join('\n');
-  } catch {
-    return 'Не удалось загрузить список операторов.';
   }
 }
 
@@ -1123,7 +1104,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
 
     // /operators
     if (text.startsWith('/operators')) {
-      const list = await getOperatorsList();
+      const list = await touristOperatorsList();
       await sendHTML(chatId, list);
       return;
     }

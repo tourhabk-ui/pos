@@ -9,7 +9,7 @@
  * спрашиваются.
  */
 
-import { isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
+import { isCarRentalAsk, isSafetyOrSituationAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { calendarDay, ruDate } from '@/lib/kuzmich/season-window';
 import { rentalPauseForTourist } from '@/lib/rental/site-pause';
@@ -96,9 +96,12 @@ function isPriceFollowUp(text: string): boolean {
 /**
  * Вопрос к витрине туров. Упоминание вулкана само по себе — про место
  * и безопасность, его отвечает модель с get_guardian_context.
+ * Вопрос о безопасности и обстановке («какие опасности на Авачинском»,
+ * «какие вулканы извергаются») — тоже не витрина: то же правило, что у
+ * карточек сайта (`isSafetyOrSituationAsk`, находка 24.10).
  */
 function asksTourOffer(text: string): boolean {
-  if (isCarRentalAsk(text)) return false;
+  if (isCarRentalAsk(text) || isSafetyOrSituationAsk(text)) return false;
   if (isSightseeingQuestion(text)) return true;
   const t = norm(text);
   if (/(?<![а-яе])тур(?!ист)|экскурс/.test(t)) return true;

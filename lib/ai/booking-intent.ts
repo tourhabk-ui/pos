@@ -8,6 +8,7 @@
 import { pool } from '@/lib/db-pool';
 import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { namesVehicle } from '@/lib/ai/vehicle-words';
 
 export interface TourSuggestion {
   id: number;
@@ -60,19 +61,63 @@ export function isSightseeingQuestion(text: string): boolean {
   return SIGHTSEEING.test(text.toLowerCase().replace(/ё/g, 'е'));
 }
 
-/** Аренда машины без водителя. «Хочу» само по себе туром не делает этот вопрос. */
+/** «Аренда», «прокат», «напрокат», «rent a car», «car hire». */
+const RENT_WORD = /аренд|прокат|(?<![a-z])(?:rent|hire)/;
+
+/**
+ * Аренда машины без водителя. «Хочу» само по себе туром не делает этот вопрос.
+ * Вид машины — общий словарь с привязанным чатом партнёра (lib/ai/vehicle-words):
+ * «хочу арендовать джип» и «прокат 4x4» — тоже аренда (находка 24.10).
+ */
 export function isCarRentalAsk(text: string): boolean {
   const lower = text.toLowerCase().replace(/ё/g, 'е');
   // «турист» — не упоминание тура: тот же запрет (?!ист), что у интереса к туру.
-  return /аренд|прокат/.test(lower) && /авто|машин|автомобил/.test(lower) && !/(?<![а-яе])тур(?!ист)/.test(lower);
+  return RENT_WORD.test(lower) && namesVehicle(lower) && !/(?<![а-яе])тур(?!ист)/.test(lower);
+}
+
+/**
+ * Вопрос о безопасности или обстановке: опасно ли, извержение, пепел, лавина,
+ * землетрясение, шторм, погода и ветер, предупреждения МЧС, открыт ли перевал.
+ *
+ * Карточки и список туров к такому вопросу не прикладываются (находка 24.10):
+ * безопасность в ответе стоит выше продажи, и отвечает на неё модель с
+ * инструментами обстановки, а не витрина. «Какие опасности на Авачинском
+ * вулкане?» получало вместо ответа список туров с ценами.
+ * «Водопад Опасный» — имя места, а не вопрос об опасности.
+ */
+const SAFETY_ASK = new RegExp([
+  'опасн',
+  'обстановк',
+  'изверж',
+  'изверга',
+  'пепел',
+  'пепл',
+  'лавин',
+  'землетряс',
+  'сейсм',
+  'цунами',
+  'шторм',
+  'предупрежден',
+  '(?<![а-яе])мчс(?![а-яе])',
+  '(?<![а-яе])погод',
+  '(?<![а-яе])(?:ветер(?![а-яе])|ветр[а-яе])',
+  '(?:открыт|закрыт)[аоы]?\\s+ли(?!\\s+(?:запис|брон|продаж))',
+].join('|'));
+
+export function isSafetyOrSituationAsk(text: string): boolean {
+  const lower = text.toLowerCase().replace(/ё/g, 'е').replace(/водопад[а-яе]*\s+опасн[а-яе]*/g, ' ');
+  return SAFETY_ASK.test(lower);
 }
 
 /**
  * Карточки каталога под ответом. «Хочу арендовать авто» их не получает:
  * слово «хочу» есть в признаках тура, а витрина туров тут ни при чём.
+ * Вопрос о безопасности и обстановке — тоже нет. Это правило одно на сайт
+ * и Telegram (`pickToursForAnswer`, lib/telegram/tourist-tours).
  */
 export function wantsTourCards(text: string): boolean {
   if (isCarRentalAsk(text)) return false;
+  if (isSafetyOrSituationAsk(text)) return false;
   const intent = detectTourIntent(text);
   if (!intent.detected) return false;
   if (intent.activityType || isSightseeingQuestion(text)) return true;

@@ -232,6 +232,34 @@ export async function queryOperators(filters: OperatorsFilters): Promise<Operato
 }
 
 /**
+ * Первые компании витрины для чата (кнопка «Операторы» в Telegram): тот же
+ * отбор и тот же порядок, что у /operators, плюс счёт всего списка — чтобы
+ * чат мог сказать «первые N из M», а не выдать часть за весь список.
+ *
+ * `hiddenSlugs` — кого сайт сейчас прячет от людей (пауза проката,
+ * lib/rental/site-pause): их нет ни в строках, ни в счёте.
+ * Отказ базы бросается — вызывающий говорит «не загрузился», а не «пусто».
+ */
+export async function queryOperatorLinks(
+  limit: number,
+  hiddenSlugs: readonly string[] = [],
+): Promise<{ items: Array<{ name: string; slug: string }>; total: number }> {
+  const where = [...listedPartner('p'), `NOT (p.slug = ANY($1::text[]))`].join(' AND ');
+  const [rows, count] = await Promise.all([
+    query<{ name: string; slug: string }>(
+      `SELECT p.name, p.slug FROM partners p WHERE ${where} ORDER BY lower(p.name), p.id LIMIT $2`,
+      [[...hiddenSlugs], limit],
+    ),
+    query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM partners p WHERE ${where}`,
+      [[...hiddenSlugs]],
+    ),
+  ]);
+  const total = parseInt(count.rows[0]?.total ?? '0', 10);
+  return { items: rows.rows, total: Math.max(Number.isFinite(total) ? total : 0, rows.rows.length) };
+}
+
+/**
  * Вариант для серверного рендера листинга: кэш 600с на комбинацию фильтров.
  * Поисковые запросы идут мимо кэша — множество ключей не ограничено.
  */

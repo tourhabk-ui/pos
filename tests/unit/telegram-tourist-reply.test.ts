@@ -3,8 +3,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { emphasizeTripDays } from '@/lib/telegram/kuzmich-format';
-import { detectTourIntent, isCarRentalAsk, wantsTourCards } from '@/lib/ai/booking-intent';
-import { catalogFacts, seasonOverlaps, showcaseLookup, showcaseQuery, type CatalogTour } from '@/lib/telegram/tourist-tours';
+import { detectTourIntent, isCarRentalAsk, isSafetyOrSituationAsk, wantsTourCards } from '@/lib/ai/booking-intent';
+import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { catalogFacts, pickToursForAnswer, seasonOverlaps, showcaseLookup, showcaseQuery, type CatalogTour } from '@/lib/telegram/tourist-tours';
 import { enqueueTelegramChat, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { matchTouristButton, touristRentalText, touristReplyMarkup } from '@/lib/telegram/tourist-keyboard';
 
@@ -113,11 +114,11 @@ describe('даты тура против месяца в вопросе', () => 
       multi_day_count: 1,
     };
     const inSeason = new Date('2027-09-10T00:00:00Z');
-    const facts = catalogFacts('хочу на Авачинский', { ok: true, tours: [other, jeep] }, inSeason);
+    const facts = catalogFacts('хочу тур на Авачинский', { ok: true, tours: [other, jeep] }, inSeason);
     expect(facts.note).toContain('Джип на перевал');
     expect(facts.note).not.toContain('Ключевск');
     expect(facts.html).toContain('/catalog/tours/jeep-ava');
-    const onlyOther = catalogFacts('хочу на Авачинский', { ok: true, tours: [other] });
+    const onlyOther = catalogFacts('хочу тур на Авачинский', { ok: true, tours: [other] });
     expect(onlyOther.note).toContain('нет живого тура к этому вулкану');
     expect(onlyOther.html).not.toContain('klyuchi');
   });
@@ -153,10 +154,127 @@ describe('даты тура против месяца в вопросе', () => 
     expect(facts.inline).toBeUndefined();
   });
 
+  it('сезон длиннее года: июль в нём есть, ложного «в июле нет» нет (находка 24.10)', () => {
+    const now = new Date('2026-10-24T00:00:00Z');
+    const year: CatalogTour = {
+      ...FIVE, id: 31, slug: 'kruglyi-god', title: 'Круглый год', multi_day_count: 1,
+      season_start: '2026-10-01', season_end: '2027-10-31',
+    };
+    expect(seasonOverlaps(year, [7])).toBe(true);
+    const july = catalogFacts('что посмотреть в июле', { ok: true, tours: [year] }, now);
+    expect(july.html).toContain('/catalog/tours/kruglyi-god');
+    expect(july.html).not.toContain('этого заезда нет');
+    expect(july.note).not.toContain('этого заезда нет');
+    // Месяцы считаются по окну вопроса с годом: летом 2027 этот заезд идёт
+    // только в июне — июль и август названы, июнь нет.
+    const toJune: CatalogTour = { ...year, slug: 'do-iyunya', title: 'До июня', season_start: '2026-06-01', season_end: '2027-06-30' };
+    const summer = catalogFacts('что посмотреть летом', { ok: true, tours: [toJune] }, now);
+    expect(summer.html).toContain('В июле, августе этого заезда нет.');
+    expect(summer.html).not.toContain('В июне');
+  });
+
+  it('вулкан назван после 400-го знака описания — тур, найденный запросом, остаётся (находка 24.10)', () => {
+    const now = new Date('2026-10-24T00:00:00Z');
+    const description = `${'Выезд из города на джипах по грунтовке. '.repeat(12)}К вечеру — подножие Мутновского вулкана.`;
+    // Так строку отдаёт запрос витрины: описание обрезано, текст поиска — целиком.
+    const row: CatalogTour = {
+      ...FIVE, id: 21, slug: 'jeep-weekend', title: 'Джип-тур выходного дня', activity_type: 'jeep',
+      multi_day_count: 1, season_start: '2026-06-01', season_end: '2026-12-31',
+      description: description.slice(0, 400),
+      match_text: `Джип-тур выходного дня  ${description}`,
+    };
+    expect(row.description).not.toMatch(/мутнов/i);
+    const picked = pickToursForAnswer('туры на Мутновский вулкан', { ok: true, tours: [row], complete: true }, now);
+    expect(picked.kind).toBe('list');
+    expect(picked.tours.map((t) => t.slug)).toEqual(['jeep-weekend']);
+    expect(picked.line).not.toContain('нет живого тура');
+    expect(showcaseQuery('туры на Мутновский вулкан').sql).toContain('AS match_text');
+  });
+
+  it('подпись кнопки тура — цена для человека, без указания модели и без обрубка (находка 24.10)', () => {
+    const now = new Date('2026-10-24T00:00:00Z');
+    const raft: CatalogTour = {
+      ...FIVE, id: 41, slug: 'splav-bystraya', title: 'Сплав по Быстрой', base_price: 9000, price_unit: null,
+      multi_day_count: 1, season_start: '2026-06-01', season_end: '2026-12-31',
+    };
+    const label = catalogFacts('подобрать тур', { ok: true, tours: [raft] }, now).inline?.inline_keyboard[0]?.[0]?.text ?? '';
+    expect(label).toMatch(/^Сплав по Быстрой · от 9\s000 ₽, за что — не записано$/u);
+    const longTitle = 'Сплав по реке Быстрая с ночёвкой у костра и рыбалкой на хариуса';
+    const long = catalogFacts('подобрать тур', { ok: true, tours: [{ ...raft, title: longTitle }] }, now)
+      .inline?.inline_keyboard[0]?.[0]?.text ?? '';
+    expect(long.length).toBeLessThanOrEqual(64);
+    expect(long).toMatch(/^Сплав по реке.*… · от 9\s000 ₽, за что — не записано$/u);
+    for (const text of [label, long]) {
+      expect(text).not.toContain('не называй');
+      expect(text).not.toMatch(/не зап…$/);
+    }
+  });
+
   it('каталог не прочитан — цены нет, а не ноль', () => {
     const facts = catalogFacts('покажи туры на 5 дней', { ok: false });
     expect(facts.note).toContain('не прочитан');
     expect(facts.note).not.toMatch(/\d{3,}/);
+  });
+});
+
+describe('вопрос о безопасности и обстановке — без витрины туров (находка 24.10)', () => {
+  const now = new Date('2026-10-24T00:00:00Z');
+  const AVA: CatalogTour = {
+    ...FIVE, id: 51, slug: 'ava', title: 'Восхождение на Авачинский вулкан', activity_type: 'volcano',
+    multi_day_count: 1, location_name: 'Авачинский', season_start: '2026-06-01', season_end: '2026-12-31',
+  };
+  const SAFETY = [
+    'хочу понять, безопасно ли идти в поход при ветре',
+    'хочу узнать, открыт ли перевал',
+    'какие опасности на Авачинском вулкане?',
+    'какие вулканы сейчас извергаются?',
+    'безопасен ли тур на вулкан при сильном ветре?',
+    'какая обстановка на Авачинском, хочу тур',
+    'есть ли штормовое предупреждение МЧС на выходные, хочу в поход',
+  ];
+
+  it.each(SAFETY)('«%s» — ни карточек сайта, ни туров каталога в Telegram', (question) => {
+    expect(isSafetyOrSituationAsk(question)).toBe(true);
+    expect(wantsTourCards(question)).toBe(false);
+    const facts = catalogFacts(question, { ok: true, tours: [AVA] }, now);
+    expect(facts.html).toBe('');
+    expect(facts.note).toBe('');
+    expect(facts.inline).toBeUndefined();
+  });
+
+  it('просьба о туре без вопроса об опасности — карточки на месте; «водопад Опасный» — имя места', () => {
+    for (const question of ['туры на вулканы', 'хочу тур на Авачинский вулкан', 'тур к водопаду Опасный', 'открыта ли запись на тур в июле']) {
+      expect(isSafetyOrSituationAsk(question), question).toBe(false);
+      expect(wantsTourCards(question), question).toBe(true);
+    }
+    expect(catalogFacts('туры на вулканы', { ok: true, tours: [AVA] }, now).html).toContain('/catalog/tours/ava');
+  });
+});
+
+describe('аренда машины — один словарь вида машины (находка 24.10)', () => {
+  const RENTAL = [
+    'хочу арендовать джип',
+    'хочу на прокат джип',
+    'аренда внедорожника',
+    'прокат 4x4',
+    'аренда 4х4 на три дня',
+    'хочу rent a car',
+    'прокат suv',
+    'где автопрокат в Петропавловске, нужен',
+    'аренда авто',
+    'хочу арендовать машину',
+  ];
+
+  it.each(RENTAL)('«%s» — аренда и для паузы проката, и для привязанного чата', (question) => {
+    expect(isCarRentalAsk(question)).toBe(true);
+    expect(wantsTourCards(question)).toBe(false);
+    expect(catalogFacts(question, { ok: true, tours: [FIVE] }).html).toBe('');
+    expect(boundChatLane(question)).toBe('tourist');
+  });
+
+  it('слово целиком: «авторский маршрут» — не машина; тур рядом с арендой — не аренда', () => {
+    expect(isCarRentalAsk('аренда снаряжения на авторский маршрут')).toBe(false);
+    expect(isCarRentalAsk('хочу тур и арендовать джип')).toBe(false);
   });
 });
 
@@ -201,6 +319,22 @@ describe('очередь чата', () => {
     release();
     await Promise.all([first, second]);
     expect(order).toEqual(['start-1', 'end-1', 'end-2']);
+  });
+
+  it('первый ход упал — второй всё равно идёт, после него (находка 24.10)', async () => {
+    const order: string[] = [];
+    const key = `chat-fail-${Date.now()}`;
+    const first = enqueueTelegramChat(key, async () => {
+      order.push('start-1');
+      await Promise.resolve();
+      throw new Error('первый ход упал');
+    });
+    const second = enqueueTelegramChat(key, async () => {
+      order.push('run-2');
+    });
+    await expect(first).rejects.toThrow('первый ход упал');
+    await second;
+    expect(order).toEqual(['start-1', 'run-2']);
   });
 
   it('на сервере вебхук не ждёт модель', () => {
