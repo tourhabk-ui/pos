@@ -103,6 +103,11 @@ describe('бренд в шапке', () => {
     expect(words).toEqual(['Ведар', 'Камчатка']);
     expect((block.children[1] as HTMLElement).className).toMatch(/text-\[11px\]/);
     expect(block.className).toMatch(/md:flex-row/);
+    expect(link.style.overflow).toBe('hidden');
+    expect(block.className).toMatch(/overflow-hidden/);
+    for (const word of block.children) {
+      expect((word as HTMLElement).className).toMatch(/truncate/);
+    }
   });
 
   it('английская и китайская страницы называют бренд на своём языке', () => {

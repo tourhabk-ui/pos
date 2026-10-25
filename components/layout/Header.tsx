@@ -167,6 +167,9 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           gridColumn: 1,
           minWidth: 0,
           maxWidth: '100%',
+          // Дорожка уже ряда кнопок: без обрезки второе слово рисуется поверх
+          // поиска и SOS. Знак не сжимается, слова обрезаются внутри ссылки.
+          overflow: 'hidden',
           // Поверх фото — белый, как иконки: тёмный знак на тёмном небе героя
           // сливался (приёмка П6, 24.09).
           color: onPhoto ? 'rgba(255,255,255,0.9)' : 'var(--on-header)',
@@ -178,11 +181,11 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
             выталкивает SOS. С md — в одну строку. Ниже 360px скрыто, чтобы
             не теснить SOS (решение владельца 30.09). */}
         <span
-          className="hidden min-[360px]:flex flex-col leading-none md:flex-row md:items-baseline md:gap-1"
-          style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontWeight: 600, minWidth: 0 }}
+          className="hidden min-[360px]:flex min-w-0 flex-col overflow-hidden leading-none md:flex-row md:items-baseline md:gap-1"
+          style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontWeight: 600 }}
         >
-          <span style={{ fontSize: 16 }}>{brand.first}</span>
-          <span className="text-[11px] md:text-[16px]" style={{ fontWeight: 500 }}>{brand.second}</span>
+          <span className="truncate" style={{ fontSize: 16 }}>{brand.first}</span>
+          <span className="truncate text-[11px] md:text-[16px]" style={{ fontWeight: 500 }}>{brand.second}</span>
         </span>
       </Link>
 
