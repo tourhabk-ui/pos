@@ -45,17 +45,30 @@ function looksLikePhone(part: string): boolean {
   return true;
 }
 
-function redactPhones(segment: string): string {
+function redactPhones(segment: string, keepTail: boolean): string {
   return segment.replace(PHONE_CANDIDATE, (m) =>
     m
       .split(RANGE_DASH)
-      .map((part, i) => (i % 2 === 0 && looksLikePhone(part) ? '[телефон]' : part))
+      .map((part, i) => {
+        if (i % 2 !== 0 || !looksLikePhone(part)) return part;
+        return keepTail ? `[телефон …${part.replace(/\D/g, '').slice(-4)}]` : '[телефон]';
+      })
       .join(''),
   );
 }
 
+export interface RedactOptions {
+  /**
+   * Оставить четыре последние цифры номера: «[телефон …4567]». Для помощника
+   * кабинета партнёра — инструмент CRM ищет клиента по 4+ цифрам, а без хвоста
+   * «найди клиента +7 914 …» молча не находил бы никого. По четырём цифрам
+   * человека не узнать.
+   */
+  keepPhoneTail?: boolean;
+}
+
 /** Заменяет email и телефоны на нейтральные плейсхолдеры. */
-export function redactPII(text: string | null | undefined): string {
+export function redactPII(text: string | null | undefined, opts: RedactOptions = {}): string {
   if (!text) return '';
   let out = text;
 
@@ -66,7 +79,7 @@ export function redactPII(text: string | null | undefined): string {
   // Числа с точкой внутри — нечётные куски split — остаются как есть.
   out = out
     .split(DOTTED_NUMBER)
-    .map((seg, i) => (i % 2 === 0 ? redactPhones(seg) : seg))
+    .map((seg, i) => (i % 2 === 0 ? redactPhones(seg, opts.keepPhoneTail === true) : seg))
     .join('');
 
   return out;

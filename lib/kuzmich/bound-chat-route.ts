@@ -11,9 +11,26 @@
  *
  * Неузнанное остаётся кабинетом. Шире открывать нельзя: «найди Анну» и
  * «запиши звонок» — не турист, и помощник их не должен терять.
+ *
+ * Беда — Кузьмичу туриста (проверка качества 24.10): «помогите, мы
+ * заблудились» от гида в поле уходило помощнику CRM, у которого нет блока
+ * 112, а администратору отвечало «Не понял команду». Признаки беды —
+ * lib/safety/sos-detector, то же правило, что ставит блок 112. Исключения —
+ * команда кабинета своей формой («описание Hilux: …», «календарь Jimny»,
+ * «покажи брони») и запись в CRM, начатая словом дела, о чужой беде
+ * («запиши: у клиента сломана нога»; «Запишите координаты: мы заблудились» —
+ * своя беда, она к Кузьмичу). Они остаются кабинетом, а блок 112 ставит
+ * отправитель ответа привязанного чата поверх любого ответа (Telegram:
+ * role-telegram, cabinet-telegram; MAX: ветка партнёра в роуте; оба кабинета
+ * администратора).
+ *
+ * После своей беды чат два часа отвечается Кузьмичом туриста
+ * (`boundChatLaneFor`): «стоим у ручья», «нас четверо, один ранен» — ответы
+ * на его вопрос, а не дела кабинета, и у кабинета нет ни 112, ни разговора.
  */
 
 import { isFleetAsk } from '@/lib/kuzmich/operator-rental-fleet';
+import { detectEmergency } from '@/lib/safety/sos-detector';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
 import { calendarAsk } from '@/lib/rental/car-calendar';
 import { isOfferEditAsk } from '@/lib/rental/offer-edit';
@@ -49,12 +66,25 @@ const PLAN = /(?:спланиру\p{L}*|составь(?:те)?\s+план|пл�
 const ASK = word('найд\\p{L}*|подбер\\p{L}*|хочу|хотим|нужен|нужна|нужно|нужны|ищу|ищем|снять|сниму|снимем|возьму|возьмем|покажи|какие|какой|какая|какое|заброниру\\p{L}*');
 const HOW_MUCH = /сколько\s+стоит/u;
 
-function isCabinet(raw: string, t: string): boolean {
+/** Команда кабинета своей формой — её не перебивает и беда в той же фразе. */
+function isCabinetCommand(raw: string, t: string): boolean {
   if (isFleetAsk(raw) || calendarAsk(raw) !== null || isOfferEditAsk(raw) || rentalCabinetAsk(raw) !== null) return true;
   if (isSummaryCommand(raw) || isNextCommand(raw)) return true;
+  return /^(?:покажи|список)\s+брон/u.test(t);
+}
+
+/** Запись в CRM, начатая словом дела, о чужой беде. */
+const CRM_LEAD = /^(?:запиш|заведи|напомни)/u;
+const FIRST_PERSON = word('мы|я|нас|нам|меня|мне');
+function isCrmRecordOfOthers(t: string): boolean {
+  return CRM_LEAD.test(t) && !FIRST_PERSON.test(t);
+}
+
+function isCabinet(raw: string, t: string): boolean {
+  if (isCabinetCommand(raw, t)) return true;
+  if (SHOW_LIST.test(t) && BOOKING_WORD.test(t)) return true;
   if (CRM.test(t) || OWN.test(t)) return true;
   if (WHO.test(t) && /ждет/.test(t)) return true;
-  if (SHOW_LIST.test(t) && BOOKING_WORD.test(t)) return true;
   if (BOOKING_SHORT.test(t) && t.split(' ').length <= 2) return true;
   if (OPEN_DATES.test(t) && DATE_WORD.test(t)) return true;
   return false;
@@ -67,6 +97,8 @@ function isCabinet(raw: string, t: string): boolean {
 export function boundChatLane(text: string): BoundChatLane {
   const t = norm(text);
   if (t.length === 0) return 'partner';
+  if (isCabinetCommand(text, t)) return 'partner';
+  if (detectEmergency(text).detected && !isCrmRecordOfOthers(t)) return 'tourist';
   if (isCabinet(text, t)) return 'partner';
   if (RENTAL_EN.test(t)) return 'tourist';
   // «аренда» без машины — тоже просьба туриста, если это вопрос («хочу
@@ -76,4 +108,44 @@ export function boundChatLane(text: string): BoundChatLane {
   const touristObject = TOUR.test(t) || TRANSFER.test(t) || WITH_DRIVER.test(t) || VEHICLE.test(t);
   if ((ASK.test(t) || HOW_MUCH.test(t)) && touristObject) return 'tourist';
   return 'partner';
+}
+
+/** Сколько чат помнит свою беду. */
+export const BOUND_CHAT_EMERGENCY_MS = 2 * 60 * 60 * 1000;
+const emergencyMarks = new Map<string, number>();
+
+/**
+ * Полоса привязанного чата с памятью о беде. Беда, ушедшая Кузьмичу туриста,
+ * отмечается; два часа после неё всё, кроме команды кабинета своей формой,
+ * тоже идёт Кузьмичу. Администратору (`admin`) беда уходит Кузьмичу при
+ * любых словах: CRM у него нет. Память — в процессе: перезапуск её стирает,
+ * и это названо (ответ кабинета всё равно несёт 112 при новой беде).
+ */
+export function boundChatLaneFor(
+  channel: 'telegram' | 'max',
+  chatId: number,
+  text: string,
+  opts: { admin?: boolean; nowMs?: number } = {},
+): BoundChatLane {
+  const nowMs = opts.nowMs ?? Date.now();
+  const key = `${channel}:${chatId}`;
+  const emergency = detectEmergency(text).detected;
+  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text);
+  if (emergency && lane === 'tourist') {
+    emergencyMarks.set(key, nowMs);
+    return lane;
+  }
+  const markedAt = emergencyMarks.get(key);
+  if (markedAt === undefined) return lane;
+  if (nowMs - markedAt > BOUND_CHAT_EMERGENCY_MS) {
+    emergencyMarks.delete(key);
+    return lane;
+  }
+  if (lane === 'partner' && !isCabinetCommand(text, norm(text))) return 'tourist';
+  return lane;
+}
+
+/** Забыть все отметки беды — для тестов (модуль живёт между ними). */
+export function clearBoundChatEmergencies(): void {
+  emergencyMarks.clear();
 }

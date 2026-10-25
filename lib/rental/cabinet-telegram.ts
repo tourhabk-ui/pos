@@ -8,7 +8,8 @@
  */
 
 import { findPartnerByChat, processPartnerMessage } from '@/lib/kuzmich/operator-chat';
-import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 import {
   parseRentalCabinetPress, rentalCabinetAsk,
   type CabinetButton,
@@ -35,10 +36,12 @@ export async function tryRentalCabinetTelegramMessage(opts: {
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome !== 'found' || !isRentalPilotSlug(lookup.partner.slug)) return false;
-  if (boundChatLane(opts.text) === 'tourist') return false;
+  if (boundChatLaneFor('telegram', opts.chatId, opts.text) === 'tourist') return false;
 
   const partner = lookup.partner;
-  const send = opts.send;
+  // Беда в тексте — блок 112 над любым ответом кабинета (календарь, экраны,
+  // помощник): команда кабинета в той же фразе остаётся здесь.
+  const send: CabinetSend = (text, buttons) => opts.send(withSosBlock(text, opts.text).text, buttons);
   if (opts.text.trim() === '/start') {
     await send(rentalPilotGreeting(partner.partnerName), []);
     return true;

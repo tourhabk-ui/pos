@@ -38,7 +38,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
-import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
 import {
@@ -360,7 +361,10 @@ function hasTourRecommendation(text: string): boolean {
  * без него оба пути после кнопки — присланный номер и бронь в чате — не
  * применяются (lib/max/verified-press), и кнопка обещала бы то, чего не будет.
  */
-function offersBooking(verified: boolean, reply: string): boolean {
+function offersBooking(verified: boolean, reply: string, question: string): boolean {
+  // После блока 112 кнопок брони нет: совет при пропаже группы называет
+  // «маршрут», и «Хотите оформить заявку?» вставало прямо под тревогой.
+  if (detectEmergency(question).detected) return false;
   return verified && reply !== '' && hasTourRecommendation(reply);
 }
 
@@ -392,7 +396,7 @@ async function deliverTouristText(opts: {
     platform: 'max',
     verifiedOrigin: opts?.verifiedOrigin === true,
   });
-  if (offersBooking(verified, capturedReply)) {
+  if (offersBooking(verified, capturedReply, opts.text)) {
     await opts.replyButtons(opts.chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
   }
 }
@@ -848,7 +852,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         // Иначе «хочу забронировать тур» читается как «брони»: в команде
         // администратора подстрока «брон» где угодно. Кабинет («покажи брони»,
         // «даты», «сводка») классификатор оставляет кабинетом.
-        if (!/^\/start\b/i.test(text.trim()) && boundChatLane(text) === 'tourist') {
+        // Беда — Кузьмичу туриста при любых словах: у администратора нет CRM,
+        // и исключение «дело CRM остаётся кабинетом» ему не нужно.
+        if (!/^\/start\b/i.test(text.trim()) && boundChatLaneFor('max', chatId, text, { admin: true }) === 'tourist') {
           await deliverTouristText({
             chatId, text, userName, userId, verifiedOrigin: opts?.verifiedOrigin, reply: maxReply, replyButtons: maxReplyWithButtons,
           });
@@ -999,15 +1005,21 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       const menu = lookup.outcome === 'found' && dialog
         ? (pilot ? rentalCabinetBar() : partnerMenu(lookup.partner))
         : null;
+      // Беда в тексте привязанного чата — блок 112 над любым ответом этой
+      // ветки, какая бы из них ни ответила (даты, календарь, сводка, кабинет):
+      // классификатор отдаёт беду Кузьмичу туриста, но команда кабинета и
+      // дело CRM в той же фразе остаются здесь (проверка качества 24.10).
+      const emergency = detectEmergency(text).detected;
+      const sos = (body: string): string => withSosBlock(body, text).text;
       const say = async (body: string) => {
-        if (menu?.length) await maxReplyWithButtons(chatId, body, toMaxButtons([menu]));
-        else await maxReply(chatId, body);
+        if (menu?.length) await maxReplyWithButtons(chatId, sos(body), toMaxButtons([menu]));
+        else await maxReply(chatId, sos(body));
       };
       if (lookup.outcome !== 'none' && datesIntent === 'dates' && !dialog) {
         console.error(`[max/kuzmich] фраза про даты не из личного диалога (${chatTypeForLog(msg.recipient.chat_type)}) — без предложения`);
       }
       if (lookup.outcome === 'unavailable' && datesIntent === 'dates') {
-        await maxReply(chatId, DATES_TEXT.partnerUnknown);
+        await maxReply(chatId, sos(DATES_TEXT.partnerUnknown));
         return;
       }
       // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
@@ -1018,7 +1030,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // Поток дат всё равно смотрит заверенную просьбу: «спланируй поездку
       // на 5 дней» — не команда открыть даты, но цифра в ней снимает
       // действующую кнопку «Открыть». Иначе старая кнопка пишет даты.
-      if (lookup.outcome === 'found' && boundChatLane(text) === 'tourist' && opts?.verifiedOrigin === true) {
+      // При беде поток дат не смотрит: «турист сломал ногу, закрой субботу»
+      // получал ответ про даты без 112 и без Кузьмича.
+      // Полоса — один раз на сообщение: у неё память о беде этого чата.
+      const lane = lookup.outcome === 'found' ? boundChatLaneFor('max', chatId, text) : null;
+      if (lookup.outcome === 'found' && !emergency && lane === 'tourist' && opts?.verifiedOrigin === true) {
         const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
         const handled = await handleOperatorDatesText({
           chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId, menu), dialog,
@@ -1026,12 +1042,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         });
         if (handled) return;
       }
-      if (lookup.outcome === 'found' && boundChatLane(text) !== 'tourist') {
+      if (lookup.outcome === 'found' && lane !== 'tourist') {
         // Помощник кабинета пишет в CRM партнёра (касания, задачи) — только по
         // заверенному апдейту: чат партнёра в теле прислал бы кто угодно.
         if (opts?.verifiedOrigin !== true) {
           console.error('[max/kuzmich] сообщение в чат партнёра из незаверенного апдейта — помощник не запущен');
-          await maxReply(chatId, UNVERIFIED_CHAT_REPLY.partner);
+          await maxReply(chatId, sos(UNVERIFIED_CHAT_REPLY.partner));
           return;
         }
         // «/сводка» — числа по запросам мест (пилот «Камчатская рыбалка»,
@@ -1055,7 +1071,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
               const rows = menu?.length
                 ? [...card.buttons, ...toMaxButtons([menu])]
                 : card.buttons;
-              await maxReplyWithButtons(chatId, card.text, rows);
+              await maxReplyWithButtons(chatId, sos(card.text), rows);
             }
             return;
           }
@@ -1065,7 +1081,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         // предложение туроператора (пятый ревью 22.10).
         const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
         const handled = await handleOperatorDatesText({
-          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId, menu), dialog,
+          chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner,
+          send: (body, buttons) => datesSend(chatId, menu)(sos(body), buttons), dialog,
           sentAtMs: Number.isFinite(update.timestamp) ? update.timestamp : null,
         });
         if (handled) return;
@@ -1076,7 +1093,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           nowMs: Date.now(),
           dialog,
           canMark: true,
-          send: rentalCalendarSend(chatId, pilot),
+          send: (body, buttons, editMid) => rentalCalendarSend(chatId, pilot)(sos(body), buttons, editMid),
         });
         if (calendar) return;
         const role = menuRoleOf(lookup.partner);
@@ -1101,7 +1118,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
             channel: 'max',
             dialog,
             send: async (body, buttons) => {
-              await maxReplyWithButtons(chatId, body, maxCabinetButtons(buttons));
+              await maxReplyWithButtons(chatId, sos(body), maxCabinetButtons(buttons));
             },
           });
           return;
@@ -1286,7 +1303,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         platform: 'max',
         verifiedOrigin: opts?.verifiedOrigin === true,
       });
-      if (offersBooking(opts?.verifiedOrigin === true, capturedReply)) {
+      if (offersBooking(opts?.verifiedOrigin === true, capturedReply, topicText)) {
         await maxReplyWithButtons(resolvedChatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
       }
       return;
