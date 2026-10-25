@@ -11,6 +11,7 @@ import { RENTAL_SITE_PAUSE, rentalSitePauseActive } from '@/lib/rental/site-paus
 import { loadShowcaseTours } from '@/lib/telegram/tourist-tours';
 import { carrierPagePath, CHARTER_REQUEST_ANCHOR, rateWords } from '@/lib/transfers/charter-format';
 import { loadCharterCarriers, type CharterCarrier } from '@/lib/transfers/charter';
+import { loadActiveWarnings } from '@/lib/safety/active-warnings';
 
 function transferItems(carriers: CharterCarrier[], base: string): TransferItem[] {
   return carriers.map((carrier) => {
@@ -39,7 +40,7 @@ export async function resolveCommercialTurn(
   const base = getPublicBaseUrl();
   const pauseActive = rentalSitePauseActive(now);
   const sources = commercialSources(question);
-  const [tours, transfers, stays] = await Promise.all([
+  const [tours, transfers, stays, warnings] = await Promise.all([
     sources.tours
       ? loadShowcaseTours(question).catch((err: unknown) => {
         const code = (err as { code?: string } | null)?.code;
@@ -60,6 +61,7 @@ export async function resolveCommercialTurn(
     sources.stays
       ? loadStayFacts(sources.stayZones.length > 0 ? sources.stayZones : null)
       : Promise.resolve({ ok: true as const, items: [] }),
+    loadActiveWarnings(),
   ]);
   const composed = composeCommercial({
     question,
@@ -72,6 +74,7 @@ export async function resolveCommercialTurn(
     tours,
     transfers,
     stays,
+    warnings,
   });
   if (!composed) return null;
   return composed;

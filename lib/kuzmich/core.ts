@@ -54,6 +54,7 @@ import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { alertContextLine } from '@/lib/kuzmich/alert-lines';
+import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
 import { pickupForCard } from '@/lib/tours/pickup';
@@ -2538,7 +2539,7 @@ export async function aiChat(opts: {
     : text;
   if (persist) await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [historyResult, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx] = await Promise.all([
+  const [historyResult, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx, mchsBlock] = await Promise.all([
     getHistoryWithCompactionSummary(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
@@ -2548,6 +2549,7 @@ export async function aiChat(opts: {
     getZoneWeatherForText(text),
     loadUserSituation(chatId),
     searchLegislation(text),
+    mchsPromptBlock(),
   ]);
   // Записанный вопрос история уже содержит; незаписанный добавляется здесь
   // же, в памяти: запасной путь ниже берёт вопрос только из истории.
@@ -2575,7 +2577,7 @@ export async function aiChat(opts: {
           answer: turn.visible,
           question: userContent,
           toolRuns: [],
-          context: turn.visible,
+          context: [mchsBlock, turn.visible].filter(Boolean).join('\n\n'),
         });
         if (persist && !isAIErrorResponse(finished.text)) {
           await saveMsg(chatId, mode, 'assistant', finished.text, userId, userName);
@@ -2613,8 +2615,9 @@ export async function aiChat(opts: {
   const dynamic = fitTextToTokenBudget(
     [contextNote || '', placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
   );
-  const systemContent = dynamic
-    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
+  const belowCache = [mchsBlock, dynamic].filter(Boolean).join('\n\n');
+  const systemContent = belowCache
+    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${belowCache}`
     : cacheable;
 
   // Если есть описание фото — прокидываем его первым сообщением
@@ -2704,7 +2707,7 @@ export async function aiChat(opts: {
     answer,
     question: userContent,
     toolRuns: claimRuns,
-    context: [dynamic, tourContext || ''].filter(Boolean).join('\n\n'),
+    context: [mchsBlock, dynamic, tourContext || ''].filter(Boolean).join('\n\n'),
   });
   const finalAnswer = finished.text;
 

@@ -24,6 +24,7 @@ import {
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 import RescueChat from '@/components/safety/RescueChat';
 import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
+import { parseBulletinPeriod } from '@/lib/safety/mchs-bulletin';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -215,6 +216,35 @@ function compactPlaces(places: string[]): string | null {
   return `${uniq.slice(0, 2).join(', ')} и ещё ${uniq.length - 2}`;
 }
 
+type BannerAlert = {
+  severity: number;
+  title?: string | null;
+  location?: string | null;
+  place?: string | null;
+  description?: string | null;
+  /** Когда запись появилась (ISO). Дата баннера, если сводка не назвала период. */
+  at?: string | null;
+};
+
+/** Дата баннера: период из текста сводки, иначе день публикации по Камчатке. */
+function alertWhen(alert: BannerAlert): string | null {
+  const period = parseBulletinPeriod(alert.description ?? '');
+  if (period) return period.label;
+  if (!alert.at) return null;
+  const d = new Date(alert.at);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Asia/Kamchatka', day: '2-digit', month: '2-digit',
+  }).format(d);
+}
+
+function bannerWhen(alerts: BannerAlert[]): string | null {
+  const labels = [...new Set(alerts.map(alertWhen).filter((x): x is string => Boolean(x)))];
+  if (labels.length === 0) return null;
+  if (labels.length <= 2) return labels.join(', ');
+  return `${labels.slice(0, 2).join(', ')} и ещё ${labels.length - 2}`;
+}
+
 export function zoneBanner(
   known: boolean,
   levels: string[],
@@ -241,19 +271,22 @@ export function zoneBanner(
    * места предупреждений — из их заголовков, зоны — из её имени. Без места
    * в заголовке честный запасной вариант — «по предупреждениям ниже».
    */
-  alerts: Array<{ severity: number; title?: string | null; location?: string | null; place?: string | null }> = [],
+  alerts: BannerAlert[] = [],
   /** Имена зон, параллельные `levels` (та же выборка, `zone_name`). */
   zoneNames: string[] = [],
 ): { state: 'unknown' | 'calm' | 'alarm'; level: string | null; scope: string | null } {
   const worstAlert = alerts.reduce((max, a) => Math.max(max, a.severity ?? 0), 0);
   const alertLevel = alerts.length > 0 ? severityToLevel(worstAlert) : null;
-  const alertScope = alertLevel && alertLevel !== 'low'
-    ? compactPlaces(
-        alerts
-          .filter((a) => severityToLevel(a.severity ?? 0) === alertLevel)
-          .map((a) => alertPlace(a))
-          .filter((x): x is string => Boolean(x)),
-      ) ?? 'по предупреждениям ниже'
+  const atWorst = alertLevel && alertLevel !== 'low'
+    ? alerts.filter((a) => severityToLevel(a.severity ?? 0) === alertLevel)
+    : [];
+  const placeScope = atWorst.length > 0
+    ? compactPlaces(atWorst.map((a) => alertPlace(a)).filter((x): x is string => Boolean(x)))
+      ?? 'по предупреждениям ниже'
+    : null;
+  const when = atWorst.length > 0 ? bannerWhen(atWorst) : null;
+  const alertScope = placeScope
+    ? (when ? `${placeScope} · ${when}` : placeScope)
     : null;
 
   // Про зоны не знаем ничего — но про тревоги знаем: молчать нельзя.

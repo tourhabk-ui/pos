@@ -22,6 +22,7 @@ import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmic
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { buildRAGContext } from '@/lib/ai/rag-context';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
@@ -60,10 +61,13 @@ export async function answerAgentMessage(
 ): Promise<AgentAnswer> {
   // RAG тот же, что у веб-чата (роль «турист» — туры и места). Его отказ не
   // отменяет ответ: цикл инструментов добудет данные сам, а отказ виден в логе.
-  const rag = await buildRAGContext(text, 'tourist').catch((err: unknown) => {
-    console.error('[a2a] RAG-контекст не собран:', logText(err instanceof Error ? err.message : err, 200));
-    return '';
-  });
+  const [rag, mchsBlock] = await Promise.all([
+    buildRAGContext(text, 'tourist').catch((err: unknown) => {
+      console.error('[a2a] RAG-контекст не собран:', logText(err instanceof Error ? err.message : err, 200));
+      return '';
+    }),
+    mchsPromptBlock(),
+  ]);
 
   const toolRuns: ToolRun[] = [];
   const provenance: { provider?: string } = {};
@@ -76,7 +80,7 @@ export async function answerAgentMessage(
     // про то, что видел в подсказке (пробы 764–766, журнал общения A2A).
     answer = await aiChatAgentLoop(
       text,
-      KUZMICH_SYSTEM + A2A_AGENT_NOTE + '\n\n' + kamchatkaDateContext() + '\n\n' + rag,
+      [KUZMICH_SYSTEM + A2A_AGENT_NOTE, kamchatkaDateContext(), mchsBlock, rag].filter(Boolean).join('\n\n'),
       history.map((t) => ({ role: t.role, content: t.content })),
       [{ role: 'user', content: text }],
       toolRuns,
@@ -97,7 +101,7 @@ export async function answerAgentMessage(
     answer,
     question: text,
     toolRuns,
-    context: rag,
+    context: [mchsBlock, rag].filter(Boolean).join('\n\n'),
   });
 
   void recordKuzmichAnswer({

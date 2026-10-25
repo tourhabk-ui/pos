@@ -44,6 +44,7 @@ import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
+import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
@@ -226,15 +227,16 @@ export async function POST(request: NextRequest) {
 
     const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
 
-    const [ragContext, agentInsights] = await Promise.all([
+    const [ragContext, agentInsights, mchsBlock] = await Promise.all([
       buildRAGContext(message.trim(), safeRole, geo),
       safeRole === 'tourist' ? buildAgentInsightsForTourist() : Promise.resolve(''),
+      safeRole === 'tourist' ? mchsPromptBlock() : Promise.resolve(''),
     ]);
-    const systemPrompt = basePrompt + geoContext + ragContext + memContext + agentInsights;
+    const systemPrompt = [basePrompt, mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
     // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
     // KUZMICH_SYSTEM (обязательный get_guardian_context) + живые контексты
-    const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+    const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
 
     // Серверная SOS-страховка (как в /api/ai/chat): признаки ЧП известны из
     // вопроса ДО генерации — блок 112/МЧС уходит первыми токенами стрима,
@@ -337,7 +339,7 @@ export async function POST(request: NextRequest) {
           // Ответ модели до сторожей — его оценивает грейдер, как на сайте.
           let modelAnswer = fullAnswer;
           // Данные хода, которыми обосновывается километраж.
-          const turnContext = geoContext + ragContext + memContext + agentInsights;
+          const turnContext = [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
 
           if (fullAnswer) {
             // Один выход ответа (аудит 15.10, 1.14) ДО отправки по словам:
