@@ -12,7 +12,7 @@ import { zoneBanner } from '@/app/safety/_SafetyClient';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import {
   appendOfferingFlags, citeBulletin, notesForOffering, notesForPlanDay,
-  parseBulletinPeriod, warningsFromRows,
+  parseBulletinPeriod, warningDigest, warningsFromRows,
 } from '@/lib/safety/mchs-bulletin';
 import { classifyMchsItems } from '@/lib/services/safety/seismic-parser';
 
@@ -71,6 +71,18 @@ describe('суточная сводка 24–25.10', () => {
   it('не разобранный текст не становится предупреждением о вулкане', () => {
     expect(run('Сегодня на Камчатке спокойная погода и хороший улов.')).toEqual([]);
     expect(run('Рекомендуют не приближаться к исполинам.').filter((e) => e.alert_type === 'volcanic_eruption')).toEqual([]);
+  });
+
+  it('«не рекомендуется посещать» несколько вулканов не схлопывается в первый', () => {
+    const text = `Туристам не рекомендуется посещать вулканы Безымянный, Шивелуч, Ключевской и Крашенинникова.
+Утром 25.10 ощущалось землетрясение силой 2–3 балла. Угрозы цунами нет.
+В Усть-Большерецком округе закрыт проезд для всех видов транспорта на участке автодороги.`;
+    const names = run(text)
+      .filter((e) => e.alert_type === 'volcanic_eruption')
+      .map((e) => e.volcano_name);
+    expect(names).toEqual(expect.arrayContaining(['Безымянный', 'Шивелуч', 'Ключевской', 'Крашенинникова']));
+    expect(names.filter((n) => n === undefined)).toEqual([]);
+    expect(new Set(names).size).toBe(4);
   });
 
   it('пеплопад Шивелуча не подменяется общей строкой «не приближаться»', () => {
@@ -162,6 +174,25 @@ describe('тур и маршрут не называются свободным�
       context: block,
     });
     expect(quiet.text).not.toMatch(/нельзя называть безопасн/);
+  });
+
+  it('именительный округ получает запрет, голое «октябрьский» — нет', () => {
+    const warnings = rows();
+    expect(notesForOffering('Тур в Усть-Большерецк', warnings).join('\n')).toMatch(/Усть-Большерецк/);
+    expect(notesForOffering('Октябрьский праздник в городе', warnings)).toEqual([]);
+    expect(notesForOffering('Дорога на мыс Левашова', warnings).join('\n')).toMatch(/Левашова/);
+  });
+
+  it('сводка внизу ответа не метит туры, которых в списке нет', () => {
+    const warnings = rows();
+    const digest = warningDigest(warnings);
+    expect(digest).toBeTruthy();
+    const listed = appendOfferingFlags(`Восхождение на Шивелуч.\n${digest}`, warnings);
+    expect(listed).toMatch(/к вулкану Шивелуч/);
+    expect(listed).not.toMatch(/к вулкану Ключевской/);
+    expect(listed).not.toMatch(/к вулкану Безымянный/);
+    const other = appendOfferingFlags(`В каталоге есть тур на Авачинский.\n${digest}`, warnings);
+    expect(other).toBe(`В каталоге есть тур на Авачинский.\n${digest}`);
   });
 
   it('флаг не дублируется, если ответ его уже содержит', () => {

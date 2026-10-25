@@ -68,7 +68,16 @@ export function roadBannerTitle(text: string): string | null {
   }
   const district = raw.match(/Усть-Большерецк[а-яё]*|Елизовск[а-яё]*|Мильковск[а-яё]*|Соболевск[а-яё]*|Быстринск[а-яё]*|Усть-Камчатск[а-яё]*/);
   if (!district) return null;
-  return `${district[0]}: ${verb}`;
+  return `${districtLabel(district[0])}: ${verb}`;
+}
+
+const DISTRICT_STEMS = ['усть-большерецк', 'елизовск', 'мильковск', 'соболевск', 'быстринск', 'усть-камчатск'];
+
+/** «Усть-Большерецком» и «Усть-Большерецкий» — то же имя, что «Усть-Большерецк». */
+function districtLabel(word: string): string {
+  const n = word.toLowerCase().replace(/ё/g, 'е');
+  const stem = DISTRICT_STEMS.find((s) => n.startsWith(s));
+  return stem ? word.slice(0, stem.length) : word;
 }
 
 export interface ActiveWarning {
@@ -102,12 +111,22 @@ function stemsOf(place: string): string[] {
   return [...stems];
 }
 
+function roadWordStem(word: string): string | null {
+  if (word.length < 6 || ROAD_STOP.has(word)) return null;
+  const ending = word.match(/(ого|ому|ыми|ими|ом|ем|ой|ый|ий|ая|ое|ые|ых|их|ам|ям)$/);
+  if (ending && word.length - ending[1].length >= 6) return word.slice(0, -ending[1].length);
+  if (word.endsWith('а') && word.length >= 8) return word.slice(0, -1);
+  return word;
+}
+
 function roadStems(place: string): string[] {
   const stems = new Set<string>();
-  for (const word of place.toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9-]+/i)) {
-    if (word.length < 6 || ROAD_STOP.has(word)) continue;
-    const stem = word.endsWith('а') && word.length >= 8 ? word.slice(0, -1) : word;
-    if (stem.length >= 6) stems.add(stem);
+  // Скобка «(п. Октябрьский)» — уточнение участка, не отдельное имя:
+  // голое «октябрьский» есть у месяца и у других посёлков.
+  const withoutParen = place.replace(/\([^)]*\)/g, ' ');
+  for (const word of withoutParen.toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9-]+/i)) {
+    const stem = roadWordStem(word);
+    if (stem && stem.length >= 6) stems.add(stem);
   }
   return [...stems];
 }
@@ -268,14 +287,23 @@ export function warningsFromBlock(text: string): ActiveWarning[] {
 
 const ALL_CLEAR = /(?:^|[^а-яё])(безопасн|без риска|риска нет)/i;
 
+/** Строка сводки называет все предупреждения сразу. Это не упоминание тура. */
+function withoutWarningDigest(answer: string): string {
+  return answer
+    .split('\n')
+    .filter((line) => !/не приближаться к вулканам |проезд ограничен: |Эти места нельзя называть безопасными/.test(line))
+    .join('\n');
+}
+
 /**
  * Дописать к ответу флаги по названным в нём местам.
  * Общее «безопасно» при живых предупреждениях тоже не оставляется без оговорки.
+ * Сводка внизу ответа не считается упоминанием каждого места из неё.
  */
 export function appendOfferingFlags(answer: string, warnings: readonly ActiveWarning[]): string {
   if (!answer.trim() || warnings.length === 0) return answer;
   const notes: string[] = [];
-  for (const note of notesForOffering(answer, warnings)) {
+  for (const note of notesForOffering(withoutWarningDigest(answer), warnings)) {
     if (!answer.includes(note) && !notes.includes(note)) notes.push(note);
   }
   if (ALL_CLEAR.test(answer) && !answer.includes('нельзя называть безопасн') && !notes.some((n) => n.includes('нельзя называть безопасн'))) {

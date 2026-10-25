@@ -1334,7 +1334,7 @@ const VOLCANO_MATCHERS: Array<[RegExp, string[]]> = Object.entries(VOLCANO_ZONES
   return [new RegExp(src, 'i'), z];
 });
 
-const APPROACH_BAN = /не приближ|не подход|воздержаться от|не рекоменду/;
+const APPROACH_BAN = /не приближ|не подход|воздержаться от|не рекоменду/i;
 
 function volcanoLabel(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
@@ -1611,15 +1611,32 @@ export function classifyMchsItems(
   const mentionsVolcano = (ev: SeismicEvent, name: string): boolean => {
     const stem = name.toLowerCase().replace(/ё/g, 'е').slice(0, 6);
     if (stem.length < 5) return false;
-    // Описание общей строки называет сразу несколько гор. Сверяем имя и
-    // заголовок, иначе все вулканы одной фразы схлопнутся в первый.
-    const hay = `${ev.volcano_name ?? ''} ${ev.title}`.toLowerCase().replace(/ё/g, 'е');
-    return hay.includes(stem);
+    const own = (ev.volcano_name ?? '').toLowerCase().replace(/ё/g, 'е');
+    if (own.includes(stem)) return true;
+    // Заголовок фразы на несколько гор — не карточка одного вулкана:
+    // иначе все горы строки схлопнутся в первую.
+    const named = volcanoesNamedIn(ev.title);
+    if (named.length !== 1) return false;
+    const key = named[0].key.toLowerCase().replace(/ё/g, 'е');
+    return key.startsWith(stem) || stem.startsWith(key.slice(0, 6));
   };
   for (const item of items) {
     const raw = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
-    if (raw) absorb(raw, item);
-    for (const ev of approachVolcanoEvents(id, item, pubDate, link, sourcePrefix)) {
+    const approaches = approachVolcanoEvents(id, item, pubDate, link, sourcePrefix);
+    const coarseMulti = Boolean(
+      raw
+      && raw.alert_type === 'volcanic_eruption'
+      && !raw.volcano_name
+      && approaches.length > 1
+      && volcanoesNamedIn(raw.title).length > 1,
+    );
+    if (raw && !coarseMulti) absorb(raw, item);
+    // Разбиение одной фразы на вулканы не укорачивает срок: недельная сводка
+    // Минтура живёт 168 часов, а не 48, как оперативный пост.
+    if (coarseMulti && raw) {
+      for (const ev of approaches) ev.expires_hours = raw.expires_hours;
+    }
+    for (const ev of approaches) {
       const name = ev.volcano_name ?? '';
       const prev = [...byTopic.values()].find((p) => p.alert_type === 'volcanic_eruption' && mentionsVolcano(p, name));
       if (prev) {
