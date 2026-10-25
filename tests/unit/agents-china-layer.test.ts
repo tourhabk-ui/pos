@@ -235,10 +235,10 @@ describe('Kimi и пауки 360 — по первоисточникам (ауд
   it('визит Kimi к robots.txt пишется в счётчик семейством kimi', async () => {
     reqHeaders.ua = KIMI_UA['Kimi-SearchBot'];
     await robots();
-    expect(query).toHaveBeenCalledTimes(1);
-    const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toMatch(/INSERT INTO agent_entry_hits/);
-    expect(params).toEqual(['/robots.txt', 'kimi']);
+    const hit = query.mock.calls.find((c) => String(c[0]).includes('agent_entry_hits'));
+    expect(hit?.[1]).toEqual(['/robots.txt', 'kimi']);
+    const raw = query.mock.calls.find((c) => String(c[0]).includes('ai_crawler_ua'));
+    expect(raw?.[1]).toEqual(['kimi', KIMI_UA['Kimi-SearchBot'], '/robots.txt']);
   });
 
   it('перепись и админ-срез называют Kimi среди семейств КНР с вендором', async () => {
