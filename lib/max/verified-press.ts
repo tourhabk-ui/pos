@@ -75,7 +75,7 @@ export const MAX_LOGIN_TEXT = {
 } as const;
 
 /** Ссылка старта бота, по которой что-то меняется. */
-export type MaxStartAction = 'login' | 'link' | 'admin';
+export type MaxStartAction = 'login' | 'link' | 'admin' | 'code';
 
 /** Действие текстом или вложением в чате. */
 export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
@@ -112,6 +112,10 @@ export function startActionOf(payload: unknown): MaxStartAction | null {
   if (payload.startsWith('login-')) return 'login';
   if (payload.startsWith('adm_')) return 'admin';
   if (payload.startsWith('sr_') || payload.startsWith('op_') || payload.startsWith('om_')) return 'link';
+  // Шесть знаков кабинета туроператора. Форму гасит разборщик и только
+  // по заверенному апдейту; здесь — чтобы незаверенный старт не молчал.
+  const compact = payload.trim().toUpperCase().replace(/\s+/g, '');
+  if (/^[A-HJ-NP-Z2-9]{6}$/.test(compact)) return 'code';
   return null;
 }
 
@@ -151,6 +155,8 @@ export const UNVERIFIED_START_REPLY: Record<MaxStartAction, string> = {
     + 'Напишите администратору платформы.',
   admin: 'Подключение MAX администратора сейчас недоступно: бот не может проверить ссылку, и повтор не поможет. '
     + 'Админка работает на сайте vedarai.ru.',
+  code: 'Подключение по коду через MAX сейчас недоступно: бот не может проверить код, и повтор не поможет. '
+    + 'Получите новый код в кабинете на vedarai.ru.',
 };
 
 /** Ответ на незаверенное действие в чате (только без ключа). */

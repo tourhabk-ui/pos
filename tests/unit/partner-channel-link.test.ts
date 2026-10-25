@@ -123,7 +123,15 @@ describe('запись канала', () => {
   it('Telegram — в колонку доставки И зеркалом в contacts JSONB', async () => {
     poolQueryMock.mockResolvedValue({ rows: [{ name: 'Камчатская рыбалка', previous: null }] });
     const r = await bindPartnerChannel(PID, 'telegram', 12345);
-    expect(r).toEqual({ ok: true, partnerName: 'Камчатская рыбалка', slug: null, previousChatId: null, rebound: false });
+    expect(r).toEqual({
+      ok: true,
+      partnerName: 'Камчатская рыбалка',
+      displayName: 'Камчатская рыбалка',
+      category: null,
+      slug: null,
+      previousChatId: null,
+      rebound: false,
+    });
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toMatch(/SET telegram_chat_id = \$1::bigint/);
     expect(sql).toMatch(/jsonb_build_object\('telegram_chat_id', \$1::text\)/);

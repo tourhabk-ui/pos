@@ -192,14 +192,17 @@ describe('статус Telegram-уведомлений — по реальном
     expect(await tgStatus()).toEqual({ status: 'unknown', source: null });
   });
 
-  it('профиль и справка называют настоящий способ подключения — бота по ссылке /start link_', () => {
+  it('профиль выдаёт короткий код кабинета, а не ссылку человека /start link_', () => {
     const profile = read('app/hub/operator/profile/_ProfileClient.tsx');
-    expect(profile).toContain("fetch('/api/telegram/connect')");
-    expect(profile).toContain('/start link_');
+    expect(profile).toContain("fetch('/api/hub/operator/messenger-code'");
+    expect(profile).not.toContain("fetch('/api/telegram/connect')");
+    expect(profile).not.toContain('/start link_');
     const help = read('app/hub/operator/help/_OperatorHelpClient.tsx');
     expect(help).not.toMatch(/chat_id в контактах/);
-    expect(help).toContain('/start link_');
-    // Сама команда существует в вебхуке бота — справка не выдумывает.
+    expect(help).toContain('/start');
+    expect(help).not.toContain('/start link_');
+    // Привязка аккаунта человека остаётся в вебхуке — кабинет её больше не зовёт.
     expect(read('app/api/telegram/webhook/route.ts')).toMatch(/arg\.startsWith\('link_'\)/);
+    expect(read('app/api/telegram/webhook/route.ts')).toMatch(/normalizeBindCode\(arg\)/);
   });
 });
