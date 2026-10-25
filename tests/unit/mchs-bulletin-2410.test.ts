@@ -73,6 +73,20 @@ describe('суточная сводка 24–25.10', () => {
     expect(run('Рекомендуют не приближаться к исполинам.').filter((e) => e.alert_type === 'volcanic_eruption')).toEqual([]);
   });
 
+  it('шапка «оперативная информация» не прячет список вулканов', () => {
+    const texts = [
+      'Оперативная информация Главного управления МЧС России по Камчатскому краю. Не рекомендуется посещать вулканы Безымянный, Шивелуч, Ключевской и Крашенинникова.',
+      `Оперативная информация Главного управления МЧС России по Камчатскому краю.
+Не рекомендуется посещать вулканы Безымянный, Шивелуч, Ключевской и Крашенинникова.`,
+    ];
+    for (const text of texts) {
+      const volcanoes = run(text).filter((e) => e.alert_type === 'volcanic_eruption');
+      const names = volcanoes.map((e) => e.volcano_name);
+      expect(names, text).toEqual(expect.arrayContaining(['Безымянный', 'Шивелуч', 'Ключевской', 'Крашенинникова']));
+      expect(names.every((name) => Boolean(name)), text).toBe(true);
+    }
+  });
+
   it('короткий пост называет каждый вулкан, а бухта и округ вулканом не становятся', () => {
     const line = 'Не рекомендуется посещать вулканы Безымянный, Шивелуч, Ключевской и Крашенинникова.';
     const names = run(line).filter((e) => e.alert_type === 'volcanic_eruption').map((e) => e.volcano_name);

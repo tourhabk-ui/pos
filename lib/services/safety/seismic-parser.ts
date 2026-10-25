@@ -1555,13 +1555,14 @@ function citeEvents(events: SeismicEvent[], description: string, link: string): 
 }
 
 function coarseMultiVolcano(raw: SeismicEvent | null, approaches: readonly SeismicEvent[]): boolean {
-  return Boolean(
-    raw
-    && raw.alert_type === 'volcanic_eruption'
-    && !raw.volcano_name
-    && approaches.length > 1
-    && volcanoesNamedIn(raw.title).length > 1,
-  );
+  if (!raw || raw.alert_type !== 'volcanic_eruption' || raw.volcano_name) return false;
+  if (approaches.length < 2) return false;
+  // Заголовок — первая фраза. «Оперативная информация…» вулканов не называет,
+  // список стоит во второй фразе того же поста. Одна названная в заголовке
+  // гора — пеплопад, его общей фразой не подменяем.
+  const inTitle = volcanoesNamedIn(raw.title);
+  if (inTitle.length === 1) return false;
+  return volcanoesNamedIn(`${raw.title} ${raw.description}`).length > 1;
 }
 
 /**
