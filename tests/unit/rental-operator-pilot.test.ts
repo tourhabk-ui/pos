@@ -5,7 +5,7 @@
  * Ссылка op_ пишет чат партнёра; обычный «Старт» и ссылка администратора adm_
  * (#2746) привязку прокатчика не создают.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const m = vi.hoisted(() => ({
@@ -48,7 +48,6 @@ import { createPartnerLinkToken } from '@/lib/partners/channel-link';
 const KEY = 'test-webhook-key-23-10';
 const VERIFIED = `http://localhost/api/max/kuzmich?s=${KEY}`;
 const PID = '3f2b8c1a-9d4e-4b7a-8c21-0e5f6a7b8c9d';
-const NOW = Date.UTC(2026, 9, 23, 12, 0);
 
 const started = (payload: string | null) => ({
   update_type: 'bot_started', timestamp: 1, chat_id: 77, payload, user: { user_id: 77, name: 'Акбар' },
@@ -104,6 +103,11 @@ describe('список пилота', () => {
 });
 
 describe('вебхук MAX', () => {
+  // Первый импорт роута MAX тянет весь мозг Кузьмича и один занимал ~4,7 с
+  // при пределе теста 5 с: под нагрузкой первый тест блока падал по времени,
+  // а за ним и соседи. Импорт — заранее, со своим запасом.
+  beforeAll(async () => { await import('@/app/api/max/kuzmich/route'); }, 60_000);
+
   async function post(payload: string | null) {
     const { POST } = await import('@/app/api/max/kuzmich/route');
     await POST(new NextRequest(VERIFIED, { method: 'POST', body: JSON.stringify(started(payload)) }));
@@ -119,7 +123,9 @@ describe('вебхук MAX', () => {
   });
 
   it('ссылка op_ при флаге привязывает и называет прокатчика; без флага — прежний текст оператора', async () => {
-    const t = createPartnerLinkToken(PID, NOW);
+    // Ссылку роут сверяет по настоящим часам (срок 72 ч), поэтому и подписана
+    // она от них: зашитое 23.10 сделало бы CI красным с 26.10 12:00 UTC.
+    const t = createPartnerLinkToken(PID, Date.now());
     if (!t.ok) throw new Error('нет токена');
     m.pool.mockImplementation(async (sql: unknown) => {
       if (/SET max_chat_id/.test(String(sql))) {

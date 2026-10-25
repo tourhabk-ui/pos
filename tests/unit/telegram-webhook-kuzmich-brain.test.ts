@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { RENTAL_SITE_PAUSE } from '@/lib/rental/site-pause';
 
 const m = vi.hoisted(() => ({
   pool: vi.fn(),
@@ -156,7 +157,19 @@ beforeEach(() => {
   m.openTickets.mockResolvedValue([]);
   m.classify.mockReturnValue('unknown');
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+/**
+ * Часы внутри паузы проката (lib/rental/site-pause): тест про то, что просьба
+ * туриста идёт в мозг, и улика этому — фраза о паузе. По настоящим часам она
+ * пропала бы 26.10 в 12:00 UTC, и CI на main покраснел бы (перевод часов,
+ * проверка качества 24.10). Время берётся от самой паузы: продление или новая
+ * пауза тест не ломают.
+ */
+function insideRentalPause(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(Date.parse(RENTAL_SITE_PAUSE.until) - 60 * 60 * 1000));
+}
 
 describe('личка: свободный текст идёт в мозг Кузьмича', () => {
   it('«мы заблудились, телефон …» — телефон до модели не доходит, ответ несёт блок 112', async () => {
@@ -625,6 +638,7 @@ describe('кабинет проката на живом вебхуке', () => {
   });
 
   it('просьба туриста в том же чате идёт в мозг без строки кабинета', async () => {
+    insideRentalPause();
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
     expect(m.tools).not.toHaveBeenCalled();
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
@@ -670,6 +684,7 @@ describe('меню роли на живом вебхуке', () => {
   });
 
   it('«найди мне в аренду автомобиль» — мозг туриста, без меню роли', async () => {
+    insideRentalPause();
     await post('найди мне в аренду автомобиль', { chat: CHAT, from: CHAT });
     expect(m.tools).not.toHaveBeenCalled();
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: unknown; keyboard?: Array<Array<{ text: string }>> } };
