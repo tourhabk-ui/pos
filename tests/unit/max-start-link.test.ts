@@ -172,8 +172,9 @@ describe('команды бота в MAX', () => {
   it.each([
     ['payload bot_started', (code: string) => started(code)],
     ['сообщение /start op_', (code: string) => typed(`/start ${code}`)],
+    ['сообщение /start@бота op_', (code: string) => typed(`/start@id4101147649_bot ${code}`)],
     ['голое сообщение op_', (code: string) => typed(code)],
-  ])('%s подключает MAX: адрес записан, ответ называет подключение, код в ответ и лог не попадает', async (_kind, body) => {
+  ])('%s подключает MAX: адрес записан, ответ называет подключение, приветствия Кузьмича нет, код в ответ и лог не попадает', async (_kind, body) => {
     vi.stubEnv('CONNECT_TOKEN_SECRET', 'test-secret-for-partner-links-16');
     m.pool.mockImplementation(async (sql: string) => (
       String(sql).includes('UPDATE partners')
@@ -189,6 +190,9 @@ describe('команды бота в MAX', () => {
     expect(upd?.[1]).toEqual(['77', PARTNER]);
     const said = replies().join('\n');
     expect(said).toMatch(/Вы подключены как туроператор «Местечко Камчатка»/);
+    // /start в processMessage отвечает приветствием, не вызывая модель:
+    // «инструменты не звали» само по себе приветствие не опровергает.
+    expect(said).not.toMatch(/Я Кузьмич/);
     expect(said).not.toContain(t.token);
     expect(m.tools).not.toHaveBeenCalled();
     expect(errorLog.mock.calls.flat().join(' ')).not.toContain(t.token);
