@@ -34,6 +34,8 @@ import { RENTAL_CALENDAR_TOOL, RENTAL_CALENDAR_TOOL_NAME } from '@/lib/rental/ca
 import { rentalCalendarToolText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { handleRentalOfferEdit } from '@/lib/rental/offer-edit-flow';
+import { redactPII } from '@/lib/security/pii-redact';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 
@@ -348,10 +350,23 @@ export async function processPartnerMessage(opts: {
   reply: (chatId: number, text: string) => Promise<void>;
   nowMs?: number;
 }): Promise<void> {
-  const { chatId, text, fromName, partner, reply } = opts;
+  const { chatId, text, fromName, partner } = opts;
   const nowMs = opts.nowMs ?? Date.now();
+  // Беда в тексте — блок 112 поверх любого ответа кабинета. Кузьмичу туриста
+  // её отдаёт boundChatLane; сюда она доходит, когда в ней есть дело CRM
+  // («запиши: у клиента сломана нога») или вход не спрашивает классификатор.
+  const reply = (id: number, body: string) => opts.reply(id, withSosBlock(body, text).text);
 
-  await saveMsg(chatId, 'operator_tg', 'user', text, null, fromName);
+  // Телефон и почта из текста партнёра (чаще — туриста: «запиши звонок Анне
+  // +7 …») в зарубежную модель не уходят: та же граница, что у Кузьмича
+  // туриста (core, redactUserTurns). В историю пишется очищенное — история
+  // это вход модели на следующем ходу; реплики помощника тоже (ответ на
+  // правку описания повторяет текст прокатчика). Правка цены ниже читает
+  // исходный текст: модели там нет, а число цены очистка не трогает.
+  // Хвост номера (4 цифры) остаётся: по нему инструмент CRM находит клиента.
+  const clean = (body: string) => redactPII(body, { keepPhoneTail: true });
+  await saveMsg(chatId, 'operator_tg', 'user', clean(text), null, fromName);
+  const saveAnswer = (body: string) => saveMsg(chatId, 'operator_tg', 'assistant', clean(body), null, null);
 
   // Цена и описание — черновик на модерацию, без модели: число из фразы
   // прокатчика, на сайт не попадает, пока его не одобрят.
@@ -361,7 +376,7 @@ export async function processPartnerMessage(opts: {
     text,
   });
   if (edited !== null) {
-    await saveMsg(chatId, 'operator_tg', 'assistant', edited, null, null);
+    await saveAnswer(edited);
     await reply(chatId, edited);
     return;
   }
@@ -370,16 +385,19 @@ export async function processPartnerMessage(opts: {
   // выдумывала цену, когда инструмента не было.
   if (isRentalPilotSlug(partner.slug) && isFleetAsk(text)) {
     const fleet = await runOperatorRentalFleet(partner.partnerId, partner.partnerName, partner.slug ?? null, {}, nowMs);
-    await saveMsg(chatId, 'operator_tg', 'assistant', fleet, null, null);
+    await saveAnswer(fleet);
     await reply(chatId, fleet);
     return;
   }
 
-  const [history, bizContext] = await Promise.all([
+  const [storedHistory, bizContext] = await Promise.all([
     getHistory(chatId, 'operator_tg'),
     partner.category === 'operator' ? buildOperatorContext(partner.partnerId) : Promise.resolve(''),
   ]);
   const withContext = (system: string) => (bizContext ? `${system}\n\n${bizContext}` : system);
+  // Строки, записанные до очистки (до 25.10), чистятся на входе модели —
+  // все роли: в старой реплике помощника мог остаться номер из описания.
+  const history = storedHistory.map((m) => ({ ...m, content: clean(m.content) }));
 
   let answer = '';
   const writes: string[] = [];
@@ -434,6 +452,6 @@ export async function processPartnerMessage(opts: {
     answer = 'Не могу ответить прямо сейчас. Попробуй ещё раз.';
   }
 
-  await saveMsg(chatId, 'operator_tg', 'assistant', answer, null, null);
+  await saveAnswer(answer);
   await reply(chatId, answer);
 }

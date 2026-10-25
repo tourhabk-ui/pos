@@ -1198,11 +1198,19 @@ export function isBookingTrigger(text: string): boolean {
   return BOOKING_TRIGGERS.some(tr => t.includes(tr));
 }
 
-const YES = ['да', 'yes', 'верно', 'подтверждаю', 'всё верно', 'ок', 'ok', 'го', 'давай', 'подтвердить'];
+const YES = ['да', 'yes', 'верно', 'подтверждаю', 'всё верно', 'ок', 'окей', 'ok', 'го', 'давай', 'подтвердить'];
 const NO = ['нет', 'no', 'не верно', 'отмена', 'cancel', 'стоп', 'stop', 'отменить', 'назад'];
 
-export function isYes(t: string) { return YES.some(y => t.toLowerCase().includes(y)); }
-export function isNo(t: string)  { return NO.some(n => t.toLowerCase().includes(n)); }
+// Слово целиком, не подстрока (проверка качества 24.10): на шаге «Всё верно?»
+// «У нас беда», «вода прибывает», «когда нас найдут?» несли в себе «да» и
+// отправляли заявку оператору вместе с ПД; «интернет» нёс «нет».
+const wholeWord = (words: readonly string[]) =>
+  new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.join('|')})(?![\\p{L}\\p{N}])`, 'u');
+const YES_RE = wholeWord(YES);
+const NO_RE = wholeWord(NO);
+
+export function isYes(t: string) { return YES_RE.test(t.toLowerCase()); }
+export function isNo(t: string)  { return NO_RE.test(t.toLowerCase()); }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -1657,12 +1665,22 @@ export async function loadBookingFlow(
     if (rows[0]?.state) {
       const b = rows[0].state;
       b.started_at = b.started_at ?? Date.now(); // backward compat
+      // Черновик снят, а строку база не удалила — не воскрешать его: после
+      // беды следующее «да, ждём у ручья» иначе отправило бы заявку.
+      const removedAt = removedFlows.get(flowKey(chatId, mode));
+      if (removedAt !== undefined && b.started_at <= removedAt) return null;
       pending.set(chatId, b); // восстанавливаем в памяти
       return b;
     }
-  } catch { /* таблица ещё не создана — не критично */ }
+  } catch (err) {
+    console.error('[kuzmich] черновик брони не прочитан:', `mode=${mode}`, pgCode(err));
+  }
   return null;
 }
+
+/** Снятые черновики, чью строку база не удалила: ключ — режим и чат. */
+const removedFlows = new Map<string, number>();
+const flowKey = (chatId: number, mode: string) => `${mode}:${chatId}`;
 
 export async function saveBookingFlow(
   chatId: number,
@@ -1671,6 +1689,7 @@ export async function saveBookingFlow(
   pending: Map<number, PendingBooking>,
 ): Promise<void> {
   pending.set(chatId, booking); // in-memory
+  removedFlows.delete(flowKey(chatId, mode));
   try {
     await pool.query(
       `INSERT INTO tg_booking_flow (chat_id, mode, state, updated_at)
@@ -1679,7 +1698,9 @@ export async function saveBookingFlow(
          SET state = $3::jsonb, updated_at = NOW()`,
       [chatId, mode, JSON.stringify(booking)],
     );
-  } catch { /* не критично */ }
+  } catch (err) {
+    console.error('[kuzmich] черновик брони не записан:', `mode=${mode}`, pgCode(err));
+  }
 }
 
 export async function deleteBookingFlow(
@@ -1693,7 +1714,12 @@ export async function deleteBookingFlow(
       `DELETE FROM tg_booking_flow WHERE chat_id = $1 AND mode = $2`,
       [chatId, mode],
     );
-  } catch { /* не критично */ }
+    removedFlows.delete(flowKey(chatId, mode));
+  } catch (err) {
+    // Строка осталась — помним, что черновик снят, до новой брони этого чата.
+    removedFlows.set(flowKey(chatId, mode), Date.now());
+    console.error('[kuzmich] черновик брони не удалён:', `mode=${mode}`, pgCode(err));
+  }
 }
 
 // ── Booking Step Handler ──────────────────────────────────────────────────────
@@ -2921,19 +2947,29 @@ export async function processMessage(opts: {
     }
   }
 
-  // Active booking flow — проверяем память И базу данных
-  const activeBooking = !isMediaMessage ? await loadBookingFlow(chatId, mode, pendingMap) : null;
+  // Active booking flow — проверяем память И базу данных. Голосовое или фото
+  // с бедой тоже снимает черновик: иначе следующее «да, связь есть» на шаге
+  // подтверждения отправило бы заявку оператору.
+  const emergencyNow = detectEmergency(text).detected;
+  const activeBooking = !isMediaMessage || emergencyNow ? await loadBookingFlow(chatId, mode, pendingMap) : null;
   const liveBooking = activeBooking !== null && activeBooking.started_at >= Date.now() - BOOKING_FLOW_TTL_MS;
   // Бронь из незаверенного апдейта MAX не начинается и не продвигается: шаг
   // «да» создал бы бронь оператору и разослал бы ПД. Человек слышит, где
   // оформить заявку, а не тишину (§4.0). Брошенная бронь (старше срока) —
   // не повод отказывать: она не продолжается и для заверенного, вопрос идёт
   // Кузьмичу. Удалить её незаверенный апдейт не может — записи от него нет.
-  if (maxUnverified && (liveBooking || isBookingTrigger(text))) {
+  // Беда перебивает заявку (проверка качества 24.10): шаг брони отвечал на
+  // «помогите, мы заблудились» «Укажите имя и фамилию», а «…связи нет»
+  // читал как «нет» и отменял заявку — без единого слова о 112. Черновик
+  // снимается (заверенный апдейт может), ответ — Кузьмичу с блоком 112.
+  if (emergencyNow && activeBooking && !maxUnverified) {
+    await deleteBookingFlow(chatId, mode, pendingMap);
+  }
+  if (!emergencyNow && maxUnverified && (liveBooking || isBookingTrigger(text))) {
     await replyFn(chatId, UNVERIFIED_CHAT_REPLY.booking);
     return;
   }
-  if (activeBooking && !maxUnverified) {
+  if (!emergencyNow && activeBooking && !maxUnverified) {
     // Auto-expire: если booking flow старше 30 минут — удаляем
     if (!liveBooking) {
       await deleteBookingFlow(chatId, mode, pendingMap);
@@ -2945,7 +2981,7 @@ export async function processMessage(opts: {
   }
 
   // Booking trigger
-  if (isBookingTrigger(text)) {
+  if (!emergencyNow && isBookingTrigger(text)) {
     const history = await getHistory(chatId, mode);
     await startBooking(chatId, text, mode, history, pendingMap, replyFn);
     return;

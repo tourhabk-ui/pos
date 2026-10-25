@@ -15,7 +15,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
-import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { parseRentalCabinetPress, rentalCabinetAsk, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
@@ -717,11 +718,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const partner = lookup?.outcome === 'found' ? lookup.partner : null;
     // Та же развилка, что в MAX: просьба туриста (аренда, тур, трансфер,
     // план поездки) идёт Кузьмичу туриста, кабинет — помощнику партнёра.
-    if (partner && msg.text && boundChatLane(msg.text) !== 'tourist') {
+    if (partner && msg.text && boundChatLaneFor('telegram', chatId, msg.text) !== 'tourist') {
       const text = msg.text.trim();
       const pilot = isRentalPilotSlug(partner.slug);
       const menu = partnerMenu(partner);
-      const say = async (body: string, buttons: CabinetButton[][] = []) => {
+      // Беда в тексте — блок 112 над любым ответом кабинета, как на живом входе.
+      const say = async (raw: string, buttons: CabinetButton[][] = []) => {
+        const body = withSosBlock(raw, text).text;
         if (pilot) await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
         else if (menu) await tgReply(chatId, body, { reply_markup: menuMarkup(menu, buttons) });
         else await tgReply(chatId, body);

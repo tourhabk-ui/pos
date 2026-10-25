@@ -15,7 +15,8 @@
  */
 
 import { escapeHtml } from '@/lib/text/escape-html';
-import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 import { adminMenu, adminMenuHelp } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import type { MenuButton } from '@/lib/roles/chat-menu';
@@ -32,8 +33,10 @@ export const TELEGRAM_ADMIN_UNCHECKED =
   'Роль администратора не проверена: база не ответила. Кнопку не выполняю.';
 export const TELEGRAM_ADMIN_DENY =
   'Эта кнопка — кабинет администратора. В этом чате её не выполняю.';
+// Голос и фото здесь не разбираются, а в них может быть беда: строка 112 —
+// в самом отказе.
 const TEXT_ONLY =
-  'Как администратор принимаю в Telegram только текст: фото, голос и номера здесь не обрабатываю.';
+  'Как администратор принимаю в Telegram только текст: фото, голос и номера здесь не обрабатываю. В беде — звоните 112.';
 
 type Reply = (text: string, buttons?: MenuButton[][]) => Promise<void>;
 
@@ -137,8 +140,19 @@ export async function handleTelegramAdminTurn(opts: {
     await opts.reply(TEXT_ONLY);
     return 'handled';
   }
-  if (!/^\/start\b/i.test(text.trim()) && boundChatLane(text) === 'tourist') return 'tourist';
-  await answerTelegramAdmin({ name: admin.name, text, reply: opts.reply, nowMs: opts.nowMs });
+  // Беда — Кузьмичу туриста при любых словах: у администратора нет CRM, и
+  // исключение «дело CRM остаётся кабинетом» ему не нужно. Обёртка ниже —
+  // страховка на случай, если беду узнает не классификатор, а блок 112.
+  if (!/^\/start\b/i.test(text.trim())
+    && boundChatLaneFor('telegram', opts.fromId, text, { admin: true, nowMs: opts.nowMs }) === 'tourist') {
+    return 'tourist';
+  }
+  await answerTelegramAdmin({
+    name: admin.name,
+    text,
+    reply: (body, buttons) => opts.reply(withSosBlock(body, text).text, buttons),
+    nowMs: opts.nowMs,
+  });
   return 'handled';
 }
 
