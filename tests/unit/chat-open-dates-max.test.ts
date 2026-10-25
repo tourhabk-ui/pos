@@ -56,6 +56,8 @@ vi.mock('@/lib/db-pool', () => ({
   },
 }));
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   processMessage: m.processMessage, cleanupPending: vi.fn(), saveMsg: m.saveMsg, getHistory: vi.fn(async () => []),
 }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({

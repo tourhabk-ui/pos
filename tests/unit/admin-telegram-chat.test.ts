@@ -54,6 +54,8 @@ vi.mock('@/lib/telegram/bot-username', () => ({
 vi.mock('@/lib/telegram/group-monitor', () => ({ groupMonitor: { processMessage: vi.fn() } }));
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: (...a: unknown[]) => m.pd(...a) }));
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   KUZMICH_SYSTEM: '',
   aiChat: (...a: unknown[]) => m.aiChat(...a),
   getHistory: vi.fn(),

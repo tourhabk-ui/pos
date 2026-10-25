@@ -58,6 +58,8 @@ vi.mock('@/lib/seat-requests/service', () => ({
   bindTouristChat: vi.fn(), answerSeatRequest: vi.fn(), requestBelongsToMaxChat: vi.fn(),
 }));
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   KUZMICH_SYSTEM: '', buildTourContext: vi.fn(), searchPlaceKnowledge: vi.fn(),
   processMessage: m.processMessage, cleanupPending: vi.fn(), isBookingTrigger: () => false,
 }));

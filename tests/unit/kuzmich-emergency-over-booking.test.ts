@@ -223,7 +223,6 @@ describe('без беды шаги брони — как раньше (стор�
 
 describe('шаг подтверждения: «да» — целым словом, снятый черновик не воскресает', () => {
   it.each([
-    'У нас беда',
     'Мы у реки, вода прибывает',
     'Когда нас найдут?',
   ])('«%s» на «Всё верно?» — заявка оператору не уходит', async (text) => {
@@ -234,6 +233,19 @@ describe('шаг подтверждения: «да» — целым слово�
     expect(said()).not.toContain('Заявка отправлена');
     // Не «да» — шаг переспрашивает, а не отправляет.
     expect(said()).toContain('Напишите <b>Да</b> для подтверждения');
+  });
+
+  // «да» внутри «беда» — не согласие; с 25.10 фраза ещё и беда: черновик
+  // снят, ответ с 112, заявки нет.
+  it('«У нас беда» на «Всё верно?» — блок 112, черновик снят, заявка оператору не уходит', async () => {
+    const pending = new Map([[CHAT, confirmStep()]]);
+    await processMessage({ ...base, chatId: CHAT, mode: 'max', createdVia: 'max', text: 'У нас беда', pending, platform: 'max', verifiedOrigin: true });
+    await settle();
+    expect(bookingCreated()).toBe(false);
+    expect(said()).not.toContain('Заявка отправлена');
+    expect(said()).toContain(SOS_LINE);
+    expect(pending.has(CHAT)).toBe(false);
+    expect(draftDeleted()).toBe(true);
   });
 
   it('«Да, всё верно» по-прежнему подтверждает', async () => {

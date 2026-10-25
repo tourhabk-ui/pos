@@ -76,6 +76,8 @@ vi.mock('@/lib/max/max-fetch', () => ({
 }));
 // Мозг Кузьмича сюда не доходит: фразы про даты ведёт поток дат.
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   processMessage: vi.fn(async () => undefined),
   cleanupPending: vi.fn(),
   saveMsg: vi.fn(async () => undefined),

@@ -38,6 +38,8 @@ vi.mock('@/lib/ai/providers', () => ({
 }));
 vi.mock('@/lib/ai/rag-context', () => ({ buildRAGContext: vi.fn().mockResolvedValue('') }));
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   processMessage: (...a: unknown[]) => m.processMessage(...a),
   cleanupPending: vi.fn(),
   saveMsg: vi.fn(async () => undefined),

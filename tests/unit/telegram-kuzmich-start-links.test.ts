@@ -28,6 +28,8 @@ const m = vi.hoisted(() => ({
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: m.query } }));
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   cleanupPending: vi.fn(), processMessage: m.processMessage, isBookingTrigger: () => false,
   KUZMICH_SYSTEM: '', buildTourContext: vi.fn(),
 }));
