@@ -49,7 +49,7 @@ vi.mock('@/lib/agents/managed/kuzmich-outcomes', async (orig) => ({
 
 import { KUZMICH_MAX_URL, KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { startActionOf } from '@/lib/max/verified-press';
-import { partnerTokenFromStart } from '@/lib/partners/channel-link';
+import { createPartnerLinkToken, partnerTokenFromStart, PARTNER_LINK_PREFIX } from '@/lib/partners/channel-link';
 import { memberTokenFromStart } from '@/lib/operators/member-channel';
 import { statusTokenFromStart } from '@/lib/seat-requests/core';
 import { MAX_BOT_COMMANDS, syncMaxBotCommands } from '@/lib/max/bot-commands';
@@ -156,6 +156,42 @@ describe('команды бота в MAX', () => {
     const out = await syncMaxBotCommands('secret-token-value');
     expect(out).toEqual({ state: 'failed', reason: 'ETIMEDOUT: connect ETIMEDOUT' });
     expect(JSON.stringify(out)).not.toContain('secret-token-value');
+  });
+
+  const PARTNER = '0f2a7f0e-3f5d-4c1a-9b0e-7d4b2a1c5e6f';
+  const typed = (text: string) => ({
+    update_type: 'message_created',
+    timestamp: 1,
+    message: {
+      sender: { user_id: 77, name: 'Павел' },
+      recipient: { chat_id: 77, chat_type: 'dialog' },
+      body: { mid: 'm', seq: 1, text, attachments: [] as unknown[] },
+    },
+  });
+
+  it.each([
+    ['payload bot_started', (code: string) => started(code)],
+    ['сообщение /start op_', (code: string) => typed(`/start ${code}`)],
+    ['голое сообщение op_', (code: string) => typed(code)],
+  ])('%s подключает MAX: адрес записан, ответ называет подключение, код в ответ и лог не попадает', async (_kind, body) => {
+    vi.stubEnv('CONNECT_TOKEN_SECRET', 'test-secret-for-partner-links-16');
+    m.pool.mockImplementation(async (sql: string) => (
+      String(sql).includes('UPDATE partners')
+        ? { rows: [{ name: 'Местечко Камчатка', display_name: 'Местечко Камчатка', category: 'operator', slug: 'mestecko', previous: null }] }
+        : { rows: [] }
+    ));
+    const t = createPartnerLinkToken(PARTNER);
+    if (!t.ok) throw new Error(t.reason);
+    const code = `${PARTNER_LINK_PREFIX}${t.token}`;
+    const { POST } = await import('@/app/api/max/kuzmich/route');
+    await POST(new NextRequest(VERIFIED, { method: 'POST', body: JSON.stringify(body(code)) }));
+    const upd = m.pool.mock.calls.find((c) => /UPDATE partners/.test(String(c[0])) && /max_chat_id/.test(String(c[0])));
+    expect(upd?.[1]).toEqual(['77', PARTNER]);
+    const said = replies().join('\n');
+    expect(said).toMatch(/Вы подключены как туроператор «Местечко Камчатка»/);
+    expect(said).not.toContain(t.token);
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(errorLog.mock.calls.flat().join(' ')).not.toContain(t.token);
   });
 
   it.each(MAX_BOT_COMMANDS.map((c) => c.name))('команда /%s из списка — бот её понимает: ответ без модели', async (name) => {

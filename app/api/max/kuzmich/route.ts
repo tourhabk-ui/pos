@@ -56,6 +56,7 @@ import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } f
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { bindPartnerChannel, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
+import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { ADMIN_MAX_TEXT, findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
@@ -880,6 +881,27 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     const attachments = msg.body.attachments ?? [];
     const userName = msg.sender?.name ?? null;
     const userId = msg.sender?.user_id ?? null;
+
+    // Код привязки оператора, набранный в чате. web.max.ru не кладёт ?start=
+    // в payload bot_started, и «/start op_…» или голое «op_…» иначе уходили
+    // в приветствие Кузьмича. Та же цепочка, что у payload: подпись и запись
+    // в handlePartnerStart, и только из заверенного апдейта. Вложение с
+    // подписью-кодом сюда не берём — это фото или контакт, не команда.
+    const linkArg = msg.recipient.chat_type === 'dialog' && attachments.length === 0
+      ? partnerLinkArgFromText(text)
+      : null;
+    if (linkArg !== null) {
+      if (opts?.verifiedOrigin === true) {
+        if (await handlePartnerStart(linkArg, 'max', chatId, async (replyText, buttons) => {
+          if (buttons?.length) await maxReplyWithButtons(chatId, replyText, toMaxButtons(buttons.map((row) => [...row])));
+          else await maxReply(chatId, replyText);
+        })) return;
+      } else {
+        console.error('[max/kuzmich] код привязки оператора из незаверенного апдейта — не применён');
+        await maxReply(chatId, UNVERIFIED_START_REPLY.link);
+        return;
+      }
+    }
 
     // ── АДМИНИСТРАТОР (слово владельца 23.10) ─────────────────────────────
     // Раньше всех веток: вложения ниже создали бы лид из номера

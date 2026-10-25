@@ -31,10 +31,14 @@ vi.mock('@/lib/operators/member-channel', () => ({ handleMemberStart: m.memberSt
 vi.mock('@/lib/partners/bind-channel', () => ({
   handlePartnerStart: m.partnerStart, bindPartnerChannel: vi.fn(), bindReplyText: vi.fn(() => ''), badLinkReplyText: vi.fn(() => ''),
 }));
-vi.mock('@/lib/partners/channel-link', () => ({
-  partnerTokenFromStart: (a: string) => (a.startsWith('op_') ? a.slice(3) : null),
-  verifyPartnerLinkToken: vi.fn(() => ({ ok: false, reason: 'bad_signature' })),
-}));
+vi.mock('@/lib/partners/channel-link', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/partners/channel-link')>();
+  return {
+    partnerTokenFromStart: (a: string) => (a.startsWith('op_') ? a.slice(3) : null),
+    verifyPartnerLinkToken: vi.fn(() => ({ ok: false, reason: 'bad_signature' })),
+    partnerLinkArgFromText: real.partnerLinkArgFromText,
+  };
+});
 vi.mock('@/lib/seat-requests/core', () => ({
   statusTokenFromStart: () => null, parseAnswerPayload: () => null, operatorReplyText: () => '',
 }));
@@ -117,6 +121,11 @@ describe('Telegram: /start om_', () => {
 
   it('ссылка кабинета op_ в привязку менеджера не попадает', async () => {
     await telegram.POST(tgUpdate('/start op_tok'));
+    expect(m.memberStart).not.toHaveBeenCalled();
+  });
+
+  it('голое сообщение op_ тоже не уходит менеджеру', async () => {
+    await telegram.POST(tgUpdate('op_tok'));
     expect(m.memberStart).not.toHaveBeenCalled();
   });
 

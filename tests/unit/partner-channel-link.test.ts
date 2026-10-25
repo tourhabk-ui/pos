@@ -26,7 +26,7 @@ vi.mock('@/lib/notifications/max-channel', () => ({
 
 import {
   createPartnerLinkToken, verifyPartnerLinkToken, buildPartnerChannelLinks,
-  partnerTokenFromStart, PARTNER_LINK_PREFIX, PARTNER_LINK_TTL_MS,
+  partnerTokenFromStart, partnerLinkArgFromText, PARTNER_LINK_PREFIX, PARTNER_LINK_TTL_MS,
 } from '@/lib/partners/channel-link';
 import { generateConnectToken } from '@/lib/telegram/connect-token';
 import { bindPartnerChannel, bindReplyText } from '@/lib/partners/bind-channel';
@@ -267,6 +267,18 @@ describe('обработчики ботов', () => {
     expect(reply).not.toHaveBeenCalled();
     expect(adminTokenFromStart(adm)).toBe('a'.repeat(32));
     expect(partnerTokenFromStart(adm)).toBeNull();
+  });
+
+  it('сообщение целиком: /start op_, /start@бот и голое op_ — код; чужое и фраза — нет', () => {
+    const code = `${PARTNER_LINK_PREFIX}${'A'.repeat(43)}`;
+    expect(partnerLinkArgFromText(`/start ${code}`)).toBe(code);
+    expect(partnerLinkArgFromText(`/start@kuzmichai_bot ${code}`)).toBe(code);
+    expect(partnerLinkArgFromText(`  ${code}  `)).toBe(code);
+    expect(partnerLinkArgFromText('/start om_tok')).toBeNull();
+    expect(partnerLinkArgFromText(`/start sr_${'a'.repeat(32)}`)).toBeNull();
+    expect(partnerLinkArgFromText(`отправьте ${code} боту`)).toBeNull();
+    expect(partnerLinkArgFromText('/start')).toBeNull();
+    expect(partnerLinkArgFromText(PARTNER_LINK_PREFIX)).toBeNull();
   });
 
   it('handlePartnerStart: не наша ссылка — false; плохая — причина человеку; хорошая — запись', async () => {
