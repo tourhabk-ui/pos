@@ -34,7 +34,7 @@ export function recordAgentEntryHit(path: AgentEntryPath, userAgent: string | nu
   // обходчик, его визит считает page_views. Без этой отсечки перепись
   // краулеров стала бы вторым счётчиком посещаемости.
   if (family === 'browser' && AGENT_ENTRY_HTML_PATHS.has(path)) return;
-  recordAiCrawlerUa(path, userAgent);
+  recordAiCrawlerUa(path, userAgent, pool);
   void pool
     .query(
       `INSERT INTO agent_entry_hits (day, path, family, hits)

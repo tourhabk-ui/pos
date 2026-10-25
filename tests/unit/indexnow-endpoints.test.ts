@@ -11,7 +11,7 @@ vi.mock('@/lib/analytics/agent-entry-hits', () => ({ recordAgentEntryHit: vi.fn(
 
 import { INDEXNOW_KEY, indexNowBatches, indexNowKeyLocation, pingIndexNow } from '@/lib/seo/indexnow';
 import robots from '@/app/robots';
-import { aiCrawlerUaFamily } from '@/lib/analytics/ai-crawler-ua';
+import { aiCrawlerUaFamily } from '@/lib/analytics/ai-crawler-families';
 
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru').replace(/\/$/, '');
 
@@ -104,6 +104,15 @@ describe('сырой User-Agent краулера', () => {
     expect(aiCrawlerUaFamily('Mozilla/5.0 (compatible; bingbot/2.0)')).toBe('bing');
     expect(aiCrawlerUaFamily('Mozilla/5.0 Chrome/120.0.0.0')).toBeNull();
     expect(aiCrawlerUaFamily('')).toBeNull();
+  });
+
+  it('список семейств не импортирует базу, запись пула — не статическим import', () => {
+    const list = readFileSync('lib/analytics/ai-crawler-families.ts', 'utf8');
+    expect(list).not.toMatch(/db-pool|lib\/database|\bpg\b/);
+    const writer = readFileSync('lib/analytics/ai-crawler-ua.ts', 'utf8');
+    expect(writer).not.toMatch(/from\s+['"]@\/lib\/db-pool['"]/);
+    expect(writer).not.toMatch(/from\s+['"]@\/lib\/database['"]/);
+    expect(writer).toContain("require('../db-pool')");
   });
 });
 

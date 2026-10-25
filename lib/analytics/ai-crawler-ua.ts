@@ -1,39 +1,48 @@
 /**
- * Сырой User-Agent краулера, которого владелец просил видеть (24.10).
+ * Запись сырого User-Agent краулера (владелец 24.10).
  *
  * page_views хранит только семейство: сырой UA человека туда не пишется
  * (152-ФЗ). Здесь — наоборот узко: строка попадает в журнал, только если
- * бот сам назвался ИИ-краулером из реестра либо YandexBot / Bingbot.
- * Человек, пустой UA и прочие боты не пишутся. IP нет.
+ * `aiCrawlerUaFamily` узнал ИИ-краулера, YandexBot или Bingbot.
  *
  * Счётчик — сутки × семейство × строка. Витрина смотрит 7 дней; старше
  * восьми суток строка удаляется тем же запросом.
+ *
+ * Пул не импортируется статически. Корень layout оценивается на сборке
+ * из-за metadata, и `import { pool }` отсюда тянул бы базу в граф каждой
+ * страницы без запросного API (tests/unit/no-build-time-db.test.ts).
+ * Соединение открывается в момент записи: layout уже на запросе (`headers()`).
  */
 
-import { pool } from '@/lib/db-pool';
-import { botFamily, isAiFamily } from '@/lib/analytics/bot-detect';
+import { aiCrawlerUaFamily } from '@/lib/analytics/ai-crawler-families';
 import { logText } from '@/lib/log/log-text';
+
+export { aiCrawlerUaFamily } from '@/lib/analytics/ai-crawler-families';
 
 const UA_MAX = 300;
 
-/** Семейство, если эту строку надо сохранить, иначе null. */
-export function aiCrawlerUaFamily(userAgent: string | null | undefined): string | null {
-  if (!userAgent || !userAgent.trim()) return null;
-  const family = botFamily(userAgent);
-  if (isAiFamily(family)) return family;
-  const ua = userAgent.toLowerCase();
-  if (ua.includes('yandexbot')) return 'yandex';
-  if (ua.includes('bingbot')) return 'bing';
-  return null;
+interface CrawlerPool {
+  query: (sql: string, params: unknown[]) => Promise<unknown>;
 }
 
-export function recordAiCrawlerUa(path: string | null | undefined, userAgent: string | null | undefined): void {
+function crawlerPool(): CrawlerPool {
+  // Относительный путь: алиас `@/` в require резолвит сборка Next, а не vitest.
+  // Статический import здесь нельзя — его увидит граф сборки страниц.
+  const loaded = require('../db-pool') as { pool: CrawlerPool };
+  return loaded.pool;
+}
+
+export function recordAiCrawlerUa(
+  path: string | null | undefined,
+  userAgent: string | null | undefined,
+  db?: CrawlerPool,
+): void {
   const family = aiCrawlerUaFamily(userAgent);
   if (!family || !userAgent) return;
   const ua = userAgent.trim().slice(0, UA_MAX);
   if (!ua) return;
   const where = path && path.startsWith('/') ? path.slice(0, 200) : null;
-  void pool
+  void (db ?? crawlerPool())
     .query(
       `WITH ins AS (
          INSERT INTO ai_crawler_ua (day, family, user_agent, path, hits)
