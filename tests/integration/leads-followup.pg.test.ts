@@ -333,19 +333,23 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
       });
       const prevToken = process.env.TELEGRAM_BOT_TOKEN;
       const prevOwner = process.env.TELEGRAM_OWNER_ID;
+      const prevCron = process.env.CRON_SECRET;
       process.env.TELEGRAM_BOT_TOKEN = 'test-token';
       process.env.TELEGRAM_OWNER_ID = '1';
+      // GET админ-бота — только с CRON_SECRET (25.10: анонимный GET публиковал в каналы).
+      process.env.CRON_SECRET = 'cron-secret-for-pg-test';
       try {
         const { NextRequest } = await import('next/server');
         const { GET } = await import('@/app/api/telegram/admin/route');
         const res = await GET(new NextRequest('http://localhost/api/telegram/admin?command=health', {
-          headers: { 'x-forwarded-for': '10.0.0.7' },
+          headers: { 'x-forwarded-for': '10.0.0.7', authorization: 'Bearer cron-secret-for-pg-test' },
         }));
         expect(res.status).toBe(200);
       } finally {
         fetchSpy.mockRestore();
         if (prevToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN; else process.env.TELEGRAM_BOT_TOKEN = prevToken;
         if (prevOwner === undefined) delete process.env.TELEGRAM_OWNER_ID; else process.env.TELEGRAM_OWNER_ID = prevOwner;
+        if (prevCron === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prevCron;
       }
       const report = sent.find((t) => t.includes('БД:'));
       expect(report).toBeDefined();
