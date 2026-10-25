@@ -41,6 +41,7 @@ import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage
 import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
+import { escapeHtml } from '@/lib/text/escape-html';
 import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
 import {
   parseRentalCabinetPress, rentalCabinetAsk, rentalCabinetBar, withRentalCabinetBar, type CabinetButton,
@@ -428,6 +429,17 @@ function parsePhoneFromVcf(vcf: string): string | null {
   if (!match) return null;
   return match[1].trim().replace(/\s+/g, '');
 }
+
+/** Ответ партнёру на карточку контакта в его привязанном чате. */
+function partnerContactReply(partnerName: string): string {
+  return `Это чат кабинета «${escapeHtml(partnerName)}». Карточку контакта заявкой не делаю: `
+    + 'номер вашего клиента ушёл бы в общую очередь заявок платформы, а оттуда — другим партнёрам. '
+    + 'Касание с клиентом, который уже есть в CRM, запишите словами: «запиши звонок Анне, договорились на 15-е».';
+}
+
+/** База не ответила, чей это чат: номер не принимаем, чтобы не отдать чужого клиента в общую очередь. */
+const PARTNER_CONTACT_UNCHECKED =
+  'Номер не принят: не удалось проверить, чей это чат. Напишите через минуту. В беде — звоните 112.';
 
 // Создать лид из MAX-контакта. Исход честный: «номер получен» человек
 // слышит только тогда, когда заявка записана (createLead вернул id).
@@ -993,6 +1005,19 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (opts?.verifiedOrigin !== true) {
         console.error('[max/kuzmich] номер из незаверенного апдейта — заявка не создана');
         await maxReply(chatId, UNVERIFIED_CHAT_REPLY.contact);
+        return;
+      }
+      // Привязанный чат партнёра — его кабинет: карточка контакта там — это
+      // его клиент, а не турист, оставивший свой номер. Заявка без адресата
+      // через 2 часа уходит другим партнёрам (leads-followup) — с именем и
+      // телефоном чужого клиента и без его согласия (проверка 25.10).
+      const owner = await findPartnerByChat('max', chatId);
+      if (owner.outcome === 'found') {
+        await maxReply(chatId, partnerContactReply(owner.partner.partnerName));
+        return;
+      }
+      if (owner.outcome === 'unavailable') {
+        await maxReply(chatId, PARTNER_CONTACT_UNCHECKED);
         return;
       }
       const vcf = contactAtt.payload?.vcf_info ?? '';

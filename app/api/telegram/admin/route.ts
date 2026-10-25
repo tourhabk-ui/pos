@@ -3,7 +3,8 @@
  * POST /api/telegram/admin
  * Личный admin-бот владельца (@tourhab_bot). Работает 24/7.
  *
- * GET: Тестирование команд без webhook
+ * GET: Тестирование команд без webhook — только с Authorization: Bearer
+ *      CRON_SECRET (25.10: анонимный GET публиковал в каналы)
  *      ?command=health
  *      ?command=stats
  *      ?command=leads
@@ -32,6 +33,7 @@ import { callAIWaterfall, callOpenrouter, callDeepSeek, callQwen, callXai } from
 import { postKuzmichRoute, postKuzmichTip } from '@/lib/notifications/telegram-channel';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { constantTimeEqual } from '@/lib/security/constant-time-equal';
 import { PlatformAgent } from '@/lib/agents';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
@@ -605,8 +607,32 @@ interface TgUpdate {
 }
 
 // ── GET: Тестирование команд ─────────────────────────────────────────────────
+//
+// До 25.10 GET был открыт анониму: Edge пускает весь /api/telegram без токена
+// (вебхуки), и ?command=testchannels публиковал тестовые посты в публичный
+// канал («Маршрут на кратер открыт»), testpush рассылал push подписчикам,
+// kuzmich и tip — посты канала, digest и health — платные модели. Лимит по IP
+// не держал: адрес берётся из X-Forwarded-For, его пишет сам клиент.
+//
+// Теперь — только с CRON_SECRET в заголовке Authorization: Bearer, как
+// /api/admin/* на Edge. ?secret= не читается: секрет в адресе оседает в логах.
+
+/** Совпал ли Bearer с CRON_SECRET. Секрет не задан — никого не пускаем. */
+function adminGetAuthorized(request: NextRequest): boolean {
+  const expected = process.env.CRON_SECRET;
+  const header = request.headers.get('authorization');
+  if (!expected || !header) return false;
+  const provided = header.replace(/^Bearer\s+/i, '');
+  return provided !== header && constantTimeEqual(provided, expected);
+}
 
 export async function GET(request: NextRequest) {
+  if (!adminGetAuthorized(request)) {
+    return NextResponse.json(
+      { error: 'Нужен CRON_SECRET в заголовке Authorization: Bearer' },
+      { status: 401 },
+    );
+  }
   const ip = getClientIp(request.headers);
   if (!adminGetLimiter.check(ip)) {
     return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
