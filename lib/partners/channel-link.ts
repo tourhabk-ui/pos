@@ -139,3 +139,25 @@ export function buildPartnerChannelLinks(partnerId: string, now: number = Date.n
 export function partnerTokenFromStart(arg: string): string | null {
   return arg.startsWith(PARTNER_LINK_PREFIX) ? arg.slice(PARTNER_LINK_PREFIX.length) : null;
 }
+
+/**
+ * Код привязки, который человек прислал сообщением.
+ *
+ * Веб-клиент MAX не передаёт `?start=` в payload `bot_started`: «Запустить
+ * бота» на web.max.ru ничего не делает, чат, открытый руками, приходит без
+ * payload, а набранные `/start op_…` и голое `op_…` до 25.10 читались как
+ * обычная реплика и получали приветствие Кузьмича. Тот же запас — в Telegram,
+ * если клиент отдал код обычным сообщением.
+ *
+ * Только всё сообщение целиком. `op_` внутри фразы туриста — не ссылка.
+ * Чужие префиксы (`om_`, `sr_`, `adm_`, `link_`, `login-`) сюда не попадают:
+ * их разбирают свои обработчики.
+ */
+export function partnerLinkArgFromText(text: string): string | null {
+  const trimmed = text.trim();
+  const commanded = /^\/start(?:@[A-Za-z0-9_]+)?\s+(\S+)$/i.exec(trimmed);
+  const arg = commanded?.[1] ?? trimmed;
+  if (!arg.startsWith(PARTNER_LINK_PREFIX) || arg.length <= PARTNER_LINK_PREFIX.length) return null;
+  if (/\s/.test(arg)) return null;
+  return arg;
+}

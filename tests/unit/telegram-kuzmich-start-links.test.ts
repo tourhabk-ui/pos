@@ -171,6 +171,34 @@ describe('Кузьмич в Telegram ведёт ссылки подключен�
     expect(sentTexts().length).toBeGreaterThan(0);
   });
 
+  it('голое сообщение op_ подключает так же, как «Старт» по ссылке', async () => {
+    const t = createPartnerLinkToken(PARTNER_ID);
+    if (!t.ok) throw new Error(t.reason);
+    const res = await route.POST(update(`${PARTNER_LINK_PREFIX}${t.token}`));
+    expect(res.status).toBe(200);
+    const upd = m.query.mock.calls.find(([sql]) => /UPDATE partners/.test(sql as string));
+    expect(upd?.[1]).toEqual([String(CHAT), PARTNER_ID]);
+    expect(sentTexts().join('\n')).toMatch(/Telegram подключён к оператору «Местечко Камчатка»/);
+    expect(m.processMessage).not.toHaveBeenCalled();
+  });
+
+  it('/start@бот op_ тоже подключает: клиент присылает имя бота в команде', async () => {
+    const t = createPartnerLinkToken(PARTNER_ID);
+    if (!t.ok) throw new Error(t.reason);
+    await route.POST(update(`/start@kuzmichai_bot ${PARTNER_LINK_PREFIX}${t.token}`));
+    expect(m.query.mock.calls.some(([sql]) => /UPDATE partners/.test(sql as string))).toBe(true);
+    expect(sentTexts().join('\n')).toMatch(/Telegram подключён/);
+    expect(m.processMessage).not.toHaveBeenCalled();
+  });
+
+  it('op_ внутри фразы туриста — не код привязки', async () => {
+    const t = createPartnerLinkToken(PARTNER_ID);
+    if (!t.ok) throw new Error(t.reason);
+    await route.POST(update(`хочу тур, вот код ${PARTNER_LINK_PREFIX}${t.token}`));
+    expect(m.query.mock.calls.some(([sql]) => /UPDATE partners/.test(sql as string))).toBe(false);
+    expect(m.processMessage).toHaveBeenCalled();
+  });
+
   it('в группе ссылка op_ никого не подключает', async () => {
     const t = createPartnerLinkToken(PARTNER_ID);
     if (!t.ok) throw new Error(t.reason);

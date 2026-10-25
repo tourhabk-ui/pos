@@ -21,6 +21,7 @@ import { adminMenu, adminMenuHelp } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 import { adminCommandOf } from '@/lib/max/admin-read';
+import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import {
   ADMIN_TG_TEXT,
   adminTelegramTokenFromStart,
@@ -119,7 +120,9 @@ async function answerTelegramAdmin(opts: {
  * Личное сообщение. 'handled' — кабинет ответил. 'tourist' — просьба туриста,
  * её отвечает Кузьмич, не кабинет. 'pass' — это не кабинет администратора
  * (в том числе «не смог проверить»: обычный путь ПД туристов не показывает).
- * Чужой /start (op_, link_, lead) — pass без запроса к привязке.
+ * Чужой /start (op_, link_, lead) и голое «op_…» — pass без запроса к привязке.
+ * Голый код кабинет не забирает: вебхук зовёт этот ход раньше разбора ссылки,
+ * и иначе запасной код из текста администратора получает «Не понял команду».
  */
 export async function handleTelegramAdminTurn(opts: {
   text: string | null;
@@ -133,6 +136,7 @@ export async function handleTelegramAdminTurn(opts: {
   liveBooking?: () => Promise<boolean>;
 }): Promise<'handled' | 'tourist' | 'pass'> {
   const text = opts.text;
+  if (text !== null && partnerLinkArgFromText(text) !== null) return 'pass';
   if (text !== null && /^\/start\s+\S/.test(text.trim())) {
     const arg = text.trim().slice('/start'.length).trim();
     const started = await handleTelegramAdminStart(arg, opts.fromId, opts.reply);

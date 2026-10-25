@@ -50,7 +50,14 @@ vi.mock('@/lib/operators/member-channel', () => ({ handleMemberStart: m.memberSt
 vi.mock('@/lib/partners/bind-channel', () => ({
   handlePartnerStart: m.partnerStart, bindPartnerChannel: vi.fn(), bindReplyText: vi.fn(() => ''), badLinkReplyText: vi.fn(() => ''),
 }));
-vi.mock('@/lib/partners/channel-link', () => ({ partnerTokenFromStart: () => null, verifyPartnerLinkToken: vi.fn() }));
+vi.mock('@/lib/partners/channel-link', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/partners/channel-link')>();
+  return {
+    partnerTokenFromStart: () => null,
+    verifyPartnerLinkToken: vi.fn(),
+    partnerLinkArgFromText: real.partnerLinkArgFromText,
+  };
+});
 vi.mock('@/lib/seat-requests/core', () => ({
   statusTokenFromStart: () => null, touristBindReplyText: () => '', parseAnswerPayload: () => null, operatorReplyText: () => '',
 }));
