@@ -14,8 +14,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
-import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
+import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { parseRentalCabinetPress, rentalCabinetAsk, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
@@ -213,7 +213,9 @@ async function sendBookingInlineButton(chatId: number): Promise<void> {
 }
 
 async function afterAiReply(chatId: number, answer?: string): Promise<void> {
-  if (answer && hasTourRecommendation(answer)) {
+  // Под ответом с блоком 112 заявку не предлагаем: совет при пропаже группы
+  // называет «маршрут», и кнопка тура вставала прямо под тревогой.
+  if (answer && !/(?<!\d)112(?!\d)/.test(answer) && hasTourRecommendation(answer)) {
     await sendBookingInlineButton(chatId);
   }
 }
@@ -697,6 +699,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         fromId,
         nowMs: Date.now(),
         reply: sayAdmin,
+        liveBooking: () => hasLiveBookingFlow(chatId, 'tourist', pending),
       });
       if (turn === 'handled') return NextResponse.json({ ok: true });
       if (turn === 'tourist' && msg.text) {
@@ -718,7 +721,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const partner = lookup?.outcome === 'found' ? lookup.partner : null;
     // Та же развилка, что в MAX: просьба туриста (аренда, тур, трансфер,
     // план поездки) идёт Кузьмичу туриста, кабинет — помощнику партнёра.
-    if (partner && msg.text && boundChatLaneFor('telegram', chatId, msg.text) !== 'tourist') {
+    // Заявка, начатая здесь у Кузьмича туриста, доводится им же: ответы
+    // «Иван Петров», «15 июля» иначе ушли бы помощнику кабинета (#2756).
+    if (partner && msg.text && !(await hasLiveBookingFlow(chatId, 'tourist', pending))
+      && boundChatLaneFor('telegram', chatId, msg.text, { rental: partnerHasRental(partner) }) !== 'tourist') {
       const text = msg.text.trim();
       const pilot = isRentalPilotSlug(partner.slug);
       const menu = partnerMenu(partner);

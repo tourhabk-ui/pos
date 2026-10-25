@@ -36,7 +36,7 @@ export async function tryRentalCabinetTelegramMessage(opts: {
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome !== 'found' || !isRentalPilotSlug(lookup.partner.slug)) return false;
-  if (boundChatLaneFor('telegram', opts.chatId, opts.text) === 'tourist') return false;
+  if (boundChatLaneFor('telegram', opts.chatId, opts.text, { rental: true }) === 'tourist') return false;
 
   const partner = lookup.partner;
   // Беда в тексте — блок 112 над любым ответом кабинета (календарь, экраны,

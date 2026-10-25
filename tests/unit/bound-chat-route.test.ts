@@ -5,7 +5,7 @@
  * цены, открытие дат — остаётся помощнику. Неузнанное тоже остаётся кабинету.
  */
 import { describe, expect, it } from 'vitest';
-import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatLane, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
 
 const tourist = [
   'найди мне в аренду автомобиль',
@@ -52,6 +52,20 @@ const partner = [
   '8',
   'следующая заявка',
   '/сводка',
+  // Своё — «у меня», «у нас» и правка своего (проверка качества 24.10, #2756).
+  'какие туры у меня завтра',
+  'что у нас на выходные',
+  'сколько стоит аренда у меня',
+  'хочу поменять цену тура',
+  'исправить описание тура',
+];
+
+// Прокатчик о своих машинах: свободна ли, на какую дату. У оператора без
+// проката те же слова — просьба туриста (ему самому нужна машина).
+const rentalCabinet = [
+  'какой джип свободен 30 октября',
+  'какие машины свободны на выходные',
+  'хочу джип на 30 октября',
 ];
 
 // Беда (проверка качества 24.10): у помощника CRM нет блока 112, а
@@ -107,5 +121,35 @@ describe('привязанный чат: беда', () => {
 
   it.each(cabinetCommandWithEmergency)('команда кабинета своей формой — кабинет и с бедой: %s', (text) => {
     expect(boundChatLane(text)).toBe('partner');
+  });
+});
+
+describe('привязанный чат прокатчика: свои машины — кабинет', () => {
+  it.each(rentalCabinet)('прокатчик — кабинет: %s', (text) => {
+    expect(boundChatLane(text, { rental: true })).toBe('partner');
+  });
+
+  it.each(rentalCabinet)('оператор без проката — Кузьмичу туриста: %s', (text) => {
+    expect(boundChatLane(text)).toBe('tourist');
+  });
+
+  it('аренда без даты и без «свободен» у прокатчика — по-прежнему просьба туриста', () => {
+    expect(boundChatLane('найди мне в аренду автомобиль', { rental: true })).toBe('tourist');
+  });
+
+  it('«у нас беда» — беда, хотя «у нас» — признак своего', () => {
+    expect(boundChatLane('у нас беда, турист упал')).toBe('tourist');
+    expect(boundChatLane('у нас беда')).toBe('tourist');
+  });
+
+  it('беда у прокатчика — Кузьмичу туриста и с машиной и датой', () => {
+    expect(boundChatLane('джип перевернулся 30 октября, есть пострадавшие', { rental: true })).toBe('tourist');
+  });
+
+  it('прокат — пилот кабинета или категория «машины»', () => {
+    expect(partnerHasRental({ slug: 'laguna-prokat', category: 'operator' })).toBe(true);
+    expect(partnerHasRental({ slug: 'other', category: 'cars' })).toBe(true);
+    expect(partnerHasRental({ slug: 'mestechko', category: 'operator' })).toBe(false);
+    expect(partnerHasRental({ slug: null, category: 'transfer' })).toBe(false);
   });
 });

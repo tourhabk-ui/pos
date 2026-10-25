@@ -126,6 +126,11 @@ export async function handleTelegramAdminTurn(opts: {
   fromId: number;
   reply: Reply;
   nowMs?: number;
+  /** Черновик заявки, начатый у Кузьмича туриста, ещё жив: ответы «Иван
+   *  Петров», «15 июля» доводит он, а не консоль администратора (#2756).
+   *  Спрашивается только у привязанного администратора — туристу лишний
+   *  запрос к базе не нужен. */
+  liveBooking?: () => Promise<boolean>;
 }): Promise<'handled' | 'tourist' | 'pass'> {
   const text = opts.text;
   if (text !== null && /^\/start\s+\S/.test(text.trim())) {
@@ -147,6 +152,7 @@ export async function handleTelegramAdminTurn(opts: {
     && boundChatLaneFor('telegram', opts.fromId, text, { admin: true, nowMs: opts.nowMs }) === 'tourist') {
     return 'tourist';
   }
+  if (!text.trim().startsWith('/') && opts.liveBooking && await opts.liveBooking()) return 'tourist';
   await answerTelegramAdmin({
     name: admin.name,
     text,
