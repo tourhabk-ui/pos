@@ -64,7 +64,36 @@ describe('модерация правки прайса', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]?.url).toContain(EDIT.id);
-    expect(JSON.parse(posts[0]?.body ?? '{}')).toEqual({ action: 'approve' });
+    expect(JSON.parse(posts[0]?.body ?? '{}')).toEqual({
+      action: 'approve', seenPrice: 8500, seenConditions: 'пробег <без> лимита',
+    });
+  });
+
+  it('черновик изменился — причина видна и карточка показывает новую правку', async () => {
+    let listed = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/admin/content/reviews')) {
+        return new Response(JSON.stringify({ success: true, data: { reviews: [] } }));
+      }
+      if (url.includes('/api/admin/moderation/rental-edits/') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          success: false, code: 'changed',
+          error: 'Прокатчик изменил черновик, пока карточка была открыта. Прайс не изменён — проверьте новую правку.',
+        }), { status: 409 });
+      }
+      listed += 1;
+      const edit = listed === 1 ? EDIT : { ...EDIT, draftPrice: 80000 };
+      return new Response(JSON.stringify({ success: true, data: { edits: [edit] } }));
+    }));
+    render(React.createElement(ModerationClient));
+    fireEvent.click(await screen.findByRole('button', { name: 'Одобрить' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('Прайс не изменён');
+    await waitFor(() => {
+      const price = screen.getByText(/Цена за сутки/).parentElement?.textContent ?? '';
+      expect(price).toContain(formatRub(80000));
+    });
   });
 
   it('отклонить без причины нельзя', async () => {

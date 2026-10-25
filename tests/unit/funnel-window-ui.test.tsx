@@ -60,7 +60,9 @@ describe('воронка за период — экран', () => {
     expect(screen.getByText('Просмотры туров', { selector: 'p' }).nextElementSibling?.textContent).toBe('3');
     // Большая цифра визитов — люди. Боты и свои рядом, ИИ — отдельной строкой.
     expect(screen.getByText('боты: 2, свои: 1')).toBeTruthy();
-    expect(screen.getByText(/ИИ-краулеры: 3/)).toBeTruthy();
+    // Счётчик видит только исполнивших скрипт: строка так и называется.
+    expect(screen.getByText(/ИИ, исполнившие скрипт: 3 \(обходчики ИИ скрипт не исполняют/)).toBeTruthy();
+    expect(screen.queryByText(/ИИ-краулеры: 3/)).toBeNull();
   });
 
   it('замер упал: «нет данных», а не ноль — и сказано, что не сосчитано', async () => {

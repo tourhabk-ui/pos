@@ -1681,6 +1681,21 @@ export async function loadBookingFlow(
 const removedFlows = new Map<string, number>();
 const flowKey = (chatId: number, mode: string) => `${mode}:${chatId}`;
 
+/**
+ * Идёт ли в этом чате заявка (живой черновик, моложе срока). Нужно входам
+ * привязанных чатов и кабинета администратора: заявка, начатая там у
+ * Кузьмича туриста («хочу забронировать тур»), иначе не доводилась — ответы
+ * «Иван Петров», «15 июля», «да» классификатор отдавал кабинету (#2756).
+ */
+export async function hasLiveBookingFlow(
+  chatId: number,
+  mode: string,
+  pending: Map<number, PendingBooking>,
+): Promise<boolean> {
+  const b = await loadBookingFlow(chatId, mode, pending);
+  return b !== null && b.started_at >= Date.now() - BOOKING_FLOW_TTL_MS;
+}
+
 export async function saveBookingFlow(
   chatId: number,
   mode: string,

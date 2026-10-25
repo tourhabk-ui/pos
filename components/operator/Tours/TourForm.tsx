@@ -156,10 +156,14 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
     }
   }
 
-  const routeOptions = routes.filter((r) => {
-    const q = routeQuery.trim().toLowerCase();
-    return q.length === 0 || r.title.toLowerCase().includes(q);
-  });
+  const routeQ = routeQuery.trim().toLowerCase();
+  const routeMatches = routes.filter((r) => routeQ.length === 0 || r.title.toLowerCase().includes(routeQ));
+  // Выбранный маршрут остаётся в списке при любом поиске: без своего option
+  // select показал бы «без привязки», а сохранился бы прежний маршрут.
+  const selectedRoute = routes.find((r) => r.id === formData.routeId);
+  const routeOptions = selectedRoute && !routeMatches.includes(selectedRoute)
+    ? [selectedRoute, ...routeMatches]
+    : routeMatches;
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6 min-w-0">
@@ -277,7 +281,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
               </option>
             ))}
           </select>
-          {routeQuery.trim() && routeOptions.length === 0 && (
+          {routeQ && routeMatches.length === 0 && (
             <p className="text-xs text-[var(--text-muted)] mt-1">Такого маршрута нет</p>
           )}
           {routes.length === 0 && (

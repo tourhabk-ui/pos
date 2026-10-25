@@ -465,8 +465,22 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       [jimny!.id],
     );
     expect(pending).toHaveLength(1);
+    // Модератор открыл карточку после первой правки (8 500, без описания), а
+    // описание пришло в ту же строку позже: одобрение увиденного — «изменился».
     expect(await decideOfferEdit({
       id: pending[0]!.id, action: 'approve', reason: null, moderatedBy: null,
+      seen: { price: 8500, conditions: null },
+    })).toEqual({ outcome: 'changed' });
+    const stale = await pool.query<{ price_rub_per_day: number; conditions: string | null; status: string }>(
+      `SELECT o.price_rub_per_day, o.conditions, e.moderation_status AS status
+         FROM car_rental_offers o JOIN rental_offer_edits e ON e.offer_id = o.id
+        WHERE e.id = $1`,
+      [pending[0]!.id],
+    );
+    expect(stale.rows[0]).toEqual({ price_rub_per_day: 7000, conditions: null, status: 'pending' });
+    expect(await decideOfferEdit({
+      id: pending[0]!.id, action: 'approve', reason: null, moderatedBy: null,
+      seen: { price: 8500, conditions: 'Без ограничения пробега по асфальту' },
     })).toMatchObject({ outcome: 'approved', title: 'Suzuki Jimny' });
     const after = await pool.query<{ price_rub_per_day: number; conditions: string | null }>(
       `SELECT price_rub_per_day, conditions FROM car_rental_offers WHERE id = $1`,
@@ -476,7 +490,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       price_rub_per_day: 8500, conditions: 'Без ограничения пробега по асфальту',
     });
     expect(await decideOfferEdit({
-      id: pending[0]!.id, action: 'reject', reason: 'повтор', moderatedBy: null,
+      id: pending[0]!.id, action: 'reject', reason: 'повтор', moderatedBy: null, seen: null,
     })).toEqual({ outcome: 'already' });
     const still = await pool.query<{ price_rub_per_day: number; conditions: string | null }>(
       `SELECT price_rub_per_day, conditions FROM car_rental_offers WHERE id = $1`,
@@ -503,7 +517,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       [tank!.id],
     );
     expect(await decideOfferEdit({
-      id: tankEdit!.id, action: 'reject', reason: 'не та цифра', moderatedBy: null,
+      id: tankEdit!.id, action: 'reject', reason: 'не та цифра', moderatedBy: null, seen: null,
     })).toMatchObject({ outcome: 'rejected' });
     const tankLive = await pool.query<{ price_rub_per_day: number }>(
       `SELECT price_rub_per_day FROM car_rental_offers WHERE id = $1`,

@@ -86,7 +86,7 @@ export default function VisitsBreakdown({ query, onClose }: { query: string; onC
                   : 'боты и свои: не сосчитано'}
               </p>
               <p className="text-[10px] text-[var(--text-muted)]">
-                ИИ-краулеры: {d.aside ? d.aside.ai.toLocaleString('ru-RU') : 'не сосчитано'}
+                ИИ, исполнившие скрипт: {d.aside ? d.aside.ai.toLocaleString('ru-RU') : 'не сосчитано'}
               </p>
             </>
           )}

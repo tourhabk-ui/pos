@@ -17,19 +17,30 @@ function Chunks({ text }: { text: string }) {
   );
 }
 
-/** Текст ответа Кузьмича: ссылки кликабельны, пункты «- », «1.» и «Заголовок: …» — списком. */
+/**
+ * Текст ответа Кузьмича: ссылки кликабельны, пункты «- » и «Заголовок: …» —
+ * списком, «1.» — нумерованным списком с номерами из ответа.
+ */
 export default function ChatText({ text }: { text: string }) {
   return (
     <div className="flex flex-col gap-2">
-      {chatBlocks(text).map((block, i) => (
-        block.kind === 'list'
-          ? (
+      {chatBlocks(text).map((block, i) => {
+        if (block.kind === 'list') {
+          return (
             <ul key={i} className="list-disc pl-5 flex flex-col gap-1">
               {block.items.map((item, j) => <li key={j}><Chunks text={item} /></li>)}
             </ul>
-          )
-          : <p key={i}><Chunks text={block.text} /></p>
-      ))}
+          );
+        }
+        if (block.kind === 'ordered') {
+          return (
+            <ol key={i} className="list-decimal pl-5 flex flex-col gap-1">
+              {block.items.map((item, j) => <li key={j} value={item.n}><Chunks text={item.text} /></li>)}
+            </ol>
+          );
+        }
+        return <p key={i}><Chunks text={block.text} /></p>;
+      })}
     </div>
   );
 }

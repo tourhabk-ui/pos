@@ -126,7 +126,8 @@ export async function loadCabinetEdits(partnerId: string): Promise<CabinetEdits>
 
 /**
  * Список заявок. Имя и телефон — только в MAX: в Telegram их нет,
- * как и в заглушке уведомления. «Беру» / «Не могу» — у заявки без ответа.
+ * как и в заглушке уведомления. «Беру №N» / «Не могу №N» — у заявки без
+ * ответа, с номером её строки.
  */
 export function rentalRequestsView(
   loaded: CabinetRequests,
@@ -160,7 +161,8 @@ export function rentalRequestsView(
       : '';
     lines.push(`${i + 1}. ${car}. ${dates}. ${ans}.${who}`);
     if (!r.answer) {
-      const pair = rentalAnswerButtons(r.leadId);
+      // Кнопка называет номер строки: пар под сообщением несколько, ответ необратим.
+      const pair = rentalAnswerButtons(r.leadId, i + 1);
       if (pair) buttons.push(pair);
     }
   });

@@ -1,6 +1,7 @@
 /**
  * Ворота кабинета: без профиля нет шторма /me и канала,
- * админ не видит «Профиль не найден», незавершённая настройка уходит на онбординг.
+ * админ не видит «Профиль не найден», незавершённая настройка уходит на онбординг
+ * только с главной кабинета — ссылка на заявку или бронь из мессенджера ведёт к ней.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
@@ -14,7 +15,12 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
 }));
 
-import { OperatorCabinetGate } from '@/components/operator/OperatorCabinetGate';
+import { OperatorCabinetFacts, OperatorCabinetGate } from '@/components/operator/OperatorCabinetGate';
+
+function FactsProbe() {
+  const facts = React.useContext(OperatorCabinetFacts);
+  return <p>{facts ? `профиль ${facts.onboardingCompleted ? 'заполнен' : 'не заполнен'}, ${facts.viewer}` : 'фактов нет'}</p>;
+}
 
 function mount() {
   return render(
@@ -139,4 +145,30 @@ describe('ворота кабинета оператора', () => {
     expect(screen.getByTestId('ready')).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
   });
+
+  for (const deep of ['/hub/operator/leads/42', '/hub/operator/bookings/7', '/hub/operator/messages']) {
+    it(`настройка не закончена, ссылка из уведомления ${deep} — открывается раздел, а не мастер`, async () => {
+      path.value = deep;
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: { onboarding_completed: false } }),
+      })));
+      render(
+        <OperatorCabinetGate
+          quiet={(node) => <div data-testid="quiet">{node}</div>}
+          ready={(node) => <div data-testid="ready">{node}</div>}
+        >
+          <main>экран</main>
+          <FactsProbe />
+        </OperatorCabinetGate>,
+      );
+      expect(await screen.findByText('экран')).toBeTruthy();
+      expect(screen.getByTestId('ready')).toBeTruthy();
+      // Дашборд и чек-лист не считают профиль заполненным: факт тот же, что у ворот.
+      expect(screen.getByText('профиль не заполнен, owner')).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(replace).not.toHaveBeenCalled();
+    });
+  }
 });

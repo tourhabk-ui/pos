@@ -12,6 +12,10 @@
  *  - номер или фото от администратора не становятся заявкой и не уходят в
  *    модель; непонятое — подсказка, а не модель;
  *  - «не смог проверить» идёт обычным путём, а не отвечает «вы не админ»;
+ *  - кнопки меню роли (rm:) выполняются только из заверенного апдейта
+ *    личного диалога и по праву НАЖАВШЕГО: администратор — по его user_id,
+ *    партнёр — по чату сообщения; отказ — до чтения броней и входящих;
+ *    «роль не проверена» не выдаётся за «не ваш кабинет»;
  *  - роут ссылки: права — до любого обращения к данным; ответ не кешируется.
  *
  * Выдача, погашение и снятие роли на настоящей схеме —
@@ -33,13 +37,14 @@ const m = vi.hoisted(() => ({
   issue: vi.fn(),
   status: vi.fn(),
   unbind: vi.fn(),
+  loadInbox: vi.fn(),
 }));
 
 vi.mock('@/lib/max/max-fetch', () => ({
-  maxBot: () => ({ api: { sendMessageToChat: m.maxSend, sendMessageToUser: vi.fn(), answerOnCallback: vi.fn() } }),
+  maxBot: () => ({ api: { sendMessageToChat: m.maxSend, sendMessageToUser: vi.fn(), answerOnCallback: vi.fn(async () => ({})) } }),
 }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: m.pool } }));
-vi.mock('@/lib/kuzmich/core', () => ({ processMessage: m.processMessage, cleanupPending: vi.fn() }));
+vi.mock('@/lib/kuzmich/core', () => ({ hasLiveBookingFlow: vi.fn(async () => false), processMessage: m.processMessage, cleanupPending: vi.fn() }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({
   PARTNER_EMAIL_BIND_CLOSED: 'привязка по почте закрыта',
   findPartnerByChat: m.findPartner,
@@ -59,6 +64,10 @@ vi.mock('@/lib/max/admin-read', async (orig) => ({
   adminReplyFor: m.adminReply,
 }));
 vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: m.requireAdmin }));
+vi.mock('@/lib/crm/inbox', async (orig) => ({
+  ...(await orig<typeof import('@/lib/crm/inbox')>()),
+  loadInbox: m.loadInbox,
+}));
 
 const max = await import('@/app/api/max/kuzmich/route');
 const { ADMIN_CHAT_TEXT } = await import('@/lib/max/admin-chat');
@@ -295,5 +304,168 @@ describe('/api/admin/max-link', () => {
     expect(await (await route.DELETE(req('DELETE'))).json()).toEqual({ success: true, data: { unbound: true } });
     expect(m.status).toHaveBeenCalledWith('u-admin');
     expect(m.unbind).toHaveBeenCalledWith('u-admin');
+  });
+});
+
+// ── Кнопки меню роли (rm:) — нажатием, через вебхук ─────────────────────────
+
+const STRANGER_USER = 502;
+const OPERATOR = {
+  partnerId: '33333333-3333-4333-8333-333333333333',
+  partnerName: 'Тест-Оператор',
+  slug: 'test-operator',
+  category: 'operator',
+  crmCategory: 'operator',
+  userId: null,
+};
+const INBOX = {
+  category: 'operator', items: [], failed: [], response: {}, chat: { state: 'none' }, not_here: [],
+};
+
+const roleTap = (
+  payload: string,
+  opts: { userId?: number | null; chatType?: string; noMessage?: boolean } = {},
+) => ({
+  update_type: 'message_callback',
+  timestamp: 1,
+  callback: {
+    timestamp: 1,
+    callback_id: 'cb-rm',
+    payload,
+    user: opts.userId === null ? { name: 'Без id' } : { user_id: opts.userId ?? ADMIN_USER, name: 'Админ' },
+  },
+  ...(opts.noMessage ? {} : {
+    message: {
+      recipient: { chat_id: ADMIN_CHAT, chat_type: opts.chatType ?? 'dialog' },
+      body: { mid: 'm-menu', seq: 1, text: 'меню' },
+    },
+  }),
+});
+
+/** Ни одного чтения кабинета: ни броней администратора, ни входящих партнёра, ни ПД. */
+function nothingRead() {
+  expect(m.adminReply).not.toHaveBeenCalled();
+  expect(m.loadInbox).not.toHaveBeenCalled();
+  expect(m.pdAlert).not.toHaveBeenCalled();
+}
+
+describe('кнопки меню роли в MAX (rm:)', () => {
+  beforeEach(() => {
+    m.loadInbox.mockResolvedValue(INBOX);
+  });
+
+  it('незаверенный апдейт: «Брони» не выполняется, администратор не ищется', async () => {
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    const { UNVERIFIED_CHAT_REPLY } = await import('@/lib/max/verified-press');
+    await post(UNVERIFIED, roleTap('rm:ad:bk'));
+    expect(m.findAdmin).not.toHaveBeenCalled();
+    nothingRead();
+    expect(repliesTo(ADMIN_CHAT)).toEqual([UNVERIFIED_CHAT_REPLY.partner]);
+  });
+
+  it('группа: «Брони» не выполняется, база администраторов не спрашивается', async () => {
+    await post(VERIFIED, roleTap('rm:ad:bk', { chatType: 'chat' }));
+    expect(m.findAdmin).not.toHaveBeenCalled();
+    nothingRead();
+    expect(repliesTo(ADMIN_CHAT)).toEqual(['Кнопки кабинета работают в личном диалоге.']);
+  });
+
+  it('нажал не администратор: право — по user_id нажавшего, отказ без чтения броней', async () => {
+    m.findAdmin.mockImplementation(async (id: number) => (
+      id === ADMIN_USER ? { outcome: 'admin', userId: 'u-admin', name: 'Админ' } : { outcome: 'none' }
+    ));
+    await post(VERIFIED, roleTap('rm:ad:bk', { userId: STRANGER_USER }));
+    expect(m.findAdmin).toHaveBeenCalledWith(STRANGER_USER);
+    expect(m.findAdmin).not.toHaveBeenCalledWith(ADMIN_CHAT);
+    nothingRead();
+    const { ADMIN_MAX_TEXT } = await import('@/lib/max/admin-link');
+    expect(repliesTo(ADMIN_CHAT)).toEqual([ADMIN_MAX_TEXT.deny]);
+  });
+
+  it('MAX не назвал, кто нажал, — отказ, база не спрашивается', async () => {
+    await post(VERIFIED, roleTap('rm:ad:ld', { userId: null }));
+    expect(m.findAdmin).not.toHaveBeenCalled();
+    nothingRead();
+    const { ADMIN_MAX_TEXT } = await import('@/lib/max/admin-link');
+    expect(repliesTo(ADMIN_CHAT)).toEqual([ADMIN_MAX_TEXT.deny]);
+  });
+
+  it('база не ответила — «роль не проверена», а не «не ваш кабинет»', async () => {
+    m.findAdmin.mockResolvedValue({ outcome: 'unavailable' });
+    await post(VERIFIED, roleTap('rm:ad:bk'));
+    nothingRead();
+    const { ADMIN_MAX_TEXT } = await import('@/lib/max/admin-link');
+    const replies = repliesTo(ADMIN_CHAT);
+    expect(replies).toEqual([ADMIN_MAX_TEXT.unchecked]);
+    expect(replies.join('\n')).toContain('не проверена');
+    expect(replies.join('\n')).not.toContain(ADMIN_MAX_TEXT.deny);
+  });
+
+  it('нажал администратор: брони с ПД — только через sendPdAlert в чат этого сообщения', async () => {
+    await post(VERIFIED, roleTap('rm:ad:bk'));
+    expect(m.findAdmin).toHaveBeenCalledWith(ADMIN_USER);
+    expect(m.adminReply).toHaveBeenCalledWith('bookings', expect.any(Number));
+    expect(m.pdAlert).toHaveBeenCalledTimes(1);
+    expect(m.pdAlert).toHaveBeenCalledWith({
+      text: PD_TEXT,
+      stub: expect.any(String),
+      buttons: expect.arrayContaining([expect.objectContaining({ payload: 'rm:ad:bk' })]),
+      to: { maxChatId: ADMIN_CHAT, telegramChatId: null },
+    });
+    expect(m.pdAlert.mock.calls[0][0].stub).not.toMatch(/\+7|Турист/);
+    // Обычным сообщением ПД не уходят.
+    expect(repliesTo(ADMIN_CHAT).join('\n')).not.toContain('+70000000001');
+  });
+
+  it('ПД по кнопке не доставлены — текст без ПД в тот же чат', async () => {
+    m.pdAlert.mockResolvedValue({ channel: 'none', delivered: false, reason: 'MAX отказал' });
+    await post(VERIFIED, roleTap('rm:ad:ld'));
+    expect(m.adminReply).toHaveBeenCalledWith('leads', expect.any(Number));
+    const replies = repliesTo(ADMIN_CHAT);
+    expect(replies).toEqual([ADMIN_CHAT_TEXT.pdNotDelivered]);
+    expect(replies.join('\n')).not.toContain('+70000000001');
+  });
+
+  it('«Входящие» оператора из чужого чата — отказ без чтения входящих', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'none' });
+    await post(VERIFIED, roleTap('rm:op:in', { userId: STRANGER_USER }));
+    expect(m.findPartner).toHaveBeenCalledWith('max', ADMIN_CHAT);
+    nothingRead();
+    expect(repliesTo(ADMIN_CHAT)).toEqual(['Эта кнопка — меню кабинета. В этом чате её не выполняю.']);
+  });
+
+  it('«Входящие» оператора в чате жилья — кнопка чужой роли не выполняется', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...OPERATOR, category: 'stay', crmCategory: 'stay' } });
+    await post(VERIFIED, roleTap('rm:op:in'));
+    nothingRead();
+    expect(repliesTo(ADMIN_CHAT)).toEqual(['Эта кнопка — меню кабинета. В этом чате её не выполняю.']);
+  });
+
+  it('«Входящие» оператора: незаверенный апдейт и группа — чат не ищется, входящие не читаются', async () => {
+    await post(VERIFIED, roleTap('rm:op:in', { chatType: 'chat' }));
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    await post(UNVERIFIED, roleTap('rm:op:in'));
+    expect(m.findPartner).not.toHaveBeenCalled();
+    nothingRead();
+  });
+
+  it('«Входящие» оператора: база не ответила — «не удалось проверить», без чтения', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'unavailable' });
+    await post(VERIFIED, roleTap('rm:op:in'));
+    nothingRead();
+    expect(repliesTo(ADMIN_CHAT)).toEqual(['Не удалось проверить, чей это чат. Кнопку не выполнил.']);
+  });
+
+  it('«Входящие» в чате этого оператора — его входящие, со строкой его меню', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: OPERATOR });
+    await post(VERIFIED, roleTap('rm:op:in'));
+    expect(m.loadInbox).toHaveBeenCalledWith(OPERATOR.partnerId, 'operator', null, expect.any(Object));
+    expect(m.findAdmin).not.toHaveBeenCalled();
+    expect(m.pdAlert).not.toHaveBeenCalled();
+    const call = m.maxSend.mock.calls.find((c) => c[0] === ADMIN_CHAT);
+    expect(String(call?.[1])).toContain('Входящие');
+    const buttons = JSON.stringify(call?.[2] ?? {});
+    expect(buttons).toContain('rm:op:in');
+    expect(buttons).not.toContain('rm:ad:');
   });
 });

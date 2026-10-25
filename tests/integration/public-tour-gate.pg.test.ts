@@ -430,6 +430,37 @@ withPg('витрина туров: снятый тур не в плане и н�
     });
   });
 
+  it('витрина Кузьмича (loadShowcaseTours): вулкан после 400-го знака описания — тур в ответе (находка 24.10)', async () => {
+    // Запрос искал вулкан по описанию целиком, а отбор в коде — по обрезанному
+    // до 400 знаков: тур, найденный базой, выкидывался, и туристу говорили
+    // «нет живого тура к этому вулкану». Свой тур заводится и убирается здесь.
+    const description = `${'Выезд из города на джипах по грунтовке. '.repeat(12)}К вечеру — подножие Мутновского вулкана.`;
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, description, season_start, season_end)
+       VALUES ($1, 'W2PT джип выходного дня', 'w2pt-jeep-weekend', 'jeep', 1000, 'per_person', 1, 10, 8, 'easy',
+               TRUE, TRUE, $2, '2026-06-01', '2026-12-31')
+       RETURNING id::text`,
+      [OPERATOR.id, description],
+    );
+    try {
+      const { loadShowcaseTours, pickToursForAnswer } = await import('@/lib/telegram/tourist-tours');
+      const question = 'туры на Мутновский вулкан';
+      const loaded = await loadShowcaseTours(question);
+      expect(loaded.ok).toBe(true);
+      const tours = loaded.ok ? loaded.tours : [];
+      expect(tours.map((t) => t.slug)).toContain('w2pt-jeep-weekend');
+      // Описание в строке обрезано — вулкана в нём нет; судит текст поиска.
+      expect(tours.find((t) => t.slug === 'w2pt-jeep-weekend')?.description ?? '').not.toMatch(/мутнов/i);
+      const picked = pickToursForAnswer(question, loaded, new Date('2026-10-24T00:00:00Z'));
+      expect(picked.kind).toBe('list');
+      expect(picked.tours.map((t) => t.slug)).toEqual(['w2pt-jeep-weekend']);
+    } finally {
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = $1`, [rows[0].id]);
+    }
+  });
+
   it('чат виджета партнёра (loadPartnerTours): только живые туры этого оператора, закреплённый первым, соседа нет', async () => {
     // Аудит 15.10, WID-safety: чат на сайте партнёра подбирал туры по всей
     // платформе и советовал туры конкурентов. Сосед с живым туром и

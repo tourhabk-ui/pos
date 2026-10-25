@@ -367,8 +367,8 @@ export default function KuzmichClient() {
   }
 
   const busyRef = useRef(false);
-  const queuedRef = useRef<string | null>(null);
-  const [queuedHint, setQueuedHint] = useState(false);
+  const queuedRef = useRef<string[]>([]);
+  const [queued, setQueued] = useState<string[]>([]);
   const messagesRef = useRef(messages);
   const imageFileRef = useRef<File | null>(null);
   const imagePreviewRef = useRef<string | null>(null);
@@ -378,13 +378,15 @@ export default function KuzmichClient() {
   }, [messages]);
 
   // Отправка сообщения. Enter во время ответа не пропадает: текст встаёт
-  // в очередь и уходит, когда текущий ответ дописан.
+  // в очередь (видно, что ждёт) и уходит, когда текущий ответ дописан.
+  // Несколько Enter подряд — одним вопросом, по строке на сообщение: прежде
+  // очередь держала одно, и второе молча затирало первое.
   const send = useCallback(async (text: string) => {
     if (!text.trim() && !imageFileRef.current) return;
     if (busyRef.current) {
       if (text.trim()) {
-        queuedRef.current = text.trim();
-        setQueuedHint(true);
+        queuedRef.current = [...queuedRef.current, text.trim()];
+        setQueued(queuedRef.current);
         setInput('');
       }
       return;
@@ -455,9 +457,9 @@ export default function KuzmichClient() {
       setLoading(false);
       inputRef.current?.focus();
       const next = queuedRef.current;
-      queuedRef.current = null;
-      setQueuedHint(false);
-      if (next) void sendRef.current(next);
+      queuedRef.current = [];
+      setQueued([]);
+      if (next.length > 0) void sendRef.current(next.join('\n'));
     }
   }, [sessionId]);
   useEffect(() => {
@@ -687,8 +689,19 @@ export default function KuzmichClient() {
             <Send size={16} />
           </button>
         </div>
-        {queuedHint && (
-          <p className="px-4 pb-3 text-xs text-[var(--text-muted)]">Сообщение уйдёт, когда Кузьмич допишет ответ.</p>
+        {queued.length > 0 && (
+          <div className="px-4 pb-3" aria-live="polite">
+            <p className="text-xs text-[var(--text-muted)]">
+              {queued.length === 1
+                ? 'Сообщение уйдёт, когда Кузьмич допишет ответ.'
+                : 'Сообщения уйдут одним вопросом, когда Кузьмич допишет ответ.'}
+            </p>
+            <ul className="mt-1 flex flex-col gap-0.5" aria-label="Ждут отправки">
+              {queued.map((q, i) => (
+                <li key={i} className="text-xs text-[var(--text-secondary)] break-words">{q}</li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 

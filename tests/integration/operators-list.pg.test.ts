@@ -209,6 +209,50 @@ withPg('витрина /operators: факты о живых турах, кноп
     expect(html).not.toMatch(/>0 туров/);
   });
 
+  it('кнопка «Операторы» в Telegram: отбор и порядок витрины, счёт всего списка, пауза проката (находка 24.10)', async () => {
+    // До 24.10 кнопка брала `partners WHERE is_public LIMIT 10`: прокат, партнёр
+    // без адреса (ссылка /operators/null) и перевозчик шли под «Операторы».
+    // Свои строки сцены заводятся здесь и убираются в конце: числа витрины
+    // остальных тестов не меняются.
+    const extra = [
+      { id: 'a1270000-0000-4000-8000-000000000006', slug: 'test-cars', name: 'Тест Прокат', category: 'cars' },
+      { id: 'a1270000-0000-4000-8000-000000000007', slug: null, name: 'Тест Без Адреса', category: 'operator' },
+    ];
+    for (const p of extra) {
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, $2, $3, '{}'::jsonb, $4, TRUE, TRUE, 'active')`,
+        [p.id, p.name, p.category, p.slug],
+      );
+    }
+    try {
+      const { queryOperatorLinks } = await import('@/lib/operators/list-query');
+      const all = await queryOperatorLinks(10);
+      // По алфавиту, как /operators: «Без Туров», «Вертолёты», «Рыбалка».
+      expect(all.items.map((i) => i.slug)).toEqual(['test-nolive', 'test-heli', 'test-fish']);
+      expect(all.total).toBe(3);
+
+      const cut = await queryOperatorLinks(2);
+      expect(cut.items.map((i) => i.slug)).toEqual(['test-nolive', 'test-heli']);
+      expect(cut.total).toBe(3);
+
+      const paused = await queryOperatorLinks(10, ['test-fish']);
+      expect(paused.items.map((i) => i.slug)).toEqual(['test-nolive', 'test-heli']);
+      expect(paused.total).toBe(2);
+
+      const { touristOperatorsList } = await import('@/lib/telegram/operators-list');
+      const text = await touristOperatorsList(new Date('2026-11-01T00:00:00Z'));
+      expect(text).toContain('все 3');
+      expect(text).toContain('href="https://vedarai.ru/operators/test-heli"');
+      for (const name of [P.carrier.name, P.hidden.name, 'Тест Прокат', 'Тест Без Адреса']) {
+        expect(text).not.toContain(name);
+      }
+      expect(text).not.toContain('/operators/null');
+    } finally {
+      await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [extra.map((p) => p.id)]);
+    }
+  });
+
   it('миграция 1270: обложка Местечка — вертолётный кадр, только поверх обложки 1222', async () => {
     const hero = async (slug: string) =>
       (await pool.query<{ hero_image: string | null }>(`SELECT hero_image FROM partners WHERE slug = $1`, [slug])).rows[0]?.hero_image;

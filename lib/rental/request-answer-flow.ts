@@ -2,12 +2,16 @@
  * Нажатие «Беру» / «Не могу» в личном чате прокатчика пилота.
  * Ответ и отметка дней — одна транзакция: второе нажатие дни не меняет.
  * Менеджеру уходит один факт без персональных данных заказчика.
+ *
+ * Кнопка из списка «Заявки» (с номером строки) список не правит: в нём
+ * кнопки других заявок. Ответ — отдельным сообщением, первой строкой
+ * названа заявка. Кнопка под самой заявкой правит её сообщение, как раньше.
  */
 
 import { tgSend } from '@/lib/notifications/tg-send';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import {
-  managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText,
+  managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText, requestAnswerListHead,
 } from '@/lib/rental/request-answer';
 import {
   claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer,
@@ -47,13 +51,19 @@ export async function handleRentalRequestAnswer(opts: {
   notifyManager?: (text: string) => Promise<void>;
 }): Promise<void> {
   const notify = opts.notifyManager ?? tellManager;
+  const press = parseRequestAnswer(opts.payload);
+  /** Заявка, когда она прочитана: из списка ответ без неё не называет, на что дан. */
+  let listHead: string | null = null;
   const say = async (kind: Parameters<typeof partnerAnswerText>[0], edit: boolean) => {
     const line = partnerAnswerText(kind);
+    if (press?.listNo !== undefined) {
+      await opts.send(listHead ? `${listHead}\n${line}` : line, null);
+      return;
+    }
     const text = edit ? requestAnswerEditText(opts.originalText, line) : line;
     await opts.send(text, edit ? opts.editMid : null);
   };
 
-  const press = parseRequestAnswer(opts.payload);
   if (!press) {
     await say({ kind: 'unparsed' }, false);
     return;
@@ -81,6 +91,11 @@ export async function handleRentalRequestAnswer(opts: {
     return;
   }
   const request = loaded.request;
+  if (press.listNo !== undefined) {
+    listHead = requestAnswerListHead({
+      listNo: press.listNo, title: request.title, from: request.dateFrom, to: request.dateTo,
+    });
+  }
 
   const offer = press.answer === 'take'
     ? await resolveRequestOffer(partner.partnerId, request.offerId, request.title)

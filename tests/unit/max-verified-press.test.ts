@@ -62,7 +62,7 @@ vi.mock('@/lib/max/max-fetch', () => ({
   maxBot: () => ({ api: { sendMessageToChat: m.maxSend, sendMessageToUser: m.maxSendUser, answerOnCallback: m.answerCb } }),
 }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: m.pool } }));
-vi.mock('@/lib/kuzmich/core', () => ({ processMessage: m.processMessage, cleanupPending: vi.fn() }));
+vi.mock('@/lib/kuzmich/core', () => ({ hasLiveBookingFlow: vi.fn(async () => false), processMessage: m.processMessage, cleanupPending: vi.fn() }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({
   PARTNER_EMAIL_BIND_CLOSED: 'привязка по почте закрыта',
   findPartnerByChat: m.findPartner,

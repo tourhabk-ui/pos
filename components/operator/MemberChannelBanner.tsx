@@ -18,7 +18,7 @@
  */
 import { useEffect, useState } from 'react';
 import { BellOff, ExternalLink, MessageCircle, X } from 'lucide-react';
-import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { isPlaqueDismissed, rememberPlaqueDismissed, type ChannelPlaque } from '@/lib/hub/plaque-dismiss';
 
 interface MemberChannel {
   max: boolean;
@@ -50,17 +50,15 @@ function readLinks(json: unknown): Links | null {
 const LINK_CLASS =
   'shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-lg text-xs font-medium transition-colors duration-200';
 
+// Скрытие помнит состояние плашки (lib/hub/plaque-dismiss): закрытая мягкая
+// подсказка не прячет предупреждение «не дойдут», а оно само — лишь до конца сессии.
 const DISMISS_KEY = 'vedar.member-channel-banner.dismissed';
-
-function readDismissed(): boolean {
-  try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
-}
 
 export function MemberChannelBanner() {
   const [channel, setChannel] = useState<MemberChannel | null>(null);
   const [links, setLinks] = useState<Links | null>(null);
   const [linksFailed, setLinksFailed] = useState(false);
-  const [dismissed, setDismissed] = useState(readDismissed);
+  const [hidden, setHidden] = useState<ChannelPlaque | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -81,8 +79,10 @@ export function MemberChannelBanner() {
     return () => ctrl.abort();
   }, []);
 
+  const plaque: ChannelPlaque | null = channel && !channel.max ? (!channel.telegram ? 'none' : 'telegram') : null;
+  const dismissed = plaque !== null && (hidden === plaque || isPlaqueDismissed(DISMISS_KEY, plaque));
   if (!channel || channel.max || dismissed) return null;
-  const none = !channel.telegram;
+  const none = plaque === 'none';
   const sentence = linksFailed
     ? 'Ссылка для подключения сейчас не выдаётся — попробуйте позже.'
     : none
@@ -90,10 +90,9 @@ export function MemberChannelBanner() {
       : 'Брони, заявки и напоминания приходят вам в Telegram без имён и телефонов клиентов: их платформа отправляет только в MAX.';
 
   function hide() {
-    setDismissed(true);
-    try { localStorage.setItem(DISMISS_KEY, '1'); } catch (err) {
-      logSwallowedFailure('member-channel-banner', 'сохранение свёрнутой плашки', err);
-    }
+    if (!plaque) return;
+    setHidden(plaque);
+    rememberPlaqueDismissed(DISMISS_KEY, plaque, 'member-channel-banner');
   }
 
   return (
@@ -105,7 +104,12 @@ export function MemberChannelBanner() {
         {none
           ? <BellOff className="w-4 h-4 text-[var(--warning)] shrink-0" />
           : <MessageCircle className="w-4 h-4 text-[var(--ocean)] shrink-0" />}
-        <p className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]" title={sentence}>
+        {/* Предупреждение не режется в одну строку: на 390px последствие и
+            «нажмите Старт» оставались только в title, а наведения на телефоне нет. */}
+        <p
+          className={`flex-1 min-w-0 text-sm text-[var(--text-primary)] ${none ? 'break-words py-2' : 'truncate'}`}
+          title={none ? undefined : sentence}
+        >
           {sentence}
         </p>
         <button

@@ -4,7 +4,7 @@
  */
 
 import { findPartnerByChat, processPartnerMessage } from '@/lib/kuzmich/operator-chat';
-import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { isOperatorDatesPhrase } from '@/lib/operators/chat-dates/flow';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
@@ -31,7 +31,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
   const menu = partnerMenu(lookup.partner);
   const role = menuRoleOf(lookup.partner);
   if (!menu || !role) return false;
-  if (boundChatLaneFor('telegram', opts.chatId, opts.text) === 'tourist') return false;
+  if (boundChatLaneFor('telegram', opts.chatId, opts.text, { rental: partnerHasRental(lookup.partner) }) === 'tourist') return false;
 
   // Беда в тексте — блок 112 над любым ответом меню роли (даты, входящие,
   // помощник): команда кабинета и дело CRM в той же фразе остаются здесь.

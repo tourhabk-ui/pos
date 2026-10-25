@@ -37,8 +37,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
-import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
-import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage } from '@/lib/kuzmich/core';
+import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
@@ -56,7 +56,7 @@ import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
-import { findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
+import { ADMIN_MAX_TEXT, findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 import {
@@ -842,7 +842,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // администратора. Группы и незаверенные апдейты базу здесь не трогают.
     if (opts?.verifiedOrigin === true && msg.recipient.chat_type === 'dialog' && typeof userId === 'number') {
       const admin = await findMaxAdmin(userId);
-      if (admin.outcome === 'admin') {
+      // Заявка, начатая администратором у Кузьмича туриста, доводится им же:
+      // имя, дата, контакт кнопкой иначе получали «Не понял команду» или
+      // «только текст» (#2756).
+      if (admin.outcome === 'admin' && !(await hasLiveBookingFlow(chatId, 'max', pending))) {
         const { ADMIN_CHAT_TEXT, handleAdminMessage } = await import('@/lib/max/admin-chat');
         if (!text) {
           await maxReply(chatId, ADMIN_CHAT_TEXT.textOnly);
@@ -1033,8 +1036,13 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // При беде поток дат не смотрит: «турист сломал ногу, закрой субботу»
       // получал ответ про даты без 112 и без Кузьмича.
       // Полоса — один раз на сообщение: у неё память о беде этого чата.
-      const lane = lookup.outcome === 'found' ? boundChatLaneFor('max', chatId, text) : null;
-      if (lookup.outcome === 'found' && !emergency && lane === 'tourist' && opts?.verifiedOrigin === true) {
+      // Живая заявка у Кузьмича туриста — ответы на её шаги тоже ему, мимо
+      // потока дат: «15 июля» — дата заявки, а не открытие дат (#2756).
+      const bookingLive = lookup.outcome === 'found' && await hasLiveBookingFlow(chatId, 'max', pending);
+      const lane = lookup.outcome !== 'found' ? null
+        : bookingLive ? 'tourist' as const
+          : boundChatLaneFor('max', chatId, text, { rental: partnerHasRental(lookup.partner) });
+      if (lookup.outcome === 'found' && !emergency && !bookingLive && lane === 'tourist' && opts?.verifiedOrigin === true) {
         const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
         const handled = await handleOperatorDatesText({
           chatId, sourceMid: msg.body.mid ?? null, text, partner: lookup.partner, send: datesSend(chatId, menu), dialog,
@@ -1221,8 +1229,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       }
       if (rolePress.role === 'admin') {
         const admin = rolePresserId === null ? { outcome: 'none' as const } : await findMaxAdmin(rolePresserId);
+        // «Не смог проверить» — не «вы не администратор» (§4.0): кнопку не
+        // выполняем и говорим, что роль не проверена, как в Telegram.
+        if (admin.outcome === 'unavailable') {
+          await maxReply(messageChatId, ADMIN_MAX_TEXT.unchecked);
+          return;
+        }
         if (admin.outcome !== 'admin') {
-          await maxReply(messageChatId, 'Эта кнопка — кабинет администратора. В этом чате её не выполняю.');
+          await maxReply(messageChatId, ADMIN_MAX_TEXT.deny);
           return;
         }
         const screen = await roleMenuScreen({

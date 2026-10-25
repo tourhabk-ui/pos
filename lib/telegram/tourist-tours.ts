@@ -6,10 +6,10 @@
  * не текст модели. Кнопки ведут на карточку vedarai.ru.
  */
 
-import { askedActivity, detectTourIntent, isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
+import { askedActivity, isSightseeingQuestion, wantsTourCards } from '@/lib/ai/booking-intent';
 import { namedVolcanoes, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { pool } from '@/lib/db-pool';
-import { calendarDay, coversDay, overlapsWindow, parseIsoDate, seasonAccusative, windowForMonths, type DateWindow } from '@/lib/kuzmich/season-window';
+import { calendarDay, coversDay, lastDay, overlapsWindow, parseIsoDate, seasonAccusative, windowForMonths, ymd, type DateWindow } from '@/lib/kuzmich/season-window';
 import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -56,6 +56,12 @@ export interface CatalogTour {
   activity_type?: string | null;
   location_name?: string | null;
   description?: string | null;
+  /**
+   * Текст, по которому запрос витрины искал место: название, место и
+   * описание целиком. `description` в выборке обрезан до 400 знаков, и вулкан,
+   * названный дальше, отбор в коде терял (находка 24.10).
+   */
+  match_text?: string | null;
   season_start: string | null;
   season_end: string | null;
   /** partners.slug. Пауза проката прячет этого партнёра из источников ответа. */
@@ -67,11 +73,6 @@ export interface CatalogFacts {
   note: string;
   html: string;
   inline?: { inline_keyboard: Array<Array<{ text: string; url: string }>> };
-}
-
-export function wantsCatalogCards(text: string): boolean {
-  if (isCarRentalAsk(text)) return false;
-  return detectTourIntent(text).detected;
 }
 
 /** Названный месяц важнее «летом»: «в июле летом» — это июль. */
@@ -96,24 +97,31 @@ export function askedDays(text: string): number | null {
   return n >= 1 && n <= 30 ? n : null;
 }
 
-function monthOf(value: string | null): number | null {
-  if (!value) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
-  if (!m) return null;
-  const month = Number(m[2]);
-  return month >= 1 && month <= 12 ? month : null;
+function yearMonthOf(value: string | null): { y: number; m: number } | null {
+  const iso = parseIsoDate(value);
+  if (!iso) return null;
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  return m >= 1 && m <= 12 ? { y, m } : null;
 }
 
+/**
+ * Месяцы сезона по настоящим датам, с годом. Сезон 1 октября 2026 —
+ * 31 октября 2027 — все двенадцать: прежний обход от месяца начала до первого
+ * месяца конца без года давал один октябрь, и на июль туристу уходило ложное
+ * «В июле этого заезда нет» (находка 24.10). Конец раньше начала — null.
+ */
 function seasonMonths(start: string | null, end: string | null): number[] | null {
-  const a = monthOf(start);
-  const b = monthOf(end);
+  const a = yearMonthOf(start);
+  const b = yearMonthOf(end);
   if (a === null || b === null) return null;
+  const last = b.y * 12 + b.m;
+  let cursor = a.y * 12 + a.m;
+  if (cursor > last) return null;
   const out: number[] = [];
-  let cursor = a;
-  for (let i = 0; i < 12; i += 1) {
-    out.push(cursor);
-    if (cursor === b) return out;
-    cursor = cursor === 12 ? 1 : cursor + 1;
+  while (cursor <= last && out.length < 12) {
+    out.push(((cursor - 1) % 12) + 1);
+    cursor += 1;
   }
   return out;
 }
@@ -175,12 +183,36 @@ function monthList(months: number[]): string {
   return months.map((m) => MONTH_PREP[m - 1] ?? String(m)).join(', ');
 }
 
-/** Месяцы вопроса, в которые этот заезд не попадает. */
-function missedMonths(tour: CatalogTour, months: number[] | null): number[] {
-  if (!months) return [];
-  const have = seasonMonths(tour.season_start, tour.season_end);
-  if (!have) return [];
-  return months.filter((month) => !have.includes(month));
+/**
+ * Дни месяца внутри окна вопроса, с годом окна. Месяц, который в этом окне
+ * уже прошёл (окно начато сегодняшним днём), — null: о нём не говорим.
+ */
+function monthInWindow(month: number, window: DateWindow): DateWindow | null {
+  const first = Number(window.start.slice(0, 4));
+  const last = Number(window.end.slice(0, 4));
+  for (let y = first; y <= last; y += 1) {
+    const from = ymd(y, month, 1);
+    const to = ymd(y, month, lastDay(y, month));
+    const start = from > window.start ? from : window.start;
+    const end = to < window.end ? to : window.end;
+    if (start <= end) return { start, end, label: window.label };
+  }
+  return null;
+}
+
+/**
+ * Месяцы вопроса, в которые этот заезд не попадает — по датам окна вопроса,
+ * с годом: «июль» осенью 2026 — это июль 2027, и сезон до октября 2027 его
+ * накрывает. Сезон без дат — ничего не утверждаем.
+ */
+function missedMonths(tour: CatalogTour, months: number[] | null, window: DateWindow | null): number[] {
+  if (!months || !window) return [];
+  if (!parseIsoDate(tour.season_start) || !parseIsoDate(tour.season_end)) return [];
+  return months.filter((month) => {
+    const span = monthInWindow(month, window);
+    if (!span) return false;
+    return !overlapsWindow(tour.season_start, tour.season_end, span);
+  });
 }
 
 /** Модели: не расписывать заезд на месяц, которого в сезоне нет. */
@@ -233,7 +265,9 @@ export function showcaseLookup(question: string):
   return { kind: 'activity', type: hint.type, word: hint.word.replace(/ё/g, 'е') };
 }
 
+/** Тот же текст, что искал запрос витрины; без него — то, что есть в строке. */
 function tourText(tour: CatalogTour): string {
+  if (tour.match_text) return tour.match_text;
   return [tour.title, tour.location_name ?? '', tour.description ?? ''].join(' ');
 }
 
@@ -260,10 +294,22 @@ function endSentence(price: string): string {
   return /[.!?…]$/.test(price) ? price : `${price}.`;
 }
 
+const BUTTON_MAX = 64;
+
+/**
+ * Подпись кнопки читает человек: цена — как в карточке, без указания модели
+ * (прежде на кнопку уходил обрубок «…не называй её ценой с че…», находка 24.10).
+ * Не влезает — укорачивается название, а не цена: обрывок фразы про цену
+ * хуже короткого названия, карточка по кнопке назовёт его целиком.
+ */
 function buttonLabel(tour: CatalogTour): string {
-  const price = priceFromUnit(tour.base_price, tour.price_unit) ?? 'цена не указана';
-  const raw = `${tour.title} · ${price}`;
-  return raw.length <= 64 ? raw : `${raw.slice(0, 61)}…`;
+  const price = touristPrice(tour).replace(' (за что назначена цена — не записано)', ', за что — не записано');
+  const room = BUTTON_MAX - price.length - 3;
+  const title = tour.title.length <= room
+    ? tour.title
+    : `${tour.title.slice(0, Math.max(room - 1, 1)).trimEnd()}…`;
+  const raw = `${title} · ${price}`;
+  return raw.length <= BUTTON_MAX ? raw : `${raw.slice(0, BUTTON_MAX - 1)}…`;
 }
 
 const EMPTY: CatalogFacts = { note: '', html: '' };
@@ -333,7 +379,7 @@ export function pickToursForAnswer(
   now: Date = new Date(),
 ): PickedTours {
   const empty: PickedTours = { kind: 'not_tour', line: '', tours: [], unnamedMore: 0, window: null, windowLabel: null, nearest: [] };
-  if (!wantsCatalogCards(question)) return empty;
+  if (!wantsTourCards(question)) return empty;
   if (!loaded.ok) {
     if (!insistsOnTours(question)) return empty;
     return {
@@ -415,11 +461,12 @@ export function catalogFacts(
   if (picked.kind !== 'list') return { note: picked.line, html: picked.line };
   const show = picked.tours;
   const months = picked.window ? askedMonths(question) : null;
+  const window = picked.window;
   const when = picked.windowLabel
     ? `Вопрос про ${seasonAccusative(picked.windowLabel)}.`
     : 'Месяц в вопросе не назван. Называю только туры, чей сезон идёт сегодня.';
   const rows = show.map((tour) => {
-    const windowNote = modelWindow(missedMonths(tour, months));
+    const windowNote = modelWindow(missedMonths(tour, months, window));
     return `«${tour.title}»: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
   });
   const more = picked.unnamedMore > 0
@@ -433,7 +480,7 @@ export function catalogFacts(
   ].filter(Boolean).join('\n');
 
   const htmlRows = show.map((tour) => {
-    const aside = humanWindow(missedMonths(tour, months));
+    const aside = humanWindow(missedMonths(tour, months, window));
     return `<a href="${tourUrl(tour)}">${escapeHtml(tour.title)}</a> — ${escapeHtml(daysPhrase(tour))}, ${escapeHtml(seasonPhrase(tour))}, ${escapeHtml(endSentence(touristPrice(tour)))}${aside ? ` ${escapeHtml(aside)}` : ''}`;
   });
   const html = [`<b>Из каталога Ведара</b>`, ...htmlRows].join('\n');
@@ -445,6 +492,7 @@ export function catalogFacts(
 
 const SHOWCASE_SELECT = `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count,
               ot.activity_type, ot.location_name, LEFT(ot.description, 400) AS description,
+              concat_ws(' ', ot.title, ot.location_name, coalesce(ot.description, '')) AS match_text,
               ot.season_start::text AS season_start, ot.season_end::text AS season_end,
               p.slug AS operator_slug, p.name AS operator_name
          FROM operator_tours ot

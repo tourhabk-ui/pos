@@ -29,10 +29,12 @@
  * на его вопрос, а не дела кабинета, и у кабинета нет ни 112, ни разговора.
  */
 
+import { VEHICLE_WORDS } from '@/lib/ai/vehicle-words';
 import { isFleetAsk } from '@/lib/kuzmich/operator-rental-fleet';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
 import { calendarAsk } from '@/lib/rental/car-calendar';
+import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { isOfferEditAsk } from '@/lib/rental/offer-edit';
 import { isNextCommand } from '@/lib/seat-requests/answer-edit';
 import { isSummaryCommand } from '@/lib/seat-requests/summary';
@@ -48,7 +50,11 @@ function word(body: string): RegExp {
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, 'u');
 }
 
-const OWN = word('мои|мой|моя|мое|свои|свой|своя|свое|наш|наша|наше|наши');
+const OWN = word('мои|мой|моя|мое|свои|свой|своя|свое|наш|наша|наше|наши|у меня|у нас');
+// «хочу поменять цену тура», «исправить описание» — правка своего, не просьба туриста.
+const EDIT_OWN = /(?:поменя|измен|исправ|обнов)\p{L}*\s+(?:\p{L}+\s+)?(?:цен|описан|прайс)/u;
+// «какой джип свободен 30 октября» у прокатчика — его календарь, а не аренда.
+const FREE = word('свобод\\p{L}*|занят\\p{L}*');
 const CRM = word('клиент\\p{L}*|задач\\p{L}*|касани\\p{L}*|входящ\\p{L}*|напомни\\p{L}*|перезвон\\p{L}*|запиш\\p{L}*|заведи\\p{L}*');
 const WHO = word('кто');
 const SHOW_LIST = word('покажи|список');
@@ -58,7 +64,8 @@ const OPEN_DATES = /(?:открой|открыть|закрой|закрыть|�
 const DATE_WORD = word('дат\\p{L}*|суббот\\p{L}*|воскресен\\p{L}*|понедельник\\p{L}*|вторник\\p{L}*|сред\\p{L}*|четверг\\p{L}*|пятниц\\p{L}*|мест\\p{L}*|июл\\p{L}*|август\\p{L}*|сентябр\\p{L}*|октябр\\p{L}*|ноябр\\p{L}*|декабр\\p{L}*|январ\\p{L}*|феврал\\p{L}*|март\\p{L}*|апрел\\p{L}*|ма[йя]\\p{L}*|июн\\p{L}*');
 const RENTAL = word('аренд\\p{L}*|прокат\\p{L}*') ;
 const RENTAL_EN = /rent a car|car rental|car hire/u;
-const VEHICLE = word('автомобил\\p{L}*|машин\\p{L}*|авто|джип\\p{L}*|внедорожник\\p{L}*|suv|вездеход\\p{L}*');
+// Словарь вида машины — общий с isCarRentalAsk (lib/ai/vehicle-words).
+const VEHICLE = word(VEHICLE_WORDS);
 const TOUR = word('тур(?:а|ы|ов|е|у|ом)?|экскурси\\p{L}*');
 const TRANSFER = word('трансфер\\p{L}*|transfer');
 const WITH_DRIVER = /машин\p{L}*\s+с\s+водител\p{L}*/u;
@@ -80,10 +87,22 @@ function isCrmRecordOfOthers(t: string): boolean {
   return CRM_LEAD.test(t) && !FIRST_PERSON.test(t);
 }
 
-function isCabinet(raw: string, t: string): boolean {
+/** Что о партнёре знает классификатор: прокат ли это (его машины, его календарь). */
+export interface BoundChatContext {
+  rental?: boolean;
+}
+
+/** Прокат: пилот кабинета или категория «машины». */
+export function partnerHasRental(partner: { slug?: string | null; category?: string | null }): boolean {
+  return isRentalPilotSlug(partner.slug ?? null) || partner.category === 'cars';
+}
+
+function isCabinet(raw: string, t: string, ctx: BoundChatContext): boolean {
   if (isCabinetCommand(raw, t)) return true;
   if (SHOW_LIST.test(t) && BOOKING_WORD.test(t)) return true;
-  if (CRM.test(t) || OWN.test(t)) return true;
+  if (CRM.test(t) || OWN.test(t) || EDIT_OWN.test(t)) return true;
+  // Прокатчик спрашивает о своих машинах: свободна ли, на какие даты.
+  if (ctx.rental && VEHICLE.test(t) && (FREE.test(t) || DATE_WORD.test(t))) return true;
   if (WHO.test(t) && /ждет/.test(t)) return true;
   if (BOOKING_SHORT.test(t) && t.split(' ').length <= 2) return true;
   if (OPEN_DATES.test(t) && DATE_WORD.test(t)) return true;
@@ -94,12 +113,12 @@ function isCabinet(raw: string, t: string): boolean {
  * «tourist» — просьба как у туриста, её отвечает Кузьмич туриста.
  * «partner» — кабинет или неузнанное.
  */
-export function boundChatLane(text: string): BoundChatLane {
+export function boundChatLane(text: string, ctx: BoundChatContext = {}): BoundChatLane {
   const t = norm(text);
   if (t.length === 0) return 'partner';
   if (isCabinetCommand(text, t)) return 'partner';
   if (detectEmergency(text).detected && !isCrmRecordOfOthers(t)) return 'tourist';
-  if (isCabinet(text, t)) return 'partner';
+  if (isCabinet(text, t, ctx)) return 'partner';
   if (RENTAL_EN.test(t)) return 'tourist';
   // «аренда» без машины — тоже просьба туриста, если это вопрос («хочу
   // аренду», «сколько стоит аренда»), а не слово в деле кабинета.
@@ -125,12 +144,12 @@ export function boundChatLaneFor(
   channel: 'telegram' | 'max',
   chatId: number,
   text: string,
-  opts: { admin?: boolean; nowMs?: number } = {},
+  opts: { admin?: boolean; nowMs?: number; rental?: boolean } = {},
 ): BoundChatLane {
   const nowMs = opts.nowMs ?? Date.now();
   const key = `${channel}:${chatId}`;
   const emergency = detectEmergency(text).detected;
-  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text);
+  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text, { rental: opts.rental });
   if (emergency && lane === 'tourist') {
     emergencyMarks.set(key, nowMs);
     return lane;

@@ -5,6 +5,10 @@
  * совпадений и несколько совпадений — разные ответы, чужую машину не берём.
  * Второй черновик той же машины, пока первый pending, дополняет его:
  * новая цена не стирает уже присланное описание и наоборот.
+ *
+ * Поэтому одобрение сверяет черновик с тем, что видел модератор: пока
+ * карточка была открыта, прокатчик мог прислать другое число в ту же строку.
+ * Не сошлось — ничего не применяется, модератору «черновик изменился».
  */
 
 import type { PoolClient } from 'pg';
@@ -53,10 +57,17 @@ export interface PendingOfferEdit {
   createdAt: string;
 }
 
+/** Цена и описание черновика, какими их показала карточка модератору. */
+export interface SeenDraft {
+  price: number | null;
+  conditions: string | null;
+}
+
 export type DecideEdit =
   | { outcome: 'approved'; title: string }
   | { outcome: 'rejected'; title: string }
   | { outcome: 'already' }
+  | { outcome: 'changed' }
   | { outcome: 'not_found' }
   | { outcome: 'db_error' };
 
@@ -201,6 +212,8 @@ export async function decideOfferEdit(opts: {
   action: 'approve' | 'reject';
   reason: string | null;
   moderatedBy: string | null;
+  /** Что было в карточке. Одобрение без него или при расхождении не применяется. */
+  seen: SeenDraft | null;
 }): Promise<DecideEdit> {
   const next = opts.action === 'approve' ? 'approved' : 'rejected';
   if (opts.action === 'approve' && !draftMayApply(next)) return { outcome: 'db_error' };
@@ -229,6 +242,14 @@ export async function decideOfferEdit(opts: {
       return { outcome: 'already' };
     }
     if (opts.action === 'approve') {
+      if (
+        opts.seen === null
+        || row.price_rub_per_day !== opts.seen.price
+        || row.conditions !== opts.seen.conditions
+      ) {
+        await client.query('ROLLBACK');
+        return { outcome: 'changed' };
+      }
       const applied = await client.query(APPLY_SQL, [
         row.offer_id, row.price_rub_per_day, row.conditions, row.partner_id,
       ]);

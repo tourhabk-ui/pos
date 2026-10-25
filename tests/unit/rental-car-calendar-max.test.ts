@@ -43,6 +43,8 @@ vi.mock('@/lib/ai/providers', () => ({
 }));
 vi.mock('@/lib/ai/rag-context', () => ({ buildRAGContext: vi.fn().mockResolvedValue('') }));
 vi.mock('@/lib/kuzmich/core', () => ({
+  // Живого черновика заявки нет: развилка чата судится без него.
+  hasLiveBookingFlow: vi.fn(async () => false),
   processMessage: vi.fn(), cleanupPending: vi.fn(), saveMsg: vi.fn(async () => undefined), getHistory: vi.fn(async () => []),
 }));
 vi.mock('@/lib/kuzmich/safety-review-log', () => ({ recordSafetyReview: vi.fn() }));
@@ -243,6 +245,38 @@ describe('нажатие rr: ответ на заявку', () => {
     expect(bodies.join('\n')).toContain('беру');
     expect(bodies.join('\n')).not.toContain(phone);
     expect(bodies.join('\n')).not.toContain('Анна');
+    vi.unstubAllGlobals();
+  });
+
+  it('«Беру №2» из списка «Заявки» список не правит: ответ новым сообщением с номером заявки', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, text: async () => '' })));
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
+      const s = String(sql);
+      if (/admin_max_bindings/.test(s)) return { rows: [] };
+      if (/FROM partners/.test(s)) {
+        return { rows: [{ id: PARTNER, slug: 'laguna-prokat', name: 'Лагуна Прокат', category: 'transfer', user_id: null, profile_status: null }] };
+      }
+      if (/FROM leads/.test(s)) {
+        return { rows: [{
+          id: LEAD, operator_id: PARTNER,
+          source_data: { kind: 'car_rental', company_id: PARTNER, offer_id: OFFER, offer_title: 'Suzuki Jimny', date_from: '2026-11-10', date_to: '2026-11-11' },
+        }] };
+      }
+      if (/lead_activity_log/.test(s) && /SELECT/.test(s)) return { rows: [] };
+      if (/INSERT INTO lead_activity_log/.test(s)) return { rows: [{ id: '1' }] };
+      if (/INSERT INTO rental_car_busy/.test(s) && /request/.test(s)) {
+        const days = Array.isArray(params?.[2]) ? params[2] as string[] : [];
+        return { rows: days.map((day) => ({ day })) };
+      }
+      if (/FROM car_rental_offers/.test(s)) return { rows: [{ id: OFFER, title: 'Suzuki Jimny', is_active: true }] };
+      return { rows: [] };
+    });
+    await post(VERIFIED, press(`rr:y:${LEAD}:2`, { text: 'Заявки на прокат.\n1. Tank-300.\n2. Suzuki Jimny.\n3. Sever Truck.' }));
+    expect(m.edit).not.toHaveBeenCalled();
+    const reply = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Заявка №2 из списка'));
+    expect(reply).toBeTruthy();
+    expect(String(reply?.[1])).toContain('Suzuki Jimny, 2026-11-10 — 2026-11-11');
+    expect(String(reply?.[1])).toContain('беру');
     vi.unstubAllGlobals();
   });
 });

@@ -8,10 +8,12 @@
  *  - MAX подключён — баннера нет и ключ привязки не запрашивается вовсе;
  *  - проверка не удалась или это владелец — баннера нет: «не подключено» на
  *    сбое соврало бы (§4.0);
- *  - ссылку не выдали — сказано словами, а не пустая кнопка.
+ *  - ссылку не выдали — сказано словами, а не пустая кнопка;
+ *  - закрытая подсказка «Telegram без имён» не прячет «ничего не подключено»,
+ *    а оно само скрыто только до конца сессии и не режется в одну строку.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 import { MemberChannelBanner } from '@/components/operator/MemberChannelBanner';
@@ -37,6 +39,8 @@ const posts = (f: ReturnType<typeof serve>) => f.mock.calls.filter(c => c[1]?.me
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
+  sessionStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -94,5 +98,29 @@ describe('баннер мессенджера менеджера', () => {
     render(<MemberChannelBanner />);
     await waitFor(() => expect(screen.getByText(/Ссылка для подключения сейчас не выдаётся/)).toBeTruthy());
     expect(screen.queryByRole('link', { name: /Подключить/ })).toBeNull();
+  });
+
+  it('крестик подсказки «Telegram без имён» не прячет «ничего не подключено»; оно — до конца сессии', async () => {
+    serve(manager(false, true));
+    const first = render(<MemberChannelBanner />);
+    await waitFor(() => expect(screen.getByText(/приходят вам в Telegram без имён/)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть подсказку' }));
+    first.unmount();
+
+    serve(manager(false, false));
+    const none = render(<MemberChannelBanner />);
+    const line = await screen.findByText(/Подключите MAX — туда будут приходить новые брони/);
+    expect(line.className).not.toMatch(/\btruncate\b/);
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть подсказку' }));
+    none.unmount();
+
+    const sameSession = render(<MemberChannelBanner />);
+    await new Promise(r => setTimeout(r, 20));
+    expect(screen.queryByText(/Подключите MAX/)).toBeNull();
+    sameSession.unmount();
+
+    sessionStorage.clear();
+    render(<MemberChannelBanner />);
+    expect(await screen.findByText(/Подключите MAX — туда будут приходить новые брони/)).toBeTruthy();
   });
 });

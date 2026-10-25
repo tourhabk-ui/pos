@@ -6,14 +6,17 @@
  * Без профиля экран онбординга, дашборд, место в команде и баннер мессенджера
  * стартовали разом: 404 профиля, 403 на /me, канал и дашборд, и вспышка
  * «Профиль не найден». Пока профиль не прочитан, этих запросов нет.
- * Онбординг не завершён — тихий переход на настройку, без остальных экранов.
+ * Онбординг не завершён — тихий переход на настройку, но только с главной
+ * кабинета, как до ворот: ссылка на заявку или бронь из MAX/Telegram ведёт к
+ * ней, а не в мастер, где номер заявки теряется (проверка качества 24.10).
  * Это только владелец: менеджер компании форму не сохраняет и в кабинет входит.
  * Админ без своей компании партнёра не получает: одна фраза, как открыть кабинет.
  */
 import { createContext, useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
-const ONBOARDING = '/hub/operator/onboarding';
+const ROOT = '/hub/operator';
+const ONBOARDING = `${ROOT}/onboarding`;
 
 type Viewer = 'owner' | 'manager';
 
@@ -78,6 +81,7 @@ export function OperatorCabinetGate({
   const pathname = usePathname();
   const router = useRouter();
   const onOnboarding = pathname === ONBOARDING || (pathname?.startsWith(`${ONBOARDING}/`) ?? false);
+  const onRoot = pathname === ROOT || pathname === `${ROOT}/`;
   const [gate, setGate] = useState<Gate>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -94,8 +98,8 @@ export function OperatorCabinetGate({
 
   useEffect(() => {
     if (stale) return;
-    if (gate.kind === 'onboarding' && !onOnboarding) router.replace(ONBOARDING);
-  }, [gate, onOnboarding, router, stale]);
+    if (gate.kind === 'onboarding' && onRoot) router.replace(ONBOARDING);
+  }, [gate, onRoot, router, stale]);
 
   if (gate.kind === 'loading' || stale) return <>{quiet(<Status>Открываем кабинет…</Status>)}</>;
 
@@ -123,12 +127,16 @@ export function OperatorCabinetGate({
   }
 
   if (gate.kind === 'onboarding') {
-    if (!onOnboarding) return <>{quiet(<Status>Открываем настройку профиля…</Status>)}</>;
-    return <>{quiet(children)}</>;
+    if (onOnboarding) return <>{quiet(children)}</>;
+    if (onRoot) return <>{quiet(<Status>Открываем настройку профиля…</Status>)}</>;
   }
 
-  const facts = { onboardingCompleted: gate.completed, viewer: gate.viewer };
-  const body = gate.viewer === 'manager' && onOnboarding
+  // Владелец с незаконченной настройкой на любом разделе, кроме главной,
+  // видит раздел: заявку и бронь из уведомления открывают, а не теряют.
+  const facts = gate.kind === 'ready'
+    ? { onboardingCompleted: gate.completed, viewer: gate.viewer }
+    : { onboardingCompleted: false, viewer: 'owner' as const };
+  const body = facts.viewer === 'manager' && onOnboarding
     ? <Status>Настройку профиля завершает владелец компании. Разделы кабинета — в меню.</Status>
     : children;
 

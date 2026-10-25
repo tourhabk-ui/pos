@@ -13,13 +13,21 @@
  *   новой вкладки и без потери офлайн-кэша.
  */
 
-const MARKER_ITEM = /^(?:[-•–*]|\d+[.)])\s+(.+)$/;
+const MARKER_ITEM = /^[-•–*]\s+(.+)$/;
+/**
+ * Пункт с номером: «1. …», «2) …». Номер — до трёх цифр: «1975. Извержение…»
+ * — год, а не пункт, и срезать его нельзя (проверка качества 24.10: список
+ * извержений терял годы, шаги «1. Позвоните 112» — номера).
+ */
+const NUMBERED_ITEM = /^(\d{1,3})[.)]\s+(.+)$/;
 /** Короткий заголовок: «Однодневные», «Вертолётные туры». Не предложение. */
 const HEADING_AT = /^([\p{Lu}][\p{L}\-]{1,28}(?:\s+[\p{L}\-]{2,28}){0,2}):\s+\S/u;
 
 export type ChatBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'list'; items: string[] };
+  | { kind: 'list'; items: string[] }
+  /** Нумерованный список: номер остаётся тем, что написан в ответе. */
+  | { kind: 'ordered'; items: Array<{ n: number; text: string }> };
 
 function isHeadingAt(line: string, from: number): boolean {
   const m = HEADING_AT.exec(line.slice(from));
@@ -50,14 +58,19 @@ function labeledLine(line: string): { prefix: string | null; items: string[] } |
   return items.length > 0 ? { prefix, items } : null;
 }
 
-/** Строки «- …», «1. …» и «Заголовок: …» — список. Остальное — абзацы. Пустая строка список закрывает. */
+/**
+ * Строки «- …» и «Заголовок: …» — список, «1. …» — нумерованный список со
+ * своими номерами. Остальное — абзацы. Пустая строка список закрывает.
+ */
 export function chatBlocks(text: string): ChatBlock[] {
   const blocks: ChatBlock[] = [];
   let items: string[] = [];
+  let steps: Array<{ n: number; text: string }> = [];
   const flush = () => {
-    if (items.length === 0) return;
-    blocks.push({ kind: 'list', items });
+    if (items.length > 0) blocks.push({ kind: 'list', items });
+    if (steps.length > 0) blocks.push({ kind: 'ordered', items: steps });
     items = [];
+    steps = [];
   };
   for (const raw of text.split('\n')) {
     const line = raw.trim();
@@ -65,6 +78,13 @@ export function chatBlocks(text: string): ChatBlock[] {
       flush();
       continue;
     }
+    const numbered = NUMBERED_ITEM.exec(line);
+    if (numbered) {
+      if (items.length > 0) flush();
+      steps.push({ n: Number(numbered[1]), text: numbered[2] });
+      continue;
+    }
+    if (steps.length > 0) flush();
     const marker = MARKER_ITEM.exec(line);
     const body = marker ? marker[1] : line;
     const labeled = labeledLine(body);

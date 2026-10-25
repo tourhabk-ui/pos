@@ -13,11 +13,15 @@
  *     серверного компонента держит СТАРЫЙ экран: на быстрой сети незаметно,
  *     на медленной — молчание, неотличимое от сломанной кнопки.
  *
- * Сторож закрывает обе.
+ * Сторож закрывает обе. Ответ worker судится вызовом: sw.js исполняется в
+ * песочнице vm с подставленными fetch и caches, и проверяется, что получил
+ * respondWith (проверка качества 24.10: поиск строк `function emptyOffline`
+ * оставался зелёным, когда отказ снова отдавал undefined вместо Response).
  */
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import vm from 'node:vm';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -66,35 +70,162 @@ function hasPage(pathname: string): boolean {
   return readdirSync(dir).some((d) => /^\(.+\)$/.test(d) && existsSync(join(dir, d, 'page.tsx')));
 }
 
-describe('service worker: висящая сеть заканчивается таймаутом', () => {
-  it('навигация не ждёт сеть бесконечно', () => {
-    expect(SW).toMatch(/NAV_TIMEOUT_MS/);
-    expect(SW).toMatch(/function navigateWithTimeout/);
+type Cached = (key: unknown) => Response | undefined;
+
+interface Worker {
+  /** Что получил respondWith; undefined — запрос не перехвачен. */
+  respond(path: string, init?: { mode?: string; destination?: string }): Promise<unknown> | undefined;
+  /** Сработать таймерам, которые worker поставил к этому моменту. */
+  fireTimers(): void;
+}
+
+/**
+ * sw.js в песочнице: fetch и caches подставлены, таймеры копятся и
+ * срабатывают по команде, чтобы «висящую» сеть отличать от отказа.
+ */
+function loadWorker(net: () => Promise<Response>, cached: Cached): Worker {
+  const listeners = new Map<string, Array<(event: unknown) => void>>();
+  const timers: Array<() => void> = [];
+  const cacheStore = {
+    match: async (key: unknown) => cached(key),
+    put: async () => undefined,
+    keys: async () => [],
+    delete: async () => true,
+  };
+  const context = vm.createContext({
+    self: {
+      addEventListener: (type: string, fn: (event: unknown) => void) => {
+        listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+      },
+      location: { origin: 'https://vedarai.ru' },
+      registration: { showNotification: async () => undefined },
+      clients: { claim: async () => undefined, matchAll: async () => [], openWindow: async () => undefined },
+      skipWaiting: async () => undefined,
+    },
+    caches: {
+      match: async (key: unknown) => cached(key),
+      open: async () => cacheStore,
+      keys: async () => [],
+      delete: async () => true,
+    },
+    fetch: () => net(),
+    setTimeout: (fn: () => void) => { timers.push(fn); return timers.length; },
+    clearTimeout: () => undefined,
+    Response, Headers, URL, atob, Uint8Array, Promise, console,
+  });
+  vm.runInContext(SW, context, { filename: 'public/sw.js' });
+  return {
+    respond(path, init = { mode: 'navigate', destination: 'document' }) {
+      let answer: Promise<unknown> | undefined;
+      const request = {
+        method: 'GET',
+        url: `https://vedarai.ru${path}`,
+        mode: init.mode,
+        destination: init.destination,
+        cache: 'default',
+        headers: new Headers(),
+      };
+      for (const fn of listeners.get('fetch') ?? []) {
+        fn({ request, respondWith: (value: unknown) => { answer = Promise.resolve(value); } });
+      }
+      return answer;
+    },
+    fireTimers() {
+      for (const fn of timers.splice(0)) fn();
+    },
+  };
+}
+
+const offline = () => Promise.reject(new TypeError('Failed to fetch'));
+const nothingCached: Cached = () => undefined;
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe('service worker: отказ сети заканчивается Response, а не undefined (вызов в vm)', () => {
+  for (const path of ['/catalog', '/map', '/places/0a1b2c3d', '/tours/0a1b2c3d']) {
+    it(`${path}: сети нет, кэш пуст — 503, а не TypeError в respondWith`, async () => {
+      const answer = await loadWorker(offline, nothingCached).respond(path);
+      expect(answer).toBeInstanceOf(Response);
+      expect((answer as Response).status).toBe(503);
+    });
+  }
+
+  it('сети нет, копии страницы нет — отдаётся сохранённая /offline', async () => {
+    const page = new Response('нет соединения', { status: 200 });
+    const answer = await loadWorker(offline, (key) => (key === '/offline' ? page : undefined)).respond('/catalog');
+    expect(answer).toBe(page);
   });
 
-  it('RSC-пейлоад тоже под таймаутом — иначе переход виснет молча', () => {
-    expect(SW).toMatch(/RSC_TIMEOUT_MS/);
+  it('сети нет, копия страницы есть — отдаётся копия', async () => {
+    const copy = new Response('карточка места', { status: 200 });
+    const answer = await loadWorker(offline, (key) => (typeof key === 'object' ? copy : undefined)).respond('/places/0a1b2c3d');
+    expect(answer).toBe(copy);
   });
 
-  it('обе ветки навигации идут через таймаут, а не голый fetch', () => {
-    // Ветка whitelist и общая ветка — обе должны звать общий помощник.
-    const calls = SW.match(/navigateWithTimeout\(/g) ?? [];
-    expect(calls.length).toBeGreaterThanOrEqual(3); // объявление + два вызова
-  });
-
-  it('отказ сети всегда заканчивается Response, а не undefined', () => {
-    expect(SW).toMatch(/function emptyOffline/);
-    expect(SW).toMatch(/function cachedOrOffline/);
-    expect(SW).not.toMatch(/return cached \|\| caches\.match\('\/offline'\)/);
-    expect(SW).toMatch(/done\(cachedOrOffline\(request\)\)/);
-  });
-
-  it('по таймауту отдаётся кэш, а без кэша сеть ждут дальше', () => {
+  it('по таймауту отдаётся кэш, а без кэша сеть ждут дальше', async () => {
     // Обрывать медленную, но живую загрузку нечем заменить: белый экран через
     // 4 секунды был бы враньём наоборот.
-    const fn = SW.slice(SW.indexOf('function navigateWithTimeout'));
-    const body = fn.slice(0, fn.indexOf('\n}\n') + 3);
-    expect(body).toMatch(/if \(cached\) done\(cached\)/);
+    const copy = new Response('главная из кэша', { status: 200 });
+    const hanging = loadWorker(() => new Promise<Response>(() => undefined), (key) => (typeof key === 'object' ? copy : undefined));
+    const fromCache = hanging.respond('/');
+    hanging.fireTimers();
+    expect(await fromCache).toBe(copy);
+
+    let arrive: (r: Response) => void = () => undefined;
+    const slow = loadWorker(() => new Promise<Response>((resolve) => { arrive = resolve; }), nothingCached);
+    const answer = slow.respond('/');
+    let settled = false;
+    void answer?.then(() => { settled = true; });
+    slow.fireTimers();
+    await flush();
+    expect(settled).toBe(false);
+    const late = new Response('главная из сети', { status: 200 });
+    arrive(late);
+    expect(await answer).toBe(late);
+  });
+});
+
+/** Ответ worker к этому моменту: висящий промис отличается от отданного. */
+async function settledNow(answer: Promise<unknown> | undefined): Promise<{ settled: boolean; value: unknown }> {
+  let state: { settled: boolean; value: unknown } = { settled: false, value: undefined };
+  void answer?.then((value) => { state = { settled: true, value }; });
+  await flush();
+  return state;
+}
+
+const hangingNet = () => new Promise<Response>(() => undefined);
+
+describe('service worker: висящая сеть заканчивается таймаутом (вызов в vm)', () => {
+  // Ревью 25.10: прежде здесь искались строки NAV_TIMEOUT_MS и число вызовов
+  // navigateWithTimeout — общая ветка и RSC без таймаута оставались зелёными.
+  // Ветки: whitelist (/map), общая (/catalog), план поездки (/trip/<id>).
+  for (const path of ['/map', '/catalog', '/trip/0a1b2c3d-0000-4000-8000-000000000000']) {
+    it(`${path}: сеть висит — по таймауту отдаётся копия, а не вечное ожидание`, async () => {
+      const copy = new Response('копия страницы', { status: 200 });
+      const worker = loadWorker(hangingNet, (key) => (typeof key === 'object' ? copy : undefined));
+      const answer = worker.respond(path);
+      expect((await settledNow(answer)).settled).toBe(false);
+      worker.fireTimers();
+      expect(await settledNow(answer)).toEqual({ settled: true, value: copy });
+    });
+  }
+
+  it('RSC-пейлоад: сеть висит — по таймауту 503, роутер уходит в переход документом', async () => {
+    const worker = loadWorker(hangingNet, nothingCached);
+    const answer = worker.respond('/catalog?_rsc=1a2b', { mode: 'cors', destination: '' });
+    expect((await settledNow(answer)).settled).toBe(false);
+    worker.fireTimers();
+    const { settled, value } = await settledNow(answer);
+    expect(settled).toBe(true);
+    expect(value).toBeInstanceOf(Response);
+    expect((value as Response).status).toBe(503);
+  });
+
+  it('RSC-пейлоад офлайн — 503, а не разметка /offline вместо пейлоада', async () => {
+    const page = new Response('нет соединения', { status: 200 });
+    const worker = loadWorker(offline, (key) => (key === '/offline' || typeof key === 'object' ? page : undefined));
+    const answer = await worker.respond('/catalog?_rsc=1a2b', { mode: 'cors', destination: '' });
+    expect(answer).not.toBe(page);
+    expect((answer as Response).status).toBe(503);
   });
 
   it('кэш пересобран — иначе у телефонов останется старый worker', () => {

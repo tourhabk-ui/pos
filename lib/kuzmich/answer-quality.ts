@@ -9,7 +9,7 @@
  * спрашиваются.
  */
 
-import { isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
+import { isCarRentalAsk, isSightseeingQuestion, wantsTourCards } from '@/lib/ai/booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { calendarDay, ruDate, seasonAccusative } from '@/lib/kuzmich/season-window';
 import { rentalPauseForTourist } from '@/lib/rental/site-pause';
@@ -96,9 +96,18 @@ function isPriceFollowUp(text: string): boolean {
 /**
  * Вопрос к витрине туров. Упоминание вулкана само по себе — про место
  * и безопасность, его отвечает модель с get_guardian_context.
+ * Вопрос о безопасности и обстановке («какие опасности на Авачинском»,
+ * «какие вулканы извергаются») — тоже не витрина: то же правило, что у
+ * карточек сайта (`wantsTourCards` зовёт `isSafetyOrSituationAsk`, находка 24.10).
+ *
+ * Сборщик не шире правила карточек: `composeTours` судит списком
+ * `pickToursForAnswer`, а тот отвечает «не про тур», когда `wantsTourCards`
+ * говорит «нет». Тогда сборщик печатал «В каталоге нет тура под этот запрос»
+ * при живом туре в каталоге (ревью 25.10: «какие восхождения есть, хочу
+ * поехать»). Не вопрос к витрине по общему правилу — отвечает модель.
  */
 function asksTourOffer(text: string): boolean {
-  if (isCarRentalAsk(text)) return false;
+  if (!wantsTourCards(text)) return false;
   if (isSightseeingQuestion(text)) return true;
   const t = norm(text);
   if (/(?<![а-яе])тур(?!ист)|экскурс/.test(t)) return true;

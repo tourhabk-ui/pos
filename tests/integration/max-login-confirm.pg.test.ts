@@ -451,6 +451,64 @@ withPg('вход через MAX подтверждается вопросом в
       }
     });
 
+    // Обещание «снимут роль на сайте — снимутся и здесь» держит не только
+    // applyAdminRoleChange (он стирает привязку), но и сам запрос на каждом
+    // сообщении: роль могут снять и другим путём — правкой preferences.roles,
+    // прямым SQL, будущим роутом, — а привязка останется. Тогда отвечать
+    // перестаёт кабинет, потому что findTelegramAdmin заново читает роль.
+    it('Telegram: роль снята прямым UPDATE мимо applyAdminRoleChange — привязка осталась, кабинета больше нет', async () => {
+      const TG = 880_002;
+      await pool.query(
+        'INSERT INTO admin_tg_bindings (user_id, telegram_user_id) VALUES ($1, $2)',
+        [adminId, TG],
+      );
+      const { findTelegramAdmin } = await import('@/lib/telegram/admin-link');
+      const { handleTelegramAdminTurn, telegramAdminCallbackGate } = await import('@/lib/telegram/admin-chat');
+
+      expect(await findTelegramAdmin(TG)).toEqual({ outcome: 'admin', userId: adminId, name: 'Админ Тест' });
+      const before: string[] = [];
+      const turnBefore = await handleTelegramAdminTurn({
+        text: 'Что умеешь?', fromId: TG, reply: async (text) => { before.push(text); },
+      });
+      expect(turnBefore).toBe('handled');
+      expect(before.join('\n')).toContain('Кабинет администратора');
+      expect(await telegramAdminCallbackGate(TG, false)).toBe('allow');
+
+      await setAdmin(false);
+      const { rows: still } = await pool.query<{ telegram_user_id: string }>(
+        'SELECT telegram_user_id::text FROM admin_tg_bindings WHERE user_id = $1', [adminId],
+      );
+      expect(still).toEqual([{ telegram_user_id: String(TG) }]);
+
+      expect(await findTelegramAdmin(TG)).toEqual({ outcome: 'none' });
+      const after: string[] = [];
+      const turnAfter = await handleTelegramAdminTurn({
+        text: 'Что умеешь?', fromId: TG, reply: async (text) => { after.push(text); },
+      });
+      // 'pass' — сообщение уходит обычным путём вебхука, кабинет молчит.
+      expect(turnAfter).toBe('pass');
+      expect(after).toEqual([]);
+      expect(await telegramAdminCallbackGate(TG, false)).toBe('deny');
+
+      // Второй путь снятия — правка preferences.roles. Администратор, который
+      // переключил активную роль на туриста, ролью владеет («активная роль или
+      // собственные роли», ownsAdminSql) — убрали admin из его ролей, и кабинет
+      // закрылся, хотя колонку role никто не трогал.
+      await pool.query(
+        `UPDATE users SET role = 'tourist', preferences = jsonb_build_object('roles', '["tourist","admin"]'::jsonb) WHERE id = $1`,
+        [adminId],
+      );
+      expect((await findTelegramAdmin(TG)).outcome).toBe('admin');
+      await pool.query(
+        `UPDATE users SET preferences = jsonb_build_object('roles', '["tourist"]'::jsonb) WHERE id = $1`,
+        [adminId],
+      );
+      expect(await findTelegramAdmin(TG)).toEqual({ outcome: 'none' });
+      expect(await handleTelegramAdminTurn({ text: 'Что умеешь?', fromId: TG, reply: async (text) => { after.push(text); } }))
+        .toBe('pass');
+      expect(after).toEqual([]);
+    });
+
     it('Telegram: ссылка adt_ гасится, привязан человек, в базе только хеш', async () => {
       const { issueAdminTelegramLink, consumeAdminTelegramLink } = await import('@/lib/telegram/admin-link');
       const { hashAdminLinkToken } = await import('@/lib/max/admin-link');

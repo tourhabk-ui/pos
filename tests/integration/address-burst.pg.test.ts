@@ -6,6 +6,12 @@
  * и без времени метит адрес ботом, доклад времени снимает только эту
  * метку, топ отдаёт 12 знаков хэша. Сырой адрес в строку не попадает.
  *
+ * Качество 24.10: короткое время на странице трекер шлёт сам при уходе,
+ * и бот, исполняющий JS, оставляет его на каждой строке — оно не снимает
+ * порог. Взаимодействие снимает метку только своего визита, а бот по
+ * признаку браузера и свой заход остаются как были при всплеске, докладе
+ * времени и переходе.
+ *
  * Своя база `address_burst_test`. Без KERNEL_PG_TEST_URL файл пропускается —
  * «не прогнано», а не «прошло».
  */
@@ -15,6 +21,7 @@ import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 import { ipHash } from '@/lib/analytics/visitor-hash';
 import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
 import { queryAddressTop } from '@/lib/analytics/address-top';
+import { ENGAGED_DWELL_MS } from '@/lib/analytics/address-burst';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -61,8 +68,8 @@ withPg('порог адреса на PostgreSQL', () => {
 
     for (let i = 0; i < 30; i++) {
       await pool.query(
-        `INSERT INTO page_views (path, visitor_hash, created_at, is_bot, is_self, client_beacon, ua_family, ip_hash)
-         VALUES ('/kuzmich', $1, $2, FALSE, FALSE, TRUE, 'browser', $3)`,
+        `INSERT INTO page_views (path, visitor_hash, created_at, is_bot, is_self, client_beacon, ua_family, ip_hash, session_id)
+         VALUES ('/kuzmich', $1, $2, FALSE, FALSE, TRUE, 'browser', $3, 'burst-visit')`,
         [`v${i}`, at, burstHash],
       );
     }
@@ -78,7 +85,7 @@ withPg('порог адреса на PostgreSQL', () => {
     const burstRes = await POST(new NextRequest('http://localhost/api/analytics/hit', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'user-agent': CHROME, 'x-forwarded-for': BURST_IP },
-      body: JSON.stringify({ path: '/planning', beacon: true, webdriver: false }),
+      body: JSON.stringify({ path: '/planning', beacon: true, webdriver: false, sessionId: 'burst-visit' }),
     }));
     const burst = await burstRes.json() as { audience?: string; id?: string };
     expect(burst.audience).toBe('bot');
@@ -114,7 +121,7 @@ withPg('порог адреса на PostgreSQL', () => {
     const dwellRes = await dwell(new NextRequest('http://localhost/api/analytics/dwell', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-for': BURST_IP },
-      body: JSON.stringify({ id: burst.id, ms: 1500 }),
+      body: JSON.stringify({ id: burst.id, ms: ENGAGED_DWELL_MS + 1000 }),
     }));
     expect(dwellRes.status).toBe(200);
     const released = await pool.query<{ bots: number; anomaly: number }>(
@@ -132,5 +139,175 @@ withPg('порог адреса на PostgreSQL', () => {
     expect(top.rows?.[1]).toMatchObject({ hash: burstHash.slice(0, 12), hits: 31, ua: 'browser' });
     expect(JSON.stringify(top)).not.toContain(BURST_IP);
     expect(JSON.stringify(top)).not.toContain(quietHash);
+  });
+  /** Камчатские сутки, строки текущего дня и хэш адреса для одного сценария. */
+  async function freshDay(ip: string) {
+    await pool.query('TRUNCATE page_views');
+    const bounds = kamchatkaDayBounds();
+    return { at: new Date(bounds.start.getTime() + 60_000).toISOString(), hash: ipHash(ip, bounds.day, SALT) };
+  }
+
+  async function insertView(v: {
+    at: string; hash: string; session: string | null; dwell?: number | null; fromPath?: string | null;
+    isBot?: boolean; isSelf?: boolean; family?: string; beacon?: boolean; path?: string;
+  }): Promise<string> {
+    const res = await pool.query<{ id: string }>(
+      `INSERT INTO page_views (path, visitor_hash, created_at, is_bot, is_self, client_beacon, ua_family, ip_hash, session_id, dwell_ms, from_path)
+       VALUES ($1, 'vh', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id`,
+      [v.path ?? '/kuzmich', v.at, v.isBot ?? false, v.isSelf ?? false, v.beacon ?? true, v.family ?? 'browser',
+        v.hash, v.session, v.dwell ?? null, v.fromPath ?? null],
+    );
+    return String(res.rows[0].id);
+  }
+
+  async function hit(ip: string, body: Record<string, unknown>): Promise<{ audience?: string; id?: string }> {
+    const { POST } = await import('@/app/api/analytics/hit/route');
+    const res = await POST(new NextRequest('http://localhost/api/analytics/hit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': CHROME, 'x-forwarded-for': ip },
+      body: JSON.stringify({ beacon: true, webdriver: false, ...body }),
+    }));
+    return await res.json() as { audience?: string; id?: string };
+  }
+
+  async function dwellReport(ip: string, id: string | undefined, ms: number): Promise<number> {
+    const { POST } = await import('@/app/api/analytics/dwell/route');
+    const res = await POST(new NextRequest('http://localhost/api/analytics/dwell', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+      body: JSON.stringify({ id, ms }),
+    }));
+    return res.status;
+  }
+
+  async function anomalyCount(hash: string, session: string | null): Promise<number> {
+    const res = await pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM page_views
+        WHERE ip_hash = $1 AND session_id IS NOT DISTINCT FROM $2 AND is_bot AND anomaly_bot`,
+      [hash, session],
+    );
+    return res.rows[0].n;
+  }
+
+  async function rowState(id: string) {
+    const res = await pool.query<{ is_bot: boolean; anomaly_bot: boolean; is_self: boolean }>(
+      'SELECT is_bot, anomaly_bot, is_self FROM page_views WHERE id = $1',
+      [id],
+    );
+    return res.rows[0];
+  }
+
+  it('бот, исполняющий JS: время, которое трекер шлёт при уходе, порог не снимает', async () => {
+    const ip = '203.0.113.81';
+    const { at, hash } = await freshDay(ip);
+    // page.goto по 30 страницам: при каждом уходе браузер сам досылает доли секунды.
+    for (let i = 0; i < 30; i++) {
+      await insertView({ at, hash, session: 'js-bot-visit', dwell: 50 });
+    }
+    // Человек за тем же адресом уже читал страницу: себя он делает человеком,
+    // но бота в соседнем визите не прикрывает.
+    const reader = await insertView({ at, hash, session: 'reader-visit', dwell: ENGAGED_DWELL_MS * 2, path: '/catalog' });
+
+    const first = await hit(ip, { path: '/tours', sessionId: 'js-bot-visit' });
+    expect(first.audience).toBe('bot');
+    expect(await anomalyCount(hash, 'js-bot-visit')).toBe(31);
+    expect(await rowState(reader)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+
+    const second = await hit(ip, { path: '/places', sessionId: 'js-bot-visit' });
+    expect(second.audience).toBe('bot');
+
+    // Чужой доклад «0 мс» по последовательному id метку не снимает, и повтор
+    // с длинным временем поверх уже записанного короткого — тоже.
+    expect(await dwellReport('198.51.100.9', first.id, 0)).toBe(200);
+    expect(await dwellReport('198.51.100.9', first.id, ENGAGED_DWELL_MS * 3)).toBe(200);
+    // Уход бота с последней страницы — короткое время, тоже не взаимодействие.
+    expect(await dwellReport(ip, second.id, ENGAGED_DWELL_MS - 1)).toBe(200);
+    expect(await anomalyCount(hash, 'js-bot-visit')).toBe(32);
+
+    const third = await hit(ip, { path: '/map', sessionId: 'js-bot-visit' });
+    expect(third.audience).toBe('bot');
+    expect(await anomalyCount(hash, 'js-bot-visit')).toBe(33);
+    expect(await rowState(reader)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+  });
+
+  it('взаимодействие снимает метку только своего визита; бот по признаку браузера и свой заход остаются как были', async () => {
+    const ip = '203.0.113.82';
+    const { at, hash } = await freshDay(ip);
+    for (let i = 0; i < 30; i++) {
+      await insertView({ at, hash, session: 'bot-visit' });
+    }
+    // Тот же адрес: человек в своём визите ещё ни разу не задержался,
+    // рядом с ним — строка автобраузера (webdriver) и свой заход, а без
+    // визита — ИИ-краулер. Порог не должен касаться трёх последних никак.
+    const person = await insertView({ at, hash, session: 'person-visit', path: '/catalog' });
+    const webdriver = await insertView({ at, hash, session: 'person-visit', isBot: true, path: '/catalog/tours/1' });
+    const own = await insertView({ at, hash, session: 'person-visit', isSelf: true, path: '/catalog' });
+    const crawler = await insertView({ at, hash, session: null, isBot: true, family: 'openai', beacon: false, path: '/' });
+
+    const burst = await hit(ip, { path: '/planning', sessionId: 'bot-visit' });
+    expect(burst.audience).toBe('bot');
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(31);
+    expect(await rowState(person)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await rowState(webdriver)).toEqual({ is_bot: true, anomaly_bot: false, is_self: false });
+    expect(await rowState(own)).toEqual({ is_bot: false, anomaly_bot: false, is_self: true });
+    expect(await rowState(crawler)).toEqual({ is_bot: true, anomaly_bot: false, is_self: false });
+
+    // Человек прочитал страницу: его визит — люди, визит бота — по-прежнему бот.
+    expect(await dwellReport(ip, person, ENGAGED_DWELL_MS + 2000)).toBe(200);
+    expect(await rowState(person)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(31);
+    expect(await rowState(webdriver)).toEqual({ is_bot: true, anomaly_bot: false, is_self: false });
+    expect(await rowState(own)).toEqual({ is_bot: false, anomaly_bot: false, is_self: true });
+    expect(await rowState(crawler)).toEqual({ is_bot: true, anomaly_bot: false, is_self: false });
+
+    // Переход в визите человека: снова только свой визит.
+    const moved = await hit(ip, { path: '/tours', sessionId: 'person-visit', fromPath: '/catalog' });
+    expect(moved.audience).toBe('person');
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(31);
+    expect(await rowState(webdriver)).toEqual({ is_bot: true, anomaly_bot: false, is_self: false });
+    expect(await rowState(own)).toEqual({ is_bot: false, anomaly_bot: false, is_self: true });
+    expect(await rowState(crawler)).toEqual({ is_bot: true, anomaly_bot: false, is_self: false });
+
+    // Взаимодействие соседа не делает людьми следующий просмотр бота.
+    const next = await hit(ip, { path: '/map', sessionId: 'bot-visit' });
+    expect(next.audience).toBe('bot');
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(32);
+    expect(await anomalyCount(hash, 'person-visit')).toBe(0);
+  });
+
+  it('просмотр без визита — визит из одной строки: своё взаимодействие спасает только его, чужое без визита не прикрывает', async () => {
+    const ip = '203.0.113.83';
+    const { at, hash } = await freshDay(ip);
+    for (let i = 0; i < 30; i++) {
+      await insertView({ at, hash, session: 'bot-visit' });
+    }
+    // Хранилище закрыто (приватный режим) — sessionId нет. Один уже читал
+    // страницу, другой перешёл дальше, третий ушёл через доли секунды.
+    const readerNoVisit = await insertView({ at, hash, session: null, dwell: ENGAGED_DWELL_MS * 2, path: '/catalog' });
+    const movedNoVisit = await insertView({ at, hash, session: null, fromPath: '/catalog', path: '/tours' });
+    const quickNoVisit = await insertView({ at, hash, session: null, dwell: 50, path: '/map' });
+
+    // Новый просмотр без визита: чужие строки без визита его визитом не считаются.
+    const fresh = await hit(ip, { path: '/planning' });
+    expect(fresh.audience).toBe('bot');
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(30);
+    // Строка, у которой своё взаимодействие есть, всплеском не метится.
+    expect(await rowState(readerNoVisit)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await rowState(movedNoVisit)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await rowState(quickNoVisit)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await anomalyCount(hash, null)).toBe(2);
+
+    // Своё время на странице снимает метку самой строки — и только её.
+    expect(await dwellReport(ip, fresh.id, ENGAGED_DWELL_MS + 1000)).toBe(200);
+    expect(await rowState(String(fresh.id))).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await rowState(quickNoVisit)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(30);
+
+    // Переход без визита: сама строка человек, чужие метки остаются.
+    const moved = await hit(ip, { path: '/tours', fromPath: '/planning' });
+    expect(moved.audience).toBe('person');
+    expect(await rowState(quickNoVisit)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(30);
   });
 });

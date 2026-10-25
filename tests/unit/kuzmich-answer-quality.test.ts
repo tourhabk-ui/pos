@@ -581,6 +581,45 @@ describe('не коммерция — отвечает модель', () => {
     }
   });
 
+  it('вопрос о безопасности и обстановке — не витрина туров (находка 24.10)', () => {
+    for (const question of [
+      'Какие опасности на Авачинском вулкане?',
+      'Какие вулканы сейчас извергаются?',
+      'Безопасен ли тур на вулкан при сильном ветре?',
+    ]) {
+      expect(commercialSources(question).tours, question).toBe(false);
+      expect(composeCommercial(input(question, '')), question).toBeNull();
+    }
+    expect(composeCommercial(input('Какие туры на вулканы есть осенью?', ''))?.visible).toContain('Восхождение на Авачинский');
+  });
+
+  it('джип, внедорожник, 4x4 — та же пауза проката, что «аренда авто» (находка 24.10)', () => {
+    const pause = composeCommercial(input('Хочу взять машину в аренду', ''))?.visible;
+    expect(pause).toContain('не показывается');
+    for (const question of ['Хочу арендовать джип', 'Аренда внедорожника', 'Прокат 4x4', 'rent a car']) {
+      expect(composeCommercial(input(question, ''))?.visible, question).toBe(pause);
+    }
+  });
+
+  it('«прокатиться на джипе» — поездка, а не аренда: паузы проката в ответе нет (ревью 25.10)', () => {
+    const pause = composeCommercial(input('Хочу взять машину в аренду', ''))?.visible;
+    for (const question of ['Хочу прокатиться на джипе к Мутновскому', 'Прокатимся на вездеходе по побережью?']) {
+      expect(composeCommercial(input(question, ''))?.visible ?? '', question).not.toContain('не показывается');
+    }
+    for (const question of ['Прокат джипа на выходные', 'Возьму джип напрокат']) {
+      expect(composeCommercial(input(question, ''))?.visible, question).toBe(pause);
+    }
+  });
+
+  it('сборщик не говорит «нет тура», когда правило карточек вопрос туром не считает (ревью 25.10)', () => {
+    // Живой тур в каталоге есть. Правило карточек (wantsTourCards) этот
+    // вопрос витриной не считает — значит отвечает модель, а не строка
+    // «в каталоге нет тура».
+    for (const question of ['Какие восхождения есть, хочу поехать', 'Какие туристические места стоит посетить, хочу поехать']) {
+      expect(composeCommercial(input(question, ''))?.visible ?? '', question).not.toContain('нет тура под этот запрос');
+    }
+  });
+
   it('«хочу тур» — агент брони, не сборщик списка', () => {
     expect(bookingAgentOwns('Хочу тур на вулкан 15 июля')).toBe(true);
     expect(bookingAgentOwns('Какие туры на вулканы есть осенью? Списком с ценами')).toBe(false);

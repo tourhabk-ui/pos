@@ -1,10 +1,15 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut } from 'lucide-react';
 import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
 import FunnelWindow from './_FunnelWindow';
 import SelfVisitToggle from './_SelfVisitToggle';
+import { ADDRESS_BURST_OVER, ENGAGED_DWELL_MS } from '@/lib/analytics/address-burst';
+
+/** Порог адреса словами — из того же правила, что метит строки (lib/analytics/address-burst). */
+const BURST_RULE = `Больше ${ADDRESS_BURST_OVER} просмотров с адреса за камчатские сутки — бот в тех визитах, где не было ни перехода, ни ${ENGAGED_DWELL_MS / 1000} секунд на странице: короткое время браузер досылает сам при уходе.`;
 
 interface TrafficData {
   totals: {
@@ -13,7 +18,10 @@ interface TrafficData {
     month: { hits: number; visitorDays: number; bots: number; selfs: number };
   };
   bots: { month_hits: number };
-  /** Просмотры ИИ-краулеров. null с сервера не приходит: числа или ошибка всей страницы. */
+  /**
+   * Просмотры с меткой ИИ среди тех, кто исполнил скрипт страницы. Обходчики
+   * ИИ скрипт не исполняют — их этот счётчик не видит вовсе.
+   */
   ai?: { today: number; week: number; month: number } | null;
   /** Свои заходы (cookie владельца) за 30 дней и с какого дня метка ставилась. */
   self?: { month_hits: number; since: string | null };
@@ -119,8 +127,7 @@ export default function AdminTrafficPage() {
         намеренно. Пути /hub/admin и служебные не учитываются. Старые строки по
         User-Agent не переклассифицированы: он в журнал не писался. Автоматический
         браузер с обычным адресом Chrome в «люди» не входит с этого обновления.
-        Адрес с более чем 30 просмотрами за камчатские сутки без перехода и без
-        времени на странице — бот; адрес сервера — свой. Сырой IP в журнал не пишется.
+        {' '}{BURST_RULE} Адрес сервера — свой. Сырой IP в журнал не пишется.
         {data?.uniques_since && (
           <> Уникальные считаются с {fmtDate(data.uniques_since)} (раньше хэш не
           писался, ретроактивно посчитать нельзя — только просмотры).</>
@@ -180,8 +187,7 @@ export default function AdminTrafficPage() {
               Суточный хэш адреса, первые 12 знаков — не сам IP. На следующие сутки хэш другой.
               Сырой адрес и полный User-Agent не хранятся: в столбце UA — семейство, «не записано» или «несколько».
               Просмотры до появления колонки в список не входят: адреса у них не было.
-              Больше 30 просмотров за эти сутки без перехода и без времени на странице — бот.
-              Адрес нашего сервера — свой.
+              {' '}{BURST_RULE} Адрес нашего сервера — свой.
             </p>
             {data.addresses?.rows == null ? (
               <p className="text-xs text-[var(--text-muted)]">Топ адресов не сосчитан.</p>
@@ -193,7 +199,7 @@ export default function AdminTrafficPage() {
                   <thead>
                     <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                       <th className="text-left font-medium pb-2">Хэш</th>
-                      <th className="text-right font-medium pb-2">Визиты</th>
+                      <th className="text-right font-medium pb-2">Просмотры</th>
                       <th className="text-left font-medium pb-2 pl-4">UA</th>
                     </tr>
                   </thead>
@@ -217,15 +223,18 @@ export default function AdminTrafficPage() {
               <Bot className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs text-[var(--text-primary)]">
-                  ИИ-краулеры:{' '}
-                  <span className="font-mono font-semibold">
-                    {data.ai ? `${data.ai.month.toLocaleString('ru-RU')} за 30 дней` : 'не сосчитано'}
-                  </span>
+                  ИИ-краулеры: <span className="font-semibold">не измеряются здесь</span>
+                </p>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Счётчик пишет только тех, кто исполнил скрипт страницы, а обходчики ИИ (GPTBot, ClaudeBot,
+                  PerplexityBot) его не исполняют: ноль здесь не значит, что ИИ не ходят. Кто читает robots.txt,
+                  llms.txt и визитки —{' '}
+                  <Link href="/hub/admin/a2a" className="text-[var(--ocean)] hover:underline underline-offset-2">A2A: кто приходит</Link>.
                 </p>
                 <p className="text-[11px] text-[var(--text-muted)]">
                   {data.ai
-                    ? `Сегодня ${data.ai.today.toLocaleString('ru-RU')}, за 7 дней ${data.ai.week.toLocaleString('ru-RU')}. В «боты» и в людей не входят.`
-                    : 'Семейство краулера прочитать не удалось.'}
+                    ? `Исполнили скрипт с меткой ИИ: ${data.ai.month.toLocaleString('ru-RU')} за 30 дней, сегодня ${data.ai.today.toLocaleString('ru-RU')}, за 7 дней ${data.ai.week.toLocaleString('ru-RU')}. В «боты» и в людей не входят.`
+                    : 'Исполнившие скрипт с меткой ИИ: не сосчитано.'}
                 </p>
               </div>
             </div>

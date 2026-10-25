@@ -4,8 +4,14 @@
  * request-answer-flow.
  *
  * Payload `rr:y:<leadId>` / `rr:n:<leadId>` короче 128 символов (лимит
- * callback MAX). Партнёр и право нажатия в payload не кладутся: их берёт
- * вебхук из привязанного чата.
+ * callback MAX) и 64 байт (лимит callback_data Telegram). Партнёр и право
+ * нажатия в payload не кладутся: их берёт вебхук из привязанного чата.
+ *
+ * В списке «Заявки» под одним сообщением несколько пар кнопок. Там кнопка
+ * несёт номер строки (`rr:y:<leadId>:2`, «Беру №2»): ответ необратим, и
+ * пара без номера легко нажимается не у той заявки. Нажатие из списка
+ * список не правит — ответ уходит отдельным сообщением с номером, машиной
+ * и датами, а кнопки остальных заявок остаются на месте.
  */
 
 import { isRealDate, shiftDate } from '@/lib/analytics/kamchatka-day';
@@ -22,20 +28,55 @@ export function isLeadId(value: string): boolean {
   return LEAD_ID.test(value);
 }
 
-/** Кнопка заявки. null — id не uuid, такую кнопку вебхук не разберёт. */
-export function rentalAnswerButtons(leadId: string): Array<{ text: string; payload: string }> | undefined {
+/** Номер строки в списке «Заявки»: от 1 до 9, одна цифра в payload. */
+function isListNo(n: number | undefined): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 9;
+}
+
+/**
+ * Кнопки заявки. undefined — id не uuid, такую кнопку вебхук не разберёт.
+ * listNo — номер строки в списке: кнопка называет его и несёт в payload.
+ */
+export function rentalAnswerButtons(
+  leadId: string,
+  listNo?: number,
+): Array<{ text: string; payload: string }> | undefined {
   if (!isLeadId(leadId)) return undefined;
   const id = leadId.toLowerCase();
+  if (listNo !== undefined && !isListNo(listNo)) return undefined;
+  const tail = listNo === undefined ? '' : `:${listNo}`;
+  const label = listNo === undefined ? '' : ` №${listNo}`;
   return [
-    { text: 'Беру', payload: `rr:y:${id}` },
-    { text: 'Не могу', payload: `rr:n:${id}` },
+    { text: `Беру${label}`, payload: `rr:y:${id}${tail}` },
+    { text: `Не могу${label}`, payload: `rr:n:${id}${tail}` },
   ];
 }
 
-export function parseRequestAnswer(payload: string): { answer: RequestAnswer; leadId: string } | null {
-  const match = /^rr:([yn]):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(payload);
+export function parseRequestAnswer(
+  payload: string,
+): { answer: RequestAnswer; leadId: string; listNo?: number } | null {
+  const match = /^rr:([yn]):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?::([1-9]))?$/i.exec(payload);
   if (!match) return null;
-  return { answer: match[1]!.toLowerCase() === 'y' ? 'take' : 'decline', leadId: match[2]!.toLowerCase() };
+  const answer: RequestAnswer = match[1]!.toLowerCase() === 'y' ? 'take' : 'decline';
+  const leadId = match[2]!.toLowerCase();
+  return match[3] ? { answer, leadId, listNo: Number(match[3]) } : { answer, leadId };
+}
+
+/**
+ * Первая строка ответа на нажатие из списка: какая это заявка. Ответ уходит
+ * отдельным сообщением, и без неё было бы не видно, на что он дан. HTML.
+ */
+export function requestAnswerListHead(opts: {
+  listNo: number;
+  title: string | null;
+  from: string | null;
+  to: string | null;
+}): string {
+  const car = opts.title?.trim() ? escapeHtml(opts.title.trim()) : 'машина в заявке не названа';
+  const dates = opts.from && opts.to
+    ? `${escapeHtml(opts.from)} — ${escapeHtml(opts.to)}`
+    : 'даты не записаны';
+  return `<b>Заявка №${opts.listNo} из списка:</b> ${car}, ${dates}.`;
 }
 
 /**

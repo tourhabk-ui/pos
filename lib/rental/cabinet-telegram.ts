@@ -16,7 +16,7 @@ import {
 } from '@/lib/rental/cabinet-bar';
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { handleRentalCalendarText } from '@/lib/rental/car-calendar-flow';
-import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
+import { isRentalPilotSlug, rentalPilotTelegramGreeting } from '@/lib/rental/operator-pilot';
 import { handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
 
 export type CabinetSend = (text: string, buttons: CabinetButton[][]) => Promise<void>;
@@ -36,14 +36,14 @@ export async function tryRentalCabinetTelegramMessage(opts: {
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome !== 'found' || !isRentalPilotSlug(lookup.partner.slug)) return false;
-  if (boundChatLaneFor('telegram', opts.chatId, opts.text) === 'tourist') return false;
+  if (boundChatLaneFor('telegram', opts.chatId, opts.text, { rental: true }) === 'tourist') return false;
 
   const partner = lookup.partner;
   // Беда в тексте — блок 112 над любым ответом кабинета (календарь, экраны,
   // помощник): команда кабинета в той же фразе остаётся здесь.
   const send: CabinetSend = (text, buttons) => opts.send(withSosBlock(text, opts.text).text, buttons);
   if (opts.text.trim() === '/start') {
-    await send(rentalPilotGreeting(partner.partnerName), []);
+    await send(rentalPilotTelegramGreeting(partner.partnerName), []);
     return true;
   }
   const asked = rentalCabinetAsk(opts.text);

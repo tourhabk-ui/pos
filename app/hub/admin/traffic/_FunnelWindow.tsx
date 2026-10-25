@@ -280,7 +280,7 @@ export default function FunnelWindow() {
                     : `Сломанного звена не видно. За окно: заявок ${num(r.counts.leads)}, броней ${num(r.counts.bookings)}, оплат ${num(r.counts.paid)}${(r.counts.bookings ?? 0) === 0 ? ' — до брони в системе поток пока не дошёл' : ''}.`}
             </p>
             <p className="text-[11px] text-[var(--text-muted)]">
-              ИИ-краулеры: {r.visit_aside ? r.visit_aside.ai.toLocaleString('ru-RU') : 'не сосчитано'}.{' '}
+              ИИ, исполнившие скрипт: {r.visit_aside ? r.visit_aside.ai.toLocaleString('ru-RU') : 'не сосчитано'} (обходчики ИИ скрипт не исполняют, их здесь не видно).{' '}
               {r.bot_views !== null && `Краулеры: ${r.bot_views.toLocaleString('ru-RU')} просмотров — в цифры выше не входят. `}
               Последний просмотр записан: {fmtKamchatka(r.liveness.views_last_at) ?? 'нет данных'}
               {'; '}
