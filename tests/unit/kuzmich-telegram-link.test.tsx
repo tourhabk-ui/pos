@@ -55,4 +55,38 @@ describe('/kuzmich', () => {
     expect(calls[1]?.message).toBe('Сколько стоит?');
     expect(calls[1]?.history?.map((h) => h.content)).toContain('Туры на вулканы.');
   });
+
+  it('два Enter во время ответа — оба вопроса видны и уходят, второй не затирает первый', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const calls: Array<{ message?: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/api/ai/chat') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { message?: string };
+        calls.push(body);
+        if (calls.length === 1) await gate;
+        const answer = calls.length === 1 ? 'Туры на вулканы.' : 'В июле 190 000 ₽';
+        return { ok: true, json: async () => ({ data: { answer } }) } as Response;
+      }
+      return { ok: true, json: async () => ({ data: { messages: [] } }) } as Response;
+    }));
+    Element.prototype.scrollIntoView = () => {};
+    render(<KuzmichClient />);
+    const input = await screen.findByPlaceholderText('Опишите мечту о путешествии...');
+    fireEvent.change(input, { target: { value: 'туры на вулканы' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await screen.findByText('туры на вулканы');
+    fireEvent.change(input, { target: { value: 'Сколько стоит?' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: 'а в июле?' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    const waiting = await screen.findByRole('list', { name: 'Ждут отправки' });
+    expect(Array.from(waiting.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['Сколько стоит?', 'а в июле?']);
+    expect(screen.getByText('Сообщения уйдут одним вопросом, когда Кузьмич допишет ответ.')).toBeTruthy();
+    release();
+    await screen.findByText('В июле 190 000 ₽');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.message).toBe('Сколько стоит?\nа в июле?');
+    expect(screen.queryByRole('list', { name: 'Ждут отправки' })).toBeNull();
+  });
 });

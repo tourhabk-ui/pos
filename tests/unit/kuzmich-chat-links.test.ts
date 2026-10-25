@@ -33,7 +33,7 @@ describe('ссылки в ответе Кузьмича', () => {
       { kind: 'text', text: 'День 1 — переход' },
     ]);
     expect(chatBlocks('1. первое\n2) второе')).toEqual([
-      { kind: 'list', items: ['первое', 'второе'] },
+      { kind: 'ordered', items: [{ n: 1, text: 'первое' }, { n: 2, text: 'второе' }] },
     ]);
   });
 
