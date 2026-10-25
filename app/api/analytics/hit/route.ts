@@ -17,7 +17,7 @@ import { isSelfVisit } from '@/lib/analytics/self-visit';
 import { isStaffOwnVisit } from '@/lib/analytics/staff-visit';
 import { isPlatformBoxIp } from '@/lib/analytics/box-ip';
 import { classifyPageHit } from '@/lib/analytics/visit-class';
-import { classifyAddressBurst } from '@/lib/analytics/address-burst';
+import { classifyAddressBurst, ENGAGED_DWELL_MS } from '@/lib/analytics/address-burst';
 import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
 import { deviceClass } from '@/lib/analytics/visit-sources';
 
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
   const bounds = kamchatkaDayBounds();
   const salt = process.env.CRON_SECRET ?? 'vedar';
   const addressHash = trustedIp ? ipHash(trustedIp, bounds.day, salt) : null;
-  const stats = addressHash ? await addressDayStats(addressHash, bounds.start, bounds.end) : null;
+  const stats = addressHash ? await addressDayStats(addressHash, bounds.start, bounds.end, sessionId ?? null) : null;
   const address = stats
     ? classifyAddressBurst({
         isBot,
@@ -165,8 +165,15 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (res && addressHash && address?.reclass) {
-    const sql = address.reclass === 'burst'
+  // Всплеск метит строки адреса, у визита которых нет взаимодействия;
+  // взаимодействие снимает метку только своего визита. Короткое время на
+  // странице трекер шлёт сам при уходе — это не взаимодействие.
+  // Бота по адресу браузера (is_bot без anomaly_bot) и свой заход не трогает
+  // ни то, ни другое.
+  const reclass = res && addressHash ? address?.reclass ?? null : null;
+  const releaseSession = reclass === 'release' ? sessionId ?? null : null;
+  if (reclass === 'burst' || releaseSession) {
+    const sql = reclass === 'burst'
       ? `UPDATE page_views AS p
             SET is_bot = TRUE, anomaly_bot = TRUE
           WHERE p.ip_hash = $1
@@ -175,13 +182,14 @@ export async function POST(req: NextRequest) {
             AND p.created_at >= $2
             AND p.created_at < $3
             AND p.from_path IS NULL
-            AND p.dwell_ms IS NULL
+            AND (p.dwell_ms IS NULL OR p.dwell_ms < $4)
             AND NOT EXISTS (
               SELECT 1 FROM page_views AS seen
                WHERE seen.ip_hash = p.ip_hash
+                 AND seen.session_id = p.session_id
                  AND seen.created_at >= $2
                  AND seen.created_at < $3
-                 AND (seen.from_path IS NOT NULL OR seen.dwell_ms IS NOT NULL)
+                 AND (seen.from_path IS NOT NULL OR seen.dwell_ms >= $4)
             )`
       : `UPDATE page_views
             SET is_bot = FALSE, anomaly_bot = FALSE
@@ -189,8 +197,12 @@ export async function POST(req: NextRequest) {
             AND anomaly_bot
             AND NOT is_self
             AND created_at >= $2
-            AND created_at < $3`;
-    await pool.query(sql, [addressHash, bounds.start, bounds.end]).catch((e: { code?: string }) => {
+            AND created_at < $3
+            AND session_id = $4`;
+    const params = reclass === 'burst'
+      ? [addressHash, bounds.start, bounds.end, ENGAGED_DWELL_MS]
+      : [addressHash, bounds.start, bounds.end, releaseSession];
+    await pool.query(sql, params).catch((e: { code?: string }) => {
       if (e?.code === '42703') return;
       console.error('[analytics/hit] метка адреса не обновлена:', e?.code ?? 'нет SQLSTATE');
     });
@@ -206,21 +218,27 @@ function sqlState(e: unknown): string {
   return 'нет SQLSTATE';
 }
 
-/** Сколько просмотров этого адреса уже лежит в камчатских сутках. null — колонки ещё нет или запрос не выполнился: порог не выдумываем. */
+/**
+ * Сколько просмотров этого адреса уже лежит в камчатских сутках и было ли
+ * взаимодействие в ЭТОМ визите. Без sessionId визит — одна новая строка,
+ * прежнего взаимодействия у неё нет. null — колонки ещё нет или запрос не
+ * выполнился: порог не выдумываем.
+ */
 async function addressDayStats(
   hash: string,
   start: Date,
   end: Date,
+  session: string | null,
 ): Promise<{ hits: number; interaction: boolean } | null> {
   try {
     const res = await pool.query<{ hits: number | string; interaction: unknown }>(
       `SELECT COUNT(*)::int AS hits,
-              COALESCE(bool_or(from_path IS NOT NULL OR dwell_ms IS NOT NULL), FALSE) AS interaction
+              COALESCE(bool_or(session_id = $4 AND (from_path IS NOT NULL OR dwell_ms >= $5)), FALSE) AS interaction
          FROM page_views
         WHERE ip_hash = $1
           AND created_at >= $2
           AND created_at < $3`,
-      [hash, start, end],
+      [hash, start, end, session, ENGAGED_DWELL_MS],
     );
     const hits = Number(res.rows[0]?.hits);
     if (!Number.isFinite(hits)) return null;

@@ -9,7 +9,7 @@ import { readFileSync } from 'fs';
 import { NextRequest } from 'next/server';
 import { createToken } from '@/lib/auth/jwt';
 import { classifyPageHit } from '@/lib/analytics/visit-class';
-import { classifyAddressBurst } from '@/lib/analytics/address-burst';
+import { classifyAddressBurst, ENGAGED_DWELL_MS } from '@/lib/analytics/address-burst';
 import { queryAddressTop } from '@/lib/analytics/address-top';
 import { ipHash } from '@/lib/analytics/visitor-hash';
 import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
@@ -322,21 +322,35 @@ describe('приём маяка: всплеск с одного адреса', (
     expect(params[8]).toBeNull();
     expect(params[11]).toMatch(/^[0-9a-f]{32}$/);
     expect(params[12]).toBe(true);
-    const burst = updates().find((sql) => sql.includes('anomaly_bot = TRUE'));
+    const burstCall = query.mock.calls.find((c) => String(c[0]).includes('anomaly_bot = TRUE'));
+    const burst = String(burstCall?.[0] ?? '');
     expect(burst).toContain('NOT p.is_self');
     expect(burst).toContain('p.from_path IS NULL');
-    expect(burst).toContain('p.dwell_ms IS NULL');
-    expect(burst).toMatch(/NOT EXISTS[\s\S]*seen\.from_path IS NOT NULL OR seen\.dwell_ms IS NOT NULL/);
+    // Короткое время трекер шлёт сам при уходе: строку с ним всплеск метит.
+    expect(burst).toContain('p.dwell_ms < $4');
+    // Взаимодействие засчитывается своему визиту, а не всему адресу.
+    expect(burst).toMatch(/NOT EXISTS[\s\S]*seen\.session_id = p\.session_id[\s\S]*seen\.from_path IS NOT NULL OR seen\.dwell_ms >= \$4/);
+    expect((burstCall?.[1] as unknown[])[3]).toBe(ENGAGED_DWELL_MS);
     expect(burst).not.toMatch(/DELETE/i);
     expect(JSON.stringify(query.mock.calls)).not.toContain('203.0.113.40');
   });
 
-  it('переход внутри визита порог не включает и снимает прежнюю метку', async () => {
+  it('переход внутри визита порог не включает и снимает прежнюю метку своего визита', async () => {
     withStats(80, false);
-    const json = await post({ ip: '203.0.113.41', body: hitBody({ fromPath: '/catalog' }) });
+    const json = await post({ ip: '203.0.113.41', body: hitBody({ fromPath: '/catalog', sessionId: 'visit-0041' }) });
     expect(json.audience).toBe('person');
     expect(inserted()[12]).toBe(false);
-    expect(updates().some((sql) => sql.includes('anomaly_bot = FALSE') && sql.includes('NOT is_self'))).toBe(true);
+    const release = query.mock.calls.find((c) => String(c[0]).includes('anomaly_bot = FALSE'));
+    expect(String(release?.[0])).toContain('NOT is_self');
+    expect(String(release?.[0])).toContain('session_id = $4');
+    expect((release?.[1] as unknown[])[3]).toBe('visit-0041');
+  });
+
+  it('переход без визита снимать чужие метки не берётся: сама строка уже человек', async () => {
+    withStats(80, false);
+    const json = await post({ ip: '203.0.113.43', body: hitBody({ fromPath: '/catalog' }) });
+    expect(json.audience).toBe('person');
+    expect(updates()).toEqual([]);
   });
 
   it('адрес коробки при том же всплеске остаётся своим', async () => {
@@ -386,8 +400,11 @@ describe('время на странице снимает только метк�
     expect(res.status).toBe(200);
     const sqls = query.mock.calls.map((c) => String(c[0]));
     expect(sqls[0]).toContain('dwell_ms IS NULL');
-    expect(sqls[1]).toContain('anomaly_bot = $2');
-    expect(query.mock.calls[1][1]).toEqual(['15', false]);
+    expect(sqls[1]).toContain('anomaly_bot = $3');
+    // Судит записанное время против порога и только свой визит.
+    expect(sqls[1]).toContain('touched.dwell_ms >= $2');
+    expect(sqls[1]).toContain('p.session_id = touched.session_id');
+    expect(query.mock.calls[1][1]).toEqual(['15', ENGAGED_DWELL_MS, false]);
     expect(sqls[1]).toContain('NOT p.is_self');
     expect(sqls[1]).toContain('Asia/Kamchatka');
     expect(sqls.join('\n')).not.toMatch(/DELETE/i);
@@ -396,7 +413,7 @@ describe('время на странице снимает только метк�
 });
 
 describe('топ адресов', () => {
-  it('отдаёт усечённый хэш, визиты и короткое семейство', async () => {
+  it('отдаёт усечённый хэш, просмотры и короткое семейство', async () => {
     const bounds = kamchatkaDayBounds(new Date('2026-10-23T12:00:00.000Z'));
     const top = await queryAddressTop(async (sql) => {
       expect(sql).toContain('left(ip_hash, 12)');
