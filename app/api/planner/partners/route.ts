@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { notTestPartnerSql } from '@/lib/partners/test-profile';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
@@ -75,6 +76,7 @@ export async function GET(req: NextRequest) {
       WHERE p.is_public = TRUE
         AND p.status = 'active'
         AND p.category = 'operator'
+        AND ${notTestPartnerSql('p')}
       ORDER BY
         ($1 = ANY(COALESCE(tm.activity_types, '{}'))) DESC,
         COALESCE(p.rating, 0) DESC

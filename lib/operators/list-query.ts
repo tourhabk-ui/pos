@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { notTestPartnerSql } from '@/lib/partners/test-profile';
 import { sqlState } from '@/lib/guides/db-failure';
 import type { OperatorListRow } from '@/lib/types/db-rows';
 import { ACTIVITY_ALIASES, canonicalActivity } from '@/lib/tours/labels';
@@ -88,6 +89,8 @@ function listedPartner(alias: string): string[] {
     // Прокат автомобилей — не туроператор (23.10): его страница —
     // /car-rental/[slug], машина без водителя за сутки.
     `${alias}.category <> 'cars'`,
+    // Тестовый профиль администратор прячет с общей витрины (24.10).
+    notTestPartnerSql(alias),
   ];
 }
 
@@ -241,7 +244,9 @@ export async function queryOperatorsForPage(filters: OperatorsFilters): Promise<
     () => queryOperators(filters),
     // v2: строка получила tourFacts, ответ — activities (15.10). Смена формы —
     // смена ключа, иначе кэш 600 с отдал бы карточкам строки без полей.
-    ['operators-query-v2', JSON.stringify(filters)],
+    // v3: тестовый профиль не входит в список (24.10). Иначе кэш 600 с
+    // продолжал бы показывать компанию, которую администратор только что скрыл.
+    ['operators-query-v3', JSON.stringify(filters)],
     { revalidate: 600 }
   )();
 }

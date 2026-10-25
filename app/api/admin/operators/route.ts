@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
       p.applied_at,
       p.is_verified,
       p.is_public,
+      p.is_test,
       p.profile_review_comment,
       u.email,
       u.name            AS contact_name,

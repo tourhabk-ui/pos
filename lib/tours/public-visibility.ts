@@ -26,18 +26,23 @@
  * `tests/integration/public-tour-gate.pg.test.ts`.
  */
 
+import { excludeTestPartnerTourSql } from '@/lib/partners/test-profile';
+
 /**
  * SQL-условие «тур на витрине». Алиас — имя таблицы `operator_tours` в
  * запросе; пустая строка — без префикса. Алиас задаёт код, не пользователь,
  * и всё же проверяется: подстановка в SQL без проверки — привычка, которая
  * однажды встретит строку из запроса.
+ *
+ * Туроператор с отметкой «тестовый профиль» на витрину не выходит: каталог,
+ * поиск и MCP зовут этот же шлюз.
  */
 export function publicTourSql(alias = 'ot'): string {
   if (alias !== '' && !/^[a-z_][a-z0-9_]*$/i.test(alias)) {
     throw new Error(`publicTourSql: недопустимый алиас «${alias}»`);
   }
   const p = alias ? `${alias}.` : '';
-  return `(${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL)`;
+  return `(${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL AND ${excludeTestPartnerTourSql(alias)})`;
 }
 
 /**
