@@ -70,15 +70,23 @@ export default function ModerationClient() {
   useEffect(() => { loadEdits(); }, [loadEdits]);
 
   async function decideEdit(id: string, action: 'approve' | 'reject', reason?: string) {
+    // Одобряется то, что видно в карточке: цена и описание едут вместе с
+    // решением, и сервер не применит черновик, переписанный после показа.
+    const shown = edits.find((row) => row.id === id);
+    if (action === 'approve' && !shown) return;
     setActingEdit(id);
     setEditActionError('');
+    let stale = false;
     try {
       const res = await fetch(`/api/admin/moderation/rental-edits/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action === 'reject' ? { action, reason } : { action }),
+        body: JSON.stringify(action === 'reject'
+          ? { action, reason }
+          : { action, seenPrice: shown?.draftPrice ?? null, seenConditions: shown?.draftConditions ?? null }),
       });
       const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      stale = res.status === 409;
       if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
       setEdits((prev) => prev.filter((row) => row.id !== id));
     } catch (e) {
@@ -86,6 +94,8 @@ export default function ModerationClient() {
     } finally {
       setActingEdit(null);
     }
+    // Черновик изменился или решение уже есть — карточка устарела, показать свежую.
+    if (stale) await loadEdits();
   }
 
   async function moderate(id: string, action: 'approve' | 'delete') {

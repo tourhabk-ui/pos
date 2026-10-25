@@ -18,17 +18,36 @@ export const OFFER_EDIT_TEXT_MAX = 2000;
 const TITLE_MAX = 120;
 
 export type OfferEditCommand =
-  | { kind: 'price'; title: string; priceRub: number }
+  | {
+    kind: 'price';
+    title: string;
+    priceRub: number;
+    /**
+     * Название кончается коротким числом, а цена — три цифры: «Jimny 8 500»
+     * читается и как «Jimny 8» за 500, и как «Jimny» за 8 500. Какое верно,
+     * решает прайс прокатчика, а не форма фразы.
+     */
+    alsoReadsAs?: { title: string; spacedPrice: string };
+  }
   | { kind: 'conditions'; title: string; conditions: string };
 
 export type OfferEditParse =
   | { ok: true; command: OfferEditCommand }
   | { ok: false; reason: 'not_edit' | 'format' | 'bad_price' | 'empty_text' | 'too_long' | 'title_long' };
 
-/** Сообщение начинается как команда правки. Остальной разговор сюда не попадает. */
+const QUESTION_END = /[?？]\s*$/u;
+
+/**
+ * Сообщение начинается как команда правки. Остальной разговор сюда не попадает.
+ * Вопрос («Цена на Jimny какая?», «описание Tank-300?») — не команда: его
+ * отвечает помощник по прайсу. Описание с двоеточием — команда, даже если
+ * текст кончается вопросом.
+ */
 export function isOfferEditAsk(text: string): boolean {
   const t = text.trim();
-  return /^цен[ау](?:\s|$)/i.test(t) || /^описание(?:\s|$)/i.test(t);
+  if (/^цен[ау](?:\s|$)/i.test(t)) return !QUESTION_END.test(t);
+  if (/^описание(?:\s|$)/i.test(t)) return t.includes(':') || !QUESTION_END.test(t);
+  return false;
 }
 
 export function parseOfferEdit(text: string): OfferEditParse {
@@ -40,11 +59,17 @@ export function parseOfferEdit(text: string): OfferEditParse {
     if (!m) return { ok: false, reason: 'format' };
     const title = m[1].trim();
     if (title.length === 0 || title.length > TITLE_MAX) return { ok: false, reason: 'title_long' };
-    // «8 500» разобралось бы как машина «… 8» и цена 500. Не выбираю число сам.
-    if (/(?:^|\s)\d{1,3}$/.test(title)) return { ok: false, reason: 'format' };
     const price = Number(m[2]);
     if (!Number.isSafeInteger(price) || price < 1 || price > PRICE_MAX) return { ok: false, reason: 'bad_price' };
-    return { ok: true, command: { kind: 'price', title, priceRub: price } };
+    // «Land Cruiser 200 15000» — машина с числом в названии. «Jimny 8 500» —
+    // цена с пробелом между тысячами. Второе прочтение возможно, только когда
+    // за коротким числом идут ровно три цифры; тогда прайс скажет, есть ли
+    // машина без этого числа.
+    const tail = /^\d{3}$/.test(m[2]) ? /^(.+?)\s+(\d{1,3})$/.exec(title) : null;
+    const command: OfferEditCommand = tail
+      ? { kind: 'price', title, priceRub: price, alsoReadsAs: { title: tail[1].trim(), spacedPrice: `${tail[2]} ${m[2]}` } }
+      : { kind: 'price', title, priceRub: price };
+    return { ok: true, command };
   }
 
   const m = raw.match(/^описание\s+(.+?)\s*:\s*([\s\S]+)$/i);
@@ -80,6 +105,16 @@ export function offerEditRejectText(reason: OfferEditParse & { ok: false }): str
 
 export function offerEditMissingText(title: string): string {
   return `В прайсе нет машины с названием «${escapeHtml(title)}». Напишите название как в списке машин. Черновик не записан, на сайте ничего не изменилось.`;
+}
+
+/**
+ * Фраза читается и как машина «Jimny 8» с ценой 500, и как машина «Jimny»
+ * с ценой «8 500», а машина «Jimny» в прайсе есть. Число не выбираю.
+ */
+export function offerEditSpacedPriceText(title: string, spacedPrice: string): string {
+  return `Не понял цену: «${escapeHtml(spacedPrice)}» — это одно число или часть названия? `
+    + `Если цена машины «${escapeHtml(title)}», напишите её одним числом без пробела. `
+    + 'Черновик не записан, на сайте ничего не изменилось.';
 }
 
 export function offerEditAmbiguousText(title: string, count: number): string {

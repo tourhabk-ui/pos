@@ -49,6 +49,13 @@ describe('разбор кнопки и дни', () => {
     expect(parseRequestAnswer(`rr:y:${LEAD}`)).toEqual({ answer: 'take', leadId: LEAD });
     expect(parseRequestAnswer(`rr:n:${LEAD.toUpperCase()}`)).toEqual({ answer: 'decline', leadId: LEAD });
     expect(parseRequestAnswer('rr:y:not-a-uuid')).toBeNull();
+    expect(rentalAnswerButtons(LEAD, 2)).toEqual([
+      { text: 'Беру №2', payload: `rr:y:${LEAD}:2` },
+      { text: 'Не могу №2', payload: `rr:n:${LEAD}:2` },
+    ]);
+    expect(rentalAnswerButtons(LEAD, 10)).toBeUndefined();
+    expect(parseRequestAnswer(`rr:n:${LEAD}:2`)).toEqual({ answer: 'decline', leadId: LEAD, listNo: 2 });
+    expect(parseRequestAnswer(`rr:n:${LEAD}:0`)).toBeNull();
     expect(parseRequestAnswer(`rb:s:${OFFER}:2026-11-10:1`)).toBeNull();
   });
 
@@ -120,6 +127,31 @@ describe('поток ответа', () => {
     expect(sent[0]?.edit).toBe('mid-1');
     expect(sent[0]?.text).toContain('отмечены занятыми (3)');
     expect(sent[0]?.text).toContain(PHONE);
+  });
+
+  it('«Беру №2» из списка список не правит: отдельное сообщение называет заявку', async () => {
+    arm();
+    await press(`rr:y:${LEAD}:2`);
+    expect(pool.mock.calls.some((c) => /INSERT INTO rental_car_busy/.test(String(c[0])))).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.edit).toBeNull();
+    expect(sent[0]?.text).toContain('Заявка №2 из списка:</b> Suzuki Jimny, 2026-11-10 — 2026-11-12.');
+    expect(sent[0]?.text).toContain('отмечены занятыми (3)');
+    // Текст сообщения-списка в ответ не переписывается.
+    expect(sent[0]?.text).not.toContain(PHONE);
+  });
+
+  it('повтор и «не моя» из списка тоже не трогают сообщение-список', async () => {
+    arm({ prior: 'take' });
+    await press(`rr:n:${LEAD}:3`);
+    expect(sent[0]?.edit).toBeNull();
+    expect(sent[0]?.text).toContain('Заявка №3 из списка');
+    expect(sent[0]?.text).toContain('уже записан: беру');
+
+    arm({ lead: { ...leadRow(), operator_id: '99999999-9999-4999-8999-999999999999' } });
+    await press(`rr:y:${LEAD}:1`);
+    expect(sent[0]?.edit).toBeNull();
+    expect(sent[0]?.text).toContain('не ваша');
   });
 
   it('«Не могу» дни не занимает', async () => {

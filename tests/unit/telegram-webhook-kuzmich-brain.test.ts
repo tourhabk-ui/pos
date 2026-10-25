@@ -62,7 +62,12 @@ vi.mock('@/lib/agents/managed/kuzmich-outcomes', async (importOriginal) => ({
 }));
 
 // ── Транспорт и соседи роута ───────────────────────────────────────────────
-vi.mock('@/lib/notifications/telegram', () => ({ telegramService: { sendMessage: (...a: unknown[]) => m.tgSend(...a) } }));
+vi.mock('@/lib/notifications/telegram', () => ({
+  telegramService: {
+    sendMessage: (...a: unknown[]) => m.tgSend(...a),
+    answerCallback: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 vi.mock('@/lib/telegram/webhook-secret', () => ({ verifyWebhookSecret: () => 'ok', refuseUnconfiguredWebhook: vi.fn() }));
 vi.mock('@/lib/telegram/bot-username', () => ({ resolveTelegramBotUsername: vi.fn().mockResolvedValue({ name: 'kuzmichai_bot' }) }));
 vi.mock('@/lib/telegram/group-monitor', () => ({ groupMonitor: { processMessage: vi.fn() } }));
@@ -581,6 +586,8 @@ describe('турист: клавиатура, порядок ответов, д�
 describe('кабинет проката на живом вебхуке', () => {
   const PARTNER = '22222222-2222-4222-8222-222222222222';
   const CHAT = 4242;
+  const LEAD = '33333333-3333-4333-8333-333333333333';
+  const CUSTOMER = 'Иван Заказчиков';
 
   beforeEach(() => {
     vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
@@ -590,8 +597,60 @@ describe('кабинет проката на живом вебхуке', () => {
       if (q.includes('FROM partners')) {
         return { rows: [{ id: PARTNER, slug: 'laguna-prokat', name: 'Лагуна Прокат', category: 'transfer', user_id: null, profile_status: null }] };
       }
+      // Заявка на прокат в базе: имя и телефон заказчика есть, в Telegram их быть не должно.
+      if (q.includes('FROM leads l') && q.includes("'car_rental'")) {
+        return { rows: [{
+          id: LEAD, name: CUSTOMER, phone: PHONE, title: 'Suzuki Jimny',
+          date_from: '2026-11-10', date_to: '2026-11-12', answer: null,
+        }] };
+      }
       return { rows: [] };
     });
+  });
+
+  function pressButton(data: string): Promise<Response> {
+    return telegram.POST(new NextRequest('http://localhost/api/telegram/webhook', {
+      method: 'POST',
+      body: JSON.stringify({
+        update_id: nextUpdateId++,
+        callback_query: {
+          id: 'cq-1',
+          from: { id: CHAT, first_name: 'Акбар' },
+          message: { message_id: 5, chat: { id: CHAT, type: 'private' } },
+          data,
+        },
+      }),
+    }));
+  }
+
+  it('/start пилота не обещает заявок с кнопками здесь: они в MAX', async () => {
+    await post('/start', { chat: CHAT, from: CHAT });
+    const out = sent().join('\n');
+    expect(out).toContain('Лагуна Прокат');
+    expect(out).toContain('приходит в MAX');
+    expect(out).toContain('без контактов и без кнопок');
+    expect(out).not.toContain('приходят сюда');
+    expect(m.tools).not.toHaveBeenCalled();
+  });
+
+  it('«Заявки» текстом — список без имени и телефона заказчика', async () => {
+    await post('Заявки', { chat: CHAT, from: CHAT });
+    expect(m.tools).not.toHaveBeenCalled();
+    const out = sent().join('\n');
+    expect(out).toContain('Suzuki Jimny');
+    expect(out).toContain('в Telegram не передаются');
+    expect(out).not.toContain(PHONE);
+    expect(out).not.toContain(CUSTOMER);
+    const markup = (m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; callback_data: string }>> } }).replyMarkup;
+    expect(markup?.inline_keyboard?.[0]?.map((b) => b.text)).toEqual(['Беру №1', 'Не могу №1']);
+  });
+
+  it('кнопка «Заявки» — тот же список без имени и телефона', async () => {
+    await pressButton('rk:req');
+    const out = sent().join('\n');
+    expect(out).toContain('Suzuki Jimny');
+    expect(out).not.toContain(PHONE);
+    expect(out).not.toContain(CUSTOMER);
   });
 
   it('«Помощь» — справка со строкой кнопок, не мозг туриста', async () => {

@@ -74,13 +74,13 @@ function message(text: string) {
   };
 }
 
-function press(payload: string) {
+function press(payload: string, chatType = 'dialog') {
   return {
     update_type: 'message_callback',
     timestamp: Date.now(),
     callback: { timestamp: Date.now(), callback_id: 'cb', payload, user: { user_id: CHAT, name: 'Акбар' } },
     message: {
-      recipient: { chat_id: CHAT, chat_type: 'dialog' },
+      recipient: { chat_id: CHAT, chat_type: chatType },
       body: { mid: 'mid-bar', seq: 1, text: 'кабинет' },
     },
   };
@@ -146,6 +146,69 @@ describe('строка кабинета в MAX', () => {
     expect(call).toBeTruthy();
     expect(barPayloads(call!)).toEqual(BAR);
     expect(String(call?.[1])).not.toMatch(/\d[\d\s]*₽/);
+  });
+});
+
+describe('«Заявки» в MAX: имя и телефон заказчика — только заверенному личному диалогу пилота', () => {
+  const LEAD = '33333333-3333-4333-8333-333333333333';
+  const CUSTOMER = 'Иван Заказчиков';
+  const PHONE = '+79141234567';
+  let slug = 'laguna-prokat';
+
+  beforeEach(() => {
+    slug = 'laguna-prokat';
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const s = String(sql);
+      if (/admin_max_bindings/.test(s)) return { rows: [] };
+      if (/FROM partners/.test(s)) {
+        return { rows: [{ id: PARTNER, slug, name: 'Лагуна Прокат', category: 'transfer', user_id: null, profile_status: null }] };
+      }
+      if (/FROM leads l/.test(s)) {
+        return { rows: [{
+          id: LEAD, name: CUSTOMER, phone: PHONE, title: 'Suzuki Jimny',
+          date_from: '2026-11-10', date_to: '2026-11-12', answer: null,
+        }] };
+      }
+      return { rows: [] };
+    });
+  });
+
+  const leadsRead = () => m.pool.mock.calls.some((c) => /FROM leads/.test(String(c[0])));
+  const outgoing = () => [...m.maxSend.mock.calls, ...m.maxSendUser.mock.calls].map((c) => String(c[1])).join('\n');
+
+  it('без ключа подписки — ни запроса к заявкам, ни имени с телефоном', async () => {
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    await max.POST(new NextRequest('http://localhost/api/max/kuzmich', { method: 'POST', body: JSON.stringify(press('rk:req')) }));
+    expect(leadsRead()).toBe(false);
+    expect(outgoing()).not.toContain(PHONE);
+    expect(outgoing()).not.toContain(CUSTOMER);
+  });
+
+  it('из группы — ни запроса к заявкам, ни имени с телефоном', async () => {
+    await post(press('rk:req', 'chat'));
+    expect(leadsRead()).toBe(false);
+    expect(outgoing()).toContain('личном диалоге');
+    expect(outgoing()).not.toContain(PHONE);
+    expect(outgoing()).not.toContain(CUSTOMER);
+  });
+
+  it('из чата не-пилота — ни запроса к заявкам, ни имени с телефоном', async () => {
+    slug = 'mesto-kamchatka';
+    await post(press('rk:req'));
+    expect(leadsRead()).toBe(false);
+    expect(outgoing()).toContain('кабинет проката');
+    expect(outgoing()).not.toContain(PHONE);
+    expect(outgoing()).not.toContain(CUSTOMER);
+  });
+
+  it('заверенное из личного диалога пилота — список с именем, телефоном и кнопками заявки', async () => {
+    await post(press('rk:req'));
+    expect(leadsRead()).toBe(true);
+    const call = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Заявки на прокат'));
+    expect(call).toBeTruthy();
+    expect(String(call?.[1])).toContain(CUSTOMER);
+    expect(String(call?.[1])).toContain(PHONE);
+    expect(barPayloads(call!)).toEqual([`rr:y:${LEAD}:1`, `rr:n:${LEAD}:1`, ...BAR]);
   });
 });
 

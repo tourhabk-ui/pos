@@ -61,17 +61,38 @@ describe('заявки и правки', () => {
     expect(max.text).toContain('+79001234567');
     expect(max.text).toContain('не закрепляет');
     expect(max.buttons).toEqual([[
-      { text: 'Беру', payload: `rr:y:${LEAD}` },
-      { text: 'Не могу', payload: `rr:n:${LEAD}` },
+      { text: 'Беру №1', payload: `rr:y:${LEAD}:1` },
+      { text: 'Не могу №1', payload: `rr:n:${LEAD}:1` },
     ]]);
     const tg = rentalRequestsView({ outcome: 'ok', rows: [openRequest] }, 'telegram');
     expect(tg.text).not.toContain('+79001234567');
     expect(tg.text).not.toContain('Анна');
     expect(tg.text).toContain('Jimny');
-    expect(tg.buttons[0]?.map((b) => b.payload)).toEqual([`rr:y:${LEAD}`, `rr:n:${LEAD}`]);
+    expect(tg.buttons[0]?.map((b) => b.payload)).toEqual([`rr:y:${LEAD}:1`, `rr:n:${LEAD}:1`]);
     const markup = telegramCabinetMarkup(tg.buttons);
     const last = markup.inline_keyboard[markup.inline_keyboard.length - 1] ?? [];
     expect(last.map((b) => b.callback_data)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+  });
+
+  it('каждая пара кнопок называет номер своей строки, у отвеченной пары нет', () => {
+    const lead2 = '44444444-4444-4444-8444-444444444444';
+    const lead3 = '55555555-5555-4555-8555-555555555555';
+    const view = rentalRequestsView({
+      outcome: 'ok',
+      rows: [
+        { ...openRequest, answer: 'take' },
+        { ...openRequest, leadId: lead2, title: 'Tank-300', dateFrom: '2026-11-05', dateTo: '2026-11-07' },
+        { ...openRequest, leadId: lead3, title: 'Sever Truck', dateFrom: '2026-11-20', dateTo: '2026-11-21' },
+      ],
+    }, 'max');
+    const lines = view.text.split('\n');
+    expect(lines.find((l) => l.startsWith('2.'))).toContain('Tank-300');
+    expect(lines.find((l) => l.startsWith('3.'))).toContain('Sever Truck');
+    expect(view.buttons).toEqual([
+      [{ text: 'Беру №2', payload: `rr:y:${lead2}:2` }, { text: 'Не могу №2', payload: `rr:n:${lead2}:2` }],
+      [{ text: 'Беру №3', payload: `rr:y:${lead3}:3` }, { text: 'Не могу №3', payload: `rr:n:${lead3}:3` }],
+    ]);
+    for (const b of view.buttons.flat()) expect(Buffer.byteLength(b.payload)).toBeLessThanOrEqual(64);
   });
 
   it('ответ уже есть — кнопок заявки нет', () => {

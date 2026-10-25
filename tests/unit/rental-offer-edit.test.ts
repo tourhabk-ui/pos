@@ -51,6 +51,10 @@ describe('разбор фразы', () => {
   it('цена и описание разбираются, чужая фраза — нет', () => {
     expect(isOfferEditAsk('покажи машины')).toBe(false);
     expect(isOfferEditAsk('Беру')).toBe(false);
+    expect(isOfferEditAsk('Цена на Jimny какая?')).toBe(false);
+    expect(isOfferEditAsk('описание Tank-300?')).toBe(false);
+    expect(isOfferEditAsk('описание Tank-300: едет ли на Мутновку?')).toBe(true);
+    expect(isOfferEditAsk('цена Jimny')).toBe(true);
     expect(parseOfferEdit('цена Suzuki Jimny 8500')).toEqual({
       ok: true, command: { kind: 'price', title: 'Suzuki Jimny', priceRub: 8500 },
     });
@@ -62,7 +66,15 @@ describe('разбор фразы', () => {
     });
     expect(parseOfferEdit('цена 8500').ok).toBe(false);
     expect(parseOfferEdit('цена Jimny 0')).toMatchObject({ ok: false, reason: 'bad_price' });
-    expect(parseOfferEdit('цена Jimny 8 500').ok).toBe(false);
+    // «8 500» читается и как машина «Jimny 8» с ценой 500: оба прочтения
+    // уходят дальше, выбирает прайс, не форма фразы.
+    expect(parseOfferEdit('цена Jimny 8 500')).toEqual({
+      ok: true,
+      command: { kind: 'price', title: 'Jimny 8', priceRub: 500, alsoReadsAs: { title: 'Jimny', spacedPrice: '8 500' } },
+    });
+    expect(parseOfferEdit('цена Toyota Land Cruiser 200 15000')).toEqual({
+      ok: true, command: { kind: 'price', title: 'Toyota Land Cruiser 200', priceRub: 15000 },
+    });
     expect(parseOfferEdit('цена Jimny 2020 8500')).toEqual({
       ok: true, command: { kind: 'price', title: 'Jimny 2020', priceRub: 8500 },
     });
@@ -134,6 +146,60 @@ describe('запись черновика', () => {
     expect(query.mock.calls.some((c) => /UPDATE car_rental_offers/.test(String(c[0])))).toBe(false);
   });
 
+  /** Прайс прокатчика: FIND_SQL сравнивает название целиком, без регистра. */
+  function priceList(titles: string[]) {
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (/INSERT INTO rental_offer_edits/.test(sql)) {
+        return { rows: [{ price_rub_per_day: params[2], conditions: params[3] }] };
+      }
+      if (/FROM car_rental_offers/.test(sql)) {
+        const asked = String(params[1]).trim().toLowerCase();
+        return { rows: titles.filter((t) => t.toLowerCase() === asked).map((title) => offerRow({ title })) };
+      }
+      return { rows: [] };
+    });
+  }
+
+  it('машина с числом на конце названия получает черновик', async () => {
+    priceList(['Toyota Land Cruiser 200', 'УАЗ 469']);
+    const { handleRentalOfferEdit } = await import('@/lib/rental/offer-edit-flow');
+    const text = await handleRentalOfferEdit({
+      partnerId: PARTNER, slug: 'laguna-prokat', text: 'цена Toyota Land Cruiser 200 15000',
+    });
+    expect(text).toContain('Черновик записан');
+    expect(text).toContain('Toyota Land Cruiser 200');
+    const insert = query.mock.calls.find((c) => /INSERT INTO rental_offer_edits/.test(String(c[0])));
+    expect(insert?.[1]).toEqual([OFFER, PARTNER, 15000, null]);
+
+    query.mockClear();
+    expect(await handleRentalOfferEdit({
+      partnerId: PARTNER, slug: 'laguna-prokat', text: 'цена УАЗ 469 5000',
+    })).toContain('Черновик записан');
+  });
+
+  it('в прайсе «Mazda» и «Mazda 6»: «цена Mazda 6 7000» — черновик для «Mazda 6»', async () => {
+    priceList(['Mazda', 'Mazda 6']);
+    const { handleRentalOfferEdit } = await import('@/lib/rental/offer-edit-flow');
+    const text = await handleRentalOfferEdit({
+      partnerId: PARTNER, slug: 'laguna-prokat', text: 'цена Mazda 6 7000',
+    });
+    expect(text).toContain('Черновик записан: «Mazda 6»');
+    const insert = query.mock.calls.find((c) => /INSERT INTO rental_offer_edits/.test(String(c[0])));
+    expect(insert?.[1]?.[2]).toBe(7000);
+  });
+
+  it('«цена Suzuki Jimny 8 500» — цена с пробелом: черновик не пишет и просит число целиком', async () => {
+    priceList(['Suzuki Jimny']);
+    const { handleRentalOfferEdit } = await import('@/lib/rental/offer-edit-flow');
+    const text = await handleRentalOfferEdit({
+      partnerId: PARTNER, slug: 'laguna-prokat', text: 'цена Suzuki Jimny 8 500',
+    });
+    expect(text).toContain('одним числом без пробела');
+    expect(text).toContain('«8 500»');
+    expect(text).not.toContain('Черновик записан');
+    expect(query.mock.calls.some((c) => /INSERT INTO rental_offer_edits/.test(String(c[0])))).toBe(false);
+  });
+
   it('две машины с одним названием не выбирает и ничего не пишет', async () => {
     query.mockResolvedValue({ rows: [offerRow(), offerRow({ id: '33333333-3333-4333-8333-333333333333', title: 'suzuki jimny' })] });
     const { handleRentalOfferEdit } = await import('@/lib/rental/offer-edit-flow');
@@ -192,5 +258,20 @@ describe('чат пилота не отдаёт правку модели', () =
     expect(sent).toContain('Jimny &lt;b&gt;');
     expect(sent).not.toContain('Jimny <b>');
     expect(sent).not.toMatch(/\+7|телефон/);
+  });
+
+  it('вопрос «Цена на Jimny какая?» отвечает помощник по прайсу, а не подсказка формата', async () => {
+    query.mockResolvedValue({ rows: [] });
+    callToolsWaterfall.mockResolvedValue({ content: 'Jimny по прайсу — 7 000 ₽ в сутки.', tool_calls: [] });
+    const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
+    const reply = vi.fn(async () => undefined);
+    await processPartnerMessage({
+      chatId: 7, text: 'Цена на Jimny какая?', fromName: null, partner: pilot, reply,
+    });
+    expect(callToolsWaterfall).toHaveBeenCalled();
+    const sent = String(reply.mock.calls[0]?.[1]);
+    expect(sent).toContain('по прайсу');
+    expect(sent).not.toContain('Напишите отдельным сообщением');
+    expect(query.mock.calls.some((c) => /rental_offer_edits/.test(String(c[0])))).toBe(false);
   });
 });
