@@ -38,6 +38,8 @@ describe('харбинский рейс', () => {
   it('недельный тур в списке, однодневный и без длительности — нет', () => {
     expect(isSaturdayWeekTour(tourLengthDays({ duration_hours: 24 * 7 }))).toBe(true);
     expect(isSaturdayWeekTour(tourLengthDays({ duration_type: 'multi_day', multi_day_count: 8 }))).toBe(true);
+    expect(tourLengthDays({ duration_type: 'multi_day', multi_day_count: null, duration_hours: 168 })).toBe(7);
+    expect(tourLengthDays({ duration_type: 'multi_day', multi_day_count: 5, duration_hours: 168 })).toBe(5);
     expect(isSaturdayWeekTour(tourLengthDays({ duration_hours: 8 }))).toBe(false);
     expect(isSaturdayWeekTour(tourLengthDays({ duration_type: 'multi_day', multi_day_count: null }))).toBe(false);
     expect(tourLengthDays({})).toBeNull();

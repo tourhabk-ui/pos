@@ -54,7 +54,12 @@ export const HARBIN_SOURCES: readonly { label: string; url: string }[] = [
   },
 ];
 
-/** 7 или 8 суток между субботними рейсами. Не записано — null, не «один день». */
+/**
+ * 7 или 8 суток между субботними рейсами. Сначала число дней оператора
+ * (`multi_day_count`). Его нет — сутки из часов, тем же округлением, что
+ * `durationZh` (карточка уже пишет «约 N 天»). Нет ни того ни другого — null,
+ * не «один день».
+ */
 export function tourLengthDays(t: {
   duration_type?: string | null;
   multi_day_count?: number | string | null;
@@ -62,7 +67,7 @@ export function tourLengthDays(t: {
 }): number | null {
   if (t.duration_type === 'multi_day') {
     const n = Number(t.multi_day_count);
-    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
   }
   const h = Number(t.duration_hours);
   if (!Number.isFinite(h) || h < 24) return null;
