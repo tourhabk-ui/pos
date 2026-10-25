@@ -9,7 +9,7 @@
 import { askedActivity, detectTourIntent, isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
 import { namedVolcanoes, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { pool } from '@/lib/db-pool';
-import { calendarDay, coversDay, overlapsWindow, windowForMonths, type DateWindow } from '@/lib/kuzmich/season-window';
+import { calendarDay, coversDay, overlapsWindow, parseIsoDate, seasonAccusative, windowForMonths, type DateWindow } from '@/lib/kuzmich/season-window';
 import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -275,13 +275,51 @@ export interface PickedTours {
   tours: CatalogTour[];
   unnamedMore: number;
   window: DateWindow | null;
-  /** Подпись окна или «сегодня, …». */
+  /** Подпись окна или «сегодня, …». Именительный: «зима 2026–2027». */
   windowLabel: string | null;
+  /**
+   * Туры того же запроса, чей сезон не пересекает окно, ближайшие по датам.
+   * Доступными в окне их не называют: в строке — фактический сезон и карточка.
+   */
+  nearest: CatalogTour[];
 }
 
 function onSite(tour: CatalogTour, now: Date): boolean {
   if (!tour.operator_slug) return true;
   return !rentalHiddenOnSite(tour.operator_slug, now);
+}
+
+const NEAREST_CAP = 3;
+
+function dayStamp(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Date.UTC(y, (m ?? 1) - 1, d ?? 1);
+}
+
+/** Сутки от сезона до окна, если они не пересекаются. Дат нет — null, не «рядом». */
+function daysOutside(tour: CatalogTour, window: DateWindow): number | null {
+  const start = parseIsoDate(tour.season_start);
+  const end = parseIsoDate(tour.season_end);
+  if (!start || !end) return null;
+  if (start <= window.end && window.start <= end) return 0;
+  if (end < window.start) return Math.round((dayStamp(window.start) - dayStamp(end)) / 86_400_000);
+  if (start > window.end) return Math.round((dayStamp(start) - dayStamp(window.end)) / 86_400_000);
+  return null;
+}
+
+function nearestOutside(tours: readonly CatalogTour[], window: DateWindow): CatalogTour[] {
+  return tours
+    .map((tour) => ({ tour, dist: daysOutside(tour, window) }))
+    .filter((row): row is { tour: CatalogTour; dist: number } => row.dist !== null && row.dist > 0)
+    .sort((a, b) => a.dist - b.dist || a.tour.id - b.tour.id)
+    .slice(0, NEAREST_CAP)
+    .map((row) => row.tour);
+}
+
+function nearestSentence(tours: readonly CatalogTour[]): string {
+  if (tours.length === 0) return '';
+  const bits = tours.map((tour) => `«${tour.title}» — ${seasonPhrase(tour)} — ${tourUrl(tour)}`);
+  return `Ближайшие по сезону в это окно не попадают: ${bits.join('; ')}. Доступными в названное окно их не называю.`;
 }
 
 /**
@@ -294,7 +332,7 @@ export function pickToursForAnswer(
   loaded: { ok: true; tours: CatalogTour[]; complete?: boolean } | { ok: false },
   now: Date = new Date(),
 ): PickedTours {
-  const empty: PickedTours = { kind: 'not_tour', line: '', tours: [], unnamedMore: 0, window: null, windowLabel: null };
+  const empty: PickedTours = { kind: 'not_tour', line: '', tours: [], unnamedMore: 0, window: null, windowLabel: null, nearest: [] };
   if (!wantsCatalogCards(question)) return empty;
   if (!loaded.ok) {
     if (!insistsOnTours(question)) return empty;
@@ -329,14 +367,23 @@ export function pickToursForAnswer(
   if (running.length === 0) {
     if (!insistsOnTours(question) && lookup.kind === 'general' && !window) return empty;
     const when = window
-      ? `На ${window.label} (${ruDate(window.start) ?? window.start} — ${ruDate(window.end) ?? window.end}) в каталоге нет тура, который идёт.`
+      ? `На ${seasonAccusative(window.label)} (${ruDate(window.start) ?? window.start} — ${ruDate(window.end) ?? window.end}) в каталоге нет тура, который идёт.`
       : `На сегодня (${ruDate(today.iso) ?? today.iso}) в каталоге нет тура, который идёт.`;
+    const nearest = window ? nearestOutside(source, window) : [];
+    const undated = window
+      ? source.filter((tour) => daysOutside(tour, window) === null)
+      : [];
+    const undatedNote = nearest.length === 0 && undated.length > 0
+      ? 'Сезон у туров этого запроса не записан — идущими их не называю.'
+      : '';
+    const aside = [nearestSentence(nearest), undatedNote].filter(Boolean).join(' ');
     return {
       ...empty,
       kind: 'none',
-      line: `${when} Заезд другого года доступным не называю. Цену не называю.`,
+      line: `${when} Заезд другого года доступным не называю. Цену не называю.${aside ? ` ${aside}` : ''}`,
       window,
       windowLabel,
+      nearest,
     };
   }
   const tours = running.slice(0, NAMED_TOUR_CAP);
@@ -347,6 +394,7 @@ export function pickToursForAnswer(
     unnamedMore: running.length - tours.length,
     window,
     windowLabel,
+    nearest: [],
   };
 }
 
@@ -368,7 +416,7 @@ export function catalogFacts(
   const show = picked.tours;
   const months = picked.window ? askedMonths(question) : null;
   const when = picked.windowLabel
-    ? `Вопрос про ${picked.windowLabel}.`
+    ? `Вопрос про ${seasonAccusative(picked.windowLabel)}.`
     : 'Месяц в вопросе не назван. Называю только туры, чей сезон идёт сегодня.';
   const rows = show.map((tour) => {
     const windowNote = modelWindow(missedMonths(tour, months));

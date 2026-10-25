@@ -57,6 +57,17 @@ export function ruDate(iso: string | null | undefined): string | null {
   return `${Number(d)} ${month} ${y}`;
 }
 
+/**
+ * «на» и «про» требуют винительный: «на зиму», «на весну».
+ * Осень, лето и названия месяцев в этом падеже не меняются.
+ * Подпись окна хранит именительный («зима 2026–2027») — падеж ставит фраза.
+ */
+export function seasonAccusative(label: string): string {
+  if (label.startsWith('зима')) return `зиму${label.slice('зима'.length)}`;
+  if (label.startsWith('весна')) return `весну${label.slice('весна'.length)}`;
+  return label;
+}
+
 function seasonTitle(months: number[]): string | null {
   const key = [...months].sort((a, b) => a - b).join(',');
   if (key === '9,10,11') return 'осень';

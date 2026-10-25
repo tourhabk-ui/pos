@@ -11,7 +11,7 @@
 
 import { isCarRentalAsk, isSightseeingQuestion } from '@/lib/ai/booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
-import { calendarDay, ruDate } from '@/lib/kuzmich/season-window';
+import { calendarDay, ruDate, seasonAccusative } from '@/lib/kuzmich/season-window';
 import { rentalPauseForTourist } from '@/lib/rental/site-pause';
 import { touristRentalText } from '@/lib/telegram/tourist-keyboard';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
@@ -296,11 +296,14 @@ function composeTours(input: ComposeInput): CommercialAnswer {
   const catalog = joinUrl(input.base, '/catalog');
   if (picked.kind !== 'list') {
     const line = picked.line || 'В каталоге нет тура под этот запрос. Цену не называю.';
+    const ask = picked.nearest.length === 1
+      ? joinUrl(input.base, tourPath(picked.nearest[0]))
+      : catalog;
     return {
       visible: dedupeParagraphs([
         todayLine(input.now),
         `Туры из каталога:\n${line}`,
-        requestCta('оператору', catalog, input.surface),
+        requestCta('оператору', ask, input.surface),
       ].join('\n\n')),
       tours: [],
     };
@@ -311,7 +314,7 @@ function composeTours(input: ComposeInput): CommercialAnswer {
   const more = picked.unnamedMore > 0
     ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю: ${catalog}`
     : '';
-  const head = `Туры из каталога на ${picked.windowLabel ?? 'сегодня'}:`;
+  const head = `Туры из каталога на ${picked.windowLabel ? seasonAccusative(picked.windowLabel) : 'сегодня'}:`;
   const firstUrl = lines[0]?.split(' — ').pop() ?? catalog;
   return {
     visible: dedupeParagraphs([
