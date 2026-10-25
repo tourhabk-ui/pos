@@ -20,7 +20,7 @@ COMMENT ON COLUMN partners.is_test IS
 UPDATE partners p
    SET is_test = TRUE
   FROM users u
- WHERE u.id = p.user_id
+ WHERE u.id::text = p.user_id::text
    AND lower(u.email) = 'flo@vedarai.ru'
    AND p.category = 'operator';
 
