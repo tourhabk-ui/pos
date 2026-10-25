@@ -687,17 +687,18 @@ describe('турист: клавиатура, порядок ответов, д�
     expect(m.tools).not.toHaveBeenCalled();
     const out = sent().join('\n');
     expect(out).toContain('нет тура, который идёт');
+    expect(out).toContain('в это окно не попадают');
+    expect(out).toContain('25 августа 2027');
     expect(out).toContain('Отправить запрос оператору');
-    expect(out).not.toContain('https://vedarai.ru/catalog/tours/pyat-dney');
+    expect(out).toContain('https://vedarai.ru/catalog/tours/pyat-dney');
     expect(out).not.toContain('180');
-    expect(out).not.toContain('августа 2027');
     expect(out).not.toMatch(/подключён к оператору/);
     const last = m.tgSend.mock.calls.at(-1)?.[0] as {
       replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url?: string; callback_data?: string }>> };
     };
     expect(last.replyMarkup?.inline_keyboard).toEqual([[{
       text: 'Отправить запрос оператору',
-      url: 'https://vedarai.ru/catalog',
+      url: 'https://vedarai.ru/catalog/tours/pyat-dney',
     }]]);
   });
 });

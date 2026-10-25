@@ -26,10 +26,12 @@ describe('даты тура против месяца в вопросе', () => 
     const now = new Date('2026-10-24T00:00:00Z');
     const facts = catalogFacts('Что посмотреть за 5 дней в июле?', { ok: true, tours: [FIVE] }, now);
     expect(facts.note).toContain('нет тура, который идёт');
-    expect(facts.note).not.toContain('Пять дней');
+    expect(facts.note).toContain('Пять дней по Камчатке');
+    expect(facts.note).toContain('в это окно не попадают');
+    expect(facts.note).toContain('25 августа 2027');
     expect(facts.note).not.toMatch(/180/);
-    expect(facts.html).not.toContain('pyat-dney');
-    expect(facts.html).not.toContain('августа 2027');
+    expect(facts.html).toContain('https://vedarai.ru/catalog/tours/pyat-dney');
+    expect(facts.html).toContain('в это окно не попадают');
     expect(facts.inline).toBeUndefined();
   });
 

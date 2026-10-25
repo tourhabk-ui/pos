@@ -25,7 +25,7 @@ import {
   type ComposeInput,
 } from '@/lib/kuzmich/answer-quality';
 import { questionWindow } from '@/lib/telegram/tourist-tours';
-import { calendarDay, overlapsWindow, windowForMonths } from '@/lib/kuzmich/season-window';
+import { calendarDay, overlapsWindow, seasonAccusative, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
 
 const NOW = new Date('2026-10-24T00:00:00Z');
@@ -489,6 +489,84 @@ describe('оценка и пауза источника', () => {
     expect(autumn).toEqual({ start: '2026-09-01', end: '2026-11-30', label: 'осень 2026' });
     expect(overlapsWindow(FUTURE.season_start, FUTURE.season_end, autumn)).toBe(false);
     expect(overlapsWindow(AVA.season_start, AVA.season_end, autumn)).toBe(true);
+  });
+});
+
+describe('окно без идущих туров и падеж сезона', () => {
+  const NOW_25 = new Date('2026-10-24T12:00:00.000Z');
+
+  it('«на» и «про» ставят зиму и весну в винительный', () => {
+    expect(seasonAccusative('зима 2026–2027')).toBe('зиму 2026–2027');
+    expect(seasonAccusative('весна 2027')).toBe('весну 2027');
+    expect(seasonAccusative('осень 2026')).toBe('осень 2026');
+    expect(seasonAccusative('лето 2027')).toBe('лето 2027');
+  });
+
+  it('осень 25.10: идущих туров нет — ближайший сезон и запрос, не «доступен сейчас»', () => {
+    const ended: CatalogTour = {
+      id: 1,
+      slug: 'klyuchevskaya',
+      title: 'Ключевская сопка',
+      base_price: 320000,
+      price_unit: 'per_person',
+      multi_day_count: 1,
+      activity_type: 'volcano',
+      season_start: '2026-07-01',
+      season_end: '2026-09-30',
+    };
+    const answer = composeCommercial({
+      ...input('Какие туры на вулканы есть осенью?', ''),
+      now: NOW_25,
+      tours: { ok: true, tours: [ended] },
+    });
+    const text = answer!.visible;
+    expect(text).toContain('На осень 2026');
+    expect(text).toContain('25 октября 2026');
+    expect(text).toContain('30 ноября 2026');
+    expect(text).toContain('нет тура, который идёт');
+    expect(text).toContain('Ключевская сопка');
+    expect(text).toContain('сезон 1 июля 2026 — 30 сентября 2026');
+    expect(text).toContain(`${BASE}/catalog/tours/klyuchevskaya`);
+    expect(text).toContain('в это окно не попадают');
+    expect(text).toContain('Доступными в названное окно их не называю');
+    expect(text).toContain('Цену не называю');
+    expect(text).not.toMatch(/320\s*000/);
+    expect(requestButton(text)).toEqual({
+      text: 'Отправить запрос оператору',
+      url: `${BASE}/catalog/tours/klyuchevskaya`,
+    });
+  });
+
+  it('список на зиму говорит «на зиму», не «на зима»', () => {
+    const snow: CatalogTour = {
+      id: 9,
+      slug: 'snow',
+      title: 'Снегоходная прогулка',
+      base_price: 25000,
+      price_unit: 'per_person',
+      multi_day_count: 1,
+      activity_type: 'snowmobile',
+      season_start: '2026-12-01',
+      season_end: '2027-02-28',
+    };
+    const listed = composeCommercial({
+      ...input('Какие туры есть зимой?', ''),
+      now: NOW_25,
+      tours: { ok: true, tours: [snow] },
+    });
+    expect(listed!.visible).toContain('на зиму 2026–2027');
+    expect(listed!.visible).not.toContain('на зима');
+    expect(listed!.visible).toContain('Снегоходная прогулка');
+
+    const none = composeCommercial({
+      ...input('Какие туры есть зимой?', ''),
+      now: NOW_25,
+      tours: { ok: true, tours: [] },
+    });
+    expect(none!.visible).toContain('На зиму 2026–2027');
+    expect(none!.visible).not.toContain('На зима');
+    expect(none!.visible).toContain('Отправить запрос оператору');
+    expect(requestButton(none!.visible)?.url).toBe(`${BASE}/catalog`);
   });
 });
 
