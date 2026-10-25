@@ -184,20 +184,48 @@ describe('service worker: отказ сети заканчивается Respons
   });
 });
 
-describe('service worker: висящая сеть заканчивается таймаутом', () => {
-  it('навигация не ждёт сеть бесконечно', () => {
-    expect(SW).toMatch(/NAV_TIMEOUT_MS/);
-    expect(SW).toMatch(/function navigateWithTimeout/);
+/** Ответ worker к этому моменту: висящий промис отличается от отданного. */
+async function settledNow(answer: Promise<unknown> | undefined): Promise<{ settled: boolean; value: unknown }> {
+  let state: { settled: boolean; value: unknown } = { settled: false, value: undefined };
+  void answer?.then((value) => { state = { settled: true, value }; });
+  await flush();
+  return state;
+}
+
+const hangingNet = () => new Promise<Response>(() => undefined);
+
+describe('service worker: висящая сеть заканчивается таймаутом (вызов в vm)', () => {
+  // Ревью 25.10: прежде здесь искались строки NAV_TIMEOUT_MS и число вызовов
+  // navigateWithTimeout — общая ветка и RSC без таймаута оставались зелёными.
+  // Ветки: whitelist (/map), общая (/catalog), план поездки (/trip/<id>).
+  for (const path of ['/map', '/catalog', '/trip/0a1b2c3d-0000-4000-8000-000000000000']) {
+    it(`${path}: сеть висит — по таймауту отдаётся копия, а не вечное ожидание`, async () => {
+      const copy = new Response('копия страницы', { status: 200 });
+      const worker = loadWorker(hangingNet, (key) => (typeof key === 'object' ? copy : undefined));
+      const answer = worker.respond(path);
+      expect((await settledNow(answer)).settled).toBe(false);
+      worker.fireTimers();
+      expect(await settledNow(answer)).toEqual({ settled: true, value: copy });
+    });
+  }
+
+  it('RSC-пейлоад: сеть висит — по таймауту 503, роутер уходит в переход документом', async () => {
+    const worker = loadWorker(hangingNet, nothingCached);
+    const answer = worker.respond('/catalog?_rsc=1a2b', { mode: 'cors', destination: '' });
+    expect((await settledNow(answer)).settled).toBe(false);
+    worker.fireTimers();
+    const { settled, value } = await settledNow(answer);
+    expect(settled).toBe(true);
+    expect(value).toBeInstanceOf(Response);
+    expect((value as Response).status).toBe(503);
   });
 
-  it('RSC-пейлоад тоже под таймаутом — иначе переход виснет молча', () => {
-    expect(SW).toMatch(/RSC_TIMEOUT_MS/);
-  });
-
-  it('обе ветки навигации идут через таймаут, а не голый fetch', () => {
-    // Ветка whitelist и общая ветка — обе должны звать общий помощник.
-    const calls = SW.match(/navigateWithTimeout\(/g) ?? [];
-    expect(calls.length).toBeGreaterThanOrEqual(3); // объявление + два вызова
+  it('RSC-пейлоад офлайн — 503, а не разметка /offline вместо пейлоада', async () => {
+    const page = new Response('нет соединения', { status: 200 });
+    const worker = loadWorker(offline, (key) => (key === '/offline' || typeof key === 'object' ? page : undefined));
+    const answer = await worker.respond('/catalog?_rsc=1a2b', { mode: 'cors', destination: '' });
+    expect(answer).not.toBe(page);
+    expect((answer as Response).status).toBe(503);
   });
 
   it('кэш пересобран — иначе у телефонов останется старый worker', () => {
