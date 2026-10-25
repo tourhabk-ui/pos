@@ -20,7 +20,11 @@
  * `tasks/get`…; формы Part, роли и состояния тоже разошлись («kind» ушёл,
  * тип задаёт имя члена; `completed` стало `TASK_STATE_COMPLETED`). Клиентов
  * 0.3 в поле больше, чем 1.0, а цель — охват, поэтому принимаются оба
- * именования, а ответ кодируется той версией, которую назвал клиент.
+ * именования. Явный заголовок решает форму ответа. Пустой заголовок и имя
+ * метода 0.3 — форма 0.3 (`kind`), как велит спецификация. Пустой заголовок
+ * и имя метода 1.0 (`SendMessage`) — форма 1.0 без `kind`: карточке
+ * `agent-card.json` объявлена версия 1.0, и ответ на её метод должен ей
+ * соответствовать. Явный `A2A-Version: 0.3` при любом имени метода остаётся 0.3.
  * Неподдерживаемая версия — VersionNotSupportedError (-32009), как велит
  * спецификация.
  *
@@ -100,6 +104,22 @@ const METHOD_NAMES: Record<string, A2AOperation> = {
 
 export function readOperation(method: string): A2AOperation | null {
   return Object.prototype.hasOwnProperty.call(METHOD_NAMES, method) ? METHOD_NAMES[method] : null;
+}
+
+/** Имена методов 1.0: без «/». Ими говорит клиент карточки protocolVersion 1.0. */
+const V1_METHOD_NAMES: ReadonlySet<string> = new Set(
+  Object.keys(METHOD_NAMES).filter((name) => !name.includes('/')),
+);
+
+/**
+ * Версия, которой кодировать ответ. Явный заголовок побеждает. Без заголовка
+ * имя метода 1.0 даёт форму 1.0 (без `kind`); имя 0.3 и неизвестное имя —
+ * 0.3, как у пустого заголовка в спецификации.
+ */
+export function versionForMethod(header: VersionRead, method: string): VersionRead {
+  if (!header.ok || header.declared) return header;
+  if (V1_METHOD_NAMES.has(method)) return { ok: true, version: '1.0', declared: false };
+  return header;
 }
 
 /** Все имена, которые принимает сервер, — для карточки и сторожа. */

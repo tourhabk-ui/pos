@@ -34,7 +34,8 @@ describe('карточка 1.0', () => {
     expect(card.defaultInputModes).toEqual(['text/plain', 'application/json']);
     expect(card.defaultOutputModes).toEqual(['text/plain', 'application/json']);
     expect(Array.isArray(card.skills)).toBe(true);
-    expect(card.provider).toEqual({ organization: 'Ведар (vedarai.ru)', url: BASE });
+    expect(card.provider).toEqual({ organization: 'Ведар Камчатка (vedarai.ru)', url: BASE });
+    expect(card.name).toBe('Vedar Kamchatka');
     expect(card.documentationUrl).toBe(`${BASE}/mcp`);
   });
 
@@ -144,7 +145,9 @@ describe('описание не обещает лишнего', () => {
 
   it('описание начинается по-английски, русский и китайский текст следом', () => {
     const d = card.description as string;
-    expect(d.startsWith('Vedar Kamchatka travel agent')).toBe(true);
+    expect(d.startsWith('Vedar Kamchatka is a Kamchatka travel information portal')).toBe(true);
+    expect(d).toMatch(/not a travel agency and not a tour operator/);
+    expect(d).not.toMatch(/travel agent/i);
     expect(d.slice(0, 300)).not.toMatch(/[А-Яа-яЁё]/);
     expect(d.indexOf('Русский:')).toBeGreaterThan(0);
     expect(legacy.description).toBe(d);

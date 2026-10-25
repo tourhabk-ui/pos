@@ -37,7 +37,7 @@ export const A2A_REST_PATH = '/api/a2a/v1';
  */
 export const A2A_LEGACY_REST_BASE = '/api/a2a';
 
-export const A2A_AGENT_NAME = 'Ведар — Камчатка (Vedar Kamchatka)';
+export const A2A_AGENT_NAME = 'Vedar Kamchatka';
 
 export const A2A_INPUT_MODES = ['text/plain', 'application/json'] as const;
 export const A2A_OUTPUT_MODES = ['text/plain', 'application/json'] as const;
@@ -49,12 +49,14 @@ export const CHAT_SKILL_ID = 'kuzmich-chat';
 // awesome-a2a) показывают начало описания, а читают его англоязычные агенты.
 // Русский текст — следом, без сокращений; китайский хвост — последним.
 export const A2A_DESCRIPTION =
-  'Vedar Kamchatka travel agent (Russia): live operator tours and availability, safety alerts and conditions, '
+  'Vedar Kamchatka is a Kamchatka travel information portal and AI guide (Russia). It is not a travel agency and not a tour operator. '
+  + 'Live tours from local operators and their availability, safety alerts and conditions, '
   + 'places, weather, volcano status, stays, gear, transfers, self-drive car rental and trip plans. Free-text questions (Russian or English) '
   + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
   + 'five human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
-  + 'consent: true required), no instant booking, no payment through the agent, no auth. '
-  + 'Русский: агент платформы Ведар о Камчатке: туры операторов с живой занятостью, безопасность мест и обстановка в крае, '
+  + 'consent: true required), no instant booking, no payment through the guide, no auth. '
+  + 'Русский: информационный портал «Ведар Камчатка» и ИИ-проводник, не турагентство и не туроператор. '
+  + 'Туры местных операторов с живой занятостью, безопасность мест и обстановка в крае, '
   + 'жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
   + 'отвечает Кузьмич, хранитель Камчатки, с теми же инструментами, что у MCP-сервера. Точный вызов инструмента — '
   + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записей пять, и все — '
@@ -190,7 +192,7 @@ export function skillToolNames(): string[] {
 }
 
 function provider(base: string) {
-  return { organization: 'Ведар (vedarai.ru)', url: base };
+  return { organization: 'Ведар Камчатка (vedarai.ru)', url: base };
 }
 
 /** Карточка A2A 1.0 — `/.well-known/agent-card.json`. */

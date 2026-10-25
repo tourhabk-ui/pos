@@ -20,7 +20,7 @@ import { MCP_INTERNAL_ERROR_TEXT } from '@/lib/mcp/jsonrpc';
 import { handleA2A } from '@/lib/a2a/handle';
 import { a2aTaskStore } from '@/lib/a2a/durable-store';
 import { buildAgentCard, A2A_REST_PATH } from '@/lib/a2a/agent-card';
-import { a2aError, httpErrorBody, A2A_SUPPORTED_VERSIONS, type A2AError, type A2AOperation, type VersionRead } from '@/lib/a2a/wire';
+import { a2aError, httpErrorBody, A2A_SUPPORTED_VERSIONS, A2A_VERSION_HEADER, type A2AError, type A2AOperation, type VersionRead } from '@/lib/a2a/wire';
 import { logText } from '@/lib/log/log-text';
 import { buildExecutors, CORS_HEADERS, journalA2a, optionsResponse, publicBase, versionOf } from '../../_shared';
 
@@ -29,28 +29,29 @@ export const dynamic = 'force-dynamic';
 type RouteContext = { params: Promise<{ path?: string[] }> };
 type VersionOk = Extract<VersionRead, { ok: true }>;
 
-function restError(err: A2AError): NextResponse {
+function restError(err: A2AError, version?: VersionRead): NextResponse {
   const { status, body } = httpErrorBody(err);
-  return NextResponse.json(body, { status, headers: CORS_HEADERS });
+  const headers = { ...CORS_HEADERS };
+  if (version?.ok) headers[A2A_VERSION_HEADER] = version.version;
+  return NextResponse.json(body, { status, headers });
 }
 
-function restOk(result: Record<string, unknown>): NextResponse {
-  return new NextResponse(JSON.stringify(result), {
-    status: 200,
-    headers: { 'Content-Type': 'application/a2a+json; charset=utf-8', ...CORS_HEADERS },
-  });
+function restOk(result: Record<string, unknown>, version?: VersionRead): NextResponse {
+  const headers: Record<string, string> = { 'Content-Type': 'application/a2a+json; charset=utf-8', ...CORS_HEADERS };
+  if (version?.ok) headers[A2A_VERSION_HEADER] = version.version;
+  return new NextResponse(JSON.stringify(result), { status: 200, headers });
 }
 
 async function run(request: NextRequest, read: VersionOk, op: A2AOperation, params: unknown, startedAt: number): Promise<NextResponse> {
   try {
     const out = await handleA2A(op, params, { version: read.version }, { executors: buildExecutors(request), store: a2aTaskStore });
     journalA2a(request, 'rest', startedAt, { op, version: read, out });
-    return out.ok ? restOk(out.result) : restError(out.error);
+    return out.ok ? restOk(out.result, read) : restError(out.error, read);
   } catch (err) {
     journalA2a(request, 'rest', startedAt, { op, version: read, errorCode: 'Internal' });
     const code = (err as { code?: unknown })?.code;
     console.error('[a2a/rest] операция упала:', op, typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
-    return restError(a2aError('Internal', MCP_INTERNAL_ERROR_TEXT));
+    return restError(a2aError('Internal', MCP_INTERNAL_ERROR_TEXT), read);
   }
 }
 
@@ -61,7 +62,7 @@ async function pathOf(ctx: RouteContext): Promise<string> {
 /** Отказ до диспетчера (версия, путь, неподдерживаемая операция) — тоже в журнал. */
 function refuse(request: NextRequest, startedAt: number, version: VersionRead, errorCode: string, err: A2AError): NextResponse {
   journalA2a(request, 'rest', startedAt, { op: 'invalid', version, errorCode });
-  return restError(err);
+  return restError(err, version);
 }
 
 /**
@@ -75,7 +76,7 @@ const REST_PATHS_HINT = 'POST /message:send, GET /tasks/{id}, POST /tasks/{id}:c
 function noSuchPath(request: NextRequest, startedAt: number, version: VersionRead, path: string): NextResponse {
   const method = `${request.method} /${path.slice(0, 80)}`;
   journalA2a(request, 'rest', startedAt, { op: 'invalid', version, errorCode: 'MethodNotFound', method });
-  return restError(a2aError('MethodNotFound', `Нет такого пути: ${method}. Пути от ${A2A_REST_PATH}: ${REST_PATHS_HINT}`));
+  return restError(a2aError('MethodNotFound', `Нет такого пути: ${method}. Пути от ${A2A_REST_PATH}: ${REST_PATHS_HINT}`), version);
 }
 
 function versionOr400(request: NextRequest, startedAt: number): { ok: true; read: VersionOk } | { ok: false; res: NextResponse } {

@@ -37,9 +37,14 @@ describe('знак Ведара — один', () => {
 
   it('футер и шапка берут компонент, разметка для поисковиков — иконку', () => {
     expect(read('components/layout/Footer.tsx')).toMatch(/<Logo size=\{32\}/);
-    expect(read('components/layout/Header.tsx')).toMatch(/<Logo size=\{28\} mono \/>/);
-    // Рядом со знаком в шапке — слово (силуэт один читается хуже ломаной).
-    expect(read('components/layout/Header.tsx')).toMatch(/fontFamily: 'var\(--font-playfair\)'[^>]*>Ведар</);
+    expect(read('components/layout/Header.tsx')).toMatch(/<Logo size=\{28\} mono\b/);
+    // Рядом со знаком — два слова бренда тем же шрифтом. Литерал «>Ведар<»
+    // ушёл в headerBrand: узкая шапка обрезает слова, не рисует их поверх SOS.
+    const header = read('components/layout/Header.tsx');
+    expect(header).toMatch(/fontFamily: 'var\(--font-playfair\)'/);
+    expect(header).toContain('{brand.first}');
+    expect(header).toContain('{brand.second}');
+    expect(header).toContain("first: 'Ведар', second: 'Камчатка'");
     const layout = read('app/layout.tsx');
     const logos = layout.match(/"logo": `\$\{BASE_URL\}[^`]+`/g) ?? [];
     expect(logos.length).toBeGreaterThan(0);

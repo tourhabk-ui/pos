@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   A2A_ERROR, A2A_METHOD_NAMES, a2aError, encodeSendMessageResult, encodeTask, httpErrorBody,
-  readOperation, readPart, readSendMessageParams, readTaskIdParams, readVersion, MAX_PARTS, MAX_TEXT_CHARS,
+  readOperation, readPart, readSendMessageParams, readTaskIdParams, readVersion, versionForMethod, MAX_PARTS, MAX_TEXT_CHARS,
   type TaskRecord,
 } from '@/lib/a2a/wire';
 
@@ -43,6 +43,18 @@ describe('версия протокола', () => {
     expect(readVersion('2.0')).toEqual({ ok: false, requested: '2.0' });
     expect(readVersion('latest')).toEqual({ ok: false, requested: 'latest' });
     expect(readVersion('0.1')).toEqual({ ok: false, requested: '0.1' });
+  });
+
+  it('пустой заголовок и метод 1.0 — форма 1.0; метод 0.3 и явный 0.3 остаются 0.3', () => {
+    const empty = readVersion(null);
+    expect(versionForMethod(empty, 'SendMessage')).toEqual({ ok: true, version: '1.0', declared: false });
+    expect(versionForMethod(empty, 'GetTask')).toEqual({ ok: true, version: '1.0', declared: false });
+    expect(versionForMethod(empty, 'message/send')).toEqual(empty);
+    expect(versionForMethod(empty, 'tasks/get')).toEqual(empty);
+    const legacy = readVersion('0.3');
+    expect(versionForMethod(legacy, 'SendMessage')).toEqual(legacy);
+    const current = readVersion('1.0');
+    expect(versionForMethod(current, 'message/send')).toEqual(current);
   });
 });
 
