@@ -56,7 +56,7 @@ import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
-import { findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
+import { ADMIN_MAX_TEXT, findMaxAdmin, handleAdminStart } from '@/lib/max/admin-link';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 import {
@@ -1221,8 +1221,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       }
       if (rolePress.role === 'admin') {
         const admin = rolePresserId === null ? { outcome: 'none' as const } : await findMaxAdmin(rolePresserId);
+        // «Не смог проверить» — не «вы не администратор» (§4.0): кнопку не
+        // выполняем и говорим, что роль не проверена, как в Telegram.
+        if (admin.outcome === 'unavailable') {
+          await maxReply(messageChatId, ADMIN_MAX_TEXT.unchecked);
+          return;
+        }
         if (admin.outcome !== 'admin') {
-          await maxReply(messageChatId, 'Эта кнопка — кабинет администратора. В этом чате её не выполняю.');
+          await maxReply(messageChatId, ADMIN_MAX_TEXT.deny);
           return;
         }
         const screen = await roleMenuScreen({
