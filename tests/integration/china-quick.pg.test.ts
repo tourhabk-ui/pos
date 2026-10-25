@@ -284,7 +284,11 @@ withPg('китайский контур на схеме прода (CN-quick)', 
     expect(await zhPlaceAlternatePath(placeRow)).toBe('/zh/places/test-zh-place-on');
     const detail = (await loadZhDetailEntries()).map((d) => d.path);
     expect(detail).toContain('/zh/places/test-zh-place-on');
-    expect(detail.filter((x) => x.startsWith('/zh/tours/'))).toHaveLength(2);
+    // Крон перевёл только limit=2, а в sitemap — все живые: страница фактов
+    // не ждёт прозы. Удалённый и снятый не входят.
+    expect(detail.filter((x) => x.startsWith('/zh/tours/'))).toHaveLength(LIVE_PER_OPERATOR * Object.keys(OPS).length);
+    expect(detail).not.toContain('/zh/tours/test-zh-deleted');
+    expect(detail).not.toContain('/zh/tours/test-zh-inactive');
 
     // Исходник правят — перевод устарел: пары и sitemap нет, крон видит stale.
     await pool.query(`UPDATE places SET description = 'Новое описание.' WHERE id = $1`, [ZH.placeOn]);

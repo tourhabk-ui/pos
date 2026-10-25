@@ -6,10 +6,10 @@
  * своей SOS-кнопки нет; бронь — только на русской карточке, и конспект ведёт
  * на неё. Что откуда — шапка components/zh/ZhDetail.
  *
- * Индексируется и получает пару hreflang ru ↔ zh-CN только с переводом,
- * сделанным с нынешнего текста (lib/zh/content, zhTourIndexable). Без него
- * страница открывается — русский текст с пометкой — но noindex: китайский
- * поиск получил бы русский текст под китайским адресом.
+ * Индексируется и получает пару hreflang ru ↔ zh-CN у каждого живого тура:
+ * страница — китайские факты из базы. Проза оператора по-китайски только
+ * из свежего перевода и с пометкой; без перевода русский текст на страницу
+ * не кладётся (lib/zh/content, zhTourIndexable).
  *
  * Сторож: tests/unit/zh-pages.test.tsx.
  */
@@ -22,6 +22,7 @@ import { ZhTourSummary } from '@/components/zh/ZhDetail';
 import { loadZhTourPage, logZhFailure, zhTourIndexable } from '@/lib/zh/content';
 import { zhTourPath } from '@/lib/zh/pages';
 import { readField, ZH_TOUR_FIELDS } from '@/lib/zh/fields';
+import { zhFactDescription, zhFactHeading } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -58,10 +59,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = readField(ZH_TOUR_FIELDS.title, tour.title, translations, 'title');
   const short = readField(ZH_TOUR_FIELDS.short_description, tour.short_description, translations, 'short_description');
   const desc = readField(ZH_TOUR_FIELDS.description, tour.description, translations, 'description');
-  const zhTitle = title.state === 'fresh' ? (title.zh as string) : tour.title;
+  const zhTitle = title.state === 'fresh' ? (title.zh as string) : zhFactHeading(tour);
   const zhDesc = short.state === 'fresh' ? snippet(short.zh as string)
     : desc.state === 'fresh' ? snippet(desc.zh as string)
-      : '堪察加团队游的中文翻译摘要。价格、日期与预订以俄文原页为准。';
+      : zhFactDescription(tour);
   const self = `${SITE}${zhTourPath(tour)}`;
   const indexable = zhTourIndexable(tour, translations);
   return {
@@ -71,8 +72,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: zhDesc,
     alternates: {
       canonical: self,
-      // Пара языков — только у переведённой страницы; у русской карточки
-      // ответная ссылка ставится тем же правилом (zhTourAlternatePath).
+      // Пара языков — у каждого живого тура; у русской карточки ответная
+      // ссылка ставится тем же правилом (zhTourAlternatePath).
       ...(indexable ? { languages: { ru: `${SITE}${tourPath(tour)}`, 'zh-CN': self } } : {}),
     },
     openGraph: {

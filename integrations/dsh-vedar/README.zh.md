@@ -36,7 +36,7 @@ dsh plugin --profile web add github:tourhabk-ui/dsh-vedar
 
 写入（五种申请，均由人工确认，无在线支付）：`create_lead`（选团）、`create_booking_request`（指定团和日期的预订申请）、`create_stay_request`（住宿申请）、`request_charter`（包车申请）、`create_car_rental_request`（租车申请）。
 
-平台数据为俄文，工具参数以俄文或英文为佳。堪察加紧急电话：112。
+接口返回的名称与说明为俄文，工具参数以俄文或英文为佳。中文页面另列价格、时长与季节。堪察加紧急电话：112。
 
 ## 试一试
 

@@ -13,10 +13,11 @@
  * кто чаще правит тур. Среза больше нет: заголовок «当前团队游（N）» писал число
  * показанных как общее, и с 41-го тура молча соврал бы.
  *
- * С CN-pages (аудит 15.10) список ведёт на китайские конспекты /zh/tours/*, а
- * китайское название показывается только переведённым с нынешнего текста
- * (lib/zh/fields, readField); нет перевода — русское название, как раньше.
- * Переводы не прочитались — список остаётся, названия русские, причина в логе.
+ * С CN-pages (аудит 15.10) список ведёт на китайские конспекты /zh/tours/*.
+ * Китайское название — только свежий перевод (lib/zh/fields, readField);
+ * нет перевода — ссылка называется фактом длительности (zhFactHeading),
+ * русское название остаётся подписью. Переводы не прочитались — список
+ * остаётся, причина в логе.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -99,6 +100,37 @@ export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>): string
   const n = Number(t.base_price);
   if (!Number.isFinite(n) || n <= 0) return null;
   return `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+}
+
+/**
+ * Заголовок без перевода названия. Это не перевод названия оператора:
+ * только слово «团队游» и длительность из базы, если она записана.
+ */
+export function zhFactHeading(t: Pick<ZhTourRow, 'duration_hours'>): string {
+  const d = durationZh(t);
+  return d ? `堪察加团队游，${d}` : '堪察加团队游';
+}
+
+/**
+ * Сниппет страницы, когда прозы по-китайски нет. Цифры — только из полей;
+ * нет ни одного — так и сказано, ноль и «уточняйте» не подставляются.
+ */
+export function zhFactDescription(t: {
+  base_price: string | null;
+  price_unit: string | null;
+  duration_hours: string | null;
+  max_participants?: number | string | null;
+  season_start?: string | Date | null;
+  season_end?: string | Date | null;
+}): string {
+  const bits = [
+    priceZh(t),
+    durationZh(t),
+    groupZh(t.max_participants),
+    seasonZh(t.season_start, t.season_end),
+  ].filter((x): x is string => Boolean(x));
+  const facts = bits.length > 0 ? bits.join('，') : '价格、时长与季节未填写';
+  return `堪察加团队游：${facts}。数据来自数据库，未翻译的介绍不在本页。`;
 }
 
 /** Часы до суток — часами, дальше — днями; нет длительности — null. */

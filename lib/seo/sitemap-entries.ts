@@ -23,9 +23,9 @@ import { NOT_MERGED } from '@/lib/places/aliases';
 import { FISH_SPECIES } from '@/lib/fish-species';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
-import { zhPageUrls } from '@/lib/zh/pages';
+import { ZH_STATIC_REVISION, zhPageUrls } from '@/lib/zh/pages';
 import { QUERY_LANDINGS } from '@/lib/seo/query-landings';
-import { loadZhDetailEntries } from '@/lib/zh/content';
+import { loadZhDetailEntries, ZhTranslationsUnread } from '@/lib/zh/content';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -106,7 +106,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Список китайских страниц один — lib/zh/pages (аудит 15.10, CN-quick): тот
     // же читает пинг IndexNow, и новая /zh/<…> не разъедется между ними.
     ...zhPageUrls(BASE).map((url) => ({
-      url, lastModified: new Date('2026-10-12'), changeFrequency: 'monthly' as const, priority: 0.7,
+      url, lastModified: new Date(ZH_STATIC_REVISION), changeFrequency: 'monthly' as const, priority: 0.7,
     })),
     // Посадочные под запросы туристов (17.10); китайские — выше, через zhPageUrls.
     ...QUERY_LANDINGS.filter((l) => l.lang !== 'zh-CN').map((l) => ({
@@ -432,16 +432,15 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('парки', e);
   }
 
-  // Китайские конспекты туров и мест (аудит 15.10, CN-pages): только с
-  // переводом, сделанным с нынешнего текста (lib/zh/content). Страница без
-  // перевода открывается, но в sitemap не идёт: китайский поиск получил бы
-  // русский текст под китайским адресом. Адреса собирает тот же zhPageUrls,
-  // что у пинга IndexNow; lastmod — дата перевода.
+  // Китайские страницы из базы. Туры — все живые (китайские факты, не
+  // дожидаясь перевода прозы). Места — только со свежим переводом: иначе под
+  // китайским адресом был бы русский текст. Переводы не прочитались — туры
+  // остаются (они от таблицы не зависят), места не выдаются за «переводов нет».
+  // Адреса собирает тот же zhPageUrls, что у пинга IndexNow.
   let zhDetailPages: MetadataRoute.Sitemap = [];
-  try {
-    const detail = await loadZhDetailEntries();
+  const zhDetailToPages = (detail: { path: string; lastModified: Date | null }[]): MetadataRoute.Sitemap => {
     const lastmod = new Map(detail.map((d) => [`${BASE}${d.path}`, d.lastModified]));
-    zhDetailPages = zhPageUrls(BASE, detail.map((d) => d.path))
+    return zhPageUrls(BASE, detail.map((d) => d.path))
       .filter((url) => lastmod.has(url))
       .map((url) => ({
         url,
@@ -449,8 +448,16 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
         changeFrequency: 'weekly' as const,
         priority: 0.6,
       }));
+  };
+  try {
+    zhDetailPages = zhDetailToPages(await loadZhDetailEntries());
   } catch (e) {
-    fail('китайские страницы', e);
+    if (e instanceof ZhTranslationsUnread) {
+      fail('переводы китайских мест', e);
+      zhDetailPages = zhDetailToPages(e.tours);
+    } else {
+      fail('китайские страницы', e);
+    }
   }
 
   // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет

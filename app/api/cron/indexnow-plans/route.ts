@@ -69,8 +69,16 @@ export async function GET(request: NextRequest) {
     zhDetail = (await loadZhDetailEntries()).map((d) => d.path);
   } catch (err) {
     logZhFailure('indexnow-plans: китайские страницы из базы', err);
-    const code = (err as { code?: unknown } | null)?.code;
-    zhDetailError = `список /zh/tours и /zh/places не прочитан${typeof code === 'string' ? ` (SQLSTATE ${code})` : ''}`;
+    const unread = err instanceof Error && err.name === 'ZhTranslationsUnread'
+      ? (err as { tours?: { path: string }[] }).tours
+      : undefined;
+    if (Array.isArray(unread)) {
+      zhDetail = unread.map((d) => d.path);
+      zhDetailError = 'переводы мест не прочитаны; адреса туров в списке есть, места не названы';
+    } else {
+      const code = (err as { code?: unknown } | null)?.code;
+      zhDetailError = `список /zh/tours и /zh/places не прочитан${typeof code === 'string' ? ` (SQLSTATE ${code})` : ''}`;
+    }
   }
 
   const { plans, zh, all } = deployPageUrls(getPublicBaseUrl(), zhDetail ?? []);

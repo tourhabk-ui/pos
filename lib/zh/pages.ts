@@ -6,18 +6,40 @@
  * Новая китайская страница (/zh/<…>) вносится сюда — и сразу попадает и в
  * sitemap, и в IndexNow; два списка разъехались бы при первой же странице.
  *
- * С CN-pages (аудит 15.10) у раздела есть и страницы из базы — переводные
- * конспекты туров и мест (/zh/tours/*, /zh/places/*). Их список читает
- * lib/zh/content (loadZhDetailEntries: только с переводом), а собирает в один
- * перечень этот же zhPageUrls — у sitemap и IndexNow по-прежнему одна сборка.
+ * С CN-pages (аудит 15.10) у раздела есть и страницы из базы (/zh/tours/*,
+ * /zh/places/*). Туры в sitemap входят все живые: страница — китайские факты
+ * из базы (lib/zh/content). Места — только со свежим переводом описания.
+ * Собирает перечень этот же zhPageUrls — у sitemap и IndexNow одна сборка.
+ *
+ * Ревизия статичных страниц — дата правки китайского текста (25.10), а не
+ * день первой /zh: иначе lastmod врёт, что страницы не менялись.
  */
+export const ZH_STATIC_REVISION = '2026-10-25';
+
+/** Китайский каталог — языковая пара русской /catalog. */
+export const ZH_CATALOG_PATH = '/zh/catalog';
+
+/** Рейс Харбин ↔ Петропавловск-Камчатский. */
+export const ZH_HARBIN_PATH = '/zh/harbin';
 
 /** Язык раздела — тот же, что в hreflang и `lang` у <main>; next.config.js ставит его заголовком. */
 export const ZH_CONTENT_LANGUAGE = 'zh-CN';
 
 /** Индексируемые китайские страницы, пути от корня. */
 // Посадочные под запросы (lib/seo/query-landings) — тоже здесь, чтобы попасть в IndexNow.
-export const ZH_PAGE_PATHS: readonly string[] = ['/zh', '/zh/booking', '/zh/volcano-tours'];
+export const ZH_PAGE_PATHS: readonly string[] = [
+  '/zh',
+  '/zh/booking',
+  '/zh/volcano-tours',
+  ZH_CATALOG_PATH,
+  ZH_HARBIN_PATH,
+];
+
+/** hreflang каталога: русская витрина и китайская, взаимно. */
+export function catalogHreflang(site: string): { ru: string; 'zh-CN': string } {
+  const root = site.replace(/\/+$/, '');
+  return { ru: `${root}/catalog`, 'zh-CN': `${root}${ZH_CATALOG_PATH}` };
+}
 
 /**
  * Абсолютные адреса китайских страниц — для sitemap и IndexNow: статичные из

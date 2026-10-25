@@ -32,6 +32,7 @@ function renderHead(env: Record<string, string | undefined>): string {
 }
 
 const CHINA = {
+  BAIDU_SITE_VERIFICATION: 'baidu-site-verification',
   SHENMA_SITE_VERIFICATION: 'shenma-site-verification',
   SOGOU_SITE_VERIFICATION: 'sogou_site_verification',
   TOUTIAO_SITE_VERIFICATION: 'bytedance-verification-code',
@@ -59,7 +60,7 @@ describe('подтверждение сайта для вебмастеров', 
     expect(empty.yandex).toBeUndefined();
   });
 
-  it('реестр слотов — ровно четыре площадки с именами тегов из их форм и справок', () => {
+  it('реестр слотов — пять площадок, включая Baidu, с именами тегов из их форм и справок', () => {
     expect(Object.fromEntries(CHINA_VERIFICATION_SLOTS.map((s) => [s.env, s.name]))).toEqual(CHINA);
   });
 
@@ -126,7 +127,7 @@ describe('подтверждение сайта для вебмастеров', 
     const layout = readFileSync(join(process.cwd(), 'app/layout.tsx'), 'utf8');
     expect(layout).not.toMatch(/verification:\s*\{/);
     expect(layout).not.toMatch(
-      /process\.env\.(GOOGLE_SITE_VERIFICATION|YANDEX_VERIFICATION|SHENMA_SITE_VERIFICATION|SOGOU_SITE_VERIFICATION|TOUTIAO_SITE_VERIFICATION|SO360_SITE_VERIFICATION)/,
+      /process\.env\.(GOOGLE_SITE_VERIFICATION|YANDEX_VERIFICATION|BAIDU_SITE_VERIFICATION|SHENMA_SITE_VERIFICATION|SOGOU_SITE_VERIFICATION|TOUTIAO_SITE_VERIFICATION|SO360_SITE_VERIFICATION)/,
     );
   });
 });

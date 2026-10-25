@@ -30,6 +30,8 @@ describe('тексты страницы — один источник, без П
     expect(ZH_PAGE.title).toContain('堪察加');
     expect(ZH_PAGE.description.length).toBeLessThanOrEqual(160);
     expect(ZH_PAGE.description).toContain('112');
+    expect(ZH_PAGE.description).not.toContain('内容为俄文');
+    expect(ZH_PAGE.langNote).not.toContain('内容为俄文');
     expect(ZH_PAGE.emergency).toContain('112');
     expect(ZH_PAGE.capabilities.length).toBeGreaterThanOrEqual(3);
   });

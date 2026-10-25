@@ -16,11 +16,12 @@
  *           те же две связи, что у «Туры сюда» на карточке места. Правило
  *           названо на странице места (ZH_PLACES_RULE).
  *
- * Индексируемая страница — только с переводом, сделанным с нынешнего текста:
- * у тура свежи название и описание (если описание есть), у места — описание.
- * Без перевода страница открывается (русский текст с пометкой), но в sitemap,
- * IndexNow и hreflang не идёт: китайский поиск получил бы русский текст под
- * китайским адресом.
+ * Тур индексируется всегда, пока он живой: китайская страница — факты из
+ * базы (цена, длительность, сезон, группа) китайскими подписями. Проза
+ * оператора по-китайски только из свежего перевода и с пометкой машинного;
+ * нет перевода — русский текст на страницу не кладётся, есть ссылка на
+ * русскую карточку. Место индексируется только со свежим переводом описания:
+ * без него страница была бы русским текстом под китайским адресом.
  *
  * Отказ базы — исключение или null с SQLSTATE в логе, а не пустой список
  * (§4.0): «переводы не прочитались» ≠ «переводов нет».
@@ -33,7 +34,7 @@ import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { logText } from '@/lib/log/log-text';
 import { decodePathParam, zhPlacePath, zhTourPath } from '@/lib/zh/pages';
 import {
-  ZH_LANG, ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, readField,
+  ZH_LANG, ZH_PLACE_FIELDS, readField,
   type ZhEntityType, type ZhStoredTranslation,
 } from '@/lib/zh/fields';
 
@@ -161,11 +162,16 @@ export async function loadZhTourSources(): Promise<ZhTourSourceRow[]> {
   return rows;
 }
 
-/** Индексируема ли страница тура: свежи название и описание (если оно есть). */
-export function zhTourIndexable(t: Pick<ZhTourSourceRow, 'title' | 'description'>, rows: ReadonlyMap<string, ZhStoredTranslation> | null): boolean {
-  const title = readField(ZH_TOUR_FIELDS.title, t.title, rows, 'title');
-  const desc = readField(ZH_TOUR_FIELDS.description, t.description, rows, 'description');
-  return title.state === 'fresh' && (desc.state === 'none' || desc.state === 'fresh');
+/**
+ * Живой тур индексируется: китайская страница фактов не ждёт перевода прозы.
+ * Аргументы оставлены, чтобы вызов не разъехался с местом, где свежесть ещё
+ * решает (zhPlaceIndexable).
+ */
+export function zhTourIndexable(
+  _t: Pick<ZhTourSourceRow, 'title' | 'description'>,
+  _rows: ReadonlyMap<string, ZhStoredTranslation> | null,
+): boolean {
+  return true;
 }
 
 export interface ZhTourPageData {
@@ -190,13 +196,11 @@ export async function loadZhTourPage(raw: string): Promise<ZhTourPageData | null
 }
 
 /**
- * hreflang русской карточки тура: путь китайской страницы, если она
- * индексируема; иначе null. Отказ базы — null с логом: без пары лучше, чем
- * пара на страницу без перевода.
+ * hreflang русской карточки тура. Китайская страница есть у каждого живого
+ * тура (факты из базы), поэтому пара не зависит от перевода прозы и от того,
+ * прочиталась ли таблица переводов.
  */
-export async function zhTourAlternatePath(t: { id: string | number; slug: string | null; title: string; description: string | null }): Promise<string | null> {
-  const rows = await translationsOf('tour', String(t.id), 'hreflang тура');
-  if (rows === null || !zhTourIndexable(t, rows)) return null;
+export async function zhTourAlternatePath(t: { id: string | number; slug?: string | null }): Promise<string> {
   return zhTourPath(t);
 }
 
@@ -328,16 +332,38 @@ function latest(rows: ReadonlyMap<string, ZhStoredTranslation> | undefined): Dat
 }
 
 /**
- * Индексируемые китайские страницы туров и мест. Бросает при отказе базы —
- * вызывающий решает, как назвать «не прочиталось» (sitemap — секцией в
- * degraded, IndexNow — полем ответа).
+ * Переводы для sitemap не прочитались. Туры уже известны (их страницы —
+ * факты, перевод не нужен) и лежат в `tours`. Мест в списке нет: без таблицы
+ * нельзя отличить «перевода нет» от «не смог прочитать», и пустой список мест
+ * был бы ложью. Вызывающий кладёт туры в sitemap и называет отказ.
+ */
+export class ZhTranslationsUnread extends Error {
+  readonly tours: ZhDetailEntry[];
+  constructor(tours: ZhDetailEntry[]) {
+    super('переводы китайских страниц не прочитаны');
+    this.name = 'ZhTranslationsUnread';
+    this.tours = tours;
+  }
+}
+
+/**
+ * Индексируемые китайские страницы: все живые туры и места со свежим
+ * переводом описания. Отказ чтения туров или мест — исключение. Отказ
+ * чтения переводов — ZhTranslationsUnread с уже прочитанными турами.
  */
 export async function loadZhDetailEntries(): Promise<ZhDetailEntry[]> {
   const [tours, places] = await Promise.all([loadZhTourSources(), loadZhPlaceSources()]);
-  const [tourTr, placeTr] = await Promise.all([
-    loadTranslations('tour', tours.map((t) => t.id)),
-    loadTranslations('place', places.map((p) => p.id)),
-  ]);
+  let tourTr: ZhTranslationMap;
+  let placeTr: ZhTranslationMap;
+  try {
+    [tourTr, placeTr] = await Promise.all([
+      loadTranslations('tour', tours.map((t) => t.id)),
+      loadTranslations('place', places.map((p) => p.id)),
+    ]);
+  } catch (err) {
+    logZhFailure('переводы для sitemap', err);
+    throw new ZhTranslationsUnread(tours.map((t) => ({ path: zhTourPath(t), lastModified: null })));
+  }
   const out: ZhDetailEntry[] = [];
   for (const t of tours) {
     const rows = tourTr.get(t.id) ?? new Map();

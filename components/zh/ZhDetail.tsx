@@ -10,8 +10,9 @@
  * Что откуда:
  *   - тексты оператора (название, описание, программа, состав, что взять) —
  *     машинный перевод из content_translations, только сделанный с нынешнего
- *     текста; иначе русский оригинал с пометкой «暂无中文翻译» или «原文已更新»
- *     — без придуманной транслитерации;
+ *     текста и с пометкой; иначе у тура блок остаётся китайской пометкой,
+ *     русский оригинал не вставляется (он на русской карточке). У места
+ *     без перевода русский текст остаётся, и страница не индексируется;
  *   - цена, длительность, группа, сезон, оператор — из полей базы при показе
  *     (lib/zh/entry), модель их не видит;
  *   - безопасность — по-русски из базы с пометкой «安全信息仅提供俄语原文»:
@@ -31,7 +32,7 @@ import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
 import { ruPlacePath } from '@/lib/zh/pages';
-import { priceZh, durationZh, seasonZh, groupZh } from '@/lib/zh/entry';
+import { priceZh, durationZh, seasonZh, groupZh, zhFactHeading } from '@/lib/zh/entry';
 import {
   ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, readField,
   type ZhFieldKind, type ZhFieldValue, type ZhFieldView, type ZhProgramStep, type ZhStoredTranslation,
@@ -70,7 +71,9 @@ function FieldValue({ kind, value }: { kind: ZhFieldKind; value: ZhFieldValue })
  * Поле конспекта: свежий перевод — по-китайски; иначе — русский оригинал под
  * lang="ru" и пометка, почему не по-китайски. Поля нет в исходнике — блока нет.
  */
-export function ZhFieldBlock({ heading, kind, view, field }: { heading: string; kind: ZhFieldKind; view: ZhFieldView; field: string }) {
+export function ZhFieldBlock({ heading, kind, view, field, showSource = true }: {
+  heading: string; kind: ZhFieldKind; view: ZhFieldView; field: string; showSource?: boolean;
+}) {
   if (view.state === 'none') return null;
   return (
     <section className="space-y-2" data-zh-field={field} data-zh-state={view.state}>
@@ -81,7 +84,7 @@ export function ZhFieldBlock({ heading, kind, view, field }: { heading: string; 
         ) : (
           <>
             <p className="text-xs" style={{ color: 'var(--warning)' }} data-zh-note={view.state}>{fieldNote(view.state)}</p>
-            <div lang="ru"><FieldValue kind={kind} value={view.source} /></div>
+            {showSource && <div lang="ru"><FieldValue kind={kind} value={view.source} /></div>}
           </>
         )}
       </div>
@@ -105,8 +108,14 @@ function translationStamp(views: ZhFieldView[]): { date: string | null; any: boo
 }
 
 /** Пометка машинного перевода и ссылка на русский оригинал. */
-function MtNote({ views, href, linkText, booking }: { views: ZhFieldView[]; href: string; linkText: string; booking: boolean }) {
+function MtNote({ views, href, linkText, booking, kind }: {
+  views: ZhFieldView[]; href: string; linkText: string; booking: boolean; kind: 'tour' | 'place';
+}) {
   const stamp = translationStamp(views);
+  const unread = views.some((v) => v.state === 'unknown');
+  const emptyNote = kind === 'tour'
+    ? (unread ? ZH_DETAIL.tourUnread : ZH_DETAIL.tourFactsOnly)
+    : ZH_DETAIL.noPageTranslation;
   return (
     <div className="ds-card p-4 text-sm space-y-1" style={{ color: 'var(--text-secondary)' }} data-zh-mt-note>
       {stamp.any ? (
@@ -115,7 +124,7 @@ function MtNote({ views, href, linkText, booking }: { views: ZhFieldView[]; href
           {stamp.date && <>（{ZH_DETAIL.translatedOn}：{stamp.date}）</>}
         </p>
       ) : (
-        <p>{ZH_DETAIL.noPageTranslation}</p>
+        <p>{emptyNote}</p>
       )}
       <p>{ZH_DETAIL.basis}</p>
       {booking && <p>{ZH_DETAIL.noBooking}</p>}
@@ -153,6 +162,7 @@ export function tourViews(tour: ZhTourSourceRow, translations: Translations): Re
 export function ZhTourSummary({ tour, translations }: { tour: ZhTourSourceRow; translations: Translations }) {
   const v = tourViews(tour, translations);
   const zhTitle = v.title.state === 'fresh' ? (v.title.zh as string) : null;
+  const factHeading = zhFactHeading(tour);
   const original = tourPath(tour);
   const notes = (tour.safety_notes ?? []).map((n) => String(n).trim()).filter(Boolean);
   const bodyFields = ['short_description', 'description', 'program', 'included', 'not_included', 'what_to_bring'] as const;
@@ -172,15 +182,18 @@ export function ZhTourSummary({ tour, translations }: { tour: ZhTourSourceRow; t
           </>
         ) : (
           <>
-            <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }} lang="ru">{tour.title}</h1>
-            <p className="text-xs" style={{ color: 'var(--warning)' }} data-zh-note={v.title.state}>
-              {fieldNote(v.title.state === 'none' || v.title.state === 'fresh' ? 'missing' : v.title.state)}
+            <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{factHeading}</h1>
+            <p className="text-xs" style={{ color: 'var(--warning)' }} data-zh-note={v.title.state === 'fresh' ? 'missing' : v.title.state}>
+              {ZH_DETAIL.factHeadingNote}
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {ZH_DETAIL.originalTitle}：<span lang="ru" data-zh-original-title>{tour.title}</span>
             </p>
           </>
         )}
       </header>
 
-      <MtNote views={Object.values(v)} href={original} linkText={ZH_DETAIL.originalTour} booking />
+      <MtNote views={Object.values(v)} href={original} linkText={ZH_DETAIL.originalTour} booking kind="tour" />
 
       <Facts
         items={[
@@ -193,7 +206,7 @@ export function ZhTourSummary({ tour, translations }: { tour: ZhTourSourceRow; t
       />
 
       {bodyFields.map((f) => (
-        <ZhFieldBlock key={f} field={f} heading={ZH_DETAIL.sections[f]} kind={ZH_TOUR_FIELDS[f]} view={v[f]} />
+        <ZhFieldBlock key={f} field={f} heading={ZH_DETAIL.sections[f]} kind={ZH_TOUR_FIELDS[f]} view={v[f]} showSource={false} />
       ))}
 
       <section className="space-y-2" data-zh-safety>
@@ -260,7 +273,7 @@ export function ZhPlaceSummary({ place, zhName, translations, rule }: {
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }} data-zh-places-rule>{rule}</p>
       </header>
 
-      <MtNote views={[description]} href={original} linkText={ZH_DETAIL.originalPlace} booking={false} />
+      <MtNote views={[description]} href={original} linkText={ZH_DETAIL.originalPlace} booking={false} kind="place" />
 
       <Facts
         items={[

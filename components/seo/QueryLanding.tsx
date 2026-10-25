@@ -7,6 +7,7 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { tourPath } from '@/lib/tours/tour-url';
 import { zhTourPath } from '@/lib/zh/pages';
+import { zhFactHeading } from '@/lib/zh/entry';
 import { siblingLandings, type LandingLang, type QueryLanding } from '@/lib/seo/query-landings';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
 import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
@@ -68,9 +69,9 @@ export function QueryLandingView({ landing, tours, parks = [] }: { landing: Quer
               <ul className="space-y-2">
                 {tours.map((t) => (
                   <li key={t.id} className="ds-card p-4 text-sm space-y-1" data-landing-tour={t.id}>
-                    {zh && t.title_zh ? (
+                    {zh ? (
                       <>
-                        <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={zhTourPath(t)}>{t.title_zh}</Link>
+                        <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={zhTourPath(t)}>{t.title_zh ?? zhFactHeading(t)}</Link>
                         <p style={{ color: 'var(--text-secondary)' }}>俄文原名：<span lang="ru">{t.title}</span></p>
                       </>
                     ) : (

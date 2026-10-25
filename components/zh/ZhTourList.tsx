@@ -13,15 +13,15 @@
  * С CN-pages (аудит 15.10) тур ведёт на свой китайский конспект /zh/tours/*
  * (lib/zh/pages, zhTourPath), а не на русскую карточку: русская карточка —
  * единственная с бронью, и конспект ссылается на неё сам. Китайское название —
- * только свежий перевод, рядом русский оригинал; нет перевода — русское
- * название, как раньше.
+ * только свежий перевод. Нет перевода — ссылка называется фактом длительности
+ * (zhFactHeading), русское название остаётся подписью «俄文原名».
  *
  * Серверный компонент: без хуков, данные приходят готовыми и упорядоченными.
  */
 import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { zhTourPath } from '@/lib/zh/pages';
-import { priceZh, durationZh, type ZhTourRow } from '@/lib/zh/entry';
+import { priceZh, durationZh, zhFactHeading, type ZhTourRow } from '@/lib/zh/entry';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import { ZH_TOURS_ORDER_NOTE } from '@/lib/operators/order-note';
 
@@ -41,18 +41,10 @@ export function ZhTourList({ tours }: { tours: ZhTourRow[] | null }) {
           <ul className="space-y-2">
             {tours.map((t) => (
               <li key={t.id} className="ds-card p-4 text-sm" data-zh-tour={t.id}>
-                {t.title_zh ? (
-                  <>
-                    <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={zhTourPath(t)}>
-                      {t.title_zh}
-                    </Link>
-                    <p style={{ color: 'var(--text-secondary)' }}>俄文原名：<span lang="ru">{t.title}</span></p>
-                  </>
-                ) : (
-                  <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={zhTourPath(t)} lang="ru">
-                    {t.title}
-                  </Link>
-                )}
+                <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={zhTourPath(t)}>
+                  {t.title_zh ?? zhFactHeading(t)}
+                </Link>
+                <p style={{ color: 'var(--text-secondary)' }}>俄文原名：<span lang="ru">{t.title}</span></p>
                 <p style={{ color: 'var(--text-secondary)' }}>
                   旅行社：<span lang="ru"><OperatorNameLink name={t.operator_name} slug={t.operator_slug} isPublic={t.operator_public} /></span>
                 </p>
