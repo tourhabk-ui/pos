@@ -14,11 +14,27 @@ import {
 } from '@/lib/requests/chat-answer';
 import { createTicket } from '@/lib/support/ticket.service';
 import {
-  loadOperatorTours, operatorSeatsText, operatorToursReply,
+  loadOperatorTours, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
 
 const NOT_THIS = 'Эта кнопка — кабинет туроператора. В этом чате её не выполняю.';
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
+
+/** Кнопки «Новые заявки» и «Помощь» в строке роли. Ответ на заявку — здесь же, не в тексте меню. */
+export async function operatorInboxOrHelpPress(opts: {
+  action: 'inbox' | 'help';
+  partnerId: string;
+  userId: string | null;
+  menu: MenuButton[];
+  nowMs: number;
+}): Promise<{ text: string; buttons: MenuButton[][] }> {
+  if (opts.action === 'help') {
+    return { text: operatorHelpText(), buttons: appendMenu([[SUPPORT_BUTTON]], opts.menu) };
+  }
+  const inbox = await loadInbox(opts.partnerId, 'operator', opts.userId, { nowMs: opts.nowMs });
+  const view = operatorInboxView(inbox);
+  return { text: view.text, buttons: appendMenu(view.buttons, opts.menu) };
+}
 
 export function isOperatorDeskPayload(payload: string): boolean {
   return payload === 'sup:new' || payload === 'opd:tours' || payload === 'opd:seats' || payload.startsWith('ia:');

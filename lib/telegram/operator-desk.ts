@@ -40,12 +40,15 @@ export function operatorReplyMarkup(): {
   };
 }
 
-export function operatorBoundText(name: string): string {
+export function operatorBoundText(name: string, channel: 'telegram' | 'max' = 'telegram'): string {
   const who = escapeHtml(name);
+  const contacts = channel === 'max'
+    ? 'Имя и телефон туриста приходят в этот чат.'
+    : 'Имя и телефон туриста в этот чат не приходят — их принимает MAX.';
   return [
     `Вы подключены как туроператор «${who}».`,
     'Сюда будут приходить заявки: новые брони и запросы, которые ждут ответа.',
-    'Имя и телефон туриста в этот чат не приходят — их принимает MAX.',
+    contacts,
     '',
     'Дальше, кнопки внизу:',
     '«Новые заявки» — что ждёт ответа, с кнопками карточки.',

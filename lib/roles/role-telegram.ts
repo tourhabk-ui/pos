@@ -18,6 +18,7 @@ import { roleMenuScreen } from '@/lib/roles/role-screen';
 import {
   loadOperatorTours, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
+import { operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
 import { setOperatorChatCommands } from '@/lib/telegram/role-commands';
 
 export type RoleSend = (text: string, buttons: MenuButton[][]) => Promise<void>;
@@ -135,6 +136,17 @@ export async function tryRoleMenuTelegramPress(opts: {
     return true;
   }
   const menu = partnerMenu(lookup.partner) ?? [];
+  if (press.role === 'operator' && (press.action === 'inbox' || press.action === 'help')) {
+    const view = await operatorInboxOrHelpPress({
+      action: press.action,
+      partnerId: lookup.partner.partnerId,
+      userId: lookup.partner.userId,
+      menu,
+      nowMs: Date.now(),
+    });
+    await opts.send(view.text, view.buttons);
+    return true;
+  }
   const screen = await roleMenuScreen({
     role: press.role,
     action: press.action,

@@ -164,7 +164,7 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  */
 export function channelBoundText(channel: PartnerChannel, result: BindResult): string {
   if (result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)) {
-    return operatorBoundText(result.displayName || result.partnerName);
+    return operatorBoundText(result.displayName || result.partnerName, channel);
   }
   if (result.ok && isRentalPilotSlug(result.slug) && channel === 'max') {
     return rentalPilotBoundText(result.partnerName);

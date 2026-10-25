@@ -8,6 +8,7 @@ import { render, cleanup, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { MessengerConnectCard } from '@/components/operator/MessengerConnectCard';
 import { normalizeBindCode, bindCodeMissedText, mintBindCode } from '@/lib/partners/bind-code';
+import { channelBoundText } from '@/lib/partners/bind-channel';
 import { operatorBoundText, operatorHelpText, operatorReplyMarkup, tourPriceLabel } from '@/lib/telegram/operator-desk';
 import { chatAnswerButtons, chatAnswerText, parseChatAnswer } from '@/lib/requests/chat-answer';
 
@@ -35,7 +36,17 @@ describe('подтверждение туроператора', () => {
     const text = operatorBoundText('Местечко <Камчатка>');
     expect(text).toContain('Вы подключены как туроператор «Местечко &lt;Камчатка&gt;».');
     expect(text).toContain('Сюда будут приходить заявки');
+    expect(text).toContain('в этот чат не приходят — их принимает MAX');
     expect(text).not.toMatch(/командный центр|Совет директоров|\/stats/);
+    const max = operatorBoundText('Местечко', 'max');
+    expect(max).toContain('Имя и телефон туриста приходят в этот чат.');
+    expect(max).not.toContain('не приходят');
+    const bound = channelBoundText('max', {
+      ok: true, partnerName: 'Местечко', displayName: 'Местечко',
+      category: 'operator', slug: 'mestechko', previousChatId: null, rebound: false,
+    });
+    expect(bound).toContain('приходят в этот чат');
+    expect(bound).not.toContain('не приходят');
     expect(operatorReplyMarkup().keyboard.flat().map((b) => b.text)).toEqual([
       'Новые заявки', 'Мои туры и цены', 'Обновить места', 'Помощь',
     ]);

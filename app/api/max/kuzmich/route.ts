@@ -71,7 +71,7 @@ import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { loadInbox } from '@/lib/crm/inbox';
 import { operatorDeskButtons, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
-import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
+import { isOperatorDeskPayload, operatorDeskPress, operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 
@@ -1308,6 +1308,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(messageChatId, 'Эта кнопка — меню кабинета. В этом чате её не выполняю.');
         return;
       }
+      const row = partnerMenu(roleLookup.partner) ?? [];
+      if (rolePress.role === 'operator' && (rolePress.action === 'inbox' || rolePress.action === 'help')) {
+        const view = await operatorInboxOrHelpPress({
+          action: rolePress.action,
+          partnerId: roleLookup.partner.partnerId,
+          userId: roleLookup.partner.userId,
+          menu: row,
+          nowMs: Date.now(),
+        });
+        await maxReplyWithButtons(messageChatId, view.text, toMaxButtons(view.buttons));
+        return;
+      }
       const screen = await roleMenuScreen({
         role: rolePress.role,
         action: rolePress.action,
@@ -1315,7 +1327,6 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         partner: roleLookup.partner,
         nowMs: Date.now(),
       });
-      const row = partnerMenu(roleLookup.partner) ?? [];
       await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons(row.length ? [row] : []));
       return;
     }
