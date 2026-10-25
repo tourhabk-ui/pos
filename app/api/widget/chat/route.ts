@@ -43,6 +43,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { buildRAGContext } from '@/lib/ai/rag-context';
 import { getCurrentSafetyStatus, formatSafetyStatusForAgent } from '@/lib/safety/current-status';
+import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -202,13 +203,14 @@ export async function POST(request: NextRequest) {
 
     // Три источника данных порознь: отказ одного не отменяет ответ, но
     // называется — в логе и в промпте («не загрузился», а не «нет»).
-    const [routesCtx, tours, safetyStatus] = await Promise.all([
+    const [routesCtx, tours, safetyStatus, mchsBlock] = await Promise.all([
       buildRAGContext(message, 'tourist', undefined, { tours: false }).catch((err: unknown) => {
         console.error('[widget-chat] контекст маршрутов не собран:', logText(err instanceof Error ? err.message : err, 200));
         return '';
       }),
       emergency ? Promise.resolve(null) : loadPartnerTours(partner.id),
       getCurrentSafetyStatus(),
+      mchsPromptBlock(),
     ]);
     const safetyText = formatSafetyStatusForAgent(safetyStatus);
     const toolRuns: ToolRun[] = [
@@ -219,6 +221,7 @@ export async function POST(request: NextRequest) {
     // километраж в ответе (аудит 15.10, 1.14).
     const widgetContext = partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
       + safetyBlock(safetyText)
+      + (mchsBlock ? `\n${mchsBlock}\n` : '')
       + routesCtx;
     const messages: ChatMessage[] = [
       {

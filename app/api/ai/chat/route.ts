@@ -6,6 +6,7 @@
  */
 
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
@@ -248,11 +249,12 @@ export async function POST(request: NextRequest) {
 
     const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
 
-    const [ragContext, agentInsights] = await Promise.all([
+    const [ragContext, agentInsights, mchsBlock] = await Promise.all([
       buildRAGContext(message.trim(), safeRole, geo),
       safeRole === 'tourist' ? buildAgentInsightsForTourist() : Promise.resolve(''),
+      safeRole === 'tourist' ? mchsPromptBlock() : Promise.resolve(''),
     ]);
-    const systemPrompt = basePrompt + geoContext + ragContext + memContext + agentInsights;
+    const systemPrompt = [basePrompt, mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
 
     // Замер ответа Кузьмича туристу (аудит 15.10, A19): от начала ответа до
@@ -464,7 +466,7 @@ export async function POST(request: NextRequest) {
       answer,
       question: rawMessage,
       toolRuns: loopAnswered ? webToolRuns : null,
-      context: geoContext + ragContext + memContext + agentInsights,
+      context: [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
     });
     answer = finished.text;
 

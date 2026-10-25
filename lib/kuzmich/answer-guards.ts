@@ -28,6 +28,7 @@
 
 import { stripUngroundedDistanceClaims, DISTANCE_HONEST_LINE } from '@/lib/kuzmich/distance-guard';
 import { guardSafetyClaims, type GuardResult } from '@/lib/kuzmich/safety-claim-guard';
+import { appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, warningsFromBlock } from '@/lib/safety/mchs-bulletin';
 import { stripBannedAdvice, BANNED_ADVICE_NOTE } from '@/lib/kuzmich/banned-advice';
 import { guardDeliveryClaims, DELIVERY_HONEST_LINE, type DeliveryGuardResult } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
@@ -109,11 +110,15 @@ export function finishKuzmichAnswer(input: FinishInput): FinishedAnswer {
   void recordSafetyReview(input.surface, safety, input.toolRuns);
   const delivery = guardDeliveryClaims(safety.text, input.toolRuns);
   logGuards(input.surface, distance.removed, safety, delivery);
+  const flagged = appendUnreadSafety(
+    appendOfferingFlags(delivery.text, warningsFromBlock(input.context)),
+    input.context.includes(MCHS_UNREAD_NOTE),
+  );
 
   if (input.sos === false) {
-    return { text: delivery.text, emergency: false, distanceRemoved: distance.removed, safety, delivery };
+    return { text: flagged, emergency: false, distanceRemoved: distance.removed, safety, delivery };
   }
-  const sos = withSosBlock(delivery.text, input.question, input.lang ?? 'ru');
+  const sos = withSosBlock(flagged, input.question, input.lang ?? 'ru');
   return { text: sos.text, emergency: sos.emergency, distanceRemoved: distance.removed, safety, delivery };
 }
 
@@ -155,6 +160,11 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
     notes.push(safety.text.slice(banned.text.length).trim());
   }
   if (delivery.verdict === 'unbacked') notes.push(DELIVERY_HONEST_LINE);
+  const flagged = appendUnreadSafety(
+    appendOfferingFlags(input.answer, warningsFromBlock(input.context)),
+    input.context.includes(MCHS_UNREAD_NOTE),
+  );
+  if (flagged !== input.answer) notes.push(flagged.slice(input.answer.length).trim());
   return {
     tail: notes.length > 0 ? `\n\n${notes.join('\n\n')}` : '',
     distanceRemoved: distance.removed,

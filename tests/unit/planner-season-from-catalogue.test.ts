@@ -100,7 +100,7 @@ describe('каталог расширяет сезонное окно', () => {
     // (предупреждения о разрешениях считались по зонам-кандидатам и требовали
     // погранзону ФСБ для поездки, которой нет). Правило то же, порядок другой.
     expect(ENGINE).toMatch(/collectWarnings\([^)]*catalogueOpen/);
-    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly\)/);
+    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly/);
     // Ни одна из трёх проверок не судит по голой таблице.
     expect(ENGINE).not.toMatch(/if \(!c\.months\.includes\(month\)\) continue;/);
   });

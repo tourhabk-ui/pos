@@ -25,6 +25,7 @@ import { KRAI_COMMANDER_ZONE, KRAI_FAR_ZONES, KRAI_KORYAK_ZONE } from '@/lib/saf
 import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
 import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { citeBulletin, parseBulletinPeriod, roadBannerTitle } from '@/lib/safety/mchs-bulletin';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -1273,6 +1274,12 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   // округе»: без строки округ уходил в дефолт `avachinsky`, то есть ограничение
   // на западном берегу вешалось на маршруты Авачинской группы.
   [/усть-большерецк/i,['western']],
+  // Мыс Левашова — та же дорога Усть-Большерецкого округа (сводка 29.07
+  // назвала её вместе с округом). Поздняя сводка может назвать мыс, не
+  // повторив округ: без этой строки зона пустая и ограничение не доходит
+  // до западных маршрутов. Голое «Октябрьский» сюда не ставим — такое
+  // имя в крае не одно.
+  [/левашов/i, ['western']],
   // Октябрьская коса — между Охотским морем и устьем Большой, у посёлка
   // Октябрьский (Усть-Большерецкий округ). Канал «Право на Руль» пишет о ней
   // без округа: «Октябрьскую косу закрыли для проезда» (10.10). Только «коса»:
@@ -1326,6 +1333,59 @@ const VOLCANO_MATCHERS: Array<[RegExp, string[]]> = Object.entries(VOLCANO_ZONES
     : name;
   return [new RegExp(src, 'i'), z];
 });
+
+const APPROACH_BAN = /не приближ|не подход|воздержаться от|не рекоменду/;
+
+function volcanoLabel(key: string): string {
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+/** Вулканы, названные в тексте. Пустой список — источник никого не назвал. */
+export function volcanoesNamedIn(text: string): Array<{ key: string; zones: string[] }> {
+  const lower = text.toLowerCase();
+  const out: Array<{ key: string; zones: string[] }> = [];
+  for (const [name, zones] of Object.entries(VOLCANO_ZONES)) {
+    const adj = name.match(/^(.+?)(ий|ый|ой)$/);
+    const src = adj
+      ? `${adj[1]}(?:ий|ый|ой|ого|ому|им|ым|ом|ем|ая|ую|ие|ых|их)`
+      : name;
+    if (new RegExp(src, 'i').test(lower)) out.push({ key: name, zones });
+  }
+  return out;
+}
+
+/**
+ * Строка «активные вулканы … не приближаться», которую однотемный
+ * классификатор отбрасывал. По одному событию на названный вулкан.
+ * Запрета нет или вулкан не назван — пусто, вулкан не выдумывается.
+ */
+export function approachVolcanoEvents(
+  id: string,
+  item: string,
+  pubDate: string,
+  link: string,
+  sourcePrefix: string,
+): SeismicEvent[] {
+  if (!APPROACH_BAN.test(item)) return [];
+  const named = volcanoesNamedIn(item);
+  if (named.length === 0) return [];
+  const publishedAt = new Date(pubDate);
+  if (Number.isNaN(publishedAt.getTime())) return [];
+  const day = publishedAt.toISOString().slice(0, 10);
+  const sourceUrl = link || 'https://41.mchs.gov.ru';
+  return named.map(({ key, zones }) => ({
+    source_id: `${sourcePrefix}/${day}/v${titleFingerprint(key)}`,
+    source_url: sourceUrl,
+    published_at: publishedAt,
+    alert_type: 'volcanic_eruption' as const,
+    severity: 2 as const,
+    title: `Вулкан ${volcanoLabel(key)}: не приближаться`,
+    description: item.slice(0, 800),
+    affected_zones: zones,
+    volcano_name: volcanoLabel(key),
+    expires_hours: 48,
+  }));
+}
 
 export function mchs_zones(text: string): string[] {
   // Название вулкана в тексте — точнее административного района (переиспользуем
@@ -1463,6 +1523,36 @@ export function isMinturBulletin(text: string): boolean {
   return /оперативн[а-я]* сводк/i.test(text) && /доступност[а-я]* туристическ/i.test(text);
 }
 
+function topicKey(ev: SeismicEvent): string {
+  // Один вулкан — одна тема: иначе Безымянный, Шивелуч и Ключевской
+  // схлопываются в «север» и в баннере остаётся только первый.
+  if (ev.volcano_name) return `${ev.alert_type}|v:${ev.volcano_name.toLowerCase()}`;
+  if (ev.alert_type === 'road_closure') return `${ev.alert_type}|${titleFingerprint(ev.title)}`;
+  return `${ev.alert_type}|${[...ev.affected_zones].sort().join(',')}`;
+}
+
+function citeEvents(events: SeismicEvent[], description: string, link: string): SeismicEvent[] {
+  // Период дописывается только если сводка его назвала. Без периода ссылка
+  // остаётся в source_url и в описание не подставляется «на всякий случай».
+  const period = parseBulletinPeriod(description)?.label ?? null;
+  if (!period) return events;
+  const source = link.trim();
+  for (const ev of events) ev.description = citeBulletin(ev.description, source || null, period);
+  return events;
+}
+
+/** Строка, которую обычный классификатор не взял, но это запрет к названным вулканам. */
+function approachIfUnclassified(
+  id: string,
+  item: string,
+  pubDate: string,
+  link: string,
+  sourcePrefix: string,
+): SeismicEvent[] {
+  if (classifyMchsItem(id, '', item, pubDate, link, sourcePrefix)) return [];
+  return approachVolcanoEvents(id, item, pubDate, link, sourcePrefix);
+}
+
 export function classifyMchsItems(
   id: string,
   title: string,
@@ -1479,30 +1569,77 @@ export function classifyMchsItems(
   // не доходили вовсе (плоское сохранение стояло с пометкой «построчный разбор
   // — следующий шаг, когда накопятся образцы»; второй образец принёс владелец).
   const mintur = isMinturBulletin(`${title} ${description}`);
-  if (title.trim() !== '' && !mintur) return whole ? [whole] : [];
+  if (title.trim() !== '' && !mintur) return citeEvents(whole ? [whole] : [], description, link);
 
   const items = splitSummaryItems(description);
-  if (items.length < (mintur ? 2 : 3)) return whole ? [whole] : [];
+  // Короче трёх пунктов — не суточная сводка. Но одна строка «не приближаться
+  // к названным вулканам» (так MAX отдаёт пост построчно) всё равно событие:
+  // иначе запрет теряется, потому что не набрал порог «три темы».
+  if (items.length < (mintur ? 2 : 3)) {
+    const extras = items.flatMap((item) => approachIfUnclassified(id, item, pubDate, link, sourcePrefix));
+    return citeEvents(whole ? [whole, ...extras] : extras, description, link);
+  }
 
   // Тема = тип + зоны. Совпали — оставляем строгую: пеплопад с рекомендацией
   // «не приближаться» не должен теряться за нейтральным упоминанием той же горы.
   const byTopic = new Map<string, SeismicEvent>();
   const routineSummary = title.trim() === '' && isRoutineDailySummary(description);
+  const absorb = (raw: SeismicEvent, item: string) => {
+    const ev = routineSummary ? demoteRoutine(raw, item) : raw;
+    const key = topicKey(ev);
+    const prev = byTopic.get(key);
+    if (!prev) {
+      byTopic.set(key, ev);
+      return;
+    }
+    // Общее «не приближаться» не подменяет пеплопад или оползень той же
+    // горы: заголовок остаётся у более конкретной строки, важность — у
+    // более строгой.
+    const generic = (title: string) => /: не приближаться$/.test(title);
+    const severity = Math.max(prev.severity, ev.severity) as SeismicEvent['severity'];
+    if (generic(prev.title) && !generic(ev.title)) {
+      ev.severity = severity;
+      byTopic.set(key, ev);
+      return;
+    }
+    if (!generic(prev.title) && generic(ev.title)) {
+      prev.severity = severity;
+      return;
+    }
+    if (ev.severity > prev.severity) byTopic.set(key, ev);
+  };
+  const mentionsVolcano = (ev: SeismicEvent, name: string): boolean => {
+    const stem = name.toLowerCase().replace(/ё/g, 'е').slice(0, 6);
+    if (stem.length < 5) return false;
+    // Описание общей строки называет сразу несколько гор. Сверяем имя и
+    // заголовок, иначе все вулканы одной фразы схлопнутся в первый.
+    const hay = `${ev.volcano_name ?? ''} ${ev.title}`.toLowerCase().replace(/ё/g, 'е');
+    return hay.includes(stem);
+  };
   for (const item of items) {
     const raw = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
-    if (!raw) continue;
-    const ev = routineSummary ? demoteRoutine(raw, item) : raw;
-    const key = `${ev.alert_type}|${[...ev.affected_zones].sort().join(',')}`;
-    const prev = byTopic.get(key);
-    if (!prev || ev.severity > prev.severity) byTopic.set(key, ev);
+    if (raw) absorb(raw, item);
+    for (const ev of approachVolcanoEvents(id, item, pubDate, link, sourcePrefix)) {
+      const name = ev.volcano_name ?? '';
+      const prev = [...byTopic.values()].find((p) => p.alert_type === 'volcanic_eruption' && mentionsVolcano(p, name));
+      if (prev) {
+        if (ev.severity > prev.severity) prev.severity = ev.severity;
+        if (!prev.volcano_name && ev.volcano_name) prev.volcano_name = ev.volcano_name;
+        continue;
+      }
+      absorb(ev, item);
+    }
   }
 
   // У сводки Минтура и ОДНА распознанная угроза ценнее плоского info: пункты
   // «открыто» законно не классифицируются, порог «≥2 темы» здесь не о том.
-  if (byTopic.size < (mintur ? 1 : 2)) return whole ? [whole] : [];
+  if (byTopic.size < (mintur ? 1 : 2)) {
+    const extras = items.flatMap((item) => approachIfUnclassified(id, item, pubDate, link, sourcePrefix));
+    return citeEvents(whole ? [whole, ...extras] : extras, description, link);
+  }
   const out = [...byTopic.values()];
   if (mintur) attachRiverBan(items, out);
-  return out;
+  return citeEvents(out, description, link);
 }
 
 /** Запрет сплава по рекам: «сплавы на рафтах … необходимо исключить». */
@@ -2290,7 +2427,10 @@ export function classifyMchsItem(
   const genuine = addressesTouristsWithBan(text) || declaresHazardGrade(text);
   if (routine && !genuine && ROUTINE_DEMOTED.includes(alert_type)) severity = Math.min(severity, 1) as typeof severity;
   const routineTitle = routine && alert_type === 'road_closure' ? roadSentenceOf(description) : null;
-  const effectiveTitle = hadTitle ? title : routineTitle ? titleFromText(routineTitle) : titleFromText(description);
+  // Место в заголовке — только из слов самой строки. Отпечаток id считается
+  // по тексту пункта ниже и от этой подписи не зависит.
+  const roadTitle = !hadTitle && alert_type === 'road_closure' ? roadBannerTitle(description) : null;
+  const effectiveTitle = roadTitle ?? (hadTitle ? title : routineTitle ? titleFromText(routineTitle) : titleFromText(description));
   // Отпечаток поста без заголовка — по прежнему ключу, а не по заголовку:
   // см. titleKeyFromText (смена обрезки не должна менять external_id).
   const fingerprint = titleFingerprint(hadTitle ? effectiveTitle : titleKeyFromText(description));

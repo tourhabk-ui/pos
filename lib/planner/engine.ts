@@ -52,6 +52,11 @@ import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, slotOnTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
+import { loadActiveWarnings } from '@/lib/safety/active-warnings';
+import {
+  appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, notesForPlanDay, warningDigest,
+  type ActiveWarning,
+} from '@/lib/safety/mchs-bulletin';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -1066,6 +1071,8 @@ async function generateDayPlans(
    * него отвечающего нет.
    */
   onRequestOnly: ReadonlySet<string> = new Set(),
+  /** Действующие предупреждения МЧС. Пустой список — их нет или сводка не прочиталась. */
+  mchsWarnings: readonly ActiveWarning[] = [],
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
   if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
@@ -1224,7 +1231,12 @@ async function generateDayPlans(
           activityType: 'travel', priceFrom: edge.costPerPerson[0], priceTo: edge.costPerPerson[1],
           coords: ZONE_COORDS[block.zone], defaultTransport: edge.transports[0],
           allowedTransports: edge.transports, difficulty: 'easy',
-          childFriendly: true, minChildAge: 0, dayWarnings: [],
+          childFriendly: true, minChildAge: 0,
+          dayWarnings: notesForPlanDay(
+            `${ZONE_NAMES[prevZone]} ${ZONE_NAMES[block.zone]} ${transportLabel}`,
+            [prevZone, block.zone],
+            mchsWarnings,
+          ),
         });
       }
     }
@@ -1465,6 +1477,13 @@ async function generateDayPlans(
       if (profile.seasickness && c.requiredTransport === 'boat' && interest === 'boat_trip') {
         dayTitle = 'Прогулка вдоль Авачинской бухты (береговой маршрут)';
       }
+      for (const note of notesForPlanDay(
+        `${dayTitle} ${realTour?.shortDescription ?? ''} ${route?.title ?? ''}`,
+        [block.zone],
+        mchsWarnings,
+      )) {
+        if (!dayWarnings.includes(note)) dayWarnings.push(note);
+      }
 
       // Build reality-enriched DayPlan fields
       let realTourData: DayPlan['realTour'];
@@ -1593,6 +1612,11 @@ async function generateDayPlans(
       // цены и без второй карточки тура. Цена многодневного тура — за весь
       // тур, а не за сутки; посчитать её N раз значило бы умножить счёт.
       for (let extra = 1; extra < span && used + extra <= block.activeDays && dayNum <= tripDays - departureDays; extra++) {
+        const continuedWarnings = notesForPlanDay(
+          `${dayTitle} ${realTour?.shortDescription ?? ''}`,
+          [block.zone],
+          mchsWarnings,
+        );
         days.push({
           day: dayNum++, type: 'activity', zone: block.zone,
           title: `${dayTitle} — день ${extra + 1} из ${span}`,
@@ -1602,7 +1626,8 @@ async function generateDayPlans(
           coords, defaultTransport: transport,
           allowedTransports: allowed.length > 0 ? allowed : [transport],
           difficulty: (realTour?.difficulty as DayPlan['difficulty']) ?? c.difficulty,
-          childFriendly: childOk, minChildAge: c.minChildAge, dayWarnings: [],
+          childFriendly: childOk, minChildAge: c.minChildAge,
+          dayWarnings: continuedWarnings,
           activityMode: activityMode({ realTour, route }),
           // Тот же тур — значит и ночь его, и смета её не считает отдельно.
           realTour: realTourData,
@@ -1677,7 +1702,12 @@ async function generateDayPlans(
         activityType: 'travel', priceFrom: backEdge.costPerPerson[0], priceTo: backEdge.costPerPerson[1],
         coords: PKC_COORDS, defaultTransport: backEdge.transports[0],
         allowedTransports: backEdge.transports, difficulty: 'easy',
-        childFriendly: true, minChildAge: 0, dayWarnings: [],
+        childFriendly: true, minChildAge: 0,
+        dayWarnings: notesForPlanDay(
+          `Возвращение: ${ZONE_NAMES[prevZone]} Петропавловск`,
+          [prevZone, 'avachinsky'],
+          mchsWarnings,
+        ),
       });
       prevZone = 'avachinsky';
     } else {
@@ -1919,6 +1949,7 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
 - Упомяни ключевые впечатления: что увидят, что почувствуют
 - Если есть реальные операторы — упомяни их и рейтинг
 - Если есть прогноз погоды — кратко упомяни что ожидать
+- Если среди предупреждений есть МЧС, не называй эти места безопасными или без риска
 - Не нумеруй дни, пиши связным текстом`;
 }
 
@@ -1952,8 +1983,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const cache = createPlannerCache();
 
   // Fetch context data in parallel
-  const [alerts] = await Promise.all([
+  const [alerts, mchs] = await Promise.all([
     fetchSafetyAlerts(profile.arrivalDate, profile.departureDate),
+    loadActiveWarnings(),
   ]);
 
   // Каталог спрашивается ОДИН раз и кормит все три места, где решает
@@ -1984,9 +2016,15 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
   // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
   // «Раздолье»).
-  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly);
+  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchs.ok ? mchs.warnings : []);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
+  if (!mchs.ok) {
+    warnings.push({ type: 'mchs', severity: 'important', message: MCHS_UNREAD_NOTE });
+  } else {
+    const digest = warningDigest(mchs.warnings);
+    if (digest) warnings.push({ type: 'mchs', severity: 'important', message: digest });
+  }
 
   // Каталог открыл то, что зашитая таблица считает закрытым. Промолчать
   // нельзя ни в одну сторону: отказать — значит не продать то, что оператор
@@ -2273,6 +2311,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
     }
   }
+  itinerary = mchs.ok
+    ? appendOfferingFlags(itinerary, mchs.warnings)
+    : appendUnreadSafety(itinerary, true);
 
   // Просьба была — ответ о ней обязателен, даже если заметок нет. Просьбы
   // не было — ответ движка прежний, без нового поля.

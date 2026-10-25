@@ -18,6 +18,9 @@ import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tou
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { tourPath } from '@/lib/tours/tour-url';
+import {
+  MCHS_UNREAD_NOTE, notesForOffering, warningDigest, type ActiveWarning,
+} from '@/lib/safety/mchs-bulletin';
 
 export type CommercialSurface = 'web' | 'telegram' | 'max';
 export type CommercialTopic = 'tour' | 'transfer' | 'lodging' | 'rental';
@@ -50,6 +53,11 @@ export interface ComposeInput {
   tours: { ok: true; tours: CatalogTour[] } | { ok: false };
   transfers: { ok: true; items: TransferItem[] } | { ok: false };
   stays: { ok: true; items: StayItem[] } | { ok: false };
+  /**
+   * Действующие сводки МЧС. Нет поля — ход их не спрашивал (старые тесты).
+   * ok: false — прочитать не удалось, и это нельзя прочитать как «всё спокойно».
+   */
+  warnings?: { ok: true; warnings: ActiveWarning[] } | { ok: false };
 }
 
 export interface CommercialAnswer {
@@ -276,6 +284,19 @@ function topicWord(topic: CommercialTopic): string {
   return 'туры';
 }
 
+function offeringLine(text: string, input: ComposeInput): string {
+  if (!input.warnings?.ok) return '';
+  const notes = notesForOffering(text, input.warnings.warnings);
+  return notes.length > 0 ? `\n  ${notes[0]}` : '';
+}
+
+function warningFooter(input: ComposeInput, always = true): string {
+  if (!input.warnings) return '';
+  if (!input.warnings.ok) return MCHS_UNREAD_NOTE;
+  if (!always) return '';
+  return warningDigest(input.warnings.warnings) ?? '';
+}
+
 /** Тариф «за час / за день» — цена из прайса, даже если в строке нет города. */
 function isTariffLine(line: string): boolean {
   return /руб за час|руб за полн|руб за день|руб за смену/.test(norm(line));
@@ -305,18 +326,20 @@ function composeTours(input: ComposeInput): CommercialAnswer {
       tours: [],
     };
   }
-  const lines = picked.tours.map((tour) => (
-    `- ${tour.title} — ${touristPrice(tour)} — ${joinUrl(input.base, tourPath(tour))}`
-  ));
+  const lines = picked.tours.map((tour) => {
+    const url = joinUrl(input.base, tourPath(tour));
+    const flag = offeringLine(`${tour.title} ${tour.location_name ?? ''}`, input);
+    return `- ${tour.title} — ${touristPrice(tour)} — ${url}${flag}`;
+  });
   const more = picked.unnamedMore > 0
     ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю: ${catalog}`
     : '';
   const head = `Туры из каталога на ${picked.windowLabel ?? 'сегодня'}:`;
-  const firstUrl = lines[0]?.split(' — ').pop() ?? catalog;
+  const firstUrl = picked.tours[0] ? joinUrl(input.base, tourPath(picked.tours[0])) : catalog;
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
-      [head, ...lines, more].filter(Boolean).join('\n'),
+      [head, ...lines, more, warningFooter(input)].filter(Boolean).join('\n'),
       requestCta('оператору', firstUrl, input.surface),
     ].join('\n\n')),
     tours: picked.tours,
@@ -361,7 +384,7 @@ function composeTransfers(input: ComposeInput): CommercialAnswer {
     }
     for (const price of picked) {
       if (lines.length >= 8) break;
-      lines.push(`- ${item.name} — ${price} — ${item.url}`);
+      lines.push(`- ${item.name} — ${price} — ${item.url}${offeringLine(`${item.name} ${price}`, input)}`);
     }
   }
   const people = peopleCount(input.question);
@@ -376,7 +399,7 @@ function composeTransfers(input: ComposeInput): CommercialAnswer {
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
-      ['Трансфер из прайса:', ...lines, more].filter(Boolean).join('\n'),
+      ['Трансфер из прайса:', ...lines, more, warningFooter(input)].filter(Boolean).join('\n'),
       perCar,
       requestCta('перевозчику', ctaUrl, input.surface),
     ].join('\n\n')),
@@ -416,9 +439,10 @@ function composeStays(input: ComposeInput): CommercialAnswer {
   }
   const shown = pool.slice(0, 8);
   const stayCta = shown.length === 1 ? shown[0].url : board;
-  const lines = shown.map((item) => (
-    `- ${item.name} — ${item.priceText ?? 'цена не указана'} — ${item.url}`
-  ));
+  const lines = shown.map((item) => {
+    const flag = offeringLine(`${item.name} ${item.zone ?? ''}`, input);
+    return `- ${item.name} — ${item.priceText ?? 'цена не указана'} — ${item.url}${flag}`;
+  });
   const nights = nightCount(input.question);
   const perNight = nights
     ? `Цена — за сутки, как в витрине. Сумму за ${nights} ночи не считаю.`
@@ -432,7 +456,7 @@ function composeStays(input: ComposeInput): CommercialAnswer {
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
-      ['Жильё из витрины:', ...lines, more].filter(Boolean).join('\n'),
+      ['Жильё из витрины:', ...lines, more, warningFooter(input, lines.some((l) => l.includes('МЧС:')))].filter(Boolean).join('\n'),
       perNight,
       springs,
       requestCta('владельцу жилья', stayCta, input.surface),
