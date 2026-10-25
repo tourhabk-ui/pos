@@ -217,7 +217,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/events/emit.ts': 1,
   'lib/field/track-import.ts': 1,
   'lib/funnel/beacon.ts': 2,
-  'lib/kuzmich/core.ts': 7,
+  'lib/kuzmich/core.ts': 4,
   'lib/kuzmich/engagement.ts': 2,
   'lib/kuzmich/tool-loop.ts': 1,
   'lib/kuzmich/trip-plan-tool.ts': 1,

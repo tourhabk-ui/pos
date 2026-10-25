@@ -128,6 +128,7 @@ const TelegramUpdateSchema = z.object({
     from: TelegramUserSchema.optional(),
     chat: TelegramChatSchema.optional(),
     text: z.string().optional(),
+    caption: z.string().optional(),
   }).optional(),
   callback_query: z.object({
     id: z.string(),
@@ -144,6 +145,7 @@ interface TelegramUpdate {
     from: { id: number; username?: string; first_name?: string };
     chat: { id: number; type: string };
     text?: string;
+    caption?: string;
   };
   callback_query?: {
     id: string;
@@ -770,6 +772,14 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
+  // Фото с подписью отвечается по подписи (проверка качества 24.10): схема
+  // подписи не знала, и «помогите, мы заблудились» под снимком оставалось
+  // без ответа вовсе. Сам снимок здесь не разбирается — только его подпись.
+  // Подпись-команда («/post …» под снимком) командой не становится.
+  if (update.message && !update.message.text && update.message.caption?.trim()
+    && !update.message.caption.trim().startsWith('/')) {
+    update.message.text = update.message.caption;
+  }
 
   // Повтор того же апдейта (Bot API не дождался ответа) — не отвечать дважды.
   if (isRepeatedTelegramUpdate(update.update_id)) {
@@ -789,7 +799,20 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+/**
+ * Голос, геопозиция, стикер или снимок без подписи в личке: разобрать их
+ * здесь нечем, но и молчать нельзя — в них может быть беда (проверка
+ * качества 24.10: голосовое SOS не получало никакого ответа).
+ */
+const NON_TEXT_REPLY =
+  'Здесь я читаю только текст — напишите словами. В беде — звоните 112: '
+  + 'работает без SIM-карты и баланса. Кнопка SOS с координатами: vedarai.ru/sos';
+
 async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
+  if (update.message && !update.message.text?.trim() && update.message.chat?.type === 'private') {
+    await sendHTML(String(update.message.chat.id), NON_TEXT_REPLY);
+    return;
+  }
 
   // ── Текстовые сообщения ───────────────────────────────────────────────────
   if (update.message?.text && update.message.chat) {

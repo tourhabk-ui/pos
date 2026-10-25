@@ -12,11 +12,14 @@
 
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 import { ADMIN_HELP_TEXT, adminCommandOf, adminReplyFor } from '@/lib/max/admin-read';
 import { adminMenu } from '@/lib/roles/role-menu';
 
 export const ADMIN_CHAT_TEXT = {
-  textOnly: 'Как администратор принимаю в MAX только текст: фото, голос и номера здесь не обрабатываю.',
+  // Голос и фото здесь не разбираются, а в них может быть беда: строка 112 —
+  // в самом отказе.
+  textOnly: 'Как администратор принимаю в MAX только текст: фото, голос и номера здесь не обрабатываю. В беде — звоните 112.',
   notUnderstood: `Не понял команду.\n\n${ADMIN_HELP_TEXT}`,
   pdNotDelivered: 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.',
 } as const;
@@ -37,7 +40,10 @@ export async function handleAdminMessage(opts: {
   reply: (chatId: number, text: string) => Promise<void>;
   nowMs?: number;
 }): Promise<void> {
-  const { text, name, chatId, reply } = opts;
+  const { text, name, chatId } = opts;
+  // Беду классификатор отдаёт Кузьмичу туриста раньше этой функции; если она
+  // дошла сюда (дело CRM в той же фразе), ответ всё равно несёт блок 112.
+  const reply = (id: number, body: string) => opts.reply(id, withSosBlock(body, text).text);
   if (/^\/start\b/i.test(text.trim())) {
     await reply(chatId, adminGreeting(name));
     return;
@@ -53,7 +59,7 @@ export async function handleAdminMessage(opts: {
     return;
   }
   const sent = await sendPdAlert({
-    text: res.text,
+    text: withSosBlock(res.text, text).text,
     stub: 'Ответ администратору в MAX не доставлен.',
     buttons: adminMenu(),
     to: { maxChatId: chatId, telegramChatId: null },
