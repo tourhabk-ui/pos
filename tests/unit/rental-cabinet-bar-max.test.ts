@@ -56,6 +56,8 @@ vi.mock('@/lib/notifications/telegram', () => ({
 }));
 
 const max = await import('@/app/api/max/kuzmich/route');
+// Тесты шлют одни и те же mid: повтор сообщения отсекается (25.10), память — заново на тест.
+const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 
 const KEY = 'test-webhook-key-rental-bar';
 const VERIFIED = `http://localhost/api/max/kuzmich?s=${KEY}`;
@@ -94,6 +96,7 @@ function barPayloads(call: unknown[]): string[] {
 }
 
 beforeEach(() => {
+  clearMaxMessageDedup();
   for (const f of Object.values(m)) f.mockReset();
   m.maxSend.mockResolvedValue({});
   m.maxSendUser.mockResolvedValue({});

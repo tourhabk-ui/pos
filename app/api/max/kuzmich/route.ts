@@ -38,10 +38,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage } from '@/lib/kuzmich/core';
-import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { adminChatYieldsToPartner } from '@/lib/roles/admin-partner-chat';
 import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pilot';
 import {
   parseRentalCabinetPress, rentalCabinetAsk, rentalCabinetBar, withRentalCabinetBar, type CabinetButton,
@@ -72,6 +73,7 @@ import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
 import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { loadInbox } from '@/lib/crm/inbox';
+import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
 import { operatorDeskButtons, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
 
@@ -875,6 +877,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (!chatId) return;
     // Ignore group chats and channels (negative chat_ids) — only process DMs
     if (chatId < 0) return;
+    // Повтор того же сообщения (MAX доставил апдейт второй раз, пока шёл цикл
+    // модели) не отвечается и не пишется в CRM второй раз (25.10).
+    if (typeof msg.body.mid === 'string' && msg.body.mid !== ''
+      && isRepeatedMaxMessage(msg.body.mid, opts?.verifiedOrigin === true)) return;
 
     const text = msg.body.text?.trim() ?? '';
     const attachments = msg.body.attachments ?? [];
@@ -893,7 +899,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // Заявка, начатая администратором у Кузьмича туриста, доводится им же:
       // имя, дата, контакт кнопкой иначе получали «Не понял команду» или
       // «только текст» (#2756).
-      if (admin.outcome === 'admin' && !(await hasLiveBookingFlow(chatId, 'max', pending))) {
+      // Чат администратора бывает и чатом карточки партнёра: тогда консоль
+      // берёт только свои команды, а кабинет партнёра — остальное (25.10).
+      if (admin.outcome === 'admin' && !(await hasLiveBookingFlow(chatId, 'max', pending))
+        && !(text && await adminChatYieldsToPartner('max', chatId, text))) {
         const { ADMIN_CHAT_TEXT, handleAdminMessage } = await import('@/lib/max/admin-chat');
         if (!text) {
           await maxReply(chatId, ADMIN_CHAT_TEXT.textOnly);
@@ -1102,7 +1111,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       const bookingLive = lookup.outcome === 'found' && await hasLiveBookingFlow(chatId, 'max', pending);
       const lane = lookup.outcome !== 'found' ? null
         : bookingLive ? 'tourist' as const
-          : boundChatLaneFor('max', chatId, text, { rental: partnerHasRental(lookup.partner) });
+          : boundChatLaneFor('max', chatId, text, boundChatContext(lookup.partner));
       if (lookup.outcome === 'found' && !emergency && !bookingLive && lane === 'tourist' && opts?.verifiedOrigin === true) {
         const { handleOperatorDatesText } = await import('@/lib/operators/chat-dates/flow');
         const handled = await handleOperatorDatesText({

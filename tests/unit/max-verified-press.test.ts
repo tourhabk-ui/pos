@@ -92,6 +92,8 @@ vi.mock('@/lib/notifications/lead-notify', () => ({ notifyOperatorProposal: m.no
 vi.mock('@/lib/leads/proposal-delivery', () => ({ sendProposalToClient: m.sendProposal }));
 
 const max = await import('@/app/api/max/kuzmich/route');
+// Тесты шлют одни и те же mid: повтор сообщения отсекается (25.10), память — заново на тест.
+const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 
 const KEY = 'test-webhook-key-22-10';
 const OPERATOR_CHAT = 555;
@@ -120,13 +122,15 @@ const started = (payload: string) => ({
   update_type: 'bot_started', timestamp: 1, chat_id: 77, payload, user: { user_id: 77, name: 'Анна' },
 });
 
+/** Каждое сообщение — своё: одинаковый mid отсёкся бы как повтор доставки. */
+let midSeq = 0;
 const message = (text: string, attachments: unknown[] = []) => ({
   update_type: 'message_created',
   timestamp: 1,
   message: {
     sender: { user_id: 77, name: 'Анна' },
     recipient: { chat_id: 77, chat_type: 'dialog' },
-    body: { mid: 'm', seq: 1, text, attachments },
+    body: { mid: `m-${++midSeq}`, seq: 1, text, attachments },
   },
 });
 
@@ -150,6 +154,7 @@ function expectNothingChanged(): void {
 let errorLog: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  clearMaxMessageDedup();
   for (const f of Object.values(m)) f.mockReset();
   m.maxSend.mockResolvedValue({});
   m.answerCb.mockResolvedValue({});

@@ -131,6 +131,8 @@ export async function handleTelegramAdminTurn(opts: {
    *  Спрашивается только у привязанного администратора — туристу лишний
    *  запрос к базе не нужен. */
   liveBooking?: () => Promise<boolean>;
+  /** Чат ещё и чат карточки партнёра: команда кабинета и непонятое консолью — ему (lib/roles/admin-partner-chat). */
+  yieldToPartner?: (text: string) => Promise<boolean>;
 }): Promise<'handled' | 'tourist' | 'pass'> {
   const text = opts.text;
   if (text !== null && /^\/start\s+\S/.test(text.trim())) {
@@ -153,6 +155,7 @@ export async function handleTelegramAdminTurn(opts: {
     return 'tourist';
   }
   if (!text.trim().startsWith('/') && opts.liveBooking && await opts.liveBooking()) return 'tourist';
+  if (!text.trim().startsWith('/') && opts.yieldToPartner && await opts.yieldToPartner(text)) return 'pass';
   await answerTelegramAdmin({
     name: admin.name,
     text,

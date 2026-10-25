@@ -34,6 +34,7 @@ import { isFleetAsk } from '@/lib/kuzmich/operator-rental-fleet';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
 import { calendarAsk } from '@/lib/rental/car-calendar';
+import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { isOfferEditAsk } from '@/lib/rental/offer-edit';
 import { isNextCommand } from '@/lib/seat-requests/answer-edit';
@@ -87,14 +88,20 @@ function isCrmRecordOfOthers(t: string): boolean {
   return CRM_LEAD.test(t) && !FIRST_PERSON.test(t);
 }
 
-/** Что о партнёре знает классификатор: прокат ли это (его машины, его календарь). */
+/** Что о партнёре знает классификатор: прокат ли это (его машины, его календарь), туроператор ли (его даты). */
 export interface BoundChatContext {
   rental?: boolean;
+  operator?: boolean;
 }
 
 /** Прокат: пилот кабинета или категория «машины». */
 export function partnerHasRental(partner: { slug?: string | null; category?: string | null }): boolean {
   return isRentalPilotSlug(partner.slug ?? null) || partner.category === 'cars';
+}
+
+/** Контекст классификатора по карточке партнёра — один на все входы. */
+export function boundChatContext(partner: { slug?: string | null; category?: string | null }): BoundChatContext {
+  return { rental: partnerHasRental(partner), operator: partner.category === 'operator' };
 }
 
 function isCabinet(raw: string, t: string, ctx: BoundChatContext): boolean {
@@ -118,6 +125,12 @@ export function boundChatLane(text: string, ctx: BoundChatContext = {}): BoundCh
   if (t.length === 0) return 'partner';
   if (isCabinetCommand(text, t)) return 'partner';
   if (detectEmergency(text).detected && !isCrmRecordOfOthers(t)) return 'tourist';
+  // «Нужно добавить даты тура на ноябрь»: слова «нужно» и «тур» звучат как
+  // просьба туриста, а это даты своего тура — Кузьмич туриста советовал
+  // оператору «отправить запрос оператору» (проверка каналов 25.10). Судит
+  // фразу поток дат (chatDatesIntent); туристские «хочу тур на 5 ноября» им
+  // не задеты.
+  if (ctx.operator && chatDatesIntent(text) === 'dates') return 'partner';
   if (isCabinet(text, t, ctx)) return 'partner';
   if (RENTAL_EN.test(t)) return 'tourist';
   // «аренда» без машины — тоже просьба туриста, если это вопрос («хочу
@@ -144,12 +157,12 @@ export function boundChatLaneFor(
   channel: 'telegram' | 'max',
   chatId: number,
   text: string,
-  opts: { admin?: boolean; nowMs?: number; rental?: boolean } = {},
+  opts: { admin?: boolean; nowMs?: number } & BoundChatContext = {},
 ): BoundChatLane {
   const nowMs = opts.nowMs ?? Date.now();
   const key = `${channel}:${chatId}`;
   const emergency = detectEmergency(text).detected;
-  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text, { rental: opts.rental });
+  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text, { rental: opts.rental, operator: opts.operator });
   if (emergency && lane === 'tourist') {
     emergencyMarks.set(key, nowMs);
     return lane;

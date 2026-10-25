@@ -227,6 +227,15 @@ describe('срок задачи — камчатское время', () => {
     expect(tools.parseDue('2025-10-12', NOW)).toEqual({ ok: false, error: expect.stringMatching(/уже прошёл/) });
   });
 
+  it('срок «сегодня» уже прошёл — задача заведена, напоминание не обещано (проверка каналов 25.10)', async () => {
+    // NOW — 12:00 10.10 по Камчатке; «2026-10-10» без времени — 10:00, два часа назад.
+    const past = await tools.executeCrmTool('crm_add_task', { title: 'Перезвонить', due: '2026-10-10' }, CTX);
+    expect(past).toEqual({ ok: true, data: expect.objectContaining({ created: true, reminder: false, note: expect.stringMatching(/напоминания не будет/) }) });
+    const future = await tools.executeCrmTool('crm_add_task', { title: 'Перезвонить', due: '2026-10-10T15:00' }, CTX);
+    expect(future).toEqual({ ok: true, data: expect.objectContaining({ created: true, reminder: true }) });
+    expect(future.ok && 'note' in future.data).toBe(false);
+  });
+
   it('прошедший срок до базы не доходит', async () => {
     const r = await tools.executeCrmTool('crm_add_task', { title: 'x', due: '2025-01-01' }, CTX);
     expect(r.ok).toBe(false);

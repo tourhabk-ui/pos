@@ -12,6 +12,7 @@
  * сборка во время работы дала бы сочетания, которые не разобрал никто (так
  * 10.09 упал прежний экран «Клиенты» — #1794).
  */
+import { CONTACT_NAME_SQL } from '@/lib/crm/contact-name-sql';
 import { FREEING_BOOKING_STATUSES } from '@/lib/bookings/occupancy';
 import { VIP_MIN_BOOKINGS, VIP_MIN_SUM_RUB, ACTIVE_DAYS } from '@/lib/crm/operator-segments';
 
@@ -45,7 +46,7 @@ const SEGMENTED_CTE = `
            AND b.deleted_at IS NULL
       ) s ON TRUE
      WHERE c.partner_id = $1
-       AND ($2::text IS NULL OR lower(coalesce(c.display_name, '')) LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
+       AND ($2::text IS NULL OR ${CONTACT_NAME_SQL} LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
        AND ($3::text IS NULL OR coalesce(c.phone_e164, '') LIKE $3)
        AND ($4::text IS NULL OR $4 = ANY(c.tags))
   ),

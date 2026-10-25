@@ -9,6 +9,7 @@
  * crm-contacts-api), а здесь скоупа нет по замыслу — и звать этот модуль
  * можно только из роутов под requireAdmin (тот же сторож).
  */
+import { CONTACT_NAME_SQL } from '@/lib/crm/contact-name-sql';
 import { pool } from '@/lib/db-pool';
 import { buildContactSearch, getContactCard, type ContactCard, type ContactListItem } from '@/lib/crm/contact-queries';
 import type { PartnerCategory } from '@/lib/crm/partner-context';
@@ -40,7 +41,7 @@ export interface AdminListParams {
 }
 
 const ADMIN_FILTER = `
-     ($2::text IS NULL OR lower(coalesce(c.display_name, '')) LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
+     ($2::text IS NULL OR ${CONTACT_NAME_SQL} LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
      AND ($3::text IS NULL OR coalesce(c.phone_e164, '') LIKE $3)
      AND ($4::text IS NULL OR $4 = ANY(c.tags))
      AND ($5::text IS NULL OR p.category = $5)

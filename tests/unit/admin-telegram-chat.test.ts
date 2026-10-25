@@ -304,6 +304,23 @@ describe('вебхук: кабинет администратора', () => {
     expect(sentWebhook().join('\n')).toContain('Кабинет администратора');
   });
 
+  it('владелец консоли TELEGRAM_CHAT_ID с привязкой adt_ — /leads отвечает консоль, а не «Не понял команду» (25.10)', async () => {
+    queryMode = 'admin';
+    await webhookPost('/leads', { from: LEGACY, chat: LEGACY });
+    const text = sentWebhook().join('\n');
+    expect(text).not.toContain('Не понял команду');
+    expect(text).not.toContain('Кабинет администратора');
+    // Ответила консоль (getLastLeads): кабинет чтения таблицу привязки для
+    // этого текста не спрашивал.
+    expect(text).toContain('Заявок пока нет.');
+    expect(queries.some((q) => q.includes('admin_tg_bindings'))).toBe(false);
+  });
+
+  it('владелец консоли гасит ссылку adt_ — до него ссылка доходит', async () => {
+    await webhookPost('/start adt_short', { from: LEGACY, chat: LEGACY });
+    expect(sentWebhook().join('\n')).toContain('повреждена');
+  });
+
   it('группа таблицу привязки не спрашивает', async () => {
     queryMode = 'throw';
     await webhookPost('привет всем', { type: 'group', chat: -100, from: ADMIN_TG });

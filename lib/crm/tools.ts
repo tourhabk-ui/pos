@@ -42,6 +42,7 @@ import { addContactTouch } from '@/lib/crm/events';
 import { ACTOR_KIND_LABELS, EVENT_KIND_LABELS, TITLE_MAX, TOUCH_KINDS } from '@/lib/crm/event-kinds';
 import { createTask, completeTask, listTasks } from '@/lib/crm/tasks';
 import { loadInbox } from '@/lib/crm/inbox';
+import { countRentalRequestsWaiting } from '@/lib/rental/requests-waiting';
 import { INBOX_ACTION, INBOX_KIND_LABELS } from '@/lib/crm/inbox-kinds';
 import { SOURCE_KIND_LABELS, statusLabel } from '@/lib/crm/labels';
 import { publicReviewerName } from '@/lib/reviews/public-name';
@@ -209,7 +210,18 @@ const crmInbox = tool(
   z.object({}).passthrough(),
   false,
   async (_args, ctx, db) => {
-    const inbox = await loadInbox(ctx.partnerId, ctx.category, ctx.userId, { db, nowMs: ctx.nowMs });
+    const [inbox, rental] = await Promise.all([
+      loadInbox(ctx.partnerId, ctx.category, ctx.userId, { db, nowMs: ctx.nowMs }),
+      countRentalRequestsWaiting(ctx.partnerId, db),
+    ]);
+    // Заявки проката «Беру / Не могу» живут в кнопке «Заявки», не во
+    // «Входящих» роли: без этой строки прокатчик слышал «ничего не ждёт» и
+    // «отвечать здесь не нужно» (проверка каналов 25.10).
+    const rentalNote = rental.outcome === 'db_error'
+      ? ['Заявки на прокат машин не прочитались — не говори, что их нет.']
+      : rental.n > 0
+        ? [`Заявки на прокат машин ждут ответа «Беру» или «Не могу»: ${rental.n}. Ответить — кнопкой «Заявки» в этом чате.`]
+        : [];
     return {
       ok: true,
       data: {
@@ -234,7 +246,8 @@ const crmInbox = tool(
           complete: inbox.response.complete,
         },
         platform_chat_unread: inbox.chat.state === 'ok' ? inbox.chat.unread : inbox.chat.state === 'failed' ? 'не посчитано' : null,
-        not_in_inbox: inbox.not_here,
+        not_in_inbox: [...rentalNote, ...inbox.not_here],
+        ...(rental.outcome === 'ok' && rental.n > 0 ? { car_rental_waiting: rental.n } : {}),
       },
     };
   },
@@ -379,7 +392,8 @@ const crmAddTouch = tool(
 const crmAddTask = tool(
   'crm_add_task',
   'Завести задачу партнёру («перезвонить завтра», «уточнить состав группы»). Срок — дата по Камчатке, '
-    + 'ГГГГ-ММ-ДД или ГГГГ-ММ-ДДTЧЧ:ММ; без времени — 10:00. К сроку придёт напоминание.',
+    + 'ГГГГ-ММ-ДД или ГГГГ-ММ-ДДTЧЧ:ММ; без времени — 10:00. К сроку в будущем придёт напоминание; '
+    + 'если срок уже прошёл (reminder: false), задача заведена без напоминания — так и скажи партнёру.',
   {
     type: 'object',
     properties: {
@@ -409,7 +423,17 @@ const crmAddTask = tool(
       origin: ctx.actor,
     }, db);
     if (r.outcome === 'contact_not_found') return { ok: false, error: 'Клиент не найден среди клиентов партнёра' };
-    return { ok: true, data: { created: true, task_id: r.task.id, due_at: r.task.due_at } };
+    // Напоминание уходит только по сроку позже создания (DUE_TASKS_SQL:
+    // due_at > created_at). «Сегодня» после 10:00 — срок уже прошёл, и
+    // обещать напоминание нельзя (проверка каналов 25.10).
+    const reminder = due.at.getTime() > (ctx.nowMs ?? Date.now());
+    return {
+      ok: true,
+      data: {
+        created: true, task_id: r.task.id, due_at: r.task.due_at, reminder,
+        ...(reminder ? {} : { note: 'Срок уже прошёл — напоминания не будет. Нужно напоминание — уточни время.' }),
+      },
+    };
   },
 );
 

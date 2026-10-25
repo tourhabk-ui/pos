@@ -31,6 +31,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { adminChatYieldsToPartner } from '@/lib/roles/admin-partner-chat';
 import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
@@ -64,6 +65,7 @@ import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
+import { PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { bindPartnerChannel, badLinkReplyText, channelBoundText } from '@/lib/partners/bind-channel';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
@@ -887,13 +889,16 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
 
     // Администратор по привязке из админки (adt_, миграция 1330). Личный чат:
     // группы уже вышли выше и таблицу привязки не спрашивают. Чужой /start
-    // (op_, link_, lead) ход не забирает. Консоль TELEGRAM_CHAT_ID ниже
-    // остаётся тем, кого привязка не забрала.
-    if (chatType === 'private' && fromId > 0) {
+    // (op_, link_, lead) ход не забирает. Владелец консоли TELEGRAM_CHAT_ID
+    // остаётся на ней и с привязкой: /leads, /post, /digest у кабинета чтения
+    // нет, и после «Старт» по adt_ они отвечали «Не понял команду» (проверка
+    // каналов 25.10). Сама ссылка adt_ доходит и до него — так её гасят.
+    if (chatType === 'private' && fromId > 0 && (!admin || /^\/start\s+\S/.test(text))) {
       const turn = await handleTelegramAdminTurn({
         text,
         fromId,
         nowMs: Date.now(),
+        yieldToPartner: (t) => adminChatYieldsToPartner('telegram', update.message!.chat.id, t),
         reply: async (body, buttons) => {
           if (buttons?.length) await sendRoleRows(chatId, body, buttons);
           else await sendHTML(chatId, body);
@@ -1502,6 +1507,14 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     const watchRedirect = telegramWatchRedirect(text);
     if (watchRedirect) {
       await sendHTML(chatId, watchRedirect);
+      return;
+    }
+
+    // «/partner почта» — привязка по почте закрыта (09.10). Второй вход и MAX
+    // отвечают, как подключиться; живой вход молчал: текст с «/» дальше не
+    // идёт никуда (проверка каналов 25.10).
+    if (chatType === 'private' && /^\/partner(\s|@|$)/i.test(text)) {
+      await sendHTML(chatId, PARTNER_EMAIL_BIND_CLOSED);
       return;
     }
 

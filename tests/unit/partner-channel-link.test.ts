@@ -29,7 +29,7 @@ import {
   partnerTokenFromStart, PARTNER_LINK_PREFIX, PARTNER_LINK_TTL_MS,
 } from '@/lib/partners/channel-link';
 import { generateConnectToken } from '@/lib/telegram/connect-token';
-import { bindPartnerChannel, bindReplyText } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, bindReplyText, channelBoundText } from '@/lib/partners/bind-channel';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const PID = '3f2b8c1a-9d4e-4b7a-8c21-0e5f6a7b8c9d';
@@ -121,7 +121,9 @@ describe('токен ссылки', () => {
 
 describe('запись канала', () => {
   it('Telegram — в колонку доставки И зеркалом в contacts JSONB', async () => {
-    poolQueryMock.mockResolvedValue({ rows: [{ name: 'Камчатская рыбалка', previous: null }] });
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Камчатская рыбалка', previous: null }] });
+    // Второй запрос — кто ещё на этом чате: только эта карточка.
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ id: PID, name: 'Камчатская рыбалка' }] });
     const r = await bindPartnerChannel(PID, 'telegram', 12345);
     expect(r).toEqual({
       ok: true,
@@ -131,6 +133,8 @@ describe('запись канала', () => {
       slug: null,
       previousChatId: null,
       rebound: false,
+      cabinetOf: null,
+      others: [],
     });
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toMatch(/SET telegram_chat_id = \$1::bigint/);
@@ -144,6 +148,41 @@ describe('запись канала', () => {
     // Администратор узнаёт о подключении; прежнего чата не было — ему нечего слать.
     expect(tgSendMock).toHaveBeenCalledTimes(1);
     expect(tgSendMock.mock.calls[0][0].chatId).toBe('-100500');
+  });
+
+  // Проверка каналов 25.10: один владелец у «Лагуны Прокат» и «Лагуны
+  // Экспедиции». Вторая ссылка отвечала «подключён к Экспедиции», а кабинет в
+  // чате оставался у Проката (findPartnerByChat — старшая запись).
+  it('чат уже у другой карточки — ответ и администратор называют, чей кабинет в чате', async () => {
+    const OLDER = '11111111-1111-4111-8111-111111111111';
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Лагуна Экспедиция', category: 'operator', slug: 'laguna-expedition', previous: null }] });
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ id: OLDER, name: 'Лагуна Прокат' }, { id: PID, name: 'Лагуна Экспедиция' }] });
+    const r = await bindPartnerChannel(PID, 'max', 777);
+    expect(r).toMatchObject({ ok: true, cabinetOf: 'Лагуна Прокат', others: ['Лагуна Прокат'] });
+    const text = channelBoundText('max', r);
+    expect(text).toContain('этот чат уже подключён к «Лагуна Прокат», и кабинет в нём — «Лагуна Прокат»');
+    expect(text).toContain('Заявки «Лагуна Экспедиция» тоже будут приходить сюда');
+    expect(tgSendMock.mock.calls[0][0].text).toContain('кабинет в нём — «Лагуна Прокат»');
+  });
+
+  it('эта карточка старше другой на том же чате — кабинет её, другая названа', async () => {
+    const YOUNGER = '22222222-2222-4222-8222-222222222222';
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Лагуна Прокат', previous: null }] });
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ id: PID, name: 'Лагуна Прокат' }, { id: YOUNGER, name: 'Лагуна Экспедиция' }] });
+    const r = await bindPartnerChannel(PID, 'telegram', 778);
+    expect(r).toMatchObject({ ok: true, cabinetOf: null, others: ['Лагуна Экспедиция'] });
+    expect(channelBoundText('telegram', r)).toContain('В этом чате подключены и «Лагуна Экспедиция»: кабинет здесь — «Лагуна Прокат»');
+  });
+
+  it('проверка общего чата не удалась — привязка записана, без строки об общем чате, причина в логе', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Рафтинг', previous: null }] });
+    poolQueryMock.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57014' }));
+    const r = await bindPartnerChannel(PID, 'max', 779);
+    expect(r).toMatchObject({ ok: true, cabinetOf: null, others: [] });
+    expect(channelBoundText('max', r)).not.toContain('Учтите');
+    expect(errSpy.mock.calls.flat().join(' ')).toMatch(/не проверены, SQLSTATE=57014/);
+    errSpy.mockRestore();
   });
 
   it('MAX — в max_chat_id', async () => {

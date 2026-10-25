@@ -46,6 +46,15 @@ export type BindResult =
       slug: string | null;
       previousChatId: string | null;
       rebound: boolean;
+      /**
+       * Чат уже подключён и к другой карточке (один владелец у «Лагуны Прокат» и
+       * «Лагуны Экспедиции»). `cabinetOf` — чей кабинет откроется в этом чате:
+       * старшая запись, тем же порядком, что findPartnerByChat. null — этот.
+       * `others` — названия других карточек на том же чате. Проверка не
+       * удалась — оба пусты, а причина в логе.
+       */
+      cabinetOf: string | null;
+      others: string[];
     }
   | { ok: false; reason: 'not_found' | 'db_error' };
 
@@ -101,13 +110,61 @@ export async function bindPartnerChannel(
 
   const previous = row.previous;
   const rebound = previous !== null && previous !== String(chatId);
-  await announceBinding(channel, row.name, previous, rebound);
+  const shared = await sharedChat(channel, chatId, partnerId);
+  await announceBinding(channel, row.name, previous, rebound, shared);
   const slug = typeof row.slug === 'string' && row.slug.trim() !== '' ? row.slug : null;
   const displayName = typeof row.display_name === 'string' && row.display_name.trim() !== ''
     ? row.display_name
     : row.name;
   const category = typeof row.category === 'string' && row.category.trim() !== '' ? row.category : null;
-  return { ok: true, partnerName: row.name, displayName, category, slug, previousChatId: previous, rebound };
+  return {
+    ok: true, partnerName: row.name, displayName, category, slug, previousChatId: previous, rebound,
+    cabinetOf: shared.cabinetOf, others: shared.others,
+  };
+}
+
+/**
+ * Другие карточки на этом же чате. Один чат — один кабинет: findPartnerByChat
+ * берёт старшую запись, и до 25.10 вторая привязка отвечала «подключён к B»,
+ * хотя помощник, «Входящие» и даты в чате оставались у A (проверка каналов).
+ */
+async function sharedChat(
+  channel: PartnerChannel,
+  chatId: number,
+  partnerId: string,
+): Promise<{ cabinetOf: string | null; others: string[] }> {
+  const column = channel === 'telegram' ? 'telegram_chat_id' : 'max_chat_id';
+  try {
+    const { rows } = await pool.query<{ id: string; name: string }>(
+      `SELECT id::text AS id, COALESCE(NULLIF(btrim(company_name), ''), name) AS name
+         FROM partners
+        WHERE ${column} = $1::bigint
+        ORDER BY created_at ASC NULLS LAST, id ASC`,
+      [String(chatId)],
+    );
+    const others = rows.filter((r) => r.id !== partnerId).map((r) => r.name);
+    const first = rows[0];
+    return { cabinetOf: first && first.id !== partnerId ? first.name : null, others };
+  } catch (err) {
+    const e = err as { code?: string };
+    console.error(`[bind-channel] другие карточки на чате ${CHANNEL_LABEL[channel]} не проверены, SQLSTATE=${e?.code ?? 'нет'}`);
+    return { cabinetOf: null, others: [] };
+  }
+}
+
+/** Строка об общем чате — одна для партнёра и администратора; пусто — чат только этой карточки. */
+function sharedChatNote(partnerName: string, cabinetOf: string | null, others: readonly string[]): string {
+  const me = escapeHtml(partnerName);
+  if (cabinetOf) {
+    return `Учтите: этот чат уже подключён к «${escapeHtml(cabinetOf)}», и кабинет в нём — «${escapeHtml(cabinetOf)}»: `
+      + `помощник, «Входящие» и кнопки здесь работают для неё. Заявки «${me}» тоже будут приходить сюда. `
+      + `Чтобы вести «${me}» отдельно, откройте ссылку в другом аккаунте.`;
+  }
+  if (others.length > 0) {
+    return `В этом чате подключены и ${others.map((n) => `«${escapeHtml(n)}»`).join(', ')}: кабинет здесь — «${me}», `
+      + 'их заявки тоже приходят сюда.';
+  }
+  return '';
 }
 
 /**
@@ -120,14 +177,17 @@ async function announceBinding(
   partnerName: string,
   previous: string | null,
   rebound: boolean,
+  shared: { cabinetOf: string | null; others: string[] },
 ): Promise<void> {
   const label = CHANNEL_LABEL[channel];
   const adminChat = process.env.TELEGRAM_CHAT_ID;
   if (adminChat) {
     const name = escapeHtml(partnerName);
-    const text = rebound
+    const head = rebound
       ? `Оператор «${name}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте оператору новую ссылку.`
       : `Оператор «${name}» подключил ${label}: заявки будут приходить туда.`;
+    const note = sharedChatNote(partnerName, shared.cabinetOf, shared.others);
+    const text = note ? `${head}\n\n${note}` : head;
     const res = await telegramService.sendMessage({ chatId: adminChat, text });
     if (!res.success) console.error(`[bind-channel] администратор не уведомлён о привязке: ${res.error ?? 'нет ответа'}`);
   } else {
@@ -163,13 +223,14 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  * словами кабинета. Пилот — своим текстом в MAX. Остальные — прежней фразой.
  */
 export function channelBoundText(channel: PartnerChannel, result: BindResult): string {
-  if (result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)) {
-    return operatorBoundText(result.displayName || result.partnerName, channel);
-  }
-  if (result.ok && isRentalPilotSlug(result.slug) && channel === 'max') {
-    return rentalPilotBoundText(result.partnerName);
-  }
-  return bindReplyText(channel, result);
+  const base = result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)
+    ? operatorBoundText(result.displayName || result.partnerName, channel)
+    : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
+      ? rentalPilotBoundText(result.partnerName)
+      : bindReplyText(channel, result);
+  if (!result.ok) return base;
+  const note = sharedChatNote(result.displayName || result.partnerName, result.cabinetOf, result.others);
+  return note ? `${base}\n\n${note}` : base;
 }
 
 /** Текст для недействительной ссылки. */

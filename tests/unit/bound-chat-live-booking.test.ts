@@ -124,6 +124,7 @@ vi.mock('@/lib/telegram/admin-link', async (importOriginal) => ({
 const telegram = await import('@/app/api/telegram/webhook/route');
 const kuzmichTg = await import('@/app/api/telegram/kuzmich/route');
 const max = await import('@/app/api/max/kuzmich/route');
+const { isRepeatedMaxMessage, clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 
 const CABINET_ANSWER = 'ОТВЕТ ПОМОЩНИКА КАБИНЕТА';
 const TOURIST_ANSWER = 'ОТВЕТ МОЗГА КУЗЬМИЧА';
@@ -177,7 +178,7 @@ function tgSent(): string[] {
   return m.tgSend.mock.calls.map((c) => String((c[0] as { text?: string }).text ?? ''));
 }
 
-function maxPost(text: string): Promise<Response> {
+function maxPost(text: string, opts: { mid?: string } = {}): Promise<Response> {
   return max.POST(new NextRequest(`http://localhost/api/max/kuzmich?s=${MAX_KEY}`, {
     method: 'POST',
     body: JSON.stringify({
@@ -186,7 +187,7 @@ function maxPost(text: string): Promise<Response> {
       message: {
         sender: { user_id: MAX_CHAT, name: 'Иван' },
         recipient: { chat_id: MAX_CHAT, chat_type: 'dialog' },
-        body: { mid: `mid-${nextUpdateId++}`, seq: 1, text },
+        body: { mid: opts.mid ?? `mid-${nextUpdateId++}`, seq: 1, text },
       },
     }),
   }));
@@ -379,6 +380,133 @@ describe('MAX: живая заявка доводится Кузьмичом т�
 
     expect(sqlTouched('operator_chat_date_proposals')).toBe(false);
     expect(maxSent().join('\n')).not.toContain('Открыть');
+  });
+});
+
+// Проверка каналов 25.10: у агента и проката снаряжения нет меню роли, и
+// живой Telegram отдавал их «кто ждёт ответа?» Кузьмичу туриста без CRM.
+describe('живой Telegram: агент и прокат снаряжения — помощник с CRM', () => {
+  const AGENT = {
+    id: '66666666-6666-4666-8666-666666666666', slug: null, name: 'Агент Иван',
+    category: 'agent', user_id: 'u-agent', profile_status: 'approved',
+  };
+  const GEAR = {
+    id: '77777777-7777-4777-8777-777777777777', slug: 'snaryaga', name: 'Снаряга',
+    category: 'gear', user_id: 'u-gear', profile_status: 'approved',
+  };
+
+  it.each([['агент', AGENT], ['прокат снаряжения', GEAR]] as const)('%s: «кто ждёт ответа?» — помощник с инструментами CRM', async (_label, partner) => {
+    m.partner = partner;
+    await tgPost('кто ждёт ответа?');
+
+    expect(toolNames().some((n) => n.startsWith('crm_'))).toBe(true);
+    const out = tgSent().join('\n');
+    expect(out).toContain(CABINET_ANSWER);
+    expect(out).not.toContain(TOURIST_ANSWER);
+  });
+
+  it('агент: просьба туриста — по-прежнему Кузьмич туриста', async () => {
+    m.partner = AGENT;
+    await tgPost('подбери тур на Авачинский');
+
+    expect(toolNames().some((n) => n.startsWith('crm_'))).toBe(false);
+  });
+});
+
+// Проверка каналов 25.10: владелец привязал к одному чату себя
+// администратором и тестового оператора. Консоль забирала всё: «Входящие»
+// получали «Не понял команду», «Следующая заявка» — заявки всей платформы.
+describe('чат администратора и партнёра: консоль берёт только свои команды', () => {
+  it('MAX: «Входящие» — кабинет партнёра, а не «Не понял команду»', async () => {
+    m.findMaxAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    m.partner = OPERATOR;
+    await maxPost('Входящие');
+
+    const out = maxSent().join('\n');
+    expect(out.length).toBeGreaterThan(0);
+    expect(out).not.toContain(NOT_UNDERSTOOD);
+  });
+
+  it('MAX: «Следующая заявка» — не заявки всей платформы', async () => {
+    m.findMaxAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    m.partner = OPERATOR;
+    await maxPost('Следующая заявка');
+
+    expect(maxSent().join('\n')).not.toContain('Заявок без ответа человека');
+    expect(m.pool.mock.calls.some((c) => /WITH l AS/.test(String(c[0])))).toBe(false);
+  });
+
+  it('MAX: команда консоли («здоровье») — по-прежнему консоль, помощник партнёра не зовётся', async () => {
+    m.findMaxAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    m.partner = OPERATOR;
+    await maxPost('здоровье');
+
+    expect(maxSent().length).toBeGreaterThan(0);
+    expect(m.tools).not.toHaveBeenCalled();
+  });
+
+  it('MAX: администратор без карточки партнёра — «Входящие» по-прежнему консоль', async () => {
+    m.findMaxAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    await maxPost('Входящие');
+
+    expect(maxSent().join('\n')).toContain(NOT_UNDERSTOOD);
+  });
+
+  it('Telegram, второй вход: «кто ждёт ответа?» — кабинет партнёра, а не «Не понял команду»', async () => {
+    m.findTelegramAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    m.partner = OPERATOR;
+    await kuzmichPost('кто ждёт ответа?');
+
+    const out = kuzmichSent().map((x) => x.text).join('\n');
+    expect(out).not.toContain(NOT_UNDERSTOOD);
+    expect(toolNames().some((n) => n.startsWith('crm_'))).toBe(true);
+  });
+});
+
+describe('живой Telegram: «/partner почта» — ответ, как подключиться, а не молчание', () => {
+  it.each([null, 'operator'])('чат %s: ответ про кнопку «Подключить Telegram», модель не зовётся', async (bound) => {
+    m.partner = bound ? OPERATOR : null;
+    await tgPost('/partner test@example.com');
+
+    const out = tgSent().join('\n');
+    expect(out).toContain('Подключить чат по почте больше нельзя');
+    expect(m.tools).not.toHaveBeenCalled();
+  });
+});
+
+describe('MAX: повтор того же сообщения (тот же mid) — одна запись в CRM, один ответ', () => {
+  const crmLoops = (): number => m.tools.mock.calls
+    .filter((c) => ((c[1] ?? []) as Array<{ function?: { name?: string } }>).some((t) => String(t.function?.name).startsWith('crm_')))
+    .length;
+
+  it('две доставки «запиши звонок Анне» — помощник кабинета зовётся один раз, ответ один', async () => {
+    m.partner = OPERATOR;
+    const mid = `dup-${MAX_CHAT}`;
+    await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+    await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+
+    expect(crmLoops()).toBe(1);
+    expect(maxSent().filter((t) => t.includes(CABINET_ANSWER))).toHaveLength(1);
+  });
+
+  it('разные сообщения подряд — оба доходят до помощника', async () => {
+    m.partner = OPERATOR;
+    await maxPost('запиши звонок Анне');
+    await maxPost('кто ждёт ответа?');
+
+    expect(crmLoops()).toBe(2);
+  });
+
+  // Заверенная и незаверенная копии в одном процессе встречаются, когда ключа
+  // подписки нет: вебхук приходит незаверенным, а опрос — заверенным. Роутом
+  // этого не собрать, поэтому — вызов правила на граничных данных.
+  it('незаверенная копия с тем же mid не отсекает заверенное сообщение; через 15 минут mid снова новый', () => {
+    clearMaxMessageDedup();
+    const t0 = Date.now();
+    expect(isRepeatedMaxMessage(`forged-${MAX_CHAT}`, false, t0)).toBe(false);
+    expect(isRepeatedMaxMessage(`forged-${MAX_CHAT}`, true, t0 + 1)).toBe(false);
+    expect(isRepeatedMaxMessage(`forged-${MAX_CHAT}`, true, t0 + 2)).toBe(true);
+    expect(isRepeatedMaxMessage(`forged-${MAX_CHAT}`, true, t0 + 15 * 60 * 1000 + 3)).toBe(false);
   });
 });
 

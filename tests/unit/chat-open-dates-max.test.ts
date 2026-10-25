@@ -81,6 +81,8 @@ vi.mock('@/lib/operators/chat-dates/switch', () => ({
 }));
 
 const max = await import('@/app/api/max/kuzmich/route');
+// Тесты шлют одни и те же mid: повтор сообщения отсекается (25.10), память — заново на тест.
+const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 
 const KEY = 'test-webhook-key-chat-dates';
 const CHAT = 4_401;
@@ -102,13 +104,15 @@ const press = (payload: string, opts: { chatId?: number | null; chatType?: strin
     message: { recipient: { chat_id: opts.chatId ?? CHAT, chat_type: opts.chatType ?? 'dialog' }, body: { mid: 'm', seq: 1, text: null } },
   }),
 });
+/** Каждое сообщение — своё: одинаковый mid отсёкся бы как повтор доставки. */
+let midSeq = 0;
 const message = (text: string, chatType = 'dialog') => ({
   update_type: 'message_created',
   timestamp: 1,
   message: {
     sender: { user_id: CHAT, name: 'Оператор' },
     recipient: { chat_id: CHAT, chat_type: chatType },
-    body: { mid: 'mid-1', seq: 1, text },
+    body: { mid: `mid-${++midSeq}`, seq: 1, text },
   },
 });
 
@@ -139,6 +143,7 @@ function expectNoDatesWritten(): void {
 let errorLog: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  clearMaxMessageDedup();
   for (const f of [m.maxSend, m.maxSendUser, m.answerCb, m.pool, m.client, m.processMessage, m.saveMsg, m.findPartner, m.partnerMessage, m.openTx, m.preview]) f.mockReset();
   m.switchOn.value = true;
   m.maxSend.mockResolvedValue({});
