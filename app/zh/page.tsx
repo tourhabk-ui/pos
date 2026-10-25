@@ -171,7 +171,9 @@ export default async function ZhEntryPage() {
           </section>
 
           <footer className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <Link className="underline" href="/zh/booking">堪察加旅游预订</Link>
+            <Link className="underline" href="/zh/catalog">堪察加团队游目录</Link>
+            {' · '}<Link className="underline" href="/zh/harbin">从哈尔滨飞往堪察加</Link>
+            {' · '}<Link className="underline" href="/zh/booking">堪察加旅游预订</Link>
             {' · '}<Link className="underline" href="/zh/volcano-tours">堪察加火山旅游</Link>
             {' · '}<Link className="underline" href="/">俄文首页</Link>
             {' · '}<Link className="underline" href="/catalog">俄文目录</Link>

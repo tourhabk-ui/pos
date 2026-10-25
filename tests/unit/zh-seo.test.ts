@@ -2,11 +2,10 @@
  * Китайские конспекты в sitemap — вызовом сборщика с подменённой базой (аудит
  * 15.10, CN-pages).
  *
- * В sitemap идут /zh/tours/* и /zh/places/* только с переводом, сделанным с
- * нынешнего текста: страница без перевода открывается, но китайскому поиску
- * её не предлагают — он получил бы русский текст под китайским адресом.
- * lastmod — дата перевода. Отказ чтения — секция в degraded (sitemap не
- * кэшируется), а не «китайских страниц нет».
+ * В sitemap идут все живые /zh/tours/* (китайские факты из базы) и
+ * /zh/places/* только со свежим переводом описания. lastmod тура — дата
+ * перевода, если он есть. Отказ чтения переводов — туры остаются, места нет,
+ * секция названа в degraded. Отказ чтения самих туров — секция пустая.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -68,38 +67,43 @@ beforeEach(() => {
   });
 });
 
-describe('sitemap: китайские конспекты — только с переводом', () => {
-  it('переведённые тур и место — в sitemap с датой перевода; без перевода и с половиной перевода — нет', async () => {
+describe('sitemap: китайские туры — все живые, места — только с переводом', () => {
+  it('все туры в sitemap, место без перевода — нет; у переведённого тура lastmod — дата перевода', async () => {
     const { entries, degraded } = await collectSitemapEntriesWithStatus();
     expect(degraded).toEqual([]);
     const zh = entries.filter((e) => e.url.includes('/zh/tours/') || e.url.includes('/zh/places/'));
     expect(zh.map((e) => e.url).sort()).toEqual([
       `${BASE}/zh/places/kronotskij-zapovednik`,
       `${BASE}/zh/tours/52`,
+      `${BASE}/zh/tours/bez-perevoda`,
       `${BASE}/zh/tours/dolina-geyzerov`,
+      `${BASE}/zh/tours/polovina`,
     ]);
     const geyser = zh.find((e) => e.url.endsWith('/dolina-geyzerov'));
     expect(new Date(geyser?.lastModified as Date).toISOString()).toBe('2026-10-15T10:00:00.000Z');
-    // Сам /zh — по-прежнему в списке.
     expect(entries.some((e) => e.url === `${BASE}/zh`)).toBe(true);
+    expect(entries.some((e) => e.url === `${BASE}/zh/catalog`)).toBe(true);
+    expect(entries.some((e) => e.url === `${BASE}/zh/harbin`)).toBe(true);
+    expect(entries.some((e) => e.url.endsWith('/zh/places/bez-opisaniya'))).toBe(false);
   });
 
-  it('исходник правили — перевод устарел, страница уходит из sitemap', async () => {
+  it('исходник правили — тур остаётся: страница фактов не зависит от свежести прозы', async () => {
     TOURS[0] = tour('51', 'dolina-geyzerov', 'Долина гейзеров', 'Вылет вечером.');
     try {
       const { entries } = await collectSitemapEntriesWithStatus();
-      expect(entries.some((e) => e.url.endsWith('/zh/tours/dolina-geyzerov'))).toBe(false);
+      expect(entries.some((e) => e.url.endsWith('/zh/tours/dolina-geyzerov'))).toBe(true);
     } finally {
       TOURS[0] = tour('51', 'dolina-geyzerov', 'Долина гейзеров', 'Вылет утром.');
     }
   });
 
-  it('переводы не прочитались — секция в degraded, а не «китайских страниц нет»; остальной sitemap цел', async () => {
+  it('переводы не прочитались — туры остаются, места нет, отказ назван; /zh на месте', async () => {
     failTranslations = true;
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { entries, degraded } = await collectSitemapEntriesWithStatus();
-    expect(degraded).toContain('китайские страницы');
-    expect(entries.some((e) => e.url.includes('/zh/tours/'))).toBe(false);
+    expect(degraded).toContain('переводы китайских мест');
+    expect(entries.filter((e) => e.url.includes('/zh/tours/'))).toHaveLength(TOURS.length);
+    expect(entries.some((e) => e.url.includes('/zh/places/'))).toBe(false);
     expect(entries.some((e) => e.url === `${BASE}/zh`)).toBe(true);
     err.mockRestore();
   });

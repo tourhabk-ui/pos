@@ -54,10 +54,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const hero = tourHeroImage(tour.photos, tour.tour_image);
   const images = hero ? [{ url: hero }] : [];
 
-  // Пара ru ↔ zh-CN — только когда у тура есть китайский конспект с
-  // переводом, сделанным с нынешнего текста (аудит 15.10, CN-pages): ссылка на
-  // китайскую страницу без перевода отдала бы поиску русский текст дважды.
-  // Отказ чтения — без пары, причина в логе (lib/zh/content).
+  // Пара ru ↔ zh-CN есть у каждого живого тура: китайская страница — факты
+  // из базы, проза без перевода туда не кладётся (lib/zh/content).
   const zh = await zhTourAlternatePath(tour);
 
   return {

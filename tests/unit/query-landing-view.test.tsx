@@ -28,6 +28,13 @@ describe('QueryLandingView', () => {
     expect(html).toContain('href="/request"');
     expect(html).toContain('"@type":"TouristTrip"');
   });
+  it('zh: без перевода название — факт длительности, ссылка на китайскую страницу, бронь на русской', () => {
+    const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('zh-volcano')} tours={[{ ...row, title_zh: null }]} />);
+    expect(html).toContain('href="/zh/tours/vulkan-gorelyy"');
+    expect(html).toContain('堪察加团队游，约 10 小时');
+    expect(html).toContain('俄文原名');
+    expect(html).not.toContain('>Вулкан Горелый</a>');
+  });
   it('en: без перевода — русское имя с lang="ru"', () => {
     const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('en-booking')} tours={[{ ...row, title_zh: undefined }]} />);
     expect(html).toContain('lang="ru"');

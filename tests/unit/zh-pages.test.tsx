@@ -5,10 +5,10 @@
  * Конспект — НЕ вторая карточка тура (CLAUDE.md §11): брони и своей SOS нет,
  * бронь — одна, на русской карточке, и конспект ведёт на неё. Машинный
  * перевод помечен; цифры и оператор — из полей базы, а не из перевода;
- * безопасность — по-русски с пометкой; непереведённое — русский текст с
- * пометкой, без придуманной транслитерации; устаревший по хэшу перевод не
- * показывается. Пара hreflang ru ↔ zh-CN — только у переведённой страницы, и
- * у русской карточки тоже.
+ * безопасность — по-русски с пометкой; непереведённая проза тура на страницу
+ * не кладётся (китайские факты и пометка), без придуманной транслитерации;
+ * устаревший по хэшу перевод не показывается. Пара hreflang ru ↔ zh-CN —
+ * у каждого живого тура. У места — только при свежем переводе описания.
  *
  * Судится то, что видит человек и обходчик: текст, href, lang, порядок,
  * метаданные — не исходник (CLAUDE.md §4).
@@ -40,7 +40,7 @@ import {
   encodeStored, normalizeSource, sourceHash,
   type ZhFieldKind, type ZhFieldValue, type ZhStoredTranslation,
 } from '@/lib/zh/fields';
-import { priceZh } from '@/lib/zh/entry';
+import { priceZh, zhFactDescription, zhFactHeading } from '@/lib/zh/entry';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 
 const TOUR: ZhTourSourceRow = {
@@ -137,14 +137,14 @@ describe('конспект тура: перевод помечен, оригин
     expect(container.textContent).not.toContain('0 卢布');
   });
 
-  it('непереведённое — русский текст с пометкой «暂无中文翻译», без придуманной транслитерации', () => {
+  it('непереведённая проза не вставляется по-русски: пометка «暂无中文翻译», без транслитерации', () => {
     const { container } = render(<ZhTourSummary tour={TOUR} translations={FRESH()} />);
     const program = container.querySelector('[data-zh-field="program"]') as HTMLElement;
     expect(program.getAttribute('data-zh-state')).toBe('missing');
     expect(within(program).getByText(ZH_DETAIL.missing)).toBeTruthy();
-    const ru = program.querySelector('[lang="ru"]') as HTMLElement;
-    expect(ru.textContent).toContain('Вылет');
-    expect(ru.textContent).toContain('Сбор в 8:30 у вертолётной площадки');
+    expect(program.querySelector('[lang="ru"]')).toBeNull();
+    expect(program.textContent).not.toContain('Вылет');
+    expect(program.textContent).not.toContain('вертолётной');
     // Свежий перевод описания — по-китайски, без пометки.
     const desc = container.querySelector('[data-zh-field="description"]') as HTMLElement;
     expect(desc.getAttribute('data-zh-state')).toBe('fresh');
@@ -154,7 +154,7 @@ describe('конспект тура: перевод помечен, оригин
     expect(container.querySelector('[data-zh-field="not_included"]')).toBeNull();
   });
 
-  it('перевод старого текста не показывается: исходник правили — русский текст и «原文已更新»', () => {
+  it('перевод старого текста не показывается и русский оригинал на страницу не кладётся', () => {
     const OLD_ZH = '旧的翻译';
     const tours = translated(
       tr('title', 'text', TOUR.title, ZH_TITLE),
@@ -165,19 +165,23 @@ describe('конспект тура: перевод помечен, оригин
     expect(desc.getAttribute('data-zh-state')).toBe('stale');
     expect(within(desc).getByText(ZH_DETAIL.stale)).toBeTruthy();
     expect(container.textContent).not.toContain(OLD_ZH);
-    expect((desc.querySelector('[lang="ru"]') as HTMLElement).textContent).toContain(TOUR.description as string);
+    expect(desc.querySelector('[lang="ru"]')).toBeNull();
+    expect(desc.textContent).not.toContain('Вылет в 9:00');
   });
 
-  it('переводы не прочитались — «暂时无法读取», а не «перевода нет»; название русское', () => {
+  it('переводы не прочитались — заголовок из факта длительности, не русское название и не «перевода нет»', () => {
     const { container } = render(<ZhTourSummary tour={TOUR} translations={null} />);
     const h1 = screen.getByRole('heading', { level: 1 });
-    expect(h1.textContent).toBe(TOUR.title);
-    expect(h1.getAttribute('lang')).toBe('ru');
+    expect(h1.textContent).toBe(zhFactHeading(TOUR));
+    expect(h1.getAttribute('lang')).toBeNull();
+    expect((container.querySelector('[data-zh-original-title]') as HTMLElement).textContent).toBe(TOUR.title);
     expect((container.querySelector('[data-zh-field="description"]') as HTMLElement).getAttribute('data-zh-state')).toBe('unknown');
     expect(container.textContent).toContain(ZH_DETAIL.unknown);
     const note = container.querySelector('[data-zh-mt-note]') as HTMLElement;
-    expect(note.textContent).toContain(ZH_DETAIL.noPageTranslation);
+    expect(note.textContent).toContain(ZH_DETAIL.tourUnread);
+    expect(note.textContent).not.toContain(ZH_DETAIL.noPageTranslation);
     expect(note.textContent).not.toContain(ZH_DETAIL.mtUnreviewed);
+    expect(container.textContent).not.toContain('Полёт на Ми-8');
   });
 
   it('безопасность — по-русски из базы с пометкой «安全信息仅提供俄语原文»', () => {
@@ -281,7 +285,7 @@ function withEntity(id: string, rows: Map<string, ZhStoredTranslation>) {
   return [...rows.values()].map((r) => ({ ...r, entity_id: id }));
 }
 
-describe('/zh/tours/[slug]: индексируется и получает пару языков только с переводом', () => {
+describe('/zh/tours/[slug]: индексируется и получает пару языков у живого тура', () => {
   it('перевод есть — index, canonical на себя, hreflang ru ↔ zh-CN; страница рисует конспект без брони', async () => {
     translationRows = withEntity('51', FRESH());
     const mod = await import('@/app/zh/tours/[slug]/page');
@@ -305,14 +309,21 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     expect(container.querySelector('form, button')).toBeNull();
   });
 
-  it('перевода нет — noindex и без пары языков; страница всё равно открывается', async () => {
+  it('перевода нет — index, hreflang и китайский заголовок из фактов; страница открывается', async () => {
     const mod = await import('@/app/zh/tours/[slug]/page');
     const meta = await mod.generateMetadata({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) });
-    expect(meta.robots).toMatchObject({ index: false });
-    expect(meta.alternates?.languages).toBeUndefined();
+    expect(meta.robots).toMatchObject({ index: true });
+    expect(meta.alternates?.languages).toEqual({
+      ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
+      'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
+    });
+    expect((meta.title as { absolute: string }).absolute).toContain(zhFactHeading(TOUR));
+    expect(meta.description).toBe(zhFactDescription(TOUR));
+    expect(meta.description).not.toContain(TOUR.description);
     const page = await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) });
     const { container } = render(page);
-    expect(container.textContent).toContain(ZH_DETAIL.missing);
+    expect(container.textContent).toContain(ZH_DETAIL.tourFactsOnly);
+    expect(container.textContent).not.toContain('Полёт на Ми-8');
   });
 
   it('нет живого тура — 404, а не пустая страница', async () => {
@@ -341,22 +352,25 @@ describe('/zh: список ведёт на китайские конспект�
     const link = within(first).getByRole('link', { name: ZH_TITLE });
     expect(link.getAttribute('href')).toBe('/zh/tours/dolina-geyzerov');
     expect(within(first).getByText(TOUR.title).getAttribute('lang')).toBe('ru');
-    // Без перевода — русское название, но ссылка всё равно на китайский конспект.
+    // Без перевода ссылка называется фактом длительности, русский оригинал — подписью.
     const second = container.querySelector('[data-zh-tour="52"]') as HTMLElement;
-    const ru = within(second).getByRole('link', { name: 'Рыбалка на Быстрой' });
+    const ru = within(second).getByRole('link', { name: zhFactHeading(TOUR) });
     expect(ru.getAttribute('href')).toBe('/zh/tours/52');
-    expect(ru.getAttribute('lang')).toBe('ru');
+    expect(ru.getAttribute('lang')).toBeNull();
+    expect(within(second).getByText('Рыбалка на Быстрой').getAttribute('lang')).toBe('ru');
     // Ни одна ссылка списка не ведёт на русскую карточку мимо конспекта.
     const tourLinks = [...container.querySelectorAll('[data-zh-tour] a')].map((a) => a.getAttribute('href'));
     expect(tourLinks.some((h) => h?.startsWith('/catalog/tours/'))).toBe(false);
   });
 
-  it('название переведено со старого текста — в списке русское', async () => {
+  it('название переведено со старого текста — в списке факт длительности, не устаревший перевод', async () => {
     translationRows = withEntity('51', translated(tr('title', 'text', TOUR.title, ZH_TITLE, { staleFrom: 'Старое название' })));
     const { default: ZhEntryPage } = await import('@/app/zh/page');
     const { container } = render(await ZhEntryPage());
     expect(container.textContent).not.toContain(ZH_TITLE);
-    expect(within(container.querySelector('[data-zh-tour="51"]') as HTMLElement).getByRole('link', { name: TOUR.title })).toBeTruthy();
+    const card = container.querySelector('[data-zh-tour="51"]') as HTMLElement;
+    expect(within(card).getByRole('link', { name: zhFactHeading(TOUR) })).toBeTruthy();
+    expect(within(card).getByText(TOUR.title).getAttribute('lang')).toBe('ru');
   });
 });
 
@@ -401,30 +415,31 @@ describe('/zh/places/[slug]: адрес русской карточки и би�
   });
 });
 
-describe('русские карточки: ответная ссылка hreflang — только на переведённый конспект', () => {
+describe('русские карточки: у тура ответная ссылка hreflang всегда, у места — только со свежим переводом', () => {
   const CARD = {
     id: 51, slug: 'dolina-geyzerov', title: TOUR.title, description: TOUR.description,
     short_description: TOUR.short_description, activity_type: 'helicopter', operator_name: 'Вертолётный Тест',
     operator_verified: true, photos: [], tour_image: null,
   };
 
-  it('карточка тура: перевод свежий — zh-CN в alternates; нет — только canonical', async () => {
+  it('карточка тура: zh-CN в alternates и без перевода, и когда перевод названия устарел', async () => {
     loadTourCard.mockResolvedValue({ tour: CARD, byId: false });
     const { generateMetadata } = await import('@/app/catalog/tours/[id]/page');
+    const pair = {
+      ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
+      'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
+    };
     const without = await generateMetadata({ params: Promise.resolve({ id: 'dolina-geyzerov' }) });
-    expect(without.alternates).toEqual({ canonical: 'https://vedarai.ru/catalog/tours/dolina-geyzerov' });
+    expect(without.alternates?.canonical).toBe('https://vedarai.ru/catalog/tours/dolina-geyzerov');
+    expect(without.alternates?.languages).toEqual(pair);
 
     translationRows = withEntity('51', FRESH());
     const withZh = await generateMetadata({ params: Promise.resolve({ id: 'dolina-geyzerov' }) });
-    expect(withZh.alternates?.languages).toEqual({
-      ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
-      'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
-    });
+    expect(withZh.alternates?.languages).toEqual(pair);
 
-    // Оператор переписал название — перевод устарел, пары нет.
     loadTourCard.mockResolvedValue({ tour: { ...CARD, title: 'Новое название' }, byId: false });
     const stale = await generateMetadata({ params: Promise.resolve({ id: 'dolina-geyzerov' }) });
-    expect(stale.alternates?.languages).toBeUndefined();
+    expect(stale.alternates?.languages).toEqual(pair);
   });
 
   it('карточка места: пара только при свежем переводе описания', async () => {

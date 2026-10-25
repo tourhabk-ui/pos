@@ -15,8 +15,9 @@ import type { Metadata } from 'next';
  *
  * Bing перепроверяет тег периодически: убрать его — потерять подтверждение
  * и отчёты вебмастера, поэтому layout собирает блок только отсюда (сторож —
- * tests/unit/site-verification.test.ts). Baidu (`baidu-site-verification`)
- * встанет сюда же, когда владелец пришлёт значение (docs/agents/CHINA.md, шаг 4).
+ * tests/unit/site-verification.test.ts). Baidu (`baidu-site-verification`) —
+ * слот BAIDU_SITE_VERIFICATION ниже: пустая переменная — тега нет, значение
+ * владелец вставляет на Timeweb, без коммита кода (docs/agents/CHINA.md, шаг 4).
  */
 export const BING_SITE_VERIFICATION = 'AC1C1C2A5C527F87684D3E2571543A82';
 
@@ -41,6 +42,9 @@ export const BING_SITE_VERIFICATION = 'AC1C1C2A5C527F87684D3E2571543A82';
  *  - Shenma: `shenma-site-verification` — по вторичным источникам 15.10, НЕ
  *    сверено с формой: код выдаётся только после входа, а справка
  *    zhanzhang.sm.cn/open/helpuser имени тега не называет.
+ *  - Baidu: `baidu-site-verification` — HTML-метка в справке 搜索资源平台
+ *    (шаг 4 docs/agents/CHINA.md). Код живёт дольше шести часов, но слот
+ *    тот же: значение присылает владелец, в репозиторий оно не пишется.
  *
  * Поэтому переменная принимает и голый код, и тег целиком, как его показывает
  * форма: из вставленного `<meta name="…" content="…">` берётся content, а
@@ -48,6 +52,7 @@ export const BING_SITE_VERIFICATION = 'AC1C1C2A5C527F87684D3E2571543A82';
  * догадка об имени (Shenma) не стоит нового кода и нового окна проверки.
  */
 export const CHINA_VERIFICATION_SLOTS = [
+  { env: 'BAIDU_SITE_VERIFICATION', name: 'baidu-site-verification' },
   { env: 'SHENMA_SITE_VERIFICATION', name: 'shenma-site-verification' },
   { env: 'SOGOU_SITE_VERIFICATION', name: 'sogou_site_verification' },
   { env: 'TOUTIAO_SITE_VERIFICATION', name: 'bytedance-verification-code' },

@@ -20,6 +20,7 @@ import {
 } from '@/lib/search';
 import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/tours/marketplace-page';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { catalogHreflang } from '@/lib/zh/pages';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,7 @@ export const metadata: Metadata = {
   ],
   alternates: {
     canonical: `${SITE}/catalog`,
+    languages: catalogHreflang(SITE),
   },
   openGraph: {
     images: defaultOgImages(),
