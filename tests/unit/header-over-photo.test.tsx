@@ -22,8 +22,10 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import React from 'react';
 
+const pathState = vi.hoisted(() => ({ pathname: '/catalog' }));
+
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/catalog',
+  usePathname: () => pathState.pathname,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
@@ -35,6 +37,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  pathState.pathname = '/catalog';
 });
 
 function parts(overPhoto?: boolean) {
@@ -78,7 +81,7 @@ describe('цвет шапки', () => {
   });
 
   it('поверх фото логотип белый, без фото — токеном', () => {
-    const logo = (o?: boolean) => (parts(o).header.querySelector('a[aria-label="Ведар"]') as HTMLElement).style.color;
+    const logo = (o?: boolean) => (parts(o).header.querySelector('a[aria-label="Ведар Камчатка"]') as HTMLElement).style.color;
     expect(logo(true), 'тёмный знак на тёмном небе героя сливается').toMatch(/255,\s*255,\s*255/);
     cleanup();
     expect(logo()).toBe('var(--on-header)');
@@ -88,6 +91,30 @@ describe('цвет шапки', () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/places/[id]/_PlaceDetailClient.tsx', 'utf-8');
     expect(src, 'PlaceHero лежит под шапкой — без overPhoto её иконки потемнеют на фото').toContain('<Header overPhoto />');
+  });
+});
+
+describe('бренд в шапке', () => {
+  it('по-русски — «Ведар» и «Камчатка» двумя строками, без вылезания за ссылку', () => {
+    const { header } = parts();
+    const link = header.querySelector('a[aria-label="Ведар Камчатка"]') as HTMLElement;
+    const block = [...link.querySelectorAll('span')].find((el) => el.className.includes('flex-col')) as HTMLElement;
+    const words = [...block.children].map((el) => el.textContent);
+    expect(words).toEqual(['Ведар', 'Камчатка']);
+    expect((block.children[1] as HTMLElement).className).toMatch(/text-\[11px\]/);
+    expect(block.className).toMatch(/md:flex-row/);
+  });
+
+  it('английская и китайская страницы называют бренд на своём языке', () => {
+    pathState.pathname = '/en/tours';
+    const en = parts().header.querySelector('a[href="/"]') as HTMLElement;
+    expect(en.getAttribute('aria-label')).toBe('Vedar Kamchatka');
+    expect(en.textContent).toBe('VedarKamchatka');
+    cleanup();
+    pathState.pathname = '/zh';
+    const zh = parts().header.querySelector('a[href="/"]') as HTMLElement;
+    expect(zh.getAttribute('aria-label')).toBe('Vedar 堪察加');
+    expect(zh.textContent).toBe('Vedar堪察加');
   });
 });
 

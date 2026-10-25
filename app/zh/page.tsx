@@ -53,7 +53,7 @@ export const metadata: Metadata = {
     images: defaultOgImages(),
     locale: 'zh_CN',
     type: 'website',
-    siteName: 'Vedar',
+    siteName: 'Vedar 堪察加',
   },
   robots: { index: true, follow: true },
 };
@@ -73,7 +73,7 @@ export default async function ZhEntryPage() {
     description: ZH_PAGE.description,
     inLanguage: 'zh-CN',
     url: `${SITE}/zh`,
-    isPartOf: { '@type': 'WebSite', name: 'Ведар', url: SITE, inLanguage: 'ru' },
+    isPartOf: { '@type': 'WebSite', name: 'Ведар Камчатка', url: SITE, inLanguage: 'ru' },
     about: { '@type': 'Place', name: '堪察加半岛（Камчатка）' },
   };
 

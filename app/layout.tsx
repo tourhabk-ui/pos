@@ -66,10 +66,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
   title: {
-    default: 'Ведар — помощник и планировщик путешествия по Камчатке',
+    default: 'Ведар Камчатка — информационный портал о Камчатке',
     template: '%s | Ведар',
   },
-  description: 'Ведар помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и туры операторов.',
+  description: 'Ведар Камчатка — информационный портал о Камчатке, не турагентство и не туроператор: маршруты, карта, AI-помощник Кузьмич и туры местных операторов.',
   keywords: [
     'туры на Камчатку',
     'рыбалка Камчатка',
@@ -98,9 +98,9 @@ export const metadata: Metadata = {
     'Kamchatka volcano tour',
     'Kamchatka travel',
   ],
-  authors: [{ name: 'Ведар' }],
-  creator: 'Ведар',
-  publisher: 'Ведар',
+  authors: [{ name: 'Ведар Камчатка' }],
+  creator: 'Ведар Камчатка',
+  publisher: 'Ведар Камчатка',
   formatDetection: {
     email: false,
     address: false,
@@ -112,17 +112,17 @@ export const metadata: Metadata = {
     // Без url: его наследовала каждая страница без своего openGraph, и 22
     // адреса sitemap (/planner, /safety, /register…) говорили соцсетям и
     // поиску «я — главная» (аудит SEO 29.09, Н14). og:url ставит сама страница.
-    siteName: 'Ведар',
-    title: 'Ведар — помощник по Камчатке',
-    description: 'Помощник, планировщик и безопасный проводник к реальным турам по Камчатке.',
+    siteName: 'Ведар Камчатка',
+    title: 'Ведар Камчатка — информационный портал',
+    description: 'Информационный портал о Камчатке: маршруты, безопасность и туры местных операторов. Не турагентство.',
     // Та же картинка, что подставляют страницы со своим openGraph: Next
     // заменяет openGraph страницы целиком, и наследования отсюда у них нет.
     images: defaultOgImages(),
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Ведар — помощник по Камчатке',
-    description: 'Помогаем спланировать маршрут и выйти на реальный тур без обманов и серых схем.',
+    title: 'Ведар Камчатка — информационный портал',
+    description: 'Информационный портал о Камчатке: маршруты, безопасность и туры местных операторов.',
     images: defaultOgImages().map((i) => i.url),
   },
   // index/follow по умолчанию и так разрешены — явное «index, follow» здесь
@@ -138,11 +138,11 @@ export const metadata: Metadata = {
     },
   },
   manifest: '/manifest.json',
-  applicationName: 'Ведар',
+  applicationName: 'Ведар Камчатка',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Ведар',
+    title: 'Ведар Камчатка',
   },
   // Google, Яндекс и Bing (тег владельца 15.10) — одним блоком из
   // lib/seo/site-verification: убранный тег стоит подтверждения в вебмастере.
@@ -218,9 +218,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",
-                "name": "Ведар — помощник по Камчатке",
+                "name": "Ведар Камчатка",
                 "url": BASE_URL,
-                "description": "Сервис планирования путешествий по Камчатке: маршруты, карта, безопасность, AI-помощник и туры операторов.",
+                "description": "Информационный портал о Камчатке: маршруты, карта, безопасность, AI-помощник и туры местных операторов. Не турагентство и не туроператор.",
                 "inLanguage": "ru",
                 "publisher": { "@id": `${BASE_URL}/#organization` },
                 "potentialAction": {
@@ -243,16 +243,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 "@context": "https://schema.org",
                 "@type": "Organization",
                 "@id": `${BASE_URL}/#organization`,
-                "name": "Ведар",
-                // Те же написания, что в MCP, A2A и на /zh (lib/mcp/zh-layer):
-                // поисковик и сборщик обучающих данных связывают «Vedar» и
-                // «维达尔» с этим сайтом, а не с тёзками (владелец 14.10: «нужно,
-                // чтоб модели узнали»).
-                "alternateName": ["Vedar", "维达尔"],
+                "name": "Ведар Камчатка",
+                // Полное имя, а не голое «Ведар»: короткое написание сталкивается
+                // с чужими сущностями в поиске. Те же формы, что в шапке, MCP,
+                // A2A и на /zh. Транслитерация 维达尔 оставлена, чтобы уже известное
+                // написание вело сюда (владелец 14.10).
+                "alternateName": ["Vedar Kamchatka", "Vedar 堪察加", "维达尔"],
                 // Реквизиты — из единого источника lib/legal/requisites.
                 "legalName": REQUISITES.shortName,
                 "taxID": REQUISITES.inn,
-                "description": "Туристическая платформа Камчатки: места и маршруты, офлайн-карта, сводка обстановки, помощник Кузьмич и туры местных операторов.",
+                "description": "Информационный портал о Камчатке: места и маршруты, офлайн-карта, сводка обстановки, помощник Кузьмич и туры местных операторов. Не турагентство и не туроператор.",
                 "url": BASE_URL,
                 "logo": `${BASE_URL}/icons/icon-512.png`,
                 "email": REQUISITES.emailSupport,

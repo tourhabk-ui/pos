@@ -18,7 +18,7 @@ import { answerAgentMessage } from '@/lib/a2a/chat';
 import type { A2AExecutors, A2AResult } from '@/lib/a2a/handle';
 import { logA2aRequest, sendMessageFacts, type A2aBinding, type A2aJournalOp } from '@/lib/a2a/journal';
 import { logA2aDialog } from '@/lib/a2a/dialog-log';
-import { readVersion, type VersionRead } from '@/lib/a2a/wire';
+import { A2A_VERSION_HEADER, readVersion, type VersionRead } from '@/lib/a2a/wire';
 import { createRateLimiter, getTrustedClientIp, getTrustedClientIpOrNull } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -123,8 +123,9 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Headers': 'Content-Type, Accept, A2A-Version, A2A-Extensions',
 };
 
-export function withCors(res: NextResponse): NextResponse {
+export function withCors(res: NextResponse, version?: VersionRead): NextResponse {
   res.headers.set('Access-Control-Allow-Origin', '*');
+  if (version?.ok) res.headers.set(A2A_VERSION_HEADER, version.version);
   return res;
 }
 
