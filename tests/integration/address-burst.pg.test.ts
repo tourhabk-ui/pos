@@ -275,4 +275,39 @@ withPg('порог адреса на PostgreSQL', () => {
     expect(await anomalyCount(hash, 'bot-visit')).toBe(32);
     expect(await anomalyCount(hash, 'person-visit')).toBe(0);
   });
+
+  it('просмотр без визита — визит из одной строки: своё взаимодействие спасает только его, чужое без визита не прикрывает', async () => {
+    const ip = '203.0.113.83';
+    const { at, hash } = await freshDay(ip);
+    for (let i = 0; i < 30; i++) {
+      await insertView({ at, hash, session: 'bot-visit' });
+    }
+    // Хранилище закрыто (приватный режим) — sessionId нет. Один уже читал
+    // страницу, другой перешёл дальше, третий ушёл через доли секунды.
+    const readerNoVisit = await insertView({ at, hash, session: null, dwell: ENGAGED_DWELL_MS * 2, path: '/catalog' });
+    const movedNoVisit = await insertView({ at, hash, session: null, fromPath: '/catalog', path: '/tours' });
+    const quickNoVisit = await insertView({ at, hash, session: null, dwell: 50, path: '/map' });
+
+    // Новый просмотр без визита: чужие строки без визита его визитом не считаются.
+    const fresh = await hit(ip, { path: '/planning' });
+    expect(fresh.audience).toBe('bot');
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(30);
+    // Строка, у которой своё взаимодействие есть, всплеском не метится.
+    expect(await rowState(readerNoVisit)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await rowState(movedNoVisit)).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await rowState(quickNoVisit)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await anomalyCount(hash, null)).toBe(2);
+
+    // Своё время на странице снимает метку самой строки — и только её.
+    expect(await dwellReport(ip, fresh.id, ENGAGED_DWELL_MS + 1000)).toBe(200);
+    expect(await rowState(String(fresh.id))).toEqual({ is_bot: false, anomaly_bot: false, is_self: false });
+    expect(await rowState(quickNoVisit)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(30);
+
+    // Переход без визита: сама строка человек, чужие метки остаются.
+    const moved = await hit(ip, { path: '/tours', fromPath: '/planning' });
+    expect(moved.audience).toBe('person');
+    expect(await rowState(quickNoVisit)).toEqual({ is_bot: true, anomaly_bot: true, is_self: false });
+    expect(await anomalyCount(hash, 'bot-visit')).toBe(30);
+  });
 });
