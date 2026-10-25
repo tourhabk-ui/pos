@@ -1336,6 +1336,17 @@ const VOLCANO_MATCHERS: Array<[RegExp, string[]]> = Object.entries(VOLCANO_ZONES
 
 const APPROACH_BAN = /не приближ|не подход|воздержаться от|не рекоменду/i;
 
+/**
+ * Эти ключи совпадают с обычной географией, не только с вулканом:
+ * Авачинская бухта, Корякский округ, горелый лес, камень, Кроноцкий заповедник.
+ * Без слова «вулкан» или «сопка» запрет к ним не выдумывается.
+ */
+const AMBIGUOUS_VOLCANO_KEYS = new Set(['камень', 'горелый', 'авачинский', 'корякский', 'кроноцкий']);
+
+function textNamesAVolcano(text: string): boolean {
+  return /вулкан|сопк/i.test(text);
+}
+
 function volcanoLabel(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
@@ -1367,7 +1378,9 @@ export function approachVolcanoEvents(
   sourcePrefix: string,
 ): SeismicEvent[] {
   if (!APPROACH_BAN.test(item)) return [];
-  const named = volcanoesNamedIn(item);
+  const named = volcanoesNamedIn(item).filter((hit) => (
+    !AMBIGUOUS_VOLCANO_KEYS.has(hit.key) || textNamesAVolcano(item)
+  ));
   if (named.length === 0) return [];
   const publishedAt = new Date(pubDate);
   if (Number.isNaN(publishedAt.getTime())) return [];
@@ -1541,7 +1554,22 @@ function citeEvents(events: SeismicEvent[], description: string, link: string): 
   return events;
 }
 
-/** Строка, которую обычный классификатор не взял, но это запрет к названным вулканам. */
+function coarseMultiVolcano(raw: SeismicEvent | null, approaches: readonly SeismicEvent[]): boolean {
+  return Boolean(
+    raw
+    && raw.alert_type === 'volcanic_eruption'
+    && !raw.volcano_name
+    && approaches.length > 1
+    && volcanoesNamedIn(raw.title).length > 1,
+  );
+}
+
+/**
+ * Строка, которую обычный классификатор не разложил по вулканам.
+ * Одно «не рекомендуется посещать вулканы A, B, C» классификатор берёт
+ * целиком и без имени. Тогда здесь остаются события по каждому названному
+ * вулкану, иначе короткий пост MAX теряет запрет.
+ */
 function approachIfUnclassified(
   id: string,
   item: string,
@@ -1549,8 +1577,21 @@ function approachIfUnclassified(
   link: string,
   sourcePrefix: string,
 ): SeismicEvent[] {
-  if (classifyMchsItem(id, '', item, pubDate, link, sourcePrefix)) return [];
-  return approachVolcanoEvents(id, item, pubDate, link, sourcePrefix);
+  const raw = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
+  const approaches = approachVolcanoEvents(id, item, pubDate, link, sourcePrefix);
+  if (coarseMultiVolcano(raw, approaches) && raw) {
+    for (const ev of approaches) ev.expires_hours = raw.expires_hours;
+    return approaches;
+  }
+  if (raw) return [];
+  return approaches;
+}
+
+function withoutCoarseVolcanoBan(whole: SeismicEvent | null, extras: SeismicEvent[]): SeismicEvent[] {
+  if (!whole) return extras;
+  const named = extras.filter((ev) => ev.volcano_name);
+  if (coarseMultiVolcano(whole, named)) return extras;
+  return [whole, ...extras];
 }
 
 export function classifyMchsItems(
@@ -1577,7 +1618,7 @@ export function classifyMchsItems(
   // иначе запрет теряется, потому что не набрал порог «три темы».
   if (items.length < (mintur ? 2 : 3)) {
     const extras = items.flatMap((item) => approachIfUnclassified(id, item, pubDate, link, sourcePrefix));
-    return citeEvents(whole ? [whole, ...extras] : extras, description, link);
+    return citeEvents(withoutCoarseVolcanoBan(whole, extras), description, link);
   }
 
   // Тема = тип + зоны. Совпали — оставляем строгую: пеплопад с рекомендацией
@@ -1623,13 +1664,7 @@ export function classifyMchsItems(
   for (const item of items) {
     const raw = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
     const approaches = approachVolcanoEvents(id, item, pubDate, link, sourcePrefix);
-    const coarseMulti = Boolean(
-      raw
-      && raw.alert_type === 'volcanic_eruption'
-      && !raw.volcano_name
-      && approaches.length > 1
-      && volcanoesNamedIn(raw.title).length > 1,
-    );
+    const coarseMulti = coarseMultiVolcano(raw, approaches);
     if (raw && !coarseMulti) absorb(raw, item);
     // Разбиение одной фразы на вулканы не укорачивает срок: недельная сводка
     // Минтура живёт 168 часов, а не 48, как оперативный пост.
@@ -1652,7 +1687,7 @@ export function classifyMchsItems(
   // «открыто» законно не классифицируются, порог «≥2 темы» здесь не о том.
   if (byTopic.size < (mintur ? 1 : 2)) {
     const extras = items.flatMap((item) => approachIfUnclassified(id, item, pubDate, link, sourcePrefix));
-    return citeEvents(whole ? [whole, ...extras] : extras, description, link);
+    return citeEvents(withoutCoarseVolcanoBan(whole, extras), description, link);
   }
   const out = [...byTopic.values()];
   if (mintur) attachRiverBan(items, out);
