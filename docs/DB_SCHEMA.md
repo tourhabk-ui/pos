@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-24 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1330_admin_telegram_link.sql`.
+> Снято 2026-10-25 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1334_partner_incoming_answers.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 294 |
+| Таблиц | 296 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3866 |
-| Внешних ключей | 346 |
+| Колонок | 3882 |
+| Внешних ключей | 348 |
 | Таблиц без единого FK в обе стороны | 85 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -22,7 +22,7 @@
 | [Безопасность](#безопасность) | 17 | `danger_assessments` `emergency_contacts` `external_alerts` `mchs_group_registrations` `mchs_registrations` `route_registration_notifications` `route_registrations` `safety_alerts` `safety_checkins` `safety_decision_events` `safety_source_health` `sos_events` `tourist_incidents` `volcano_status` `weather_alert_bookings` `weather_alerts` `zone_capacity_limits` |
 | [Точки, маршруты, карта](#точки-маршруты-карта) | 37 | `_agent_route_knowledge_legacy` `_route_description_cache_legacy` `activities` `ai_route_images` `collections` `crowd_log` `description_provenance` `kamchatka_routes` `location_real_time_status` `location_safety_profile` `parks` `place_aliases` `place_description_drafts` `place_gallery_photos` `place_safety_reports` `place_text_archive` `place_volcano_links` `places` `road_graph_edges` `road_graph_imports` `road_graph_nodes` `route_categories` `route_description_cache` `route_field_check_photos` `route_field_checks` `route_geometry_archive` `route_order_decisions` `route_passport_ocr` `route_source_checks` `route_subcategories` `route_tags` `route_templates` `route_track_imports` `route_waypoints` `trail_report_photos` `trail_reports` `user_place_photos` |
 | [Туры и брони](#туры-и-брони) | 32 | `booking_change_requests` `booking_direct_payments` `booking_group_members` `booking_logs` `booking_transfers` `booking_waivers` `bookings` `cancellation_policies` `channel_orders` `contingency_rules` `octo_api_keys` `octo_booking_log` `octo_webhook_log` `operator_bookings` `operator_tour_reviews` `operator_tour_tags` `operator_tours` `promo_codes` `tour_assets` `tour_availability` `tour_availability_alternatives` `tour_departures` `tour_options` `tour_price_tiers` `tour_pricing_rules` `tour_seat_requests` `tour_selection_events` `tour_selection_items` `tour_selections` `tour_transfer_requests` `tours` `uon_sync_log` |
-| [Люди и доступ](#люди-и-доступ) | 32 | `accounts` `audit_log` `audit_logs` `max_login_sessions` `official_registry_operators` `operator_ai_actions` `operator_ai_config` `operator_applications` `operator_settings` `operator_signups` `operator_site_audits` `operator_staff` `operator_stats_cache` `operator_vehicles` `partner_api_keys` `partner_assets` `partner_consent_invites` `partner_integrations` `partner_material_consents` `partner_oauth_codes` `partner_page_snapshots` `partner_prospects` `partners` `referrals` `security_blocks` `sessions` `tourist_documents` `tourist_profiles` `user_role_history` `user_sessions` `users` `verification_tokens` |
+| [Люди и доступ](#люди-и-доступ) | 33 | `accounts` `audit_log` `audit_logs` `max_login_sessions` `official_registry_operators` `operator_ai_actions` `operator_ai_config` `operator_applications` `operator_settings` `operator_signups` `operator_site_audits` `operator_staff` `operator_stats_cache` `operator_vehicles` `partner_api_keys` `partner_assets` `partner_consent_invites` `partner_incoming_answers` `partner_integrations` `partner_material_consents` `partner_oauth_codes` `partner_page_snapshots` `partner_prospects` `partners` `referrals` `security_blocks` `sessions` `tourist_documents` `tourist_profiles` `user_role_history` `user_sessions` `users` `verification_tokens` |
 | [Гиды](#гиды) | 7 | `guide_availability` `guide_certifications` `guide_earnings` `guide_groups` `guide_operator_invites` `guide_reviews` `guide_schedule` |
 | [Жильё, снаряжение, трансферы](#жильё-снаряжение-трансферы) | 22 | `accommodation_assets` `accommodation_availability` `accommodation_bookings` `accommodation_reviews` `accommodation_rooms` `accommodations` `driver_documents` `driver_schedules` `drivers` `gear_availability` `gear_items` `gear_rentals` `stay_requests` `transfer_charter_prices` `transfer_fleet_vehicles` `transfer_reviews` `transfer_routes` `transfer_seat_bookings` `transfer_trips` `transfers` `vehicle_documents` `vehicles` |
 | [Турагенты (роль agent)](#турагенты-роль-agent) | 4 | `agent_bookings` `agent_clients` `agent_referral_events` `agent_referral_links` |
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 33 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
+| [Прочее](#прочее) | 34 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -761,6 +761,10 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `partner_id uuid!` `key_hash text!` `issued_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
 
+**partner_incoming_answers** · 6 кол. · PK id · partner_id → partners.id · индексов 2
+
+`id bigint!=` `partner_id uuid!` `subject_kind text!` `subject_id text!` `answer text!` `created_at timestamptz!=`
+
 **partner_integrations** · 6 кол. · PK id · partner_id → partners.id · индексов 3
 
 `id uuid!=` `partner_id uuid!` `provider text!` `credentials jsonb!=` `created_at timestamptz!=` `updated_at timestamptz!=`
@@ -781,7 +785,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `name varchar!` `source text` `website text` `details jsonb!=` `notes text` `status text!=` `created_at timestamptz!=` `updated_at timestamptz!=`
 
-**partners** · 92 кол. · PK id · agent_rate_set_by → users.id, guide_operator_id → partners.id, user_id → users.id, user_id → users.id, verified_by → users.id · на неё ссылаются: accommodations, booking_change_requests, booking_transfers, cancellation_policies, car_rental_offers, car_rental_terms, carrier_review_invites, carrier_reviews, contingency_rules, crm_contact_links, crm_contacts, crm_events, crm_inbox_reminders, crm_tasks, drivers, gear_items, guide_availability, guide_certifications, guide_earnings, guide_operator_invites, guide_reviews, guide_schedule, lead_proposals, leads, mchs_group_registrations, mchs_registrations, octo_api_keys, official_registry_operators, operator_ai_actions, operator_ai_config, operator_applications, operator_bookings, operator_chat_date_proposals, operator_client_notes, operator_commissions, operator_members, operator_notification_reads, operator_payouts, operator_signups, operator_site_audits, operator_staff, operator_stats_cache, operator_tours, operator_vehicles, partner_api_keys, partner_assets, partner_consent_invites, partner_integrations, partner_material_consents, partner_oauth_codes, partner_page_snapshots, refund_requests, rental_offer_edits, tour_payments, tours, tour_seat_requests, tour_selections, tour_transfer_requests, transfer_charter_prices, transfer_fleet_vehicles, transfer_routes, transfers, transfer_seat_bookings, transfer_transactions, vehicles, widget_daily · индексов 16 · триггеры: trg_sync_partner_company_name, update_partners_updated_at
+**partners** · 92 кол. · PK id · agent_rate_set_by → users.id, guide_operator_id → partners.id, user_id → users.id, user_id → users.id, verified_by → users.id · на неё ссылаются: accommodations, booking_change_requests, booking_transfers, cancellation_policies, car_rental_offers, car_rental_terms, carrier_review_invites, carrier_reviews, contingency_rules, crm_contact_links, crm_contacts, crm_events, crm_inbox_reminders, crm_tasks, drivers, gear_items, guide_availability, guide_certifications, guide_earnings, guide_operator_invites, guide_reviews, guide_schedule, lead_proposals, leads, mchs_group_registrations, mchs_registrations, messenger_bind_codes, octo_api_keys, official_registry_operators, operator_ai_actions, operator_ai_config, operator_applications, operator_bookings, operator_chat_date_proposals, operator_client_notes, operator_commissions, operator_members, operator_notification_reads, operator_payouts, operator_signups, operator_site_audits, operator_staff, operator_stats_cache, operator_tours, operator_vehicles, partner_api_keys, partner_assets, partner_consent_invites, partner_incoming_answers, partner_integrations, partner_material_consents, partner_oauth_codes, partner_page_snapshots, refund_requests, rental_offer_edits, tour_payments, tours, tour_seat_requests, tour_selections, tour_transfer_requests, transfer_charter_prices, transfer_fleet_vehicles, transfer_routes, transfers, transfer_seat_bookings, transfer_transactions, vehicles, widget_daily · индексов 16 · триггеры: trg_sync_partner_company_name, update_partners_updated_at
 
 `id uuid!=` `user_id uuid` `name varchar!` `category varchar!` `description text` `contact jsonb!` `rating numeric=` `review_count integer=` `is_verified boolean=` `logo_asset_id uuid` `created_at timestamptz=` `updated_at timestamptz=` `legal_info jsonb` `bank_details jsonb` `consents jsonb` `operator_info jsonb` `roles jsonb` `password_hash varchar` `status varchar=` `slug varchar` `short_description text` `hero_image varchar` `gallery jsonb=` `services jsonb=` `features jsonb=` `faq jsonb=` `season_info jsonb=` `reviews_data jsonb=` `contacts jsonb=` `location jsonb` `is_public boolean=` `commission_rate numeric!=` `commission_rules jsonb=` `logo_image varchar` `payout_method varchar` `payout_details jsonb` `payout_verified boolean=` `payout_verified_at timestamp` `commission_start numeric=` `commission_current numeric=` `verified_at timestamp` `verified_by uuid` `company_name varchar` `profile_status text!=` `profile_draft jsonb` `profile_review_comment text` `onboarding_completed boolean!=` `applied_at timestamp` `telegram_chat_id bigint` `reestr_number text` `license_expiry date` `insurance_policy text` `insurance_amount numeric` `widget_enabled boolean=` `widget_domains text[]=` `widget_config jsonb=` `max_chat_id bigint` `company_inn varchar` `company_ogrn varchar` `legal_address text` `efrt_number varchar` `external_source varchar` `external_source_url text` `external_id varchar` `telegram_group_url text` `license_number varchar` `external_rating numeric` `website text` `uon_api_key text` `uon_company_id integer` `registry_status varchar!=` `registry_number varchar` `registry_source_url text` `registry_checked_at timestamptz` `is_available boolean=` `site_audit_consent text!=` `guide_operator_id uuid` `languages text[]` `specializations text[]` `photo_url text` `experience_years integer` `phone varchar` `agent_commission_rate numeric` `agent_rate_set_by uuid` `agent_rate_set_at timestamptz` `agent_rate_reason text` `video_url text` `video_poster_url text` `gallery_credits jsonb!=` `video_clips jsonb!=` `fleet_seat_classes int4[]` `site_managed_by_platform boolean!=`
 
@@ -1319,9 +1323,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `user_id uuid!` `type varchar!` `title varchar!` `message text!` `data jsonb=` `is_read boolean=` `is_archived boolean=` `priority varchar=` `action_url text` `created_at timestamptz=` `read_at timestamptz` `expires_at timestamptz` `updated_at timestamptz=`
 
-**page_views** · 12 кол. · PK id · индексов 6
+**page_views** · 16 кол. · PK id · индексов 7
 
-`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=` `device text`
+`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=` `device text` `client_beacon boolean!=` `ua_family text` `ip_hash text` `anomaly_bot boolean!=`
 
 **platform_settings** · 3 кол. · PK key · индексов 1
 
@@ -1448,6 +1452,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **editor_no_write** · 7 кол. · PK entity_id · индексов 2
 
 `entity_id uuid!` `entity_kind text!` `outcome text!` `reason text!` `attempted_by text!` `facts_count integer!=` `attempted_at timestamptz!=`
+
+**messenger_bind_codes** · 6 кол. · PK code · partner_id → partners.id · индексов 2
+
+`code text!` `partner_id uuid!` `expires_at timestamptz!` `telegram_chat_id bigint` `max_chat_id bigint` `created_at timestamptz!=`
 
 **model_catalog** · 9 кол. · PK model_id · индексов 3
 
