@@ -536,4 +536,88 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       [jimny!.id, jimny!.partner_id],
     ))).toBe('23514');
   });
+
+  // Кабинет проката на сайте (владелец 26.10, прокатчик «Лагуны»): настоящие
+  // роуты /api/hub/carrier/rental*, вход — JWT с живой сессией, владелец
+  // карточки — по partners.user_id. Правило ответа то же, что у кнопки в MAX.
+  it('кабинет на сайте: список, «Беру» отмечает дни, повтор — 409, календарь пишет только своей машине', async () => {
+    const { NextRequest } = await import('next/server');
+    process.env.JWT_SECRET = 'test-jwt-secret-for-car-rental-web-0123456789';
+    const { rows: [user] } = await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role, max_user_id, preferences)
+       VALUES ('max_741001@max.local', 'Лагуна Прокат', '', 'transfer', 741001, '{"roles":["transfer"]}')
+       RETURNING id::text AS id`,
+    );
+    const { rows: [laguna] } = await pool.query<{ id: string }>(
+      `UPDATE partners SET user_id = $1 WHERE slug = 'laguna-prokat' RETURNING id::text AS id`, [user.id],
+    );
+    const { createToken } = await import('@/lib/auth/jwt');
+    const token = await createToken({ userId: user.id, email: 'max_741001@max.local', role: 'transfer' });
+    await pool.query(
+      `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+      [user.id, token],
+    );
+    const auth = { authorization: `Bearer ${token}` };
+    const { rows: [tank] } = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM car_rental_offers WHERE partner_id = $1 AND title = 'Tank-300'`, [laguna.id],
+    );
+    const { rows: [lead] } = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, created_at)
+       VALUES ('Заказчик сайта', '+79990003344', 'тест', 'new', $1, $2::jsonb, NOW())
+       RETURNING id::text AS id`,
+      [laguna.id, JSON.stringify({
+        kind: 'car_rental', company_id: laguna.id, offer_id: tank.id,
+        offer_title: 'Tank-300', date_from: '2026-12-01', date_to: '2026-12-02',
+      })],
+    );
+
+    const cabinet = await import('@/app/api/hub/carrier/rental/route');
+    const listed = await cabinet.GET(new NextRequest('https://vedarai.ru/api/hub/carrier/rental', { headers: auth }));
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as { data: { canWrite: boolean; cars: Array<{ title: string }>; requests: Array<{ leadId: string; phone: string; answer: string | null }> } };
+    expect(body.data.canWrite).toBe(true);
+    expect(body.data.cars.map((c) => c.title)).toContain('Tank-300');
+    expect(body.data.requests.find((r) => r.leadId === lead.id)).toMatchObject({ phone: '+79990003344', answer: null });
+
+    const answer = await import('@/app/api/hub/carrier/rental/requests/[id]/route');
+    const press = () => answer.POST(
+      new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/requests/${lead.id}`, {
+        method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ answer: 'take' }),
+      }),
+      { params: Promise.resolve({ id: lead.id }) },
+    );
+    const first = await press();
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ success: true, outcome: 'take' });
+    const { rows: busy } = await pool.query<{ day: string; source: string }>(
+      `SELECT day::text AS day, source FROM rental_car_busy WHERE offer_id = $1 AND day BETWEEN '2026-12-01' AND '2026-12-02' ORDER BY day`,
+      [tank.id],
+    );
+    expect(busy).toEqual([{ day: '2026-12-01', source: 'request' }, { day: '2026-12-02', source: 'request' }]);
+    const again = await press();
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ success: false, outcome: 'already' });
+
+    const calendar = await import('@/app/api/hub/carrier/rental/calendar/route');
+    const { kamchatkaDate, shiftDate } = await import('@/lib/analytics/kamchatka-day');
+    const tomorrow = shiftDate(kamchatkaDate(new Date()), 1);
+    const mark = (offerId: string) => calendar.POST(new NextRequest('https://vedarai.ru/api/hub/carrier/rental/calendar', {
+      method: 'POST', headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ offerId, day: tomorrow, busy: false }),
+    }));
+    expect((await mark(tank.id)).status).toBe(200);
+    const read = await calendar.GET(new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/calendar?offer=${tank.id}`, { headers: auth }));
+    const days = ((await read.json()) as { data: { days: Array<{ day: string; busy: boolean | null }> } }).data.days;
+    expect(days).toHaveLength(30);
+    expect(days.find((d) => d.day === tomorrow)?.busy).toBe(false);
+    // Чужая машина («Прокат у залива»): отметка не пишется, календарь не читается.
+    const { rows: [foreign] } = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM car_rental_offers WHERE partner_id = $1 LIMIT 1`, [partner.laguna],
+    );
+    expect((await mark(foreign.id)).status).toBe(404);
+    const { rows: none } = await pool.query(`SELECT 1 FROM rental_car_busy WHERE offer_id = $1 AND day = $2::date`, [foreign.id, tomorrow]);
+    expect(none).toEqual([]);
+    const foreignRead = await calendar.GET(new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/calendar?offer=${foreign.id}`, { headers: auth }));
+    expect(foreignRead.status).toBe(404);
+  });
 });
