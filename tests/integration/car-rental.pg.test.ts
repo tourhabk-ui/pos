@@ -228,8 +228,9 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       ['day', 'minibus', 25000, null], ['day', 'vahtovka', 50000, null],
     ]);
     expect(carrier!.rates.every((r) => r.note === 'цена «от» — точную назовёт перевозчик')).toBe(true);
-    // Чего сайт не называл, того нет: юрлицо, лицензия, фото, отметка.
-    expect(carrier).toMatchObject({ legal: null, license: null, verified: false, phone: '+79060835070' });
+    // Чего сайт не называл, того нет: юрлицо, лицензия. Отметка «проверен» —
+    // по слову владельца 26.10 («лагуна дала добро», 1335).
+    expect(carrier).toMatchObject({ legal: null, license: null, verified: true, phone: '+79060835070' });
     // 1319: обложка и галерея партнёра общие для перевозчика и прокатчика — девять кадров с подписью.
     expect(carrier.photos).toHaveLength(9);
     expect(carrier.logo).toBe('/images/laguna-prokat/laguna-logo.png');
@@ -246,7 +247,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     ]);
     expect(rental!.terms?.items).toHaveLength(8);
     expect(rental!.terms?.seenOn).toBe('2026-10-23');
-    expect(rental).toMatchObject({ alsoCarrier: true, legal: null, verified: false });
+    expect(rental).toMatchObject({ alsoCarrier: true, legal: null, verified: true });
 
     // Повтор посева на настоящей схеме ничего не плодит.
     const before = await pool.query<{ n: number }>(
