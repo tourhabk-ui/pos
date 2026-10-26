@@ -22,6 +22,7 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 // Просмотрщик фото — общий для всех галерей (карточка тура, оператор, перевозчик).
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import { HeroPhoto } from '@/components/media/HeroPhoto';
+import { tourPhotoCaptions, tourPhotoCreditLine } from '@/lib/tours/photo-credits';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import type { TourClip } from '@/lib/tours/tour-clips';
 import { TourClips } from '@/components/tours/TourClips';
@@ -134,6 +135,8 @@ interface TourFull {
   /** partners.slug / partners.is_public — адрес страницы оператора; закрыта или без адреса — ссылки нет. */
   operator_slug?: string | null;
   operator_public?: boolean | null;
+  /** `partners.gallery_credits`: адрес снимка → автор (lib/tours/photo-credits). */
+  operator_photo_credits?: unknown;
   /** operator_tours.route_id: без маршрута нет и «контура безопасности». */
   route_id?: string | null;
   /**
@@ -536,6 +539,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   const allPhotos = tour.photos?.length ? tour.photos : (tour.tour_image ? [tour.tour_image] : []);
   const heroImg = allPhotos[0] ?? null;
   const stripPhotos = allPhotos.slice(1);
+  // «Фото: автор» — из карты подписей партнёра, только у записанных кадров (26.10).
+  const photoCaptions = tourPhotoCaptions(allPhotos, tour.operator_photo_credits);
+  const photoCreditLine = tourPhotoCreditLine(photoCaptions);
 
   const included = Array.isArray(tour.included) ? tour.included : [];
   const notIncluded = Array.isArray(tour.not_included) ? tour.not_included : [];
@@ -715,7 +721,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-5">
 
           <div className="lg:col-span-8 space-y-12">
-            <div className={`space-y-5${stripPhotos.length > 0 ? '' : ' lg:hidden'}`}>
+            <div className={`space-y-5${stripPhotos.length > 0 || photoCreditLine ? '' : ' lg:hidden'}`}>
               {/* ═══ Филмстрип остальных фото ═══
                   Внутри колонки 8/12, а не над сеткой: колонка брони начинается
                   вровень с ним, и цена с кнопкой попадают в первый экран десктопа
@@ -738,6 +744,11 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     </button>
                   ))}
                 </div>
+              )}
+              {/* Чьи снимки — словами под ними; у каждого кадра подпись ещё и в
+                  просмотрщике. Нет записи об авторе — строки нет (26.10). */}
+              {photoCreditLine && (
+                <p className="text-xs text-[var(--text-muted)]" data-testid="tour-photo-credit">{photoCreditLine}</p>
               )}
 
               {/* ═══ Карточка решения — только мобайл (аудит мобильной компоновки,
@@ -1304,7 +1315,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
       </div>
 
       {lightbox !== null && allPhotos.length > 0 && (
-        <PhotoLightbox images={allPhotos} alt={tour.title} startIdx={lightbox} onClose={() => setLightbox(null)} />
+        <PhotoLightbox images={allPhotos} alt={tour.title} startIdx={lightbox} onClose={() => setLightbox(null)} captions={photoCaptions} />
       )}
     </div>
   );
