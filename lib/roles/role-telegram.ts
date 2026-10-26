@@ -5,7 +5,8 @@
 
 import { loadInbox } from '@/lib/crm/inbox';
 import { findPartnerByChat, processPartnerMessage } from '@/lib/kuzmich/operator-chat';
-import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { isOperatorDatesPhrase } from '@/lib/operators/chat-dates/flow';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
@@ -39,8 +40,23 @@ export async function tryRoleMenuTelegramMessage(opts: {
   if (lookup.outcome !== 'found') return false;
   const menu = partnerMenu(lookup.partner);
   const role = menuRoleOf(lookup.partner);
-  if (!menu || !role) return false;
-  if (boundChatLaneFor('telegram', opts.chatId, opts.text, { rental: partnerHasRental(lookup.partner) }) === 'tourist') return false;
+  if (!menu || !role) {
+    // Агент и прокат снаряжения: меню роли нет, а CRM есть. В MAX и на втором
+    // входе их текст получает помощник с CRM, а здесь уходил Кузьмичу туриста
+    // (проверка каналов 25.10). Пилот проката отвечает своей строкой раньше.
+    const p = lookup.partner;
+    if (isRentalPilotSlug(p.slug) || p.crmCategory === null || opts.text.trim().startsWith('/')) return false;
+    if (boundChatLaneFor('telegram', opts.chatId, opts.text, boundChatContext(p)) === 'tourist') return false;
+    await processPartnerMessage({
+      chatId: opts.chatId,
+      text: opts.text,
+      fromName: opts.fromName,
+      partner: p,
+      reply: async (_id, text) => { await opts.send(withSosBlock(text, opts.text).text, []); },
+    });
+    return true;
+  }
+  if (boundChatLaneFor('telegram', opts.chatId, opts.text, boundChatContext(lookup.partner)) === 'tourist') return false;
 
   // Беда в тексте — блок 112 над любым ответом меню роли (даты, входящие,
   // помощник): команда кабинета и дело CRM в той же фразе остаются здесь.

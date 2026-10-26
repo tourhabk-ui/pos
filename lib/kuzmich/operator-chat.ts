@@ -157,13 +157,16 @@ export function partnerGreeting(partner: PartnerChatContext): string {
  * уходит зарубежной модели (§8), а клиент у помощника теперь есть свой —
  * подписью «Анна П.» через инструменты CRM. Бронь называется номером.
  */
-async function buildOperatorContext(partnerId: string): Promise<string> {
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - now.getDay());
-
+/** Экспорт — для проверки окна на настоящей базе (crm-contacts.pg); база по умолчанию — пул приложения. */
+export async function buildOperatorContext(
+  partnerId: string,
+  db: Pick<typeof pool, 'query'> = pool,
+): Promise<string> {
+  // Окно — 7 суток назад от сейчас, в SQL. Прежнее «с воскресенья» считалось
+  // в JS (now − getDay()): в воскресенье окно было пустым, и помощник уверенно
+  // говорил «броней нет» при свежих бронях (проверка каналов 25.10).
   const [toursResult, bookingsResult, pendingResult] = await Promise.allSettled([
-    pool.query<{ id: number; title: string; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null }>(
+    db.query<{ id: number; title: string; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null }>(
       `SELECT id, title, base_price, is_active, is_published,
               available_slots, next_available_date::text
        FROM operator_tours
@@ -173,23 +176,25 @@ async function buildOperatorContext(partnerId: string): Promise<string> {
        LIMIT 10`,
       [partnerId],
     ),
-    pool.query<{ id: string; booking_date: string; participants: number; final_price: number; booking_status: string }>(
+    db.query<{ id: string; booking_date: string; participants: number; final_price: number; booking_status: string }>(
       `SELECT ob.id::text AS id, ob.booking_date::text, ob.participants,
               ob.final_price, ob.booking_status
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
        WHERE ot.operator_id = $1
-         AND ob.created_at >= $2
+         AND ob.deleted_at IS NULL
+         AND ob.created_at >= NOW() - INTERVAL '7 days'
        ORDER BY ob.created_at DESC
        LIMIT 10`,
-      [partnerId, weekStart.toISOString()],
+      [partnerId],
     ),
-    pool.query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt
+    db.query<{ cnt: string; awaiting: string }>(
+      `SELECT COUNT(*) FILTER (WHERE ob.booking_status IN ('pending_payment','confirmed'))::text AS cnt,
+              COUNT(*) FILTER (WHERE ob.booking_status = 'new')::text AS awaiting
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
        WHERE ot.operator_id = $1
-         AND ob.booking_status IN ('pending_payment','confirmed')
+         AND ob.deleted_at IS NULL
          AND ob.booking_date >= CURRENT_DATE`,
       [partnerId],
     ),
@@ -213,6 +218,10 @@ async function buildOperatorContext(partnerId: string): Promise<string> {
     pendingResult.status === 'fulfilled'
       ? parseInt(pendingResult.value.rows[0]?.cnt ?? '0', 10)
       : null;
+  const awaitingCount =
+    pendingResult.status === 'fulfilled'
+      ? parseInt(pendingResult.value.rows[0]?.awaiting ?? '0', 10)
+      : null;
 
   const toursText = tours.length
     ? tours
@@ -234,12 +243,12 @@ async function buildOperatorContext(partnerId: string): Promise<string> {
         .join('\n')
     : bookingsFailed
       ? 'НЕ УДАЛОСЬ ПРОЧИТАТЬ брони — не утверждай, что броней нет.'
-      : 'Бронирований на этой неделе нет.';
+      : 'Бронирований за последние 7 дней нет.';
 
   return [
-    pendingFailed || pendingCount === null
-      ? 'Предстоящие активные бронирования: НЕ УДАЛОСЬ ПРОЧИТАТЬ.'
-      : `Предстоящих активных бронирований: ${pendingCount}`,
+    pendingFailed || pendingCount === null || awaitingCount === null
+      ? 'Предстоящие бронирования: НЕ УДАЛОСЬ ПРОЧИТАТЬ.'
+      : `Предстоящих активных бронирований: ${pendingCount}. Ждут вашего подтверждения: ${awaitingCount}`,
     '',
     `МОИ ТУРЫ:`,
     toursText,

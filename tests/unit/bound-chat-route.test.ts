@@ -5,7 +5,7 @@
  * цены, открытие дат — остаётся помощнику. Неузнанное тоже остаётся кабинету.
  */
 import { describe, expect, it } from 'vitest';
-import { boundChatLane, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatContext, boundChatLane, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
 
 const tourist = [
   'найди мне в аренду автомобиль',
@@ -151,5 +151,30 @@ describe('привязанный чат прокатчика: свои маши�
     expect(partnerHasRental({ slug: 'other', category: 'cars' })).toBe(true);
     expect(partnerHasRental({ slug: 'mestechko', category: 'operator' })).toBe(false);
     expect(partnerHasRental({ slug: null, category: 'transfer' })).toBe(false);
+  });
+});
+
+// Проверка каналов 25.10: «хочу/нужно» и «тур» звучат как просьба туриста, а
+// это даты своего тура — туроператору отвечал Кузьмич туриста.
+describe('привязанный чат туроператора: даты своего тура — кабинет', () => {
+  const datesAsks = ['нужно добавить даты тура на ноябрь', 'хочу выставить тур на 5 ноября, 8 мест'];
+  it.each(datesAsks)('туроператор — кабинет: %s', (text) => {
+    expect(boundChatLane(text, { operator: true })).toBe('partner');
+  });
+  it.each(datesAsks)('не туроператор — как раньше: %s', (text) => {
+    expect(boundChatLane(text)).toBe('tourist');
+  });
+  it.each(['хочу забронировать тур на 15 июля', 'подбери тур на 5 ноября', 'спланируй поездку на 5 дней в июле'])(
+    'просьба туриста у туроператора остаётся Кузьмичу туриста: %s', (text) => {
+      expect(boundChatLane(text, { operator: true })).toBe('tourist');
+    },
+  );
+  it('беда с датами — Кузьмичу туриста и у туроператора', () => {
+    expect(boundChatLane('турист сломал ногу, закрой субботу', { operator: true })).toBe('tourist');
+  });
+  it('контекст по карточке: оператор, прокат, остальные', () => {
+    expect(boundChatContext({ category: 'operator', slug: 'vulkan-tur' })).toEqual({ rental: false, operator: true });
+    expect(boundChatContext({ category: 'transfer', slug: 'laguna-prokat' })).toEqual({ rental: true, operator: false });
+    expect(boundChatContext({ category: 'guide', slug: null })).toEqual({ rental: false, operator: false });
   });
 });

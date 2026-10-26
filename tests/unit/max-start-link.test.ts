@@ -159,13 +159,15 @@ describe('команды бота в MAX', () => {
   });
 
   const PARTNER = '0f2a7f0e-3f5d-4c1a-9b0e-7d4b2a1c5e6f';
+  let midSeq = 0;
   const typed = (text: string) => ({
     update_type: 'message_created',
     timestamp: 1,
     message: {
       sender: { user_id: 77, name: 'Павел' },
       recipient: { chat_id: 77, chat_type: 'dialog' },
-      body: { mid: 'm', seq: 1, text, attachments: [] as unknown[] },
+      // Своё mid у каждого сообщения: одинаковое отсекается как повтор доставки (25.10).
+      body: { mid: `m-${++midSeq}`, seq: 1, text, attachments: [] as unknown[] },
     },
   });
 

@@ -5,6 +5,7 @@
  * Каждый запрос скоупится `partner_id` вошедшего партнёра в самом SQL: чужой
  * контакт не находится, а не «находится и отсекается» кодом после.
  */
+import { CONTACT_NAME_SQL } from '@/lib/crm/contact-name-sql';
 import { pool } from '@/lib/db-pool';
 import { normalizeEmail, normalizeName, normalizePhoneKey, type SourceKind } from '@/lib/crm/contacts';
 import type { CrmContactLinkRow, CrmContactRow } from '@/lib/types/db-rows';
@@ -52,8 +53,12 @@ export function buildContactSearch(q: string | null | undefined): { name: string
   const s = (q ?? '').trim();
   if (!s) return { name: null, phone: null };
   const digits = s.replace(/\D/g, '');
-  if (digits.length >= 4 && /^[\d\s()+-]+$/.test(s)) return { name: null, phone: `%${digits}%` };
-  return { name: `%${likeEscape(s.toLowerCase())}%`, phone: null };
+  // «…1234» и «[телефон …1234]» — хвост номера в том виде, в каком его видит
+  // помощник в истории чата (redactPII с keepPhoneTail).
+  const tail = s.replace(/^\[?телефон\s*/i, '').replace(/\]$/, '').replace(/^(?:…|\.\.\.)/, '');
+  if (digits.length >= 4 && /^[\d\s()+-]+$/.test(tail)) return { name: null, phone: `%${digits}%` };
+  // «Артем» находит «Артём»: ё и е сравниваются как одна буква (CONTACT_NAME_SQL).
+  return { name: `%${likeEscape(s.toLowerCase().replace(/ё/g, 'е'))}%`, phone: null };
 }
 
 export const CONTACT_LIST_SQL = `
@@ -63,7 +68,7 @@ export const CONTACT_LIST_SQL = `
          (SELECT count(*)::int FROM crm_contact_links l WHERE l.contact_id = c.id) AS sources_count
     FROM crm_contacts c
    WHERE c.partner_id = $1
-     AND ($2::text IS NULL OR lower(coalesce(c.display_name, '')) LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
+     AND ($2::text IS NULL OR ${CONTACT_NAME_SQL} LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
      AND ($3::text IS NULL OR coalesce(c.phone_e164, '') LIKE $3)
      AND ($4::text IS NULL OR $4 = ANY(c.tags))
    ORDER BY c.last_activity_at DESC, c.id
@@ -73,7 +78,7 @@ export const CONTACT_COUNT_SQL = `
   SELECT count(*)::int AS total
     FROM crm_contacts c
    WHERE c.partner_id = $1
-     AND ($2::text IS NULL OR lower(coalesce(c.display_name, '')) LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
+     AND ($2::text IS NULL OR ${CONTACT_NAME_SQL} LIKE $2 OR coalesce(c.email_norm, '') LIKE $2)
      AND ($3::text IS NULL OR coalesce(c.phone_e164, '') LIKE $3)
      AND ($4::text IS NULL OR $4 = ANY(c.tags))`;
 

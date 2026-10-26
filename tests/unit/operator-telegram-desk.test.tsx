@@ -44,6 +44,7 @@ describe('подтверждение туроператора', () => {
     const bound = channelBoundText('max', {
       ok: true, partnerName: 'Местечко', displayName: 'Местечко',
       category: 'operator', slug: 'mestechko', previousChatId: null, rebound: false,
+      cabinetOf: null, others: [],
     });
     expect(bound).toContain('приходят в этот чат');
     expect(bound).not.toContain('не приходят');

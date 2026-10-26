@@ -99,6 +99,17 @@ describe('поиск в списке клиентов', () => {
     expect(buildContactSearch('  ')).toEqual({ name: null, phone: null });
   });
 
+  it('ё в запросе — е: «Артём» и «Артем» ищутся одинаково', () => {
+    expect(buildContactSearch('Артём')).toEqual({ name: '%артем%', phone: null });
+    expect(buildContactSearch('ЁЛКИН')).toEqual({ name: '%елкин%', phone: null });
+  });
+
+  it('хвост номера в виде, каким его видит помощник, — поиск по телефону', () => {
+    expect(buildContactSearch('…1234')).toEqual({ name: null, phone: '%1234%' });
+    expect(buildContactSearch('...1234')).toEqual({ name: null, phone: '%1234%' });
+    expect(buildContactSearch('[телефон …1234]')).toEqual({ name: null, phone: '%1234%' });
+  });
+
   it('% и _ из запроса — буквы, а не шаблон', () => {
     expect(likeEscape('50%_x')).toBe('50\\%\\_x');
     expect(buildContactSearch('%')).toEqual({ name: '%\\%%', phone: null });

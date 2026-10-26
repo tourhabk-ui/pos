@@ -29,6 +29,7 @@ import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
 import { createAgentKey, listAgentKeys, resolveAgentKey, revokeAgentKey, MAX_ACTIVE_KEYS } from '@/lib/crm/agent-keys';
 import { exchangeAuthorizationCode, issueAuthorizationCode, refreshAccessToken, MAX_OAUTH_CONNECTIONS } from '@/lib/crm/partner-oauth';
+import { buildOperatorContext } from '@/lib/kuzmich/operator-chat';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -383,6 +384,43 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       .toEqual({ outcome: 'bad_phone' });
     // Тот же телефон у другого партнёра — не дубль.
     expect((await createManualContact(P.opB, { display_name: 'Иван', phone: '+79140009988' }, pool)).outcome).toBe('created');
+  });
+
+  it('контекст оператора: брони за 7 суток назад, а не «с воскресенья»; ждущие подтверждения названы (25.10)', async () => {
+    // Свой оператор: у общих в этом файле десятки свежих броней, а список —
+    // десять последних. 6 суток 23 часа назад — внутри 7 суток в любой день
+    // недели, но раньше прошлого «воскресенья» (now − getDay()) в любой день.
+    const opC = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ('Оператор В', 'operator', '{}') RETURNING id`,
+    )).rows[0].id;
+    const tourC = Number((await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур В', 5000) RETURNING id`, [opC],
+    )).rows[0].id);
+    const recent = await booking(tourC, { name: 'Свежий' });
+    const old = await booking(tourC, { name: 'Старый' });
+    const removed = await booking(tourC, { name: 'Удалённый', deleted: true });
+    await pool.query(`UPDATE operator_bookings SET created_at = NOW() - INTERVAL '6 days 23 hours', booking_status = 'new' WHERE id = $1`, [recent]);
+    await pool.query(`UPDATE operator_bookings SET created_at = NOW() - INTERVAL '8 days' WHERE id = $1`, [old]);
+    await pool.query(`UPDATE operator_bookings SET created_at = NOW() - INTERVAL '1 day' WHERE id = $1`, [removed]);
+
+    const ctx = await buildOperatorContext(opC, pool);
+    const week = ctx.slice(ctx.indexOf('БРОНИРОВАНИЯ ЗА ПОСЛЕДНИЕ 7 ДНЕЙ'));
+    expect(week).toContain(`бронь №${recent}`);
+    expect(week).not.toContain(`бронь №${old}`);
+    expect(week).not.toContain(`бронь №${removed}`);
+    expect(ctx).toContain('Ждут вашего подтверждения: 1');
+    expect(ctx).not.toContain('на этой неделе');
+  });
+
+  it('поиск по имени: ё и е — одна буква в обе стороны (проверка каналов 25.10)', async () => {
+    const yo = await createManualContact(P.opA, { display_name: 'Артём Ёлкин' }, pool);
+    expect(yo.outcome).toBe('created');
+    for (const q of ['Артем', 'артём', 'елкин', 'ЁЛКИН']) {
+      const found = await listContacts(P.opA, { q, limit: 50, offset: 0 }, pool);
+      expect(found.items.map((i) => i.display_name), q).toContain('Артём Ёлкин');
+    }
+    const admin = await listAllContacts({ q: 'Артем', limit: 50, offset: 0 }, pool);
+    expect(admin.items.map((i) => i.display_name)).toContain('Артём Ёлкин');
   });
 
   it('администратор: клиенты всех партнёров, фильтры по роли, партнёру и поиску', async () => {
@@ -859,6 +897,25 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(card).toContain('Обсудили дату');
     expect(card).not.toMatch(/9141112233|@/);
     expect((await executeCrmTool('crm_inbox', {}, ctx, pool)).ok).toBe(true);
+
+    // Прокатчик: заявка проката без ответа видна во «Входящих» помощника, а
+    // не «ничего не ждёт» (проверка каналов 25.10); ответил — строки нет.
+    const carrierCtx = { ...ctx, partnerId: P.carrier, category: 'transfer' as const };
+    const rentalLead = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, operator_id, source_data)
+       VALUES ('Прокат', '+79140000077', $1, jsonb_build_object('kind', 'car_rental', 'offer_title', 'Suzuki Jimny'))
+       RETURNING id::text`, [P.carrier],
+    )).rows[0].id;
+    const waiting = await executeCrmTool('crm_inbox', {}, carrierCtx, pool);
+    expect(waiting.ok && waiting.data).toMatchObject({ car_rental_waiting: 1 });
+    expect(crmToolText(waiting)).toContain('ждут ответа «Беру» или «Не могу»: 1');
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details) VALUES ($1::uuid, 'partner', 'partner_answered', '{"answer":"take"}'::jsonb)`,
+      [rentalLead],
+    );
+    const answered = await executeCrmTool('crm_inbox', {}, carrierCtx, pool);
+    expect(answered.ok && 'car_rental_waiting' in (answered.data as object)).toBe(false);
+    expect(crmToolText(answered)).not.toContain('«Беру»');
 
     // Чужое происхождение задачи база не примет.
     await expect(pool.query(

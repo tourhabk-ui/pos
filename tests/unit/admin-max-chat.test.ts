@@ -70,6 +70,8 @@ vi.mock('@/lib/crm/inbox', async (orig) => ({
 }));
 
 const max = await import('@/app/api/max/kuzmich/route');
+// Тесты шлют одни и те же mid: повтор сообщения отсекается (25.10), память — заново на тест.
+const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 const { ADMIN_CHAT_TEXT } = await import('@/lib/max/admin-chat');
 const { ADMIN_HELP_TEXT } = await import('@/lib/max/admin-read');
 
@@ -103,6 +105,7 @@ const repliesTo = (chatId: number) =>
 let errorLog: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  clearMaxMessageDedup();
   for (const f of Object.values(m)) f.mockReset();
   m.maxSend.mockResolvedValue({});
   m.pool.mockResolvedValue({ rows: [] });

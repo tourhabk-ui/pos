@@ -15,7 +15,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
-import { boundChatLaneFor, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
+import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
+import { adminChatYieldsToPartner } from '@/lib/roles/admin-partner-chat';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { parseRentalCabinetPress, rentalCabinetAsk, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
@@ -705,6 +706,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         nowMs: Date.now(),
         reply: sayAdmin,
         liveBooking: () => hasLiveBookingFlow(chatId, 'tourist', pending),
+        yieldToPartner: (t) => adminChatYieldsToPartner('telegram', chatId, t),
       });
       if (turn === 'handled') return NextResponse.json({ ok: true });
       if (turn === 'tourist' && msg.text) {
@@ -729,7 +731,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Заявка, начатая здесь у Кузьмича туриста, доводится им же: ответы
     // «Иван Петров», «15 июля» иначе ушли бы помощнику кабинета (#2756).
     if (partner && msg.text && !(await hasLiveBookingFlow(chatId, 'tourist', pending))
-      && boundChatLaneFor('telegram', chatId, msg.text, { rental: partnerHasRental(partner) }) !== 'tourist') {
+      && boundChatLaneFor('telegram', chatId, msg.text, boundChatContext(partner)) !== 'tourist') {
       const text = msg.text.trim();
       const pilot = isRentalPilotSlug(partner.slug);
       const menu = partnerMenu(partner);

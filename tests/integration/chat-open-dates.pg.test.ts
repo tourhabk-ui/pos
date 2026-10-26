@@ -62,6 +62,12 @@ const { sent, partnerMessage } = vi.hoisted(() => ({
   partnerMessage: vi.fn(async () => undefined),
 }));
 
+// Память процесса о виденных mid (lib/max/update-dedup, 25.10) после
+// перезапуска пуста, и тогда копии держит только база: здесь проверяется она.
+vi.mock('@/lib/max/update-dedup', () => ({
+  isRepeatedMaxMessage: () => false,
+  clearMaxMessageDedup: () => undefined,
+}));
 vi.mock('@/lib/max/max-fetch', () => ({
   maxBot: () => ({
     api: {
