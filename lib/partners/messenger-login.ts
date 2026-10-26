@@ -91,11 +91,12 @@ export async function linkMessengerLogin(client: Pick<PoolClient, 'query'>, part
   if (existing) {
     const foreign = ownedRoles(existing.preferences?.roles, existing.role).find((r) => r !== role && r !== 'tourist');
     if (foreign) return { outcome: 'other_role', role: foreign };
-    const { rows: owned } = await client.query<{ id: string }>(
-      `SELECT id::text AS id FROM partners WHERE user_id = $1::uuid LIMIT 1`,
+    // Любая его карточка, какой бы категории ни была: вторую к человеку не привязываем.
+    const { rows: [own] } = await client.query<{ owns: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM partners WHERE user_id = $1::uuid) AS owns`,
       [existing.id],
     );
-    if (owned.length > 0) return { outcome: 'owns_other_card' };
+    if (own?.owns === true) return { outcome: 'owns_other_card' };
     const roles = [...new Set([...ownedRoles(existing.preferences?.roles, existing.role), role])];
     await client.query(
       `UPDATE users

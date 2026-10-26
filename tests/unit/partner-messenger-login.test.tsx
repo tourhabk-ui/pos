@@ -32,7 +32,7 @@ function db(card: Card | null, user: User | null = null, ownsOther = false) {
   m.query.mockImplementation(async (sql: string) => {
     if (/FROM partners WHERE id = \$1::uuid FOR UPDATE/.test(sql)) return { rows: card ? [card] : [] };
     if (/FROM users WHERE (max_user_id|telegram_id) = \$1::bigint FOR UPDATE/.test(sql)) return { rows: user ? [user] : [] };
-    if (/FROM partners WHERE user_id = \$1::uuid/.test(sql)) return { rows: ownsOther ? [{ id: 'other' }] : [] };
+    if (/EXISTS \(SELECT 1 FROM partners WHERE user_id = \$1::uuid\)/.test(sql)) return { rows: [{ owns: ownsOther }] };
     if (/INSERT INTO users/.test(sql)) return { rows: [{ id: 'u-new' }] };
     return { rows: [] };
   });
