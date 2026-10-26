@@ -290,8 +290,8 @@ describe('отказ называет причину, а не гоняет по 
  *
  * До этого дня старт был зашит как `now + 30 дней`: спросить план на июль
  * было нельзя ничем, и турист, спрашивающий зимой про лето, получал план на
- * закрытый сезон. Четыре исхода вместо двух — взяли по умолчанию, разобрали,
- * не разобрали, уже прошло — и три последних различимы снаружи.
+ * закрытый сезон. Исходы: взяли по умолчанию, разобрали, уже прошло, явная
+ * недата. Последний не подставляет другой день.
  */
 describe('parsePlanStart: когда ехать', () => {
   const NOW = Date.parse('2026-09-19T12:00:00Z');
@@ -334,12 +334,16 @@ describe('parsePlanStart: когда ехать', () => {
     expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
   });
 
-  it('непонятое НЕ выдаётся за понятое', () => {
-    // Молча подставить «через месяц» значит ответить про другую поездку и не
-    // сказать об этом (§4.0).
+  it('явный мусор — отказ, а не план на другую дату', () => {
     const s = parsePlanStart('когда-нибудь потом', NOW);
-    expect(s.kind).toBe('unparsed');
-    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+    expect(s.kind).toBe('invalid');
+    if (s.kind === 'invalid') expect(s).not.toHaveProperty('date');
+  });
+
+  it('2026-02-30 не переносится на март, 2026-13-01 не дата', () => {
+    expect(parsePlanStart('2026-02-30', NOW).kind).toBe('invalid');
+    expect(parsePlanStart('2026-13-01', NOW).kind).toBe('invalid');
+    expect(parsePlanStart('not-a-date', NOW).kind).toBe('invalid');
   });
 });
 
@@ -351,11 +355,9 @@ describe('startNote: про подмену даты говорят вслух', 
     expect(startNote(parsePlanStart('в июле', NOW), '10 июля')).toBe('');
   });
 
-  it('непонятое названо цитатой и вместе с тем, что посчитали', () => {
-    const note = startNote(parsePlanStart('когда-нибудь потом', NOW), '19 октября');
-    expect(note).toContain('когда-нибудь потом');
-    expect(note).toContain('19 октября');
-    expect(note).toContain('2027-07-10');
+  it('явная недата не объясняется заметкой о подмене', () => {
+    const s = parsePlanStart('когда-нибудь потом', NOW);
+    expect(s.kind).toBe('invalid');
   });
 
   it('прошедшее названо прошедшим', () => {

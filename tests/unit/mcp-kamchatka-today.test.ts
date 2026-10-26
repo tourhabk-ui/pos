@@ -38,6 +38,7 @@ describe('get_tour_availability считает день по Камчатке', 
     expect(fetchAvailabilityForTour.mock.calls[0]?.[1]).toBe('2026-09-30');
     expect(text).not.toMatch(/29\.09/);
     expect(text).toMatch(/Данные на 30\.09 \(по Камчатке\)/);
+    expect(text).toContain('Окно: 2026-09-30 — 2026-10-13 (YYYY-MM-DD, по Камчатке, Asia/Kamchatka).');
   });
 
   it('прошедшая date_from и окно больше 31 дня поправляются вслух', async () => {
@@ -54,6 +55,29 @@ describe('get_tour_availability считает день по Камчатке', 
     fetchAvailabilityForTour.mockResolvedValue(dates.map(slot));
     const text = await getTourAvailabilityForKuzmich({ tour: '27', date_from: '2026-10-01' });
     expect(text).toMatch(/…и ещё 2 дат с местами/);
+  });
+
+  it('явная недата — отказ до чтения занятости, без сегодняшнего окна', async () => {
+    const { McpUserError } = await import('@/lib/mcp/jsonrpc');
+    for (const date_from of ['not-a-date', '2026-02-30', '2026-13-01']) {
+      await expect(getTourAvailabilityForKuzmich({ tour: '27', date_from, days: '3' }))
+        .rejects.toBeInstanceOf(McpUserError);
+    }
+    expect(fetchAvailabilityForTour).not.toHaveBeenCalled();
+    try {
+      await getTourAvailabilityForKuzmich({ tour: '27', date_from: 'not-a-date', days: '3' });
+    } catch (err) {
+      expect(String((err as Error).message)).toMatch(/не принята/);
+      expect(String((err as Error).message)).not.toMatch(/2026-09-30|2026-10-01|2026-10-02/);
+    }
+  });
+
+  it('пустая date_from — сегодня по Камчатке', async () => {
+    fetchAvailabilityForTour.mockResolvedValue([slot('2026-09-30')]);
+    const text = await getTourAvailabilityForKuzmich({ tour: '27', date_from: '   ', days: '3' });
+    expect(fetchAvailabilityForTour.mock.calls[0]?.[1]).toBe('2026-09-30');
+    expect(fetchAvailabilityForTour.mock.calls[0]?.[2]).toBe('2026-10-02');
+    expect(text).toContain('Окно: 2026-09-30 — 2026-10-02');
   });
 
   it('отказ занятости — честный текст и строка в логе', async () => {

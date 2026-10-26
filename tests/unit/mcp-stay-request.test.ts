@@ -204,6 +204,8 @@ describe('даты проверяются до записи', () => {
     [{ check_out: '2027-10-10' }, /Не больше 60 ночей/],
     [{ check_in: '2020-01-01', check_out: '2020-01-03' }, /Дата заезда уже прошла/],
     [{ check_in: '2027-02-30', check_out: '2027-03-02' }, /нет в календаре/],
+    [{ check_in: 'not-a-date', check_out: '2027-07-17' }, /формате YYYY-MM-DD/],
+    [{ check_in: '2026-13-01', check_out: '2026-13-05' }, /нет в календаре/],
   ])('%o — отказ', async (patch, text) => {
     const r = await result(await call({ ...ARGS, ...patch }));
     expect(r.isError).toBe(true);

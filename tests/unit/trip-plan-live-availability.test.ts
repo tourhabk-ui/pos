@@ -90,7 +90,7 @@ describe('formatTripPlanForChat: живая дата под днём тура', 
       { refusal: '', plannedFor: '12 октября', arrivalIso: '2026-10-12' },
     );
     const lines = text.split('\n');
-    const at = lines.findIndex((l) => l.startsWith('День 2.'));
+    const at = lines.findIndex((l) => l.startsWith('День 2 (2026-10-13).'));
     expect(lines[at + 1]).toBe('   Тур ID27, Камчатская рыбалка: ближайшая свободная дата в ваши даты — 13.10, свободно мест: 6');
   });
 

@@ -45,7 +45,8 @@ export async function handoffTargetForTool(
       // when). Без неё планер по ссылке ставил старт «через месяц», и план на
       // июль 2027 открывался на другие даты (проверка MCP 29.09, T17).
       const start = parsePlanStart(str(args.when) || undefined, Date.now());
-      if (start.kind !== 'default') query.set('from', start.date.toISOString().slice(0, 10));
+      // Недата не подставляет «через месяц» в ссылку: плана на неё нет.
+      if (start.kind === 'parsed' || start.kind === 'past') query.set('from', start.date.toISOString().slice(0, 10));
       const qs = query.toString();
       return { targetType: 'planner', targetPath: `/planner${qs ? `?${qs}` : ''}` };
     }

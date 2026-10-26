@@ -59,6 +59,7 @@ import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
@@ -2309,6 +2310,12 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     return 'Неизвестный инструмент.';
   } catch (err) {
+    // Отказ по входу (не дата, не согласие) — текст для человека. На MCP его
+    // ловит роут и ставит isError; в чате та же фраза, а не «инструмент упал».
+    if (err instanceof McpUserError) {
+      if (opts.surface === 'mcp') throw err;
+      return err.message;
+    }
     // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
     const code = (err as { code?: unknown })?.code;
     console.error('[kuzmich-tool] исполнение упало:', logText(name), typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));

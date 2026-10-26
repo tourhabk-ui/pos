@@ -308,7 +308,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   get_tour_availability: {
     tour: { lead: 'Tour title, keyword or numeric ID from get_tours.' },
-    date_from: { lead: 'Start of the window, YYYY-MM-DD; default today.', example: '2027-07-15' },
+    date_from: { lead: 'Start of the window, a real YYYY-MM-DD in Asia/Kamchatka. Omit for today. An invalid date is an error, not today.', example: '2027-07-15' },
     days: { lead: 'Window length in days, 1–31; default 14.', example: '14' },
     people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses.', example: '2' },
   },
@@ -350,7 +350,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   make_trip_plan: {
     days: { lead: 'Trip length in days, 3–21; default 7.', example: '7' },
     interests: { lead: 'Interests in free text.', example: 'вулканы и медведи' },
-    when: { lead: 'When the trip starts: a Russian month name or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today.', example: '2027-07-10' },
+    when: { lead: 'When the trip starts: a Russian month name or a real YYYY-MM-DD in Asia/Kamchatka. Omit for one month from today. An invalid date is an error, not another day.', example: '2027-07-10' },
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
