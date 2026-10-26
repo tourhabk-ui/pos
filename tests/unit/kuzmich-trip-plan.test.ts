@@ -201,6 +201,22 @@ describe('formatTripPlanForChat', () => {
     expect(text).toContain('19 октября');
   });
 
+  it('шапка и дни называют камчатскую дату умолчания, не UTC-сутки', () => {
+    const start = parsePlanStart(undefined, Date.parse('2026-09-19T12:00:00Z'));
+    expect(start.kind).toBe('default');
+    const iso = start.date.toISOString().slice(0, 10);
+    const text = formatTripPlanForChat(
+      [day({}), day({ day: 2, title: 'море' })],
+      [], null,
+      { refusal: 'x', plannedFor: '20 октября', arrivalIso: iso },
+    );
+    expect(iso).toBe('2026-10-20');
+    expect(text).toContain('20 октября, 2026-10-20, по Камчатке');
+    expect(text).toContain('День 1 (2026-10-20).');
+    expect(text).toContain('День 2 (2026-10-21).');
+    expect(text).not.toContain('2026-10-19');
+  });
+
   it('готовый отказ не подменяется вшитой строкой', () => {
     const text = formatTripPlanForChat([], [], null, {
       refusal: 'В октябре это уже не сезон: вулканы.', plannedFor: '19 октября',
@@ -296,10 +312,15 @@ describe('отказ называет причину, а не гоняет по 
 describe('parsePlanStart: когда ехать', () => {
   const NOW = Date.parse('2026-09-19T12:00:00Z');
 
-  it('не сказано — прежнее «через месяц», и это отдельный исход', () => {
+  it('не сказано — 30 камчатских суток, полночь этой даты', () => {
+    // 19.09 12:00 UTC на Камчатке уже 20.09. Мгновение +30 суток дало бы 19.10.
     const s = parsePlanStart(undefined, NOW);
     expect(s.kind).toBe('default');
-    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+    expect(s.date.toISOString().slice(0, 10)).toBe('2026-10-20');
+    const morning = Date.parse('2026-09-19T11:00:00Z');
+    const early = parsePlanStart(undefined, morning);
+    expect(early.kind).toBe('default');
+    expect(early.date.toISOString().slice(0, 10)).toBe('2026-10-19');
   });
 
   it('месяц словом — ближайший будущий, а не этого года любой ценой', () => {
@@ -331,7 +352,7 @@ describe('parsePlanStart: когда ехать', () => {
     // Починка разная: одному надо назвать год, другому — сказать понятнее.
     const s = parsePlanStart('2020-07-10', NOW);
     expect(s.kind).toBe('past');
-    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+    expect(s.date.toISOString().slice(0, 10)).toBe('2026-10-20');
   });
 
   it('явный мусор — отказ, а не план на другую дату', () => {

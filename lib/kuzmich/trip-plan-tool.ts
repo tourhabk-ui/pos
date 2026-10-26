@@ -174,8 +174,24 @@ const MONTH_FORMS: string[][] = [
 /** День месяца для «хочу в июле»: середина, а не край с его погодой. */
 const MONTH_ANCHOR_DAY = 10;
 
+/**
+ * Старт по умолчанию и замена прошедшей даты: 30 камчатских суток от сегодня,
+ * полночь этой календарной даты. Мгновение `now + 30 суток` в подписи
+ * YYYY-MM-DD с 12:00 до 24:00 UTC называет предыдущий день относительно
+ * Камчатки — а шапка плана говорит, что дата камчатская.
+ */
+function planDateInThirtyDays(now: number): Date {
+  const day = shiftDate(kamchatkaDate(new Date(now)), 30);
+  return new Date(`${day}T00:00:00Z`);
+}
+
+/** Дата плана словами. Сутки — те же, что в YYYY-MM-DD, без пояса процесса. */
+function ruPlanDate(arrival: Date): string {
+  return arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
 export function parsePlanStart(raw: string | undefined, now: number): PlanStart {
-  const fallback = new Date(now + 30 * 86400000);
+  const fallback = planDateInThirtyDays(now);
   const text = (raw ?? '').trim().toLowerCase();
   if (!text) return { kind: 'default', date: fallback };
 
@@ -701,7 +717,7 @@ export async function makeTripPlanForKuzmich(
   const keepsSchedule = await scheduleMap(rec.days);
 
   const month = arrival.getUTCMonth() + 1;
-  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const plannedFor = ruPlanDate(arrival);
 
   const text = formatTripPlanForChat(
     rec.days,
@@ -884,7 +900,7 @@ export async function editTripPlanForKuzmich(args: {
 
   const plan = result.plan;
   const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
-  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const plannedFor = ruPlanDate(arrival);
   const text = formatTripPlanForChat(
     plan.days,
     result.warnings ?? [],
