@@ -18,6 +18,8 @@ import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern, escapeLike } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { readCalendarDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
 import { requestWindow, windowLabel, type RequestWindow } from '@/lib/tours/request-window';
@@ -251,24 +253,44 @@ async function onRequestWindow(
   ];
 }
 
+/** Явно переданная недата. В тексте нет «сегодняшнего» окна: агент не должен принять отказ за успех. */
+export function invalidCalendarDateMessage(raw: string): string {
+  return `Дата «${raw}» не принята: это не календарный день. Нужна дата YYYY-MM-DD по Камчатке (Asia/Kamchatka), например 2027-07-15. Занятость не смотрел. Если нужно окно с сегодняшнего дня — не передавайте date_from.`;
+}
+
+function windowLine(from: string, to: string): string {
+  return `Окно: ${from} — ${to} (YYYY-MM-DD, по Камчатке, Asia/Kamchatka).`;
+}
+
+function finish(notes: string[], from: string, to: string, lines: string[]): string {
+  return [...notes, windowLine(from, to), ...lines].join('\n');
+}
+
 export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_from?: string; days?: string; people?: string }): Promise<string> {
   const tourQuery = (args.tour ?? '').trim();
   if (!tourQuery) return 'Укажи тур: название, ключевое слово или ID.';
-
-  const tour = await resolveTourByQuery(tourQuery);
-  if (!tour) {
-    return `Тур по запросу "${tourQuery}" не найден среди активных. Не выдумывай даты — предложи выбрать тур через get_tours.`;
-  }
 
   // «Сегодня» — по Камчатке: даты туров местные. По UTC с 12:00 до 24:00
   // сегодняшнее число на Камчатке уже следующее, и инструмент предлагал
   // вчерашний день как свободный (проба MCP 29.09, 22:05 UTC — «29.09
   // свободно 12» при 30.09 на Камчатке).
   const today = kamchatkaToday();
-  const pastFrom = /^\d{4}-\d{2}-\d{2}$/.test(args.date_from ?? '') && (args.date_from as string) < today;
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(args.date_from ?? '') && (args.date_from as string) >= today
-    ? (args.date_from as string)
-    : today;
+  // Пустая date_from — сегодня. Явный мусор и 2026-02-30 / 2026-13-01 — отказ
+  // до чтения тура: раньше такая строка молча становилась сегодняшним окном
+  // и уходила как успех (аудит MCP 25.10). Прошедший настоящий день по-прежнему
+  // называется и сдвигается на сегодня.
+  const read = readCalendarDate(args.date_from, today);
+  if (read.kind === 'invalid') {
+    throw new McpUserError(invalidCalendarDateMessage(read.raw), 'invalid_date');
+  }
+  const pastFrom = read.kind === 'date' && read.past;
+  const from = read.kind === 'date' && !read.past ? read.date : today;
+
+  const tour = await resolveTourByQuery(tourQuery);
+  if (!tour) {
+    return `Тур по запросу "${tourQuery}" не найден среди активных. Не выдумывай даты — предложи выбрать тур через get_tours.`;
+  }
+
   const daysRaw = Number(args.days);
   const days = Number.isFinite(daysRaw) ? Math.min(Math.max(Math.trunc(daysRaw), 1), 31) : 14;
   // Поправки запроса называются, а не делаются молча: агент должен знать,
@@ -277,7 +299,7 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
     pastFrom ? `Дата ${args.date_from} уже прошла — показываю с сегодняшнего дня по Камчатке.` : '',
     Number.isFinite(daysRaw) && Math.trunc(daysRaw) > 31 ? 'Окно больше 31 дня не смотрю — показываю 31.' : '',
   ].filter(Boolean);
-  const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
+  const to = shiftDate(from, days - 1);
 
   try {
     const slots = await fetchAvailabilityForTour(String(tour.id), from, to, createPlannerCache());
@@ -298,15 +320,15 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
         let wTo = to;
         if (window.kind === 'season') {
           if (from > window.to) {
-            return [...notes,
+            return finish(notes, from, to, [
               `Тур "${tour.title}" (ID${tour.id}): заявки принимаются только по сезону (${windowLabel(window)}), даты с ${dayIn(from, today)} — вне сезона. `
               + 'Следующий сезон в системе не записан — не обещай даты, предложи уточнить у оператора.',
-            ].join('\n');
+            ]);
           }
           if (to < window.from) {
             notes.push(`Тур принимает заявки только по сезону (${windowLabel(window)}) — показываю с начала сезона.`);
             wFrom = window.from;
-            wTo = new Date(Date.parse(window.from) + (days - 1) * 86400000).toISOString().slice(0, 10);
+            wTo = shiftDate(window.from, days - 1);
           } else if (from < window.from) {
             wFrom = window.from;
           }
@@ -318,21 +340,21 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
         // Сначала тело: оно дописывает в notes («число людей не распознано»),
         // и раскрыть notes раньше значило бы потерять эту оговорку.
         const body = await onRequestWindow(tour, wFrom, wTo, args.people, notes, window, today);
-        return [
-          ...notes, ...body,
+        return finish(notes, wFrom, wTo, [
+          ...body,
           `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
-        ].join('\n');
+        ]);
       }
       if (keeps === null) {
-        return [...notes,
+        return finish(notes, from, to, [
           `Тур "${tour.title}" (ID${tour.id}): свободных дат с ${shortDate(from)} по ${shortDate(to)} не нашёл, а проверить, ведёт ли тур расписание, не смог. `
           + 'Не утверждай, что мест нет, — предложи уточнить у оператора или повторить позже.',
-        ].join('\n');
+        ]);
       }
-      return [...notes,
+      return finish(notes, from, to, [
         `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${shortDate(from)} по ${shortDate(to)} нет. `
         + 'Это реальная занятость мест — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.',
-      ].join('\n');
+      ]);
     }
     const SHOWN = 12;
     const people = parsePeople(args.people);
@@ -382,8 +404,7 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
     const more = slots.length > SHOWN
       ? [`…и ещё ${slots.length - SHOWN} дат с местами до ${shortDate(to)} — чтобы увидеть их, сдвиньте date_from.`]
       : [];
-    return [
-      ...notes,
+    return finish(notes, from, to, [
       `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость мест):`,
       ...lines,
       ...more,
@@ -393,7 +414,7 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       ...(totals
         ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура и заполненность даты). Трансферы и услуги из «не входит» в неё не включены.']
         : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
-    ].join('\n');
+    ]);
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[tour-availability] занятость не прочитана', { tourId: tour.id, sqlstate: e?.code, message: e?.message });

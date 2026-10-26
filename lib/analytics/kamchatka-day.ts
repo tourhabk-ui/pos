@@ -44,12 +44,31 @@ export function shiftDate(date: string, delta: number): string {
   return new Date(Date.UTC(y, m - 1, d) + delta * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** Настоящая календарная дата: 2026-02-30 не проходит. */
+/** Настоящая календарная дата: 2026-02-30 и 2026-13-01 не проходят и не переносятся. */
 export function isRealDate(date: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
   const [y, m, d] = date.split('-').map(Number);
   const back = new Date(Date.UTC(y, m - 1, d));
   return back.getUTCFullYear() === y && back.getUTCMonth() === m - 1 && back.getUTCDate() === d;
+}
+
+/**
+ * Необязательная дата YYYY-MM-DD.
+ *
+ * Пустая строка — поля не было: вызывающий вправе взять камчатское сегодня.
+ * Явный мусор и несуществующий день — отказ, без подстановки другой даты.
+ * `past` — день настоящий, но раньше `today` (тоже YYYY-MM-DD по Камчатке).
+ */
+export type CalendarDateRead =
+  | { kind: 'absent' }
+  | { kind: 'date'; date: string; past: boolean }
+  | { kind: 'invalid'; raw: string };
+
+export function readCalendarDate(raw: string | undefined | null, today: string): CalendarDateRead {
+  const text = (raw ?? '').trim();
+  if (!text) return { kind: 'absent' };
+  if (!isRealDate(text)) return { kind: 'invalid', raw: text.slice(0, 40) };
+  return { kind: 'date', date: text, past: text < today };
 }
 
 /** DD.MM для подписи. */

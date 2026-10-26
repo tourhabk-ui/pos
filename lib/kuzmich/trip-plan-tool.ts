@@ -27,6 +27,8 @@ import { applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams 
 import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
+import { isRealDate, kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -148,15 +150,15 @@ export function buildRefusal(
  * октябрь — то есть закрытый сезон вулканов, рыбалки и медведей у КАЖДОГО
  * туриста, кто спрашивал про Камчатку летом следующего года.
  *
- * Четыре исхода вместо двух (§4.0): взяли по умолчанию, разобрали сказанное,
- * не разобрали, сказанное уже прошло. Три последних различимы снаружи —
- * `kind` читает тот, кто пишет ответ человеку.
+ * Четыре исхода (§4.0): взяли по умолчанию, разобрали сказанное, сказанное
+ * уже прошло, сказанное не является датой. Последний не несёт подставленного
+ * дня: план на другую дату из явного мусора — ложный успех (аудит MCP 25.10).
  */
 export type PlanStart =
   | { kind: 'default'; date: Date }
   | { kind: 'parsed'; date: Date }
-  | { kind: 'unparsed'; date: Date; raw: string }
-  | { kind: 'past'; date: Date; raw: string };
+  | { kind: 'past'; date: Date; raw: string }
+  | { kind: 'invalid'; raw: string };
 
 /**
  * Формы месяцев — явным списком, а не корнем.
@@ -172,19 +174,35 @@ const MONTH_FORMS: string[][] = [
 /** День месяца для «хочу в июле»: середина, а не край с его погодой. */
 const MONTH_ANCHOR_DAY = 10;
 
+/**
+ * Старт по умолчанию и замена прошедшей даты: 30 камчатских суток от сегодня,
+ * полночь этой календарной даты. Мгновение `now + 30 суток` в подписи
+ * YYYY-MM-DD с 12:00 до 24:00 UTC называет предыдущий день относительно
+ * Камчатки — а шапка плана говорит, что дата камчатская.
+ */
+function planDateInThirtyDays(now: number): Date {
+  const day = shiftDate(kamchatkaDate(new Date(now)), 30);
+  return new Date(`${day}T00:00:00Z`);
+}
+
+/** Дата плана словами. Сутки — те же, что в YYYY-MM-DD, без пояса процесса. */
+function ruPlanDate(arrival: Date): string {
+  return arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
 export function parsePlanStart(raw: string | undefined, now: number): PlanStart {
-  const fallback = new Date(now + 30 * 86400000);
+  const fallback = planDateInThirtyDays(now);
   const text = (raw ?? '').trim().toLowerCase();
   if (!text) return { kind: 'default', date: fallback };
 
-  const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  const iso = text.match(/(\d{4}-\d{2}-\d{2})/);
   if (iso) {
-    const d = new Date(`${iso[0]}T00:00:00Z`);
-    if (Number.isNaN(d.getTime())) return { kind: 'unparsed', date: fallback, raw: text };
-    // Дата в прошлом — не «не понял», а «так нельзя»: починка разная, и
-    // сказать надо разное.
-    if (d.getTime() <= now) return { kind: 'past', date: fallback, raw: text };
-    return { kind: 'parsed', date: d };
+    // 2026-02-30 совпадает с формой и через Date переезжает на 2 марта.
+    // Это не дата: отказ, а не план на другой день.
+    if (!isRealDate(iso[0])) return { kind: 'invalid', raw: text.slice(0, 40) };
+    const today = kamchatkaDate(new Date(now));
+    if (iso[0] < today) return { kind: 'past', date: fallback, raw: text.slice(0, 40) };
+    return { kind: 'parsed', date: new Date(`${iso[0]}T00:00:00Z`) };
   }
 
   for (let m = 0; m < 12; m++) {
@@ -194,22 +212,21 @@ export function parsePlanStart(raw: string | undefined, now: number): PlanStart 
     return { kind: 'parsed', date: new Date(Date.UTC(year, m, MONTH_ANCHOR_DAY)) };
   }
 
-  return { kind: 'unparsed', date: fallback, raw: text };
+  return { kind: 'invalid', raw: text.slice(0, 40) };
+}
+
+/** Явный мусор в `when`. План при этом не собирается. */
+export function invalidPlanDateMessage(raw: string): string {
+  return `«${raw}» не принято как дата поездки. Назовите месяц («в июле») или календарный день YYYY-MM-DD по Камчатке (Asia/Kamchatka). План на другую дату не собран.`;
 }
 
 /**
- * Что сказать человеку про выбранную дату. Пусто — когда говорить нечего.
- *
- * Молча подставлять `now + 30 дней` вместо неразобранного «через полгодика»
- * нельзя: турист спросил про одно, получил план про другое и не узнал об
- * этом. Само число дня при этом всё равно называется в первой строке плана —
- * здесь объясняется ПОЧЕМУ оно такое.
+ * Что сказать про дату, которую приняли с поправкой.
+ * Явная недата сюда не доходит: план на неё не собирается.
+ * Прошедший день называется прошедшим. Умолчание и разобранный месяц молчат.
  */
-export function startNote(start: PlanStart, plannedFor: string): string {
+export function startNote(start: Exclude<PlanStart, { kind: 'invalid' }>, plannedFor: string): string {
   switch (start.kind) {
-    case 'unparsed':
-      return `Не разобрал «${start.raw}» — считаю на ${plannedFor}. `
-        + 'Назови месяц («в июле») или дату (2027-07-10), и пересчитаю.';
     case 'past':
       return `«${start.raw}» уже прошло — считаю на ${plannedFor}.`;
     default:
@@ -599,7 +616,7 @@ export function formatTripPlanForChat(
   }
   const lines: string[] = [
     context?.plannedFor
-      ? `Собрал план по дням (считаю на ${context.plannedFor} — пересобрать под свои даты можно в планировщике):`
+      ? `Собрал план по дням (считаю на ${context.plannedFor}${context.arrivalIso ? `, ${context.arrivalIso}` : ''}, по Камчатке — пересобрать под свои даты можно в планировщике):`
       : 'Собрал план по дням:',
     '',
   ];
@@ -623,11 +640,11 @@ export function formatTripPlanForChat(
     // группу агент читал как цену с человека. Цены для группы нет (вне ступеней
     // оператора) — так и сказано строкой ниже, без числа.
     const price = d.realPrice != null && d.realPrice > 0 ? ` — ${priceFromUnit(d.realPrice, d.realTour?.priceUnit)}` : '';
-    lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
-    if (d.priceMissing) lines.push(`   ${d.priceMissing}`);
-    const planDayIso = context?.arrivalIso
-      ? new Date(Date.parse(`${context.arrivalIso}T00:00:00Z`) + (d.day - 1) * 86400000).toISOString().slice(0, 10)
+    const planDayIso = context?.arrivalIso && isRealDate(context.arrivalIso)
+      ? shiftDate(context.arrivalIso, d.day - 1)
       : null;
+    lines.push(`День ${d.day}${planDayIso ? ` (${planDayIso})` : ''}. ${capitalize(d.title)}${price}`);
+    if (d.priceMissing) lines.push(`   ${d.priceMissing}`);
     const live = tourAvailabilityLine(d, planDayIso, d.realTour ? context?.keepsSchedule?.get(d.realTour.tourId) : undefined);
     if (live) lines.push(`   ${live}`);
     // Предупреждения дня — «Только с гидом», лимит парка, детям до N лет —
@@ -675,6 +692,9 @@ export async function makeTripPlanForKuzmich(
   const budget = readBudgetTier(args.budget_tier);
 
   const start = parsePlanStart(args.when, Date.now());
+  if (start.kind === 'invalid') {
+    throw new McpUserError(invalidPlanDateMessage(start.raw), 'invalid_date');
+  }
   const arrival = start.date;
   // `daysNum` — КАЛЕНДАРНЫЕ дни, считая первый и последний, поэтому шагов
   // между датами на один меньше (движок считает так же с 27.09: до этого
@@ -697,7 +717,7 @@ export async function makeTripPlanForKuzmich(
   const keepsSchedule = await scheduleMap(rec.days);
 
   const month = arrival.getUTCMonth() + 1;
-  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const plannedFor = ruPlanDate(arrival);
 
   const text = formatTripPlanForChat(
     rec.days,
@@ -880,7 +900,7 @@ export async function editTripPlanForKuzmich(args: {
 
   const plan = result.plan;
   const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
-  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const plannedFor = ruPlanDate(arrival);
   const text = formatTripPlanForChat(
     plan.days,
     result.warnings ?? [],

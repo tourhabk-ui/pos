@@ -304,6 +304,8 @@ describe('request_charter: заявка НЕ создаётся', () => {
     expect((await text(await POST(call({ ...base(), date_from: inDays(900) })))).text).toContain('слишком далека');
     expect((await text(await POST(call({ ...base(), date_to: inDays(20) })))).text).toContain('не может быть раньше выезда');
     expect((await text(await POST(call({ ...base(), date_from: '2099-02-30' })))).isError).toBe(true);
+    expect((await text(await POST(call({ ...base(), date_from: 'not-a-date' })))).isError).toBe(true);
+    expect((await text(await POST(call({ ...base(), date_to: '2026-13-01' })))).isError).toBe(true);
     noLead();
   });
 

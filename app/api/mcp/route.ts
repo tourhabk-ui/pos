@@ -315,6 +315,13 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
 
+  // Несуществующая дата (2027-02-30) проходила регулярку и падала в базе
+  // с 22008 — общим «внутренняя ошибка» вместо внятного отказа (29.09).
+  // Раньше тура: «тур не найден» на 2026-02-30 выглядело бы успехом разбора даты.
+  if (!isRealDate(date)) {
+    throw new McpUserError(`Даты ${date} нет в календаре — заявка не создана. Проверьте дату.`, 'date_not_in_calendar');
+  }
+
   const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
   // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
   // это сбой, а не отсутствие тура (проверка MCP 29.09).
@@ -323,12 +330,6 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   });
   if (!tour) {
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
-  }
-
-  // Несуществующая дата (2027-02-30) проходила регулярку и падала в базе
-  // с 22008 — общим «внутренняя ошибка» вместо внятного отказа (29.09).
-  if (!isRealDate(date)) {
-    throw new McpUserError(`Даты ${date} нет в календаре — заявка не создана. Проверьте дату.`, 'date_not_in_calendar');
   }
 
   // Прошедшая дата — по Камчатке: по UTC с 12:00 до 24:00 заявка на уже
