@@ -144,7 +144,9 @@ describe('запись канала', () => {
     // дописал бы в него элемент, и ключ по-прежнему не читался бы.
     expect(sql).toMatch(/jsonb_typeof\(p\.contacts\) = 'object'/);
     expect(sql).toMatch(/WHEN jsonb_typeof\(p\.contacts\) = 'array' AND p\.contacts <> '\[\]'::jsonb THEN p\.contacts/);
-    expect(params).toEqual(['12345', PID]);
+    // Владелец не передан — null: прежний владелец ссылки остаётся (COALESCE).
+    expect(params).toEqual(['12345', PID, null]);
+    expect(sql).toMatch(/telegram_owner_user_id = COALESCE\(\$3::bigint, p\.telegram_owner_user_id\)/);
     // Администратор узнаёт о подключении; прежнего чата не было — ему нечего слать.
     expect(tgSendMock).toHaveBeenCalledTimes(1);
     expect(tgSendMock.mock.calls[0][0].chatId).toBe('-100500');
@@ -189,6 +191,20 @@ describe('запись канала', () => {
     poolQueryMock.mockResolvedValue({ rows: [{ name: 'Рафтинг', previous: null }] });
     await bindPartnerChannel(PID, 'max', -900000000123);
     expect(poolQueryMock.mock.calls[0][0]).toMatch(/SET max_chat_id = \$1::bigint/);
+  });
+
+  // Вход на сайт через мессенджер (1336): владелец карточки — тот, кто открыл
+  // ссылку. Пишется только настоящий id человека; без него прежний остаётся.
+  it('владелец ссылки — id человека строкой; ноль, минус и не целое — null', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{ name: 'Лагуна Прокат', previous: null }] });
+    await bindPartnerChannel(PID, 'max', 900, 555);
+    expect(poolQueryMock.mock.calls[0][0]).toMatch(/max_owner_user_id = COALESCE\(\$3::bigint, p\.max_owner_user_id\)/);
+    expect(poolQueryMock.mock.calls[0][1]).toEqual(['900', PID, '555']);
+    for (const bad of [0, -5, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+      poolQueryMock.mockClear();
+      await bindPartnerChannel(PID, 'max', 900, bad);
+      expect(poolQueryMock.mock.calls[0][1][2], String(bad)).toBeNull();
+    }
   });
 
   it('перепривязка не молчит: пишут и администратору, и ПРЕЖНЕМУ чату', async () => {
@@ -241,7 +257,7 @@ describe('обработчики ботов', () => {
     const link = src.indexOf("arg.startsWith('link_')");
     expect(op).toBeGreaterThan(0);
     expect(op).toBeLessThan(link);
-    expect(src).toMatch(/bindPartnerChannel\(check\.partnerId, 'telegram', update\.message\.chat\.id\)/);
+    expect(src).toMatch(/bindPartnerChannel\(check\.partnerId, 'telegram', update\.message\.chat\.id, linkOpener\)/);
   });
 
   it('MAX: привязка только по заверенному источнику апдейта', () => {

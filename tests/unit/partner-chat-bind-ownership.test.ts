@@ -63,6 +63,25 @@ function writesChat(src: string): boolean {
 const files = [...walk('app'), ...walk('lib'), ...walk('scripts')];
 const writers = files.filter((f) => writesChat(read(f)));
 
+/**
+ * Владелец ссылки подключения (`partners.max_owner_user_id` /
+ * `telegram_owner_user_id`, 1336) решает, кому администратор заведёт вход на
+ * сайт через мессенджер (lib/partners/messenger-login.ts): чей это кабинет.
+ * Пишет его только привязка по подписанной ссылке; удаление аккаунта — только
+ * снимает (NULL).
+ */
+const LINK_OWNER_WRITERS: Readonly<Record<string, string>> = {
+  'lib/partners/bind-channel.ts':
+    'кто открыл ссылку op_ (подпись HMAC, выдаёт администратор) — id человека из личного диалога и заверенного апдейта',
+  'lib/account/erase.ts':
+    'удаление аккаунта самим человеком: его id снимается (NULL) с любой карточки, нового не назначает',
+};
+
+function writesLinkOwner(src: string): boolean {
+  return [...src.matchAll(/UPDATE\s+partners\b[\s\S]*?\bSET\b([\s\S]*?)(\bWHERE\b|`)/g)]
+    .some((m) => /\b(max_owner_user_id|telegram_owner_user_id)\s*=/.test(m[1]));
+}
+
 describe('адрес партнёра в мессенджере назначает только проверенный', () => {
   it('поиск писателей работает: находит заведомого (bind-channel)', () => {
     expect(writers).toContain('lib/partners/bind-channel.ts');
@@ -75,6 +94,16 @@ describe('адрес партнёра в мессенджере назначае
       expect(why.length, f).toBeGreaterThan(30);
       expect(writers, `${f}: больше не пишет адрес — убрать запись`).toContain(f);
     }
+  });
+
+  it('владельца ссылки подключения пишет только привязка по подписанной ссылке (1336)', () => {
+    const ownerWriters = files.filter((f) => writesLinkOwner(read(f)));
+    expect(ownerWriters, 'новый писатель владельца ссылки — назови, чем доказано право писать').toEqual(
+      expect.arrayContaining(Object.keys(LINK_OWNER_WRITERS)),
+    );
+    expect(ownerWriters.filter((f) => !(f in LINK_OWNER_WRITERS))).toEqual([]);
+    // Что удаление только снимает его id — исполнением на настоящей базе:
+    // tests/integration/tourist-cabinet.pg.test.ts (каналы карточки партнёра).
   });
 
   it('ни один писатель не ищет партнёра по почте', () => {

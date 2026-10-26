@@ -189,7 +189,9 @@ describe('команды бота в MAX', () => {
     const { POST } = await import('@/app/api/max/kuzmich/route');
     await POST(new NextRequest(VERIFIED, { method: 'POST', body: JSON.stringify(body(code)) }));
     const upd = m.pool.mock.calls.find((c) => /UPDATE partners/.test(String(c[0])) && /max_chat_id/.test(String(c[0])));
-    expect(upd?.[1]).toEqual(['77', PARTNER]);
+    // Третий параметр — человек, открывший ссылку (user_id апдейта): по нему
+    // администратор заводит вход на сайт через MAX (1336).
+    expect(upd?.[1]).toEqual(['77', PARTNER, '77']);
     const said = replies().join('\n');
     expect(said).toMatch(/Вы подключены как туроператор «Местечко Камчатка»/);
     // /start в processMessage отвечает приветствием, не вызывая модель:

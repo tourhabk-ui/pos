@@ -307,7 +307,9 @@ describe('удаление аккаунта: каждая таблица с ПД
     const order = steps.map((st) => st.table);
     const p = steps.find((st) => st.table === 'partners');
     expect(p?.kind).toBe('update');
-    expect([...p!.set].sort()).toEqual(['contacts', 'max_chat_id', 'telegram_chat_id', 'updated_at']);
+    expect([...p!.set].sort()).toEqual([
+      'contacts', 'max_chat_id', 'max_owner_user_id', 'telegram_chat_id', 'telegram_owner_user_id', 'updated_at',
+    ]);
     // Ключи — его id в users и диалог MAX в tg_conversations.
     expect(order.indexOf('partners')).toBeLessThan(order.indexOf('tg_conversations'));
     expect(order.indexOf('partners')).toBeLessThan(order.indexOf('users'));

@@ -675,10 +675,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (isPrivate && msg.text && (typedLink !== null || /^\/start\s+\S/.test(msg.text.trim()))) {
       const arg = typedLink ?? msg.text.trim().slice('/start'.length).trim();
       const reply = (t: string) => tgReply(chatId, t);
+      // Личный чат: кто открыл ссылку — для входа на сайт через Telegram (1336).
+      // В личном чате id чата равен id человека; иначе владелец не пишется.
+      const opener = typeof msg.from?.id === 'number' && msg.from.id > 0 && msg.from.id === chatId ? msg.from.id : null;
       if (await handlePartnerStart(arg, 'telegram', chatId, async (t, buttons) => {
         if (buttons?.length) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(buttons.map((row) => [...row])) });
         else await reply(t);
-      })) return NextResponse.json({ ok: true });
+      }, opener)) return NextResponse.json({ ok: true });
       if (await handleMemberStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });
       const seatToken = statusTokenFromStart(arg);
       if (seatToken !== null) {

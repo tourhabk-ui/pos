@@ -767,7 +767,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReplyWithButtons(chatId, missed, [[{ type: 'link', text: 'Получить новый', url: bindCodeRenewUrl() }]]);
           return;
         }
-        const bound = await bindPartnerChannel(consumed.partnerId, 'max', chatId);
+        // Кто нажал «Старт» — для входа на сайт через MAX (1336): bot_started
+        // приходит из личного диалога, человек — user_id апдейта.
+        const codeStarter = typeof update.user?.user_id === 'number' ? update.user.user_id : null;
+        const bound = await bindPartnerChannel(consumed.partnerId, 'max', chatId, codeStarter);
         if (!bound.ok) {
           console.error(`[max/kuzmich] код принят, карточка не записана: ${bound.reason}`);
           await maxReplyWithButtons(chatId, 'Не удалось сохранить привязку. Нажмите «Получить новый».', [[{ type: 'link', text: 'Получить новый', url: bindCodeRenewUrl() }]]);
@@ -793,7 +796,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (await handlePartnerStart(startArg, 'max', chatId, async (text, buttons) => {
         if (buttons?.length) await maxReplyWithButtons(chatId, text, toMaxButtons(buttons.map((row) => [...row])));
         else await maxReply(chatId, text);
-      })) return;
+      }, starterId)) return;
       // Менеджер команды оператора — свой чат к уведомлениям кабинета (2г-4).
       if (await handleMemberStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
     } else {
@@ -898,10 +901,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       : null;
     if (linkArg !== null) {
       if (opts?.verifiedOrigin === true) {
+        // Код набран в личном диалоге — человек, открывший ссылку, известен (1336).
         if (await handlePartnerStart(linkArg, 'max', chatId, async (replyText, buttons) => {
           if (buttons?.length) await maxReplyWithButtons(chatId, replyText, toMaxButtons(buttons.map((row) => [...row])));
           else await maxReply(chatId, replyText);
-        })) return;
+        }, typeof userId === 'number' ? userId : null)) return;
       } else {
         console.error('[max/kuzmich] код привязки оператора из незаверенного апдейта — не применён');
         await maxReply(chatId, UNVERIFIED_START_REPLY.link);

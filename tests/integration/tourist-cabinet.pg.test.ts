@@ -2072,6 +2072,17 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     // Чужая карточка с тем же числом — не его карточка.
     const stranger = await freshTourist('partner-stranger');
     const foreign = await card('erase-foreign', stranger, 'operator', tg, maxUser, { telegram_chat_id: String(tg) });
+    // Владелец ссылки подключения (1336) — его id человека; снимается с любой
+    // карточки, и с ничьей (ссылку открыл, аккаунт к карточке ещё не привязан).
+    // Чужой владелец на его карточке остаётся.
+    const otherOwner = 770000 + Math.floor(Math.random() * 9999);
+    const nobody = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, widget_enabled, slug, max_owner_user_id, telegram_owner_user_id)
+       VALUES ($1, 'gear', '{}', TRUE, FALSE, FALSE, $1, $2, $3) RETURNING id`,
+      [`erase-nobody-${uid.slice(0, 8)}`, maxUser, tg],
+    )).rows[0].id;
+    await pool.query(`UPDATE partners SET max_owner_user_id = $2, telegram_owner_user_id = $3 WHERE id = ANY($1::uuid[])`, [[own, foreign], maxUser, tg]);
+    await pool.query(`UPDATE partners SET max_owner_user_id = $2 WHERE id = $1`, [mixed, otherOwner]);
 
     const ok = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
@@ -2081,6 +2092,11 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(await channels(own)).toEqual({ tg: null, max: null, contacts: { phone: '+74150000001' } });
     expect(await channels(mixed)).toEqual({ tg: String(team), max: null, contacts: { telegram_chat_id: String(team) } });
     expect(await channels(foreign)).toEqual({ tg: String(tg), max: String(maxUser), contacts: { telegram_chat_id: String(tg) } });
+    const owners = async (id: string) => (await pool.query(
+      `SELECT max_owner_user_id::text AS max, telegram_owner_user_id::text AS tg FROM partners WHERE id = $1`, [id],
+    )).rows[0];
+    for (const id of [own, foreign, nobody]) expect(await owners(id), id).toEqual({ max: null, tg: null });
+    expect(await owners(mixed)).toEqual({ max: String(otherOwner), tg: null });
     // Чат команды назван: по записям он не его, напоминания идут туда.
     const leaves = ERASE_STEP_LEAVES['partners.channels'];
     expect(ok.json.kept).toContainEqual({ category: leaves.category, why: leaves.why, count: 1 });
