@@ -264,9 +264,22 @@ describe('search_car_rental: слова просьбы, вид и даты (23.1
     expect(text).toContain('Toyota HiAce');
     expect(text).not.toContain('Suzuki Jimny');
     expect(text).toContain('5 сут.');
+    expect(text).toContain('календарные даты включительно');
+    expect(text).toContain('Время подачи и возврата называет прокатчик');
     expect(text).toContain('12000 руб за сутки');
     expect(text).not.toContain('60000');
     expect(text).toContain('подтверждает прокатчик');
+  });
+  it('Лагуна: водитель назван по прайсу один раз, «входит» и «не сказано» вместе не стоят', () => {
+    const text = rentalAnswer([LAGUNA], undefined, BASE, { surface: 'mcp' }, { date_from: '2026-11-10', date_to: '2026-11-14' });
+    expect(text).toContain('Лагуна Прокат');
+    expect(text).toContain('без водителя');
+    expect(text).not.toMatch(/входит в стоимость/);
+    expect(text).not.toMatch(/входит ли водитель/);
+    expect(text).not.toMatch(/требования к водителю на платформе не записаны/);
+    const saysIncluded = /водитель входит в стоимость/i.test(text);
+    const saysUnknown = /входит ли водитель/i.test(text);
+    expect(saysIncluded && saysUnknown).toBe(false);
   });
   it('кривые даты и чужой type не ломают вызов', () => {
     expect(validateToolArgs('search_car_rental', { type: 'tank', date_from: 'завтра' }).ok).toBe(true);
