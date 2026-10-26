@@ -60,18 +60,18 @@ const EN_BOOKING_FAQ: LandingFaq[] = [
 export const QUERY_LANDINGS: readonly QueryLanding[] = [
   {
     key: 'zh-booking', path: '/zh/booking', lang: 'zh-CN', topic: 'all', query: '堪察加 旅游 预订', pair: 'booking',
-    title: '堪察加旅游预订：当地旅行社团队游与起价｜Vedar',
-    description: '在 Vedar 预订堪察加团队游：当地旅行社的实时团队游、起价、开放日期。人工确认，无在线支付，款项直接付给旅行社。',
+    title: '堪察加旅游预订：当地运营商团队游与起价｜Vedar 堪察加',
+    description: 'Vedar 堪察加是堪察加旅游信息门户：当地运营商的团队游、起价、开放日期。申请由人确认，无在线支付，款项付给运营商。',
     h1: '堪察加旅游预订',
-    intro: '以下团队游来自 Vedar 数据库中已发布的当地旅行社产品，价格为旅行社填写的起价，日期为旅行社开放的日期。',
+    intro: '以下团队游来自 Vedar 堪察加数据库中已发布的当地运营商产品，价格为运营商填写的起价，日期为运营商开放的日期。',
     faq: ZH_BOOKING_FAQ,
   },
   {
     key: 'zh-volcano', path: '/zh/volcano-tours', lang: 'zh-CN', topic: 'volcano', query: '堪察加 火山 旅游', pair: null,
-    title: '堪察加火山旅游：火山团队游、起价与预订｜Vedar',
-    description: '堪察加火山团队游：Vedar 数据库中当地旅行社的火山线路、起价、季节与开放日期，可直接提交预订申请。',
+    title: '堪察加火山旅游：火山团队游、起价与申请｜Vedar 堪察加',
+    description: '堪察加火山团队游：Vedar 堪察加门户中当地运营商的火山线路、起价、季节与开放日期。申请由人确认，门户不是旅行社。',
     h1: '堪察加火山旅游',
-    intro: '列表为 Vedar 数据库中名称、简介或类型涉及火山的已发布团队游；季节与价格均为旅行社填写的数据。',
+    intro: '列表为 Vedar 堪察加数据库中名称、简介或类型涉及火山的已发布团队游；季节与价格均为运营商填写的数据。',
     faq: ZH_BOOKING_FAQ,
   },
   {

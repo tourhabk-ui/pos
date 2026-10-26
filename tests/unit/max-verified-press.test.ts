@@ -362,6 +362,38 @@ describe('ссылки старта: вход и подключение чата
     });
   }
 
+  it('заверенное сообщение «/start op_» и голое «op_» привязывают тот же чат, что payload', async () => {
+    for (const text of ['/start op_signed-token', 'op_signed-token']) {
+      m.partnerStart.mockClear();
+      m.processMessage.mockClear();
+      m.maxSend.mockClear();
+      await post(VERIFIED, message(text));
+      expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function));
+      expect(m.processMessage).not.toHaveBeenCalled();
+      const reply = m.partnerStart.mock.calls[0]?.[3] as (t: string) => Promise<void>;
+      await reply('Вы подключены как туроператор.');
+      expect(repliesTo(77).join('\n')).toContain('Вы подключены как туроператор.');
+    }
+  });
+
+  it('незаверенное сообщение op_ чат не назначает и не здоровается', async () => {
+    keyless();
+    await post(UNVERIFIED[0]!, message('op_signed-token'));
+    expectNothingChanged();
+    expect(m.processMessage).not.toHaveBeenCalled();
+    expect(repliesTo(77)).toEqual([UNVERIFIED_START_REPLY.link]);
+  });
+
+  it('op_ внутри фразы и код в группе привязку не начинают', async () => {
+    await post(VERIFIED, message('хочу на тур, код op_signed-token'));
+    expect(m.partnerStart).not.toHaveBeenCalled();
+    m.partnerStart.mockClear();
+    const grouped = message('op_signed-token');
+    grouped.message.recipient.chat_type = 'chat';
+    await post(VERIFIED, grouped);
+    expect(m.partnerStart).not.toHaveBeenCalled();
+  });
+
   it('ключа нет — обычный /start без ссылки здоровается из любого источника', async () => {
     keyless();
     await post(UNVERIFIED[0]!, started(''));

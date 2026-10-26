@@ -299,7 +299,7 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     // absolute: бренд Vedar в строке, русского « | Ведар» шаблона layout нет (prod-check 137).
     const title = (meta.title as { absolute: string }).absolute;
     expect(title).toContain(ZH_TITLE);
-    expect(title).toMatch(/｜Vedar$/);
+    expect(title).toMatch(/｜Vedar 堪察加$/);
     expect(title).not.toContain('Ведар');
 
     const page = await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) });

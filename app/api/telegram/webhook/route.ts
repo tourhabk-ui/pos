@@ -64,7 +64,7 @@ import { PlatformAgent } from '@/lib/agents/platform-agent';
 import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
-import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
+import { partnerLinkArgFromText, partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { bindPartnerChannel, badLinkReplyText, channelBoundText } from '@/lib/partners/bind-channel';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
@@ -916,9 +916,12 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       }
     }
 
-    // /start [link_{token}] — привязка аккаунта или приветствие
-    if (text.startsWith('/start')) {
-      const arg = text.slice('/start'.length).trim();
+    // /start [link_{token}] — привязка аккаунта или приветствие.
+    // Голое «op_…» в личке — тот же код, что аргумент /start: клиент мог
+    // отдать его обычным сообщением. В группе (уже вышла выше) чат не пишем.
+    const typedLink = chatType === 'private' ? partnerLinkArgFromText(text) : null;
+    if (text.startsWith('/start') || typedLink !== null) {
+      const arg = typedLink ?? text.slice('/start'.length).trim();
 
       // /start ABC123 — код из кабинета туроператора. Пишет чат в карточку
       // партнёра, не в users.telegram_id: администратор в «Войти как»

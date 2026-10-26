@@ -204,7 +204,7 @@ function ChannelLinkPanel({ op }: { op: OperatorRow }) {
           <textarea
             readOnly
             value={state.message}
-            rows={5}
+            rows={6}
             className="ds-input w-full text-xs font-mono"
             onFocus={e => e.currentTarget.select()}
           />

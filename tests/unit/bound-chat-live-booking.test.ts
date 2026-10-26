@@ -510,6 +510,24 @@ describe('MAX: повтор того же сообщения (тот же mid) �
   });
 });
 
+describe('живой вход Telegram: код оператора не съедает кабинет администратора', () => {
+  it('голое op_ доходит до привязки, а не до «Не понял команду»', async () => {
+    m.findTelegramAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    await tgPost(`op_${'A'.repeat(43)}`);
+
+    const out = tgSent().join('\n');
+    expect(out).not.toContain(NOT_UNDERSTOOD);
+    expect(out).toMatch(/Подключение сейчас недоступно|Ссылка для подключения/);
+  });
+
+  it('обычная фраза администратора по-прежнему остаётся кабинету', async () => {
+    m.findTelegramAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
+    await tgPost('Иван Петров');
+
+    expect(tgSent().join('\n')).toContain(NOT_UNDERSTOOD);
+  });
+});
+
 describe('прокатчик о своих машинах — кабинет', () => {
   it('Telegram, живой вход, «Лагуна»: «какой джип свободен 30 октября» — кабинет проката, не Кузьмич туриста', async () => {
     m.partner = LAGUNA;

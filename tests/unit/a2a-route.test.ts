@@ -67,10 +67,28 @@ describe('JSON-RPC биндинг', () => {
   it('без заголовка — форма 0.3: message/send, Task с kind и строчным состоянием', async () => {
     const res = await rpc('message/send', { message: { messageId: 'm1', role: 'user', parts: [{ kind: 'text', text: 'Что на Горелом?' }] } });
     const body = await res.json();
+    expect(res.headers.get('A2A-Version')).toBe('0.3');
     expect(body.result.kind).toBe('task');
     expect(body.result.status.state).toBe('completed');
     expect(body.result.status.message.parts[0]).toEqual({ kind: 'text', text: 'Ответ Кузьмича' });
     expect(answerAgentMessage).toHaveBeenCalledWith('Что на Горелом?', [], expect.objectContaining({ self: false }));
+  });
+
+  it('SendMessage без заголовка — форма 1.0 без kind: карточка объявила 1.0', async () => {
+    const res = await rpc('SendMessage', { message: { messageId: 'm1', role: 'ROLE_USER', parts: [{ text: 'Что на Горелом?' }] } });
+    const body = await res.json();
+    expect(res.headers.get('A2A-Version')).toBe('1.0');
+    expect(body.result.task.status.state).toBe('TASK_STATE_COMPLETED');
+    expect(body.result.task).not.toHaveProperty('kind');
+    expect(JSON.stringify(body.result.task)).not.toContain('"kind"');
+  });
+
+  it('явный A2A-Version 0.3 при имени SendMessage остаётся формой 0.3', async () => {
+    const res = await rpc('SendMessage', { message: { parts: [{ kind: 'text', text: 'Что на Горелом?' }] } }, { 'A2A-Version': '0.3' });
+    const body = await res.json();
+    expect(res.headers.get('A2A-Version')).toBe('0.3');
+    expect(body.result.kind).toBe('task');
+    expect(body.result.status.state).toBe('completed');
   });
 
   it('GetTask / tasks/get читают сохранённую задачу; незнакомый id — -32001', async () => {

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Sun, Moon, UserCircle, Search, LogIn, Menu } from 'lucide-react';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { useScrollY } from '@/hooks/useScrollY';
@@ -9,6 +10,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { GeoToggle } from '@/components/geo/GeoToggle';
 import Logo from '@/components/shared/Logo';
 import { sessionState } from '@/lib/auth/session-state';
+import { htmlLangForPath } from '@/lib/i18n/root-lang';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
@@ -60,8 +62,21 @@ export const HEADER_NAV = [
   { href: '/safety',      label: 'Безопасность' },
 ] as const;
 
+/**
+ * Слово рядом со знаком. Голое «Ведар» / vedarai в поиске сталкивается с
+ * чужими сущностями, поэтому бренд — «Ведар Камчатка» (EN Vedar Kamchatka,
+ * ZH Vedar 堪察加). Язык — по первому сегменту пути, как у <html lang>.
+ */
+export function headerBrand(pathname: string | null | undefined): { first: string; second: string; aria: string } {
+  const lang = htmlLangForPath(pathname);
+  if (lang === 'en') return { first: 'Vedar', second: 'Kamchatka', aria: 'Vedar Kamchatka' };
+  if (lang === 'zh-CN') return { first: 'Vedar', second: '堪察加', aria: 'Vedar 堪察加' };
+  return { first: 'Ведар', second: 'Камчатка', aria: 'Ведар Камчатка' };
+}
+
 export function Header({ overPhoto = false }: HeaderProps = {}) {
   const scrollY = useScrollY();
+  const brand = headerBrand(usePathname());
   /**
    * Вошёл ли смотрящий. `null` — ещё не спросили или сеть не ответила: это
    * отдельное состояние, а не «гость». Спрашивается один раз за монтирование,
@@ -144,28 +159,34 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
       {/* Logo */}
       <Link
         href="/"
-        aria-label="Ведар"
+        aria-label={brand.aria}
         style={{
           display: 'flex',
           alignItems: 'center',
           justifySelf: 'start',
           gridColumn: 1,
+          minWidth: 0,
+          maxWidth: '100%',
+          // Дорожка уже ряда кнопок: без обрезки второе слово рисуется поверх
+          // поиска и SOS. Знак не сжимается, слова обрезаются внутри ссылки.
+          overflow: 'hidden',
           // Поверх фото — белый, как иконки: тёмный знак на тёмном небе героя
           // сливался (приёмка П6, 24.09).
           color: onPhoto ? 'rgba(255,255,255,0.9)' : 'var(--on-header)',
           textDecoration: 'none',
-          flexShrink: 0,
         }}
       >
-        <Logo size={28} mono />
-        {/* Слово рядом со знаком (решение владельца 30.09): вертикальный силуэт
-            один читается хуже прежней широкой ломаной. Место у навигации не
-            отнимает — ширину боковых дорожек задаёт правый ряд кнопок; ниже
-            360px скрыто, чтобы не теснить SOS. */}
+        <Logo size={28} mono className="shrink-0" />
+        {/* Два слова столбиком на узкой шапке: второе мельче, строка не
+            выталкивает SOS. С md — в одну строку. Ниже 360px скрыто, чтобы
+            не теснить SOS (решение владельца 30.09). */}
         <span
-          className="hidden min-[360px]:inline"
-          style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontSize: 20, fontWeight: 600, lineHeight: 1 }}
-        >Ведар</span>
+          className="hidden min-[360px]:flex min-w-0 flex-col overflow-hidden leading-none md:flex-row md:items-baseline md:gap-1"
+          style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontWeight: 600 }}
+        >
+          <span className="truncate" style={{ fontSize: 16 }}>{brand.first}</span>
+          <span className="truncate text-[11px] md:text-[16px]" style={{ fontWeight: 500 }}>{brand.second}</span>
+        </span>
       </Link>
 
       {/*

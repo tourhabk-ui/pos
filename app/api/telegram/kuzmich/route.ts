@@ -42,6 +42,7 @@ import { getSetting } from '@/lib/platform-settings';
 import { stripTags } from '@/lib/html/text';
 import { sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
+import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { bindTouristChat } from '@/lib/seat-requests/service';
@@ -667,8 +668,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Стоит ДО ветки партнёра: ссылка меняет адрес, а уже привязанный чат
     // ответил бы приветствием. Прочие аргументы (lead, route_…) — ниже, как
     // и раньше.
-    if (isPrivate && msg.text && /^\/start\s+\S/.test(msg.text.trim())) {
-      const arg = msg.text.trim().slice('/start'.length).trim();
+    // Голое «op_…» — тот же аргумент, что «/start op_…»: веб-клиент иногда
+    // отдаёт код обычным сообщением, без команды. Чужие префиксы (om_, sr_)
+    // разборщик не узнаёт, и они идут прежним путём /start ниже.
+    const typedLink = isPrivate && msg.text ? partnerLinkArgFromText(msg.text) : null;
+    if (isPrivate && msg.text && (typedLink !== null || /^\/start\s+\S/.test(msg.text.trim()))) {
+      const arg = typedLink ?? msg.text.trim().slice('/start'.length).trim();
       const reply = (t: string) => tgReply(chatId, t);
       if (await handlePartnerStart(arg, 'telegram', chatId, async (t, buttons) => {
         if (buttons?.length) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(buttons.map((row) => [...row])) });

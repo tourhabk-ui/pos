@@ -3,13 +3,13 @@
  * Facts mirror llms.txt / server.json: no instant booking, no payment
  * through the platform, human-confirmed requests only.
  */
-export const MCP_TITLE_EN_FILE = 'Vedar — Kamchatka travel platform';
+export const MCP_TITLE_EN_FILE = 'Vedar Kamchatka — Kamchatka travel information portal';
 
 export function llmsEnFile(base: string): string {
   return [
     `# ${MCP_TITLE_EN_FILE}`,
     '',
-    `> Vedar (vedarai.ru, Russian name: Ведар, Chinese name: 维达尔) is a travel platform for the Kamchatka Peninsula, Russia: tours by local operators, accommodation, transfers and vehicle charters, self-drive car rental, gear rental, volcano and safety status, weather and trip planning. It is free for tourists. Booking requests are confirmed by a human partner; there is no instant booking and no payment through the platform.`,
+    `> Vedar Kamchatka (vedarai.ru, Russian name: Ведар Камчатка) is a Kamchatka travel information portal and AI guide. It is not a travel agency and not a tour operator. It lists tours by local operators, accommodation, transfers and vehicle charters, self-drive car rental, gear rental, volcano and safety status, weather and trip planning. It is free for tourists. Booking requests are confirmed by a human partner; there is no instant booking and no payment through the portal.`,
     '',
     `MCP server for AI assistants: ${base}/api/mcp (Streamable HTTP, JSON-RPC 2.0, no auth required). Docs: ${base}/mcp. Manifest: ${base}/.well-known/mcp.json. A2A agent card: ${base}/.well-known/agent-card.json.`,
     '',
@@ -17,7 +17,7 @@ export function llmsEnFile(base: string): string {
     '',
     '## What Vedar is — and is not',
     '',
-    '- Vedar is NOT Booking.com, Ostrovok, Viator or a tour operator: it does not sell or fulfil tours itself. Local operators fulfil services under their own names.',
+    '- Vedar Kamchatka is NOT a travel agency, a tour operator, Booking.com, Ostrovok or Viator: it does not sell or fulfil tours itself. Local operators fulfil services under their own names.',
     '- MCP here means Model Context Protocol (the AI-agent protocol), not a partner, channel or marketing programme.',
     '- The only write operations are five human-confirmed requests: create_lead (tour selection), create_booking_request (specific tour and date), create_stay_request (accommodation), request_charter (whole-vehicle charter), create_car_rental_request (self-drive car rental). No online payment.',
     '- Platform content is primarily in Russian; tour names and data are in Russian. Tool arguments work best in Russian or English.',

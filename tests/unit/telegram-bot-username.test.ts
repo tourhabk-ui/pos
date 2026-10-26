@@ -91,10 +91,13 @@ describe('выдача ссылки администратором при пер
       const req = new NextRequest(`http://localhost/api/admin/operators/${PARTNER_ID}/channel-link`, { method: 'POST' });
       const res = await issueLink(req, { params: Promise.resolve({ id: PARTNER_ID }) });
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; data: { links: { telegram: string }; message: string } };
+      const body = await res.json() as { success: boolean; data: { links: { telegram: string; max: string }; message: string } };
       expect(body.data.links.telegram).toMatch(/^https:\/\/t\.me\/kuzmichai_bot\?start=op_[A-Za-z0-9_-]{43}$/);
       expect(body.data.message).toContain('https://t.me/kuzmichai_bot?start=op_');
       expect(body.data.message).not.toContain('kuzmihai_bot');
+      const code = new URL(body.data.links.max).searchParams.get('start');
+      expect(code).toMatch(/^op_[A-Za-z0-9_-]{43}$/);
+      expect(body.data.message).toContain(`Если ссылка не открылась — отправьте боту код: ${code}`);
     } finally {
       vi.unstubAllGlobals();
     }

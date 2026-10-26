@@ -54,7 +54,7 @@ function snippet(text: string | null): string {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const data = await load(slug);
-  if (!data) return { title: { absolute: '未找到团队游｜Vedar' }, robots: { index: false, follow: false } };
+  if (!data) return { title: { absolute: '未找到团队游｜Vedar 堪察加' }, robots: { index: false, follow: false } };
   const { tour, translations } = data;
   const title = readField(ZH_TOUR_FIELDS.title, tour.title, translations, 'title');
   const short = readField(ZH_TOUR_FIELDS.short_description, tour.short_description, translations, 'short_description');
@@ -68,7 +68,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     // absolute: бренд Vedar уже в строке, а шаблон корневого layout дописал бы
     // русское « | Ведар» к китайскому заголовку (prod-check 137).
-    title: { absolute: `${zhTitle}｜堪察加团队游（中文摘要）｜Vedar` },
+    title: { absolute: `${zhTitle}｜堪察加团队游（中文摘要）｜Vedar 堪察加` },
     description: zhDesc,
     alternates: {
       canonical: self,
