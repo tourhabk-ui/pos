@@ -196,6 +196,20 @@ withPg('витрина туров: снятый тур не в плане и н�
   // по одному is_published. Теперь оба читают ответ того же шлюза
   // (publicTourSql AS on_storefront) и называют состояние storefrontState.
 
+  it('карточка тура (getTourForCard) несёт подписи снимков из карты партнёра (26.10)', async () => {
+    const shot = '/images/w2pt/shot-1.jpg';
+    await pool.query(`UPDATE operator_tours SET photos = ARRAY[$2::text] WHERE id = $1::bigint`, [id.live, shot]);
+    await pool.query(
+      `UPDATE partners SET gallery_credits = jsonb_build_object($2::text, 'Автор W2PT') WHERE id = $1::uuid`,
+      [OPERATOR.id, shot],
+    );
+    const { getTourForCard } = await import('@/lib/tours/tour-detail-query');
+    const { tourPhotoCaptions } = await import('@/lib/tours/photo-credits');
+    const card = await getTourForCard(Number(id.live));
+    expect(card).not.toBeNull();
+    expect(tourPhotoCaptions(card!.photos ?? [], card!.operator_photo_credits)).toEqual(['Фото: Автор W2PT']);
+  });
+
   it('кабинет (#2642): on_storefront и состояние тура совпадают с выдачей каталога на каждом туре', async () => {
     const { getToursByOperator } = await import('@/lib/api/operator-tours');
     const { COMPLETENESS_TOURS_SQL } = await import('@/lib/operator/screen-queries');

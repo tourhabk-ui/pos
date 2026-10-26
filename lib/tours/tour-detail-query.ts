@@ -98,6 +98,8 @@ export interface TourCardRow {
    */
   operator_slug: string | null;
   operator_public: boolean | null;
+  /** `partners.gallery_credits` — адрес снимка → автор; подпись на карточке (lib/tours/photo-credits). */
+  operator_photo_credits?: unknown;
   /**
    * Кто продавец по закону — `partners.legal_info` (companyName, inn, ogrn)
    * (02.10, ЗоЗПП ст. 12 п. 2.1: владелец агрегатора обязан
@@ -188,6 +190,9 @@ function buildSql(withOptional: boolean): string {
       p.contacts AS operator_contacts,
       p.is_verified AS operator_verified,
       p.slug AS operator_slug, p.is_public AS operator_public,
+      -- Подписи снимков (адрес → автор) — та же карта, что у страниц
+      -- перевозчика и прокатчика (1319); тур берёт подпись по адресу кадра.
+      p.gallery_credits AS operator_photo_credits,
       -- Наименование юрлица — только legal_info.companyName (форма регистрации
       -- партнёра). partners.company_name НЕ подходит: триггер 052 держит его
       -- равным витринному name, и «исполнителем» стала бы вывеска, а не юрлицо.
