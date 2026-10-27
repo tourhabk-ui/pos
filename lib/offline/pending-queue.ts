@@ -1,9 +1,13 @@
 'use client';
 
 import { openDB } from 'idb';
+import { enqueueFirst, serialized, type EnqueueOutcome } from './outbox';
 
 const DB_NAME = 'kh-pending-v1';
 const DB_VERSION = 1;
+
+/** Имя очереди в логах отказов. */
+const QUEUE_NAME = 'офлайн-SOS';
 
 export interface PendingSOS {
   id: string;
@@ -39,14 +43,81 @@ async function getDB() {
   });
 }
 
-export async function queueSOS(data: Omit<PendingSOS, 'id' | 'queuedAt'>): Promise<void> {
-  const db = await getDB();
-  const entry: PendingSOS = {
+/**
+ * Хранилище очереди. Отдельным типом, потому что IndexedDB в node нет: сторожа
+ * подставляют своё и проверяют правило вызовом, а не чтением исходника.
+ */
+export interface PendingStore {
+  list(): Promise<PendingSOS[]>;
+  put(item: PendingSOS): Promise<void>;
+  remove(id: string): Promise<void>;
+}
+
+/** Настоящее хранилище телефона. */
+export const indexedDbStore: PendingStore = {
+  async list() {
+    const db = await getDB();
+    return (await db.getAll('pending_sos')) as PendingSOS[];
+  },
+  async put(item) {
+    const db = await getDB();
+    await db.put('pending_sos', item);
+  },
+  async remove(id) {
+    const db = await getDB();
+    await db.delete('pending_sos', id);
+  },
+};
+
+/**
+ * Род записи: свой сигнал или чужой, принятый на хранение. Выводится, а не
+ * хранится — у записей, легших до этой правки, поля бы не было, и хранимое
+ * значение пришлось бы выдумывать (§4.0).
+ */
+export function pendingKind(item: PendingSOS): 'sos' | 'relay' {
+  return item.relay ? 'relay' : 'sos';
+}
+
+function newEntry(data: Omit<PendingSOS, 'id' | 'queuedAt'>): PendingSOS {
+  return {
     ...data,
     id: `sos_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     queuedAt: Date.now(),
   };
-  await db.put('pending_sos', entry);
+}
+
+export async function queueSOS(data: Omit<PendingSOS, 'id' | 'queuedAt'>): Promise<void> {
+  await indexedDbStore.put(newEntry(data));
+}
+
+/**
+ * Поставить SOS в очередь ДО сетевого вызова (#2802) и вернуть исход с
+ * номером записи. Порядок «запись → отправка» держится здесь, а не в
+ * вызывающем экране: пока `enqueueSOSFirst` не вернул `queued`, сигнала нет
+ * нигде, и оборванный на середине `fetch` не оставил бы следа.
+ *
+ * Исходов два, и второй не равен первому: `no-disk` — диска нет (приватный
+ * режим, переполненное хранилище). Слать тогда всё равно надо, но человеку
+ * говорится правда: запись не сохранена.
+ */
+export async function enqueueSOSFirst(
+  data: Omit<PendingSOS, 'id' | 'queuedAt'>,
+  into: PendingStore = indexedDbStore,
+): Promise<EnqueueOutcome> {
+  return enqueueFirst(into, newEntry(data), QUEUE_NAME);
+}
+
+/**
+ * Снять запись, приём которой сервер подтвердил. Отказ не глушится: запись,
+ * которую не удалось снять, уйдёт повторно — сервер ответит 429, и досыл
+ * снимет её как уже принятую.
+ */
+export async function dropPendingSOS(id: string, from: PendingStore = indexedDbStore): Promise<void> {
+  try {
+    await from.remove(id);
+  } catch (err) {
+    console.error(`[очередь: ${QUEUE_NAME}] запись ${id} не снята после подтверждения: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function registerSOSSync(): Promise<boolean> {
@@ -132,26 +203,44 @@ export function requestFor(item: PendingSOS): { url: string; body: string } {
   };
 }
 
-export async function flushPendingSOS(): Promise<{ sent: number; kept: number }> {
+/**
+ * Один проход по очереди. Сеть и хранилище подставляются — правило
+ * проверяется вызовом.
+ */
+export async function drainPendingSOSOnce(
+  from: PendingStore = indexedDbStore,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ sent: number; kept: number }> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return { sent: 0, kept: 0 };
   }
-  const db = await getDB();
-  const items = (await db.getAll('pending_sos')) as PendingSOS[];
+  const items = await from.list();
   if (items.length === 0) return { sent: 0, kept: 0 };
   return flushPendingItems(
     items,
     async (item) => {
       const { url, body } = requestFor(item);
-      const res = await fetch(url, {
+      const res = await fetchImpl(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
       });
       return { ok: res.ok, status: res.status };
     },
-    async (id) => { await db.delete('pending_sos', id); },
+    async (id) => { await from.remove(id); },
   );
+}
+
+/**
+ * Досыл очереди строго по одному проходу за раз. Зовут его трое — старт
+ * приложения, возврат сети и экран SOS, — и два прохода внахлёст прочитали бы
+ * одну запись дважды и дважды её отправили. Следующий начинается после
+ * предыдущего и читает очередь заново: отправленного в ней уже нет.
+ */
+export const drainPendingSOS = serialized(() => drainPendingSOSOnce());
+
+export async function flushPendingSOS(): Promise<{ sent: number; kept: number }> {
+  return drainPendingSOS();
 }
 
 let flushInstalled = false;

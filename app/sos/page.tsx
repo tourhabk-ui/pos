@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff, RotateCw } from 'lucide-react';
-import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
+import { enqueueSOSFirst, dropPendingSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { buildRelayUrl } from '@/lib/mesh/qr-relay';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
@@ -295,28 +295,36 @@ export default function SosPage() {
       tourist_phone: phone.trim() || null,
     };
 
+    // СНАЧАЛА на диск, потом в сеть (#2802). До этой правки порядок был
+    // обратный: очередь писалась только в ветке отказа `fetch`. Пока запрос
+    // висел, сигнал не существовал нигде — ни на сервере, ни на телефоне, — и
+    // телефон, умерший в эту секунду (а умирает он в поле ровно тогда, когда
+    // человек жмёт SOS), уносил его без следа. Теперь запись ложится до
+    // первого байта в сеть, и дальше её в любом случае дошлёт очередь.
+    const queued = await enqueueSOSFirst(sosPayload);
+    // Background Sync может быть недоступен (весь iOS/WebKit) — это НЕ ошибка:
+    // очередь дошлёт глобальный installSOSFlush (ставится в
+    // ServiceWorkerRegistrar) при возврате сети или следующей загрузке.
+    // Регистрируем сразу после записи, а не в ветке отказа: если вкладку убьют
+    // во время `fetch`, досылать будет уже некому.
+    // БЕЗ await — намеренно: внутри `navigator.serviceWorker.ready`, а этот
+    // промис не отклоняется никогда и ждёт живого воркера бесконечно. Не
+    // установился SW — ожидание здесь не дало бы уйти самому сигналу.
+    if (queued.kind === 'queued') void registerSOSSync();
+
     // Прямой путь не подтвердил приём (сеть оборвалась ИЛИ сервер честно
     // ответил, что не смог записать сигнал — 502, см. правку роута 28.08).
-    // Две страховки параллельно: 1) меш — сосед с живой сетью ретранслирует
-    // немедленно; 2) офлайн-очередь — отправка при появлении своей сети.
-    // Меш НЕ зовём при подтверждённом успехе прямого пути — иначе каждый
-    // онлайн-SOS приходил бы спасателям дважды (прямой + через соседа).
-    const fallbackToMeshAndQueue = async () => {
+    // Страховок две: 1) меш — сосед с живой сетью ретранслирует немедленно;
+    // 2) офлайн-очередь — она уже написана выше. Меш НЕ зовём при
+    // подтверждённом успехе прямого пути — иначе каждый онлайн-SOS приходил бы
+    // спасателям дважды (прямой + через соседа).
+    // Диска нет (приватный режим, переполненное хранилище) — говорим правду:
+    // сигнал не сохранён, и сам он не уйдёт.
+    const fallbackToMesh = () => {
       try {
         meshSendSOS(sosPayload);
-      } catch { /* меш не должен ломать офлайн-очередь */ }
-      try {
-        await queueSOS(sosPayload);
-        // Background Sync может быть недоступен (весь iOS/WebKit) — это НЕ
-        // ошибка: очередь дошлёт глобальный installSOSFlush (ставится в
-        // ServiceWorkerRegistrar) при возврате сети или следующей загрузке.
-        // Раньше здесь стоял 'error', и человеку с успешно сохранённым SOS
-        // говорили «не удалось» — ложный отказ на iOS в 100% случаев.
-        await registerSOSSync();
-        setSendStatus('queued');
-      } catch {
-        setSendStatus('error');
-      }
+      } catch { /* меш не должен решать, что сказать человеку */ }
+      setSendStatus(queued.kind === 'queued' ? 'queued' : 'error');
     };
 
     try {
@@ -325,11 +333,17 @@ export default function SosPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sosPayload),
       });
+      // 429 — сервер уже принял этот сигнал (ровно так его читает досыл
+      // flushPendingItems). Запись не снимаем: её снимет досыл, получив тот же
+      // ответ; снять её здесь значило бы поверить коду, а не приёму.
       if (res.status === 429) { setSendStatus('error'); return; }
-      if (!res.ok) { await fallbackToMeshAndQueue(); return; }
+      if (!res.ok) { fallbackToMesh(); return; }
+      // Приём подтверждён — запись в очереди больше не нужна, иначе досыл
+      // отправил бы тот же SOS второй раз.
+      await dropPendingSOS(queued.id);
       setSendStatus('sent');
     } catch {
-      await fallbackToMeshAndQueue();
+      fallbackToMesh();
     }
   };
 

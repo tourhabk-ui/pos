@@ -24,6 +24,10 @@
  *    с причиной, её видит человек, очередь идёт дальше.
  * Отложенная запись остаётся на телефоне: решает человек — исправить,
  * отправить снова или удалить. Сама она больше не уходит.
+ *
+ * Здесь же правило порядка для всех очередей (#2802): `enqueueFirst` кладёт
+ * запись на диск ДО сети, и только после его резолва вызывающий шлёт. Досыл
+ * ниже — вторая половина того же правила: он разбирает то, что уже легло.
  */
 
 /** Почему сервер не принял запись или снимок к ней. */
@@ -119,6 +123,50 @@ export interface OutboxStore<T extends OutboxRecord> {
   list(): Promise<T[]>;
   put(item: T): Promise<void>;
   remove(id: string): Promise<void>;
+}
+
+/**
+ * Куда кладут запись ДО отправки. Шире `OutboxStore`: класть умеет и очередь,
+ * у записей которой нет снимков (офлайн-SOS), — ей нужен только номер.
+ */
+export interface EnqueueStore<T extends { id: string }> {
+  put(item: T): Promise<void>;
+}
+
+/**
+ * Исход постановки в очередь. Третий исход §4.0 назван отдельно: диска может
+ * не быть (приватный режим, переполненное хранилище), и «не смог записать» —
+ * не «записал».
+ */
+export type EnqueueOutcome =
+  | { kind: 'queued'; id: string }
+  | { kind: 'no-disk'; id: string; reason: string };
+
+/**
+ * Запись на диск ПЕРЕД сетью (#2802). Пока запись не легла, сигнала не
+ * существует нигде: телефон в поле умирает ровно в ту минуту, когда человек
+ * жмёт SOS, и оборванный на середине `fetch` не оставлял следа ни на сервере,
+ * ни на телефоне. Поэтому порядок один: сначала `put`, и только после его
+ * резолва вызывающий идёт в сеть.
+ *
+ * Отказ диска не глушится и не выдаётся за успех: `no-disk` несёт причину,
+ * вызывающий решает сам — слать без диска и честно сказать человеку, что
+ * запись не сохранена (так делает `sendWithoutDisk` в field-queues).
+ */
+export async function enqueueFirst<T extends { id: string }>(
+  store: EnqueueStore<T>,
+  item: T,
+  name = 'очередь',
+): Promise<EnqueueOutcome> {
+  try {
+    await store.put(item);
+    return { kind: 'queued', id: item.id };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    // Текст записи и координаты в лог не идут — только причина отказа диска.
+    console.error(`[очередь: ${name}] запись не легла на диск до отправки: ${reason}`);
+    return { kind: 'no-disk', id: item.id, reason };
+  }
 }
 
 export interface OutboxSpec<T extends OutboxRecord> {
