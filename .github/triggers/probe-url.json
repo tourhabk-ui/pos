@@ -1,29 +1,32 @@
 {
   "timeout": 30,
-  "run": 1001,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Повтор 1000 с allowStale: отказ одного адреса — тоже ответ, остальные проверяются. Владелец: «проверь задержки рейсов Елизово» (issue #2788). Кто с раннера отдаёт табло PKC/UHPP со статусом рейса: возможные сайты аэропорта, табло Яндекс Расписаний, OpenSky (вылеты UHPP за двое суток), агрегатор для сравнения.",
+  "run": 1002,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. pkc.aero — официальный сайт аэропорта Елизово (проба 1001). Где на нём табло рейсов и откуда оно берёт данные: ссылки и скрипты главной.",
   "urls": [
-    "https://airport-pkc.ru/",
-    "https://www.airport-pkc.ru/",
-    "https://pkc.aero/",
-    "https://kamchatka-airport.ru/",
-    "https://rasp.yandex.ru/search/plane/?fromId=c78&toId=c213",
-    "https://opensky-network.org/api/flights/departure?airport=UHPP&begin=1793056896&end=1793229696",
-    "https://biletyplus.ru/aeroporty/ru/petropavlovsk-kamchatskii/elizovo-pkc/tablo-vyleta"
-  ],
-  "text": true,
-  "bytes": 1500,
-  "grep": [
-    "задерж",
-    "Задерж",
-    "табло",
-    "Табло",
-    "отмен",
-    "callsign",
-    "estDepartureAirport",
-    "Елизово",
-    "UHPP"
+    "https://pkc.aero/"
   ],
   "allowStale": true,
-  "retries": 1
+  "retries": 1,
+  "text": false,
+  "bytes": 300,
+  "grep": [
+    "Табло рейсов",
+    "tablo",
+    "board",
+    "flights",
+    "api/",
+    ".json",
+    "ajax"
+  ],
+  "around": [
+    "Табло рейсов",
+    "tablo",
+    "board",
+    "flights",
+    "api/",
+    "ajax"
+  ],
+  "aroundBefore": 2,
+  "aroundLines": 4,
+  "aroundHits": 4
 }
