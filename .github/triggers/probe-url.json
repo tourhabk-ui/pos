@@ -1,18 +1,21 @@
 {
   "timeout": 60,
-  "run": 995,
-  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. После выката #2741: мобильная главная отдаёт плитку погоды с цветом сцены (.hw.wx-scene{color:var(--wx-fg)}), --wx-warn и строки над грядой.",
-  "ua": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
+  "run": 996,
+  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Владелец: пуш «УГРОЗА ЦУНАМИ — Камчатка» («От Камчатского филиала геофизической службы РАН в адрес ГУ МЧС … поступала .») при отсутствии сильных толчков. Какие tsunami_warning активны, их заголовок, описание, время и зоны.",
   "urls": [
-    "https://vedarai.ru/"
+    "https://vedarai.ru/api/safety/alerts"
   ],
   "text": false,
-  "bytes": 300,
+  "bytes": 200,
   "grep": [
-    ".hw.wx-scene{color:var(--wx-fg)",
-    "var(--wx-warn)",
-    ".v7 .hw-row,.v7 .hw-warn{position:relative;z-index:1}",
-    "hw wx-scene",
-    "Погода · "
-  ]
+    "tsunami_warning",
+    "поступал",
+    "цунами"
+  ],
+  "around": [
+    "tsunami_warning"
+  ],
+  "aroundBefore": 4,
+  "aroundLines": 14,
+  "aroundHits": 6
 }
