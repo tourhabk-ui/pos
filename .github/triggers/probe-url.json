@@ -1,25 +1,21 @@
 {
   "timeout": 60,
-  "run": 998,
-  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Тревога цунами 22:17 UTC из ВК МЧС: полный текст поста на /safety и сильные землетрясения Тихого океана за сутки (USGS M4.5+, M6+ — не камчатские ли толчки).",
+  "run": 999,
+  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Тревога цунами 22:17 UTC: текст ленты /safety без разметки (полное описание поста МЧС) и где был толчок M6 из USGS за сутки.",
   "urls": [
     "https://vedarai.ru/safety",
     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson"
   ],
-  "text": false,
-  "bytes": 200,
+  "text": true,
+  "bytes": 2500,
   "grep": [
     "поступала официальн",
-    "\"mag\":6",
-    "\"mag\":7",
-    "\"mag\":8",
-    "tsunami\":1"
+    "\"mag\":6"
   ],
   "around": [
-    "поступала официальн",
-    "\"tsunami\":1"
+    "\"mag\":6"
   ],
-  "aroundBefore": 12,
-  "aroundLines": 30,
+  "aroundBefore": 1,
+  "aroundLines": 8,
   "aroundHits": 3
 }
