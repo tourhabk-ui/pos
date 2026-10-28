@@ -49,6 +49,7 @@ const TEST_DB = 'car_rental_test';
 const MIGRATION = join(process.cwd(), 'migrations', '1317_car_rental_offers.sql');
 const SEED = join(process.cwd(), 'migrations', '1318_laguna_prokat_carrier_and_rental.sql');
 const EXPEDITION_SEED = join(process.cwd(), 'migrations', '1323_laguna_expedition_operator_card.sql');
+const EXPEDITION_TOURS = join(process.cwd(), 'migrations', '1339_laguna_expedition_tours.sql');
 
 withPg('прокат автомобилей на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
@@ -274,11 +275,12 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
          FROM partners WHERE slug = 'laguna-expedition' OR legal_info->>'inn' = '9717173941'`,
     )).rows;
 
-    it('одна видимая карточка туроператора с реквизитами ООО «Экспедиция», без отметки «проверено»', async () => {
+    it('одна видимая карточка туроператора с реквизитами ООО «Экспедиция»; «Проверенный» — с 1339 по слову владельца', async () => {
       const rows = await card();
       expect(rows).toHaveLength(1);
       const c = rows[0]!;
-      expect(c).toMatchObject({ name: 'Лагуна Экспедиция', category: 'operator', is_public: true, is_verified: false });
+      // 1323 завела карточку без отметки; 1339 ставит её — владелец 26.10: «3 ставить».
+      expect(c).toMatchObject({ name: 'Лагуна Экспедиция', category: 'operator', is_public: true, is_verified: true });
       expect(c.legal_info).toEqual({
         companyName: 'ООО «Экспедиция»', inn: '9717173941', ogrn: '1247700802546',
         address: '127521, г. Москва, проезд 12-й Марьиной Рощи, д. 8, стр. 1',
@@ -325,6 +327,35 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
         `SELECT short_description FROM partners WHERE slug = 'laguna-expedition'`,
       );
       expect(r!.short_description).toBe('Правка администратора');
+    });
+
+    it('туры с сайта (1339): 33 на витрине по цене за человека, «Халактырский пляж» — черновик; у каждого адрес страницы', async () => {
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      const all = await pool.query<{ slug: string; pub: boolean; unit: string; src: string | null; photos: number }>(
+        `SELECT t.slug, (${publicTourSql('t')}) AS pub, t.price_unit AS unit, t.source_url AS src,
+                COALESCE(array_length(t.photos, 1), 0) AS photos
+           FROM operator_tours t JOIN partners p ON p.id = t.operator_id
+          WHERE p.slug = 'laguna-expedition' AND t.slug LIKE 'lagexp-%'`,
+      );
+      expect(all.rows).toHaveLength(34);
+      const drafts = all.rows.filter((r) => !r.pub).map((r) => r.slug);
+      expect(drafts).toEqual(['lagexp-khalaktyrskij-plyazh']);
+      expect(all.rows.filter((r) => r.pub).every((r) => r.unit === 'per_person')).toBe(true);
+      expect(all.rows.every((r) => (r.src ?? '').startsWith('https://laguna-expedition.ru/tours/'))).toBe(true);
+      // Снимков нет: согласия партнёра на материалы ещё не записано (1321).
+      expect(all.rows.every((r) => r.photos === 0)).toBe(true);
+      // Трансферы и индивидуальный тур без цены не переносятся.
+      expect(all.rows.map((r) => r.src).filter((u) => /\/(41878|42011|41424)-/.test(u ?? ''))).toEqual([]);
+    });
+
+    it('туры 1339 видны в каталоге и в строке фактов компании; повтор миграции ничего не плодит', async () => {
+      const { queryOperators, OperatorsQuerySchema } = await import('@/lib/operators/list-query');
+      const res = await queryOperators(OperatorsQuerySchema.parse({ search: 'Лагуна', limit: 50 }));
+      const item = res.items.find((i) => i.name === 'Лагуна Экспедиция');
+      expect(item?.tourFacts?.total).toBe(33);
+      await pool.query(readFileSync(EXPEDITION_TOURS, 'utf8'));
+      const { rows: [n] } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM operator_tours WHERE slug LIKE 'lagexp-%'`);
+      expect(n!.n).toBe(34);
     });
 
     // Последним: портит телефон «Лагуны Прокат» в базе этого файла.
