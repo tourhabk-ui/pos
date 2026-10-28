@@ -1,14 +1,11 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 154,
-  "why": "23.10, после выката #2708 и #2709 («Лагуна Прокат», витрина проката, кнопка «Прокат» на главной, search_car_rental в MCP 2.6.0): витрина /car-rental и страница прокатчика отвечают 200 с прайсом из 1318; перевозчик на /transfers/laguna-prokat с двумя ценами за день (микроавтобус и вахтовка); главная показывает четвёртую дверь «Прокат»; манифест MCP называет версию 2.6.0 и search_car_rental.",
+  "run": 155,
+  "why": "29.10, пуш владельцу 10:18 по Камчатке «УГРОЗА ЦУНАМИ — Камчатка» при спокойной сейсмике: запись tsunami_warning важности 3 из ВК МЧС (22:17 UTC 28.10, «…поступала официальная информация о трёх неощущаемых сейсмособытиях…»). Нужен полный текст поста (description_head переписи), чтобы найти фразу, на которой tsunamiStatus выдал «угрозу».",
   "urls": [
-    "https://vedarai.ru/car-rental",
-    "https://vedarai.ru/car-rental/laguna-prokat",
-    "https://vedarai.ru/transfers/laguna-prokat",
-    "https://vedarai.ru/",
-    "https://vedarai.ru/.well-known/mcp.json"
+    "https://vedarai.ru/api/cron/alerts-census"
   ],
+  "run154_result": "Итог прогона 154 (23.10, витрина проката) этой сессией не прочитан и здесь не записан.",
   "run153_result": "23.10 00:31 UTC: client-errors-census?days=2 — строк 9, все внешние (self 0, bot 0), группы 3: «Loading chunk 52619 failed (timeout)» ×7 на /partner-site/kamchatskaya-rybalka (7 человеко-дней, first/last 01:02–01:04 по часам переписи, builds пусто, from_phone 0, offline 0); «watchPosition is not a function» ×1 на /places/ozyora-malye; unhandledrejection {\"isTrusted\":true} ×1 на /routes/buhta-poludennaya-o-beringa. failed_measures пусто. Совпадение с выкатом и сборкой по этому ответу не установить: builds у всех групп пустые — разбор остаётся за сессией, задавшей вопрос.",
   "run152_result": "22.10: partner-site-watch, первый прогон руками — под наблюдением 29 страниц трёх партнёров, все прочитаны (ok); список наблюдаемого ушёл владельцу.",
   "run151_result": "22.10 16:59 UTC: kuzmich-load-census?days=2 — answer_time: все 3 ответа за двое суток — surface a2a (path tools, p50 1,9 с, max 3,5 с); telegram_max и web за окно пусты. Ответы ушли агенту A2A, их разговоры лежат в a2a_dialogs, которых «Переписки» не читали. Починено #2696 (A2A в списке, вход у каждого разговора) и 1314 (переписка партнёра и WhatsApp не сохранялась: род вне CHECK, пустой catch).",
