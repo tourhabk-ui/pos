@@ -1,21 +1,26 @@
 {
   "timeout": 60,
-  "run": 996,
-  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Владелец: пуш «УГРОЗА ЦУНАМИ — Камчатка» («От Камчатского филиала геофизической службы РАН в адрес ГУ МЧС … поступала .») при отсутствии сильных толчков. Какие tsunami_warning активны, их заголовок, описание, время и зоны.",
+  "run": 997,
+  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Пуш «УГРОЗА ЦУНАМИ» владельцу 29.10 10:18 по Камчатке: что о цунами отдают публичные сводки и страница /safety.",
   "urls": [
-    "https://vedarai.ru/api/safety/alerts"
+    "https://vedarai.ru/api/public/safety-status",
+    "https://vedarai.ru/api/public/danger-summary",
+    "https://vedarai.ru/safety"
   ],
   "text": false,
-  "bytes": 200,
+  "bytes": 300,
   "grep": [
-    "tsunami_warning",
+    "tsunami",
+    "цунами",
     "поступал",
-    "цунами"
+    "Критическая"
   ],
   "around": [
-    "tsunami_warning"
+    "цунами",
+    "tsunami",
+    "поступал"
   ],
-  "aroundBefore": 4,
-  "aroundLines": 14,
-  "aroundHits": 6
+  "aroundBefore": 3,
+  "aroundLines": 10,
+  "aroundHits": 3
 }
