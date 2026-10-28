@@ -1,21 +1,27 @@
 {
-  "timeout": 60,
-  "run": 999,
-  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Тревога цунами 22:17 UTC: текст ленты /safety без разметки (полное описание поста МЧС) и где был толчок M6 из USGS за сутки.",
+  "timeout": 30,
+  "run": 1000,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «проверь задержки рейсов Елизово» (issue #2788). Кто с раннера отдаёт табло PKC/UHPP со статусом рейса: возможные сайты аэропорта, табло Яндекс Расписаний, OpenSky (вылеты UHPP за двое суток), агрегатор для сравнения.",
   "urls": [
-    "https://vedarai.ru/safety",
-    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson"
+    "https://airport-pkc.ru/",
+    "https://www.airport-pkc.ru/",
+    "https://pkc.aero/",
+    "https://kamchatka-airport.ru/",
+    "https://rasp.yandex.ru/search/plane/?fromId=c78&toId=c213",
+    "https://opensky-network.org/api/flights/departure?airport=UHPP&begin=1793056896&end=1793229696",
+    "https://biletyplus.ru/aeroporty/ru/petropavlovsk-kamchatskii/elizovo-pkc/tablo-vyleta"
   ],
   "text": true,
-  "bytes": 2500,
+  "bytes": 1500,
   "grep": [
-    "поступала официальн",
-    "\"mag\":6"
-  ],
-  "around": [
-    "\"mag\":6"
-  ],
-  "aroundBefore": 1,
-  "aroundLines": 8,
-  "aroundHits": 3
+    "задерж",
+    "Задерж",
+    "табло",
+    "Табло",
+    "отмен",
+    "callsign",
+    "estDepartureAirport",
+    "Елизово",
+    "UHPP"
+  ]
 }
