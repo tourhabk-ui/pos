@@ -24,6 +24,9 @@
  * опоздание.
  */
 
+import { stripTags } from '@/lib/html/text';
+import { decodeHtmlEntities } from '@/lib/html/entities';
+
 export type FlightDirection = 'dep' | 'arr';
 
 /** Род статуса — по словам табло; прочее (регистрация, посадка, ожидается) — `other`. */
@@ -69,14 +72,9 @@ export const PKC_INFO_PHONE = '+7 (41531) 99-999';
 /** Камчатка — UTC+12 круглый год. */
 const KAMCHATKA_OFFSET_MS = 12 * 60 * 60 * 1000;
 
-const ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', quot: '"', laquo: '«', raquo: '»', mdash: '—', ndash: '–', lt: '<', gt: '>', '#39': "'" };
-
+/** Текст ячейки — общим разбором репозитория (lib/html/text), без своей регулярки по тегам. */
 function cellText(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&(#39|[a-z]+);?/gi, (m, name: string) => ENTITIES[name.toLowerCase()] ?? m)
-    .replace(/\s+/g, ' ')
-    .trim();
+  return decodeHtmlEntities(stripTags(html, ' ')).replace(/\s+/g, ' ').trim();
 }
 
 /** Ячейки строки по номеру типа: table-flex__td--type1…7. */
