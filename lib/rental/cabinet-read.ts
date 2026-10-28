@@ -35,6 +35,8 @@ export type CabinetEdits = { outcome: 'ok'; rows: CabinetEditRow[] } | { outcome
 
 /** Пять с кнопками и одна лишняя, чтобы честно сказать «есть старше». */
 const REQUEST_LIMIT = 6;
+/** Кабинет на сайте: двадцать и одна лишняя — тот же «есть старше». */
+export const WEB_REQUEST_LIMIT = 21;
 const EDIT_LIMIT = 20;
 
 function sqlState(err: unknown): string {
@@ -64,14 +66,14 @@ const REQUESTS_SQL = `SELECT l.id::text AS id,
       AND l.source_data->>'kind' = 'car_rental'
       AND (l.source_data->>'company_id' IS NULL OR l.source_data->>'company_id' = $1::text)
     ORDER BY l.created_at DESC NULLS LAST, l.id DESC
-    LIMIT ${REQUEST_LIMIT}`;
+    LIMIT $2::int`;
 
-export async function loadCabinetRequests(partnerId: string): Promise<CabinetRequests> {
+export async function loadCabinetRequests(partnerId: string, limit: number = REQUEST_LIMIT): Promise<CabinetRequests> {
   try {
     const { rows } = await pool.query<{
       id: string; name: string; phone: string; title: string | null;
       date_from: string | null; date_to: string | null; answer: string | null;
-    }>(REQUESTS_SQL, [partnerId]);
+    }>(REQUESTS_SQL, [partnerId, limit]);
     return {
       outcome: 'ok',
       rows: rows.map((r) => ({
@@ -86,6 +88,49 @@ export async function loadCabinetRequests(partnerId: string): Promise<CabinetReq
     };
   } catch (err) {
     console.error('[rental-cabinet] заявки не прочитаны, SQLSTATE', sqlState(err));
+    return { outcome: 'db_error' };
+  }
+}
+
+export interface CabinetCarRow {
+  offerId: string;
+  title: string;
+  pricePerDay: number;
+  priceIsFrom: boolean;
+  /** NULL — залог не записан, а не «залога нет». */
+  deposit: number | null;
+  active: boolean;
+}
+
+export type CabinetCars = { outcome: 'ok'; rows: CabinetCarRow[] } | { outcome: 'db_error' };
+
+/** Машины его прайса — и скрытые: в кабинете видно, что снято с сайта. */
+export async function loadCabinetCars(partnerId: string): Promise<CabinetCars> {
+  try {
+    const { rows } = await pool.query<{
+      id: string; title: string; price_rub_per_day: number; price_is_from: boolean;
+      deposit_rub: number | null; is_active: boolean;
+    }>(
+      `SELECT id::text AS id, title, price_rub_per_day, price_is_from, deposit_rub, is_active
+         FROM car_rental_offers
+        WHERE partner_id = $1::uuid
+        ORDER BY is_active DESC, sort_order, title
+        LIMIT 50`,
+      [partnerId],
+    );
+    return {
+      outcome: 'ok',
+      rows: rows.map((r) => ({
+        offerId: r.id,
+        title: r.title,
+        pricePerDay: r.price_rub_per_day,
+        priceIsFrom: r.price_is_from === true,
+        deposit: r.deposit_rub,
+        active: r.is_active === true,
+      })),
+    };
+  } catch (err) {
+    console.error('[rental-cabinet] машины не прочитаны, SQLSTATE', sqlState(err));
     return { outcome: 'db_error' };
   }
 }

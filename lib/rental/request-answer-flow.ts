@@ -1,5 +1,6 @@
 /**
- * Нажатие «Беру» / «Не могу» в личном чате прокатчика пилота.
+ * Нажатие «Беру» / «Не могу» в личном чате прокатчика пилота и в его кабинете
+ * на сайте (answerRentalRequest — одно правило для обеих дверей).
  * Ответ и отметка дней — одна транзакция: второе нажатие дни не меняет.
  * Менеджеру уходит один факт без персональных данных заказчика.
  *
@@ -12,9 +13,10 @@ import { tgSend } from '@/lib/notifications/tg-send';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import {
   managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText, requestAnswerListHead,
+  type AnswerTell, type RequestAnswer,
 } from '@/lib/rental/request-answer';
 import {
-  claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer,
+  claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer, type OwnedRentalRequest,
 } from '@/lib/rental/request-answer-store';
 
 export interface AnswerActor {
@@ -42,6 +44,81 @@ async function tellManager(text: string): Promise<void> {
   }
 }
 
+/**
+ * Ответ прокатчика на заявку — одно правило для кнопки в чате и для кабинета
+ * на сайте (/hub/carrier/rental). Заявка обязана быть его; ответ и отметка
+ * дней — одна транзакция (claimPartnerAnswer), повтор дни не меняет.
+ * Менеджеру — факт без персональных данных заказчика.
+ *
+ * request — прочитанная заявка (чат называет её первой строкой ответа из
+ * списка); null, если до чтения не дошло или оно не удалось.
+ */
+export async function answerRentalRequest(opts: {
+  partner: AnswerActor;
+  leadId: string;
+  answer: RequestAnswer;
+  notifyManager?: (text: string) => Promise<void>;
+}): Promise<{ tell: AnswerTell; request: OwnedRentalRequest | null }> {
+  const notify = opts.notifyManager ?? tellManager;
+  const partner = opts.partner;
+  if (!isRentalPilotSlug(partner.slug)) return { tell: { kind: 'not_pilot' }, request: null };
+
+  const loaded = await loadOwnedRentalRequest(partner.partnerId, opts.leadId);
+  if (loaded.outcome !== 'ok') {
+    const kind = loaded.outcome === 'missing' ? 'missing' as const
+      : loaded.outcome === 'db_error' ? 'unread' as const
+      : 'not_yours' as const;
+    return { tell: { kind }, request: null };
+  }
+  const request = loaded.request;
+
+  const offer = opts.answer === 'take'
+    ? await resolveRequestOffer(partner.partnerId, request.offerId, request.title)
+    : null;
+  if (offer?.outcome === 'db_error') return { tell: { kind: 'retry' }, request };
+  const span = offer?.outcome === 'ok' ? spanOrNull(request.dateFrom, request.dateTo) : null;
+  const carTitle = offer?.outcome === 'ok' ? offer.title : request.title;
+  const claimed = await claimPartnerAnswer({
+    leadId: request.leadId,
+    answer: opts.answer,
+    partnerId: partner.partnerId,
+    offerId: offer?.outcome === 'ok' ? offer.offerId : request.offerId,
+    carTitle,
+    dateFrom: span?.from ?? request.dateFrom,
+    dateTo: span?.to ?? request.dateTo,
+    mark: offer?.outcome === 'ok' && span
+      ? { offerId: offer.offerId, dateFrom: span.from, dateTo: span.to }
+      : null,
+  });
+  if (claimed.outcome === 'db_error') return { tell: { kind: 'retry' }, request };
+  if (claimed.outcome === 'already') return { tell: { kind: 'already', answer: claimed.answer }, request };
+
+  const tell: AnswerTell = opts.answer === 'decline'
+    ? { kind: 'decline' }
+    : claimed.marked !== null && span
+      ? { kind: 'take', from: span.from, to: span.to, marked: claimed.marked }
+      : offer?.outcome === 'ok' && !span
+        ? { kind: 'take_bad_dates' }
+        : { kind: 'take_no_car' };
+  try {
+    await notify(managerAnswerText({
+      partnerName: partner.partnerName,
+      leadId: request.leadId,
+      answer: opts.answer,
+      carTitle,
+      from: request.dateFrom,
+      to: request.dateTo,
+      marked: opts.answer === 'take' ? claimed.marked : null,
+    }));
+  } catch (err) {
+    console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
+  }
+  return { tell, request };
+}
+
+/** Исход, после которого сообщение заявки правится (ответ записан или уже был). */
+const EDITS_REQUEST: ReadonlySet<AnswerTell['kind']> = new Set(['already', 'decline', 'take', 'take_no_car', 'take_bad_dates']);
+
 export async function handleRentalRequestAnswer(opts: {
   lookup: AnswerLookup;
   payload: string;
@@ -50,7 +127,6 @@ export async function handleRentalRequestAnswer(opts: {
   send: AnswerSend;
   notifyManager?: (text: string) => Promise<void>;
 }): Promise<void> {
-  const notify = opts.notifyManager ?? tellManager;
   const press = parseRequestAnswer(opts.payload);
   /** Заявка, когда она прочитана: из списка ответ без неё не называет, на что дан. */
   let listHead: string | null = null;
@@ -76,76 +152,17 @@ export async function handleRentalRequestAnswer(opts: {
     await say({ kind: 'not_yours' }, false);
     return;
   }
-  const partner = opts.lookup.partner;
-  if (!isRentalPilotSlug(partner.slug)) {
-    await say({ kind: 'not_pilot' }, false);
-    return;
-  }
 
-  const loaded = await loadOwnedRentalRequest(partner.partnerId, press.leadId);
-  if (loaded.outcome !== 'ok') {
-    const kind = loaded.outcome === 'missing' ? 'missing' as const
-      : loaded.outcome === 'db_error' ? 'unread' as const
-      : 'not_yours' as const;
-    await say({ kind }, false);
-    return;
-  }
-  const request = loaded.request;
-  if (press.listNo !== undefined) {
+  const { tell, request } = await answerRentalRequest({
+    partner: opts.lookup.partner,
+    leadId: press.leadId,
+    answer: press.answer,
+    notifyManager: opts.notifyManager,
+  });
+  if (press.listNo !== undefined && request) {
     listHead = requestAnswerListHead({
       listNo: press.listNo, title: request.title, from: request.dateFrom, to: request.dateTo,
     });
   }
-
-  const offer = press.answer === 'take'
-    ? await resolveRequestOffer(partner.partnerId, request.offerId, request.title)
-    : null;
-  if (offer?.outcome === 'db_error') {
-    await say({ kind: 'retry' }, false);
-    return;
-  }
-  const span = offer?.outcome === 'ok' ? spanOrNull(request.dateFrom, request.dateTo) : null;
-  const carTitle = offer?.outcome === 'ok' ? offer.title : request.title;
-  const claimed = await claimPartnerAnswer({
-    leadId: request.leadId,
-    answer: press.answer,
-    partnerId: partner.partnerId,
-    offerId: offer?.outcome === 'ok' ? offer.offerId : request.offerId,
-    carTitle,
-    dateFrom: span?.from ?? request.dateFrom,
-    dateTo: span?.to ?? request.dateTo,
-    mark: offer?.outcome === 'ok' && span
-      ? { offerId: offer.offerId, dateFrom: span.from, dateTo: span.to }
-      : null,
-  });
-  if (claimed.outcome === 'db_error') {
-    await say({ kind: 'retry' }, false);
-    return;
-  }
-  if (claimed.outcome === 'already') {
-    await say({ kind: 'already', answer: claimed.answer }, true);
-    return;
-  }
-
-  const tell = press.answer === 'decline'
-    ? { kind: 'decline' as const }
-    : claimed.marked !== null && span
-      ? { kind: 'take' as const, from: span.from, to: span.to, marked: claimed.marked }
-      : offer?.outcome === 'ok' && !span
-        ? { kind: 'take_bad_dates' as const }
-        : { kind: 'take_no_car' as const };
-  try {
-    await notify(managerAnswerText({
-      partnerName: partner.partnerName,
-      leadId: request.leadId,
-      answer: press.answer,
-      carTitle,
-      from: request.dateFrom,
-      to: request.dateTo,
-      marked: press.answer === 'take' ? claimed.marked : null,
-    }));
-  } catch (err) {
-    console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
-  }
-  await say(tell, true);
+  await say(tell, EDITS_REQUEST.has(tell.kind));
 }
