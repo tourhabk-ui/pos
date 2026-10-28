@@ -1,26 +1,25 @@
 {
   "timeout": 60,
-  "run": 997,
-  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Пуш «УГРОЗА ЦУНАМИ» владельцу 29.10 10:18 по Камчатке: что о цунами отдают публичные сводки и страница /safety.",
+  "run": 998,
+  "note": "28.10. ТОЛЬКО ЧТЕНИЕ. Тревога цунами 22:17 UTC из ВК МЧС: полный текст поста на /safety и сильные землетрясения Тихого океана за сутки (USGS M4.5+, M6+ — не камчатские ли толчки).",
   "urls": [
-    "https://vedarai.ru/api/public/safety-status",
-    "https://vedarai.ru/api/public/danger-summary",
-    "https://vedarai.ru/safety"
+    "https://vedarai.ru/safety",
+    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson"
   ],
   "text": false,
-  "bytes": 300,
+  "bytes": 200,
   "grep": [
-    "tsunami",
-    "цунами",
-    "поступал",
-    "Критическая"
+    "поступала официальн",
+    "\"mag\":6",
+    "\"mag\":7",
+    "\"mag\":8",
+    "tsunami\":1"
   ],
   "around": [
-    "цунами",
-    "tsunami",
-    "поступал"
+    "поступала официальн",
+    "\"tsunami\":1"
   ],
-  "aroundBefore": 3,
-  "aroundLines": 10,
+  "aroundBefore": 12,
+  "aroundLines": 30,
   "aroundHits": 3
 }
