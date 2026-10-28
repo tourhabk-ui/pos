@@ -71,6 +71,22 @@ describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД
     expect(args.buttons?.some((b) => 'payload' in b)).toBe(false);
   });
 
+  it('гид со своими турами (28.10): кнопка ведёт в «Свои туры» — кабинет оператора его не пустит', async () => {
+    reachMock.mockResolvedValue({ ...BOUND, category: 'guide' });
+    expect(await notifyPartnerNewLeadPersonally(LEAD)).toEqual({ state: 'delivered', channel: 'max' });
+    expect(lastPdArgs().buttons).toEqual([{ text: 'Открыть заявку', url: 'https://vedarai.ru/hub/guide/own' }]);
+    // Та же ссылка у копии команде.
+    const [, msg] = teamMock.mock.calls[0] as [string, { buttons: Array<Record<string, string>> }];
+    expect(msg.buttons).toEqual([{ text: 'Открыть заявку', url: 'https://vedarai.ru/hub/guide/own' }]);
+  });
+
+  it('адрес не прочитался — категория неизвестна: ссылка прежняя, в кабинет оператора', async () => {
+    reachMock.mockResolvedValue(null);
+    expect(await notifyPartnerNewLeadPersonally(LEAD)).toEqual({ state: 'unknown' });
+    const [, msg] = teamMock.mock.calls[0] as [string, { buttons: Array<Record<string, string>> }];
+    expect(msg.buttons).toEqual([{ text: 'Открыть заявку', url: 'https://vedarai.ru/hub/operator/leads/lead-1' }]);
+  });
+
   it('оператор не привязан → no_channel, кабинету ничего не шлётся; команде — тот же текст своим адресом', async () => {
     reachMock.mockResolvedValue({ maxChatId: null, telegramChatId: null, telegramSource: null, reachable: false });
     expect(await notifyPartnerNewLeadPersonally(LEAD)).toEqual({ state: 'no_channel' });

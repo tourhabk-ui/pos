@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser, ListChecks, BellDot } from 'lucide-react';
+import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser, ListChecks, BellDot, Compass } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -12,6 +12,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/guide',          label: 'Обзор',      icon: Star          },
 
   { href: '/hub/guide/tours',    label: 'Мои туры',   icon: Map,           section: 'Работа' },
+  // Туры, которые гид продаёт сам (28.10, миграция 1338): брони,
+  // заявки и даты. Туры команды оператора — «Мои туры» выше.
+  { href: '/hub/guide/own',      label: 'Свои туры',  icon: Compass,       section: 'Работа' },
   { href: '/hub/guide/schedule', label: 'Расписание', icon: CalendarDays,  section: 'Работа' },
   { href: '/hub/guide/groups',   label: 'Группы',     icon: Users,         section: 'Работа' },
   // Свои клиенты гида — заведённые им самим: туристов из броней оператора

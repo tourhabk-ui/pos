@@ -71,6 +71,12 @@ export interface PartnerReachRow {
 }
 
 export interface PartnerReach {
+  /**
+   * Категория карточки — чей кабинет у партнёра (оператор, гид, перевозчик).
+   * Её отдаёт только `reachForPartner`: кнопке личного сообщения нужно знать,
+   * куда вести (lib/partners/cabinet-links). У `reachFrom` её нет.
+   */
+  category?: string | null;
   telegramChatId: string | null;
   maxChatId: string | null;
   /** `null` — адреса в Telegram нет ни в одной из двух колонок. */
@@ -114,10 +120,11 @@ export function reachFrom(row: PartnerReachRow): PartnerReach {
  */
 export async function reachForPartner(partnerId: string): Promise<PartnerReach | null> {
   try {
-    const { rows } = await pool.query<PartnerReachRow>(
+    const { rows } = await pool.query<PartnerReachRow & { category: string | null }>(
       `SELECT p.telegram_chat_id,
               u_reach.telegram_id AS user_telegram_id,
-              p.max_chat_id
+              p.max_chat_id,
+              p.category
          FROM partners p
          LEFT JOIN users u_reach ON u_reach.id = p.user_id
         WHERE p.id = $1
@@ -125,7 +132,7 @@ export async function reachForPartner(partnerId: string): Promise<PartnerReach |
       [partnerId],
     );
     const row = rows[0];
-    return row ? reachFrom(row) : null;
+    return row ? { ...reachFrom(row), category: row.category } : null;
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
     console.error(`[partner-reach] не смог прочитать адреса партнёра ${partnerId}, SQLSTATE ${code}:`, err);

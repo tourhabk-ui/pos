@@ -98,6 +98,7 @@ export async function notifyOperatorOfNewBooking(b: NewBookingForOperator): Prom
       operator_email:            op?.email ?? null,
       via:                       b.via,
       operator_partner_id:       b.operatorId,
+      operator_category:         reach?.category ?? null,
     });
 
     // Адреса нет ни одного — заявка легла в базу и никуда не поехала. Молчать

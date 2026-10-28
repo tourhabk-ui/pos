@@ -20,6 +20,7 @@ import type { LeadProposalData } from '@/lib/services/operators/lead-processor.s
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/notifications/pd-alert';
 import { reachForPartner } from '@/lib/partners/reach';
+import { ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { notifyTeam } from '@/lib/operators/team-notify';
 
 function esc(s: string): string {
@@ -182,7 +183,6 @@ export async function notifyPartnerNewLeadPersonally(params: {
   origin?: string;
   sourceUrl?: string;
 }): Promise<PersonalLeadOutcome> {
-  const baseUrl = getPublicBaseUrl();
   // Общая часть — без ПД: её видно в обоих каналах.
   const common = [
     '<b>Новая заявка вам</b>',
@@ -204,13 +204,15 @@ export async function notifyPartnerNewLeadPersonally(params: {
     'Имя и телефон — в кабинете: в Telegram они не передаются.',
   ].filter(Boolean).join('\n');
 
-  const buttons = [{ text: 'Открыть заявку', url: `${baseUrl}/hub/operator/leads/${params.leadId}` }];
+  // Адрес и категория — одним запросом. Гид со своими турами работает в
+  // кабинете гида: кабинет оператора его не пустит (lib/partners/cabinet-links).
+  const reach = await reachForPartner(params.operatorId);
+  const buttons = [{ text: 'Открыть заявку', url: ownerLeadUrl(reach?.category, params.leadId) }];
 
   // Менеджеры команды кабинета (CRM 2г-4) — до проверки адреса кабинета: у
   // команды свои адреса, и заявка доходит до неё, даже если у кабинета канала нет.
   await notifyTeam(params.operatorId, { text, stub, buttons }, `заявка ${params.leadId}`);
 
-  const reach = await reachForPartner(params.operatorId);
   if (reach === null) {
     console.error(`[lead-notify] адрес оператора ${params.operatorId} не прочитался — о заявке ${params.leadId} лично не сообщено`);
     return { state: 'unknown' };

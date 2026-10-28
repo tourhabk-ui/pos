@@ -43,6 +43,17 @@ describe('notifyOperatorOfNewBooking', () => {
     expect(uonMock).not.toHaveBeenCalled();
   });
 
+  it('продавец тура — гид (28.10): категория из адреса уходит в уведомление, чтобы кнопка вела в «Свои туры»', async () => {
+    reachMock.mockResolvedValue({ reachable: true, maxChatId: '1', telegramChatId: null, category: 'guide' });
+    await notifyOperatorOfNewBooking(b);
+    expect(notifyMock.mock.calls[0]![0]).toMatchObject({ operator_category: 'guide' });
+    // Адрес не прочитался — категория неизвестна, а не выдумана.
+    notifyMock.mockClear();
+    reachMock.mockResolvedValue(null);
+    await notifyOperatorOfNewBooking(b);
+    expect(notifyMock.mock.calls[0]![0]).toMatchObject({ operator_category: null });
+  });
+
   it('у оператора U-ON: заявка уходит в его CRM и id сохраняется в брони', async () => {
     poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Оп', uon_api_key: 'k', phone: null, email: null }] });
     uonMock.mockResolvedValue(777);

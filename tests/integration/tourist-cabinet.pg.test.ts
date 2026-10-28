@@ -46,6 +46,11 @@ vi.mock('@/lib/auth/middleware', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/middleware')>()),
   requireAuth: async () => ({ ...authAs }),
   requireOperator: async () => ({ ...authAs }),
+  // Раздел «Свои туры» кабинета гида (28.10) — от имени гида: роль сверяется
+  // как у настоящего requireRole, вход — тот же подменённый.
+  requireRole: async (_req: unknown, roles: string[]) => (roles.includes(authAs.role)
+    ? { ...authAs }
+    : (await import('next/server')).NextResponse.json({ success: false }, { status: 403 })),
   // Стирание карточки CRM по обращению (#2327, круг 10) — от имени администратора.
   requireAdmin: async () => (authAs.role === 'admin'
     ? { ...authAs }
@@ -1234,6 +1239,117 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(ok.json.kept).toEqual([]);
     expect(ok.json.unchecked).toEqual([]);
     expect(ok.json.message).toMatch(/^Аккаунт удалён, персональные данные стёрты\./);
+  });
+
+  it('гид со своими турами: «Свои туры» — его брони с контактами, подтверждение и отмена тем же правилом, что у оператора; чужая бронь — 404; даты — только в сезон своего тура (28.10)', async () => {
+    // Гид продаёт авторские туры со своей карточки (1338), а кабинет броней
+    // оператора его не пускает (категория не operator). Раздел гида зовёт то же
+    // правило (lib/bookings/owner-status) — здесь настоящими дверями.
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('own-guide@example.com', 'Гид своих туров', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Гид своих туров', 'guide', '{}', TRUE, TRUE, 'own-guide', $1) RETURNING id`, [guideUser],
+    )).rows[0].id;
+    const guideTour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, season_start, season_end)
+       VALUES ($1, 'Авторский тур гида', 15000, 4, TRUE, TRUE, CURRENT_DATE + 5, CURRENT_DATE + 40) RETURNING id`, [guide],
+    )).rows[0].id;
+    const otherOp = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug)
+       VALUES ('Чужой оператор', 'operator', '{}', TRUE, TRUE, 'own-guide-foreign') RETURNING id`,
+    )).rows[0].id;
+    const foreignTour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+       VALUES ($1, 'Тур чужого оператора', 9000, 10, TRUE, TRUE) RETURNING id`, [otherOp],
+    )).rows[0].id;
+    const tourist = await freshTourist('own-guide');
+    const mine = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, tourist_phone, booking_status)
+       VALUES ($1, CURRENT_DATE + 12, 2, $2, 'Пётр', '+79990001122', 'new') RETURNING id`, [guideTour, tourist],
+    )).rows[0].id;
+    const foreign = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, booking_status)
+       VALUES ($1, CURRENT_DATE + 12, 1, $2, 'Чужой турист', 'new') RETURNING id`, [foreignTour, tourist],
+    )).rows[0].id;
+    const statusOf = async (id: string) => (await pool.query<{ booking_status: string; cancellation_reason: string | null }>(
+      `SELECT booking_status, cancellation_reason FROM operator_bookings WHERE id = $1`, [id],
+    )).rows[0];
+
+    const { NextRequest } = await import('next/server');
+    authAs.userId = guideUser;
+    authAs.role = 'guide';
+    try {
+      const { GET } = await import('@/app/api/guide/own/route');
+      const own = await GET(new NextRequest('http://localhost/api/guide/own') as unknown as NextRequest);
+      const body = await own.json() as { data: { tours: Array<{ title: string; open_dates: number }>; bookings: Array<Record<string, unknown>>; leads: unknown[] } };
+      expect(own.status, JSON.stringify(body)).toBe(200);
+      expect(body.data.tours.map((t) => t.title)).toEqual(['Авторский тур гида']);
+      // Только его бронь — с контактами туриста, как у оператора в кабинете.
+      expect(body.data.bookings.map((b) => b.id)).toEqual([String(mine)]);
+      expect(body.data.bookings[0]).toMatchObject({ tourist_name: 'Пётр', tourist_phone: '+79990001122', booking_status: 'new', participants: 2 });
+      expect(body.data.leads).toEqual([]);
+
+      const { PATCH } = await import('@/app/api/guide/own/bookings/[id]/route');
+      const patch = (id: string, payload: Record<string, unknown>) => PATCH(
+        new NextRequest(`http://localhost/api/guide/own/bookings/${id}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+        }) as unknown as NextRequest,
+        { params: Promise.resolve({ id: String(id) }) },
+      );
+
+      // Чужая бронь — «не найдена среди ваших», и она не тронута.
+      expect((await patch(foreign, { booking_status: 'confirmed' })).status).toBe(404);
+      expect((await statusOf(foreign)).booking_status).toBe('new');
+
+      const confirmed = await patch(mine, { booking_status: 'confirmed' });
+      expect(confirmed.status, JSON.stringify(await confirmed.clone().json())).toBe(200);
+      expect((await statusOf(mine)).booking_status).toBe('confirmed');
+
+      // Отмена без причины не принимается: её получит турист.
+      expect((await patch(mine, { booking_status: 'cancelled' })).status).toBe(400);
+      expect((await statusOf(mine)).booking_status).toBe('confirmed');
+      const cancelled = await patch(mine, { booking_status: 'cancelled', cancellation_reason: 'Закрыт подъезд к вулкану' });
+      expect(cancelled.status, JSON.stringify(await cancelled.clone().json())).toBe(200);
+      expect(await statusOf(mine)).toEqual({ booking_status: 'cancelled', cancellation_reason: 'Закрыт подъезд к вулкану' });
+      // Из отменённой обратно не перевести — правило оператора отвечает 409.
+      expect((await patch(mine, { booking_status: 'confirmed' })).status).toBe(409);
+      expect((await statusOf(mine)).booking_status).toBe('cancelled');
+
+      // Даты: только своего тура и только в его сезон.
+      const { POST } = await import('@/app/api/guide/own/dates/route');
+      const open = (payload: Record<string, unknown>) => POST(new NextRequest('http://localhost/api/guide/own/dates', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+      }) as unknown as NextRequest);
+      const d = (await pool.query<{ a: string; b: string; c: string; e: string }>(
+        `SELECT (CURRENT_DATE + 10)::text AS a, (CURRENT_DATE + 12)::text AS b,
+                (CURRENT_DATE + 50)::text AS c, (CURRENT_DATE + 51)::text AS e`,
+      )).rows[0];
+      const inSeason = await open({ tourId: String(guideTour), startDate: d.a, endDate: d.b, slots: 4 });
+      expect(inSeason.status).toBe(200);
+      expect((await inSeason.json()).message).toBe('Открыто дат: 3');
+      const outOfSeason = await open({ tourId: String(guideTour), startDate: d.c, endDate: d.e, slots: 4 });
+      expect((await outOfSeason.json()).message).toBe('Открыто дат: 0, вне сезона тура: 2');
+      expect((await open({ tourId: String(foreignTour), startDate: d.a, endDate: d.a, slots: 4 })).status).toBe(404);
+      expect((await pool.query(
+        `SELECT date::text AS date, available_slots, booked_slots FROM tour_availability WHERE operator_tour_id = $1 ORDER BY date`, [guideTour],
+      )).rows).toEqual([
+        { date: d.a, available_slots: 4, booked_slots: 0 },
+        expect.objectContaining({ available_slots: 4, booked_slots: 0 }),
+        { date: d.b, available_slots: 4, booked_slots: 0 },
+      ]);
+      expect((await pool.query(`SELECT count(*)::int AS n FROM tour_availability WHERE operator_tour_id = $1`, [foreignTour])).rows[0].n).toBe(0);
+
+      // Личные сообщения гиду ведут в «Свои туры»: категорию приносит тот же
+      // запрос, что и адрес (lib/partners/reach → lib/partners/cabinet-links).
+      const { reachForPartner } = await import('@/lib/partners/reach');
+      expect((await reachForPartner(guide))?.category).toBe('guide');
+      expect((await reachForPartner(otherOp))?.category).toBe('operator');
+    } finally {
+      authAs.userId = userId;
+      authAs.role = 'tourist';
+    }
   });
 
   it('удаление: причина отмены словами самого туриста («ковид») стирается в брони, журнале статусов и ленте CRM; комментарий оператора к подтверждению — подпись (#2327, пятый круг)', async () => {

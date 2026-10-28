@@ -91,7 +91,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/cron/tour-reminder/route.ts': 2,
   'app/api/cron/trip-reminders/route.ts': 1,
   'app/api/cron/voice-probe/route.ts': 1,
-  'app/api/hub/operator/bookings/[id]/route.ts': 4,
   'app/api/leads/route.ts': 1,
   'app/api/mcp/route.ts': 1,
   'app/api/mesh/sos-relay/route.ts': 1,
