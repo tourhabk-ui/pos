@@ -337,7 +337,7 @@ describe('ключ задан: запрос без него не обрабат�
 const STARTS: Array<{ payload: string; kind: 'login' | 'link' | 'admin'; applied: () => unknown }> = [
   { payload: 'login-abcdefgh12345678', kind: 'login', applied: () => expect(m.login).toHaveBeenCalledTimes(1) },
   { payload: `sr_${'a'.repeat(32)}`, kind: 'link', applied: () => expect(m.bindTourist).toHaveBeenCalledWith('a'.repeat(32), 'max', 77) },
-  { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function)) },
+  { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function), 77) },
   { payload: 'om_signed-token', kind: 'link', applied: () => expect(m.memberStart).toHaveBeenCalledWith('om_signed-token', 'max', 77, expect.any(Function)) },
   { payload: `adm_${'b'.repeat(32)}`, kind: 'admin', applied: () => expect(m.adminStart).toHaveBeenCalledWith(`adm_${'b'.repeat(32)}`, 77, expect.any(Function)) },
 ];
@@ -368,7 +368,7 @@ describe('ссылки старта: вход и подключение чата
       m.processMessage.mockClear();
       m.maxSend.mockClear();
       await post(VERIFIED, message(text));
-      expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function));
+      expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function), 77);
       expect(m.processMessage).not.toHaveBeenCalled();
       const reply = m.partnerStart.mock.calls[0]?.[3] as (t: string) => Promise<void>;
       await reply('Вы подключены как туроператор.');

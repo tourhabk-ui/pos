@@ -20,6 +20,8 @@ import { UNVERIFIED_START_REPLY } from '@/lib/max/verified-press';
 const m = vi.hoisted(() => ({
   memberStart: vi.fn(),
   partnerStart: vi.fn(),
+  bindPartner: vi.fn(),
+  verifyLink: vi.fn(),
   tgSend: vi.fn(),
   verifiedMax: vi.fn(),
   processMessage: vi.fn(),
@@ -29,13 +31,13 @@ const m = vi.hoisted(() => ({
 // ── Общие для обоих ботов ─────────────────────────────────────────────────
 vi.mock('@/lib/operators/member-channel', () => ({ handleMemberStart: m.memberStart }));
 vi.mock('@/lib/partners/bind-channel', () => ({
-  handlePartnerStart: m.partnerStart, bindPartnerChannel: vi.fn(), bindReplyText: vi.fn(() => ''), badLinkReplyText: vi.fn(() => ''),
+  handlePartnerStart: m.partnerStart, bindPartnerChannel: m.bindPartner, bindReplyText: vi.fn(() => ''), badLinkReplyText: vi.fn(() => ''),
 }));
 vi.mock('@/lib/partners/channel-link', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/partners/channel-link')>();
   return {
     partnerTokenFromStart: (a: string) => (a.startsWith('op_') ? a.slice(3) : null),
-    verifyPartnerLinkToken: vi.fn(() => ({ ok: false, reason: 'bad_signature' })),
+    verifyPartnerLinkToken: m.verifyLink,
     partnerLinkArgFromText: real.partnerLinkArgFromText,
   };
 });
@@ -94,6 +96,8 @@ beforeEach(() => {
   for (const f of Object.values(m)) f.mockReset();
   m.memberStart.mockResolvedValue(true);
   m.partnerStart.mockResolvedValue(false);
+  m.verifyLink.mockReturnValue({ ok: false, reason: 'bad_signature' });
+  m.bindPartner.mockResolvedValue({ ok: false, reason: 'not_found' });
   m.tgSend.mockResolvedValue({ success: true });
   m.maxSend.mockResolvedValue({});
   vi.stubEnv('MAX_BOT_TOKEN', 'test-token');
@@ -132,6 +136,35 @@ describe('Telegram: /start om_', () => {
   it('в группе /start om_ никого не подключает', async () => {
     await telegram.POST(tgUpdate('/start om_tok', { id: -100500, type: 'supergroup' }));
     expect(m.memberStart).not.toHaveBeenCalled();
+  });
+});
+
+// Вход на сайт через Telegram (1336): владелец карточки — тот, кто открыл
+// ссылку op_ в ЛИЧНОМ чате (id чата равен id человека). Группа ссылку не
+// разбирает вовсе: её участником может быть кто угодно.
+describe('Telegram: /start op_ — кто открыл ссылку', () => {
+  const PARTNER = '0f2a7f0e-3f5d-4c1a-9b0e-7d4b2a1c5e6f';
+  const raw = (chat: { id: number; type: string }, fromId: number) =>
+    new NextRequest('http://localhost/api/telegram/webhook', {
+      method: 'POST',
+      body: JSON.stringify({ update_id: tgUpdateId++, message: { message_id: 1, from: { id: fromId, first_name: 'Прокатчик' }, chat, text: '/start op_tok' } }),
+    });
+
+  beforeEach(() => { m.verifyLink.mockReturnValue({ ok: true, partnerId: PARTNER }); });
+
+  it('личный чат — владелец записывается вместе с чатом', async () => {
+    await telegram.POST(raw({ id: 4242, type: 'private' }, 4242));
+    expect(m.bindPartner).toHaveBeenCalledWith(PARTNER, 'telegram', 4242, 4242);
+  });
+
+  it('группа — ссылка не подключает и владельца не пишет', async () => {
+    await telegram.POST(raw({ id: -100500, type: 'supergroup' }, 4242));
+    expect(m.bindPartner).not.toHaveBeenCalled();
+  });
+
+  it('чат не равен отправителю — чат подключается, владельца нет', async () => {
+    await telegram.POST(raw({ id: 5151, type: 'private' }, 4242));
+    expect(m.bindPartner).toHaveBeenCalledWith(PARTNER, 'telegram', 5151, null);
   });
 });
 

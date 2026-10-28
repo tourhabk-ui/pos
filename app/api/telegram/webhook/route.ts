@@ -922,6 +922,9 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     const typedLink = chatType === 'private' ? partnerLinkArgFromText(text) : null;
     if (text.startsWith('/start') || typedLink !== null) {
       const arg = typedLink ?? text.slice('/start'.length).trim();
+      // Личный чат: кто открыл ссылку — для входа на сайт через Telegram (1336).
+      // В личном чате id чата равен id человека; иначе владелец не пишется.
+      const linkOpener = chatType === 'private' && fromId > 0 && update.message.chat.id === fromId ? fromId : null;
 
       // /start ABC123 — код из кабинета туроператора. Пишет чат в карточку
       // партнёра, не в users.telegram_id: администратор в «Войти как»
@@ -936,7 +939,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
           await sendRenewCode(chatId, missed);
           return;
         }
-        const byCode = await bindPartnerChannel(consumed.partnerId, 'telegram', update.message.chat.id);
+        const byCode = await bindPartnerChannel(consumed.partnerId, 'telegram', update.message.chat.id, linkOpener);
         if (!byCode.ok) {
           console.error(`[telegram-webhook] код принят, карточка не записана: ${byCode.reason}`);
           await sendRenewCode(chatId, 'Не удалось сохранить привязку. Нажмите «Получить новый».');
@@ -958,7 +961,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
           await sendHTML(chatId, badLinkReplyText(check.reason));
           return;
         }
-        const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
+        const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id, linkOpener);
         await replyOperatorBound(chatId, update.message.chat.id, bound);
         return;
       }

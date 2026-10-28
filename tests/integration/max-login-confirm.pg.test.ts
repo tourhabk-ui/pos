@@ -535,4 +535,139 @@ withPg('вход через MAX подтверждается вопросом в
       expect(again).toEqual({ ok: false, reason: 'already_yours' });
     });
   });
+
+  // ── Прокатчик входит на сайт через MAX (владелец 26.10, «Лагуна Прокат») ──
+  //
+  // Почты у человека нет, MAX есть. Он открывает ссылку подключения op_ в
+  // личном диалоге — бот записывает чат для заявок и его самого владельцем
+  // ссылки (1336); администратор нажимает «Вход через MAX / Telegram»; дальше
+  // человек входит обычным «Войти через MAX» и попадает в кабинет перевозчика.
+  // Всё против схемы прода: настоящая ссылка HMAC, обработчик бота, роут
+  // администратора, опрос входа и роут кабинета.
+  describe('прокатчик входит на сайт через MAX — по ссылке подключения (26.10)', () => {
+    const OWNER_MAX = 730_001;
+    const DIALOG = 9_730_001;
+    let adminToken = '';
+
+    beforeAll(async () => {
+      process.env.CONNECT_TOKEN_SECRET = 'test-secret-for-partner-links-16';
+      const { rows: [admin] } = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role, preferences)
+         VALUES ('rental-admin@test.invalid', 'Админ Проката', 'x', 'admin', '{"roles":["tourist","admin"]}')
+         RETURNING id::text AS id`,
+      );
+      const { createToken } = await import('@/lib/auth/jwt');
+      adminToken = await createToken({ userId: admin.id, email: 'rental-admin@test.invalid', role: 'admin' });
+      await pool.query(
+        `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+        [admin.id, adminToken],
+      );
+    });
+
+    async function card(slug: string, owner: number | null = null): Promise<string> {
+      const { rows: [p] } = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, max_owner_user_id)
+         VALUES ($1, 'transfer', '{}', TRUE, TRUE, $1, $2) RETURNING id::text AS id`,
+        [slug, owner],
+      );
+      return p.id;
+    }
+
+    async function messengerLogin(partnerId: string) {
+      const { POST } = await import('@/app/api/admin/operators/[id]/messenger-login/route');
+      const res = await POST(new NextRequest(`https://vedarai.ru/api/admin/operators/${partnerId}/messenger-login`, {
+        method: 'POST', headers: { authorization: `Bearer ${adminToken}` },
+      }), { params: Promise.resolve({ id: partnerId }) });
+      return { status: res.status, body: (await res.json()) as { success: boolean; outcome?: string; via?: string; created?: boolean } };
+    }
+
+    const ownerOf = async (partnerId: string) => (await pool.query<{ user_id: string | null }>(
+      'SELECT user_id::text AS user_id FROM partners WHERE id = $1', [partnerId],
+    )).rows[0].user_id;
+
+    it('ссылку ещё никто не открыл — отказ, аккаунта нет', async () => {
+      const partnerId = await card('rental-login-none');
+      const r = await messengerLogin(partnerId);
+      expect(r.status).toBe(409);
+      expect(r.body).toMatchObject({ success: false, outcome: 'no_opener' });
+      expect(await ownerOf(partnerId)).toBeNull();
+    });
+
+    it('«Старт» по op_ в диалоге → вход заведён → «Войти через MAX» открывает кабинет перевозчика', async () => {
+      const partnerId = await card('rental-login-test');
+      const { createPartnerLinkToken, PARTNER_LINK_PREFIX } = await import('@/lib/partners/channel-link');
+      const link = createPartnerLinkToken(partnerId);
+      if (!link.ok) throw new Error(link.reason);
+      await bot({
+        update_type: 'bot_started', timestamp: Date.now(), chat_id: DIALOG,
+        user: { user_id: OWNER_MAX, name: 'Прокатчик' }, payload: `${PARTNER_LINK_PREFIX}${link.token}`,
+      });
+      const { rows: [bound] } = await pool.query<{ chat: string; owner: string }>(
+        'SELECT max_chat_id::text AS chat, max_owner_user_id::text AS owner FROM partners WHERE id = $1', [partnerId],
+      );
+      // Чат для заявок — диалог, владелец ссылки — человек, а не чат.
+      expect(bound).toEqual({ chat: String(DIALOG), owner: String(OWNER_MAX) });
+
+      const r = await messengerLogin(partnerId);
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect(r.body).toMatchObject({ success: true, via: 'max', created: true });
+      const { rows: [user] } = await pool.query<{
+        id: string; role: string; password_hash: string; pd_consent_given: boolean; preferences: { roles?: string[] };
+      }>(
+        'SELECT id::text AS id, role, password_hash, pd_consent_given, preferences FROM users WHERE max_user_id = $1', [OWNER_MAX],
+      );
+      expect(user).toMatchObject({ role: 'transfer', password_hash: '', pd_consent_given: false, preferences: { roles: ['transfer'] } });
+      expect(await ownerOf(partnerId)).toBe(user.id);
+
+      // Обычный вход через MAX находит этот аккаунт: пароль не нужен.
+      const nonce = await newSession();
+      await start(nonce, OWNER_MAX);
+      await press(lastButtons().find((b) => b.text === 'Да, это я')!.payload, OWNER_MAX);
+      const login = await status(nonce);
+      expect(login.status).toBe('authenticated');
+      const { GET } = await import('@/app/api/hub/carrier/vehicles/route');
+      const cabinet = await GET(new NextRequest('https://vedarai.ru/api/hub/carrier/vehicles', {
+        headers: { authorization: `Bearer ${login.data!.token!}` },
+      }));
+      expect(cabinet.status).toBe(200);
+
+      // Повтор — аккаунт уже есть, второго не заводится.
+      const again = await messengerLogin(partnerId);
+      expect(again).toMatchObject({ status: 409, body: { outcome: 'has_account' } });
+      const { rows: [n] } = await pool.query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users WHERE max_user_id = $1', [OWNER_MAX]);
+      expect(n.n).toBe('1');
+    });
+
+    it('аккаунт туриста получает роль карточки и сохраняет туристскую', async () => {
+      const TOURIST_MAX = 730_002;
+      await pool.query(
+        `INSERT INTO users (email, name, password_hash, role, max_user_id) VALUES ('max_730002@max.local', 'Турист', '', 'tourist', $1)`,
+        [TOURIST_MAX],
+      );
+      const partnerId = await card('rental-login-tourist', TOURIST_MAX);
+      const r = await messengerLogin(partnerId);
+      expect(r).toMatchObject({ status: 200, body: { via: 'max', created: false } });
+      const { rows: [user] } = await pool.query<{ id: string; role: string; preferences: { roles?: string[] } }>(
+        'SELECT id::text AS id, role, preferences FROM users WHERE max_user_id = $1', [TOURIST_MAX],
+      );
+      expect(user.role).toBe('transfer');
+      expect([...(user.preferences.roles ?? [])].sort()).toEqual(['tourist', 'transfer']);
+      expect(await ownerOf(partnerId)).toBe(user.id);
+    });
+
+    it('аккаунт администратора не перекрашивается: отказ, роль и карточка прежние', async () => {
+      const ADMIN_MAX = 730_003;
+      await pool.query(
+        `INSERT INTO users (email, name, password_hash, role, max_user_id, preferences)
+         VALUES ('max_730003@max.local', 'Админ', '', 'tourist', $1, '{"roles":["tourist","admin"]}')`,
+        [ADMIN_MAX],
+      );
+      const partnerId = await card('rental-login-admin', ADMIN_MAX);
+      const r = await messengerLogin(partnerId);
+      expect(r).toMatchObject({ status: 409, body: { outcome: 'other_role' } });
+      const { rows: [user] } = await pool.query<{ role: string }>('SELECT role FROM users WHERE max_user_id = $1', [ADMIN_MAX]);
+      expect(user.role).toBe('tourist');
+      expect(await ownerOf(partnerId)).toBeNull();
+    });
+  });
 });

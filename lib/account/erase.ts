@@ -809,9 +809,14 @@ const HIS_MESSENGER_IDS = `SELECT
         ARRAY(SELECT u.max_user_id::bigint FROM users u WHERE u.id = $1 AND u.max_user_id IS NOT NULL
               UNION
               SELECT t.chat_id::bigint FROM tg_conversations t JOIN users u ON u.id = $1
-               WHERE t.platform = 'max' AND t.user_id = u.max_user_id) AS mx`;
+               WHERE t.platform = 'max' AND t.user_id = u.max_user_id) AS mx,
+        ARRAY(SELECT u.telegram_id::bigint FROM users u WHERE u.id = $1 AND u.telegram_id IS NOT NULL) AS tu,
+        ARRAY(SELECT u.max_user_id::bigint FROM users u WHERE u.id = $1 AND u.max_user_id IS NOT NULL) AS mu`;
 const OWN_TG = (p: string) => `${p}.telegram_chat_id::bigint = ANY(his.tg)`;
 const OWN_MAX = (p: string) => `${p}.max_chat_id::bigint = ANY(his.mx)`;
+/** Владелец ссылки подключения (1336) — его id человека (tu, mu), не id чата. */
+const OWN_LINK_TG = (p: string) => `${p}.telegram_owner_user_id = ANY(his.tu)`;
+const OWN_LINK_MAX = (p: string) => `${p}.max_owner_user_id = ANY(his.mu)`;
 const OWN_TG_MIRROR = (p: string) => `(jsonb_typeof(${p}.contacts) = 'object'
           AND (${p}.contacts->>'telegram_chat_id') = ANY(his.tg::text[]))`;
 
@@ -1141,14 +1146,21 @@ export async function eraseUser(
     // (ERASE_STEP_LEAVES). Карточку и прочие её поля шаг не трогает
     // (ERASE_KEEP, partners.*), строки, ссылающиеся на неё, — не его
     // (ERASE_DETACH_ONLY).
+    // Владелец ссылки подключения (1336: кто открыл op_ в личном чате, для
+    // входа на сайт через мессенджер) — его id в MAX или Telegram, и он
+    // снимается с ЛЮБОЙ карточки: ссылку он мог открыть и у карточки, которой
+    // аккаунт не владеет.
     ['partners', `UPDATE partners SET
-        telegram_chat_id = CASE WHEN ${OWN_TG('partners')} THEN NULL ELSE partners.telegram_chat_id END,
-        max_chat_id = CASE WHEN ${OWN_MAX('partners')} THEN NULL ELSE partners.max_chat_id END,
-        contacts = CASE WHEN ${OWN_TG_MIRROR('partners')} THEN partners.contacts - 'telegram_chat_id' ELSE partners.contacts END,
+        telegram_chat_id = CASE WHEN partners.user_id = $1 AND ${OWN_TG('partners')} THEN NULL ELSE partners.telegram_chat_id END,
+        max_chat_id = CASE WHEN partners.user_id = $1 AND ${OWN_MAX('partners')} THEN NULL ELSE partners.max_chat_id END,
+        contacts = CASE WHEN partners.user_id = $1 AND ${OWN_TG_MIRROR('partners')} THEN partners.contacts - 'telegram_chat_id' ELSE partners.contacts END,
+        telegram_owner_user_id = CASE WHEN ${OWN_LINK_TG('partners')} THEN NULL ELSE partners.telegram_owner_user_id END,
+        max_owner_user_id = CASE WHEN ${OWN_LINK_MAX('partners')} THEN NULL ELSE partners.max_owner_user_id END,
         updated_at = NOW()
       FROM (${HIS_MESSENGER_IDS}) his
-      WHERE partners.user_id = $1
-        AND (${OWN_TG('partners')} OR ${OWN_MAX('partners')} OR ${OWN_TG_MIRROR('partners')})`],
+      WHERE (partners.user_id = $1
+             AND (${OWN_TG('partners')} OR ${OWN_MAX('partners')} OR ${OWN_TG_MIRROR('partners')}))
+         OR ${OWN_LINK_TG('partners')} OR ${OWN_LINK_MAX('partners')}`],
     // Предложения «открыть даты» из его диалога MAX с ботом (миграция 1315,
     // lib/operators/chat-dates): chat_id строки — копия канала карточки, и
     // шаг partners выше её не видит — строки ссылаются на карточку, а не на

@@ -60,12 +60,19 @@ export type BindResult =
 
 const CHANNEL_LABEL: Record<PartnerChannel, string> = { telegram: 'Telegram', max: 'MAX' };
 
+/**
+ * `ownerUserId` — кто открыл ссылку (id пользователя MAX или Telegram), только
+ * из личного диалога и заверенного апдейта; иначе null, и прежний владелец
+ * остаётся. По нему администратор заводит вход на сайт через мессенджер (1336).
+ */
 export async function bindPartnerChannel(
   partnerId: string,
   channel: PartnerChannel,
   chatId: number,
+  ownerUserId: number | null = null,
 ): Promise<BindResult> {
   if (!Number.isSafeInteger(chatId)) return { ok: false, reason: 'db_error' };
+  const owner = ownerUserId !== null && Number.isSafeInteger(ownerUserId) && ownerUserId > 0 ? String(ownerUserId) : null;
 
   // Прежнее значение читается тем же запросом, что пишет, — между чтением и
   // записью нет окна, в котором «прежний чат» успел бы стать другим.
@@ -79,6 +86,7 @@ export async function bindPartnerChannel(
                            ELSE (CASE WHEN jsonb_typeof(p.contacts) = 'object' THEN p.contacts ELSE '{}'::jsonb END)
                                 || jsonb_build_object('telegram_chat_id', $1::text)
                          END,
+              telegram_owner_user_id = COALESCE($3::bigint, p.telegram_owner_user_id),
               updated_at = NOW()
          FROM (SELECT id, telegram_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
@@ -87,6 +95,7 @@ export async function bindPartnerChannel(
                   p.category, p.slug, prev.old AS previous`
     : `UPDATE partners p
           SET max_chat_id = $1::bigint,
+              max_owner_user_id = COALESCE($3::bigint, p.max_owner_user_id),
               updated_at = NOW()
          FROM (SELECT id, max_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
@@ -96,7 +105,7 @@ export async function bindPartnerChannel(
 
   let row: { name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null } | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId]));
+    ({ rows: [row] } = await pool.query<{ name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId, owner]));
   } catch (err) {
     const e = err as { message?: string; code?: string };
     console.error(
@@ -257,6 +266,8 @@ export async function handlePartnerStart(
     text: string,
     buttons?: ReadonlyArray<ReadonlyArray<{ text: string; payload: string }>>,
   ) => Promise<unknown>,
+  /** Кто открыл ссылку — только из личного диалога (см. bindPartnerChannel). */
+  ownerUserId: number | null = null,
 ): Promise<boolean> {
   const token = partnerTokenFromStart(arg);
   if (token === null) return false;
@@ -266,7 +277,7 @@ export async function handlePartnerStart(
     await reply(badLinkReplyText(check.reason));
     return true;
   }
-  const bound = await bindPartnerChannel(check.partnerId, channel, chatId);
+  const bound = await bindPartnerChannel(check.partnerId, channel, chatId, ownerUserId);
   const pilot = bound.ok && isRentalPilotSlug(bound.slug);
   const desk = bound.ok && bound.category === 'operator' && !pilot;
   const text = channelBoundText(channel, bound);
