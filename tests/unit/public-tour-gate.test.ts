@@ -620,6 +620,7 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'app/fish/[id]/page.tsx': 'туры на странице вида рыбы',
   'app/hub/fishing/page.tsx': 'витрина рыбалки',
   'app/operators/[slug]/page.tsx': 'страница оператора',
+  'app/guides/[id]/page.tsx': 'страница гида: счёт его собственных туров (1338)',
   'lib/operators/list-query.ts': 'список компаний /operators, факты из живых туров',
   'lib/places/place-detail.ts': '«Туры сюда» на карточке места',
   // Поиск /api/discovery/search

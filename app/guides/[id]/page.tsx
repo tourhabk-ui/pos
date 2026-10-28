@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { pool } from '@/lib/db-pool';
 import { publicGuideWhere } from '@/lib/guides/visibility';
-import { Shield, Award, Star, ArrowLeft, Languages, Mountain, BadgeCheck, Phone, Clock } from 'lucide-react';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { operatorPagePath } from '@/lib/operators/page-link';
+import { Shield, Award, Star, ArrowLeft, Languages, Mountain, BadgeCheck, Phone, Clock, Compass } from 'lucide-react';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
 
@@ -25,6 +27,7 @@ interface GuideProfile {
   experience_years: number | null;
   photo_url: string | null;
   phone: string | null;
+  slug: string | null;
 }
 
 interface Cert {
@@ -39,14 +42,34 @@ const SPEC_LABELS: Record<string, string> = {
   hiking: 'Треккинг', cultural: 'Культура', rafting: 'Рафтинг', skiing: 'Лыжи',
 };
 
-async function getGuide(id: string): Promise<{ guide: GuideProfile; certs: Cert[] } | null> {
+/**
+ * Живые туры, которые гид продаёт сам (`operator_tours.operator_id` — его
+ * карточка; первый такой — 1338, авторские туры гида). Обычно туров у гида
+ * нет — их продаёт оператор, — и тогда 0. Не прочитались — null: кнопку к
+ * турам не рисуем, но «туров нет» тоже не утверждаем — сбой в лог (§4.0).
+ */
+async function countOwnTours(id: string): Promise<number | null> {
+  try {
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM operator_tours ot WHERE ot.operator_id = $1 AND ${publicTourSql('ot')}`,
+      [id],
+    );
+    return rows[0]?.n ?? 0;
+  } catch (e) {
+    const err = e as { code?: string };
+    console.error('[guides] туры гида не прочитаны:', `id=${id}`, `sqlstate=${err?.code ?? 'нет'}`);
+    return null;
+  }
+}
+
+async function getGuide(id: string): Promise<{ guide: GuideProfile; certs: Cert[]; ownTours: number | null } | null> {
   try {
     const { rows } = await pool.query<GuideProfile>(
       `SELECT p.id, p.name, p.company_name, p.description,
               COALESCE(p.rating, 0)::float8 AS rating,
               COALESCE(p.review_count, 0) AS review_count,
               COALESCE(p.is_verified, false) AS is_verified,
-              p.languages, p.specializations, p.experience_years, p.photo_url, p.phone
+              p.languages, p.specializations, p.experience_years, p.photo_url, p.phone, p.slug
        FROM partners p
        WHERE p.id = $1 AND ${publicGuideWhere('p')}
        LIMIT 1`,
@@ -73,7 +96,7 @@ async function getGuide(id: string): Promise<{ guide: GuideProfile; certs: Cert[
         `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     }
 
-    return { guide: rows[0], certs };
+    return { guide: rows[0], certs, ownTours: await countOwnTours(id) };
   } catch (e) {
     // Отказ не глушится (§4.0). Этот пустой catch стоил страницам гидов
     // всего срока их жизни: запрос выбирал пять колонок, которых не было в
@@ -116,7 +139,10 @@ export default async function GuideProfilePage({ params }: { params: Promise<{ i
   const { id } = await params;
   const data = await getGuide(id);
   if (!data) notFound();
-  const { guide, certs } = data;
+  const { guide, certs, ownTours } = data;
+  // Страница со своими турами гида — та же, что у оператора (/operators/<slug>):
+  // список туров, заявка — на странице тура. is_public у публичного гида TRUE.
+  const toursPath = ownTours && ownTours > 0 ? operatorPagePath({ slug: guide.slug, is_public: true }) : null;
 
   const initials = guide.name.split(' ').slice(0, 2).map((s) => s[0]).join('').toUpperCase();
 
@@ -245,16 +271,27 @@ export default async function GuideProfilePage({ params }: { params: Promise<{ i
 
         {/* Контакт */}
         <div className="ds-card flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-sm text-[var(--text-secondary)]">Хотите пойти с этим гидом? Свяжитесь до заявки — уточните маршрут и опыт.</p>
-          {guide.phone ? (
-            <a href={`tel:${guide.phone}`} className="ds-btn ds-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
-              <Phone size={14} /> Связаться
-            </a>
-          ) : (
-            <Link href="/operators" className="ds-btn ds-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
-              <Phone size={14} /> Найти через оператора
-            </Link>
-          )}
+          <p className="text-sm text-[var(--text-secondary)]">
+            {toursPath
+              ? 'У гида свои туры: цена, программа и заявка — на странице каждого тура.'
+              : 'Хотите пойти с этим гидом? Свяжитесь до заявки — уточните маршрут и опыт.'}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {toursPath && (
+              <Link href={toursPath} className={`ds-btn ${guide.phone ? 'ds-btn-secondary' : 'ds-btn-primary'} inline-flex items-center gap-2 whitespace-nowrap`}>
+                <Compass size={14} /> Туры гида · {ownTours}
+              </Link>
+            )}
+            {guide.phone ? (
+              <a href={`tel:${guide.phone}`} className="ds-btn ds-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
+                <Phone size={14} /> Связаться
+              </a>
+            ) : !toursPath && (
+              <Link href="/operators" className="ds-btn ds-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
+                <Phone size={14} /> Найти через оператора
+              </Link>
+            )}
+          </div>
         </div>
       </div>
     </>

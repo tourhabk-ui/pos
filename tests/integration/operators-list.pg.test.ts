@@ -464,4 +464,188 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(second.rowCount).toBe(0);
     });
   });
+
+  /**
+   * Гид Андрей Запорожец (1338, слово владельца 26.10: «проверегный гид»,
+   * «Авторскте туры гида», «фото используй с подписью»). Гид — не компания,
+   * но свои туры продаёт он сам, поэтому идёт той же витриной: каталог,
+   * карточка тура, список компаний. Блок последний в файле: он открывает
+   * карточку гида, а счёт списка выше считан без неё.
+   *
+   * Судится то, что текстом миграции не проверить: на шаблоне (карточки нет)
+   * она заводится; импортная скрытая карточка реестра открывается, а не
+   * дублируется; две карточки-кандидата — ничего не трогается; повтор — ноль
+   * изменений; подпись снимков доходит до карточки тура; телефона нет нигде.
+   */
+  describe('гид Андрей Запорожец: карточка и авторские туры (1338)', () => {
+    const MIG_1338 = readFileSync(join(process.cwd(), 'migrations/1338_guide_zaporozhets_tours.sql'), 'utf-8');
+    const SLUG = 'andrey-zaporozhets';
+    const guideTours = async (pid: string) => (await pool.query<{ slug: string }>(
+      `SELECT slug FROM operator_tours WHERE operator_id = $1::uuid AND deleted_at IS NULL ORDER BY slug`, [pid],
+    )).rows.map((r) => r.slug);
+    /** Пять туров с описанием гида — на витрине; восемь строк прайса без описания — черновики. */
+    const TOUR_SLUGS = [
+      'zaporozhets-kanyon-opasnyy-dachnye', 'zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya',
+      'zaporozhets-tolbachik-4-dnya', 'zaporozhets-vulkan-gorelyy',
+    ];
+    const DRAFT_SLUGS = [
+      'zaporozhets-avacha-voskhozhdenie', 'zaporozhets-avachinskiy-pereval-verblyud', 'zaporozhets-bukhta-russkaya',
+      'zaporozhets-dachnye-spokoynyy', 'zaporozhets-ganalskie-vostryaki', 'zaporozhets-tolmachevo',
+      'zaporozhets-vachkazhets-ozerki', 'zaporozhets-verblyud-plyazh',
+    ];
+    const ALL_SLUGS = [...TOUR_SLUGS, ...DRAFT_SLUGS].sort();
+    const reset = async () => {
+      await pool.query(`DELETE FROM operator_tours WHERE slug LIKE 'zaporozhets-%'`);
+      await pool.query(`DELETE FROM partners WHERE slug = $1 OR slug LIKE 'vk-guide-zaporozhets%'`, [SLUG]);
+    };
+
+    it('на шаблоне карточки нет — миграция её завела: гид, проверен, одобрен, без телефона', async () => {
+      const { rows } = await pool.query(
+        `SELECT id, name, category, profile_status, is_verified, status, contact, contacts, phone,
+                (SELECT count(*)::int FROM jsonb_object_keys(gallery_credits)) AS credits
+           FROM partners WHERE slug = $1`, [SLUG],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ name: 'Андрей Запорожец', category: 'guide', profile_status: 'approved', is_verified: true, status: 'active', credits: 24, phone: null });
+      expect(JSON.stringify([rows[0].contact, rows[0].contacts])).not.toMatch(/\d{6,}|phone/);
+      expect(await guideTours(rows[0].id)).toEqual(ALL_SLUGS);
+    });
+
+    it('туры на витрине: цена за человека, группа до 4, забор с адреса; подпись снимков и ссылка на гида на карточке тура', async () => {
+      // Общий beforeAll файла закрыл все карточки; гиду её возвращаем, как на проде после 1338.
+      await pool.query(`UPDATE partners SET is_public = TRUE WHERE slug = $1`, [SLUG]);
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      const live = await pool.query<{ slug: string; base_price: string; price_unit: string; max_participants: number; pickup_type: string; pickup_details: string }>(
+        `SELECT ot.slug, ot.base_price, ot.price_unit, ot.max_participants, ot.pickup_type, ot.pickup_details
+           FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id
+          WHERE p.slug = $1 AND ${publicTourSql('ot')} ORDER BY ot.base_price`, [SLUG],
+      );
+      expect(live.rows.map((r) => [r.slug, Number(r.base_price)])).toEqual([
+        ['zaporozhets-vulkan-gorelyy', 15000], ['zaporozhets-kanyon-opasnyy-dachnye', 18000],
+        ['zaporozhets-tolbachik-4-dnya', 85000], ['zaporozhets-kurilskoe-ozero-3-dnya', 95000],
+        ['zaporozhets-kurilskoe-ozero-4-dnya', 125000],
+      ]);
+      for (const r of live.rows) {
+        expect(r).toMatchObject({ price_unit: 'per_person', max_participants: 4, pickup_type: 'hotel_pickup' });
+        expect(r.pickup_details).toContain('доплату 1 000 ₽');
+      }
+
+      const { loadTourCard } = await import('@/lib/tours/tour-detail-query');
+      const { tourPhotoCaptions, tourPhotoCreditLine } = await import('@/lib/tours/photo-credits');
+      const { operatorPagePath } = await import('@/lib/operators/page-link');
+      const card = await loadTourCard('zaporozhets-tolbachik-4-dnya');
+      expect(card).not.toBeNull();
+      const captions = tourPhotoCaptions(card!.tour.photos ?? [], card!.tour.operator_photo_credits);
+      expect(captions).toHaveLength(8);
+      expect(captions.every((c) => c === 'Фото: Андрей Запорожец')).toBe(true);
+      expect(tourPhotoCreditLine(captions)).toBe('Фото: Андрей Запорожец');
+      expect(operatorPagePath({ slug: card!.tour.operator_slug, is_public: card!.tour.operator_public })).toBe('/operators/andrey-zaporozhets');
+    });
+
+    it('выезды гида: Курильское и Толбачик — его даты по 4 места; Горелый — сезон без ежедневных мест; черновики не видны', async () => {
+      const { GET } = await import('@/app/api/tours/[id]/slots/route');
+      const { NextRequest } = await import('next/server');
+      const id = async (slug: string) => (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = $1`, [slug])).rows[0].id;
+      const slots = async (slug: string) => {
+        const tid = await id(slug);
+        const res = await GET(new NextRequest(`http://localhost/api/tours/${tid}/slots`), { params: Promise.resolve({ id: tid }) });
+        expect(res.status).toBe(200);
+        const body = await res.json() as { data?: { date: string; free_slots: number }[]; slots?: { date: string; free_slots: number }[] };
+        return (body.data ?? body.slots ?? []).map((s) => [String(s.date).slice(0, 10), s.free_slots]);
+      };
+      // Окно ответа — от сегодня на год вперёд (база считает по своим часам):
+      // ожидание сужается тем же окном, чтобы прошедший выезд не ронял проверку.
+      const { rows: [w] } = await pool.query<{ a: string; b: string }>(
+        `SELECT CURRENT_DATE::text AS a, (CURRENT_DATE + INTERVAL '1 year')::date::text AS b`,
+      );
+      const inWindow = (ds: string[]) => ds.filter((d) => d >= w.a && d <= w.b);
+      const KURIL = ['2027-07-19', '2027-08-02', '2027-08-16', '2027-08-30', '2027-09-13', '2027-09-27'];
+      const TOLB = ['2027-07-26', '2027-08-09', '2027-08-23', '2027-09-06', '2027-09-20'];
+      expect(await slots('zaporozhets-kurilskoe-ozero-4-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 4]));
+      expect(await slots('zaporozhets-kurilskoe-ozero-3-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 4]));
+      expect((await slots('zaporozhets-tolbachik-4-dnya')).map(([d]) => d)).toEqual(inWindow(TOLB));
+      // Сами выезды записаны все, независимо от сегодняшней даты.
+      const rec = await pool.query<{ slug: string; d: string; n: number }>(
+        `SELECT t.slug, a.date::text AS d, a.available_slots AS n FROM tour_availability a
+           JOIN operator_tours t ON t.id = a.operator_tour_id WHERE t.slug LIKE 'zaporozhets-%' ORDER BY t.slug, a.date`,
+      );
+      expect(rec.rows.filter((r) => r.slug === 'zaporozhets-tolbachik-4-dnya').map((r) => r.d)).toEqual(TOLB);
+      expect(rec.rows).toHaveLength(17);
+      expect(rec.rows.every((r) => r.n === 4)).toBe(true);
+      // «Не каждый день будут группы набраны» — ежедневных мест нет, только окно сезона.
+      expect(await slots('zaporozhets-vulkan-gorelyy')).toEqual([]);
+      const season = await pool.query(`SELECT season_start::text AS s, season_end::text AS e FROM operator_tours WHERE slug = 'zaporozhets-vulkan-gorelyy'`);
+      expect(season.rows[0]).toEqual({ s: '2027-07-15', e: '2027-10-15' });
+
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      const vis = await pool.query<{ slug: string }>(
+        `SELECT slug FROM operator_tours WHERE slug = ANY($1::text[]) AND ${publicTourSql('')}`, [DRAFT_SLUGS],
+      );
+      expect(vis.rows).toEqual([]);
+      const russ = await pool.query(`SELECT base_price::int AS p, season_start::text AS s, pickup_type FROM operator_tours WHERE slug = 'zaporozhets-bukhta-russkaya'`);
+      expect(russ.rows[0]).toEqual({ p: 19000, s: '2027-06-01', pickup_type: null });
+    });
+
+    it('гид — в списке компаний со строкой фактов о своих турах и на странице гидов', async () => {
+      const { queryOperators } = await import('@/lib/operators/list-query');
+      const { tourFactsLine } = await import('@/lib/operators/tour-facts');
+      const { publicGuideWhere } = await import('@/lib/guides/visibility');
+      const r = await queryOperators({ page: 1, limit: 12 });
+      const guide = r.items.find((i) => i.slug === SLUG);
+      expect(guide).toBeDefined();
+      expect(tourFactsLine(guide!.tourFacts)).toMatch(/^5 туров · /);
+      const g = await pool.query(`SELECT count(*)::int AS n FROM partners WHERE slug = $1 AND ${publicGuideWhere('partners')}`, [SLUG]);
+      expect(g.rows[0].n).toBe(1);
+    });
+
+    it('скрытая карточка реестра открывается, а не дублируется; имя реестра остаётся; повтор ничего не меняет', async () => {
+      await reset();
+      const { rows: [reg] } = await pool.query<{ id: string }>(
+        `INSERT INTO partners (slug, company_name, name, category, contact, external_source, is_verified, is_public, status)
+         VALUES ('vk-guide-zaporozhets-test', 'Запорожец Андрей Тестович', 'Запорожец Андрей Тестович', 'guide', '{}'::jsonb,
+                 'visitkamchatka', FALSE, FALSE, 'pending') RETURNING id`,
+      );
+      await pool.query(MIG_1338);
+      const after = await pool.query(
+        `SELECT id, slug, name, is_public, is_verified, profile_status, status, description FROM partners
+          WHERE category = 'guide' AND name ILIKE '%запорожец%'`,
+      );
+      expect(after.rows).toHaveLength(1);
+      expect(after.rows[0]).toMatchObject({
+        id: reg.id, slug: SLUG, name: 'Запорожец Андрей Тестович',
+        is_public: true, is_verified: true, profile_status: 'approved', status: 'active',
+      });
+      expect(after.rows[0].description).toContain('Авторские туры гида');
+      expect(await guideTours(reg.id)).toEqual(ALL_SLUGS);
+
+      await pool.query(MIG_1338);
+      expect((await pool.query(`SELECT count(*)::int AS n FROM partners WHERE category = 'guide' AND name ILIKE '%запорожец%'`)).rows[0].n).toBe(1);
+      expect(await guideTours(reg.id)).toEqual(ALL_SLUGS);
+    });
+
+    it('две карточки-кандидата или отклонённая — ничего не трогается, туров нет', async () => {
+      await reset();
+      const two = await pool.query<{ id: string }>(
+        `INSERT INTO partners (slug, name, category, contact, is_public)
+         VALUES ('vk-guide-zaporozhets-a', 'Запорожец Андрей А', 'guide', '{}'::jsonb, FALSE),
+                ('vk-guide-zaporozhets-b', 'Андрей Запорожец Б', 'guide', '{}'::jsonb, FALSE) RETURNING id`,
+      );
+      await pool.query(MIG_1338);
+      for (const { id } of two.rows) {
+        const p = await pool.query(`SELECT slug, is_public, profile_status FROM partners WHERE id = $1`, [id]);
+        expect(p.rows[0].is_public).toBe(false);
+        expect(p.rows[0].slug).not.toBe(SLUG);
+        expect(await guideTours(id)).toEqual([]);
+      }
+
+      await reset();
+      const { rows: [rej] } = await pool.query<{ id: string }>(
+        `INSERT INTO partners (slug, name, category, contact, is_public, status)
+         VALUES ('vk-guide-zaporozhets-r', 'Запорожец Андрей', 'guide', '{}'::jsonb, FALSE, 'rejected') RETURNING id`,
+      );
+      await pool.query(MIG_1338);
+      expect((await pool.query(`SELECT is_public FROM partners WHERE id = $1`, [rej.id])).rows[0].is_public).toBe(false);
+      expect(await guideTours(rej.id)).toEqual([]);
+    });
+  });
 });
