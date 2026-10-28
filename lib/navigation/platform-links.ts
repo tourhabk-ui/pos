@@ -20,7 +20,7 @@
  */
 import type { LucideIcon } from 'lucide-react';
 import {
-  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car,
+  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -70,6 +70,8 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Трансфер: машина под заказ', href: '/transfers', icon: Bus },
       // Прокат — машина без водителя, цена за сутки (23.10, 1317); водитель у перевозчика выше.
       { label: 'Аренда автомобилей',         href: '/car-rental', icon: Car },
+      // Табло Елизово (29.10, #2788) — задержки и отмены по табло аэропорта.
+      { label: 'Табло аэропорта Елизово',    href: '/flights',    icon: PlaneTakeoff },
       { label: 'Планирование поездки',    href: '/partners',       icon: Plane },
       { label: 'Камчатская рыбалка',      href: '/hub/fishing',    icon: Fish },
       { label: 'Сертифицированные гиды',  href: '/guides',         icon: Award },

@@ -780,6 +780,10 @@ function SourceNote({ w }: { w: PlaceWeather }) {
         В горах погода меняется быстрее прогноза. Перед выходом на маршрут —{' '}
         <Link href="/register" className="text-[var(--ocean)]">регистрация в МЧС</Link>.
       </p>
+      <p>
+        Задержки и отмены рейсов —{' '}
+        <Link href="/flights" className="text-[var(--ocean)]">табло аэропорта Елизово</Link>.
+      </p>
     </section>
   );
 }

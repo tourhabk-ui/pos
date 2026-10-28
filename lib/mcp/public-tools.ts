@@ -20,7 +20,10 @@ import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
  * использования (search_kamchatka — платный веб-поиск, search_taaft — внешний
  * каталог с трекингом).
  */
-export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft']);
+// get_flight_board (29.10) — табло Елизово только в чате Кузьмича: внешнему
+// агенту инструмент не открыт, пока у него нет английского и китайского слоя
+// и подсказок хосту (TOOL_ANNOTATIONS), — без них описание было бы половиной.
+export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft', 'get_flight_board']);
 
 /**
  * create_lead — единственный ПИШУЩИЙ инструмент наружу. Бронь и оплату
