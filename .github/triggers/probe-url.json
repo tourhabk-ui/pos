@@ -1,18 +1,25 @@
 {
   "timeout": 30,
-  "run": 1005,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Табло прилёта Елизово (pkc.aero/board/?type=arr): статусы и задержки.",
+  "run": 1006,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Разметка строки табло pkc.aero/board/ (для разбора: классы ячеек, дата, статус, ожидаемое время, примечание) и robots.txt сайта.",
   "urls": [
-    "https://pkc.aero/board/?type=arr"
+    "https://pkc.aero/robots.txt",
+    "https://pkc.aero/board/"
   ],
   "allowStale": true,
   "retries": 1,
-  "text": true,
-  "bytes": 5000,
+  "text": false,
+  "bytes": 1500,
   "grep": [
-    "Задерж",
-    "Отмен",
-    "Прибыл",
-    "Совершил посадку"
-  ]
+    "Disallow",
+    "table-flex",
+    "Задержан"
+  ],
+  "around": [
+    "Время по расписанию",
+    "Задержан"
+  ],
+  "aroundBefore": 6,
+  "aroundLines": 70,
+  "aroundHits": 1
 }
