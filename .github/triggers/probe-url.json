@@ -1,23 +1,18 @@
 {
   "timeout": 30,
-  "run": 1004,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Табло pkc.aero: адрес вкладки «Прилет» (ссылки вокруг слова в разметке /board/).",
+  "run": 1005,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Табло прилёта Елизово (pkc.aero/board/?type=arr): статусы и задержки.",
   "urls": [
-    "https://pkc.aero/board/"
+    "https://pkc.aero/board/?type=arr"
   ],
   "allowStale": true,
   "retries": 1,
-  "text": false,
-  "bytes": 200,
+  "text": true,
+  "bytes": 5000,
   "grep": [
-    "Прилет",
-    "arrival"
-  ],
-  "around": [
-    "Прилет",
-    "Показать вылетевшие"
-  ],
-  "aroundBefore": 3,
-  "aroundLines": 3,
-  "aroundHits": 4
+    "Задерж",
+    "Отмен",
+    "Прибыл",
+    "Совершил посадку"
+  ]
 }
