@@ -30,10 +30,25 @@ export interface PushCopy {
 
 import { alertGuidance } from '@/lib/safety/alert-guidance';
 
-/** Обрезка описания до размера, который переживёт уведомление на телефоне. */
+/**
+ * Обрезка описания до размера, который переживёт уведомление на телефоне.
+ *
+ * Режется по границе слова с многоточием: срез посреди слова дал 29.10 пуш
+ * «…по Камчатскому краю поступала . Уходите вверх» — оборванная фраза и точка
+ * за ней читались как текст тревоги, у которого потеряли главное.
+ */
 function short(text: string | null | undefined, limit = 100): string {
-  const t = (text ?? '').trim();
-  return t.length > limit ? t.slice(0, limit) : t;
+  const t = (text ?? '').trim().replace(/\s+/g, ' ');
+  if (t.length <= limit) return t;
+  const room = t.slice(0, limit - 1);
+  const space = room.lastIndexOf(' ');
+  const head = (space > limit / 2 ? room.slice(0, space) : room).replace(/[\s,;:—–-]+$/u, '');
+  return `${head}…`;
+}
+
+/** «Текст» + «. Действие»: точка не ставится после многоточия и знака конца фразы. */
+function sentence(text: string): string {
+  return /[.!?…]$/u.test(text) ? text : `${text}.`;
 }
 
 /**
@@ -55,7 +70,7 @@ export function pushCopy(params: {
     case 'tsunami_warning':
       return {
         title: 'УГРОЗА ЦУНАМИ — Камчатка',
-        body: `${detail}. Уходите вверх ≥30 м от воды.`,
+        body: `${sentence(detail)} Уходите вверх ≥30 м от воды.`,
       };
 
     case 'earthquake':
@@ -65,14 +80,14 @@ export function pushCopy(params: {
             ? params.magnitude.toFixed(1)
             : '?'
         } — Камчатка`,
-        body: `${title}. Если у берега — немедленно вверх ≥30 м.`,
+        body: `${sentence(title)} Если у берега — немедленно вверх ≥30 м.`,
       };
 
     case 'volcanic_eruption':
     case 'ash_cloud':
       return {
         title: 'Вулканическая опасность — Камчатка',
-        body: `${title}. Не приближайтесь к вулкану, сверьте маршрут.`,
+        body: `${sentence(title)} Не приближайтесь к вулкану, сверьте маршрут.`,
       };
 
     // Погода — та самая ветка, которой не было. Команда одна и та же и для
@@ -82,43 +97,43 @@ export function pushCopy(params: {
     case 'weather':
       return {
         title: 'Опасная погода — Камчатка',
-        body: `${title}. Не выходите на маршрут, переждите в укрытии.`,
+        body: `${sentence(title)} Не выходите на маршрут, переждите в укрытии.`,
       };
 
     case 'flood':
       return {
         title: 'Паводок — Камчатка',
-        body: `${title}. Не пересекайте реки вброд.`,
+        body: `${sentence(title)} Не пересекайте реки вброд.`,
       };
 
     case 'fire_danger':
       return {
         title: 'Природный пожар — Камчатка',
-        body: `${title}. Сверьте маршрут — возможны перекрытия и задымление.`,
+        body: `${sentence(title)} Сверьте маршрут — возможны перекрытия и задымление.`,
       };
 
     case 'road_closure':
       return {
         title: 'Ограничение проезда — Камчатка',
-        body: `${title}. Проверьте подъезд до выезда.`,
+        body: `${sentence(title)} Проверьте подъезд до выезда.`,
       };
 
     case 'park_closure':
       return {
         title: 'Маршруты парка закрыты — Камчатка',
-        body: `${title}. Не выходите на маршруты парка до отмены.`,
+        body: `${sentence(title)} Не выходите на маршруты парка до отмены.`,
       };
 
     case 'avalanche':
       return {
         title: 'Лавинная опасность — Камчатка',
-        body: `${title}. Не выходите на склоны и под них.`,
+        body: `${sentence(title)} Не выходите на склоны и под них.`,
       };
 
     case 'landslide':
       return {
         title: 'Сход грунта — Камчатка',
-        body: `${title}. Обойдите склон, не вставайте лагерем под ним.`,
+        body: `${sentence(title)} Обойдите склон, не вставайте лагерем под ним.`,
       };
 
     case 'bear':
@@ -128,7 +143,7 @@ export function pushCopy(params: {
       // единственное, что помещается в пуш и не требует контекста.
       return {
         title: 'Медведи у людей — Камчатка',
-        body: `${title}. ${alertGuidance('bear').steps[0]}`,
+        body: `${sentence(title)} ${alertGuidance('bear').steps[0]}`,
       };
 
     default:

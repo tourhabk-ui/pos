@@ -128,3 +128,26 @@ describe('standDownCopy — слой ПОСЛЕ тревоги (issue #1420)', (
     expect(standDown.title).not.toBe(alert.title);
   });
 });
+
+describe('тело пуша не обрывается посреди слова (29.10)', () => {
+  // Пуш цунами 29.10: описание резалось на 100-м знаке ровно на «поступала»,
+  // и за обрывком вставала точка — «…по Камчатскому краю поступала . Уходите
+  // вверх». Срез по границе слова с многоточием, точки после него нет.
+  const LONG = 'От Камчатского филиала геофизической службы РАН в адрес ГУ МЧС России по Камчатскому краю поступала официальная информация о трёх неощущаемых сейсмособытиях';
+
+  it('длинное описание — по слову, с многоточием, без « .»', () => {
+    const { body } = pushCopy({ alertType: 'tsunami_warning', title: 'Угроза цунами', description: LONG });
+    expect(body).toMatch(/^От Камчатского филиала .+… Уходите вверх ≥30 м от воды\.$/);
+    expect(body).not.toMatch(/ \./);
+    expect(body).not.toMatch(/…\./);
+    const kept = body.slice(0, body.indexOf('…'));
+    expect(LONG.startsWith(kept)).toBe(true);
+    expect(LONG.charAt(kept.length)).toBe(' ');
+  });
+
+  it('заголовок с многоточием или своей точкой — без второй точки', () => {
+    expect(pushCopy({ alertType: 'weather', title: 'Сильный ветер до 30 м/с…' }).body).toMatch(/^Сильный ветер до 30 м\/с… Не выходите/);
+    expect(pushCopy({ alertType: 'weather', title: 'Сильный ветер.' }).body).toMatch(/^Сильный ветер\. Не выходите/);
+    expect(pushCopy({ alertType: 'weather', title: 'Сильный ветер' }).body).toMatch(/^Сильный ветер\. Не выходите/);
+  });
+});
