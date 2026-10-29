@@ -16,6 +16,7 @@ import { runKuzmichRedteamEval } from '@/lib/agents/eval/kuzmich-redteam';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -35,7 +36,9 @@ export async function GET(request: NextRequest) {
 
   const started_at = new Date();
   try {
-    const report = await runKuzmichRedteamEval({ limit });
+    // Расход прогона — на имя red-team, а не живого Кузьмича: без учёта агента
+    // ноги цикла пишут 'kuzmich' (ревью 29.10).
+    const { result: report } = await runWithUsageTracking('kuzmich-redteam', () => runKuzmichRedteamEval({ limit }));
 
     void logAgentRun({
       agent_id: 'kuzmich-redteam',

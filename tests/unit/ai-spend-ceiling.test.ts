@@ -205,7 +205,8 @@ describe('приёмник расхода: авторизация, Zod, цена
   });
 
   it('цену считает сервер, а не берёт из тела запроса', () => {
-    expect(ROUTE).toContain('resolveCostUsd(row.model');
+    // Цена — тем же правилом, что прямая запись (кэш, граница сверху): resolveCostWithCache.
+    expect(ROUTE).toContain('resolveCostWithCache(row.model');
     // В схеме тела нет ни цены, ни базиса: их нельзя прислать даже случайно.
     const schemaStart = ROUTE.indexOf('const UsageRow');
     const schemaEnd = ROUTE.indexOf('export async function POST');
