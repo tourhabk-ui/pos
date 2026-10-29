@@ -1,10 +1,12 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 158,
-  "why": "29.10, после выката #2824: source-probe — какие бесплатные API достаёт прод (РФ): METAR/TAF Елизово (NOAA AWC), PTWC, NOAA SWPC, курс ЦБ, iNaturalist, GBIF, Wikidata, Open Topo Data; с началом тела, временем и Last-Modified.",
+  "run": 159,
+  "why": "29.10, после выката #2836 (прогноз Камчатского УГМС, миграция 1345): /weather — есть ли блок «Прогноз Камчатского УГМС» с текстом на завтра; /api/cron/ugms-forecast — достаёт ли прод kammeteo.ru (ожидаю 200, written > 0; 502 — сайт закрыт для прода, нужен путь через раннер).",
   "urls": [
-    "https://vedarai.ru/api/cron/source-probe"
+    "https://vedarai.ru/api/cron/ugms-forecast",
+    "https://vedarai.ru/weather"
   ],
+  "run158_result": "29.10 02:28 UTC, после выката #2824: source-probe — с прода достаются AWC METAR/TAF, PTWC Atom/CAP/JSON, SWPC, ЦБ, iNat, GBIF, Wikidata, OpenTopoData; pravo.gov.ru и лента KVERT — fetch failed.",
   "run157_result": "29.10 00:51 UTC, после выката #2821: /flights — HTTP 200, 30 строк data-flight, «снято в 12:51 по Камчатке»; прод достаёт табло pkc.aero.",
   "run156_result": "28.10 23:40 UTC, после выката #2817: /api/public/safety-status — maxSeverity 2, верх ленты «Вулкан Безымянный: не приближаться», tsunami_warning нет; alerts-census — 448975 только в pushed_60d (история пуша), в live нет: 1337 погасила.",
   "run155_result": "28.10 22:50 UTC: alerts-census — тревога 448975 tsunami_warning важность 3, 22:17:04–10:17:04 UTC, push_sent true; описание — пункт суточной сводки ВК МЧС (vk.com/wall-45534680_11490): «…о трёх неощущаемых сейсмособытиях. Угрозы цунами не поступало.» Отрицания «не поступало» правило цунами не знало. Починено #2817 (правило, срез пуша по слову, 1337 гасит строку).",
