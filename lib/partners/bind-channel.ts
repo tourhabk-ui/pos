@@ -277,8 +277,9 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  * кнопки строки меню под этим же ответом (`boundMenuRow`: продавцу своих
  * туров — ещё «Брони» и «Мои туры») и где подтверждают бронь: продавцу —
  * кнопками под «Бронями» (вопрос, затем «Да», lib/bookings/chat-owner-action)
- * или в кабинете, остальным — в кабинете. Строки нет (кабинет чата у другой
- * карточки) — кнопок текст не обещает.
+ * или в кабинете, остальным — в кабинете; заявку продавец отмечает кнопками
+ * под «Входящими». Строки нет (кабинет чата у другой карточки) — кнопок текст
+ * не обещает.
  */
 export function guideBoundText(name: string, channel: PartnerChannel, menu: readonly MenuButton[] | null = null): string {
   const contacts = channel === 'max'
@@ -296,6 +297,7 @@ export function guideBoundText(name: string, channel: PartnerChannel, menu: read
   lines.push(buttons
     ? `Подтвердить или отклонить бронь — кнопками под «Бронями» (бот спросит, бронь меняется после «Да») или в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
     : `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
+  if (buttons) lines.push('Заявку отметить — кнопками «Связался», «Договорились», «Отказ» под «Входящими», тоже после «Да».');
   return lines.join('\n');
 }
 

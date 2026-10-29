@@ -23,6 +23,7 @@ import {
 import { operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
+import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 
 export type RoleSend = (text: string, buttons: MenuButton[][]) => Promise<void>;
 
@@ -48,8 +49,9 @@ export async function tryRoleMenuTelegramMessage(opts: {
   // Причина отклонения брони (гид, 29.10): после «Отклонить» следующее
   // сообщение личного чата — причина для туриста. Раньше полосы: «турист
   // заболел» иначе ушло бы Кузьмичу туриста. Беда в тексте — блок 112.
-  if (privateChat) {
-    // Модуль действия тянет правило смены статуса брони — грузится, только когда нужен.
+  // Модуль действия тянет правила смены статуса брони и заявки — грузится,
+  // только когда кнопки этой карточке включены (остальным причину не ждут).
+  if (privateChat && chatActionsEnabledFor(lookup.partner)) {
     const { captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
     const reason = await captureOwnerReason({ channel: 'telegram', chatId: opts.chatId, partner: lookup.partner, text: opts.text });
     if (reason) {

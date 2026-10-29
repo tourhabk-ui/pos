@@ -1718,17 +1718,17 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
-    // Бронь своего тура кнопкой (гид, 29.10): вопрос `bk:`, затем «Да» / «Не
-    // надо» `oc:`. Чат — только из сообщения с кнопкой, и только личный: без
-    // сообщения право не проверить. Остальное проверяет
+    // Бронь и заявка своего тура кнопкой (гид, 29.10): вопрос `bk:` / `ld:`,
+    // затем «Да» / «Не надо» `oc:`. Чат — только из сообщения с кнопкой, и
+    // только личный: без сообщения право не проверить. Остальное проверяет
     // lib/bookings/chat-owner-action (карточка чата, аккаунт, человек
-    // привязки, владение бронью). Вебхук заверен секретом (webhook-secret).
+    // привязки, владение бронью и заявкой). Вебхук заверен секретом (webhook-secret).
     if (isOwnerPressPayload(data)) {
       await telegramService.answerCallback(cq.id);
       const pressChat = cq.message?.chat;
       if (!pressChat) {
         console.error('[telegram/webhook] кнопка брони без сообщения — не применена');
-        await sendHTML(String(senderChatId), 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Бронь не изменена — откройте «Брони» ещё раз.');
+        await sendHTML(String(senderChatId), 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Бронь и заявка не изменены — откройте «Брони» или «Входящие» ещё раз.');
         return;
       }
       const { handleOwnerPress } = await import('@/lib/bookings/chat-owner-action');

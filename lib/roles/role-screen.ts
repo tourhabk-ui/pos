@@ -9,7 +9,8 @@
  * канал telegram получает текст без ПД.
  *
  * `buttons` — кнопки действий над строкой меню: у гида со своими турами под
- * «Бронями» и под ждущими бронями «Входящих» — «Подтвердить» и «Отклонить»
+ * «Бронями» и под ждущими бронями «Входящих» — «Подтвердить» и «Отклонить»,
+ * под ждущими заявками «Входящих» — «Связался», «Договорились», «Отказ»
  * (lib/bookings/chat-owner-press). Вызывающий ставит их только в личном
  * диалоге: в группе кнопку нажал бы любой участник.
  */
@@ -22,7 +23,7 @@ import {
 import { inboxMenuText } from '@/lib/roles/inbox-text';
 import { adminReplyFor, type AdminReply } from '@/lib/max/admin-read';
 import { readSeatSummary, SUMMARY_DB_ERROR, summaryEnabledFor, summaryText } from '@/lib/seat-requests/summary';
-import { OWNER_PRESS_BUTTON_CAP, bookingAnswerButtons } from '@/lib/bookings/chat-owner-press';
+import { OWNER_PRESS_BUTTON_CAP, bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export interface RoleScreen {
@@ -77,12 +78,18 @@ export async function roleMenuScreen(opts: {
     return { text: 'Такой кнопки в этом кабинете нет.', pd: false };
   }
   const inbox = await loadInbox(opts.partner.partnerId, role, opts.partner.userId ?? null, { nowMs: opts.nowMs });
-  // Гиду со своими турами — ответ двум первым ждущим броням кнопкой, как в «Бронях».
+  // Гиду со своими турами — ответ двум первым ждущим броням кнопкой, как в
+  // «Бронях», и двум первым ждущим заявкам. Заявка — без номера на экране:
+  // когда их под экраном две, кнопку подписывает тур, как строка «Входящих».
   if (role === 'guide' && guideSellsOwnTours(opts.partner)) {
-    const buttons = inbox.items
-      .filter((item) => item.kind === 'operator_booking')
-      .slice(0, OWNER_PRESS_BUTTON_CAP)
-      .map((item) => bookingAnswerButtons(item.id));
+    const leads = inbox.items.filter((item) => item.kind === 'lead').slice(0, OWNER_PRESS_BUTTON_CAP);
+    const buttons = [
+      ...inbox.items
+        .filter((item) => item.kind === 'operator_booking')
+        .slice(0, OWNER_PRESS_BUTTON_CAP)
+        .map((item) => bookingAnswerButtons(item.id)),
+      ...leads.map((item) => leadAnswerButtons(item.id, leads.length > 1 ? (item.title ?? 'Подбор тура') : null)),
+    ];
     return { text: inboxMenuText(inbox), pd: false, ...(buttons.length ? { buttons } : {}) };
   }
   return { text: inboxMenuText(inbox), pd: false };

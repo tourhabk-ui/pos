@@ -196,7 +196,8 @@ const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login' | 'owner
   // Бронь своего тура кнопкой: право (личный диалог, карточка, человек
   // привязки, владение) решает lib/bookings/chat-owner-action; здесь — что
   // туда доходит только заверенное нажатие, с чатом сообщения и нажавшим.
-  ...[`bk:c:7001`, `bk:x:7001`, `oc:y:${OWNER_ACTION}`, `oc:x:${OWNER_ACTION}`].map((payload) => ({
+  // Заявка своего тура кнопкой (`ld:`, шаг 7) — тот же вид нажатия.
+  ...[`bk:c:7001`, `bk:x:7001`, `ld:k:${LEAD}`, `ld:l:${LEAD}`, `oc:y:${OWNER_ACTION}`, `oc:x:${OWNER_ACTION}`].map((payload) => ({
     payload, kind: 'owner' as const,
     applied: () => expect(m.ownerPress).toHaveBeenCalledWith({
       channel: 'max', chatId: OPERATOR_CHAT, privateChat: false, presserId: OPERATOR_CHAT, payload,

@@ -13,7 +13,8 @@
  *   адресована (lead.operator_id: форма на его странице vedarai.ru/<slug>,
  *   виджет на его сайте). До 13.10 такой лид ложился в его кабинет, а
  *   уведомление уходило только в рабочий чат платформы — оператор узнавал о
- *   заявке, когда заходил в кабинет сам.
+ *   заявке, когда заходил в кабинет сам. Гиду со своими турами (29.10) — ещё
+ *   кнопки ответа «Связался», «Договорились», «Отказ» (только MAX).
  */
 
 import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
@@ -22,6 +23,7 @@ import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/noti
 import { reachForPartner } from '@/lib/partners/reach';
 import { ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { notifyTeam } from '@/lib/operators/team-notify';
+import { chatActionsEnabledFor, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -165,9 +167,13 @@ function personalDeliveryLine(fp: { name: string; outcome: PersonalLeadOutcome |
  *
  * Адрес — только его: `reachForPartner` → `sendPdAlert({ to })`, строго, без
  * отката на рабочий чат платформы (прецедент notifyNewBooking: ПД туриста в
- * чужой чат — не доставка). Кнопка одна, и это ссылка: действие (payload) бот
- * принимает только из рабочего чата (max/kuzmich, telegram/kuzmich), в личном
- * чате оператора оно было бы мёртвым.
+ * чужой чат — не доставка). Туроператору кнопка одна, и это ссылка: кнопки
+ * лида рабочего чата (`lead_*`) бот принимает только оттуда. Гиду со своими
+ * турами над ссылкой — «Связался», «Договорились», «Отказ» (`ld:`): их бот
+ * принимает в его личном чате кабинета, вопросом и «Да»
+ * (lib/bookings/chat-owner-action). Только в MAX — из заглушки Telegram
+ * действия убирает sendPdAlert. Копия команде — со ссылкой: кнопки нажимает
+ * человек, подключивший чат кабинета, а не менеджер.
  *
  * Отказ не глушится: каждый исход, кроме доставки, назван в логе и
  * возвращается вызывающему — тот показывает его рабочему чату.
@@ -208,6 +214,9 @@ export async function notifyPartnerNewLeadPersonally(params: {
   // кабинете гида: кабинет оператора его не пустит (lib/partners/cabinet-links).
   const reach = await reachForPartner(params.operatorId);
   const buttons = [{ text: 'Открыть заявку', url: ownerLeadUrl(reach?.category, params.leadId) }];
+  const answer = reach && chatActionsEnabledFor({ category: reach.category, sellsTours: reach.sellsTours })
+    ? leadAnswerButtons(params.leadId)
+    : [];
 
   // Менеджеры команды кабинета (CRM 2г-4) — до проверки адреса кабинета: у
   // команды свои адреса, и заявка доходит до неё, даже если у кабинета канала нет.
@@ -225,7 +234,7 @@ export async function notifyPartnerNewLeadPersonally(params: {
   const res = await sendPdAlert({
     text,
     stub,
-    buttons,
+    buttons: [...answer, ...buttons],
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return { state: 'delivered', channel: 'max' };

@@ -69,6 +69,7 @@ import {
   PRESS_WITHOUT_MESSAGE_REPLY, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY,
   UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf,
 } from '@/lib/max/verified-press';
+import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
@@ -628,10 +629,11 @@ async function handleActionPress(
     return;
   }
 
-  // Бронь своего тура кнопкой (гид, 29.10): вопрос `bk:`, затем «Да» / «Не
-  // надо» `oc:`. Личный диалог, карточка чата, аккаунт, человек привязки и
-  // владение бронью проверяет lib/bookings/chat-owner-action; нажавший — из
-  // заверенного апдейта (его user_id прислал MAX).
+  // Бронь и заявка своего тура кнопкой (гид, 29.10): вопрос `bk:` / `ld:`,
+  // затем «Да» / «Не надо» `oc:`. Личный диалог, карточка чата, аккаунт,
+  // человек привязки и владение бронью и заявкой проверяет
+  // lib/bookings/chat-owner-action; нажавший — из заверенного апдейта (его
+  // user_id прислал MAX).
   if (action === 'owner') {
     const { handleOwnerPress } = await import('@/lib/bookings/chat-owner-action');
     const reply = await handleOwnerPress({
@@ -1178,7 +1180,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // сообщение личного диалога — причина для туриста. Раньше полосы и
       // потока дат: «турист заболел» иначе ушло бы Кузьмичу туриста. Беда в
       // тексте — блок 112 над вопросом, как над любым ответом этой ветки.
-      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+      // Модуль действия грузится, только когда кнопки карточке включены.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true && chatActionsEnabledFor(lookup.partner)) {
         const { captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
         const reason = await captureOwnerReason({ channel: 'max', chatId, partner: lookup.partner, text });
         if (reason) {

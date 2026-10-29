@@ -42,7 +42,7 @@ const m = vi.hoisted(() => ({
 
 /** Поддельная база: только запросы, которыми ходит lib/bookings/chat-owner-action. */
 interface FakeRow {
-  id: string; partner_id: string; channel: string; chat_id: string; subject_id: string;
+  id: string; partner_id: string; channel: string; chat_id: string; subject_kind: string; subject_id: string;
   action: string; reason: string | null; status: string; outcome: unknown; expired: boolean;
 }
 const db = vi.hoisted(() => ({
@@ -69,7 +69,7 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
   }
   if (/INSERT INTO partner_chat_actions/.test(sql)) {
     const id = `00000000-0000-4000-8000-${String(++db.seq).padStart(12, '0')}`;
-    db.rows.push({ id, partner_id: p[0]!, channel: p[1]!, chat_id: p[2]!, subject_id: p[3]!, action: p[4]!, reason: null, status: p[5]!, outcome: null, expired: false });
+    db.rows.push({ id, partner_id: p[0]!, channel: p[1]!, chat_id: p[2]!, subject_kind: p[3]!, subject_id: p[4]!, action: p[5]!, reason: null, status: p[6]!, outcome: null, expired: false });
     return res([{ id }]);
   }
   const mine = (r: FakeRow) => r.id === p[0] && r.channel === p[1] && r.chat_id === p[2] && r.partner_id === p[3];
@@ -77,17 +77,17 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
     const r = db.rows.find((x) => mine(x) && ['awaiting_reason', 'ready'].includes(x.status));
     if (!r) return res([]);
     r.status = 'cancelled';
-    return res([{ subject_id: r.subject_id }]);
+    return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id }]);
   }
   if (/SET status = 'running'/.test(sql)) {
     const r = db.rows.find((x) => mine(x) && x.status === 'ready' && !x.expired);
     if (!r) return res([]);
     r.status = 'running';
-    return res([{ subject_kind: 'booking', subject_id: r.subject_id, action: r.action, reason: r.reason }]);
+    return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, reason: r.reason }]);
   }
-  if (/SELECT status, subject_id, outcome/.test(sql)) {
+  if (/SELECT status, subject_kind, subject_id, outcome/.test(sql)) {
     const r = db.rows.find(mine);
-    return res(r ? [{ status: r.status, subject_id: r.subject_id, outcome: r.outcome, expired: r.expired, stale: false }] : []);
+    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, outcome: r.outcome, expired: r.expired, stale: false }] : []);
   }
   if (/SET status = \$2, outcome = \$3::jsonb/.test(sql)) {
     const r = db.rows.find((x) => x.id === p[0] && x.status === 'running');
@@ -532,7 +532,7 @@ describe('кнопки под экранами и уведомлением', () 
     expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
   });
 
-  it('«Входящие» гида-продавца — кнопки ответа под ждущими бронями; гиду команды — нет', async () => {
+  it('«Входящие» гида-продавца — кнопки ответа под ждущими бронями (и заявками, шаг 7); гиду команды — нет', async () => {
     m.inbox.mockResolvedValue({
       category: 'guide', failed: [], not_here: [], chat: { state: 'none' },
       response: { window_days: 30, median_minutes: null, responded: 0, enough: false, complete: true },
@@ -542,7 +542,10 @@ describe('кнопки под экранами и уведомлением', () 
       ],
     });
     const seller = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: SELLER, nowMs: NOW });
-    expect(seller.buttons?.map((r) => r.map((b) => b.payload))).toEqual([['bk:c:501', 'bk:x:501']]);
+    expect(seller.buttons?.map((r) => r.map((b) => b.payload))).toEqual([
+      ['bk:c:501', 'bk:x:501'],
+      ['ld:k:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'ld:w:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'ld:l:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'],
+    ]);
     const team = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: { ...SELLER, sellsTours: false }, nowMs: NOW });
     expect(team.buttons).toBeUndefined();
   });

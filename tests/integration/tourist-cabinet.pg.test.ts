@@ -1854,7 +1854,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       expect((await statusOf(twice)).s).toBe('new');
       const id = actionIdOf(ask, 'oc:y:');
       // Нажал не тот, кто подключил чат, — ничего.
-      expect((await press(`oc:y:${id}`, PRESSER + 1)).text).toContain('Кнопки брони нажимает тот, кто подключил этот чат');
+      expect((await press(`oc:y:${id}`, PRESSER + 1)).text).toContain('Кнопки брони и заявки нажимает тот, кто подключил этот чат');
       // Два «Да» одновременно: одна смена статуса, одно письмо.
       const [a, b] = await Promise.all([press(`oc:y:${id}`), press(`oc:y:${id}`)]);
       const texts = [a.text, b.text];
@@ -1939,6 +1939,122 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       // Согласованная — ложится (и вторая действующая в том же чате — нет).
       expect(await bad('ready', 'confirm')).toBeNull();
       expect(await bad('awaiting_reason', 'cancel')).toBe('23505');
+    } finally {
+      errSpy.mockRestore();
+    }
+  }, 60_000);
+
+  it('заявка кнопкой в чате гида (29.10, шаг 7): вопрос без ПД, два одновременных «Да» — одна смена и одно событие ленты от гида с каналом max; заявка уходит из ждущих «Входящих»; чужая и ничейная — «не найдена», не тронуты и строки нет; повтор — «уже»; CHECK держит род заявки', async () => {
+    const { handleOwnerPress, OWNER_ACTION_TEXT } = await import('@/lib/bookings/chat-owner-action');
+    const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');
+    const { loadInbox } = await import('@/lib/crm/inbox');
+    const { roleMenuScreen } = await import('@/lib/roles/role-screen');
+    const CHAT = 932_001;
+    const PRESSER = 932_501;
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('chat-lead-guide@example.com', 'Гид заявок кнопкой', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, user_id, max_chat_id, max_owner_user_id)
+       VALUES ('Гид заявок кнопкой', 'guide', '{}', $1, $2, $3) RETURNING id`,
+      [guideUser, CHAT, PRESSER],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+       VALUES ($1, 'Тур заявок гида', 9000, 6, TRUE, TRUE)`, [guide],
+    );
+    // Телефон и имя туриста — и в своих полях, и вписанные в свободный текст.
+    const PHONE = '+79990200001';
+    const lead = async (operator: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, desired_dates, group_size, route_title)
+       VALUES ('Турист кнопки заявки', $2, 'перезвоните', 'new', $1, $3, 3, 'Пещеры у вулкана') RETURNING id::text AS id`,
+      [operator, PHONE, `конец июля, звоните ${PHONE}`],
+    )).rows[0].id;
+    const mine = await lead(guide);
+    const foreign = await lead(operatorId);
+    const unowned = await lead(null);
+    const press = (payload: string) => handleOwnerPress({ channel: 'max', chatId: CHAT, privateChat: true, presserId: PRESSER, payload });
+    const actionIdOf = (reply: { buttons: Array<Array<{ payload: string }>> }, prefix: string) => {
+      const p = reply.buttons.flat().map((b) => b.payload).find((x) => x.startsWith(prefix));
+      if (!p) throw new Error(`нет кнопки ${prefix}: ${JSON.stringify(reply)}`);
+      return p.slice(prefix.length);
+    };
+    const row = async (id: string) => (await pool.query<{ status: string; operator_id: string | null }>(
+      `SELECT status, operator_id::text AS operator_id FROM leads WHERE id = $1`, [id],
+    )).rows[0];
+    const events = async (id: string) => (await pool.query<{ actor_kind: string; actor_user_id: string | null; from: string; to: string; via: string }>(
+      `SELECT actor_kind, actor_user_id::text AS actor_user_id, payload->>'from' AS from, payload->>'to' AS to, payload->>'via' AS via
+         FROM crm_events WHERE source_kind = 'lead' AND source_id = $1 AND kind = 'status_change' ORDER BY id`, [id],
+    )).rows;
+    const actionsOf = async (subject: string) => (await pool.query<{ status: string }>(
+      `SELECT status FROM partner_chat_actions WHERE subject_kind = 'lead' AND subject_id = $1 ORDER BY created_at`, [subject],
+    )).rows.map((r) => r.status);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Чужая (оператора) и ничейная — «не найдена»: скоуп гида ничейную не видит и не занимает.
+      for (const id of [foreign, unowned]) {
+        expect((await press(`ld:k:${id}`)).text, id).toBe(OWNER_ACTION_TEXT.leadNotFound);
+        expect(await actionsOf(id)).toEqual([]);
+      }
+      expect(await row(foreign)).toEqual({ status: 'new', operator_id: operatorId });
+      expect(await row(unowned)).toEqual({ status: 'new', operator_id: null });
+
+      // «Входящие» на настоящей базе: заявка ждёт, под ней — кнопки ответа.
+      const lookup = await findPartnerByChat('max', CHAT);
+      if (lookup.outcome !== 'found') throw new Error('карточка чата не найдена');
+      expect(lookup.partner.sellsTours).toBe(true);
+      const screen = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'max', partner: lookup.partner });
+      expect(screen.buttons?.flat().map((b) => b.payload)).toEqual([`ld:k:${mine}`, `ld:w:${mine}`, `ld:l:${mine}`]);
+      const waitingBefore = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
+      expect(waitingBefore.items.filter((i) => i.kind === 'lead').map((i) => i.id)).toEqual([mine]);
+
+      // Вопрос: тур, люди, день — без имени, телефона, желаемых дат и комментария.
+      const ask = await press(`ld:k:${mine}`);
+      expect(ask.text).toContain('Отметить заявку «Пещеры у вулкана», 3 чел, от ');
+      expect(ask.text).toContain(': «Связался»? Сейчас: «Новая — ждёт вашего ответа».');
+      for (const pd of ['Турист кнопки заявки', PHONE, '9990200001', 'конец июля', 'перезвоните']) expect(ask.text).not.toContain(pd);
+      expect((await row(mine)).status).toBe('new');
+      const id = actionIdOf(ask, 'oc:y:');
+
+      // Два «Да» одновременно: одна смена, одно событие — от человека карточки, с каналом.
+      const [a, b] = await Promise.all([press(`oc:y:${id}`), press(`oc:y:${id}`)]);
+      const texts = [a.text, b.text];
+      expect(texts.filter((t) => t === 'Заявка отмечена: «Вы связались». Туристу ничего не отправлено.')).toHaveLength(1);
+      expect(texts.filter((t) => /Уже выполняю|Уже нажато раньше/.test(t))).toHaveLength(1);
+      expect(await row(mine)).toEqual({ status: 'contacted', operator_id: guide });
+      expect(await events(mine)).toEqual([
+        { actor_kind: 'partner_user', actor_user_id: guideUser, from: 'new', to: 'contacted', via: 'max' },
+      ]);
+      expect(await actionsOf(mine)).toEqual(['done']);
+      expect((await press(`oc:y:${id}`)).text).toBe('Уже нажато раньше. Заявка отмечена: «Вы связались». Туристу ничего не отправлено.');
+      expect(await events(mine)).toHaveLength(1);
+
+      // Ответ снял заявку из ждущих «Входящих» — кнопок под ней больше нет.
+      const waitingAfter = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
+      expect(waitingAfter.items.filter((i) => i.kind === 'lead')).toEqual([]);
+      expect((await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'max', partner: lookup.partner })).buttons).toBeUndefined();
+
+      // Тот же статус — «уже», вопроса и строки нет; другой — второе событие.
+      expect((await press(`ld:k:${mine}`)).text).toBe('Заявка уже отмечена: «Вы связались» — ничего не изменено.');
+      expect(await actionsOf(mine)).toEqual(['done']);
+      const won = await press(`ld:w:${mine}`);
+      expect((await press(`oc:y:${actionIdOf(won, 'oc:y:')}`)).text).toBe('Заявка отмечена: «Договорились». Туристу ничего не отправлено.');
+      expect((await events(mine)).map((e) => [e.from, e.to, e.via])).toEqual([['new', 'contacted', 'max'], ['contacted', 'converted', 'max']]);
+
+      // «Не надо» — заявка без изменений.
+      const lost = await press(`ld:l:${mine}`);
+      expect((await press(`oc:x:${actionIdOf(lost, 'oc:x:')}`)).text).toBe('Хорошо, заявка без изменений.');
+      expect((await row(mine)).status).toBe('converted');
+
+      // CHECK: действие брони над заявкой и заявка не uuid — не ложатся; согласованная — ложится.
+      const put = async (action: string, subject: string) => pool.query(
+        `INSERT INTO partner_chat_actions (partner_id, channel, chat_id, subject_kind, subject_id, action, status, expires_at)
+         VALUES ($1, 'telegram', 932999, 'lead', $2, $3, 'ready', NOW() + INTERVAL '5 minutes')`,
+        [guide, subject, action],
+      ).then(() => null, (e: { code?: string }) => e.code);
+      expect(await put('confirm', mine)).toBe('23514');
+      expect(await put('contacted', '501')).toBe('23514');
+      expect(await put('lost', mine)).toBeNull();
     } finally {
       errSpy.mockRestore();
     }
