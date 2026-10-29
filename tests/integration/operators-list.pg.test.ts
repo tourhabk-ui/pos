@@ -515,7 +515,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(await guideTours(rows[0].id)).toEqual(ALL_SLUGS);
     });
 
-    it('туры на витрине: цена за человека; группа до 4, у Курильского и бухты Русской — до 12 (1341); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
+    it('туры на витрине: цена за человека; группа до 4, у Курильского — до 12, у бухты Русской — до 10 в лодке (1341); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
       // Общий beforeAll файла закрыл все карточки; гиду её возвращаем, как на проде после 1338.
       await pool.query(`UPDATE partners SET is_public = TRUE WHERE slug = $1`, [SLUG]);
       const { publicTourSql } = await import('@/lib/tours/public-visibility');
@@ -531,16 +531,33 @@ withPg('витрина /operators: факты о живых турах, кноп
         ['zaporozhets-tolbachik-4-dnya', 85000], ['zaporozhets-kurilskoe-ozero-3-dnya', 95000],
         ['zaporozhets-kurilskoe-ozero-4-dnya', 125000],
       ]);
-      const WIDE = ['zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya', 'zaporozhets-bukhta-russkaya'];
+      const GROUP: Record<string, number> = {
+        'zaporozhets-kurilskoe-ozero-3-dnya': 12, 'zaporozhets-kurilskoe-ozero-4-dnya': 12, 'zaporozhets-bukhta-russkaya': 10,
+      };
       for (const r of live.rows) {
-        expect(r, r.slug).toMatchObject({ price_unit: 'per_person', max_participants: WIDE.includes(r.slug) ? 12 : 4 });
+        expect(r, r.slug).toMatchObject({ price_unit: 'per_person', max_participants: GROUP[r.slug] ?? 4 });
         if (r.slug === 'zaporozhets-bukhta-russkaya') {
-          expect(r).toMatchObject({ pickup_type: 'meeting_point', pickup_details: null });
+          // Адрес встречи — в pickup_details: его читают гейт готовности, пересказ тура и форма кабинета.
+          expect(r.pickup_type).toBe('meeting_point');
+          expect(r.pickup_details).toMatch(/морвокзала/);
         } else {
           expect(r.pickup_type, r.slug).toBe('hotel_pickup');
           expect(r.pickup_details).toContain('доплату 1 000 ₽');
         }
       }
+
+      // Вачкажец гид назвал «лёгким»: активным его от имени гида не называем; еда — расхождение прайса и docx названо.
+      const notes = (await pool.query<{ slug: string; safety_notes: string[]; price_note: string; what_to_bring: string[] }>(
+        `SELECT slug, safety_notes, price_note, what_to_bring FROM operator_tours
+          WHERE slug IN ('zaporozhets-vachkazhets-ozerki', 'zaporozhets-avacha-voskhozhdenie') ORDER BY slug`,
+      )).rows;
+      const [avacha, vach] = notes;
+      expect(vach.safety_notes.some((n) => n.startsWith('Противопоказания'))).toBe(false);
+      expect(vach.safety_notes.some((n) => n.startsWith('Гид: на активных турах') && n.includes('уточняйте при заявке'))).toBe(true);
+      expect(vach.price_note).toMatch(/питание по прайсу.*бутерброды и термос с чаем.*уточняйте при заявке/i);
+      expect(vach.what_to_bring).toContain('бутерброды и термос с чаем');
+      expect(avacha.price_note).toMatch(/Питание и трекинговые палки по прайсу.*перекус и палки.*уточняйте при заявке/);
+      expect(avacha.what_to_bring).toEqual(expect.arrayContaining(['трекинговые палки', 'вода, индивидуальный перекус и личные лекарства']));
 
       const { loadTourCard } = await import('@/lib/tours/tour-detail-query');
       const { tourPhotoCaptions, tourPhotoCreditLine } = await import('@/lib/tours/photo-credits');
@@ -728,13 +745,13 @@ withPg('витрина /operators: факты о живых турах, кноп
         cancellation_policy: string | null; cancellation_free_days: number | null; cancellation_late_refund_percent: number | null;
         included: string[] | null; safety_notes: string[] | null; program: { title: string; text: string }[] | null;
         what_to_bring: string[] | null; photos: string[] | null; season_start: string | null; season_end: string | null;
-        duration_hours: string | null; pickup_type: string | null; meeting_point: string | null;
+        duration_hours: string | null; pickup_type: string | null; meeting_point: string | null; pickup_details: string | null;
       };
       const rows = (await pool.query<Row>(
         `SELECT slug, is_published, ${publicTourSql('')} AS on_storefront, difficulty, max_participants,
                 short_description, description, price_note, cancellation_policy, cancellation_free_days,
                 cancellation_late_refund_percent, included, safety_notes, program, what_to_bring, photos,
-                season_start::text, season_end::text, duration_hours::text, pickup_type, meeting_point
+                season_start::text, season_end::text, duration_hours::text, pickup_type, meeting_point, pickup_details
            FROM operator_tours WHERE operator_id = $1::uuid ORDER BY slug`, [reg.id],
       )).rows;
       const t = (slug: string) => rows.find((r) => r.slug === slug)!;
@@ -747,9 +764,23 @@ withPg('витрина /operators: факты о живых турах, кноп
         expect(t(slug).photos, slug).toEqual([]);   // снимки docx чужие — не взяты
       }
       expect(t('zaporozhets-avacha-voskhozhdenie')).toMatchObject({ difficulty: 'hard', duration_hours: '13.00', max_participants: 4 });
-      expect(t('zaporozhets-bukhta-russkaya')).toMatchObject({ difficulty: 'easy', max_participants: 12, pickup_type: 'meeting_point' });
+      // Бухта Русская: до 10 — число гида (на лодку), а не выдуманное 12; адрес встречи — в pickup_details.
+      expect(t('zaporozhets-bukhta-russkaya')).toMatchObject({ difficulty: 'easy', max_participants: 10, pickup_type: 'meeting_point' });
+      expect(t('zaporozhets-bukhta-russkaya').pickup_details).toMatch(/морвокзала/);
       expect(t('zaporozhets-bukhta-russkaya').meeting_point).toMatch(/морвокзала/);
       expect(t('zaporozhets-bukhta-russkaya').price_note).toMatch(/до 10 человек.*на другие лодки/);
+      expect(t('zaporozhets-bukhta-russkaya').price_note).not.toMatch(/12/);
+      // Описание не пересказывает ход дня — он в программе.
+      for (const slug of ['zaporozhets-avacha-voskhozhdenie', 'zaporozhets-bukhta-russkaya']) {
+        expect(t(slug).description, slug).not.toMatch(/По пути|На маршруте|тропа выходит|на подъёме/);
+      }
+      // Карточка гида: «в каждый тур — трансфер с адреса» не спорит с морской прогулкой.
+      const { rows: [card] } = await pool.query<{ short_description: string; description: string }>(
+        `SELECT short_description, description FROM partners WHERE id = $1::uuid`, [reg.id],
+      );
+      expect(card.description).toMatch(/В каждый тур, по словам гида, включены трансфер с адреса.*Морская прогулка в бухту Русскую устроена иначе: сбор у морвокзала/);
+      expect(card.description).not.toMatch(/группы не больше четырёх человек, гид забирает/);
+      expect(card.short_description).toMatch(/забор с адреса; морская прогулка в бухту Русскую — сбор у морвокзала/);
       expect(t('zaporozhets-vachkazhets-ozerki')).toMatchObject({ is_published: false, on_storefront: false, description: OWN_DESCR, program: null });
 
       // 3. Курильское: лёгкое, без «до 4», сбор заказника в «включено»; своя строка цены гида цела.
@@ -791,9 +822,13 @@ withPg('витрина /operators: факты о живых турах, кноп
       // 7. Возраст и противопоказания.
       expect(t('zaporozhets-avacha-voskhozhdenie').safety_notes!.some((n) => n.includes('с 7 лет'))).toBe(true);
       expect(t('zaporozhets-vulkan-gorelyy').safety_notes!.some((n) => n.includes('с 4 лет'))).toBe(true);
-      for (const slug of ['zaporozhets-vulkan-gorelyy', 'zaporozhets-kanyon-opasnyy-dachnye', 'zaporozhets-tolbachik-4-dnya', 'zaporozhets-avacha-voskhozhdenie']) {
+      for (const slug of ['zaporozhets-vulkan-gorelyy', 'zaporozhets-tolbachik-4-dnya', 'zaporozhets-avacha-voskhozhdenie']) {
         expect(t(slug).safety_notes!.filter((n) => n.startsWith('Противопоказания')), slug).toHaveLength(1);
       }
+      // Опасный + Дачные гид назвал «легко»: «тур активный» от его имени не пишется — правило гида и вопрос.
+      const opasny = t('zaporozhets-kanyon-opasnyy-dachnye').safety_notes!;
+      expect(opasny.some((n) => n.startsWith('Противопоказания'))).toBe(false);
+      expect(opasny.filter((n) => n.startsWith('Гид: на активных турах') && n.includes('уточняйте при заявке'))).toHaveLength(1);
       expect(t('zaporozhets-bukhta-russkaya').safety_notes!.some((n) => n.startsWith('Противопоказания'))).toBe(false);
 
       // Телефона гида нет ни в одном тексте.
