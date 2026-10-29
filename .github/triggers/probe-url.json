@@ -1,15 +1,14 @@
 {
   "timeout": 30,
-  "run": 1008,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образцы сообщений PTWC для разбора: текст и JSON последнего бюллетеня (25.10, Бонины) и каталоги событий 29–30.07.2025 (землетрясение M8.8 у Камчатки) — есть ли там WEPA40 с таблицей прихода волны по пунктам края.",
+  "run": 1009,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Последнее международное сообщение PTWC для Тихого океана (WEPA40) в JSON и тексте — образец для разбора таблицы прихода волны.",
   "urls": [
-    "https://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEGM42/WEGM42.txt",
-    "https://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEGM42/PHEB.json",
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/",
-    "https://www.tsunami.gov/events/PHEB/2025/07/30/"
+    "https://www.tsunami.gov/events/json/PHEBWEPA40.json",
+    "https://www.tsunami.gov/events/xml/PHEBWEPA40.xml",
+    "https://www.tsunami.gov/events/json/PHEBWEPA40.txt"
   ],
   "allowStale": true,
   "retries": 1,
   "text": true,
-  "bytes": 7000
+  "bytes": 9000
 }
