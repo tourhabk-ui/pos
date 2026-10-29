@@ -11,15 +11,26 @@
  * тем же читателем, что get_request_status, и её отказ не роняет ответ; в
  * логах — хост, без пути и query. Поле notify в get_request_status говорит
  * агенту три слова, а не внутренние причины.
+ *
+ * Подпись — Standard Webhooks, сверяется НЕЗАВИСИМОЙ реализацией в тесте
+ * (node:crypto по спецификации, не импортом той же функции) и эталонным
+ * вектором спецификации. webhook-id: повтор снимка — тот же id, следующая
+ * доставка — новый, и возврат к прежнему снимку (A→B→A) — тоже новый. Тело
+ * — ровно поля схемы, без ПД: ни имени, ни телефона, ни направления,
+ * набранного человеком, ни страницы с ключом.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
-import { subscribeNotify, notifyLine, snapshotOf, fingerprintOf, changedFields, type SubscribeOutcome } from '@/lib/mcp/request-notify';
-import { notifyStatusOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow, type RequestCore } from '@/lib/mcp/request-status';
-import { NOTIFY_CHANGED_FIELDS } from '@/lib/mcp/request-notify-schema';
+import { createHmac, randomBytes } from 'node:crypto';
+import {
+  subscribeNotify, notifyLine, snapshotOf, fingerprintOf, changedFields, eventId, buildNotification, type SubscribeOutcome,
+} from '@/lib/mcp/request-notify';
+import { notifyStatusOf, buildRequestView, catalogTourOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow, type RequestCore } from '@/lib/mcp/request-status';
+import { NOTIFY_CHANGED_FIELDS, REQUEST_NOTIFICATION_SCHEMA } from '@/lib/mcp/request-notify-schema';
+import { signWebhook } from '@/lib/mcp/notify-send';
 import { decryptBound } from '@/lib/encryption';
 
 const ENC = 'a'.repeat(64);
@@ -178,5 +189,67 @@ describe('снимок и отпечаток', () => {
       expect(changedFields(a, b), f).toEqual([f]);
     }
     expect(changedFields(null, a)).toEqual([...NOTIFY_CHANGED_FIELDS]);
+  });
+});
+
+describe('подпись Standard Webhooks', () => {
+  /** Независимо от кода: по спецификации, ключ — base64 после whsec_, подписывается "id.timestamp.тело". */
+  const reference = (secret: string, id: string, ts: number, body: string) =>
+    `v1,${createHmac('sha256', Buffer.from(secret.split('_')[1]!, 'base64')).update(`${id}.${ts}.${body}`).digest('base64')}`;
+
+  it('эталонный вектор спецификации', () => {
+    expect(signWebhook('whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'msg_p5jXN8AQM9LWM0D4loKWxJek', 1614265330, '{"test": 2432232314}'))
+      .toBe('v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=');
+  });
+
+  it('совпадает с независимой реализацией на случайных данных, в том числе с кириллицей в теле', () => {
+    for (let i = 0; i < 20; i++) {
+      const secret = `whsec_${randomBytes(32).toString('base64')}`;
+      const body = JSON.stringify({ human: 'Бронь по заявке отменена.', n: i });
+      const id = `evt_${randomBytes(8).toString('hex')}`;
+      expect(signWebhook(secret, id, 1_800_000_000 + i, body)).toBe(reference(secret, id, 1_800_000_000 + i, body));
+    }
+  });
+});
+
+describe('webhook-id', () => {
+  it('повтор того же снимка — тот же id; следующая доставка — новый; A→B→A — три разных id', () => {
+    const A = 'a'.repeat(64);
+    const B = 'b'.repeat(64);
+    expect(eventId('nr_x', 1, A)).toBe(eventId('nr_x', 1, A));
+    expect(eventId('nr_x', 1, A)).toMatch(/^evt_[0-9a-f]{32}$/);
+    const ids = [eventId('nr_x', 1, A), eventId('nr_x', 2, B), eventId('nr_x', 3, A)];
+    expect(new Set(ids).size).toBe(3);
+    expect(eventId('nr_y', 1, A)).not.toBe(eventId('nr_x', 1, A));
+  });
+});
+
+describe('тело уведомления', () => {
+  // Заявка на машину: в route_title — направление, набранное человеком.
+  const PD_ROW: StatusRow = {
+    ...ROW, tool_name: 'request_charter', route_title: 'Ул. Тестовая, 5, кв. 7 — забрать в 6 утра',
+    booking_status: 'cancelled', booking_date: '2027-07-20', booking_participants: 6, booking_tour: null,
+  };
+
+  it('ровно поля схемы; human/next — те же строки, что у get_request_status; без ПД и без страницы с ключом', () => {
+    const core = buildRequestView(PD_ROW, Date.parse('2027-07-01T00:00:00Z'));
+    const snapshot = snapshotOf(core, catalogTourOf(PD_ROW));
+    const previous = { ...snapshot, state: 'confirmed' as const };
+    const body = buildNotification({ ref: 'nr_x', tool: 'request_charter', core, snapshot, previous, observedAt: new Date('2027-07-02T03:00:00Z') });
+    expect(Object.keys(body).sort()).toEqual(Object.keys(REQUEST_NOTIFICATION_SCHEMA.properties).sort());
+    expect([...REQUEST_NOTIFICATION_SCHEMA.required].sort()).toEqual(Object.keys(body).sort());
+    expect(body).toMatchObject({
+      type: 'request.updated', ref: 'nr_x', kind: 'lead', state: 'cancelled', previous_state: 'confirmed', changed: ['state'],
+      human: core.human, next: core.next, date: '2027-07-20', participants: 6, tour: null, reason: null,
+      observed_at: '2027-07-02T03:00:00.000Z',
+    });
+    const text = JSON.stringify(body);
+    expect(text).not.toMatch(/Тестовая|кв\. 7|request-status|consent|page|lead_id|\+7/);
+  });
+
+  it('база отсчёта неизвестна — previous_* null, изменилось всё, reason baseline_unknown', () => {
+    const core = buildRequestView(ROW, Date.now());
+    const body = buildNotification({ ref: 'nr_x', tool: 'create_booking_request', core, snapshot: snapshotOf(core, null), previous: null, observedAt: new Date() });
+    expect(body).toMatchObject({ previous_state: null, previous_date: null, reason: 'baseline_unknown', changed: [...NOTIFY_CHANGED_FIELDS] });
   });
 });

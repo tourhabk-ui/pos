@@ -43,7 +43,7 @@ import {
   REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf,
   type IssuedRequestKey, type RequestCore, type StatusRow,
 } from '@/lib/mcp/request-status';
-import type { RequestState } from '@/lib/mcp/request-status-schema';
+import type { RequestKind, RequestState } from '@/lib/mcp/request-status-schema';
 import {
   NOTIFY_CHANGED_FIELDS, NOTIFY_HOW_TO_VERIFY, type NotifyChangedField,
 } from '@/lib/mcp/request-notify-schema';
@@ -83,6 +83,63 @@ export function fingerprintOf(s: NotifySnapshot): string {
 export function changedFields(prev: NotifySnapshot | null, cur: NotifySnapshot): NotifyChangedField[] {
   if (!prev) return [...NOTIFY_CHANGED_FIELDS];
   return NOTIFY_CHANGED_FIELDS.filter((f) => (prev[f] ?? null) !== (cur[f] ?? null));
+}
+
+/**
+ * webhook-id: повтор того же снимка — тот же id (приёмник отсечёт дубль);
+ * следующая доставка — новый id, даже если снимок вернулся к прежнему (A→B→A:
+ * перенос туда и обратно, ручные статусы в любом порядке — критика 29.10).
+ * `seq` — номер доставки (delivered_count + 1).
+ */
+export function eventId(ref: string, seq: number, fingerprint: string): string {
+  return `evt_${sha256(`${ref}:${seq}:${fingerprint}`).slice(0, 32)}`;
+}
+
+export interface RequestNotification {
+  type: 'request.updated';
+  ref: string;
+  kind: RequestKind;
+  tool: string;
+  state: RequestState;
+  previous_state: RequestState | null;
+  changed: NotifyChangedField[];
+  human: string;
+  next: string;
+  date: string | null;
+  previous_date: string | null;
+  requested_date: string | null;
+  alt_date: string | null;
+  tour: string | null;
+  participants: number | null;
+  observed_at: string;
+  reason: 'baseline_unknown' | null;
+  hint: string;
+}
+
+/** Тело уведомления — поимённо, без ПД by construction: полей для них нет. */
+export function buildNotification(a: {
+  ref: string; tool: string; core: RequestCore; snapshot: NotifySnapshot; previous: NotifySnapshot | null; observedAt: Date;
+}): RequestNotification {
+  return {
+    type: 'request.updated',
+    ref: a.ref,
+    kind: a.core.kind,
+    tool: a.tool,
+    state: a.snapshot.state,
+    previous_state: a.previous?.state ?? null,
+    changed: changedFields(a.previous, a.snapshot),
+    human: a.core.human,
+    next: a.core.next,
+    date: a.snapshot.date,
+    previous_date: a.previous?.date ?? null,
+    requested_date: a.core.requested_date,
+    alt_date: a.snapshot.alt_date,
+    tour: a.snapshot.tour,
+    participants: a.snapshot.participants,
+    observed_at: a.observedAt.toISOString(),
+    reason: a.previous ? null : 'baseline_unknown',
+    hint: 'Подробности — get_request_status с ключом статуса этой заявки.',
+  };
 }
 
 // ── Подписка при создании заявки ────────────────────────────────────────────

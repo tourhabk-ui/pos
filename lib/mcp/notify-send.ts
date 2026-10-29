@@ -29,6 +29,7 @@
  * ошибки Node (в нём бывает хост и IP) наружу и в базу не уходит.
  */
 
+import { createHmac } from 'node:crypto';
 import { request as httpsRequest, type RequestOptions } from 'node:https';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import type { LookupAddress } from 'node:dns';
@@ -40,6 +41,12 @@ export const NOTIFY_USER_AGENT = 'VedarNotify/1.0 (+https://vedarai.ru/mcp)';
 
 /** Весь обмен одной попытки — DNS, соединение, TLS, заголовки ответа. */
 export const SEND_TOTAL_MS = 10_000;
+
+/** base64 HMAC-SHA256 по Standard Webhooks; ключ — base64-часть после `whsec_`. */
+export function signWebhook(signingKey: string, id: string, timestampSec: number, body: string): string {
+  const key = Buffer.from(signingKey.startsWith('whsec_') ? signingKey.slice('whsec_'.length) : signingKey, 'base64');
+  return `v1,${createHmac('sha256', key).update(`${id}.${timestampSec}.${body}`, 'utf8').digest('base64')}`;
+}
 
 /**
  * Исход попытки:
