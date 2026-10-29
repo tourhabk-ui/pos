@@ -33,6 +33,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
@@ -1023,13 +1024,6 @@ export async function OPTIONS() {
 
 // ── MCP Protocol: POST = JSON-RPC 2.0 ───────────────────────
 
-/**
- * Инструкция хосту в ответ на initialize (поле появилось в 2025-03-26):
- * хост кладёт её в контекст модели. Готовый текст уже был — описание сервера
- * для каталогов, — но в рукопожатие не доходил (проверка MCP 29.09).
- */
-const SERVER_INSTRUCTIONS = `${MCP_SERVER_INFO.description} Данные — из базы платформы; чего в базе нет, инструменты так и говорят, и дополнять это догадкой не нужно. Аренда машины без водителя (аренда авто, внедорожника, 4x4, прокат, rent a car, car rental) — сначала search_car_rental: прокатчики платформы, цена за сутки, залог и ссылка на страницу прокатчика. Экстренный вызов на Камчатке — 112.`;
-
 /** Пустая строка перед «Продолжить в Ведаре» — см. handleToolsCall. */
 const HANDOFF_SEPARATOR = '\n\n';
 
@@ -1264,6 +1258,7 @@ async function handleMessage(
           title: MCP_SERVER_INFO.title,
           version: MCP_SERVER_INFO.version,
         },
+        // Сквозные правила для модели хоста — lib/mcp/server-instructions.ts.
         instructions: SERVER_INSTRUCTIONS,
       });
 

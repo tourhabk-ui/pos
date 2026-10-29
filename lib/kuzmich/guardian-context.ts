@@ -40,6 +40,8 @@ interface GuardianPlaceRow {
   altitude_m: number | null;
   nearest_medical_km: number | null;
   sat_communicator_required: boolean | null;
+  /** Регистрация группы в МЧС, записанная у самого места (та же колонка, что в get_place_info). */
+  registration_required?: boolean | null;
   capacity_per_day: number | null;
   open_from_date: string | null;
   open_to_date: string | null;
@@ -458,7 +460,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
          p.id::text AS id, p.is_visible,
          p.name, p.description, p.location_type, p.lat, p.lng, p.zone,
          lsp.hazard_types, lsp.difficulty_level, lsp.altitude_m, lsp.profile_source,
-         lsp.nearest_medical_km, lsp.sat_communicator_required,
+         lsp.nearest_medical_km, lsp.sat_communicator_required, lsp.registration_required,
          lsp.capacity_per_day, lsp.open_from_date, lsp.open_to_date,
          lrs.is_open, lrs.current_crowds, lrs.active_alerts,
          lrs.recommender_status, lrs.alert_message, lrs.alert_severity,
@@ -613,7 +615,14 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
       parts.push(KURIL_NORTH_NOTE);
     } else if (p.recommender_status === 'green') {
       const when = Number.isFinite(updatedMs) ? `, пересчёт ${kamchatkaStamp(p.status_updated_at!)} по Камчатке` : '';
-      parts.push(`ЗЕЛЁНЫЙ значит: активных предупреждений по месту не найдено${when}. Это не гарантия безопасности.`);
+      // Зелёный — не «предупреждений нет»: safety-ingest оставляет место
+      // зелёным при предупреждениях низкого уровня по месту и по зоне, и они
+      // печатаются ниже. До 29.10 строка говорила «не найдено» прямо над
+      // «Активные алерты: …» (ловушки MCP, часть 4).
+      const hasAlerts = Boolean(p.alert_message) || (p.active_alerts?.length ?? 0) > 0;
+      parts.push(hasAlerts
+        ? `ЗЕЛЁНЫЙ значит: предупреждения ниже статус места для выхода не подняли${when}. Это не гарантия безопасности.`
+        : `ЗЕЛЁНЫЙ значит: активных предупреждений по месту не найдено${when}. Это не гарантия безопасности.`);
     }
     if (p.linked_volcanoes) {
       // Цвет в скобках заголовка — статус МЕСТА для выхода, а не авиационный
@@ -732,6 +741,13 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
 
     if (p.sat_communicator_required) {
       parts.push('Требуется спутниковый коммуникатор.');
+    }
+
+    // Регистрация, записанная у самого места (Кроноцкий заповедник, 1240):
+    // get_place_info её печатал, а этот ответ молчал и ниже говорил только
+    // «по этим маршрутам не записана». Строка та же, что у get_place_info.
+    if (p.registration_required === true) {
+      parts.push('Регистрация группы в МЧС: требуется.');
     }
 
     if (honest.hazardTypes.length) {

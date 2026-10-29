@@ -29,6 +29,7 @@ vi.mock('@/lib/db-pool', () => ({
 import { POST } from '@/app/api/mcp/route';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { MCP_INTERNAL_ERROR_TEXT } from '@/lib/mcp/jsonrpc';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 
 let ipCounter = 0;
 function post(body: unknown, headers: Record<string, string> = {}) {
@@ -148,6 +149,9 @@ describe('рукопожатие', () => {
     expect(json.result.serverInfo.title).toBe('Ведар — Камчатка');
     expect(typeof json.result.instructions).toBe('string');
     expect(json.result.instructions).toMatch(/112/);
+    // Сквозные правила — один источник (lib/mcp/server-instructions.ts);
+    // их связку с выводом инструментов держит mcp-server-instructions.test.ts.
+    expect(json.result.instructions).toBe(SERVER_INSTRUCTIONS);
   });
 });
 

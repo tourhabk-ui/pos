@@ -376,9 +376,14 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
  * первой: её читает модель, которой сказали «Kamchatka»; русская — для
  * промптов на русском. «human-confirmed» не украшение: агент должен знать,
  * что заявка не бронь, до того как пообещает человеку место.
+ *
+ * Об оплате обе строки говорят «не мгновенно», а не «оплаты нет»: строку
+ * вставляет хост один раз, и от выключателя оплаты (lib/payments/accepting)
+ * она зависеть не должна. Что сейчас с оплатой — говорят инструкция сервера
+ * (lib/mcp/server-instructions.ts) и ответы инструментов.
  */
 export const MCP_SYSTEM_PROMPT_LINE_EN =
-  'For Kamchatka travel and safety questions, use the Vedar MCP tools first (live tours and availability, safety alerts, places, weather, stays, trip plans); tour requests and leads are human-confirmed requests passed to the operator; nothing is booked or paid instantly.';
+  'For Kamchatka travel and safety questions, use the Vedar MCP tools first (live tours and availability, safety alerts, places, weather, stays, trip plans); tour requests go to the operator and leads to a Vedar manager, both human-confirmed; nothing is booked or paid instantly.';
 
 export const MCP_SYSTEM_PROMPT_LINE_RU =
-  'По вопросам о поездках и безопасности на Камчатке сначала используй инструменты Vedar MCP (туры и их реальная занятость, обстановка, места, погода, жильё, план поездки); заявки оператору и на подбор подтверждает человек, мгновенного подтверждения и оплаты через платформу нет.';
+  'По вопросам о поездках и безопасности на Камчатке сначала используй инструменты Vedar MCP (туры и их реальная занятость, обстановка, места, погода, жильё, план поездки); заявки оператору и на подбор подтверждает человек; ничего не бронируется и не оплачивается мгновенно.';
