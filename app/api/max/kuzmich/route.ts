@@ -78,6 +78,8 @@ import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { loadInbox } from '@/lib/crm/inbox';
 import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
+import { armStayChatWait, bindGuestChat, captureStayChatText, type StayChatReply } from '@/lib/stay/stay-chat-service';
+import { parseStayChatPress, stayKeyFromStart } from '@/lib/stay/stay-chat';
 import { operatorDeskButtons, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
 
@@ -94,6 +96,20 @@ function toMaxButtons(rows: CabinetButton[][]): MaxButton[][] {
 /** Строка кабинета — последней, под кнопками самого ответа. */
 function maxCabinetButtons(content: CabinetButton[][]): MaxButton[][] {
   return toMaxButtons(withRentalCabinetBar(content));
+}
+
+/**
+ * Ответы переписки по заявке на жильё (1348): у каждого — свои кнопки
+ * «Ответить гостю» / «Написать владельцу», по одной в строке.
+ */
+async function sendStayChatReplies(chatId: number, replies: StayChatReply[]): Promise<void> {
+  for (const r of replies) {
+    const rows: MaxButton[][] = r.buttons.map((b) => ('url' in b
+      ? [{ type: 'link' as const, text: b.text, url: b.url }]
+      : [{ type: 'callback' as const, text: b.text, payload: b.payload }]));
+    if (rows.length) await maxReplyWithButtons(chatId, r.text, rows);
+    else await maxReply(chatId, r.text);
+  }
 }
 
 type MaxButton =
@@ -704,6 +720,25 @@ async function handleActionPress(
     return;
   }
 
+  // Переписка по заявке на жильё (1348): «Ответить гостю» у хозяина,
+  // «Написать владельцу» у гостя. Только личный диалог; право чата на заявку
+  // (чат партнёра объекта или подключённый чат гостя) и ожидание следующего
+  // сообщения — lib/stay/stay-chat-service.
+  if (action === 'stay_chat') {
+    if (chatType !== 'dialog') {
+      console.error(`[max/kuzmich] нажатие (stay_chat) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      await maxReply(chatId, 'Переписка по заявке идёт в личном диалоге с ботом. Здесь ничего не отправлено.');
+      return;
+    }
+    const press = parseStayChatPress(payload);
+    if (!press) {
+      await maxReply(chatId, 'Кнопка не распознана — ничего не отправлено. Позвоните по телефону из заявки.');
+      return;
+    }
+    await sendStayChatReplies(chatId, [await armStayChatWait(press.side, press.requestId, chatId)]);
+    return;
+  }
+
   if (action === 'seat') {
     const seat = parseAnswerPayload(payload);
     if (!seat) {
@@ -811,6 +846,13 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // payload проверяют сами разборщики. Ссылку оператору выдаёт администратор.
     if (opts?.verifiedOrigin === true) {
       const startArg = typeof update.payload === 'string' ? update.payload : '';
+      // Гость подключает свой чат к заявке на жильё (1348): ответы владельца
+      // придут сюда. Ворота — ключ статуса заявки (хэш в базе).
+      const stayKey = stayKeyFromStart(startArg);
+      if (stayKey !== null) {
+        await sendStayChatReplies(update.chat_id, await bindGuestChat(stayKey, update.chat_id));
+        return;
+      }
       const seatToken = statusTokenFromStart(startArg);
       if (seatToken !== null) {
         // Турист хочет получить ответ оператора на запрос мест сюда.
@@ -976,6 +1018,28 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       } else {
         console.error('[max/kuzmich] код привязки оператора из незаверенного апдейта — не применён');
         await maxReply(chatId, UNVERIFIED_START_REPLY.link);
+        return;
+      }
+    }
+
+    // ── ПЕРЕПИСКА ПО ЗАЯВКЕ НА ЖИЛЬЁ (1348) ──────────────────────────────
+    // Раньше всех веток, но только в личном диалоге, только текстом и только
+    // по заверенному апдейту. Ссылка гостя, набранная текстом (web.max.ru не
+    // кладёт ?start= в апдейт), подключает чат к заявке. Иначе: если чат после
+    // кнопки «Ответить гостю» / «Написать владельцу» ждёт сообщение — оно
+    // уходит второй стороне; не ждёт — дальше обычным путём, и «запиши звонок»
+    // хозяина гостю не уйдёт.
+    if (opts?.verifiedOrigin === true && msg.recipient.chat_type === 'dialog' && attachments.length === 0 && text) {
+      const typedStayKey = stayKeyFromStart(text);
+      if (typedStayKey !== null) {
+        await sendStayChatReplies(chatId, await bindGuestChat(typedStayKey, chatId));
+        return;
+      }
+      const relayed = await captureStayChatText(chatId, text);
+      if (relayed) {
+        // Беда в тексте — блок 112 над ответом: сообщение ушло второй стороне,
+        // но помощь сейчас — не владелец жилья.
+        await sendStayChatReplies(chatId, [{ ...relayed, text: withSosBlock(relayed.text, text).text }]);
         return;
       }
     }

@@ -1,5 +1,5 @@
 /**
- * lib/crm/source-specs.ts — шесть источников клиента партнёра как SQL-текст:
+ * lib/crm/source-specs.ts — семь источников клиента партнёра как SQL-текст:
  * откуда берётся человек, какая строка годна в клиента, условие «ещё не
  * привязана» (CRM фаза 1, #2325).
  *
@@ -16,6 +16,7 @@ export const SOURCE_KINDS = [
   'transfer_seat_booking',
   'lead',
   'agent_client',
+  'stay_request',
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
@@ -163,6 +164,19 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
     person: `p.id AS partner_id, NULL::uuid AS user_id, s.name AS person_name, s.phone, s.email,
              ${NO_CONSENT}, s.created_at::timestamptz AS occurred_at`,
     eligible: `TRUE`,
+  },
+  // Заявка хозяину жилья без своей брони (1206, CRM — 1348): имя и телефон
+  // гостя хозяин получает в самом сообщении о заявке, согласие на передачу
+  // владельцу записано в заявке. Аккаунта у заявки нет.
+  stay_request: {
+    idType: 'uuid',
+    table: 'stay_requests',
+    from: `stay_requests s JOIN accommodations a ON a.id = s.accommodation_id`,
+    person: `a.partner_id, NULL::uuid AS user_id, s.guest_name AS person_name, s.guest_phone AS phone,
+             NULL::text AS email,
+             s.pd_consent_at, s.pd_consent_ip, s.pd_consent_source, s.pd_consent_version,
+             s.created_at AS occurred_at`,
+    eligible: `a.partner_id IS NOT NULL`,
   },
 };
 

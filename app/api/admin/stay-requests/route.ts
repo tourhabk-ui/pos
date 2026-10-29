@@ -5,7 +5,8 @@
  * не нашёл её нигде, кроме заглушки в Telegram. Заявки писались в базу, но
  * не читались ни одним экраном. Здесь — последние заявки целиком: объект,
  * даты, гости, имя и телефон гостя (администратору они положены — он
- * подхватывает заявку, которая хозяину не дошла), откуда пришла и куда дошла.
+ * подхватывает заявку, которая хозяину не дошла), откуда пришла и куда дошла,
+ * и переписка хозяина с гостем (1348) с исходом доставки каждого сообщения.
  *
  * Отказ базы — 503 с причиной в логе, а не пустой список (§4.0).
  */
@@ -43,6 +44,17 @@ interface StayRequestRow {
   platform_channel: string | null;
   platform_reason: string | null;
   delivery_recorded_at: Date | null;
+  guest_on_max: boolean;
+}
+
+interface MessageRow {
+  stay_request_id: string;
+  author: 'owner' | 'guest';
+  door: string;
+  body: string;
+  delivery_channel: string | null;
+  delivery_reason: string | null;
+  created_at: Date;
 }
 
 export async function GET(request: NextRequest) {
@@ -65,7 +77,7 @@ export async function GET(request: NextRequest) {
                 to_char(r.check_out_date, 'YYYY-MM-DD') AS check_out_date,
                 r.guests, r.guest_name, r.guest_phone, r.comment, r.door,
                 r.owner_channel, r.owner_reason, r.platform_channel, r.platform_reason,
-                r.delivery_recorded_at
+                r.delivery_recorded_at, (r.guest_max_chat_id IS NOT NULL) AS guest_on_max
            FROM stay_requests r
            JOIN accommodations a ON a.id = r.accommodation_id
            LEFT JOIN partners p ON p.id = a.partner_id
@@ -76,6 +88,18 @@ export async function GET(request: NextRequest) {
       pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM stay_requests`),
     ]);
 
+    // Переписка хозяина и гостя (1348): администратор видит её, чтобы
+    // передать сообщение, которое не дошло, и разобрать спор.
+    const ids = list.rows.map((r) => r.id);
+    const msgs = ids.length === 0 ? { rows: [] as MessageRow[] } : await pool.query<MessageRow>(
+      `SELECT stay_request_id::text AS stay_request_id, author, door, body, delivery_channel, delivery_reason, created_at
+         FROM stay_request_messages
+        WHERE stay_request_id = ANY($1::uuid[])
+        ORDER BY created_at, id`,
+      [ids],
+    );
+    const byRequest = new Map<string, MessageRow[]>();
+    for (const m of msgs.rows) byRequest.set(m.stay_request_id, [...(byRequest.get(m.stay_request_id) ?? []), m]);
     return NextResponse.json({
       success: true,
       data: {
@@ -101,6 +125,15 @@ export async function GET(request: NextRequest) {
           platformChannel: r.platform_channel,
           platformReason: r.platform_reason,
           deliveryRecordedAt: r.delivery_recorded_at ? r.delivery_recorded_at.toISOString() : null,
+          guestOnMax: r.guest_on_max === true,
+          messages: (byRequest.get(String(r.id)) ?? []).map((m) => ({
+            author: m.author,
+            door: m.door,
+            body: m.body,
+            delivery: m.delivery_channel,
+            deliveryReason: m.delivery_reason,
+            at: m.created_at.toISOString(),
+          })),
         })),
       },
     });

@@ -5,7 +5,7 @@
  * Клиент партнёра заводится хуком `linkContactQuietly` там, где создаётся
  * строка источника. Новая дверь брони, заказа или лида без хука — это клиент,
  * которого партнёр не увидит, пока кто-нибудь не вспомнит позвать задел. Тест
- * находит двери ПО КОДУ: любой файл с `INSERT INTO` в одну из шести таблиц
+ * находит двери ПО КОДУ: любой файл с `INSERT INTO` в одну из семи таблиц
  * обязан звать хук своего вида после вставки — либо стоять в
  * `KNOWN_WITHOUT_HOOK` с причиной. Список самоустаревающий: дверь пропала —
  * запись требует убрать.
@@ -29,6 +29,7 @@ const TABLE_KIND: Readonly<Record<string, SourceKind>> = {
   transfer_seat_bookings: 'transfer_seat_booking',
   leads: 'lead',
   agent_clients: 'agent_client',
+  stay_requests: 'stay_request',
 };
 
 const KNOWN_WITHOUT_HOOK: Readonly<Record<string, string>> = {
@@ -78,7 +79,7 @@ describe('у каждой двери источника есть хук клие
   const all = inserters();
 
   it('перепись находит двери (иначе сторож пуст и зелен по ошибке)', () => {
-    // Шесть видов, у каждого хотя бы одна дверь с хуком.
+    // Все виды, у каждого хотя бы одна дверь с хуком.
     const hooked = new Set<SourceKind>();
     for (const [, f] of all) {
       for (const t of f.tables) {
@@ -132,11 +133,20 @@ describe('у каждой двери источника есть хук клие
 });
 
 describe('виды источников — одни в коде и в схеме', () => {
-  const sql = readFileSync(join(ROOT, 'migrations', '1195_crm_contacts.sql'), 'utf8');
+  // Проверка заведена в 1195 и расширяется следующими миграциями (1348 —
+  // заявка на жильё): судит ПОСЛЕДНЯЯ по номеру, где она объявлена.
+  const migrations = readdirSync(join(ROOT, 'migrations'))
+    .filter((f) => /^\d+_.*\.sql$/.test(f))
+    .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
   const listOf = (constraint: string): string[] => {
-    const m = new RegExp(`CONSTRAINT ${constraint} CHECK \\([a-z_]+ IN \\(([^)]*)\\)`).exec(sql);
-    if (!m) throw new Error(`${constraint} не найден в миграции`);
-    return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort();
+    let last: string[] | null = null;
+    for (const f of migrations) {
+      const sql = readFileSync(join(ROOT, 'migrations', f), 'utf8');
+      const m = new RegExp(`CONSTRAINT ${constraint} CHECK \\([a-z_]+ IN \\(([^)]*)\\)`).exec(sql);
+      if (m) last = [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort();
+    }
+    if (!last) throw new Error(`${constraint} не найден в миграциях`);
+    return last;
   };
 
   it('CHECK вида связи совпадает с SOURCE_KINDS', () => {

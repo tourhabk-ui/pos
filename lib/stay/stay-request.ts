@@ -89,7 +89,8 @@ export function stayRequestTexts(m: StayRequestMessage): { text: string; ownerSt
     `Телефон: ${escapeHtml(m.guestPhone)}`,
     m.comment ? `Комментарий: ${escapeHtml(m.comment)}` : null,
   ].filter(Boolean) as string[];
-  const tail = 'Свяжитесь с гостем напрямую: даты и цену подтверждаете вы. Платформа оплату не принимает.';
+  // Кнопка «Ответить гостю» стоит под этим сообщением в MAX (1348).
+  const tail = 'Ответьте гостю кнопкой «Ответить гостю» или позвоните: даты и цену подтверждаете вы. Платформа оплату не принимает.';
   return {
     text: [...common, ...contacts, '', tail].join('\n'),
     ownerStub: [

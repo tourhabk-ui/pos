@@ -46,6 +46,7 @@
 
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { isTaskPressPayload } from '@/lib/crm/chat-task-press';
+import { isStayChatPressPayload } from '@/lib/stay/stay-chat';
 
 /**
  * Задан ли ключ подписки — та же проверка, что в `isVerifiedMaxWebhook`
@@ -56,7 +57,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'stay_chat';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -95,12 +96,15 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
  * проката (`lib/rental/request-answer`), `bk:`, `ld:` и `oc:` — бронь и
  * заявка своего тура кнопкой из чата кабинета гида: вопрос и «Да» / «Не надо»
  * (`lib/bookings/chat-owner-press`, 29.10), `tk:` — «Выполнено» под
- * напоминанием о задаче CRM (`lib/crm/chat-task-press`, 29.10). Прочие кнопки
+ * напоминанием о задаче CRM (`lib/crm/chat-task-press`, 29.10), `sq:` —
+ * «Ответить гостю» / «Написать владельцу» в переписке по заявке на жильё
+ * (`lib/stay/stay-chat`, 1348). Прочие кнопки
  * (темы, «Оформить заявку», «Другой вариант») только отвечают в чат.
  */
 export function pressActionOf(payload: string): MaxPressAction | null {
   if (isOwnerPressPayload(payload)) return 'owner';
   if (isTaskPressPayload(payload)) return 'task';
+  if (isStayChatPressPayload(payload)) return 'stay_chat';
   if (payload.startsWith('sr:')) return 'seat';
   if (payload.startsWith('lead_')) return 'lead';
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
@@ -111,7 +115,8 @@ export function pressActionOf(payload: string): MaxPressAction | null {
 
 /**
  * Вид ссылки старта: `login-` — вход на сайт через MAX
- * (`lib/auth/max-login`); `sr_` — чат туриста к запросу мест, `op_` — чат
+ * (`lib/auth/max-login`); `sr_` — чат туриста к запросу мест, `sq_` — чат
+ * гостя к заявке на жильё (`lib/stay/stay-chat`), `op_` — чат
  * кабинета партнёра, `om_` — чат менеджера команды, `adm_` — MAX
  * администратора (`lib/max/admin-link`). Форму токена здесь не проверяем:
  * это делают сами разборщики и только по заверенному апдейту.
@@ -120,7 +125,7 @@ export function startActionOf(payload: unknown): MaxStartAction | null {
   if (typeof payload !== 'string') return null;
   if (payload.startsWith('login-')) return 'login';
   if (payload.startsWith('adm_')) return 'admin';
-  if (payload.startsWith('sr_') || payload.startsWith('op_') || payload.startsWith('om_')) return 'link';
+  if (payload.startsWith('sr_') || payload.startsWith('sq_') || payload.startsWith('op_') || payload.startsWith('om_')) return 'link';
   // Шесть знаков кабинета туроператора. Форму гасит разборщик и только
   // по заверенному апдейту; здесь — чтобы незаверенный старт не молчал.
   const compact = payload.trim().toUpperCase().replace(/\s+/g, '');
@@ -144,6 +149,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Бронь и заявка не изменены — ответьте в кабинете, раздел «Свои туры».',
   task: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Задача не отмечена — отметьте её в кабинете, раздел «Задачи».',
+  stay_chat: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Сообщение по заявке на жильё отсюда не уйдёт — позвоните по телефону из заявки или напишите на странице заявки.',
 };
 
 /**
@@ -162,6 +169,8 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
     + 'откройте «Брони» или «Входящие» ещё раз или раздел «Свои туры».',
   task: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Задача не отмечена — '
     + 'отметьте её в кабинете, раздел «Задачи».',
+  stay_chat: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Нажмите «Ответить» под другим сообщением '
+    + 'по заявке или позвоните по телефону из заявки.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */

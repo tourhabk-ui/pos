@@ -93,6 +93,12 @@ export function consentBy(source: string | null | undefined, at: Date | string |
 
 /** Пишущие инструменты, чьи данные уходят не туроператору (lib/mcp/public-tools). */
 const STAY_TOOL_NAME = 'create_stay_request';
+/**
+ * Ключ заявки на жильё, оставленной формой на карточке объекта (1348): с ним
+ * гость открывает страницу заявки с перепиской и подключает MAX. Это не
+ * инструмент MCP — имя двери в той же колонке `tool_name`.
+ */
+export const STAY_FORM_KEY_NAME = 'stay-request-form';
 const CHARTER_TOOL_NAME = 'request_charter';
 const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
 
@@ -102,7 +108,7 @@ const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
  * «туроператору» их не покрывает.
  */
 export function consentPurposeForTool(toolName: string): ConsentPurpose {
-  if (toolName === STAY_TOOL_NAME) return 'stay';
+  if (toolName === STAY_TOOL_NAME || toolName === STAY_FORM_KEY_NAME) return 'stay';
   if (toolName === CHARTER_TOOL_NAME) return 'carrier';
   if (toolName === CAR_RENTAL_TOOL_NAME) return 'rental';
   return 'operator';
@@ -149,8 +155,8 @@ export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'
   if (kind === 'stay') {
     return key
       ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка (без имени и телефона).`
-        + ' Ответ владелец даёт звонком, и платформа его не видит.'
-        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья.`
+        + ' Ответ владелец даёт звонком или сообщением на странице заявки; текст переписки get_request_status не отдаёт.'
+        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья, переписывается с владельцем и может подключить MAX, чтобы ответы приходили туда.`
         + ' Ключ и ссылку не публикуйте.'
       : ' Ключ статуса заявки не выдан (сбой записи ключа): исход знает только владелец, телефон — на карточке объекта.';
   }
@@ -274,8 +280,8 @@ export function stayState(delivery: StayDelivery): RequestState {
 }
 
 const STAY_HUMAN: Record<StayDelivery, string> = {
-  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки, и его ответа платформа не видит.',
-  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком, и его ответа платформа не видит.',
+  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки или сообщением на странице заявки; текст переписки здесь не показывается.',
+  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком или сообщением на странице заявки; текст переписки здесь не показывается.',
   none: 'Заявка записана, но не дошла ни владельцу, ни оператору Ведара.',
   not_recorded: 'Заявка записана, но куда она дошла, не записано.',
 };

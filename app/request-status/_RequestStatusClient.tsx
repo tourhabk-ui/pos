@@ -12,8 +12,9 @@
  * в шапке lib/mcp/write-guard.ts). Пока заявка ждёт оператора, страница
  * переспрашивает состояние сама; «ссылка неверна» / «не найдена» окончательны.
  *
- * Заявка на жильё (14.10): своего ответа у неё нет — владелец звонит гостю
- * сам, и страница говорит «передана», не обещая ответа и не переспрашивая.
+ * Заявка на жильё (14.10): своего статуса ответа у неё нет — владелец звонит
+ * гостю или пишет в переписке ниже (1348, components/stay/StayChat), и
+ * страница говорит «передана», не переспрашивая состояние.
  * Галочка — тем текстом, кому уходят данные (`consent_purpose`): владельцу
  * жилья, перевозчику или туроператору; тот же текст записывает сервер.
  */
@@ -22,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { StayChat } from '@/components/stay/StayChat';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
@@ -66,7 +68,7 @@ const TEXT: Record<RequestState, StateText> = {
  * записано, куда дошла» — и говорят они о владельце, а не об операторе.
  */
 const STAY_TEXT: Partial<Record<RequestState, StateText>> = {
-  delivered: { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Владелец позвонит по телефону из заявки и подтвердит даты и цену; его ответа платформа не видит. Если звонка долго нет, позвоните сами: телефон на карточке объекта.' },
+  delivered: { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Владелец позвонит по телефону из заявки или ответит в переписке ниже и подтвердит даты и цену. Если ответа долго нет, позвоните сами: телефон на карточке объекта.' },
   failed: { title: 'Заявка не дошла до владельца', tone: 'var(--danger)', next: 'Позвоните владельцу сами: телефон на карточке объекта.' },
   unknown: { title: 'Не записано, куда дошла заявка', tone: 'var(--warning)', next: 'Если владелец не позвонил, позвоните ему сами: телефон на карточке объекта.' },
 };
@@ -320,6 +322,8 @@ export function RequestStatusClient() {
             </div>
           </div>
         )}
+        {/* Переписка с владельцем жилья (1348): страница заявки и есть чат гостя. */}
+        {view && view.kind === 'stay_request' && key && <StayChat requestKey={key} />}
       </div>
     </main>
   );

@@ -12,6 +12,7 @@ export const SOURCE_KIND_LABELS: Readonly<Record<SourceKind, string>> = {
   transfer_seat_booking: 'Места в машине',
   lead: 'Заявка',
   agent_client: 'Клиент агента',
+  stay_request: 'Заявка на жильё',
 };
 
 /** Роль партнёра словами — для экрана администратора. */
@@ -56,6 +57,9 @@ const STATUS_LABELS: Readonly<Record<string, string>> = {
 /** Где одно слово значит разное: `active` у брони — «идёт», у клиента агента — «в работе». */
 const STATUS_LABELS_BY_KIND: Partial<Record<SourceKind, Readonly<Record<string, string>>>> = {
   agent_client: { prospect: 'потенциальный', active: 'в работе', inactive: 'неактивный' },
+  // У заявки хозяину своего статуса нет (1206): «передана», пока хозяин не
+  // ответил в переписке, и «хозяин ответил» после его сообщения (1348).
+  stay_request: { delivered: 'передана', answered: 'хозяин ответил' },
 };
 
 export function statusLabel(status: string | null | undefined, kind?: SourceKind): string | null {

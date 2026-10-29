@@ -17,6 +17,7 @@ export const INBOX_KINDS = [
   'seat_request',
   'lead',
   'accommodation_booking',
+  'stay_request',
   'gear_rental',
   'transfer_seat_booking',
   'guide_invite',
@@ -29,7 +30,9 @@ export type InboxKind = (typeof INBOX_KINDS)[number];
 /** Что ждёт ответа у роли. Порядок — порядок разделов на экране. */
 export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxKind[]>> = {
   operator: ['seat_request', 'operator_booking', 'lead', 'tour_review'],
-  stay: ['accommodation_booking', 'stay_review'],
+  // Заявка хозяину (1206) — у объекта «через владельца»: номеров и кабинета
+  // нет, отвечают кнопкой в MAX или звонком (1348).
+  stay: ['stay_request', 'accommodation_booking', 'stay_review'],
   gear: ['gear_rental'],
   transfer: ['transfer_seat_booking'],
   // Гид продаёт и свои туры (28.10, миграция 1338): брони, запросы мест и
@@ -72,6 +75,7 @@ export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   seat_request: 'Запрос мест',
   lead: 'Заявка на подбор',
   accommodation_booking: 'Бронь жилья',
+  stay_request: 'Заявка на жильё',
   gear_rental: 'Заказ снаряжения',
   transfer_seat_booking: 'Места в машине',
   guide_invite: 'Приглашение в команду',
@@ -101,6 +105,12 @@ const ACTION_BY_KIND: Readonly<Record<InboxKind, InboxAction>> = {
   seat_request: { href: null, hint: 'Ответить во «Входящих» кабинета или в сообщении о запросе (MAX или Telegram), срок — 2 часа' },
   lead: { href: ownerLeadsPath('operator'), hint: 'Ответить в «AI Заявках»' },
   accommodation_booking: { href: '/hub/stay/bookings', hint: 'Подтвердить или отклонить в «Бронях»' },
+  // Кабинета у хозяина «через владельца» может не быть вовсе (у «Кутхи» его
+  // нет): ответ — кнопкой «Ответить гостю» под заявкой в MAX или звонком.
+  stay_request: {
+    href: null,
+    hint: 'Ответить кнопкой «Ответить гостю» под заявкой в MAX или позвонить по телефону из заявки; звонок запишите словами: «запиши звонок Анне»',
+  },
   gear_rental: { href: '/hub/gear/rentals', hint: 'Подтвердить или отклонить в «Арендах»' },
   transfer_seat_booking: { href: '/hub/carrier', hint: 'Ответить в «Кабинете», раздел «Запросы мест»' },
   guide_invite: { href: '/hub/guide', hint: 'Принять или отклонить в «Обзоре»' },
@@ -133,7 +143,7 @@ export function inboxActionFor(category: PartnerCategory, kind: InboxKind): Inbo
  * идёт: на отзыв отвечают не «быстро», а по делу.
  */
 export const RESPONSE_METRIC_KINDS: ReadonlySet<InboxKind> = new Set<InboxKind>([
-  'operator_booking', 'seat_request', 'lead', 'accommodation_booking',
+  'operator_booking', 'seat_request', 'lead', 'accommodation_booking', 'stay_request',
   'gear_rental', 'transfer_seat_booking', 'guide_invite',
 ]);
 

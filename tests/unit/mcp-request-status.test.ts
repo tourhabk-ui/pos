@@ -117,7 +117,7 @@ describe('выдача ключа', () => {
     expect(line).toContain(KEY);
     expect(line).toContain(requestStatusPageUrl(KEY));
     expect(line).toContain('владельцу жилья');
-    expect(line).toMatch(/платформа его не видит/);
+    expect(line).toMatch(/текст переписки get_request_status не отдаёт/);
     expect(line).not.toMatch(/ответил ли оператор|видит ответ оператора/);
     expect(keyLine(null, 'stay')).toMatch(/не выдан/);
     expect(keyLine(null, 'stay')).not.toMatch(/звонку оператора/);
@@ -246,7 +246,8 @@ describe('заявка на жильё (14.10, миграция 1238)', () => {
       consent: 'agent', consent_purpose: 'stay', page: requestStatusPageUrl(KEY),
     });
     expect(v.human).toMatch(/владельцу жилья/);
-    expect(v.human).toMatch(/платформа не видит/);
+    // Текст переписки (1348) статус не отдаёт — и говорит это.
+    expect(v.human).toMatch(/текст переписки здесь не показывается/);
     // Обещания «ждём ответа» нет: статус после передачи не меняется.
     expect(v.next).toMatch(/незачем/);
     expect(v.human + v.next).not.toMatch(/оператор ещё не ответил/);

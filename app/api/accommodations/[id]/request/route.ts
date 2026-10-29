@@ -13,6 +13,11 @@
  * Ответ называет, кому заявка дошла: хозяину, оператору платформы или никому
  * (lib/stay/stay-request — три исхода). Запись и доставка — общий путь с
  * MCP-инструментом create_stay_request (lib/stay/stay-request-service).
+ *
+ * Принятая заявка получает ключ статуса (1238, дверь `stay-request-form`):
+ * в ответе — страница заявки, где идёт переписка с хозяином, и ссылка
+ * подключить MAX, чтобы ответы хозяина приходили туда (1348). Ключ — только
+ * в ответе этому браузеру; на отказе ключ не выдаётся.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -21,6 +26,9 @@ import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { checkStayDates, submitStayRequest } from '@/lib/stay/stay-request-service';
+import { issueRequestKey, requestStatusPageUrl, STAY_FORM_KEY_NAME } from '@/lib/mcp/request-status';
+import { maxBot } from '@/lib/partners/channel-link';
+import { stayGuestBotLink } from '@/lib/stay/stay-chat';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,5 +101,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       data: { delivered },
     }, { status: 502 });
   }
-  return NextResponse.json({ success: true, data: { delivered } });
+  // Страница заявки с перепиской и ссылка подключить MAX (1348). Ключ — только
+  // этому ответу: в базе его хеш. Не выдался — заявка всё равно принята, и
+  // форма говорит, что переписки на сайте не будет (§4.0).
+  const key = await issueRequestKey({ stayRequestId: r.requestId }, STAY_FORM_KEY_NAME);
+  return NextResponse.json({
+    success: true,
+    data: {
+      delivered,
+      page: key ? requestStatusPageUrl(key) : null,
+      max_link: key ? stayGuestBotLink(maxBot(), key) : null,
+    },
+  });
 }
