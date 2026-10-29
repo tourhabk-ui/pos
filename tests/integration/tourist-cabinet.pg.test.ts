@@ -1352,6 +1352,65 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     }
   });
 
+  it('гид: «Входящие» и «Свои туры» — одна карточка и одни брони: каждая ждущая бронь «Входящих» есть там, куда ведёт ссылка ответа, и давняя неподтверждённая тоже (29.10)', async () => {
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('one-card-guide@example.com', 'Гид одной карточки', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const older = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, user_id) VALUES ('Гид, карточка', 'guide', '{}', $1) RETURNING id`,
+      [guideUser],
+    )).rows[0].id;
+    // Вторую карточку гида тому же человеку база не примет
+    // (idx_partners_user_category): «Свои туры» (getGuidePartnerId) и CRM
+    // (partnerContextFor) не могут взять разные карточки.
+    await expect(pool.query(
+      `INSERT INTO partners (name, category, contact, user_id) VALUES ('Гид, вторая карточка', 'guide', '{}', $1)`, [guideUser],
+    )).rejects.toMatchObject({ code: '23505' });
+    const tour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+       VALUES ($1, 'Тур гида одной карточки', 12000, 6, TRUE, TRUE) RETURNING id`, [older],
+    )).rows[0].id;
+    const tourist = await freshTourist('one-card');
+    const booking = async (date: string, status: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, booking_status)
+       VALUES ($1, CURRENT_DATE + $2::int, 2, $3, 'Турист гида', $4) RETURNING id::text`, [tour, date, tourist, status],
+    )).rows[0].id;
+    const fresh = await booking('7', 'new');
+    const stale = await booking('-45', 'new');      // давняя, так и не подтверждённая
+    const old = await booking('-45', 'completed');  // давняя и закрытая — ответа не ждёт
+
+    const { getGuidePartnerId } = await import('@/lib/auth/guide-helpers');
+    const { partnerContextFor } = await import('@/lib/crm/partner-context');
+    const { loadInbox } = await import('@/lib/crm/inbox');
+    const { inboxActionFor } = await import('@/lib/crm/inbox-kinds');
+    // Раздел «Свои туры» и CRM («Входящие», чат) выбирают одну карточку.
+    expect(await getGuidePartnerId(guideUser)).toBe(older);
+    expect(await partnerContextFor(guideUser, 'guide')).toMatchObject({ outcome: 'ok', partnerId: older });
+
+    const inbox = await loadInbox(older, 'guide', guideUser, { unreadChat: async () => 0 });
+    expect(inbox.failed).toEqual([]);
+    const waiting = inbox.items.filter((i) => i.kind === 'operator_booking').map((i) => i.id).sort();
+    expect(waiting).toEqual([fresh, stale].sort());
+    expect(inboxActionFor('guide', 'operator_booking').href).toBe('/hub/guide/own');
+
+    const { NextRequest } = await import('next/server');
+    authAs.userId = guideUser;
+    authAs.role = 'guide';
+    try {
+      const { GET } = await import('@/app/api/guide/own/route');
+      const res = await GET(new NextRequest('http://localhost/api/guide/own') as unknown as NextRequest);
+      const body = await res.json() as { data: { bookings: Array<{ id: string }> } };
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      const own = body.data.bookings.map((b) => b.id);
+      // Ссылка ответа ведёт сюда — значит каждая ждущая бронь здесь есть.
+      for (const id of waiting) expect(own, `бронь ${id} из «Входящих»`).toContain(id);
+      expect(own).not.toContain(old);
+    } finally {
+      authAs.userId = userId;
+      authAs.role = 'tourist';
+    }
+  });
+
   it('удаление: причина отмены словами самого туриста («ковид») стирается в брони, журнале статусов и ленте CRM; комментарий оператора к подтверждению — подпись (#2327, пятый круг)', async () => {
     // Ревью: cancelBooking писал причину туриста дословно в booking_logs.comment
     // («… — оплаты не было»), а ответ говорил «стёрты». Отмена — настоящим

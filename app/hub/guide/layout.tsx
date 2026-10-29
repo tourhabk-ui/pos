@@ -17,8 +17,10 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/guide/own',      label: 'Свои туры',  icon: Compass,       section: 'Работа' },
   { href: '/hub/guide/schedule', label: 'Расписание', icon: CalendarDays,  section: 'Работа' },
   { href: '/hub/guide/groups',   label: 'Группы',     icon: Users,         section: 'Работа' },
-  // Свои клиенты гида — заведённые им самим: туристов из броней оператора
-  // сюда не копирует никто, доступ гида к ним временный (CRM #2325).
+  // «Входящие» — брони и запросы мест на туры, которые гид продаёт сам, и
+  // приглашения с отзывами. «Клиенты» — заведённые им самим и туристы его
+  // собственных туров; туристов из броней оператора, куда гида назначили,
+  // сюда не копирует никто: доступ гида к ним временный (CRM #2325).
   { href: '/hub/guide/inbox',    label: 'Входящие',   icon: BellDot,       section: 'Работа' },
   { href: '/hub/guide/clients',  label: 'Клиенты',    icon: BookUser,      section: 'Работа' },
   { href: '/hub/guide/tasks',    label: 'Задачи',     icon: ListChecks,    section: 'Работа' },

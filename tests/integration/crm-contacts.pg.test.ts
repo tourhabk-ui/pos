@@ -867,6 +867,89 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     )).rejects.toMatchObject({ code: '23514' });
   });
 
+  it('входящие гида со своими турами: бронь и запрос мест его тура — да, бронь тура оператора, куда гида назначили, — нет; ответ — в «Свои туры» и на экране, и в crm_inbox (29.10)', async () => {
+    // Гид продаёт свои туры (1338): запрос читает их по operator_id тура —
+    // его карточке. Бронь тура его оператора, где он назначен гидом
+    // (guide_partner_id), — дело оператора: подтверждать её гиду не нужно.
+    const mk = async (name: string, category: string) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+      )).rows[0].id;
+    const guide = await mk('Гид со своими турами', 'guide');
+    const op = await mk('Оператор команды гида', 'operator');
+    await pool.query(`UPDATE partners SET guide_operator_id = $2 WHERE id = $1`, [guide, op]);
+    const tour = async (operatorId: string, title: string) =>
+      Number((await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, $2, 5000) RETURNING id`, [operatorId, title],
+      )).rows[0].id);
+    const ownTour = await tour(guide, 'Авторский тур гида');
+    const teamTour = await tour(op, 'Тур оператора команды');
+    const own = await booking(ownTour, { name: 'Турист гида', phone: '+79140001010' });
+    const assigned = await booking(teamTour, { name: 'Турист оператора', phone: '+79140002020', guide });
+    await pool.query(`UPDATE operator_bookings SET booking_status = 'new' WHERE id = ANY($1::bigint[])`, [[own, assigned]]);
+    const seat = (await pool.query<{ id: string }>(
+      `INSERT INTO tour_seat_requests (tour_id, operator_id, tour_date, participants, tourist_name, tourist_phone,
+         reply_channel, status_token_hash, deadline_at, pd_consent_at)
+       VALUES ($1, $2, CURRENT_DATE + 20, 2, 'Скрытый Турист Гида', '+79140003030', 'telegram',
+               encode(sha256('guide-inbox-seat'::bytea), 'hex'), NOW() + INTERVAL '2 hours', NOW())
+       RETURNING id::text`,
+      [ownTour, guide],
+    )).rows[0].id;
+
+    const g = await loadInbox(guide, 'guide', null, { db: pool });
+    expect(g.failed).toEqual([]);
+    expect(g.items.map((i) => `${i.kind}:${i.id}`).sort()).toEqual([`operator_booking:${own}`, `seat_request:${seat}`].sort());
+    expect(g.items.find((i) => i.kind === 'operator_booking')).toMatchObject({ title: 'Авторский тур гида', people: 2 });
+    // Ни чужого тура, ни имени и телефона из запроса мест.
+    expect(JSON.stringify(g)).not.toMatch(/Тур оператора команды|Скрытый Турист|0003030/);
+    // Бронь, куда гида назначили, ждёт ответа у оператора — как и раньше.
+    const o = await loadInbox(op, 'operator', null, { db: pool });
+    expect(o.items.map((i) => i.id)).toContain(assigned);
+    expect(o.items.map((i) => i.id)).not.toContain(own);
+
+    // crm_inbox (MCP и помощник в чате) называет ту же дверь, что экран.
+    const ctx = { partnerId: guide, category: 'guide' as const, userId: null, actor: 'kuzmich' as const, canWrite: false };
+    const tool = await executeCrmTool('crm_inbox', {}, ctx, pool);
+    if (!tool.ok) throw new Error(tool.error);
+    const waiting = (tool.data as { waiting: Array<{ item_id: string; where_to_answer: string }> }).waiting;
+    expect(waiting.find((w) => w.item_id === own)?.where_to_answer).toBe('Подтвердить или отклонить в разделе «Свои туры»');
+    expect(crmToolText(tool)).not.toMatch(/«Бронированиях»|Тур оператора команды|Скрытый Турист/);
+  });
+
+  it('напоминание гиду о брони его тура ведёт во «Входящие» гида — и эта бронь там есть (до 29.10 там было пусто)', async () => {
+    // Позже окон напоминаний остальных тестов: их предметы сюда не попадают.
+    const now = new Date('2026-10-12T22:00:00Z'); // 10:00 по Камчатке
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ('Гид напоминания о брони', 'guide', '{}') RETURNING id`,
+    )).rows[0].id;
+    const ownTour = Number((await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур гида с напоминанием', 5000) RETURNING id`, [guide],
+    )).rows[0].id);
+    const b = await booking(ownTour, { name: 'Турист напоминания', phone: '+79140004040' });
+    await pool.query(
+      `UPDATE operator_bookings SET booking_status = 'new', created_at = $2::timestamptz - INTERVAL '3 hours' WHERE id = $1`,
+      [b, now.toISOString()],
+    );
+
+    const sent: Array<{ buttons?: Array<{ text: string; url?: string }>; to: { maxChatId: string | null } }> = [];
+    const reach = async (id: string) => ({ reachable: true, maxChatId: id === guide ? 'guide-chat' : 'other-chat', telegramChatId: null }) as never;
+    const send = async (p: (typeof sent)[number]) => { sent.push(p); return { channel: 'max' as const, delivered: true, reason: 'ok' }; };
+    const r = await runInboxReminders(now, { db: pool, reach, send: send as never });
+    expect(r.failed_kinds).toEqual([]);
+
+    const marked = await pool.query<{ item_kind: string; item_id: string }>(
+      `SELECT item_kind, item_id FROM crm_inbox_reminders WHERE partner_id = $1`, [guide],
+    );
+    expect(marked.rows).toEqual([{ item_kind: 'operator_booking', item_id: b }]);
+    const toGuide = sent.filter((m) => m.to.maxChatId === 'guide-chat');
+    expect(toGuide).toHaveLength(1);
+    expect(toGuide[0].buttons?.map((x) => x.url)).toEqual(['https://vedarai.ru/hub/guide/inbox']);
+
+    // Кнопка ведёт во «Входящие» гида — и напомненная бронь там стоит.
+    const g = await loadInbox(guide, 'guide', null, { db: pool, nowMs: now.getTime() });
+    expect(g.items.map((i) => `${i.kind}:${i.id}`)).toContain(`operator_booking:${b}`);
+  });
+
   it('инструменты CRM на настоящей базе: подпись без телефона; задача и выполнение — от Кузьмича', async () => {
     const ctx = { partnerId: P.opA, category: 'operator' as const, userId: null, actor: 'kuzmich' as const, canWrite: true };
     const anna = (await pool.query<{ id: string }>(

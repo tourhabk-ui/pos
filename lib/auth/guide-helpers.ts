@@ -8,14 +8,23 @@ import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { logGuideFailure } from '@/lib/guides/db-failure';
 
 /**
- * Get partner ID for a guide user
- * Returns partner.id linked to user.id where category='guide'
+ * Карточка гида у человека одна: вторую не примет уникальный индекс
+ * idx_partners_user_category (baseline схемы прода), поэтому «Свои туры» и CRM
+ * (`partnerContextFor`, lib/crm/partner-context) выбирают одну и ту же —
+ * это держит tests/integration/tourist-cabinet.pg.test.ts. Порядок записан
+ * тот же, что у partnerContextFor, чтобы запросы одной формы не разошлись,
+ * если индекс когда-нибудь снимут; тот же — у профиля
+ * (`getGuidePartnerByUserId`).
+ *
+ * Карточка гида (partners.id) вошедшего пользователя; `null` — карточки нет
+ * или база не ответила (отказ в лог).
  */
 export async function getGuidePartnerId(userId: string): Promise<string | null> {
   try {
     const result = await query(
-      `SELECT id FROM partners 
+      `SELECT id FROM partners
        WHERE user_id = $1 AND category = 'guide'
+       ORDER BY created_at ASC NULLS LAST, id ASC
        LIMIT 1`,
       [userId]
     );
@@ -86,6 +95,7 @@ export async function getGuidePartnerByUserId(userId: string): Promise<GuidePart
       FROM partners p
       LEFT JOIN assets a ON p.logo_asset_id = a.id
       WHERE p.user_id = $1 AND p.category = 'guide'
+      ORDER BY p.created_at ASC NULLS LAST, p.id ASC
       LIMIT 1`,
       [userId]
     );

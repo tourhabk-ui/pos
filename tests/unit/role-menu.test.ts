@@ -111,6 +111,15 @@ describe('меню роли', () => {
     expect(adminMenuHelp()).not.toMatch(/₽|<|>/);
     expect(adminMenuHelp()).toContain('только в MAX');
   });
+
+  it('справка гида называет то, что правда стоит в его «Входящих»: брони и запросы мест своих туров (29.10)', async () => {
+    const { INBOX_BY_CATEGORY } = await import('@/lib/crm/inbox-kinds');
+    const menu = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'guide-1' }) ?? [];
+    const help = partnerMenuHelp('guide', menu);
+    expect(INBOX_BY_CATEGORY.guide).toEqual(expect.arrayContaining(['operator_booking', 'seat_request']));
+    expect(help).toContain('брони и запросы мест на туры, которые вы продаёте сами');
+    expect(help).toContain('Имени и телефона туриста в этом списке нет');
+  });
 });
 
 describe('текст входящих', () => {

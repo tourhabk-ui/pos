@@ -76,7 +76,9 @@ export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
 
 /**
  * Брони по турам гида: все предстоящие и прошедшие за 30 дней — чтобы
- * отметить «завершена» или «не пришёл». Контакты туриста — ему, как продавцу
+ * отметить «завершена» или «не пришёл». Неподтверждённая («new») — любой
+ * давности: «Входящие» гида (lib/crm/inbox-sql) держат её до ответа и ведут
+ * сюда, и здесь она обязана быть. Контакты туриста — ему, как продавцу
  * тура: тот же состав, что видит оператор в своём кабинете.
  */
 export async function loadOwnBookings(partnerId: string): Promise<OwnBooking[]> {
@@ -88,7 +90,7 @@ export async function loadOwnBookings(partnerId: string): Promise<OwnBooking[]> 
        FROM operator_bookings b
        JOIN operator_tours t ON t.id = b.operator_tour_id
       WHERE t.operator_id = $1::uuid AND b.deleted_at IS NULL
-        AND b.booking_date >= CURRENT_DATE - 30
+        AND (b.booking_date >= CURRENT_DATE - 30 OR b.booking_status = 'new')
       ORDER BY (b.booking_status = 'new') DESC, b.booking_date ASC
       LIMIT 200`,
     [partnerId],

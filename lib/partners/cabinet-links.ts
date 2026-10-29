@@ -21,23 +21,34 @@ function isGuide(category: string | null | undefined): boolean {
   return category === 'guide';
 }
 
+/**
+ * Раздел броней продавца — путь без домена: для экранов кабинета и
+ * «Входящих» (lib/crm/inbox-kinds), где ссылка относительная.
+ */
+export function ownerBookingsPath(category: string | null | undefined): string {
+  return isGuide(category) ? GUIDE_OWN_PATH : '/hub/operator/bookings';
+}
+
+/** Раздел заявок продавца — путь без домена. */
+export function ownerLeadsPath(category: string | null | undefined): string {
+  return isGuide(category) ? GUIDE_OWN_PATH : '/hub/operator/leads';
+}
+
 /** Одна бронь — у оператора своя страница, у гида общий раздел. */
 export function ownerBookingsUrl(category: string | null | undefined, bookingId: bigint | string): string {
   return isGuide(category)
     ? `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
-    : `${getPublicBaseUrl()}/hub/operator/bookings/${bookingId}`;
+    : `${getPublicBaseUrl()}${ownerBookingsPath(category)}/${bookingId}`;
 }
 
 /** Список броней. */
 export function ownerBookingsListUrl(category: string | null | undefined): string {
-  return isGuide(category)
-    ? `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
-    : `${getPublicBaseUrl()}/hub/operator/bookings`;
+  return `${getPublicBaseUrl()}${ownerBookingsPath(category)}`;
 }
 
 /** Одна заявка (лид). */
 export function ownerLeadUrl(category: string | null | undefined, leadId: string): string {
   return isGuide(category)
     ? `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
-    : `${getPublicBaseUrl()}/hub/operator/leads/${leadId}`;
+    : `${getPublicBaseUrl()}${ownerLeadsPath(category)}/${leadId}`;
 }
