@@ -44,6 +44,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion, reasoningAteTheAnswer } from '@/lib/ai/failure-trace';
 import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { usageSinkEnabled, sendUsageToProd } from '@/lib/ai/usage-sink';
@@ -132,7 +133,11 @@ function answeredModel(requested: string, data: unknown): string {
  * пересчитываем («пересчёт задним числом — тоже вид выдумывания») — строки
  * до миграции 961 помечены отдельным значением самой миграцией, не этим кодом.
  */
-type CostBasis = 'model_catalog' | 'cost_table_fallback' | 'provider_reported' | 'unknown';
+type CostBasis =
+  | 'model_catalog' | 'cost_table_fallback' | 'provider_reported' | 'unknown'
+  // Кэш прочитан у вендора, чей множитель чтения книги не знают: прочитанное
+  // посчитано по полной цене входа — ВЕРХНЯЯ граница цены, а не цена (ревью 29.10).
+  | 'model_catalog_cache_upper_bound' | 'cost_table_fallback_cache_upper_bound';
 
 /**
  * Достижим ли каталог отсюда.
@@ -246,6 +251,12 @@ export function priceLookupIds(loggedModel: string): string[] {
       ids.push(`${vendor}/${rest}`);
       const dotted = vendor === 'anthropic' ? anthropicCatalogSlug(rest) : null;
       if (dotted) ids.push(dotted);
+      // Нога инструментов DeepSeek пишет `deepseek:<модель>`, а текстовый путь
+      // callDeepSeek ту же модель того же провайдера — голым именем, и запас
+      // `COST_PER_1K` знает её голой (ревью 29.10: строки цикла Кузьмича
+      // теряли цену, которую текстовый путь находил). Тоже механика: тот же
+      // провайдер, та же модель, без префикса.
+      if (vendor === 'deepseek') ids.push(rest);
     }
   }
   return ids;
@@ -402,15 +413,36 @@ function sqlState(e: unknown): string {
 
 /**
  * Цена строки с кэшем — во входо-эквиваленте (lib/ai/cache-pricing): множители
- * известны только у Anthropic. У прочих вендоров при прочитанном кэше цена —
- * честное «не знаем», а не вход без кэша, выданный за полную цену.
+ * известны только у Anthropic.
+ *
+ * У прочих вендоров при прочитанном (и только прочитанном) кэше — ВЕРХНЯЯ
+ * граница: прочитанное по полной цене входа, с пометкой `*_cache_upper_bound`.
+ * Чтение кэша не бывает дороже обычного входа, так что граница честная. Прежде
+ * здесь стояла цена NULL, и это закрывало от дневного бюджета главный путь:
+ * DeepSeek кэширует длинный неизменный префикс Кузьмича сам, попадание есть
+ * почти на каждом ходу, а `SUM(estimated_cost_usd)` в llm-budget-check NULL
+ * пропускает (ревью 29.10). Запись в кэш у чужого вендора может стоить дороже
+ * входа — там границы нет, и цена остаётся «не знаем».
  */
+export async function resolveCostWithCache(
+  model: string, prompt: number, completion: number,
+  cache: { creation: number | null; read: number | null },
+): Promise<{ cost: number | null; basis: CostBasis }> {
+  const promptEquivalent = inputEquivalentTokens(model, prompt, cache);
+  if (promptEquivalent !== null) return resolveCostUsd(model, promptEquivalent, completion);
+  if ((cache.creation ?? 0) > 0) return { cost: null, basis: 'unknown' };
+  const bound = await resolveCostUsd(model, prompt + (cache.read ?? 0), completion);
+  if (bound.cost === null) return bound;
+  return {
+    cost: bound.cost,
+    basis: bound.basis === 'model_catalog' ? 'model_catalog_cache_upper_bound' : 'cost_table_fallback_cache_upper_bound',
+  };
+}
+
 async function costWithCache(
   model: string, prompt: number, completion: number, cacheRead: number | null,
 ): Promise<{ cost: number | null; basis: CostBasis }> {
-  const promptEquivalent = inputEquivalentTokens(model, prompt, { creation: null, read: cacheRead });
-  if (promptEquivalent === null) return { cost: null, basis: 'unknown' };
-  return resolveCostUsd(model, promptEquivalent, completion);
+  return resolveCostWithCache(model, prompt, completion, { creation: null, read: cacheRead });
 }
 
 /**
@@ -458,6 +490,13 @@ async function logLLMUsage(model: string, usage: ProviderUsage | undefined, extr
 }
 
 /**
+ * Куда водопад инструментов собирает расход ВСЕХ ответов ног одного хода —
+ * не только ответившей. Вне `callToolsWaterfall(..., turnUsage)` хранилища нет,
+ * и нога пишет только в книги.
+ */
+const turnUsageStore = new AsyncLocalStorage<Array<ParsedUsage | null>>();
+
+/**
  * Расход ноги цикла инструментов (шаг 0 разбора 29.10): разобрать `usage`,
  * записать в книги от имени Кузьмича и вернуть числа ходу — цикл складывает
  * их в замер ответа (lib/kuzmich/answer-timing). Учёт не задерживает ответ
@@ -466,6 +505,10 @@ async function logLLMUsage(model: string, usage: ProviderUsage | undefined, extr
  */
 function logToolsLegUsage(leg: string, model: string, rawUsage: unknown): ParsedUsage | null {
   const usage = parseProviderUsage(rawUsage);
+  // Каждый оплаченный ответ ноги — в счёт хода, и тот, что потом отвергнут
+  // (пустой, обрезанный, лёгкая модель xAI перед сильной): книги его уже видят,
+  // и замер ответа не должен его терять (ревью 29.10).
+  turnUsageStore.getStore()?.push(usage);
   if (!usage) {
     console.warn(`[llm-usage] ${leg}: провайдер не отдал usage (${model}) — расход хода не учтён`);
     return null;
@@ -1289,16 +1332,23 @@ export async function firstNonNullToolLabelled(
 // Урок 08.09 остаётся в силе: нога, которая отвечает отказом всегда, впереди
 // живой — это секунды ожидания, купленные ни за что. Поэтому отказ Qwen теперь
 // пишется с причиной (failure-trace), а health будит, когда ключ не принят.
+//
+// `turnUsage` — куда сложить расход КАЖДОГО ответа ног этого хода (null —
+// ответ без usage), и того, что нога потом отвергла: книги видят его строкой,
+// и замер ответа (lib/kuzmich/answer-ceiling) не должен расходиться с книгами.
+// Массив наполняется и тогда, когда водопад вернул null.
 export async function callToolsWaterfall(
   messages: ToolMsg[],
   tools: ToolDefinition[],
+  turnUsage?: Array<ParsedUsage | null>,
 ): Promise<ToolsCallResult | null> {
-  return firstNonNullToolLabelled([
+  const run = () => firstNonNullToolLabelled([
     { provider: 'deepseek',   run: () => callDeepSeekWithTools(messages, tools) },   // первичный: доступен из РФ
     { provider: 'qwen',       run: () => callQwenWithTools(messages, tools) },       // возвращён 24.09: из РФ напрямую, быстрее xAI
     { provider: 'xai',        run: () => callXaiWithTools(messages, tools) },        // вторая ЖИВАЯ нога (19.09)
     { provider: 'openrouter', run: () => callOpenRouterWithTools(messages, tools) }, // последний шанс (авто-восстановление если разблокируют)
   ]);
+  return turnUsage ? turnUsageStore.run(turnUsage, run) : run();
 }
 
 // Call AI with a preferred model. Falls back to full waterfall if preferred model fails.
@@ -5171,7 +5221,11 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
  * создания брони (08.09), и разница была бы не видна до дня, когда она
  * дорого стоит.
  */
-export async function callAIWaterfallDetailed(messages: ChatMessage[]): Promise<WaterfallOutcome> {
+export async function callAIWaterfallDetailed(input: ChatMessage[]): Promise<WaterfallOutcome> {
+  // Маркер кэша — служебная строка Anthropic (buildSystemBlocks режет по нему
+  // сама). Остальным ногам он уходил буквально, посреди правил Кузьмича, на
+  // каждый ответ запасным путём и сразу нескольким провайдерам (ревью 29.10).
+  const messages = withoutCacheBreak(input);
   // Tier 1: race all primary providers simultaneously.
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал
   // (health WARN), а в гонке он лишь тратил соединение и шумел в мониторинге.
@@ -5205,7 +5259,7 @@ export async function callAIWaterfallDetailed(messages: ChatMessage[]): Promise<
   if (tier2) return { text: tier2.text, provider: tier2.provider, tier: 2, failed: false };
 
   // Tier 3: sequential fallback (rarely reached)
-  const anthropic = await callAnthropic(messages);
+  const anthropic = await callAnthropic(input);
   if (anthropic) return { text: anthropic, provider: 'anthropic', tier: 3, failed: false };
 
   // All providers failed — log for Timeweb server diagnostics

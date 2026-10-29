@@ -426,7 +426,7 @@ export async function POST(request: NextRequest) {
               path: commercialHit ? 'single' : (loopAnswered ? 'tools' : 'single'),
               provider: loopAnswered ? (streamProvenance.provider ?? null) : null,
               ceilingHit: streamTiming.ceilingHit,
-              tokens: commercialHit ? null : answerTokens(streamTiming),
+              tokens: commercialHit ? null : answerTokens(streamTiming, { answeredOutsideLoop: !loopAnswered }),
             });
           }
           if (safeRole === 'tourist' && !commercialHit) {

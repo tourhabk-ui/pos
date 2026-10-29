@@ -68,6 +68,24 @@ describe('разбор usage — чистая функция на образца
       .toEqual({ promptTokens: 100, completionTokens: 1, cacheReadTokens: null });
   });
 
+  it('xAI: рассуждение вне completion_tokens прибавлено к выходу; у OpenAI оно уже внутри', () => {
+    // Образец Grok: total = prompt + completion + reasoning (663 + 50 + 124 = 837).
+    expect(parseProviderUsage({
+      prompt_tokens: 663, completion_tokens: 50, total_tokens: 837,
+      prompt_tokens_details: { cached_tokens: 654 },
+      completion_tokens_details: { reasoning_tokens: 124 },
+    })).toEqual({ promptTokens: 9, completionTokens: 174, cacheReadTokens: 654 });
+    // OpenAI/DeepSeek: рассуждение внутри completion — total = prompt + completion.
+    expect(parseProviderUsage({
+      prompt_tokens: 1000, completion_tokens: 4000, total_tokens: 5000,
+      completion_tokens_details: { reasoning_tokens: 4000 },
+    })?.completionTokens).toBe(4000);
+    // total не назван — прибавлять не по чему: выход как назван.
+    expect(parseProviderUsage({
+      prompt_tokens: 10, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 7 },
+    })?.completionTokens).toBe(5);
+  });
+
   it('нет usage, нет входа или мусор — null, а не строка с нулями', () => {
     expect(parseProviderUsage(undefined)).toBeNull();
     expect(parseProviderUsage(null)).toBeNull();
@@ -201,6 +219,87 @@ describe('каждая нога цикла пишет расход в книги
     });
   }
 
+  it('DeepSeek с кэшем: цена — оценка сверху по голому имени модели, не NULL', async () => {
+    const { fetchMock } = provider('deepseek-chat', DS_USAGE);
+    vi.stubGlobal('fetch', fetchMock);
+    const providers = await import('@/lib/ai/providers');
+
+    await providers.callDeepSeekWithTools(MESSAGES, [], 'deepseek-chat');
+    await vi.waitFor(() => expect(usageInserts()).toHaveLength(1));
+    const [, , , , cost, basis] = usageInserts()[0];
+    // Прочитанное — по полной цене входа: (2 520 + 20 480 + 200) × 0.0005 / 1000.
+    expect(cost as number).toBeCloseTo((23_200 * 0.0005) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback_cache_upper_bound');
+  });
+
+  it('DeepSeek без кэша: та же цена, что у текстового пути, без пометки', async () => {
+    const { fetchMock } = provider('deepseek-chat', { prompt_tokens: 1000, completion_tokens: 100, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 1000 });
+    vi.stubGlobal('fetch', fetchMock);
+    const providers = await import('@/lib/ai/providers');
+
+    await providers.callDeepSeekWithTools(MESSAGES, [], 'deepseek-chat');
+    await vi.waitFor(() => expect(usageInserts()).toHaveLength(1));
+    const [, , , , cost, basis] = usageInserts()[0];
+    expect(cost as number).toBeCloseTo((1_100 * 0.0005) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+  });
+
+  it('запись в кэш у чужого вендора — цена «не знаем»: граница сверху есть только у чтения', async () => {
+    const providers = await import('@/lib/ai/providers');
+    expect(await providers.resolveCostWithCache('deepseek:deepseek-chat', 100, 10, { creation: 50, read: 0 }))
+      .toEqual({ cost: null, basis: 'unknown' });
+    // Неизвестная модель — и граница неизвестна.
+    expect(await providers.resolveCostWithCache('othervendor:m', 100, 10, { creation: null, read: 500 }))
+      .toEqual({ cost: null, basis: 'unknown' });
+  });
+
+  it('водопад отдаёт расход и отвергнутой ноги: пустой ответ DeepSeek оплачен и виден ходу', async () => {
+    vi.stubEnv('DEEPSEEK_MODEL', 'deepseek-chat');
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'qwen-plus' }] }), { status: 200 });
+      if (u.includes('deepseek')) {
+        return new Response(JSON.stringify({ model: 'deepseek-chat', choices: [], usage: DS_USAGE }), { status: 200 });
+      }
+      return completion('qwen-plus', OAI_USAGE);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const providers = await import('@/lib/ai/providers');
+
+    const turn: Array<import('@/lib/ai/provider-usage').ParsedUsage | null> = [];
+    const r = await providers.callToolsWaterfall(MESSAGES, [], turn);
+    expect(r?.provider).toBe('qwen');
+    expect(turn).toEqual([
+      { promptTokens: 2_520, completionTokens: 200, cacheReadTokens: 20_480 },
+      { promptTokens: 6_000, completionTokens: 310, cacheReadTokens: 18_000 },
+    ]);
+    // Книги видят обе строки — замер хода теперь сходится с ними.
+    await vi.waitFor(() => expect(usageInserts()).toHaveLength(2));
+  });
+
+  it('запасной водопад: маркер кэша не уходит текстом ни одной не-Anthropic ноге', async () => {
+    vi.stubEnv('DEEPSEEK_MODEL', 'deepseek-chat');
+    vi.stubEnv('GROQ_API_KEY', 'gsk-test');
+    vi.stubEnv('MISTRAL_API_KEY', 'mistral-test');
+    const bodies: string[] = [];
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'deepseek-chat' }] }), { status: 200 });
+      if (init?.body) bodies.push(String(init.body));
+      return new Response(JSON.stringify({ model: 'm', choices: [{ message: { content: 'Ответ' }, finish_reason: 'stop' }] }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const providers = await import('@/lib/ai/providers');
+
+    const out = await providers.callAIWaterfallDetailed(MESSAGES);
+    expect(out.failed).toBe(false);
+    const chat = bodies.filter((b) => b.includes('"messages"'));
+    expect(chat.length).toBeGreaterThan(0);
+    for (const b of chat) {
+      expect(b).not.toContain(MARKER);
+      expect(b).toContain('Ты Кузьмич. Правила.');
+    }
+  });
+
   it('внутри учёта агента (эвал) строка несёт его имя, а не kuzmich', async () => {
     const { fetchMock } = provider('deepseek-chat', DS_USAGE);
     vi.stubGlobal('fetch', fetchMock);
@@ -270,6 +369,15 @@ describe('расход ответа — в замер kuzmich_answer, по хо�
       inputTokens: 48_000, maxCallInputTokens: 26_000, completionTokens: 400,
       cacheReadTokens: 20_000, cacheReportedCalls: 1,
     });
+  });
+
+  it('ответил запасной путь после ходов цикла — сумма помечена неполной', () => {
+    const t = newLoopTiming();
+    addTurnUsage(t, { promptTokens: 10_000, completionTokens: 0, cacheReadTokens: null });
+    expect(answerTokens(t, { answeredOutsideLoop: true })).toMatchObject({ reportedCalls: 1, unreportedCalls: 1, inputTokens: 10_000 });
+    expect(answerTokens(t)).toMatchObject({ reportedCalls: 1, unreportedCalls: 0 });
+    // Цикл не звался вовсе — расхода нет, пометка не делает из него запись.
+    expect(answerTokens(newLoopTiming(), { answeredOutsideLoop: true })).toBeNull();
   });
 
   it('замер пишет числа; без расхода ключей нет вовсе, а не нули', async () => {

@@ -535,7 +535,7 @@ withPg('витрина туров: снятый тур не в плане и н�
   // сегодня. Пути, отдающие не всё, записаны в KNOWN_INCOMPLETE с причиной и
   // нынешним числом: починит их ветка multi-offer — запись обязана уйти, тест
   // покраснеет на старом числе (самоустаревает, как KNOWN_UNPRODUCED).
-  it('поиск туров Кузьмича: девять туров трёх компаний к одному месту — что отдаёт каждый путь (29.10)', async () => {
+  it('поиск туров Кузьмича: девять туров трёх компаний к одному месту и десятый по явной связи — что отдаёт каждый путь (29.10)', async () => {
     const PLACE = 'Пробный';
     const companies = [
       { id: 'b1100000-0000-4000-8000-0000000000c1', name: 'W2PT Компания Альфа', slug: 'w2pt-alpha' },
@@ -550,7 +550,19 @@ withPg('витрина туров: снятый тур не в плане и н�
       // filterTourCatalog сравнивает по основе слова: опечатка в окончании
       // прощается, внутри основы — нет.
       get_tours_typo_inside_stem: { starts: 'Туров «прабный» у операторов платформы сейчас нет', why: 'опечатка внутри основы слова: get_tours сравнивает по основе' },
+      // Тур связан с местом явно (operator_tours.main_place_id, миграция 1286),
+      // но слова места в его тексте нет. Каталог Кузьмича (loadTourCatalog)
+      // колонку не читает, фильтр судит по тексту строки — тура не видит ни
+      // get_tours, ни поиск машин к месту. Эталон коммерческого эвала — тот же
+      // get_tours, так что эвал этого пробела не видит тоже (ревью 29.10).
+      get_tours_main_place_id: { listed: false, why: 'связь по main_place_id не читается каталогом Кузьмича: тур без слова места в тексте не находится' },
+      search_transfers_main_place_id: { listed: false, why: 'toursMentioningPlace ищет по тексту, main_place_id не читает' },
     } as const;
+    const PLACE_ID = 'w2pt-probe-place';
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, location_type, is_visible) VALUES ($1, $2, 55.83, 160.33, 'volcano', TRUE)`,
+      [PLACE_ID, `Вулкан ${PLACE}`],
+    );
     const tourIds: string[] = [];
     for (const [ci, c] of companies.entries()) {
       await pool.query(
@@ -570,6 +582,17 @@ withPg('витрина туров: снятый тур не в плане и н�
         tourIds.push(rows[0].id);
       }
     }
+    // Десятый тур: место — только явной связью, без слова места в тексте.
+    const { rows: linkedRows } = await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, location_name, main_place_id)
+       VALUES ($1, 'W2PT Лавовые поля и Мёртвый лес', 'w2pt-probe-linked', 'trekking', 2100, 'per_person',
+               1, 8, 8, 'easy', TRUE, TRUE, 'Ключи', $2)
+       RETURNING id::text`,
+      [companies[0].id, PLACE_ID],
+    );
+    const linkedId = linkedRows[0].id;
     const all = [...tourIds].sort();
     const idsIn = (text: string) => [...text.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => all.includes(x)).sort();
 
@@ -583,6 +606,11 @@ withPg('витрина туров: снятый тур не в плане и н�
       // get_tours в чате: по слову места — все девять, у каждого компания.
       const chat = await executeKuzmichTool('get_tours', { activity_type: PLACE });
       expect(idsIn(chat)).toEqual(all);
+      // Тур живой и в каталоге есть — по своему слову находится.
+      expect(await executeKuzmichTool('get_tours', { activity_type: 'Лавовые' })).toContain(`ID${linkedId}:`);
+      // По слову места — нет: известный пробел, записан, а не спрятан.
+      expect(chat.includes(`ID${linkedId}:`), KNOWN_INCOMPLETE.get_tours_main_place_id.why)
+        .toBe(KNOWN_INCOMPLETE.get_tours_main_place_id.listed);
       for (const c of companies) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(3);
 
       // MCP: страницами по семь — первая неполная и называет, сколько всего;
@@ -620,9 +648,12 @@ withPg('витрина туров: снятый тур не в плане и н�
 
       const transfers = await executeKuzmichTool('search_transfers', { place: PLACE });
       expect(idsIn(transfers).length, KNOWN_INCOMPLETE.search_transfers.why).toBe(KNOWN_INCOMPLETE.search_transfers.gives);
+      expect(transfers.includes(`ID${linkedId}:`), KNOWN_INCOMPLETE.search_transfers_main_place_id.why)
+        .toBe(KNOWN_INCOMPLETE.search_transfers_main_place_id.listed);
     } finally {
       vi.useRealTimers();
-      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [tourIds]);
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [[...tourIds, linkedId]]);
+      await pool.query(`DELETE FROM places WHERE id = $1`, [PLACE_ID]);
       await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [companies.map((c) => c.id)]);
     }
   });

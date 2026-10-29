@@ -12,7 +12,9 @@
  *   - OpenAI-совместимая (OpenRouter, Qwen/DashScope, xAI): `prompt_tokens`,
  *     `completion_tokens`, кэш — `prompt_tokens_details.cached_tokens`;
  *   - DeepSeek: те же два числа и кэш отдельными полями
- *     `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`.
+ *     `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`;
+ *   - xAI: рассуждение (`completion_tokens_details.reasoning_tokens`) НЕ входит
+ *     в `completion_tokens`, хотя оплачивается как выход — прибавляется к нему.
  * У обеих форм `prompt_tokens` ВКЛЮЧАЕТ прочитанное из кэша. А в книгах кэш
  * лежит в своей колонке и во вход не входит (миграция 1285: «в total_tokens не
  * входит», цена — `inputEquivalentTokens`). Поэтому вход здесь возвращается
@@ -27,8 +29,9 @@
  * Кто тратит, когда цикл инструментов зовут вне учёта агента. Цикл
  * инструментов — путь одного Кузьмича (lib/kuzmich/core.ts — сайт, Telegram,
  * MAX, A2A; lib/kuzmich/operator-chat.ts — Кузьмич партнёра). Внутри
- * `runWithUsageTracking` (эвал, кроны) строка несёт имя того агента: эвал не
- * должен считаться расходом живого Кузьмича.
+ * `runWithUsageTracking` (эвал — app/api/cron/kuzmich-eval, red-team —
+ * kuzmich-redteam, кроны) строка несёт имя того агента: эвал не должен
+ * считаться расходом живого Кузьмича.
  */
 export const TOOLS_LOOP_AGENT_ID = 'kuzmich';
 
@@ -60,8 +63,19 @@ export function parseProviderUsage(raw: unknown): ParsedUsage | null {
   const miss = count(field(raw, 'prompt_cache_miss_tokens'));
   let prompt = count(field(raw, 'prompt_tokens'));
   if (prompt === null && hit !== null && miss !== null) prompt = hit + miss;
-  const completion = count(field(raw, 'completion_tokens'));
+  let completion = count(field(raw, 'completion_tokens'));
   if (prompt === null || completion === null) return null;
+
+  // Рассуждение. У OpenAI, OpenRouter и DeepSeek оно ВНУТРИ completion_tokens,
+  // у xAI — рядом: total = prompt + completion + reasoning (документация Grok,
+  // «reasoning_tokens … separated from the completion_tokens»), а оплачивается
+  // как выход. Судим не по имени провайдера, а по самим числам: total вмещает
+  // рассуждение сверх выхода — значит, в выход оно не вошло (ревью 29.10).
+  const reasoning = count(field(field(raw, 'completion_tokens_details'), 'reasoning_tokens'));
+  const total = count(field(raw, 'total_tokens'));
+  if (reasoning !== null && reasoning > 0 && total !== null && total >= prompt + completion + reasoning) {
+    completion += reasoning;
+  }
 
   // DeepSeek называет попадания своим полем; прочие — в деталях входа.
   let cacheRead = hit ?? count(field(field(raw, 'prompt_tokens_details'), 'cached_tokens'));

@@ -21,6 +21,7 @@ import { sampleLiveQuestions } from '@/lib/agents/eval/live-questions';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 // Потолок поднят вместе с потолком curl в workflow (замер 11.09): двадцать
@@ -52,6 +53,10 @@ export async function GET(request: NextRequest) {
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 15) : 10;
 
   const started_at = new Date();
+  // Имя прогона — и в журнале, и в книгах расхода. Без учёта агента ноги
+  // цикла пишут ход эвала как живого Кузьмича ('kuzmich'), и сотня вопросов
+  // эвала легла бы в замер «до» по поверхностям и провайдерам (ревью 29.10).
+  const agentId = source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval');
   try {
     let liveCount = 0;
     let report;
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
         // «крон не запускался» от «крон отработал и ему нечего было спрашивать».
         // Ответ живёт до конца HTTP-запроса, журнал — дольше (§4.0).
         void logAgentRun({
-          agent_id: 'kuzmich-eval-live',
+          agent_id: agentId,
           status: 'partial',
           started_at,
           duration_ms: Date.now() - started_at.getTime(),
@@ -82,9 +87,10 @@ export async function GET(request: NextRequest) {
           asked: 0,
         });
       }
-      report = await runKuzmichFaithfulnessEval({ questions });
+      report = (await runWithUsageTracking(agentId, () => runKuzmichFaithfulnessEval({ questions }))).result;
     } else {
-      report = await runKuzmichFaithfulnessEval({ questions: fixtureQuestions(commercialSet ? 'commercial' : 'base') });
+      const questions = fixtureQuestions(commercialSet ? 'commercial' : 'base');
+      report = (await runWithUsageTracking(agentId, () => runKuzmichFaithfulnessEval({ questions }))).result;
     }
 
     // Исход прогона и ПРИЧИНА, по которой он не «success», считаются вместе:
@@ -108,7 +114,7 @@ export async function GET(request: NextRequest) {
       : { status, skip_reason };
 
     void logAgentRun({
-      agent_id: source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval'),
+      agent_id: agentId,
       status: outcome.status,
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
@@ -138,7 +144,7 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     void logAgentRun({
-      agent_id: source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval'),
+      agent_id: agentId,
       status: 'failed',
       started_at,
       duration_ms: Date.now() - started_at.getTime(),

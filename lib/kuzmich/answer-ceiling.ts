@@ -168,8 +168,19 @@ export function addTurnUsage(timing: AgentLoopTiming, usage: ParsedUsage | null 
   }
 }
 
-/** Расход для замера ответа; null — цикл модели не звал (ответ без него). */
-export function answerTokens(timing: AgentLoopTiming): LoopTokens | null {
+/**
+ * Расход для замера ответа; null — цикл модели не звал (ответ без него).
+ *
+ * `answeredOutsideLoop` — ответил запасной путь (одиночный вызов, водопад),
+ * а цикл перед ним отработал ходы. В timing лежит только цикл; вызов, который
+ * на самом деле ответил, сюда не попал. Он засчитывается вызовом без чисел —
+ * сумма неполна и в перцентиль «полных» ответов переписи не идёт (ревью 29.10).
+ */
+export function answerTokens(
+  timing: AgentLoopTiming,
+  opts: { answeredOutsideLoop?: boolean } = {},
+): LoopTokens | null {
   const t = timing.tokens;
-  return t.reportedCalls + t.unreportedCalls === 0 ? null : { ...t };
+  if (t.reportedCalls + t.unreportedCalls === 0) return null;
+  return opts.answeredOutsideLoop ? { ...t, unreportedCalls: t.unreportedCalls + 1 } : { ...t };
 }

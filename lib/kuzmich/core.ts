@@ -35,6 +35,7 @@ import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/ingest/legislation-importer';
 import { placeNameSearchSql } from '@/lib/places/name-match';
+import type { ParsedUsage } from '@/lib/ai/provider-usage';
 import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } from '@/lib/kuzmich/context-budget';
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
@@ -2452,17 +2453,25 @@ export async function aiChatAgentLoop(
     if (overCeiling()) return atCeiling();
     if (timing) timing.turns += 1;
     let result: Awaited<ReturnType<typeof callToolsWaterfall>>;
+    // Расход всех ответов ног этого хода, и отвергнутых тоже: книги их видят,
+    // замер ответа не должен с ними расходиться (ревью 29.10).
+    const turnUsage: Array<ParsedUsage | null> = [];
+    const countTurnUsage = () => { if (timing) for (const u of turnUsage) addTurnUsage(timing, u); };
     try {
-      result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
+      result = await callToolsWaterfall(msgs, KUZMICH_TOOLS, turnUsage);
     } catch (err) {
+      countTurnUsage();
       // До потолка — как было: исключение ловит вызывающий и идёт запасным
       // путём. После потолка запасной путь был бы новым ходом модели.
       if (!overCeiling()) throw err;
       logSwallowedFailure('kuzmich-ceiling', 'ход модели после потолка', err);
       return atCeiling();
     }
+    countTurnUsage();
+    // Ответ есть, а ни одна нога расход в ход не положила (водопад подменён,
+    // нога без учёта) — ход всё равно вызов: его usage или «не знаю».
+    if (result && turnUsage.length === 0 && timing) addTurnUsage(timing, result.usage);
     if (!result) return overCeiling() ? atCeiling() : finish(null, false);
-    if (timing) addTurnUsage(timing, result.usage);
     if (provenance && result.provider) provenance.provider = result.provider;
 
     if (!result.tool_calls?.length) {
@@ -2732,7 +2741,7 @@ export async function aiChat(opts: {
     path: provenance.path ?? null,
     provider: provenance.provider ?? null,
     ceilingHit: loopTiming.ceilingHit,
-    tokens: answerTokens(loopTiming),
+    tokens: answerTokens(loopTiming, { answeredOutsideLoop: provenance.path !== 'tools' }),
   });
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений

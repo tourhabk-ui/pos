@@ -26,10 +26,12 @@ vi.mock('@/lib/agents/run-logger', () => ({ logAgentRun: h.logAgentRun }));
 // Судья faithfulness роута — подложен: здесь судятся критерии, а не модель.
 vi.mock('@/lib/agents/eval/editor-judge', () => ({ judgeWithFallback: async () => ({ score: 5, reason: 'ok' }) }));
 
+import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import {
   CommercialCheckSchema,
   commercialRunStatus,
   extractPrices,
+  peopleInQuestion,
   judgeCommercial,
   loadReferences,
   namedTours,
@@ -106,10 +108,32 @@ describe('фикстура: вопросы о турах — критерии, �
   it('покрыт каждый критерий, и цен у каждого вопроса — только из данных', () => {
     const kinds = new Set(commercial.flatMap((q) => q.checks!.map((c) => c.kind)));
     expect([...kinds].sort()).toEqual([
-      'names_all_tours', 'only_operator', 'operator_for_each_tour', 'over_budget_flagged',
+      'names_all_tours', 'names_some_tour', 'only_operator', 'operator_for_each_tour', 'over_budget_flagged',
       'prices_from_data', 'says_not_on_platform',
     ]);
     expect(commercial.every((q) => q.checks!.some((c) => c.kind === 'prices_from_data'))).toBe(true);
+  });
+
+  it('у каждого вопроса есть судимый критерий: «компания у тура» не остаётся одна', () => {
+    // Иначе Кузьмич, переставший называть туры, уводил вопрос в «не смог» и
+    // поднимал pass_rate (ревью 29.10).
+    for (const q of commercial) {
+      expect(q.checks!.some((c) => ['names_all_tours', 'names_some_tour', 'only_operator', 'says_not_on_platform'].includes(c.kind)), q.id).toBe(true);
+    }
+  });
+
+  it('«вид + месяц» не требует всех туров вида: сезон эталоном не судится', () => {
+    for (const q of commercial.filter((x) => x.id.startsWith('commercial-month-'))) {
+      expect(q.checks!.some((c) => c.kind === 'names_all_tours'), q.id).toBe(false);
+      expect(q.checks!.find((c) => c.kind === 'names_some_tour'), q.id).toMatchObject({ narrowed: true });
+    }
+  });
+
+  it('«такого нет» сверяется со словом: появится тур — вопрос устареет, а не провалит верный ответ', () => {
+    for (const q of commercial.filter((x) => x.id.startsWith('commercial-none-'))) {
+      const c = q.checks!.find((x) => x.kind === 'says_not_on_platform');
+      expect(c?.kind === 'says_not_on_platform' && typeof c.query === 'string', q.id).toBe(true);
+    }
   });
 
   it('есть все роды вопросов из разбора: место, опечатка, бюджет, месяц, компания, несуществующий', () => {
@@ -150,11 +174,31 @@ describe('разбор: цены и строки туров', () => {
     expect(extractPrices('цена 165 000 ₽')).toEqual([165000]);
   });
 
+  it('«к» после числа через пробел — предлог, а не тысячи; слитно или перед ₽ — тысячи', () => {
+    expect(extractPrices('Выезд в 6 к Толбачику, обратно на 4 к вечеру.')).toEqual([]);
+    expect(extractPrices('Группа до 8 к кратеру ведёт гид.')).toEqual([]);
+    expect(extractPrices('бюджет 50к, или 60 к ₽')).toEqual([50000, 60000]);
+  });
+
+  it('число людей — только из вопроса', () => {
+    expect(peopleInQuestion('Рыбалка в июле на двоих')).toBe(2);
+    expect(peopleInQuestion('Тур на Горелый на троих')).toBe(3);
+    expect(peopleInQuestion('Едем 4 человека')).toBe(4);
+    expect(peopleInQuestion('Сколько стоит тур на Горелый?')).toBeNull();
+  });
+
   it('строка каталога: id, название, компания, цена', () => {
     expect(parseTourLines(CATALOG).find((t) => t.id === '51')).toEqual({
-      id: '51', title: 'Вулкан Толбачик (вертолёт)', operator: 'Местечко Камчатка', price: 165000,
+      id: '51', title: 'Вулкан Толбачик (вертолёт)', operator: 'Местечко Камчатка', price: 165000, unit: 'per_person',
     });
-    expect(parseTourLines('ID9: "Без цены" — место тип:x цена не указана').at(0)).toEqual({ id: '9', title: 'Без цены', operator: null, price: null });
+    expect(parseTourLines('ID9: "Без цены" — место тип:x цена не указана').at(0)).toEqual({ id: '9', title: 'Без цены', operator: null, price: null, unit: null });
+    // Единица цены — подписью каталога (lib/tours/labels, PRICE_UNIT_SHORT).
+    const units = parseTourLines([
+      'ID7: "Семейный тур" — Река тип:fishing от 45 000 ₽/группа | Оп: Камчатская рыбалка',
+      'ID37: "Кижуч" — Река тип:fishing от 18 000 ₽/чел. в день | Оп: Камчатская рыбалка',
+      'ID8: "Без единицы" — Река тип:fishing от 9 000 ₽ (за что назначена цена — не записано, не называй её ценой с человека) | Оп: Х',
+    ].join('\n')).map((t) => t.unit);
+    expect(units).toEqual(['per_tour', 'per_day_per_person', 'unknown']);
   });
 
   it('эталон: «тип другой» не в нём, ответ «туров нет» — пустой эталон, а не весь каталог', () => {
@@ -226,6 +270,72 @@ describe('судья критериев', () => {
     expect(judge('Тур на Луну?', 'Тур на Луну стоит 1 000 000 ₽, отличный выбор!', [S, P]).outcome).toBe('fail');
   });
 
+  it('выдуманный тур с ценой и «мест сейчас нет» — провал обоих критериев', () => {
+    const S: CommercialCheck = { kind: 'says_not_on_platform' };
+    const q = 'Сколько стоит тур «Огненная бездна Пятиглавого вулкана»?';
+    const lie = 'Тур «Огненная бездна Пятиглавого вулкана» — 45 000 ₽, мест на июль сейчас нет.';
+    const v = judge(q, lie, [S, P]);
+    expect(outcomeOf(v, 'says_not_on_platform')?.outcome).toBe('fail');
+    // 45 000 = 3 × 15 000, но людей в вопросе нет — кратное не принимается.
+    expect(outcomeOf(v, 'prices_from_data')).toMatchObject({ outcome: 'fail', reason: 'цены не из данных: 45000' });
+    // «Мест нет» — не «такого тура нет», даже рядом со словом «тур».
+    expect(judge('Тур на Луну?', 'На июль мест сейчас нет.', [S]).outcome).toBe('fail');
+    expect(judge('Тур на Луну?', 'Мест на этот тур сейчас нет.', [S]).outcome).toBe('fail');
+    // Название из вопроса с ценой в одной фразе — выдумка, что бы ни стояло дальше.
+    expect(outcomeOf(judge(q, 'Тур «Огненная бездна Пятиглавого вулкана» стоит 45 000 ₽, но в каталоге его пока нет.', [S]), 'says_not_on_platform'))
+      .toMatchObject({ outcome: 'fail', reason: 'тур из вопроса назван с ценой: «огненная бездна пятиглавого вулкана»' });
+    // Честное «нет» с альтернативой в другой фразе — проходит.
+    expect(judge(q, 'Тура «Огненная бездна Пятиглавого вулкана» на платформе нет. Есть «Вулкан Горелый» за 15 000 ₽.', [S, P]).outcome).toBe('pass');
+  });
+
+  it('«такого нет» на вопрос, где тур уже появился, — «не смог», а не провал верного ответа', () => {
+    const S: CommercialCheck = { kind: 'says_not_on_platform', query: 'дайвинг' };
+    const dive = 'ID501: "Дайвинг в Авачинской бухте" — бухта тип:diving от 18 000 ₽/чел. | Оп: Камчатка Дайв';
+    const appeared = refs({ дайвинг: [HEAD, dive, TAIL].join('\n') });
+    expect(outcomeOf(judge('Дайвинг есть?', 'Да, «Дайвинг в Авачинской бухте» — 18 000 ₽.', [S], appeared), 'says_not_on_platform')?.outcome).toBe('unknown');
+    expect(outcomeOf(judge('Дайвинг есть?', 'Дайвинга на платформе сейчас нет.', [S], appeared), 'says_not_on_platform')?.outcome).toBe('unknown');
+    const none = refs({ дайвинг: `Туров «дайвинг» у операторов платформы сейчас нет — ни по типу, ни в описаниях.\n${CATALOG}` });
+    expect(judge('Дайвинг есть?', 'Дайвинга на платформе сейчас нет.', [S], none).outcome).toBe('pass');
+  });
+
+  it('цена, кратная известной, — только на число людей из вопроса', () => {
+    const r = refs({});
+    expect(outcomeOf(judge('Сколько стоит тур на Горелый?', 'Тур стоит 35 000 ₽.', [P], r), 'prices_from_data')?.outcome).toBe('fail');
+    expect(outcomeOf(judge('Горелый на 7 человек — сколько?', 'На семерых — 105 000 ₽.', [P], r), 'prices_from_data')?.outcome).toBe('pass');
+    // Множитель — ровно число людей: на двоих 45 000 при 15 000 — не из данных.
+    expect(outcomeOf(judge('Горелый на двоих', 'На двоих 45 000 ₽.', [P], r), 'prices_from_data')?.outcome).toBe('fail');
+  });
+
+  it('хотя бы один тур к слову: туры есть, а ответ без туров — провал; с уточнением честное «нет» — «не смог»', () => {
+    const r = refs({ Толбачик: TOLBACHIK });
+    const some = (narrowed?: boolean): CommercialCheck => ({ kind: 'names_some_tour', query: 'Толбачик', ...(narrowed ? { narrowed } : {}) });
+    expect(judge('Сколько стоит джип-тур на Толбачик?', 'Уточните у оператора.', [some(true), O, P], r).outcome).toBe('fail');
+    expect(judge('Самый дешёвый на Толбачик?', '«Вулкан Плоский Толбачик» от Края Вулканов — 60 000 ₽.', [some(), O, P], r).outcome).toBe('pass');
+    expect(outcomeOf(judge('Толбачик в январе?', 'В январе туров на Толбачик на платформе нет.', [some(true)], r), 'names_some_tour')?.outcome).toBe('unknown');
+    expect(outcomeOf(judge('Туры на Толбачик?', 'Туров на Толбачик на платформе нет.', [some()], r), 'names_some_tour')?.outcome).toBe('fail');
+  });
+
+  it('бюджет сравнивается только с ценой за человека', () => {
+    const fish = [
+      HEAD,
+      'ID7: "Семейный тур выходного дня" — Река тип:fishing от 45 000 ₽/группа | Оп: Камчатская рыбалка',
+      'ID37: "Кижуч на Пиначевской" — Река тип:fishing от 18 000 ₽/чел. в день | Оп: Камчатская рыбалка',
+      'ID12: "Рыбалка на день" — Река тип:fishing от 15 000 ₽/чел. | Оп: Камчатская рыбалка',
+      TAIL,
+    ].join('\n');
+    const r = refs({ рыбалка: fish });
+    const checks: CommercialCheck[] = [N('рыбалка', 20_000), { kind: 'over_budget_flagged', max_price: 20_000 }];
+    // Групповой тур за 45 000 назван без «дороже» — не провал: с бюджетом с человека он несравним.
+    const honest = '«Рыбалка на день» — 15 000 ₽. Ещё «Семейный тур выходного дня» — 45 000 ₽ за всю группу.';
+    const v = judge('Рыбалка до 20 000 рублей', honest, checks, r);
+    expect(v.outcome).toBe('pass');
+    // Тур за день (18 000 ₽/чел. в день) в бюджет не требуется.
+    expect(outcomeOf(v, 'names_all_tours')?.reason).toBe('названы все 1: ID12');
+    // Все туры слова — не за человека: бюджет судить не с чем.
+    const onlyGroup = refs({ рыбалка: [HEAD, 'ID7: "Семейный тур выходного дня" — Река тип:fishing от 45 000 ₽/группа | Оп: Камчатская рыбалка', TAIL].join('\n') });
+    expect(outcomeOf(judge('Рыбалка до 20 000', 'Нет.', [N('рыбалка', 20_000)], onlyGroup), 'names_all_tours')?.outcome).toBe('unknown');
+  });
+
   it('что есть у компании: чужой тур под её именем — провал; компании нет на витрине — «не смог»', () => {
     const OO = (operator: string): CommercialCheck => ({ kind: 'only_operator', operator });
     expect(judge('q', 'У Местечка: «Вулкан Горелый» и «Вулкан Толбачик (вертолёт)».', [OO('Местечко Камчатка')]).outcome).toBe('pass');
@@ -233,6 +343,9 @@ describe('судья критериев', () => {
     expect(foreign.outcome).toBe('fail');
     expect(foreign.checks[0].reason).toContain('ID41 (Край Вулканов)');
     expect(judge('q', 'Ничего не нашёл.', [OO('Местечко Камчатка')]).outcome).toBe('fail');
+    // С уточнением честное «у неё такого нет» эталоном не проверить — «не смог».
+    const narrowed: CommercialCheck = { kind: 'only_operator', operator: 'Местечко Камчатка', narrowed: true };
+    expect(judge('Есть у Местечка сплав?', 'Нет, сплавов у «Местечка Камчатка» на платформе нет.', [narrowed]).outcome).toBe('unknown');
     expect(judge('q', 'что-то', [OO('Вулкан-Тревел Плюс')]).outcome).toBe('unknown');
   });
 
@@ -277,7 +390,7 @@ describe('эталоны: тот же инструмент, отказ назв�
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const tool = vi.fn(async (_n: string, args: Record<string, string>) => {
       if (args.activity_type) throw Object.assign(new Error('boom'), { code: '57014' });
-      return 'Ошибка при выполнении запроса.';
+      return TOOL_EXECUTION_FAILED;
     });
     const r = await loadReferences([N('Толбачик')], tool);
     expect(r.get(referenceKey(''))).toMatchObject({ ok: false });
@@ -341,6 +454,12 @@ describe('прогон: критерии едут в отчёт рядом с fa
     expect(commercialRunStatus(summarizeCommercial([{ outcome: 'pass', checks: [] }, { outcome: 'fail', checks: [] }])))
       .toEqual({ status: 'failed', skip_reason: 'commercial_below_threshold' });
     expect(commercialRunStatus(summarizeCommercial([{ outcome: 'pass', checks: [] }]))).toEqual({ status: 'success', skip_reason: null });
+    // Один судимый из 68: не успех, а «не смог» (ревью 29.10).
+    const mostlyUnjudged = [{ outcome: 'pass' as const, checks: [] }, ...Array.from({ length: 67 }, () => ({ outcome: 'unknown' as const, checks: [] }))];
+    expect(commercialRunStatus(summarizeCommercial(mostlyUnjudged))).toEqual({ status: 'partial', skip_reason: 'commercial_mostly_unjudged' });
+    // Граница — треть несудимых: 7 судимых и 3 «не смог» — ещё прогон.
+    const third = [...Array.from({ length: 7 }, () => ({ outcome: 'pass' as const, checks: [] })), ...Array.from({ length: 3 }, () => ({ outcome: 'unknown' as const, checks: [] }))];
+    expect(commercialRunStatus(summarizeCommercial(third))).toEqual({ status: 'success', skip_reason: null });
   });
 });
 
@@ -348,7 +467,12 @@ describe('роут: ?set=commercial — свой набор и своё имя �
   it('базовый прогон спрашивает двадцать базовых, коммерческий — вопросы о турах', async () => {
     process.env.CRON_SECRET = 'test-secret';
     h.ask.mockResolvedValue({ answer: 'Такого тура на платформе нет.', context: '' });
-    h.tool.mockResolvedValue(CATALOG);
+    // По словам «несуществующих» вопросов туров нет; по прочим — каталог.
+    const none = new Set(fixtureQuestions('commercial').flatMap((q) => q.checks!.flatMap((c) => (c.kind === 'says_not_on_platform' && c.query ? [c.query] : []))));
+    h.tool.mockImplementation(async (_n: string, args: Record<string, string>) => (
+      args.activity_type && none.has(args.activity_type)
+        ? `Туров «${args.activity_type}» у операторов платформы сейчас нет — ни по типу, ни в описаниях.\n${CATALOG}`
+        : CATALOG));
     h.logAgentRun.mockClear();
     const { GET } = await import('@/app/api/cron/kuzmich-eval/route');
     const { NextRequest } = await import('next/server');

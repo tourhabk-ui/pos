@@ -480,8 +480,9 @@ export async function POST(request: NextRequest) {
         path: loopAnswered ? 'tools' : touristSdkAnswered ? 'sdk' : 'single',
         provider: loopAnswered ? (webProvenance.provider ?? null) : null,
         ceilingHit: webTiming.ceilingHit,
-        // Расход цикла — и когда ответил запасной путь: ходы уже оплачены.
-        tokens: answerTokens(webTiming),
+        // Расход цикла — и когда ответил запасной путь: ходы уже оплачены. Сам
+        // ответивший вызов в цикл не входит — сумма тогда помечена неполной.
+        tokens: answerTokens(webTiming, { answeredOutsideLoop: !loopAnswered }),
       });
     }
 
