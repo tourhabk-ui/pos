@@ -222,7 +222,7 @@ describe('logLLMUsage пишет cost_basis рядом с ценой', () => {
     const start = SRC.indexOf('async function logLLMUsage');
     const body = SRC.slice(start, start + WINDOW);
     expect(body).toMatch(/estimated_cost_usd,\s*cost_basis/);
-    expect(body).toMatch(/\[model, prompt, completion, total, cost, basis, currentAgentId\(\)\]/);
+    expect(body).toMatch(/\[model, prompt, completion, total, cost, basis, agentId, cacheRead\]/);
   });
 
   it('отказ INSERT не глушится молча — логируется с моделью и причиной', () => {

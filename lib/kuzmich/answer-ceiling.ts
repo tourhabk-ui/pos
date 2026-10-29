@@ -20,6 +20,8 @@
  * lib/kuzmich/answer-timing.
  */
 
+import { fullInputTokens, type ParsedUsage } from '@/lib/ai/provider-usage';
+
 /**
  * Потолок ожидания ответа цикла инструментов, мс (аудит 15.10, A19).
  *
@@ -112,8 +114,62 @@ export interface AgentLoopTiming {
   elapsedMs: number;
   /** Цикл остановился на потолке и собрал ответ из уже собранного. */
   ceilingHit: boolean;
+  /** Расход ходов модели — суммы по вызовам (шаг 0 разбора 29.10). */
+  tokens: LoopTokens;
+}
+
+/**
+ * Сколько весили ходы одного ответа. Пишется в замер ответа
+ * (lib/kuzmich/answer-timing), и перепись kuzmich-load-census считает по нему
+ * p50/p95 входа ПО ПОВЕРХНОСТЯМ: в книгах расхода (llm_usage_log) поверхности
+ * нет, там строка — один вызов модели. Только числа, ни слова реплик.
+ */
+export interface LoopTokens {
+  /** Вызовов модели, по которым провайдер отдал usage. */
+  reportedCalls: number;
+  /** Вызовов без usage — «не знаю», а не ноль: суммы ниже тогда неполны. */
+  unreportedCalls: number;
+  /** Вход целиком (вместе с прочитанным из кэша), сумма по ходам. */
+  inputTokens: number;
+  /** Самый большой вход одного хода — то, что упирается в окно модели. */
+  maxCallInputTokens: number;
+  completionTokens: number;
+  /** Прочитано из кэша — сумма по ходам, где провайдер кэш назвал. */
+  cacheReadTokens: number;
+  /** Ходов, где провайдер кэш назвал. 0 — доля кэша неизвестна. */
+  cacheReportedCalls: number;
 }
 
 export function newLoopTiming(): AgentLoopTiming {
-  return { turns: 0, toolRounds: 0, elapsedMs: 0, ceilingHit: false };
+  return {
+    turns: 0, toolRounds: 0, elapsedMs: 0, ceilingHit: false,
+    tokens: {
+      reportedCalls: 0, unreportedCalls: 0, inputTokens: 0, maxCallInputTokens: 0,
+      completionTokens: 0, cacheReadTokens: 0, cacheReportedCalls: 0,
+    },
+  };
+}
+
+/**
+ * Добавить расход одного хода. null/undefined — провайдер usage не отдал:
+ * считается вызовом без чисел, а не нулём.
+ */
+export function addTurnUsage(timing: AgentLoopTiming, usage: ParsedUsage | null | undefined): void {
+  const t = timing.tokens;
+  if (!usage) { t.unreportedCalls += 1; return; }
+  const input = fullInputTokens(usage);
+  t.reportedCalls += 1;
+  t.inputTokens += input;
+  t.maxCallInputTokens = Math.max(t.maxCallInputTokens, input);
+  t.completionTokens += usage.completionTokens;
+  if (usage.cacheReadTokens !== null) {
+    t.cacheReadTokens += usage.cacheReadTokens;
+    t.cacheReportedCalls += 1;
+  }
+}
+
+/** Расход для замера ответа; null — цикл модели не звал (ответ без него). */
+export function answerTokens(timing: AgentLoopTiming): LoopTokens | null {
+  const t = timing.tokens;
+  return t.reportedCalls + t.unreportedCalls === 0 ? null : { ...t };
 }

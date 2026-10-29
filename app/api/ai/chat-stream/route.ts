@@ -47,7 +47,7 @@ import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-gu
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
-import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
+import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -426,6 +426,7 @@ export async function POST(request: NextRequest) {
               path: commercialHit ? 'single' : (loopAnswered ? 'tools' : 'single'),
               provider: loopAnswered ? (streamProvenance.provider ?? null) : null,
               ceilingHit: streamTiming.ceilingHit,
+              tokens: commercialHit ? null : answerTokens(streamTiming),
             });
           }
           if (safeRole === 'tourist' && !commercialHit) {

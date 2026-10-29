@@ -39,7 +39,7 @@ import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } 
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import {
-  KUZMICH_ANSWER_CEILING_MS, composeCeilingAnswer, newLoopTiming,
+  KUZMICH_ANSWER_CEILING_MS, composeCeilingAnswer, newLoopTiming, addTurnUsage, answerTokens,
   type AgentLoopTiming, type CollectedOutput,
 } from '@/lib/kuzmich/answer-ceiling';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
@@ -2462,6 +2462,7 @@ export async function aiChatAgentLoop(
       return atCeiling();
     }
     if (!result) return overCeiling() ? atCeiling() : finish(null, false);
+    if (timing) addTurnUsage(timing, result.usage);
     if (provenance && result.provider) provenance.provider = result.provider;
 
     if (!result.tool_calls?.length) {
@@ -2731,6 +2732,7 @@ export async function aiChat(opts: {
     path: provenance.path ?? null,
     provider: provenance.provider ?? null,
     ceilingHit: loopTiming.ceilingHit,
+    tokens: answerTokens(loopTiming),
   });
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений

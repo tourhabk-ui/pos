@@ -47,6 +47,8 @@ import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiM
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { usageSinkEnabled, sendUsageToProd } from '@/lib/ai/usage-sink';
+import { parseProviderUsage, TOOLS_LOOP_AGENT_ID, type ParsedUsage } from '@/lib/ai/provider-usage';
+import { inputEquivalentTokens } from '@/lib/ai/cache-pricing';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
 import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
 import { openRouterAttribution } from '@/lib/ai/attribution';
@@ -381,45 +383,101 @@ export function resetAnthropicDirectBudget(): void {
   anthropicDirectUnpricedCalls = 0;
 }
 
-async function logLLMUsage(model: string, usage: ProviderUsage | undefined): Promise<void> {
+/** Что знает о вызове сверх входа и выхода тот, кто пишет строку. */
+interface UsageExtra {
+  /** Прочитано из кэша. null/нет — источник не сообщил (это не ноль, миграция 1285). */
+  cacheReadTokens?: number | null;
+  /**
+   * Чей расход, если вызов идёт вне `runWithUsageTracking`. Учёт агента
+   * старше: эвал Кузьмича внутри своего трекинга — расход эвала, не Кузьмича.
+   */
+  fallbackAgentId?: string;
+}
+
+/** SQLSTATE отказа — в лог рядом с именем проверки (§4.0): «не записали» ≠ «не тратили». */
+function sqlState(e: unknown): string {
+  const code = e !== null && typeof e === 'object' ? (e as { code?: unknown }).code : undefined;
+  return typeof code === 'string' ? code : 'нет кода';
+}
+
+/**
+ * Цена строки с кэшем — во входо-эквиваленте (lib/ai/cache-pricing): множители
+ * известны только у Anthropic. У прочих вендоров при прочитанном кэше цена —
+ * честное «не знаем», а не вход без кэша, выданный за полную цену.
+ */
+async function costWithCache(
+  model: string, prompt: number, completion: number, cacheRead: number | null,
+): Promise<{ cost: number | null; basis: CostBasis }> {
+  const promptEquivalent = inputEquivalentTokens(model, prompt, { creation: null, read: cacheRead });
+  if (promptEquivalent === null) return { cost: null, basis: 'unknown' };
+  return resolveCostUsd(model, promptEquivalent, completion);
+}
+
+/**
+ * Строка расхода в книги. Атрибуция вызывающему агенту (Roitman §18.7.4) —
+ * `currentAgentId()` внутри runWithUsageTracking; вне его — `fallbackAgentId`
+ * (цикл инструментов: 'kuzmich') или NULL. Неизвестная цена в аккумулятор идёт
+ * нулём: он копит ОЦЕНКУ одного прогона для человека, а бухгалтерия — в
+ * llm_usage_log.estimated_cost_usd, где NULL остаётся NULL.
+ *
+ * Раннер GitHub в БД не достаёт (файрвол Timeweb): там расход уходит на прод
+ * роутом, который считает цену сам (lib/ai/usage-sink.ts), и функция на этом
+ * кончается. На проде `GITHUB_ACTIONS` не задан — прямой INSERT, и прод не
+ * звонит сам себе. Отказ INSERT не глушится (§4.0): «не записали» не должно
+ * выглядеть как «не тратили» — модель и SQLSTATE в лог.
+ */
+async function logLLMUsage(model: string, usage: ProviderUsage | undefined, extra: UsageExtra = {}): Promise<void> {
   if (!usage) return;
   const prompt = usage.prompt_tokens ?? 0;
   const completion = usage.completion_tokens ?? 0;
   const total = prompt + completion;
-  if (total === 0) return;
-  const { cost, basis } = await resolveCostUsd(model, prompt, completion);
-  // Атрибуция вызывающему агенту (Roitman §18.7.4) — no-op вне
-  // runWithUsageTracking (обычные HTTP-запросы Кузьмича), agent_id тогда NULL.
-  // Неизвестная цена в аккумулятор идёт нулём: он копит ОЦЕНКУ одного прогона
-  // для человека, а бухгалтерия — в llm_usage_log.estimated_cost_usd, где
-  // NULL остаётся NULL, а не нулём (SUM(...) в /api/admin/llm-usage считает
-  // известное отдельно от количества строк с неизвестной ценой).
+  const cacheRead = extra.cacheReadTokens ?? null;
+  // Строка из одного чтения кэша — тоже трата: чтение оплачивается.
+  if (total === 0 && !(cacheRead && cacheRead > 0)) return;
+  const { cost, basis } = await costWithCache(model, prompt, completion, cacheRead);
+  const agentId = currentAgentId() ?? extra.fallbackAgentId ?? null;
   addUsage(prompt, completion, cost ?? 0);
 
-  // Раннер GitHub в БД не достаёт (файрвол Timeweb), и прямой INSERT там падал
-  // ВСЕГДА — а на раннере считают судья эволюции и AI-ревью, два самых дорогих
-  // потребителя. Их расход не попадал в книги ни одной строкой, и дневной
-  // бюджет (/api/cron/llm-budget-check) не мог по нему сработать. Там расход
-  // уходит на прод роутом, который считает цену сам (lib/ai/usage-sink.ts).
-  //
-  // На проде `GITHUB_ACTIONS` не задан — прямой INSERT остаётся прежним, и
-  // прод не звонит сам себе.
   if (usageSinkEnabled()) {
     void sendUsageToProd([{
-      model, prompt_tokens: prompt, completion_tokens: completion, agent_id: currentAgentId(),
+      model, prompt_tokens: prompt, completion_tokens: completion, agent_id: agentId,
+      ...(cacheRead !== null ? { cache_read_tokens: cacheRead } : {}),
     }]);
     return;
   }
 
   pool.query(
     `INSERT INTO llm_usage_log
-       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id, created_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())`,
-    [model, prompt, completion, total, cost, basis, currentAgentId()],
+       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id,
+        cache_read_tokens, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+    [model, prompt, completion, total, cost, basis, agentId, cacheRead],
   ).catch((e) => {
-    // Отказ не глушится (§4.0): «не записали» не должно выглядеть как «не тратили».
-    console.error('[llm-usage] строка не записана:', model, e instanceof Error ? e.message : e);
+    console.error('[llm-usage] строка не записана:', model, `SQLSTATE ${sqlState(e)}`, e instanceof Error ? e.message : e);
   });
+}
+
+/**
+ * Расход ноги цикла инструментов (шаг 0 разбора 29.10): разобрать `usage`,
+ * записать в книги от имени Кузьмича и вернуть числа ходу — цикл складывает
+ * их в замер ответа (lib/kuzmich/answer-timing). Учёт не задерживает ответ
+ * человеку и не роняет его: запись — без ожидания, отказ — в лог с именем ноги.
+ * `usage` нет — «не знаю», сказанное в лог, а не строка с нулями.
+ */
+function logToolsLegUsage(leg: string, model: string, rawUsage: unknown): ParsedUsage | null {
+  const usage = parseProviderUsage(rawUsage);
+  if (!usage) {
+    console.warn(`[llm-usage] ${leg}: провайдер не отдал usage (${model}) — расход хода не учтён`);
+    return null;
+  }
+  logLLMUsage(
+    model,
+    { prompt_tokens: usage.promptTokens, completion_tokens: usage.completionTokens },
+    { cacheReadTokens: usage.cacheReadTokens, fallbackAgentId: TOOLS_LOOP_AGENT_ID },
+  ).catch((e) => {
+    console.error(`[llm-usage] ${leg}: учёт хода не записан (${model})`, `SQLSTATE ${sqlState(e)}`, e instanceof Error ? e.message : e);
+  });
+  return usage;
 }
 
 /**
@@ -964,6 +1022,11 @@ export interface ToolsCallResult {
    * «не записано», а не «никто».
    */
   provider?: string;
+  /**
+   * Расход этого хода (шаг 0 разбора 29.10). null — провайдер `usage` не
+   * отдал; undefined — результат пришёл не из ноги (подложенный в тестах).
+   */
+  usage?: ParsedUsage | null;
 }
 
 type ToolMsg =
@@ -993,7 +1056,7 @@ export async function callOpenRouterWithTools(
         model: modelId,
         temperature: 0.3,
         max_tokens: 1000,
-        messages,
+        messages: withoutCacheBreak(messages),
         tools,
         tool_choice: 'auto',
       }),
@@ -1011,7 +1074,11 @@ export async function callOpenRouterWithTools(
         finish_reason?: string;
         message?: { content?: string | null; tool_calls?: ToolCall[] };
       }>;
+      usage?: unknown;
     };
+    // Расход — до проверки текста: пустой ответ тоже оплачен.
+    // Слаг OpenRouter (`vendor/model`) — ключ, под которым его знает каталог цен.
+    const usage = logToolsLegUsage('openrouter:tools', answeredModel(modelId, data), data?.usage);
 
     const msg = data?.choices?.[0]?.message;
     if (!msg) { recordAiLegFailure('openrouter:tools', `empty (${modelId}): ${describeEmptyCompletion(data)}`); return null; }
@@ -1019,6 +1086,7 @@ export async function callOpenRouterWithTools(
     return {
       content: msg.content ?? null,
       tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+      usage,
     };
   } catch (e) {
     recordAiLegFailure('openrouter:tools', errorFailureReason(e));
@@ -1051,7 +1119,7 @@ export async function callDeepSeekWithTools(
         model,
         temperature: 0.3,
         max_tokens: 1000,
-        messages,
+        messages: withoutCacheBreak(messages),
         tools,
         tool_choice: 'auto',
         ...deepseekThinking(),
@@ -1067,13 +1135,18 @@ export async function callDeepSeekWithTools(
       choices?: Array<{
         message?: { content?: string | null; tool_calls?: ToolCall[] };
       }>;
+      usage?: unknown;
     };
+    // Вендор двоеточием (как `qwen:`, `anthropic:`): по нему перепись делит
+    // расход Кузьмича по провайдерам, а цена ищется и под слагом `deepseek/…`.
+    const usage = logToolsLegUsage('deepseek:tools', `deepseek:${answeredModel(model, data)}`, data?.usage);
     const msg = data?.choices?.[0]?.message;
     if (!msg) { recordAiLegFailure('deepseek:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
 
     return {
       content: msg.content ?? null,
       tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+      usage,
     };
   } catch (e) {
     recordAiLegFailure('deepseek:tools', errorFailureReason(e));
@@ -1113,6 +1186,7 @@ export async function callQwenWithTools(
   // Квота кончается по моделям (25.09, lib/ai/qwen-free-quota): исчерпанная
   // модель помечается, и тот же вызов идёт на её снимок. Три попытки — потолок
   // задержки для человека в поле; дальше ответит следующая ступень.
+  const sent = withoutCacheBreak(messages);
   for (let attempt = 0; attempt < 3; attempt++) {
     const model = await nextQwenToolsModel(configured);
     if (!model) break;
@@ -1127,7 +1201,7 @@ export async function callQwenWithTools(
           model,
           temperature: 0.3,
           max_tokens: 1000,
-          messages,
+          messages: sent,
           tools,
           tool_choice: 'auto',
         }),
@@ -1144,13 +1218,16 @@ export async function callQwenWithTools(
         choices?: Array<{
           message?: { content?: string | null; tool_calls?: ToolCall[] };
         }>;
+        usage?: unknown;
       };
+      const usage = logToolsLegUsage('qwen:tools', `qwen:${answeredModel(model, data)}`, data?.usage);
       const msg = data?.choices?.[0]?.message;
       if (!msg) { recordAiLegFailure('qwen:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
 
       return {
         content: msg.content ?? null,
         tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+        usage,
       };
     } catch (e) {
       recordAiLegFailure('qwen:tools', errorFailureReason(e));
@@ -1474,6 +1551,7 @@ export async function callXaiWithTools(
   if (!apiKey) { recordAiLegFailure('xai:tools', 'no_key'); return null; }
 
   let httpRefused = false;
+  const sent = withoutCacheBreak(messages);
   for (const purpose of ['fast', 'strong'] as const) {
     // Сильная идёт только после ОТКАЗА СЕРВЕРА на лёгкой. Таймаут, пустой
     // ответ и «модель не разрешена» второй попытки не заслуживают: первое —
@@ -1498,7 +1576,7 @@ export async function callXaiWithTools(
           model,
           temperature: 0.3,
           max_tokens: 1000,
-          messages,
+          messages: sent,
           tools,
           tool_choice: 'auto',
         }),
@@ -1515,13 +1593,17 @@ export async function callXaiWithTools(
         choices?: Array<{
           message?: { content?: string | null; tool_calls?: ToolCall[] };
         }>;
+        usage?: unknown;
       };
+      // `x-ai:` — вендор, как его пишет каталог цен OpenRouter (`x-ai/…`).
+      const usage = logToolsLegUsage('xai:tools', `x-ai:${answeredModel(model, data)}`, data?.usage);
       const msg = data?.choices?.[0]?.message;
       if (!msg) { recordAiLegFailure('xai:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
 
       return {
         content: msg.content ?? null,
         tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+        usage,
       };
     } catch (e) {
       recordAiLegFailure('xai:tools', `${purpose}/${model}: ${errorFailureReason(e)}`);
@@ -1551,6 +1633,24 @@ function buildSystemBlocks(systemContent: string): Array<{ type: 'text'; text: s
   if (cached) blocks.push({ type: 'text', text: cached, cache_control: { type: 'ephemeral' } });
   if (dynamic) blocks.push({ type: 'text', text: dynamic });
   return blocks;
+}
+
+/**
+ * Сообщения для OpenAI-совместимой ноги: без маркера кэша в тексте.
+ *
+ * Маркер — служебная строка для Anthropic (buildSystemBlocks режет по нему
+ * подсказку на кэшируемую и живую части). Остальные провайдеры получали его
+ * буквально, посреди правил Кузьмича: лишние токены и непонятная модели строка
+ * на каждом ходу (разбор 29.10). Разделитель заменяется абзацем, отдельно
+ * стоящий маркер — убирается. Только системные сообщения: в репликах человека
+ * текст не трогаем — что он написал, то и ушло.
+ */
+export function withoutCacheBreak<T extends { role: string; content: string | null }>(messages: T[]): T[] {
+  const sep = `\n\n${CACHE_BREAK_MARKER}\n\n`;
+  return messages.map((m) => {
+    if (m.role !== 'system' || typeof m.content !== 'string' || !m.content.includes(CACHE_BREAK_MARKER)) return m;
+    return { ...m, content: m.content.split(sep).join('\n\n').split(CACHE_BREAK_MARKER).join('') };
+  });
 }
 
 export async function callAnthropic(messages: ChatMessage[]): Promise<string | null> {
