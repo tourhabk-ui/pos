@@ -62,13 +62,17 @@ describe('сообщение', () => {
     expect(m.text).toContain('Бронь жилья «Дом у &lt;реки&gt;» · 20.10 — Анна &lt;П.&gt;');
     expect(m.stub).not.toMatch(/Анна|Дом у/);
     expect(m.stub).toContain('во «Входящих»');
-    expect(m.buttons).toEqual([{ text: 'Открыть входящие', url: 'https://vedarai.ru/hub/stay/inbox' }]);
+    // «Входящие в чате» — кабинет в чате (30.10); кнопка-действие — только в MAX, в заглушке остаётся ссылка.
+    expect(m.buttons).toEqual([
+      { text: 'Входящие в чате', payload: 'cb:n:i' },
+      { text: 'Открыть входящие', url: 'https://vedarai.ru/hub/stay/inbox' },
+    ]);
   });
 
   it('перевозчик ведётся в свой кабинет; больше десяти — «и ещё»', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ ...row({ item_id: `t${i}`, category: 'transfer', contact_name: null }), kind: 'transfer_seat_booking' }));
     const m = R.inboxReminderMessage(many as never);
-    expect(m.buttons?.[0].url).toBe('https://vedarai.ru/hub/carrier/inbox');
+    expect(m.buttons?.find((b) => 'url' in b)).toEqual({ text: 'Открыть входящие', url: 'https://vedarai.ru/hub/carrier/inbox' });
     expect(m.text).toContain('…и ещё 2');
   });
 });

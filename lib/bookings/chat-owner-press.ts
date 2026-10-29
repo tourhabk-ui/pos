@@ -14,10 +14,14 @@
  * В payload только номера: id брони, uuid заявки и uuid строки действия.
  * Ни ПД, ни id тура.
  *
- * Кому кнопки включены — `chatActionsEnabledFor`: гиду, который продаёт свои
- * туры. Туроператору — нет: у него менеджеры команды со своими правами, и
- * кнопки брони в его чате — открытый вопрос владельца (план мини-приложения,
- * §13, вопрос 3). Включение — одна строка здесь.
+ * Кому кнопки включены:
+ *  - брони (`bookingChatActionsEnabledFor`) — гиду, который продаёт свои
+ *    туры, и туроператору (слово владельца 30.10 «Да, как у гида»: вопрос
+ *    3 плана мини-приложения закрыт вариантом A — вопрос, затем «Да»);
+ *  - заявки (`leadChatActionsEnabledFor`) — только гиду со своими турами:
+ *    туроператор отвечает на заявку кнопками «Принять», «Нет мест»,
+ *    «Уточнить», «Свяжусь сам» (lib/requests/chat-answer), и вторую пару
+ *    кнопок с другим правилом ему не ставим.
  */
 import type { MenuButton } from '@/lib/roles/chat-menu';
 import { sellsOwnTours, type TourSellerFacts } from '@/lib/partners/tour-seller';
@@ -153,7 +157,20 @@ export function leadAnswerButtons(leadId: string, ref: string | null = null): Me
   }));
 }
 
-/** Кому кнопки брони и заявки в чате включены — см. шапку. */
-export function chatActionsEnabledFor(p: TourSellerFacts): boolean {
+/** Кнопки брони в чате — гиду со своими турами и туроператору (см. шапку). */
+export function bookingChatActionsEnabledFor(p: TourSellerFacts): boolean {
+  return p.category === 'operator' || (p.category === 'guide' && sellsOwnTours(p));
+}
+
+/** Кнопки заявки «Связался / Договорились / Отказ» — только гиду со своими турами. */
+export function leadChatActionsEnabledFor(p: TourSellerFacts): boolean {
   return p.category === 'guide' && sellsOwnTours(p);
+}
+
+/**
+ * Хоть одни кнопки включены: по нему вебхук пускает нажатие к правилу и ждёт
+ * причину отклонения брони. Какие именно — решают два правила выше.
+ */
+export function chatActionsEnabledFor(p: TourSellerFacts): boolean {
+  return bookingChatActionsEnabledFor(p) || leadChatActionsEnabledFor(p);
 }

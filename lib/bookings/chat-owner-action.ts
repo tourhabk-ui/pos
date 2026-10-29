@@ -34,9 +34,9 @@
  *   - вызывающий пускает только заверенный апдейт: MAX — `verifiedOrigin`,
  *     Telegram — секрет вебхука; чат — только из сообщения с кнопкой;
  *   - личный диалог: в группе кнопку нажал бы любой участник;
- *   - карточка чата (`findPartnerByChat`, три исхода) — гид со своими турами
- *     (`chatActionsEnabledFor`): туроператору кнопки не включены (вопрос
- *     владельца 3 плана мини-приложения);
+ *   - карточка чата (`findPartnerByChat`, три исхода): бронь — гид со своими
+ *     турами и туроператор (`bookingChatActionsEnabledFor`, слово владельца
+ *     30.10), заявка — только гид со своими турами (`leadChatActionsEnabledFor`);
  *   - у карточки есть аккаунт (`partners.user_id`): это `actorUserId` правила;
  *   - нажал человек, подключивший этот чат ссылкой из кабинета
  *     (`partners.max_owner_user_id` / `telegram_owner_user_id`, 1336). Старая
@@ -59,7 +59,8 @@ import { findPartnerByChat, type PartnerChatContext } from '@/lib/kuzmich/operat
 import { changeOwnerBookingStatus, type OwnerStatusResult } from '@/lib/bookings/owner-status';
 import { OWNER_BOOKING_STATUS_LABEL, alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 import {
-  BOOKING_ACTION_STATUS, answerPressPayload, chatActionsEnabledFor, isLeadChatAction, parseOwnerPress,
+  BOOKING_ACTION_STATUS, answerPressPayload, bookingChatActionsEnabledFor, chatActionsEnabledFor, isLeadChatAction,
+  leadChatActionsEnabledFor, parseOwnerPress,
   type BookingChatAction, type LeadChatAction,
 } from '@/lib/bookings/chat-owner-press';
 import { ALLOWED_TRANSITIONS, type BookingStatus } from '@/types/booking.types';
@@ -110,8 +111,8 @@ export const OWNER_ACTION_TEXT = {
   notDialog: 'Кнопки брони и заявки работают в личном диалоге с ботом. Здесь ничего не изменено.',
   unchecked: 'Не удалось проверить, чей это чат, — ничего не изменено. Попробуйте ещё раз или откройте раздел «Свои туры».',
   notThis: 'Эта кнопка — кабинет гида со своими турами. В этом чате её не выполняю.',
-  operatorNotYet: 'Кнопки брони и заявки в чате пока включены только гиду со своими турами. '
-    + 'Бронь подтверждается в кабинете, раздел «Бронирования», заявка отмечается в разделе «Заявки с сайта».',
+  operatorLead: 'Эти кнопки заявки — у гида со своими турами. Туроператор отвечает на заявку кнопками «Принять», «Нет мест», '
+    + '«Уточнить», «Свяжусь сам» в карточке заявки во «Входящих» или в кабинете, раздел «Заявки с сайта». Ничего не изменено.',
   noAccount: 'У карточки нет аккаунта на сайте — менять бронь и заявку из чата некому. Напишите менеджеру Ведара.',
   noBindOwner: 'Кнопки брони и заявки нажимает тот, кто подключил этот чат ссылкой из кабинета, а этот чат подключён раньше, '
     + 'чем платформа стала это записывать. Откройте ссылку подключения из кабинета ещё раз и нажмите «Старт». '
@@ -194,10 +195,7 @@ async function gate(input: {
   const partner = lookup.partner;
   const menu = partnerMenu(partner) ?? [];
   if (!chatActionsEnabledFor(partner)) {
-    return {
-      ok: false,
-      reply: withMenu(partner.category === 'operator' ? OWNER_ACTION_TEXT.operatorNotYet : OWNER_ACTION_TEXT.notThis, menu),
-    };
+    return { ok: false, reply: withMenu(OWNER_ACTION_TEXT.notThis, menu) };
   }
   const userId = partner.userId;
   if (!userId) return { ok: false, reply: withMenu(OWNER_ACTION_TEXT.noAccount, menu) };
@@ -678,8 +676,16 @@ export async function handleOwnerPress(input: {
   if (!press) return { text: OWNER_ACTION_TEXT.unknownButton, buttons: [] };
   const g = await gate(input);
   if (!g.ok) return g.reply;
-  if (press.kind === 'booking') return askBooking(g, input.channel, input.chatId, press.action, press.bookingId);
-  if (press.kind === 'lead') return askLead(g, input.channel, input.chatId, press.action, press.leadId);
+  if (press.kind === 'booking') {
+    if (!bookingChatActionsEnabledFor(g.partner)) return withMenu(OWNER_ACTION_TEXT.notThis, g.menu);
+    return askBooking(g, input.channel, input.chatId, press.action, press.bookingId);
+  }
+  if (press.kind === 'lead') {
+    if (!leadChatActionsEnabledFor(g.partner)) {
+      return withMenu(g.partner.category === 'operator' ? OWNER_ACTION_TEXT.operatorLead : OWNER_ACTION_TEXT.notThis, g.menu);
+    }
+    return askLead(g, input.channel, input.chatId, press.action, press.leadId);
+  }
   return answer(g, input.channel, input.chatId, press.actionId, press.yes);
 }
 

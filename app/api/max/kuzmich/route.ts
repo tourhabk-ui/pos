@@ -76,12 +76,16 @@ import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
 import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
-import { loadInbox } from '@/lib/crm/inbox';
 import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
 import { armChatWait, bindGuestChat, captureChatText, type ChatReply } from '@/lib/requests/request-chat-service';
 import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
-import { operatorDeskButtons, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
-import { isOperatorDeskPayload, operatorDeskPress, operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
+import { operatorDeskButtons, operatorHelpText, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
+import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
+import { cabinetSectionFor, captureCabinetSearch, type CabinetSection } from '@/lib/chat-cabinet/service';
+import { maxCabinetRows } from '@/lib/chat-cabinet/render';
+import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
+import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
+import { isCabinetSection } from '@/lib/roles/role-screen';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 
@@ -308,6 +312,57 @@ function rentalCalendarSend(chatId: number, bar: boolean) {
     else await maxReplyWithButtons(chatId, text, rows);
   };
 }
+
+/**
+ * Экран кабинета в чате (lib/chat-cabinet). Кнопка самого экрана (`cb:`)
+ * правит это же сообщение — кабинет листается, а не засыпает чат; кнопка
+ * строки меню, слово и команда — новое сообщение (строка меню стоит и под
+ * уведомлениями, их править нельзя). MAX правит только свои сообщения не
+ * старше суток: не принял — новым сообщением.
+ * Экран с именем и телефоном клиента уходит в этот же личный диалог MAX, из
+ * которого пришло нажатие; в Telegram такой экран не попадает (замок —
+ * lib/chat-cabinet/service).
+ */
+async function showCabinetMax(
+  chatId: number,
+  screen: CabinetScreen,
+  editMid: string | null,
+  wrap: (body: string) => string = (body) => body,
+): Promise<void> {
+  const api = getApi();
+  if (!api) return;
+  const rows = maxCabinetRows(screen.rows);
+  const attachments = rows.length ? [{ type: 'inline_keyboard', payload: { buttons: rows } }] : [];
+  const text = wrap(screen.text);
+  if (editMid) {
+    try {
+      const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
+        text, format: 'html', attachments,
+      });
+      if (res?.success !== false) return;
+      console.error('[max/kuzmich] правка экрана кабинета не принята MAX — отправляю новым сообщением');
+    } catch (err) {
+      logFailure('правка экрана кабинета', err);
+    }
+  }
+  try {
+    await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
+      format: 'html', attachments,
+    });
+  } catch (err) {
+    logFailure('экран кабинета в чат MAX', err);
+  }
+}
+
+/** Раздел кабинета по слову или команде: «Входящие», /requests, «Задачи», «Клиенты». */
+function cabinetSectionOfText(asked: ReturnType<typeof roleMenuAsk>, slashHead: string): CabinetSection | null {
+  if (asked === 'inbox' || slashHead === '/requests') return 'inbox';
+  if (asked === 'tasks' || slashHead === '/tasks') return 'tasks';
+  if (asked === 'clients' || slashHead === '/clients') return 'clients';
+  return null;
+}
+
+const CABINET_IN_DIALOG = 'Кабинет в чате открывается в личном диалоге с ботом: в группе кнопки нажал бы любой участник.';
 
 /** Ответ потока дат в чат кабинета: кнопки — callback с payload `od:`. */
 function datesSend(chatId: number, menu: MenuButton[] | null): DatesSend {
@@ -660,6 +715,15 @@ async function handleActionPress(
     });
     if (reply.buttons.length) await maxReplyWithButtons(chatId, reply.text, toMaxButtons(reply.buttons));
     else await maxReply(chatId, reply.text);
+    return;
+  }
+
+  // Кабинет в чате (30.10): экран правит сообщение с кнопкой. Личный диалог,
+  // карточку чата и владение задачей и клиентом проверяет lib/chat-cabinet.
+  if (action === 'cabinet') {
+    const { handleCabinetPress } = await import('@/lib/chat-cabinet/service');
+    const screen = await handleCabinetPress({ channel: 'max', chatId, privateChat: chatType === 'dialog', payload });
+    await showCabinetMax(chatId, screen, cabinetPressEdits(payload) ? (pressed?.mid ?? null) : null);
     return;
   }
 
@@ -1266,6 +1330,16 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           return;
         }
       }
+      // Запрос поиска после кнопки «Найти клиента» (кабинет в чате, 30.10).
+      // Беда и контроль выхода в тексте гасят ожидание сами — сообщение идёт
+      // дальше своим путём; поиск уступает и кнопке, нажатой после него.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const found = await captureCabinetSearch({ chatId, partner: lookup.partner, text });
+        if (found) {
+          await showCabinetMax(chatId, found, null, sos);
+          return;
+        }
+      }
       // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
       // отвечает про клиентов и свои туры и отказывает в аренде. Кабинет
       // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному
@@ -1385,20 +1459,34 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           await maxReplyWithButtons(chatId, operatorHelpText(), toMaxButtons(operatorDeskButtons()));
           return;
         }
-        if (role === 'operator' && (askedRole === 'inbox' || slashHead === '/requests')) {
-          const inbox = await loadInbox(lookup.partner.partnerId, 'operator', lookup.partner.userId, { nowMs: Date.now() });
-          const view = operatorInboxView(inbox);
-          const row = partnerMenu(lookup.partner) ?? [];
-          await maxReplyWithButtons(chatId, view.text, toMaxButtons(appendMenu(view.buttons, row)));
+        // Кабинет в чате (30.10): «Входящие», «Задачи», «Клиенты» словом или
+        // командой — раздел новым сообщением. Только в личном диалоге: в
+        // группе кнопки карточек нажал бы любой участник, а в задачах и
+        // клиентах — имена.
+        const section = role ? cabinetSectionOfText(askedRole, slashHead) : null;
+        if (role && section) {
+          if (!dialog) {
+            await say(CABINET_IN_DIALOG);
+            return;
+          }
+          await showCabinetMax(chatId, await cabinetSectionFor(lookup.partner, 'max', section), null, sos);
           return;
         }
-        if (role && (text.trim() === '/start' || slashHead === '/help' || slashHead === '/requests' || askedRole !== null)) {
-          const action = text.trim() === '/start' || slashHead === '/help' || askedRole === 'help' ? 'help' as const : 'inbox' as const;
-          const screen = await roleMenuScreen({
-            role, action, channel: 'max', partner: lookup.partner, nowMs: Date.now(),
-          });
-          // Кнопки ответа под «Входящими» гида — только в личном диалоге (menu есть только там).
-          await sendPartnerScreen(chatId, screen, menu ?? [], sos);
+        if (role && (text.trim() === '/start' || slashHead === '/help' || askedRole !== null)) {
+          if (text.trim() === '/start' || slashHead === '/help' || askedRole === 'help') {
+            const screen = await roleMenuScreen({
+              role, action: 'help', channel: 'max', partner: lookup.partner, nowMs: Date.now(),
+            });
+            await sendPartnerScreen(chatId, screen, menu ?? [], sos);
+            return;
+          }
+          // «Мои туры и цены» и «Обновить места» у того, кто своих туров не
+          // продаёт, — его «Входящие», как раньше.
+          if (!dialog) {
+            await say(CABINET_IN_DIALOG);
+            return;
+          }
+          await showCabinetMax(chatId, await cabinetSectionFor(lookup.partner, 'max', 'inbox'), null, sos);
           return;
         }
         const asked = rentalCabinetAsk(text);
@@ -1570,15 +1658,15 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(messageChatId, 'Эта кнопка — меню кабинета. В этом чате её не выполняю.');
         return;
       }
+      // Вкладка кабинета в чате — раздел новым сообщением: строка меню стоит
+      // и под уведомлениями, и править их нельзя.
+      if (isCabinetSection(rolePress.action)) {
+        await showCabinetMax(messageChatId, await cabinetSectionFor(roleLookup.partner, 'max', rolePress.action), null);
+        return;
+      }
       const row = partnerMenu(roleLookup.partner) ?? [];
-      if (rolePress.role === 'operator' && (rolePress.action === 'inbox' || rolePress.action === 'help')) {
-        const view = await operatorInboxOrHelpPress({
-          action: rolePress.action,
-          partnerId: roleLookup.partner.partnerId,
-          userId: roleLookup.partner.userId,
-          menu: row,
-          nowMs: Date.now(),
-        });
+      if (rolePress.role === 'operator' && rolePress.action === 'help') {
+        const view = operatorHelpPress(row);
         await maxReplyWithButtons(messageChatId, view.text, toMaxButtons(view.buttons));
         return;
       }

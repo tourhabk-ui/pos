@@ -1,9 +1,15 @@
 /**
  * Меню роли на живом входе Telegram. Прокатчик пилота и просьба туриста
  * сюда не попадают: первое уже отвечает своей строкой, второе — Кузьмичу.
+ *
+ * Вкладки кабинета в чате — «Входящие», «Задачи», «Клиенты», «Ещё» — экраны
+ * lib/chat-cabinet: вызывающий отдаёт их своей `sendCabinet` (у экрана
+ * кнопки-ссылки и строка кабинета, это не строка меню роли). В Telegram на
+ * них нет имён, телефонов и заголовков задач (замок — в сервисе кабинета).
  */
 
-import { loadInbox } from '@/lib/crm/inbox';
+import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
+import { cabinetSectionFor, type CabinetSection } from '@/lib/chat-cabinet/service';
 import { findPartnerByChat, processPartnerMessage } from '@/lib/kuzmich/operator-chat';
 import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
@@ -13,22 +19,25 @@ import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { datesSellerOf, telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import {
-  menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
+  menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuExtras, partnerMenuHelp, roleMenuAsk,
   type RoleAsk,
 } from '@/lib/roles/role-menu';
-import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { isCabinetSection, roleMenuScreen } from '@/lib/roles/role-screen';
 import {
-  loadOperatorTours, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
+  loadOperatorTours, operatorHelpText, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
-import { operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
+import { operatorHelpPress } from '@/lib/telegram/operator-desk-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 
 export type RoleSend = (text: string, buttons: MenuButton[][]) => Promise<void>;
+/** Экран кабинета в чате: новым сообщением, со своими кнопками. */
+export type CabinetSend = (screen: CabinetScreen) => Promise<void>;
 
 const NOT_THIS = 'Эта кнопка — меню кабинета. В этом чате её не выполняю.';
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
+export const CABINET_IN_DIALOG = 'Кабинет в чате открывается в личном диалоге с ботом: в группе кнопки нажал бы любой участник.';
 
 export async function tryRoleMenuTelegramMessage(opts: {
   chatId: number;
@@ -42,6 +51,8 @@ export async function tryRoleMenuTelegramMessage(opts: {
    * причины отклонения — только в личном (`private`); нет поля — не личный.
    */
   chatType?: string;
+  /** Экран кабинета в чате («Входящие», «Задачи», «Клиенты»). */
+  sendCabinet: CabinetSend;
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome !== 'found') return false;
@@ -88,20 +99,24 @@ export async function tryRoleMenuTelegramMessage(opts: {
   const head = opts.text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   // «/bookings» — команда строки гида («Брони»). У остальных ролей её нет,
   // и она уходит дальше, как любая чужая команда.
-  const fromSlash: RoleAsk | 'bookings' | null = head === '/start' || head === '/help'
-    ? 'help'
-    : head === '/requests'
-      ? 'inbox'
-      : head === '/tours'
-        ? 'tours'
-        : head === '/seats'
-          ? 'seats'
-          : head === '/bookings' && role === 'guide'
-            ? 'bookings'
-            : null;
+  const SLASH: Readonly<Partial<Record<string, RoleAsk>>> = {
+    '/start': 'help', '/help': 'help', '/requests': 'inbox', '/tasks': 'tasks', '/clients': 'clients',
+    '/tours': 'tours', '/seats': 'seats',
+  };
+  const fromSlash: RoleAsk | 'bookings' | null = SLASH[head]
+    ?? (head === '/bookings' && role === 'guide' ? 'bookings' : null);
   if (head.startsWith('/') && fromSlash === null) return false;
   const asked = fromSlash ?? roleMenuAsk(opts.text);
-  const open = async (action: 'inbox' | 'help' | 'summary' | 'bookings' | 'tours') => {
+  // Кабинет в чате — только в личном: в группе кнопки карточек нажал бы любой.
+  const openCabinet = async (section: CabinetSection) => {
+    if (!privateChat) {
+      await send(CABINET_IN_DIALOG, []);
+      return;
+    }
+    const screen = await cabinetSectionFor(partner, 'telegram', section, Date.now());
+    await opts.sendCabinet({ ...screen, text: withSosBlock(screen.text, opts.text).text });
+  };
+  const open = async (action: 'help' | 'summary' | 'bookings' | 'tours') => {
     const screen = await roleMenuScreen({
       role, action, channel: 'telegram', partner, nowMs: Date.now(),
     });
@@ -119,10 +134,12 @@ export async function tryRoleMenuTelegramMessage(opts: {
       }
       return true;
     }
-    // Гиду команды чата — из его строки меню (Входящие, Брони, Мои туры,
-    // Помощь), на «Старт», как оператору.
-    if (role === 'guide' && head === '/start') void setRoleChatCommands(opts.chatId, roleChatCommands(menu));
-    await send(partnerMenuHelp(role, menu), []);
+    // Гиду команды чата — из его вкладок и «Ещё» (Входящие, Задачи,
+    // Клиенты, Брони, Мои туры, Помощь), на «Старт», как оператору.
+    if (role === 'guide' && head === '/start') {
+      void setRoleChatCommands(opts.chatId, roleChatCommands([...menu, ...partnerMenuExtras(partner)]));
+    }
+    await send(partnerMenuHelp(role, partner), []);
     return true;
   }
   if (asked === 'bookings') {
@@ -130,14 +147,8 @@ export async function tryRoleMenuTelegramMessage(opts: {
     await open('bookings');
     return true;
   }
-  if (asked === 'inbox') {
-    if (role === 'operator') {
-      const inbox = await loadInbox(partner.partnerId, 'operator', partner.userId ?? null, { nowMs: Date.now() });
-      const view = operatorInboxView(inbox);
-      await send(view.text, view.buttons);
-      return true;
-    }
-    await open('inbox');
+  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients') {
+    await openCabinet(asked);
     return true;
   }
   if (asked === 'tours' || asked === 'seats') {
@@ -185,9 +196,12 @@ export async function tryRoleMenuTelegramPress(opts: {
   send: RoleSend;
   /**
    * Нажатие из личного чата канонического вебхука: только там стоят кнопки
-   * действий брони (`bk:`) и только там есть их обработчик. Нет поля — без них.
+   * действий брони (`bk:`) и только там есть их обработчик. Нет поля — без них
+   * и без вкладок кабинета.
    */
   privateChat?: boolean;
+  /** Экран кабинета в чате для вкладок строки меню. */
+  sendCabinet: CabinetSend;
 }): Promise<boolean> {
   const press = parseRoleMenuPress(opts.payload);
   if (!press || press.role === 'admin') return false;
@@ -201,14 +215,16 @@ export async function tryRoleMenuTelegramPress(opts: {
     return true;
   }
   const menu = partnerMenu(lookup.partner) ?? [];
-  if (press.role === 'operator' && (press.action === 'inbox' || press.action === 'help')) {
-    const view = await operatorInboxOrHelpPress({
-      action: press.action,
-      partnerId: lookup.partner.partnerId,
-      userId: lookup.partner.userId,
-      menu,
-      nowMs: Date.now(),
-    });
+  if (isCabinetSection(press.action)) {
+    if (opts.privateChat !== true) {
+      await opts.send(CABINET_IN_DIALOG, []);
+      return true;
+    }
+    await opts.sendCabinet(await cabinetSectionFor(lookup.partner, 'telegram', press.action, Date.now()));
+    return true;
+  }
+  if (press.role === 'operator' && press.action === 'help') {
+    const view = operatorHelpPress(menu);
     await opts.send(view.text, view.buttons);
     return true;
   }

@@ -1,8 +1,9 @@
 /**
  * Сторож связки «что гид может в чате» (29.10, шаг 10 плана «гид в
- * мессенджере»). Одна таблица — `DESK`: действие × канал × исход. Строка
- * таблицы — то, что справка меню гида называет кнопкой (или фразой), и что с
- * этим происходит в MAX и в Telegram.
+ * мессенджере»; с 30.10 — кабинет в чате: вкладки «Входящие», «Задачи»,
+ * «Клиенты», «Ещё», прежние кнопки — в «Ещё»). Одна таблица — `DESK`:
+ * действие × канал × исход. Строка таблицы — то, что справка меню гида
+ * называет кнопкой (или фразой), и что с этим происходит в MAX и в Telegram.
  *
  * Что держит, вызовом живых входов (POST /api/max/kuzmich,
  * POST /api/telegram/webhook) и функций:
@@ -68,19 +69,47 @@ interface FakeRow {
 }
 interface FakeBooking { id: string; status: string; date: string; participants: number; title: string; partner: string }
 interface FakeLead { id: string; status: string; title: string; people: number | null; created_at: string; operator: string }
+interface FakeTask { id: string; title: string; due_at: string; done_at: string | null; partner: string }
 const db = vi.hoisted(() => ({
   owner: { max: null as string | null, telegram: null as string | null },
   bookings: [] as FakeBooking[],
   leads: [] as FakeLead[],
   rows: [] as FakeRow[],
+  tasks: [] as FakeTask[],
   seq: 0,
   writes: [] as string[],
 }));
+
+/** Строка задачи в форме lib/crm/tasks (TaskJoinRow). */
+function taskRow(t: FakeTask) {
+  return {
+    id: t.id, title: t.title, details: null, due_at: t.due_at, done_at: t.done_at, contact_id: null,
+    created_at: '2026-10-28T00:00:00Z', reminded_at: null, reminder_channel: null, contact_name: null,
+  };
+}
 
 function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowCount: number } {
   const p = params.map((x) => (x === null || x === undefined ? x : String(x)));
   const res = (rows: unknown[], rowCount = rows.length) => ({ rows, rowCount });
   if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql.trim())) return res([]);
+  // Задачи CRM — те же запросы, что lib/crm/tasks (кабинет в чате, 30.10).
+  if (/FROM crm_tasks t\s+LEFT JOIN crm_contacts c/.test(sql) && /t\.done_at IS NULL/.test(sql)) {
+    return res(db.tasks.filter((t) => t.partner === p[0] && t.done_at === null).map(taskRow));
+  }
+  if (/UPDATE crm_tasks SET done_at = NOW\(\)/.test(sql)) {
+    const t = db.tasks.find((x) => x.partner === p[0] && x.id === p[1] && x.done_at === null);
+    if (!t) return res([]);
+    t.done_at = '2026-10-29T00:00:00Z';
+    db.writes.push(sql);
+    return res([taskRow(t)]);
+  }
+  if (/UPDATE crm_tasks\s+SET title = COALESCE/.test(sql)) {
+    const t = db.tasks.find((x) => x.partner === p[0] && x.id === p[1] && x.done_at === null);
+    if (!t) return res([]);
+    if (p[5]) t.due_at = p[5];
+    db.writes.push(sql);
+    return res([taskRow(t)]);
+  }
   if (/INSERT|UPDATE|DELETE/i.test(sql) && /partner_chat_actions/.test(sql)) db.writes.push(sql);
   if (/max_owner_user_id::text AS owner/.test(sql)) return res([{ owner: db.owner.max }]);
   if (/telegram_owner_user_id::text AS owner/.test(sql)) return res([{ owner: db.owner.telegram }]);
@@ -207,7 +236,7 @@ vi.mock('@/lib/telegram/group-monitor', () => ({ groupMonitor: { processMessage:
 
 const { OWNER_ACTION_TEXT } = await import('@/lib/bookings/chat-owner-action');
 const { bookingPressPayload, leadPressPayload, answerPressPayload } = await import('@/lib/bookings/chat-owner-press');
-const { partnerMenu } = await import('@/lib/roles/role-menu');
+const { partnerMenu, partnerMenuExtras } = await import('@/lib/roles/role-menu');
 const { GUIDE_NO_OWN_TOURS } = await import('@/lib/roles/role-screen');
 const { withoutPd } = await import('@/lib/guides/chat-screens');
 const { channelBoundText } = await import('@/lib/partners/bind-channel');
@@ -293,11 +322,19 @@ const CHANNELS: readonly Channel[] = ['max', 'telegram'];
  *  - `kept` — «Не надо»: ничего не изменено, и «Да» того же вопроса уже не исполняется;
  *  - `dates_open` — фраза даёт предложение с «Открыть», нажатие пишет даты
  *    карточки гида;
- *  - `dates_link` — фраза получает «это в MAX» со ссылкой в «Свои туры», без кнопки.
+ *  - `dates_link` — фраза получает «это в MAX» со ссылкой в «Свои туры», без кнопки;
+ *  - `task_done` / `task_tomorrow` — кнопка экрана «Задачи» отмечает задачу
+ *    (completeTask) или переносит её на завтра, 10:00 (updateTask), и экран
+ *    приходит с отметкой о сделанном;
+ *  - `max_only` — в этом канале кнопки нет: заголовков задач в Telegram нет,
+ *    экран говорит, что они в MAX.
  */
-type Outcome = 'screen' | 'screen_pd' | 'ask_yes' | 'repeat' | 'kept' | 'dates_open' | 'dates_link';
+type Outcome =
+  | 'screen' | 'screen_pd' | 'ask_yes' | 'repeat' | 'kept' | 'dates_open' | 'dates_link'
+  | 'task_done' | 'task_tomorrow' | 'max_only';
 
-type MenuName = 'Входящие' | 'Брони' | 'Мои туры' | 'Помощь';
+/** Вкладки строки меню и экраны «Ещё». */
+type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь';
 
 interface DeskRow {
   /** Как действие называет справка (у кнопки — начало подписи). */
@@ -308,6 +345,8 @@ interface DeskRow {
   telegram: Outcome;
   /** Экран строки меню: каким текстом он начинается. */
   screen?: RegExp;
+  /** Экран кабинета в чате: под ним строка кабинета (`cb:`), а не строка меню. */
+  cabinet?: boolean;
   /** Под какими экранами кнопка стоит (первый — откуда нажимаем). */
   under?: MenuName[];
   /** Вопрос после нажатия. */
@@ -322,11 +361,18 @@ interface DeskRow {
 }
 
 const DESK: readonly DeskRow[] = [
-  // Строка меню.
-  { name: 'Входящие', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Входящие<\/b>/ },
+  // Строка меню — вкладки кабинета в чате.
+  { name: 'Входящие', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Входящие<\/b>/, cabinet: true },
+  { name: 'Задачи', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Задачи<\/b>/, cabinet: true },
+  { name: 'Клиенты', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Клиенты<\/b>/, cabinet: true },
+  { name: 'Ещё', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Ещё<\/b>/, cabinet: true },
+  // «Ещё».
   { name: 'Брони', namedBy: 'help', max: 'screen_pd', telegram: 'screen', screen: /^<b>Брони<\/b>/ },
   { name: 'Мои туры', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Мои туры<\/b>/ },
-  { name: 'Помощь', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^Кабинет гида\./ },
+  { name: 'Помощь', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^Кабинет гида в чате\./ },
+  // Задачи: «Готово» и «На завтра» — в MAX, где видно, что за задача.
+  { name: 'Готово', namedBy: 'help', max: 'task_done', telegram: 'max_only' },
+  { name: 'На завтра', namedBy: 'help', max: 'task_tomorrow', telegram: 'max_only' },
   // Бронь: вопрос, затем «Да» — правило сайта.
   {
     name: 'Подтвердить', namedBy: 'help', max: 'ask_yes', telegram: 'ask_yes', under: ['Брони', 'Входящие'], subject: 'booking',
@@ -365,9 +411,12 @@ const DESK: readonly DeskRow[] = [
   { name: 'Открыть', namedBy: 'help', max: 'dates_open', telegram: 'dates_link' },
 ];
 
-const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Брони', 'Мои туры', 'Помощь'];
+/** Вкладки строки меню — одни у продавца и у гида команды. */
+const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
+/** Что лежит в «Ещё» у продавца своих туров. */
+const MORE_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Помощь'];
 /** Что есть у гида команды без своих туров. */
-const TEAM_NAMES: ReadonlySet<string> = new Set(['Входящие', 'Помощь']);
+const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Готово', 'На завтра']);
 /** Падежные формы, которыми тексты называют экраны строки. */
 const ALIASES: Readonly<Record<string, string>> = {
   Бронях: 'Брони', Бронями: 'Брони', Входящих: 'Входящие', Входящими: 'Входящие',
@@ -376,7 +425,7 @@ const ALIASES: Readonly<Record<string, string>> = {
  * Названо в «…», но не кнопка чата: раздел кабинета и отметка заявки, которую
  * ставят только там. Чат такой кнопки не рисует — это проверяется ниже.
  */
-const SITE_ONLY: ReadonlySet<string> = new Set(['Свои туры', 'Обсуждаем']);
+const SITE_ONLY: ReadonlySet<string> = new Set(['Свои туры', 'Обсуждаем', 'кабинет на сайте']);
 /** Фраза-пример из справки: её надо написать, а не нажать. */
 const isPhrase = (name: string) => /^открой /.test(name);
 
@@ -392,15 +441,19 @@ function resolveName(raw: string, who: 'seller' | 'team', partnerName: string | 
   return row;
 }
 
-/** Имена, которые текст называет: всё в «…» и перечень после «кнопки:». */
+/** Вкладки, которые называет справка: перечень после «Под ответами кнопки:». */
+const tabsIn = (text: string) => /Под ответами кнопки: ([^.\n]+)\./.exec(text)?.[1]?.split(', ').map((s) => s.trim());
+/** Что в «Ещё» называет справка: перечень после «Ещё — ». */
+const moreIn = (text: string) => /^Ещё — ([^\n]+)\.$/m.exec(text)?.[1]?.split(', ').map((s) => s.trim());
+
+/** Имена, которые текст называет: всё в «…», вкладки и перечень «Ещё». */
 function namesIn(text: string): string[] {
   const quoted = [...text.matchAll(/«([^«»]+)»/g)].map((x) => x[1]!.trim());
-  const listed = /Под ответом кнопки: ([^.\n]+)\./.exec(text)?.[1]?.split(', ').map((s) => s.trim()) ?? [];
-  return [...quoted, ...listed];
+  return [...quoted, ...(tabsIn(text) ?? []), ...(moreIn(text) ?? [])];
 }
 
-/** Подпись кнопки — это имя (ровно или с номером, хвостом через запятую или «·»). */
-const labelIs = (label: string, name: string) => label === name || new RegExp(`^${name}[ ,·]`).test(label);
+/** Подпись кнопки — это имя (ровно, с номером «1 · », хвостом через пробел, запятую или «·»). */
+const labelIs = (label: string, name: string) => label === name || new RegExp(`^(?:\\d+ · )?${name}(?:$|[ ,·])`).test(label);
 
 // ── Каналы ──────────────────────────────────────────────────────────────────
 
@@ -506,17 +559,43 @@ function buttonNamed(s: Said, name: string): Btn {
 
 const menuOf = (partner: typeof SELLER): MenuButton[] => partnerMenu(partner) ?? [];
 
-/** Экран строки меню — нажатием её кнопки из строки, которую ставит partnerMenu. */
+/**
+ * Экран — нажатием настоящей кнопки: вкладка — из строки, которую ставит
+ * partnerMenu; экран «Ещё» — из ответа на вкладку «Ещё».
+ */
 async function openScreen(d: Driver, name: MenuName, partner: typeof SELLER = SELLER): Promise<Said> {
-  const b = menuOf(partner).find((x) => x.text === name);
-  if (!b) throw new Error(`в строке меню нет «${name}»`);
+  const tab = menuOf(partner).find((x) => x.text === name);
+  if (tab) return one(await d.press(tab.payload), `экран «${name}» (${d.channel})`);
+  const more = await openScreen(d, 'Ещё', partner);
+  const b = more.buttons.find((x) => x.text === name);
+  if (!b) throw new Error(`в «Ещё» нет «${name}»: ${more.buttons.map((x) => x.text).join(', ')}`);
   return one(await d.press(b.payload), `экран «${name}» (${d.channel})`);
+}
+
+/** Карточка предмета «Входящих» — нажатием его номера в списке. */
+async function inboxCard(d: Driver, kind: 'Бронь тура' | 'Заявка на подбор'): Promise<Said> {
+  const list = await openScreen(d, 'Входящие');
+  const b = list.buttons.find((x) => new RegExp(`^\\d+\\. ${kind}`).test(x.text));
+  if (!b) throw new Error(`во «Входящих» нет «${kind}»: ${list.buttons.map((x) => x.text).join(', ')}`);
+  return one(await d.press(b.payload), `карточка «${kind}» (${d.channel})`);
+}
+
+/** Экран, под которым таблица обещает кнопку: у «Входящих» — карточка предмета. */
+async function screenWith(d: Driver, where: MenuName, row: DeskRow): Promise<Said> {
+  if (where !== 'Входящие') return openScreen(d, where);
+  return inboxCard(d, row.subject === 'lead' ? 'Заявка на подбор' : 'Бронь тура');
 }
 
 /** Строка меню — последней под ответом. */
 function expectMenuUnder(s: Said, partner: typeof SELLER = SELLER): void {
   const row = menuOf(partner).map((b) => b.payload);
   expect(s.buttons.slice(-row.length).map((b) => b.payload)).toEqual(row);
+}
+
+/** Строка кабинета в чате — последней под его экраном: листает это же сообщение. */
+const CABINET_NAV = ['cb:i', 'cb:t', 'cb:c', 'cb:m'];
+function expectNavUnder(s: Said): void {
+  expect(s.buttons.slice(-CABINET_NAV.length).map((b) => b.payload)).toEqual(CABINET_NAV);
 }
 
 // ── Границы ПД — после каждого прогона ──────────────────────────────────────
@@ -556,6 +635,8 @@ beforeEach(() => {
   db.rows = [];
   db.writes = [];
   db.seq = 0;
+  // Задача на сегодня, 15:00 по Камчатке: в MAX под ней «Готово» и «На завтра».
+  db.tasks = [{ id: 'aaaaaaaa-0000-4000-8000-000000000001', title: 'Уточнить состав группы', due_at: '2026-10-29T03:00:00.000Z', done_at: null, partner: SELLER.partnerId }];
   m.maxSend.mockResolvedValue({});
   m.maxSendUser.mockResolvedValue({});
   m.findPartner.mockResolvedValue({ outcome: 'found', partner: SELLER });
@@ -607,7 +688,8 @@ const RUN: Record<Outcome, (d: Driver, row: DeskRow) => Promise<void>> = {
     const s = await openScreen(d, row.name as MenuName);
     expect(s.text).toMatch(row.screen!);
     expect(s.viaPd).toBe(false);
-    expectMenuUnder(s);
+    if (row.cabinet) expectNavUnder(s);
+    else expectMenuUnder(s);
   },
   async screen_pd(d, row) {
     const s = await openScreen(d, row.name as MenuName);
@@ -620,7 +702,7 @@ const RUN: Record<Outcome, (d: Driver, row: DeskRow) => Promise<void>> = {
     // Кнопка стоит под каждым экраном, где её обещает таблица.
     const screens: Said[] = [];
     for (const where of row.under!) {
-      const s = await openScreen(d, where);
+      const s = await screenWith(d, where, row);
       buttonNamed(s, row.name);
       screens.push(s);
     }
@@ -663,7 +745,7 @@ const RUN: Record<Outcome, (d: Driver, row: DeskRow) => Promise<void>> = {
     expect(m.change).toHaveBeenCalledTimes(1);
   },
   async kept(d) {
-    const ask = one(await d.press(buttonNamed(await openScreen(d, 'Входящие'), 'Подтвердить').payload), 'вопрос');
+    const ask = one(await d.press(buttonNamed(await inboxCard(d, 'Бронь тура'), 'Подтвердить').payload), 'вопрос');
     expect(one(await d.press(buttonNamed(ask, 'Не надо').payload), '«Не надо»').text).toBe('Хорошо, бронь №501 без изменений.');
     expect(one(await d.press(buttonNamed(ask, 'Да').payload), '«Да» после «Не надо»').text).toBe('Это действие отменено — бронь №501 без изменений.');
     expect(m.change).not.toHaveBeenCalled();
@@ -681,6 +763,33 @@ const RUN: Record<Outcome, (d: Driver, row: DeskRow) => Promise<void>> = {
     // Итог и ссылки — раздел гида, не кабинет оператора.
     expect(opened.text).not.toMatch(/\/hub\/operator/);
     expect(m.processPartner).not.toHaveBeenCalled();
+  },
+  async task_done(d) {
+    const tasks = await openScreen(d, 'Задачи');
+    expect(tasks.text).toContain('Уточнить состав группы');
+    const done = one(await d.press(buttonNamed(tasks, 'Готово').payload), '«Готово»');
+    expect(done.text).toMatch(/^<b>Задачи<\/b>\n<i>Готово: «Уточнить состав группы»\.<\/i>/);
+    expect(done.text).toContain('Открытых задач нет.');
+    expect(db.tasks[0]!.done_at).not.toBeNull();
+    expectNavUnder(done);
+  },
+  async task_tomorrow(d) {
+    const tasks = await openScreen(d, 'Задачи');
+    const moved = one(await d.press(buttonNamed(tasks, 'На завтра').payload), '«На завтра»');
+    expect(moved.text).toContain('Перенёс «Уточнить состав группы» на завтра, 10:00.');
+    // Завтра 10:00 по Камчатке — 30.10 в 22:00 UTC 29.10.
+    expect(db.tasks[0]!.due_at).toBe('2026-10-29T22:00:00.000Z');
+    expect(db.tasks[0]!.done_at).toBeNull();
+    // Перенесённая на завтра — без «На завтра»: будущую кнопка не придвигает.
+    expect(moved.buttons.some((b) => labelIs(b.text, 'На завтра'))).toBe(false);
+    expectNavUnder(moved);
+  },
+  async max_only(d, row) {
+    const tasks = await openScreen(d, 'Задачи');
+    expect(tasks.buttons.some((b) => labelIs(b.text, row.name))).toBe(false);
+    expect(tasks.text).not.toContain('Уточнить состав группы');
+    expect(tasks.text).toContain('они в MAX и в кабинете');
+    expect(db.writes).toEqual([]);
   },
   async dates_link(d) {
     const phrase = namesIn(await helpIn(d)).find(isPhrase);
@@ -702,6 +811,9 @@ const OUTCOME_WORDS: Record<Outcome, string> = {
   kept: '«Не надо» — без изменений, «Да» того же вопроса не исполняется',
   dates_open: 'фраза — предложение с «Открыть», нажатие пишет даты карточки гида',
   dates_link: 'фраза — «это в MAX» со ссылкой в «Свои туры», без кнопки',
+  task_done: 'кнопка «Задач» отмечает задачу, экран — с отметкой',
+  task_tomorrow: 'кнопка «Задач» переносит на завтра 10:00, экран — с отметкой',
+  max_only: 'кнопки здесь нет: заголовки задач — только в MAX',
 };
 
 describe('таблица: каждое действие гида-продавца в каждом канале доходит до своего исхода', () => {
@@ -714,16 +826,17 @@ describe('таблица: каждое действие гида-продавц�
     }
   }
 
-  // Команды чата Telegram ставятся из той же строки меню (roleChatCommands):
-  // команда без обработчика была бы той же кнопкой в никуда.
-  it('telegram: каждая команда чата из строки меню открывает тот же экран, что её кнопка', async () => {
-    const commands = roleChatCommands(menuOf(SELLER));
-    expect(commands.map((c) => c.description)).toEqual(MENU_NAMES);
+  // Команды чата Telegram ставятся из вкладок и «Ещё» (roleChatCommands):
+  // команда без обработчика была бы той же кнопкой в никуда. У «Ещё» команды нет.
+  it('telegram: каждая команда чата из вкладок и «Ещё» открывает тот же экран, что её кнопка', async () => {
+    const commands = roleChatCommands([...menuOf(SELLER), ...partnerMenuExtras(SELLER)]);
+    expect(commands.map((c) => c.description)).toEqual([...MENU_NAMES.filter((n) => n !== 'Ещё'), ...MORE_NAMES]);
     for (const c of commands) {
       const row = DESK.find((r) => r.name === c.description)!;
       const s = one(await tgDriver.say(`/${c.command}`), `/${c.command}`);
       expect(s.text, `/${c.command}`).toMatch(row.screen!);
-      expectMenuUnder(s);
+      if (row.cabinet) expectNavUnder(s);
+      else expectMenuUnder(s);
     }
     expect(m.processPartner).not.toHaveBeenCalled();
     expectPdBoundaries();
@@ -741,26 +854,39 @@ describe('справка называет ровно таблицу', () => {
       const named = new Set(names.map((n) => ALIASES[n] ?? n));
       const silent = DESK.filter((r) => r.namedBy === 'help' && !named.has(r.name)).map((r) => r.name);
       expect(silent, 'в таблице есть, справка молчит').toEqual([]);
-      // Перечень кнопок строки — ровно строка под ответом.
-      expect(/Под ответом кнопки: ([^.\n]+)\./.exec(help)?.[1]?.split(', ')).toEqual(MENU_NAMES);
+      // Перечень вкладок — ровно строка под ответом; «Ещё» — ровно экран «Ещё».
+      expect(tabsIn(help)).toEqual(MENU_NAMES);
+      expect(tabsIn(help)).toEqual(menuOf(SELLER).map((b) => b.text));
+      const more = await openScreen(DRIVERS[ch], 'Ещё');
+      expect(moreIn(help)).toEqual([...MORE_NAMES, 'кабинет на сайте']);
+      for (const name of MORE_NAMES) buttonNamed(more, name);
       expectPdBoundaries();
     });
 
     it(`${ch}: «Обсуждаем» и «Свои туры» — только в кабинете: ссылка в справке есть, кнопки в чате нет`, async () => {
       const help = await helpIn(DRIVERS[ch]);
       expect(help).toMatch(/https?:\/\/\S+\/hub\/guide\/own/);
-      const shown = [await openScreen(DRIVERS[ch], 'Входящие'), await openScreen(DRIVERS[ch], 'Брони')];
+      const shown = [
+        await openScreen(DRIVERS[ch], 'Входящие'), await inboxCard(DRIVERS[ch], 'Бронь тура'),
+        await inboxCard(DRIVERS[ch], 'Заявка на подбор'), await openScreen(DRIVERS[ch], 'Брони'),
+      ];
       for (const s of shown) {
         for (const site of SITE_ONLY) expect(s.buttons.some((b) => labelIs(b.text, site)), site).toBe(false);
       }
     });
 
-    it(`${ch}: гид команды без своих туров — в справке и строке только «Входящие» и «Помощь»; кнопки продавца — отказ без чтения и записи`, async () => {
+    it(`${ch}: гид команды без своих туров — вкладки те же, в «Ещё» только «Помощь»; кнопки продавца — отказ без чтения и записи`, async () => {
       m.findPartner.mockResolvedValue({ outcome: 'found', partner: TEAM });
       const d = DRIVERS[ch];
       const help = await helpIn(d, TEAM);
       expect(namesIn(help).filter((n) => resolveName(n, 'team') === null), 'названо, но гиду команды этого нет').toEqual([]);
-      expect(/Под ответом кнопки: ([^.\n]+)\./.exec(help)?.[1]?.split(', ')).toEqual(['Входящие', 'Помощь']);
+      expect(tabsIn(help)).toEqual(MENU_NAMES);
+      expect(moreIn(help)).toEqual(['Помощь', 'кабинет на сайте']);
+      const more = await openScreen(d, 'Ещё', TEAM);
+      for (const name of ['Брони', 'Мои туры']) expect(more.buttons.some((b) => b.text === name), name).toBe(false);
+      // Карточка брони во «Входящих» гида команды — без кнопок ответа.
+      const card = await inboxCard(d, 'Бронь тура');
+      expect(card.buttons.some((b) => /^(?:bk|ld|oc):/.test(b.payload))).toBe(false);
       for (const payload of ['rm:gd:bk', 'rm:gd:tr']) {
         expect(one(await d.press(payload), payload).text).toBe(GUIDE_NO_OWN_TOURS);
       }
@@ -786,13 +912,13 @@ describe('тексты привязки и приветствия называю
   });
 
   for (const ch of CHANNELS) {
-    it(`${ch}: привязка продавца называет кнопки таблицы, гида команды — только «Входящие» и «Помощь»`, () => {
+    it(`${ch}: привязка продавца называет кнопки таблицы, гида команды — только вкладки и «Помощь»`, () => {
       for (const [who, sells] of [['seller', true], ['team', false]] as const) {
         const text = channelBoundText(ch, bound(sells));
         const names = namesIn(text);
         expect(names.filter((n) => resolveName(n, who, 'Гид Пробный') === null), `${who}: названо, но этого нет`).toEqual([]);
         // Кнопки, которые текст называет «под этим сообщением», — ровно строка меню.
-        const under = /Кнопки под этим сообщением: ([^.]+)\./.exec(text)?.[1];
+        const under = /Кнопки под этим сообщением — кабинет в чате: ([^.]+)\./.exec(text)?.[1];
         expect(under?.split(', ').map((s) => s.replace(/[«»]/g, ''))).toEqual(menuOf(sells ? SELLER : TEAM).map((b) => b.text));
       }
     });

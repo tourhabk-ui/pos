@@ -91,8 +91,9 @@
  *     Кузьмичу; чужой канал карточки (чат команды) остаётся и называется в
  *     ответе (ERASE_STEP_LEAVES); предложения «открыть даты» из его диалога
  *     MAX (operator_chat_date_proposals), действия кнопкой из его чата
- *     кабинета (partner_chat_actions) и коды привязки мессенджера, которыми
- *     этот канал заводили (messenger_bind_codes), удаляются тем же ключом;
+ *     кабинета (partner_chat_actions), ожидания поиска клиента кабинета в чате
+ *     (chat_cabinet_waits) и коды привязки мессенджера, которыми этот канал
+ *     заводили (messenger_bind_codes), удаляются тем же ключом;
  *   - спутники, описание маршрута и последняя точка в его прошедших
  *     регистрациях маршрута, адресат в журнале доставки тревог по ним
  *     (телефон и почта экстренного контакта) и текст отказа доставки, где
@@ -1196,6 +1197,13 @@ export async function eraseUser(
       USING (${HIS_MESSENGER_IDS}) his
       WHERE (a.channel = 'max' AND a.chat_id = ANY(his.mx))
          OR (a.channel = 'telegram' AND a.chat_id = ANY(his.tg))`],
+    // Ожидание поиска клиента кабинета в чате (миграция 1351, lib/chat-cabinet):
+    // строка ссылается на карточку, а не на него, но несёт id его диалога MAX.
+    // Текста поиска в ней нет. Ключ — его диалог MAX, как у действий кнопкой;
+    // ДО шагов tg_conversations и users.
+    ['chat_cabinet_waits', `DELETE FROM chat_cabinet_waits w
+      USING (${HIS_MESSENGER_IDS}) his
+      WHERE w.channel = 'max' AND w.chat_id = ANY(his.mx)`],
     // Коды «/start ABC123» из кабинета (миграция 1333, lib/partners/bind-code):
     // погашенный код хранит id чата, которым канал карточки заводили, — ту же
     // копию, что снимает шаг partners выше, и по ссылке на карточку она не его

@@ -66,7 +66,7 @@ import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerLinkArgFromText, partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
-import { bindPartnerChannel, badLinkReplyText, boundMenuRow, channelBoundText } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, badLinkReplyText, boundMenuExtras, boundMenuRow, channelBoundText } from '@/lib/partners/bind-channel';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
@@ -75,6 +75,9 @@ import { type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, parseRoleMenuPress } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
+import { cabinetPressEdits, isCabinetPayload } from '@/lib/chat-cabinet/payload';
+import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
+import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
@@ -141,7 +144,8 @@ const TelegramUpdateSchema = z.object({
   callback_query: z.object({
     id: z.string(),
     from: TelegramUserSchema,
-    message: z.object({ chat: TelegramChatSchema.optional() }).optional(),
+    // message_id — чтобы кабинет в чате правил сообщение с кнопкой, а не слал новое.
+    message: z.object({ message_id: z.number().optional(), chat: TelegramChatSchema.optional() }).optional(),
     data: z.string().optional(),
   }).optional(),
 });
@@ -158,7 +162,7 @@ interface TelegramUpdate {
   callback_query?: {
     id: string;
     from: { id: number; username?: string };
-    message?: { chat: { id: number; type?: string } };
+    message?: { message_id?: number; chat: { id: number; type?: string } };
     data?: string;
   };
 }
@@ -232,6 +236,31 @@ async function sendRentalCabinet(chatId: string, text: string, buttons: CabinetB
   await sendHtmlKeyboard(chatId, text, telegramCabinetMarkup(buttons), 'ответ кабинета');
 }
 
+/**
+ * Экран кабинета в чате (lib/chat-cabinet). Кнопка самого экрана (`cb:`)
+ * правит это же сообщение; вкладка строки меню, слово и команда — новое
+ * (строка меню стоит и под уведомлениями, их не правят). Правка не принята —
+ * новым сообщением. Имён и телефонов на экранах Telegram нет — замок в
+ * сервисе кабинета.
+ */
+async function sendCabinetTelegram(chatId: string, screen: CabinetScreen, editMessageId: number | null = null): Promise<void> {
+  const replyMarkup = telegramCabinetKeyboard(screen.rows);
+  const text = repairTelegramHtml(sanitizeForTelegram(screen.text));
+  if (editMessageId !== null) {
+    const edited = await telegramService.editMessageText({ chatId, messageId: editMessageId, text, parseMode: 'HTML', replyMarkup });
+    if (edited.success) return;
+    console.error('[telegram/webhook] правка экрана кабинета не принята — отправляю новым сообщением', edited.error);
+  }
+  const html = await telegramService.sendMessage({ chatId, text, parseMode: 'HTML', replyMarkup });
+  if (html.success) return;
+  const plain = await telegramService.sendMessage({
+    chatId, text: repairTelegramHtml(esc(stripTags(sanitizeForTelegram(screen.text)))), parseMode: 'HTML', replyMarkup,
+  });
+  if (!plain.success) {
+    console.error('[telegram/webhook] экран кабинета не доставлен', { html: html.error, plain: plain.error });
+  }
+}
+
 function roleKeyboard(buttons: MenuButton[][]): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) };
 }
@@ -290,7 +319,7 @@ async function replyOperatorBound(
   const row = boundMenuRow(bound);
   if (row) {
     await sendRoleRows(chatId, text, [row]);
-    void setRoleChatCommands(numericChatId, roleChatCommands(row));
+    void setRoleChatCommands(numericChatId, roleChatCommands([...row, ...boundMenuExtras(bound)]));
     return;
   }
   await sendHTML(chatId, text);
@@ -1081,6 +1110,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatType,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
         sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
+        sendCabinet: (screen) => sendCabinetTelegram(chatId, screen),
       })) {
         return;
       }
@@ -1163,7 +1193,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     // Команды кабинета туроператора и гида (/bookings) — раньше туристской справки.
     const deskHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
     if (!admin && (deskHead === '/help' || deskHead === '/requests' || deskHead === '/tours' || deskHead === '/seats'
-      || deskHead === '/bookings')) {
+      || deskHead === '/bookings' || deskHead === '/tasks' || deskHead === '/clients')) {
       if (await tryRoleMenuTelegramMessage({
         chatId: update.message.chat.id,
         text,
@@ -1171,6 +1201,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatType,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
         sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
+        sendCabinet: (screen) => sendCabinetTelegram(chatId, screen),
       })) {
         return;
       }
@@ -1552,6 +1583,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       fromName: update.message.from?.first_name ?? null,
       chatType,
       send: (body, buttons) => sendRoleRows(chatId, body, buttons),
+      sendCabinet: (screen) => sendCabinetTelegram(chatId, screen),
     })) {
       return;
     }
@@ -1743,6 +1775,26 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
+    // Кабинет в чате (30.10): экран правит сообщение с кнопкой. Чат — только
+    // из сообщения с кнопкой; личный чат, карточку и владение задачей и
+    // клиентом проверяет lib/chat-cabinet. Вебхук заверен секретом.
+    if (isCabinetPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat) {
+        console.error('[telegram/webhook] кнопка кабинета без сообщения — не выполнена');
+        await sendHTML(String(senderChatId), 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ничего не открыто и не записано — нажмите «Входящие» под любым сообщением бота.');
+        return;
+      }
+      const { handleCabinetPress } = await import('@/lib/chat-cabinet/service');
+      const screen = await handleCabinetPress({
+        channel: 'telegram', chatId: pressChat.id, privateChat: pressChat.type === 'private', payload: data,
+      });
+      const editId = cabinetPressEdits(data) && typeof cq.message?.message_id === 'number' ? cq.message.message_id : null;
+      await sendCabinetTelegram(String(pressChat.id), screen, editId);
+      return;
+    }
+
     if (parseRentalCabinetPress(data) || data.startsWith('rr:')) {
       await telegramService.answerCallback(cq.id);
       await tryRentalCabinetTelegramPress({
@@ -1781,6 +1833,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatId: cq.message?.chat?.id ?? senderChatId,
         payload: data,
         send: (body, buttons) => sendRoleRows(callbackChatId, body, buttons),
+        sendCabinet: (screen) => sendCabinetTelegram(callbackChatId, screen),
         // Вид чата проверен выше; кнопки брони — только из сообщения в личном чате.
         privateChat: cq.message?.chat?.type === 'private',
       });

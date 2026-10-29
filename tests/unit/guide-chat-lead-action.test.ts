@@ -153,8 +153,9 @@ vi.mock('@/lib/telegram/group-monitor', () => ({ groupMonitor: { processMessage:
 const { OWNER_ACTION_TEXT, handleOwnerPress } = await import('@/lib/bookings/chat-owner-action');
 const press = await import('@/lib/bookings/chat-owner-press');
 const { pressActionOf, UNVERIFIED_PRESS_REPLY } = await import('@/lib/max/verified-press');
-const { roleMenuScreen } = await import('@/lib/roles/role-screen');
-const { partnerMenuHelp, partnerMenu } = await import('@/lib/roles/role-menu');
+const { partnerMenuHelp } = await import('@/lib/roles/role-menu');
+const { cabinetPartnerOf } = await import('@/lib/chat-cabinet/service');
+const { itemCardScreen } = await import('@/lib/chat-cabinet/screens');
 const { notifyPartnerNewLeadPersonally } = await import('@/lib/notifications/lead-notify');
 const max = await import('@/app/api/max/kuzmich/route');
 const telegram = await import('@/app/api/telegram/webhook/route');
@@ -304,7 +305,8 @@ describe('MAX: кто вправе отметить заявку', () => {
   const REFUSALS: Array<{ name: string; setup: () => void; text: string; chatType?: string }> = [
     { name: 'групповой чат', setup: () => undefined, text: OWNER_ACTION_TEXT.notDialog, chatType: 'chat' },
     { name: 'гид команды без своих туров', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, sellsTours: false } }), text: OWNER_ACTION_TEXT.notThis },
-    { name: 'туроператор', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, category: 'operator', crmCategory: 'operator' } }), text: OWNER_ACTION_TEXT.operatorNotYet },
+    // Туроператор отвечает на заявку своими кнопками (ia:), «Связался / Договорились / Отказ» — гиду.
+    { name: 'туроператор', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, category: 'operator', crmCategory: 'operator' } }), text: OWNER_ACTION_TEXT.operatorLead },
     { name: 'карточка без аккаунта', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, userId: null } }), text: OWNER_ACTION_TEXT.noAccount },
     { name: 'привязка без записанного человека', setup: () => { db.owner = null; }, text: OWNER_ACTION_TEXT.noBindOwner },
     { name: 'нажал не тот, кто подключил чат', setup: () => { db.owner = '999'; }, text: OWNER_ACTION_TEXT.notOwner },
@@ -344,7 +346,7 @@ describe('MAX: вопрос, затем «Да»', () => {
       + 'Туристу ничего не уйдёт — отметка для вашего кабинета и ленты клиента.');
     expect(m.changeLead).not.toHaveBeenCalled();
     const id = idFrom(q.payloads, 'oc:y:');
-    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     expect(db.rows).toMatchObject([{ subject_kind: 'lead', subject_id: LEAD, action: 'contacted', status: 'ready' }]);
 
     await postMax(VERIFIED, tap(`oc:y:${id}`));
@@ -467,39 +469,40 @@ describe('кнопки под «Входящими» и уведомлением
   const LEAD2 = 'bbbbbbbb-1111-4222-8333-444444444444';
   const LEAD3 = 'cccccccc-1111-4222-8333-444444444444';
 
-  it('«Входящие» продавца: одна заявка — кнопки без подписи; две и больше — две первые, подписаны туром; гиду команды — нет', async () => {
-    m.inbox.mockResolvedValueOnce(inboxWith([{ kind: 'lead', id: LEAD, title: 'Толбачик' }]));
-    const one = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: SELLER, nowMs: NOW });
-    expect(one.buttons?.map((r) => r.map((b) => b.text))).toEqual([['Связался', 'Договорились', 'Отказ']]);
-
-    m.inbox.mockResolvedValueOnce(inboxWith([
+  it('«Входящие» продавца: каждая заявка — своя строка-номер, в её карточке кнопки заявки без подписи; гиду команды — нет', () => {
+    const inbox = inboxWith([
       { kind: 'lead', id: LEAD, title: 'Толбачик' }, { kind: 'lead', id: LEAD2, title: null }, { kind: 'lead', id: LEAD3, title: 'Курильское' },
-    ]));
-    const three = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: SELLER, nowMs: NOW });
-    expect(three.buttons?.map((r) => r.map((b) => b.payload))).toEqual([
-      [`ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`],
-      [`ld:k:${LEAD2}`, `ld:w:${LEAD2}`, `ld:l:${LEAD2}`],
     ]);
-    expect(three.buttons?.[0]?.[0]?.text).toBe('Связался · Толбачик');
-    expect(three.buttons?.[1]?.[0]?.text).toBe('Связался · Подбор тура');
-
-    m.inbox.mockResolvedValueOnce(inboxWith([{ kind: 'lead', id: LEAD, title: 'Толбачик' }]));
-    const team = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: { ...SELLER, sellsTours: false }, nowMs: NOW });
-    expect(team.buttons).toBeUndefined();
+    const card = (id: string, sellsTours: boolean) => {
+      const item = inbox.items.find((i) => i.id === id)! as unknown as Parameters<typeof itemCardScreen>[0]['item'];
+      return itemCardScreen({ item, partner: cabinetPartnerOf({ ...SELLER, sellsTours })!, channel: 'telegram', base: 'https://vedarai.ru' });
+    };
+    for (const id of [LEAD, LEAD2, LEAD3]) {
+      const row = card(id, true).rows.find((r) => r.some((b) => 'payload' in b && b.payload.startsWith('ld:')))!;
+      expect(row.map((b) => b.text)).toEqual(['Связался', 'Договорились', 'Отказ']);
+      expect(row.map((b) => ('payload' in b ? b.payload : ''))).toEqual([`ld:k:${id}`, `ld:w:${id}`, `ld:l:${id}`]);
+    }
+    const team = card(LEAD, false).rows.flat().flatMap((b) => ('payload' in b ? [b.payload] : []));
+    expect(team.some((p) => p.startsWith('ld:'))).toBe(false);
   });
 
-  it('Telegram «Входящие» кнопкой меню в личном чате — кнопки заявки над строкой меню', async () => {
+  it('Telegram «Входящие» кнопкой меню в личном чате — список со строкой кабинета, номер — карточка с кнопками заявки', async () => {
     m.inbox.mockResolvedValue(inboxWith([{ kind: 'lead', id: LEAD, title: 'Толбачик' }]));
     await tgTap('rm:gd:in');
     expect(tgSent().at(-1)!.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual([`ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`, 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+      .toEqual([`cb:o:ld:${LEAD}`, 'cb:i', 'cb:t', 'cb:c', 'cb:m']);
+    await tgTap(`cb:o:ld:${LEAD}`);
+    const card = tgSent().at(-1)!;
+    expect(card.text).toContain('Заявка на подбор');
+    expect(card.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data).filter(Boolean))
+      .toEqual([`ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`, 'cb:i', 'cb:i', 'cb:t', 'cb:c', 'cb:m']);
   });
 
   it('справка меню продавца называет кнопки заявки и кто их нажимает', () => {
-    const help = partnerMenuHelp('guide', partnerMenu(SELLER) ?? []);
-    expect(help).toContain('Под ждущими заявками во «Входящих» — «Связался», «Договорились», «Отказ»');
+    const help = partnerMenuHelp('guide', SELLER);
+    expect(help).toContain('В карточке ждущей заявки — «Связался», «Договорились», «Отказ»');
     expect(help).toContain('Кнопки брони и заявки нажимает тот, кто подключил этот чат ссылкой из кабинета.');
-    const team = partnerMenuHelp('guide', partnerMenu({ ...SELLER, sellsTours: false }) ?? []);
+    const team = partnerMenuHelp('guide', { ...SELLER, sellsTours: false });
     expect(team).not.toContain('«Связался»');
   });
 

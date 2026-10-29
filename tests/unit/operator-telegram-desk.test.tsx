@@ -11,6 +11,7 @@ import { normalizeBindCode, bindCodeMissedText, mintBindCode } from '@/lib/partn
 import { channelBoundText } from '@/lib/partners/bind-channel';
 import { operatorBoundText, operatorHelpText, operatorReplyMarkup, tourPriceLabel } from '@/lib/telegram/operator-desk';
 import { chatAnswerButtons, chatAnswerText, parseChatAnswer } from '@/lib/requests/chat-answer';
+import { roleMenuAsk } from '@/lib/roles/role-menu';
 
 afterEach(() => cleanup());
 
@@ -49,15 +50,21 @@ describe('подтверждение туроператора', () => {
     expect(bound).toContain('приходят в этот чат');
     expect(bound).not.toContain('не приходят');
     expect(operatorReplyMarkup().keyboard.flat().map((b) => b.text)).toEqual([
-      'Новые заявки', 'Мои туры и цены', 'Обновить места', 'Помощь',
+      'Новые заявки', 'Мои туры и цены', 'Задачи', 'Клиенты', 'Обновить места', 'Помощь',
     ]);
+    // Каждая кнопка клавиатуры — фраза, которую понимает меню роли (кабинет в чате, 30.10).
+    for (const text of operatorReplyMarkup().keyboard.flat().map((b) => b.text)) {
+      expect(roleMenuAsk(text), text).not.toBeNull();
+    }
   });
 
   it('справка не обещает тикет от слова «Помощь»', () => {
     const help = operatorHelpText();
     expect(help).toContain('Кабинет туроператора');
     expect(help).toContain('Само слово «Помощь» тикет не создаёт');
-    expect(help).toContain('Бронь кнопкой ответа не подтверждается');
+    expect(help).toContain('Бронь кнопкой ответа на заявку не подтверждается');
+    // Бронь подтверждается только «Подтвердить» и «Да» (слово владельца 30.10 «Да, как у гида»).
+    expect(help).toContain('«Подтвердить» и «Отклонить»: бот спросит, и бронь меняется только после «Да»');
   });
 
   it('цена без единицы не называется ценой с человека', () => {
@@ -83,6 +90,12 @@ describe('кнопки карточки заявки', () => {
     }
     expect(chatAnswerText('accept', false)).toContain('Бронь этим не подтверждена');
     expect(chatAnswerText('self', false)).toContain('Контакты заказчика в Telegram не отправляю');
+  });
+
+  it('в карточке одной заявки (кабинет в чате) — те же ответы без номера', () => {
+    const buttons = chatAnswerButtons(null, 'lead', id);
+    expect(buttons.map((b) => b.text)).toEqual(['Принять', 'Нет мест', 'Уточнить', 'Свяжусь сам']);
+    expect(buttons.map((b) => b.payload)).toEqual(chatAnswerButtons(1, 'lead', id).map((b) => b.payload));
   });
 });
 

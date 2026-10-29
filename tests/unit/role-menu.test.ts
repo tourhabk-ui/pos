@@ -1,48 +1,23 @@
 /**
  * Меню роли в привязанном чате: кнопка есть только у уже написанного чтения.
- * Прокатчик пилота остаётся на своей строке rk:. Имени и телефона во
- * «Входящих» нет. Справка не называет цен.
+ * Строка партнёра — вкладки кабинета в чате (30.10): «Входящие», «Задачи»,
+ * «Клиенты», «Ещё»; прежние кнопки — в «Ещё». Прокатчик пилота остаётся на
+ * своей строке rk:. Справка не называет цен. Экран «Входящих» судит
+ * tests/unit/chat-cabinet-screens.test.ts.
  */
 import { describe, expect, it } from 'vitest';
 import { appendMenu } from '@/lib/roles/chat-menu';
-import { inboxMenuText } from '@/lib/roles/inbox-text';
 import {
-  adminMenu, adminMenuHelp, menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
+  adminMenu, adminMenuHelp, menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuExtras, partnerMenuHelp, roleMenuAsk,
 } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { operatorSeatsText } from '@/lib/telegram/operator-desk';
 import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { SUMMARY_PARTNER_IDS } from '@/lib/seat-requests/summary';
-import type { Inbox, InboxItem } from '@/lib/crm/inbox';
 
 const OTHER = '11111111-1111-4111-8111-111111111111';
-
-function item(over: Partial<InboxItem> = {}): InboxItem {
-  return {
-    kind: 'operator_booking',
-    id: 'b1',
-    created_at: '2026-10-24T00:00:00.000Z',
-    title: 'Горелый <x>',
-    date: '2026-11-01',
-    people: 2,
-    contact_id: 'c1',
-    contact_name: 'Анна +79001234567',
-    waiting_minutes: 90,
-    ...over,
-  };
-}
-
-function inbox(over: Partial<Inbox> = {}): Inbox {
-  return {
-    category: 'operator',
-    items: [],
-    failed: [],
-    response: { window_days: 30, median_minutes: null, responded: 0, enough: false, complete: true },
-    chat: { state: 'none' },
-    not_here: ['Заявки без оператора — в разделе «Заявки с сайта»: здесь только заявки, отданные вам.'],
-    ...over,
-  };
-}
+const TABS = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
+const tabs = (code: string) => ['in', 'tk', 'cl', 'mn'].map((a) => `rm:${code}:${a}`);
 
 describe('меню роли', () => {
   it('строка проката не сменилась и второй раз не клеится', () => {
@@ -52,14 +27,17 @@ describe('меню роли', () => {
     expect(appendMenu(once, bar)).toBe(once);
   });
 
-  it('оператор — входящие и помощь; сводка только у пилота запросов мест', () => {
-    const plain = partnerMenu({ partnerId: OTHER, category: 'operator', slug: 'mesto' });
-    expect(plain?.map((b) => b.text)).toEqual(['Входящие', 'Помощь']);
-    expect(plain?.map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:hp']);
+  it('оператор — вкладки кабинета; в «Ещё» помощь, сводка — только у пилота запросов мест', () => {
+    const plain = { partnerId: OTHER, category: 'operator', slug: 'mesto' };
+    expect(partnerMenu(plain)?.map((b) => b.text)).toEqual(TABS);
+    expect(partnerMenu(plain)?.map((b) => b.payload)).toEqual(tabs('op'));
+    expect(partnerMenuExtras(plain).map((b) => b.payload)).toEqual(['rm:op:hp']);
     const pilotId = [...SUMMARY_PARTNER_IDS][0];
     expect(pilotId).toBeTruthy();
-    const withSummary = partnerMenu({ partnerId: pilotId ?? '', category: 'operator', slug: 'fishing' });
-    expect(withSummary?.map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:sm', 'rm:op:hp']);
+    const pilot = { partnerId: pilotId ?? '', category: 'operator', slug: 'fishing' };
+    expect(partnerMenu(pilot)?.map((b) => b.payload)).toEqual(tabs('op'));
+    expect(partnerMenuExtras(pilot).map((b) => b.payload)).toEqual(['rm:op:sm', 'rm:op:hp']);
+    for (const b of partnerMenu(pilot) ?? []) expect(b.payload.length).toBeLessThan(64);
   });
 
   it('пилот проката, агент и снаряжение меню роли не получают', () => {
@@ -67,24 +45,26 @@ describe('меню роли', () => {
     expect(partnerMenu({ partnerId: OTHER, category: 'transfer', slug: 'laguna-prokat' })).toBeNull();
     expect(partnerMenu({ partnerId: OTHER, category: 'agent', slug: 'agent-1' })).toBeNull();
     expect(partnerMenu({ partnerId: OTHER, category: 'gear', slug: 'gear-1' })).toBeNull();
+    expect(partnerMenuExtras({ partnerId: OTHER, category: 'transfer', slug: 'laguna-prokat' })).toEqual([]);
     expect(partnerMenu({ partnerId: OTHER, category: 'transfer', slug: 'carrier-1' })?.map((b) => b.payload))
-      .toEqual(['rm:tf:in', 'rm:tf:hp']);
+      .toEqual(tabs('tf'));
     expect(partnerMenu({ partnerId: OTHER, category: 'stay', slug: 'turbaza' })?.map((b) => b.payload))
-      .toEqual(['rm:st:in', 'rm:st:hp']);
+      .toEqual(tabs('st'));
     expect(partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'guide-1' })?.map((b) => b.payload))
-      .toEqual(['rm:gd:in', 'rm:gd:hp']);
+      .toEqual(tabs('gd'));
   });
 
-  it('гид, который продаёт свои туры, — ещё «Брони» и «Мои туры»; гид команды и оператор — без них (29.10)', () => {
-    const seller = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
-    expect(seller?.map((b) => b.text)).toEqual(['Входящие', 'Брони', 'Мои туры', 'Помощь']);
-    expect(seller?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
-    for (const b of seller ?? []) expect(b.payload.length).toBeLessThan(64);
-    expect(partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2', sellsTours: false })?.map((b) => b.payload))
-      .toEqual(['rm:gd:in', 'rm:gd:hp']);
-    // Признак у туроператора строку не меняет: его туры — постоянная клавиатура и /tours.
-    expect(partnerMenu({ partnerId: OTHER, category: 'operator', slug: 'op', sellsTours: true })?.map((b) => b.payload))
-      .toEqual(['rm:op:in', 'rm:op:hp']);
+  it('гид, который продаёт свои туры, — в «Ещё» «Брони» и «Мои туры»; гид команды и оператор — без них (29.10)', () => {
+    const seller = { partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true };
+    expect(partnerMenu(seller)?.map((b) => b.text)).toEqual(TABS);
+    expect(partnerMenuExtras(seller).map((b) => b.text)).toEqual(['Брони', 'Мои туры', 'Помощь']);
+    expect(partnerMenuExtras(seller).map((b) => b.payload)).toEqual(['rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    for (const b of partnerMenuExtras(seller)) expect(b.payload.length).toBeLessThan(64);
+    expect(partnerMenuExtras({ partnerId: OTHER, category: 'guide', slug: 'g-2', sellsTours: false }).map((b) => b.payload))
+      .toEqual(['rm:gd:hp']);
+    // Признак у туроператора «Ещё» меню роли не меняет: его туры — кнопки его кабинета (opd:) и /tours.
+    expect(partnerMenuExtras({ partnerId: OTHER, category: 'operator', slug: 'op', sellsTours: true }).map((b) => b.payload))
+      .toEqual(['rm:op:hp']);
 
     expect(parseRoleMenuPress('rm:gd:bk')).toEqual({ role: 'guide', action: 'bookings' });
     expect(parseRoleMenuPress('rm:gd:tr')).toEqual({ role: 'guide', action: 'tours' });
@@ -93,10 +73,19 @@ describe('меню роли', () => {
     }
   });
 
+  it('вкладки кабинета в чате разбираются у всех ролей партнёра и не у администратора (30.10)', () => {
+    for (const [code, role] of [['op', 'operator'], ['tf', 'transfer'], ['st', 'stay'], ['gd', 'guide']] as const) {
+      expect(parseRoleMenuPress(`rm:${code}:tk`)).toEqual({ role, action: 'tasks' });
+      expect(parseRoleMenuPress(`rm:${code}:cl`)).toEqual({ role, action: 'clients' });
+      expect(parseRoleMenuPress(`rm:${code}:mn`)).toEqual({ role, action: 'more' });
+    }
+    for (const p of ['rm:ad:tk', 'rm:ad:cl', 'rm:ad:mn']) expect(parseRoleMenuPress(p), p).toBeNull();
+  });
+
   it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — ни слова о них', () => {
-    const seller = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true }) ?? [];
-    const help = partnerMenuHelp('guide', seller);
-    expect(help).toContain('Под ответом кнопки: Входящие, Брони, Мои туры, Помощь.');
+    const help = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
+    expect(help).toContain('Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
+    expect(help).toContain('Ещё — Брони, Мои туры, Помощь, кабинет на сайте.');
     expect(help).toContain('Имя и телефон туриста — только в MAX');
     expect(help).toContain('/hub/guide/own');
     // Кнопки ответа брони (шаг 6) названы — и что бронь меняется только после «Да».
@@ -106,8 +95,16 @@ describe('меню роли', () => {
     // Даты словами (шаг 8): фраза в личном диалоге MAX и кнопка «Открыть».
     expect(help).toContain('Даты можно открыть фразой в личном диалоге с ботом в MAX, например «открой субботы июля, 8 мест»');
     expect(help).toContain('откроет после кнопки «Открыть»');
-    const team = partnerMenuHelp('guide', partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2' }) ?? []);
+    const team = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-2' });
     expect(team).not.toMatch(/Брони|Мои туры|Подтвердить|открой субботы/);
+  });
+
+  it('справка туроператора: кнопки брони в карточке и ответ на заявку, «Ещё» — его кабинет (30.10)', () => {
+    const help = partnerMenuHelp('operator', { partnerId: OTHER, category: 'operator', slug: 'op' });
+    expect(help).toContain('«Подтвердить» и «Отклонить»');
+    expect(help).toContain('«Принять», «Нет мест», «Уточнить», «Свяжусь сам»');
+    expect(help).toContain('Ещё — Мои туры и цены, Обновить места, Помощь, Написать в поддержку, кабинет на сайте.');
+    expect(help).not.toMatch(/«Связался»|Брони —/);
   });
 
   it('«Обновить места» гида со своими турами: его раздел «Свои туры» и фраза в MAX; кабинета оператора нет (29.10)', () => {
@@ -140,14 +137,19 @@ describe('меню роли', () => {
     expect(roleMenuAsk('Мои заявки')).toBe('inbox');
     expect(roleMenuAsk('Мои туры и цены')).toBe('tours');
     expect(roleMenuAsk('Обновить места')).toBe('seats');
+    expect(roleMenuAsk('Задачи')).toBe('tasks');
+    expect(roleMenuAsk('мои задачи')).toBe('tasks');
+    expect(roleMenuAsk('Клиенты')).toBe('clients');
+    expect(roleMenuAsk('мои клиенты')).toBe('clients');
+    expect(roleMenuAsk('покажи задачи')).toBeNull();
+    expect(roleMenuAsk('меню')).toBeNull();
     expect(roleMenuAsk('заявки')).toBeNull();
     expect(roleMenuAsk('покажи входящие')).toBeNull();
     expect(roleMenuAsk('найди мне в аренду автомобиль')).toBeNull();
   });
 
   it('справка называет только свои кнопки и не называет цен', () => {
-    const menu = partnerMenu({ partnerId: OTHER, category: 'transfer', slug: 'carrier-1' }) ?? [];
-    const help = partnerMenuHelp('transfer', menu);
+    const help = partnerMenuHelp('transfer', { partnerId: OTHER, category: 'transfer', slug: 'carrier-1' });
     expect(help).toContain('Входящие');
     expect(help).toContain('Помощь');
     expect(help).not.toContain('Сводка');
@@ -160,38 +162,10 @@ describe('меню роли', () => {
 
   it('справка гида называет то, что правда стоит в его «Входящих»: брони, запросы мест и заявки своих туров (29.10)', async () => {
     const { INBOX_BY_CATEGORY } = await import('@/lib/crm/inbox-kinds');
-    const menu = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'guide-1' }) ?? [];
-    const help = partnerMenuHelp('guide', menu);
+    const help = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'guide-1' });
     expect(INBOX_BY_CATEGORY.guide).toEqual(expect.arrayContaining(['operator_booking', 'seat_request', 'lead']));
     expect(help).toContain('брони, запросы мест и заявки на туры, которые вы продаёте сами');
     expect(help).toContain('Имени и телефона туриста в этом списке нет');
-  });
-});
-
-describe('текст входящих', () => {
-  it('имя и телефон не попадают в список, угол в названии экранирован', () => {
-    const text = inboxMenuText(inbox({ items: [item()] }));
-    expect(text).toContain('Горелый &lt;x&gt;');
-    expect(text).toContain('Бронь тура');
-    expect(text).not.toContain('Анна');
-    expect(text).not.toContain('+79001234567');
-    expect(text).not.toContain('7900');
-    expect(text).toContain('Заявки без оператора');
-  });
-
-  it('непрочитанный вид назван и не выдаётся за пустой список', () => {
-    const text = inboxMenuText(inbox({ failed: ['lead'], items: [] }));
-    expect(text).toContain('Заявка на подбор');
-    expect(text).toContain('Это не «таких нет»');
-    expect(text).not.toMatch(/Ждут ответа: нет/);
-    expect(text).not.toMatch(/пока нет/);
-  });
-
-  it('непрочитанные чата — только когда счёт сошёлся', () => {
-    expect(inboxMenuText(inbox({ chat: { state: 'ok', unread: 3 } }))).toContain('Непрочитанных сообщений в чате кабинета: 3');
-    expect(inboxMenuText(inbox({ chat: { state: 'ok', unread: 0 } }))).not.toContain('Непрочитанных');
-    expect(inboxMenuText(inbox({ chat: { state: 'failed' } }))).toContain('не посчитались');
-    expect(inboxMenuText(inbox({ chat: { state: 'none' } }))).not.toContain('не посчитались');
   });
 });
 

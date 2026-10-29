@@ -6,12 +6,14 @@
  * (lib/rental/cabinet-bar). Агенту и снаряжению кнопку не рисуем:
  * у агента входящих нет, отдельного чтения для снаряжения в чате нет.
  *
- * Администратор — шесть чтений из lib/max/admin-read. Партнёр —
- * «Входящие» кабинета (loadInbox) и, у пилота запросов мест, «Сводка».
- * Гид, который продаёт свои туры (`sellsOwnTours`, 29.10), — ещё «Брони» и
- * «Мои туры»: те же чтения, что раздел «Свои туры» на сайте
- * (lib/guides/chat-screens). Гид команды оператора без своих туров —
- * прежняя строка: броней и туров ему показывать нечего.
+ * Администратор — шесть чтений из lib/max/admin-read. Партнёр — кабинет в
+ * чате (решение владельца 30.10, lib/chat-cabinet): «Входящие», «Задачи»,
+ * «Клиенты», «Ещё». Остальное, что было в строке раньше, — в «Ещё»
+ * (`partnerMenuExtras`): у пилота запросов мест «Сводка», у гида, который
+ * продаёт свои туры (`sellsOwnTours`, 29.10), «Брони» и «Мои туры» — те же
+ * чтения, что раздел «Свои туры» на сайте (lib/guides/chat-screens), у всех
+ * — «Помощь». Прежние кнопки в старых сообщениях (`rm:gd:bk` и другие)
+ * работают как раньше.
  */
 
 import { getPublicBaseUrl } from '@/lib/config';
@@ -23,7 +25,9 @@ import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export type MenuRole = 'admin' | 'operator' | 'transfer' | 'stay' | 'guide';
 
-export type MenuAction = 'inbox' | 'summary' | 'dates' | 'bookings' | 'leads' | 'tours' | 'health' | 'help';
+export type MenuAction =
+  | 'inbox' | 'summary' | 'dates' | 'bookings' | 'leads' | 'tours' | 'health' | 'help'
+  | 'tasks' | 'clients' | 'more';
 
 const ROLE_CODE: Record<MenuRole, string> = {
   admin: 'ad',
@@ -44,6 +48,9 @@ const ACTION_CODE: Record<MenuAction, string> = {
   tours: 'tr',
   health: 'hl',
   help: 'hp',
+  tasks: 'tk',
+  clients: 'cl',
+  more: 'mn',
 };
 
 const CODE_ACTION = new Map(Object.entries(ACTION_CODE).map(([action, code]) => [code, action as MenuAction]));
@@ -101,19 +108,36 @@ export function menuRoleOf(partner: MenuPartner): Exclude<MenuRole, 'admin'> | n
   return null;
 }
 
-/** Строка партнёра. Пустая не возвращается: нет действия — нет меню. */
+/**
+ * Строка партнёра — вкладки кабинета в чате. Кнопка шлёт раздел новым
+ * сообщением (строка стоит и под уведомлениями — править их нельзя);
+ * листать дальше — кнопками самого экрана (`cb:`), они правят его на месте.
+ */
 export function partnerMenu(partner: MenuPartner): MenuButton[] | null {
   const role = menuRoleOf(partner);
   if (!role) return null;
-  const row: MenuButton[] = [button(role, 'inbox', 'Входящие')];
-  if (role === 'operator' && summaryEnabledFor(partner.partnerId)) {
-    row.push(button(role, 'summary', 'Сводка'));
-  }
-  if (guideSellsOwnTours(partner)) {
-    row.push(button(role, 'bookings', 'Брони'), button(role, 'tours', 'Мои туры'));
-  }
-  row.push(button(role, 'help', 'Помощь'));
-  return row;
+  return [
+    button(role, 'inbox', 'Входящие'),
+    button(role, 'tasks', 'Задачи'),
+    button(role, 'clients', 'Клиенты'),
+    button(role, 'more', 'Ещё'),
+  ];
+}
+
+/**
+ * Что лежит в «Ещё» кнопками меню роли: сводка пилота, брони и туры гида со
+ * своими турами, помощь. Туроператору «Мои туры и цены», «Обновить места» и
+ * «Написать в поддержку» ставит экран «Ещё» (lib/chat-cabinet/screens) —
+ * это кнопки его кабинета (`opd:`, `sup:`), а не меню роли.
+ */
+export function partnerMenuExtras(partner: MenuPartner): MenuButton[] {
+  const role = menuRoleOf(partner);
+  if (!role) return [];
+  const out: MenuButton[] = [];
+  if (role === 'operator' && summaryEnabledFor(partner.partnerId)) out.push(button(role, 'summary', 'Сводка'));
+  if (guideSellsOwnTours(partner)) out.push(button(role, 'bookings', 'Брони'), button(role, 'tours', 'Мои туры'));
+  out.push(button(role, 'help', 'Помощь'));
+  return out;
 }
 
 export function parseRoleMenuPress(payload: string): { role: MenuRole; action: MenuAction } | null {
@@ -123,11 +147,14 @@ export function parseRoleMenuPress(payload: string): { role: MenuRole; action: M
   const action = CODE_ACTION.get(match[2] ?? '');
   if (!role || !action) return null;
   if (role === 'admin') {
-    // У администратора нет «Входящих» и «Моих туров» — только его шесть чтений.
-    if (action === 'inbox' || action === 'tours') return null;
+    // У администратора нет «Входящих», «Моих туров» и кабинета в чате — только его шесть чтений.
+    if (action === 'inbox' || action === 'tours' || action === 'tasks' || action === 'clients' || action === 'more') return null;
     return { role, action };
   }
-  if (action === 'inbox' || action === 'summary' || action === 'help') return { role, action };
+  if (
+    action === 'inbox' || action === 'summary' || action === 'help'
+    || action === 'tasks' || action === 'clients' || action === 'more'
+  ) return { role, action };
   // «Брони» и «Мои туры» — только у гида. Продаёт ли он свои туры, решает
   // экран по карточке чата, а не payload.
   if (role === 'guide' && (action === 'bookings' || action === 'tours')) return { role, action };
@@ -138,7 +165,7 @@ function norm(text: string): string {
   return text.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ');
 }
 
-export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats';
+export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats' | 'tasks' | 'clients';
 
 /** Точная фраза кнопки. «покажи входящие» и голое «заявки» сюда не входят. */
 export function roleMenuAsk(text: string): RoleAsk | null {
@@ -148,6 +175,12 @@ export function roleMenuAsk(text: string): RoleAsk | null {
     case 'новые заявки':
     case 'мои заявки':
       return 'inbox';
+    case 'задачи':
+    case 'мои задачи':
+      return 'tasks';
+    case 'клиенты':
+    case 'мои клиенты':
+      return 'clients';
     case 'мои туры и цены':
       return 'tours';
     case 'обновить места':
@@ -175,31 +208,53 @@ const INBOX_LINE: Record<Exclude<MenuRole, 'admin'>, string> = {
   guide: 'Входящие — брони, запросы мест и заявки на туры, которые вы продаёте сами, приглашения в команду и отзывы без ответа. Имени и телефона туриста в этом списке нет.',
 };
 
-/** Справка называет только кнопки этой строки. Цен и оплаты нет. */
-export function partnerMenuHelp(role: Exclude<MenuRole, 'admin'>, menu: MenuButton[]): string {
-  const labels = menu.map((b) => b.text).join(', ');
+/**
+ * Справка кабинета в чате: вкладки строки и что лежит в «Ещё» у этой
+ * карточки. Называет только то, что у неё есть. Цен и оплаты нет.
+ */
+export function partnerMenuHelp(role: Exclude<MenuRole, 'admin'>, partner: MenuPartner): string {
+  const extras = partnerMenuExtras(partner);
+  const has = (code: string) => extras.some((b) => b.payload.endsWith(`:${code}`));
+  const bookings = has('bk');
+  const tours = has('tr');
+  // Кнопки брони в чате — туроператору и гиду со своими турами (lib/bookings/chat-owner-press).
+  const bookingButtons = role === 'operator' || bookings;
   const lines = [
-    `${ROLE_TITLE[role]}. Под ответом кнопки: ${labels}.`,
-    INBOX_LINE[role],
+    `${ROLE_TITLE[role]} в чате. Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.`,
+    'Кнопки самого экрана листают кабинет в том же сообщении, а не присылают новое.',
+    `${INBOX_LINE[role]} Номер в списке открывает карточку: кнопки ответа, звонок клиенту и напоминание себе.`,
+    'Задачи — открытые, по сроку: «Готово» и «На завтра». В Telegram — только счёт: заголовки задач и имена клиентов — в MAX.',
+    'Клиенты — свежие сверху и поиск по имени или 4 последним цифрам телефона; карточка — телефон, обращения, лента и кнопки звонка. Только в MAX.',
+    `Ещё — ${[
+      ...(role === 'operator' ? ['Мои туры и цены', 'Обновить места'] : []),
+      ...extras.map((b) => b.text),
+      ...(role === 'operator' ? ['Написать в поддержку'] : []),
+      'кабинет на сайте',
+    ].join(', ')}.`,
   ];
-  if (menu.some((b) => b.payload.endsWith(':sm'))) {
+  if (has('sm')) {
     lines.push('Сводка — числа по запросам мест: сколько ждут, без имени и телефона.');
   }
-  const bookings = menu.some((b) => b.payload.endsWith(':bk'));
-  const tours = menu.some((b) => b.payload.endsWith(':tr'));
   if (bookings) {
     lines.push(`Брони — ждут вашего ответа и действующие на ближайшие ${CHAT_BOOKINGS_WINDOW_DAYS} дней. Имя и телефон туриста — только в MAX.`);
   }
   if (tours) {
     lines.push('Мои туры — ваши туры: на сайте или черновик и сколько открытых дат.');
   }
-  if (bookings) {
-    // Кнопки ответа брони — lib/bookings/chat-owner-action (29.10, шаг 6).
-    lines.push('Под ждущими бронями в «Бронях» и «Входящих» — «Подтвердить» и «Отклонить», под прошедшими — «Тур прошёл» и «Не пришёл»: '
+  if (bookingButtons) {
+    // Кнопки ответа брони — lib/bookings/chat-owner-action (29.10, шаг 6; туроператору — 30.10).
+    lines.push(`В карточке ждущей брони${bookings ? ' и в «Бронях»' : ''} — «Подтвердить» и «Отклонить»${bookings ? ', под прошедшими — «Тур прошёл» и «Не пришёл»' : ''}: `
       + 'бот спросит, и бронь меняется только после «Да». Отклонение — с причиной одним сообщением, её получит турист.');
+  }
+  if (bookings) {
     // Кнопки ответа заявки — тот же модуль (29.10, шаг 7).
-    lines.push('Под ждущими заявками во «Входящих» — «Связался», «Договорились», «Отказ»: тоже после «Да», туристу ничего не уходит. '
+    lines.push('В карточке ждущей заявки — «Связался», «Договорились», «Отказ»: тоже после «Да», туристу ничего не уходит. '
       + '«Обсуждаем» — в кабинете.');
+  }
+  if (role === 'operator') {
+    lines.push('В карточке заявки — «Принять», «Нет мест», «Уточнить», «Свяжусь сам»: ответ записывается сразу, бронь им не подтверждается.');
+  }
+  if (bookingButtons) {
     lines.push('Кнопки брони и заявки нажимает тот, кто подключил этот чат ссылкой из кабинета.');
   }
   if (bookings || tours) {
@@ -209,6 +264,7 @@ export function partnerMenuHelp(role: Exclude<MenuRole, 'admin'>, menu: MenuButt
       + 'бот покажет, что откроется, и откроет после кнопки «Открыть».');
     lines.push(`Открыть даты и всё о бронях и заявках — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
   }
+  lines.push('Утром, если что-то ждёт ответа или подошёл срок задачи, бот пришлёт короткую сводку с этими кнопками.');
   lines.push('Помощь — этот текст.');
   lines.push('Оплата через платформу не принимается.');
   return lines.join('\n');

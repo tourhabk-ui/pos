@@ -23,7 +23,7 @@ import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/noti
 import { reachForPartner } from '@/lib/partners/reach';
 import { ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { notifyTeam } from '@/lib/operators/team-notify';
-import { chatActionsEnabledFor, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
+import { leadAnswerButtons, leadChatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 
 function esc(s: string): string {
@@ -220,7 +220,7 @@ export async function notifyPartnerNewLeadPersonally(params: {
   // кабинете гида: кабинет оператора его не пустит (lib/partners/cabinet-links).
   const reach = await reachForPartner(params.operatorId);
   const buttons = [{ text: 'Открыть заявку', url: ownerLeadUrl(reach?.category, params.leadId) }];
-  const answer = reach && chatActionsEnabledFor({ category: reach.category, sellsTours: reach.sellsTours })
+  const answer = reach && leadChatActionsEnabledFor({ category: reach.category, sellsTours: reach.sellsTours })
     ? leadAnswerButtons(params.leadId)
     : [];
 

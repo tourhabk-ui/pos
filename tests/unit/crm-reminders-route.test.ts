@@ -7,9 +7,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const run = vi.fn();
 const runInbox = vi.fn();
+const runDigest = vi.fn();
 const recordCronRun = vi.fn();
 vi.mock('@/lib/crm/reminders', () => ({ runTaskReminders: (...a: unknown[]) => run(...a) }));
 vi.mock('@/lib/crm/inbox-reminders', () => ({ runInboxReminders: (...a: unknown[]) => runInbox(...a) }));
+vi.mock('@/lib/chat-cabinet/digest', () => ({ runMorningDigest: (...a: unknown[]) => runDigest(...a) }));
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun: (...a: unknown[]) => recordCronRun(...a) }));
 
 const { GET } = await import('@/app/api/cron/crm-reminders/route');
@@ -22,12 +24,18 @@ describe('GET /api/cron/crm-reminders', () => {
     team_only: 0, team_sent_max: 0, team_sent_stub: 0, team_unknown: 0, truncated: false,
   };
   const inboxBase = { quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0, failed_kinds: [] };
+  const digestBase = {
+    window: false, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
+    failed: 0, read_failed: 0, query_failed: false, truncated: false,
+  };
 
   beforeEach(() => {
     process.env.CRON_SECRET = 's3cret';
     run.mockReset();
     runInbox.mockReset();
     runInbox.mockResolvedValue(inboxBase);
+    runDigest.mockReset();
+    runDigest.mockResolvedValue(digestBase);
     recordCronRun.mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
@@ -80,6 +88,24 @@ describe('GET /api/cron/crm-reminders', () => {
     const r = await call();
     expect(r.status).toBe(200);
     expect(recordCronRun).toHaveBeenCalledWith('crm-reminders', expect.any(Number), 'success', { items: 1 });
+  });
+
+  it('утренняя сводка (30.10): ни один кабинет не обработан или список не прочитался — 502; доставки — в журнал', async () => {
+    run.mockResolvedValue(base);
+    runDigest.mockResolvedValueOnce({ ...digestBase, window: true, candidates: 2, failed: 1, read_failed: 1 });
+    let r = await call();
+    expect(r.status).toBe(502);
+    expect((await r.json()).error).toMatch(/сводка: не обработан ни один кабинет из 2/);
+    runDigest.mockResolvedValueOnce({ ...digestBase, window: true, query_failed: true });
+    r = await call();
+    expect(r.status).toBe(502);
+    expect((await r.json()).error).toMatch(/сводка: список кабинетов не прочитался/);
+    // Хоть один обработан (даже «ждать нечего») — прогон не красный.
+    runDigest.mockResolvedValueOnce({ ...digestBase, window: true, candidates: 3, failed: 1, empty: 1, sent_max: 1 });
+    r = await call();
+    expect(r.status).toBe(200);
+    expect((await r.json()).digest.sent_max).toBe(1);
+    expect(recordCronRun).toHaveBeenLastCalledWith('crm-reminders', expect.any(Number), 'success', { items: 1 });
   });
 
   it('отказ базы — 500, в ответе нет текста ошибки базы', async () => {

@@ -43,6 +43,7 @@ import { sendPdAlert, type PdAlertParams, type PdAlertResult } from '@/lib/notif
 import { notifyTeam, type TeamMessage, type TeamNotifyResult } from '@/lib/operators/team-notify';
 import type { ReminderChannel } from '@/lib/crm/tasks';
 import { taskDoneButton } from '@/lib/crm/chat-task-press';
+import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 
 interface Queryable {
   query: typeof pool.query;
@@ -148,6 +149,8 @@ export function reminderMessage(tasks: readonly DueTaskRow[]): ReminderMessage {
     stub: `${head}\nЧто именно — в кабинете: заголовки задач и имена клиентов в Telegram не пересылаются.`,
     buttons: [
       ...shown.map((t, i) => taskDoneButton(t, numbered ? i + 1 : null)),
+      // «Задачи в чате» — кабинет в чате: там же «На завтра» (lib/chat-cabinet).
+      { text: 'Задачи в чате', payload: cabinetPayload.openTasks() },
       { text: 'Открыть задачи', url },
     ],
   };

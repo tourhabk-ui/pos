@@ -32,6 +32,9 @@ import {
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
+import { isCabinetPayload } from '@/lib/chat-cabinet/payload';
+import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
+import { cabinetSectionFor } from '@/lib/chat-cabinet/service';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { datesSellerOf, telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -501,6 +504,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ ok: true });
       }
 
+      // Кабинет в чате (lib/chat-cabinet): на этом входе экран приходит новым
+      // сообщением. Личный чат, карточку и владение проверяет сервис.
+      if (isCabinetPayload(cq.data)) {
+        await tgAnswerCallback(cq.id);
+        const { handleCabinetPress } = await import('@/lib/chat-cabinet/service');
+        const screen = await handleCabinetPress({
+          channel: 'telegram', chatId, privateChat: cq.message?.chat?.type === 'private', payload: cq.data,
+        });
+        await tgReply(chatId, screen.text, { reply_markup: telegramCabinetKeyboard(screen.rows) });
+        return NextResponse.json({ ok: true });
+      }
+
       if (parseRoleMenuPress(cq.data)) {
         await tgAnswerCallback(cq.id);
         const press = parseRoleMenuPress(cq.data);
@@ -534,6 +549,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             if (buttons.length === 0) await tgReply(chatId, body);
             else await tgReply(chatId, body, { reply_markup: roleRows(buttons) });
           },
+          sendCabinet: async (screen) => {
+            await tgReply(chatId, screen.text, { reply_markup: telegramCabinetKeyboard(screen.rows) });
+          },
+          privateChat: cq.message?.chat?.type === 'private',
         });
         return NextResponse.json({ ok: true });
       }
@@ -758,14 +777,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const role = menuRoleOf(partner);
       if (role && (text === '/start' || roleMenuAsk(text) !== null)) {
         const asked = roleMenuAsk(text);
-        const screen = await roleMenuScreen({
-          role,
-          action: text === '/start' || asked === 'help' ? 'help' : 'inbox',
-          channel: 'telegram',
-          partner,
-          nowMs: Date.now(),
-        });
-        await say(screen.text);
+        if (text === '/start' || asked === 'help') {
+          const screen = await roleMenuScreen({ role, action: 'help', channel: 'telegram', partner, nowMs: Date.now() });
+          await say(screen.text);
+        } else {
+          // Вкладка кабинета в чате; прочие слова меню — «Входящие», как раньше.
+          const screen = await cabinetSectionFor(partner, 'telegram', asked === 'tasks' || asked === 'clients' ? asked : 'inbox');
+          await tgReply(chatId, withSosBlock(screen.text, text).text, { reply_markup: telegramCabinetKeyboard(screen.rows) });
+        }
       } else if (text === '/start') {
         await say(partnerGreeting(partner));
       } else if (sellsOwnTours(partner) && chatDatesIntent(text) === 'dates'

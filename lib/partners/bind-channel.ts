@@ -35,7 +35,7 @@ import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-p
 import { operatorBoundText, operatorDeskButtons } from '@/lib/telegram/operator-desk';
 import { getPublicBaseUrl } from '@/lib/config';
 import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
-import { partnerMenu } from '@/lib/roles/role-menu';
+import { partnerMenu, partnerMenuExtras } from '@/lib/roles/role-menu';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export type PartnerChannel = 'telegram' | 'max';
@@ -155,7 +155,7 @@ export async function bindPartnerChannel(
 
 /**
  * Строка меню гида под ответом на привязку: та же, что `partnerMenu` в его
- * чате (Входящие, Помощь; продавцу своих туров — ещё Брони и Мои туры).
+ * чате — вкладки кабинета в чате (Входящие, Задачи, Клиенты, Ещё).
  * null — не гид, привязка не записана или кабинет в этом чате у другой
  * карточки (`cabinetOf`): кнопки гида там отказали бы «не этот кабинет».
  * Туроператор и пилот проката получают свои кнопки отдельно.
@@ -163,6 +163,21 @@ export async function bindPartnerChannel(
 export function boundMenuRow(result: BindResult): MenuButton[] | null {
   if (!result.ok || result.category !== 'guide' || result.cabinetOf !== null) return null;
   return partnerMenu({
+    partnerId: result.partnerId,
+    category: 'guide',
+    slug: result.slug,
+    sellsTours: result.sellsTours === true,
+  });
+}
+
+/**
+ * «Ещё» той же карточки гида (Брони, Мои туры, Помощь) — из них и из строки
+ * ставятся команды чата Telegram: команды без кнопки не бывает, и наоборот.
+ * Пусто — там же, где строки нет.
+ */
+export function boundMenuExtras(result: BindResult): MenuButton[] {
+  if (!result.ok || result.category !== 'guide' || result.cabinetOf !== null) return [];
+  return partnerMenuExtras({
     partnerId: result.partnerId,
     category: 'guide',
     slug: result.slug,
@@ -281,7 +296,12 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  * под «Входящими». Строки нет (кабинет чата у другой карточки) — кнопок текст
  * не обещает.
  */
-export function guideBoundText(name: string, channel: PartnerChannel, menu: readonly MenuButton[] | null = null): string {
+export function guideBoundText(
+  name: string,
+  channel: PartnerChannel,
+  menu: readonly MenuButton[] | null = null,
+  sellsTours = false,
+): string {
   const contacts = channel === 'max'
     ? 'Имя и телефон туриста приходят в этот чат.'
     : 'Имя и телефон туриста в этот чат не приходят — по закону о персональных данных их принимает MAX.';
@@ -291,13 +311,14 @@ export function guideBoundText(name: string, channel: PartnerChannel, menu: read
     contacts,
   ];
   if (menu && menu.length > 0) {
-    lines.push('', `Кнопки под этим сообщением: ${menu.map((b) => `«${b.text}»`).join(', ')}. «Помощь» — что каждая показывает.`);
+    lines.push('', `Кнопки под этим сообщением — кабинет в чате: ${menu.map((b) => `«${b.text}»`).join(', ')}. «Помощь» в «Ещё» — что каждая показывает.`);
   }
-  const buttons = menu?.some((b) => b.payload.endsWith(':bk')) === true;
+  // Кнопки брони и заявки — гиду со своими турами (lib/bookings/chat-owner-press).
+  const buttons = menu !== null && menu.length > 0 && sellsTours;
   lines.push(buttons
-    ? `Подтвердить или отклонить бронь — кнопками под «Бронями» (бот спросит, бронь меняется после «Да») или в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
+    ? `Подтвердить или отклонить бронь — кнопками в карточке во «Входящих» и под «Бронями» в «Ещё» (бот спросит, бронь меняется после «Да») или в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
     : `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
-  if (buttons) lines.push('Заявку отметить — кнопками «Связался», «Договорились», «Отказ» под «Входящими», тоже после «Да».');
+  if (buttons) lines.push('Заявку отметить — кнопками «Связался», «Договорились», «Отказ» в её карточке во «Входящих», тоже после «Да».');
   return lines.join('\n');
 }
 
@@ -310,7 +331,7 @@ export function channelBoundText(channel: PartnerChannel, result: BindResult): s
   const base = result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)
     ? operatorBoundText(result.displayName || result.partnerName, channel)
     : result.ok && result.category === 'guide'
-      ? guideBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result))
+      ? guideBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result), result.ok && result.sellsTours === true)
       : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
         ? rentalPilotBoundText(result.partnerName)
         : bindReplyText(channel, result);
