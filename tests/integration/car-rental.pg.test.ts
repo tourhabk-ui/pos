@@ -342,8 +342,11 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       expect(drafts).toEqual(['lagexp-khalaktyrskij-plyazh']);
       expect(all.rows.filter((r) => r.pub).every((r) => r.unit === 'per_person')).toBe(true);
       expect(all.rows.every((r) => (r.src ?? '').startsWith('https://laguna-expedition.ru/tours/'))).toBe(true);
-      // Снимков нет: согласия партнёра на материалы ещё не записано (1321).
-      expect(all.rows.every((r) => r.photos === 0)).toBe(true);
+      // Шаблон базы несёт все миграции, и снимки туров кладёт уже 1343 (слово
+      // владельца 29.10 «они дали добро на использоваеие»): у каждого тура
+      // галерея есть. Цепочку 1339 → 1343 по одному снимку судит
+      // operators-list.pg.test.ts.
+      expect(all.rows.every((r) => r.photos > 0)).toBe(true);
       // Трансферы и индивидуальный тур без цены не переносятся.
       expect(all.rows.map((r) => r.src).filter((u) => /\/(41878|42011|41424)-/.test(u ?? ''))).toEqual([]);
     });
