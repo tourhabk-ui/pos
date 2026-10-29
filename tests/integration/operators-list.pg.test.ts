@@ -483,15 +483,19 @@ withPg('витрина /operators: факты о живых турах, кноп
     const guideTours = async (pid: string) => (await pool.query<{ slug: string }>(
       `SELECT slug FROM operator_tours WHERE operator_id = $1::uuid AND deleted_at IS NULL ORDER BY slug`, [pid],
     )).rows.map((r) => r.slug);
-    /** Пять туров с описанием гида — на витрине; восемь строк прайса без описания — черновики. */
+    /**
+     * Восемь туров с описанием гида — на витрине: пять по docx 26.10 (1338) и
+     * три по docx 29.10 (1341: Авача, Вачкажец, бухта Русская); пять строк
+     * прайса без описания — черновики.
+     */
     const TOUR_SLUGS = [
+      'zaporozhets-avacha-voskhozhdenie', 'zaporozhets-bukhta-russkaya',
       'zaporozhets-kanyon-opasnyy-dachnye', 'zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya',
-      'zaporozhets-tolbachik-4-dnya', 'zaporozhets-vulkan-gorelyy',
+      'zaporozhets-tolbachik-4-dnya', 'zaporozhets-vachkazhets-ozerki', 'zaporozhets-vulkan-gorelyy',
     ];
     const DRAFT_SLUGS = [
-      'zaporozhets-avacha-voskhozhdenie', 'zaporozhets-avachinskiy-pereval-verblyud', 'zaporozhets-bukhta-russkaya',
-      'zaporozhets-dachnye-spokoynyy', 'zaporozhets-ganalskie-vostryaki', 'zaporozhets-tolmachevo',
-      'zaporozhets-vachkazhets-ozerki', 'zaporozhets-verblyud-plyazh',
+      'zaporozhets-avachinskiy-pereval-verblyud', 'zaporozhets-dachnye-spokoynyy', 'zaporozhets-ganalskie-vostryaki',
+      'zaporozhets-tolmachevo', 'zaporozhets-verblyud-plyazh',
     ];
     const ALL_SLUGS = [...TOUR_SLUGS, ...DRAFT_SLUGS].sort();
     const reset = async () => {
@@ -511,23 +515,31 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(await guideTours(rows[0].id)).toEqual(ALL_SLUGS);
     });
 
-    it('туры на витрине: цена за человека, группа до 4, забор с адреса; подпись снимков и ссылка на гида на карточке тура', async () => {
+    it('туры на витрине: цена за человека; группа до 4, у Курильского и бухты Русской — до 12 (1341); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
       // Общий beforeAll файла закрыл все карточки; гиду её возвращаем, как на проде после 1338.
       await pool.query(`UPDATE partners SET is_public = TRUE WHERE slug = $1`, [SLUG]);
       const { publicTourSql } = await import('@/lib/tours/public-visibility');
       const live = await pool.query<{ slug: string; base_price: string; price_unit: string; max_participants: number; pickup_type: string; pickup_details: string }>(
         `SELECT ot.slug, ot.base_price, ot.price_unit, ot.max_participants, ot.pickup_type, ot.pickup_details
            FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id
-          WHERE p.slug = $1 AND ${publicTourSql('ot')} ORDER BY ot.base_price`, [SLUG],
+          WHERE p.slug = $1 AND ${publicTourSql('ot')} ORDER BY ot.base_price, ot.slug`, [SLUG],
       );
       expect(live.rows.map((r) => [r.slug, Number(r.base_price)])).toEqual([
-        ['zaporozhets-vulkan-gorelyy', 15000], ['zaporozhets-kanyon-opasnyy-dachnye', 18000],
+        ['zaporozhets-vachkazhets-ozerki', 14000], ['zaporozhets-vulkan-gorelyy', 15000],
+        ['zaporozhets-avacha-voskhozhdenie', 18000], ['zaporozhets-kanyon-opasnyy-dachnye', 18000],
+        ['zaporozhets-bukhta-russkaya', 19000],
         ['zaporozhets-tolbachik-4-dnya', 85000], ['zaporozhets-kurilskoe-ozero-3-dnya', 95000],
         ['zaporozhets-kurilskoe-ozero-4-dnya', 125000],
       ]);
+      const WIDE = ['zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya', 'zaporozhets-bukhta-russkaya'];
       for (const r of live.rows) {
-        expect(r).toMatchObject({ price_unit: 'per_person', max_participants: 4, pickup_type: 'hotel_pickup' });
-        expect(r.pickup_details).toContain('доплату 1 000 ₽');
+        expect(r, r.slug).toMatchObject({ price_unit: 'per_person', max_participants: WIDE.includes(r.slug) ? 12 : 4 });
+        if (r.slug === 'zaporozhets-bukhta-russkaya') {
+          expect(r).toMatchObject({ pickup_type: 'meeting_point', pickup_details: null });
+        } else {
+          expect(r.pickup_type, r.slug).toBe('hotel_pickup');
+          expect(r.pickup_details).toContain('доплату 1 000 ₽');
+        }
       }
 
       const { loadTourCard } = await import('@/lib/tours/tour-detail-query');
@@ -574,7 +586,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE)).toHaveLength(6);
     });
 
-    it('выезды гида: Курильское и Толбачик — его даты по 4 места; Горелый — сезон без ежедневных мест; черновики не видны', async () => {
+    it('выезды гида: Толбачик — его даты по 4 места, Курильское — те же даты по 12 (1341); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
       const { GET } = await import('@/app/api/tours/[id]/slots/route');
       const { NextRequest } = await import('next/server');
       const id = async (slug: string) => (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = $1`, [slug])).rows[0].id;
@@ -593,8 +605,8 @@ withPg('витрина /operators: факты о живых турах, кноп
       const inWindow = (ds: string[]) => ds.filter((d) => d >= w.a && d <= w.b);
       const KURIL = ['2027-07-19', '2027-08-02', '2027-08-16', '2027-08-30', '2027-09-13', '2027-09-27'];
       const TOLB = ['2027-07-26', '2027-08-09', '2027-08-23', '2027-09-06', '2027-09-20'];
-      expect(await slots('zaporozhets-kurilskoe-ozero-4-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 4]));
-      expect(await slots('zaporozhets-kurilskoe-ozero-3-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 4]));
+      expect(await slots('zaporozhets-kurilskoe-ozero-4-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 12]));
+      expect(await slots('zaporozhets-kurilskoe-ozero-3-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 12]));
       expect((await slots('zaporozhets-tolbachik-4-dnya')).map(([d]) => d)).toEqual(inWindow(TOLB));
       // Сами выезды записаны все, независимо от сегодняшней даты.
       const rec = await pool.query<{ slug: string; d: string; n: number }>(
@@ -603,7 +615,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       );
       expect(rec.rows.filter((r) => r.slug === 'zaporozhets-tolbachik-4-dnya').map((r) => r.d)).toEqual(TOLB);
       expect(rec.rows).toHaveLength(17);
-      expect(rec.rows.every((r) => r.n === 4)).toBe(true);
+      expect(rec.rows.every((r) => r.n === (r.slug.startsWith('zaporozhets-kurilskoe') ? 12 : 4))).toBe(true);
       // «Не каждый день будут группы набраны» — ежедневных мест нет, только окно сезона.
       expect(await slots('zaporozhets-vulkan-gorelyy')).toEqual([]);
       const season = await pool.query(`SELECT season_start::text AS s, season_end::text AS e FROM operator_tours WHERE slug = 'zaporozhets-vulkan-gorelyy'`);
@@ -614,8 +626,10 @@ withPg('витрина /operators: факты о живых турах, кноп
         `SELECT slug FROM operator_tours WHERE slug = ANY($1::text[]) AND ${publicTourSql('')}`, [DRAFT_SLUGS],
       );
       expect(vis.rows).toEqual([]);
-      const russ = await pool.query(`SELECT base_price::int AS p, season_start::text AS s, pickup_type FROM operator_tours WHERE slug = 'zaporozhets-bukhta-russkaya'`);
-      expect(russ.rows[0]).toEqual({ p: 19000, s: '2027-06-01', pickup_type: null });
+      // Бухта Русская — каждый день мест не открывается, как у Горелого: дату подтверждает гид.
+      expect(await slots('zaporozhets-bukhta-russkaya')).toEqual([]);
+      const russ = await pool.query(`SELECT base_price::int AS p, season_start::text AS s, season_end::text AS e FROM operator_tours WHERE slug = 'zaporozhets-bukhta-russkaya'`);
+      expect(russ.rows[0]).toEqual({ p: 19000, s: '2027-06-01', e: '2027-09-30' });
     });
 
     it('гид — в списке компаний со строкой фактов о своих турах и на странице гидов', async () => {
@@ -625,7 +639,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       const r = await queryOperators({ page: 1, limit: 12 });
       const guide = r.items.find((i) => i.slug === SLUG);
       expect(guide).toBeDefined();
-      expect(tourFactsLine(guide!.tourFacts)).toMatch(/^5 туров · /);
+      expect(tourFactsLine(guide!.tourFacts)).toMatch(/^8 туров · /);
       const g = await pool.query(`SELECT count(*)::int AS n FROM partners WHERE slug = $1 AND ${publicGuideWhere('partners')}`, [SLUG]);
       expect(g.rows[0].n).toBe(1);
     });
@@ -678,6 +692,125 @@ withPg('витрина /operators: факты о живых турах, кноп
       await pool.query(MIG_1338);
       expect((await pool.query(`SELECT is_public FROM partners WHERE id = $1`, [rej.id])).rows[0].is_public).toBe(false);
       expect(await guideTours(rej.id)).toEqual([]);
+    });
+
+    /**
+     * Ответы гида 29.10 (1341) поверх 1338 → 1340 на подложенной карточке
+     * реестра. Правки гида, сделанные до миграции, должны остаться: свои
+     * условия отмены у Горелого, своё описание у черновика Вачкажца, своя
+     * строка цены у Курильского на 3 дня.
+     */
+    it('ответы гида 29.10 (1341): три тура на витрине, Курильское лёгкое и без «до 4», отмена словами без чисел, правки гида целы, повтор ничего не меняет', async () => {
+      const MIG_1340 = readFileSync(join(process.cwd(), 'migrations/1340_guide_kurile_lake_clips.sql'), 'utf-8');
+      const MIG_1341 = readFileSync(join(process.cwd(), 'migrations/1341_guide_answers_2026_10_29.sql'), 'utf-8');
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      const { readTourDays, assertDaysOpen } = await import('@/lib/bookings/reserve');
+      await reset();
+      const { rows: [reg] } = await pool.query<{ id: string }>(
+        `INSERT INTO partners (slug, company_name, name, category, contact, external_source, is_verified, is_public, status)
+         VALUES ('vk-guide-zaporozhets-test', 'Запорожец Андрей Тестович', 'Запорожец Андрей Тестович', 'guide', '{}'::jsonb,
+                 'visitkamchatka', FALSE, FALSE, 'pending') RETURNING id`,
+      );
+      await pool.query(MIG_1338);
+      await pool.query(MIG_1340);
+      // Правки гида до 1341.
+      const OWN_CANCEL = 'Свои условия гида: отмена за неделю.';
+      const OWN_DESCR = 'Своё описание гида про Вачкажец.';
+      const OWN_NOTE = 'Своя строка цены гида.';
+      await pool.query(`UPDATE operator_tours SET cancellation_policy = $1 WHERE slug = 'zaporozhets-vulkan-gorelyy'`, [OWN_CANCEL]);
+      await pool.query(`UPDATE operator_tours SET description = $1 WHERE slug = 'zaporozhets-vachkazhets-ozerki'`, [OWN_DESCR]);
+      await pool.query(`UPDATE operator_tours SET price_note = $1 WHERE slug = 'zaporozhets-kurilskoe-ozero-3-dnya'`, [OWN_NOTE]);
+      await pool.query(MIG_1341);
+
+      type Row = {
+        slug: string; is_published: boolean; on_storefront: boolean; difficulty: string | null; max_participants: number;
+        short_description: string | null; description: string | null; price_note: string | null;
+        cancellation_policy: string | null; cancellation_free_days: number | null; cancellation_late_refund_percent: number | null;
+        included: string[] | null; safety_notes: string[] | null; program: { title: string; text: string }[] | null;
+        what_to_bring: string[] | null; photos: string[] | null; season_start: string | null; season_end: string | null;
+        duration_hours: string | null; pickup_type: string | null; meeting_point: string | null;
+      };
+      const rows = (await pool.query<Row>(
+        `SELECT slug, is_published, ${publicTourSql('')} AS on_storefront, difficulty, max_participants,
+                short_description, description, price_note, cancellation_policy, cancellation_free_days,
+                cancellation_late_refund_percent, included, safety_notes, program, what_to_bring, photos,
+                season_start::text, season_end::text, duration_hours::text, pickup_type, meeting_point
+           FROM operator_tours WHERE operator_id = $1::uuid ORDER BY slug`, [reg.id],
+      )).rows;
+      const t = (slug: string) => rows.find((r) => r.slug === slug)!;
+
+      // 4. Авача и бухта Русская — на витрине по описаниям гида; Вачкажец со своим описанием гида — не тронут.
+      for (const slug of ['zaporozhets-avacha-voskhozhdenie', 'zaporozhets-bukhta-russkaya']) {
+        expect(t(slug).on_storefront, slug).toBe(true);
+        expect(t(slug).program!.length, slug).toBeGreaterThanOrEqual(4);
+        expect(t(slug).price_note, slug).not.toMatch(/Черновик/);
+        expect(t(slug).photos, slug).toEqual([]);   // снимки docx чужие — не взяты
+      }
+      expect(t('zaporozhets-avacha-voskhozhdenie')).toMatchObject({ difficulty: 'hard', duration_hours: '13.00', max_participants: 4 });
+      expect(t('zaporozhets-bukhta-russkaya')).toMatchObject({ difficulty: 'easy', max_participants: 12, pickup_type: 'meeting_point' });
+      expect(t('zaporozhets-bukhta-russkaya').meeting_point).toMatch(/морвокзала/);
+      expect(t('zaporozhets-bukhta-russkaya').price_note).toMatch(/до 10 человек.*на другие лодки/);
+      expect(t('zaporozhets-vachkazhets-ozerki')).toMatchObject({ is_published: false, on_storefront: false, description: OWN_DESCR, program: null });
+
+      // 3. Курильское: лёгкое, без «до 4», сбор заказника в «включено»; своя строка цены гида цела.
+      for (const slug of ['zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya']) {
+        const r = t(slug);
+        expect(r).toMatchObject({ difficulty: 'easy', max_participants: 12 });
+        expect(`${r.short_description} ${r.description} ${r.price_note}`, slug).not.toMatch(/до 4 человек|не больше (4|четыр)/);
+        expect(r.included!.some((i) => i.includes('сбор за посещение Южно-Камчатского федерального заказника')), slug).toBe(true);
+        expect(r.safety_notes, slug).toContain('Ограничений по здоровью на этот тур гид не ставит; возраст детей — по согласованию с гидом.');
+        expect(r.safety_notes!.some((n) => n.startsWith('Противопоказания')), slug).toBe(false);
+      }
+      expect(t('zaporozhets-kurilskoe-ozero-3-dnya').price_note).toBe(OWN_NOTE);
+      expect(t('zaporozhets-kurilskoe-ozero-4-dnya').price_note).toMatch(/по четыре человека в машине.*кратно четырём/);
+      // Группа из восьми на дату выезда гида — платформа её не отклоняет; больше потолка формы — отклоняет.
+      const kid = (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = 'zaporozhets-kurilskoe-ozero-4-dnya'`)).rows[0].id;
+      const days = await readTourDays(pool, kid, '2027-08-02', '2027-08-05');
+      expect(() => assertDaysOpen(days, { participants: 8, maxParticipants: 12, durationDays: 4 })).not.toThrow();
+      expect(() => assertDaysOpen(days, { participants: 13, maxParticipants: 12, durationDays: 4 })).toThrow(/максимум: 12/);
+
+      // 1–2. Горелый — пещеры в «включено», замечание снято; Толбачик — ночлеги по программе.
+      expect(t('zaporozhets-vulkan-gorelyy').included!.some((i) => i.startsWith('посещение пещер'))).toBe(true);
+      expect(t('zaporozhets-vulkan-gorelyy').price_note).toMatch(/описание пещер гид допишет сам/);
+      expect(t('zaporozhets-vulkan-gorelyy').price_note).not.toMatch(/пещеры не упомянуты/);
+      expect(t('zaporozhets-tolbachik-4-dnya').included!.some((i) => i.includes('гостинице в Козыревске') && i.includes('в палатках'))).toBe(true);
+      expect(t('zaporozhets-tolbachik-4-dnya').price_note).not.toMatch(/прайс не говорит/);
+
+      // 5. Сезон черновикам; они остаются черновиками.
+      for (const slug of DRAFT_SLUGS) {
+        expect(t(slug), slug).toMatchObject({ season_start: '2027-07-01', season_end: '2027-09-30', on_storefront: false });
+      }
+
+      // 6. Отмена — словами гида, числа NULL; свои условия Горелого целы.
+      const CANCEL = 'Бесплатная отмена — не позднее чем за 2 дня до начала тура. При отмене меньше чем за сутки удерживается 30% предоплаты.';
+      for (const r of rows) {
+        expect(r.cancellation_policy, r.slug).toBe(r.slug === 'zaporozhets-vulkan-gorelyy' ? OWN_CANCEL : CANCEL);
+        expect([r.cancellation_free_days, r.cancellation_late_refund_percent], r.slug).toEqual([null, null]);
+      }
+
+      // 7. Возраст и противопоказания.
+      expect(t('zaporozhets-avacha-voskhozhdenie').safety_notes!.some((n) => n.includes('с 7 лет'))).toBe(true);
+      expect(t('zaporozhets-vulkan-gorelyy').safety_notes!.some((n) => n.includes('с 4 лет'))).toBe(true);
+      for (const slug of ['zaporozhets-vulkan-gorelyy', 'zaporozhets-kanyon-opasnyy-dachnye', 'zaporozhets-tolbachik-4-dnya', 'zaporozhets-avacha-voskhozhdenie']) {
+        expect(t(slug).safety_notes!.filter((n) => n.startsWith('Противопоказания')), slug).toHaveLength(1);
+      }
+      expect(t('zaporozhets-bukhta-russkaya').safety_notes!.some((n) => n.startsWith('Противопоказания'))).toBe(false);
+
+      // Телефона гида нет ни в одном тексте.
+      const texts = rows.map((r) => [r.short_description, r.description, r.price_note, r.meeting_point,
+        JSON.stringify([r.program, r.included, r.safety_notes, r.what_to_bring])].join(' ')).join(' ');
+      expect(texts).not.toMatch(/\+7[\s(-]*\d|\b8[\s(-]*9\d{2}[\s)-]*\d{3}/);
+
+      // Повтор ничего не меняет — ни туров, ни дат, ни карточки.
+      const snap = async () => (await pool.query<{ h: string }>(
+        `SELECT md5(coalesce((SELECT string_agg(row_to_json(ot)::text, '|' ORDER BY ot.id) FROM operator_tours ot WHERE ot.operator_id = $1::uuid), '')
+                 || coalesce((SELECT string_agg(row_to_json(ta)::text, '|' ORDER BY ta.id) FROM tour_availability ta
+                               JOIN operator_tours ot ON ot.id = ta.operator_tour_id WHERE ot.operator_id = $1::uuid), '')
+                 || (SELECT row_to_json(p)::text FROM partners p WHERE p.id = $1::uuid)) AS h`, [reg.id],
+      )).rows[0].h;
+      const before = await snap();
+      await pool.query(MIG_1341);
+      expect(await snap()).toBe(before);
     });
   });
 });
