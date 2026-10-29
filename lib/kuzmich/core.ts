@@ -64,6 +64,7 @@ import { alertContextLine } from '@/lib/kuzmich/alert-lines';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
+import { tourMatchEntry, matchTour, matchTourPlace, parseTourQuery, type TourMatchEntry } from '@/lib/search/tour-match';
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
@@ -252,12 +253,36 @@ interface TourContextRow {
   duration_hours?: number | null;
   season_start?: string | null;
   season_end?: string | null;
+  /**
+   * Поля указателя для фильтра get_tours (lib/search/tour-match, ловушка MCP
+   * 29.10): полное описание, текст программы и главное место тура. В строку
+   * каталога они не печатаются.
+   */
+  description?: string | null;
+  program_text?: string | null;
+  main_place_name?: string | null;
+  main_place_type?: string | null;
+}
+
+/** Тур каталога: строка, как её видят агент и модель, и указатель слов его полей. */
+export interface CatalogTourEntry extends TourMatchEntry {
+  line: string;
+}
+
+/**
+ * Каталог одной записью: текст и указатель туров по id. Одна запись кэша —
+ * одни TTL и день жребия: после полуночи найденный по указателю тур не может
+ * разойтись со строкой текста.
+ */
+export interface TourCatalog {
+  text: string;
+  entries: ReadonlyMap<string, CatalogTourEntry>;
 }
 
 // Раздельные кэши (перф-аудит 08.08, п.5): слоты и цены туров протухают
 // быстрее, чем описания мест и база знаний — один общий TTL заставлял
 // выбирать между свежестью занятости и лишними SQL на каждый холодный чат.
-let _tourCatalogCache = '';
+let _tourCatalogCache: TourCatalog | null = null;
 let _tourCatalogAt = 0;
 /** День правила 1в, по которому собран кэш каталога (жребий меняется раз в сутки). */
 let _tourCatalogDay = '';
@@ -493,6 +518,18 @@ export async function buildTourCatalog(): Promise<string> {
  * «Туры не найдены.» — ложный факт о каталоге (проверка MCP).
  */
 export async function loadTourCatalog(): Promise<string | null> {
+  const catalog = await loadTourCatalogEntries();
+  return catalog === null ? null : catalog.text;
+}
+
+const EMPTY_CATALOG: TourCatalog = { text: '', entries: new Map() };
+
+/**
+ * Каталог с указателем — для фильтра get_tours и туров места у
+ * search_transfers (lib/search/tour-match). Исходы те же: текст '' — туров
+ * нет, null — база не ответила.
+ */
+export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
   // Жребий дня меняется в полночь по Камчатке: кэш вчерашнего дня не отдаётся.
   const day = offerOrderDay();
   if (_tourCatalogCache && _tourCatalogDay === day && Date.now() - _tourCatalogAt < CATALOG_TTL_MS) {
@@ -517,9 +554,28 @@ export async function loadTourCatalog(): Promise<string | null> {
                ${keepsScheduleSql('ot.id')} AS has_schedule,
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
-               p.name AS operator_name
+               p.name AS operator_name,
+               -- Указатель фильтра get_tours (ловушка MCP 29.10): полное
+               -- описание, программа и главное место. В строку не печатаются.
+               ot.description,
+               prog.program_text,
+               mp.name AS main_place_name,
+               mp.location_type AS main_place_type
         FROM operator_tours ot
         LEFT JOIN partners p ON p.id = ot.operator_id
+        -- Главное место — только записанная связь (1286, 1344) и только живое
+        -- место: скрытое или слитое ничего тура не называет.
+        LEFT JOIN places mp ON mp.id = ot.main_place_id AND mp.is_visible = TRUE AND mp.merged_into_id IS NULL
+        -- Программа — те же пункты, что показывает get_tour_details
+        -- (programSteps, lib/tours/describe): объект с непустым заголовком,
+        -- текст — если строка. Иная форма программы (не массив) — пусто.
+        LEFT JOIN LATERAL (
+          SELECT string_agg(concat_ws(' ', e->>'title', CASE WHEN jsonb_typeof(e->'text') = 'string' THEN e->>'text' END), ' ') AS program_text
+            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ot.program) = 'array' THEN ot.program ELSE '[]'::jsonb END) e
+           WHERE jsonb_typeof(e) = 'object'
+             AND jsonb_typeof(e->'title') = 'string'
+             AND btrim(e->>'title') <> ''
+        ) prog ON true
         -- Ближайшая свободная дата — ОДНО условие на все витрины (правило 1в,
         -- lib/tours/nearest-free-date): «сегодня» по Камчатке, горизонт год,
         -- места по общей занятости (lib/bookings/occupancy), а не по счётчику
@@ -548,13 +604,14 @@ export async function loadTourCatalog(): Promise<string | null> {
         -- правило 1в (lib/tours/offer-order) ниже, одно на все витрины.
       `);
 
-    if (!toursResult.rows.length) return '';
+    if (!toursResult.rows.length) return EMPTY_CATALOG;
     // Правило 1в (слово владельца 29.10): со свободной датой — по ближайшему
     // выезду, остальные — жребий дня. Не цена: «первые по цене» поднимали
     // дешёвое и прятали остальное за 40-й строкой подсказки.
     const rows = orderOffersBy(toursResult.rows, (r) => ({ id: r.id, nearestFreeDate: r.next_available_date ?? null }), { day });
 
     const today = kamchatkaToday();
+    const entries = new Map<string, CatalogTourEntry>();
     const lines = rows.map(r => {
       const dur   = r.multi_day_count ? `${r.multi_day_count} дн.` : '';
       // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
@@ -585,16 +642,23 @@ export async function loadTourCatalog(): Promise<string | null> {
         : '';
       const brief = r.short_description ? ` — ${r.short_description}` : '';
       const details = r.has_details ? ' [есть детали: вызови get_tour_details]' : '';
-      return `ID${r.id}: "${r.title}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
+      const line = `ID${r.id}: "${r.title}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
+      // Указатель — из полей той же строки базы, не из напечатанной строки:
+      // в ней имя компании и служебный текст (lib/search/tour-match).
+      entries.set(String(r.id), { line, ...tourMatchEntry(r) });
+      return line;
     });
 
-    _tourCatalogCache = [
-      'РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ (актуальные цены, называй по имени):',
-      OFFER_ORDER_NOTE_AGENT,
-      ...lines,
-      '',
-      'Когда турист спрашивает о конкретном туре — дай факты. Не предлагай оставить заявку первым.',
-    ].join('\n');
+    _tourCatalogCache = {
+      text: [
+        'РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ (актуальные цены, называй по имени):',
+        OFFER_ORDER_NOTE_AGENT,
+        ...lines,
+        '',
+        'Когда турист спрашивает о конкретном туре — дай факты. Не предлагай оставить заявку первым.',
+      ].join('\n'),
+      entries,
+    };
     _tourCatalogAt = Date.now();
     _tourCatalogDay = day;
     return _tourCatalogCache;
@@ -2361,13 +2425,24 @@ const GUARDIAN_EMPTY_MCP = 'Данные о месте не найдены в с
   + 'Это не значит, что там безопасно — уточните название места; экстренный вызов на Камчатке — 112.';
 
 
-/** Строки каталога туров, где упомянуто место (по основе слова, от 5 букв). */
+/**
+ * Строки каталога туров с этим местом: сперва туры, у которых оно записано
+ * главным местом (main_place_id), затем — где каждое слово места стоит в
+ * названии, месте или кратком описании тура (lib/search/tour-match). Имя
+ * компании не участвует: до 29.10 строка «Оп: Край Вулканов» приводила туры
+ * этой компании под шапку «ТУРЫ С ЭТИМ МЕСТОМ» на любое место со словом
+ * «вулкан», а совпадения одного слова из нескольких хватало.
+ */
 async function toursMentioningPlace(place: string | undefined): Promise<string> {
-  const stems = (place ?? '').toLowerCase().split(/[^а-яёa-z]+/u).filter((w) => w.length >= 5).map((w) => w.slice(0, 6));
-  if (stems.length === 0) return '';
-  const catalog = await loadTourCatalog();
+  const query = parseTourQuery(place ?? '');
+  if (query.stems.length === 0) return '';
+  const catalog = await loadTourCatalogEntries();
   if (!catalog) return '';
-  const hits = catalog.split('\n').filter((l) => /^ID\d+:/.test(l) && stems.some((st) => l.toLowerCase().includes(st))).slice(0, 3);
+  // Порядок указателя — порядок каталога (правило 1в).
+  const all = [...catalog.entries.values()];
+  const byPlace = all.filter((e) => matchTourPlace(e, query));
+  const byText = all.filter((e) => !byPlace.includes(e) && matchTour(e, query) === 'near');
+  const hits = [...byPlace, ...byText].slice(0, 3).map((e) => e.line);
   if (hits.length === 0) return '';
   return 'ТУРЫ С ЭТИМ МЕСТОМ (это туры операторов, не машина под заказ и не прокат; детали — get_tour_details):\n'
     + hits.map((l) => l.replace(/\s*\[есть детали[^\]]*\]/, '').slice(0, 220)).join('\n');
@@ -2417,25 +2492,30 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     if (name === 'get_tours') {
       // Только каталог (перф-аудит 08.08, п.4): агенту для обзора не нужны
       // 100 мест и 50 записей знаний — лишняя работа и токены.
-      const ctx = await loadTourCatalog();
-      if (ctx === null) return TOOL_EXECUTION_FAILED;
+      const catalog = await loadTourCatalogEntries();
+      if (catalog === null) return TOOL_EXECUTION_FAILED;
+      const ctx = catalog.text;
       if (!ctx) return 'Туры не найдены.';
       // Фильтр по типу активности объявлен в схеме с самого начала, но
       // executeTool его игнорировал (аудит 08.08). Матчим и слаг (fishing),
-      // и русскую метку (Рыбалка) — модель передаёт слово туриста.
+      // и русскую метку (Рыбалка) — модель передаёт слово туриста. Слово в
+      // текстах тура ищет движок ПОИСК по указателю полей (ловушка MCP 29.10).
       const want = (args.activity_type ?? '').trim().toLowerCase();
-      const { filterTourCatalog, paginateTourText } = await import('@/lib/kuzmich/tour-filter');
-      let text = ctx;
-      if (want) {
-        const { activityLabel } = await import('@/lib/tours/labels');
-        text = filterTourCatalog(ctx, want, activityLabel);
-      }
+      const { filterTourCatalog, paginateTourText, FAR_CHAT_CAP } = await import('@/lib/kuzmich/tour-filter');
       // Страницы (#2314): на 11+ турах клиент MCP обрезал ответ на середине.
       // На MCP — всегда по страницам; в чате Кузьмича — только если модель
       // попросила страницу сама: ему каталог целиком дешевле второго вызова.
       const page = Number.parseInt(args.page ?? '', 10);
       const askedPage = Number.isFinite(page) && page >= 1;
-      if (opts.surface !== 'mcp' && !askedPage) return text;
+      const wholeInChat = opts.surface !== 'mcp' && !askedPage;
+      let text = ctx;
+      if (want) {
+        const { activityLabel } = await import('@/lib/tours/labels');
+        // Целиком в чат идёт и блок «только в описании или программе»: его
+        // режет FAR_CHAT_CAP строкой «ещё M», страницы отдают все.
+        text = filterTourCatalog(ctx, want, { activityLabel, entries: catalog.entries, farCap: wholeInChat ? FAR_CHAT_CAP : undefined });
+      }
+      if (wholeInChat) return text;
       return paginateTourText(text, askedPage ? page : 1);
     }
     if (name === 'get_tour_details') {

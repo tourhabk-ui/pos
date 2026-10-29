@@ -9,7 +9,7 @@
         "properties": {
           "activity_type": {
             "type": "string",
-            "description": "Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д.",
+            "description": "Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Matches the activity type and the word in the tour title, place, short description or main place; tours that have the word only in the full description or programme come in a separate unverified block (check them with get_tour_details); company and guide names are not searched. Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д. Ищет вид отдыха и слово в названии, месте, кратком описании и главном месте тура, а отдельным блоком «не проверено» даёт туры, где слово есть только в полном описании или программе (что это за упоминание, уточни через get_tour_details); имена компаний и гидов не ищет.",
             "examples": [
               "вулканы"
             ]

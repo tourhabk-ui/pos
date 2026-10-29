@@ -27,6 +27,7 @@ vi.mock('@/lib/agents/run-logger', () => ({ logAgentRun: h.logAgentRun }));
 vi.mock('@/lib/agents/eval/editor-judge', () => ({ judgeWithFallback: async () => ({ score: 5, reason: 'ok' }) }));
 
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
+import { CATALOG_AS_SUBSTITUTE, FAR_BLOCK_MARK, NEAR_FIELDS } from '@/lib/kuzmich/tour-filter';
 import {
   CommercialCheckSchema,
   commercialRunStatus,
@@ -63,7 +64,7 @@ const T61 = 'ID61: "Вулкан Горелый" — Вулкан Горелый
 
 const placeText = (place: string, lines: string[]) => [
   HEAD,
-  `Туры, где упоминается «${place}» (в названии, месте, описании или имени компании). Назови их; едет ли тур к самому месту и что там делают, уточни через get_tour_details:`,
+  `Туры, где упоминается «${place}» (${NEAR_FIELDS}). Назови их; едет ли тур к самому месту и что там делают, уточни через get_tour_details:`,
   ...lines,
   TAIL,
 ].join('\n');
@@ -203,10 +204,18 @@ describe('разбор: цены и строки туров', () => {
 
   it('эталон: «тип другой» не в нём, ответ «туров нет» — пустой эталон, а не весь каталог', () => {
     expect(referenceTours(TOLBACHIK).map((t) => t.id)).toEqual(['41', '73', '65', '51']);
-    const withOther = [HEAD, T55, '', 'Ещё упоминают «вертолет» в названии, описании или имени компании — тип у них другой, уточни через get_tour_details, прежде чем предлагать:', T65, TAIL].join('\n');
+    const withOther = [HEAD, T55, '', `Ещё упоминают «вертолет» ${NEAR_FIELDS} — тип у них другой, уточни через get_tour_details, прежде чем предлагать:`, T65, TAIL].join('\n');
     expect(referenceTours(withOther).map((t) => t.id)).toEqual(['55']);
-    expect(referenceTours(`Туров «дайвинг» у операторов платформы сейчас нет — ни по типу, ни в описаниях. Не выдавай другие туры за такие. Весь каталог — для замены с явной оговоркой:\n${CATALOG}`)).toEqual([]);
-    expect(referenceTours(`Тура с типом «рыбалка» нет. Упоминают «рыбалка» в названии, описании или имени компании — тип у них другой, уточни через get_tour_details, прежде чем предлагать:\n${T41}`)).toEqual([]);
+    expect(referenceTours(`Туров «дайвинг» у операторов платформы сейчас нет — ни по типу, ни в названии, месте, кратком и полном описании или программе тура. Не выдавай другие туры за такие. ${CATALOG_AS_SUBSTITUTE}\n${CATALOG}`)).toEqual([]);
+    expect(referenceTours(`Тура с типом «рыбалка» нет.\n${HEAD}\nУпоминают «рыбалка» ${NEAR_FIELDS} — тип у них другой, уточни через get_tour_details, прежде чем предлагать:\n${T41}${TAIL}`)).toEqual([]);
+  });
+
+  it('эталон (29.10): блок «только в полном описании или программе» и ответ «не искал» в эталон не входят', () => {
+    // Ответ производителя, а не написанный от руки: метки — из lib/kuzmich/tour-filter.
+    const far = `Слово «толбачик» есть ${FAR_BLOCK_MARK} этих туров — занятие это, вид по пути или предупреждение, не проверено; get_tour_details прежде чем предлагать:`;
+    expect(referenceTours(placeText('толбачик', [T41, T73, far, T98])).map((t) => t.id)).toEqual(['41', '73']);
+    expect(referenceTours([`В названии, месте и кратком описании туров «толбачик» нет.`, HEAD, far, T98, TAIL].join('\n'))).toEqual([]);
+    expect(referenceTours(`Тура с типом «puffins» нет. По текстам туров «puffins» не искал: «puffins» нет в словаре платформы. Не выдавай другие туры за такие. ${CATALOG_AS_SUBSTITUTE}\n${CATALOG}`)).toEqual([]);
   });
 
   it('тур узнан по названию или по цене, которая у него одна', () => {

@@ -37,36 +37,52 @@
  * впереди и с просьбой назвать их, а что именно там делают — уточнить.
  * Вид ли это отдыха, решает словарь видов (typeMatches по всем его типам).
  *
- * ── 29.10: имя компании — тоже упоминание ────────────────────────────────
+ * ── 29.10: ищем в полях тура, а не в строке каталога ─────────────────────
  *
- * Строка каталога несёт «Оп: <имя продавца>», и слово сравнивается со всей
- * строкой: на имя компании или гида находятся их туры. Шапка ответа называла
- * причину совпадения «в названии, месте или описании» — неверно для такого
- * случая (ловушка MCP 29.10, name-search). Теперь в ней названо и имя
- * компании. Отдельного фильтра по продавцу здесь нет: ответ о продавце — его
- * туры и страница — даёт get_tour_details (resolveTourChoice).
+ * Утром того же дня шапка ответа называла причиной совпадения и «имя
+ * компании»: слово сравнивалось со всей строкой каталога, а в ней
+ * «Оп: <продавец>». Разбор ловушки MCP filter-coverage показал, что это не
+ * подпись надо было править, а место поиска. На «вулкан» находились круиз на
+ * Командоры и автотур на Курильское озеро только потому, что компания
+ * называется «Край Вулканов»; на «экспедиция» — все туры «Лагуны
+ * Экспедиции». А полного описания и программы в строке нет вовсе: на
+ * «озеро» не находилась Долина гейзеров с озером в кратере, и ответ «ничего
+ * нет» говорил «ни в описаниях» о текстах, которые не читались.
+ *
+ * Теперь слово ищет движок ПОИСК (lib/search/tour-match) в указателе, который
+ * каталог собирает из полей тура рядом со строкой (loadTourCatalogEntries).
+ * Указатель обязателен: запасного пути по разрезанной строке нет — именно
+ * на строке другой формы, чем у прода, сторож этой ловушки и зеленел.
+ * Блоки ответа:
+ *   (а) совпал вид отдыха;
+ *   (б) слово в названии, месте, кратком описании или главном месте тура;
+ *   (в) слово только в полном описании или программе — отдельно и с
+ *       нейтральной подписью: занятие это, вид по пути или предупреждение
+ *       («медведи» в правилах безопасности), фильтр не знает.
+ * Внутри блоков — порядок каталога (правило 1в). Имя компании или гида не
+ * ищется нигде: туры продавца — get_tour_details (resolveTourChoice), и ответ
+ * «ничего нет» так и говорит, перечисляя ровно то, где искали.
  */
 
 import { ACTIVITY_LABELS } from '@/lib/tours/labels';
+import { stemRu } from '@/lib/search/query-words';
+import {
+  matchTour, normalizeMatchText, parseTourQuery, tourTextSearchable, type TourMatchEntry,
+} from '@/lib/search/tour-match';
 
 type ActivityLabel = (slug: string, short?: boolean) => string;
 
-/** ё→е и «кк»→«к»: «треккинг» и «трекинг» пишут оба, туристы — как придётся. */
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/ё/g, 'е').replace(/кк/g, 'к');
-}
-
 /**
  * Основа слова: без двух последних букв у длинных, не короче четырёх.
- * «вулканы» → «вулка», «рыбалка» → «рыбал», «сплав» → «спла».
+ * «вулканы» → «вулка», «рыбалка» → «рыбал», «сплав» → «спла». Правило —
+ * общее с поиском (lib/search/query-words), «кк»→«к» — как у текста туров.
  */
 export function wordStem(word: string): string {
-  const w = normalize(word);
-  return w.length >= 5 ? w.slice(0, Math.max(4, w.length - 2)) : w;
+  return stemRu(normalizeMatchText(word));
 }
 
 function words(s: string): string[] {
-  return normalize(s).split(/[^a-zа-я]+/).filter(Boolean);
+  return normalizeMatchText(s).split(/[^a-zа-я]+/).filter(Boolean);
 }
 
 /**
@@ -90,12 +106,48 @@ export function typeMatches(slug: string, want: string, activityLabel: ActivityL
   return wantStems.every((ws) => typeWords.some((tw) => tw.startsWith(ws) || ws.startsWith(wordStem(tw))));
 }
 
-export function filterTourCatalog(
-  ctx: string,
-  want: string,
-  activityLabel: ActivityLabel,
-  knownTypes: readonly string[] = Object.keys(ACTIVITY_LABELS),
-): string {
+/** Где ищет блок (б) — словами ответа и описания инструмента. */
+export const NEAR_FIELDS = 'в названии, месте, кратком описании или главном месте тура';
+/** Метка блока (в): по ней отрезают эталон (lib/agents/eval/commercial-checks). */
+export const FAR_BLOCK_MARK = 'только в полном описании или программе';
+/** Каталог, приложенный к ответу «нет», — замена, а не найденное. */
+export const CATALOG_AS_SUBSTITUTE = 'Весь каталог — для замены с явной оговоркой:';
+
+/**
+ * Туров блока (в) в чате Кузьмича без страницы: весь отфильтрованный список
+ * идёт там в результат инструмента. Остальные — строкой «ещё M».
+ *
+ * Замер 29.10 на базе со всеми миграциями (67 туров витрины): «вулкан» —
+ * блок (в) 24 тура, 36% каталога (панорамы «на Домашние вулканы» в программах
+ * многодневных туров), «озеро» — 18 (27%), «медведи» — 8, прочие слова — 1–7.
+ * Ни одно слово замера не накрывает и половины каталога, но «вулкан» без
+ * предела удлинил бы ответ в чате на 24 строки к 32 найденным ближним
+ * совпадением. Предел — размер страницы MCP.
+ */
+export const FAR_CHAT_CAP = 7;
+
+export interface TourFilterOptions {
+  activityLabel: ActivityLabel;
+  /** Слаги видов отдыха: слово из них — вид отдыха, а не название места. */
+  knownTypes?: readonly string[];
+  /**
+   * Указатель туров каталога по id (lib/kuzmich/core, loadTourCatalogEntries) —
+   * из той же записи кэша, что и текст. Обязателен: по строке каталога фильтр
+   * не ищет.
+   */
+  entries: ReadonlyMap<string, TourMatchEntry>;
+  /**
+   * Сколько туров блока (в) показать; остальные — строкой «ещё M» со ссылкой
+   * на страницы. Без числа — все (MCP и запрос страницы: там режут страницы).
+   */
+  farCap?: number;
+}
+
+const tourId = (line: string) => line.match(/^ID(\d+):/)?.[1] ?? '';
+
+export function filterTourCatalog(ctx: string, want: string, opts: TourFilterOptions): string {
+  const { activityLabel, entries, farCap } = opts;
+  const knownTypes = opts.knownTypes ?? Object.keys(ACTIVITY_LABELS);
   const lines = ctx.split('\n');
   const isTourLine = (l: string) => /^ID\d+:/.test(l);
   const firstTour = lines.findIndex(isTourLine);
@@ -105,37 +157,84 @@ export function filterTourCatalog(
   const tail = lastTour >= 0 ? lines.slice(lastTour + 1) : [];
   const tours = lines.filter(isTourLine);
 
-  const byType = tours.filter((l) => typeMatches(l.match(/тип:(\S+)/)?.[1] ?? '', want, activityLabel));
+  const query = parseTourQuery(want);
+  const searchable = tourTextSearchable(query);
+  const byType: string[] = [];
+  const near: string[] = [];
+  const far: string[] = [];
+  let unindexed = 0;
+  for (const l of tours) {
+    if (typeMatches(l.match(/тип:(\S+)/)?.[1] ?? '', want, activityLabel)) { byType.push(l); continue; }
+    if (!searchable) continue;
+    const entry = entries.get(tourId(l));
+    if (!entry) { unindexed += 1; continue; }
+    const m = matchTour(entry, query);
+    if (m === 'near') near.push(l);
+    else if (m === 'far') far.push(l);
+  }
 
-  const stems = words(want).filter((w) => w.length >= 4).map(wordStem);
-  const mentioned = tours.filter((l) => !byType.includes(l) && stems.length > 0
-    && stems.every((st) => normalize(l).includes(st)));
-  const mentionedNote = `Упоминают «${want}» в названии, описании или имени компании — тип у них другой, `
-    + 'уточни через get_tour_details, прежде чем предлагать:';
+  // Чего не искали — сказано словами (§4.0): «не искал» не равно «нет».
+  const notSearched = !searchable
+    ? `По текстам туров «${want}» не искал: ${query.english.length > 0
+      ? `${query.english.map((w) => `«${w}»`).join(', ')} нет в словаре платформы, а тексты туров русские — повтори get_tours по-русски`
+      : 'в запросе нет слова от четырёх букв'}.`
+    : '';
+  const unindexedNote = unindexed > 0 ? `У ${unindexed} туров указателя текстов нет — у них проверен только вид отдыха.` : '';
+  const notes = [notSearched, unindexedNote].filter(Boolean);
+
+  const farNote = `Слово «${want}» есть ${FAR_BLOCK_MARK} этих туров — занятие это, вид по пути или предупреждение, не проверено; get_tour_details прежде чем предлагать:`;
+  const farShown = farCap != null && far.length > farCap ? far.slice(0, farCap) : far;
+  const farRest = far.length - farShown.length;
+  const farBlock = far.length === 0 ? [] : [
+    farNote,
+    ...farShown,
+    ...(farRest > 0 ? [`(Ещё ${farRest} таких туров — get_tours с тем же activity_type и page=1 покажет все по страницам.)`] : []),
+  ];
+  const mentionedNote = `Упоминают «${want}» ${NEAR_FIELDS} — тип у них другой, уточни через get_tour_details, прежде чем предлагать:`;
+  const isActivity = knownTypes.some((t) => typeMatches(t, want, activityLabel));
 
   if (byType.length > 0) {
     return [
       ...head,
+      ...notes,
       ...byType,
-      ...(mentioned.length > 0 ? ['', `Ещё ${mentionedNote.charAt(0).toLowerCase()}${mentionedNote.slice(1)}`, ...mentioned] : []),
+      ...(near.length > 0 ? ['', `Ещё ${mentionedNote.charAt(0).toLowerCase()}${mentionedNote.slice(1)}`, ...near] : []),
+      ...(farBlock.length > 0 ? ['', ...farBlock] : []),
       ...tail,
     ].join('\n');
   }
-  if (mentioned.length > 0) {
-    const isActivity = knownTypes.some((t) => typeMatches(t, want, activityLabel));
-    if (!isActivity) {
-      return [
-        ...head,
-        `Туры, где упоминается «${want}» (в названии, месте, описании или имени компании). Назови их; `
-          + 'едет ли тур к самому месту и что там делают, уточни через get_tour_details:',
-        ...mentioned,
-        ...tail,
-      ].join('\n');
-    }
-    return `Тура с типом «${want}» нет. ${mentionedNote}\n${mentioned.join('\n')}`;
+  if (near.length > 0) {
+    const nearBlock = isActivity
+      ? [mentionedNote, ...near]
+      : [`Туры, где упоминается «${want}» (${NEAR_FIELDS}). Назови их; `
+          + 'едет ли тур к самому месту и что там делают, уточни через get_tour_details:', ...near];
+    return [
+      // Вид отдыха без туров этого вида — первой строкой: «дайвинг» есть как
+      // тип, туров такого типа нет. У названия места отрицания впереди нет.
+      ...(isActivity ? [`Тура с типом «${want}» нет.`] : []),
+      ...head,
+      ...notes,
+      ...nearBlock,
+      ...(farBlock.length > 0 ? ['', ...farBlock] : []),
+      ...tail,
+    ].join('\n');
   }
-  return `Туров «${want}» у операторов платформы сейчас нет — ни по типу, ни в описаниях. `
-    + `Не выдавай другие туры за такие. Весь каталог — для замены с явной оговоркой:\n${ctx}`;
+  if (far.length > 0) {
+    return [
+      `${isActivity ? `Тура с типом «${want}» нет; в` : 'В'} названии, месте и кратком описании туров «${want}» нет.`,
+      ...head,
+      ...notes,
+      ...farBlock,
+      ...tail,
+    ].join('\n');
+  }
+  if (!searchable) {
+    return `Тура с типом «${want}» нет. ${notSearched} Не выдавай другие туры за такие. ${CATALOG_AS_SUBSTITUTE}\n${ctx}`;
+  }
+  // Ответ «нет» перечисляет ровно то, где искали, и чего не искали вовсе.
+  return `Туров «${want}» у операторов платформы сейчас нет — ни по типу, ни в названии, месте, кратком и полном описании или программе тура.`
+    + `${unindexedNote ? ` ${unindexedNote}` : ''} Имена компаний и гидов get_tours не ищет: туры продавца — get_tour_details. `
+    + `Не выдавай другие туры за такие. ${CATALOG_AS_SUBSTITUTE}\n${ctx}`;
 }
 
 /** Туров на странице каталога (#2314: клиент MCP обрезал ответ на 11+ турах). */
@@ -146,20 +245,26 @@ export const TOURS_PAGE_SIZE = 7;
  * и хвост остаются на каждой странице. Пояснение посреди списка («Ещё
  * упоминают… — тип у них другой») относится ко всем турам после него и
  * повторяется на каждой странице, где есть его туры: иначе на второй
- * странице «тип другой» читался бы как «совпал по типу». Одна страница —
- * ответ как был, без приписки. Номер за пределами — сказано прямо, сколько
- * страниц есть, а не пустой ответ.
+ * странице «тип другой» читался бы как «совпал по типу». Номер за пределами
+ * — сказано прямо, сколько страниц есть, а не пустой ответ.
+ *
+ * 29.10 (ловушка MCP filter-coverage): одна страница шла без приписки, хотя
+ * описание параметра page обещает «в конце ответа сказано, сколько страниц»
+ * — ответ без строки о страницах внешний агент не отличит от обрезанного.
+ * Теперь и одна страница называет себя. И проверка номера стоит ПЕРВОЙ: при
+ * семи турах и меньше page=2 молча повторял первую страницу.
  */
 export function paginateTourText(text: string, page: number, size: number = TOURS_PAGE_SIZE): string {
   const lines = text.split('\n');
   const isTour = (l: string) => /^ID\d+:/.test(l);
   const tourIdx = lines.map((l, i) => (isTour(l) ? i : -1)).filter((i) => i >= 0);
   const total = tourIdx.length;
-  const pages = Math.max(1, Math.ceil(total / size));
-  if (total <= size) return text;
+  if (total === 0) return text;
+  const pages = Math.ceil(total / size);
   if (page > pages) {
     return `Страницы ${page} нет: туров ${total}, страниц ${pages}. Начни с page=1.`;
   }
+  if (pages === 1) return `${text}\n\nСтраница 1 из 1, туров всего ${total}. Других страниц нет.`;
   const first = tourIdx[0];
   const last = tourIdx[tourIdx.length - 1];
   const keep = new Set(tourIdx.slice((page - 1) * size, page * size));
@@ -167,14 +272,18 @@ export function paginateTourText(text: string, page: number, size: number = TOUR
   const out: string[] = lines.slice(0, first);
   let note: string[] = [];
   let noteShown = true;
+  let inNote = false;
   for (let i = first; i <= last; i++) {
     const l = lines[i];
     if (!isTour(l)) {
-      // Новая секция: пояснение копится, пока не встретим её тур.
-      if (noteShown) { note = []; noteShown = false; }
+      // Новая секция: пояснение копится, пока не встретим её тур. Секция без
+      // туров на этой странице своё пояснение не оставляет следующей (29.10:
+      // при трёх блоках «Ещё упоминают…» висел на второй странице без туров).
+      if (!inNote) { note = []; inNote = true; noteShown = false; }
       note.push(l);
       continue;
     }
+    inNote = false;
     if (!keep.has(i)) continue;
     if (!noteShown) { out.push(...note); noteShown = true; }
     out.push(l);

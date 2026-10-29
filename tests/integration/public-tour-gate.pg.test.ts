@@ -792,13 +792,10 @@ withPg('витрина туров: снятый тур не в плане и н�
       // filterTourCatalog сравнивает по основе слова: опечатка в окончании
       // прощается, внутри основы — нет.
       get_tours_typo_inside_stem: { starts: 'Туров «прабный» у операторов платформы сейчас нет', why: 'опечатка внутри основы слова: get_tours сравнивает по основе' },
-      // Тур связан с местом явно (operator_tours.main_place_id, миграция 1286),
-      // но слова места в его тексте нет. Каталог Кузьмича (loadTourCatalog)
-      // колонку не читает, фильтр судит по тексту строки — тура не видит ни
-      // get_tours, ни поиск машин к месту. Эталон коммерческого эвала — тот же
-      // get_tours, так что эвал этого пробела не видит тоже (ревью 29.10).
-      get_tours_main_place_id: { listed: false, why: 'связь по main_place_id не читается каталогом Кузьмича: тур без слова места в тексте не находится' },
-      search_transfers_main_place_id: { listed: false, why: 'toursMentioningPlace ищет по тексту, main_place_id не читает' },
+      // Записи get_tours_main_place_id и search_transfers_main_place_id ушли
+      // 29.10 (ловушка MCP filter-coverage): указатель каталога читает главное
+      // место тура (lib/search/tour-match), и тур без слова места в тексте
+      // находится обоими путями — ниже это проверено как правило, а не пробел.
     } as const;
     const PLACE_ID = 'w2pt-probe-place';
     await pool.query(
@@ -835,6 +832,14 @@ withPg('витрина туров: снятый тур не в плане и н�
       [companies[0].id, PLACE_ID],
     );
     const linkedId = linkedRows[0].id;
+    // Один тур по тексту — со свободной датой: по правилу 1в он первый в
+    // каталоге, и первым в ответе о машинах тур по главному месту стоит
+    // только благодаря порядку «сперва главное место», а не жребию.
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 2, 6, FALSE)`,
+      [tourIds[4]],
+    );
     const all = [...tourIds].sort();
     const idsIn = (text: string) => [...text.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => all.includes(x)).sort();
 
@@ -845,31 +850,30 @@ withPg('витрина туров: снятый тур не в плане и н�
     try {
       const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
 
-      // get_tours в чате: по слову места — все девять, у каждого компания.
+      // get_tours в чате: по слову места — все девять, у каждого компания, и
+      // десятый — по записанному главному месту (29.10), без слова в тексте.
       const chat = await executeKuzmichTool('get_tours', { activity_type: PLACE });
       expect(idsIn(chat)).toEqual(all);
+      expect(chat).toContain(`ID${linkedId}:`);
       // Тур живой и в каталоге есть — по своему слову находится.
       expect(await executeKuzmichTool('get_tours', { activity_type: 'Лавовые' })).toContain(`ID${linkedId}:`);
-      // По слову места — нет: известный пробел, записан, а не спрятан.
-      expect(chat.includes(`ID${linkedId}:`), KNOWN_INCOMPLETE.get_tours_main_place_id.why)
-        .toBe(KNOWN_INCOMPLETE.get_tours_main_place_id.listed);
-      for (const c of companies) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(3);
+      // Десятый — тур компании Альфа.
+      for (const [ci, c] of companies.entries()) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(ci === 0 ? 4 : 3);
 
-      // MCP: страницами по семь — первая неполная и называет, сколько всего;
-      // две страницы вместе — все девять.
+      // MCP: страницами по семь — первая полная и называет, сколько всего;
+      // две страницы вместе — все десять.
       const p1 = await executeKuzmichTool('get_tours', { activity_type: PLACE }, { surface: 'mcp' });
       const p2 = await executeKuzmichTool('get_tours', { activity_type: PLACE, page: '2' }, { surface: 'mcp' });
-      expect(idsIn(p1)).toHaveLength(7);
-      expect(p1).toContain('Страница 1 из 2, туров всего 9.');
+      expect(idsIn(p1).length + (p1.includes(`ID${linkedId}:`) ? 1 : 0)).toBe(7);
+      expect(p1).toContain('Страница 1 из 2, туров всего 10.');
       expect([...idsIn(p1), ...idsIn(p2)].sort()).toEqual(all);
 
-      // «Что есть у компании»: слово туриста — имя компании; отдаются её три
-      // тура, чужих нет (совпадение по строке «Оп:», не отдельный фильтр).
-      const beta = companies[1];
-      const betaIds = tourIds.slice(3, 6).sort();
+      // Имя компании — не слово тура (29.10, filter-coverage): на «Компания
+      // Бета» get_tours не отдаёт её туры как найденные и не притворяется,
+      // что искал по продавцам, — отсылает к get_tour_details.
       const byCompany = await executeKuzmichTool('get_tours', { activity_type: 'Компания Бета' });
-      expect(idsIn(byCompany)).toEqual(betaIds);
-      expect(byCompany.match(new RegExp(`Оп: ${beta.name}`, 'g'))).toHaveLength(3);
+      expect(byCompany).toMatch(/^Туров «компания бета» у операторов платформы сейчас нет/);
+      expect(byCompany).toContain('Имена компаний и гидов get_tours не ищет: туры продавца — get_tour_details.');
 
       // Опечатка в окончании («пробнай») — основа та же, все девять.
       expect(idsIn(await executeKuzmichTool('get_tours', { activity_type: 'пробнай' }))).toEqual(all);
@@ -889,11 +893,18 @@ withPg('витрина туров: снятый тур не в плане и н�
         .toBe(KNOWN_INCOMPLETE.get_tour_details.gives);
 
       const transfers = await executeKuzmichTool('search_transfers', { place: PLACE });
-      expect(idsIn(transfers).length, KNOWN_INCOMPLETE.search_transfers.why).toBe(KNOWN_INCOMPLETE.search_transfers.gives);
-      expect(transfers.includes(`ID${linkedId}:`), KNOWN_INCOMPLETE.search_transfers_main_place_id.why)
-        .toBe(KNOWN_INCOMPLETE.search_transfers_main_place_id.listed);
+      const transferTours = [...transfers.matchAll(/^ID(\d+):/gm)].map((m) => m[1]);
+      expect(transferTours.length, KNOWN_INCOMPLETE.search_transfers.why).toBe(KNOWN_INCOMPLETE.search_transfers.gives);
+      // Сперва тур, у которого место записано главным (29.10), затем по тексту.
+      expect(transferTours[0]).toBe(linkedId);
+      expect(transferTours[1]).toBe(tourIds[4]);
+      expect(transferTours.slice(1).every((x) => all.includes(x))).toBe(true);
+      // Каждое слово места, а не любое: «Пробный перевал» — не «Пробный».
+      const twoWords = await executeKuzmichTool('search_transfers', { place: `${PLACE} перевал` });
+      expect([...twoWords.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => x === linkedId || all.includes(x))).toEqual([]);
     } finally {
       vi.useRealTimers();
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id::text = $1`, [tourIds[4]]);
       await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [[...tourIds, linkedId]]);
       await pool.query(`DELETE FROM places WHERE id = $1`, [PLACE_ID]);
       await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [companies.map((c) => c.id)]);
@@ -1070,6 +1081,75 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect(await card(pid), pid).toEqual([]);
       }
     });
+
+    // Ловушка MCP 29.10, filter-coverage: фильтр get_tours ищет в полях тура
+    // (lib/search/tour-match), и главное место — одно из них. Настоящий SQL
+    // каталога: LEFT JOIN places по main_place_id (видимое, не слитое) и текст
+    // программы из jsonb_array_elements — на схеме прода, а не на моке.
+    it('get_tours на MCP: главное место-вулкан — блок (б); описание и программа — блок (в); черновик, удалённый, выключенный и «рядом» — нет', async () => {
+      const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
+      const { FAR_BLOCK_MARK, CATALOG_AS_SUBSTITUTE } = await import('@/lib/kuzmich/tour-filter');
+      const tpIds = new Set(Object.values(tour));
+      const slugOf = new Map(Object.entries(tour).map(([slug, tid]) => [tid, slug]));
+      /** Все страницы ответа MCP одной строкой; каталог-замена после «нет» найденным не считается. */
+      const allPages = async (word: string) => {
+        const first = await executeKuzmichTool('get_tours', { activity_type: word }, { surface: 'mcp' });
+        const pages = Number(first.match(/Страница 1 из (\d+)/)?.[1] ?? '1');
+        const rest = [];
+        for (let n = 2; n <= pages; n++) rest.push(await executeKuzmichTool('get_tours', { activity_type: word, page: String(n) }, { surface: 'mcp' }));
+        return [first, ...rest];
+      };
+      /** slug тура сцены → блок, под чьим пояснением он стоит на своей странице. */
+      const placement = (pages: string[]) => {
+        const out: Record<string, 'type' | 'near' | 'far'> = {};
+        for (const text of pages) {
+          const found = text.includes(CATALOG_AS_SUBSTITUTE) ? text.slice(0, text.indexOf(CATALOG_AS_SUBSTITUTE)) : text;
+          let section: 'type' | 'near' | 'far' = 'type';
+          for (const line of found.split('\n')) {
+            if (line.includes(FAR_BLOCK_MARK)) section = 'far';
+            else if (/упоминают «|упоминается «/.test(line)) section = 'near';
+            const m = line.match(/^ID(\d+):/);
+            if (m && tpIds.has(m[1])) out[slugOf.get(m[1]) as string] = section;
+          }
+        }
+        return out;
+      };
+      // Кэш каталога: прежние тесты сдвигали часы до часа вперёд — дальше.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        // Главное место скрыто или слито — тура не называет (и места вулканы).
+        await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-hidden' WHERE slug = 'tp-twin'`);
+        await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-merged' WHERE slug = 'tp-approx'`);
+        vi.setSystemTime(Date.now() + 3 * 60 * 60 * 1000);
+        // Все места сцены — вулканы; в названиях туров слова «вулкан» нет.
+        expect(placement(await allPages('вулкан'))).toEqual({
+          'tp-exact': 'near', 'tp-vis': 'near', 'tp-both': 'near', 'tp-preset': 'near',
+        });
+        await pool.query(`UPDATE operator_tours SET main_place_id = NULL WHERE slug IN ('tp-twin', 'tp-approx')`);
+
+        // Описание и программа — блок (в). Программа читается так же, как её
+        // показывает get_tour_details (programSteps): пункт без заголовка и
+        // программа не массивом не читаются.
+        await pool.query(`UPDATE operator_tours SET description = 'С перевала видно озеро в соседней кальдере.' WHERE slug = 'tp-exact'`);
+        await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-vis'`,
+          [JSON.stringify([{ title: 'День 1', text: 'Наблюдение за медведями у ручья.' }])]);
+        await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-preset'`,
+          [JSON.stringify([{ text: 'Медведи без заголовка пункта.' }, { title: 2, text: 'Медведи под числовым заголовком.' },
+            { title: '   ', text: 'Медведи под пустым заголовком.' }])]);
+        await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-both'`,
+          [JSON.stringify('Медведи в программе-строке.')]);
+        await pool.query(`UPDATE operator_tours SET description = 'Озеро и медведи — но тур снят с витрины.' WHERE slug IN ('tp-draft', 'tp-deleted', 'tp-off')`);
+        vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+        expect(placement(await allPages('озеро'))).toEqual({ 'tp-exact': 'far' });
+        expect(placement(await allPages('медведи'))).toEqual({ 'tp-vis': 'far' });
+        // Имя компании сцены («Тест Главное Место») — не слово тура.
+        expect(placement(await allPages('главное место'))).toEqual({});
+      } finally {
+        vi.useRealTimers();
+        await pool.query(`UPDATE operator_tours SET description = NULL, program = NULL WHERE operator_id = $1`, [TP.id]);
+        await pool.query(`UPDATE operator_tours SET main_place_id = NULL WHERE slug IN ('tp-twin', 'tp-approx')`);
+      }
+    }, 30_000);
 
     it('китайские конспекты: место по главному месту живого тура — да; «рядом», без связи и непубличный тур — нет', async () => {
       const { loadZhPlaceSources } = await import('@/lib/zh/content');
