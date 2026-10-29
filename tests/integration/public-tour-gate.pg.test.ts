@@ -268,6 +268,57 @@ withPg('витрина туров: снятый тур не в плане и н�
     }
   });
 
+  it('каталог сайта (queryMarketplaceTours): порядок — правило 1в на тех же строках, цена — ничья правилом, ?sort=recent — как по умолчанию (29.10)', async () => {
+    const { queryMarketplaceTours, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
+    const { publicTourSql } = await import('@/lib/tours/public-visibility');
+    const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    const { orderOffersBy, compareTourOffers, offerOrderDay } = await import('@/lib/tours/offer-order');
+    // Одному из туров без даты — свободная дата: по правилу он встаёт впереди.
+    const dated = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM operator_tours WHERE slug = 'w2pt-expensive-7'`)).rows[0].id;
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 2, 6, FALSE)`, [dated],
+    );
+    try {
+      const storefront = (await pool.query<{ id: string; d: string | null; price: string | null }>(
+        `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d, ot.base_price::text AS price
+           FROM operator_tours ot JOIN partners p ON ot.operator_id = p.id
+          WHERE ${publicTourSql('ot')}`,
+      )).rows;
+      const day = offerOrderDay();
+      const listAll = async (sort: string) => {
+        const out: string[] = [];
+        let total = 0;
+        for (let offset = 0; ; offset += 100) {
+          const r = await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ sort, limit: 100, offset }));
+          total = r.total;
+          out.push(...r.tours.map((t) => String(t.id)));
+          if (r.tours.length < 100) break;
+        }
+        return { out, total };
+      };
+
+      const rec = await listAll('recommended');
+      expect(rec.total).toBe(storefront.length);
+      expect(rec.out).toEqual(orderOffersBy(storefront, (r) => ({ id: r.id, nearestFreeDate: r.d }), { day }).map((r) => r.id));
+      expect(rec.out.indexOf(dated)).toBeLessThan(rec.out.indexOf(storefront.find((r) => r.d == null)!.id));
+
+      expect((await listAll('recent')).out).toEqual(rec.out);
+
+      const rule = compareTourOffers(day);
+      const byPrice = [...storefront].sort((a, b) => {
+        const pa = a.price == null ? null : Number(a.price);
+        const pb = b.price == null ? null : Number(b.price);
+        if ((pa === null) !== (pb === null)) return pa === null ? 1 : -1;
+        if (pa !== null && pb !== null && pa !== pb) return pa - pb;
+        return rule({ id: a.id, nearestFreeDate: a.d }, { id: b.id, nearestFreeDate: b.d });
+      }).map((r) => r.id);
+      expect((await listAll('price_asc')).out).toEqual(byPrice);
+    } finally {
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [dated]);
+    }
+  });
+
   // ── Правило 1в (слово владельца 29.10): ближайшая свободная дата ─────────
   // Одно условие на все витрины (lib/tours/nearest-free-date). По нему строится
   // порядок, поэтому каждая граница судится здесь, на схеме прода.

@@ -544,7 +544,10 @@ describe('переведённые читатели — поведением: в
       return { rows: [] };
     });
     await getRecommendations('00000000-0000-4000-8000-000000000001', 6);
-    const candidates = sentQuery().filter((s) => /\bLIMIT\s+\$\d/.test(s) && !/FROM operator_bookings\s+WHERE user_id/.test(s));
+    // С 29.10 (правило 1в) у кандидатов нет LIMIT — потолок после порядка в
+    // TypeScript; кандидат — чтение тура, кроме профиля и видов туриста.
+    const candidates = sentQuery().filter((s) => /\b(?:FROM|JOIN)\s+operator_tours\b/.test(s)
+      && !/AVG\(base_price\)/.test(s) && !/SELECT DISTINCT activity_type AS category/.test(s));
     // похожие, по содержимому, эко и запасной список
     expect(candidates).toHaveLength(4);
     expect(candidates[0]).toContain(publicTourSql('t'));
@@ -806,7 +809,9 @@ describe('отборы ревью #2642 — поведением: в отпра�
     expect((await GET(new NextRequest('http://localhost/api/discovery/search?landscape=volcano'))).status).toBe(200);
     expectGated(sentQuery(), 'ai_tags');
     expect((await GET(new NextRequest('http://localhost/api/discovery/search?q=%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD'))).status).toBe(200);
-    expect(sentPool()).toHaveLength(2); // счёт и выдача
+    // Выдача одним запросом: число — длина отобранного списка, страница режется
+    // после порядка правила 1в (29.10), отдельного счёта нет.
+    expect(sentPool()).toHaveLength(1);
     expectGated(sentPool(), 'поиск по словам');
   });
 
@@ -956,16 +961,17 @@ describe('отборы ревью #2642 — поведением: в отпра�
       poolQueryMock.mockResolvedValue({ rows: [{ total: 0 }], rowCount: 1 });
       const res = await search('q=x&page=10000&limit=100&minPrice=0&maxPrice=1500.5&rating=4.5');
       expect(res.status).toBe(200);
-      // [счёт, выдача]; у выдачи последние два — LIMIT и OFFSET.
-      expect(poolQueryMock.mock.calls[1][1]).toEqual(['%x%', 0, 1500.5, 4.5, 100, 999_900]);
+      // Одна выдача; страница (LIMIT/OFFSET) режется после порядка правила 1в
+      // в TypeScript (29.10), до базы доходят только фильтры — числами.
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['%x%', 0, 1500.5, 4.5]);
 
       poolQueryMock.mockClear();
       expect((await search('q=x&page=&limit=&minPrice=')).status).toBe(200);
-      expect(poolQueryMock.mock.calls[1][1]).toEqual(['%x%', 20, 0]);
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['%x%']);
 
       queryMock.mockResolvedValue(empty);
       expect((await search('landscape=volcano&page=3&limit=5')).status).toBe(200);
-      expect(queryMock.mock.calls[0][1]).toEqual(['volcano', 5, 10]);
+      expect(queryMock.mock.calls[0][1]).toEqual(['volcano']);
 
       poolQueryMock.mockClear();
       expect((await day('date=2099-02-28&activity=fishing')).status).toBe(200);

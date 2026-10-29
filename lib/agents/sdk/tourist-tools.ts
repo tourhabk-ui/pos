@@ -19,6 +19,8 @@ import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { OFFER_ORDER_NOTE_AGENT, orderOffersBy } from '@/lib/tours/offer-order';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -112,7 +114,6 @@ const searchTours: SDKTool = {
     }
 
     const limit = Math.min(Number(args.limit) || 5, 10);
-    params.push(limit);
 
     const sql = `
       SELECT t.id, t.title, t.base_price, t.activity_type,
@@ -127,12 +128,11 @@ const searchTours: SDKTool = {
              -- reviews сравнивал uuid с bigint (42883) и ронял ВЕСЬ запрос:
              -- поиск туров у Кузьмича не работал никогда.
              t.rating AS avg_rating,
-             t.review_count AS review_count
+             t.review_count AS review_count,
+             ${nearestFreeDateSql('t')} AS nearest_free_date
       FROM operator_tours t
       JOIN partners p ON p.id = t.operator_id
       WHERE ${conditions.join(' AND ')}
-      ORDER BY t.base_price ASC
-      LIMIT $${idx}
     `;
 
     try {
@@ -140,9 +140,17 @@ const searchTours: SDKTool = {
       if (result.rows.length === 0) {
         return JSON.stringify({ found: 0, message: 'Туров по таким критериям не найдено. Попробуй расширить параметры поиска.' });
       }
+      // Порядок — правило 1в (слово владельца 29.10), а не «дешевле выше»;
+      // потолок — после порядка, и число всех найденных называется.
+      const ordered = orderOffersBy(result.rows as Record<string, unknown>[], (r) => ({
+        id: String(r.id),
+        nearestFreeDate: typeof r.nearest_free_date === 'string' ? r.nearest_free_date : null,
+      }));
       return JSON.stringify({
-        found: result.rows.length,
-        tours: result.rows.map((r: Record<string, unknown>) => ({
+        found: ordered.length,
+        shown: Math.min(limit, ordered.length),
+        order: OFFER_ORDER_NOTE_AGENT,
+        tours: ordered.slice(0, limit).map((r: Record<string, unknown>) => ({
           id: r.id,
           title: r.title,
           price: `${r.base_price} руб.`,
@@ -157,7 +165,10 @@ const searchTours: SDKTool = {
           // ровно то, за что находка аудита 08.09 поймала соседний инструмент.
           capacity_hint: r.available_slots ? `вместимость ${r.available_slots}` : 'уточняйте',
           free_places: 'не проверено — спроси check_availability',
-          next_date: r.next_available_date ?? 'уточняйте',
+          // Ближайшая дата со свободными местами — то же условие, что у
+          // порядка (lib/tours/nearest-free-date); денормализованная
+          // next_available_date могла устареть.
+          next_date: r.nearest_free_date ?? 'свободной даты в календаре нет — уточняйте',
           operator: r.operator_name,
           rating: r.avg_rating ? `${r.avg_rating}/5 (${r.review_count} отзывов)` : 'нет отзывов',
         })),

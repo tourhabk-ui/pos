@@ -33,6 +33,8 @@ import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -150,7 +152,15 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
     pool.query('UPDATE kamchatka_routes SET view_count = view_count + 1 WHERE id = $1', [routeDbId]).catch(() => {});
   }
 
-  // Загружаем предложения операторов из operator_tours (через v_route_marketplace)
+  // Загружаем предложения операторов из operator_tours (через v_route_marketplace).
+  //
+  // Порядок — правило 1в (слово владельца 29.10), а не `marketplace_score`
+  // вьюхи: тот складывал рейтинг тура с КОМИССИЕЙ платформы, то есть
+  // оператор с меньшей ставкой стоял выше — место в списке продавалось.
+  // Вьюха — не наш SQL, поэтому ближайшая свободная дата читается отдельным
+  // батчем (lib/tours/nearest-free-date) и порядок задаётся в TypeScript.
+  // Отказ батча — в лог, туры идут жребием дня (§4.0): «не смог» не роняет
+  // карточку и не выдаётся за «дат нет» на экране — даты рисует вьюха.
   let offers: unknown[] = [];
   {
     const offersResult = await query(
@@ -181,21 +191,27 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.operator_verified,
          v.tour_image,
          v.operator_hero_image,
-         v.commission_rate,
          v.next_departure_date,
          v.next_departure_slots,
-         v.marketplace_score,
          p.is_public AS operator_public
        FROM v_route_marketplace v
        -- Открыта ли карточка оператора — из partners, а не «по построению»
        -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
        JOIN partners p ON p.id = v.operator_id
-       WHERE v.route_id = $1
-       ORDER BY v.marketplace_score DESC`,
+       WHERE v.route_id = $1`,
       [routeDbId]
     );
 
-    offers = offersResult.rows.map(o => ({
+    const nearest = await loadNearestFreeDates(offersResult.rows.map(o => String(o.tour_id)));
+    const nearestOf = (id: unknown): string | null =>
+      nearest.state === 'ok' ? nearest.byId.get(String(id)) ?? null : null;
+    const ordered = orderOffersBy(
+      offersResult.rows,
+      o => ({ id: String(o.tour_id), nearestFreeDate: nearestOf(o.tour_id) }),
+      { day: offerOrderDay() },
+    );
+
+    offers = ordered.map(o => ({
       tourId:           Number(o.tour_id),
       tourName:         o.tour_name as string,
       shortDesc:        (o.tour_short_desc as string | null) ?? null,

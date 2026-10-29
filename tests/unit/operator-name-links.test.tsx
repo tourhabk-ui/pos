@@ -155,7 +155,8 @@ describe('источники данных отдают slug и is_public ряд�
   });
 
   it('витрина: смена формы строки — смена ключа кэша', () => {
-    expect(read('lib/search/tour-search.ts')).toMatch(/\['marketplace-tours-query-v3', JSON\.stringify\(filters\)\]/);
+    // v4 (29.10, правило 1в): строка несёт nearest_free_date, в ключе — день Камчатки.
+    expect(read('lib/search/tour-search.ts')).toMatch(/\['marketplace-tours-query-v4', offerOrderDay\(\), JSON\.stringify\(filters\)\]/);
   });
 
   it('«Туры по запросу»: страница копирует slug и is_public в блок', () => {

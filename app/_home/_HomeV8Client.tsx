@@ -39,7 +39,7 @@ import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
   dataFreshness, freshnessDot, freshnessShort,
 } from '@/lib/home/data-freshness';
-import { plateFacts } from '@/lib/home/plate-facts';
+import { plateFacts, HOME_PLATES_ORDER_NOTE } from '@/lib/home/plate-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
@@ -616,6 +616,8 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                 )}
               </div>
             )}
+            {/* Правило порядка — словами под лентой (правило 1в, 29.10). */}
+            <p className="mt-3 text-xs leading-relaxed text-[var(--text-secondary)]">{HOME_PLATES_ORDER_NOTE}</p>
             {intentChips}
             {feed.length > 0 && (
               <div className="arrivals">

@@ -11,7 +11,7 @@ import Image from 'next/image';
 import {
   ArrowLeft, MapPin, Clock, Calendar, AlertTriangle, Users, Send,
   Star, CheckCircle, Phone, ChevronLeft, ChevronRight,
-  TrendingUp, MessageSquare,
+  MessageSquare,
   Download, Navigation, ShieldAlert, ExternalLink, FileText,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -21,6 +21,8 @@ import { SURFACE_TYPES as SURFACE_LABELS } from '@/lib/import/elevation-profile'
 import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
+import { RouteOfferSortBar } from '@/components/routes/RouteOfferSortBar';
+import { sortRouteOffers, type RouteOfferSort } from '@/lib/routes/route-offer-sort';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
@@ -504,7 +506,8 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [showAllOffers, setShowAllOffers] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [sortBy, setSortBy] = useState<'price' | 'rating' | 'date' | 'slots'>('price');
+  // 'order' — порядок сервера (правило 1в); цену, дату и места включает турист.
+  const [sortBy, setSortBy] = useState<RouteOfferSort>('order');
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000000]);
   const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
@@ -801,30 +804,14 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
 
   // Фильтрация и сортировка туров
   const allOffers = route.offers ?? [];
-  const filteredOffers = allOffers
+  const filteredOffers = sortRouteOffers(allOffers
     .filter(o => {
       const price = o.effectivePrice ?? o.priceBase ?? 0;
       if (price < priceRange[0] || price > priceRange[1]) return false;
       if (filterDifficulty && o.difficulty !== filterDifficulty) return false;
       if (filterDurationType && o.durationType !== filterDurationType) return false;
       return true;
-    })
-    .sort((a, b) => {
-      const priceA = a.effectivePrice ?? a.priceBase ?? 0;
-      const priceB = b.effectivePrice ?? b.priceBase ?? 0;
-      const ratingA = a.rating ?? 0;
-      const ratingB = b.rating ?? 0;
-      const dateA = a.nextDeparture ? new Date(a.nextDeparture).getTime() : Infinity;
-      const dateB = b.nextDeparture ? new Date(b.nextDeparture).getTime() : Infinity;
-
-      switch (sortBy) {
-        case 'price': return priceA - priceB;
-        case 'rating': return ratingB - ratingA;
-        case 'date': return dateA - dateB;
-        case 'slots': return (b.nextSlots ?? 0) - (a.nextSlots ?? 0);
-        default: return 0;
-      }
-    });
+    }), sortBy);
 
   const offers = filteredOffers;
   const maxPrice = allOffers.length > 0
@@ -1289,28 +1276,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
             {/* Фильтры и сортировка туров */}
             {allOffers.length > 1 && (
               <section className="space-y-3">
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {/* Сортировка */}
-                  <label className="flex-shrink-0 text-xs font-semibold text-[var(--text-muted)] pt-2">
-                    Сортировка:
-                  </label>
-                  {(['price', 'rating', 'date', 'slots'] as const).map(option => (
-                    <button
-                      key={option}
-                      onClick={() => setSortBy(option)}
-                      className={`flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                        sortBy === option
-                          ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
-                          : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]'
-                      }`}
-                    >
-                      {option === 'price' && <><TrendingUp className="w-3 h-3 inline mr-1" />Цена</>}
-                      {option === 'rating' && <><Star className="w-3 h-3 inline mr-1" />Рейтинг</>}
-                      {option === 'date' && <><Calendar className="w-3 h-3 inline mr-1" />Дата</>}
-                      {option === 'slots' && <><Users className="w-3 h-3 inline mr-1" />Места</>}
-                    </button>
-                  ))}
-                </div>
+                {/* Порядок туров: по умолчанию правило 1в с подписью; цену, дату
+                    и места включает сам турист (слово владельца 29.10). */}
+                <RouteOfferSortBar sortBy={sortBy} onChange={setSortBy} />
 
                 <div className="flex gap-2 flex-wrap">
                   {/* Сложность */}

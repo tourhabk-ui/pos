@@ -159,7 +159,9 @@ async function respondList(
   offset: number,
   sort: SkillState['sort'],
 ): Promise<AliceResponse> {
-  const result = await fetchTours({ sort, limit: PAGE_SIZE, offset });
+  // «Новые» сняты правилом 1в (29.10): старое состояние с 'recent' идёт
+  // порядком платформы, как и ссылка каталога ?sort=recent.
+  const result = await fetchTours({ sort: sort === 'recent' ? 'recommended' : sort, limit: PAGE_SIZE, offset });
 
   if (result.total === 0) {
     return {

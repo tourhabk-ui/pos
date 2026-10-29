@@ -20,6 +20,9 @@ import { priceFrom } from '@/lib/tours/price-label';
 import { priceUnitLabel } from '@/lib/tours/labels';
 import { plural } from '@/lib/home/data-freshness';
 import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
+import {
+  groupOffersByCompany, offerOrderDay, roundRobinByCompany, type OfferOrderOptions,
+} from '@/lib/tours/offer-order';
 
 export interface PlateFactsInput {
   priceFrom: number | null;
@@ -65,48 +68,62 @@ export function plateFacts(p: PlateFactsInput): PlateFacts {
 /** Сколько туров помещается на витрину главной. */
 export const PLATES_LIMIT = 8;
 
-/** Порядок витрины: даты есть → даты по запросу → сезон кончился (в конец). */
+/** Порядок витрины по сезону: открытые (даты есть или по запросу) → сезон кончился (в конец). */
 export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0, on_request: 1, season_over: 2 };
 
 /**
- * Порядок туров на витрине главной. Тур с кончившимся сезоном не прячется, а
- * уходит в конец — иначе он занимал бы первую карточку на первом экране, куда
- * его ставит выборка по фото и свежести. Сезон решает `catalogAvailability`
- * (правило каталога), здесь только порядок. Затем — не больше `PLATES_LIMIT`.
- *
- * Внутри открытых туров операторы идут по очереди (08.10, жалоба владельца
- * «в ленте на главной только рыбалка»). Строгое «даты → по запросу» отдавало
- * все восемь мест одному оператору: у рыбалки девять туров с датами, у «Края
- * Вулканов» одиннадцать туров с датами по запросу — и ни один из них на
- * витрину не попадал. Теперь у каждого оператора своя очередь в прежнем
- * порядке (даты → по запросу → выборка), а операторы встают в круг в порядке
- * своего лучшего тура. Тур без имени оператора — сам себе очередь.
+ * Подпись блока туров главной (правило 1в, слово владельца 29.10, и поправка
+ * того же дня: «фото не потянулись?»). Называет всё, чем решается витрина:
+ * порядок, круг компаний, конец для кончившегося сезона и допуск по снимку.
  */
-export function orderPlates<T extends { availability: CatalogAvailability; operatorName?: string | null }>(
-  plates: readonly T[],
-): T[] {
-  const ranked = plates
-    .map((p, i) => ({ p, i }))
-    .sort((a, b) => AVAILABILITY_RANK[a.p.availability] - AVAILABILITY_RANK[b.p.availability] || a.i - b.i);
-  const open = ranked.filter(({ p }) => p.availability !== 'season_over');
-  const closed = ranked.filter(({ p }) => p.availability === 'season_over');
-  return [...byOperatorTurns(open), ...byOperatorTurns(closed)].slice(0, PLATES_LIMIT);
+export const HOME_PLATES_ORDER_NOTE =
+  'Порядок: сначала туры со свободными местами — по ближайшему выезду, компании по очереди; остальные раз в сутки меняются местами по жребию, туры с закончившимся сезоном — в конце. На главной — туры со снимками; все туры — в каталоге. Место в списке не продаётся.';
+
+export interface PlateOrderInput {
+  id: string;
+  availability: CatalogAvailability;
+  /** Главный кадр тура (tourHeroImageSql); нет снимка — на главную не берётся. */
+  imageUrl: string | null;
+  /** partners.id — компания; одна очередь и один билет жребия на компанию. */
+  partnerId?: string | null;
+  operatorName?: string | null;
+  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. */
+  nearestFreeDate?: string | null;
 }
 
-/** Круг по операторам: первый тур каждого, затем второй каждого и так далее. */
-function byOperatorTurns<T extends { operatorName?: string | null }>(items: readonly { p: T; i: number }[]): T[] {
-  const queues = new Map<string, T[]>();
-  for (const { p, i } of items) {
-    const name = p.operatorName?.trim();
-    const key = name ? `op:${name}` : `tour:${i}`;
-    const q = queues.get(key);
-    if (q) q.push(p);
-    else queues.set(key, [p]);
-  }
-  const out: T[] = [];
-  const lists = [...queues.values()];
-  for (let turn = 0; out.length < items.length; turn++) {
-    for (const q of lists) if (turn < q.length) out.push(q[turn]);
-  }
-  return out;
+/**
+ * Туры витрины главной — правило 1в (слово владельца 29.10).
+ *
+ * Допуск: только туры со снимком. Главная — витрина снимков, и 29.10 первыми в
+ * «Турах сезона» встали туры с серой заглушкой (у них не было сезона, у
+ * остальных он кончился). Правило одно для всех компаний — это допуск, а не
+ * поднятие; туры без снимка остаются в каталоге, на карточке места, у
+ * Кузьмича и в MCP.
+ *
+ * Порядок: открытые туры, затем с кончившимся сезоном (`catalogAvailability`,
+ * правило каталога, без своей копии порогов). В каждой части — группы по
+ * компаниям (`groupOffersByCompany`: компания с ближайшей свободной датой
+ * выше, ничьи — жребий дня компании, один билет на компанию, сколько бы туров
+ * у неё ни было) и круг по компаниям (`roundRobinByCompany`): одна компания
+ * не забирает витрину (жалоба владельца 08.10 «только рыбалка»). Новизна и
+ * «с фото выше» в порядок не входят. Затем — не больше `PLATES_LIMIT`.
+ *
+ * Тур без компании — сам себе очередь.
+ */
+export function orderPlates<T extends PlateOrderInput>(plates: readonly T[], opts?: OfferOrderOptions): T[] {
+  const day = opts?.day ?? offerOrderDay(opts?.now ?? new Date());
+  const withPhoto = plates.filter((p) => typeof p.imageUrl === 'string' && p.imageUrl.trim() !== '');
+  const turns = (part: readonly T[]): T[] => roundRobinByCompany(groupOffersByCompany(
+    part.map((p) => ({
+      plate: p,
+      id: p.id,
+      nearestFreeDate: p.nearestFreeDate ?? null,
+      partnerId: p.partnerId?.trim() ? p.partnerId.trim() : `tour:${p.id}`,
+      partnerName: p.operatorName ?? '',
+    })),
+    { day },
+  )).map((x) => x.plate);
+  const open = withPhoto.filter((p) => p.availability !== 'season_over');
+  const closed = withPhoto.filter((p) => p.availability === 'season_over');
+  return [...turns(open), ...turns(closed)].slice(0, PLATES_LIMIT);
 }

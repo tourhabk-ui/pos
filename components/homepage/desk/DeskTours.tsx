@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, BedDouble, Bus, CalendarCheck, CalendarX, MessageSquareText, RotateCcw } from 'lucide-react';
 import type { Plate } from '@/app/_home/data';
-import { plateFacts } from '@/lib/home/plate-facts';
+import { plateFacts, HOME_PLATES_ORDER_NOTE } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
@@ -15,8 +15,11 @@ import { rentalSitePauseActive } from '@/lib/rental/site-pause';
  * «Можно поехать» — туры витрины крупной карточкой и строками (доска
  * «Десктоп — сводка дня», 30.09).
  *
- * Источник один с телефоном — fetchPlates: порядок (операторы по очереди, у каждого сначала туры с датами),
- * фильтр живого тура и правило сезона общие на оба дерева. Факты карточки —
+ * Источник один с телефоном — fetchPlates: туры со снимком, порядок по
+ * правилу 1в (слово владельца 29.10: сначала со свободными местами по
+ * ближайшему выезду, остальные жребием дня, компании по очереди), фильтр
+ * живого тура и правило сезона общие на оба дерева. Правило названо подписью
+ * под блоком (HOME_PLATES_ORDER_NOTE). Факты карточки —
  * plateFacts, как у каталога. Чего в данных нет, того нет и здесь: вместо
  * выдуманных «12 мест» и «сегодня» — исход по датам словами
  * (AVAILABILITY_LABEL), вместо сочинённой заметки о погоде — дословные
@@ -239,6 +242,7 @@ export function DeskTours({ plates, transfer = null, stay = null, total, rentalD
       </div>
 
       {first ? (
+        <>
         <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14">
           <div className="lg:col-span-7"><Featured p={first} /></div>
           <div className="flex flex-col lg:col-span-5">
@@ -258,6 +262,9 @@ export function DeskTours({ plates, transfer = null, stay = null, total, rentalD
             </Link>
           </div>
         </div>
+        {/* Правило порядка — словами под блоком (правило 1в, 29.10). */}
+        <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{HOME_PLATES_ORDER_NOTE}</p>
+        </>
       ) : (
         <p className="border-t border-[var(--border)] py-5 text-[15px] text-[var(--text-secondary)]">
           Витрину туров сейчас загрузить не удалось — полный список в <Link href="/catalog" className="text-[var(--ocean)]">каталоге</Link>.

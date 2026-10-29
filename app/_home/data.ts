@@ -33,7 +33,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
-import { hasAvailabilitySql } from '@/lib/search/tour-search';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
@@ -118,6 +118,10 @@ export interface Plate {
   cancellationPolicy: string | null;
   /** Исход по датам и сезону — тем же правилом, что карточка каталога. */
   availability: CatalogAvailability;
+  /** partners.id — компания тура: очередь круга и жребий дня компании (правило 1в). */
+  partnerId?: string | null;
+  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
+  nearestFreeDate?: string | null;
 }
 /**
  * Место для «Исследовать» — направление «сам» (решение владельца 25.09:
@@ -345,7 +349,7 @@ export async function fetchPlates(): Promise<Plate[]> {
   // «Туры сезона» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
   // места/маршруты. Прежде тянули из agent_route_knowledge (места+маршруты,
   // туров там нет) и добивали маршрутами — на телефоне коммерция была спрятана.
-  // Теперь только коммерция: опубликованные туры, сначала с фото. Нет туров →
+  // Теперь только коммерция: опубликованные туры со снимком. Нет туров →
   // пустой массив (блок честно не рисуется), никаких мест-заглушек.
   //
   // Аудит 24.09 (#39/#120/#122): карточка знала только цену. Теперь выборка
@@ -353,14 +357,18 @@ export async function fetchPlates(): Promise<Plate[]> {
   // единицу цены и условия отмены (дословно из поля тура, решение владельца
   // 24.09 п.3), — и то, чем решается порядок: даты и сезон. Тур с кончившимся
   // сезоном не прячется, а уходит в конец — тем же правилом, что в каталоге
-  // (lib/tours/catalog-availability), без своей копии порогов. LIMIT шире
-  // витрины: сортировка по сезону идёт после выборки, и закрытый тур не
-  // должен занимать место открытого.
+  // (lib/tours/catalog-availability), без своей копии порогов.
   //
-  // «Живой тур» и «даты есть» — не свои копии, а фрагменты каталога
-  // (шлюз витрины publicTourSql и lib/search/tour-search hasAvailabilitySql): та же
-  // витрина, тот же ответ для того же тура. JOIN partners — как в каталоге и
-  // его сводке: тур без оператора каталог не показывает, и главная не должна.
+  // С 29.10 (правило 1в, слово владельца) порядок — не «с фото, потом
+  // новые» и не LIMIT 24 по свежести, а правило в TypeScript (orderPlates):
+  // выбираются ВСЕ живые туры, снимок — допуск на главную, порядок — по
+  // ближайшей свободной дате и жребию дня, компании по очереди.
+  //
+  // «Живой тур» и «даты есть» — не свои копии, а общие фрагменты: шлюз
+  // витрины publicTourSql и «ближайшая свободная дата» nearestFreeDateSql
+  // (на ней же стоит hasAvailabilitySql каталога): «даты есть» — это «есть
+  // ближайшая свободная дата». JOIN partners — как в каталоге и его сводке:
+  // тур без оператора каталог не показывает, и главная не должна.
   try {
     const { rows } = await query<{
       id: string; slug: string | null; title: string; description: string | null;
@@ -369,7 +377,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       operator_slug: string | null; operator_public: boolean | null;
       duration_hours: string | null; duration_type: string | null; multi_day_count: number | null;
       season_start: string | null; season_end: string | null;
-      cancellation_policy: string | null; has_availability: boolean;
+      cancellation_policy: string | null; partner_id: string; nearest_free_date: string | null;
     }>(`
       SELECT ot.id::text, ot.slug, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
@@ -382,14 +390,11 @@ export async function fetchPlates(): Promise<Plate[]> {
              ot.duration_hours::text, ot.duration_type, ot.multi_day_count,
              ot.season_start::text, ot.season_end::text,
              NULLIF(btrim(ot.cancellation_policy), '') AS cancellation_policy,
-             ${hasAvailabilitySql()} AS has_availability
+             p.id::text AS partner_id,
+             ${nearestFreeDateSql('ot')} AS nearest_free_date
         FROM operator_tours ot
         JOIN partners p ON ot.operator_id = p.id
        WHERE ${publicTourSql('ot')}
-       ORDER BY (ot.tour_image IS NOT NULL
-                 OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
-                ot.created_at DESC
-       LIMIT 24
     `);
     const plates: Plate[] = rows.map((r) => {
       const multi = r.multi_day_count == null ? null : Number(r.multi_day_count);
@@ -413,8 +418,10 @@ export async function fetchPlates(): Promise<Plate[]> {
         multiDayCount: multi,
         durationHours: hours,
         cancellationPolicy: r.cancellation_policy,
+        partnerId: r.partner_id,
+        nearestFreeDate: r.nearest_free_date,
         availability: catalogAvailability({
-          has_availability: r.has_availability,
+          has_availability: r.nearest_free_date != null,
           season_start: r.season_start,
           season_end: r.season_end,
           duration_type: r.duration_type,

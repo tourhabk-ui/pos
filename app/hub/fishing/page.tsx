@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 import { FishingPageClient } from './_FishingPageClient';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
@@ -54,6 +56,8 @@ interface FishingTour {
   /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
   operator_slug: string | null;
   operator_public: boolean | null;
+  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
+  nearest_free_date?: string | null;
 }
 
 async function getFishingTours(): Promise<FishingTour[]> {
@@ -64,14 +68,15 @@ async function getFishingTours(): Promise<FishingTour[]> {
       ot.max_participants, ot.min_participants,
       ot.difficulty, ot.photos, ot.included,
       ot.season_start::text, ot.season_end::text,
-      p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
+      p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
+      ${nearestFreeDateSql('ot')} AS nearest_free_date
     FROM operator_tours ot
     JOIN partners p ON p.id = ot.operator_id
     WHERE ot.activity_type = 'fishing'
       AND ${publicTourSql('ot')}
-    ORDER BY ot.base_price ASC
   `);
-  return rows;
+  // Порядок — правило 1в (слово владельца 29.10), а не «дешевле выше».
+  return orderOffersBy(rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }));
 }
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';

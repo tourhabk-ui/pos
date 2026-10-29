@@ -15,12 +15,17 @@
  * ставку назначает владелец платформы, и число, выдуманное здесь, агент
  * принял бы за обещание (§4.0, §7). Цена отдаётся вместе с единицей
  * (`price_unit`) — «за группу» и «за человека» разные деньги.
+ *
+ * Порядок — правило 1в (слово владельца 29.10): дата выезда — фильтр запроса
+ * и первый ключ (раньше — выше), внутри одной даты туры идут жребием дня, а
+ * не «дешевле выше», как до 29.10. Потолок `limit` — после порядка.
  */
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { requireAgent } from '@/lib/auth/middleware';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +61,7 @@ export async function GET(req: NextRequest) {
   const dateStart = date ?? date_from ?? new Date().toISOString().split('T')[0];
   const dateEnd   = date ?? date_to   ?? dateStart;
 
-  const params: unknown[] = [dateStart, dateEnd, group_size, limit];
+  const params: unknown[] = [dateStart, dateEnd, group_size];
   let activityFilter = '';
   if (activity_type) {
     params.push(activity_type);
@@ -101,8 +106,6 @@ export async function GET(req: NextRequest) {
       AND t.deleted_at    IS NULL
       AND GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) >= $3
       ${activityFilter}
-    ORDER BY a.date ASC, price ASC
-    LIMIT $4
   `;
 
   let rows;
@@ -118,14 +121,20 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Строка — пара «тур × дата»: ключ правила — эта дата.
+  const data = orderOffersBy(rows.rows, (r) => ({
+    id: String(r.tour_id),
+    nearestFreeDate: typeof r.available_date === 'string' ? r.available_date : null,
+  })).slice(0, limit);
+
   return NextResponse.json({
     success: true,
-    data: rows.rows,
+    data,
     meta: {
       date_start: dateStart,
       date_end:   dateEnd,
       group_size,
-      total:      rows.rowCount ?? 0,
+      total:      data.length,
     },
   });
 }

@@ -8,12 +8,18 @@
  * Комиссия агента — `null`, а не `base_price × 0.10`, как было до 26.09.
  * Ставку вознаграждения назначает владелец платформы; число, выдуманное
  * здесь, агент принял бы за обещание (§4.0, §7).
+ *
+ * Порядок — правило 1в (слово владельца 29.10): сначала туры со свободной
+ * датой по ближайшему выезду, остальные — жребием дня; до 29.10 — по
+ * названию с потолком 200, который резал хвост алфавита молча.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAgent } from '@/lib/auth/middleware';
 import { normalizePriceUnit } from '@/lib/tours/booking-total';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +36,7 @@ interface TourRow {
   season_start: string | null;
   season_end: string | null;
   operator_name: string | null;
+  nearest_free_date: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -42,15 +49,15 @@ export async function GET(request: NextRequest) {
               t.duration_hours::text AS duration_hours, t.multi_day_count,
               t.base_price::text AS base_price, t.price_unit, t.max_participants,
               t.season_start::text AS season_start, t.season_end::text AS season_end,
-              COALESCE(p.company_name, p.name) AS operator_name
+              COALESCE(p.company_name, p.name) AS operator_name,
+              ${nearestFreeDateSql('t')} AS nearest_free_date
          FROM operator_tours t
          JOIN partners p ON t.operator_id = p.id
-        WHERE t.is_published = true AND t.is_active = true AND t.deleted_at IS NULL
-        ORDER BY t.title
-        LIMIT 200`,
+        WHERE t.is_published = true AND t.is_active = true AND t.deleted_at IS NULL`,
     );
 
-    const tours = rows.map(row => ({
+    const ordered = orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null }));
+    const tours = ordered.map(row => ({
       id:            row.id,
       name:          row.title,
       description:   row.description,
@@ -63,6 +70,7 @@ export async function GET(request: NextRequest) {
       seasonStart:   row.season_start,
       seasonEnd:     row.season_end,
       operatorName:  row.operator_name,
+      nearestFreeDate: row.nearest_free_date ?? null,
       // Ставку назначает владелец платформы — здесь её нет, и выдумывать нельзя.
       commission:    null,
     }));

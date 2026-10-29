@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
+import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
 
 interface FishingTour {
   id: number;
@@ -229,6 +230,9 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
           ))}
         </div>
       </div>
+
+      {/* Правило порядка — словами на странице (правило 1в, 29.10). */}
+      <p className="-mt-3 mb-5 text-xs leading-relaxed text-[var(--text-secondary)]">{OFFER_ORDER_NOTE.ru}</p>
 
       {/* ── Карточки туров ──────────────────────────────────────────── */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-12">

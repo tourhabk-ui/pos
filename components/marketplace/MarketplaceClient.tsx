@@ -12,6 +12,7 @@ import {
   X, ChevronDown, Mountain, ArrowRight, Send,
 } from 'lucide-react';
 import type { CatalogSummary } from '@/lib/search/tour-search';
+import { OFFER_ORDER_NOTE, SORT_CHOICE_NOTE_RU } from '@/lib/tours/offer-order';
 import { activityIcon, iconSpeaksInRow } from '@/lib/tours/activity-icons';
 import {
   catalogAvailability, isInSeason, AVAILABILITY_LABEL, type CatalogAvailability,
@@ -93,12 +94,25 @@ const ACTIVITY_IMAGES: Record<string, string> = {
   snowmobile: '/images/activities/snowmobile.jpg',
 };
 
+/**
+ * Порядок по умолчанию — правило 1в (слово владельца 29.10): сначала туры со
+ * свободными местами по ближайшему выезду, остальные — жребием дня. Это не
+ * «рекомендуемые»: платформа никого не рекомендует выше других. «Новые» сняты —
+ * новизна в порядок не входит. Цену включает сам турист, с подписью под выбором.
+ */
 const SORT_OPTIONS = [
-  { value: 'recommended', label: 'Рекомендуемые' },
+  { value: 'recommended', label: 'Сначала со свободными местами' },
   { value: 'price_asc',   label: 'Цена: дешевле' },
   { value: 'price_desc',  label: 'Цена: дороже' },
-  { value: 'recent',      label: 'Новые' },
 ];
+
+/** Старый адрес `?sort=recent` — порядок по правилу; незнакомое — тоже. */
+function sortFromUrl(v: string | null): string {
+  return SORT_OPTIONS.some(o => o.value === v) ? (v as string) : 'recommended';
+}
+
+/** Сколько туров дозапрашивает «Показать ещё» — тот же размер, что первая страница. */
+const PAGE_SIZE = 50;
 
 const DIFFICULTY_OPTIONS = [
   { value: '',       label: 'Любая' },
@@ -547,6 +561,8 @@ export default function MarketplaceClient({
   const [tours, setTours] = useState<Tour[]>(initialTours ?? []);
   const [total, setTotal] = useState(initialTotal);
   const [loading, setLoading] = useState(initialKey === null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -573,7 +589,7 @@ export default function MarketplaceClient({
     setSearchTerm(search);
     setDebouncedSearch(search);
     setActivityFilter(sp.get('activity_type') ?? '');
-    setSort(sp.get('sort') ?? 'recommended');
+    setSort(sortFromUrl(sp.get('sort')));
     setDifficulty(sp.get('difficulty') ?? '');
     const price = sp.get('price') ?? '';
     setPriceRange(PRICE_RANGES.some(r => r.value === price) ? price : '');
@@ -643,6 +659,20 @@ export default function MarketplaceClient({
       .catch(err => console.warn('[catalog] избранное не загружено', err instanceof Error ? err.message : err));
   }, []);
 
+  /** Параметры запроса из текущих фильтров — один сборщик для списка и «Показать ещё». */
+  const buildParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.append('search', debouncedSearch);
+    if (activityFilter) params.append('activity_type', activityFilter);
+    if (sort && sort !== 'recommended') params.append('sort', sort);
+    if (difficulty) params.append('difficulty', difficulty);
+    if (durationType) params.append('duration_type', durationType);
+    const { price_min, price_max } = getPriceParams();
+    if (price_min != null) params.append('price_min', String(price_min));
+    if (price_max != null) params.append('price_max', String(price_max));
+    return params;
+  }, [debouncedSearch, activityFilter, sort, difficulty, durationType, getPriceParams]);
+
   // Fetch tours
   useEffect(() => {
     if (initialKeyRef.current !== null) {
@@ -659,18 +689,11 @@ export default function MarketplaceClient({
       initialKeyRef.current = null;
       if (matched) return;
     }
-    const params = new URLSearchParams();
-    if (debouncedSearch) params.append('search', debouncedSearch);
-    if (activityFilter) params.append('activity_type', activityFilter);
-    if (sort && sort !== 'recommended') params.append('sort', sort);
-    if (difficulty) params.append('difficulty', difficulty);
-    if (durationType) params.append('duration_type', durationType);
-    const { price_min, price_max } = getPriceParams();
-    if (price_min != null) params.append('price_min', String(price_min));
-    if (price_max != null) params.append('price_max', String(price_max));
+    const params = buildParams();
 
     setLoading(true);
     setError('');
+    setMoreError('');
     fetch(`/api/hub/marketplace/tours?${params}`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -685,7 +708,38 @@ export default function MarketplaceClient({
         setError('Не удалось загрузить туры. Попробуйте обновить страницу.');
       })
       .finally(() => setLoading(false));
-  }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, getPriceParams]);
+  }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, buildParams]);
+
+  /**
+   * «Показать ещё»: следующая страница того же порядка, дописывается в
+   * список. До 29.10 каталог показывал 50 туров и молчал об остальных.
+   * Отказ не глушится: сообщение у кнопки, уже показанное остаётся.
+   */
+  const loadMore = useCallback(() => {
+    const params = buildParams();
+    params.append('offset', String(tours.length));
+    params.append('limit', String(PAGE_SIZE));
+    setLoadingMore(true);
+    setMoreError('');
+    fetch(`/api/hub/marketplace/tours?${params}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data: { tours?: Tour[]; total?: number }) => {
+        const next = data?.tours ?? [];
+        setTours(prev => {
+          const seen = new Set(prev.map(t => t.id));
+          return [...prev, ...next.filter(t => !seen.has(t.id))];
+        });
+        if (data?.total != null) setTotal(data.total);
+      })
+      .catch(err => {
+        console.error('[catalog] следующие туры не загружены', err instanceof Error ? err.message : err);
+        setMoreError('Следующие туры не загрузились. Попробуйте ещё раз.');
+      })
+      .finally(() => setLoadingMore(false));
+  }, [buildParams, tours.length]);
 
   // Sync URL — deep-link на текущие фильтры всегда актуален. Первый прогон
   // пропускается: состояние ещё умолчательное, а адрес мог нести фильтры —
@@ -905,6 +959,15 @@ export default function MarketplaceClient({
             </button>
           </div>
 
+          {/* Правило порядка называется словами на самой странице (CLAUDE.md
+              §0, правило 1в). Обе строки видны всегда: при сортировке по цене
+              вторая говорит, что её включил сам турист, а без неё порядок —
+              как в первой. */}
+          <div className="mb-4 space-y-1 text-xs leading-relaxed text-[var(--text-secondary)]" data-testid="catalog-order-note">
+            <p>{OFFER_ORDER_NOTE.ru}</p>
+            <p>{SORT_CHOICE_NOTE_RU}</p>
+          </div>
+
           {/* Expandable Filter Panel */}
           {showFilters && (
             <div id="catalog-filters" className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5 mb-5 shadow-sm">
@@ -930,10 +993,11 @@ export default function MarketplaceClient({
             </div>
           )}
 
-          {/* Results count (на телефоне число уже в чипах и герое) */}
+          {/* Сколько показано из скольких — всегда, и на телефоне: список
+              может быть длиннее страницы, и это должно быть видно. */}
           {!loading && !error && total > 0 && (
-            <p className="hidden sm:block text-sm text-[var(--text-secondary)] mb-5">
-              {total} {plural(total, 'тур', 'тура', 'туров')}
+            <p className="text-sm text-[var(--text-secondary)] mb-5 tabular-nums" aria-live="polite">
+              Показано {tours.length} из {total} {plural(total, 'тура', 'туров', 'туров')}
             </p>
           )}
 
@@ -1005,6 +1069,23 @@ export default function MarketplaceClient({
                   />
                 </FragmentWithBanner>
               ))}
+            </div>
+          )}
+
+          {!loading && !error && tours.length > 0 && tours.length < total && (
+            <div className="mt-8 flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                aria-busy={loadingMore}
+                className="ds-btn ds-btn-secondary min-h-[44px] text-sm rounded-lg disabled:opacity-60"
+              >
+                {loadingMore ? 'Загружаем…' : `Показать ещё ${Math.min(PAGE_SIZE, total - tours.length)}`}
+              </button>
+              {moreError && (
+                <p role="alert" className="text-sm text-[var(--danger)]">{moreError}</p>
+              )}
             </div>
           )}
         </div>

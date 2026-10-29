@@ -10,6 +10,8 @@ import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { fishMetaDescription } from '@/lib/seo/fish-description';
@@ -68,6 +70,8 @@ interface FishingTour {
   operator_slug: string | null;
   operator_public: boolean | null;
   duration_hours: number;
+  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
+  nearest_free_date?: string | null;
 }
 
 async function getFishingTours(): Promise<FishingTour[]> {
@@ -75,15 +79,16 @@ async function getFishingTours(): Promise<FishingTour[]> {
     const result = await query<FishingTour>(`
       SELECT ot.id::int, ot.slug, ot.title, ot.base_price::float,
              ot.duration_hours::float,
-             p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
+             p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
+             ${nearestFreeDateSql('ot')} AS nearest_free_date
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ot.activity_type = 'fishing'
         AND ${publicTourSql('ot')}
-      ORDER BY ot.base_price ASC
-      LIMIT 6
     `);
-    return result.rows;
+    // Порядок — правило 1в (слово владельца 29.10), а не «дешевле выше»;
+    // шесть первых — после порядка.
+    return orderOffersBy(result.rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null })).slice(0, 6);
   } catch (e) {
     // Без блока туров, а не с выдуманным, — но отказ виден (§4.0).
     const err = e as { code?: string; message?: string };
@@ -282,6 +287,7 @@ export default async function FishDetailPage({ params }: Props) {
                 style={{ fontFamily: 'var(--font-playfair)' }}>
                 Туры на рыбалку
               </h2>
+              <p className="-mt-2 mb-4 text-xs leading-relaxed text-[var(--text-secondary)]">{OFFER_ORDER_NOTE.ru}</p>
               <div className="space-y-3">
                 {tours.map(tour => (
                   <div
