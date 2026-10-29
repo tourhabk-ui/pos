@@ -40,8 +40,8 @@ import { pool } from '@/lib/db-pool';
 import { encryptBound, hasEncryptionKey } from '@/lib/encryption';
 import { logText } from '@/lib/log/log-text';
 import {
-  REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf,
-  type IssuedRequestKey, type RequestCore, type StatusRow,
+  REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf, issueRequestKey, issueRequestKeyRecord, keyLine,
+  type IssuedRequestKey, type RequestCore, type RequestKeyTarget, type StatusRow,
 } from '@/lib/mcp/request-status';
 import type { RequestKind, RequestState } from '@/lib/mcp/request-status-schema';
 import {
@@ -233,3 +233,19 @@ export function notifyLine(o: SubscribeOutcome): string {
     + ' Сверка идёт по расписанию примерно раз в 30 минут, срок не гарантирован — задержка бывает часами; get_request_status отвечает сразу.'
     + ' Подписка живёт столько же, сколько ключ статуса (90 дней); ответ 410 её отключает. В теле нет ни ключа статуса, ни имени и телефона.';
 }
+
+/**
+ * Ключ статуса и, если агент оставил адрес, подписка — хвост ответа целиком.
+ * Без адреса — прежний путь без изменений.
+ */
+export async function issueKeyWithNotify(
+  target: RequestKeyTarget, toolName: string, notifyUrl: string | undefined, kind: 'request' | 'stay' = 'request',
+): Promise<string> {
+  if (!notifyUrl) return keyLine(await issueRequestKey(target, toolName), kind);
+  const issued = await issueRequestKeyRecord(target, toolName);
+  if (!issued) return `${keyLine(null, kind)} Уведомления не заведены: без ключа статуса подписки нет.`;
+  return keyLine(issued.key, kind) + notifyLine(await subscribeNotify(issued, notifyUrl));
+}
+
+/** Агент передал notify_url заявке на жильё: подписки нет, и это сказано словами. */
+export const STAY_NOTIFY_REFUSAL = ' notify_url для заявки на жильё не заводится: после передачи владельцу её состояние не меняется — ответ владелец даёт звонком, и платформа его не видит.';

@@ -55,6 +55,8 @@ import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
 import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine } from '@/lib/mcp/request-status';
+import { issueKeyWithNotify, STAY_NOTIFY_REFUSAL } from '@/lib/mcp/request-notify';
+import { notifyUrlField } from '@/lib/mcp/request-notify-schema';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
@@ -188,6 +190,10 @@ const createLeadArgsSchema = z.object({
   interest: z.string().trim().max(200, 'Интерес длиннее 200 символов').optional(),
   // ID плана из make_trip_plan (#2304, шаг 2): заявка уходит с планом целиком.
   plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
+  // Адрес приёмника уведомлений (29.10): неверный по форме — заявка не
+  // создаётся, отказ называет поле (повторить заявку агент не сможет: 1 в
+  // сутки на телефон). Проверка формы — до записи, DNS — при каждой отправке.
+  notify_url: notifyUrlField,
   // Обязателен и здесь, а не только в JSON Schema инструмента. Два источника
   // правды путают ОСНОВАНИЕ отказа: агент, смотрящий схему, видит поле
   // обязательным, а парсер роута пропускал бы его отсутствие дальше — и
@@ -215,6 +221,7 @@ const bookingRequestArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
   plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
+  notify_url: notifyUrlField,
   // См. пояснение у createLeadArgsSchema: обязателен в обоих источниках.
   consent: consentField,
 });
@@ -229,7 +236,7 @@ const bookingRequestArgsSchema = z.object({
  */
 async function requestSeatsFromOperator(a: {
   ctx: McpCallContext; tourId: number; tourTitle: string; date: string; participants: number;
-  name: string; phone: string; hasComment: boolean; consent: boolean | undefined;
+  name: string; phone: string; hasComment: boolean; consent: boolean | undefined; notifyUrl: string | undefined;
 }): Promise<string> {
   const pd_consent = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent);
   if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
@@ -260,13 +267,13 @@ async function requestSeatsFromOperator(a: {
     return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
-  const statusKey = await issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name);
+  const keyTail = await issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl);
   return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
     + `Места этим запросом НЕ закреплены, и это не оплата: если оператор ответит «Есть места», заявка подтвердится, ${seatRequestPaymentNote()}. `
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
     + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
     + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.'
-    + keyLine(statusKey);
+    + keyTail;
 }
 
 /**
@@ -373,7 +380,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       if (window.kind === 'season' && !dateInWindow(window, date)) {
         return `${outOfSeasonText(window, date)} Заявка не создана — предложите дату внутри сезона.`;
       }
-      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent });
+      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url });
     }
     // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
     const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
@@ -448,7 +455,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       routeTitle: tour.title,
     });
   }
-  return accepted + keyLine(await issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name));
+  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url);
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
@@ -469,6 +476,7 @@ const charterRequestArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   carrier: z.string().trim().max(120, 'Название перевозчика длиннее 120 символов').optional(),
   comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
+  notify_url: notifyUrlField,
   consent: consentField,
 });
 
@@ -547,7 +555,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
-  return accepted + keyLine(await issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name));
+  return accepted + await issueKeyWithNotify({ leadId }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url);
 }
 
 // ── create_car_rental_request (владелец 23.10) ─────────────────
@@ -567,6 +575,9 @@ const carRentalRequestArgsSchema = z.object({
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
   test: z.boolean().optional(),
   confirmation: z.string().trim().max(64, 'Код подтверждения длиннее 64 символов').optional(),
+  // Проверяется уже на шаге 1 (черновик): ошибка видна сразу. Подписка — только
+  // на шаге 2, вместе с ключом. В код подтверждения адрес не входит.
+  notify_url: notifyUrlField,
   consent: consentField,
 });
 
@@ -694,7 +705,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
   const accepted = `${isTest ? 'Пробная заявка принята (помечена как тест, прокатчику не передаётся)' : 'Заявка принята'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}`
     + `${offer.depositRub !== null ? `, залог ${offer.depositRub} руб` : ''}. Это заявка, не бронь: менеджер Ведара свяжется по телефону ${phone} и подтвердит с прокатчиком; оплаты через платформу нет, расчёт напрямую с прокатчиком. Страница прокатчика: ${getPublicBaseUrl()}${rentalPagePath(company.slug)}`;
-  return accepted + keyLine(await issueRequestKey({ leadId }, CAR_RENTAL_REQUEST_TOOL.name));
+  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url);
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
@@ -732,7 +743,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
   // такой телефон с таким текстом уже писал (проверка MCP 29.09).
   return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach)
-    + keyLine(await issueRequestKey({ leadId }, CREATE_LEAD_TOOL.name));
+    + await issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url);
 }
 
 /**
@@ -848,7 +859,10 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
   return `Заявка передана ${who}: "${r.accommodationName}", заезд ${check_in}, выезд ${check_out} (ночей: ${dates.nights}), гостей ${guests}. `
     + 'Владелец перезвонит по указанному телефону и подтвердит даты и цену. Это заявка, не бронь и не оплата: расчёт — напрямую с владельцем. '
     + `Карточка объекта: ${base}/accommodations/${found.id}.`
-    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay');
+    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay')
+    // Подписки у заявки на жильё нет (её состояние после передачи не
+    // меняется); агент, передавший адрес, слышит это, а не тишину.
+    + (typeof rawArgs.notify_url === 'string' && rawArgs.notify_url.trim() !== '' ? STAY_NOTIFY_REFUSAL : '');
 }
 
 // Имя проверено вызывающим (неизвестный инструмент — ошибка протокола

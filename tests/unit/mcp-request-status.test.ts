@@ -397,15 +397,18 @@ describe('роут MCP', () => {
 
   it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка, жильё, прокат', () => {
     // Бронь и вахтовка: повтор и новая заявка выходят одним return, ключ
-    // выдаётся в нём — на существующий лид или только что созданный.
-    // Жильё (14.10) проверено вызовом роута: tests/unit/mcp-stay-request.test.ts.
-    const issued = ROUTE.match(/keyLine\(await issueRequestKey\(/g) ?? [];
+    // выдаётся в нём — на существующий лид или только что созданный. С 29.10
+    // ключ и подписка на уведомления (notify_url) выдаются одной функцией
+    // issueKeyWithNotify; без адреса это прежний keyLine(issueRequestKey(...)).
+    // Жильё (14.10) проверено вызовом роута: tests/unit/mcp-stay-request.test.ts;
+    // notify_url — вызовом роута: tests/unit/mcp-write-path-truth.test.ts.
+    const issued = ROUTE.match(/await issueKeyWithNotify\(/g) ?? [];
     expect(issued.length).toBe(5);
-    expect(ROUTE).toContain("issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name)");
-    expect(ROUTE).toContain('keyLine(statusKey)');
-    expect(ROUTE).toContain("issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name)");
-    expect(ROUTE).toContain("issueRequestKey({ leadId }, CREATE_LEAD_TOOL.name)");
-    expect(ROUTE).toContain("issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name)");
+    expect(ROUTE).toContain('issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl)');
+    expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url)');
+    expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url)');
+    expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url)');
+    expect(ROUTE).toContain("keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay')");
     expect((ROUTE.match(/const leadId = existing \?\? await createLead\(/g) ?? []).length).toBe(1);
     // Вахтовка: повтор и новая — одним путём saveCharterLead (общим с формой на
     // странице перевозчика, 13.10), он отдаёт прежний лид или новый; ключ — в том же return.
