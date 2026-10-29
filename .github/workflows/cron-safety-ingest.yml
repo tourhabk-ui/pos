@@ -38,6 +38,17 @@ jobs:
             "https://t.me/s/minec_tourism" > /tmp/minec.html \
             || echo "" > /tmp/minec.html
 
+          # Турпортал края — еженедельная сводка Минтуризма о доступности
+          # туристических объектов слово в слово (29.10): канонический
+          # kamgov.ru/mintur раннеру отвечает 403, пересказ kamtoday умер
+          # 20.10, RSS у портала нет (Bitrix). Сервер разбирает её построчно
+          # (visitkamchatka_html → lib/services/safety/visitkamchatka-channel).
+          curl -sf --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://t.me/s/visitkamchatka41" > /tmp/visitkamchatka.html \
+            || echo "" > /tmp/visitkamchatka.html
+
           # RSS правительства Камчатки: дорожные ограничения, пропускные
           # режимы, оперативные сводки Минтура о доступности туробъектов.
           # Тянем с раннера, а не с сервера: с Timeweb kamgov.ru не открывается,
@@ -87,6 +98,7 @@ jobs:
           echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
           echo "minec:   $(wc -c < /tmp/minec.html) bytes"
+          echo "visitkamchatka: $(wc -c < /tmp/visitkamchatka.html) bytes"
           echo "pravonarul: $(wc -c < /tmp/pravonarul.html) bytes"
           echo "kamgov:  $(jq 'length' /tmp/kamgov_xml.json) feeds"
 
@@ -157,12 +169,14 @@ jobs:
             --rawfile eqkam_html   /tmp/eqkam.html \
             --rawfile minec_html   /tmp/minec.html \
             --rawfile pravonarul_html /tmp/pravonarul.html \
+            --rawfile visitkamchatka_html /tmp/visitkamchatka.html \
             --slurpfile max_items  /tmp/max_items.json \
             --slurpfile kamgov_xml /tmp/kamgov_xml.json \
             --slurpfile kamgov_fetch /tmp/kamgov_fetch.json \
             '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}
               + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)
               + (if ($pravonarul_html | length) > 0 then {pravonarul_html: $pravonarul_html} else {} end)
+              + (if ($visitkamchatka_html | length) > 0 then {visitkamchatka_html: $visitkamchatka_html} else {} end)
               + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)
               + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)
               + (if (($kamgov_fetch[0] // []) | length) > 0 then {kamgov_fetch: $kamgov_fetch[0]} else {} end)' \

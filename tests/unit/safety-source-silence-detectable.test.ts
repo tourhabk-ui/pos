@@ -98,7 +98,12 @@ describe('отметка жизни двигается по НОВОМУ, а н�
     // вовсе (он только будит дежурного). Живость здесь — «прод дочитал индекс
     // до разбора»; иначе молчание tsunami.gov было бы неотличимо от тихого
     // океана (/api/cron/ptwc-check).
-    expect(raw.sort()).toEqual(['meteoalert', 'ptwc', 'ugms_forecast']);
+    // visitkamchatka (29.10): превью t.me/visitkamchatka41 — тоже Telegram, но
+    // «сырой» пункт там не пост, а СВЕЖАЯ сводка Минтура по дате поста
+    // (ingestVisitkamchatkaChannelHtml, FRESH_SUMMARY_HOURS): перечитанные
+    // старые посты в rawItems не входят, а сводка «всё открыто» законно не
+    // даёт ни одной вставки — по inserted источник числился бы мёртвым зря.
+    expect(raw.sort()).toEqual(['meteoalert', 'ptwc', 'ugms_forecast', 'visitkamchatka']);
   });
 
   it('«разобрано со страницы» больше не считается признаком жизни', () => {

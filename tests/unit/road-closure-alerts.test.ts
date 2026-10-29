@@ -129,6 +129,65 @@ describe('POST /api/admin/external-alerts', () => {
   });
 });
 
+describe('POST /api/admin/external-alerts — закрытие парка руками (29.10)', () => {
+  const PARK_BODY = {
+    title: 'Закрыты маршруты парков «Налычево» и «Ключевской»',
+    description: 'Сводка Минтура 29.10',
+    alertType: 'park_closure',
+    severity: 2,
+    affectedParks: ['nalychevo', 'klyuchevskoy'],
+    expiresAt: '2027-01-01T00:00:00+00:00',
+  };
+
+  it('парки сверяются со справочником, зоны пустые, affected_parks уходит в строку', async () => {
+    queryMock.mockImplementation((sql: string) =>
+      Promise.resolve(/FROM parks/.test(sql)
+        ? { rows: [{ slug: 'nalychevo' }, { slug: 'klyuchevskoy' }] }
+        : { rows: [{ id: 7 }] }));
+
+    const res = await postAlert(jsonReq('http://localhost/api/admin/external-alerts', 'POST', PARK_BODY));
+    expect(res.status).toBe(201);
+    const insert = queryMock.mock.calls.find(([sql]) => /INSERT INTO external_alerts/.test(String(sql)))!;
+    const params = insert[1] as unknown[];
+    expect(String(insert[0])).toContain('affected_parks');
+    expect(params[0]).toBe('park_closure');
+    expect(params[4]).toEqual([]);
+    expect(params[10]).toEqual(['nalychevo', 'klyuchevskoy']);
+  });
+
+  it('парка нет в справочнике → 400 с именем парка, вставки нет', async () => {
+    queryMock.mockImplementation((sql: string) =>
+      Promise.resolve(/FROM parks/.test(sql) ? { rows: [{ slug: 'nalychevo' }] } : { rows: [{ id: 7 }] }));
+
+    const res = await postAlert(jsonReq('http://localhost/api/admin/external-alerts', 'POST', {
+      ...PARK_BODY, affectedParks: ['nalychevo', 'narnia'],
+    }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/narnia/);
+    expect(queryMock.mock.calls.some(([sql]) => /INSERT INTO external_alerts/.test(String(sql)))).toBe(false);
+  });
+
+  it('закрытие парка без парков → 400; парки у дорожной тревоги → 400; дорожная без зон → 400', async () => {
+    for (const body of [
+      { ...PARK_BODY, affectedParks: [] },
+      { ...VALID_BODY_ROAD, affectedParks: ['nalychevo'] },
+      { ...VALID_BODY_ROAD, affectedZones: [] },
+    ]) {
+      const res = await postAlert(jsonReq('http://localhost/api/admin/external-alerts', 'POST', body));
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(queryMock.mock.calls.some(([sql]) => /INSERT INTO external_alerts/.test(String(sql)))).toBe(false);
+  });
+});
+
+const VALID_BODY_ROAD = {
+  title: 'Вилючинский перевал: проезд по пропускам',
+  alertType: 'road_closure',
+  severity: 1,
+  affectedZones: ['avachinsky'],
+  expiresAt: '2027-01-01T00:00:00+00:00',
+};
+
 describe('DELETE /api/admin/external-alerts/[id]', () => {
   it('гасит алерт (срок = «сейчас»), не удаляет строку', async () => {
     queryMock.mockResolvedValue({ rows: [{ id: 42 }] });

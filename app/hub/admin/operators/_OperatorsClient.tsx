@@ -87,6 +87,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   hotel:    'Отель',
   rent:     'Аренда',
   fishing:  'Рыбалка',
+  // Роли из lib/partners/categories, которых здесь не было (29.10): у
+  // гостевого дома «Кутха» (category 'stay', миграция 1206) карточка писала
+  // слаг «stay» вместо слова, и владелец прочёл это как «нет роли жильё».
+  stay:     'Жильё',
+  gear:     'Прокат снаряжения',
 };
 
 function RejectModal({
