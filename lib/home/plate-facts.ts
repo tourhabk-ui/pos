@@ -65,11 +65,40 @@ export function plateFacts(p: PlateFactsInput): PlateFacts {
 /** Сколько туров помещается на витрину главной. */
 export const PLATES_LIMIT = 8;
 
+/**
+ * Сколько туров ОДНОГО оператора выборка главной отдаёт в orderPlates (ревью
+ * 29.10). Прежде выборка была общей — `ORDER BY created_at DESC LIMIT 24`, — и
+ * оператор с самыми свежими турами занимал её целиком ДО круга операторов:
+ * 1343 дала снимки 33 опубликованным турам «Лагуны Экспедиции», заведённым
+ * 1339 последними, и на главной остались восемь её карточек, а тур другой
+ * компании с открытыми датами до orderPlates не доходил. Предел — на
+ * оператора, не на выборку: внутри оператора туры с датами идут первыми,
+ * затем свежие. Втрое шире витрины — запас на туры, чей сезон кончился:
+ * сезон решает catalogAvailability уже после выборки.
+ */
+export const PLATES_POOL_PER_OPERATOR = PLATES_LIMIT * 3;
+
+/**
+ * Подпись витрины главной: правило отбора называется словами там же, где оно
+ * действует (CLAUDE.md §0 — правило общих витрин говорится туристу на самой
+ * странице).
+ */
+export const HOME_TOURS_PHOTO_NOTE = 'На главной — туры со снимками; все туры — в каталоге.';
+
 /** Порядок витрины: даты есть → даты по запросу → сезон кончился (в конец). */
 export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0, on_request: 1, season_over: 2 };
 
 /**
- * Порядок туров на витрине главной. Тур с кончившимся сезоном не прячется, а
+ * Порядок туров на витрине главной. Тур без снимка на витрину не попадает
+ * вовсе (29.10, после «Лагуны Экспедиции»: её 34 тура без фото и без сезона
+ * встали первыми, потому что у остальных сезон кончился, — первый экран
+ * главной стал рядом серых заглушек). Правило одно для всех компаний и не
+ * зависит от сезона: снимка нет (`imageUrl` пуст — тот же ответ, что
+ * `tourHeroImageSql`) — карточки нет. Тур без снимка остаётся в каталоге, на
+ * карточках мест, у Кузьмича и в MCP. Подпись блока называет это правило
+ * (`HOME_TOURS_PHOTO_NOTE`).
+ *
+ * Тур с кончившимся сезоном не прячется, а
  * уходит в конец — иначе он занимал бы первую карточку на первом экране, куда
  * его ставит выборка по фото и свежести. Сезон решает `catalogAvailability`
  * (правило каталога), здесь только порядок. Затем — не больше `PLATES_LIMIT`.
@@ -82,11 +111,12 @@ export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0
  * порядке (даты → по запросу → выборка), а операторы встают в круг в порядке
  * своего лучшего тура. Тур без имени оператора — сам себе очередь.
  */
-export function orderPlates<T extends { availability: CatalogAvailability; operatorName?: string | null }>(
+export function orderPlates<T extends { availability: CatalogAvailability; operatorName?: string | null; imageUrl: string | null }>(
   plates: readonly T[],
 ): T[] {
   const ranked = plates
     .map((p, i) => ({ p, i }))
+    .filter(({ p }) => Boolean(p.imageUrl?.trim()))
     .sort((a, b) => AVAILABILITY_RANK[a.p.availability] - AVAILABILITY_RANK[b.p.availability] || a.i - b.i);
   const open = ranked.filter(({ p }) => p.availability !== 'season_over');
   const closed = ranked.filter(({ p }) => p.availability === 'season_over');

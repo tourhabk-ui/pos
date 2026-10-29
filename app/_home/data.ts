@@ -26,7 +26,7 @@ import { volcanoMarks, kfegsIsFresh, type KfegsReading, type ScaleColor } from '
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
-import { orderPlates } from '@/lib/home/plate-facts';
+import { orderPlates, PLATES_POOL_PER_OPERATOR } from '@/lib/home/plate-facts';
 import { toTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
 import { toStayPlate, type StayPlate, type StayPlateRow } from '@/lib/home/stay-plate';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
@@ -345,17 +345,28 @@ export async function fetchPlates(): Promise<Plate[]> {
   // «Туры сезона» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
   // места/маршруты. Прежде тянули из agent_route_knowledge (места+маршруты,
   // туров там нет) и добивали маршрутами — на телефоне коммерция была спрятана.
-  // Теперь только коммерция: опубликованные туры, сначала с фото. Нет туров →
-  // пустой массив (блок честно не рисуется), никаких мест-заглушек.
+  // Теперь только коммерция: опубликованные туры СО СНИМКОМ (29.10: тур без
+  // снимка на витрину главной не попадает вовсе, при любом сезоне — правило в
+  // orderPlates, здесь оно же отсекает такие туры до выборки, чтобы они не
+  // занимали её). Снимок — тем же правилом, что герой карточки
+  // (tourHeroImageSql). Нет туров → пустой массив (блок честно не рисуется),
+  // никаких мест-заглушек.
   //
   // Аудит 24.09 (#39/#120/#122): карточка знала только цену. Теперь выборка
   // несёт то, что карточка обещает словами — имя оператора, длительность,
   // единицу цены и условия отмены (дословно из поля тура, решение владельца
   // 24.09 п.3), — и то, чем решается порядок: даты и сезон. Тур с кончившимся
   // сезоном не прячется, а уходит в конец — тем же правилом, что в каталоге
-  // (lib/tours/catalog-availability), без своей копии порогов. LIMIT шире
-  // витрины: сортировка по сезону идёт после выборки, и закрытый тур не
-  // должен занимать место открытого.
+  // (lib/tours/catalog-availability), без своей копии порогов. Выборка шире
+  // витрины: сортировка по сезону идёт после неё, и закрытый тур не должен
+  // занимать место открытого.
+  //
+  // Предел выборки — на ОПЕРАТОРА, а не общий (ревью 29.10): общий
+  // `ORDER BY created_at DESC LIMIT 24` отдавал всю выборку оператору с самыми
+  // свежими турами, и круг операторов в orderPlates уже не из кого было
+  // собирать — после 1343 на главной стояли восемь карточек одной компании, а
+  // тур другой с открытыми датами не доходил. Внутри оператора первыми идут
+  // туры с датами (PLATES_POOL_PER_OPERATOR, lib/home/plate-facts).
   //
   // «Живой тур» и «даты есть» — не свои копии, а фрагменты каталога
   // (шлюз витрины publicTourSql и lib/search/tour-search hasAvailabilitySql): та же
@@ -371,6 +382,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       season_start: string | null; season_end: string | null;
       cancellation_policy: string | null; has_availability: boolean;
     }>(`
+      WITH with_photo AS (
       SELECT ot.id::text, ot.slug, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
              ${tourHeroImageSql('ot')}                                             AS image_url,
@@ -382,15 +394,22 @@ export async function fetchPlates(): Promise<Plate[]> {
              ot.duration_hours::text, ot.duration_type, ot.multi_day_count,
              ot.season_start::text, ot.season_end::text,
              NULLIF(btrim(ot.cancellation_policy), '') AS cancellation_policy,
-             ${hasAvailabilitySql()} AS has_availability
+             ${hasAvailabilitySql()} AS has_availability,
+             ot.operator_id::text AS operator_key, ot.created_at AS created_at_sort
         FROM operator_tours ot
         JOIN partners p ON ot.operator_id = p.id
        WHERE ${publicTourSql('ot')}
-       ORDER BY (ot.tour_image IS NOT NULL
-                 OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
-                ot.created_at DESC
-       LIMIT 24
-    `);
+         AND ${tourHeroImageSql('ot')} IS NOT NULL
+      ), ranked AS (
+        SELECT w.*,
+               ROW_NUMBER() OVER (PARTITION BY w.operator_key
+                                  ORDER BY w.has_availability DESC, w.created_at_sort DESC) AS operator_rank
+          FROM with_photo w
+      )
+      SELECT * FROM ranked
+       WHERE operator_rank <= $1
+       ORDER BY created_at_sort DESC
+    `, [PLATES_POOL_PER_OPERATOR]);
     const plates: Plate[] = rows.map((r) => {
       const multi = r.multi_day_count == null ? null : Number(r.multi_day_count);
       const hours = r.duration_hours == null ? null : Number(r.duration_hours);
