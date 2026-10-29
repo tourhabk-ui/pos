@@ -25,6 +25,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { TOURIST_TG_CHAT_SQL } from '@/lib/notifications/tourist-telegram';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { fetchWeatherForReminder } from '@/lib/weather/tour-reminder-weather';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,48 +40,6 @@ interface BookingRow {
   difficulty: string | null;
   tg_chat_id: number;
   platform: string;
-}
-
-async function fetchWeatherForReminder(): Promise<string> {
-  try {
-    const res = await fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=53.01&longitude=158.65&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode&forecast_days=2&timezone=Asia%2FKamchatka',
-      { signal: AbortSignal.timeout(6000) },
-    );
-    if (!res.ok) return '';
-    const data = await res.json() as {
-      daily?: {
-        temperature_2m_max?: number[];
-        temperature_2m_min?: number[];
-        precipitation_sum?: number[];
-        windspeed_10m_max?: number[];
-        weathercode?: number[];
-      };
-    };
-    const d = data.daily;
-    if (!d) return '';
-    // Index 1 = tomorrow
-    const maxT = d.temperature_2m_max?.[1];
-    const minT = d.temperature_2m_min?.[1];
-    const precip = d.precipitation_sum?.[1];
-    const wind = d.windspeed_10m_max?.[1];
-    const code = d.weathercode?.[1];
-
-    const desc = code !== undefined ? weatherCodeDesc(code) : '';
-    return `Петропавловск-Камчатский завтра: ${minT}–${maxT}°C, ${desc}, осадки ${precip ?? 0} мм, ветер до ${wind ?? 0} км/ч.`;
-  } catch { return ''; }
-}
-
-function weatherCodeDesc(code: number): string {
-  if (code === 0) return 'ясно';
-  if (code <= 3) return 'переменная облачность';
-  if (code <= 48) return 'туман';
-  if (code <= 57) return 'морось';
-  if (code <= 67) return 'дождь';
-  if (code <= 77) return 'снег';
-  if (code <= 82) return 'ливень';
-  if (code <= 99) return 'гроза';
-  return 'переменная погода';
 }
 
 async function fetchMchsAlert(): Promise<string> {

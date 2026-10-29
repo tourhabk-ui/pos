@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Weather, WeatherForecast, WeatherHourly, WeatherAlert, ApiResponse } from '@/types';
 import { config } from '@/lib/config';
+import { fetchForecastDays, forecastCurrent, type ForecastHour } from '@/lib/planner/intelligence';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,76 +109,86 @@ async function getWeatherData(
 }
 
 // ===== OPEN-METEO (бесплатный, надежный) =====
+/**
+ * Open-Meteo — через общий прогноз платформы (`fetchForecastDays`, #2289,
+ * 29.10), а не своим запросом по `config.weather.openMeteo.baseUrl`. Отсюда:
+ * осадки из GFS (замер #2249: «сухо / осадки» верно в 0,888 случаев против
+ * 0,798 у сводной модели), кэш на точку и склейка одновременных запросов с
+ * /weather, Кузьмичом и планером, запас на 429. Отказ общего прогноза —
+ * исключение: его ловит цикл провайдеров выше и пишет в лог с именем.
+ *
+ * Часы — Камчатки (общий прогноз запрашивается с timezone=Asia/Kamchatka;
+ * прежде было timezone=auto, для точек края это одно и то же). Почасовой ряд
+ * — 24 часа ОТ ТЕКУЩЕГО часа: прежний брал первые 24 ряда, то есть с полуночи.
+ * Пропуск не становится нулём: нет значения — null или поле опущено (§4.0).
+ */
 async function getOpenMeteoWeather(lat: number, lng: number, location?: string): Promise<Weather> {
-  const url = `${config.weather.openMeteo.baseUrl}/forecast?` +
-    `latitude=${lat}&longitude=${lng}` +
-    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-    `&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,precipitation,rain,showers,snowfall,weather_code,visibility,wind_speed_10m,uv_index` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,rain_sum,showers_sum,snowfall_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max` +
-    `&timezone=auto&forecast_days=7`;
+  const f = await fetchForecastDays(lat, lng, 7);
+  if (!f.ok) throw new Error(`Open-Meteo: ${f.reason}`);
+  const { now, hour, hourIndex } = forecastCurrent(f);
+  const hours = f.hours ?? [];
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { 'User-Agent': 'Kamchatour Hub/2.0' },
-    next: { revalidate: 1800 },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Open-Meteo API error: ${response.status}`);
+  const tempRaw = now?.temp ?? hour?.temp ?? null;
+  const windRaw = now?.windKmh ?? hour?.windKmh ?? null;
+  if (tempRaw === null || windRaw === null) {
+    // Без температуры и ветра ни оценки условий, ни советов не построить —
+    // это отказ провайдера, а не «0 °C, штиль».
+    throw new Error('Open-Meteo: в прогнозе нет текущей температуры или ветра');
   }
 
-  const data = await response.json();
-  const current = data.current;
-  const hourly = data.hourly;
-  const daily = data.daily;
-
-  // Почасовой прогноз (следующие 24 часа)
+  // Почасовой прогноз (следующие 24 часа от текущего)
   const hourlyForecast: WeatherHourly[] = [];
-  for (let i = 0; i < Math.min(24, hourly.time.length); i++) {
+  for (const h of hours.slice(Math.max(0, hourIndex), Math.max(0, hourIndex) + 24)) {
+    if (h.temp === null || h.windKmh === null) continue;
     hourlyForecast.push({
-      time: hourly.time[i],
-      temperature: Math.round(hourly.temperature_2m[i]),
-      feelsLike: Math.round(hourly.apparent_temperature[i]),
-      condition: getWeatherCondition(hourly.weather_code[i]),
-      precipitation: hourly.precipitation[i] || 0,
-      windSpeed: Math.round(hourly.wind_speed_10m[i]),
-      humidity: hourly.relative_humidity_2m[i],
+      time: h.time,
+      temperature: Math.round(h.temp),
+      feelsLike: Math.round(h.apparent ?? h.temp),
+      condition: getWeatherCondition(h.weatherCode),
+      precipitation: h.precipMm,
+      windSpeed: Math.round(h.windKmh),
+      humidity: h.humidity,
     });
   }
 
   // Дневной прогноз
   const forecast: WeatherForecast[] = [];
-  for (let i = 0; i < Math.min(7, daily.time.length); i++) {
+  for (const d of f.days.slice(0, 7)) {
+    if (d.tempMin === null || d.tempMax === null || d.windKmh === null) continue;
+    const condition = getWeatherCondition(d.weatherCode);
     forecast.push({
-      date: new Date(daily.time[i]),
+      date: new Date(d.date),
       temperature: {
-        min: Math.round(daily.temperature_2m_min[i]),
-        max: Math.round(daily.temperature_2m_max[i]),
+        min: Math.round(d.tempMin),
+        max: Math.round(d.tempMax),
       },
-      condition: getWeatherCondition(daily.weather_code[i]),
-      conditionText: getWeatherConditionText(getWeatherCondition(daily.weather_code[i])),
-      precipitation: daily.precipitation_sum[i] || 0,
-      precipitationProbability: daily.precipitation_probability_max[i] || 0,
-      windSpeed: Math.round(daily.wind_speed_10m_max[i]),
+      condition,
+      conditionText: getWeatherConditionText(condition),
+      precipitation: d.precipMm,
+      precipitationProbability: d.precipProbMax ?? null,
+      windSpeed: Math.round(d.windKmh),
       // Дневной влажности у Open-Meteo нет — берём среднее почасовых за эту
       // дату; нет и их — null, а не «60» (#1774).
-      humidity: meanHourlyForDate(hourly.time, hourly.relative_humidity_2m, daily.time[i]),
-      sunrise: daily.sunrise[i],
-      sunset: daily.sunset[i],
+      humidity: meanHourlyForDate(hours, d.date),
+      ...(d.sunrise ? { sunrise: d.sunrise } : {}),
+      ...(d.sunset ? { sunset: d.sunset } : {}),
     });
   }
 
-  const currentCondition = getWeatherCondition(current.weather_code);
+  const currentCondition = getWeatherCondition(now?.weatherCode ?? hour?.weatherCode ?? null);
   // Текущей видимости в блоке current у Open-Meteo нет, но она есть в
-  // почасовом ряду — берём час, совпадающий с current.time. Прежде здесь
-  // стояла константа 10 км (#1774), и она же уходила в расчёт safetyLevel.
-  const visibilityKm = hourlyVisibilityKm(hourly.time, hourly.visibility, current.time);
-  const temp = Math.round(current.temperature_2m);
-  const feelsLike = Math.round(current.apparent_temperature);
+  // почасовом ряду — берём текущий час. Прежде здесь стояла константа 10 км
+  // (#1774), и она же уходила в расчёт safetyLevel.
+  const visibilityKm = hour?.visibilityM == null ? null : Math.round(hour.visibilityM / 100) / 10;
+  const temp = Math.round(tempRaw);
+  const feelsLike = Math.round(now?.apparent ?? hour?.apparent ?? tempRaw);
   // Open-Meteo без wind_speed_unit отдаёт км/ч — умножать на 3.6 нельзя:
   // до 24.09 ветер 17 км/ч показывался как 61 и значок уходил в «Опасно».
-  const windSpeed = Math.round(current.wind_speed_10m);
-  const windGust = current.wind_gusts_10m ? Math.round(current.wind_gusts_10m) : undefined;
+  const windSpeed = Math.round(windRaw);
+  const gustRaw = now?.windGustKmh ?? hour?.windGustKmh ?? null;
+  const humidity = now?.humidity ?? hour?.humidity ?? null;
+  const pressure = now?.pressureHpa ?? hour?.pressureHpa ?? null;
+  const uv = hour?.uvIndex ?? null;
 
   const weather: Weather = {
     location: location || `${lat.toFixed(2)}, ${lng.toFixed(2)}`,
@@ -185,22 +196,23 @@ async function getOpenMeteoWeather(lat: number, lng: number, location?: string):
     feelsLike: feelsLike,
     condition: currentCondition,
     conditionText: getWeatherConditionText(currentCondition),
-    humidity: current.relative_humidity_2m,
+    humidity,
     windSpeed: windSpeed,
-    windDirection: current.wind_direction_10m,
-    windGust: windGust,
-    pressure: Math.round(current.pressure_msl),
+    windDirection: now?.windDirDeg ?? hour?.windDirDeg ?? null,
+    ...(gustRaw !== null ? { windGust: Math.round(gustRaw) } : {}),
+    pressure: pressure === null ? null : Math.round(pressure),
     visibility: visibilityKm,
-    uvIndex: Math.round(hourly.uv_index[0] || 0),
-    cloudCover: current.cloud_cover,
+    uvIndex: uv === null ? null : Math.round(uv),
+    cloudCover: hour?.cloudCover ?? null,
     forecast: forecast,
     hourlyForecast: hourlyForecast,
-    lastUpdated: new Date(),
+    // Момент получения прогноза, а не сборки ответа: из кэша он бывает старше.
+    lastUpdated: f.fetchedAt ? new Date(f.fetchedAt) : new Date(),
     safetyLevel: calculateSafetyLevel(currentCondition, windSpeed, visibilityKm, temp),
     recommendations: getWeatherRecommendations(currentCondition, windSpeed, visibilityKm, temp),
     clothingAdvice: getClothingAdvice(temp, feelsLike, currentCondition, windSpeed),
     tourAdvice: getTourAdvice(currentCondition, windSpeed, temp),
-    comfortIndex: calculateComfortIndex(temp, feelsLike, current.relative_humidity_2m, windSpeed, currentCondition),
+    comfortIndex: calculateComfortIndex(temp, feelsLike, humidity, windSpeed, currentCondition),
   };
 
   return weather;
@@ -449,39 +461,23 @@ async function getYandexWeather(lat: number, lng: number, location?: string): Pr
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 
-/**
- * Видимость (км) из почасового ряда Open-Meteo для часа `currentTime`
- * (ISO без зоны, как отдаёт сам провайдер). Нет такого часа или значения —
- * null: провайдер не сказал, и мы не выдумываем.
- */
-function hourlyVisibilityKm(times: unknown, values: unknown, currentTime: unknown): number | null {
-  if (!Array.isArray(times) || !Array.isArray(values) || typeof currentTime !== 'string') return null;
-  const hour = currentTime.slice(0, 13);
-  const idx = times.findIndex((t) => typeof t === 'string' && t.slice(0, 13) === hour);
-  if (idx < 0) return null;
-  const metres = values[idx];
-  if (typeof metres !== 'number' || !Number.isFinite(metres)) return null;
-  return Math.round(metres / 100) / 10;
-}
-
-/** Среднее почасовых значений за дату `YYYY-MM-DD`; нет значений — null. */
-function meanHourlyForDate(times: unknown, values: unknown, date: unknown): number | null {
-  if (!Array.isArray(times) || !Array.isArray(values) || typeof date !== 'string') return null;
+/** Среднее почасовой влажности за дату `YYYY-MM-DD`; нет значений — null. */
+function meanHourlyForDate(hours: readonly ForecastHour[], date: string): number | null {
   const day = date.slice(0, 10);
   let sum = 0;
   let n = 0;
-  times.forEach((t, i) => {
-    const v = values[i];
-    if (typeof t === 'string' && t.slice(0, 10) === day && typeof v === 'number' && Number.isFinite(v)) {
-      sum += v;
+  for (const h of hours) {
+    if (h.time.slice(0, 10) === day && h.humidity !== null) {
+      sum += h.humidity;
       n += 1;
     }
-  });
+  }
   return n > 0 ? Math.round(sum / n) : null;
 }
 
 // Маппинг условий Open-Meteo (WMO коды)
-function getWeatherCondition(code: number): string {
+function getWeatherCondition(code: number | null): string {
+  if (code === null) return 'unknown';
   const conditions: { [key: number]: string } = {
     0: 'clear', 1: 'mostly_clear', 2: 'partly_cloudy', 3: 'overcast',
     45: 'fog', 48: 'fog',
