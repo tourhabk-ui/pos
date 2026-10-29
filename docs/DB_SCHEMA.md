@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-29 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1348_agent_request_notify.sql`.
+> Снято 2026-10-29 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1349_stay_request_chat.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 299 |
+| Таблиц | 301 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3935 |
-| Внешних ключей | 350 |
+| Колонок | 3954 |
+| Внешних ключей | 352 |
 | Таблиц без единого FK в обе стороны | 86 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -24,7 +24,7 @@
 | [Туры и брони](#туры-и-брони) | 32 | `booking_change_requests` `booking_direct_payments` `booking_group_members` `booking_logs` `booking_transfers` `booking_waivers` `bookings` `cancellation_policies` `channel_orders` `contingency_rules` `octo_api_keys` `octo_booking_log` `octo_webhook_log` `operator_bookings` `operator_tour_reviews` `operator_tour_tags` `operator_tours` `promo_codes` `tour_assets` `tour_availability` `tour_availability_alternatives` `tour_departures` `tour_options` `tour_price_tiers` `tour_pricing_rules` `tour_seat_requests` `tour_selection_events` `tour_selection_items` `tour_selections` `tour_transfer_requests` `tours` `uon_sync_log` |
 | [Люди и доступ](#люди-и-доступ) | 34 | `accounts` `audit_log` `audit_logs` `max_login_sessions` `official_registry_operators` `operator_ai_actions` `operator_ai_config` `operator_applications` `operator_settings` `operator_signups` `operator_site_audits` `operator_staff` `operator_stats_cache` `operator_vehicles` `partner_api_keys` `partner_assets` `partner_chat_actions` `partner_consent_invites` `partner_incoming_answers` `partner_integrations` `partner_material_consents` `partner_oauth_codes` `partner_page_snapshots` `partner_prospects` `partners` `referrals` `security_blocks` `sessions` `tourist_documents` `tourist_profiles` `user_role_history` `user_sessions` `users` `verification_tokens` |
 | [Гиды](#гиды) | 7 | `guide_availability` `guide_certifications` `guide_earnings` `guide_groups` `guide_operator_invites` `guide_reviews` `guide_schedule` |
-| [Жильё, снаряжение, трансферы](#жильё-снаряжение-трансферы) | 22 | `accommodation_assets` `accommodation_availability` `accommodation_bookings` `accommodation_reviews` `accommodation_rooms` `accommodations` `driver_documents` `driver_schedules` `drivers` `gear_availability` `gear_items` `gear_rentals` `stay_requests` `transfer_charter_prices` `transfer_fleet_vehicles` `transfer_reviews` `transfer_routes` `transfer_seat_bookings` `transfer_trips` `transfers` `vehicle_documents` `vehicles` |
+| [Жильё, снаряжение, трансферы](#жильё-снаряжение-трансферы) | 24 | `accommodation_assets` `accommodation_availability` `accommodation_bookings` `accommodation_reviews` `accommodation_rooms` `accommodations` `driver_documents` `driver_schedules` `drivers` `gear_availability` `gear_items` `gear_rentals` `stay_chat_waits` `stay_request_messages` `stay_requests` `transfer_charter_prices` `transfer_fleet_vehicles` `transfer_reviews` `transfer_routes` `transfer_seat_bookings` `transfer_trips` `transfers` `vehicle_documents` `vehicles` |
 | [Турагенты (роль agent)](#турагенты-роль-agent) | 4 | `agent_bookings` `agent_clients` `agent_referral_events` `agent_referral_links` |
 | [Лиды и продажи](#лиды-и-продажи) | 14 | `client_communications` `crm_contact_links` `crm_contacts` `crm_events` `crm_inbox_reminders` `crm_tasks` `funnel_events` `lead_activity_log` `lead_followups` `lead_proposals` `leads` `outreach_queue` `sales_campaigns` `sales_outreach_log` |
 | [Кузьмич, чат, RAG](#кузьмич-чат-rag) | 23 | `chat_messages` `chat_sessions` `conversation_messages` `conversation_participants` `conversations` `knowledge_base_articles` `kuzmich_engagement_signals` `kuzmich_safety_reviews` `llm_usage_log` `mcp_clients` `mcp_handoff_events` `mcp_handoffs` `mcp_tool_calls` `mcp_write_attempts` `message_templates` `query_expansion_log` `rag_feedback` `rag_quality_log` `tg_booking_flow` `tg_conversations` `tg_operator_groups` `tg_ratings` `user_ai_memory` |
@@ -913,9 +913,17 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `gear_id uuid!` `customer_name varchar!` `customer_email varchar!` `customer_phone varchar!` `start_date date!` `end_date date!` `quantity integer!=` `days_count integer!` `insurance boolean=` `base_price numeric!` `insurance_cost numeric=` `total_price numeric!` `comments text` `status varchar!=` `created_at timestamptz=` `updated_at timestamptz=` `user_id uuid` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar`
 
-**stay_requests** · 19 кол. · PK id · accommodation_id → accommodations.id · на неё ссылаются: agent_request_keys · индексов 2
+**stay_chat_waits** · 9 кол. · PK id · stay_request_id → stay_requests.id · индексов 2
 
-`id uuid!=` `accommodation_id uuid!` `check_in_date date!` `check_out_date date!` `guests integer!` `guest_name text!` `guest_phone text!` `comment text` `pd_consent_at timestamptz!` `pd_consent_ip varchar!` `pd_consent_source varchar!` `pd_consent_version varchar!` `created_at timestamptz!=` `door text` `owner_channel text` `owner_reason text` `platform_channel text` `platform_reason text` `delivery_recorded_at timestamptz`
+`id uuid!=` `channel text!=` `chat_id bigint!` `stay_request_id uuid!` `side text!` `status text!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
+
+**stay_request_messages** · 8 кол. · PK id · stay_request_id → stay_requests.id · индексов 2
+
+`id uuid!=` `stay_request_id uuid!` `author text!` `door text!` `body text!` `delivery_channel text` `delivery_reason text` `created_at timestamptz!=`
+
+**stay_requests** · 21 кол. · PK id · accommodation_id → accommodations.id · на неё ссылаются: agent_request_keys, stay_chat_waits, stay_request_messages · индексов 2
+
+`id uuid!=` `accommodation_id uuid!` `check_in_date date!` `check_out_date date!` `guests integer!` `guest_name text!` `guest_phone text!` `comment text` `pd_consent_at timestamptz!` `pd_consent_ip varchar!` `pd_consent_source varchar!` `pd_consent_version varchar!` `created_at timestamptz!=` `door text` `owner_channel text` `owner_reason text` `platform_channel text` `platform_reason text` `delivery_recorded_at timestamptz` `guest_max_chat_id bigint` `guest_chat_bound_at timestamptz`
 
 **transfer_charter_prices** · 15 кол. · PK id · partner_id → partners.id, place_id → places.id · индексов 5
 
