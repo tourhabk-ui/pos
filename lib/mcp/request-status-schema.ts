@@ -42,6 +42,51 @@ export type RequestKind = (typeof REQUEST_KINDS)[number];
 export const CONSENT_PURPOSES = ['operator', 'stay', 'carrier', 'rental'] as const satisfies readonly PdConsentPurpose[];
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
+// ── Подписка на уведомления (29.10, lib/mcp/request-notify-schema) ──────────
+// Здесь, а не там: поле notify — часть ответа этого инструмента, а модуль
+// уведомлений сам читает словари отсюда; две стороны цикла импорта не нужны.
+
+/**
+ * Что из причин отключения подписки (NOTIFY_DISABLED_REASONS в
+ * lib/mcp/request-notify-schema, CHECK миграции 1348) видит агент. Грубо намеренно: исход доставки — не оракул
+ * сканирования сети. «Адрес разрешился во внутренний» отдельным словом не
+ * называется и отдельным графиком не отключается (критика безопасности
+ * 29.10): по нему агент перебирал бы, во что резолвер прода разрешает имена.
+ * `expired` агент не увидит никогда — срок подписки равен сроку ключа, а
+ * истёкший ключ не читается вовсе.
+ */
+export const NOTIFY_PUBLIC_REASONS = ['gone', 'undeliverable', 'vedar_failure'] as const;
+export type NotifyPublicReason = (typeof NOTIFY_PUBLIC_REASONS)[number];
+
+export function publicDisabledReason(reason: string | null | undefined): NotifyPublicReason | null {
+  switch (reason) {
+    case null:
+    case undefined:
+      return null;
+    case 'gone': return 'gone';
+    case 'undecryptable': return 'vedar_failure';
+    default: return 'undeliverable';
+  }
+}
+
+/** Поле notify в ответе get_request_status. */
+export const NOTIFY_STATUS_PROPERTY = {
+  type: ['object', 'null'],
+  description: 'Подписка на уведомления этой заявки: null — не заводилась (notify_url не передан) или удалена через 30 дней после отключения. active: false — уведомлений больше не будет, опрашивайте get_request_status; disabled_reason: gone — приёмник ответил 410; undeliverable — приёмник не принимает; vedar_failure — сбой на стороне Ведара',
+  properties: {
+    ref: { type: 'string' },
+    active: { type: 'boolean' },
+    disabled_reason: { type: ['string', 'null'], enum: [...NOTIFY_PUBLIC_REASONS, null] },
+  },
+  required: ['ref', 'active', 'disabled_reason'],
+} as const;
+
+export interface RequestNotifyStatus {
+  ref: string;
+  active: boolean;
+  disabled_reason: NotifyPublicReason | null;
+}
+
 export const GET_REQUEST_STATUS_TOOL = {
   name: REQUEST_STATUS_TOOL_NAME,
   description:
@@ -79,6 +124,7 @@ export const GET_REQUEST_STATUS_TOOL = {
       consent: { type: 'string', enum: ['human', 'agent', 'none'], description: 'Чьё согласие на обработку персональных данных записано: human — человек подтвердил сам (страница заявки или форма сайта); agent — передал агент при создании; none — не записано' },
       consent_purpose: { type: 'string', enum: [...CONSENT_PURPOSES], description: 'На передачу кому согласие по заявке: operator — туроператору, stay — владельцу жилья, carrier — перевозчику. Этот текст человек подтверждает на странице заявки' },
       page: { type: 'string', description: 'Страница заявки для человека: состояние, ответ оператора и подтверждение согласия своей рукой. Дайте её человеку, не публикуйте.' },
+      notify: NOTIFY_STATUS_PROPERTY,
     },
     required: ['state', 'kind', 'human', 'next', 'consent', 'consent_purpose', 'page'],
   },

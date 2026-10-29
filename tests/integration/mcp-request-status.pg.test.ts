@@ -19,6 +19,12 @@
  * номерам ключей (для сверки уведомлений) читает то же и не отмечает
  * прочтение.
  *
+ * Подписка на уведомления (1348): миграция повторяется без ошибки; подписка
+ * пишется ВТОРЫМ запросом к уже выданному ключу (ключ от неё не зависит),
+ * адрес и ключ подписи — шифртекстом, привязанным к ref; база отсчёта —
+ * тем же читателем; CHECK держат словарь причин, форму ref и «живая — с
+ * адресом»; удалили заявку — ушли ключ и подписка.
+ *
  * Своя база `mcp_request_status_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -270,5 +276,58 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     // Истёкший ключ сверка не читает.
     await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`, [k.id]);
     expect((await pool.query(REQUEST_STATUS_BY_KEY_IDS_SQL, [[k.id]])).rows).toHaveLength(0);
+  });
+  it('подписка (1348): миграция повторяется; вторым запросом к ключу; шифртекст; база отсчёта; notify в статусе', async () => {
+    process.env.ENCRYPTION_KEY = 'b'.repeat(64);
+    const { readFileSync } = await import('node:fs');
+    await pool.query(readFileSync('migrations/1348_agent_request_notify.sql', 'utf8'));
+    const { issueRequestKeyRecord, readRequestStatus } = await import('@/lib/mcp/request-status');
+    const { subscribeNotify } = await import('@/lib/mcp/request-notify');
+    const { decryptBound } = await import('@/lib/encryption');
+    const lead = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, source_data)
+       VALUES ('Анна Тестовая', '+79990005566', '[Заявка на бронь] тест подписки', 'new', '{"tool":"create_booking_request","date":"2027-09-01"}') RETURNING id`,
+    )).rows[0].id;
+    const issued = await issueRequestKeyRecord({ leadId: lead }, 'create_booking_request');
+    expect(issued?.keyId).toMatch(/^[0-9a-f-]{36}$/);
+    const url = 'https://hooks.agent-example.ru/in?t=abc';
+    const sub = await subscribeNotify(issued!, url);
+    if (!sub.ok) throw new Error(`подписка не заведена: ${sub.reason}`);
+    const { rows: [n] } = await pool.query<{ ref: string; url_enc: string; secret_enc: string; url_host: string; last_state: string; last_fingerprint: string; baseline_at: Date | null; same_expiry: boolean }>(
+      `SELECT n.ref, n.url_enc, n.secret_enc, n.url_host, n.last_state, n.last_fingerprint, n.baseline_at, n.expires_at = k.expires_at AS same_expiry
+         FROM agent_request_notify n JOIN agent_request_keys k ON k.id = n.key_id WHERE n.key_id = $1`, [issued!.keyId],
+    );
+    expect(n).toMatchObject({ ref: sub.ref, url_host: 'hooks.agent-example.ru', last_state: 'awaiting_operator', same_expiry: true });
+    expect(n.baseline_at).not.toBeNull();
+    expect(n.last_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(n.url_enc).not.toContain('abc');
+    expect(decryptBound(n.url_enc, n.ref)).toBe(url);
+    expect(decryptBound(n.secret_enc, n.ref)).toBe(sub.signingKey);
+    const v = await readRequestStatus(issued!.key);
+    expect(v.notify).toEqual({ ref: sub.ref, active: true, disabled_reason: null });
+    expect(v.requested_date).toBe('2027-09-01');
+    expect(JSON.stringify(v)).not.toMatch(/hooks\.agent|whsec_/);
+  });
+
+  it('подписка (1348): CHECK держат словарь причин, форму ref и «живая — с адресом»; удалили заявку — ключ и подписка ушли', async () => {
+    const lead = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status) VALUES ('Олег Тестовый', '+79990007788', 'Подбор для проверки CHECK', 'new') RETURNING id`,
+    )).rows[0].id;
+    const key = (await pool.query<{ id: string }>(
+      `INSERT INTO agent_request_keys (key_hash, lead_id, tool_name, expires_at) VALUES (repeat('d', 64), $1, 'create_lead', NOW() + INTERVAL '1 day') RETURNING id`, [lead],
+    )).rows[0].id;
+    const insert = (ref: string, urlEnc: string | null, disabledReason: string | null) => pool.query(
+      `INSERT INTO agent_request_notify (key_id, ref, url_enc, url_host, secret_enc, expires_at, disabled_at, disabled_reason)
+       VALUES ($1, $2, $3, 'h.example-agent.ru', $3, NOW() + INTERVAL '1 day', CASE WHEN $4::varchar IS NULL THEN NULL ELSE NOW() END, $4::varchar)`,
+      [key, ref, urlEnc, disabledReason],
+    );
+    await expect(insert('nr_AAAAAAAAAAAAAAAAAAAAAA', 'enc', 'other')).rejects.toMatchObject({ code: '23514' });
+    await expect(insert('nr_AAAAAAAAAAAAAAAAAAAAAA', null, null)).rejects.toMatchObject({ code: '23514' });
+    await expect(insert('bad ref', 'enc', null)).rejects.toMatchObject({ code: '23514' });
+    await insert('nr_AAAAAAAAAAAAAAAAAAAAAA', 'enc', null);
+    await expect(pool.query(`UPDATE agent_request_notify SET last_error = 'https://h/x' WHERE key_id = $1`, [key])).rejects.toMatchObject({ code: '23514' });
+    await pool.query('DELETE FROM leads WHERE id = $1', [lead]);
+    expect((await pool.query('SELECT 1 FROM agent_request_keys WHERE id = $1', [key])).rows).toHaveLength(0);
+    expect((await pool.query('SELECT 1 FROM agent_request_notify WHERE key_id = $1', [key])).rows).toHaveLength(0);
   });
 });

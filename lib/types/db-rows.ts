@@ -1666,3 +1666,41 @@ export interface PartnerChatActionRow {
   expires_at: Date;
   used_at: Date | null;
 }
+
+/**
+ * agent_request_notify — подписка внешнего агента на изменения заявки
+ * (миграция 1348, lib/mcp/request-notify). Адрес и ключ подписи —
+ * шифртекст, привязанный к `ref` (encryptBound); открыт только хост.
+ * `last_*` — последний доставленный снимок без ПД (тур — из каталога).
+ */
+export interface AgentRequestNotifyRow {
+  id: string;
+  key_id: string;
+  /** Номер подписки для агента: nr_ + base64url. */
+  ref: string;
+  /** NULL после отключения. */
+  url_enc: string | null;
+  url_host: string;
+  /** NULL после отключения. */
+  secret_enc: string | null;
+  created_at: Date;
+  expires_at: Date;
+  baseline_at: Date | null;
+  last_state: string | null;
+  last_date: string | null;
+  last_alt_date: string | null;
+  last_tour: string | null;
+  last_participants: number | null;
+  last_fingerprint: string | null;
+  last_body_sha256: string | null;
+  last_delivered_at: Date | null;
+  delivered_count: number;
+  attempts: number;
+  next_attempt_at: Date | null;
+  last_attempt_at: Date | null;
+  /** Машинный код исхода: http_503, timeout, tls, dns_failed, address_refused… Без адреса. */
+  last_error: string | null;
+  claimed_until: Date | null;
+  disabled_at: Date | null;
+  disabled_reason: 'gone' | 'rejected' | 'undeliverable' | 'expired' | 'undecryptable' | null;
+}

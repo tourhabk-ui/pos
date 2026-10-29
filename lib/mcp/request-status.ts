@@ -58,7 +58,8 @@ import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
-  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
+  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, publicDisabledReason,
+  type RequestState, type RequestKind, type ConsentPurpose, type RequestNotifyStatus,
 } from '@/lib/mcp/request-status-schema';
 import { BOOKING_STATUSES, LEAD_STATUSES, type BookingStatus, type LeadStatus } from '@/lib/types/statuses';
 
@@ -124,17 +125,31 @@ export type RequestKeyTarget = { leadId: string } | { seatRequestId: string } | 
  * ключа она не хуже, чем была до 12.10; агент услышит, что ключа нет.
  */
 export async function issueRequestKey(target: RequestKeyTarget, toolName: string): Promise<string | null> {
+  return (await issueRequestKeyRecord(target, toolName))?.key ?? null;
+}
+
+/** Выданный ключ и номер его строки: номер нужен подписке на уведомления (1348). */
+export interface IssuedRequestKey {
+  key: string;
+  /** Номер строки ключа; null — база не вернула строку (не бывает при живой вставке). */
+  keyId: string | null;
+}
+
+/** То же, что issueRequestKey, но с номером строки ключа — для подписки на уведомления. */
+export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: string): Promise<IssuedRequestKey | null> {
   const key = randomBytes(24).toString('base64url');
   const leadId = 'leadId' in target ? target.leadId : null;
   const seatRequestId = 'seatRequestId' in target ? target.seatRequestId : null;
   const stayRequestId = 'stayRequestId' in target ? target.stayRequestId : null;
   try {
-    await pool.query(
+    const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO agent_request_keys (key_hash, lead_id, seat_request_id, stay_request_id, tool_name, expires_at)
-       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'))`,
+       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'))
+       RETURNING id::text AS id`,
       [sha256(key), leadId, seatRequestId, stayRequestId, toolName, REQUEST_KEY_TTL_DAYS],
     );
-    return key;
+    const row = rows?.[0];
+    return { key, keyId: row?.id ?? null };
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[request-status] ключ не выдан:', logText(toolName), typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
@@ -187,6 +202,8 @@ export interface RequestStatusView {
   consent_purpose: ConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
+  /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
+  notify: RequestNotifyStatus | null;
 }
 
 /**
@@ -222,6 +239,9 @@ export interface StatusRow {
   seat_booking_date?: string | null;
   seat_booking_participants?: number | null;
   seat_booking_tour?: string | null;
+  /** Подписка на уведомления по этому ключу (1348). */
+  notify_ref?: string | null;
+  notify_disabled_reason?: string | null;
   lead_consent_at: Date | string | null;
   lead_consent_source: string | null;
   seat_consent_at: Date | string | null;
@@ -409,7 +429,8 @@ const REQUEST_STATUS_SELECT = `
          s.check_in_date::text AS stay_check_in, s.check_out_date::text AS stay_check_out, s.guests AS stay_guests,
          s.owner_channel AS stay_owner_channel, s.platform_channel AS stay_platform_channel,
          s.delivery_recorded_at AS stay_delivery_recorded_at,
-         s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source
+         s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source,
+         n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
     LEFT JOIN LATERAL (
@@ -425,7 +446,8 @@ const REQUEST_STATUS_SELECT = `
     LEFT JOIN operator_bookings sb ON sb.id = r.booking_id AND sb.deleted_at IS NULL
     LEFT JOIN operator_tours sbt ON sbt.id = sb.operator_tour_id
     LEFT JOIN stay_requests s ON s.id = k.stay_request_id
-    LEFT JOIN accommodations a ON a.id = s.accommodation_id`;
+    LEFT JOIN accommodations a ON a.id = s.accommodation_id
+    LEFT JOIN agent_request_notify n ON n.key_id = k.id`;
 
 /** По ключу: живой ключ → отметка прочтения и строка заявки. Это читает агент. */
 export const REQUEST_STATUS_SQL = `
@@ -466,7 +488,14 @@ function dateChangeNote(requested: string | null, actual: string | null): string
 }
 
 /** Вид заявки без страницы человека: его собирают и агенту, и сверке уведомлений. */
-export type RequestCore = Omit<RequestStatusView, 'page'>;
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify'>;
+
+/** Поле notify ответа: есть строка подписки — номер, жива ли и почему нет (словом для агента). */
+export function notifyStatusOf(row: StatusRow): RequestNotifyStatus | null {
+  if (!row.notify_ref) return null;
+  const reason = publicDisabledReason(row.notify_disabled_reason);
+  return { ref: row.notify_ref, active: row.notify_disabled_reason == null, disabled_reason: reason };
+}
 
 const BOOKING_GONE_HUMAN = 'Бронь по заявке не найдена — исход выясняется у оператора напрямую.';
 
@@ -605,7 +634,7 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
   if (!row) {
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней). Проверьте, что передан ключ из ответа инструмента целиком.`, 'key_not_found');
   }
-  return { ...buildRequestView(row, Date.now()), page: requestStatusPageUrl(key) };
+  return { ...buildRequestView(row, Date.now()), page: requestStatusPageUrl(key), notify: notifyStatusOf(row) };
 }
 
 export type ConfirmOutcome = 'recorded' | 'already' | 'gone';

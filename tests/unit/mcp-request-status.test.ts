@@ -191,8 +191,10 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'next', 'page', 'participants', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'next', 'notify', 'page', 'participants', 'requested_date', 'state', 'tour',
     ]);
+    // Подписки на уведомления не заводилось — null, а не выдуманная (1348).
+    expect(obj.notify).toBeNull();
     // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.
     expect(Object.keys(obj).sort()).toEqual(Object.keys(GET_REQUEST_STATUS_TOOL.outputSchema.properties).sort());
     expect(obj.page).toBe(requestStatusPageUrl(KEY));
@@ -520,6 +522,9 @@ describe('обёртка для сверки', () => {
     const tail = (sql: string) => sql.slice(sql.indexOf('SELECT k.id::text'));
     expect(tail(REQUEST_STATUS_BY_KEY_IDS_SQL)).toBe(tail(REQUEST_STATUS_SQL));
     expect(REQUEST_STATUS_SQL).toContain('sb.id = r.booking_id AND sb.deleted_at IS NULL');
+    // Подписка (1348) читается только номером и причиной отключения: ни адреса, ни ключа подписи.
+    expect(REQUEST_STATUS_SQL).toContain('LEFT JOIN agent_request_notify n ON n.key_id = k.id');
+    expect(REQUEST_STATUS_SQL).not.toMatch(/\bn\.(url_enc|secret_enc|url_host|last_error)\b/);
     expect(REQUEST_STATUS_SQL).not.toMatch(/tourist_(name|phone)|access_token/);
   });
 });
