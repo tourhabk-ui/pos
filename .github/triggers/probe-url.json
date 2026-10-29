@@ -1,25 +1,16 @@
 {
   "timeout": 30,
-  "run": 1006,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Разметка строки табло pkc.aero/board/ (для разбора: классы ячеек, дата, статус, ожидаемое время, примечание) и robots.txt сайта.",
+  "run": 1007,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образцы ответов бесплатных API для тестов разбора: METAR и TAF аэродрома Елизово (NOAA AWC, формат raw), ленты PTWC (Atom, CAP), курс ЦБ (с раннера может не пустить — тогда судит проба с прода).",
   "urls": [
-    "https://pkc.aero/robots.txt",
-    "https://pkc.aero/board/"
+    "https://aviationweather.gov/api/data/metar?ids=UHPP&format=raw&hours=6",
+    "https://aviationweather.gov/api/data/taf?ids=UHPP&format=raw",
+    "https://www.tsunami.gov/events/xml/PHEBAtom.xml",
+    "https://www.tsunami.gov/events/xml/PHEBCAP.xml",
+    "https://www.cbr.ru/scripts/XML_daily.asp"
   ],
   "allowStale": true,
   "retries": 1,
-  "text": false,
-  "bytes": 1500,
-  "grep": [
-    "Disallow",
-    "table-flex",
-    "Задержан"
-  ],
-  "around": [
-    "Время по расписанию",
-    "Задержан"
-  ],
-  "aroundBefore": 6,
-  "aroundLines": 70,
-  "aroundHits": 1
+  "text": true,
+  "bytes": 6000
 }
