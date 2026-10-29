@@ -32,6 +32,12 @@ vi.mock('@/lib/tours/tour-detail-query', () => ({
 vi.mock('@/app/catalog/tours/[id]/_TourDetailClient', () => ({ default: () => null }));
 vi.mock('@/app/places/[id]/_PlaceDetailClient', () => ({ default: () => null }));
 vi.mock('@/components/places/PlaceSOS', () => ({ default: () => null }));
+// Курс ЦБ (≈ ¥ у цены) — без сети; по умолчанию его нет, тест с курсом ставит свой.
+const { cnyRate } = vi.hoisted(() => ({ cnyRate: { current: null as null | { code: string; rubPerUnit: number; date: string } } }));
+vi.mock('@/lib/currency/cbr-rate', async (orig) => ({
+  ...(await orig<typeof import('@/lib/currency/cbr-rate')>()),
+  loadCnyRate: async () => cnyRate.current,
+}));
 
 import { ZhTourSummary, ZhPlaceSummary } from '@/components/zh/ZhDetail';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
@@ -311,6 +317,22 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     expect(container.querySelector('main')?.getAttribute('lang')).toBe('zh-CN');
     expect(container.querySelector('[data-zh-tour-summary="51"]')).not.toBeNull();
     expect(container.querySelector('form, button')).toBeNull();
+  });
+
+  it('курс ЦБ прочитан — у цены ориентир в юанях с датой курса и «цена в рублях»; нет курса — только рубли', async () => {
+    translationRows = withEntity('51', FRESH());
+    const mod = await import('@/app/zh/tours/[slug]/page');
+    cnyRate.current = { code: 'CNY', rubPerUnit: 11.2, date: '30.10.2026' };
+    try {
+      const { container } = render(await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) }));
+      expect(container.textContent).toContain('105,000 卢布 每人（约 9,400 元，按俄罗斯央行 2026-10-30 汇率估算，以卢布计价）');
+    } finally {
+      cnyRate.current = null;
+    }
+    cleanup();
+    const { container } = render(await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) }));
+    expect(container.textContent).toContain('105,000 卢布 每人');
+    expect(container.textContent).not.toContain('俄罗斯央行');
   });
 
   it('перевода нет — index, hreflang и китайский заголовок из фактов; страница открывается', async () => {

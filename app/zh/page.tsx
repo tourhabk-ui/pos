@@ -33,6 +33,7 @@ import {
 } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS } from '@/lib/mcp/connect';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { loadCnyRate } from '@/lib/currency/cbr-rate';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +65,7 @@ export default async function ZhEntryPage() {
   // ответить было нечем. Считается семейство по заголовку, люди не считаются
   // (lib/analytics/agent-entry-hits); запись не ждётся и ответ не роняет.
   recordZhEntryHit('/zh', (await headers()).get('user-agent'));
-  const tours = await loadZhTours();
+  const [tours, cny] = await Promise.all([loadZhTours(), loadCnyRate()]);
   const qwen = MCP_CONNECT_OPTIONS.find((o) => o.id === 'qwen_code')?.value ?? null;
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -100,7 +101,7 @@ export default async function ZhEntryPage() {
             </ul>
           </section>
 
-          <ZhTourList tours={tours} />
+          <ZhTourList tours={tours} cny={cny} />
 
           <section className="space-y-3">
             <h2 className="ds-h2">如何预订</h2>

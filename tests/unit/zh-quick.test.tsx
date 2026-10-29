@@ -18,6 +18,8 @@ import { renderToString } from 'react-dom/server';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, screen, within } from '@testing-library/react';
 
+// Курс ЦБ (≈ ¥ у цены) — без сети: страница ждала бы настоящий cbr.ru.
+vi.mock('@/lib/currency/cbr-rate', async (orig) => ({ ...(await orig<typeof import('@/lib/currency/cbr-rate')>()), loadCnyRate: async () => null }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 const reqHeaders = vi.hoisted(() => ({ ua: '' }));
