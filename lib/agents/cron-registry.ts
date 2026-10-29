@@ -236,6 +236,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     endpoint: 'seat-requests-expire',
   },
   {
+    key: 'agent-request-notify', label: 'Agent Request Notify',
+    description: 'Подписки агентов на изменения заявок (notify_url, 1348): сверка вида заявки и подписанный POST с разницей.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'ops', agentId: 'agent-request-notify', triggerable: false,
+    endpoint: 'agent-request-notify',
+  },
+  {
     key: 'crm-reminders', label: 'CRM Task Reminders',
     description: 'Подошёл срок задачи CRM → одно напоминание партнёру в MAX (заглушка в Telegram); тихие часы 22–08 по Камчатке.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
@@ -629,6 +636,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Ноль напоминаний — норма: сроки не подошли или тихие часы. Поломка видна
   // иначе — отказ базы отдаёт 500, ни одной доставки при должниках — 502.
   'crm-reminders': 'normal',
+  // Ноль доставок — норма: подписок нет или ни одна заявка не изменилась.
+  // Поломка видна иначе — отказ базы отдаёт 500, нет ENCRYPTION_KEY при живых
+  // подписках — 502; отказы приёмников — числами в ответе, не провалом.
+  'agent-request-notify': 'normal',
   'support-escalate': 'unknown',
   // Ноль напоминаний — норма: туров на завтра нет или у туристов нет канала.
   // Отказ при непустой выборке пишется 'failed', а не нулём.

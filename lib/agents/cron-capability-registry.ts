@@ -47,6 +47,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // agent_entry_hits; список путей берёт из модуля без базы, чтобы db_write
   // счётчика сюда не приезжал транзитивно.
   'agent-entry-census': ['db_read'],
+  // 29.10: уведомления агентам об изменении заявок (1348) — читает заявки и
+  // подписки, пишет исход доставки, ходит наружу node:https на адрес агента
+  // (защита адреса — lib/security/public-address, lib/mcp/notify-send). ПД
+  // наружу не уходят: тело собирается поимённо без них.
+  'agent-request-notify': ['db_read', 'db_write', 'net_out'],
   'ai-channel-check': ['net_out', 'telegram', 'pd_direct'],
   'ai-models': ['db_read', 'db_write', 'net_out', 'ai'],
   'alert-scope-census': ['db_read'],

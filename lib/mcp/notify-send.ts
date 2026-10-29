@@ -30,7 +30,7 @@
  */
 
 import { createHmac } from 'node:crypto';
-import { request as httpsRequest, type RequestOptions } from 'node:https';
+import https, { type RequestOptions } from 'node:https';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import type { LookupAddress } from 'node:dns';
 import { isIP } from 'node:net';
@@ -132,7 +132,7 @@ export async function postSigned(rawUrl: string, body: string, headers: Record<s
 
   const remaining = total - (Date.now() - started);
   if (remaining <= 0) return { kind: 'retry', code: 'timeout', network: true };
-  const doRequest = deps.request ?? httpsRequest;
+  const doRequest = deps.request ?? ((options: RequestOptions, cb: (res: IncomingMessage) => void) => https.request(options, cb));
 
   return new Promise<SendOutcome>((resolve) => {
     let settled = false;
