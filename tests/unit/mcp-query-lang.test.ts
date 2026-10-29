@@ -104,7 +104,7 @@ describe('resolveTourByQuery — ранг и запасной поиск по с
     const t = await resolveTourByQuery('Долина гейзеров');
     expect(t?.id).toBe(54);
     const [sql, params] = poolQueryMock.mock.calls[0];
-    expect(sql).toMatch(/WHEN ot\.title ILIKE \$3 THEN 1 WHEN ot\.title ILIKE \$1 THEN 2/);
+    expect(sql).toMatch(/WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$3 THEN 1 WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$1 THEN 2/);
     expect(sql).not.toMatch(/length\(ot\.title\)|base_price ASC/);
     expect(params).toEqual(['%Долина гейзеров%', 'Долина гейзеров', 'Долина гейзеров%']);
   });

@@ -27,6 +27,8 @@ import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
 import { ruPlacePath } from '@/lib/zh/pages';
 import { plural } from '@/lib/home/data-freshness';
 import { operatorPagePath } from '@/lib/operators/page-link';
+import { ACTIVITY_ALIASES, ACTIVITY_LABELS, activityLabel } from '@/lib/tours/labels';
+import { typeMatches } from '@/lib/kuzmich/tour-filter';
 
 export interface ResolvedTour {
   id: number;
@@ -84,33 +86,64 @@ export interface ResolvedTour {
  *
  * Теперь:
  *   - запасной путь по основам: лучший ранг покрывает НЕ все значимые основы
- *     запроса — исход `weak` («совпали только слова …; «X» не найдено»), а не
- *     `one`, при любом числе компаний; пишущий инструмент по нему заявку не
- *     создаёт;
+ *     запроса — исход `weak`, а не `one`, при любом числе компаний; пишущий
+ *     инструмент по нему заявку не создаёт. Кандидат держится за слово в
+ *     названии или месте, а покрытие считается по тем же четырём полям, где
+ *     ищет фраза (название, место, описание, вид): слово из описания тура —
+ *     совпавшее, а не «не найдено». Ответ различает три рода слов: совпавшие
+ *     у туров списка, те, что есть только в других турах, и те, которых нет
+ *     ни в одном туре, найденном по остальным словам (ревью 29.10);
+ *   - «ё» и «е» — одна буква и в базе, и в запросе (yo/noYo): «облет»
+ *     находит «Облёт», «Толмачёва» — «Толмачева». Пока покрытие всех слов
+ *     обязательно, слово с «ё» иначе не засчитывалось бы никогда;
  *   - продавец по вхождению имени (matchSellerName): в запросе есть слова
  *     имени живого продавца — в любом порядке и падеже, той же нормализацией,
  *     что у tourQueryStems. Продавец — партнёр хотя бы с одним туром на
  *     витрине (тот же шлюз): туроператор или гид с авторскими турами; одни
- *     черновики продавцом не делают. Поиск сужается до его туров, остаток
- *     запроса ищется среди них: остатка нет — `seller` со списком и страницей
- *     продавца; нашёлся — `one` или список внутри продавца; не нашёлся —
- *     `seller` с «тура «…» у продавца нет»;
- *   - сужение — только по ОТЛИЧИТЕЛЬНОМУ слову имени: такому, которого нет в
- *     названии, описании, виде и месте живых туров других компаний (те же
- *     четыре поля, где ищет фраза). Имя из одних общих слов («Северная Рыбалка»)
- *     туры других компаний не прячет: ответ называет и продавца, и их туры по
- *     словам запроса — оба списка (§0: имя не поднимает продавца на общих
- *     запросах). Часть имени без отличительного слова продавцом не считается
- *     вовсе: «Северная» — не запрос о «Северной Заимке»;
+ *     черновики продавцом не делают;
+ *   - продавцом запрос считается только по ОТЛИЧИТЕЛЬНОМУ слову имени: такому,
+ *     которого нет в названии, описании, виде и месте живых туров других
+ *     компаний; не проверилось — не отличительное (§4.0). Остаток запроса
+ *     ищется среди его туров — фразой (и видом отдыха, если остаток его
+ *     называет словами: «вертолёт» — helicopter), затем основами по одной во
+ *     всех четырёх полях:
+ *       · остатка нет — `seller`: его туры по правилу 1в и его страница;
+ *       · ровно один его тур на лучшем ранге — `one` (только при полном имени);
+ *       · несколько — `seller` со списком этих туров: первый по 1в выбрал бы
+ *         тур за человека, а в записи — тем более (ревью 29.10);
+ *       · не нашёлся — `seller` со всеми его турами и словами «по словам «X»
+ *         совпадений не нашлось»: это поиск по словам, а не «такого тура нет»;
+ *   - часть имени (одно слово: фамилия или имя гида, слово из названия
+ *     компании) — продавец, но запрос может быть и не о нём: исхода `one` тогда
+ *     нет вовсе, а при остатке рядом идут туры других компаний по остатку —
+ *     оба списка, выбирает человек. «Ольховый с Саввой» — не заявка гиду
+ *     Савве: Ольховый мог быть и у другой компании;
+ *   - имя из одних общих слов («Северная Рыбалка») продавца не поднимает (§0).
+ *     Запрос — это имя целиком и больше ничего: `seller` с основой `words` —
+ *     туры ВСЕХ компаний по словам запроса одним правилом, а продавец только
+ *     назван со ссылкой на свою страницу; заявки нет — человек мог назвать и
+ *     компанию. Есть другие слова или только часть такого имени — продавца в
+ *     ответе нет, поиск идёт как без него;
  *   - точное название тура сильнее всего: его имя продавца не перебивает.
  *     Фраза внутри названия (ранги 1–2) уступает только отличительному имени
- *     — тогда все такие туры и так его (слова нет ни у кого другого), и
- *     ответ — его список, а не первый тур: слово имени в скобках своего же
- *     тура (имя гостиницы, например) — не выбор тура. Имя из общих слов ответ
- *     по названию не меняет: туры, где фраза стоит в названии, называются как
- *     раньше.
+ *     — тогда все такие туры и так его (слова нет ни у кого другого), и ответ
+ *     — его список, а не первый тур: слово имени в скобках своего же тура
+ *     (имя гостиницы, например) — не выбор тура. Имя из общих слов ответ по
+ *     названию не меняет: туры, где фраза стоит в названии, называются как
+ *     раньше, без строки о продавце.
  */
-const TITLE_RANK_SQL = `(CASE WHEN lower(ot.title) = lower($2) THEN 0 WHEN ot.title ILIKE $3 THEN 1 WHEN ot.title ILIKE $1 THEN 2 ELSE 3 END)`;
+
+/** «ё» и «е» — одна буква: колонка без «ё» (запрос — через noYo). */
+function yo(col: string): string {
+  return `translate(${col}, 'Ёё', 'Ее')`;
+}
+
+/** Текст запроса без «ё»: сравнивается с колонками через yo(). */
+function noYo(s: string): string {
+  return s.replace(/ё/g, 'е').replace(/Ё/g, 'Е');
+}
+
+const TITLE_RANK_SQL = `(CASE WHEN lower(${yo('ot.title')}) = lower($2) THEN 0 WHEN ${yo('ot.title')} ILIKE $3 THEN 1 WHEN ${yo('ot.title')} ILIKE $1 THEN 2 ELSE 3 END)`;
 
 /** Колонки кандидата: тур, продавец, главное место (если видимо) и ближайшая свободная дата. */
 const CANDIDATE_COLUMNS = `ot.id, ot.title, ot.operator_id, ot.base_price, ot.price_unit, ot.slug,
@@ -298,20 +331,41 @@ export interface SellerMatch {
   is_public: boolean | null;
 }
 
+/** Как слова запроса разошлись по турам, когда тура со всеми словами нет. */
+export interface WordsSplit {
+  /** Совпали у туров списка (лучшего ранга). */
+  matched: string[];
+  /** Есть только в других турах — без слов из matched. */
+  apart: string[];
+  /** Нет ни в одном туре, найденном по остальным словам. */
+  missing: string[];
+}
+
 export type TourChoice =
   | { kind: 'one'; tour: TourCandidate }
   | { kind: 'ambiguous'; candidates: TourCandidate[] }
-  /**
-   * Ни у одного тура нет всех значимых слов запроса: matched — слова,
-   * совпавшие у кандидатов, missing — не совпавшие ни у одного из них.
-   */
-  | { kind: 'weak'; candidates: TourCandidate[]; matched: string[]; missing: string[] }
-  /**
-   * Запрос назвал продавца. tours — его туры по правилу 1в; missing — остаток
-   * запроса, которого среди них нет; others — при имени из общих слов туры
-   * других компаний по словам запроса (null — имя отличительное, сужение честное).
-   */
-  | { kind: 'seller'; sellers: SellerMatch[]; tours: TourCandidate[]; missing: string | null; others: TourCandidate[] | null }
+  /** Ни у одного тура нет всех значимых слов запроса; candidates — туры лучшего ранга. */
+  | ({ kind: 'weak'; candidates: TourCandidate[] } & WordsSplit)
+  | {
+      kind: 'seller';
+      sellers: SellerMatch[];
+      /**
+       * own — имя отличительное: tours — туры названного продавца (все или
+       * совпавшие с остатком запроса). words — имя из одних общих слов, и
+       * запрос — это имя целиком: tours — туры ВСЕХ компаний по словам
+       * запроса одним правилом, продавец только назван со своей страницей.
+       */
+      basis: 'own' | 'words';
+      tours: TourCandidate[];
+      /** own: совпала только часть имени — запрос может быть и не о продавце. */
+      partialName: boolean;
+      /** own: остаток запроса после имени и нашёлся ли он среди туров продавца (found — tours сужен до совпавших). */
+      rest: { text: string; found: boolean } | null;
+      /** own, часть имени с остатком: туры других компаний по остатку (partial — совпала часть его слов). */
+      others: { tours: TourCandidate[]; partial: boolean } | null;
+      /** words: тура со всеми словами нет — как слова разошлись; иначе null. */
+      words: WordsSplit | null;
+    }
   | { kind: 'none' };
 
 export type SellerChoice = Extract<TourChoice, { kind: 'seller' }>;
@@ -337,8 +391,10 @@ interface CandidateRow {
   nearest_free_date: string | null;
   /** Ранг: меньше — лучше. */
   rank?: number | string | null;
-  /** Запасной путь: совпала ли каждая основа запроса (по порядку основ). */
+  /** Запасной путь: есть ли каждая основа запроса в названии, месте, описании или виде (по порядку основ). */
   stem_hits?: boolean[] | null;
+  /** Запасной путь: есть ли каждая основа в названии или месте. */
+  stem_title_hits?: boolean[] | null;
 }
 
 function toCandidate(r: CandidateRow): TourCandidate {
@@ -401,13 +457,24 @@ function scopeClause(scope: SellerScope, n: number): { sql: string; params: unkn
     : { sql: ` AND (ot.operator_id IS NULL OR NOT (ot.operator_id = ANY($${n}::uuid[])))`, params: [scope.except] };
 }
 
-/** Фраза целиком — в названии, описании, виде или месте; rank — ранг названия. */
-async function phraseRows(q: string, scope: SellerScope): Promise<CandidateRow[]> {
-  const sc = scopeClause(scope, 4);
+/**
+ * Фраза целиком — в названии, описании, виде или месте; rank — ранг названия.
+ * types — виды отдыха, которые фраза называет словами (только в кругу
+ * продавца): тур такого вида — совпадение ранга 3, как фраза в описании.
+ */
+async function phraseRows(q: string, scope: SellerScope, types: readonly string[] = []): Promise<CandidateRow[]> {
+  const nq = noYo(q);
+  const params: unknown[] = [containsPattern(nq), nq, startsPattern(nq)];
+  let byType = '';
+  if (types.length > 0) {
+    params.push([...types]);
+    byType = ` OR ot.activity_type = ANY($${params.length}::text[])`;
+  }
+  const sc = scopeClause(scope, params.length + 1);
   const { rows } = await pool.query<CandidateRow>(
     `SELECT ${CANDIDATE_COLUMNS}, ${TITLE_RANK_SQL} AS rank ${CANDIDATE_FROM}
-        AND (ot.title ILIKE $1 OR ot.short_description ILIKE $1 OR ot.activity_type ILIKE $1 OR ot.location_name ILIKE $1)${sc.sql}`,
-    [containsPattern(q), q, startsPattern(q), ...sc.params],
+        AND (${yo('ot.title')} ILIKE $1 OR ${yo('ot.short_description')} ILIKE $1 OR ${yo('ot.activity_type')} ILIKE $1 OR ${yo('ot.location_name')} ILIKE $1${byType})${sc.sql}`,
+    [...params, ...sc.params],
   );
   return rows;
 }
@@ -420,52 +487,91 @@ interface Found {
 
 const NOTHING: Found = { choice: { kind: 'none' }, candidates: [] };
 
+function fromPhrase(rows: CandidateRow[]): Found {
+  return { choice: choose(rows, phraseRank), candidates: bestCandidates(rows, phraseRank) };
+}
+
+interface WordsMode {
+  /** С какого числа значимых слов искать по основам. */
+  minStems: number;
+  /** Где должна стоять хоть одна основа, чтобы тур стал кандидатом: в названии или месте — или в любом из четырёх полей. */
+  anchor: 'title' | 'any';
+}
+
+/** Общий путь: от двух слов (одно слово — дело фразы), кандидат держится за слово в названии или месте. */
+const GENERAL_WORDS: WordsMode = { minStems: 2, anchor: 'title' };
+
 /**
  * Запасной путь по основам: фраза целиком не нашлась («Авачинский
- * восхождение» — слова из перевода стоят не подряд). Основы ищутся в
- * названии и месте, больше совпавших — лучше. Служебные слова («туры»)
- * ищутся, только если других нет. Меньше двух основ — пути нет (null).
+ * восхождение» — слова из перевода стоят не подряд). Отметки совпадений
+ * ставит база по каждой основе — в четырёх полях фразы и отдельно в названии
+ * и месте. Ранг: больше основ где угодно, при равенстве — больше в названии и
+ * месте. Служебные слова («туры») ищутся, только если других нет.
  *
  * Лучший ранг покрывает не все основы — `weak`: частичное совпадение
  * «подходит» не называется, и заявка по нему не пишется (ловушка 29.10).
+ * Слово, которого нет у туров списка, называется по правде: есть в других
+ * турах или нет ни в одном найденном (ревью 29.10: «Толбачик» из запроса
+ * «Курильское озеро Толбачик» звучал «не найдено» при пяти турах на Толбачик).
  */
-async function wordsSearch(q: string, scope: SellerScope): Promise<Found | null> {
+async function wordsSearch(q: string, scope: SellerScope, mode: WordsMode = GENERAL_WORDS): Promise<Found | null> {
   const all = queryStemWords(q);
-  if (all.length < 2) return null;
+  if (all.length === 0 || all.length < mode.minStems) return null;
   const real = all.filter((s) => !s.filler);
   const stems = real.length > 0 ? real : all;
-  const hit = (i: number) => `(ot.title ILIKE $${i + 1} OR ot.location_name ILIKE $${i + 1})`;
+  const inTitle = (i: number) => `(${yo('ot.title')} ILIKE $${i + 1} OR ${yo('ot.location_name')} ILIKE $${i + 1})`;
+  const anywhere = (i: number) => `(${inTitle(i)} OR ${yo('ot.short_description')} ILIKE $${i + 1} OR ${yo('ot.activity_type')} ILIKE $${i + 1})`;
+  const each = (f: (i: number) => string, sep: string) => stems.map((_, i) => f(i)).join(sep);
   const sc = scopeClause(scope, stems.length + 1);
   const { rows } = await pool.query<CandidateRow>(
-    `SELECT ${CANDIDATE_COLUMNS}, ARRAY[${stems.map((_, i) => hit(i)).join(', ')}] AS stem_hits ${CANDIDATE_FROM}
-        AND (${stems.map((_, i) => hit(i)).join(' OR ')})${sc.sql}`,
+    `SELECT ${CANDIDATE_COLUMNS}, ARRAY[${each(anywhere, ', ')}] AS stem_hits, ARRAY[${each(inTitle, ', ')}] AS stem_title_hits ${CANDIDATE_FROM}
+        AND (${each(mode.anchor === 'title' ? inTitle : anywhere, ' OR ')})${sc.sql}`,
     [...stems.map((s) => containsPattern(s.stem)), ...sc.params],
   );
   if (rows.length === 0) return NOTHING;
-  // Совпадения считает база; строки без отметок (их нет у настоящего запроса)
-  // ничего не покрывают — «не знаю» не равно «совпало» (§4.0).
-  const hitsOf = (r: CandidateRow) => stems.map((_, i) => Array.isArray(r.stem_hits) && r.stem_hits[i] === true);
-  const rankOf = (r: CandidateRow) => -hitsOf(r).filter(Boolean).length;
+  // Совпадения считает база; строки без отметок ничего не покрывают — «не
+  // знаю» не равно «совпало» (§4.0).
+  const marks = (r: CandidateRow, col: 'stem_hits' | 'stem_title_hits') => {
+    const a = r[col];
+    return stems.map((_, i) => Array.isArray(a) && a[i] === true);
+  };
+  const count = (xs: boolean[]) => xs.filter(Boolean).length;
+  const rankOf = (r: CandidateRow) => -(count(marks(r, 'stem_hits')) * 10 + count(marks(r, 'stem_title_hits')));
   const candidates = bestCandidates(rows, rankOf);
   const best = Math.min(...rows.map(rankOf));
-  if (-best === stems.length) return { choice: choose(rows, rankOf), candidates };
-  const top = rows.filter((r) => rankOf(r) === best).map(hitsOf);
-  const seen = stems.map((_, i) => top.some((h) => h[i]));
+  const top = rows.filter((r) => rankOf(r) === best).map((r) => marks(r, 'stem_hits'));
+  if (top[0].every(Boolean)) return { choice: choose(rows, rankOf), candidates };
+  const inTop = stems.map((_, i) => top.some((h) => h[i]));
+  const inAny = stems.map((_, i) => rows.some((r) => marks(r, 'stem_hits')[i]));
+  const words = (keep: (i: number) => boolean) => stems.filter((_, i) => keep(i)).map((s) => s.word);
   return {
     choice: {
       kind: 'weak', candidates,
-      matched: stems.filter((_, i) => seen[i]).map((s) => s.word),
-      missing: stems.filter((_, i) => !seen[i]).map((s) => s.word),
+      matched: words((i) => inTop[i]),
+      apart: words((i) => !inTop[i] && inAny[i]),
+      missing: words((i) => !inAny[i]),
     },
     candidates,
   };
 }
 
-/** Фраза, затем основы — в заданном круге продавцов. */
-async function searchTours(q: string, scope: SellerScope): Promise<Found> {
-  const phrase = await phraseRows(q, scope);
-  if (phrase.length > 0) return { choice: choose(phrase, phraseRank), candidates: bestCandidates(phrase, phraseRank) };
-  return (await wordsSearch(q, scope)) ?? NOTHING;
+/** Виды отдыха, которые остаток запроса называет словами (словарь видов, typeMatches): «вертолёт» — helicopter. */
+function activityTypesFor(text: string): string[] {
+  const keys = Object.keys(ACTIVITY_LABELS).filter((slug) => typeMatches(slug, text, activityLabel));
+  const aliases = Object.entries(ACTIVITY_ALIASES).filter(([, to]) => keys.includes(to)).map(([from]) => from);
+  return [...keys, ...aliases];
+}
+
+/**
+ * Остаток запроса в кругу продавцов (туры названного или, при части имени,
+ * все кроме его): фраза и названный словами вид отдыха, затем основы по одной
+ * во всех четырёх полях. Туров в кругу мало, и слово в другом падеже
+ * («Мутновский» при «Мутновского» в описании) иначе звучало бы «не нашлось».
+ */
+async function restSearch(rest: string, scope: SellerScope): Promise<Found> {
+  const phrase = await phraseRows(rest, scope, activityTypesFor(rest));
+  if (phrase.length > 0) return fromPhrase(phrase);
+  return (await wordsSearch(rest, scope, { minStems: 1, anchor: 'any' })) ?? NOTHING;
 }
 
 interface SellerRow {
@@ -474,6 +580,11 @@ interface SellerRow {
   seller_category: string | null;
   seller_slug: string | null;
   seller_is_public: boolean | null;
+}
+
+interface NamedSeller {
+  row: SellerRow;
+  m: SellerNameMatch;
 }
 
 /**
@@ -490,8 +601,8 @@ async function keysElsewhere(pairs: ReadonlyArray<{ sellerId: string; key: strin
             EXISTS (SELECT 1 FROM operator_tours ot
                      WHERE ${publicTourSql('ot')}
                        AND ot.operator_id IS DISTINCT FROM k.seller_id
-                       AND (ot.title ILIKE k.pattern OR ot.short_description ILIKE k.pattern
-                            OR ot.activity_type ILIKE k.pattern OR ot.location_name ILIKE k.pattern)) AS elsewhere
+                       AND (${yo('ot.title')} ILIKE k.pattern OR ${yo('ot.short_description')} ILIKE k.pattern
+                            OR ${yo('ot.activity_type')} ILIKE k.pattern OR ${yo('ot.location_name')} ILIKE k.pattern)) AS elsewhere
        FROM unnest($1::uuid[], $2::text[], $3::text[]) AS k(seller_id, key, pattern)`,
     [pairs.map((p) => p.sellerId), pairs.map((p) => p.key), pairs.map((p) => containsPattern(p.key))],
   );
@@ -501,14 +612,27 @@ async function keysElsewhere(pairs: ReadonlyArray<{ sellerId: string; key: strin
   return out;
 }
 
+function sellerMatches(named: readonly NamedSeller[]): SellerMatch[] {
+  return named.map(({ row }) => ({
+    id: row.seller_id,
+    name: String(row.seller_name),
+    category: row.seller_category ?? null,
+    slug: row.seller_slug ?? null,
+    is_public: row.seller_is_public ?? null,
+  })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+}
+
+const usedWords = (named: readonly NamedSeller[]) => [...new Set(named.flatMap(({ m }) => m.used))];
+
 /**
  * Продавец по имени в запросе (шапка выше). Кандидаты — партнёры хотя бы с
  * одним туром на витрине; имя сопоставляется в коде (matchSellerName),
  * отличительность совпавших слов — запросом по турам других компаний.
- * inTitles — фраза запроса стоит в названии тура: тогда в счёт идёт только
- * отличительное имя. null — продавца в запросе нет, поиск идёт как раньше.
+ * phrase — строки фразы запроса по всей витрине: стоит она в названии тура —
+ * в счёт идёт только отличительное имя. null — продавца в запросе нет, поиск
+ * идёт как без него.
  */
-async function sellerChoice(q: string, inTitles: boolean): Promise<TourChoice | null> {
+async function sellerChoice(q: string, phrase: CandidateRow[]): Promise<TourChoice | null> {
   if (!wordsOf(q).some((w) => w.norm.length >= 4 && !FILLER_WORDS.has(w.norm))) return null;
   const { rows } = await pool.query<SellerRow>(
     `SELECT p.id::text AS seller_id, p.name AS seller_name, p.category AS seller_category,
@@ -516,47 +640,76 @@ async function sellerChoice(q: string, inTitles: boolean): Promise<TourChoice | 
        FROM partners p
       WHERE EXISTS (SELECT 1 FROM operator_tours ot WHERE ot.operator_id = p.id AND ${publicTourSql('ot')})`,
   );
-  const matched = rows.flatMap((row) => {
+  const matched: NamedSeller[] = rows.flatMap((row) => {
     const m = typeof row.seller_id === 'string' ? matchSellerName(q, row.seller_name) : null;
     return m ? [{ row, m }] : [];
   });
   if (matched.length === 0) return null;
   const elsewhere = await keysElsewhere(matched.flatMap(({ row, m }) => m.keys.map((key) => ({ sellerId: row.seller_id, key }))));
-  const exclusive = matched.filter(({ row, m }) => m.keys.some((key) => elsewhere.get(`${row.seller_id}:${key}`) === false));
-  const exclusiveFull = exclusive.filter(({ m }) => m.coverage === 'full');
-  const narrowed = exclusiveFull.length > 0 ? exclusiveFull : exclusive;
-  // Отличительного слова нет ни у кого: продавец — только при полном имени,
-  // и тогда рядом туры других компаний; часть общего имени — не продавец.
-  const chosen = narrowed.length > 0 ? narrowed : inTitles ? [] : matched.filter(({ m }) => m.coverage === 'full');
-  if (chosen.length === 0) return null;
+  const distinct = matched.filter(({ row, m }) => m.keys.some((key) => elsewhere.get(`${row.seller_id}:${key}`) === false));
+  const distinctFull = distinct.filter(({ m }) => m.coverage === 'full');
+  const named = distinctFull.length > 0 ? distinctFull : distinct;
+  if (named.length > 0) return ownSellerChoice(q, named);
+  // Отличительного слова нет ни у кого. Фраза стоит в названии тура — ответ
+  // по названию: имя из общих слов его не меняет и строкой о себе не звучит.
+  if (phrase.some((r) => phraseRank(r) <= 2)) return null;
+  // Продавец с именем из общих слов звучит, только если запрос — его имя
+  // целиком и ничего больше; иначе поиск идёт как без него (§0, ревью 29.10).
+  const full = matched.filter(({ m }) => m.coverage === 'full');
+  if (full.length === 0 || queryRemainder(q, usedWords(full)) !== null) return null;
+  return wordsSellerChoice(q, full, phrase);
+}
 
-  const ids = chosen.map(({ row }) => row.seller_id);
+/** Отличительное имя: туры продавца, остаток запроса — среди них (шапка выше). */
+async function ownSellerChoice(q: string, named: readonly NamedSeller[]): Promise<TourChoice | null> {
+  const ids = named.map(({ row }) => row.seller_id);
   const { rows: tourRows } = await pool.query<CandidateRow>(
     `SELECT ${CANDIDATE_COLUMNS} ${CANDIDATE_FROM}
         AND ot.operator_id = ANY($1::uuid[])`,
     [ids],
   );
-  const tours = orderOffersBy(tourRows.map(toCandidate), byOfferOrder);
+  const all = orderOffersBy(tourRows.map(toCandidate), byOfferOrder);
   // Туры сняли между двумя запросами — продавца на витрине уже нет.
-  if (tours.length === 0) return null;
-  const sellers: SellerMatch[] = chosen.map(({ row }) => ({
-    id: row.seller_id,
-    name: String(row.seller_name),
-    category: row.seller_category ?? null,
-    slug: row.seller_slug ?? null,
-    is_public: row.seller_is_public ?? null,
-  })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  if (all.length === 0) return null;
+  const partialName = named.some(({ m }) => m.coverage === 'partial');
+  const base: SellerChoice = {
+    kind: 'seller', basis: 'own', sellers: sellerMatches(named), tours: all,
+    partialName, rest: null, others: null, words: null,
+  };
+  const rest = queryRemainder(q, usedWords(named));
+  if (!rest) return base;
+  const inner = await restSearch(rest, { only: ids });
+  const found = inner.choice.kind === 'one' || inner.choice.kind === 'ambiguous';
+  // Один тур — только при полном имени и ровно одном его туре на лучшем
+  // ранге. Несколько — список: первый по 1в выбрал бы тур за человека (ревью 29.10).
+  if (found && !partialName && inner.candidates.length === 1) return { kind: 'one', tour: inner.candidates[0] };
+  // Часть имени — запрос может быть и не о продавце: туры других компаний по
+  // остатку идут рядом, ни один список не прячется.
+  const others = partialName ? await restSearch(rest, { except: ids }) : null;
+  return {
+    ...base,
+    tours: found ? inner.candidates : all,
+    rest: { text: rest, found },
+    others: others ? { tours: others.candidates, partial: others.choice.kind === 'weak' } : null,
+  };
+}
 
-  const rest = queryRemainder(q, [...new Set(chosen.flatMap(({ m }) => m.used))]);
-  let missing: string | null = null;
-  if (rest) {
-    const inner = await searchTours(rest, { only: ids });
-    const found = inner.choice.kind === 'one' || inner.choice.kind === 'ambiguous';
-    if (found && narrowed.length > 0) return inner.choice;
-    if (!found) missing = rest;
-  }
-  const others = narrowed.length > 0 ? null : (await searchTours(q, { except: ids })).candidates;
-  return { kind: 'seller', sellers, tours, missing, others };
+/**
+ * Имя из одних общих слов, запрос — это имя целиком: туры всех компаний по
+ * словам запроса — тем же правилом, что без продавца (фраза, иначе основы;
+ * одно слово тоже ищется основой). Туры продавца в списке — только те, где
+ * слова есть, как у всех; остальные — на его странице.
+ */
+async function wordsSellerChoice(q: string, named: readonly NamedSeller[], phrase: CandidateRow[]): Promise<TourChoice> {
+  const general = phrase.length > 0
+    ? fromPhrase(phrase)
+    : (await wordsSearch(q, null, { minStems: 1, anchor: 'title' })) ?? NOTHING;
+  const c = general.choice;
+  return {
+    kind: 'seller', basis: 'words', sellers: sellerMatches(named), tours: general.candidates,
+    partialName: false, rest: null, others: null,
+    words: c.kind === 'weak' ? { matched: c.matched, apart: c.apart, missing: c.missing } : null,
+  };
 }
 
 export async function resolveTourChoice(query: string): Promise<TourChoice> {
@@ -578,13 +731,35 @@ export async function resolveTourChoice(query: string): Promise<TourChoice> {
     const phrase = await phraseRows(q, null);
     // Точное название тура — самое сильное совпадение: имя продавца его не перебивает.
     if (phrase.some((r) => phraseRank(r) === 0)) return choose(phrase, phraseRank);
-    const seller = await sellerChoice(q, phrase.some((r) => phraseRank(r) <= 2));
+    const seller = await sellerChoice(q, phrase);
     if (seller) return seller;
     if (phrase.length > 0) return choose(phrase, phraseRank);
     return (await wordsSearch(q, null))?.choice ?? { kind: 'none' };
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[tour-availability] тур не прочитан', { sqlstate: e?.code, message: e?.message });
+    throw err;
+  }
+}
+
+/**
+ * Продавец в свободном тексте — для брони в мессенджере, где запрос — целое
+ * сообщение человека, а не имя тура. Мессенджер ищет тур по словам вида
+ * отдыха, и имя компании со словом «рыбалка» становилось «рыбалкой» — туром
+ * ДРУГОЙ компании (ревью 29.10). Поэтому сначала — назван ли продавец, тем
+ * же правилом, что у resolveTourChoice; null — продавца нет (или текст —
+ * точное название тура), и мессенджер ищет по словам вида, как раньше.
+ */
+export async function resolveSellerInText(text: string): Promise<TourChoice | null> {
+  const q = text.trim();
+  if (!q) return null;
+  try {
+    const phrase = await phraseRows(q, null);
+    if (phrase.some((r) => phraseRank(r) === 0)) return null;
+    return await sellerChoice(q, phrase);
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tour-availability] продавец в тексте не прочитан', { sqlstate: e?.code, message: e?.message });
     throw err;
   }
 }
@@ -629,57 +804,108 @@ export function sellerLabel(s: SellerMatch): string {
   return `${s.category === 'guide' ? 'гид' : 'компания'} «${s.name}»`;
 }
 
+/** То же в родительном падеже: «у гида «…»», «страница компании «…»». */
+export function sellerGenitive(s: SellerMatch): string {
+  return `${s.category === 'guide' ? 'гида' : 'компании'} «${s.name}»`;
+}
+
 /** Полный адрес собственной страницы продавца; null — страницы нет (карточка закрыта или без адреса). */
 export function sellerPageUrl(s: SellerMatch): string | null {
   const path = operatorPagePath({ slug: s.slug, is_public: s.is_public });
   return path ? `${getPublicBaseUrl()}${path}` : null;
 }
 
-/**
- * Ответ о продавце: кто он, его страница, его туры по правилу 1в; при имени
- * из общих слов — и туры других компаний по словам запроса. Ни один список
- * не прячется, первым тур не выбирается (§0).
- */
-export function sellerChoiceLines(query: string, c: SellerChoice): string[] {
+/** Как разошлись слова запроса — одной фразой, без отрицаний сверх данных. */
+export function wordsSplitText(s: WordsSplit): string {
+  const quoted = (ws: readonly string[]) => ws.map((w) => `«${w}»`).join(', ');
+  if (s.matched.length === 0) return 'тура со всеми словами нет';
+  if (s.apart.length === 0 && s.missing.length === 0) {
+    return `тура со всеми словами нет — слова ${quoted(s.matched)} встречаются только в разных турах`;
+  }
+  return [
+    `тура со всеми словами нет — совпали только слова ${quoted(s.matched)}`,
+    ...(s.apart.length > 0 ? [`${quoted(s.apart)} — есть в других турах, без этих слов`] : []),
+    ...(s.missing.length > 0
+      ? [`${quoted(s.missing)} — нет ни в одном из туров, найденных по другим словам (искал в названии, месте, описании и виде отдыха)`]
+      : []),
+  ].join('; ');
+}
+
+/** Ответ о продавце с отличительным именем: кто он, его страница, его туры (все или по остатку запроса). */
+function ownSellerLines(query: string, c: SellerChoice): string[] {
   const one = c.sellers.length === 1;
-  const lines = [
-    `По запросу «${query}» найден ${one ? 'продавец' : 'не один продавец'} — ${c.sellers.map(sellerLabel).join(', ')}. `
-      + 'Это имя продавца, а не название тура.',
-  ];
+  const who = c.sellers.map(sellerLabel).join(', ');
+  const whose = one ? 'продавца' : 'этих продавцов';
+  const lines = [c.partialName
+    ? `По запросу «${query}» совпала часть имени ${one ? 'продавца' : 'продавцов'} — ${who}. `
+      + `Запрос может быть и не о ${one ? 'нём' : 'них'}: не выбирай компанию за человека.`
+    : `По запросу «${query}» найден ${one ? 'продавец' : 'не один продавец'} — ${who}. Это имя продавца, а не название тура.`];
   for (const s of c.sellers) {
     const url = sellerPageUrl(s);
-    const whose = one ? 'продавца' : sellerLabel(s);
-    lines.push(url ? `Страница ${whose} на Ведаре: ${url}` : `Своей страницы на Ведаре у ${one ? 'продавца' : sellerLabel(s)} нет.`);
-  }
-  if (c.missing) {
-    lines.push(`Тура «${c.missing}» у ${one ? 'продавца' : 'этих продавцов'} нет — ниже все ${one ? 'его' : 'их'} туры. `
-      + `Туры «${c.missing}» других компаний — get_tour_details с запросом «${c.missing}» без имени продавца.`);
+    const of = one ? 'продавца' : sellerGenitive(s);
+    lines.push(url ? `Страница ${of} на Ведаре: ${url}` : `Своей страницы на Ведаре у ${of} нет.`);
   }
   const page = one ? sellerPageUrl(c.sellers[0]) : null;
-  lines.push(
-    `Туры ${one ? 'продавца' : 'этих продавцов'} на витрине — ${c.tours.length} (порядок — правило платформы, а не рекомендация):`,
-    ...candidateLines(c.tours, CANDIDATES_SHOWN, page ? 'все на странице продавца' : 'get_tours'),
-  );
-  if (c.others) {
+  const more = page ? 'все на странице продавца' : 'get_tours';
+  if (c.rest?.found) {
     lines.push(
-      'Все слова имени есть и в турах других компаний, так что запрос может быть и не о продавце. '
-        + 'Туры других компаний по словам запроса — назови человеку оба списка, выбирает он:',
-      ...(c.others.length > 0 ? candidateLines(c.others) : ['- туров других компаний по этим словам нет']),
+      `Туры ${whose} по словам «${c.rest.text}» — ${c.tours.length} (порядок — правило платформы, а не рекомендация); назови все, выбирает человек:`,
+      ...candidateLines(c.tours, CANDIDATES_SHOWN, more),
+    );
+  } else {
+    if (c.rest) {
+      lines.push(`По словам «${c.rest.text}» среди туров ${whose} совпадений не нашлось (искал в названии, месте, описании и виде отдыха). `
+        + 'Это поиск по словам, а не ответ «такого тура нет»: проверь список ниже.'
+        + (c.others ? '' : ` Туры «${c.rest.text}» других компаний — get_tour_details с запросом «${c.rest.text}» без имени продавца.`));
+    }
+    lines.push(
+      `Туры ${whose} на витрине — ${c.tours.length} (порядок — правило платформы, а не рекомендация):`,
+      ...candidateLines(c.tours, CANDIDATES_SHOWN, more),
+    );
+  }
+  if (c.others && c.rest) {
+    lines.push(
+      `Туры других компаний по словам «${c.rest.text}»${c.others.partial ? ' (совпала только часть слов)' : ''} — назови человеку оба списка, выбирает он:`,
+      ...(c.others.tours.length > 0 ? candidateLines(c.others.tours) : ['- по этим словам туров других компаний не нашлось']),
     );
   }
   return lines;
 }
 
+/** Ответ на имя из общих слов: туры всех компаний по словам запроса и продавец со своей страницей — без выделения. */
+function wordsSellerLines(query: string, c: SellerChoice): string[] {
+  const who = c.sellers.map(sellerLabel).join(', ');
+  const lines = [
+    `Запрос «${query}» совпал с именем продавца на Ведаре — ${who}, — но этими словами его не отличить от туров других компаний. `
+      + 'Ниже — туры всех компаний по словам запроса, одним правилом; продавец не выделен (порядок — правило платформы, а не рекомендация):',
+  ];
+  if (c.words) {
+    const split = wordsSplitText(c.words);
+    lines.push(`${split[0].toUpperCase()}${split.slice(1)}. Это частичное совпадение: не называй эти туры подходящими.`);
+  }
+  lines.push(...(c.tours.length > 0 ? candidateLines(c.tours) : ['- по этим словам туров на витрине не нашлось']));
+  for (const s of c.sellers) {
+    const url = sellerPageUrl(s);
+    lines.push(url ? `Все туры ${sellerGenitive(s)} — на странице продавца на Ведаре: ${url}` : `Своей страницы на Ведаре у ${sellerGenitive(s)} нет.`);
+  }
+  lines.push('Назови человеку и список, и продавца: кого он имел в виду, решает он.');
+  return lines;
+}
+
+/**
+ * Ответ о продавце: кто он, его страница, его туры по правилу 1в; при части
+ * имени — и туры других компаний по остатку; при имени из общих слов — туры
+ * всех компаний по словам запроса. Ни один список не прячется, первым тур не
+ * выбирается (§0).
+ */
+export function sellerChoiceLines(query: string, c: SellerChoice): string[] {
+  return c.basis === 'words' ? wordsSellerLines(query, c) : ownSellerLines(query, c);
+}
+
 /** Ответ о частичном совпадении: какие слова совпали, какие нет, и туры, где совпала часть. */
 export function weakChoiceLines(query: string, c: WeakChoice): string[] {
-  const quoted = (ws: readonly string[]) => ws.map((w) => `«${w}»`).join(', ');
-  const head = c.matched.length === 0
-    ? `По запросу «${query}» тура со всеми словами нет.`
-    : c.missing.length > 0
-      ? `По запросу «${query}» тура со всеми словами нет — совпали только слова ${quoted(c.matched)}; ${quoted(c.missing)} не найдено.`
-      : `По запросу «${query}» тура со всеми словами нет — слова ${quoted(c.matched)} встречаются только в разных турах.`;
   return [
-    `${head} Это частичное совпадение: не называй эти туры подходящими.`,
+    `По запросу «${query}» ${wordsSplitText(c)}. Это частичное совпадение: не называй эти туры подходящими.`,
     'Туры, где совпала часть слов (порядок — правило платформы, а не рекомендация):',
     ...candidateLines(c.candidates),
   ];
@@ -688,6 +914,15 @@ export function weakChoiceLines(query: string, c: WeakChoice): string[] {
 /** Строки ответа-списка: о продавце или о частичном совпадении. */
 export function choiceListLines(query: string, c: SellerChoice | WeakChoice): string[] {
   return c.kind === 'seller' ? sellerChoiceLines(query, c) : weakChoiceLines(query, c);
+}
+
+/** Почему тур не выбран — для отказа пишущего инструмента. */
+export function choiceListReason(c: SellerChoice | WeakChoice): string {
+  if (c.kind === 'weak') return 'нет тура со всеми словами';
+  if (c.basis === 'words') return 'запрос совпал и с именем продавца, и со словами в турах разных компаний';
+  if (c.partialName) return 'совпала только часть имени продавца — запрос может быть и не о нём';
+  if (c.rest?.found) return 'у продавца по этим словам несколько туров';
+  return 'найден продавец, а не тур';
 }
 
 /** Ответ читающего инструмента (детали, даты) на продавца или частичное совпадение — список без дат и деталей одного тура. */

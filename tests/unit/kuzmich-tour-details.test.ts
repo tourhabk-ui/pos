@@ -38,7 +38,8 @@ describe('getTourDetails', () => {
     expect(sql).toContain('is_active = true');
     expect(sql).toContain('deleted_at IS NULL');
     // Ранг 17.10: точное название → начинается с запроса → содержит; затем короче.
-    expect(sql).toMatch(/WHEN lower\(ot\.title\) = lower\(\$2\) THEN 0 WHEN ot\.title ILIKE \$3 THEN 1 WHEN ot\.title ILIKE \$1 THEN 2/);
+    // «ё» и «е» — одна буква (ревью 29.10): название сравнивается без «ё».
+    expect(sql).toMatch(/WHEN lower\(translate\(ot\.title, 'Ёё', 'Ее'\)\) = lower\(\$2\) THEN 0 WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$3 THEN 1 WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$1 THEN 2/);
     // С 29.10 короче название и дешевле не выбирают продавца: при равном ранге
     // у разных компаний исход — «неоднозначно» (tests/unit/tour-choice.test.ts).
     expect(sql).not.toMatch(/length\(ot\.title\)|base_price ASC/);

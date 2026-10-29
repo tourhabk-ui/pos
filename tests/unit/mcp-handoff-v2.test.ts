@@ -65,9 +65,12 @@ describe('цели v2: резолв — той же функцией, что у 
   // выбран, ссылки нет даже при общем месте (страница продавца — в тексте ответа).
   it('продавец по имени или часть слов — ссылки нет, хотя все туры к одному месту', () => {
     const seller = { id: 'a', name: 'Тихая Заимка', category: 'operator', slug: 'tikhaya-zaimka', is_public: true };
-    expect(tourChoiceTarget({ kind: 'seller', sellers: [seller], tours: [cand(61, 'a', GORELY), cand(62, 'a', GORELY)], missing: null, others: null }))
-      .toBeNull();
-    expect(tourChoiceTarget({ kind: 'weak', candidates: [cand(61, 'a', GORELY)], matched: ['Горелый'], missing: ['Тюленья'] }))
+    const tours = [cand(61, 'a', GORELY), cand(62, 'a', GORELY)];
+    for (const basis of ['own', 'words'] as const) {
+      expect(tourChoiceTarget({ kind: 'seller', sellers: [seller], basis, tours, partialName: false, rest: null, others: null, words: null }))
+        .toBeNull();
+    }
+    expect(tourChoiceTarget({ kind: 'weak', candidates: [cand(61, 'a', GORELY)], matched: ['Горелый'], apart: [], missing: ['Тюленья'] }))
       .toBeNull();
   });
 

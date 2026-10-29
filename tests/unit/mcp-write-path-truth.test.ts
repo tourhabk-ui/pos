@@ -116,7 +116,9 @@ describe('имя продавца или часть слов — заявки н
     ...TOUR, id, title, operator_id: operator, operator_name: operator === 'op-z' ? 'Тихая Заимка' : 'Савва Кедровец',
     nearest_free_date: null, ...extra,
   });
-  function base(stemRows: unknown[]) {
+  // innerRows — фраза остатка запроса в кругу ТОЛЬКО продавца (scope only);
+  // по всей витрине и в кругу других компаний фраза пуста.
+  function base(stemRows: unknown[], innerRows: unknown[] = []) {
     query.mockImplementation(async (sql: string) => {
       if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
       if (/FROM partners p/.test(sql) && /seller_name/.test(sql)) {
@@ -127,7 +129,9 @@ describe('имя продавца или часть слов — заявки н
       }
       if (/unnest\(\$1::uuid\[\]/.test(sql)) return { rows: [{ seller_id: 'op-z', key: 'тиха', elsewhere: false }, { seller_id: 'op-z', key: 'заим', elsewhere: false }] };
       if (/stem_hits/.test(sql)) return { rows: stemRows };
-      if (/AS rank/.test(sql)) return { rows: [] };
+      if (/AS rank/.test(sql)) {
+        return { rows: /ot\.operator_id = ANY/.test(sql) && !/NOT \(ot\.operator_id/.test(sql) ? innerRows : [] };
+      }
       if (/ot\.operator_id = ANY\(\$1::uuid\[\]\)/.test(sql)) return { rows: [tourRow(201, 'Бухта Тюленья', 'op-z'), tourRow(202, 'Мыс Скалистый', 'op-z')] };
       return { rows: [] };
     });
@@ -153,8 +157,33 @@ describe('имя продавца или часть слов — заявки н
     const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Ольховый Несуществующий' }));
     const text = r.content[0]!.text;
     expect(text).toContain('нет тура со всеми словами — заявка не создана');
-    expect(text).toContain('совпали только слова «Ольховый»; «Несуществующий» не найдено');
+    expect(text).toContain('совпали только слова «Ольховый»; «Несуществующий» — нет ни в одном из туров, найденных по другим словам');
     expect(text).toContain('ID101');
+    noLead();
+  });
+
+  // Ревью 29.10: остаток запроса внутри продавца давал «один тур» — первый
+  // по правилу 1в среди нескольких, и заявка с телефоном уходила на тур,
+  // которого человек не выбирал.
+  it('имя компании и слово двух её туров — заявка не создана, оба номера в ответе', async () => {
+    base([], [
+      tourRow(201, 'Бухта Тюленья', 'op-z', { rank: 1 }),
+      tourRow(203, 'Бухта Каменная', 'op-z', { rank: 1 }),
+    ]);
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Тихая Заимка бухта' }));
+    const text = r.content[0]!.text;
+    expect(text).toContain('у продавца по этим словам несколько туров — заявка не создана');
+    expect(text).toContain('ID201');
+    expect(text).toContain('ID203');
+    noLead();
+  });
+
+  it('часть имени и слово одного её тура — заявка не создана: запрос может быть и не о продавце', async () => {
+    base([], [tourRow(201, 'Бухта Тюленья', 'op-z', { rank: 1 })]);
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Бухта у Заимки' }));
+    const text = r.content[0]!.text;
+    expect(text).toContain('совпала только часть имени продавца');
+    expect(text).toContain('ID201');
     noLead();
   });
 

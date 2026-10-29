@@ -1391,6 +1391,8 @@ withPg('витрина туров: снятый тур не в плане и н�
         zaimka: { id: 'b1100000-0000-4000-8000-0000000000d2', name: 'Тихая Заимка', category: 'operator', slug: 'test-ns-zaimka' },
         north: { id: 'b1100000-0000-4000-8000-0000000000d3', name: 'Северная Рыбалка', category: 'operator', slug: 'test-ns-north' },
         drafty: { id: 'b1100000-0000-4000-8000-0000000000d4', name: 'Глухой Распадок', category: 'operator', slug: 'test-ns-drafty' },
+        // Имя с «ё», слово которого стоит у ДРУГОЙ компании (ревью 29.10).
+        lake: { id: 'b1100000-0000-4000-8000-0000000000d5', name: 'Озёрная Падь', category: 'operator', slug: 'test-ns-lake' },
       };
       for (const x of Object.values(P)) {
         await pool.query(
@@ -1399,21 +1401,27 @@ withPg('витрина туров: снятый тур не в плане и н�
           [x.id, x.name, x.category, x.slug],
         );
       }
-      const tour = async (owner: string, title: string, slug: string, published: boolean, location: string | null = null) => (await pool.query<{ id: string }>(
+      const tour = async (
+        owner: string, title: string, slug: string, published: boolean, location: string | null = null, short: string | null = null,
+      ) => (await pool.query<{ id: string }>(
         `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
-                                     min_participants, max_participants, duration_hours, is_active, is_published, location_name)
-         VALUES ($1, $2, $3, 'trekking', 9000, 'per_person', 1, 10, 8, TRUE, $4, $5)
+                                     min_participants, max_participants, duration_hours, is_active, is_published, location_name,
+                                     short_description)
+         VALUES ($1, $2, $3, 'trekking', 9000, 'per_person', 1, 10, 8, TRUE, $4, $5, $6)
          RETURNING id::text`,
-        [owner, title, slug, published, location],
+        [owner, title, slug, published, location, short],
       )).rows[0].id;
       const ids = {
         alder: await tour(P.guide.id, 'NS Перевал Ольховый', 'test-ns-alder', true, 'Ольховый'),
-        crystal: await tour(P.guide.id, 'NS Озеро Хрустальное', 'test-ns-crystal', true),
+        crystal: await tour(P.guide.id, 'NS Озеро Хрустальное', 'test-ns-crystal', true, null, 'нерка и медведи у истока'),
         guideDraft: await tour(P.guide.id, 'NS Черновик гида', 'test-ns-guide-draft', false),
         seal: await tour(P.zaimka.id, 'NS Бухта Тюленья', 'test-ns-seal', true),
-        channel: await tour(P.zaimka.id, 'NS Рыбалка на северной протоке', 'test-ns-channel', true),
+        channel: await tour(P.zaimka.id, 'NS Рыбалка на северной протоке', 'test-ns-channel', true, null, 'вдоль озёрной протоки'),
+        // Имя продавца в скобках СВОЕГО тура: отличительность судится по чужим турам.
+        cape: await tour(P.zaimka.id, 'NS Мыс Скалистый (Тихая Заимка)', 'test-ns-cape', true),
         raft: await tour(P.north.id, 'NS Сплав с ночёвкой', 'test-ns-raft', true),
         cloudberry: await tour(P.drafty.id, 'NS Морошковая падь', 'test-ns-cloudberry', false),
+        spring: await tour(P.lake.id, 'NS Падь у ключа', 'test-ns-spring', true),
       };
       const sorted = (xs: Array<number | string>) => xs.map(Number).sort((a, b) => a - b);
       try {
@@ -1438,29 +1446,43 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect(guideText).not.toContain('Тур на платформе не найден');
 
         // Отличительное имя компании — её туры, а не чужие по общему слову.
+        // Имя стоит и в скобках её же тура: отличительность судится только по
+        // чужим турам, и ответ — её список, а не этот тур (ревью 29.10).
         const zaimka = await resolveTourChoice('Тихая Заимка');
-        expect(zaimka.kind === 'seller' && sorted(zaimka.tours.map((t) => t.id))).toEqual(sorted([ids.seal, ids.channel]));
-        expect(zaimka.kind === 'seller' && zaimka.others).toBeNull();
+        expect(zaimka.kind).toBe('seller');
+        if (zaimka.kind === 'seller') {
+          expect(zaimka.basis).toBe('own');
+          expect(sorted(zaimka.tours.map((t) => t.id))).toEqual(sorted([ids.seal, ids.channel, ids.cape]));
+          expect(zaimka.others).toBeNull();
+        }
 
-        // Компания и слово ЧУЖОГО тура — не «один тур» другого продавца, а «у неё такого нет».
+        // Компания и слово ЧУЖОГО тура — не «один тур» другого продавца, а «по словам не нашлось».
         const mixed = await resolveTourChoice('Тихая Заимка Ольховый');
         expect(mixed.kind).toBe('seller');
         if (mixed.kind === 'seller') {
-          expect(mixed.missing).toBe('Ольховый');
+          expect(mixed.rest).toEqual({ text: 'Ольховый', found: false });
           expect(mixed.tours.map((t) => t.id)).not.toContain(Number(ids.alder));
         }
         expect(await resolveTourByQuery('Тихая Заимка Ольховый')).toBeNull();
 
-        // Имя из одних общих слов: продавец назван, туры других компаний по тем же словам — тоже (§0).
+        // Имя из одних общих слов не поднимает продавца (§0, ревью 29.10): туры
+        // всех компаний по словам запроса одним правилом — тур другой компании
+        // есть, тур продавца без этих слов — нет (он на его странице).
         const north = await resolveTourChoice('Северная Рыбалка');
         expect(north.kind).toBe('seller');
         if (north.kind === 'seller') {
-          expect(north.tours.map((t) => t.id)).toEqual([Number(ids.raft)]);
-          expect(north.others?.map((t) => t.id)).toContain(Number(ids.channel));
+          expect(north.basis).toBe('words');
+          expect(north.tours.map((t) => t.id)).toEqual([Number(ids.channel)]);
         }
         const northText = await executeKuzmichTool('get_tour_details', { name: 'Северная Рыбалка' }, { surface: 'mcp' });
-        expect(northText).toContain(`ID${ids.raft}`);
         expect(northText).toContain(`ID${ids.channel}`);
+        expect(northText).not.toContain(`ID${ids.raft}`);
+        expect(northText).not.toContain('Это имя продавца');
+        expect(northText).toContain(`/operators/${P.north.slug}`);
+        // С другим словом — продавца в ответе нет вовсе: поиск как без него.
+        const northMore = await resolveTourChoice('Северная Рыбалка сплав');
+        expect(northMore.kind).toBe('weak');
+        expect(await resolveTourByQuery('Северная Рыбалка сплав')).toBeNull();
         // Фраза в названии чужого тура — ответ по названию: общее имя продавца не поднимается.
         const byTitle = await resolveTourChoice('северной протоке');
         expect(byTitle.kind === 'one' && byTitle.tour.id).toBe(Number(ids.channel));
@@ -1470,7 +1492,7 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect((await resolveTourChoice('Глухой Распадок')).kind).toBe('none');
         const withDraft = await resolveTourChoice('Тихая Заимка Глухой Распадок');
         expect(withDraft.kind === 'seller' && withDraft.sellers.map((x) => x.name)).toEqual([P.zaimka.name]);
-        expect(withDraft.kind === 'seller' && withDraft.missing).toBe('Глухой Распадок');
+        expect(withDraft.kind === 'seller' && withDraft.rest).toEqual({ text: 'Глухой Распадок', found: false });
 
         // Совпала одна основа из двух у туров одной компании — не «один тур».
         const weak = await resolveTourChoice('Ольховый Несуществующий');
@@ -1483,6 +1505,29 @@ withPg('витрина туров: снятый тур не в плане и н�
         // Обе основы у одного тура — тур, как раньше.
         const full = await resolveTourChoice('Ольховый перевал');
         expect(full.kind === 'one' && full.tour.id).toBe(Number(ids.alder));
+
+        // Ревью 29.10. «ё» и «е» — одна буква в базе: и у фразы, и у основ.
+        for (const q of ['ночевкой сплав', 'ночёвкой сплав', 'ночевкой']) {
+          const c = await resolveTourChoice(q);
+          expect(c.kind === 'one' && c.tour.id, q).toBe(Number(ids.raft));
+        }
+        // Слово из описания тура — совпавшее, а не «не найдено».
+        const described = await resolveTourChoice('Хрустальное озеро медведи');
+        expect(described.kind === 'one' && described.tour.id).toBe(Number(ids.crystal));
+        // Слово, которое есть только в другом туре, — «есть в других турах».
+        const apart = await resolveTourChoice('Хрустальное озеро Ольховый');
+        expect(apart.kind).toBe('weak');
+        if (apart.kind === 'weak') {
+          expect(apart.apart).toEqual(['Ольховый']);
+          expect(apart.missing).toEqual([]);
+        }
+        // Слово имени с «ё» стоит у ДРУГОЙ компании (через «ё») — не отличительное:
+        // часть такого имени продавцом не делает.
+        expect((await resolveTourChoice('Озёрная')).kind).not.toBe('seller');
+        expect((await resolveTourChoice('Озерная')).kind).not.toBe('seller');
+        // Отличительное слово того же имени — продавец.
+        const lake = await resolveTourChoice('Падь');
+        expect(lake.kind === 'seller' && lake.sellers.map((x) => x.name)).toEqual([P.lake.name]);
       } finally {
         await pool.query(`DELETE FROM operator_tours WHERE slug LIKE 'test-ns-%'`);
         await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [Object.values(P).map((x) => x.id)]);

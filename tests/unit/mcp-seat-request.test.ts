@@ -36,6 +36,7 @@ vi.mock('@/lib/kuzmich/tour-availability-tool', () => ({
   resolveTourChoice: async () => ({ kind: 'one', tour: tourMock.value }),
   candidateLines: () => [],
   choiceListLines: () => [],
+  choiceListReason: () => '',
 }));
 vi.mock('@/lib/planner', () => ({
   createPlannerCache: () => ({}),

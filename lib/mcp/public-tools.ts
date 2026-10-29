@@ -259,7 +259,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // Пары, которые оценщик путал (Glama TDQS 18.09, Disambiguation 4/5):
   // каждая фраза говорит, когда брать этот инструмент, а когда соседний.
   get_tours:             { title: 'Tour catalogue',        lead: 'Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details.' },
-  get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours.' },
+  get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. A company or guide name returns a tour list and their page instead. To list or search tours use get_tours.' },
   get_tour_availability: { title: 'Tour availability',     lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.' },
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
   get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context.' },
@@ -307,7 +307,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     page: { lead: 'Catalogue page, 7 tours each, starting at 1; the reply ends with the page count and the next page.', example: '2' },
   },
   get_tour_details: {
-    name: { lead: 'Tour title, numeric ID, a keyword, or the name of a company or guide selling tours (the reply then lists their tours and their page, not one tour).', example: 'рыбалка' },
+    name: { lead: 'Tour title, numeric ID, a keyword, or the name of a company or guide selling tours (the reply then lists tours and their page, not one tour).', example: 'рыбалка' },
   },
   get_tour_availability: {
     tour: { lead: 'Tour title, keyword or numeric ID from get_tours. A company or guide name returns their tour list without dates — then ask by tour ID.' },

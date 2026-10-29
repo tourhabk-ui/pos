@@ -18,8 +18,12 @@
  *
  * Имя продавца и частичное совпадение (ловушка MCP 29.10, name-search) — ниже,
  * на поддельной базе, которая отвечает на запросы резолвера по их смыслу
- * (фраза, основы, продавцы, отличительность, круг продавцов). Имена компаний
- * и гидов вымышленные. Настоящий SQL на схеме прода держит
+ * (фраза, основы, продавцы, отличительность, круг продавцов). Ревью того же
+ * дня — отдельным блоком: список внутри продавца вместо первого тура, часть
+ * имени без исхода «один тур», имя из общих слов без поднятия продавца, слово
+ * из описания и вида отдыха, слова «есть в других турах» вместо «не
+ * найдено», мессенджер — продавец раньше слов вида отдыха. Имена компаний и
+ * гидов вымышленные. Настоящий SQL на схеме прода (и «ё» в нём) держит
  * tests/integration/public-tour-gate.pg.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -277,23 +281,28 @@ describe('сопоставление имени продавца — чисты�
 });
 
 // Поддельная база: отвечает на запросы резолвера по их смыслу. ILIKE — как
-// «содержит без учёта регистра»; круг продавцов — из параметра запроса.
+// «содержит без учёта регистра и разницы «ё»/«е»» (yo в SQL); в каких полях
+// ищет запрос по основам и за какое поле держится кандидат — читается из
+// самого запроса, чтобы правка SQL не пряталась за подделкой; круг продавцов
+// — из параметра запроса.
 interface FakeTour {
   id: number;
   title: string;
   operator_id: string | null;
   short_description?: string;
   location_name?: string;
+  activity_type?: string;
   nearest_free_date?: string | null;
 }
 interface FakeSeller { id: string; name: string; category: string; slug: string | null; is_public: boolean }
 
 function fakeDb(tours: FakeTour[], sellers: FakeSeller[]) {
-  const like = (text: string | undefined, pattern: unknown) => {
-    const needle = String(pattern).replace(/^%|%$/g, '').replace(/\\(.)/g, '$1').toLowerCase();
-    return (text ?? '').toLowerCase().includes(needle);
-  };
+  const norm = (t: string | undefined) => (t ?? '').toLowerCase().replace(/ё/g, 'е');
+  const unpattern = (p: unknown) => norm(String(p).replace(/^%|%$/g, '').replace(/\\(.)/g, '$1'));
+  const like = (text: string | undefined, pattern: unknown) => norm(text).includes(unpattern(pattern));
   const nameOf = (id: string | null) => sellers.find((x) => x.id === id)?.name ?? null;
+  const titleOrPlace = (t: FakeTour) => [t.title, t.location_name];
+  const fourFields = (t: FakeTour) => [t.title, t.location_name, t.short_description, t.activity_type];
   const asRow = (t: FakeTour, extra: Row = {}): Row => ({
     id: t.id, title: t.title, operator_id: t.operator_id, operator_name: nameOf(t.operator_id),
     base_price: 15000, price_unit: 'per_person', slug: `t-${t.id}`, multi_day_count: 1, duration_hours: null,
@@ -316,19 +325,29 @@ function fakeDb(tours: FakeTour[], sellers: FakeSeller[]) {
       const [ids, keys, patterns] = params as [string[], string[], string[]];
       return { rows: ids.map((id, i) => ({
         seller_id: id, key: keys[i],
-        elsewhere: tours.some((t) => t.operator_id !== id && [t.title, t.short_description, t.location_name].some((f) => like(f, patterns[i]))),
+        elsewhere: tours.some((t) => t.operator_id !== id && fourFields(t).some((f) => like(f, patterns[i]))),
       })) };
     }
     if (/stem_hits/.test(sql)) {
       const patterns = params.filter((p) => typeof p === 'string');
-      return { rows: scoped.map((t) => ({ t, hits: patterns.map((p) => like(t.title, p) || like(t.location_name, p)) }))
-        .filter((x) => x.hits.some(Boolean)).map((x) => asRow(x.t, { stem_hits: x.hits })) };
+      // Где ищет отметка stem_hits и за что держится кандидат — по тексту запроса.
+      const hitsAll = /short_description/.test(sql.slice(0, sql.indexOf('AS stem_hits')).slice(sql.indexOf('ARRAY[')));
+      const anchorAll = /short_description/.test(sql.slice(sql.indexOf('AS stem_title_hits')));
+      return { rows: scoped.map((t) => ({
+        t,
+        all: patterns.map((p) => (hitsAll ? fourFields(t) : titleOrPlace(t)).some((f) => like(f, p))),
+        four: patterns.map((p) => fourFields(t).some((f) => like(f, p))),
+        tl: patterns.map((p) => titleOrPlace(t).some((f) => like(f, p))),
+      })).filter((x) => (anchorAll ? x.four : x.tl).some(Boolean))
+        .map((x) => asRow(x.t, { stem_hits: x.all, stem_title_hits: x.tl })) };
     }
     if (/AS rank/.test(sql)) {
-      const [pattern, q] = params as [string, string];
-      return { rows: scoped.filter((t) => [t.title, t.short_description, t.location_name].some((f) => like(f, pattern)))
-        .map((t) => asRow(t, { rank: t.title.toLowerCase() === q.toLowerCase() ? 0
-          : t.title.toLowerCase().startsWith(q.toLowerCase()) ? 1 : like(t.title, pattern) ? 2 : 3 })) };
+      const [pattern, q, starts] = params as [string, string, string];
+      const typesAt = /activity_type = ANY\(\$(\d+)::text\[\]\)/.exec(sql);
+      const types = typesAt ? params[Number(typesAt[1]) - 1] as string[] : [];
+      return { rows: scoped.filter((t) => fourFields(t).some((f) => like(f, pattern)) || types.includes(t.activity_type ?? ''))
+        .map((t) => asRow(t, { rank: norm(t.title) === norm(q) ? 0
+          : norm(t.title).startsWith(unpattern(starts)) ? 1 : like(t.title, pattern) ? 2 : 3 })) };
     }
     if (/ot\.id = \$1/.test(sql)) return { rows: tours.filter((t) => t.id === Number(params[0])).map((t) => asRow(t)) };
     if (scope) return { rows: scoped.map((t) => asRow(t)) };
@@ -349,6 +368,8 @@ const TOURS: FakeTour[] = [
 ];
 const SELLERS = [GUIDE, ZAIMKA, NORTH, DRAFTY];
 
+const sortedIds = (ts: ReadonlyArray<{ id: number }>) => ts.map((t) => t.id).sort((a, b) => a - b);
+
 describe('резолвер: продавец по имени и частичное совпадение слов', () => {
   beforeEach(() => { query.mockImplementation(fakeDb(TOURS, SELLERS)); });
 
@@ -356,35 +377,62 @@ describe('резолвер: продавец по имени и частично
     const choice = await resolveTourChoice('Кедровца');
     expect(choice.kind).toBe('seller');
     if (choice.kind !== 'seller') return;
+    expect(choice.basis).toBe('own');
     expect(choice.sellers.map((x) => x.name)).toEqual(['Савва Кедровец']);
     expect(choice.tours.map((t) => t.id)).toEqual([102, 101]); // свободная дата — первым (1в)
+    expect(choice.partialName).toBe(true);
     expect(choice.others).toBeNull();
-    expect(choice.missing).toBeNull();
+    expect(choice.rest).toBeNull();
     expect(await resolveTourByQuery('Кедровца')).toBeNull();
   });
 
-  it('продавец и слово ЧУЖОГО тура — не тур другой компании: «у продавца тура нет» и его список', async () => {
+  it('продавец и слово ЧУЖОГО тура — не тур другой компании: «по словам не нашлось» и все его туры', async () => {
     const choice = await resolveTourChoice('Тихая Заимка Ольховый');
     expect(choice.kind).toBe('seller');
     if (choice.kind !== 'seller') return;
-    expect(choice.missing).toBe('Ольховый');
+    expect(choice.rest).toEqual({ text: 'Ольховый', found: false });
     expect(choice.tours.map((t) => t.operator_id)).toEqual(['c-1', 'c-1']);
-    // Остаток искали только среди туров продавца.
-    expect(query.mock.calls.some(([sql, params]) => /AS rank/.test(String(sql)) && (params as unknown[])[0] === '%Ольховый%'
-      && /ot\.operator_id = ANY\(\$4::uuid\[\]\)/.test(String(sql)) && !/NOT \(/.test(String(sql)))).toBe(true);
+    expect(choice.others).toBeNull();
   });
 
-  it('продавец и слово СВОЕГО тура — этот тур', async () => {
-    const choice = await resolveTourChoice('Ольховый у Кедровца');
-    expect(choice.kind === 'one' && choice.tour.id).toBe(101);
+  it('полное имя и слово его тура — этот тур; часть имени — его тур списком, не заявкой', async () => {
+    const full = await resolveTourChoice('Ольховый у Саввы Кедровца');
+    expect(full.kind === 'one' && full.tour.id).toBe(101);
+    // Только фамилия: запрос может быть и не о гиде — исхода «один тур» нет.
+    const part = await resolveTourChoice('Ольховый у Кедровца');
+    expect(part.kind).toBe('seller');
+    if (part.kind !== 'seller') return;
+    expect(part.partialName).toBe(true);
+    expect(part.tours.map((t) => t.id)).toEqual([101]);
+    expect(part.rest).toEqual({ text: 'Ольховый', found: true });
+    expect(part.others?.tours).toEqual([]);
   });
 
-  it('имя из одних общих слов — продавец назван, туры других компаний по словам запроса тоже (§0)', async () => {
+  it('имя из одних общих слов — продавец не поднят: туры всех компаний по словам, его — только где слова есть (§0)', async () => {
     const choice = await resolveTourChoice('Северная Рыбалка');
     expect(choice.kind).toBe('seller');
     if (choice.kind !== 'seller') return;
-    expect(choice.tours.map((t) => t.id)).toEqual([301]);
-    expect(choice.others?.map((t) => t.id)).toEqual([202]);
+    expect(choice.basis).toBe('words');
+    expect(choice.sellers.map((x) => x.name)).toEqual(['Северная Рыбалка']);
+    // Тур другой компании, где слова есть, — в списке; тур продавца без этих
+    // слов («Сплав с ночёвкой») — нет: имя его не поднимает.
+    expect(choice.tours.map((t) => t.id)).toEqual([202]);
+    const text = await getTourDetails('Северная Рыбалка');
+    expect(text).toContain('ID202');
+    expect(text).not.toContain('ID301');
+    expect(text).not.toContain('Это имя продавца');
+    expect(text).toContain('Своей страницы на Ведаре у компании «Северная Рыбалка» нет.');
+  });
+
+  it('имя из общих слов и ещё слово — продавца в ответе нет, тур другой компании не спрятан и не выбран (§0)', async () => {
+    // До ревью 29.10 остаток «сплав» сужал до тура продавца — заявка ушла бы ему.
+    const choice = await resolveTourChoice('Северная Рыбалка сплав');
+    expect(choice.kind).toBe('weak');
+    if (choice.kind !== 'weak') return;
+    expect(choice.candidates.map((t) => t.id)).toEqual([202]);
+    expect(choice.matched).toEqual(['Северная', 'Рыбалка']);
+    expect(choice.apart).toEqual(['сплав']);
+    expect(await resolveTourByQuery('Северная Рыбалка сплав')).toBeNull();
   });
 
   it('одно общее слово из имени — не продавец: «северной» ищется как обычно', async () => {
@@ -410,6 +458,19 @@ describe('резолвер: продавец по имени и частично
     expect(choice.kind === 'one' && choice.tour.id).toBe(401);
   });
 
+  it('отличительное имя стоит в скобках СВОЕГО тура — его список, а не этот тур (ревью 29.10)', async () => {
+    query.mockImplementation(fakeDb([
+      { id: 501, title: 'Бухта Тюленья (Тихая Заимка)', operator_id: 'c-1' },
+      { id: 502, title: 'Мыс Скалистый', operator_id: 'c-1' },
+      { id: 101, title: 'Перевал Ольховый', operator_id: 'g-1' },
+    ], SELLERS));
+    const choice = await resolveTourChoice('Тихая Заимка');
+    expect(choice.kind).toBe('seller');
+    if (choice.kind !== 'seller') return;
+    expect(choice.basis).toBe('own');
+    expect(sortedIds(choice.tours)).toEqual([501, 502]);
+  });
+
   it('точное название тура — без поиска продавца', async () => {
     const choice = await resolveTourChoice('Бухта Тюленья');
     expect(choice.kind === 'one' && choice.tour.id).toBe(201);
@@ -423,9 +484,11 @@ describe('резолвер: продавец по имени и частично
   it('отличительность не проверилась — слово отличительным не считается (§4.0)', async () => {
     const real = fakeDb(TOURS, SELLERS);
     query.mockImplementation(async (sql: string, params?: unknown[]) => (/unnest\(\$1::uuid\[\]/.test(sql) ? { rows: [] } : real(sql, params)));
-    // «Тихая Заимка» без ответа об отличительности — полное имя без сужения: и её туры, и чужие.
+    // «Тихая Заимка» без ответа об отличительности — как имя из общих слов:
+    // продавец назван, но не поднят; не «тура нет» и не сужение до его туров.
     const choice = await resolveTourChoice('Тихая Заимка');
-    expect(choice.kind === 'seller' && choice.others).not.toBeNull();
+    expect(choice.kind).toBe('seller');
+    if (choice.kind === 'seller') expect(choice.basis).toBe('words');
     // Часть имени без ответа — не продавец.
     expect((await resolveTourChoice('Заимка')).kind).toBe('none');
   });
@@ -437,6 +500,7 @@ describe('резолвер: продавец по имени и частично
     expect(choice.candidates.map((t) => t.id)).toEqual([101]);
     expect(choice.matched).toEqual(['Ольховый']);
     expect(choice.missing).toEqual(['Несуществующий']);
+    expect(choice.apart).toEqual([]);
     expect(await resolveTourByQuery('Ольховый Несуществующий')).toBeNull();
   });
 
@@ -460,17 +524,17 @@ describe('резолвер: продавец по имени и частично
     }
     const guide = await getTourDetails('Кедровец');
     expect(guide).toContain('гид «Савва Кедровец»');
-    // Продавец без открытой карточки — страница не выдумывается.
-    const north = await getTourDetails('Северная Рыбалка');
-    expect(north).toContain('Своей страницы на Ведаре у продавца нет.');
-    expect(north).toContain('ID202'); // туры другой компании по общим словам — не спрятаны
   });
 
-  it('get_tour_details на частичное совпадение — какие слова совпали и какие нет, без деталей тура', async () => {
-    const text = await getTourDetails('Ольховый Несуществующий');
-    expect(text).toContain('совпали только слова «Ольховый»; «Несуществующий» не найдено');
-    expect(text).toContain('ID101');
-    expect(text).not.toContain('ТУР:');
+  it('get_tour_details и get_tour_availability на частичное совпадение — какие слова совпали и какие нет, без деталей и дат тура', async () => {
+    const details = await getTourDetails('Ольховый Несуществующий');
+    const dates = await getTourAvailabilityForKuzmich({ tour: 'Ольховый Несуществующий' });
+    for (const text of [details, dates]) {
+      expect(text).toContain('совпали только слова «Ольховый»; «Несуществующий» — нет ни в одном из туров, найденных по другим словам');
+      expect(text).toContain('ID101');
+      expect(text).not.toContain('ТУР:');
+      expect(text).not.toMatch(/свободно для заявки|свободно \d|create_booking_request с датой/);
+    }
   });
 
   it('начало брони на имя продавца — его список и шаг «тур», брони нет', async () => {
@@ -506,5 +570,133 @@ describe('резолвер: продавец по имени и частично
     expect(String(reply.mock.calls[0][1])).toContain('совпала только часть');
     expect(pending.get(4244)?.step).toBe('tour');
     expect(pending.get(4244)?.tour).toBeUndefined();
+  });
+
+  // Ревью 29.10: имя компании со словом вида отдыха («Рыбалка») мессенджер
+  // превращал в ключ «рыбалка», и бронь начиналась на туре ДРУГОЙ компании.
+  it('мессенджер: имя компании со словом вида отдыха — сначала продавец, а не ключ «рыбалка»', async () => {
+    const pending = new Map<number, PendingBooking>();
+    const reply = vi.fn();
+    const history = [{ role: 'user' as const, content: 'Северная Рыбалка' }];
+    expect(await startBooking(4246, 'бронирую', 'tg', history, pending, reply)).toBe(true);
+    const text = String(reply.mock.calls[0][1]);
+    expect(text).toContain('<b>Северная Рыбалка</b> — так называется и продавец');
+    expect(text).toContain('<b>202</b>');
+    expect(pending.get(4246)?.step).toBe('tour');
+    expect(pending.get(4246)?.tour).toBeUndefined();
+
+    // Шаг «тур» — то же: список, тур не выбран.
+    const step = new Map<number, PendingBooking>([[4247, { step: 'tour', started_at: Date.now() }]]);
+    const reply2 = vi.fn();
+    expect(await handleBookingStep(4247, 'Северная Рыбалка', 'tg', step, reply2, 'telegram_bot')).toBe(true);
+    expect(String(reply2.mock.calls[0][1])).toContain('<b>202</b>');
+    expect(step.get(4247)?.step).toBe('tour');
+    expect(step.get(4247)?.tour).toBeUndefined();
+
+    // Отличительное имя и вид отдыха с одним его туром — этот тур, его компании.
+    const own = new Map<number, PendingBooking>();
+    const reply3 = vi.fn();
+    expect(await startBooking(4248, 'бронирую', 'tg', [{ role: 'user', content: 'Тихая Заимка рыбалка' }], own, reply3)).toBe(true);
+    expect(own.get(4248)?.step).toBe('name');
+    expect(own.get(4248)?.tour?.id).toBe(202);
+  });
+});
+
+// ── Ревью 29.10: остаток запроса, слова в описании, «ё», вид отдыха ─────────
+
+const EFIM: FakeSeller = { id: 'g-2', name: 'Ефим Брусников', category: 'guide', slug: 'efim-brusnikov', is_public: true };
+const REVIEW_TOURS: FakeTour[] = [
+  { id: 701, title: 'Вулкан Пологий', operator_id: 'g-2', short_description: 'выход к подножию Мутного ключа', nearest_free_date: '2027-07-02' },
+  { id: 702, title: 'Вулкан Синий', operator_id: 'g-2' },
+  { id: 703, title: 'Облёт кальдеры', operator_id: 'g-2', activity_type: 'helicopter' },
+  { id: 711, title: 'Пологий: облёт с воды', operator_id: 'c-1' },
+  { id: 712, title: 'Хрустальное озеро', operator_id: 'c-1', short_description: 'нерка и медведи у истока' },
+  { id: 713, title: 'Сопка Толстая', operator_id: 'c-1' },
+];
+
+describe('ревью 29.10: остаток внутри продавца и слова тура', () => {
+  beforeEach(() => { query.mockImplementation(fakeDb(REVIEW_TOURS, [EFIM, ZAIMKA])); });
+
+  it('полное имя и слово двух его туров — список внутри продавца, а не первый по 1в', async () => {
+    const choice = await resolveTourChoice('Ефим Брусников вулкан');
+    expect(choice.kind).toBe('seller');
+    if (choice.kind !== 'seller') return;
+    expect(choice.rest).toEqual({ text: 'вулкан', found: true });
+    expect(sortedIds(choice.tours)).toEqual([701, 702]);
+    expect(await resolveTourByQuery('Ефим Брусников вулкан')).toBeNull();
+    const text = await getTourDetails('Ефим Брусников вулкан');
+    expect(text).toContain('ID701');
+    expect(text).toContain('ID702');
+    expect(text).not.toContain('ТУР:');
+    // Ровно один его тур по слову — этот тур.
+    const one = await resolveTourChoice('Ефим Брусников Синий');
+    expect(one.kind === 'one' && one.tour.id).toBe(702);
+  });
+
+  it('часть имени и слово, которое есть и у других компаний, — оба списка, тура не выбрано', async () => {
+    const choice = await resolveTourChoice('Пологий с Ефимом');
+    expect(choice.kind).toBe('seller');
+    if (choice.kind !== 'seller') return;
+    expect(choice.partialName).toBe(true);
+    expect(choice.tours.map((t) => t.id)).toEqual([701]);
+    expect(choice.others?.tours.map((t) => t.id)).toEqual([711]);
+    const text = await getTourDetails('Пологий с Ефимом');
+    expect(text).toContain('совпала часть имени продавца');
+    expect(text).toContain('ID701');
+    expect(text).toContain('ID711');
+  });
+
+  it('вид отдыха словами («вертолёт») находит тур этого вида у продавца', async () => {
+    const choice = await resolveTourChoice('Ефим Брусников вертолёт');
+    expect(choice.kind === 'one' && choice.tour.id).toBe(703);
+  });
+
+  it('слово остатка в другом падеже в описании его тура — находится, а не «нет»', async () => {
+    const choice = await resolveTourChoice('Ефим Брусников Мутный');
+    expect(choice.kind === 'one' && choice.tour.id).toBe(701);
+  });
+
+  it('остаток не нашёлся — «по словам не нашлось, проверь список», а не «у продавца такого тура нет»', async () => {
+    const text = await getTourDetails('Ефим Брусников рафтинг');
+    expect(text).toContain('По словам «рафтинг» среди туров продавца совпадений не нашлось');
+    expect(text).toContain('а не ответ «такого тура нет»');
+    expect(text).not.toMatch(/у продавца нет|Тура «рафтинг» у/);
+    for (const id of [701, 702, 703]) expect(text).toContain(`ID${id}`);
+  });
+
+  it('слово из описания тура — совпавшее: все слова у одного тура дают тур, а не «weak»', async () => {
+    const choice = await resolveTourChoice('Хрустальное озеро медведи');
+    expect(choice.kind === 'one' && choice.tour.id).toBe(712);
+  });
+
+  it('слово, которое есть только в других турах, — не «не найдено»', async () => {
+    const choice = await resolveTourChoice('Хрустальное озеро Толстая');
+    expect(choice.kind).toBe('weak');
+    if (choice.kind !== 'weak') return;
+    expect(choice.candidates.map((t) => t.id)).toEqual([712]);
+    expect(choice.matched).toEqual(['Хрустальное', 'озеро']);
+    expect(choice.apart).toEqual(['Толстая']);
+    expect(choice.missing).toEqual([]);
+    const text = await getTourDetails('Хрустальное озеро Толстая');
+    expect(text).toContain('«Толстая» — есть в других турах, без этих слов');
+    expect(text).not.toMatch(/«Толстая» — нет ни в одном/);
+  });
+
+  it('мессенджер: часть имени и слово — два списка, у каждого свой предел; туры других компаний не срезаны', async () => {
+    // У гида девять туров по слову — склейка под один срез в восемь
+    // строк спрятала бы тур другой компании целиком.
+    query.mockImplementation(fakeDb([
+      ...Array.from({ length: 9 }, (_, i) => ({ id: 801 + i, title: `Вулкан номер ${i + 1}`, operator_id: 'g-2' })),
+      { id: 901, title: 'Вулкан Дальний', operator_id: 'c-1' },
+    ], [EFIM, ZAIMKA]));
+    const pending = new Map<number, PendingBooking>();
+    const reply = vi.fn();
+    expect(await startBooking(4249, 'бронирую', 'tg', [{ role: 'user', content: 'вулкан с Ефимом' }], pending, reply)).toBe(true);
+    const text = String(reply.mock.calls[0][1]);
+    expect(text).toContain('совпала часть имени продавца');
+    expect(text).toContain('Туры других компаний по словам «вулкан»');
+    expect(text).toContain('<b>901</b>');
+    expect(pending.get(4249)?.step).toBe('tour');
+    expect(pending.get(4249)?.tour).toBeUndefined();
   });
 });
