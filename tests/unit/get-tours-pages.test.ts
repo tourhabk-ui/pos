@@ -62,6 +62,24 @@ describe('paginateTourText', () => {
     expect(p2).toContain('ХВОСТ');
   });
 
+  it('пояснение ПЕРВОЙ секции, отделённое от шапки пустой строкой, — не шапка: на странице без её туров его нет', () => {
+    // Ревью 29.10: «Туры, где упоминается… Назови их» стояло до первого тура,
+    // считалось шапкой и повторялось над страницей одних «не проверено».
+    const near = 'Туры, где упоминается «пробное» (в названии, месте, кратком описании или главном месте тура). Назови их:';
+    const far = 'Слово «пробное» есть только в полном описании или программе этих туров — не проверено:';
+    const text = ['ШАПКА', 'Правило порядка.', '', near, ...tours(2), '', far, ...tours(8, 3), '', 'ХВОСТ'].join('\n');
+    const p1 = paginateTourText(text, 1);
+    expect(p1.match(/^ID\d+:/gm)).toEqual(['ID1:', 'ID2:', 'ID3:', 'ID4:', 'ID5:', 'ID6:', 'ID7:']);
+    expect(p1.indexOf('ШАПКА')).toBeLessThan(p1.indexOf(near));
+    expect(p1.indexOf(near)).toBeLessThan(p1.indexOf('ID1:'));
+    const p2 = paginateTourText(text, 2);
+    expect(p2.match(/^ID\d+:/gm)).toEqual(['ID8:', 'ID9:', 'ID10:']);
+    expect(p2).not.toContain(near);
+    expect(p2).toMatch(/^ШАПКА\nПравило порядка\./);
+    expect(p2.indexOf(far)).toBeLessThan(p2.indexOf('ID8:'));
+    expect(p2).toContain('ХВОСТ');
+  });
+
   it('пояснение посреди списка — на каждой странице, где есть его туры', () => {
     const note = 'Ещё упоминают «вулканы» — тип у них другой:';
     // 8 туров по типу, затем пояснение и 3 тура «тип другой»: страница 1 —

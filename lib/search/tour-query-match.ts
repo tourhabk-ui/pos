@@ -24,6 +24,8 @@
  */
 
 import { ACTIVITY_LABELS, ACTIVITY_SHORT } from '@/lib/tours/labels';
+// Основа — общая с фильтром get_tours и search коннектора (29.10).
+import { stemRu } from './query-words';
 import {
   MarketplaceToursQuerySchema,
   queryMarketplaceTours,
@@ -40,16 +42,13 @@ function words(s: string): string[] {
     .filter(w => w.length >= MIN_WORD);
 }
 
-function stem(w: string): string {
-  return w.slice(0, Math.max(MIN_WORD, w.length - 2));
-}
 
 /**
  * Какие `activity_type` называет строка запроса. Пустой массив — ни одного;
  * это не отказ, а «вид активности в запросе не назван».
  */
 export function activityTypesForQuery(q: string): string[] {
-  const stems = words(q).map(stem);
+  const stems = words(q).map(stemRu);
   if (stems.length === 0) return [];
   const out: string[] = [];
   const dicts = [ACTIVITY_LABELS, ACTIVITY_SHORT];

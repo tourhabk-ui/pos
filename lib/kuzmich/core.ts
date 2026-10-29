@@ -525,6 +525,14 @@ export async function loadTourCatalog(): Promise<string | null> {
 const EMPTY_CATALOG: TourCatalog = { text: '', entries: new Map() };
 
 /**
+ * Что срезает String.prototype.trim() (ECMAScript: WhiteSpace и
+ * LineTerminator) — литералом для btrim. Константа кода, не ввод.
+ */
+const JS_TRIM_CHARS = '\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a'
+  + '\u2028\u2029\u202f\u205f\u3000\ufeff';
+const JS_TRIM_CHARS_SQL = `E'${[...JS_TRIM_CHARS].map((c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')}'`;
+
+/**
  * Каталог с указателем — для фильтра get_tours и туров места у
  * search_transfers (lib/search/tour-match). Исходы те же: текст '' — туров
  * нет, null — база не ответила.
@@ -569,12 +577,17 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
         -- Программа — те же пункты, что показывает get_tour_details
         -- (programSteps, lib/tours/describe): объект с непустым заголовком,
         -- текст — если строка. Иная форма программы (не массив) — пусто.
+        -- «Непустой» — после того же среза, что String.trim() в JS: пробелы,
+        -- переводы строки, табуляция, неразрывный пробел и прочие пробелы
+        -- Unicode (ревью 29.10: btrim без набора срезал только пробел, и
+        -- пункт с заголовком из одного перевода строки искался, хотя
+        -- get_tour_details его не показывает).
         LEFT JOIN LATERAL (
           SELECT string_agg(concat_ws(' ', e->>'title', CASE WHEN jsonb_typeof(e->'text') = 'string' THEN e->>'text' END), ' ') AS program_text
             FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ot.program) = 'array' THEN ot.program ELSE '[]'::jsonb END) e
            WHERE jsonb_typeof(e) = 'object'
              AND jsonb_typeof(e->'title') = 'string'
-             AND btrim(e->>'title') <> ''
+             AND btrim(e->>'title', ${JS_TRIM_CHARS_SQL}) <> ''
         ) prog ON true
         -- Ближайшая свободная дата — ОДНО условие на все витрины (правило 1в,
         -- lib/tours/nearest-free-date): «сегодня» по Камчатке, горизонт год,
@@ -2435,7 +2448,7 @@ const GUARDIAN_EMPTY_MCP = 'Данные о месте не найдены в с
  */
 async function toursMentioningPlace(place: string | undefined): Promise<string> {
   const query = parseTourQuery(place ?? '');
-  if (query.stems.length === 0) return '';
+  if (query.needles.length === 0) return '';
   const catalog = await loadTourCatalogEntries();
   if (!catalog) return '';
   // Порядок указателя — порядок каталога (правило 1в).

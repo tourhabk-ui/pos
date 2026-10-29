@@ -23,6 +23,8 @@
  * Сторож: tests/unit/mcp-query-lang.test.ts.
  */
 
+import { parseTourQuery } from '@/lib/search/tour-match';
+
 export type QueryLang = 'ru' | 'en' | 'zh' | 'other';
 
 const HAN = /[\u3400-\u9fff]/;
@@ -179,11 +181,32 @@ export function localizeToolArgs(tool: string, args: Record<string, unknown>): L
   return { args: out, lang, mapped };
 }
 
-/** Пометка в конце текстового ответа: данные по-русски, перевести человеку — дело клиента. */
-export function langNote(lang: QueryLang, mapped: Localized['mapped']): string {
+/**
+ * Пометка в конце текстового ответа: данные по-русски, перевести человеку —
+ * дело клиента. `notSearched` — слова, по которым инструмент сам сказал «не
+ * искал»: про них «searched as written» было бы неправдой.
+ */
+export function langNote(lang: QueryLang, mapped: Localized['mapped'], notSearched: readonly string[] = []): string {
   if (lang !== 'en' && lang !== 'zh') return '';
   const pairs = mapped.slice(0, 8).map((m) => `${m.from} → ${m.to}`).join('; ');
   const head = lang === 'zh' ? 'Query language: Chinese (zh).' : 'Query language: English (en).';
-  const how = pairs ? ` Matched to Russian data terms: ${pairs}.` : ' No dictionary match: searched as written.';
-  return `\n\n[${head}${how} Platform data is in Russian: translate it for the user yourself; do not add facts that are not in this answer.]`;
+  const skipped = notSearched.length > 0
+    ? ` Not searched — no Russian stem for it in the platform dictionary: ${notSearched.slice(0, 8).join(', ')}.`
+    : '';
+  const how = pairs ? ` Matched to Russian data terms: ${pairs}.` : skipped ? '' : ' No dictionary match: searched as written.';
+  return `\n\n[${head}${how}${skipped} Platform data is in Russian: translate it for the user yourself; do not add facts that are not in this answer.]`;
+}
+
+/**
+ * Пометка для ответа инструмента. get_tours переводит слова сам, своим
+ * словарём основ (lib/search/tour-match), уже после перевода фраз здесь:
+ * «river» он ищет как «рек» с окончанием, «kayaking» не ищет вовсе. Пометка
+ * говорит то же, что тело ответа, а не «searched as written» (ревью 29.10).
+ */
+export function toolLangNote(tool: string, localized: LocalizedArgs): string {
+  const want = localized.args.activity_type;
+  if (tool !== 'get_tours' || typeof want !== 'string' || !want.trim()) return langNote(localized.lang, localized.mapped);
+  const q = parseTourQuery(want);
+  const mapped = [...localized.mapped, ...q.translated.map((t) => ({ from: t.from, to: t.to.join(' / ') }))];
+  return langNote(localized.lang, mapped, q.english);
 }

@@ -42,8 +42,10 @@ export {
   matchTour,
   matchTourPlace,
   tourTextSearchable,
+  onlyGenericTourWords,
   normalizeMatchText,
   MIN_QUERY_WORD,
+  TOUR_GENERIC_WORDS,
   type TourMatch,
   type TourMatchEntry,
   type TourMatchRow,
@@ -51,4 +53,4 @@ export {
 } from './tour-match';
 
 // Основа слова и английский словарь — общие с search коннектора (lib/mcp/search-terms).
-export { stemRu, translateEn, EN_TO_RU, QUERY_STOP_WORDS } from './query-words';
+export { stemRu, translateEn, EN_TO_RU, QUERY_STOP_WORDS, SHORT_STEMS, SHORT_STEMS_NOT_SEARCHED } from './query-words';

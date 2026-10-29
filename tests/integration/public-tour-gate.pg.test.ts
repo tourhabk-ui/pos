@@ -832,13 +832,29 @@ withPg('витрина туров: снятый тур не в плане и н�
       [companies[0].id, PLACE_ID],
     );
     const linkedId = linkedRows[0].id;
+    // Одиннадцатый: слово места — только в полном описании (ревью 29.10).
+    // У туров места к прайсу машин он не стоит — там только главное место и
+    // ближние поля; в get_tours он в блоке «не проверено». Дата у него —
+    // самая ранняя: по правилу 1в он первый в каталоге, и если бы туры места
+    // брали и дальнее совпадение, он стоял бы в ответе о машинах вторым.
+    const { rows: farRows } = await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, location_name, description)
+       VALUES ($1, 'W2PT Тундра и ручьи', 'w2pt-probe-far', 'trekking', 2200, 'per_person',
+               1, 8, 8, 'easy', TRUE, TRUE, 'Ключи', $2)
+       RETURNING id::text`,
+      [companies[1].id, `С перевала в ясный день виден вулкан ${PLACE}.`],
+    );
+    const farId = farRows[0].id;
     // Один тур по тексту — со свободной датой: по правилу 1в он первый в
-    // каталоге, и первым в ответе о машинах тур по главному месту стоит
-    // только благодаря порядку «сперва главное место», а не жребию.
+    // каталоге после дальнего, и первым в ответе о машинах тур по главному
+    // месту стоит только благодаря порядку «сперва главное место», а не жребию.
     await pool.query(
       `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
-       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 2, 6, FALSE)`,
-      [tourIds[4]],
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 2, 6, FALSE),
+              ($2, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 1, 6, FALSE)`,
+      [tourIds[4], farId],
     );
     const all = [...tourIds].sort();
     const idsIn = (text: string) => [...text.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => all.includes(x)).sort();
@@ -855,18 +871,23 @@ withPg('витрина туров: снятый тур не в плане и н�
       const chat = await executeKuzmichTool('get_tours', { activity_type: PLACE });
       expect(idsIn(chat)).toEqual(all);
       expect(chat).toContain(`ID${linkedId}:`);
+      // Дальний — в чате, но под пояснением «только в полном описании».
+      const { FAR_BLOCK_MARK } = await import('@/lib/kuzmich/tour-filter');
+      expect(chat.indexOf(FAR_BLOCK_MARK)).toBeGreaterThan(-1);
+      expect(chat.indexOf(`ID${farId}:`)).toBeGreaterThan(chat.indexOf(FAR_BLOCK_MARK));
       // Тур живой и в каталоге есть — по своему слову находится.
       expect(await executeKuzmichTool('get_tours', { activity_type: 'Лавовые' })).toContain(`ID${linkedId}:`);
-      // Десятый — тур компании Альфа.
-      for (const [ci, c] of companies.entries()) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(ci === 0 ? 4 : 3);
+      // Десятый — тур компании Альфа, одиннадцатый (дальний) — Беты.
+      for (const [ci, c] of companies.entries()) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(ci === 2 ? 3 : 4);
 
       // MCP: страницами по семь — первая полная и называет, сколько всего;
-      // две страницы вместе — все десять.
+      // две страницы вместе — все десять ближних и дальний на второй.
       const p1 = await executeKuzmichTool('get_tours', { activity_type: PLACE }, { surface: 'mcp' });
       const p2 = await executeKuzmichTool('get_tours', { activity_type: PLACE, page: '2' }, { surface: 'mcp' });
       expect(idsIn(p1).length + (p1.includes(`ID${linkedId}:`) ? 1 : 0)).toBe(7);
-      expect(p1).toContain('Страница 1 из 2, туров всего 10.');
+      expect(p1).toContain('Страница 1 из 2, туров всего 11.');
       expect([...idsIn(p1), ...idsIn(p2)].sort()).toEqual(all);
+      expect(p2.indexOf(`ID${farId}:`)).toBeGreaterThan(p2.indexOf(FAR_BLOCK_MARK));
 
       // Имя компании — не слово тура (29.10, filter-coverage): на «Компания
       // Бета» get_tours не отдаёт её туры как найденные и не притворяется,
@@ -895,17 +916,19 @@ withPg('витрина туров: снятый тур не в плане и н�
       const transfers = await executeKuzmichTool('search_transfers', { place: PLACE });
       const transferTours = [...transfers.matchAll(/^ID(\d+):/gm)].map((m) => m[1]);
       expect(transferTours.length, KNOWN_INCOMPLETE.search_transfers.why).toBe(KNOWN_INCOMPLETE.search_transfers.gives);
-      // Сперва тур, у которого место записано главным (29.10), затем по тексту.
+      // Сперва тур, у которого место записано главным (29.10), затем по
+      // ближним полям; слово только в описании сюда не ведёт (ревью 29.10).
       expect(transferTours[0]).toBe(linkedId);
       expect(transferTours[1]).toBe(tourIds[4]);
+      expect(transferTours).not.toContain(farId);
       expect(transferTours.slice(1).every((x) => all.includes(x))).toBe(true);
       // Каждое слово места, а не любое: «Пробный перевал» — не «Пробный».
       const twoWords = await executeKuzmichTool('search_transfers', { place: `${PLACE} перевал` });
       expect([...twoWords.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => x === linkedId || all.includes(x))).toEqual([]);
     } finally {
       vi.useRealTimers();
-      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id::text = $1`, [tourIds[4]]);
-      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [[...tourIds, linkedId]]);
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id::text = ANY($1::text[])`, [[tourIds[4], farId]]);
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [[...tourIds, linkedId, farId]]);
       await pool.query(`DELETE FROM places WHERE id = $1`, [PLACE_ID]);
       await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [companies.map((c) => c.id)]);
     }
@@ -1133,9 +1156,15 @@ withPg('витрина туров: снятый тур не в плане и н�
         await pool.query(`UPDATE operator_tours SET description = 'С перевала видно озеро в соседней кальдере.' WHERE slug = 'tp-exact'`);
         await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-vis'`,
           [JSON.stringify([{ title: 'День 1', text: 'Наблюдение за медведями у ручья.' }])]);
+        // Заголовок «пустой» — тем же срезом, что trim() в JS (перевод строки,
+        // табуляция, неразрывный пробел); текст пункта — только строкой
+        // (ревью 29.10): get_tour_details таких пунктов не показывает.
         await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-preset'`,
           [JSON.stringify([{ text: 'Медведи без заголовка пункта.' }, { title: 2, text: 'Медведи под числовым заголовком.' },
-            { title: '   ', text: 'Медведи под пустым заголовком.' }])]);
+            { title: '   ', text: 'Медведи под пустым заголовком.' },
+            { title: '\n', text: 'Медведи под переводом строки.' },
+            { title: '\t\u00a0', text: 'Медведи под табуляцией и неразрывным пробелом.' },
+            { title: 'День 3', text: { ru: 'Медведи объектом вместо текста.' } }])]);
         await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-both'`,
           [JSON.stringify('Медведи в программе-строке.')]);
         await pool.query(`UPDATE operator_tours SET description = 'Озеро и медведи — но тур снят с витрины.' WHERE slug IN ('tp-draft', 'tp-deleted', 'tp-off')`);

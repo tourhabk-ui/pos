@@ -17,8 +17,9 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 vi.mock('@/lib/planner', () => ({}));
 
 import { pool } from '@/lib/db-pool';
-import { filterTourCatalog, FAR_BLOCK_MARK, NEAR_FIELDS } from '@/lib/kuzmich/tour-filter';
+import { filterTourCatalog, paginateTourText, FAR_BLOCK_MARK, NEAR_FIELDS, NO_SELLER_NAMES } from '@/lib/kuzmich/tour-filter';
 import { activityLabel } from '@/lib/tours/labels';
+import { EN_TO_RU, SHORT_STEMS, SHORT_STEMS_NOT_SEARCHED } from '@/lib/search';
 import type { TourCatalog } from '@/lib/kuzmich/core';
 
 const q = pool.query as unknown as ReturnType<typeof vi.fn>;
@@ -76,6 +77,11 @@ describe('get_tours: слово туриста', () => {
     const out = filter(cat, 'рыбалка');
     expect(blocks(out).typed).toEqual(['ID1']);
     expect(out).not.toContain('ID2:');
+  });
+
+  it('тип находится и по короткой подписи: «море» — морская прогулка, хотя слова «море» в её тексте нет', () => {
+    // Короткая подпись boat_trip — «Море»; в тексте тура только «морская».
+    expect(blocks(filter(cat, 'море')).typed).toEqual(['ID3']);
   });
 
   it('вид отдыха, туров этого типа нет, но слово упомянуто — с пометкой «тип другой», шапка и хвост на месте', () => {
@@ -145,8 +151,21 @@ describe('get_tours: тип — по основе слова, во всех ре
     expect(filter(cat, 'наблюдение за китами')).toMatch(/^Туров «наблюдение за китами» у операторов платформы сейчас нет/);
   });
 
-  it('слово подписи короче четырёх букв не ловит всё подряд', () => {
-    expect(filter(cat, 'туры')).toMatch(/^Туров «туры»/);
+  it('«туры» — общее слово: весь каталог как ответ, без «нет» и без каталога «для замены»', () => {
+    const out = filter(cat, 'туры');
+    expect(out).toMatch(/^«туры» — общее слово: вида отдыха или места в нём нет/);
+    expect(ids(out)).toEqual(ids(cat.text));
+    expect(out).not.toMatch(/нет\.|для замены/);
+  });
+
+  // Ревью 29.10: «туры» было обязательной основой и отсеивало туры случайно.
+  it('общие слова каталога не сужают: «туры на вулканы» — как «вулканы», «вертолётные туры» и «helicopter tours» — тип', () => {
+    expect(blocks(filter(cat, 'туры на вулканы'))).toEqual(blocks(filter(cat, 'вулканы')));
+    expect(blocks(filter(cat, 'туры на вулканы')).typed).toEqual(['ID46']);
+    expect(blocks(filter(cat, 'вертолётные туры')).typed).toEqual(['ID45']);
+    expect(blocks(filter(cat, 'helicopter tours')).typed).toEqual(['ID45']);
+    expect(blocks(filter(cat, 'volcano tours')).typed).toEqual(['ID46']);
+    expect(filter(cat, 'вертолётные туры')).toContain('«туры» — общее слово каталога, по нему не сужал.');
   });
 });
 
@@ -248,7 +267,11 @@ describe('get_tours: поля тура, а не строка каталога (2
   it('имя компании — «нет» с отсылкой к get_tour_details, а не её туры', () => {
     const out = filter(cat, 'Край Вулканов');
     expect(out).toMatch(/^Туров «Край Вулканов» у операторов платформы сейчас нет/);
-    expect(out).toContain('туры продавца — get_tour_details');
+    expect(out).toContain(NO_SELLER_NAMES);
+  });
+
+  it('оговорка об именах продавцов — и там, где туры нашлись, а не только в «нет»', () => {
+    for (const w of ['вулкан', 'озеро', 'медведи', 'байдарки']) expect(filter(cat, w)).toContain(NO_SELLER_NAMES);
   });
 
   it('«озеро»: главное место типа «Озеро» — в (б); слово только в описании или программе — в (в), ниже (б)', () => {
@@ -289,7 +312,7 @@ describe('get_tours: поля тура, а не строка каталога (2
     expect(filter(cat, 'hiking')).toMatch(/^Туров «hiking» у операторов платформы сейчас нет/);
     expect(blocks(filter(cat, 'lake')).near).toEqual(['ID81']);
     const unknown = filter(cat, 'puffins');
-    expect(unknown).toMatch(/^Тура с типом «puffins» нет\. По текстам туров «puffins» не искал: «puffins» нет в словаре платформы/);
+    expect(unknown).toMatch(/^Тура с типом «puffins» нет\. По текстам туров «puffins» не искал: для «puffins» в словаре платформы нет русской основы/);
     expect(unknown).not.toContain('у операторов платформы сейчас нет');
     expect(filter(cat, 'сап')).toContain('не искал: в запросе нет слова от четырёх букв');
   });
@@ -308,5 +331,84 @@ describe('get_tours: поля тура, а не строка каталога (2
     expect(blocks(out).far).toEqual([order[0]]);
     expect(out).toContain('(Ещё 1 таких туров — get_tours с тем же activity_type и page=1 покажет все по страницам.)');
     expect(filter(cat, 'озеро')).not.toContain('(Ещё ');
+  });
+});
+
+// Ревью 29.10 части 3: общие и короткие основы, четырёхбуквенные слова,
+// подпись блока (в) у запроса из нескольких слов, пояснение (б) на страницах.
+describe('get_tours: слова, которые ловят лишнее или теряют своё (ревью 29.10)', () => {
+  let cat: TourCatalog;
+  beforeAll(async () => {
+    cat = await catalogOf([
+      row(5, { title: 'Автомобильный тур на Курильское', activity_type: 'bears' }),
+      row(6, { title: 'Тундра и ручьи', activity_type: 'trekking', description: 'Рекомендуем взять дождевик. Ночёвка в настоящей северной юрте.' }),
+      row(7, { title: 'Кратер за 3 дня', activity_type: 'trekking', multi_day_count: 3, description: 'Туристы видят кратер с края.' }),
+      row(8, { title: 'Два дня на реке', activity_type: 'rafting', short_description: 'спокойный сплав по реке' }),
+      row(9, { title: 'Камчатка за восемь дней', activity_type: 'sightseeing', program_text: 'День 2. Морская прогулка Вероятность встречи с косатками и китами.' }),
+      row(10, { title: 'Город и океан', activity_type: 'sightseeing', short_description: 'Горелый виден из города' }),
+      // «Край» — в названии, «вулканы» — только в описании: фразы «край вулканов» нет.
+      row(11, { title: 'На край света', activity_type: 'jeep_safari', description: 'По пути видны вулканы.' }),
+      row(12, { title: 'Однодневный тур к подножию', activity_type: 'jeep_safari' }),
+    ]);
+  });
+
+  it('«tours» и «day tour»: «тур» и «дн» не ищутся — ни «Туристы», ни «3 дня»; «day» — «однодневный»', () => {
+    const tours = filter(cat, 'tours');
+    expect(tours).toMatch(/^«tours» — общее слово/);
+    const day = filter(cat, 'day tour');
+    expect(ids(day.slice(0, day.indexOf('Когда турист')))).toEqual(['ID12']);
+    expect(day).toContain('day → «однодневн…»');
+  });
+
+  it('«river»: «рек» — слово с окончанием («реке»), а не начало «Рекомендуем»', () => {
+    const b = blocks(filter(cat, 'river'));
+    expect(b.near).toEqual(['ID8']);
+    expect(b.far).toEqual([]);
+    expect(filter(cat, 'river')).toContain('river → «рек + окончание»');
+  });
+
+  it('короткая основа словаря — у каждой своё правило или названная причина, почему не ищется', () => {
+    const short = [...new Set(Object.values(EN_TO_RU).flat().filter((st) => st.length < 4))];
+    for (const st of short) expect(st in SHORT_STEMS || st in SHORT_STEMS_NOT_SEARCHED, st).toBe(true);
+  });
+
+  it('четырёхбуквенное слово — и с другим окончанием: «киты» — «китами», «юрта» — «юрте»; «горы» — не «город» и не «Горелый»', () => {
+    expect(blocks(filter(cat, 'киты')).far).toEqual(['ID9']);
+    expect(blocks(filter(cat, 'юрта')).far).toEqual(['ID6']);
+    expect(filter(cat, 'горы')).toMatch(/^Туров «горы» у операторов платформы сейчас нет/);
+    // «река» — «реке» и «реки», но не «Рекомендуем».
+    expect(ids(filter(cat, 'река').split('Когда турист')[0])).toEqual(['ID8']);
+  });
+
+  it('несколько слов в (в): подпись — «по отдельности, не фразой», а не «слово есть в описании»', () => {
+    const out = filter(cat, 'Край Вулканов');
+    expect(blocks(out).far).toEqual(['ID11']);
+    expect(out).toMatch(/^Ни у одного тура все слова «Край Вулканов» не стоят в названии, месте, кратком описании или главном месте\./);
+    expect(out).toContain('Слова «Край Вулканов» есть в этих турах по отдельности, не фразой');
+    expect(out).not.toContain('Слово «Край Вулканов» есть');
+    expect(out).toContain(NO_SELLER_NAMES);
+    // В (б) — так же: «реке» в названии, «спокойный» в кратком описании — не фраза.
+    const near = filter(cat, 'река спокойная');
+    expect(blocks(near).near).toEqual(['ID8']);
+    expect(near).toContain(`Туры, где упоминается «река спокойная» (${NEAR_FIELDS}) — слова каждое отдельно, не обязательно фразой. Назови их`);
+    expect(filter(cat, 'река')).not.toContain('не обязательно фразой');
+  });
+
+  it('пояснение (б) у названия места — только на страницах с его турами; страница одних (в) — без «Назови их»', async () => {
+    const many = await catalogOf([
+      row(20, { title: 'Озеро Пробное', activity_type: 'trekking' }),
+      ...[21, 22, 23, 24, 25, 26, 27].map((n) => row(n, { title: `Маршрут ${n}`, activity_type: 'trekking', description: 'С перевала видно озеро Пробное.' })),
+    ]);
+    const out = filterTourCatalog(many.text, 'Пробное', { activityLabel, entries: many.entries });
+    expect(blocks(out).near).toEqual(['ID20']);
+    expect(blocks(out).far).toHaveLength(7);
+    const pages = [1, 2].map((p) => paginateTourText(out, p));
+    const nearPage = pages.find((p) => p.includes('ID20:')) as string;
+    const farOnly = pages.find((p) => !p.includes('ID20:')) as string;
+    expect(nearPage).toContain('Назови их');
+    expect(farOnly).not.toContain('Назови их');
+    expect(farOnly).toContain(FAR_BLOCK_MARK);
+    // Шапка — на обеих.
+    for (const p of pages) expect(p.startsWith('РЕАЛЬНЫЕ ТУРЫ')).toBe(true);
   });
 });

@@ -29,6 +29,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { operatorPagePath } from '@/lib/operators/page-link';
 import { ACTIVITY_ALIASES, ACTIVITY_LABELS, activityLabel } from '@/lib/tours/labels';
 import { typeMatches } from '@/lib/kuzmich/tour-filter';
+import { stemRu } from '@/lib/search/query-words';
 
 export interface ResolvedTour {
   id: number;
@@ -176,10 +177,8 @@ function wordsOf(text: string): TextWord[] {
     .map((raw) => ({ raw, norm: raw.toLowerCase().replace(/ё/g, 'е') }));
 }
 
-/** Основа слова: без двух последних букв у длинных, не короче четырёх. */
-function stemOf(norm: string): string {
-  return norm.length >= 5 ? norm.slice(0, Math.max(4, norm.length - 2)) : norm;
-}
+/** Основа слова: без двух последних букв у длинных, не короче четырёх — общее правило ПОИСКА (lib/search/query-words). */
+const stemOf = stemRu;
 
 /**
  * Служебные слова — не тур и не имя: «туры Тихой Заимки» — запрос о
@@ -845,12 +844,17 @@ function ownSellerLines(query: string, c: SellerChoice): string[] {
     const of = one ? 'продавца' : sellerGenitive(s);
     lines.push(url ? `Страница ${of} на Ведаре: ${url}` : `Своей страницы на Ведаре у ${of} нет.`);
   }
-  const page = one ? sellerPageUrl(c.sellers[0]) : null;
-  const more = page ? 'все на странице продавца' : 'get_tours';
+  // Куда за остальными турами продавца: get_tours имён продавцов не ищет
+  // (ловушка MCP 29.10, filter-coverage) и сам отсылает сюда — подсказка
+  // «и ещё N — get_tours» вела по кругу (ревью 29.10). Страница есть у всех —
+  // остальные там; нет хоть у одного — список целиком.
+  const allHavePages = c.sellers.every((s) => sellerPageUrl(s) !== null);
+  const more = one ? 'все на странице продавца' : 'все на страницах продавцов (адреса выше)';
+  const shown = allHavePages ? CANDIDATES_SHOWN : c.tours.length;
   if (c.rest?.found) {
     lines.push(
       `Туры ${whose} по словам «${c.rest.text}» — ${c.tours.length} (порядок — правило платформы, а не рекомендация); назови все, выбирает человек:`,
-      ...candidateLines(c.tours, CANDIDATES_SHOWN, more),
+      ...candidateLines(c.tours, shown, more),
     );
   } else {
     if (c.rest) {
@@ -860,7 +864,7 @@ function ownSellerLines(query: string, c: SellerChoice): string[] {
     }
     lines.push(
       `Туры ${whose} на витрине — ${c.tours.length} (порядок — правило платформы, а не рекомендация):`,
-      ...candidateLines(c.tours, CANDIDATES_SHOWN, more),
+      ...candidateLines(c.tours, shown, more),
     );
   }
   if (c.others && c.rest) {
