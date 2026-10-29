@@ -43,6 +43,8 @@
  * мозг Кузьмича (`lib/kuzmich/core`), а не две копии.
  */
 
+import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
+
 /**
  * Задан ли ключ подписки — та же проверка, что в `isVerifiedMaxWebhook`
  * (`lib/max/webhook-url`): пустая строка — не ключ.
@@ -52,7 +54,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -88,10 +90,13 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
  * надо» / выбор тура под предложением открыть даты из чата кабинета
  * (`lib/operators/chat-dates`, 22.10), `rb:` — отметка дня в календаре
  * проката (`lib/rental/car-calendar`), `rr:` — «Беру» / «Не могу» на заявке
- * проката (`lib/rental/request-answer`). Прочие кнопки (темы, «Оформить
+ * проката (`lib/rental/request-answer`), `bk:` и `oc:` — бронь своего тура
+ * кнопкой из чата кабинета гида: вопрос и «Да» / «Не надо»
+ * (`lib/bookings/chat-owner-press`, 29.10). Прочие кнопки (темы, «Оформить
  * заявку», «Другой вариант») только отвечают в чат.
  */
 export function pressActionOf(payload: string): MaxPressAction | null {
+  if (isOwnerPressPayload(payload)) return 'owner';
   if (payload.startsWith('sr:')) return 'seat';
   if (payload.startsWith('lead_')) return 'lead';
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
@@ -131,6 +136,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Откройте даты в кабинете, в календаре.',
   rental: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Отметка дня и ответ на заявку не записаны.',
+  owner: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Бронь не изменена — ответьте в кабинете, раздел «Свои туры».',
 };
 
 /**
@@ -145,6 +152,7 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
   login: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Начните вход на сайте заново.',
   dates: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Напишите фразу ещё раз или откройте даты в кабинете.',
   rental: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Отметка дня и ответ на заявку не записаны.',
+  owner: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Бронь не изменена — откройте «Брони» ещё раз или раздел «Свои туры».',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */

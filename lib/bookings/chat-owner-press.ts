@@ -1,0 +1,100 @@
+/**
+ * Кнопки брони своего тура в чате кабинета (MAX, Telegram) — форма payload,
+ * разбор и строки кнопок. Без базы и сети: модуль читают и экраны чата
+ * (lib/guides/chat-screens), и классификатор нажатий MAX
+ * (lib/max/verified-press), и уведомление о новой брони. Само действие —
+ * lib/bookings/chat-owner-action.
+ *
+ * Два шага, как на сайте («Свои туры»: кнопка, затем «Да»):
+ *   `bk:<c|x|d|n>:<id брони>` — вопрос: подтвердить, отклонить (с причиной),
+ *                                тур прошёл, турист не пришёл;
+ *   `oc:<y|x>:<uuid строки>`  — «Да» / «Не надо» под вопросом.
+ * В payload только номера: id брони и uuid строки действия. Ни ПД, ни id тура.
+ *
+ * Кому кнопки включены — `chatActionsEnabledFor`: гиду, который продаёт свои
+ * туры. Туроператору — нет: у него менеджеры команды со своими правами, и
+ * кнопки брони в его чате — открытый вопрос владельца (план мини-приложения,
+ * §13, вопрос 3). Включение — одна строка здесь.
+ */
+import type { MenuButton } from '@/lib/roles/chat-menu';
+import { sellsOwnTours, type TourSellerFacts } from '@/lib/partners/tour-seller';
+
+export type BookingChatAction = 'confirm' | 'cancel' | 'complete' | 'no_show';
+
+/** Статус брони, который ставит действие, — правило lib/bookings/owner-status. */
+export const BOOKING_ACTION_STATUS: Readonly<Record<BookingChatAction, 'confirmed' | 'cancelled' | 'completed' | 'no_show'>> = {
+  confirm: 'confirmed',
+  cancel: 'cancelled',
+  complete: 'completed',
+  no_show: 'no_show',
+};
+
+const ACTION_CODE: Readonly<Record<BookingChatAction, string>> = {
+  confirm: 'c',
+  cancel: 'x',
+  complete: 'd',
+  no_show: 'n',
+};
+const CODE_ACTION = new Map(Object.entries(ACTION_CODE).map(([a, c]) => [c, a as BookingChatAction]));
+
+/** Префиксы кнопок-действий: по ним вебхук MAX пускает нажатие только заверенным. */
+export const OWNER_PRESS_PREFIXES = ['bk:', 'oc:'] as const;
+
+export function isOwnerPressPayload(payload: string): boolean {
+  return OWNER_PRESS_PREFIXES.some((p) => payload.startsWith(p));
+}
+
+const BOOKING_ID = /^[0-9]{1,18}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function bookingPressPayload(action: BookingChatAction, bookingId: string): string {
+  return `bk:${ACTION_CODE[action]}:${bookingId}`;
+}
+
+export function answerPressPayload(yes: boolean, actionId: string): string {
+  return `oc:${yes ? 'y' : 'x'}:${actionId}`;
+}
+
+export type OwnerPress =
+  | { kind: 'booking'; action: BookingChatAction; bookingId: string }
+  | { kind: 'answer'; yes: boolean; actionId: string };
+
+/** null — не наша кнопка или испорченный payload. */
+export function parseOwnerPress(payload: string): OwnerPress | null {
+  const bk = /^bk:([a-z]):(.+)$/.exec(payload);
+  if (bk) {
+    const action = CODE_ACTION.get(bk[1] ?? '');
+    const id = bk[2] ?? '';
+    return action && BOOKING_ID.test(id) ? { kind: 'booking', action, bookingId: id } : null;
+  }
+  const oc = /^oc:([yx]):(.+)$/.exec(payload);
+  if (oc) {
+    const id = (oc[2] ?? '').toLowerCase();
+    return UUID.test(id) ? { kind: 'answer', yes: oc[1] === 'y', actionId: id } : null;
+  }
+  return null;
+}
+
+/** Сколько броней получают кнопки под одним экраном (как у входящих оператора). */
+export const OWNER_PRESS_BUTTON_CAP = 2;
+
+/** Под бронью, ждущей ответа: «Подтвердить» и «Отклонить». */
+export function bookingAnswerButtons(bookingId: string): MenuButton[] {
+  return [
+    { text: `Подтвердить №${bookingId}`, payload: bookingPressPayload('confirm', bookingId), intent: 'positive' },
+    { text: `Отклонить №${bookingId}`, payload: bookingPressPayload('cancel', bookingId), intent: 'negative' },
+  ];
+}
+
+/** Под подтверждённой бронью, чья дата прошла: «Тур прошёл» и «Не пришёл». */
+export function bookingOutcomeButtons(bookingId: string): MenuButton[] {
+  return [
+    { text: `Тур прошёл №${bookingId}`, payload: bookingPressPayload('complete', bookingId), intent: 'positive' },
+    { text: `Не пришёл №${bookingId}`, payload: bookingPressPayload('no_show', bookingId) },
+  ];
+}
+
+/** Кому кнопки брони в чате включены — см. шапку. */
+export function chatActionsEnabledFor(p: TourSellerFacts): boolean {
+  return p.category === 'guide' && sellsOwnTours(p);
+}

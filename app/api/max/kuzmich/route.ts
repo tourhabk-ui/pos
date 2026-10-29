@@ -213,15 +213,20 @@ async function sendPartnerScreen(
   row: MenuButton[],
   wrap: (body: string) => string = (body) => body,
 ): Promise<void> {
+  // Кнопки действий экрана (бронь гида: вопрос, затем «Да») — над строкой меню.
+  // Строки меню нет — чат не личный диалог, и кнопки действий не ставятся.
+  const actions = row.length ? (screen.buttons ?? []) : [];
+  const rows = row.length ? appendMenu(actions, row) : [];
   if (!screen.pd) {
-    await maxReplyWithButtons(chatId, wrap(screen.text), toMaxButtons(row.length ? [row] : []));
+    if (rows.length) await maxReplyWithButtons(chatId, wrap(screen.text), toMaxButtons(rows));
+    else await maxReply(chatId, wrap(screen.text));
     return;
   }
   const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
   const sent = await sendPdAlert({
     text: wrap(screen.text),
     stub: 'Список с контактами туристов в MAX не доставлен.',
-    buttons: row,
+    buttons: rows.flat(),
     to: { maxChatId: chatId, telegramChatId: null },
   });
   if (!sent.delivered) {
@@ -620,6 +625,20 @@ async function handleActionPress(
       : confirm ? await confirmMaxLoginSession(nonce, presserId)
       : await rejectMaxLoginSession(nonce, presserId);
     await maxReply(chatId, !done ? MAX_LOGIN_TEXT.stale : confirm ? MAX_LOGIN_TEXT.confirmed : MAX_LOGIN_TEXT.rejected);
+    return;
+  }
+
+  // Бронь своего тура кнопкой (гид, 29.10): вопрос `bk:`, затем «Да» / «Не
+  // надо» `oc:`. Личный диалог, карточка чата, аккаунт, человек привязки и
+  // владение бронью проверяет lib/bookings/chat-owner-action; нажавший — из
+  // заверенного апдейта (его user_id прислал MAX).
+  if (action === 'owner') {
+    const { handleOwnerPress } = await import('@/lib/bookings/chat-owner-action');
+    const reply = await handleOwnerPress({
+      channel: 'max', chatId, privateChat: chatType === 'dialog', presserId, payload,
+    });
+    if (reply.buttons.length) await maxReplyWithButtons(chatId, reply.text, toMaxButtons(reply.buttons));
+    else await maxReply(chatId, reply.text);
     return;
   }
 
@@ -1155,6 +1174,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(chatId, sos(DATES_TEXT.partnerUnknown));
         return;
       }
+      // Причина отклонения брони (гид, 29.10): после «Отклонить» следующее
+      // сообщение личного диалога — причина для туриста. Раньше полосы и
+      // потока дат: «турист заболел» иначе ушло бы Кузьмичу туриста. Беда в
+      // тексте — блок 112 над вопросом, как над любым ответом этой ветки.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const { captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
+        const reason = await captureOwnerReason({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (reason) {
+          await maxReplyWithButtons(chatId, sos(reason.text), toMaxButtons(reason.buttons));
+          return;
+        }
+      }
       // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
       // отвечает про клиентов и свои туры и отказывает в аренде. Кабинет
       // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному
@@ -1286,7 +1317,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           const screen = await roleMenuScreen({
             role, action, channel: 'max', partner: lookup.partner, nowMs: Date.now(),
           });
-          await say(screen.text);
+          // Кнопки ответа под «Входящими» гида — только в личном диалоге (menu есть только там).
+          await sendPartnerScreen(chatId, screen, menu ?? [], sos);
           return;
         }
         const asked = rentalCabinetAsk(text);

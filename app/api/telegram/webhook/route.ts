@@ -77,6 +77,7 @@ import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
 import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
+import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
@@ -1077,6 +1078,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatId: update.message.chat.id,
         text: '/start',
         fromName: update.message.from?.first_name ?? null,
+        chatType,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
         sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
       })) {
@@ -1166,6 +1168,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatId: update.message.chat.id,
         text,
         fromName: update.message.from?.first_name ?? null,
+        chatType,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
         sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
       })) {
@@ -1547,6 +1550,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       chatId: update.message.chat.id,
       text,
       fromName: update.message.from?.first_name ?? null,
+      chatType,
       send: (body, buttons) => sendRoleRows(chatId, body, buttons),
     })) {
       return;
@@ -1714,6 +1718,31 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
+    // Бронь своего тура кнопкой (гид, 29.10): вопрос `bk:`, затем «Да» / «Не
+    // надо» `oc:`. Чат — только из сообщения с кнопкой, и только личный: без
+    // сообщения право не проверить. Остальное проверяет
+    // lib/bookings/chat-owner-action (карточка чата, аккаунт, человек
+    // привязки, владение бронью). Вебхук заверен секретом (webhook-secret).
+    if (isOwnerPressPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat) {
+        console.error('[telegram/webhook] кнопка брони без сообщения — не применена');
+        await sendHTML(String(senderChatId), 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Бронь не изменена — откройте «Брони» ещё раз.');
+        return;
+      }
+      const { handleOwnerPress } = await import('@/lib/bookings/chat-owner-action');
+      const reply = await handleOwnerPress({
+        channel: 'telegram',
+        chatId: pressChat.id,
+        privateChat: pressChat.type === 'private',
+        presserId: senderChatId,
+        payload: data,
+      });
+      await sendRoleRows(String(pressChat.id), reply.text, reply.buttons);
+      return;
+    }
+
     if (parseRentalCabinetPress(data) || data.startsWith('rr:')) {
       await telegramService.answerCallback(cq.id);
       await tryRentalCabinetTelegramPress({
@@ -1752,6 +1781,8 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatId: cq.message?.chat?.id ?? senderChatId,
         payload: data,
         send: (body, buttons) => sendRoleRows(callbackChatId, body, buttons),
+        // Вид чата проверен выше; кнопки брони — только из сообщения в личном чате.
+        privateChat: cq.message?.chat?.type === 'private',
       });
       return;
     }

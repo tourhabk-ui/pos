@@ -275,9 +275,10 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  * оператору». Называет только то, что в чате есть: личные сообщения о бронях,
  * заявках и запросах мест его собственных туров и о сообщениях туристов,
  * кнопки строки меню под этим же ответом (`boundMenuRow`: продавцу своих
- * туров — ещё «Брони» и «Мои туры») и где подтверждают бронь — кнопки
- * подтверждения в чате нет. Строки нет (кабинет чата у другой карточки) —
- * кнопок текст не обещает.
+ * туров — ещё «Брони» и «Мои туры») и где подтверждают бронь: продавцу —
+ * кнопками под «Бронями» (вопрос, затем «Да», lib/bookings/chat-owner-action)
+ * или в кабинете, остальным — в кабинете. Строки нет (кабинет чата у другой
+ * карточки) — кнопок текст не обещает.
  */
 export function guideBoundText(name: string, channel: PartnerChannel, menu: readonly MenuButton[] | null = null): string {
   const contacts = channel === 'max'
@@ -291,7 +292,10 @@ export function guideBoundText(name: string, channel: PartnerChannel, menu: read
   if (menu && menu.length > 0) {
     lines.push('', `Кнопки под этим сообщением: ${menu.map((b) => `«${b.text}»`).join(', ')}. «Помощь» — что каждая показывает.`);
   }
-  lines.push(`Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
+  const buttons = menu?.some((b) => b.payload.endsWith(':bk')) === true;
+  lines.push(buttons
+    ? `Подтвердить или отклонить бронь — кнопками под «Бронями» (бот спросит, бронь меняется после «Да») или в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
+    : `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
   return lines.join('\n');
 }
 

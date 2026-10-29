@@ -13,11 +13,19 @@
  *   не попадёт туда и по ошибке в шаблоне. Почта и особые пожелания не
  *   уходят ни в один канал — для ответа хватает телефона, остальное в кабинете.
  *
+ * Под экраном «Брони» — кнопки действий (lib/bookings/chat-owner-press): у
+ * двух первых ждущих ответа — «Подтвердить» и «Отклонить», у двух первых
+ * подтверждённых с прошедшей датой — «Тур прошёл» и «Не пришёл». В payload
+ * только номер брони; действие — в два шага (lib/bookings/chat-owner-action).
+ *
  * Отказ базы — «не прочиталось», а не «броней нет» (§4.0): имя проверки и
  * SQLSTATE — в лог.
  */
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { OWNER_BOOKING_STATUS_LABEL } from '@/lib/bookings/owner-status-words';
+import {
+  OWNER_PRESS_BUTTON_CAP, bookingAnswerButtons, bookingOutcomeButtons,
+} from '@/lib/bookings/chat-owner-press';
 import { loadOwnBookings, loadOwnTours, type OwnBooking, type OwnTour } from '@/lib/guides/own-tours';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -25,6 +33,7 @@ import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 import { CHAT_BOOKINGS_WINDOW_DAYS } from '@/lib/roles/role-menu';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { STOREFRONT_LABELS, storefrontState } from '@/lib/tours/public-visibility';
+import type { MenuButton } from '@/lib/roles/chat-menu';
 
 /** Бронь без полей ПД — только из неё строится Telegram-экран. */
 export type OwnBookingNoPd = Omit<OwnBooking, 'tourist_name' | 'tourist_phone' | 'tourist_email' | 'special_requests'>;
@@ -52,14 +61,16 @@ export function withoutPd(b: OwnBooking): OwnBookingNoPd {
 }
 
 /**
- * Что показать в чате: ждущие ответа (любой даты — их держат «Входящие») и
- * действующие брони на ближайшие 14 камчатских дней. Отменённые и прошедшие
- * не показываются — они в кабинете.
+ * Что показать в чате: ждущие ответа (любой даты — их держат «Входящие»),
+ * действующие брони на ближайшие 14 камчатских дней и подтверждённые, чья
+ * дата уже прошла, — их отмечают «тур прошёл» или «не пришёл» (чтение
+ * раздела держит прошедшие 30 дней). Отменённые и закрытые не показываются —
+ * они в кабинете.
  */
 export function bookingsForChat<T extends OwnBookingNoPd>(
   rows: readonly T[],
   nowMs: number,
-): { waiting: T[]; upcoming: T[] } {
+): { waiting: T[]; upcoming: T[]; past: T[] } {
   const today = kamchatkaDate(new Date(nowMs));
   const last = shiftDate(today, CHAT_BOOKINGS_WINDOW_DAYS);
   const day = (b: T) => b.booking_date.slice(0, 10);
@@ -68,7 +79,17 @@ export function bookingsForChat<T extends OwnBookingNoPd>(
   const upcoming = rows
     .filter((b) => !CLOSED.has(b.booking_status) && day(b) >= today && day(b) <= last)
     .sort(byDate);
-  return { waiting, upcoming };
+  const past = rows.filter((b) => b.booking_status === 'confirmed' && day(b) < today).sort(byDate);
+  return { waiting, upcoming, past };
+}
+
+/** Кнопки под экраном: ответ двум первым ждущим, исход двум первым прошедшим. */
+export function bookingButtons<T extends OwnBookingNoPd>(rows: readonly T[], nowMs: number): MenuButton[][] {
+  const { waiting, past } = bookingsForChat(rows, nowMs);
+  return [
+    ...waiting.slice(0, OWNER_PRESS_BUTTON_CAP).map((b) => bookingAnswerButtons(b.id)),
+    ...past.slice(0, OWNER_PRESS_BUTTON_CAP).map((b) => bookingOutcomeButtons(b.id)),
+  ];
 }
 
 function line(b: OwnBookingNoPd, contact: string | null): string {
@@ -91,8 +112,8 @@ function bookingsText<T extends OwnBookingNoPd>(
   nowMs: number,
   contact: ((b: T) => string) | null,
   tail: string[],
-): { text: string; shown: number } {
-  const { waiting, upcoming } = bookingsForChat(rows, nowMs);
+): { text: string; shown: number; buttons: MenuButton[][] } {
+  const { waiting, upcoming, past } = bookingsForChat(rows, nowMs);
   const lines = ['<b>Брони</b>'];
   let room = SHOWN;
   const section = (head: string, list: T[]) => {
@@ -111,20 +132,28 @@ function bookingsText<T extends OwnBookingNoPd>(
       : `Ближайшие ${CHAT_BOOKINGS_WINDOW_DAYS} дней: броней нет.`,
     upcoming,
   );
-  lines.push(`Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${ownUrl()}`);
+  if (past.length) shown += section(`Прошли — отметьте, как всё прошло: ${past.length}.`, past);
+  const buttons = bookingButtons(rows, nowMs);
+  lines.push(buttons.length
+    ? `Ответить — кнопками ниже (вопрос, затем «Да») или в кабинете, раздел «Свои туры»: ${ownUrl()}`
+    : `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${ownUrl()}`);
   lines.push(...tail);
-  return { text: lines.join('\n'), shown };
+  return { text: lines.join('\n'), shown, buttons };
 }
 
 /** MAX: с именем и телефоном туриста. `pd` — в тексте есть контакт хоть одной брони. */
-export function guideBookingsMaxText(rows: readonly OwnBooking[], nowMs: number): { text: string; pd: boolean } {
-  const { text, shown } = bookingsText(rows, nowMs, contactOf, []);
-  return { text, pd: shown > 0 };
+export function guideBookingsMaxText(
+  rows: readonly OwnBooking[],
+  nowMs: number,
+): { text: string; pd: boolean; buttons: MenuButton[][] } {
+  const { text, shown, buttons } = bookingsText(rows, nowMs, contactOf, []);
+  return { text, pd: shown > 0, buttons };
 }
 
 /** Telegram: без имени, телефона и почты — по закону о ПД их принимает только MAX. */
-export function guideBookingsTelegramText(rows: readonly OwnBookingNoPd[], nowMs: number): string {
-  return bookingsText(rows, nowMs, null, ['Имя и телефон туриста — в MAX и в кабинете.']).text;
+export function guideBookingsTelegramText(rows: readonly OwnBookingNoPd[], nowMs: number): { text: string; buttons: MenuButton[][] } {
+  const { text, buttons } = bookingsText(rows, nowMs, null, ['Имя и телефон туриста — в MAX и в кабинете.']);
+  return { text, buttons };
 }
 
 export const GUIDE_BOOKINGS_UNREAD = 'Брони не прочитались — база не ответила. Это не «броней нет». Раздел на сайте: ';
@@ -135,16 +164,16 @@ export async function guideBookingsScreen(
   partnerId: string,
   channel: 'max' | 'telegram',
   nowMs: number,
-): Promise<{ text: string; pd: boolean }> {
+): Promise<{ text: string; pd: boolean; buttons: MenuButton[][] }> {
   let rows: OwnBooking[];
   try {
     rows = await loadOwnBookings(partnerId);
   } catch (err) {
     logSwallowedFailure('guide-chat', 'брони гида для чата', err);
-    return { text: `${GUIDE_BOOKINGS_UNREAD}${ownUrl()}`, pd: false };
+    return { text: `${GUIDE_BOOKINGS_UNREAD}${ownUrl()}`, pd: false, buttons: [] };
   }
   if (channel === 'max') return guideBookingsMaxText(rows, nowMs);
-  return { text: guideBookingsTelegramText(rows.map(withoutPd), nowMs), pd: false };
+  return { ...guideBookingsTelegramText(rows.map(withoutPd), nowMs), pd: false };
 }
 
 /** «Мои туры»: на сайте или черновик (подписи кабинета) и сколько открытых дат. */

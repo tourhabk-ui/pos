@@ -98,9 +98,12 @@ describe('меню роли', () => {
     expect(help).toContain('Под ответом кнопки: Входящие, Брони, Мои туры, Помощь.');
     expect(help).toContain('Имя и телефон туриста — только в MAX');
     expect(help).toContain('/hub/guide/own');
+    // Кнопки ответа брони (шаг 6) названы — и что бронь меняется только после «Да».
+    expect(help).toContain('«Подтвердить» и «Отклонить»');
+    expect(help).toContain('бронь меняется только после «Да»');
     expect(help).not.toMatch(/₽/);
     const team = partnerMenuHelp('guide', partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2' }) ?? []);
-    expect(team).not.toMatch(/Брони|Мои туры/);
+    expect(team).not.toMatch(/Брони|Мои туры|Подтвердить/);
   });
 
   it('админ — шесть чтений, входящих у него нет', () => {

@@ -32,6 +32,8 @@ export interface NewBookingForOperator {
   specialRequests?: string | null;
   /** Откуда бронь: 'website', 'seat_request'… — для строки «Источник». */
   via: string;
+  /** Статус брони сейчас: 'new' — гиду под сообщением кнопки ответа. Нет — кнопок нет. */
+  bookingStatus?: string;
 }
 
 export type OperatorNotifyResult =
@@ -99,6 +101,7 @@ export async function notifyOperatorOfNewBooking(b: NewBookingForOperator): Prom
       via:                       b.via,
       operator_partner_id:       b.operatorId,
       operator_category:         reach?.category ?? null,
+      booking_status:            b.bookingStatus ?? null,
     });
 
     // Адреса нет ни одного — заявка легла в базу и никуда не поехала. Молчать

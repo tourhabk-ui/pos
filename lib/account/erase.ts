@@ -89,7 +89,8 @@
  *     столбцам: его id в Telegram или MAX, или диалог MAX, где он писал
  *     Кузьмичу; чужой канал карточки (чат команды) остаётся и называется в
  *     ответе (ERASE_STEP_LEAVES); предложения «открыть даты» из его диалога
- *     MAX (operator_chat_date_proposals) и коды привязки мессенджера, которыми
+ *     MAX (operator_chat_date_proposals), действия кнопкой из его чата
+ *     кабинета (partner_chat_actions) и коды привязки мессенджера, которыми
  *     этот канал заводили (messenger_bind_codes), удаляются тем же ключом;
  *   - спутники, описание маршрута и последняя точка в его прошедших
  *     регистрациях маршрута, адресат в журнале доставки тревог по ним
@@ -1171,6 +1172,17 @@ export async function eraseUser(
     ['operator_chat_date_proposals', `DELETE FROM operator_chat_date_proposals p
       USING (${HIS_MESSENGER_IDS}) his
       WHERE p.channel = 'max' AND p.chat_id = ANY(his.mx)`],
+    // Действия кнопкой из его чата кабинета (миграция 1341,
+    // lib/bookings/chat-owner-action): бронь своего тура в два шага. Строка
+    // ссылается на карточку, а не на него (ERASE_DETACH_ONLY), но несёт id его
+    // диалога и причину отклонения, написанную им. Ключ тот же, что у
+    // предложений дат: его Telegram или его диалог MAX. Статус брони, который
+    // он поставил, живёт в operator_bookings и не трогается. ДО шагов
+    // tg_conversations и users — ключи к диалогу живут там.
+    ['partner_chat_actions', `DELETE FROM partner_chat_actions a
+      USING (${HIS_MESSENGER_IDS}) his
+      WHERE (a.channel = 'max' AND a.chat_id = ANY(his.mx))
+         OR (a.channel = 'telegram' AND a.chat_id = ANY(his.tg))`],
     // Коды «/start ABC123» из кабинета (миграция 1333, lib/partners/bind-code):
     // погашенный код хранит id чата, которым канал карточки заводили, — ту же
     // копию, что снимает шаг partners выше, и по ссылке на карточку она не его

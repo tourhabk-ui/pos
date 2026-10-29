@@ -7,6 +7,11 @@
  * Экран с `pd: true` (брони гида в MAX) вызывающий отдаёт только через
  * `sendPdAlert` с `telegramChatId: null`. В Telegram такой экран не строится:
  * канал telegram получает текст без ПД.
+ *
+ * `buttons` — кнопки действий над строкой меню: у гида со своими турами под
+ * «Бронями» и под ждущими бронями «Входящих» — «Подтвердить» и «Отклонить»
+ * (lib/bookings/chat-owner-press). Вызывающий ставит их только в личном
+ * диалоге: в группе кнопку нажал бы любой участник.
  */
 
 import { loadInbox } from '@/lib/crm/inbox';
@@ -17,11 +22,15 @@ import {
 import { inboxMenuText } from '@/lib/roles/inbox-text';
 import { adminReplyFor, type AdminReply } from '@/lib/max/admin-read';
 import { readSeatSummary, SUMMARY_DB_ERROR, summaryEnabledFor, summaryText } from '@/lib/seat-requests/summary';
+import { OWNER_PRESS_BUTTON_CAP, bookingAnswerButtons } from '@/lib/bookings/chat-owner-press';
+import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export interface RoleScreen {
   text: string;
   /** В тексте контакты туриста. В Telegram такой ответ не отдаём. */
   pd: boolean;
+  /** Кнопки действий над строкой меню; нет поля — кнопок нет. */
+  buttons?: MenuButton[][];
 }
 
 const TELEGRAM_PD = 'Контакты туристов в этом списке есть только в MAX. Здесь их не показываю.';
@@ -68,6 +77,14 @@ export async function roleMenuScreen(opts: {
     return { text: 'Такой кнопки в этом кабинете нет.', pd: false };
   }
   const inbox = await loadInbox(opts.partner.partnerId, role, opts.partner.userId ?? null, { nowMs: opts.nowMs });
+  // Гиду со своими турами — ответ двум первым ждущим броням кнопкой, как в «Бронях».
+  if (role === 'guide' && guideSellsOwnTours(opts.partner)) {
+    const buttons = inbox.items
+      .filter((item) => item.kind === 'operator_booking')
+      .slice(0, OWNER_PRESS_BUTTON_CAP)
+      .map((item) => bookingAnswerButtons(item.id));
+    return { text: inboxMenuText(inbox), pd: false, ...(buttons.length ? { buttons } : {}) };
+  }
   return { text: inboxMenuText(inbox), pd: false };
 }
 

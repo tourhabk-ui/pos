@@ -36,9 +36,27 @@ export async function tryRoleMenuTelegramMessage(opts: {
   send: RoleSend;
   /** Постоянная клавиатура телефона. Ставится на /start, не на каждое сообщение. */
   sendPersistent?: (text: string) => Promise<void>;
+  /**
+   * Вид чата Telegram (`message.chat.type`). Кнопки действий брони и ожидание
+   * причины отклонения — только в личном (`private`); нет поля — не личный.
+   */
+  chatType?: string;
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome !== 'found') return false;
+  const privateChat = opts.chatType === 'private';
+  // Причина отклонения брони (гид, 29.10): после «Отклонить» следующее
+  // сообщение личного чата — причина для туриста. Раньше полосы: «турист
+  // заболел» иначе ушло бы Кузьмичу туриста. Беда в тексте — блок 112.
+  if (privateChat) {
+    // Модуль действия тянет правило смены статуса брони — грузится, только когда нужен.
+    const { captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
+    const reason = await captureOwnerReason({ channel: 'telegram', chatId: opts.chatId, partner: lookup.partner, text: opts.text });
+    if (reason) {
+      await opts.send(withSosBlock(reason.text, opts.text).text, reason.buttons);
+      return true;
+    }
+  }
   const menu = partnerMenu(lookup.partner);
   const role = menuRoleOf(lookup.partner);
   if (!menu || !role) {
@@ -85,7 +103,8 @@ export async function tryRoleMenuTelegramMessage(opts: {
     const screen = await roleMenuScreen({
       role, action, channel: 'telegram', partner, nowMs: Date.now(),
     });
-    await send(screen.text, []);
+    // Кнопки действий брони — только в личном чате: в группе их нажал бы любой.
+    await send(screen.text, privateChat ? (screen.buttons ?? []) : []);
   };
   if (asked === 'help') {
     if (role === 'operator') {
@@ -161,6 +180,11 @@ export async function tryRoleMenuTelegramPress(opts: {
   chatId: number;
   payload: string;
   send: RoleSend;
+  /**
+   * Нажатие из личного чата канонического вебхука: только там стоят кнопки
+   * действий брони (`bk:`) и только там есть их обработчик. Нет поля — без них.
+   */
+  privateChat?: boolean;
 }): Promise<boolean> {
   const press = parseRoleMenuPress(opts.payload);
   if (!press || press.role === 'admin') return false;
@@ -192,6 +216,7 @@ export async function tryRoleMenuTelegramPress(opts: {
     partner: lookup.partner,
     nowMs: Date.now(),
   });
-  await opts.send(screen.text, menu.length ? [menu] : []);
+  const actions = opts.privateChat === true ? (screen.buttons ?? []) : [];
+  await opts.send(screen.text, menu.length ? appendMenu(actions, menu) : []);
   return true;
 }

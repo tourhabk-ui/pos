@@ -296,7 +296,8 @@ describe('MAX: «Брони» гида', () => {
     expect(alert.to).toEqual({ maxChatId: GUIDE_CHAT, telegramChatId: null });
     expect(alert.text).toContain(PHONE);
     noPd(alert.stub);
-    expect(alert.buttons.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    // Кнопки ответа ждущей брони (шаг 6: вопрос, затем «Да») — над строкой меню.
+    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
     // Обычным сообщением ПД не уходят.
     for (const t of maxTexts()) noPd(t);
   });

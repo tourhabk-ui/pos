@@ -98,6 +98,8 @@ const ANSWERS: Record<string, 'releases' | string> = {
     'пишет только флаг reminder_sent_24h; статус читает в отборе',
   'app/api/cron/payment-test-setup/route.ts':
     'снос обвязки проверки оплаты: пишет deleted_at служебным броням, статуса не меняет',
+  'lib/bookings/notify-operator.ts':
+    'статус брони не меняет: пишет только uon_request_id и uon_synced_at, а статус передаёт в уведомление продавцу (кнопки ответа гиду под ждущей бронью)',
 
   // ── Ловушка на будущее, названная вслух ─────────────────────────────────
   'lib/services/tours/booking.service.ts':
