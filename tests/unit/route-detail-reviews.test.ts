@@ -138,8 +138,9 @@ describe('GET /api/routes/[id] — туры по маршруту знают п�
     const offersSql = String(queryMock.mock.calls.find(([sql]) => String(sql).includes('FROM v_route_marketplace'))![0]);
     expect(offersSql).toContain('ot.group_size_unlimited');
     expect(offersSql).toMatch(/JOIN operator_tours ot ON ot\.id = v\.tour_id/);
-    // Порядок предложений — правило 1в (жребий дня по Камчатке): судится признак
-    // у своего тура, а не место в списке, иначе тест краснеет через день.
+    // Порядок предложений — правило 1в с жребием дня (lib/tours/offer-order):
+    // у туров без даты он меняется раз в сутки, поэтому признак сверяется по
+    // номеру тура, а не по месту в списке.
     const byTour = Object.fromEntries(
       json.data.offers.map((o: { tourId: number; groupSizeUnlimited: boolean }) => [o.tourId, o.groupSizeUnlimited]),
     );
