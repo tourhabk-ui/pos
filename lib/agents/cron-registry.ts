@@ -119,6 +119,16 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 360, tier: 'safety', agentId: 'safety-check', triggerable: false,
   },
   {
+    // Второй свидетель цунами (29.10): PTWC видит угрозу точкам края, а в
+    // ленте официальной тревоги нет — дежурный разбужен. tsunami_warning
+    // этот крон не пишет и не снимает; туристу PTWC не показывается.
+    key: 'ptwc-check', label: 'PTWC — сверка цунами',
+    description: 'Последний бюллетень PTWC (tsunami.gov): угроза точкам края без официальной тревоги в ленте → дежурному. Только чтение.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'safety', agentId: 'ptwc-check', triggerable: false,
+    endpoint: 'ptwc-check',
+  },
+  {
     key: 'rescue', label: 'Rescue',
     description: 'Погодные угрозы ближайшим турам + отток операторов. SOS/брони — у Watchdog.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
@@ -581,6 +591,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // изменилась или сайт не дошёл, а не «прогноза нет».
   'ugms-forecast': 'broken',
   'safety-check': 'unknown',
+  // Счётчик — точки края в таблице прихода волны: ноль значит «угрозы краю
+  // нет», и так почти всегда. Непрочитанный PTWC краснеет сам (502, failed).
+  'ptwc-check': 'normal',
 
   // ── Операции ────────────────────────────────────────────────────────────
   // Пустая очередь ядра — норма: инициативы появляются нерегулярно.
