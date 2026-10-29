@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Табло аэропорта Елизово — задержки и отмены рейсов',
   description:
-    'Задержанные и отменённые рейсы аэропорта Петропавловск-Камчатский (Елизово, PKC): вылет и прилёт по табло аэропорта, камчатское время, погода в аэропорту по сводке METAR.',
+    'Задержки и отмены рейсов аэропорта Елизово (PKC): вылет и прилёт по табло аэропорта, камчатское время, погода у полосы по сводке METAR.',
   alternates: { canonical: 'https://vedarai.ru/flights' },
   openGraph: {
     images: defaultOgImages(),
