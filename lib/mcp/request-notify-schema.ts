@@ -58,10 +58,44 @@ export const notifyUrlField = z.preprocess(
 /** Фраза в описании четырёх инструментов. */
 export const NOTIFY_TOOL_PHRASE = ' Необязательный notify_url — адрес вашего приёмника: при изменении заявки на него придёт подписанный POST (Standard Webhooks).';
 
-/** Сколько живёт подписка — столько же, сколько ключ статуса. */
+/** Как приёмнику проверить подпись и защититься от повтора — один текст на ответ инструмента, OpenAPI и /mcp. */
 export const NOTIFY_HOW_TO_VERIFY =
   'Подпись — Standard Webhooks: заголовки webhook-id, webhook-timestamp, webhook-signature «v1,<base64 HMAC-SHA256 от "id.timestamp.тело">», ключ — base64 после whsec_. '
   + 'Отвергайте webhook-timestamp старше 5 минут, повторы отсекайте по webhook-id, а при расхождении верьте снимку с более поздним observed_at.';
+
+/**
+ * 4xx, после которых повтор имеет смысл: 408 (таймаут запроса), 425 (рано),
+ * 429 (слишком часто). Любой другой 4xx — «адрес не приёмник»: подписка
+ * отключается с первого ответа, чтобы чужой адрес получал не больше одного
+ * запроса. Исполняет outcomeOfStatus (lib/mcp/notify-send) — по этому же
+ * списку, а тексты ниже собраны из него: до ревью 29.10 тексты обещали
+ * повтор на любой ответ, кроме 410, а отправитель отключал на первом 404.
+ */
+export const NOTIFY_RETRY_4XX = [408, 425, 429] as const;
+
+/** После скольких неудач подряд подписка отключается (~31 ч по графику повторов). */
+export const NOTIFY_MAX_FAILURES = 7;
+
+function listRu(xs: readonly number[]): string {
+  return xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} и ${xs[xs.length - 1]}`;
+}
+
+/**
+ * Что значит ответ приёмника — одно правило на ответ инструмента, OpenAPI,
+ * /mcp и llms.txt. Сторож сверяет его с поведением outcomeOfStatus на всех
+ * кодах (tests/unit/request-notify.test.ts).
+ */
+export const NOTIFY_RESPONSE_RULES =
+  `Ответ приёмника: 2xx — доставлено. 410 и любой другой 4xx, кроме ${listRu(NOTIFY_RETRY_4XX)}, отключают подписку с первого ответа, без повторов — `
+  + 'проверка подписи на приёмнике должна работать к первому уведомлению. '
+  + `3xx (редиректам не следуем), ${listRu(NOTIFY_RETRY_4XX)}, 5xx, таймаут и сетевой отказ — повтор с растущим интервалом; `
+  + `после ${NOTIFY_MAX_FAILURES} неудач подряд подписка отключается.`;
+
+export const NOTIFY_RESPONSE_RULES_EN =
+  `Receiver replies: 2xx means delivered. 410 or any other 4xx except ${NOTIFY_RETRY_4XX.join('/')} disables the subscription on the first reply, with no retries, `
+  + 'so signature checking must work by the first notification. '
+  + `3xx (redirects are not followed), ${NOTIFY_RETRY_4XX.join('/')}, 5xx, timeouts and network errors are retried with growing intervals; `
+  + `after ${NOTIFY_MAX_FAILURES} consecutive failures the subscription is disabled.`;
 
 /** Тело уведомления — одна схема на OpenAPI (webhooks) и сторожа. Имени, телефона, комментария и ключа статуса в нём нет. */
 export const REQUEST_NOTIFICATION_SCHEMA = {

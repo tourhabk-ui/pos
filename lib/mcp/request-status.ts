@@ -221,6 +221,8 @@ export interface StatusRow {
   route_title: string | null;
   /** Дата из заявки на бронь тура (`source_data.date`): текст, проверяется здесь, а не `::date` в SQL. */
   lead_requested_date?: string | null;
+  /** Тур заявки на бронь — из каталога по номеру `source_data.tour_id`, который записал роут MCP (не текст человека). */
+  lead_tour?: string | null;
   booking_status: string | null;
   booking_date: string | null;
   booking_participants: number | null;
@@ -417,7 +419,7 @@ function readKey(raw: unknown): string {
  */
 const REQUEST_STATUS_SELECT = `
   SELECT k.id::text AS key_id, k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
-         l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date,
+         l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date, lt.title AS lead_tour,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
@@ -433,6 +435,11 @@ const REQUEST_STATUS_SELECT = `
          n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
+    -- Тур заявки на бронь — по номеру, который записал роут MCP; приведение
+    -- только числу: source_data — jsonb, и чужая форма даёт «не записано», а
+    -- не 22P02 на весь ответ.
+    LEFT JOIN operator_tours lt
+           ON lt.id = CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END
     LEFT JOIN LATERAL (
       SELECT b.booking_status, b.booking_date, b.participants, b.operator_tour_id
         FROM operator_bookings b
@@ -594,7 +601,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
   return {
     state,
     kind: 'lead',
-    tour: row.booking_tour ?? row.route_title,
+    tour: row.booking_tour ?? leadCatalogTour(row) ?? row.route_title,
     accommodation: null,
     accommodation_url: null,
     date: row.booking_date,
@@ -611,6 +618,17 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
 }
 
 /**
+ * Тур заявки на бронь из каталога — по номеру, который записал роут MCP.
+ * Одна функция на вид заявки и на снимок уведомления (ревью 29.10): до этого
+ * get_request_status называл тур с самого создания, уведомление — только
+ * после брони, и первая же бронь на тот же тур приходила с `changed: tour`,
+ * будто оператор тур поменял.
+ */
+function leadCatalogTour(row: StatusRow): string | null {
+  return row.tool_name === BOOKING_TOOL_NAME ? row.lead_tour ?? null : null;
+}
+
+/**
  * Название тура из каталога (`operator_tours`) — и только оттуда. У лида
  * `tour` вида падает на `leads.route_title`, а у заявки на машину там
  * направление, набранное человеком: свободный текст наружу не уходит.
@@ -618,7 +636,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
 export function catalogTourOf(row: StatusRow): string | null {
   if (row.stay_request_id) return null;
   if (row.seat_request_id) return row.seat_booking_tour ?? row.seat_tour ?? null;
-  return row.booking_tour ?? null;
+  return row.booking_tour ?? leadCatalogTour(row);
 }
 
 export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {

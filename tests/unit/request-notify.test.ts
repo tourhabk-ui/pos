@@ -24,7 +24,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
   subscribeNotify, notifyLine, snapshotOf, fingerprintOf, changedFields, eventId, buildNotification, type SubscribeOutcome,
 } from '@/lib/mcp/request-notify';
@@ -261,7 +261,8 @@ describe('тело уведомления', () => {
 
 import {
   runRequestNotify, retryDelayMinutes, NOTIFY_MAX_FAILURES, NOTIFY_HOST_RUN_BUDGET,
-  EXPIRE_SQL, RETENTION_SQL, LIVE_SQL, HOST_DAY_SQL, CLAIM_SQL, RELEASE_SQL, RESET_SQL, DELIVERED_SQL, DISABLE_SQL, RETRY_SQL,
+  EXPIRE_SQL, RETENTION_SQL, LIVE_SQL, HOST_DAY_SQL, CLAIM_SQL, RELEASE_SQL, RESET_SQL, DELIVERED_SQL, DISABLE_SQL, RETRY_SQL, STALL_SQL,
+  CENSUS_SQL, readNotifyCensus,
 } from '@/lib/mcp/request-notify';
 import { encryptBound } from '@/lib/encryption';
 import type { SendOutcome } from '@/lib/mcp/notify-send';
@@ -272,7 +273,7 @@ interface Sub {
   last_state: string | null; last_date: string | null; last_alt_date: string | null; last_tour: string | null; last_participants: number | null;
   last_fingerprint: string | null; last_body_sha256: string | null; delivered_count: number; attempts: number;
   next_attempt_at: number | null; last_attempt_at: number | null; last_error: string | null; claimed_until: number | null;
-  disabled_at: number | null; disabled_reason: string | null;
+  disabled_at: number | null; disabled_reason: string | null; failing_since: number | null; last_delivered_at: number | null;
 }
 
 const MIN = 60_000;
@@ -316,25 +317,46 @@ function fakeDb(clock: { now: number }) {
       return { rows: [...m].map(([url_host, n]) => ({ url_host, n })), rowCount: m.size };
     }
     if (sql === CLAIM_SQL) {
-      const rows = ids.map((id) => subs.get(id)!).filter((s) => s && s.disabled_at === null && (s.claimed_until === null || s.claimed_until < clock.now));
+      // По прочитанному состоянию: номер доставки, попытки, отпечаток — как в SQL.
+      const [, dcs, atts, fps] = params as [string[], number[], number[], Array<string | null>];
+      const rows = ids.map((id, i) => ({ s: subs.get(id)!, i })).filter(({ s, i }) => s && s.disabled_at === null
+        && (s.claimed_until === null || s.claimed_until < clock.now)
+        && s.delivered_count === dcs[i] && s.attempts === atts[i] && s.last_fingerprint === fps[i]).map(({ s }) => s);
       for (const s of rows) s.claimed_until = clock.now + 5 * MIN;
       return { rows: rows.map((s) => ({ id: s.id, url_enc: s.url_enc, secret_enc: s.secret_enc, delivered_count: s.delivered_count })), rowCount: rows.length };
     }
     if (sql === RELEASE_SQL) { for (const id of ids) subs.get(id)!.claimed_until = null; return { rows: [], rowCount: ids.length }; }
-    if (sql === RESET_SQL) { for (const id of ids) Object.assign(subs.get(id)!, { attempts: 0, next_attempt_at: null, last_error: null }); return { rows: [], rowCount: ids.length }; }
+    if (sql === RESET_SQL) { for (const id of ids) Object.assign(subs.get(id)!, { attempts: 0, next_attempt_at: null, last_error: null, failing_since: null }); return { rows: [], rowCount: ids.length }; }
+    if (sql === STALL_SQL) {
+      // Как в SQL: живые в серии сетевых неудач у хостов, принимавших раньше; доставки с начала самой ранней серии.
+      const codes = params[0] as string[];
+      const all = [...subs.values()];
+      const known = (h: string) => all.some((x) => x.url_host === h && x.delivered_count > 0);
+      const failing = all.filter((x) => x.disabled_at === null && x.attempts > 0 && x.failing_since !== null && codes.includes(x.last_error ?? '') && known(x.url_host));
+      const since = failing.length > 0 ? Math.min(...failing.map((f) => f.failing_since!)) : null;
+      const delivered_since = since !== null && all.some((x) => x.last_delivered_at !== null && x.last_delivered_at >= since);
+      return { rows: [{ hosts: new Set(failing.map((f) => f.url_host)).size, since: since === null ? null : new Date(since), delivered_since }], rowCount: 1 };
+    }
+    if (sql === CENSUS_SQL) {
+      const x = [...subs.values()].find((y) => y.ref === params[0]);
+      const d = (v: number | null) => (v === null ? null : new Date(v));
+      return { rows: x ? [{ ...x, active: x.disabled_at === null, created_at: x.created_at, expires_at: d(x.expires_at), last_delivered_at: d(x.last_delivered_at),
+        last_attempt_at: d(x.last_attempt_at), failing_since: d(x.failing_since), next_attempt_at: d(x.next_attempt_at), disabled_at: d(x.disabled_at) }] : [], rowCount: x ? 1 : 0 };
+    }
     const s = subs.get(String(params[0]));
     if (sql === DELIVERED_SQL) {
       const [, st, d, ad, tour, p, fp, bodySha] = params as [string, string, string | null, string | null, string | null, number | null, string, string];
       Object.assign(s!, {
         last_state: st, last_date: d, last_alt_date: ad, last_tour: tour, last_participants: p, last_fingerprint: fp, last_body_sha256: bodySha,
         delivered_count: s!.delivered_count + 1, attempts: 0, next_attempt_at: null, last_error: null, last_attempt_at: clock.now,
+        failing_since: null, last_delivered_at: clock.now,
         baseline_at: s!.baseline_at ?? new Date(clock.now), claimed_until: null,
       });
       return { rows: [], rowCount: 1 };
     }
     if (sql === DISABLE_SQL) { if (s!.disabled_at === null) disable(s!, String(params[1]), String(params[2])); return { rows: [], rowCount: 1 }; }
     if (sql === RETRY_SQL) {
-      Object.assign(s!, { attempts: s!.attempts + 1, last_error: params[1], last_attempt_at: clock.now, next_attempt_at: clock.now + Number(params[2]) * MIN, claimed_until: null });
+      Object.assign(s!, { attempts: s!.attempts + 1, last_error: params[1], last_attempt_at: clock.now, failing_since: s!.failing_since ?? clock.now, next_attempt_at: clock.now + Number(params[2]) * MIN, claimed_until: null });
       return { rows: [], rowCount: 1 };
     }
     throw new Error(`неизвестный запрос: ${sql.slice(0, 60)}`);
@@ -354,7 +376,7 @@ function fakeDb(clock: { now: number }) {
       created_at: new Date(clock.now - n * 1000), expires_at: clock.now + 90 * 86_400_000, baseline_at: null,
       last_state: null, last_date: null, last_alt_date: null, last_tour: null, last_participants: null, last_fingerprint: null, last_body_sha256: null,
       delivered_count: o.delivered ?? 0, attempts: 0, next_attempt_at: null, last_attempt_at: null, last_error: null, claimed_until: null,
-      disabled_at: null, disabled_reason: null,
+      disabled_at: null, disabled_reason: null, failing_since: null, last_delivered_at: null,
     };
     if (o.baseline !== false) {
       const snap = snapshotOf(buildRequestView(view, clock.now), catalogTourOf(view));
@@ -460,6 +482,26 @@ describe('сверка: отказ приёмника — повтор по гр
     expect(notifyStatusOf({ ...ROW, notify_ref: s.ref, notify_disabled_reason: 'undeliverable' })).toEqual({ ref: s.ref, active: false, disabled_reason: 'undeliverable' });
   });
 
+  // Ревью 29.10: срок ставится по часам неудачи, а следующий прогон этого
+  // шага начинается через 30 минут после начала прошлого — чуть РАНЬШЕ срока.
+  // Без допуска повтор «через 30 минут» уезжал на прогон позже.
+  it('повтор — в прогон, ближайший к сроку: шаг начался чуть раньше срока — шлём; за 20 минут до срока — нет', async () => {
+    const clock = { now: T0 };
+    const db = fakeDb(clock);
+    const s = db.add({ change: { lead_status: 'contacted' } });
+    const { send, sent } = fakeSend(clock, () => ({ kind: 'retry', code: 'http_503', network: false }), 40_000);
+    const runStart = clock.now;
+    await runRequestNotify({ query: db.query, send, now: () => clock.now });
+    expect(db.subs.get(s.id)!.next_attempt_at).toBe(runStart + 40_000 + 30 * MIN);
+    clock.now = runStart + 10 * MIN;
+    await runRequestNotify({ query: db.query, send, now: () => clock.now });
+    expect(sent).toHaveLength(1);
+    // Следующий прогон — ровно через шаг расписания от начала прошлого.
+    clock.now = runStart + 30 * MIN;
+    await runRequestNotify({ query: db.query, send, now: () => clock.now });
+    expect(sent).toHaveLength(2);
+  });
+
   it('410 — отключение сразу, адрес и ключ стёрты; больше не шлём', async () => {
     const clock = { now: T0 };
     const db = fakeDb(clock);
@@ -506,6 +548,69 @@ describe('сверка: отказ приёмника — повтор по гр
     expect(r.status).toBe('ok');
     expect(r.receiver_failed).toEqual({ timeout: 2 });
     for (const s of [a, b]) expect(db.subs.get(s.id)).toMatchObject({ attempts: 1, next_attempt_at: T0 + 30 * MIN });
+    // Хосты новые — не принимали ни разу: признака «наша сеть молчит» нет.
+    expect(r.stall).toBeNull();
+  });
+
+  // Ревью 29.10: если молчит НАША сторона (сеть контейнера, резолвер), каждая
+  // отправка выглядит отказом приёмника, прогон «хорошо», а через ~31 ч все
+  // подписки молча отключаются. Признак — по таблице, и копится он между
+  // прогонами, в которых слать нечего (повторы идут реже прогонов).
+  it('молчание сети: два приёмника, принимавших раньше, в сетевых отказах и доставок нет — признак в каждом прогоне до первой доставки', async () => {
+    const clock = { now: T0 };
+    const db = fakeDb(clock);
+    const a = db.add({ host: 'a.agent-example.ru', delivered: 1 });
+    const b = db.add({ host: 'b.agent-example.ru', delivered: 1 });
+    for (const s of [a, b]) db.views.get(s.key_id)!.lead_status = 'lost';
+    const down = fakeSend(clock, () => ({ kind: 'retry', code: 'timeout', network: true }));
+    const r1 = await runRequestNotify({ query: db.query, send: down.send, now: () => clock.now });
+    expect(r1.status).toBe('ok');
+    expect(r1.stall).toEqual({ hosts: 2, minutes: 0 });
+    // Прогон между повторами — слать нечего, а признак тот же.
+    clock.now += 10 * MIN;
+    const r2 = await runRequestNotify({ query: db.query, send: down.send, now: () => clock.now });
+    expect(r2.due).toBe(0);
+    expect(r2.stall).toEqual({ hosts: 2, minutes: 10 });
+    // Доставка куда угодно после начала отказов — сеть жива, признака нет.
+    const c = db.add({ host: 'c.agent-example.ru', change: { lead_status: 'contacted' } });
+    const up = fakeSend(clock, (url) => (url.includes('c.agent-example') ? OK : { kind: 'retry', code: 'timeout', network: true }));
+    const r3 = await runRequestNotify({ query: db.query, send: up.send, now: () => clock.now });
+    expect(db.subs.get(c.id)!.delivered_count).toBe(1);
+    expect(r3.stall).toBeNull();
+  });
+
+  it('молчание сети не включают: один хост; HTTP-ответы (приёмник ответил); новые хосты', async () => {
+    const run = async (answer: SendOutcome, delivered: number, hosts: string[]) => {
+      const clock = { now: T0 };
+      const db = fakeDb(clock);
+      for (const h of hosts) db.add({ host: h, delivered, change: { lead_status: 'lost' } });
+      const { send } = fakeSend(clock, () => answer);
+      return (await runRequestNotify({ query: db.query, send, now: () => clock.now })).stall;
+    };
+    const timeout: SendOutcome = { kind: 'retry', code: 'timeout', network: true };
+    expect(await run(timeout, 1, ['a.agent-example.ru'])).toBeNull();
+    expect(await run({ kind: 'retry', code: 'http_503', network: false }, 1, ['a.agent-example.ru', 'b.agent-example.ru'])).toBeNull();
+    expect(await run({ kind: 'retry', code: 'address_refused', network: true }, 1, ['a.agent-example.ru', 'b.agent-example.ru'])).toBeNull();
+    expect(await run(timeout, 0, ['a.agent-example.ru', 'b.agent-example.ru'])).toBeNull();
+    expect(await run(timeout, 1, ['a.agent-example.ru', 'b.agent-example.ru'])).toEqual({ hosts: 2, minutes: 0 });
+  });
+
+  it('разбор подписки по номеру: почему отключена, когда доставлено, хэш тела — без адреса и хоста', async () => {
+    const clock = { now: T0 };
+    const db = fakeDb(clock);
+    const s = db.add({ change: { lead_status: 'contacted' } });
+    const { send, sent } = fakeSend(clock, () => OK);
+    await runRequestNotify({ query: db.query, send, now: () => clock.now });
+    const sha = createHash('sha256').update(sent[0]!.body, 'utf8').digest('hex');
+    const c1 = await readNotifyCensus(s.ref, db.query);
+    expect(c1).toMatchObject({ ref: s.ref, active: true, delivered_count: 1, last_body_sha256: sha, last_delivered_at: new Date(T0).toISOString(), last_state: 'operator_contacted' });
+    clock.now += MIN;
+    db.views.get(s.key_id)!.lead_status = 'lost';
+    await runRequestNotify({ query: db.query, send: fakeSend(clock, () => outcomeOfStatus(404)).send, now: () => clock.now });
+    const c2 = await readNotifyCensus(s.ref, db.query);
+    expect(c2).toMatchObject({ active: false, disabled_reason: 'rejected', last_error: 'http_404', delivered_count: 1 });
+    expect(JSON.stringify(c2)).not.toMatch(/agent-example|sig=|https:/);
+    expect(await readNotifyCensus('nr_BBBBBBBBBBBBBBBBBBBBBB', db.query)).toBeNull();
   });
 
   it('пока идут повторы, снимок изменился ещё раз — новый id, previous_* от последнего доставленного; тот же снимок — тот же id', async () => {
@@ -674,6 +779,29 @@ describe('сверка: исходы прогона и хранение', () => 
     expect(sent).toHaveLength(0);
   });
 
+  // Ревью 29.10: второй прогон прочитал живые строки ДО захвата первым, а
+  // захватил ПОСЛЕ его записи — исходы снимают claimed_until, и та же разница
+  // уходила второй раз с новым webhook-id (или неудача повторялась мимо графика).
+  it('ступенчатая гонка: прогон, захвативший после чужой записи, не шлёт второй раз — ни доставку, ни неудачу', async () => {
+    for (const answer of [OK, { kind: 'retry', code: 'http_503', network: false } as SendOutcome]) {
+      const clock = { now: T0 };
+      const db = fakeDb(clock);
+      db.add({ change: { lead_status: 'contacted' } });
+      const { send, sent } = fakeSend(clock, () => answer);
+      let raced = false;
+      const q = async (sql: string, params?: unknown[]) => {
+        if (sql === CLAIM_SQL && !raced) {
+          raced = true;
+          await runRequestNotify({ query: db.query, send, now: () => clock.now });
+        }
+        return db.query(sql, params);
+      };
+      const b = await runRequestNotify({ query: q, send, now: () => clock.now });
+      expect(sent, answer.code).toHaveLength(1);
+      expect(b.deferred.claimed_elsewhere, answer.code).toBe(1);
+    }
+  });
+
   it('ответ прогона — только числа и коды: ни хоста, ни адреса', async () => {
     const clock = { now: T0 };
     const db = fakeDb(clock);
@@ -712,6 +840,11 @@ describe('объявление notify_url', () => {
     expect(props).toHaveProperty('requested_date');
     expect(GET_REQUEST_STATUS_TOOL.description).toMatch(/notify_url/);
     expect(GET_REQUEST_STATUS_TOOL.description).toMatch(/requested_date/);
+    // undeliverable — «доставить не удалось», а не «приёмник не принимает»:
+    // причина бывает и на нашем пути до приёмника (ревью 29.10).
+    const notifyProp = (GET_REQUEST_STATUS_TOOL.outputSchema.properties as Record<string, { description?: string }>).notify;
+    expect(notifyProp?.description).toMatch(/undeliverable — доставить не удалось/);
+    expect(notifyProp?.description).not.toMatch(/приёмник не принимает/);
     expect(NOTIFY_PUBLIC_REASONS).not.toContain('expired');
     expect(NOTIFY_PUBLIC_REASONS).not.toContain('address_refused');
     // Каждая внутренняя причина CHECK миграции 1348 переводится в слово наружу.
@@ -722,9 +855,68 @@ describe('объявление notify_url', () => {
     }
   });
 
-  it('версия MCP — в коде и в server.json одна, 2.8.0 (новое поле на входе и в ответе)', () => {
+  // Нижняя граница, а не литерал (ревью 29.10): законный следующий подъём
+  // версии не должен краснеть здесь; равенство кода и server.json держит и
+  // mcp-registry-publish, а здесь — что поле не уехало в старой версии.
+  it('версия MCP — в коде и в server.json одна и не ниже 2.8.0, где поле появилось на входе и в ответе', () => {
     const manifest = JSON.parse(readFileSync('server.json', 'utf8')) as { version: string };
-    expect(MCP_SERVER_INFO.version).toBe('2.8.0');
+    const v = MCP_SERVER_INFO.version.split('.').map(Number);
+    expect(v).toHaveLength(3);
+    expect(v[0]! * 1_000_000 + v[1]! * 1_000 + v[2]!).toBeGreaterThanOrEqual(2_008_000);
     expect(manifest.version).toBe(MCP_SERVER_INFO.version);
+  });
+});
+
+// ── Что значит ответ приёмника: тексты против поведения (ревью 29.10) ──────
+// OpenAPI, ответ инструмента, /mcp и llms.txt обещали «410 — больше не слать;
+// прочее — повтор», а отправитель отключал подписку на первом 404 и 401.
+// Сторож не сравнивает строку с литералом: он спрашивает outcomeOfStatus обо
+// всех кодах и требует, чтобы текст называл ровно то, что делает код.
+import { outcomeOfStatus } from '@/lib/mcp/notify-send';
+import { NOTIFY_RESPONSE_RULES, NOTIFY_RESPONSE_RULES_EN } from '@/lib/mcp/request-notify-schema';
+
+describe('правило ответа приёмника — одно на отправителя и на все тексты', () => {
+  const range = (lo: number, hi: number) => Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  const kind = (s: number) => outcomeOfStatus(s).kind;
+
+  it('классы кодов по поведению отправителя совпадают с тем, что сказано словами', () => {
+    // Какие 4xx отправитель повторяет — по его поведению, не по константе.
+    const retried4xx = range(400, 499).filter((s) => kind(s) === 'retry');
+    const disabling4xx = range(400, 499).filter((s) => kind(s) === 'rejected' || kind(s) === 'gone');
+    expect(retried4xx.length + disabling4xx.length).toBe(100);
+    expect(kind(410)).toBe('gone');
+    expect(range(200, 299).every((s) => kind(s) === 'delivered')).toBe(true);
+    expect(range(300, 399).every((s) => kind(s) === 'retry')).toBe(true);
+    expect(range(500, 599).every((s) => kind(s) === 'retry')).toBe(true);
+
+    const ru = retried4xx.length > 1 ? `${retried4xx.slice(0, -1).join(', ')} и ${retried4xx.at(-1)}` : retried4xx.join('');
+    expect(NOTIFY_RESPONSE_RULES).toContain('2xx — доставлено');
+    expect(NOTIFY_RESPONSE_RULES).toContain(`410 и любой другой 4xx, кроме ${ru}, отключают подписку с первого ответа`);
+    expect(NOTIFY_RESPONSE_RULES).toContain(`3xx (редиректам не следуем), ${ru}, 5xx, таймаут и сетевой отказ — повтор`);
+    expect(NOTIFY_RESPONSE_RULES).toContain(`после ${NOTIFY_MAX_FAILURES} неудач подряд`);
+    expect(NOTIFY_RESPONSE_RULES_EN).toContain(`410 or any other 4xx except ${retried4xx.join('/')} disables the subscription on the first reply`);
+    expect(NOTIFY_RESPONSE_RULES_EN).toContain(`3xx (redirects are not followed), ${retried4xx.join('/')}, 5xx, timeouts and network errors are retried`);
+    expect(NOTIFY_RESPONSE_RULES_EN).toContain(`after ${NOTIFY_MAX_FAILURES} consecutive failures`);
+    expect(NOTIFY_RESPONSE_RULES_EN).not.toMatch(/\b(secret|token|password)\b/i);
+  });
+
+  it('ответ инструмента с подпиской говорит это правило целиком', () => {
+    const line = notifyLine({ ok: true, ref: 'nr_AAAAAAAAAAAAAAAAAAAAAA', signingKey: SIGNING });
+    expect(line).toContain(NOTIFY_RESPONSE_RULES);
+    expect(line).not.toMatch(/ответ 410 её отключает/);
+  });
+
+  it('прогон делает то же, что сказано: 401 и 404 — отключение с первого ответа, 429 и 503 — повтор', async () => {
+    for (const [status, expected] of [[401, 'rejected'], [404, 'rejected'], [429, null], [503, null]] as const) {
+      const clock = { now: T0 };
+      const db = fakeDb(clock);
+      const s = db.add({ change: { lead_status: 'contacted' } });
+      const { send, sent } = fakeSend(clock, () => outcomeOfStatus(status));
+      await runRequestNotify({ query: db.query, send, now: () => clock.now });
+      expect(sent, String(status)).toHaveLength(1);
+      const row = db.subs.get(s.id)!;
+      if (expected) expect(row, String(status)).toMatchObject({ disabled_reason: expected, url_enc: null, secret_enc: null });
+      else expect(row, String(status)).toMatchObject({ disabled_reason: null, attempts: 1 });
+    }
   });
 });

@@ -305,7 +305,9 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     )).rows[0].id;
     const issued = await issueRequestKeyRecord({ leadId: lead }, 'create_booking_request');
     expect(issued?.keyId).toMatch(/^[0-9a-f-]{36}$/);
-    const url = 'https://hooks.agent-example.ru/in?t=abc';
+    // Значение query — не из hex-алфавита: шифртекст — hex, и «abc» в нём
+    // встречалось случайно (тест краснел через раз).
+    const url = 'https://hooks.agent-example.ru/in?t=xyz';
     const sub = await subscribeNotify(issued!, url);
     if (!sub.ok) throw new Error(`подписка не заведена: ${sub.reason}`);
     const { rows: [n] } = await pool.query<{ ref: string; url_enc: string; secret_enc: string; url_host: string; last_state: string; last_fingerprint: string; baseline_at: Date | null; same_expiry: boolean }>(
@@ -315,7 +317,7 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     expect(n).toMatchObject({ ref: sub.ref, url_host: 'hooks.agent-example.ru', last_state: 'awaiting_operator', same_expiry: true });
     expect(n.baseline_at).not.toBeNull();
     expect(n.last_fingerprint).toMatch(/^[0-9a-f]{64}$/);
-    expect(n.url_enc).not.toContain('abc');
+    expect(n.url_enc).not.toMatch(/xyz|hooks/);
     expect(decryptBound(n.url_enc, n.ref)).toBe(url);
     expect(decryptBound(n.secret_enc, n.ref)).toBe(sub.signingKey);
     const v = await readRequestStatus(issued!.key);
@@ -469,8 +471,10 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     const l3 = await lead();
     const t3 = await issueKeyWithNotify({ leadId: l3 }, 'create_lead', 'https://claim.agent-example.ru/in');
     const ref3 = /номер подписки (nr_[A-Za-z0-9_-]+)/.exec(t3)![1]!;
-    const id3 = (await pool.query<{ id: string }>('SELECT id::text FROM agent_request_notify WHERE ref = $1', [ref3])).rows[0].id;
-    const [c1, c2] = await Promise.all([pool.query(CLAIM_SQL, [[id3]]), pool.query(CLAIM_SQL, [[id3]])]);
+    const { rows: [r3] } = await pool.query<{ id: string; delivered_count: number; attempts: number; fp: string | null }>(
+      'SELECT id::text, delivered_count, attempts, last_fingerprint::text AS fp FROM agent_request_notify WHERE ref = $1', [ref3]);
+    const seen = [[r3.id], [Number(r3.delivered_count)], [Number(r3.attempts)], [r3.fp]];
+    const [c1, c2] = await Promise.all([pool.query(CLAIM_SQL, seen), pool.query(CLAIM_SQL, seen)]);
     expect(c1.rows.length + c2.rows.length).toBe(1);
 
     // Уборка: отключённая больше 30 дней назад — удалена; моложе — на месте.
@@ -479,5 +483,139 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     expect(r.deleted_after_retention).toBeGreaterThanOrEqual(1);
     expect((await pool.query('SELECT 1 FROM agent_request_notify WHERE ref = $1', [ref1])).rows).toHaveLength(0);
     expect((await pool.query('SELECT 1 FROM agent_request_notify WHERE ref = $1', [ref2])).rows).toHaveLength(1);
+  });
+
+  // ── Ревью 29.10 ──────────────────────────────────────────────────────────
+  const refOf = (tail: string) => /номер подписки (nr_[A-Za-z0-9_-]+)/.exec(tail)![1]!;
+  const keyOf = (tail: string) => /Ключ статуса заявки: ([A-Za-z0-9_-]+)/.exec(tail)![1]!;
+  type Sent = { url: string; body: string; headers: Record<string, string> };
+
+  it('ревью 29.10: заявка на бронь — тур один у статуса и уведомления; бронь на тот же тур — changed без tour', async () => {
+    const { issueKeyWithNotify, runRequestNotify } = await import('@/lib/mcp/request-notify');
+    const { readRequestStatus } = await import('@/lib/mcp/request-status');
+    const lead = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, route_title, status, source_data)
+       VALUES ('Вера Тестовая', '+79990002211', '[Заявка на бронь] тур ревью', 'Вулкан Горелый', 'new',
+               jsonb_build_object('source', 'mcp', 'tool', 'create_booking_request', 'tour_id', $1::bigint, 'date', '2027-09-21', 'participants', 2)) RETURNING id`,
+      [tourId],
+    )).rows[0].id;
+    const tail = await issueKeyWithNotify({ leadId: lead }, 'create_booking_request', 'https://tour.agent-example.ru/in');
+    const ref = refOf(tail);
+    const key = keyOf(tail);
+    const sent: Sent[] = [];
+    const send = async (url: string, body: string, headers: Record<string, string>) => { sent.push({ url, body, headers }); return { kind: 'delivered', code: 'http_200' } as const; };
+    const mine = () => sent.filter((x) => JSON.parse(x.body).ref === ref).map((x) => JSON.parse(x.body));
+
+    expect((await readRequestStatus(key)).tour).toBe('Вулкан Горелый');
+    await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [lead]);
+    await runRequestNotify({ send });
+    expect(mine()).toHaveLength(1);
+    expect(mine()[0]).toMatchObject({ tour: 'Вулкан Горелый', changed: ['state'] });
+
+    await pool.query(
+      `INSERT INTO operator_bookings (operator_tour_id, lead_id, booking_date, participants, base_total_price, final_price, booking_status, payment_status, tourist_name, tourist_phone)
+       VALUES ($1, $2, '2027-09-21', 2, 30000, 30000, 'confirmed', 'pending', 'Вера Тестовая', '+79990002211')`, [tourId, lead],
+    );
+    await runRequestNotify({ send });
+    expect(mine()).toHaveLength(2);
+    expect(mine()[1]).toMatchObject({ state: 'confirmed', tour: 'Вулкан Горелый', date: '2027-09-21' });
+    expect(mine()[1].changed).not.toContain('tour');
+    expect((await readRequestStatus(key)).tour).toBe(mine()[1].tour);
+  });
+
+  it('ревью 29.10: ступенчатая гонка захвата — одна отправка; повтор — в прогон, ближайший к сроку', async () => {
+    const { issueKeyWithNotify, runRequestNotify, CLAIM_SQL } = await import('@/lib/mcp/request-notify');
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const lead = async () => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status) VALUES ('Лев Тестовый', '+79990006677', 'Подбор для гонки', 'new') RETURNING id`,
+    )).rows[0].id;
+
+    for (const answer of [{ kind: 'delivered', code: 'http_200' }, { kind: 'retry', code: 'http_503', network: false }] as const) {
+      const l = await lead();
+      const ref = refOf(await issueKeyWithNotify({ leadId: l }, 'create_lead', `https://race-${answer.code}.agent-example.ru/in`));
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [l]);
+      const sent: Sent[] = [];
+      const send = async (url: string, body: string, headers: Record<string, string>) => { sent.push({ url, body, headers }); return answer; };
+      let raced = false;
+      const q = async (sql: string, params?: unknown[]) => {
+        if (sql === CLAIM_SQL && !raced) {
+          raced = true;
+          await runRequestNotify({ send });
+        }
+        return appPool.query(sql, params);
+      };
+      await runRequestNotify({ query: q, send });
+      expect(sent.filter((x) => JSON.parse(x.body).ref === ref), answer.code).toHaveLength(1);
+      const { rows: [n] } = await pool.query<{ delivered_count: number; attempts: number }>('SELECT delivered_count, attempts FROM agent_request_notify WHERE ref = $1', [ref]);
+      expect(Number(n.delivered_count) + Number(n.attempts), answer.code).toBe(1);
+    }
+
+    // Повтор: неудача ставит срок по своим часам; следующий прогон шага
+    // начинается через шаг расписания от начала прошлого — чуть раньше срока.
+    const l = await lead();
+    const ref = refOf(await issueKeyWithNotify({ leadId: l }, 'create_lead', 'https://slack.agent-example.ru/in'));
+    await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [l]);
+    const sent: Sent[] = [];
+    const send = async (url: string, body: string, headers: Record<string, string>) => {
+      sent.push({ url, body, headers });
+      return url.includes('slack.') ? { kind: 'retry', code: 'http_503', network: false } as const : { kind: 'delivered', code: 'http_200' } as const;
+    };
+    const mine = () => sent.filter((x) => JSON.parse(x.body).ref === ref);
+    const runStart = Date.now();
+    await runRequestNotify({ send });
+    expect(mine()).toHaveLength(1);
+    await runRequestNotify({ send, now: () => runStart + 10 * 60_000 });
+    expect(mine()).toHaveLength(1);
+    await runRequestNotify({ send, now: () => runStart + 30 * 60_000 });
+    expect(mine()).toHaveLength(2);
+  });
+
+  it('ревью 29.10: молчание сети по таблице; разбор подписки по номеру; имя хоста на пределе DNS ложится в колонку', async () => {
+    const { issueKeyWithNotify, runRequestNotify, readNotifyCensus, subscribeNotify } = await import('@/lib/mcp/request-notify');
+    const { issueRequestKeyRecord } = await import('@/lib/mcp/request-status');
+    const mk = async (host: string) => {
+      const l = (await pool.query<{ id: string }>(
+        `INSERT INTO leads (name, phone, comment, status) VALUES ('Нина Тестовая', '+79990008899', 'Подбор для молчания', 'new') RETURNING id`,
+      )).rows[0].id;
+      return { l, ref: refOf(await issueKeyWithNotify({ leadId: l }, 'create_lead', `https://${host}/in?t=x`)) };
+    };
+    const k1 = await mk('k1.agent-example.ru');
+    const k2 = await mk('k2.agent-example.ru');
+    const ok = async () => ({ kind: 'delivered', code: 'http_200' } as const);
+    const down = async () => ({ kind: 'retry', code: 'timeout', network: true } as const);
+
+    // Новые хосты, не принявшие ни разу, глотают TCP — признака нет: чужой
+    // адрес не включает тревогу (критика 29.10).
+    await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = ANY($1::uuid[])`, [[k1.l, k2.l]]);
+    expect((await runRequestNotify({ send: down })).stall).toBeNull();
+    // Ожили и приняли — теперь оба «принимали раньше».
+    expect((await runRequestNotify({ send: ok, now: () => Date.now() + 30 * 60_000 })).stall).toBeNull();
+    expect((await readNotifyCensus(k1.ref))).toMatchObject({ delivered_count: 1, attempts: 0, failing_since: null });
+    // Сеть легла: оба в сетевых отказах, доставок нет — признак.
+    await pool.query(`UPDATE leads SET status = 'lost' WHERE id = ANY($1::uuid[])`, [[k1.l, k2.l]]);
+    const r = await runRequestNotify({ send: down });
+    expect(r.status).toBe('ok');
+    expect(r.stall).toMatchObject({ hosts: 2 });
+    const c = await readNotifyCensus(k1.ref);
+    expect(c).toMatchObject({ ref: k1.ref, active: true, last_error: 'timeout', attempts: 1, delivered_count: 1 });
+    expect(c!.failing_since).not.toBeNull();
+    expect(c!.last_delivered_at).not.toBeNull();
+    expect(c!.last_body_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(c)).not.toMatch(/agent-example|t=x/);
+    // Ожила — серия закрыта, признака нет.
+    expect((await runRequestNotify({ send: ok, now: () => Date.now() + 30 * 60_000 })).stall).toBeNull();
+    const { rows: [n] } = await pool.query<{ failing_since: Date | null; attempts: number }>('SELECT failing_since, attempts FROM agent_request_notify WHERE ref = $1', [k1.ref]);
+    expect(n).toMatchObject({ failing_since: null, attempts: 0 });
+    expect(await readNotifyCensus('nr_ZZZZZZZZZZZZZZZZZZZZZZ')).toBeNull();
+
+    // Имя на пределе DNS (253 знака) проходит форму — и ложится в url_host без 22001.
+    let host = 'ru';
+    while (host.length < 253) host = `${'h'.repeat(Math.min(63, 253 - host.length - 1))}.${host}`;
+    const l = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status) VALUES ('Ян Тестовый', '+79990001100', 'Подбор для длины', 'new') RETURNING id`,
+    )).rows[0].id;
+    const issued = await issueRequestKeyRecord({ leadId: l }, 'create_lead');
+    const sub = await subscribeNotify(issued!, `https://${host}/in`);
+    expect(sub.ok).toBe(true);
   });
 });

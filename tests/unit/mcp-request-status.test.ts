@@ -514,6 +514,23 @@ describe('лид: запрошенная дата и перенос брони',
     expect(catalogTourOf({ ...charter, booking_tour: 'Вулкан Горелый' })).toBe('Вулкан Горелый');
     expect(catalogTourOf({ ...SEAT_BASE, seat_booking_tour: 'Вулкан Мутновский' })).toBe('Вулкан Мутновский');
   });
+
+  // Ревью 29.10: статус называл тур заявки на бронь с создания (route_title),
+  // а уведомление — только после брони, и первая бронь на ТОТ ЖЕ тур приходила
+  // с changed: tour. Тур из каталога по номеру — один у вида и у снимка.
+  it('заявка на бронь: тур из каталога по номеру — один у вида и у снимка, до брони и после неё', () => {
+    const before = { ...LEAD, lead_status: 'new', route_title: 'Вулкан Горелый', lead_tour: 'Вулкан Горелый (переименован)' };
+    expect(buildRequestView(before, NOW).tour).toBe('Вулкан Горелый (переименован)');
+    expect(catalogTourOf(before)).toBe('Вулкан Горелый (переименован)');
+    const after = { ...before, booking_status: 'confirmed', booking_date: '2027-07-15', booking_tour: 'Вулкан Горелый (переименован)' };
+    expect(catalogTourOf(after)).toBe(catalogTourOf(before));
+    expect(buildRequestView(after, NOW).tour).toBe(catalogTourOf(after));
+    // Номер тура у других инструментов не читается: их tour_id не пишет роут.
+    expect(catalogTourOf({ ...before, tool_name: 'create_lead' })).toBeNull();
+    // Тура в каталоге нет — вид падает на route_title, снимок молчит.
+    expect(buildRequestView({ ...before, lead_tour: null }, NOW).tour).toBe('Вулкан Горелый');
+    expect(catalogTourOf({ ...before, lead_tour: null })).toBeNull();
+  });
 });
 
 describe('обёртка для сверки', () => {

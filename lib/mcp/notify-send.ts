@@ -36,6 +36,7 @@ import type { LookupAddress } from 'node:dns';
 import { isIP } from 'node:net';
 import { checkNotifyUrlShape } from '@/lib/security/notify-url-shape';
 import { resolvePublic, type PublicResolver, type ResolvedAddress } from '@/lib/security/public-address';
+import { NOTIFY_RETRY_4XX } from '@/lib/mcp/request-notify-schema';
 
 export const NOTIFY_USER_AGENT = 'VedarNotify/1.0 (+https://vedarai.ru/mcp)';
 
@@ -73,7 +74,8 @@ export interface SendDeps {
   totalMs?: number;
 }
 
-const RETRY_4XX = new Set([408, 425, 429]);
+/** Список и тексты о нём — в request-notify-schema: правило одно на отправителя и на всё, что агенту о нём сказано. */
+const RETRY_4XX: ReadonlySet<number> = new Set(NOTIFY_RETRY_4XX);
 
 export function outcomeOfStatus(status: number): SendOutcome {
   if (status >= 200 && status < 300) return { kind: 'delivered', code: `http_${status}` };

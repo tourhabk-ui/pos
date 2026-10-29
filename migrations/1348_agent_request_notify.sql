@@ -29,6 +29,13 @@
 -- никогда не из текста человека. Имени, телефона, комментария, номера лида и
 -- брони здесь нет и быть не может: колонок для них нет, jsonb нет вовсе.
 --
+-- Кто читает служебные колонки: last_error, failing_since и
+-- last_delivered_at — сверка молчания нашей сети (ответ крона, прогон
+-- partial, тревога сторожа «крон идёт, результата нет»); они же и
+-- last_body_sha256 — разбор одной подписки по номеру
+-- (GET /api/cron/agent-request-notify?ref=nr_…): почему отключена, когда
+-- доставлено последнее, хэш тела, чтобы сверить с тем, что получил агент.
+--
 -- disabled_reason (внутренний словарь; наружу агенту — тремя словами, см.
 -- lib/mcp/request-notify-schema):
 --   gone          — приёмник ответил 410;
@@ -65,6 +72,9 @@ CREATE TABLE IF NOT EXISTS agent_request_notify (
   attempts           SMALLINT     NOT NULL DEFAULT 0,
   next_attempt_at    TIMESTAMPTZ  NULL,
   last_attempt_at    TIMESTAMPTZ  NULL,
+  -- начало текущей серии неудач (NULL — серии нет): по нему сверка судит,
+  -- не молчит ли наша сеть — с начала отказов не доставлено ни одно
+  failing_since      TIMESTAMPTZ  NULL,
   last_error         VARCHAR(40)  NULL,
   claimed_until      TIMESTAMPTZ  NULL,
   disabled_at        TIMESTAMPTZ  NULL,

@@ -1698,6 +1698,8 @@ export interface AgentRequestNotifyRow {
   attempts: number;
   next_attempt_at: Date | null;
   last_attempt_at: Date | null;
+  /** Начало текущей серии неудач; NULL — серии нет. */
+  failing_since: Date | null;
   /** Машинный код исхода: http_503, timeout, tls, dns_failed, address_refused… Без адреса. */
   last_error: string | null;
   claimed_until: Date | null;

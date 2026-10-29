@@ -74,6 +74,39 @@ describe('форма адреса', () => {
     }
   });
 
+  // Ревью 29.10: имя длиннее 253 знаков проходило форму, заявка создавалась,
+  // запись подписки падала на VARCHAR(253) с 22001, и агент слышал «сбой на
+  // стороне Ведара». Отказ должен быть по входу, до записи заявки, и называть поле.
+  it('имя, которого DNS не разрешит, — отказ dns_name: длиннее 253, часть длиннее 63 или пустая; на границе — годится', () => {
+    const label = (n: number, ch = 'b') => ch.repeat(n);
+    // Части не длиннее 63 через точку перед .ru — имя ровно total знаков.
+    const hostOf = (total: number) => {
+      let h = 'ru';
+      while (h.length < total) h = `${label(Math.min(63, total - h.length - 1))}.${h}`;
+      return h;
+    };
+    expect(hostOf(253)).toHaveLength(253);
+    expect(hostOf(254)).toHaveLength(254);
+    const bad = [
+      `https://${Array(5).fill(label(60)).join('.')}.ru/in`,
+      `https://${hostOf(254)}/in`,
+      `https://${label(64)}.agent-example.ru/in`,
+      'https://a..agent-example.ru/in',
+      'https://.agent-example.ru/in',
+    ];
+    for (const url of bad) {
+      const r = checkNotifyUrlShape(url);
+      expect(r.ok, url.slice(0, 40)).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe('dns_name');
+        expect(r.message).toMatch(/^notify_url: .*DNS/);
+      }
+    }
+    for (const url of [`https://${hostOf(253)}/in`, `https://${label(63)}.agent-example.ru/in`]) {
+      expect(checkNotifyUrlShape(url).ok, url.slice(0, 40)).toBe(true);
+    }
+  });
+
   it('IP-литерал узнаётся и в скобках, и точечным — по разобранному имени', () => {
     expect(isIpLiteralHost('[::1]')).toBe(true);
     expect(isIpLiteralHost('[::ffff:7f00:1]')).toBe(true);

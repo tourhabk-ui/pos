@@ -72,7 +72,7 @@ export function publicDisabledReason(reason: string | null | undefined): NotifyP
 /** Поле notify в ответе get_request_status. */
 export const NOTIFY_STATUS_PROPERTY = {
   type: ['object', 'null'],
-  description: 'Подписка на уведомления этой заявки: null — не заводилась (notify_url не передан) или удалена через 30 дней после отключения. active: false — уведомлений больше не будет, опрашивайте get_request_status; disabled_reason: gone — приёмник ответил 410; undeliverable — приёмник не принимает; vedar_failure — сбой на стороне Ведара',
+  description: 'Подписка на уведомления этой заявки: null — не заводилась (notify_url не передан) или удалена через 30 дней после отключения. active: false — уведомлений больше не будет, опрашивайте get_request_status; disabled_reason: gone — приёмник ответил 410; undeliverable — доставить не удалось (ответ 4xx или повторы исчерпаны; причина бывает и на пути до приёмника); vedar_failure — сбой на стороне Ведара',
   properties: {
     ref: { type: 'string' },
     active: { type: 'boolean' },

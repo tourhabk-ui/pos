@@ -20,6 +20,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { GET } from '@/app/llms.txt/route';
+import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 
 async function body(): Promise<string> {
   const res = await GET();
@@ -65,6 +66,9 @@ describe('/llms.txt — актуально и честно', () => {
     expect(text).toMatch(/Standard Webhooks/);
     expect(text).toMatch(/requested_date/);
     expect(text).toMatch(/у заявки на жильё\s+уведомлений нет/);
+    // Правило ответа приёмника — тот же текст, что у инструмента и OpenAPI.
+    expect(text).toContain(NOTIFY_RESPONSE_RULES);
+    expect(text).not.toMatch(/ответ 410 отключает;/);
   });
 
   it('дата обновления — сегодняшняя: списки в файле собираются из базы', () => {

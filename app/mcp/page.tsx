@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
-import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY } from '@/lib/mcp/request-notify-schema';
+import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 // Числа лимитов — из модуля без базы: страница пререндерится на сборке, где
 // DATABASE_URL нет, а write-guard тянет lib/db-pool (no-build-time-db).
 import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from '@/lib/mcp/write-limits';
@@ -219,9 +219,10 @@ export default function McpLandingPage() {
                 инструмента, один раз. Адрес — только https по имени хоста, порт 443.
               </p>
               <p>{NOTIFY_HOW_TO_VERIFY}</p>
+              <p>{NOTIFY_RESPONSE_RULES}</p>
               <p>
                 Сверка идёт по расписанию примерно раз в 30 минут, срок не гарантирован; <code>get_request_status</code> отвечает
-                сразу, поле <code>notify</code> в нём показывает, жива ли подписка. Ответ 410 отключает уведомления. В теле нет
+                сразу, поле <code>notify</code> в нём показывает, жива ли подписка. В теле нет
                 ни ключа статуса, ни имени и телефона. У заявки на жильё уведомлений нет: её состояние после передачи не меняется.
               </p>
             </div>

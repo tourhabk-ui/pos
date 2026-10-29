@@ -23,6 +23,12 @@
  *   смог», подписки не трогаются (это не вина приёмников).
  * - db_error: SQL упал — SQLSTATE в лог и в ответ.
  *
+ * Внутри «ok» — признак молчания нашей сети (поле stall, ревью 29.10): чужие
+ * отказы сердцевину не красят, но если с начала сетевых отказов у приёмников,
+ * принимавших раньше, не доставлено ничего никому, прогон пишется partial и
+ * его серию называет Watchdog. Различить «наша сеть» и «общий сбой этих
+ * приёмников» отсюда нельзя, и тревога так и говорит.
+ *
  * ── Что уходит наружу ──────────────────────────────────────────────────────
  * Тело — состояние, даты, тур из каталога, число человек, тексты
  * get_request_status. Имени, телефона, комментария, направления, набранного
@@ -45,17 +51,25 @@ import {
 } from '@/lib/mcp/request-status';
 import type { RequestKind, RequestState } from '@/lib/mcp/request-status-schema';
 import {
-  NOTIFY_CHANGED_FIELDS, NOTIFY_DISABLED_REASONS, NOTIFY_HOW_TO_VERIFY,
+  NOTIFY_CHANGED_FIELDS, NOTIFY_DISABLED_REASONS, NOTIFY_HOW_TO_VERIFY, NOTIFY_MAX_FAILURES, NOTIFY_RESPONSE_RULES,
   type NotifyChangedField, type NotifyDisabledReason,
 } from '@/lib/mcp/request-notify-schema';
 import { NOTIFY_USER_AGENT, postSigned, signWebhook, type SendFn, type SendOutcome } from '@/lib/mcp/notify-send';
 import { checkNotifyUrlShape } from '@/lib/security/notify-url-shape';
 
-/** После скольких неудач подряд подписка отключается (~31 ч по графику ниже). */
-export const NOTIFY_MAX_FAILURES = 7;
+/** После скольких неудач подряд подписка отключается — число живёт рядом с текстом правила (request-notify-schema). */
+export { NOTIFY_MAX_FAILURES };
 /** Повтор: 30 мин × 2^(неудач−1), не больше 16 ч: +30 м, +1 ч, +2 ч, +4 ч, +8 ч, +16 ч. */
 export const NOTIFY_RETRY_BASE_MIN = 30;
 export const NOTIFY_RETRY_CAP_MIN = 960;
+/**
+ * Допуск срока повтора — полшага расписания. Срок ставится по часам неудачи,
+ * а этот шаг идёт последним из тринадцати в сердцевине: его начало от прогона к
+ * прогону плавает на минуты. Без допуска повтор «через 30 минут» почти всегда
+ * уезжал на прогон позже — 60/90/150… вместо 30/60/120… (ревью 29.10). С
+ * допуском в полшага повтор идёт в прогон, ближайший к сроку.
+ */
+export const NOTIFY_DUE_SLACK_MIN = NOTIFY_RETRY_BASE_MIN / 2;
 /** Бюджеты прогона: всего отправок, на хост за прогон, на хост за сутки (подписок с попыткой), время. */
 export const NOTIFY_RUN_SEND_BUDGET = 30;
 export const NOTIFY_HOST_RUN_BUDGET = 3;
@@ -249,7 +263,8 @@ export function notifyLine(o: SubscribeOutcome): string {
     + ' На notify_url придёт POST с JSON, когда изменятся состояние, дата, предложенная дата, тур или число человек.'
     + ` ${NOTIFY_HOW_TO_VERIFY}`
     + ' Сверка идёт по расписанию примерно раз в 30 минут, срок не гарантирован — задержка бывает часами; get_request_status отвечает сразу.'
-    + ' Подписка живёт столько же, сколько ключ статуса (90 дней); ответ 410 её отключает. В теле нет ни ключа статуса, ни имени и телефона.';
+    + ` ${NOTIFY_RESPONSE_RULES}`
+    + ' Подписка живёт столько же, сколько ключ статуса (90 дней). В теле нет ни ключа статуса, ни имени и телефона.';
 }
 
 /**
@@ -316,24 +331,36 @@ export const HOST_DAY_SQL = `
    WHERE last_attempt_at > NOW() - INTERVAL '24 hours'
    GROUP BY url_host`;
 
-/** Захват построчный: два планировщика не шлют одно дважды. */
+/**
+ * Захват — построчный и ПО ПРОЧИТАННОМУ состоянию: строка берётся, только
+ * если с чтения (LIVE_SQL) её не тронул никто. Доставка меняет delivered_count
+ * и отпечаток, неудача и сброс — attempts, база отсчёта — отпечаток. До ревью
+ * 29.10 захват смотрел лишь на claimed_until, а исходы его снимают: прогон,
+ * прочитавший строки до чужого захвата и захвативший после чужой записи, слал
+ * ту же разницу второй раз (с новым webhook-id) или обходил график повторов.
+ */
 export const CLAIM_SQL = `
-  UPDATE agent_request_notify
+  UPDATE agent_request_notify n
      SET claimed_until = NOW() + INTERVAL '5 minutes'
-   WHERE id = ANY($1::uuid[]) AND disabled_at IS NULL AND (claimed_until IS NULL OR claimed_until < NOW())
-  RETURNING id::text, url_enc, secret_enc, delivered_count`;
+    FROM unnest($1::uuid[], $2::int[], $3::int[], $4::text[]) AS seen(id, delivered_count, attempts, last_fingerprint)
+   WHERE n.id = seen.id
+     AND n.delivered_count = seen.delivered_count
+     AND n.attempts = seen.attempts
+     AND n.last_fingerprint::text IS NOT DISTINCT FROM seen.last_fingerprint
+     AND n.disabled_at IS NULL AND (n.claimed_until IS NULL OR n.claimed_until < NOW())
+  RETURNING n.id::text, n.url_enc, n.secret_enc, n.delivered_count`;
 
 export const RELEASE_SQL = `UPDATE agent_request_notify SET claimed_until = NULL WHERE id = ANY($1::uuid[])`;
 
 /** Снимок вернулся к доставленному, пока шли повторы: ждать больше нечего. */
 export const RESET_SQL = `
-  UPDATE agent_request_notify SET attempts = 0, next_attempt_at = NULL, last_error = NULL
+  UPDATE agent_request_notify SET attempts = 0, next_attempt_at = NULL, last_error = NULL, failing_since = NULL
    WHERE id = ANY($1::uuid[]) AND disabled_at IS NULL`;
 
 export const DELIVERED_SQL = `
   UPDATE agent_request_notify
      SET ${SNAPSHOT_SET}, last_body_sha256 = $8::char(64), last_delivered_at = NOW(),
-         delivered_count = delivered_count + 1, attempts = 0, next_attempt_at = NULL, last_error = NULL,
+         delivered_count = delivered_count + 1, attempts = 0, next_attempt_at = NULL, last_error = NULL, failing_since = NULL,
          last_attempt_at = NOW(), baseline_at = COALESCE(baseline_at, NOW()), claimed_until = NULL
    WHERE id = $1::uuid`;
 
@@ -346,8 +373,54 @@ export const DISABLE_SQL = `
 export const RETRY_SQL = `
   UPDATE agent_request_notify
      SET attempts = attempts + 1, last_error = $2::varchar, last_attempt_at = NOW(),
+         failing_since = COALESCE(failing_since, NOW()),
          next_attempt_at = NOW() + ($3::int * INTERVAL '1 minute'), claimed_until = NULL
    WHERE id = $1::uuid`;
+
+/**
+ * Сетевые исходы — до HTTP-ответа не дошло (notify-send: networkCode и
+ * resolvePublic). «Адрес разрешился во внутренний» сюда не входит: это ответ
+ * DNS приёмника, а не наш отказ.
+ */
+export const NOTIFY_NETWORK_CODES = ['timeout', 'refused', 'reset', 'unreachable', 'tls', 'network', 'dns_failed', 'dns_timeout'] as const;
+
+/** Сколько приёмников, принимавших раньше, должны молчать разом, чтобы это назвать (ревью 29.10). */
+export const NOTIFY_STALL_MIN_HOSTS = 2;
+
+/**
+ * Не молчит ли наша сеть (ревью 29.10). Отказ приёмника — его исход, и
+ * сердцевину он не красит (критика 29.10: два хоста, глотающих TCP, держали бы
+ * её красной). Но если отказывает НАША сторона — сеть контейнера, резолвер, —
+ * каждая отправка тоже выглядит отказом приёмника, прогон «хорошо», и через
+ * ~31 ч все подписки молча отключаются со словом undeliverable.
+ *
+ * Отсюда — признак по таблице, а не по одному прогону (прогоны между повторами
+ * пусты, и признак прогона не копился бы): живые подписки в серии СЕТЕВЫХ
+ * неудач у хостов, которые раньше принимали (delivered_count > 0 у любой их
+ * строки — чужой адрес, не принявший ни разу, признак не включит), и ни одной
+ * доставки никуда с начала самой ранней из этих серий. Различить «наша сеть» и
+ * «общий сбой этих приёмников» отсюда нельзя — так и сказано в тревоге.
+ */
+export const STALL_SQL = `
+  WITH failing AS (
+    SELECT n.url_host, n.failing_since
+      FROM agent_request_notify n
+     WHERE n.disabled_at IS NULL AND n.attempts > 0 AND n.failing_since IS NOT NULL
+       AND n.last_error = ANY($1::varchar[])
+       AND EXISTS (SELECT 1 FROM agent_request_notify d WHERE d.url_host = n.url_host AND d.delivered_count > 0)
+  )
+  SELECT (SELECT COUNT(DISTINCT url_host) FROM failing)::int AS hosts,
+         (SELECT MIN(failing_since) FROM failing) AS since,
+         EXISTS (SELECT 1 FROM agent_request_notify d
+                  WHERE d.last_delivered_at >= (SELECT MIN(failing_since) FROM failing)) AS delivered_since`;
+
+/** Разбор одной подписки по номеру — для человека, который спрашивает «почему её отключили». Только коды, числа и время. */
+export const CENSUS_SQL = `
+  SELECT ref, (disabled_at IS NULL) AS active, disabled_reason, last_error, delivered_count, attempts,
+         created_at, expires_at, baseline_at, last_delivered_at, last_attempt_at, failing_since, next_attempt_at, disabled_at,
+         last_state, last_body_sha256
+    FROM agent_request_notify
+   WHERE ref = $1::varchar`;
 
 /** Через сколько минут повтор после `failures`-й неудачи подряд (1-я → 30). */
 export function retryDelayMinutes(failures: number): number {
@@ -380,6 +453,12 @@ export interface NotifyRunResult {
   reset_reverted: number;
   missing_view: number;
   record_failed: number;
+  /**
+   * Не молчит ли наша сеть (STALL_SQL): null — признака нет; иначе — сколько
+   * приёмников, принимавших раньше, сейчас в серии сетевых неудач и сколько
+   * минут с начала самой ранней из них ни одной доставки никуда.
+   */
+  stall: { hosts: number; minutes: number } | null;
   duration_ms: number;
 }
 
@@ -389,7 +468,7 @@ function emptyResult(): NotifyRunResult {
     receiver_failed: {},
     deferred: { run_budget: 0, host_run_budget: 0, host_day_budget: 0, time_budget: 0, host_failed: 0, claimed_elsewhere: 0 },
     disabled: Object.fromEntries(NOTIFY_DISABLED_REASONS.map((r) => [r, 0])) as Record<NotifyDisabledReason, number>,
-    deleted_after_retention: 0, reset_reverted: 0, missing_view: 0, record_failed: 0, duration_ms: 0,
+    deleted_after_retention: 0, reset_reverted: 0, missing_view: 0, record_failed: 0, stall: null, duration_ms: 0,
   };
 }
 
@@ -476,135 +555,154 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
       return finish();
     }
 
-    step = 'вид заявок';
-    const views = new Map<string, StatusRow>();
-    for (const row of (await q(REQUEST_STATUS_BY_KEY_IDS_SQL, [live.map((l) => l.key_id)])).rows as StatusRow[]) {
-      if (row.key_id) views.set(row.key_id, row);
-    }
-    step = 'бюджет хостов';
-    const hostDay = new Map<string, number>();
-    for (const r of (await q(HOST_DAY_SQL)).rows as Array<{ url_host: string; n: number }>) hostDay.set(r.url_host, Number(r.n));
-    const knownHosts = new Set(live.filter((l) => Number(l.delivered_count) > 0).map((l) => l.url_host));
+    // Отправка разницы — отдельной функцией: её ранние выходы («нечего слать»)
+    // не должны пропускать сверку молчания ниже — признак копится по таблице,
+    // и прогон без отправок тоже обязан его назвать.
+    const deliverDue = async (): Promise<void> => {
+      step = 'вид заявок';
+      const views = new Map<string, StatusRow>();
+      for (const row of (await q(REQUEST_STATUS_BY_KEY_IDS_SQL, [live.map((l) => l.key_id)])).rows as StatusRow[]) {
+        if (row.key_id) views.set(row.key_id, row);
+      }
+      step = 'бюджет хостов';
+      const hostDay = new Map<string, number>();
+      for (const r of (await q(HOST_DAY_SQL)).rows as Array<{ url_host: string; n: number }>) hostDay.set(r.url_host, Number(r.n));
+      const knownHosts = new Set(live.filter((l) => Number(l.delivered_count) > 0).map((l) => l.url_host));
 
-    const due: Due[] = [];
-    const reverted: string[] = [];
-    const nowMs = now();
-    for (const l of live) {
-      const row = views.get(l.key_id);
-      if (!row) { res.missing_view++; continue; }
-      res.checked++;
-      const core = buildRequestView(row, nowMs);
-      const snap = snapshotOf(core, catalogTourOf(row));
-      const fp = fingerprintOf(snap);
-      const previous = previousOf(l);
-      if (previous && fp === l.last_fingerprint) {
-        if (Number(l.attempts) > 0) reverted.push(l.id);
-        continue;
-      }
-      res.changed++;
-      if (!previous) res.baseline_unknown++;
-      if (l.next_attempt_at !== null && time(l.next_attempt_at) > nowMs) continue;
-      due.push({ live: l, core, snap, fp, previous, toolName: row.tool_name });
-    }
-    res.due = due.length;
-    if (reverted.length > 0) {
-      step = 'сброс повторов';
-      res.reset_reverted = (await q(RESET_SQL, [reverted])).rowCount ?? reverted.length;
-    }
-    if (due.length === 0) return finish();
-
-    const plan = planSends(due, hostDay, knownHosts, res);
-    const planned = [...plan.values()].flat();
-    if (planned.length === 0) return finish();
-    step = 'захват';
-    const claimed = new Map<string, ClaimedRow>();
-    for (const c of (await q(CLAIM_SQL, [planned.map((d) => d.live.id)])).rows as ClaimedRow[]) claimed.set(c.id, c);
-    res.deferred.claimed_elsewhere = planned.length - claimed.size;
-
-    const release: string[] = [];
-    const record = async (sql: string, params: unknown[]) => {
-      try {
-        await q(sql, params);
-      } catch (err) {
-        res.record_failed++;
-        res.status = 'db_error';
-        res.sqlstate = sqlstate(err);
-        console.error(`${LOG} исход не записан: SQLSTATE=${res.sqlstate}`);
-      }
-    };
-
-    const sendOne = async (d: Due, c: ClaimedRow): Promise<'network' | 'done'> => {
-      const ref = d.live.ref;
-      const host = d.live.url_host;
-      const url = c.url_enc ? decryptBound(c.url_enc, ref) : null;
-      const signingKey = c.secret_enc ? decryptBound(c.secret_enc, ref) : null;
-      if (!url || !signingKey) {
-        console.error(`${LOG} ref=${ref} не расшифровался при заданном ключе — отключена (undecryptable)`);
-        res.disabled.undecryptable++;
-        await record(DISABLE_SQL, [d.live.id, 'undecryptable', 'undecryptable']);
-        return 'done';
-      }
-      const body = JSON.stringify(buildNotification({
-        ref, tool: d.toolName, core: d.core, snapshot: d.snap, previous: d.previous, observedAt: new Date(nowMs),
-      }));
-      const id = eventId(ref, Number(c.delivered_count) + 1, d.fp);
-      const ts = Math.floor(now() / 1000);
-      let outcome: SendOutcome;
-      try {
-        outcome = await send(url, body, {
-          'content-type': 'application/json',
-          'user-agent': NOTIFY_USER_AGENT,
-          'webhook-id': id,
-          'webhook-timestamp': String(ts),
-          'webhook-signature': signWebhook(signingKey, id, ts, body),
-        });
-      } catch {
-        // Отправитель не бросает по построению; бросил — это сбой попытки, не прогона.
-        outcome = { kind: 'retry', code: 'network', network: true };
-      }
-      const line = `${LOG} ref=${ref} host=${logText(host, 253)} исход=${outcome.code}`;
-      if (outcome.kind === 'delivered') {
-        console.info(line);
-        res.delivered++;
-        await record(DELIVERED_SQL, [d.live.id, d.snap.state, d.snap.date, d.snap.alt_date, d.snap.tour, d.snap.participants, d.fp, sha256(body)]);
-        return 'done';
-      }
-      console.warn(line);
-      res.receiver_failed[outcome.code] = (res.receiver_failed[outcome.code] ?? 0) + 1;
-      if (outcome.kind === 'gone' || outcome.kind === 'rejected') {
-        res.disabled[outcome.kind]++;
-        await record(DISABLE_SQL, [d.live.id, outcome.kind, outcome.code]);
-        return 'done';
-      }
-      const failures = Number(d.live.attempts) + 1;
-      if (failures >= NOTIFY_MAX_FAILURES) {
-        res.disabled.undeliverable++;
-        await record(DISABLE_SQL, [d.live.id, 'undeliverable', outcome.code]);
-      } else {
-        await record(RETRY_SQL, [d.live.id, outcome.code, retryDelayMinutes(failures)]);
-      }
-      return outcome.network ? 'network' : 'done';
-    };
-
-    // Хосты обслуживаются параллельно, внутри хоста — по одной отправке. После
-    // сетевого отказа хоста остальное ему — в следующий прогон. После срока
-    // прогона новые отправки не начинаются.
-    const hostQueue = [...plan.entries()];
-    const worker = async () => {
-      for (let next = hostQueue.shift(); next; next = hostQueue.shift()) {
-        const [, items] = next;
-        let hostFailed = false;
-        for (const d of items) {
-          const c = claimed.get(d.live.id);
-          if (!c) continue;
-          if (hostFailed) { res.deferred.host_failed++; release.push(d.live.id); continue; }
-          if (now() - started >= timeBudget) { res.deferred.time_budget++; release.push(d.live.id); continue; }
-          if ((await sendOne(d, c)) === 'network') hostFailed = true;
+      const due: Due[] = [];
+      const reverted: string[] = [];
+      const nowMs = now();
+      for (const l of live) {
+        const row = views.get(l.key_id);
+        if (!row) { res.missing_view++; continue; }
+        res.checked++;
+        const core = buildRequestView(row, nowMs);
+        const snap = snapshotOf(core, catalogTourOf(row));
+        const fp = fingerprintOf(snap);
+        const previous = previousOf(l);
+        if (previous && fp === l.last_fingerprint) {
+          if (Number(l.attempts) > 0) reverted.push(l.id);
+          continue;
         }
+        res.changed++;
+        if (!previous) res.baseline_unknown++;
+        if (l.next_attempt_at !== null && time(l.next_attempt_at) - NOTIFY_DUE_SLACK_MIN * 60_000 > nowMs) continue;
+        due.push({ live: l, core, snap, fp, previous, toolName: row.tool_name });
       }
+      res.due = due.length;
+      if (reverted.length > 0) {
+        step = 'сброс повторов';
+        res.reset_reverted = (await q(RESET_SQL, [reverted])).rowCount ?? reverted.length;
+      }
+      if (due.length === 0) return;
+
+      const plan = planSends(due, hostDay, knownHosts, res);
+      const planned = [...plan.values()].flat();
+      if (planned.length === 0) return;
+      step = 'захват';
+      const claimed = new Map<string, ClaimedRow>();
+      const claimParams = [
+        planned.map((d) => d.live.id),
+        planned.map((d) => Number(d.live.delivered_count)),
+        planned.map((d) => Number(d.live.attempts)),
+        planned.map((d) => d.live.last_fingerprint),
+      ];
+      for (const c of (await q(CLAIM_SQL, claimParams)).rows as ClaimedRow[]) claimed.set(c.id, c);
+      res.deferred.claimed_elsewhere = planned.length - claimed.size;
+
+      const release: string[] = [];
+      const record = async (sql: string, params: unknown[]) => {
+        try {
+          await q(sql, params);
+        } catch (err) {
+          res.record_failed++;
+          res.status = 'db_error';
+          res.sqlstate = sqlstate(err);
+          console.error(`${LOG} исход не записан: SQLSTATE=${res.sqlstate}`);
+        }
+      };
+
+      const sendOne = async (d: Due, c: ClaimedRow): Promise<'network' | 'done'> => {
+        const ref = d.live.ref;
+        const host = d.live.url_host;
+        const url = c.url_enc ? decryptBound(c.url_enc, ref) : null;
+        const signingKey = c.secret_enc ? decryptBound(c.secret_enc, ref) : null;
+        if (!url || !signingKey) {
+          console.error(`${LOG} ref=${ref} не расшифровался при заданном ключе — отключена (undecryptable)`);
+          res.disabled.undecryptable++;
+          await record(DISABLE_SQL, [d.live.id, 'undecryptable', 'undecryptable']);
+          return 'done';
+        }
+        const body = JSON.stringify(buildNotification({
+          ref, tool: d.toolName, core: d.core, snapshot: d.snap, previous: d.previous, observedAt: new Date(nowMs),
+        }));
+        const id = eventId(ref, Number(c.delivered_count) + 1, d.fp);
+        const ts = Math.floor(now() / 1000);
+        let outcome: SendOutcome;
+        try {
+          outcome = await send(url, body, {
+            'content-type': 'application/json',
+            'user-agent': NOTIFY_USER_AGENT,
+            'webhook-id': id,
+            'webhook-timestamp': String(ts),
+            'webhook-signature': signWebhook(signingKey, id, ts, body),
+          });
+        } catch {
+          // Отправитель не бросает по построению; бросил — это сбой попытки, не прогона.
+          outcome = { kind: 'retry', code: 'network', network: true };
+        }
+        const line = `${LOG} ref=${ref} host=${logText(host, 253)} исход=${outcome.code}`;
+        if (outcome.kind === 'delivered') {
+          console.info(line);
+          res.delivered++;
+          await record(DELIVERED_SQL, [d.live.id, d.snap.state, d.snap.date, d.snap.alt_date, d.snap.tour, d.snap.participants, d.fp, sha256(body)]);
+          return 'done';
+        }
+        console.warn(line);
+        res.receiver_failed[outcome.code] = (res.receiver_failed[outcome.code] ?? 0) + 1;
+        if (outcome.kind === 'gone' || outcome.kind === 'rejected') {
+          res.disabled[outcome.kind]++;
+          await record(DISABLE_SQL, [d.live.id, outcome.kind, outcome.code]);
+          return 'done';
+        }
+        const failures = Number(d.live.attempts) + 1;
+        if (failures >= NOTIFY_MAX_FAILURES) {
+          res.disabled.undeliverable++;
+          await record(DISABLE_SQL, [d.live.id, 'undeliverable', outcome.code]);
+        } else {
+          await record(RETRY_SQL, [d.live.id, outcome.code, retryDelayMinutes(failures)]);
+        }
+        return outcome.network ? 'network' : 'done';
+      };
+
+      // Хосты обслуживаются параллельно, внутри хоста — по одной отправке. После
+      // сетевого отказа хоста остальное ему — в следующий прогон. После срока
+      // прогона новые отправки не начинаются.
+      const hostQueue = [...plan.entries()];
+      const worker = async () => {
+        for (let next = hostQueue.shift(); next; next = hostQueue.shift()) {
+          const [, items] = next;
+          let hostFailed = false;
+          for (const d of items) {
+            const c = claimed.get(d.live.id);
+            if (!c) continue;
+            if (hostFailed) { res.deferred.host_failed++; release.push(d.live.id); continue; }
+            if (now() - started >= timeBudget) { res.deferred.time_budget++; release.push(d.live.id); continue; }
+            if ((await sendOne(d, c)) === 'network') hostFailed = true;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(NOTIFY_HOST_WORKERS, hostQueue.length) }, worker));
+      if (release.length > 0) await record(RELEASE_SQL, [release]);
     };
-    await Promise.all(Array.from({ length: Math.min(NOTIFY_HOST_WORKERS, hostQueue.length) }, worker));
-    if (release.length > 0) await record(RELEASE_SQL, [release]);
+    await deliverDue();
+
+    step = 'молчание сети';
+    const st = (await q(STALL_SQL, [[...NOTIFY_NETWORK_CODES]])).rows[0] as { hosts: number; since: Date | string | null; delivered_since: boolean } | undefined;
+    if (st && Number(st.hosts) >= NOTIFY_STALL_MIN_HOSTS && !st.delivered_since && st.since !== null) {
+      res.stall = { hosts: Number(st.hosts), minutes: Math.max(0, Math.round((now() - time(st.since)) / 60_000)) };
+      console.error(`${LOG} не доставлено ни одно уведомление ${res.stall.minutes} мин; сетевые отказы у приёмников, принимавших раньше: ${res.stall.hosts}`);
+    }
     return finish();
   } catch (err) {
     res.status = 'db_error';
@@ -612,4 +710,69 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
     console.error(`${LOG} прогон не удался на шаге «${step}»: SQLSTATE=${res.sqlstate}`);
     return finish();
   }
+}
+
+// ── Разбор одной подписки по номеру ─────────────────────────────────────────
+
+/** Форма номера подписки — та же, что CHECK миграции 1348. */
+export const NOTIFY_REF_RE = /^nr_[A-Za-z0-9_-]{16,36}$/;
+
+/**
+ * Ответ разбора: служебные колонки, которые иначе не читал никто (ревью
+ * 29.10). Агент знает номер подписки из ответа инструмента; по нему человек
+ * отвечает «почему отключили» (last_error, disabled_reason), «когда дошло
+ * последнее» (last_delivered_at) и «то ли пришло» (last_body_sha256 — агент
+ * сверит с хэшем полученного тела). Адреса и хоста здесь нет: ответ крона
+ * печатается в публичный лог Actions.
+ */
+export interface NotifyCensus {
+  ref: string;
+  active: boolean;
+  disabled_reason: NotifyDisabledReason | null;
+  last_error: string | null;
+  delivered_count: number;
+  attempts: number;
+  last_state: string | null;
+  last_body_sha256: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+  baseline_at: string | null;
+  last_delivered_at: string | null;
+  last_attempt_at: string | null;
+  failing_since: string | null;
+  next_attempt_at: string | null;
+  disabled_at: string | null;
+}
+
+function isoOrNull(v: Date | string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  const t = new Date(v);
+  return Number.isNaN(t.getTime()) ? null : t.toISOString();
+}
+
+/** null — подписки с таким номером нет (не заводилась или удалена через 30 дней после отключения). SQL-отказ — бросает. */
+export async function readNotifyCensus(ref: string, query?: Query): Promise<NotifyCensus | null> {
+  const q: Query = query ?? ((sql, params) => pool.query(sql, params));
+  const row = (await q(CENSUS_SQL, [ref])).rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const at = (k: string) => isoOrNull(row[k] as Date | string | null);
+  const str = (k: string) => (typeof row[k] === 'string' ? (row[k] as string).trim() : null);
+  return {
+    ref: String(row.ref),
+    active: row.active === true,
+    disabled_reason: (NOTIFY_DISABLED_REASONS as readonly string[]).includes(String(row.disabled_reason)) ? row.disabled_reason as NotifyDisabledReason : null,
+    last_error: str('last_error'),
+    delivered_count: Number(row.delivered_count ?? 0),
+    attempts: Number(row.attempts ?? 0),
+    last_state: str('last_state'),
+    last_body_sha256: str('last_body_sha256'),
+    created_at: at('created_at'),
+    expires_at: at('expires_at'),
+    baseline_at: at('baseline_at'),
+    last_delivered_at: at('last_delivered_at'),
+    last_attempt_at: at('last_attempt_at'),
+    failing_since: at('failing_since'),
+    next_attempt_at: at('next_attempt_at'),
+    disabled_at: at('disabled_at'),
+  };
 }

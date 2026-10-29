@@ -215,7 +215,10 @@ describe('notify_url — адрес приёмника уведомлений (2
   });
 
   it('IP-литерал IPv6 и свой хост — тоже отказ по полю', async () => {
-    for (const url of ['https://[::ffff:7f00:1]/x', 'https://pospkam-pospktry-c1f3.twc1.net/api/mcp']) {
+    // Имя длиннее 253 знаков (ревью 29.10): раньше проходило форму, заявка
+    // создавалась, а подписка падала в базе с 22001 — «сбой на стороне Ведара».
+    const longHost = `https://${Array(5).fill('b'.repeat(60)).join('.')}.ru/in`;
+    for (const url of ['https://[::ffff:7f00:1]/x', 'https://pospkam-pospktry-c1f3.twc1.net/api/mcp', longHost]) {
       const r = await result(await call('create_lead', { ...LEAD, notify_url: url }));
       expect(r.isError, url).toBe(true);
       expect(r.content[0]!.text).toMatch(/^notify_url: /);
