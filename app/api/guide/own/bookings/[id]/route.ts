@@ -48,6 +48,7 @@ export async function PATCH(
       actorUserId: auth.userId,
       bookingId: id,
       input: body.data,
+      via: 'site',
     });
     if (outcome.kind === 'not_found') {
       return NextResponse.json({ success: false, error: 'Бронь не найдена среди ваших туров' }, { status: 404 });
@@ -58,7 +59,7 @@ export async function PATCH(
         { status: 409 },
       );
     }
-    return NextResponse.json({ success: true, data: outcome.data, tourist_notice: outcome.touristNotice });
+    return NextResponse.json({ success: true, data: outcome.data, changed: outcome.changed, tourist_notice: outcome.touristNotice });
   } catch (e) {
     const err = e as { code?: string };
     console.error('[guide/own/bookings] смена статуса не записана:', `sqlstate=${err?.code ?? 'нет'}`);

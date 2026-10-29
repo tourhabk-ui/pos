@@ -30,6 +30,8 @@ import {
 } from '@/lib/partners/channel-link';
 import { generateConnectToken } from '@/lib/telegram/connect-token';
 import { bindPartnerChannel, bindReplyText, channelBoundText } from '@/lib/partners/bind-channel';
+import { partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
+import { buildWelcomeText } from '@/lib/telegram/welcome';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const PID = '3f2b8c1a-9d4e-4b7a-8c21-0e5f6a7b8c9d';
@@ -247,6 +249,59 @@ describe('запись канала', () => {
   it('ответ в Telegram честно говорит, что ПД туриста приходят только в MAX', () => {
     const t = bindReplyText('telegram', { ok: true, partnerName: 'X', slug: null, previousChatId: null, rebound: false });
     expect(t).toMatch(/только в MAX/);
+  });
+});
+
+// 29.10: ссылку привязки и вход через Telegram получает и гид. Тексты
+// обещают только существующее (§10.09): роль — «гид», кнопки — те, что
+// действительно стоят под ответом, слова, которые просят написать, —
+// действительно команды, и ни кнопок «Подтвердить / Отклонить», ни
+// контактов туриста в Telegram.
+describe('гид в мессенджере: тексты обещают только то, что есть', () => {
+  const guideBound = { ok: true as const, partnerName: 'Гид <А>', displayName: 'Гид <А>', category: 'guide', slug: 'g', previousChatId: null, rebound: false, cabinetOf: null, others: [] };
+
+  it('после привязки гид назван гидом, оператора в тексте нет; MAX — с контактами, Telegram — без', () => {
+    for (const channel of ['max', 'telegram'] as const) {
+      const text = channelBoundText(channel, guideBound);
+      expect(text, channel).toContain('Вы подключены как гид «Гид &lt;А&gt;».');
+      expect(text, channel).not.toMatch(/оператор/i);
+      expect(text, channel).not.toMatch(/«Подтвердить»|«Отклонить»|с кнопками Подтвердить/);
+      expect(text, channel).toContain('/hub/guide/own');
+    }
+    expect(channelBoundText('max', guideBound)).toContain('Имя и телефон туриста приходят в этот чат.');
+    expect(channelBoundText('telegram', guideBound)).toMatch(/не приходят — по закону о персональных данных их принимает MAX/);
+  });
+
+  it('кнопки, названные в тексте, — ровно строка меню гида, а слова, которые просят написать, — её команды', () => {
+    const text = channelBoundText('max', guideBound);
+    const menu = partnerMenu({ partnerId: 'p', category: 'guide' }) ?? [];
+    expect(menu.length).toBeGreaterThan(0);
+    for (const b of menu) expect(text).toContain(`«${b.text}»`);
+    expect(roleMenuAsk('Входящие')).toBe('inbox');
+    expect(roleMenuAsk('Помощь')).toBe('help');
+  });
+
+  it('администратор и прежний чат слышат «гид», а не «оператор»', async () => {
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Гид А', category: 'guide', previous: '111' }] });
+    poolQueryMock.mockResolvedValueOnce({ rows: [{ id: PID, name: 'Гид А' }] });
+    await bindPartnerChannel(PID, 'max', 222);
+    expect(tgSendMock.mock.calls[0][0].text).toMatch(/^Гид «Гид А»: заявки в MAX ПЕРЕНЕСЕНЫ/);
+    expect(tgSendMock.mock.calls[0][0].text).toContain('выдайте гиду новую ссылку');
+    expect(maxSendMock.mock.calls[0]![1]).toMatch(/^Заявки гида «Гид А» больше не приходят/);
+  });
+
+  it('приветствие Telegram: гиду и оператору — без несуществующих кнопок и контактов туриста, ссылка — в свой кабинет', () => {
+    const guide = buildWelcomeText({ telegramId: 1, name: 'Иван Гид', role: 'guide', isNewUser: false }, { tours: 2 });
+    const operator = buildWelcomeText({ telegramId: 1, name: 'Пётр', role: 'operator', isNewUser: false }, { tours: 3 });
+    for (const [who, text] of [['guide', guide], ['operator', operator]] as const) {
+      expect(text, who).not.toMatch(/Подтвердить \/ Отклонить/);
+      expect(text, who).not.toMatch(/с контактами туристов/);
+      expect(text, who).toMatch(/в Telegram не приходят/);
+    }
+    expect(guide).toContain('href="https://vedarai.ru/hub/guide"');
+    expect(guide).not.toContain('/hub/operator');
+    expect(guide).toContain('на туры, которые вы продаёте сами');
+    expect(operator).toContain('href="https://vedarai.ru/hub/operator"');
   });
 });
 

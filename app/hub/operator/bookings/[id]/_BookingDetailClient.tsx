@@ -11,6 +11,7 @@ import Link from 'next/link';
 import GuideAssign from './_GuideAssign';
 import DirectPayments from './_DirectPayments';
 import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
+import { alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 
 interface BookingDetail {
   id: string;
@@ -98,8 +99,15 @@ export default function BookingDetailClient({ bookingId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ booking_status, cancellation_reason }),
       });
-      const json = await res.json() as { success?: boolean; error?: string; tourist_notice?: string | null };
+      const json = await res.json() as { success?: boolean; error?: string; changed?: boolean; tourist_notice?: string | null };
       if (!res.ok) throw new Error(json.error ?? 'Ошибка');
+      // Бронь уже была в этом статусе (повтор, другая вкладка): туристу
+      // ничего не ушло, и «Статус изменён» было бы неправдой.
+      if (json.changed === false) {
+        setNotification({ type: 'success', text: alreadyInStatusText(bookingId, booking_status) });
+        await mutate();
+        return;
+      }
       // Письмо — для гостя единственный путь к оплате: что оно не ушло,
       // оператор видит сразу, а не от туриста (04.10).
       const notice = json.tourist_notice === 'retrying'

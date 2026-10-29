@@ -33,6 +33,8 @@ import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/ch
 import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-pilot';
 import { operatorBoundText, operatorDeskButtons } from '@/lib/telegram/operator-desk';
+import { getPublicBaseUrl } from '@/lib/config';
+import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 
 export type PartnerChannel = 'telegram' | 'max';
 
@@ -120,7 +122,7 @@ export async function bindPartnerChannel(
   const previous = row.previous;
   const rebound = previous !== null && previous !== String(chatId);
   const shared = await sharedChat(channel, chatId, partnerId);
-  await announceBinding(channel, row.name, previous, rebound, shared);
+  await announceBinding(channel, row.name, previous, rebound, shared, row.category);
   const slug = typeof row.slug === 'string' && row.slug.trim() !== '' ? row.slug : null;
   const displayName = typeof row.display_name === 'string' && row.display_name.trim() !== ''
     ? row.display_name
@@ -187,14 +189,19 @@ async function announceBinding(
   previous: string | null,
   rebound: boolean,
   shared: { cabinetOf: string | null; others: string[] },
+  category: string | null = null,
 ): Promise<void> {
   const label = CHANNEL_LABEL[channel];
+  // Ссылку привязки выдают и гиду (код из кабинета, op_): «оператор» о нём —
+  // неправда администратору и прежнему чату.
+  const guide = category === 'guide';
   const adminChat = process.env.TELEGRAM_CHAT_ID;
   if (adminChat) {
     const name = escapeHtml(partnerName);
+    const who = guide ? 'Гид' : 'Оператор';
     const head = rebound
-      ? `Оператор «${name}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте оператору новую ссылку.`
-      : `Оператор «${name}» подключил ${label}: заявки будут приходить туда.`;
+      ? `${who} «${name}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте ${guide ? 'гиду' : 'оператору'} новую ссылку.`
+      : `${who} «${name}» подключил ${label}: заявки будут приходить туда.`;
     const note = sharedChatNote(partnerName, shared.cabinetOf, shared.others);
     const text = note ? `${head}\n\n${note}` : head;
     const res = await telegramService.sendMessage({ chatId: adminChat, text });
@@ -204,7 +211,7 @@ async function announceBinding(
   }
 
   if (!rebound || previous === null) return;
-  const notice = `Заявки оператора «${escapeHtml(partnerName)}» больше не приходят в этот чат — их перенесли в другой по ссылке привязки. Если это сделали не вы, сообщите администратору платформы.`;
+  const notice = `Заявки ${guide ? 'гида' : 'оператора'} «${escapeHtml(partnerName)}» больше не приходят в этот чат — их перенесли в другой по ссылке привязки. Если это сделали не вы, сообщите администратору платформы.`;
   if (channel === 'telegram') {
     const res = await telegramService.sendMessage({ chatId: previous, text: notice });
     if (!res.success) console.error(`[bind-channel] прежний Telegram-чат не уведомлён: ${res.error ?? 'нет ответа'}`);
@@ -228,15 +235,39 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
 }
 
 /**
+ * Текст гиду после записи чата (29.10). До этого гид слышал «подключён к
+ * оператору». Называет только то, что в чате есть: личные сообщения о бронях,
+ * заявках и запросах мест его собственных туров и о сообщениях туристов,
+ * строку «Входящие / Помощь» под ответом (lib/roles/role-menu, partnerMenu
+ * для гида) и где подтверждают бронь — кнопки подтверждения в чате нет.
+ */
+export function guideBoundText(name: string, channel: PartnerChannel): string {
+  const contacts = channel === 'max'
+    ? 'Имя и телефон туриста приходят в этот чат.'
+    : 'Имя и телефон туриста в этот чат не приходят — по закону о персональных данных их принимает MAX.';
+  return [
+    `Вы подключены как гид «${escapeHtml(name)}».`,
+    'Сюда будут приходить брони, заявки и запросы мест на туры, которые вы продаёте сами, и сообщения туристов из чата платформы.',
+    contacts,
+    '',
+    'Напишите «Входящие» — пришлю, что ждёт ответа. «Помощь» — справка. Под ответом будут эти две кнопки.',
+    `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`,
+  ].join('\n');
+}
+
+/**
  * Текст после записи чата. Туроператор (не пилот проката) узнаёт свою роль
- * словами кабинета. Пилот — своим текстом в MAX. Остальные — прежней фразой.
+ * словами кабинета, гид — своими. Пилот — своим текстом в MAX. Остальные —
+ * прежней фразой.
  */
 export function channelBoundText(channel: PartnerChannel, result: BindResult): string {
   const base = result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)
     ? operatorBoundText(result.displayName || result.partnerName, channel)
-    : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
-      ? rentalPilotBoundText(result.partnerName)
-      : bindReplyText(channel, result);
+    : result.ok && result.category === 'guide'
+      ? guideBoundText(result.displayName || result.partnerName, channel)
+      : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
+        ? rentalPilotBoundText(result.partnerName)
+        : bindReplyText(channel, result);
   if (!result.ok) return base;
   const note = sharedChatNote(result.displayName || result.partnerName, result.cabinetOf, result.others);
   return note ? `${base}\n\n${note}` : base;

@@ -94,6 +94,19 @@ describe('«Свои туры» гида', () => {
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ booking_status: 'cancelled', cancellation_reason: 'Закрыт подъезд к вулкану' });
   });
 
+  // 29.10: второе нажатие (другая вкладка, повтор) — сервер отвечает
+  // changed:false и туристу ничего не шлёт; экран не говорит «подтверждена»,
+  // как будто письмо ушло сейчас.
+  it('бронь уже в этом статусе — «уже подтверждена, туристу повторно ничего не отправлено»', async () => {
+    patchReply = { ok: true, body: { success: true, data: {}, changed: false, tourist_notice: null } };
+    render(<OwnToursClient />);
+    const row = await screen.findByTestId('own-booking-7001');
+    fireEvent.click(within(row).getByRole('button', { name: 'Подтвердить' }));
+    fireEvent.click(within(row).getByRole('button', { name: /Да, подтвердить/ }));
+    await screen.findByText('Бронь №7001 уже подтверждена — туристу повторно ничего не отправлено.');
+    expect(screen.queryByText(/Бронь №7001: подтверждена\./)).toBeNull();
+  });
+
   it('отказ сервера назван словами сервера, бронь не помечена изменённой', async () => {
     patchReply = { ok: false, status: 409, body: { success: false, error: 'Из статуса «cancelled» так перевести бронь нельзя' } };
     render(<OwnToursClient />);

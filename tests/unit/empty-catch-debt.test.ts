@@ -268,7 +268,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/telegram/admin-notify.ts': 2,
   'lib/telegram/booking-notify.ts': 3,
   'lib/telegram/group-monitor.ts': 4,
-  'lib/telegram/welcome.ts': 2,
   'lib/wishlist/client.ts': 2,
 };
 

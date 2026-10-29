@@ -88,6 +88,7 @@ export async function PATCH(
       actorUserId: authOrResponse.userId,
       bookingId: id,
       input,
+      via: 'site',
     });
 
     if (outcome.kind === 'bad_transition') {
@@ -100,8 +101,10 @@ export async function PATCH(
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
 
+    // changed:false — бронь уже была в этом статусе (повтор нажатия): туристу
+    // ничего не ушло, кабинет говорит «уже», а не «изменён».
     const touristNotice = outcome.touristNotice;
-    return NextResponse.json({ success: true, data: outcome.data, tourist_notice: touristNotice });
+    return NextResponse.json({ success: true, data: outcome.data, changed: outcome.changed, tourist_notice: touristNotice });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });

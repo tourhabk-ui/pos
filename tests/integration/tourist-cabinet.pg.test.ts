@@ -62,6 +62,39 @@ vi.mock('@/lib/auth', async (importOriginal) => ({
   verifyAuth: async () => ({ userId: authAs.userId, role: authAs.role, email: null, isAuthenticated: true }),
 }));
 
+// Письмо, push и Telegram туриста при смене статуса продавцом тура
+// (lib/bookings/owner-status) — счётчиками: повтор того же статуса (29.10)
+// доказывается числом отправок. Письмо никуда не уходит (SMTP в тестах нет),
+// Telegram туриста не зовётся, push — настоящий (без ключей VAPID молчит).
+const touristOut = vi.hoisted(() => ({
+  mail: [] as Array<{ bookingId: string; subject: string }>,
+  tgConfirmed: [] as string[],
+  tgCancelled: [] as string[],
+  push: [] as string[],
+}));
+vi.mock('@/lib/notifications/tourist-mail', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/notifications/tourist-mail')>()),
+  sendTouristMail: async (_scope: string, bookingId: string | number, mail: { subject: string }) => {
+    touristOut.mail.push({ bookingId: String(bookingId), subject: mail.subject });
+    return 'sent' as const;
+  },
+}));
+vi.mock('@/lib/telegram/booking-notify', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/telegram/booking-notify')>()),
+  notifyTouristBookingConfirmed: (_userId: string, b: { id: string }) => { touristOut.tgConfirmed.push(String(b.id)); },
+  notifyTouristBookingCancelled: (_userId: string, b: { id: string }) => { touristOut.tgCancelled.push(String(b.id)); },
+}));
+vi.mock('@/lib/notifications/web-push', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/notifications/web-push')>();
+  return {
+    ...real,
+    sendPushToUser: (...args: Parameters<typeof real.sendPushToUser>) => {
+      touristOut.push.push(String(args[0]));
+      return real.sendPushToUser(...args);
+    },
+  };
+});
+
 const TEST_DB = 'tourist_cabinet_test';
 
 if (PG_URL) {
@@ -1229,7 +1262,8 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect((await pool.query(`SELECT cancellation_reason FROM operator_bookings WHERE id = $1`, [silent])).rows)
       .toEqual([{ cancellation_reason: null }]);
     const after = await pool.query<{ payload: Record<string, unknown> }>(`SELECT payload FROM crm_events WHERE id = $1`, [ev.rows[0].id]);
-    expect(after.rows[0].payload).toEqual({ from: 'confirmed', to: 'cancelled' });
+    // Канал смены (29.10) — не ПД и остаётся; причина отмены стирается.
+    expect(after.rows[0].payload).toEqual({ from: 'confirmed', to: 'cancelled', via: 'site' });
     expect((await pool.query(`SELECT title, payload FROM crm_events WHERE id = $1`, [confirmEv])).rows)
       .toEqual([{ title: 'Бронь тура: ждёт ответа → подтверждена', payload: { from: 'new', to: 'confirmed' } }]);
     expect((await pool.query(`SELECT decline_reason FROM transfer_seat_bookings WHERE id = $1`, [seat])).rows)
@@ -1406,6 +1440,170 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       for (const id of waiting) expect(own, `бронь ${id} из «Входящих»`).toContain(id);
       expect(own).not.toContain(old);
     } finally {
+      authAs.userId = userId;
+      authAs.role = 'tourist';
+    }
+  });
+
+  it('повтор того же статуса — не новое действие: двери оператора и гида подтверждают и отменяют дважды — письмо, push, Telegram, места и возврат по разу, ответ changed:false, время и причина отмены первые; из отменённой в подтверждённую — 409 (29.10)', async () => {
+    // Второе нажатие (двойной клик, повтор кнопки в чате) раньше слало
+    // туристу второе письмо «подтверждено» и переписывало время и причину
+    // отмены, которые турист уже получил. Правило одно на две двери
+    // (lib/bookings/owner-status) — здесь обеими, на настоящей базе.
+    const { NextRequest } = await import('next/server');
+    const seller = async (tag: string, category: 'operator' | 'guide') => {
+      const user = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, 'x', $3) RETURNING id`,
+        [`repeat-${tag}@example.com`, `Продавец ${tag}`, category],
+      )).rows[0].id;
+      const partner = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+         VALUES ($1, $2, '{}', TRUE, TRUE, $3, $4) RETURNING id`,
+        [`Продавец ${tag}`, category, `repeat-${tag}`, user],
+      )).rows[0].id;
+      const tour = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+         VALUES ($1, $2, 8000, 6, TRUE, TRUE) RETURNING id`, [partner, `Тур повтора ${tag}`],
+      )).rows[0].id;
+      const tourist = await freshTourist(`repeat-${tag}`);
+      const booking = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, tourist_email, booking_status, final_price)
+         VALUES ($1, CURRENT_DATE + 15, 2, $2, 'Турист повтора', $3, 'new', 16000) RETURNING id::text AS id`,
+        [tour, tourist, `erase-repeat-${tag}@example.com`],
+      )).rows[0].id;
+      return { user, partner, tour, tourist, booking, role: category };
+    };
+    const call = async (s: { user: string; role: 'operator' | 'guide'; booking: string }, body: Record<string, unknown>) => {
+      authAs.userId = s.user;
+      authAs.role = s.role;
+      try {
+        const url = s.role === 'operator' ? `http://localhost/api/hub/operator/bookings/${s.booking}` : `http://localhost/api/guide/own/bookings/${s.booking}`;
+        const { PATCH } = s.role === 'operator'
+          ? await import('@/app/api/hub/operator/bookings/[id]/route')
+          : await import('@/app/api/guide/own/bookings/[id]/route');
+        const res = await PATCH(new NextRequest(url, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+        }) as unknown as NextRequest, { params: Promise.resolve({ id: s.booking }) });
+        return { status: res.status, json: await res.json() as { changed?: boolean; tourist_notice?: string | null; error?: string } };
+      } finally {
+        authAs.userId = userId;
+        authAs.role = 'tourist';
+      }
+    };
+    const sent = (id: string) => ({
+      mail: touristOut.mail.filter((m) => m.bookingId === id).map((m) => m.subject.split(':')[0]),
+      tgConfirmed: touristOut.tgConfirmed.filter((x) => x === id).length,
+      tgCancelled: touristOut.tgCancelled.filter((x) => x === id).length,
+    });
+    const row = async (id: string) => (await pool.query<{ booking_status: string; reason: string | null; cancelled_at: string | null; updated_at: string }>(
+      `SELECT booking_status, cancellation_reason AS reason, cancelled_at::text AS cancelled_at, updated_at::text AS updated_at
+         FROM operator_bookings WHERE id = $1`, [id],
+    )).rows[0];
+
+    for (const s of [await seller('op', 'operator'), await seller('guide', 'guide')]) {
+      const pushesBefore = touristOut.push.filter((u) => u === s.tourist).length;
+
+      // Подтверждение — письмо, Telegram и push туристу, событие в ленте.
+      const first = await call(s, { booking_status: 'confirmed' });
+      expect(first.status, `${s.role}: ${JSON.stringify(first.json)}`).toBe(200);
+      expect(first.json).toMatchObject({ changed: true, tourist_notice: 'sent' });
+      const confirmedRow = await row(s.booking);
+      // Повтор — 200 «уже», но туристу ничего, и строка не переписана.
+      const again = await call(s, { booking_status: 'confirmed' });
+      expect(again.status, s.role).toBe(200);
+      expect(again.json, s.role).toMatchObject({ changed: false, tourist_notice: null });
+      expect(await row(s.booking), s.role).toEqual(confirmedRow);
+      expect(sent(s.booking), s.role).toEqual({ mail: ['Бронирование подтверждено'], tgConfirmed: 1, tgCancelled: 0 });
+      expect(touristOut.push.filter((u) => u === s.tourist).length - pushesBefore, s.role).toBe(1);
+
+      // Турист оплатил подтверждённую бронь: деньги удержаны, места выкуплены
+      // (две из четырёх на дату — его).
+      await pool.query(`UPDATE operator_bookings SET payment_status = 'paid', paid_at = NOW() WHERE id = $1`, [s.booking]);
+      await pool.query(
+        `INSERT INTO tour_payments (booking_id, operator_id, retail_amount, net_amount, commission_amount, commission_rate, status)
+         VALUES ($1, $2, 16000, 14400, 1600, 10, 'HELD')`, [s.booking, s.partner],
+      );
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots) VALUES ($1, CURRENT_DATE + 15, 6, 4)`, [s.tour],
+      );
+      const money = async () => (await pool.query<{ refund_due: string | null; updated_at: string; booked: number }>(
+        `SELECT tp.refund_due::text AS refund_due, tp.updated_at::text AS updated_at,
+                (SELECT booked_slots FROM tour_availability WHERE operator_tour_id = $2) AS booked
+           FROM tour_payments tp WHERE tp.booking_id = $1`, [s.booking, s.tour],
+      )).rows[0];
+
+      // Отмена продавцом — 100% к возврату, места вернулись, письмо с причиной.
+      const cancel = await call(s, { booking_status: 'cancelled', cancellation_reason: 'Закрыт подъезд к вулкану' });
+      expect(cancel.status, `${s.role}: ${JSON.stringify(cancel.json)}`).toBe(200);
+      expect(cancel.json.changed).toBe(true);
+      const afterCancel = await money();
+      expect(afterCancel).toMatchObject({ booked: 2 });
+      expect(Number(afterCancel.refund_due)).toBe(16000);
+      const cancelledRow = await row(s.booking);
+      expect(cancelledRow).toMatchObject({ booking_status: 'cancelled', reason: 'Закрыт подъезд к вулкану' });
+
+      // Вторая отмена с другой причиной: туристу ничего, места и возврат не
+      // тронуты, время и причина — те, что турист получил.
+      const cancelAgain = await call(s, { booking_status: 'cancelled', cancellation_reason: 'Другая причина' });
+      expect(cancelAgain.status, s.role).toBe(200);
+      expect(cancelAgain.json, s.role).toMatchObject({ changed: false, tourist_notice: null });
+      expect(await money(), s.role).toEqual(afterCancel);
+      expect(await row(s.booking), s.role).toEqual(cancelledRow);
+      expect(sent(s.booking), s.role).toEqual({ mail: ['Бронирование подтверждено', 'Бронирование отменено'], tgConfirmed: 1, tgCancelled: 1 });
+
+      // Из отменённой обратно — 409, как было.
+      expect((await call(s, { booking_status: 'confirmed' })).status, s.role).toBe(409);
+      expect((await row(s.booking)).booking_status).toBe('cancelled');
+
+      // Лента клиента: по событию на настоящую смену, с каналом.
+      const events = await pool.query<{ from: string; to: string; via: string }>(
+        `SELECT payload->>'from' AS from, payload->>'to' AS to, payload->>'via' AS via
+           FROM crm_events WHERE source_kind = 'operator_booking' AND source_id = $1 AND kind = 'status_change' ORDER BY id`,
+        [s.booking],
+      );
+      expect(events.rows, s.role).toEqual([
+        { from: 'new', to: 'confirmed', via: 'site' },
+        { from: 'confirmed', to: 'cancelled', via: 'site' },
+      ]);
+    }
+  });
+
+  it('«Написать» с карточки тура гида: собеседник записан гидом, и уведомление о сообщении находит карточку гида (29.10)', async () => {
+    // До 29.10 собеседник записывался «оператором» всегда; уведомление искало
+    // карточку оператора у гида и молча выходило — гид о сообщениях туриста
+    // не знал.
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('chat-guide@example.com', 'Гид чата', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Гид чата', 'guide', '{}', TRUE, TRUE, 'chat-guide', $1) RETURNING id`, [guideUser],
+    )).rows[0].id;
+    const tourist = await freshTourist('chat-guide');
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    authAs.userId = tourist;
+    authAs.role = 'tourist';
+    try {
+      const { NextRequest } = await import('next/server');
+      const { POST } = await import('@/app/api/chat/conversations/route');
+      const res = await POST(new NextRequest('http://localhost/api/chat/conversations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operatorPartnerId: guide, subject: 'Авторский тур', message: 'Есть места на субботу?' }),
+      }) as unknown as NextRequest);
+      const json = (await res.json()) as { data?: { conversationId: string }; details?: string };
+      expect(res.status, json.details ?? '').toBe(201);
+      const members = await pool.query<{ user_id: string; role: string }>(
+        `SELECT user_id::text AS user_id, role FROM conversation_participants WHERE conversation_id = $1 ORDER BY role`,
+        [json.data?.conversationId],
+      );
+      expect(members.rows).toEqual([{ user_id: guideUser, role: 'guide' }, { user_id: tourist, role: 'tourist' }]);
+      // Карточка гида найдена: дальше уведомление упирается в отсутствие
+      // мессенджеров у этой карточки и говорит это её номером.
+      const logged = errSpy.mock.calls.flat().map(String).join('\n');
+      expect(logged).toContain(`у партнёра ${guide} нет ни MAX, ни Telegram`);
+      expect(logged).not.toContain('нет карточки категории');
+    } finally {
+      errSpy.mockRestore();
       authAs.userId = userId;
       authAs.role = 'tourist';
     }

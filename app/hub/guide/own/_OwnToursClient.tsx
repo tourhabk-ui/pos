@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Compass, CalendarPlus, Inbox, Loader2, AlertCircle, RefreshCw, Phone, Mail, Users } from 'lucide-react';
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 import type { OwnBooking, OwnLead, OwnTour } from '@/lib/guides/own-tours';
+import { alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 
 /**
  * «Свои туры» гида — туры, которые гид продаёт сам: брони по ним (подтвердить,
@@ -72,8 +73,15 @@ function BookingRow({ b, onDone }: { b: OwnBooking; onDone: (msg: string) => voi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(action === 'cancelled' ? { booking_status: action, cancellation_reason: reason.trim() } : { booking_status: action }),
       });
-      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; tourist_notice?: string | null } | null;
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; changed?: boolean; tourist_notice?: string | null } | null;
       if (!res.ok || !json?.success) { setError(json?.error ?? 'Не записано — попробуйте ещё раз'); return; }
+      // Бронь уже была в этом статусе (второе нажатие, другая вкладка):
+      // туристу ничего не ушло — так и сказано.
+      if (json.changed === false) {
+        setPending(null);
+        onDone(alreadyInStatusText(b.id, action));
+        return;
+      }
       const mail = json.tourist_notice === 'no_email'
         ? ' У туриста нет почты — сообщите ему сами.'
         : json.tourist_notice && json.tourist_notice !== 'sent' ? ' Письмо туристу пока не ушло — повторим.' : '';
