@@ -55,7 +55,7 @@ import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
-import { groupSentence, groupStripValue, isGroupSizeUnlimited } from '@/lib/tours/group-size';
+import { groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -969,7 +969,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   'Условия и детали подтверждаются оператором до оплаты',
                   ...(tour.route_id ? ['Маршрут проходит через контур безопасности платформы'] : []),
                   isGroupSizeUnlimited(tour)
-                    ? (groupSentence(tour) ?? 'Группа не ограничена.').replace(/\.$/, '')
+                    ? unlimitedGroupSentence(tour.max_participants).replace(/\.$/, '')
                     : `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`,
                 ].map(t => (
                   <div key={t} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{t}</span></div>

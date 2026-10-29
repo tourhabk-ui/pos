@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
@@ -27,6 +27,7 @@ vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async 
 
 import TourDetailClient from '@/app/catalog/tours/[id]/_TourDetailClient';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
+import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import { groupZh, zhFactDescription } from '@/lib/zh/entry';
 
 const TOUR = {
@@ -88,6 +89,60 @@ describe('форма брони: потолок заявки прежний, п�
 
   it('FALSE: подсказки нет', () => {
     render(<BookingFormClient tourId={79} basePrice={14000} maxParticipants={12} tourTitle="Горелый" />);
+    expect(screen.queryByText(/напишите в пожеланиях/)).toBeNull();
+    expect(screen.getByLabelText(/Количество участников/).getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('скринридер слышит подсказку на фокусе счётчика: она связана с ним aria-describedby', () => {
+    render(<BookingFormClient tourId={77} basePrice={95000} maxParticipants={12} groupSizeUnlimited tourTitle="Курильское" />);
+    const select = screen.getByLabelText(/Количество участников/);
+    const ids = (select.getAttribute('aria-describedby') ?? '').split(' ');
+    const hint = ids.map((id) => document.getElementById(id)).find((el) => el?.textContent?.includes('напишите в пожеланиях'));
+    expect(hint).toBeTruthy();
+  });
+});
+
+describe('тур без календаря: запрос мест у оператора (askSeatsFirst)', () => {
+  it('TRUE: поле «Человек» не шире потолка тура, рядом — как заявить группу больше', () => {
+    render(<BookingFormClient tourId={78} basePrice={14000} maxParticipants={10} groupSizeUnlimited askSeatsFirst tourTitle="Бухта Русская" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Спросить места у оператора' }));
+    const people = screen.getByLabelText('Человек') as HTMLInputElement;
+    // Больше потолка сервер не примет (group_too_large): бронь после «Есть
+    // места» упёрлась бы в max_participants (assertDaysOpen).
+    expect(people.max).toBe('10');
+    const hint = document.getElementById(people.getAttribute('aria-describedby') ?? '');
+    expect(hint?.textContent).toContain('одним запросом — до 10 человек');
+    expect(hint?.textContent).toContain('напишите о группе в пожеланиях');
+  });
+
+  it('15 человек при потолке 10 — отказ формы до отправки, сервер не спрашивается', () => {
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<BookingFormClient tourId={78} basePrice={14000} maxParticipants={10} groupSizeUnlimited askSeatsFirst tourTitle="Бухта Русская" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Спросить места у оператора' }));
+    fireEvent.change(screen.getByLabelText('Человек'), { target: { value: '15' } });
+    fireEvent.submit(screen.getByRole('button', { name: /Отправить запрос оператору/ }).closest('form')!);
+    expect(screen.getByRole('alert').textContent).toContain('от 1 до 10');
+    expect(fetchMock.mock.calls.some((c: unknown[]) => String(c[0]).includes('/api/seat-requests'))).toBe(false);
+  });
+
+  it('FALSE: подсказки о большой группе нет', () => {
+    render(<BookingFormClient tourId={79} basePrice={14000} maxParticipants={10} askSeatsFirst tourTitle="Горелый" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Спросить места у оператора' }));
+    expect(screen.queryByText(/Группа не ограничена/)).toBeNull();
+  });
+});
+
+describe('модалка брони на /calendar и /routes/[id] — та же подсказка', () => {
+  const props = {
+    open: true, onClose: () => {}, tourId: 77, tourName: 'Курильское озеро, 3 дня', operatorName: 'Андрей Запорожец',
+    priceBase: 95000, maxGroupSize: 12, nextDeparture: '2027-07-19',
+  };
+  it('TRUE — подсказка под счётчиком; FALSE — нет', () => {
+    const { unmount } = render(<TourPaymentModal {...props} groupSizeUnlimited />);
+    expect(screen.getByText(/Больше 12 человек — напишите в пожеланиях/)).toBeInTheDocument();
+    unmount();
+    render(<TourPaymentModal {...props} />);
     expect(screen.queryByText(/напишите в пожеланиях/)).toBeNull();
   });
 });

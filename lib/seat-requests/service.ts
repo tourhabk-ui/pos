@@ -160,7 +160,7 @@ export interface CreateSeatRequestInput {
 export type CreateSeatRequestFailure =
   | 'date_past' | 'bad_date' | 'bad_phone' | 'tour_not_found' | 'operator_unreachable'
   | 'duplicate' | 'already_confirmed' | 'too_many' | 'check_failed' | 'delivery_failed' | 'price_unknown'
-  | 'out_of_season';
+  | 'out_of_season' | 'group_too_large';
 
 // Ключ страницы статуса при отказе НЕ возвращается никогда: телефон — не
 // секрет, и «дубль → ссылка на чужой запрос» отдавало бы страницу статуса, а с
@@ -200,11 +200,11 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   );
   if (phone === null) return { ok: false, reason: 'bad_phone' };
 
-  type TourRow = { operator_id: string; title: string; price_unit: string | null } & WindowInput;
+  type TourRow = { operator_id: string; title: string; price_unit: string | null; max_participants?: number | null } & WindowInput;
   let tour: TourRow | undefined;
   try {
     ({ rows: [tour] } = await pool.query<TourRow>(
-      `SELECT operator_id, title, price_unit, season_start::text, season_end::text,
+      `SELECT operator_id, title, price_unit, max_participants, season_start::text, season_end::text,
               duration_type, multi_day_count, duration_hours
          FROM operator_tours
         WHERE id = $1 AND is_active = true AND deleted_at IS NULL
@@ -213,6 +213,17 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     ));
   } catch (err) { logFail('тур не прочитан', err); return { ok: false, reason: 'check_failed' }; }
   if (!tour) return { ok: false, reason: 'tour_not_found' };
+
+  // Группа больше потолка тура (ревью 1341): «Есть места» оператора идёт в
+  // reserveBooking, а у дня без строки календаря потолок брони — именно
+  // max_participants (assertDaysOpen). Запрос на 15 человек к туру «до 10»
+  // дошёл бы до оператора, его согласие кончилось бы MAX_EXCEEDED и отказом
+  // туристу. Слова «группа не ограничена» (1341) такой запрос подталкивают —
+  // поэтому отказ до отправки, с внятной причиной.
+  const maxPeople = Number(tour.max_participants);
+  if (Number.isInteger(maxPeople) && maxPeople > 0 && input.participants > maxPeople) {
+    return { ok: false, reason: 'group_too_large' };
+  }
 
   // Только по сезону (#2244, #2245): запрос мест идёт по туру без календаря,
   // и дату ограничивает записанный сезон — тем же правилом, что бронь

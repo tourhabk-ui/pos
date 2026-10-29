@@ -73,6 +73,13 @@ describe('сайт партнёра — его витрина', () => {
     expect(screen.getByRole('link', { name: /Позвонить: \+7 914 782-22-22/ }).getAttribute('href')).toBe('tel:+79147822222');
   });
 
+  it('группа тура не ограничена (1341) — «группа не ограничена», а не «5–10 чел.»', () => {
+    show(data({}, [tour({ group_size_unlimited: true })]));
+    const c = within(screen.getByRole('article', { name: 'Осенняя рыбалка на кижуча' }));
+    expect(c.getByText('группа не ограничена')).toBeTruthy();
+    expect(c.queryByText('группа 5–10 чел.')).toBeNull();
+  });
+
   it('тур — из базы: сроки, цена с единицей, группа, состав; ссылка на Ведар абсолютная', () => {
     show();
     const card = screen.getByRole('article', { name: 'Осенняя рыбалка на кижуча' });

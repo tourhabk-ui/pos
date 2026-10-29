@@ -13,13 +13,18 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query }, transaction: vi.fn() }));
 
 import {
-  BOOKING_FORM_MAX_PARTICIPANTS, bookingRequestCeiling, groupSentence, groupShort, groupStripValue, isGroupSizeUnlimited,
+  BOOKING_FORM_MAX_PARTICIPANTS, bookingRequestCeiling, groupRangeShort, groupSentence, groupSentenceIfUnlimited, groupShort,
+  groupStripValue, isGroupSizeUnlimited,
 } from '@/lib/tours/group-size';
 import { composeTourDescription } from '@/lib/tours/describe';
 import { getTourDetails } from '@/lib/kuzmich/core';
 import { fetchDocument } from '@/lib/mcp/connector-tools';
 import { buildTourPostText } from '@/lib/notifications/tour-channel-post';
 import { generateYandexYmlFeed } from '@/lib/channels/yandex';
+import { generateAvitoXmlFeed } from '@/lib/channels/avito';
+import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
+import { GET as toursFeed } from '@/app/api/tours-feed/route';
+import { GET as availabilityDay } from '@/app/api/availability/day/route';
 import type { ChannelTour } from '@/lib/channels/types';
 
 beforeEach(() => query.mockReset());
@@ -44,7 +49,10 @@ describe('правило группы (lib/tours/group-size)', () => {
       expect(groupStripValue({ max_participants: 12, group_size_unlimited: flag })).toBe('до 12');
       expect(groupSentence({ max_participants: 12, group_size_unlimited: flag })).toBe('Группа до 12 человек.');
       expect(groupShort({ max_participants: 12, group_size_unlimited: flag })).toBe('до 12 чел.');
+      // Поверхности, молчавшие о группе до 1341, называют её только при TRUE.
+      expect(groupSentenceIfUnlimited({ max_participants: 15, group_size_unlimited: flag })).toBeNull();
     }
+    expect(groupSentenceIfUnlimited({ max_participants: 12, group_size_unlimited: true })).toBe(UNLIMITED_12);
     expect(groupStripValue({ max_participants: 0 })).toBeNull();
     expect(groupSentence({ max_participants: null })).toBeNull();
     expect(bookingRequestCeiling('8')).toBe(8);
@@ -95,10 +103,10 @@ describe('Кузьмич и MCP get_tour_details', () => {
     expect(out).toContain(UNLIMITED_12);
     expect(out).not.toContain('Группа до 12');
   });
-  it('FALSE — «Группа до 12 человек.»', async () => {
-    query.mockResolvedValue({ rows: [{ ...DETAILS_ROW, group_size_unlimited: false }] });
+  it('FALSE — о группе молчит, как до 1341: число бывает заглушкой автора миграции (1176), §4.0', async () => {
+    query.mockResolvedValue({ rows: [{ ...DETAILS_ROW, max_participants: 15, group_size_unlimited: false }] });
     const out = await getTourDetails('Курильское');
-    expect(out).toContain('Группа до 12 человек.');
+    expect(out).not.toMatch(/Группа/);
     expect(out).not.toContain('не ограничена');
   });
 });
@@ -118,10 +126,10 @@ describe('MCP fetch tour:', () => {
     expect(query.mock.calls[0][0]).toContain('ot.group_size_unlimited');
     expect(doc.text).toContain('Группа не ограничена (одна заявка на сайте — до 10 человек).');
   });
-  it('FALSE — «Группа до 10 человек.»', async () => {
-    query.mockResolvedValueOnce({ rows: [{ ...FETCH_ROW, group_size_unlimited: false }] });
+  it('FALSE — о группе молчит, как до 1341 (число не выдаётся агенту фактом)', async () => {
+    query.mockResolvedValueOnce({ rows: [{ ...FETCH_ROW, max_participants: 15, group_size_unlimited: false }] });
     const doc = await fetchDocument('tour:78', 'https://vedarai.ru');
-    expect(doc.text).toContain('Группа до 10 человек.');
+    expect(doc.text).not.toMatch(/Группа/);
     expect(doc.text).not.toContain('не ограничена');
   });
 });
@@ -156,5 +164,94 @@ describe('пост канала и фид Яндекса', () => {
     const xml = generateYandexYmlFeed([{ ...channelTour, group_size_unlimited: false }]);
     expect(xml).toContain('<param name="Размер группы">до 12 чел.</param>');
     expect(xml).toContain('Группа до 12 человек.');
+  });
+});
+
+describe('SDK-инструменты агента: search_tours и get_tour_details', () => {
+  const tools = getTouristTools(null);
+  const run = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const tool = tools.find((t) => t.name === name)!;
+    return JSON.parse(await tool.execute(args)) as Record<string, unknown>;
+  };
+  const ROW = {
+    id: 77, slug: 'zaporozhets-kurilskoe-ozero-3-dnya', title: 'Курильское озеро', description: null, base_price: 95000,
+    activity_type: 'jeep', duration_days: 3, difficulty: 'easy', location_name: 'Курильское озеро', included: null,
+    not_included: null, what_to_bring: null, min_participants: 1, max_participants: 12, available_slots: null,
+    next_available_date: null, season_start: null, season_end: null, tour_image: null, operator_name: 'Андрей Запорожец',
+    operator_phone: null, avg_rating: null, review_count: 0,
+  };
+
+  it('get_tour_details: TRUE — «Группа не ограничена (одна заявка …)», FALSE — прежний диапазон', async () => {
+    query.mockResolvedValueOnce({ rows: [{ ...ROW, group_size_unlimited: true }] });
+    expect((await run('get_tour_details', { tour_id: '77' })).group)
+      .toBe('Группа не ограничена (одна заявка на сайте — до 12 человек)');
+    expect(String(query.mock.calls[0][0])).toContain('t.group_size_unlimited');
+    query.mockResolvedValueOnce({ rows: [{ ...ROW, group_size_unlimited: false }] });
+    expect((await run('get_tour_details', { tour_id: '77' })).group).toBe('1-12 чел.');
+  });
+
+  it('search_tours: строка каталога называет группу тем же правилом', async () => {
+    query.mockResolvedValueOnce({ rows: [{ ...ROW, group_size_unlimited: true }, { ...ROW, id: 79, group_size_unlimited: false }] });
+    const out = await run('search_tours', { query: 'Курильское' });
+    const groups = (out.tours as Array<{ group: string }>).map((t) => t.group);
+    expect(groups).toEqual(['Группа не ограничена (одна заявка на сайте — до 12 человек)', '1-12 чел.']);
+  });
+});
+
+describe('фид Авито и экспорт /api/tours-feed', () => {
+  const avitoTour: ChannelTour = {
+    id: 78, slug: 'zaporozhets-bukhta-russkaya', title: 'Морская прогулка в бухту Русскую', description: 'Бухта, птичьи базары.',
+    short_description: null, activity_type: 'boat_trip', location_name: 'Бухта Русская', latitude: null, longitude: null,
+    base_price: 14000, max_participants: 10, duration_hours: 10.5, difficulty: null, photos: [], included: [],
+    season_start: null, season_end: null,
+    tripster_experience_id: null, avito_listing_id: null, sputnik8_product_id: null,
+  };
+  it('Авито: TRUE — «не ограничено», FALSE — «до 10 чел.»', () => {
+    expect(generateAvitoXmlFeed([{ ...avitoTour, group_size_unlimited: true }]).xml)
+      .toContain('name="Количество участников">не ограничено<');
+    expect(generateAvitoXmlFeed([{ ...avitoTour, group_size_unlimited: false }]).xml)
+      .toContain('name="Количество участников">до 10 чел.<');
+  });
+
+  it('экспорт для площадок: признак полем group.unlimited, max — потолок заявки', async () => {
+    const row = {
+      id: '78', name: 'Морская прогулка', description: '', price: '14000', duration: 10.5, difficulty: 'easy',
+      category: 'boat_trip', max_group_size: 10, min_group_size: 1, op_name: 'Андрей Запорожец', op_slug: 'zaporozhets',
+      op_phone: null, op_email: null,
+    };
+    query.mockResolvedValueOnce({ rows: [{ ...row, group_size_unlimited: true }, { ...row, id: '79', group_size_unlimited: false }] });
+    const res = await toursFeed(new Request('http://localhost/api/tours-feed') as never);
+    const body = await res.json() as { tours: Array<{ group: { min: number; max: number; unlimited: boolean } }> };
+    expect(String(query.mock.calls[0][0])).toContain('t.group_size_unlimited');
+    expect(body.tours.map((t) => t.group)).toEqual([
+      { min: 1, max: 10, unlimited: true },
+      { min: 1, max: 10, unlimited: false },
+    ]);
+  });
+});
+
+describe('плашка группы в блоке «Туры по маршруту» (groupRangeShort)', () => {
+  it('TRUE — «не ограничена» вместо «1–12»; FALSE — прежние «1–12» и «до 12»', () => {
+    expect(groupRangeShort({ min_participants: 1, max_participants: 12, group_size_unlimited: true })).toBe('не ограничена');
+    expect(groupRangeShort({ min_participants: 1, max_participants: 12, group_size_unlimited: false })).toBe('1–12');
+    expect(groupRangeShort({ min_participants: null, max_participants: 12 })).toBe('до 12');
+    expect(groupRangeShort({ min_participants: null, max_participants: null })).toBeNull();
+  });
+});
+
+describe('/api/availability/day — модалка брони /calendar получает признак', () => {
+  it('t.group_size_unlimited в выборке и groupSizeUnlimited в ответе; NULL — FALSE', async () => {
+    const row = {
+      tour_id: '77', title: 'Курильское озеро, 3 дня', description: null, activity_type: 'jeep', location_name: null,
+      base_price: '95000', price_override: null, price_unit: 'per_person', duration_hours: '72', duration_type: 'multi_day',
+      max_participants: 12, min_participants: 1, available_slots: 12, booked_slots: 0, free_slots: 12,
+      weather_status: 'ok', operator_id: 'p-77', operator_name: 'Андрей Запорожец', operator_verified: false,
+      operator_slug: null, operator_public: null, operator_rating: null, tags: [],
+    };
+    query.mockResolvedValueOnce({ rows: [{ ...row, group_size_unlimited: true }, { ...row, tour_id: '79', group_size_unlimited: null }] });
+    const res = await availabilityDay(new Request('http://localhost/api/availability/day?date=2099-07-19') as never);
+    const body = await res.json() as { tours: Array<{ groupSizeUnlimited: boolean }> };
+    expect(String(query.mock.calls[0][0])).toContain('t.group_size_unlimited');
+    expect(body.tours.map((t) => t.groupSizeUnlimited)).toEqual([true, false]);
   });
 });

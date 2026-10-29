@@ -60,7 +60,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
-import { groupSentence } from '@/lib/tours/group-size';
+import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -295,8 +295,9 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
     line('Цена', price),
     line('Длительность', duration),
     line('Сложность', t.difficulty),
-    // Группа — общим правилом с карточкой (lib/tours/group-size, 1341).
-    groupSentence(t),
+    // Группа — только у тура без предела (1341): прочим fetch, как и прежде,
+    // числа не называет — max_participants бывает заглушкой (1176), §4.0.
+    groupSentenceIfUnlimited(t),
     t.season_start && t.season_end ? `Сезон: ${t.season_start} — ${t.season_end}` : null,
     t.short_description,
     t.description,

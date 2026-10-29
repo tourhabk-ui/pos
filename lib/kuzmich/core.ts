@@ -57,7 +57,7 @@ import { alertContextLine } from '@/lib/kuzmich/alert-lines';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
-import { groupSentence } from '@/lib/tours/group-size';
+import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
@@ -1385,8 +1385,10 @@ export async function getTourDetails(query: string): Promise<string> {
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     // Группа — общим правилом с карточкой (lib/tours/group-size, 1341): у тура
     // без предела агент слышит «не ограничена» и потолок ОДНОЙ заявки, а не
-    // «до 12» как предел гида (слово владельца 29.10).
-    const group = groupSentence(t);
+    // «до 12» как предел гида (слово владельца 29.10). У прочих — молчание,
+    // как до 1341: max_participants бывает заглушкой автора миграции (1176),
+    // и «Группа до 15» стала бы для агента фактом о туре (§4.0).
+    const group = groupSentenceIfUnlimited(t);
     if (group) parts.push(group);
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
     if (t.description) {

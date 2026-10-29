@@ -28,6 +28,7 @@ interface TourExportRow {
   category: string;
   max_group_size: number | null;
   min_group_size: number | null;
+  group_size_unlimited: boolean | null;
   op_name: string;
   op_slug: string;
   op_phone: string | null;
@@ -62,6 +63,7 @@ export async function GET(request: NextRequest) {
        t.activity_type AS category,
        t.max_participants AS max_group_size,
        t.min_participants AS min_group_size,
+       t.group_size_unlimited,
        p.name as op_name,
        p.slug as op_slug,
        p.contacts->>'phone' as op_phone,
@@ -91,6 +93,9 @@ export async function GET(request: NextRequest) {
     group: {
       min: t.min_group_size || 1,
       max: t.max_group_size || 10,
+      // Группа тура не ограничена (1341): max тогда — потолок одной заявки,
+      // а не предел тура; площадке это сказано полем, а не умолчанием.
+      unlimited: t.group_size_unlimited === true,
     },
     location: {
       city: 'Петропавловск-Камчатский',

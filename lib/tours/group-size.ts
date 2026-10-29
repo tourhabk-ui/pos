@@ -60,14 +60,45 @@ export function groupStripValue(t: GroupSizeFacts): string | null {
  * «Группа до N человек.». Нет ни признака, ни числа — null.
  */
 export function groupSentence(t: GroupSizeFacts): string | null {
-  if (isGroupSizeUnlimited(t)) {
-    const ceiling = bookingRequestCeiling(t.max_participants);
-    return ceiling === null
-      ? 'Группа не ограничена.'
-      : `Группа не ограничена (одна заявка на сайте — до ${ceiling} человек).`;
-  }
+  if (isGroupSizeUnlimited(t)) return unlimitedGroupSentence(t.max_participants);
   const max = positiveInt(t.max_participants);
   return max === null ? null : `Группа до ${max} человек.`;
+}
+
+/**
+ * Строка тура без предела группы — всегда есть: «Группа не ограничена (одна
+ * заявка на сайте — до N человек).», без числа — «Группа не ограничена.».
+ * Для мест, которые уже знают, что признак TRUE (карточка, SDK-инструменты).
+ */
+export function unlimitedGroupSentence(maxParticipants: number | string | null | undefined): string {
+  const ceiling = bookingRequestCeiling(maxParticipants);
+  return ceiling === null
+    ? 'Группа не ограничена.'
+    : `Группа не ограничена (одна заявка на сайте — до ${ceiling} человек).`;
+}
+
+/**
+ * Строка группы только для тура БЕЗ предела, иначе null. Для поверхностей,
+ * которые до 1341 о группе молчали (get_tour_details Кузьмича, MCP fetch
+ * tour:): `max_participants` у части туров — не слово оператора, а заглушка
+ * (1176: «технический потолок набора 15 … уточнить у оператора»; 955:
+ * «Единица неверна»), и «Группа до 15 человек.» ушла бы агенту фактом о туре
+ * (§4.0). Признак TRUE же — слово гида, записанное владельцем.
+ */
+export function groupSentenceIfUnlimited(t: GroupSizeFacts): string | null {
+  return isGroupSizeUnlimited(t) ? unlimitedGroupSentence(t.max_participants) : null;
+}
+
+/**
+ * Диапазон группы для плашки с иконкой людей (блок «Туры по маршруту»):
+ * «1–12», «до 12» или «не ограничена». Нечего сказать — null.
+ */
+export function groupRangeShort(t: GroupSizeFacts & { min_participants?: number | string | null }): string | null {
+  if (isGroupSizeUnlimited(t)) return 'не ограничена';
+  const max = positiveInt(t.max_participants);
+  const min = positiveInt(t.min_participants);
+  if (min !== null && max !== null) return `${min}–${max}`;
+  return max === null ? null : `до ${max}`;
 }
 
 /** Коротко для плашек фактов («до 12 чел.» / «группа не ограничена»). */

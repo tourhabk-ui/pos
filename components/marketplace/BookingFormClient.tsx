@@ -328,6 +328,12 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   };
 
   const maxOpts = Math.min(maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS);
+  // Подсказка о большой группе связана со счётчиком: скринридер читает её при
+  // фокусе на нём, а не только при чтении страницы подряд. Отказ по полю
+  // добавляет свой id, а не заменяет подсказку.
+  const participantsHintId = groupSizeUnlimited && maxOpts > 0 ? 'booking-participants-more' : null;
+  const participantsDescribedBy = [participantsHintId, invalid('participants_count') ? 'booking-error' : null]
+    .filter((id): id is string => id !== null).join(' ') || undefined;
 
   if (!plainBooking) {
     return (
@@ -359,6 +365,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             tour={{ id: String(tourId), title: tourTitle ?? 'Тур' }}
             defaultDate={initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : ''}
             defaultParticipants={1}
+            maxParticipants={maxParticipants}
+            groupSizeUnlimited={groupSizeUnlimited}
             seasonWindow={seasonWindow}
             onClose={() => setSeatsOpen(false)}
             source="tour_card"
@@ -408,13 +416,14 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           onChange={handleChange}
           className="ds-input w-full"
           {...invalidProps('participants_count')}
+          aria-describedby={participantsDescribedBy}
         >
           {Array.from({ length: maxOpts }, (_, i) => i + 1).map(n => (
             <option key={n} value={n}>{n} {n === 1 ? 'человек' : n < 5 ? 'человека' : 'человек'}</option>
           ))}
         </select>
-        {groupSizeUnlimited && maxOpts > 0 && (
-          <p id="booking-participants-more" className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+        {participantsHintId && (
+          <p id={participantsHintId} className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
             Группа не ограничена. Больше {maxOpts} человек — напишите в пожеланиях, оператор соберёт группу.
           </p>
         )}

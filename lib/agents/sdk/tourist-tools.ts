@@ -18,21 +18,20 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
 import { priceFromUnit } from '@/lib/tours/price-label';
-import { groupSentence, isGroupSizeUnlimited } from '@/lib/tours/group-size';
+import { unlimitedGroupSentence } from '@/lib/tours/group-size';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 /**
  * Группа тура для агента (1341): у тура без предела — «не ограничена» и
  * потолок одной заявки, иначе — прежний диапазон «мин-макс».
  */
 function groupField(r: Record<string, unknown>): string {
-  const facts = {
-    max_participants: typeof r.max_participants === 'number' || typeof r.max_participants === 'string' ? r.max_participants : null,
-    group_size_unlimited: r.group_size_unlimited === true,
-  };
-  if (isGroupSizeUnlimited(facts)) return (groupSentence(facts) ?? 'Группа не ограничена.').replace(/\.$/, '');
+  if (r.group_size_unlimited === true) {
+    const max = typeof r.max_participants === 'number' || typeof r.max_participants === 'string' ? r.max_participants : null;
+    return unlimitedGroupSentence(max).replace(/\.$/, '');
+  }
   return `${r.min_participants}-${r.max_participants} чел.`;
 }
-import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;

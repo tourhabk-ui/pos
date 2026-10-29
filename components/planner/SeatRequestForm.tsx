@@ -66,10 +66,19 @@ interface Created {
 
 export function SeatRequestForm({
   tour, defaultDate, defaultParticipants, onClose, source = 'planner', seasonWindow = null,
+  maxParticipants = null, groupSizeUnlimited = false,
 }: {
   tour: { id: string; title: string };
   defaultDate: string;
   defaultParticipants: number;
+  /**
+   * operator_tours.max_participants: больше людей одним запросом сервер не
+   * примет (lib/seat-requests/service, `group_too_large`) — бронь после «Есть
+   * места» упёрлась бы в тот же потолок. Не передано — прежние 100.
+   */
+  maxParticipants?: number | null;
+  /** Группа тура не ограничена (1341): под полем — как заявить группу больше. */
+  groupSizeUnlimited?: boolean;
   onClose: () => void;
   /** Откуда открыта форма — пишется в запрос (карточка тура или планер). */
   source?: 'planner' | 'tour_card';
@@ -140,13 +149,19 @@ export function SeatRequestForm({
   useEffect(() => { if (created) dialogRef.current?.focus(); }, [created]);
 
   const count = Number(participants);
-  const countValid = Number.isInteger(count) && count >= 1 && count <= 100;
+  const countCap = maxParticipants !== null && Number.isInteger(maxParticipants) && maxParticipants > 0
+    ? Math.min(maxParticipants, 100)
+    : 100;
+  const countValid = Number.isInteger(count) && count >= 1 && count <= countCap;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setExistingUrl(null);
-    if (!countValid) { setError('Укажите число человек от 1 до 100'); return; }
+    if (!countValid) {
+      setError(countCap === 1 ? 'Одним запросом — только 1 человек' : `Укажите число человек от 1 до ${countCap}`);
+      return;
+    }
     if (!consent) { setError('Нужно согласие на обработку персональных данных'); return; }
     setSending(true);
     try {
@@ -280,10 +295,16 @@ export function SeatRequestForm({
               </label>
               <label className="block">
                 <span className="ds-label">Человек</span>
-                <input type="number" inputMode="numeric" required min={1} max={100} value={participants}
+                <input type="number" inputMode="numeric" required min={1} max={countCap} value={participants}
+                       aria-describedby={groupSizeUnlimited ? 'seat-request-participants-more' : undefined}
                        onChange={e => setParticipants(e.target.value)} className="ds-input w-full" />
               </label>
             </div>
+            {groupSizeUnlimited && (
+              <p id="seat-request-participants-more" className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                Группа не ограничена, но одним запросом — до {countCap} человек. Больше — оставьте обычную заявку и напишите о группе в пожеланиях, оператор соберёт её.
+              </p>
+            )}
             <label className="block">
               <span className="ds-label">Имя</span>
               <input required minLength={2} maxLength={255} value={name} onChange={e => setName(e.target.value)} className="ds-input w-full" autoComplete="name" />
