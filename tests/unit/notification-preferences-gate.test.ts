@@ -122,7 +122,7 @@ describe('путь доставки действительно проходит 
   });
 
   it('каждый вызов sendPushToUser объявляет род', () => {
-    const CALLER = read('app/api/hub/operator/bookings/[id]/route.ts');
+    const CALLER = read('lib/bookings/owner-status.ts');
     expect(CALLER).toMatch(/kind: 'transactional'/);
   });
 });

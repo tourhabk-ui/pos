@@ -46,7 +46,14 @@
  *     число при готовом предложении), снимает предложение со строкой
  *     «напишите фразу целиком», и его «Открыть» не пишет; «Выставь Горелый
  *     на <дату>» — предложение по турам из базы, а не помощнику; знак вне
- *     списка — отказ.
+ *     списка — отказ;
+ *   - гид со своими турами (29.10): признак «продаёт свои туры» — настоящий
+ *     (findPartnerByChat, EXISTS по его турам); фраза — предложение с
+ *     кнопкой «Открыть» и строкой меню гида, нажатие открывает даты ЕГО тура
+ *     (черновик тоже: это его тур), вне сезона — не открывает, ссылки — в
+ *     раздел «Свои туры»; чужой тур в его предложении — refused, календарь
+ *     чужого тура не тронут; гид команды без своих туров — помощнику, строки
+ *     предложения нет.
  *
  * Своя база `chat_open_dates_test` — копия шаблона схемы. Без
  * KERNEL_PG_TEST_URL файл честно пропускается — «не прогнано», а не «прошло».
@@ -110,6 +117,8 @@ const CHAT_B = 810_002;
 const CHAT_NO_ACCOUNT = 810_003;
 const CHAT_CARRIER = 810_004;
 const CHAT_A2 = 810_005;
+const CHAT_GUIDE = 810_011;
+const CHAT_TEAM_GUIDE = 810_012;
 
 interface Button { type: string; text: string; payload: string }
 
@@ -161,8 +170,8 @@ function day(n: number): string {
 
 withPg('«открой даты словами» на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
-  const partner = { a: '', b: '', noAccount: '', carrier: '' };
-  const tour = { gorely: '', fish: '', foreign: '', hidden: '' };
+  const partner = { a: '', b: '', noAccount: '', carrier: '', guide: '', teamGuide: '' };
+  const tour = { gorely: '', fish: '', foreign: '', hidden: '', guideDraft: '' };
 
   async function rows(tourId: string): Promise<Array<{ date: string; slots: number; cancelled: boolean | null; reason: string | null; updated_at: string }>> {
     const r = await pool.query(
@@ -194,8 +203,8 @@ withPg('«открой даты словами» на настоящем Postgre
     let userId: string | null = null;
     if (withAccount) {
       userId = (await pool.query<{ id: string }>(
-        `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, 'x', 'operator') RETURNING id::text AS id`,
-        [`${chatId}@chat-dates.test`, name],
+        `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, 'x', $3) RETURNING id::text AS id`,
+        [`${chatId}@chat-dates.test`, name, category === 'guide' ? 'guide' : 'operator'],
       )).rows[0]!.id;
     }
     return (await pool.query<{ id: string }>(
@@ -221,6 +230,12 @@ withPg('«открой даты словами» на настоящем Postgre
     tour.fish = await addTour(partner.a, 'Летняя рыбалка', { season_start: day(30), season_end: day(60) });
     tour.hidden = await addTour(partner.a, 'Скрытый сплав', { is_active: false });
     tour.foreign = await addTour(partner.b, 'Чужой тур');
+    // Гид с авторским туром (1338): черновик (не опубликован) с сезоном — его тур.
+    partner.guide = await addPartner('Гид со своими турами', 'guide', CHAT_GUIDE, true);
+    partner.teamGuide = await addPartner('Гид команды', 'guide', CHAT_TEAM_GUIDE, true);
+    tour.guideDraft = await addTour(partner.guide, 'Толбачик гида', {
+      is_published: false, season_start: day(20), season_end: day(80), max_participants: 4,
+    });
   }, 300_000);
 
   afterAll(async () => {
@@ -749,6 +764,66 @@ withPg('«открой даты словами» на настоящем Postgre
         `SELECT data_type FROM information_schema.columns WHERE table_name = 'operator_chat_date_proposals' AND column_name = 'source_sent_at'`,
       );
       expect(col.rows[0]).toEqual({ data_type: 'timestamp with time zone' });
+    });
+  });
+
+  describe('гид со своими турами (29.10)', () => {
+    const allTo = (chatId: number) => to(chatId).map((m) => m.text);
+
+    it('фраза — предложение с «Открыть» и строкой меню гида; нажатие — даты его черновика, вне сезона — нет; ссылки — «Свои туры»', async () => {
+      const [inSeason, outSeason] = [day(30), day(90)];
+      await say(CHAT_GUIDE, `открой ${inSeason} и ${outSeason} на Толбачик, 3 места`);
+      expect(partnerMessage).not.toHaveBeenCalled();
+      const preview = lastTo(CHAT_GUIDE)!.text;
+      expect(preview).toMatch(/Понял так:[\s\S]*Тур: «Толбачик гида»[\s\S]*Мест на каждый выезд: 3/);
+      expect(preview).toMatch(/Откроются \(1\)/);
+      expect(preview).toMatch(/Вне сезона тура, не открою \(1\): .*сезон тура меняет менеджер Ведара\./);
+      expect(preview).toMatch(/Тур — черновик, туристы даты пока не видят: пришлите описание менеджеру Ведара/);
+      expect(await rows(tour.guideDraft)).toEqual([]);
+      const id = proposalId(CHAT_GUIDE);
+      expect(buttons(lastTo(CHAT_GUIDE)).map((b) => b.payload)).toEqual([
+        `od:o:${id}`, `od:x:${id}`, 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp',
+      ]);
+
+      await press(CHAT_GUIDE, `od:o:${id}`);
+      expect(lastTo(CHAT_GUIDE)?.text).toMatch(/^Готово, «Толбачик гида», 3 места на выезд\.\nОткрыты \(1\)/);
+      expect(lastTo(CHAT_GUIDE)?.text).toMatch(/Проверить: https?:\/\/\S+\/hub\/guide\/own$/);
+      expect((await rows(tour.guideDraft)).map((r) => [r.date, r.slots, r.cancelled])).toEqual([[inSeason, 3, false]]);
+      expect(await proposal(id)).toMatchObject({ status: 'done', outcome: { kind: 'done', written: 1 } });
+      // Ни одной ссылки в кабинет оператора: гида он не пустит.
+      for (const t of allTo(CHAT_GUIDE)) expect(t).not.toMatch(/\/hub\/operator/);
+    });
+
+    it('чужой тур в предложении гида (вставлено руками) — refused, календарь чужого тура не тронут', async () => {
+      const d = day(25);
+      await pool.query(`UPDATE operator_chat_date_proposals SET status = 'superseded' WHERE chat_id = $1 AND status IN ('draft', 'ready')`, [CHAT_GUIDE]);
+      const id = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_chat_date_proposals (partner_id, chat_id, tour_id, dates, seats, status, expires_at)
+         VALUES ($1, $2, $3, ARRAY[$4::date], 5, 'ready', NOW() + INTERVAL '30 minutes') RETURNING id::text AS id`,
+        [partner.guide, CHAT_GUIDE, tour.foreign, d],
+      )).rows[0]!.id;
+      await press(CHAT_GUIDE, `od:o:${id}`);
+      expect(lastTo(CHAT_GUIDE)?.text).toBe('Тур снят с продажи или больше не ваш — даты не открыты.');
+      expect(await proposal(id)).toMatchObject({ status: 'refused', outcome: { kind: 'refused' } });
+      expect((await rows(tour.foreign)).some((r) => r.date === d)).toBe(false);
+    });
+
+    it('предложение туроператора из чата гида — «не найдено в этом чате», ничего не записано', async () => {
+      const d = day(71);
+      await say(CHAT_A, `открой ${d} на Горелый, 5 мест`);
+      const id = proposalId(CHAT_A);
+      await press(CHAT_GUIDE, `od:o:${id}`);
+      expect(lastTo(CHAT_GUIDE)?.text).toBe('Это предложение не найдено в этом чате — ничего не изменено.');
+      expect((await proposal(id)).status).toBe('ready');
+      expect((await rows(tour.gorely)).some((r) => r.date === d)).toBe(false);
+    });
+
+    it('гид команды без своих туров — фраза помощнику кабинета, строки предложения нет', async () => {
+      await say(CHAT_TEAM_GUIDE, `открой ${day(30)}, 5 мест`);
+      expect(to(CHAT_TEAM_GUIDE)).toEqual([]);
+      expect(partnerMessage).toHaveBeenCalledTimes(1);
+      const n = await pool.query(`SELECT COUNT(*)::int AS n FROM operator_chat_date_proposals WHERE partner_id = $1::uuid`, [partner.teamGuide]);
+      expect(n.rows[0].n).toBe(0);
     });
   });
 });

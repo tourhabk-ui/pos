@@ -1,6 +1,7 @@
 /**
  * «Открой даты словами» (22.10, этап C, §9 спецификации): что Кузьмич пишет
- * оператору в чате кабинета MAX. Чистые функции от размеченных исходов —
+ * продавцу своих туров в чате кабинета MAX — туроператору и, с 29.10, гиду с
+ * авторскими турами. Чистые функции от размеченных исходов —
  * без выдумки: «открыто» звучит только про записанное, «не смог проверить»
  * не выдаётся ни за «нельзя», ни за «можно» (§4.0).
  *
@@ -20,7 +21,7 @@
  */
 
 import { escapeHtml } from '@/lib/text/escape-html';
-import { getPublicBaseUrl } from '@/lib/config';
+import { ownerCalendarUrl, ownerToursUrl } from '@/lib/partners/cabinet-links';
 import { windowLabel } from '@/lib/tours/request-window';
 import { horizonLastDate, isCalendarDate, tourHiddenText, type DateOpenResult } from '@/lib/tours/availability-open';
 import { type DatesAsk, type DatesRefusal, MAX_DATES_PER_PROPOSAL, weekdayOf, weekdaysPlural } from './parse';
@@ -30,8 +31,32 @@ export const PROPOSAL_TTL_MIN = 30;
 /** Потолок длины сообщения MAX с запасом. */
 export const MAX_MESSAGE_CHARS = 4000;
 
-export function calendarLink(): string {
-  return `${getPublicBaseUrl()}/hub/operator/calendar`;
+/**
+ * Кому отвечает поток (29.10): туроператор или гид со своими турами. От этого
+ * зависят адреса (кабинет оператора гида не пустит — его даты в разделе «Свои
+ * туры») и слова о том, кто что включает: оператор показывает тур сам, у гида
+ * скрытый тур и черновик включает менеджер Ведара. Обязателен у каждого
+ * текста со ссылкой или такими словами — забытый продавец не соберётся.
+ */
+export type DatesSeller = 'operator' | 'guide';
+
+/** Продавец по карточке чата. Поток зовёт её только для того, кто продаёт свои туры (`sellsOwnTours`). */
+export function datesSellerOf(partner: { category: string | null | undefined }): DatesSeller {
+  return partner.category === 'guide' ? 'guide' : 'operator';
+}
+
+/** Где продавец открывает даты на сайте. Адреса кабинета строит одно место — lib/partners/cabinet-links. */
+export function calendarLink(seller: DatesSeller): string {
+  return ownerCalendarUrl(seller);
+}
+
+/** Кто включает скрытый тур — продавец сам или менеджер Ведара. */
+function hiddenTourText(title: string, seller: DatesSeller): string {
+  return seller === 'guide'
+    // В разделе «Свои туры» кнопки «Показать» нет: тур гида включает менеджер.
+    ? `Тур «${title}» скрыт — туристы его не видят, и даты ему не открыты. Включает его менеджер Ведара; ` +
+      'после включения откройте даты ещё раз — сами они не откроются.'
+    : tourHiddenText(title);
 }
 
 // ── Слова и даты ──────────────────────────────────────────────────────────
@@ -235,8 +260,12 @@ function only<K extends DateOpenResult['result']>(perDate: DateOpenResult[], kin
   return perDate.filter((r): r is Extract<DateOpenResult, { result: K }> => r.result === kind);
 }
 
-/** Строки исхода по датам: `preview` — что будет, `done` — что сделано. */
-export function perDateLines(perDate: DateOpenResult[], seats: number, mode: 'preview' | 'done'): string[] {
+/**
+ * Строки исхода по датам: `preview` — что будет, `done` — что сделано.
+ * `seller` — где открыть закрытое и кто меняет сезон: оператор — сам, в
+ * календаре и карточке тура; гид — в разделе «Свои туры», сезон — менеджер.
+ */
+export function perDateLines(perDate: DateOpenResult[], seats: number, mode: 'preview' | 'done', seller: DatesSeller): string[] {
   const p = mode === 'preview';
   const lines: string[] = [];
   const opened = only(perDate, 'opened');
@@ -273,14 +302,17 @@ export function perDateLines(perDate: DateOpenResult[], seats: number, mode: 'pr
     }
     const parts = [...byReason].map(([reason, ds]) => (reason ? `${datesList(ds)} («${escapeHtml(reason)}»)` : datesList(ds)));
     lines.push(`${p ? 'Закрыты вами, не открываю' : 'Не открыты — закрыты вами'} (${closed.length}): ${parts.join('; ')}` +
-      ' — открыть их снова можно в кабинете, в календаре.');
+      (seller === 'guide'
+        ? ' — открыть их снова можно в кабинете, в разделе «Свои туры».'
+        : ' — открыть их снова можно в кабинете, в календаре.'));
   }
   const season = only(perDate, 'refused_season');
   if (season.length) {
     const w = season[0]!;
     const label = windowLabel({ kind: 'season', from: w.from, to: w.to, seasonStart: w.seasonStart, seasonEnd: w.seasonEnd });
     lines.push(`${p ? 'Вне сезона тура, не открою' : 'Не открыты — вне сезона тура'} (${season.length}): ` +
-      `${datesList(season.map((r) => r.date))} — ${label}; сезон меняется в карточке тура.`);
+      `${datesList(season.map((r) => r.date))} — ${label}; ` +
+      (seller === 'guide' ? 'сезон тура меняет менеджер Ведара.' : 'сезон меняется в карточке тура.'));
   }
   const past = only(perDate, 'refused_past');
   if (past.length) lines.push(`${p ? 'Прошли, не открою' : 'Не открыты — прошли'} (${past.length}): ${datesList(past.map((r) => r.date))}.`);
@@ -328,6 +360,8 @@ export interface ProposalView extends PastFlags {
   weekdayWords: boolean;
   /** Правило фразы словами; null — фраза перечисляла даты. */
   rule?: string | null;
+  /** Кому: от этого слова о неопубликованном туре. */
+  seller: DatesSeller;
 }
 
 /**
@@ -366,7 +400,7 @@ function pastLine(d: string, today: string | undefined, tail: string, seats: num
 }
 
 /** Пометки под датами: только те, что правда для этого предложения. `seats` null — мест ещё не назвали. */
-function notes(v: Omit<ProposalView, 'seats'> & { seats: number | null }): string[] {
+function notes(v: Omit<ProposalView, 'seats' | 'seller'> & { seats: number | null; seller: DatesSeller | null }): string[] {
   const out: string[] = [];
   if (v.pastDropped?.length) out.push(`Раньше сегодняшнего не открываю — прошли: ${datesList(v.pastDropped)}.`);
   for (const d of v.pastNamed ?? []) out.push(pastLine(d, v.today, ' — не открываю.', v.seats, true));
@@ -377,7 +411,12 @@ function notes(v: Omit<ProposalView, 'seats'> & { seats: number | null }): strin
     out.push(`Тур идёт ${v.facts.days} ${plural(v.facts.days, 'день', 'дня', 'дней')}, а выезды стоят чаще — ` +
       'группы будут делить места в общие дни: места считаются на день, а не на выезд.');
   }
-  if (v.facts && !v.facts.isPublished) out.push('Тур не опубликован — туристы даты пока не видят.');
+  if (v.facts && !v.facts.isPublished) {
+    out.push(v.seller === 'guide'
+      // Те же слова, что у раздела «Свои туры» на сайте.
+      ? 'Тур — черновик, туристы даты пока не видят: пришлите описание менеджеру Ведара, и тур появится на сайте.'
+      : 'Тур не опубликован — туристы даты пока не видят.');
+  }
   if (v.autoConfirm === true) out.push('У вас включено автоподтверждение: брони на эти даты подтвердятся сразу.');
   if (v.autoConfirm === null) out.push('Включено ли у вас автоподтверждение броней — не смог проверить.');
   if (v.weekdayWords) {
@@ -417,7 +456,7 @@ export function proposalText(v: ProposalView): { text: string; canOpen: boolean 
     body = ['Что сейчас с этими датами — не смог проверить, скажу после нажатия.'];
     canOpen = true;
   } else {
-    body = perDateLines(v.perDate, v.seats, 'preview');
+    body = perDateLines(v.perDate, v.seats, 'preview', v.seller);
     canOpen = openableCount(v.perDate) > 0;
   }
   const n = notes(v);
@@ -437,7 +476,7 @@ export function chooseTourText(v: PastFlags & {
   rule?: string | null;
 }): string {
   const what = v.seats === null ? '' : `, ${seatsWord(v.seats)}`;
-  const n = notes({ tourTitle: '', seats: v.seats, dates: v.dates, perDate: null, facts: null, autoConfirm: false,
+  const n = notes({ tourTitle: '', seats: v.seats, dates: v.dates, perDate: null, facts: null, autoConfirm: false, seller: null,
     priceMentioned: v.priceMentioned, weekdayWords: v.weekdayWords, pastDropped: v.pastDropped, pastNamed: v.pastNamed, today: v.today });
   // «Нажмите кнопку», а не «номер»: номер, написанный текстом, — не выбор тура
   // (до ревью 22.10 он становился числом мест).
@@ -462,7 +501,7 @@ export function tourButtonText(index: number, title: string): string {
 export function askSeatsText(v: PastFlags & {
   tourTitle: string | null; dates: string[]; priceMentioned: boolean; weekdayWords: boolean; rule?: string | null;
 }): string {
-  const n = notes({ tourTitle: '', seats: null, dates: v.dates, perDate: null, facts: null, autoConfirm: false,
+  const n = notes({ tourTitle: '', seats: null, dates: v.dates, perDate: null, facts: null, autoConfirm: false, seller: null,
     priceMentioned: v.priceMentioned, weekdayWords: v.weekdayWords, pastDropped: v.pastDropped, pastNamed: v.pastNamed, today: v.today });
   return fit(
     [...(v.tourTitle ? [`Тур: «${tourName(v.tourTitle)}»`] : []), ...ruleLines(v.rule), ...datesBlock(v.dates)],
@@ -475,9 +514,9 @@ export function askSeatsText(v: PastFlags & {
 
 /**
  * Вопрос разбора. `today` — сегодня по Камчатке: от него месяц образца и
- * нужен ли в подсказке год.
+ * нужен ли в подсказке год. `seller` — чей кабинет в ссылке.
  */
-export function askText(a: DatesAsk, today: string): string {
+export function askText(a: DatesAsk, today: string, seller: DatesSeller): string {
   switch (a.what) {
     case 'month_scope': {
       const last = new Date(Date.UTC(a.year, a.month, 0)).getUTCDate();
@@ -497,7 +536,7 @@ export function askText(a: DatesAsk, today: string): string {
       // открыли бы одни прошедшие субботы.
       const some = left >= 7 ? `субботы ${GEN_MONTH[a.month - 1]}` : `${a.fromDay}${left > 1 ? ` и ${last}` : ''} ${GEN_MONTH[a.month - 1]}`;
       return `${scope} Напишите «открой весь ${name}${yr}${s}» или, например, «открой ${some}${yr}${s}». ` +
-        `Или в кабинете: ${calendarLink()}`;
+        `Или в кабинете: ${calendarLink(seller)}`;
     }
     case 'weekday_month':
       return `Какого месяца? Например: «открой ${weekdaysPlural(a.days)} ${sampleMonth(today).gen}${seatsTail(a.seats)}».`;
@@ -510,8 +549,8 @@ export function askText(a: DatesAsk, today: string): string {
   }
 }
 
-/** Отказ разбора. `today` — сегодня по Камчатке: от него месяц образца. */
-export function refusalText(r: DatesRefusal, today: string): string {
+/** Отказ разбора. `today` — сегодня по Камчатке: от него месяц образца. `seller` — чей кабинет в ссылке. */
+export function refusalText(r: DatesRefusal, today: string, seller: DatesSeller): string {
   const nothing = 'Ничего не открыто.';
   const g = sampleMonth(today).gen;
   switch (r.reason) {
@@ -519,9 +558,9 @@ export function refusalText(r: DatesRefusal, today: string): string {
     case 'exclusion':
     case 'mixed_actions':
       return 'Одно действие за раз и без исключений: перечислите даты, которые открыть, например ' +
-        `«открой 3, 10 и 24 ${g}, 8 мест». Закрывают даты в кабинете: ${calendarLink()}. ${nothing}`;
+        `«открой 3, 10 и 24 ${g}, 8 мест». Закрывают даты в кабинете: ${calendarLink(seller)}. ${nothing}`;
     case 'question':
-      return `Это вопрос — по вопросу даты не открываю. Открыть: ${example(today)}. Что открыто сейчас, видно в кабинете: ${calendarLink()}`;
+      return `Это вопрос — по вопросу даты не открываю. Открыть: ${example(today)}. Что открыто сейчас, видно в кабинете: ${calendarLink(seller)}`;
     case 'past_only': {
       const named = r.named.map((d) => pastLine(d, r.today, '.', r.seats, false));
       return named.length > 0 && r.dropped.length === 0 && named.length <= 3
@@ -535,11 +574,11 @@ export function refusalText(r: DatesRefusal, today: string): string {
       // фраза на чужие месяцы («весь ноябрь») была бы принята как есть и
       // открыла бы то, о чём не просили (третий ревью 22.10).
       if (r.parts.length < 2) {
-        return `${head} Разбейте по месяцам — одна фраза на месяц. Или в кабинете: ${calendarLink()}. ${nothing}`;
+        return `${head} Разбейте по месяцам — одна фраза на месяц. Или в кабинете: ${calendarLink(seller)}. ${nothing}`;
       }
       const [a, b, ...more] = r.parts;
       return `${head} Разбейте по месяцу: «открой ${a}${s}», потом «открой ${b}${s}»${more.length ? ' и дальше так же' : ''}. ` +
-        `Или в кабинете: ${calendarLink()}. ${nothing}`;
+        `Или в кабинете: ${calendarLink(seller)}. ${nothing}`;
     }
     case 'bad_date':
       return `Даты «${escapeHtml(r.text)}» нет в календаре. ${nothing}`;
@@ -632,7 +671,7 @@ export function refusalText(r: DatesRefusal, today: string): string {
         `или дни недели: «открой субботы ${g}${seatsTail(r.seats)}». ${nothing}`;
     case 'seats_delta':
       return `Пишите итоговое число мест на дату, а не добавку («${escapeHtml(r.word)}»), например «открой 3 ${g}, 10 мест». ` +
-        `Сколько мест открыто сейчас, видно в кабинете: ${calendarLink()}. ${nothing}`;
+        `Сколько мест открыто сейчас, видно в кабинете: ${calendarLink(seller)}. ${nothing}`;
     case 'bad_char':
       // Пятый ревью: «❌», «🚫», «−» несут «кроме» и «минус», которых разбор не знает.
       return `Не понял знак «${escapeHtml(r.char)}» — открываю только то, что написано словами и числами, без исключений. ` +
@@ -746,8 +785,8 @@ const WEEKDAY_LONG = ['понедельник', 'вторник', 'среда', 
 // ── Отказы потока ─────────────────────────────────────────────────────────
 
 export const FLOW_TEXT = {
-  closeIntent: () => `Закрыть даты из чата пока нельзя. В кабинете: ${calendarLink()}`,
-  switchedOff: () => `Открывать даты из чата сейчас нельзя. В кабинете: ${calendarLink()}`,
+  closeIntent: (seller: DatesSeller) => `Закрыть даты из чата пока нельзя. В кабинете: ${calendarLink(seller)}`,
+  switchedOff: (seller: DatesSeller) => `Открывать даты из чата сейчас нельзя. В кабинете: ${calendarLink(seller)}`,
   /** Группа: кнопку «Открыть» нажал бы любой участник (четвёртый ревью 22.10: раньше фраза пропадала молча). */
   groupChat: 'Открывать даты словами можно только в личном диалоге со мной: в группе кнопку «Открыть» нажал бы '
     + 'любой участник. Напишите эту фразу мне в личные сообщения. Ничего не открыто.',
@@ -766,29 +805,39 @@ export const FLOW_TEXT = {
   retireFailed: 'Прежнее предложение снять не смог — его кнопку «Открыть» не нажимайте.',
   tooLong: (n: number) => `Это ${datesWord(n)} — список не помещается в одно сообщение. Разбейте по месяцам — одна фраза на месяц. `
     + 'Ничего не открыто.',
-  noAccount: () => 'Открывать даты из чата может только компания с кабинетом на Ведаре, а у этой записи кабинета нет. ' +
-    `Ничего не открыто. Даты открывает администратор или вы — после входа: ${calendarLink()}`,
+  noAccount: (seller: DatesSeller) => seller === 'guide'
+    ? 'Открывать даты из чата может только гид с кабинетом на Ведаре, а у вашей карточки кабинета нет. ' +
+      `Ничего не открыто. Даты открывает менеджер Ведара или вы — после входа: ${calendarLink(seller)}`
+    : 'Открывать даты из чата может только компания с кабинетом на Ведаре, а у этой записи кабинета нет. ' +
+      `Ничего не открыто. Даты открывает администратор или вы — после входа: ${calendarLink(seller)}`,
   // Слышит и турист: проверка чата не прошла — значит, неизвестно, чей он.
   partnerUnknown: 'Сбой на нашей стороне — ничего не изменено, попробуйте через минуту.',
   toursUnread: 'Не смог прочитать ваши туры — ничего не открыто, попробуйте через минуту.',
-  noTours: () => `У вас нет активных туров — открывать даты некуда. Тур включается в кабинете: ${getPublicBaseUrl()}/hub/operator/tours`,
+  noTours: (seller: DatesSeller) => seller === 'guide'
+    ? `У вас нет активных туров — открывать даты некуда. Скрытый тур включает менеджер Ведара. Ваши туры: ${ownerToursUrl(seller)}`
+    : `У вас нет активных туров — открывать даты некуда. Тур включается в кабинете: ${ownerToursUrl(seller)}`,
   nameNeeded: (titles: string[]) => 'Напишите фразу заново с названием тура. Ваши туры:\n' +
     titles.map((t) => `— ${escapeHtml(t)}`).join('\n'),
-  hidden: (title: string) => `${escapeHtml(tourHiddenText(title))} Ничего не открыто.`,
+  hidden: (title: string, seller: DatesSeller) => `${escapeHtml(hiddenTourText(title, seller))} Ничего не открыто.`,
   /** Фраза назвала только скрытые туры — один или несколько (третий ревью 22.10). */
-  hiddenTours: (titles: string[]) => titles.length === 1
-    ? FLOW_TEXT.hidden(titles[0]!)
+  hiddenTours: (titles: string[], seller: DatesSeller) => titles.length === 1
+    ? FLOW_TEXT.hidden(titles[0]!, seller)
     : `Туры ${titles.map((t) => `«${tourName(t)}»`).join(', ')} скрыты — туристы их не видят, и даты им не открыты. ` +
-      'Включите нужный («Показать» в списке туров или «Активен» в карточке тура) и откройте даты ещё раз — ' +
-      'сами при включении они не откроются. Ничего не открыто.',
+      (seller === 'guide'
+        ? 'Включает их менеджер Ведара; после включения откройте даты ещё раз — сами они не откроются. Ничего не открыто.'
+        : 'Включите нужный («Показать» в списке туров или «Активен» в карточке тура) и откройте даты ещё раз — ' +
+          'сами при включении они не откроются. Ничего не открыто.'),
   saveFailed: 'Не смог сохранить предложение — ничего не открыто. Попробуйте через минуту.',
   draftUnread: 'Не смог прочитать незаконченное предложение дат — ничего не открыто. Если число было про места, напишите его ещё раз через минуту.',
   chooseTourFirst: 'Тур выберите кнопкой под сообщением, места спрошу следом. Ничего не изменено.',
   badSeats: (n: number) => `Мест на выезд — от 1 до 500, а названо ${n}. Ничего не открыто.`,
   cancelled: 'Хорошо, ничего не открываю.',
   // Нажатия
-  pressUnverifiedPartner: () => `Не смог проверить нажатие — ничего не изменено. Откройте даты в кабинете: ${calendarLink()}`,
-  pressNotHere: 'Эта кнопка работает только в чате кабинета оператора. Ничего не изменено.',
+  // Чей это чат, не проверено — значит, неизвестно и чей кабинет: ссылка
+  // на кабинет оператора гида увела бы на отказ (29.10).
+  pressUnverifiedPartner: 'Не смог проверить нажатие — ничего не изменено. Нажмите кнопку ещё раз через минуту '
+    + 'или откройте даты в кабинете на сайте.',
+  pressNotHere: 'Эта кнопка работает только в чате кабинета оператора или гида со своими турами. Ничего не изменено.',
   notFound: 'Это предложение не найдено в этом чате — ничего не изменено.',
   // Заменяет и новое предложение, и поправка текстом (отказ, вопрос): новой
   // кнопки может не быть — поэтому «под последним, если есть».
@@ -805,8 +854,8 @@ export const FLOW_TEXT = {
 } as const;
 
 /** Telegram: кнопки подтверждения там нет — даты словами открываются в MAX. */
-export function telegramDatesText(): string {
-  return `Открыть даты словами можно в MAX — там есть кнопка подтверждения. Или в кабинете: ${calendarLink()}`;
+export function telegramDatesText(seller: DatesSeller): string {
+  return `Открыть даты словами можно в MAX — там есть кнопка подтверждения. Или в кабинете: ${calendarLink(seller)}`;
 }
 
 // ── Итог нажатия ──────────────────────────────────────────────────────────
@@ -839,17 +888,17 @@ export function readStoredOutcome(v: unknown): StoredOutcome | null {
 }
 
 /** Ответ на нажатие «Открыть»: исход каждой даты словами. `lead` — строка перед итогом (повтор нажатия). */
-export function outcomeText(o: StoredOutcome, lead?: string): string {
+export function outcomeText(o: StoredOutcome, seller: DatesSeller, lead?: string): string {
   if (o.kind === 'refused') {
     const t = o.reason === 'tour_inactive'
-      ? FLOW_TEXT.hidden(o.title)
+      ? FLOW_TEXT.hidden(o.title, seller)
       : 'Тур снят с продажи или больше не ваш — даты не открыты.';
     return lead ? `${lead} ${t}` : t;
   }
   const head = o.written > 0
     ? `Готово, «${tourName(o.tourTitle)}», ${seatsWord(o.seats)} на выезд.`
     : `Ничего не открыто: «${tourName(o.tourTitle)}», ${seatsWord(o.seats)} на выезд.`;
-  return fit([...(lead ? [lead] : []), head], perDateLines(o.perDate, o.seats, 'done'), [`Проверить: ${calendarLink()}`]);
+  return fit([...(lead ? [lead] : []), head], perDateLines(o.perDate, o.seats, 'done', seller), [`Проверить: ${calendarLink(seller)}`]);
 }
 
 /** «14:32» по Камчатке. */
@@ -858,11 +907,11 @@ export function kamchatkaTime(at: Date): string {
 }
 
 /** Повторное нажатие уже исполненного предложения: ничего не пишется, итог — прежний. */
-export function repeatText(usedAt: Date | null, o: StoredOutcome | null): string {
+export function repeatText(usedAt: Date | null, o: StoredOutcome | null, seller: DatesSeller): string {
   const when = usedAt ? ` в ${kamchatkaTime(usedAt)} (по Камчатке)` : '';
-  if (o === null) return `Уже сделано${when}. Итог не прочитался — проверьте в кабинете: ${calendarLink()}`;
-  if (o.kind === 'refused') return outcomeText(o, `Это предложение уже обработано${when}:`);
-  return outcomeText(o, `Уже сделано${when}, повтор ничего не меняет:`);
+  if (o === null) return `Уже сделано${when}. Итог не прочитался — проверьте в кабинете: ${calendarLink(seller)}`;
+  if (o.kind === 'refused') return outcomeText(o, seller, `Это предложение уже обработано${when}:`);
+  return outcomeText(o, seller, `Уже сделано${when}, повтор ничего не меняет:`);
 }
 
 // ── История помощника ─────────────────────────────────────────────────────
@@ -872,13 +921,13 @@ export function repeatText(usedAt: Date | null, o: StoredOutcome | null): string
  * идёт — история уходит зарубежной модели (§8), а сводка из размеченных
  * полей не несёт ничего, кроме тура, дат и числа мест.
  */
-export function historyAsk(tourTitle: string | null, dates: string[], seats: number | null): string {
+export function historyAsk(tourTitle: string | null, dates: string[], seats: number | null, seller: DatesSeller): string {
   const tour = tourTitle ? ` тура «${tourTitle}»` : '';
   const s = seats === null ? '' : ` по ${seatsWord(seats)}`;
-  return `Оператор попросил в чате открыть ${datesWord(dates.length)} (${datesList(dates)})${tour}${s}.`;
+  return `${seller === 'guide' ? 'Гид' : 'Оператор'} попросил в чате открыть ${datesWord(dates.length)} (${datesList(dates)})${tour}${s}.`;
 }
-export function historyResult(o: StoredOutcome): string {
-  if (o.kind === 'refused') return 'Даты из чата не открыты: тур снят, скрыт или больше не этого оператора.';
+export function historyResult(o: StoredOutcome, seller: DatesSeller): string {
+  if (o.kind === 'refused') return `Даты из чата не открыты: тур снят, скрыт или больше не этого ${seller === 'guide' ? 'гида' : 'оператора'}.`;
   return `По кнопке «Открыть» открыто ${o.written} из ${o.perDate.length} дат тура «${o.tourTitle}» (${seatsWord(o.seats)} на выезд). ` +
     'Сам помощник даты не открывает.';
 }

@@ -139,7 +139,7 @@ describe('экран, «Входящие», карточка', () => {
   it('отзыв о туре без ответа — во «Входящих» оператора, и больше не в «чего здесь нет»', async () => {
     const kinds = await import('@/lib/crm/inbox-kinds');
     expect(kinds.INBOX_BY_CATEGORY.operator).toContain('tour_review');
-    expect(kinds.INBOX_ACTION.tour_review.href).toBe('/hub/operator/reviews');
+    expect(kinds.inboxActionFor('operator', 'tour_review').href).toBe('/hub/operator/reviews');
     expect(kinds.RESPONSE_METRIC_KINDS.has('tour_review')).toBe(false);
     expect(kinds.INBOX_NOT_HERE.operator.join(' ')).not.toMatch(/Отзывы на туры/);
     const { INBOX_SQL } = await import('@/lib/crm/inbox-sql');

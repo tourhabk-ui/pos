@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, within, fireEvent } from '@testing-library/react';
 
 import CarrierClient from '@/app/hub/carrier/_CarrierClient';
-import { INBOX_NOT_HERE, INBOX_ACTION } from '@/lib/crm/inbox-kinds';
+import { INBOX_NOT_HERE, inboxActionFor } from '@/lib/crm/inbox-kinds';
 
 const VEHICLE = { id: 'v1', kind: 'vahtovka', title: 'КамАЗ синяя', seats: 26, notes: null, is_active: true };
 const REQUEST = {
@@ -81,6 +81,6 @@ describe('кабинет перевозчика — машина целиком'
 describe('«Входящие» перевозчика', () => {
   it('сказано, где заявки на машину; к запросам мест — путь в кабинет', () => {
     expect(INBOX_NOT_HERE.transfer.join(' ')).toMatch(/Заявки на машину целиком подтверждает с вами менеджер Ведара/);
-    expect(INBOX_ACTION.transfer_seat_booking).toEqual({ href: '/hub/carrier', hint: 'Ответить в «Кабинете», раздел «Запросы мест»' });
+    expect(inboxActionFor('transfer', 'transfer_seat_booking')).toEqual({ href: '/hub/carrier', hint: 'Ответить в «Кабинете», раздел «Запросы мест»' });
   });
 });

@@ -66,6 +66,18 @@ describe('POST /api/chat/conversations — operatorPartnerId', () => {
     );
   });
 
+  // 29.10: тур продаёт и гид (1338). Роль собеседника — категория его
+  // карточки: по ней уведомление о сообщении и лента CRM ищут карточку.
+  it('тур гида → собеседник записан гидом; категория без чата — прежняя роль оператора', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{ user_id: 'guide-user-3', category: 'guide' }] });
+    await POST(req({ operatorPartnerId: 'partner-6', subject: 'Авторский тур' }));
+    expect(getOrCreateDirectMock).toHaveBeenLastCalledWith('tourist-1', 'tourist', 'guide-user-3', 'guide', { subject: 'Авторский тур' });
+
+    poolQueryMock.mockResolvedValue({ rows: [{ user_id: 'stay-user-4', category: 'stay' }] });
+    await POST(req({ operatorPartnerId: 'partner-7' }));
+    expect(getOrCreateDirectMock).toHaveBeenLastCalledWith('tourist-1', 'tourist', 'stay-user-4', 'operator', { subject: undefined });
+  });
+
   it('у партнёра нет user_id → 404 с честным советом, беседа не создаётся', async () => {
     poolQueryMock.mockResolvedValue({ rows: [{ user_id: null }] });
 

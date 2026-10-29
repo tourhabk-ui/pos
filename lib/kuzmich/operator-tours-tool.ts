@@ -1,6 +1,8 @@
 /**
- * my_tours_schedule — свои туры оператора и открытые даты по ним, для
- * Кузьмича в привязанном чате оператора (MAX, Telegram).
+ * my_tours_schedule — свои туры продавца и открытые даты по ним, для
+ * Кузьмича в привязанном чате (MAX, Telegram). Продавец — туроператор и, с
+ * 29.10, гид с авторскими турами (lib/partners/tour-seller): его туры лежат
+ * в той же таблице с operator_id его карточки гида, запрос тот же.
  *
  * Владелец 24.10 («разве это мы планировали?»): оператор спросил в MAX
  * «какие даты открыты?», а помощник ответил, что инструменты расписания не
@@ -18,6 +20,7 @@ import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { containsPattern } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const MY_TOURS_TOOL_NAME = 'my_tours_schedule';
 
@@ -26,7 +29,7 @@ export const MY_TOURS_TOOL = {
   function: {
     name: MY_TOURS_TOOL_NAME,
     description:
-      'Свои туры оператора (включая скрытые с витрины и неактивные) и открытые даты со свободными местами по каждому. '
+      'Свои туры партнёра — туроператора или гида со своими турами (включая скрытые с витрины и неактивные) — и открытые даты со свободными местами по каждому. '
       + 'Зови на «мои туры», «какие даты открыты», «сколько мест на субботу».',
     parameters: {
       type: 'object',
@@ -81,17 +84,17 @@ export async function runMyToursSchedule(
     );
     tours = rows;
   } catch (err) {
-    console.error('[my-tours] туры оператора не прочитаны, SQLSTATE', (err as { code?: string })?.code ?? 'нет');
-    return 'НЕ УДАЛОСЬ ПРОЧИТАТЬ туры оператора — не утверждай, что туров или дат нет; предложи спросить позже.';
+    console.error('[my-tours] свои туры партнёра не прочитаны, SQLSTATE', (err as { code?: string })?.code ?? 'нет');
+    return 'НЕ УДАЛОСЬ ПРОЧИТАТЬ свои туры — не утверждай, что туров или дат нет; предложи спросить позже.';
   }
   if (tours.length === 0) {
-    return q ? `Среди туров оператора нет подходящего под «${q}».` : 'У оператора нет ни одного тура (удалённые не считаются).';
+    return q ? `Среди своих туров нет подходящего под «${q}».` : 'Своих туров нет ни одного (удалённые не считаются).';
   }
 
   const from = kamchatkaToday(nowMs);
   const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
   const cache = createPlannerCache();
-  const lines = [`Туры оператора и открытые даты с ${from} по ${to} (свободные места — с учётом броней):`];
+  const lines = [`Свои туры и открытые даты с ${from} по ${to} (свободные места — с учётом броней):`];
   for (const t of tours) {
     const flags = [t.is_active ? 'активен' : 'неактивен', t.is_published ? 'на витрине' : 'скрыт с витрины'];
     const season = t.season_start || t.season_end ? ` | сезон ${t.season_start ?? '…'} — ${t.season_end ?? '…'}` : '';
@@ -105,7 +108,9 @@ export async function runMyToursSchedule(
         const shown = slots.slice(0, DATES_LIMIT).map((s) => `${s.date}: свободно ${s.remaining}`).join('; ');
         lines.push(`  ${shown}${slots.length > DATES_LIMIT ? `; и ещё ${slots.length - DATES_LIMIT} дат` : ''}`);
       }
-    } catch {
+    } catch (err) {
+      // Отказ называется в логе (§4.0), модели — «не удалось», не «дат нет».
+      logSwallowedFailure('my-tours', `открытые даты тура ${t.id}`, err);
       lines.push('  Даты НЕ УДАЛОСЬ ПРОВЕРИТЬ — не утверждай, что их нет.');
     }
   }

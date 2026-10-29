@@ -42,6 +42,7 @@ import { computeLiveness, livenessWatch } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
 import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { sendPartnerNotice, type NoticeChannel, type NoticeTarget } from '@/lib/partners/notice';
+import { ownerBookingsListUrl } from '@/lib/partners/cabinet-links';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
@@ -263,6 +264,7 @@ async function notifyOperatorDirectly(
   partnerName: string,
   count: number,
   oldest: string,
+  category: string | null,
 ): Promise<NoticeChannel | null> {
   const body = [
     `<b>Привет, ${escapeHtml(partnerName)}!</b>`,
@@ -272,7 +274,8 @@ async function notifyOperatorDirectly(
   ].join('\n');
   return sendPartnerNotice(
     to, body,
-    { text: 'Мои бронирования', url: `${getPublicBaseUrl()}/hub/operator/bookings` },
+    // Гид со своими турами — в «Свои туры»: кабинет оператора его не пустит.
+    { text: 'Мои бронирования', url: ownerBookingsListUrl(category) },
     `напоминание оператору «${partnerName}»`,
   );
 }
@@ -346,6 +349,7 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       operator_id: string;
       partner_slug: string | null;
       partner_name: string | null;
+      partner_category: string | null;
       count: string;
       oldest: string;
     } & PartnerReachRow>(
@@ -360,6 +364,7 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       `SELECT ot.operator_id::text,
               p.slug AS partner_slug,
               COALESCE(p.company_name, p.name) AS partner_name,
+              p.category AS partner_category,
               p.telegram_chat_id,
               u_reach.telegram_id AS user_telegram_id,
               p.max_chat_id,
@@ -372,7 +377,7 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
        WHERE ob.booking_status = 'new'
          AND ob.created_at < NOW() - INTERVAL '48 hours'
          AND ob.deleted_at IS NULL
-       GROUP BY ot.operator_id, p.slug, p.company_name, p.name,
+       GROUP BY ot.operator_id, p.slug, p.company_name, p.name, p.category,
                 p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
@@ -406,6 +411,7 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
           row.partner_name,
           parseInt(row.count, 10),
           row.oldest,
+          row.partner_category,
         ).catch(() => null);
       }
     }

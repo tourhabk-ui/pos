@@ -10,6 +10,7 @@ import {
   adminMenu, adminMenuHelp, menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
 } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { operatorSeatsText } from '@/lib/telegram/operator-desk';
 import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { SUMMARY_PARTNER_IDS } from '@/lib/seat-requests/summary';
 import type { Inbox, InboxItem } from '@/lib/crm/inbox';
@@ -74,6 +75,51 @@ describe('меню роли', () => {
       .toEqual(['rm:gd:in', 'rm:gd:hp']);
   });
 
+  it('гид, который продаёт свои туры, — ещё «Брони» и «Мои туры»; гид команды и оператор — без них (29.10)', () => {
+    const seller = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
+    expect(seller?.map((b) => b.text)).toEqual(['Входящие', 'Брони', 'Мои туры', 'Помощь']);
+    expect(seller?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    for (const b of seller ?? []) expect(b.payload.length).toBeLessThan(64);
+    expect(partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2', sellsTours: false })?.map((b) => b.payload))
+      .toEqual(['rm:gd:in', 'rm:gd:hp']);
+    // Признак у туроператора строку не меняет: его туры — постоянная клавиатура и /tours.
+    expect(partnerMenu({ partnerId: OTHER, category: 'operator', slug: 'op', sellsTours: true })?.map((b) => b.payload))
+      .toEqual(['rm:op:in', 'rm:op:hp']);
+
+    expect(parseRoleMenuPress('rm:gd:bk')).toEqual({ role: 'guide', action: 'bookings' });
+    expect(parseRoleMenuPress('rm:gd:tr')).toEqual({ role: 'guide', action: 'tours' });
+    for (const p of ['rm:op:tr', 'rm:st:bk', 'rm:tf:tr', 'rm:ad:tr', 'rm:gd:dt', 'rm:gd:ld']) {
+      expect(parseRoleMenuPress(p), p).toBeNull();
+    }
+  });
+
+  it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — ни слова о них', () => {
+    const seller = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true }) ?? [];
+    const help = partnerMenuHelp('guide', seller);
+    expect(help).toContain('Под ответом кнопки: Входящие, Брони, Мои туры, Помощь.');
+    expect(help).toContain('Имя и телефон туриста — только в MAX');
+    expect(help).toContain('/hub/guide/own');
+    // Кнопки ответа брони (шаг 6) названы — и что бронь меняется только после «Да».
+    expect(help).toContain('«Подтвердить» и «Отклонить»');
+    expect(help).toContain('бронь меняется только после «Да»');
+    expect(help).not.toMatch(/₽/);
+    // Даты словами (шаг 8): фраза в личном диалоге MAX и кнопка «Открыть».
+    expect(help).toContain('Даты можно открыть фразой в личном диалоге с ботом в MAX, например «открой субботы июля, 8 мест»');
+    expect(help).toContain('откроет после кнопки «Открыть»');
+    const team = partnerMenuHelp('guide', partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2' }) ?? []);
+    expect(team).not.toMatch(/Брони|Мои туры|Подтвердить|открой субботы/);
+  });
+
+  it('«Обновить места» гида со своими турами: его раздел «Свои туры» и фраза в MAX; кабинета оператора нет (29.10)', () => {
+    const guide = operatorSeatsText('guide');
+    expect(guide).toMatch(/Откройте даты в разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
+    expect(guide).toContain('В MAX можно написать фразу целиком, например: «открой весь ноябрь, 8 мест» — там есть кнопка подтверждения.');
+    expect(guide).not.toMatch(/\/hub\/operator/);
+    // Туроператору — прежний текст: календарь кабинета и та же фраза.
+    expect(operatorSeatsText()).toMatch(/Откройте календарь: https?:\/\/\S+\/hub\/operator\/calendar/);
+    expect(operatorSeatsText()).toContain('«открой весь ноябрь, 8 мест»');
+  });
+
   it('админ — шесть чтений, входящих у него нет', () => {
     const row = adminMenu();
     expect(row.map((b) => b.text)).toEqual(['Даты', 'Брони', 'Заявки', 'Сводка', 'Здоровье', 'Помощь']);
@@ -110,6 +156,15 @@ describe('меню роли', () => {
     expect(help).not.toMatch(/₽/);
     expect(adminMenuHelp()).not.toMatch(/₽|<|>/);
     expect(adminMenuHelp()).toContain('только в MAX');
+  });
+
+  it('справка гида называет то, что правда стоит в его «Входящих»: брони, запросы мест и заявки своих туров (29.10)', async () => {
+    const { INBOX_BY_CATEGORY } = await import('@/lib/crm/inbox-kinds');
+    const menu = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'guide-1' }) ?? [];
+    const help = partnerMenuHelp('guide', menu);
+    expect(INBOX_BY_CATEGORY.guide).toEqual(expect.arrayContaining(['operator_booking', 'seat_request', 'lead']));
+    expect(help).toContain('брони, запросы мест и заявки на туры, которые вы продаёте сами');
+    expect(help).toContain('Имени и телефона туриста в этом списке нет');
   });
 });
 
