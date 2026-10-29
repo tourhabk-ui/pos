@@ -381,23 +381,62 @@ export function parseForecastHours(hourly: ForecastBlock | undefined): ForecastH
   });
 }
 
-/** Блок current Open-Meteo; поля без суффикса модели. */
+/**
+ * Блок current Open-Meteo. Запрос идёт с двумя моделями, и поле может прийти
+ * как без суффикса, так и с суффиксом модели (`temperature_2m_best_match`) —
+ * читаются обе формы, правилом суток: температура, ветер и прочее — из
+ * BASE_MODEL, код погоды об осадках — из PRECIP_MODEL (mergeWeatherCode).
+ * Заведено 29.10 (#2289): «сейчас» стали читать /api/weather,
+ * /api/public/now и погода тура оператора, и форма ответа не должна молча
+ * обнулять им текущий момент.
+ */
 export function parseForecastNow(current: Record<string, unknown> | undefined): ForecastNow | null {
   if (!current || typeof current !== 'object') return null;
-  const code = finite(current.weather_code);
+  const base = (field: string): unknown => current[`${field}_${BASE_MODEL}`] ?? current[field];
+  const gfsCode = current[`weather_code_${PRECIP_MODEL}`];
+  const code = finite(gfsCode === undefined
+    ? base('weather_code')
+    : mergeWeatherCode([gfsCode], [base('weather_code')])?.[0]);
+  const isDay = base('is_day');
   return {
     time: typeof current.time === 'string' ? current.time : null,
-    temp: finite(current.temperature_2m),
-    apparent: finite(current.apparent_temperature),
-    humidity: finite(current.relative_humidity_2m),
+    temp: finite(base('temperature_2m')),
+    apparent: finite(base('apparent_temperature')),
+    humidity: finite(base('relative_humidity_2m')),
     weatherCode: code,
     description: code === null ? null : wmoDescription(code),
-    windKmh: finite(current.wind_speed_10m),
-    windGustKmh: finite(current.wind_gusts_10m),
-    windDirDeg: finite(current.wind_direction_10m),
-    pressureHpa: finite(current.pressure_msl),
-    isDay: typeof current.is_day === 'number' ? current.is_day === 1 : null,
+    windKmh: finite(base('wind_speed_10m')),
+    windGustKmh: finite(base('wind_gusts_10m')),
+    windDirDeg: finite(base('wind_direction_10m')),
+    pressureHpa: finite(base('pressure_msl')),
+    isDay: typeof isDay === 'number' ? isDay === 1 : null,
   };
+}
+
+/**
+ * Текущий момент прогноза для тех, кому нужно «сейчас»: блок current, а чего
+ * в нём нет — час ленты, совпадающий с current.time (нет current.time —
+ * первый час не раньше `now` по часам Камчатки). Пропуск остаётся null.
+ * Час — ещё и источник облачности, видимости и УФ: в блоке current их нет.
+ */
+export function forecastCurrent(
+  f: Pick<Extract<ForecastResult, { ok: true }>, 'hours' | 'now'>,
+  now: Date = new Date(),
+): { now: ForecastNow | null; hour: ForecastHour | null; hourIndex: number } {
+  const hours = f.hours ?? [];
+  const nowBlock = f.now ?? null;
+  let idx = -1;
+  if (nowBlock?.time) {
+    const prefix = nowBlock.time.slice(0, 13);
+    idx = hours.findIndex((h) => h.time.startsWith(prefix));
+  }
+  if (idx < 0 && hours.length > 0) {
+    const local = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).format(now).replace(' ', 'T').slice(0, 13);
+    idx = hours.findIndex((h) => h.time.slice(0, 13) >= local);
+  }
+  return { now: nowBlock, hour: idx >= 0 ? hours[idx] : null, hourIndex: idx };
 }
 
 /**

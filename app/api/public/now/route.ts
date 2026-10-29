@@ -10,6 +10,9 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { wmoDescriptionRu } from '@/lib/weather/wmo-hazard';
+import { fetchForecastDays, forecastCurrent } from '@/lib/planner/intelligence';
+import { DEFAULT_WEATHER_PLACE } from '@/lib/kuzmich/weather-tool';
+import { WEATHER_PAGE_DAYS } from '@/lib/weather/weather-page';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,22 +41,26 @@ export async function GET() {
   const month = new Date().getMonth() + 1;
   const seasonNote = MONTH_SEASONS[month] ?? '';
 
-  // Погода — Open-Meteo. Описание — общим словарём кодов WMO (29.10): своя
-  // лестница «код ≤ 3 — ясно» называла ясным и сплошную облачность (код 3),
-  // а туман — «облачно». Незнакомый код — null, а не догадка (§4.0).
+  // Погода — общий прогноз платформы (#2289, 29.10): та же точка и тот же
+  // горизонт, что у /weather и виджета главной, значит та же запись кэша, и
+  // своего запроса к Open-Meteo роут больше не делает (адрес исходящий общий,
+  // его суточный лимит уже кончался). «Сейчас» — блок current, а чего в нём
+  // нет — час прогноза (forecastCurrent). Описание — общим словарём кодов WMO
+  // (29.10): своя лестница «код ≤ 3 — ясно» называла ясным и сплошную
+  // облачность (код 3), а туман — «облачно». Незнакомый код — null (§4.0).
   let temperature: number | null = null;
   let weatherDesc: string | null = null;
+  let weatherStaleSince: string | null = null;
   try {
-    const wRes = await fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=53.04&longitude=158.65&current_weather=true',
-      { signal: AbortSignal.timeout(5000) },
-    );
-    if (wRes.ok) {
-      const wData = await wRes.json() as { current_weather?: { temperature?: number; weathercode?: number } };
-      temperature = wData.current_weather?.temperature ?? null;
-      weatherDesc = wmoDescriptionRu(wData.current_weather?.weathercode);
+    const f = await fetchForecastDays(DEFAULT_WEATHER_PLACE.lat, DEFAULT_WEATHER_PLACE.lng, WEATHER_PAGE_DAYS);
+    if (f.ok) {
+      const { now, hour } = forecastCurrent(f);
+      temperature = now?.temp ?? hour?.temp ?? null;
+      weatherDesc = wmoDescriptionRu(now?.weatherCode ?? hour?.weatherCode ?? null);
+      // Источник не ответил, отдан последний удачный прогноз — это видно.
+      weatherStaleSince = f.staleSince ?? null;
     } else {
-      logSwallowedFailure('public-now', 'погода', new Error(`Open-Meteo HTTP ${wRes.status}`));
+      logSwallowedFailure('public-now', 'погода', new Error(f.reason));
     }
   } catch (err) {
     // Нет погоды — поля null, а причина в логе: «не смог» не равно «ясно».
@@ -102,6 +109,7 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
     data: {
       temperature,
       weatherDesc,
+      weatherStaleSince,
       seasonNote,
       month,
       nextDeparture,

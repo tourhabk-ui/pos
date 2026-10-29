@@ -17,10 +17,39 @@ const code = SRC.split('\n').filter(l => !/^\s*(\*|\/\/|\/\*)/.test(l)).join('\n
 afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); });
 
 describe('источник погоды зон', () => {
-  it('Open-Meteo по точке зоны, с порывами; wttr.in в коде нет', () => {
-    expect(code).toContain('https://api.open-meteo.com/v1/forecast?latitude=${zone.lat}&longitude=${zone.lon}');
-    expect(code).toContain('wind_gusts_10m');
+  it('запрос — Open-Meteo по точке зоны, текущий момент с порывами; wttr.in в коде нет', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      elevation: 700, current: { temperature_2m: -3, wind_speed_10m: 20, wind_gusts_10m: 55, weather_code: 3 },
+    }), { status: 200 }));
+    const { getZoneWeather, ZONES } = await import('@/lib/services/safety/zone-weather');
+    const w = await getZoneWeather('tolbachik');
+    expect(w).toMatchObject({ tempC: -3, windKmh: 20, gustKmh: 55, elevationM: 700 });
+    const url = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(url.host).toBe('api.open-meteo.com');
+    expect(Number(url.searchParams.get('latitude'))).toBe(ZONES.tolbachik.lat);
+    expect(Number(url.searchParams.get('longitude'))).toBe(ZONES.tolbachik.lon);
+    expect(url.searchParams.get('current')?.split(',')).toContain('wind_gusts_10m');
+    // Запрет — регуляркой по исходнику (CLAUDE.md §4: только «этого быть не должно»).
     expect(code).not.toContain('wttr.in');
+  });
+
+  it('свой кэш — 30 минут: второй вызов в окне не идёт к источнику, после окна — идёт', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+        current: { temperature_2m: 1, wind_speed_10m: 10, wind_gusts_10m: 30, weather_code: 0 },
+      }), { status: 200 }));
+      const { getZoneWeather } = await import('@/lib/services/safety/zone-weather');
+      await getZoneWeather('klyuchi');
+      vi.advanceTimersByTime(29 * 60 * 1000);
+      await getZoneWeather('klyuchi');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(2 * 60 * 1000);
+      await getZoneWeather('klyuchi');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('разные точки — разные ответы, порывы и высота доходят до строки Кузьмича', async () => {
