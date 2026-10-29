@@ -1,11 +1,11 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 156,
-  "why": "29.10, после выката #2817 (1337 и правило «не поступало»): публичная сводка без tsunami_warning, в переписи тревога 448975 с expires_at в прошлом (in_feed false).",
+  "run": 157,
+  "why": "29.10, после выката #2821: /flights с прода — рейсы с табло pkc.aero (вылет/прилёт, задержки) или «не загрузилось» (с прода, из РФ, pkc.aero ещё не проверялся — только с раннера GitHub).",
   "urls": [
-    "https://vedarai.ru/api/public/safety-status",
-    "https://vedarai.ru/api/cron/alerts-census"
+    "https://vedarai.ru/flights"
   ],
+  "run156_result": "28.10 23:40 UTC, после выката #2817: /api/public/safety-status — maxSeverity 2, верх ленты «Вулкан Безымянный: не приближаться», tsunami_warning нет; alerts-census — 448975 только в pushed_60d (история пуша), в live нет: 1337 погасила.",
   "run155_result": "28.10 22:50 UTC: alerts-census — тревога 448975 tsunami_warning важность 3, 22:17:04–10:17:04 UTC, push_sent true; описание — пункт суточной сводки ВК МЧС (vk.com/wall-45534680_11490): «…о трёх неощущаемых сейсмособытиях. Угрозы цунами не поступало.» Отрицания «не поступало» правило цунами не знало. Починено #2817 (правило, срез пуша по слову, 1337 гасит строку).",
   "run154_result": "Итог прогона 154 (23.10, витрина проката) этой сессией не прочитан и здесь не записан.",
   "run153_result": "23.10 00:31 UTC: client-errors-census?days=2 — строк 9, все внешние (self 0, bot 0), группы 3: «Loading chunk 52619 failed (timeout)» ×7 на /partner-site/kamchatskaya-rybalka (7 человеко-дней, first/last 01:02–01:04 по часам переписи, builds пусто, from_phone 0, offline 0); «watchPosition is not a function» ×1 на /places/ozyora-malye; unhandledrejection {\"isTrusted\":true} ×1 на /routes/buhta-poludennaya-o-beringa. failed_measures пусто. Совпадение с выкатом и сборкой по этому ответу не установить: builds у всех групп пустые — разбор остаётся за сессией, задавшей вопрос.",
