@@ -155,9 +155,38 @@ describe('форма открывается с направлением из с�
     fireEvent.click(within(f).getByRole('checkbox'));
     fireEvent.click(within(f).getByRole('button', { name: /Отправить заявку на машину/ }));
     expect(await within(f).findByText(/Заявка принята/)).toBeTruthy();
+    // Ключ в ответе не пришёл — переписки на сайте не будет, и это сказано (1350).
+    expect(within(f).getByText(/Ссылка на переписку не выдалась/)).toBeTruthy();
     rerender(<CarrierPage data={DATA} orderTo="Курильское озеро" />);
     expect(picked()).toBe('Курильское озеро');
     expect((within(form()).getByLabelText('Имя и фамилия') as HTMLInputElement).value).toBe('Иван Петров');
+    fetchMock.mockReset();
+  });
+
+  it('после отправки — страница заявки с перепиской с перевозчиком и подключение MAX (1350)', async () => {
+    const PAGE = 'https://vedarai.ru/request-status#AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+    const MAX = 'https://max.ru/id4101147649_bot?start=sq_AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { price_line: { to: 'Вулкан Горелый', price_rub: 75000, note: null }, page: PAGE, max_link: MAX } }),
+    } as Response);
+    render(<CarrierPage data={DATA} orderTo="Вулкан Горелый" />);
+    const f = form();
+    fireEvent.change(within(f).getByLabelText('Выезд'), { target: { value: '2026-10-30' } });
+    fireEvent.change(within(f).getByLabelText('Сколько человек'), { target: { value: '4' } });
+    fireEvent.change(within(f).getByLabelText('Имя и фамилия'), { target: { value: 'Иван Петров' } });
+    fireEvent.change(within(f).getByLabelText('Телефон'), { target: { value: '+7 900 123-45-67' } });
+    fireEvent.click(within(f).getByRole('checkbox'));
+    fireEvent.click(within(f).getByRole('button', { name: /Отправить заявку на машину/ }));
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    fireEvent.click(await within(f).findByRole('button', { name: 'Переписка по заявке' }));
+    expect(open).toHaveBeenLastCalledWith(PAGE, '_self');
+    fireEvent.click(within(f).getByRole('button', { name: 'Получать ответы в MAX' }));
+    expect(open).toHaveBeenLastCalledWith(MAX, '_blank', 'noopener,noreferrer');
+    // Ключ — только в обработчике: Вебвизор страницы перевозчика его не запишет.
+    expect(f.innerHTML).not.toContain('AbCdEfGhIjKlMnOpQrStUvWxYz012345');
+    open.mockRestore();
     fetchMock.mockReset();
   });
 

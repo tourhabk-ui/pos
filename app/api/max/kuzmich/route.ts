@@ -78,8 +78,8 @@ import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { loadInbox } from '@/lib/crm/inbox';
 import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
-import { armStayChatWait, bindGuestChat, captureStayChatText, type StayChatReply } from '@/lib/stay/stay-chat-service';
-import { parseStayChatPress, stayKeyFromStart } from '@/lib/stay/stay-chat';
+import { armChatWait, bindGuestChat, captureChatText, type ChatReply } from '@/lib/requests/request-chat-service';
+import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
 import { operatorDeskButtons, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
 
@@ -99,10 +99,10 @@ function maxCabinetButtons(content: CabinetButton[][]): MaxButton[][] {
 }
 
 /**
- * Ответы переписки по заявке на жильё (1349): у каждого — свои кнопки
- * «Ответить гостю» / «Написать владельцу», по одной в строке.
+ * Ответы переписки по заявке (1349, 1350): у каждого — свои кнопки
+ * «Ответить гостю/клиенту» / «Написать …», по одной в строке.
  */
-async function sendStayChatReplies(chatId: number, replies: StayChatReply[]): Promise<void> {
+async function sendChatReplies(chatId: number, replies: ChatReply[]): Promise<void> {
   for (const r of replies) {
     const rows: MaxButton[][] = r.buttons.map((b) => ('url' in b
       ? [{ type: 'link' as const, text: b.text, url: b.url }]
@@ -720,22 +720,22 @@ async function handleActionPress(
     return;
   }
 
-  // Переписка по заявке на жильё (1349): «Ответить гостю» у хозяина,
-  // «Написать владельцу» у гостя. Только личный диалог; право чата на заявку
-  // (чат партнёра объекта или подключённый чат гостя) и ожидание следующего
-  // сообщения — lib/stay/stay-chat-service.
-  if (action === 'stay_chat') {
+  // Переписка по заявке (1349, 1350): «Ответить гостю/клиенту» у адресата,
+  // «Написать …» у клиента. Только личный диалог; право чата на заявку (чат
+  // партнёра-адресата или подключённый чат клиента) и ожидание следующего
+  // сообщения — lib/requests/request-chat-service.
+  if (action === 'request_chat') {
     if (chatType !== 'dialog') {
-      console.error(`[max/kuzmich] нажатие (stay_chat) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      console.error(`[max/kuzmich] нажатие (request_chat) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
       await maxReply(chatId, 'Переписка по заявке идёт в личном диалоге с ботом. Здесь ничего не отправлено.');
       return;
     }
-    const press = parseStayChatPress(payload);
+    const press = parseChatPress(payload);
     if (!press) {
       await maxReply(chatId, 'Кнопка не распознана — ничего не отправлено. Позвоните по телефону из заявки.');
       return;
     }
-    await sendStayChatReplies(chatId, [await armStayChatWait(press.side, press.requestId, chatId)]);
+    await sendChatReplies(chatId, [await armChatWait(press.side, press.target, chatId)]);
     return;
   }
 
@@ -846,11 +846,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // payload проверяют сами разборщики. Ссылку оператору выдаёт администратор.
     if (opts?.verifiedOrigin === true) {
       const startArg = typeof update.payload === 'string' ? update.payload : '';
-      // Гость подключает свой чат к заявке на жильё (1349): ответы владельца
-      // придут сюда. Ворота — ключ статуса заявки (хэш в базе).
-      const stayKey = stayKeyFromStart(startArg);
-      if (stayKey !== null) {
-        await sendStayChatReplies(update.chat_id, await bindGuestChat(stayKey, update.chat_id));
+      // Клиент подключает свой чат к заявке с перепиской (1349, 1350): ответы
+      // адресата придут сюда. Ворота — ключ статуса заявки (хэш в базе),
+      // открывающий переписку.
+      const chatKey = guestKeyFromStart(startArg);
+      if (chatKey !== null) {
+        await sendChatReplies(update.chat_id, await bindGuestChat(chatKey, update.chat_id));
         return;
       }
       const seatToken = statusTokenFromStart(startArg);
@@ -1022,24 +1023,24 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       }
     }
 
-    // ── ПЕРЕПИСКА ПО ЗАЯВКЕ НА ЖИЛЬЁ (1349) ──────────────────────────────
+    // ── ПЕРЕПИСКА ПО ЗАЯВКЕ (1349, 1350) ─────────────────────────────────
     // Раньше всех веток, но только в личном диалоге, только текстом и только
-    // по заверенному апдейту. Ссылка гостя, набранная текстом (web.max.ru не
+    // по заверенному апдейту. Ссылка клиента, набранная текстом (web.max.ru не
     // кладёт ?start= в апдейт), подключает чат к заявке. Иначе: если чат после
-    // кнопки «Ответить гостю» / «Написать владельцу» ждёт сообщение — оно
+    // кнопки «Ответить гостю/клиенту» / «Написать …» ждёт сообщение — оно
     // уходит второй стороне; не ждёт — дальше обычным путём, и «запиши звонок»
-    // хозяина гостю не уйдёт.
+    // адресата клиенту не уйдёт.
     if (opts?.verifiedOrigin === true && msg.recipient.chat_type === 'dialog' && attachments.length === 0 && text) {
-      const typedStayKey = stayKeyFromStart(text);
-      if (typedStayKey !== null) {
-        await sendStayChatReplies(chatId, await bindGuestChat(typedStayKey, chatId));
+      const typedChatKey = guestKeyFromStart(text);
+      if (typedChatKey !== null) {
+        await sendChatReplies(chatId, await bindGuestChat(typedChatKey, chatId));
         return;
       }
-      const relayed = await captureStayChatText(chatId, text);
+      const relayed = await captureChatText(chatId, text);
       if (relayed) {
         // Беда в тексте — блок 112 над ответом: сообщение ушло второй стороне,
-        // но помощь сейчас — не владелец жилья.
-        await sendStayChatReplies(chatId, [{ ...relayed, text: withSosBlock(relayed.text, text).text }]);
+        // но помощь сейчас — не адресат заявки, а 112.
+        await sendChatReplies(chatId, [{ ...relayed, text: withSosBlock(relayed.text, text).text }]);
         return;
       }
     }

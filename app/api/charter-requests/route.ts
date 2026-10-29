@@ -15,6 +15,10 @@
  *
  * Ответ на повтор неотличим от ответа на новую заявку (оракул «этот телефон
  * уже просил эту машину», как у MCP).
+ *
+ * В ответе — страница заявки и ссылка подключить MAX (1350): там человек
+ * переписывается с перевозчиком. Ключ выдаётся и повтору (ответ тот же), но
+ * переписку открывает только ключ новой заявки: телефон не секрет.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,10 +35,11 @@ import {
   buildCharterLead,
   charterLeadTooThin,
   checkCharterDates,
-  saveCharterLead,
+  saveCharterLeadDetailed,
   type CharterDatesCheck,
 } from '@/lib/transfers/charter-request-service';
 import { logText } from '@/lib/log/log-text';
+import { CHARTER_FORM_KEY_NAME, issueRequestKey, requestPageLinks } from '@/lib/mcp/request-status';
 import { isSelfVisit } from '@/lib/analytics/self-visit';
 
 export const dynamic = 'force-dynamic';
@@ -121,13 +126,17 @@ export async function POST(req: NextRequest) {
   }
 
   const consent = buildConsentRecord(true, ip, 'transfer-page', 'carrier');
-  const leadId = await saveCharterLead({
+  const isSelf = isSelfVisit(req.headers.get('cookie'));
+  const saved = await saveCharterLeadDetailed({
     facts, lead, name: d.name, phone, consent,
     // Свой визит владельца (метка 1145) — заявка с пометкой, вне счёта спроса.
-    isSelf: isSelfVisit(req.headers.get('cookie')),
+    isSelf,
     sourceUrl: `${getPublicBaseUrl()}${carrierPagePath(carrier.slug)}`,
   });
-  if (!leadId) return fail(503, 'Не удалось сохранить заявку — попробуйте позже или позвоните перевозчику.');
+  if (!saved) return fail(503, 'Не удалось сохранить заявку — попробуйте позже или позвоните перевозчику.');
+  // Страница заявки и MAX (1350): ключ выдаётся и повтору — ответ двери тот же, —
+  // но переписку с перевозчиком открывает только ключ новой заявки.
+  const key = await issueRequestKey({ leadId: saved.id }, CHARTER_FORM_KEY_NAME, { opensChat: saved.created && !isSelf });
 
   return NextResponse.json({
     success: true,
@@ -137,6 +146,7 @@ export async function POST(req: NextRequest) {
       // Строка прайса, если направление в нём есть; иначе цену называет перевозчик.
       price_line: plan.kind === 'priced' ? { to: plan.line.to, price_rub: plan.line.priceRub, note: plan.line.note } : null,
       vehicles_needed: plan.vehicles,
+      ...requestPageLinks(key),
     },
   });
 }

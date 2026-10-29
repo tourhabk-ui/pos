@@ -26,9 +26,7 @@ import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { checkStayDates, submitStayRequest } from '@/lib/stay/stay-request-service';
-import { issueRequestKey, requestStatusPageUrl, STAY_FORM_KEY_NAME } from '@/lib/mcp/request-status';
-import { maxBot } from '@/lib/partners/channel-link';
-import { stayGuestBotLink } from '@/lib/stay/stay-chat';
+import { issueRequestKey, requestPageLinks, STAY_FORM_KEY_NAME } from '@/lib/mcp/request-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,13 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Страница заявки с перепиской и ссылка подключить MAX (1349). Ключ — только
   // этому ответу: в базе его хеш. Не выдался — заявка всё равно принята, и
   // форма говорит, что переписки на сайте не будет (§4.0).
-  const key = await issueRequestKey({ stayRequestId: r.requestId }, STAY_FORM_KEY_NAME);
-  return NextResponse.json({
-    success: true,
-    data: {
-      delivered,
-      page: key ? requestStatusPageUrl(key) : null,
-      max_link: key ? stayGuestBotLink(maxBot(), key) : null,
-    },
-  });
+  // Каждая отправка формы — новая заявка (склейки у жилья нет): ключ открывает переписку.
+  const key = await issueRequestKey({ stayRequestId: r.requestId }, STAY_FORM_KEY_NAME, { opensChat: true });
+  return NextResponse.json({ success: true, data: { delivered, ...requestPageLinks(key) } });
 }

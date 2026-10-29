@@ -31,9 +31,17 @@ vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequ
 vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: (...a: unknown[]) => recordMock(...a) }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...a),
+  createLeadDetailed: async (...a: unknown[]) => { const id = await createLeadMock(...a); return id ? { id, created: true } : null; },
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
 }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
+const { issueKeyMock } = vi.hoisted(() => ({ issueKeyMock: vi.fn() }));
+// Ключ статуса заявки (1238) и переписка (1350): выдача — своим сторожем
+// (mcp-request-status), здесь — что ключ выдан и открывает ли он переписку.
+vi.mock('@/lib/mcp/request-status', async (orig) => ({
+  ...(await orig<typeof import('@/lib/mcp/request-status')>()),
+  issueRequestKey: (...a: unknown[]) => issueKeyMock(...a),
+}));
 vi.mock('@/lib/rental/rental', async (orig) => ({
   ...(await orig<typeof import('@/lib/rental/rental')>()),
   loadRentalCompanyBySlug: (...a: unknown[]) => companyBySlug(...a),
@@ -59,6 +67,9 @@ const COMPANY: RentalCompanyProfile = {
 };
 
 const today = kamchatkaToday();
+let keyN = 0;
+/** Ключ у каждого ответа свой (случайный): сравнивается всё, кроме него. */
+const sansKey = (j: unknown) => JSON.parse(JSON.stringify(j).replace(/K\d{31}/g, '<ключ>')) as unknown;
 let ip = 0;
 const body = (over: Record<string, unknown> = {}) => ({
   company: 'laguna', car: 'Toyota Land Cruiser Prado', date_from: addDays(today, 30), date_to: addDays(today, 32),
@@ -75,6 +86,7 @@ const post = (b: unknown, headers: Record<string, string> = {}) => {
 
 beforeEach(() => {
   createLeadMock.mockReset().mockResolvedValue('lead-1');
+  issueKeyMock.mockReset().mockImplementation(async () => `K${String(++keyN).padStart(31, '0')}`);
   recentLeadMock.mockReset().mockResolvedValue(null);
   companyBySlug.mockReset().mockResolvedValue(COMPANY);
   dbQuery.mockReset();
@@ -92,8 +104,12 @@ describe('POST /api/car-rental-requests: заявка ложится прока�
       data: {
         company: 'Лагуна Прокат', car: 'Toyota Land Cruiser Prado', date_from: addDays(today, 30), date_to: addDays(today, 32),
         days: 3, price: { rub_per_day: 7000, is_from: false },
+        // Страница заявки с перепиской и подключение MAX (1350).
+        page: expect.stringMatching(/^https:\/\/vedarai\.ru\/request-status#K\d{31}$/),
+        max_link: expect.stringMatching(/\?start=sq_K\d{31}$/),
       },
     });
+    expect(issueKeyMock).toHaveBeenCalledWith({ leadId: 'lead-1' }, 'car-rental-request-form', { opensChat: true });
 
     expect(companyBySlug).toHaveBeenCalledWith('laguna');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
@@ -135,7 +151,9 @@ describe('POST /api/car-rental-requests: заявка ложится прока�
     createLeadMock.mockClear();
     const again = await (await post(body())).json();
     expect(createLeadMock).not.toHaveBeenCalled();
-    expect(again).toEqual(first);
+    expect(sansKey(again)).toEqual(sansKey(first));
+    // Ключ повтора — только статус (1350).
+    expect(issueKeyMock.mock.calls.map((c) => c[2])).toEqual([{ opensChat: true }, { opensChat: false }]);
   });
 
   it('свой визит владельца помечен is_self — вне счёта спроса (1145)', async () => {
@@ -143,6 +161,7 @@ describe('POST /api/car-rental-requests: заявка ложится прока�
     const res = await post(body(), { cookie: `${SELF_VISIT_COOKIE}=1` });
     expect(res.status).toBe(200);
     expect((createLeadMock.mock.calls[0]![0] as Record<string, unknown>).is_self).toBe(true);
+    expect(issueKeyMock).toHaveBeenCalledWith({ leadId: 'lead-1' }, 'car-rental-request-form', { opensChat: false });
   });
 });
 

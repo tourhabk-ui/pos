@@ -20,7 +20,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { containsPattern } from '@/lib/db/like';
 import { linkContactQuietly } from '@/lib/crm/contacts';
-import { STAY_CHAT_BUTTON, stayChatPressPayload } from '@/lib/stay/stay-chat';
+import { ownerReplyButton } from '@/lib/requests/request-chat';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import {
   MAX_REQUEST_NIGHTS,
@@ -145,7 +145,7 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   if (obj.max_chat_id || obj.telegram_chat_id) {
     // «Ответить гостю» — переписка в этом же чате (1349). Действие работает
     // только в MAX: в Telegram-заглушку кнопка-действие не уходит (pd-alert).
-    const reply = { text: STAY_CHAT_BUTTON.owner, payload: stayChatPressPayload('owner', requestId) };
+    const reply = ownerReplyButton({ kind: 'stay', id: requestId });
     const r = await sendPdAlert({ text, stub: ownerStub, buttons: [reply, card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
     ownerChannel = r.channel;
     ownerReason = r.reason;

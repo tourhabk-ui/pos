@@ -13,6 +13,9 @@
  * Парсер сознательно КОНСЕРВАТИВЕН — ошибается в сторону «колонка есть»:
  * - DROP COLUMN игнорируется (колонка остаётся в реестре);
  * - RENAME COLUMN добавляет новое имя, не удаляя старое;
+ * - RENAME TO (переименование таблицы) переносит колонки и признак «тело
+ *   разобрано» на новое имя, а старое убирает: таблицы под ним больше нет, и
+ *   сверка с базой (schema-drift) иначе звала бы её «объявлена, но отсутствует»;
  * - VIEW и MATERIALIZED VIEW регистрируются как wildcard (любая колонка);
  * - динамический DDL (EXECUTE format) не парсится — его таблицы просто
  *   не попадают в реестр, и сторож их пропускает.
@@ -126,6 +129,25 @@ export function applyDdl(
     const cols = reg.tables.get(table) ?? new Set<string>();
     cols.add(ident(m[3]));
     reg.tables.set(table, cols);
+  }
+
+  // ALTER TABLE [IF EXISTS] a RENAME TO b — таблица теперь под именем b (1350:
+  // stay_request_messages → request_messages). Колонки — объединением: ALTER-ы
+  // этого же файла уже могли дописать колонки к новому имени, порядок проходов
+  // не порядок операторов. Нет старого имени в реестре (IF EXISTS на чистой
+  // схеме) — нечего переносить.
+  const renTableRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?("?[\w.]+"?)\s+RENAME\s+TO\s+("?[\w]+"?)/gi;
+  while ((m = renTableRe.exec(sql)) !== null) {
+    const from = ident(m[1]).replace(/^public\./, '');
+    const to = ident(m[2]);
+    const cols = reg.tables.get(from);
+    if (!cols || from === to) continue;
+    const merged = reg.tables.get(to) ?? new Set<string>();
+    for (const c of cols) merged.add(c);
+    reg.tables.set(to, merged);
+    if (reg.created.has(from)) reg.created.add(to);
+    reg.tables.delete(from);
+    reg.created.delete(from);
   }
 
   // VIEW / MATERIALIZED VIEW → wildcard

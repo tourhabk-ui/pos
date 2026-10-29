@@ -14,7 +14,7 @@
  * tests/unit/transfer-card-standard.test.tsx.
  */
 
-import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { createLeadDetailed, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { logText } from '@/lib/log/log-text';
 import { notifyPartnerRequestPersonally } from '@/lib/notifications/partner-request-notify';
@@ -100,9 +100,22 @@ export interface SaveCharterLeadInput {
  * null — не записалась (причину пишет createLead).
  */
 export async function saveCharterLead(i: SaveCharterLeadInput): Promise<string | null> {
+  return (await saveCharterLeadDetailed(i))?.id ?? null;
+}
+
+/**
+ * То же, но говорит, новая ли заявка (1350): повтор — прежний лид с
+ * `created: false`. Ключ переписки дверь выдаёт только новой заявке — ключ
+ * повтора получил бы любой, кто знает чужой телефон, перевозчика и дату.
+ * Повтор узнаётся дважды: по префиксу комментария и внутренним дублем
+ * createLead (тот же телефон и комментарий за сутки) — второй ловит повтор,
+ * когда первая проверка не выполнилась (её отказ назван в логе). Повтор
+ * перевозчика не будит: заявка до него уже дошла первым вызовом.
+ */
+export async function saveCharterLeadDetailed(i: SaveCharterLeadInput): Promise<{ id: string; created: boolean } | null> {
   const existing = await findRecentLeadByCommentPrefix(i.phone, charterDedupPrefix(i.facts.carrier.name, i.facts.dateFrom));
-  if (existing) return existing;
-  const leadId = await createLead({
+  if (existing) return { id: existing, created: false };
+  const saved = await createLeadDetailed({
     name: i.name,
     phone: i.phone,
     comment: i.lead.comment,
@@ -116,8 +129,8 @@ export async function saveCharterLead(i: SaveCharterLeadInput): Promise<string |
     is_self: i.isSelf,
     skip_ai_processing: true,
   });
-  if (leadId && !i.isSelf) deliverToCarrier(leadId, i);
-  return leadId;
+  if (saved?.created && !i.isSelf) deliverToCarrier(saved.id, i);
+  return saved;
 }
 
 /**

@@ -204,6 +204,36 @@ describe('весь SQL кодовой базы — только существу
  * `operator_tour_id`) стояла в двух местах и валила инструмент оператора
  * `my_tours` на каждом вызове.
  */
+describe('переименование таблицы (RENAME TO)', () => {
+  it('колонки и «тело разобрано» переходят к новому имени, старого имени нет', () => {
+    const reg: SchemaRegistry = { tables: new Map(), views: new Set(), created: new Set() };
+    applyDdl(`CREATE TABLE IF NOT EXISTS demo_msgs (id UUID, stay_id UUID, body TEXT);`, reg);
+    applyDdl(
+      `ALTER TABLE IF EXISTS demo_msgs RENAME TO demo_messages;
+       ALTER TABLE demo_messages ADD COLUMN IF NOT EXISTS lead_id UUID;
+       ALTER TABLE demo_messages RENAME COLUMN body TO body;`,
+      reg,
+    );
+    expect([...reg.tables.get('demo_messages')!].sort()).toEqual(['body', 'id', 'lead_id', 'stay_id']);
+    expect(reg.created.has('demo_messages')).toBe(true);
+    expect(reg.tables.has('demo_msgs')).toBe(false);
+    expect(reg.created.has('demo_msgs')).toBe(false);
+    // Повтор на уже переименованной схеме (IF EXISTS) — без вреда.
+    applyDdl(`ALTER TABLE IF EXISTS demo_msgs RENAME TO demo_messages;`, reg);
+    expect([...reg.tables.get('demo_messages')!].sort()).toEqual(['body', 'id', 'lead_id', 'stay_id']);
+  });
+
+  it('переписка 1350: реестр знает request_messages с колонками 1349 и lead_id, а прежнего имени — нет', () => {
+    const reg = buildSchemaRegistry();
+    const cols = reg.tables.get('request_messages')!;
+    for (const c of ['stay_request_id', 'lead_id', 'author', 'door', 'body', 'delivery_channel']) expect(cols.has(c)).toBe(true);
+    expect(reg.created.has('request_messages')).toBe(true);
+    expect(reg.created.has('request_chat_waits')).toBe(true);
+    expect(reg.tables.has('stay_request_messages')).toBe(false);
+    expect(reg.tables.has('stay_chat_waits')).toBe(false);
+  });
+});
+
 describe('источники DDL не равны: миграция старше базового файла', () => {
   it('повторный CREATE TABLE ниже по списку колонок не добавляет', () => {
     const reg: SchemaRegistry = { tables: new Map(), views: new Set(), created: new Set() };

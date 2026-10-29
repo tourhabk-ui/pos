@@ -191,7 +191,7 @@ export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
   stay_request: `
     SELECT s.id::text AS id, a.name AS title, s.check_in_date::text AS date_from,
            s.check_out_date::text AS date_to,
-           CASE WHEN EXISTS (SELECT 1 FROM stay_request_messages m
+           CASE WHEN EXISTS (SELECT 1 FROM request_messages m
                               WHERE m.stay_request_id = s.id AND m.author = 'owner')
                 THEN 'answered' ELSE 'delivered' END AS status,
            s.guests AS people, s.guest_name AS person_name

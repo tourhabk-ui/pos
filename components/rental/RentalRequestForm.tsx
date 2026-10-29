@@ -17,6 +17,7 @@ import { useState, type FormEvent } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { formatRub } from '@/lib/transfers/charter-format';
+import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
 
 interface OfferChoice {
   title: string;
@@ -34,6 +35,9 @@ interface Props {
 }
 
 interface Sent {
+  /** Страница заявки с перепиской и MAX (1350); null — ключ не выдался. */
+  page: string | null;
+  maxLink: string | null;
   car: string;
   dateFrom: string;
   dateTo: string;
@@ -121,7 +125,7 @@ export function RentalRequestForm({ companySlug, companyName, offers, initialOff
       const data: unknown = await res.json().catch(() => null);
       const body = (data && typeof data === 'object' ? data : {}) as {
         success?: unknown; error?: unknown; field?: unknown;
-        data?: { days?: unknown; price?: Sent['price'] };
+        data?: { days?: unknown; price?: Sent['price']; page?: string | null; max_link?: string | null };
       };
       if (res.ok && body.success === true) {
         setOutcome({
@@ -130,6 +134,8 @@ export function RentalRequestForm({ companySlug, companyName, offers, initialOff
             car, dateFrom, dateTo,
             days: typeof body.data?.days === 'number' ? body.data.days : null,
             price: body.data?.price ?? null,
+            page: body.data?.page ?? null,
+            maxLink: body.data?.max_link ?? null,
           },
         });
       } else {
@@ -164,6 +170,7 @@ export function RentalRequestForm({ companySlug, companyName, offers, initialOff
             </p>
           )}
           <p className="text-xs text-[var(--text-muted)]">Расчёт — напрямую с прокатчиком: через Ведар машина не оплачивается.</p>
+          <RequestChatLinks page={sent.page} maxLink={sent.maxLink} />
         </div>
       </div>
     );

@@ -508,13 +508,13 @@ describe('кнопки под «Входящими» и уведомлением
   const personal = () => m.pdAlert.mock.calls.map((c) => c[0] as { to?: unknown; text: string; stub: string; buttons: Array<{ payload?: string; url?: string }> })
     .find((a) => a.to !== undefined)!;
 
-  it('личное уведомление о новой заявке: гиду-продавцу — «Связался», «Договорились», «Отказ» над ссылкой; ПД — только в тексте для MAX', async () => {
+  it('личное уведомление о новой заявке: гиду-продавцу — «Ответить клиенту» (1350), «Связался», «Договорились», «Отказ» над ссылкой; ПД — только в тексте для MAX', async () => {
     m.reach.mockResolvedValue({ ...BOUND, category: 'guide', sellsTours: true });
     expect(await notifyPartnerNewLeadPersonally(LEAD_MSG)).toEqual({ state: 'delivered', channel: 'max' });
     const own = personal();
     expect(own.to).toEqual({ maxChatId: String(GUIDE_CHAT), telegramChatId: String(TG_CHAT) });
     expect(own.buttons.map((b) => b.payload ?? `url:${b.url?.replace(/^https?:\/\/[^/]+/, '')}`))
-      .toEqual([`ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`, 'url:/hub/guide/own']);
+      .toEqual([`lq:o:${LEAD}`, `ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`, 'url:/hub/guide/own']);
     expect(own.text).toContain(PHONE);
     noPd(own.stub);
     // Копия команде — только ссылка: кнопки нажимает человек, подключивший чат кабинета.
@@ -522,7 +522,7 @@ describe('кнопки под «Входящими» и уведомлением
     expect(msg.buttons.every((b) => 'url' in b && !('payload' in b))).toBe(true);
   });
 
-  it('туроператору, гиду без своих туров и при непрочитанном адресе — кнопок ответа нет', async () => {
+  it('туроператору, гиду без своих туров и при непрочитанном адресе — кнопок статуса заявки нет; «Ответить клиенту» — у всех', async () => {
     for (const reach of [
       { ...BOUND, category: 'operator', sellsTours: true },
       { ...BOUND, category: 'guide', sellsTours: false },
@@ -531,7 +531,9 @@ describe('кнопки под «Входящими» и уведомлением
       m.pdAlert.mockClear();
       m.reach.mockResolvedValueOnce(reach);
       await notifyPartnerNewLeadPersonally(LEAD_MSG);
-      expect(personal().buttons.some((b) => 'payload' in b), JSON.stringify(reach)).toBe(false);
+      const payloads = personal().buttons.flatMap((b) => (b.payload ? [b.payload] : []));
+      // Переписка с клиентом (1350) — у каждого адресата, кнопки статуса — только у гида-продавца.
+      expect(payloads, JSON.stringify(reach)).toEqual([`lq:o:${LEAD}`]);
     }
     m.pdAlert.mockClear();
     m.reach.mockResolvedValueOnce(null);

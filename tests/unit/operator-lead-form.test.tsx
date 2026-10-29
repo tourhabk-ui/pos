@@ -63,6 +63,40 @@ describe('OperatorLeadForm', () => {
     expect(status.textContent).not.toMatch(/в течение|за \d+ (минут|час)/);
   });
 
+  it('после отправки — страница заявки с перепиской и подключение MAX (1350); ключ не выдался — сказано словами', async () => {
+    const PAGE = 'https://vedarai.ru/request-status#AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+    const MAX = 'https://max.ru/id4101147649_bot?start=sq_AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ success: true, id: 'x', page: PAGE, max_link: MAX }) })));
+    render(<OperatorLeadForm partnerSlug="mestechko" partnerName="Местечко Камчатка" />);
+    fill();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Отправить оператору/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Переписка по заявке' }));
+    expect(open).toHaveBeenLastCalledWith(PAGE, '_self');
+    fireEvent.click(screen.getByRole('button', { name: 'Получать ответы в MAX' }));
+    expect(open).toHaveBeenLastCalledWith(MAX, '_blank', 'noopener,noreferrer');
+    cleanup();
+
+    // Форма на сайте самой компании — переписка на Ведаре в новой вкладке.
+    render(<OperatorLeadForm partnerSlug="mestechko" partnerName="Местечко Камчатка" source="partner_site" />);
+    fill();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Отправить оператору/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Переписка по заявке' }));
+    expect(open).toHaveBeenLastCalledWith(PAGE, '_blank', 'noopener,noreferrer');
+    cleanup();
+    open.mockRestore();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ success: true, id: 'x' }) })));
+    render(<OperatorLeadForm partnerSlug="mestechko" partnerName="Местечко Камчатка" />);
+    fill();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Отправить оператору/ }));
+    expect(await screen.findByText(/Ссылка на переписку не выдалась/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Переписка по заявке' })).toBeNull();
+  });
+
   it('отказ роута показывается словами роута, а не «успехом»', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({ success: false, error: 'Укажите телефон' }) })));
     render(<OperatorLeadForm partnerSlug="mestechko" partnerName="Местечко Камчатка" />);

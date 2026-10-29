@@ -53,7 +53,10 @@ describe('POST /api/leads — производитель: итог личной 
     vi.doMock('@/lib/notifications/telegram', () => ({ telegramService: { sendMessage: vi.fn(async () => ({ success: true })) } }));
     vi.doMock('@/lib/rate-limit', () => ({ createRateLimiter: () => ({ check: () => true }), getTrustedClientIp: () => '203.0.113.5' }));
     vi.doMock('@/lib/services/operators/lead-processor.service', () => ({ leadProcessor: { process: vi.fn(async () => { throw new Error('не в этом тесте'); }) } }));
-    vi.doMock('@/lib/leads/create', () => ({ createLead: vi.fn(async () => 'lead-1') }));
+    vi.doMock('@/lib/leads/create', () => ({
+      createLead: vi.fn(async () => 'lead-1'),
+      createLeadDetailed: vi.fn(async () => ({ id: 'lead-1', created: true })),
+    }));
     vi.doMock('@/lib/analytics/self-visit', () => ({ isSelfVisit: () => false }));
     vi.doMock('@/lib/mcp/handoff', () => ({ attachMcpAttribution: vi.fn(async () => null), MCP_ATTRIBUTION: { cookieName: 'mcp_h' } }));
     vi.doMock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: vi.fn(async () => ({ channel: 'max', delivered: true, reason: 'ok' })) }));

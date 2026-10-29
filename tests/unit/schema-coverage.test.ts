@@ -28,6 +28,9 @@
  * той же причине: запретить рост беды дешевле, чем разом убрать накопленное.
  */
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { undeclaredTables, declaredTables } from '@/lib/db/schema-coverage';
 import { UNDECLARED_TABLES } from '@/lib/db/undeclared-registry';
 
@@ -48,6 +51,17 @@ describe('схема репозитория покрывает то, что сп
     expect(declared.has('kamchatka_routes')).toBe(true);
     expect(declared.has('operator_tours')).toBe(true);
     expect(declared.has('route_waypoints')).toBe(true);
+  });
+
+  it('переименование таблицы объявляет новое имя — и в идемпотентной форме IF EXISTS (1350)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'schema-coverage-'));
+    mkdirSync(join(root, 'migrations'));
+    writeFileSync(join(root, 'migrations', '001_demo.sql'), 'ALTER TABLE IF EXISTS demo_old RENAME TO demo_new;\nALTER TABLE demo_a RENAME TO demo_b;\n');
+    const declared = declaredTables(root);
+    expect(declared.has('demo_new')).toBe(true);
+    expect(declared.has('demo_b')).toBe(true);
+    expect(declaredTables().has('request_messages')).toBe(true);
+    expect(declaredTables().has('request_chat_waits')).toBe(true);
   });
 
   it('новых необъявленных таблиц не появилось', () => {

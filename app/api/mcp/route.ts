@@ -40,7 +40,7 @@ import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
-import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { createLead, createLeadDetailed, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { notifyPartnerNewLeadPersonally } from '@/lib/notifications/lead-notify';
 import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
@@ -68,12 +68,12 @@ import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/reques
 import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { charterAcceptedText, pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
-import { buildCharterLead, checkCharterDates, saveCharterLead } from '@/lib/transfers/charter-request-service';
+import { buildCharterLead, checkCharterDates, saveCharterLeadDetailed } from '@/lib/transfers/charter-request-service';
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
 import { rentalDays, rentalDedupPrefix } from '@/lib/rental/rental-request';
 import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
-import { buildRentalLead, checkRentalDates, saveRentalLead } from '@/lib/rental/rental-request-service';
+import { buildRentalLead, checkRentalDates, saveRentalLeadDetailed } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
 import { recordSourceEventQuietly } from '@/lib/crm/events';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -440,8 +440,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   // Повтор (тот же телефон, тур и дата за 24 ч) идёт тем же выходом, что и
   // новая заявка: текст тот же, второго лида нет, а ключ статуса — свой на
-  // каждый вызов (случайный, новую от прежней он не отличает).
-  const leadId = existing ?? await createLead({
+  // каждый вызов (случайный, новую от прежней он не отличает). Повтор
+  // узнаётся и внутренним дублем createLead (тот же телефон и комментарий за
+  // сутки) — когда проверка по префиксу не выполнилась.
+  const saved = existing ? { id: existing, created: false } : await createLeadDetailed({
     name,
     phone,
     comment: leadComment,
@@ -455,11 +457,12 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     pd_consent,
     is_self: ctx.self,
   });
-  if (!leadId) {
+  if (!saved) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
+  const leadId = saved.id;
   // Оператор тура известен, и заявка — ему: лично, как с формы на сайте.
-  if (!existing && !ctx.self && tour.operator_id) {
+  if (saved.created && !ctx.self && tour.operator_id) {
     notifyPartnerPersonallyAboutMcpLead({
       operatorId: tour.operator_id,
       leadId,
@@ -469,7 +472,12 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       routeTitle: tour.title,
     });
   }
-  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url);
+  // Переписку с оператором (1350) открывает только ключ новой заявки: ключ
+  // повтора получил бы любой, кто знает чужой телефон, тур и дату. Текст
+  // ответа у повтора тот же (анти-оракул 29.09): что ключ только статусный,
+  // видно лишь по самой ссылке.
+  const offersChat = !ctx.self && Boolean(tour.operator_id);
+  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat });
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
@@ -563,13 +571,16 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // уже просил эту машину»): см. charterAcceptedText и заявку на бронь.
   // Повтор и запись — общим путём с формой на странице перевозчика.
   const accepted = charterAcceptedText(facts, phone, getPublicBaseUrl());
-  const leadId = await saveCharterLead({
+  const saved = await saveCharterLeadDetailed({
     facts, lead, name, phone, consent: pd_consent, isSelf: ctx.self, sourceUrl: 'mcp://vedar/charter',
   });
-  if (!leadId) {
+  if (!saved) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
-  return accepted + await issueKeyWithNotify({ leadId }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url);
+  // Переписку с перевозчиком (1350) открывает только ключ новой заявки; текст
+  // ответа у повтора тот же (анти-оракул), как у заявки на бронь.
+  const offersChat = !ctx.self;
+  return accepted + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat });
 }
 
 // ── create_car_rental_request (владелец 23.10) ─────────────────
@@ -700,14 +711,15 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
 
   // Телефон уходит прокатчику — согласие текстом, который его и называет.
   const pd_consent = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental');
-  const leadId = await saveRentalLead({
+  const saved = await saveRentalLeadDetailed({
     facts, lead, name, phone, consent: pd_consent,
     // Пробная заявка — как свой визит владельца: с пометкой, вне счёта спроса, прокатчика не будит.
     isSelf: ctx.self || isTest,
     sourceUrl: 'mcp://vedar/car-rental',
     ...(isTest ? { dedupPrefix: TEST_MARK + rentalDedupPrefix(company.name, dateFrom) } : {}),
   });
-  if (!leadId) throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  if (!saved) throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  const leadId = saved.id;
 
   // Журнал CRM прокатчика: без имени и телефона.
   await recordSourceEventQuietly({
@@ -719,7 +731,10 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
   const accepted = `${isTest ? 'Пробная заявка принята (помечена как тест, прокатчику не передаётся)' : 'Заявка принята'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}`
     + `${offer.depositRub !== null ? `, залог ${offer.depositRub} руб` : ''}. Это заявка, не бронь: менеджер Ведара свяжется по телефону ${phone} и подтвердит с прокатчиком; оплаты через платформу нет, расчёт напрямую с прокатчиком. Страница прокатчика: ${getPublicBaseUrl()}${rentalPagePath(company.slug)}`;
-  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url);
+  // Переписку с прокатом (1350) открывает только ключ новой заявки (текст
+  // ответа у повтора тот же); пробная — без переписки.
+  const offersChat = !ctx.self && !isTest;
+  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat });
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
@@ -873,7 +888,8 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
   return `Заявка передана ${who}: "${r.accommodationName}", заезд ${check_in}, выезд ${check_out} (ночей: ${dates.nights}), гостей ${guests}. `
     + 'Владелец перезвонит по указанному телефону и подтвердит даты и цену. Это заявка, не бронь и не оплата: расчёт — напрямую с владельцем. '
     + `Карточка объекта: ${base}/accommodations/${found.id}.`
-    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay')
+    // Заявка на жильё всегда новая строка (склейки нет) — ключ открывает переписку с владельцем (1349).
+    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name, { opensChat: true }), 'stay')
     // Подписки у заявки на жильё нет (её состояние после передачи не
     // меняется); агент, передавший адрес, слышит это, а не тишину.
     + (typeof rawArgs.notify_url === 'string' && rawArgs.notify_url.trim() !== '' ? STAY_NOTIFY_REFUSAL : '');

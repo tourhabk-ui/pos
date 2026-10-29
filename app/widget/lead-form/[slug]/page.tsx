@@ -23,6 +23,7 @@ import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
 import { widgetFormIntro, widgetTexts } from '@/lib/embed/widget-i18n';
 import { useWidgetLang } from '@/hooks/use-widget-lang';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
 
 interface PartnerConfig {
   name: string;
@@ -44,6 +45,8 @@ export default function LeadFormPage() {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  // Страница заявки с перепиской и MAX (1350) — если ключ выдался.
+  const [chatLinks, setChatLinks] = useState<{ page: string | null; maxLink: string | null }>({ page: null, maxLink: null });
   const [error, setError]     = useState('');
   const [pdConsent, setPdConsent] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,11 @@ export default function LeadFormPage() {
       });
       const data: unknown = await res.json();
       if (res.ok && (data as { success?: boolean }).success) {
+        const d = data as { page?: unknown; max_link?: unknown };
+        setChatLinks({
+          page: typeof d.page === 'string' ? d.page : null,
+          maxLink: typeof d.max_link === 'string' ? d.max_link : null,
+        });
         setSuccess(true);
         if (typeof window !== 'undefined') {
           window.parent.postMessage('th:success', '*');
@@ -179,6 +187,12 @@ export default function LeadFormPage() {
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
           {t.successText}
         </p>
+        {/* Страница заявки — по-русски, поэтому ссылки на переписку — в русском окне. */}
+        {lang === 'ru' && (
+          <div style={{ marginTop: 16, width: '100%', maxWidth: 320 }}>
+            <RequestChatLinks page={chatLinks.page} maxLink={chatLinks.maxLink} newTab />
+          </div>
+        )}
         <button
           onClick={() => window.parent.postMessage('th:close', '*')}
           style={{

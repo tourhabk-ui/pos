@@ -36,6 +36,7 @@ import { reachForPartner } from '@/lib/partners/reach';
 import type { PersonalLeadOutcome } from '@/lib/notifications/lead-notify';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
+import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -62,15 +63,27 @@ const HEADLINE: Record<PartnerRequestKind, string> = {
 };
 
 /** «Беру» / «Не могу» — только прокат пилота и только с uuid заявки. */
+function pilotAnswerButtons(n: PartnerRequestNotice): PdAlertButton[] {
+  if (n.kind !== 'car_rental' || !isRentalPilotSlug(n.companySlug)) return [];
+  return rentalAnswerButtons(n.leadId) ?? [];
+}
+
+/**
+ * Кнопки под заявкой: «Ответить клиенту» — переписка с заказчиком в этом же
+ * чате (1350) — у каждой заявки с uuid; «Беру» / «Не могу» — у пилота
+ * проката. Нет ни одной — undefined.
+ */
 export function partnerRequestButtons(n: PartnerRequestNotice): PdAlertButton[] | undefined {
-  if (n.kind !== 'car_rental' || !isRentalPilotSlug(n.companySlug)) return undefined;
-  return rentalAnswerButtons(n.leadId);
+  const reply = isChatTargetId(n.leadId) ? [ownerReplyButton({ kind: 'lead', id: n.leadId })] : [];
+  const all = [...reply, ...pilotAnswerButtons(n)];
+  return all.length > 0 ? all : undefined;
 }
 
 /** Текст с ПД (MAX) и заглушка без ПД (Telegram) из одних фактов. */
 export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; stub: string } {
   const common = [`<b>${HEADLINE[n.kind]}</b>`, ...n.lines.map((l) => esc(l))];
-  const buttons = partnerRequestButtons(n);
+  const pilot = pilotAnswerButtons(n).length > 0;
+  const reply = isChatTargetId(n.leadId);
   const text = [
     ...common,
     '',
@@ -79,7 +92,8 @@ export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; st
     n.comment ? `<b>Пожелания:</b> ${esc(n.comment.slice(0, 200))}` : '',
     '',
     'Менеджер Ведара согласует заказ с вами и подтвердит заказчику.',
-    buttons ? '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.' : '',
+    reply ? 'Написать заказчику в этом чате — кнопка «Ответить клиенту».' : '',
+    pilot ? '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.' : '',
   ].filter(Boolean).join('\n');
   const stub = [
     ...common,

@@ -16,6 +16,7 @@
 import { useState, type FormEvent } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
 
 interface Props {
   partnerSlug: string;
@@ -26,7 +27,7 @@ interface Props {
 
 type Outcome =
   | { kind: 'idle' }
-  | { kind: 'sent' }
+  | { kind: 'sent'; page: string | null; maxLink: string | null }
   | { kind: 'error'; message: string };
 
 export const LEAD_FORM_SOURCE = 'operator_page';
@@ -43,6 +44,8 @@ export function OperatorLeadForm({ partnerSlug, partnerName, source = LEAD_FORM_
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
 
   const ready = name.trim().length >= 2 && phone.trim().length >= 7 && pdConsent && !submitting;
+  // Форма на сайте самой компании: переписка на Ведаре — в новой вкладке, сайт компании остаётся.
+  const newTabLinks = source === 'partner_site';
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -72,7 +75,13 @@ export function OperatorLeadForm({ partnerSlug, partnerName, source = LEAD_FORM_
         && typeof data === 'object' && data !== null
         && (data as { success?: unknown }).success === true;
       if (ok) {
-        setOutcome({ kind: 'sent' });
+        // Страница заявки с перепиской и MAX (1350) — если ключ выдался.
+        const d = data as { page?: unknown; max_link?: unknown };
+        setOutcome({
+          kind: 'sent',
+          page: typeof d.page === 'string' ? d.page : null,
+          maxLink: typeof d.max_link === 'string' ? d.max_link : null,
+        });
       } else {
         const message = typeof data === 'object' && data !== null && typeof (data as { error?: unknown }).error === 'string'
           ? (data as { error: string }).error
@@ -93,8 +102,11 @@ export function OperatorLeadForm({ partnerSlug, partnerName, source = LEAD_FORM_
         <div>
           <p className="font-semibold text-[var(--text-primary)]">Заявка ушла оператору «{partnerName}»</p>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Она уже в его кабинете на Ведаре. Оператор ответит сам: по телефону или в мессенджере.
+            Она уже в его кабинете на Ведаре. Оператор ответит сам: по телефону или в переписке по ссылке ниже.
           </p>
+          <div className="mt-3">
+            <RequestChatLinks page={outcome.page} maxLink={outcome.maxLink} newTab={newTabLinks} />
+          </div>
         </div>
       </div>
     );

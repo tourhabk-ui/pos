@@ -947,12 +947,15 @@ async function checkUnprocessedLeads(): Promise<CheckResult> {
     // Псевдолиды чата виджета (первое сообщение без телефона и согласия,
     // записанные до 15.10) заявками не были: ответить на них нечем, и тревога
     // о них — шум (lib/leads/widget-chat-pseudo, аудит 15.10, WID-safety).
+    // Ответ партнёра клиенту в переписке по заявке (1350) — реакция, даже
+    // если статус ещё не переведён: так же считают «Входящие» (lib/crm/inbox-sql).
     const { rows } = await pool.query<{ count: string }>(`
       SELECT COUNT(*)::text AS count
       FROM leads
       WHERE status = ANY($1::text[])
         AND created_at < NOW() - INTERVAL '2 hours'
         AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}
+        AND NOT EXISTS (SELECT 1 FROM request_messages m WHERE m.lead_id = leads.id AND m.author = 'owner')
     `, [[...UNATTENDED_LEAD_STATUSES]]);
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;

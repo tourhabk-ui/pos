@@ -27,6 +27,7 @@ vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequ
 vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: vi.fn(async () => true) }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...(a as [])),
+  createLeadDetailed: async (...a: unknown[]) => { const id = await createLeadMock(...(a as [])); return id ? { id, created: true } : null; },
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...(a as [])),
 }));
 vi.mock('@/lib/kuzmich/tool-schemas', () => ({

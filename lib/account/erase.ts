@@ -1808,10 +1808,11 @@ export const ERASE_UNLINKED: Readonly<Record<string, RemainingCategory & { table
       + 'поэтому по обращению — только закрытые',
   },
   requests: {
-    tables: ['leads', 'stay_requests'],
-    category: 'заявки на подбор тура, на машину и на жильё, оставленные формой или в чате',
+    tables: ['leads', 'stay_requests', 'request_messages'],
+    category: 'заявки на подбор тура, на машину и на жильё, оставленные формой или в чате, и переписка по ним',
     why: 'к аккаунту они не привязаны, это заявки у менеджера и партнёров',
-    reason: 'заявки (lib/leads/create.ts, lib/stay/stay-request-service.ts) пишутся без user_id: имя и телефон — из формы; стирать живую заявку оператору при удалении аккаунта — решение владельца (#2327)',
+    reason: 'заявки (lib/leads/create.ts, lib/stay/stay-request-service.ts) пишутся без user_id: имя и телефон — из формы; стирать живую заявку оператору при удалении аккаунта — решение владельца (#2327). '
+      + 'Переписка по заявке (request_messages, 1349, 1350) — часть заявки: уходит вместе с ней (ON DELETE CASCADE), с аккаунтом её связывает только ключ ссылки, а не user_id',
   },
 };
 

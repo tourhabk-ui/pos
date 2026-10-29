@@ -28,6 +28,7 @@ const { createLeadMock, query } = vi.hoisted(() => ({
 
 vi.mock('@/lib/leads/create', () => ({
   createLead: (p: Record<string, unknown>) => createLeadMock(p),
+  createLeadDetailed: async (p: Record<string, unknown>) => { const id = await createLeadMock(p); return id ? { id, created: true } : null; },
   findRecentLeadByCommentPrefix: async () => null,
 }));
 vi.mock('@/lib/kuzmich/core', () => ({ executeKuzmichTool: async () => 'ok' }));

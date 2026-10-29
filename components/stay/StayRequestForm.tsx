@@ -20,6 +20,7 @@
 import { useState } from 'react';
 import { Send, CheckCircle2 } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
 
 type Delivered = 'owner' | 'platform' | 'none';
 
@@ -109,23 +110,7 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
             ? 'Владелец получил её в MAX и перезвонит или ответит сообщением, чтобы подтвердить даты и цену.'
             : 'Её получил оператор платформы: он свяжется с владельцем, а владелец перезвонит вам.'}
         </p>
-        {links.page ? (
-          <div className="space-y-2">
-            <a href={links.page} className="ds-btn ds-btn-primary w-full text-center">Переписка с владельцем</a>
-            {links.max && (
-              <a href={links.max} target="_blank" rel="noopener noreferrer" className="ds-btn ds-btn-secondary w-full text-center">
-                Получать ответы в MAX
-              </a>
-            )}
-            <p className="text-xs text-[var(--text-muted)]">
-              Сохраните ссылку на переписку: по ней видны ответы владельца. Никому её не пересылайте.
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-[var(--text-muted)]">
-            Ссылка на переписку не выдалась — сбой на нашей стороне. Заявка передана, владелец позвонит.
-          </p>
-        )}
+        <RequestChatLinks page={links.page} maxLink={links.max} />
       </div>
     );
   }

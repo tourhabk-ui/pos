@@ -94,6 +94,16 @@ export async function findRecentLeadByCommentPrefix(phone: string, prefix: strin
 }
 
 export async function createLead(params: CreateLeadParams): Promise<string | null> {
+  return (await createLeadDetailed(params))?.id ?? null;
+}
+
+/**
+ * То же, что createLead, но говорит, новая ли заявка: дубль (тот же телефон и
+ * комментарий за сутки) возвращает прежний лид с `created: false`. Это
+ * различие нужно двери, которая выдаёт ключ переписки (1350): ключ повтора
+ * переписку не открывает — телефон не секрет.
+ */
+export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id: string; created: boolean } | null> {
   const {
     name,
     phone = '',
@@ -125,7 +135,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
         [phone, comment],
       );
       if (dupCheck.rows.length > 0) {
-        return dupCheck.rows[0].id;
+        return { id: dupCheck.rows[0].id, created: false };
       }
     } catch (err) {
       // Не блокируем — дедуп опционален, но отказ проверки не «дубля нет»,
@@ -221,5 +231,5 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
     }).catch((e) => console.error('[createLead] notifyAdminNewLead failed:', e));
   }
 
-  return leadId;
+  return leadId ? { id: leadId, created: true } : null;
 }

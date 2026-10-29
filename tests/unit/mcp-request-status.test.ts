@@ -83,7 +83,16 @@ describe('выдача ключа', () => {
     expect(sql).not.toMatch(/\|\|/);
     expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
     expect(params[0]).not.toBe(key);
-    expect(params).toEqual([params[0], '11111111-1111-1111-1111-111111111111', null, null, 'create_lead', REQUEST_KEY_TTL_DAYS]);
+    // Переписку (1350) ключ открывает, только когда дверь это сказала явно.
+    expect(params).toEqual([params[0], '11111111-1111-1111-1111-111111111111', null, null, 'create_lead', REQUEST_KEY_TTL_DAYS, false]);
+  });
+
+  it('ключ новой заявки открывает переписку только по слову двери (opensChat)', async () => {
+    query.mockResolvedValue({ rows: [] });
+    await issueRequestKey({ leadId: '11111111-1111-1111-1111-111111111111' }, 'request_charter', { opensChat: true });
+    await issueRequestKey({ leadId: '11111111-1111-1111-1111-111111111111' }, 'request_charter', { opensChat: false });
+    await issueRequestKey({ leadId: '11111111-1111-1111-1111-111111111111' }, 'request_charter');
+    expect(query.mock.calls.map((c) => (c[1] as unknown[]).at(-1))).toEqual([true, false, false]);
   });
 
   it('заявка на жильё — третья цель ключа: в колонку stay_request_id, остальные цели пусты', async () => {
@@ -92,7 +101,7 @@ describe('выдача ключа', () => {
     expect(key).not.toBeNull();
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('stay_request_id');
-    expect(params.slice(1)).toEqual([null, null, '33333333-3333-3333-3333-333333333333', 'create_stay_request', REQUEST_KEY_TTL_DAYS]);
+    expect(params.slice(1)).toEqual([null, null, '33333333-3333-3333-3333-333333333333', 'create_stay_request', REQUEST_KEY_TTL_DAYS, false]);
   });
 
   it('база отказала — null и SQLSTATE в логе, заявка не страдает', async () => {
@@ -191,7 +200,7 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'max_link', 'next', 'notify', 'owner_last_reply_at', 'owner_replies', 'page', 'participants', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'notify', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
     ]);
     // Подписки на уведомления не заводилось — null, а не выдуманная (1348).
     expect(obj.notify).toBeNull();
@@ -359,7 +368,9 @@ describe('согласие человека (вторая половина ст�
     expect(CONFIRM_CONSENT_SQL).toContain('UPDATE tour_seat_requests');
     expect(CONFIRM_CONSENT_SQL).toContain('UPDATE stay_requests');
     expect(CONFIRM_CONSENT_SQL).not.toMatch(/INSERT/);
-    expect(CONFIRM_CONSENT_SQL).toContain('pd_consent_source IS DISTINCT FROM $4::varchar');
+    // Пишется только туда, где согласия нет или его записал агент: согласие
+    // человека (страница, галочка формы) ключ повтора не перезапишет (1350).
+    expect(CONFIRM_CONSENT_SQL.match(/AND \(pd_consent_at IS NULL OR pd_consent_source = \$6::varchar\)/g)).toHaveLength(3);
     expect(CONFIRM_CONSENT_SQL).toContain('expires_at > NOW()');
     expect(CONFIRM_CONSENT_SQL).not.toMatch(/\b(name|phone|tourist_name|tourist_phone)\b/);
     expect(CONFIRM_CONSENT_SQL).not.toMatch(/\|\|/);
@@ -372,7 +383,7 @@ describe('согласие человека (вторая половина ст�
     const [sql, params] = query.mock.calls[0];
     expect(sql).toBe(CONFIRM_CONSENT_SQL);
     expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
-    expect(params.slice(1)).toEqual([record.at, record.ip, HUMAN_CONSENT_SOURCE, '2026-10-08']);
+    expect(params.slice(1)).toEqual([record.at, record.ip, HUMAN_CONSENT_SOURCE, '2026-10-08', AGENT_CONSENT_SOURCE]);
 
     query.mockResolvedValue({ rows: [{ updated: 0, prior_source: HUMAN_CONSENT_SOURCE, target_exists: true }] });
     expect(await confirmConsent(KEY, record)).toBe('already');
@@ -408,14 +419,19 @@ describe('роут MCP', () => {
     const issued = ROUTE.match(/await issueKeyWithNotify\(/g) ?? [];
     expect(issued.length).toBe(5);
     expect(ROUTE).toContain('issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl)');
-    expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url)');
     expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url)');
-    expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url)');
-    expect(ROUTE).toContain("keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay')");
-    expect((ROUTE.match(/const leadId = existing \?\? await createLead\(/g) ?? []).length).toBe(1);
-    // Вахтовка: повтор и новая — одним путём saveCharterLead (общим с формой на
-    // странице перевозчика, 13.10), он отдаёт прежний лид или новый; ключ — в том же return.
-    expect(ROUTE).toContain('const leadId = await saveCharterLead(');
+    // Переписку (1350) открывает только ключ новой заявки, адресованной
+    // партнёру: бронь, вахтовка, прокат; жильё — всегда (склейки нет).
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })");
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })");
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })");
+    expect(ROUTE).toContain("keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name, { opensChat: true }), 'stay')");
+    expect((ROUTE.match(/const saved = existing \? \{ id: existing, created: false \} : await createLeadDetailed\(/g) ?? []).length).toBe(1);
+    // Вахтовка: повтор и новая — одним путём saveCharterLeadDetailed (общим с
+    // формой на странице перевозчика, 13.10), он отдаёт прежний лид или новый;
+    // ключ — в том же return. Переписку открывает только ключ новой заявки
+    // (1350) — исполнением: tests/unit/mcp-request-charter.test.ts.
+    expect(ROUTE).toContain('const saved = await saveCharterLeadDetailed(');
   });
 });
 

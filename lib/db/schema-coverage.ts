@@ -57,7 +57,7 @@ export function declaredTables(root = process.cwd()): Set<string> {
     const patterns = [
       /CREATE\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?(\w+)/gi,
       /CREATE\s+OR\s+REPLACE\s+(?:VIEW|MATERIALIZED\s+VIEW)\s+["']?(\w+)/gi,
-      /ALTER\s+TABLE\s+\w+\s+RENAME\s+TO\s+(\w+)/gi,
+      /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?\w+\s+RENAME\s+TO\s+(\w+)/gi,
     ];
     for (const re of patterns) {
       for (const m of txt.matchAll(re)) out.add(m[1].toLowerCase());

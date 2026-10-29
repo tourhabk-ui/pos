@@ -27,9 +27,10 @@ describe('MCP create_booking_request — личная доставка опер�
   });
 
   it('вызывается только для новой заявки известному оператору и не для self', () => {
-    expect(ROUTE).toMatch(/if \(!existing && !ctx\.self && tour\.operator_id\) \{/);
+    // «Новая» — по исходу записи: повтор по префиксу и внутренний дубль createLead (1350).
+    expect(ROUTE).toMatch(/if \(saved\.created && !ctx\.self && tour\.operator_id\) \{/);
     const call = ROUTE.indexOf('notifyPartnerPersonallyAboutMcpLead({');
-    expect(call).toBeGreaterThan(ROUTE.indexOf('const leadId = existing ?? await createLead({'));
+    expect(call).toBeGreaterThan(ROUTE.indexOf('const saved = existing ? { id: existing, created: false } : await createLeadDetailed({'));
     // С 29.10 ключ статуса и подписка на уведомления выдаются одной функцией.
     expect(call).toBeLessThan(ROUTE.indexOf('return accepted + await issueKeyWithNotify'));
     const block = ROUTE.slice(call, ROUTE.indexOf('return accepted + await issueKeyWithNotify'));

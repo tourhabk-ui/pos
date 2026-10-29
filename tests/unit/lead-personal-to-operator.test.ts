@@ -87,6 +87,25 @@ describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД
     expect(msg.buttons).toEqual([{ text: 'Открыть заявку', url: 'https://vedarai.ru/hub/guide/own' }]);
   });
 
+  it('«Ответить клиенту» (1350): переписка с клиентом в этом же чате — первой кнопкой, только в MAX; своей пробе — нет', async () => {
+    const id = 'aaaaaaaa-1111-4222-8333-444444444444';
+    reachMock.mockResolvedValue(BOUND);
+    await notifyPartnerNewLeadPersonally({ ...LEAD, leadId: id });
+    expect(lastPdArgs().buttons).toEqual([
+      { text: 'Ответить клиенту', payload: `lq:o:${id}` },
+      { text: 'Открыть заявку', url: `https://vedarai.ru/hub/operator/leads/${id}` },
+    ]);
+    expect(lastPdArgs().text).toContain('кнопка «Ответить клиенту»');
+    expect(lastPdArgs().stub).not.toContain('Ответить клиенту');
+    // Копия команде — ссылка, без действия и без подсказки про кнопку: отвечает тот, кто подключил чат кабинета.
+    const [, msg] = teamMock.mock.calls[0] as [string, { text: string; buttons: Array<Record<string, string>> }];
+    expect(msg.buttons.some((b) => 'payload' in b)).toBe(false);
+    expect(msg.text).not.toContain('Ответить клиенту');
+    await notifyPartnerNewLeadPersonally({ ...LEAD, leadId: id, chat: false });
+    expect(lastPdArgs().buttons).toEqual([{ text: 'Открыть заявку', url: `https://vedarai.ru/hub/operator/leads/${id}` }]);
+    expect(lastPdArgs().text).not.toContain('Ответить клиенту');
+  });
+
   it('адрес не прочитался — категория неизвестна: ссылка прежняя, в кабинет оператора', async () => {
     reachMock.mockResolvedValue(null);
     expect(await notifyPartnerNewLeadPersonally(LEAD)).toEqual({ state: 'unknown' });

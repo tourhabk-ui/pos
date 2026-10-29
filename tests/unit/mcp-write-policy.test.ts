@@ -185,14 +185,14 @@ describe('в журнале нет персональных данных', () =>
 
 describe('согласие доезжает до лида всеми путями', () => {
   it('все createLead из MCP получают pd_consent', () => {
-    const calls = [...ROUTE.matchAll(/createLead\(\{[\s\S]*?\n  \}\)/g)].map((m) => m[0]);
+    const calls = [...ROUTE.matchAll(/createLead(?:Detailed)?\(\{[\s\S]*?\n  \}\)/g)].map((m) => m[0]);
     expect(calls.length).toBe(2);
     for (const c of calls) expect(c).toContain('pd_consent');
     // Заявка на машину — общим путём с формой на странице перевозчика (13.10):
-    // согласие уходит в saveCharterLead, оттуда — в createLead.
-    expect(ROUTE).toMatch(/saveCharterLead\(\{[\s\S]*?consent: pd_consent/);
+    // согласие уходит в saveCharterLeadDetailed, оттуда — в createLeadDetailed.
+    expect(ROUTE).toMatch(/saveCharterLeadDetailed\(\{[\s\S]*?consent: pd_consent/);
     const svc = readFileSync(join(ROOT, 'lib/transfers/charter-request-service.ts'), 'utf-8');
-    expect(svc).toMatch(/createLead\(\{[\s\S]*?pd_consent: i\.consent/);
+    expect(svc).toMatch(/createLeadDetailed\(\{[\s\S]*?pd_consent: i\.consent/);
   });
 
   it('источник согласия назван «mcp», а не подставлен от формы сайта', () => {

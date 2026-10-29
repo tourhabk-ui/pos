@@ -74,12 +74,17 @@ describe('идемпотентность заявки на бронь: (теле
     // «уже есть» с другим текстом нет. Ключ статуса в хвосте (ступень 1
     // контура, 12.10) случайный на каждый вызов и новую от прежней не отличает.
     expect(fn).toContain('findRecentLeadByCommentPrefix(phone, bookingPrefix)');
-    expect(fn).toMatch(/const leadId = existing \?\? await createLead\(/);
+    expect(fn).toMatch(/const saved = existing \? \{ id: existing, created: false \} : await createLeadDetailed\(/);
     expect(fn).not.toMatch(/if \(existing\)/);
     expect((fn.match(/return accepted/g) ?? []).length).toBe(1);
     // С 29.10 ключ и подписка на уведомления (notify_url) — одной функцией;
     // её хвост от повтора тоже не зависит.
-    expect(fn.trimEnd()).toMatch(/return accepted \+ await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url\);\s*\}$/);
+    expect(fn.trimEnd()).toMatch(/return accepted \+ await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url, 'request', \{ opensChat: saved\.created && offersChat, offersChat \}\);\s*\}$/);
+    // Хвост о переписке (1350) зависит от адресата заявки, а не от того, новая
+    // ли она: иначе текст выдал бы повтор. Новизна решает лишь, откроет ли
+    // переписку сам ключ.
+    const offers = /const offersChat = ([^;]+);/.exec(fn)?.[1] ?? '';
+    expect(offers).toBe('!ctx.self && Boolean(tour.operator_id)');
     expect(fn).not.toMatch(/номер \$\{leadId\}/);
   });
 
