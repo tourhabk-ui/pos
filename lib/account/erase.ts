@@ -980,7 +980,7 @@ export async function eraseUser(
           ELSE ${sqlTextLiteral(ERASED_COMMENT)} END
       WHERE booking_id IN (${HIS_BOOKINGS})`],
     // Третья копия причины отклонения его брони — в журнале действия кнопкой
-    // из чата гида (миграция 1345, lib/bookings/chat-owner-action): «Отклонить»
+    // из чата гида (миграция 1346, lib/bookings/chat-owner-action): «Отклонить»
     // кладёт слова продавца в partner_chat_actions.reason дословно, и там же
     // они остаются, если после причины нажато «Не надо». Строка ссылается на
     // бронь текстом (subject_id) без внешнего ключа, и перепись её по брони
@@ -1185,7 +1185,7 @@ export async function eraseUser(
     ['operator_chat_date_proposals', `DELETE FROM operator_chat_date_proposals p
       USING (${HIS_MESSENGER_IDS}) his
       WHERE p.channel = 'max' AND p.chat_id = ANY(his.mx)`],
-    // Действия кнопкой из его чата кабинета (миграция 1345,
+    // Действия кнопкой из его чата кабинета (миграция 1346,
     // lib/bookings/chat-owner-action): бронь своего тура в два шага. Строка
     // ссылается на карточку, а не на него (ERASE_DETACH_ONLY), но несёт id его
     // диалога и причину отклонения, написанную им. Ключ тот же, что у
