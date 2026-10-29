@@ -264,6 +264,22 @@ jobs:
           echo "HTTP: $HTTP" && cat /tmp/emsd_vmon.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
+      # ── Прогноз Камчатского УГМС (29.10) ────────────────────────────────
+      # Суточный прогноз синоптиков по районам с kammeteo.ru → ugms_forecasts;
+      # /weather и Кузьмич показывают его дословно. Аренда окна на час.
+      - name: UGMS forecast
+        id: ugms_forecast
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
+          HTTP=$(curl -s -o /tmp/ugms_forecast.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/ugms-forecast")
+          echo "HTTP: $HTTP" && cat /tmp/ugms_forecast.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
       # ── Запросы мест без ответа оператора (29.09) ──────────────────────
       # Срок ответа — 2 часа (решение владельца). Закрывает просроченные и
       # сообщает туристу «оператор не ответил» в его мессенджер. Страница
@@ -317,6 +333,7 @@ jobs:
             [tg_watchdog]="${{ steps.tg_watchdog.outcome }}"
             [channel_sync]="${{ steps.channel_sync.outcome }}"
             [emsd_vmon_sync]="${{ steps.emsd_vmon_sync.outcome }}"
+            [ugms_forecast]="${{ steps.ugms_forecast.outcome }}"
             [seat_requests_expire]="${{ steps.seat_requests_expire.outcome }}"
             [crm_reminders]="${{ steps.crm_reminders.outcome }}"
           )
@@ -334,4 +351,4 @@ jobs:
             echo "Отказали:$FAILED"
             exit 1
           fi
-          echo "Все десять эндпоинтов отработали"
+          echo "Все одиннадцать эндпоинтов отработали"

@@ -137,6 +137,15 @@ export const CRON_REGISTRY: CronEntry[] = [
     endpoint: 'emsd-vmon-sync',
   },
   {
+    // Суточный прогноз Камчатского УГМС по районам (29.10, владелец: «есть же
+    // камчатский гидромет») — дословно на /weather и у Кузьмича рядом с моделью.
+    key: 'ugms-forecast', label: 'Прогноз Камчатского УГМС',
+    description: 'kammeteo.ru: прогноз на сутки и на 2–3 суток по районам → ugms_forecasts; /weather и Кузьмич показывают его дословно.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждый час (аренда окна)',
+    everyMin: 60, tier: 'ops', agentId: 'ugms-forecast', triggerable: false,
+    endpoint: 'ugms-forecast',
+  },
+  {
     key: 'volcano-merge-gate', label: 'Volcano OS Merge Gate',
     description: 'Единственный human gate: readiness agent-PR, карточка решения, label needs-owner-merge, Telegram владельцу.',
     workflow: 'volcano-merge-gate.yml', cron: '23,53 * * * *', schedule: 'каждые 30 мин + события PR',
@@ -568,6 +577,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ноль записанных — не «спокойно», а «не прочитали». Отказ похода и так
   // пишется 'failed'; сюда попадает пройденный прогон, не записавший ничего.
   'emsd-vmon-sync': 'broken',
+  // Страницы прогноза УГМС непусты всегда: ноль записанных — разметка
+  // изменилась или сайт не дошёл, а не «прогноза нет».
+  'ugms-forecast': 'broken',
   'safety-check': 'unknown',
 
   // ── Операции ────────────────────────────────────────────────────────────
