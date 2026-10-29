@@ -329,7 +329,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   compare_tours: {
     tours: { lead: 'Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable) or titles separated by semicolons.', example: '61, 70' },
     criteria: { lead: 'What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty means a short default set.', example: 'цена, отмена' },
-    people: { lead: 'Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, on a named date.', example: '2' },
+    people: { lead: 'Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, and the nearest-date row the first date with seats for all of them. The tool picks the date of the total and names it per tour: the first date with seats for all of them, or the first date open for a request (tours without a schedule); a total on a date the user named comes from get_tour_availability with date_from and people.', example: '2' },
   },
   get_guardian_context: {
     place: { lead: 'Place or route name.', example: 'Авачинский вулкан' },

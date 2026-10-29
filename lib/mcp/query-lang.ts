@@ -148,10 +148,14 @@ export function localizeQuery(raw: string): Localized {
 /** Поля читающих инструментов, в которых человек называет место, тур или интерес. */
 export const LOCALIZABLE_FIELDS: readonly string[] = [
   'query', 'name', 'place', 'zone', 'activity_type', 'volcano', 'tour', 'interests', 'tours',
+  // Синонимы tours у compare_tours (схема сводит их к tours уже после
+  // перевода): без них английское название под tour_list дошло бы до
+  // резолвера как есть и стало «не найден среди активных» (ревью 29.10).
+  'tour_ids', 'ids', 'tour_list',
 ];
 
 /** Поля-списки: значения через «;» (или массив) переводятся по одному. */
-const LIST_FIELDS: ReadonlySet<string> = new Set(['tours']);
+const LIST_FIELDS: ReadonlySet<string> = new Set(['tours', 'tour_ids', 'ids', 'tour_list']);
 
 /** Инструменты, чьи аргументы переводятся. Пишущие сюда не входят: там имя и телефон человека. */
 export const LOCALIZABLE_TOOLS: ReadonlySet<string> = new Set([

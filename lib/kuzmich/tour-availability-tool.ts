@@ -30,7 +30,7 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 import { ACTIVITY_ALIASES, ACTIVITY_LABELS, activityLabel } from '@/lib/tours/labels';
 import { typeMatches } from '@/lib/kuzmich/tour-filter';
 import { stemRu } from '@/lib/search/query-words';
-import { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
+import { GROUP_TOTAL_EXCLUDES_SENTENCE, groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 
 export { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 
@@ -1104,7 +1104,7 @@ async function onRequestWindow(
     'Числа мест у тура без календаря нет — дату и группу подтверждает оператор. '
       + 'create_booking_request с датой отправит ему заявку в мессенджер, ответ — до 2 часов. Не обещай, что место закреплено, до его ответа.',
     ...(people !== null && tour.base_price != null
-      ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура). Трансферы и услуги из «не входит» в неё не включены.']
+      ? [`Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура). ${GROUP_TOTAL_EXCLUDES_SENTENCE}`]
       : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
   ];
 }
@@ -1362,7 +1362,7 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
       // ведёт (проверка MCP 29.09).
       `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
       ...(totals
-        ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура и заполненность даты). Трансферы и услуги из «не входит» в неё не включены.']
+        ? [`Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура и заполненность даты). ${GROUP_TOTAL_EXCLUDES_SENTENCE}`]
         : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
     ].join('\n');
   } catch (err) {

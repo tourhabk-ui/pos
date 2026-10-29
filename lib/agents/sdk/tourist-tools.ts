@@ -338,6 +338,16 @@ const checkAvailability: SDKTool = {
  * available_slots, рейтинг, порядок из SQL и молча выбрасывала снятый тур —
  * второе правило сравнения тех же туров на том же сайте (29.10).
  */
+/**
+ * Ядро сравнения называет инструменты общих каналов (Кузьмич, MCP). В этом
+ * наборе их часть зовётся иначе, а части нет вовсе — агент чата получает
+ * карту рядом с ответом, а не идёт по имени, которого здесь нет (ревью 29.10).
+ */
+export const SDK_COMPARE_TOOLS_HERE =
+  'Имена инструментов в тексте сравнения — из общих каналов Ведара. В этом чате: номера туров — search_tours, '
+  + 'даты и итог на другую дату — check_availability, детали тура — get_tour_details; '
+  + 'get_tours, get_place_info, get_tour_availability, create_booking_request и get_guardian_context здесь нет.';
+
 const compareTours: SDKTool = {
   name: 'compare_tours',
   description: 'Сравнить 2–4 тура фактами из базы рядом: цена (с числом людей — итог тем же расчётом, что заявка), длительность, даты, что входит, условия отмены, как попасть на тур, оператор. Без оценок и рейтинга: порядок — как назвал турист, выбирает он.',
@@ -353,12 +363,13 @@ const compareTours: SDKTool = {
   execute: async (args) => {
     try {
       const { compareToursForKuzmich } = await import('@/lib/kuzmich/tour-compare-tool');
+      // Ядро в отказе просит «поле tours» — оно принимается и здесь (ревью 29.10).
       const comparison = await compareToursForKuzmich({
-        tours: String(args.tour_ids ?? ''),
+        tours: String(args.tour_ids ?? args.tours ?? ''),
         ...(args.criteria != null ? { criteria: String(args.criteria) } : {}),
         ...(args.people != null ? { people: String(args.people) } : {}),
       });
-      return JSON.stringify({ comparison });
+      return JSON.stringify({ comparison, tools_here: SDK_COMPARE_TOOLS_HERE });
     } catch (err) {
       logSwallowedFailure('tourist-tools', 'сравнение туров', err);
       return JSON.stringify({ error: 'Сравнение не собрано: туры не прочитались. Не сравнивай по памяти — скажи, что проверить не смог.' });

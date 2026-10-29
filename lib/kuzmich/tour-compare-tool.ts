@@ -29,7 +29,7 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { getPublicBaseUrl } from '@/lib/config';
 import { requestWindow } from '@/lib/tours/request-window';
 import {
-  COMPARE_MAX_TOURS, COMPARE_MIN_TOURS, parseCriteria, splitTourList, tourIdOf,
+  COMPARE_MIN_TOURS, parseCriteria, splitTourList, tourCountRefusal, tourIdOf,
 } from '@/lib/tours/compare-input';
 import {
   renderComparison, type CompareRow, type CompareTourFacts, type GroupPrice, type GroupSlot,
@@ -43,13 +43,13 @@ export interface CompareToursArgs {
   tours?: string;
   criteria?: string;
   people?: string;
+  /**
+   * Дата, которую агент передал по образцу get_tour_availability. Сравнение
+   * её не принимает — итог считается на дату, названную в каждой строке, — и
+   * говорит это в ответе, а не теряет молча (ревью 29.10).
+   */
+  date?: string;
 }
-
-/** Отказ по числу туров — те же слова, что у схемы инструмента. */
-export const COMPARE_COUNT_TEXT = {
-  few: 'назван один тур — для сравнения нужно 2–4: номера через запятую («61, 70») или названия через «;»',
-  many: 'сравниваю не больше 4 туров за раз — выбери с человеком четыре',
-} as const;
 
 const notFound = (ref: string) => `Тур по запросу "${ref}" не найден среди активных — в сравнение не взят.`;
 
@@ -133,15 +133,21 @@ function choiceBlock(ref: string, choice: Exclude<TourChoice, { kind: 'one' } | 
 }
 
 export async function compareToursForKuzmich(args: CompareToursArgs): Promise<string> {
+  // Отказ по числу туров — те же слова, что у схемы инструмента.
+  const refusal = tourCountRefusal(args.tours ?? '');
+  if (refusal) return `Сравнение не собрано: ${refusal}.`;
   const refs = splitTourList(args.tours ?? '');
-  if (refs.length < COMPARE_MIN_TOURS) return `Сравнение не собрано: ${COMPARE_COUNT_TEXT.few}.`;
-  if (refs.length > COMPARE_MAX_TOURS) return `Сравнение не собрано: ${COMPARE_COUNT_TEXT.many}.`;
 
   const criteria = parseCriteria(args.criteria);
   const people = parsePeople(args.people);
   const notes: string[] = [];
   if (args.people != null && args.people.trim() !== '' && people === null) {
     notes.push(`Число людей «${args.people}» не распознано (нужно 1–30) — итог за группу не посчитан, цена — как в карточке.`);
+  }
+  const askedDate = args.date?.trim();
+  if (askedDate) {
+    notes.push(`Дату «${askedDate}» сравнение не принимает: итог и даты ниже — на даты, названные у каждого тура. `
+      + `Итог на «${askedDate}» — get_tour_availability с date_from и people по каждому туру.`);
   }
 
   // Резолв по одному, в порядке человека: не больше четырёх, у каждого до

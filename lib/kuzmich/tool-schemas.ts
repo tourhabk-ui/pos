@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 import type { ToolDefinition } from '@/lib/ai/providers';
-import { COMPARE_MAX_TOURS, COMPARE_MIN_TOURS, splitTourList } from '@/lib/tours/compare-input';
+import { tourCountRefusal } from '@/lib/tours/compare-input';
 
 /**
  * Строковое поле: допускает нестроковый JSON (число/bool → String(...)),
@@ -242,19 +242,31 @@ function listString(max: number) {
   );
 }
 
+// Даты сравнение не принимает (итог — на даты, названные в каждой строке), но
+// агент по образцу get_tour_availability её передаёт: date и её синонимы
+// принимаются, чтобы исполнитель назвал их в ответе, а не потерял молча
+// (ревью 29.10).
 const compareToursSchema = z.object({
   tours: listString(600).optional(),
   ...Object.fromEntries(COMPARE_TOURS_ALIASES.map((n) => [n, listString(600).optional()])) as Record<string, z.ZodOptional<ReturnType<typeof listString>>>,
   criteria: listString(300).optional(),
   people: looseString(10).optional(),
-}).transform((v) => ({
-  tours: firstOf(v, ['tours', ...COMPARE_TOURS_ALIASES]),
-  ...(v.criteria ? { criteria: v.criteria as string } : {}),
-  ...(v.people ? { people: v.people as string } : {}),
-}))
+  date_from: looseString(20).optional(),
+  ...aliasFields(DATE_FROM_ALIASES, 20),
+}).transform((v) => {
+  const date = firstOf(v, ['date', 'date_from', ...DATE_FROM_ALIASES]);
+  return {
+    tours: firstOf(v, ['tours', ...COMPARE_TOURS_ALIASES]),
+    ...(v.criteria ? { criteria: v.criteria as string } : {}),
+    ...(v.people ? { people: v.people as string } : {}),
+    ...(date ? { date } : {}),
+  };
+})
   .refine((v) => !!v.tours, { message: 'нужно указать tours: 2–4 тура номерами через запятую («61, 70») или названиями через «;»' })
-  .refine((v) => !v.tours || splitTourList(v.tours).length >= COMPARE_MIN_TOURS, { message: 'назван один тур — для сравнения нужно 2–4: номера через запятую («61, 70») или названия через «;»' })
-  .refine((v) => !v.tours || splitTourList(v.tours).length <= COMPARE_MAX_TOURS, { message: 'сравниваю не больше 4 туров за раз — выбери с человеком четыре' });
+  .superRefine((v, ctx) => {
+    const refusal = v.tours ? tourCountRefusal(v.tours) : null;
+    if (refusal) ctx.addIssue({ code: 'custom', message: refusal });
+  });
 
 // ── search_taaft ──────────────────────────────────────────────────────────
 // executeTool принимает `task` ИЛИ `query` (args.task ?? args.query).
@@ -593,7 +605,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
           properties: {
             tours: { type: 'string', description: 'Два–четыре тура в том порядке, как назвал человек: номера через запятую («61, 70») — надёжнее; названия — через «;». Номера — из get_tours, get_place_info, get_tour_details.' },
             criteria: { type: 'string', description: 'Что важно человеку, через запятую: цена, длительность, группа, сложность, сезон, программа, что входит, что не входит, отмена, подвоз, оператор, ближайшая дата. Не сказано — короткий набор: цена, длительность, ближайшая дата, сложность, подвоз, отмена, оператор.' },
-            people: { type: 'string', description: 'Сколько человек (1–30). Дано — в строке «цена» итог за всех тем же расчётом, что у get_tour_availability, на названную дату; в строке «ближайшая дата» — первая дата, где мест хватит на всех.' },
+            people: { type: 'string', description: 'Сколько человек (1–30). Дано — в строке «цена» итог за всех тем же расчётом, что у get_tour_availability, а в строке «ближайшая дата» — первая дата, где мест хватит на всех. Дату итога выбирает инструмент и называет её у каждого тура: первая, где мест хватит на всех, или первая дата для заявки (у тура без расписания); итог на дату, которую назвал человек, — get_tour_availability с date_from и people.' },
           },
           required: ['tours'],
         },

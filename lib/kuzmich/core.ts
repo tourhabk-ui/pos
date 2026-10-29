@@ -2652,7 +2652,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // 2–4 тура рядом по тому, что важно человеку (слово владельца 29.10) —
       // lib/kuzmich/tour-compare-tool: тот же резолвер и шлюз, что у деталей.
       const { compareToursForKuzmich } = await import('@/lib/kuzmich/tour-compare-tool');
-      return await compareToursForKuzmich({ tours: args.tours, criteria: args.criteria, people: args.people });
+      return await compareToursForKuzmich({ tours: args.tours, criteria: args.criteria, people: args.people, date: args.date });
     }
     return 'Неизвестный инструмент.';
   } catch (err) {
@@ -2686,16 +2686,22 @@ export { executeTool as executeKuzmichTool };
  */
 const TOOL_OUTPUT_KEEP = 2000;
 const PLACE_TOOL_OUTPUT_KEEP = 12_000;
+const LONG_OUTPUT_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info']);
 /**
- * Сравнение туров (compare_tours) — тем же потолком, что место: четыре тура
- * по семи строкам — 3–5 тысяч знаков, а цены и даты стоят по всему ответу.
- * Обрезок на двух тысячах судья эвала и сверка цен назвали бы выдумкой
- * настоящие цифры второго тура.
+ * Сравнение туров (compare_tours) журнал хранит целиком. Цены и даты стоят по
+ * всему ответу, а последний тур — в конце каждой строки: обрезок на любом
+ * потолке отрезал бы цифры последнего тура, и сверка цен вырезала бы их из
+ * ответа Кузьмича как непроверенные (dropUnsourcedPrices), судья — назвал бы
+ * выдумкой. Потолок 12 000 знаков не держал уже четыре тура по всем
+ * двенадцати строкам (ревью 29.10: 12 324 знака). Длина ограничена самим
+ * инструментом — не больше четырёх туров, — а не числом найденного, как у
+ * каталога, от которого потолок и заведён; в диалог вывод и так идёт целиком.
  */
-const LONG_OUTPUT_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info', 'compare_tours']);
+const UNCUT_OUTPUT_TOOLS: ReadonlySet<string> = new Set(['compare_tours']);
 
 /** Вывод инструмента для журнала вызовов — с потолком по роду инструмента. */
 export function journalToolOutput(name: string, content: string): string {
+  if (UNCUT_OUTPUT_TOOLS.has(name)) return content;
   return content.slice(0, LONG_OUTPUT_TOOLS.has(name) ? PLACE_TOOL_OUTPUT_KEEP : TOOL_OUTPUT_KEEP);
 }
 

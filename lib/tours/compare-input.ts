@@ -58,6 +58,26 @@ export function splitTourList(raw: string): string[] {
   return parts.flatMap((p) => idsIn(p) ?? [tourIdOf(p) ?? p]);
 }
 
+/**
+ * Отказ по числу туров словами; null — число годится. Одни слова у схемы
+ * инструмента и у исполнителя. Строка без «;» с запятой, где не одни номера
+ * («61, Вулкан Горелый»), — одно название (запятая в названии не угадывается),
+ * и отказ называет это, а не «назван один тур»: человек назвал два (ревью 29.10).
+ */
+export function tourCountRefusal(raw: string): string | null {
+  const n = splitTourList(raw).length;
+  if (n > COMPARE_MAX_TOURS) return 'сравниваю не больше 4 туров за раз — выбери с человеком четыре';
+  if (n >= COMPARE_MIN_TOURS) return null;
+  const how = 'номера через запятую («61, 70») или названия через «;»';
+  if (n === 0) return `туры не названы — для сравнения нужно 2–4: ${how}`;
+  const text = raw.trim();
+  if (text.includes(',') && !NAME_SEP.test(text)) {
+    const shown = text.length > 120 ? `${text.slice(0, 120)}…` : text;
+    return `по запятой список названий не делю (в названиях туров бывают запятые): «${shown}» прочитано как одно название — ${how}`;
+  }
+  return `назван один тур — для сравнения нужно 2–4: ${how}`;
+}
+
 export type Criterion =
   | 'price' | 'duration' | 'group' | 'difficulty' | 'season' | 'program'
   | 'included' | 'not_included' | 'cancellation' | 'pickup' | 'operator' | 'nearest_date';
@@ -89,7 +109,9 @@ export const DEFAULT_CRITERIA: readonly Criterion[] = [
 
 /** Синонимы критериев. Ищется самый длинный, целыми словами: «не входит» раньше «входит». */
 const CRITERION_WORDS: Readonly<Record<Criterion, readonly string[]>> = {
-  price: ['цена', 'цены', 'цену', 'ценой', 'стоимость', 'стоимости', 'сколько стоит', 'итог', 'сумма', 'price', 'prices', 'cost', 'total'],
+  // «Дешевле»/«дороже» — вопрос о цене: строка цены показывается, а какой тур
+  // дешевле, видно из чисел; оценки сравнение не добавляет (ревью 29.10).
+  price: ['цена', 'цены', 'цену', 'цене', 'ценой', 'стоимость', 'стоимости', 'сколько стоит', 'итог', 'сумма', 'дешевле', 'дешевый', 'дороже', 'price', 'prices', 'cost', 'total', 'cheaper', 'cheapest', 'expensive'],
   duration: ['длительность', 'продолжительность', 'сколько длится', 'сколько дней', 'сколько часов', 'duration', 'how long', 'length'],
   group: ['группа', 'группы', 'размер группы', 'сколько человек', 'group', 'group size'],
   difficulty: ['сложность', 'сложности', 'нагрузка', 'физическая подготовка', 'difficulty', 'fitness'],
@@ -98,16 +120,23 @@ const CRITERION_WORDS: Readonly<Record<Criterion, readonly string[]>> = {
   included: ['что входит', 'входит', 'включено', 'что включено', 'included', 'includes', 'inclusions'],
   not_included: ['не входит', 'что не входит', 'не включено', 'доплата', 'доплаты', 'not included', 'extras', 'exclusions'],
   cancellation: ['отмена', 'отмены', 'условия отмены', 'возврат', 'cancellation', 'cancel', 'refund'],
-  pickup: ['подвоз', 'трансфер', 'забор', 'заберут', 'как добраться', 'как попасть', 'сбор', 'место сбора', 'точка сбора', 'pickup', 'pick up', 'transfer', 'meeting point'],
+  pickup: ['подвоз', 'трансфер', 'забор', 'заберут', 'как добраться', 'как попасть', 'сбор', 'место сбора', 'точка сбора', 'место встречи', 'точка встречи', 'встреча', 'pickup', 'pick up', 'transfer', 'meeting point'],
   operator: ['оператор', 'компания', 'гид', 'продавец', 'проверка', 'кто проводит', 'operator', 'company', 'guide', 'verified', 'seller'],
-  nearest_date: ['ближайшая дата', 'ближайшие даты', 'свободная дата', 'свободные даты', 'места', 'свободные места', 'наличие мест', 'availability', 'nearest date', 'free seats'],
+  // Голого «места» нет: это и «места в группе», и «места на маршруте»
+  // (достопримечательности), а «место» с другим окончанием — «место встречи»
+  // (ревью 29.10). Только фразы, где речь о свободных местах.
+  nearest_date: ['ближайшая дата', 'ближайшие даты', 'свободная дата', 'свободные даты', 'свободные места', 'наличие мест', 'есть места', 'есть ли места', 'availability', 'nearest date', 'free seats'],
 };
 
 /** Названное, но не сравниваемое — с причиной словами. */
 const NOT_COMPARED: ReadonlyArray<{ words: readonly string[]; why: string }> = [
   {
-    words: ['рейтинг', 'отзывы', 'отзыв', 'оценка', 'оценки', 'звезды', 'rating', 'ratings', 'reviews', 'stars', 'best'],
+    words: ['рейтинг', 'отзывы', 'отзыв', 'оценка', 'оценки', 'звезды', 'rating', 'ratings', 'reviews', 'stars'],
     why: 'оценок сравнение не ставит: отзывы туристов — на странице тура, если они есть',
+  },
+  {
+    words: ['лучший', 'лучше', 'выгоднее', 'выгодный', 'рекомендуй', 'рекомендация', 'посоветуй', 'какой выбрать', 'best', 'recommend', 'recommendation'],
+    why: 'какой тур лучше, сравнение не говорит: оно раскладывает факты рядом, выбирает человек',
   },
   {
     words: ['безопасность', 'опасность', 'опасности', 'риск', 'риски', 'safety', 'risk', 'risks'],
@@ -125,12 +154,19 @@ function wordsOf(s: string): string[] {
 }
 
 /**
+ * Слова словаря, которые совпадают только точно: с другим окончанием они
+ * становятся другим словом («дороже» — не «дорога»).
+ */
+const EXACT_ONLY: ReadonlySet<string> = new Set(['дороже']);
+
+/**
  * Слово человека — то же слово словаря с другим окончанием: «стоимостью» —
  * «стоимость», «возврата» — «возврат», «операторы» — «оператор». Короткие
  * слова (до пяти букв) — только точно: «гид» не «гидра», «даты» не «датчик».
  */
 function sameWord(w: string, s: string): boolean {
   if (w === s) return true;
+  if (EXACT_ONLY.has(s)) return false;
   if (w.length < 5 || s.length < 5) return false;
   let i = 0;
   while (i < w.length && i < s.length && w[i] === s[i]) i++;
@@ -202,6 +238,17 @@ export function parseCriteria(raw: string | null | undefined): ParsedCriteria {
     if (found.length === 0) {
       const not = NOT_COMPARED_INDEX.find((n) => findPhrase(tokens, used, n.words) >= 0);
       unknown.push({ word: part, why: not?.value ?? null });
+      continue;
+    }
+    // Узнанное рядом с узнанным критерием («цена безопасность») не теряется
+    // молча: несравниваемое называется со своей причиной (ревью 29.10).
+    // Прочие слова части остаются без отзыва — это связки и уточнения
+    // («какой дешевле», «на двоих»), и называть их «нет такой строки» было бы шумом.
+    for (const n of NOT_COMPARED_INDEX) {
+      for (let at = findPhrase(tokens, used, n.words); at >= 0; at = findPhrase(tokens, used, n.words)) {
+        for (let j = 0; j < n.words.length; j++) used[at + j] = true;
+        unknown.push({ word: tokens.slice(at, at + n.words.length).join(' '), why: n.value });
+      }
     }
   }
   return keys.length > 0

@@ -981,6 +981,14 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(firstSlot![2]).not.toBe(`${(base4 * 2).toLocaleString('ru-RU')} ₽`);
       // Тур без календаря — на первую дату заявки, и это названо.
       expect(priced).toMatch(new RegExp(`- ID${tourIds[0]}: итого за 2 чел\\.: 4\u00a0000 ₽ — на [^(]+\\(первая дата для заявки; расписания нет\\)`));
+      // Ревью 29.10: дата на группу — первая, где мест хватит на ВСЕХ. У Беты
+      // одна дата на 6 мест: семерым её нет, и итог на неё не считается.
+      const seven = await cmp({ tours: `${tourIds[4]}, ${tourIds[0]}`, criteria: 'ближайшая дата, цена', people: '7' });
+      expect(seven).toContain(`- ID${tourIds[4]}: в пределах года нет даты, где мест хватит на 7 чел.`);
+      expect(seven).toContain(`- ID${tourIds[4]}: итог не посчитан: в пределах года нет даты, где мест хватит на 7 чел.`);
+      expect(seven).not.toMatch(new RegExp(`- ID${tourIds[4]}: [^\\n]*свободно 6`));
+      // Чего итог не включает — без «трансферы не включены»: у части туров он в цене.
+      expect(priced).not.toMatch(/трансфер/i);
 
       // «Не записано» вместо нуля и выдумки; проверка оператора — из partners.
       const facts = await cmp({ tours: `${tourIds[0]}, ${tourIds[6]}`, criteria: 'цена, отмена, программа, оператор' });
@@ -1706,6 +1714,18 @@ withPg('витрина туров: снятый тур не в плане и н�
           expect(weak.missing).toEqual(['Несуществующий']);
         }
         expect(await resolveTourByQuery('Ольховый Несуществующий')).toBeNull();
+        // Сравнение (ревью 29.10): часть слов и имя продавца — не «один тур»;
+        // сравнение не собирается и не выбирает тур за человека, номера — в ответе.
+        for (const ref of ['Ольховый Несуществующий', 'Тихая Заимка', 'Северная Рыбалка']) {
+          const t = await executeKuzmichTool('compare_tours', { tours: `${ref}; ${ids.crystal}` }, { surface: 'mcp' });
+          expect(t, ref).toMatch(new RegExp(`^По запросу «${ref}» [^\\n]*— сравнение не собрано`));
+          expect(t, ref).not.toMatch(/^Сравнение \d туров/m);
+          expect(t, ref).not.toMatch(/^Цена/m);
+        }
+        const weakCmp = await executeKuzmichTool('compare_tours', { tours: `Ольховый Несуществующий; ${ids.crystal}` });
+        expect(weakCmp).toContain(`- ID${ids.alder} «NS Перевал Ольховый»`);
+        const sellerCmp = await executeKuzmichTool('compare_tours', { tours: `Тихая Заимка; ${ids.crystal}` });
+        for (const x of [ids.seal, ids.channel, ids.cape]) expect(sellerCmp).toContain(`ID${x}`);
         // Обе основы у одного тура — тур, как раньше.
         const full = await resolveTourChoice('Ольховый перевал');
         expect(full.kind === 'one' && full.tour.id).toBe(Number(ids.alder));

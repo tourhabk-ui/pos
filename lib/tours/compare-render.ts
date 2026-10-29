@@ -25,7 +25,7 @@
  */
 
 import { CRITERION_HEADING, type Criterion, type UnknownCriterion } from '@/lib/tours/compare-input';
-import { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
+import { GROUP_TOTAL_EXCLUDES, groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { PRICE_UNIT_LABELS, difficultyLabel } from '@/lib/tours/labels';
 import { plateDuration } from '@/lib/home/plate-facts';
@@ -141,11 +141,16 @@ function cleanList(items: readonly unknown[] | null | undefined): string[] {
   return Array.isArray(items) ? items.map((i) => String(i).trim()).filter(Boolean) : [];
 }
 
+/**
+ * Цена тура как в карточке. Единица не записана (или не из словаря) — число
+ * есть, а сравнить его не с чем: «за человека» это или «за группу», неизвестно
+ * (§4.0), и отметка говорит «не сравнить», а не «за разное» (ревью 29.10).
+ */
 function basePriceCell(f: CompareTourFacts): Cell {
   const text = priceFromUnit(f.base_price, f.price_unit);
-  return text
-    ? { text, key: `${Number(f.base_price)}|${f.price_unit ?? ''}` }
-    : { text: 'цена не указана — называет оператор, не называй числа', key: null, gap: 'цена не указана' };
+  if (!text) return { text: 'цена не указана — называет оператор, не называй числа', key: null, gap: 'цена не указана' };
+  if (!f.price_unit || !PRICE_UNIT_LABELS[f.price_unit]) return { text, key: null, gap: 'не записано, за что назначена цена' };
+  return { text, key: `${Number(f.base_price)}|${f.price_unit}` };
 }
 
 function groupPriceCell(row: CompareRow, people: number): Cell {
@@ -326,7 +331,9 @@ function section(criterion: Criterion, input: CompareRenderInput): Section {
       if (people !== null) {
         const cs = cells((r) => groupPriceCell(r, people));
         return {
-          heading: `Цена за ${people} чел. (тем же расчётом, что заявка и get_tour_availability; трансферы и «не входит» не включены)`,
+          // Чего в итоге нет — общими словами с get_tour_availability; трансфер
+          // не назван: у части туров он в цене (ревью 29.10).
+          heading: `Цена за ${people} чел. (тем же расчётом, что заявка и get_tour_availability; ${GROUP_TOTAL_EXCLUDES})`,
           mark: markOf(cs, 'value'),
           lines: lines(cs),
         };
@@ -336,7 +343,8 @@ function section(criterion: Criterion, input: CompareRenderInput): Section {
       const recorded = cs.every((c) => c.cell.key !== null);
       // Цена за человека и за группу — разные величины: «одинаково» и
       // «отличается» между ними неправда. Итог за людей сравним всегда.
-      const mixed = recorded && (new Set(units).size > 1 || units.some((u) => !u || !PRICE_UNIT_LABELS[u]));
+      // Незаписанная единица сюда не доходит: её клетка — «не сравнить».
+      const mixed = recorded && new Set(units).size > 1;
       return {
         heading: CRITERION_HEADING.price,
         mark: mixed
@@ -381,7 +389,13 @@ export function renderComparison(input: CompareRenderInput): string {
     ...(input.unknown.length > 0
       ? [`Не сравниваю: ${input.unknown.map((u) => `«${u.word}» — ${u.why ?? 'такой строки в сравнении нет'}`).join('; ')}.`]
       : []),
-    ...(input.defaulted ? ['Что важно человеку, не названо — показан короткий набор строк.'] : []),
+    // «Не названо» — только когда не названо ничего: названное, но не
+    // узнанное, перечислено строкой выше (ревью 29.10, §4.0).
+    ...(input.defaulted
+      ? [input.unknown.length > 0
+        ? 'Из названного ни одной строки сравнения не узнано — показан короткий набор строк.'
+        : 'Что важно человеку, не названо — показан короткий набор строк.']
+      : []),
     ...(rest.length > 0 ? [`Другие строки — по запросу (criteria): ${rest.map((c) => CRITERION_HEADING[c].toLowerCase()).join(', ')}.`] : []),
     'Детали одного тура — get_tour_details, все даты и итог на другую дату — get_tour_availability с people, '
       + 'заявка — create_booking_request с номером тура. Выбирает человек: не выделяй ни один тур и не ставь оценок.',

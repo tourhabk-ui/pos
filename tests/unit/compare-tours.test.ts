@@ -34,13 +34,16 @@ vi.mock('@/lib/kuzmich/tour-availability-tool', async (orig) => ({
   nearestSlotFor: slotMock,
 }));
 
-import { splitTourList, parseCriteria, DEFAULT_CRITERIA, type Criterion } from '@/lib/tours/compare-input';
-import { renderComparison, type CompareRow, type CompareTourFacts } from '@/lib/tours/compare-render';
+import { splitTourList, parseCriteria, DEFAULT_CRITERIA, CRITERION_HEADING, type Criterion } from '@/lib/tours/compare-input';
+import { renderComparison, type CompareRow, type CompareTourFacts, type GroupPrice } from '@/lib/tours/compare-render';
 import { compareToursForKuzmich } from '@/lib/kuzmich/tour-compare-tool';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS } from '@/lib/mcp/public-tools';
-import { journalToolOutput } from '@/lib/kuzmich/core';
+import { executeKuzmichTool, journalToolOutput } from '@/lib/kuzmich/core';
 import { localizeToolArgs } from '@/lib/mcp/query-lang';
+import { GROUP_TOTAL_EXCLUDES } from '@/lib/tours/group-total';
+import { assessGrounding } from '@/lib/agents/eval/grounding';
+import { getTouristTools, SDK_COMPARE_TOOLS_HERE } from '@/lib/agents/sdk/tourist-tools';
 
 /** Слова оценки и ранга: в сравнении их нет никогда (запрет — регуляркой, §13.10). */
 const RANK_WORDS = /лучш|хуже|дешевл|дороже|выгодн|рекоменд|оптимал|идеал|победител|балл|рейтинг|мест[оа] ?№? ?1\b|топ[- ]?\d/i;
@@ -124,6 +127,42 @@ describe('вход: туры', () => {
     expect(validateToolArgs('compare_tours', {}).ok).toBe(false);
   });
 
+  it('номер и название через запятую — отказ называет одно название, а не «один тур» (ревью 29.10)', () => {
+    const mixed = validateToolArgs('compare_tours', { tours: '61, Вулкан Горелый' });
+    expect(mixed.ok).toBe(false);
+    if (!mixed.ok) {
+      expect(mixed.error).toMatch(/по запятой список названий не делю .*«61, Вулкан Горелый» прочитано как одно название — номера через запятую/);
+      expect(mixed.error).not.toMatch(/назван один тур/);
+    }
+    const empty = validateToolArgs('compare_tours', { tours: ' ; ' });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.error).toMatch(/туры не названы/);
+  });
+
+  it('дата во входе не теряется молча: схема отдаёт её исполнителю (ревью 29.10)', () => {
+    expect(validateToolArgs('compare_tours', { tours: '61, 70', people: '2', date: '2027-08-01' }))
+      .toEqual({ ok: true, args: { tours: '61, 70', people: '2', date: '2027-08-01' } });
+    expect(validateToolArgs('compare_tours', { tours: '61, 70', date_from: '2027-08-01' }))
+      .toEqual({ ok: true, args: { tours: '61, 70', date: '2027-08-01' } });
+  });
+
+  it('синонимы tours переводятся тем же списком, что tours: английское название под tour_list доходит до резолвера по-русски', () => {
+    const viaKey = localizeToolArgs('compare_tours', { tours: 'Gorely volcano; Mutnovsky volcano' });
+    const viaAlias = localizeToolArgs('compare_tours', { tour_list: 'Gorely volcano; Mutnovsky volcano' });
+    expect(viaAlias.lang).toBe('en');
+    expect(viaAlias.args.tour_list).toBe(viaKey.args.tours);
+    const v = validateToolArgs('compare_tours', viaAlias.args as Record<string, string>);
+    expect(v.ok && splitTourList(v.args.tours)).toEqual(splitTourList(String(viaKey.args.tours)));
+    expect(String(viaAlias.args.tour_list)).not.toMatch(/[a-z]{4}/i);
+    // Китайский список под синонимом — по одному, как под tours: иначе «；»
+    // вырезался бы вместе с прочей пунктуацией и названия слились бы в одно.
+    for (const alias of ['tour_ids', 'ids', 'tour_list']) {
+      const zh = localizeToolArgs('compare_tours', { [alias]: '阿瓦恰火山；穆特诺夫斯基' });
+      const vz = validateToolArgs('compare_tours', zh.args as Record<string, string>);
+      expect(vz.ok && splitTourList(vz.args.tours), alias).toEqual(['Авачинский', 'Мутновский']);
+    }
+  });
+
   it('китайский список через «；» переводится по одному и не сливается в одно название', () => {
     const l = localizeToolArgs('compare_tours', { tours: '阿瓦恰火山；穆特诺夫斯基' });
     expect(l.lang).toBe('zh');
@@ -146,6 +185,39 @@ describe('вход: критерии', () => {
     expect(r.keys).toEqual([...DEFAULT_CRITERIA]);
     expect(parseCriteria('цена, погода у кратера').unknown.map((u) => u.word)).toEqual(['погода у кратера']);
     expect(parseCriteria('').defaulted).toBe(true);
+  });
+
+  it('«место встречи» — как попасть на тур, а не свободные даты; голое «места» не угадывается (ревью 29.10)', () => {
+    expect(parseCriteria('место встречи')).toEqual({ keys: ['pickup'], unknown: [], defaulted: false });
+    expect(parseCriteria('где встреча').keys).toEqual(['pickup']);
+    expect(parseCriteria('есть ли места, свободные места').keys).toEqual(['nearest_date']);
+    const bare = parseCriteria('места');
+    expect(bare.keys).toEqual([...DEFAULT_CRITERIA]);
+    expect(bare.unknown).toEqual([{ word: 'места', why: null }]);
+  });
+
+  it('«дешевле» — строка цены; «лучший» и «рекомендуй» — с причиной, почему оценки нет (ревью 29.10)', () => {
+    expect(parseCriteria('какой дешевле')).toEqual({ keys: ['price'], unknown: [], defaulted: false });
+    expect(parseCriteria('по цене').keys).toEqual(['price']);
+    // «дороже» — только точно: «дорога» не цена.
+    expect(parseCriteria('дорога').keys).toEqual([...DEFAULT_CRITERIA]);
+    expect(parseCriteria('что дороже').keys).toEqual(['price']);
+    for (const w of ['лучший', 'какой лучше', 'рекомендуй', 'best']) {
+      const r = parseCriteria(w);
+      expect(r.unknown, w).toEqual([{ word: w, why: expect.stringMatching(/какой тур лучше, сравнение не говорит/) }]);
+    }
+  });
+
+  it('несравниваемое рядом с узнанным в одной части называется с причиной, а не теряется (ревью 29.10)', () => {
+    expect(parseCriteria('цена безопасность')).toEqual({
+      keys: ['price'], defaulted: false,
+      unknown: [{ word: 'безопасность', why: expect.stringMatching(/правила безопасности тура — get_tour_details/) }],
+    });
+    expect(parseCriteria('стоимость с рейтингом').unknown).toEqual([{ word: 'рейтингом', why: expect.stringMatching(/оценок сравнение не ставит/) }]);
+    expect(parseCriteria('лучший по цене')).toEqual({
+      keys: ['price'], defaulted: false,
+      unknown: [{ word: 'лучший', why: expect.stringMatching(/какой тур лучше/) }],
+    });
   });
 });
 
@@ -229,6 +301,108 @@ describe('сборка ответа: факты рядом, без оценки'
       { facts: facts({ id: 906, price_unit: 'per_tour', base_price: 60000 }), groupPrice: { kind: 'on', date: '2027-07-15', basis: 'request', total: { kind: 'total', total: 60000 } } },
     ], ['price'], 2);
     expect(sectionOf(g, 'Цена за 2 чел.')).toMatch(/ — отличается$/m);
+  });
+
+  it('единица цены не записана — «не сравнить: не записано, за что», а не «за разное» (ревью 29.10)', () => {
+    const none1 = facts({ id: 911, price_unit: null });
+    const none2 = facts({ id: 912, price_unit: null });
+    const both = sectionOf(render([{ facts: none1 }, { facts: none2 }], ['price']), 'Цена').split('\n')[0];
+    expect(both).toBe('Цена — не сравнить: у ID911 не записано, за что назначена цена; у ID912 не записано, за что назначена цена');
+    const one = sectionOf(render([{ facts: ALFA }, { facts: none2 }], ['price']), 'Цена').split('\n')[0];
+    expect(one).toBe('Цена — не сравнить: у ID912 не записано, за что назначена цена');
+    expect(one).not.toMatch(/за разное/);
+    // Обе единицы записаны и одинаковы — сравнимо.
+    expect(sectionOf(render([{ facts: ALFA }, { facts: facts({ id: 913 }) }], ['price']), 'Цена').split('\n')[0]).toBe('Цена — одинаково');
+  });
+
+  it('итог за людей: заголовок не говорит «трансферы не включены» — у части туров трансфер в цене (ревью 29.10)', () => {
+    const withTransfer = facts({ id: 914, included: ['трансфер с адреса на внедорожнике и обратно'] });
+    const t = render([
+      { facts: withTransfer, groupPrice: { kind: 'on', date: '2027-07-19', basis: 'slot', total: { kind: 'total', total: 30000 } } },
+      { facts: BETA, groupPrice: { kind: 'on', date: '2027-07-15', basis: 'request', total: { kind: 'total', total: 36000 } } },
+    ], ['price', 'included'], 2);
+    const head = sectionOf(t, 'Цена за 2 чел.').split('\n')[0];
+    expect(head).toContain(GROUP_TOTAL_EXCLUDES);
+    expect(head).not.toMatch(/трансфер/i);
+    expect(t).toContain('ID914: трансфер с адреса на внедорожнике и обратно');
+  });
+
+  it('итог за людей: каждый исход расчёта своими словами, ни один — не «нет даты» за другого (§4.0)', () => {
+    const cases: Array<[GroupPrice, RegExp, RegExp | null]> = [
+      [{ kind: 'schedule_unknown' }, /итог не посчитан: не смог проверить, ведёт ли тур расписание; цена тура — от 15\s000 ₽\/чел\.$/, /нет даты|расписания нет/],
+      [{ kind: 'no_date' }, /итог не посчитан: в пределах года нет даты, где мест хватит на 2 чел\.; цена тура/, null],
+      [{ kind: 'dates_failed' }, /итог не посчитан: даты не прочитались; цена тура/, /нет даты/],
+      [{ kind: 'no_price' }, /цена не указана — итог назовёт оператор/, /\d ₽/],
+      [{ kind: 'on', date: '2027-07-19', basis: 'slot', total: { kind: 'failed' } }, /итог не посчитан; цена тура/, /итого/],
+      [{ kind: 'on', date: '2027-07-19', basis: 'request', total: { kind: 'no_price' } }, /цену называет оператор; цена тура/, /итого/],
+    ];
+    for (const [gp, want, never] of cases) {
+      const line = render([{ facts: ALFA, groupPrice: gp }, { facts: BETA, groupPrice: { kind: 'no_price' } }], ['price'], 2)
+        .split('\n').find((l) => l.startsWith('- ID901:')) ?? '';
+      expect(line, gp.kind).toMatch(want);
+      if (never) expect(line, gp.kind).not.toMatch(never);
+    }
+  });
+
+  it('строки тура не зависят от соседей: тур A пишется одинаково рядом с B и рядом с C (оценки нет по построению)', () => {
+    const C = facts({
+      id: 903, title: 'Пробный (вертолёт)', base_price: 60000, price_unit: 'per_tour', duration_type: 'multi_day', multi_day_count: 2,
+      duration_hours: null, difficulty: 'hard', operator_id: 'op-g', operator_name: 'Гамма', operator_verified: null,
+      cancellation_policy: 'Без возврата.', cancellation_free_days: null, cancellation_late_refund_percent: null,
+      nearest_free_date: '2027-08-02',
+    });
+    const gp = (f: CompareTourFacts, total: number): CompareRow => ({
+      facts: f,
+      groupPrice: { kind: 'on', date: '2027-07-19', basis: 'slot', total: { kind: 'total', total } },
+      groupSlot: { state: 'found', date: '2027-07-19', remaining: 4 },
+    });
+    const linesOf = (text: string, id: number) => text.split('\n').filter((l) => l.startsWith(`- ID${id}:`));
+    for (const people of [null, 2] as const) {
+      const rows = (f: CompareTourFacts, total: number) => (people === null ? { facts: f } : gp(f, total));
+      const withB = render([rows(ALFA, 30000), rows(BETA, 36000)], ALL, people);
+      const withC = render([rows(ALFA, 30000), rows(C, 60000)], ALL, people);
+      const cAndA = render([rows(C, 60000), rows(ALFA, 30000)], ALL, people);
+      expect(linesOf(withB, 901).length).toBe(ALL.length);
+      expect(linesOf(withC, 901)).toEqual(linesOf(withB, 901));
+      expect(linesOf(cAndA, 901)).toEqual(linesOf(withB, 901));
+      expect(linesOf(render([rows(BETA, 36000), rows(C, 60000)], ALL, people), 902)).toEqual(linesOf(withB, 902));
+    }
+  });
+
+  it('отметка строки — только из закрытого набора: совпало, различается или не сравнить', () => {
+    const MARK = /^(?:одинаково|отличается|записано одинаково|записано по-разному|один оператор|разные операторы|не сравнить: у ID\d+ [^;]+(?:; у ID\d+ [^;]+)*|не сравнить напрямую: цена назначена за разное — ID\d+ за [^;]+(?:; ID\d+ за [^;]+)+; итог за группу — с people)$/;
+    // Длинные заголовки раньше коротких: «Цена за 2 чел.» не читается как «Цена».
+    const headings = [...Object.values(CRITERION_HEADING), 'Цена за 2 чел.', 'Ближайшая дата, где мест хватит на 2 чел.']
+      .sort((a, b) => b.length - a.length);
+    const variants: Array<[CompareRow[], number | null]> = [
+      [[{ facts: ALFA }, { facts: BETA }], null],
+      [[{ facts: ALFA }, { facts: facts({ id: 906, price_unit: 'per_tour', base_price: 60000 }) }], null],
+      [[{ facts: ALFA }, { facts: facts({ id: 907 }) }], null],
+      [[{ facts: ALFA, groupPrice: { kind: 'on', date: '2027-07-19', basis: 'slot', total: { kind: 'total', total: 30000 } }, groupSlot: { state: 'found', date: '2027-07-19', remaining: 4 } },
+        { facts: BETA, groupPrice: { kind: 'on', date: '2027-07-15', basis: 'request', total: { kind: 'total', total: 36000 } } }], 2],
+    ];
+    for (const [rows, people] of variants) {
+      const t = render(rows, ALL, people);
+      const blocks = t.split('\n\n').slice(1, -1);
+      expect(blocks).toHaveLength(ALL.length);
+      for (const b of blocks) {
+        const head = b.split('\n')[0];
+        const heading = headings.find((h) => head.startsWith(`${h} `) || head.startsWith(`${h} —`));
+        expect(heading, head).toBeDefined();
+        const afterHeading = head.slice(heading!.length);
+        const mark = afterHeading.replace(/^ \([^)]*\)/, '').replace(/^ — /, '');
+        expect(mark, head).toMatch(MARK);
+      }
+    }
+  });
+
+  it('хвост: «не названо» — только когда не названо ничего; названное, но не узнанное — так и сказано (ревью 29.10)', () => {
+    const base = { rows: [{ facts: ALFA }, { facts: BETA }], criteria: DEFAULT_CRITERIA, people: null, today: TODAY, base: BASE, notes: [] };
+    const unrecognized = renderComparison({ ...base, unknown: [{ word: 'рейтинг', why: 'оценок сравнение не ставит' }], defaulted: true });
+    expect(unrecognized).toContain('Из названного ни одной строки сравнения не узнано — показан короткий набор строк.');
+    expect(unrecognized).not.toMatch(/не названо/);
+    const unnamed = renderComparison({ ...base, unknown: [], defaulted: true });
+    expect(unnamed).toContain('Что важно человеку, не названо — показан короткий набор строк.');
   });
 
   it('отметки: одинаково, отличается и третий исход, когда у кого-то не записано', () => {
@@ -350,6 +524,78 @@ describe('исполнитель: резолвер, витрина, повтор
     expect(t).toContain('ID901: 19 июля 2027, свободно 4 — мест хватит на 2 чел.');
   });
 
+  it('продавец и часть слов — сравнения нет, номера туров в ответе, тур за человека не выбран', async () => {
+    const seller = (basis: 'own' | 'words') => ({
+      kind: 'seller', basis, sellers: [{ id: 'op-alfa', name: 'Компания Альфа', category: 'operator', slug: 'alfa', is_public: true }],
+      tours: [candidate(ALFA), candidate(facts({ id: 905, title: 'Пробный второй' }))], partialName: false, rest: null, others: null, words: null,
+    });
+    byRef['Компания Альфа'] = seller('own');
+    byRef['Альфа Пробный'] = seller('words');
+    byRef['Пробный Несуществующий'] = { kind: 'weak', candidates: [candidate(ALFA)], matched: ['Пробный'], apart: [], missing: ['Несуществующий'] };
+    for (const ref of ['Компания Альфа', 'Альфа Пробный', 'Пробный Несуществующий']) {
+      poolQuery.mockClear();
+      const t = await compareToursForKuzmich({ tours: `${ref}; 902` });
+      expect(t, ref).toMatch(new RegExp(`^(?:По запросу «${ref}» [^\\n]*— сравнение не собрано)`));
+      expect(t, ref).toContain('- ID901 «Вулкан Пробный (джип)»');
+      expect(t, ref).not.toMatch(/^Сравнение \d туров/m);
+      expect(t, ref).not.toMatch(/^Цена/m);
+      expect(t, ref).toContain('не выбирайте за него');
+      expect(poolQuery, ref).not.toHaveBeenCalled();
+    }
+  });
+
+  it('итог за людей: «не смог проверить расписание», «даты не прочитались» и «нет даты» — разные исходы (§4.0)', async () => {
+    poolQuery.mockImplementation(async () => ({ rows: [facts({ keeps_schedule: null }), BETA] }));
+    groupTotalMock.mockResolvedValue({ kind: 'total', total: 36000 });
+    const unknownSchedule = await compareToursForKuzmich({ tours: '901, 902', criteria: 'цена', people: '2' });
+    expect(unknownSchedule).toContain('ID901: итог не посчитан: не смог проверить, ведёт ли тур расписание');
+    expect(unknownSchedule).not.toMatch(/ID901: [^\n]*расписания нет/);
+    expect(groupTotalMock).not.toHaveBeenCalledWith(expect.objectContaining({ id: 901 }), expect.anything(), expect.anything());
+    expect(slotMock).not.toHaveBeenCalled();
+
+    poolQuery.mockImplementation(async () => ({ rows: [ALFA, BETA] }));
+    slotMock.mockResolvedValue({ state: 'failed' });
+    const failed = await compareToursForKuzmich({ tours: '901, 902', criteria: 'цена', people: '2' });
+    expect(failed).toContain('ID901: итог не посчитан: даты не прочитались');
+    expect(failed).not.toMatch(/ID901: [^\n]*нет даты/);
+
+    slotMock.mockResolvedValue({ state: 'none' });
+    const none = await compareToursForKuzmich({ tours: '901, 902', criteria: 'цена', people: '2' });
+    expect(none).toContain('ID901: итог не посчитан: в пределах года нет даты, где мест хватит на 2 чел.');
+  });
+
+  it('дата во входе названа в ответе: итог на неё — get_tour_availability (ревью 29.10)', async () => {
+    const v = validateToolArgs('compare_tours', { tours: '901, 902', people: '2', date: '2027-08-01' });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    groupTotalMock.mockResolvedValue({ kind: 'total', total: 36000 });
+    slotMock.mockResolvedValue({ state: 'found', date: '2027-07-19', remaining: 4 });
+    const t = await executeKuzmichTool('compare_tours', v.args);
+    expect(t).toContain('Дату «2027-08-01» сравнение не принимает: итог и даты ниже — на даты, названные у каждого тура. Итог на «2027-08-01» — get_tour_availability с date_from и people по каждому туру.');
+    expect(t).toMatch(/^Сравнение 2 туров/);
+  });
+
+  it('номер и название через запятую — исполнитель отказывает теми же словами, что схема, без запроса в базу', async () => {
+    const t = await compareToursForKuzmich({ tours: '901, Вулкан Пробный (джип)' });
+    expect(t).toMatch(/^Сравнение не собрано: по запятой список названий не делю/);
+    expect(resolveMock).not.toHaveBeenCalled();
+  });
+
+  it('SDK-сравнение: criteria и people доходят до ядра, поле tours принимается, рядом — карта инструментов этого чата', async () => {
+    const tool = getTouristTools(null).find((t) => t.name === 'compare_tours');
+    expect(tool).toBeDefined();
+    groupTotalMock.mockResolvedValue({ kind: 'total', total: 36000 });
+    slotMock.mockResolvedValue({ state: 'found', date: '2027-07-19', remaining: 4 });
+    const out = JSON.parse(await tool!.execute({ tour_ids: '901,902', criteria: 'цена', people: '2' })) as { comparison: string; tools_here: string };
+    expect(out.comparison).toContain('Цена за 2 чел.');
+    expect(out.comparison).toMatch(/ID902: итого за 2 чел\.: 36\s000 ₽/);
+    expect(out.comparison).not.toMatch(/^Длительность/m);
+    expect(out.tools_here).toBe(SDK_COMPARE_TOOLS_HERE);
+    expect(out.tools_here).toMatch(/check_availability/);
+    const viaTours = JSON.parse(await tool!.execute({ tours: '901, 902' })) as { comparison: string };
+    expect(viaTours.comparison).toMatch(/^Сравнение 2 туров/);
+  });
+
   it('число людей не распознано — сказано, итог не считается', async () => {
     const t = await compareToursForKuzmich({ tours: '901, 902', people: 'много' });
     expect(t).toContain('Число людей «много» не распознано (нужно 1–30)');
@@ -377,7 +623,16 @@ describe('объявление инструмента', () => {
     expect((t?.inputSchema as { required?: string[] }).required).toEqual(['tours']);
   });
 
-  it('журнал хранит сравнение целиком, а не обрезок в 2000 знаков', () => {
+  it('журнал хранит сравнение целиком: ни 2000, ни 12 000 знаков не режут цифры последнего тура (ревью 29.10)', () => {
     expect(journalToolOutput('compare_tours', 'y'.repeat(9000))).toHaveLength(9000);
+    const long = `${'x'.repeat(12_500)}\n- ID9: от 180 000 ₽/чел.`;
+    expect(journalToolOutput('compare_tours', long)).toBe(long);
+    // Каталог — по-прежнему с потолком.
+    expect(journalToolOutput('get_tours', long).length).toBeLessThan(long.length);
+  });
+
+  it('ответ с ценами из сравнения заземлён: compare_tours — инструмент данных', () => {
+    const run = [{ name: 'compare_tours', producedData: true, output: '- ID20: итого за 2 чел.: 30 000 ₽' }];
+    expect(assessGrounding('Тур 20 на двоих — 30 000 ₽.', run).verdict).toBe('grounded');
   });
 });
