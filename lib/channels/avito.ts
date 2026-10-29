@@ -27,6 +27,7 @@
 
 import { priceLine } from '@/lib/channels/price-line';
 import { tourPath, type TourRef } from '@/lib/tours/tour-url';
+import { isGroupSizeUnlimited } from '@/lib/tours/group-size';
 import type {
   ChannelAdapter, ChannelBooking, ChannelName,
   ChannelTour, PushBookingInput, PushBookingResult,
@@ -211,7 +212,7 @@ export function generateAvitoXmlFeed(tours: ChannelTour[]): AvitoFeed {
     <Params>
       <Param name="Вид отдыха">${escapeXml(cat.kind)}</Param>
       <Param name="Длительность">${durationLabel(tour.duration_hours)}</Param>
-      <Param name="Количество участников">до ${tour.max_participants} чел.</Param>
+      <Param name="Количество участников">${isGroupSizeUnlimited(tour) ? 'не ограничено' : `до ${tour.max_participants} чел.`}</Param>
     </Params>
   </Ad>`.trim();
     })

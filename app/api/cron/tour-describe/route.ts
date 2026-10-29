@@ -53,6 +53,7 @@ const SELECT_TOURS = `
     ot.season_end::text   AS season_end,
     ot.max_participants,
     ot.min_participants,
+    ot.group_size_unlimited,
     ot.weather_dependent,
     ot.program,
     ot.included,

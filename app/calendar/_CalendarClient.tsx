@@ -35,6 +35,8 @@ interface Tour {
   durationType: string | null;
   freeSlots: number;
   availableSlots: number;
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
+  groupSizeUnlimited?: boolean;
   weatherStatus: string;
   operator: {
     id: string;
@@ -566,6 +568,7 @@ export default function CalendarClient() {
           priceUnit={bookingTour.priceUnit}
           duration={{ multi_day_count: null, duration_hours: bookingTour.durationHours }}
           maxGroupSize={bookingTour.availableSlots}
+          groupSizeUnlimited={bookingTour.groupSizeUnlimited === true}
           nextDeparture={selectedDate}
         />
       )}

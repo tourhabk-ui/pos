@@ -57,6 +57,7 @@ import { locationTypeLabel } from '@/lib/places/location-types';
 import BottomNav from '@/components/shared/BottomNav';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { groupRangeShort } from '@/lib/tours/group-size';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -144,6 +145,8 @@ interface Offer {
   durationHours: number | null; durationType: string | null; multiDayCount: number | null;
   difficulty: string | null;
   maxGroupSize: number | null; minGroupSize: number | null;
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
+  groupSizeUnlimited?: boolean;
   rating: number | null; reviewCount: number | null;
   included: string[];
   seasonStart: string | null; seasonEnd: string | null;
@@ -311,6 +314,12 @@ function OfferCard({ offer, activityType, onBook }: {
   const isLowSlots = offer.nextSlots != null && offer.nextSlots > 0 && offer.nextSlots <= 3;
   const cardImage = offer.tourImage || offer.operatorHeroImage;
   const seasonStr = formatSeasonDates(offer.seasonStart, offer.seasonEnd);
+  // Группа — общим правилом с карточкой тура (lib/tours/group-size, 1342):
+  // у тура без предела «не ограничена», а не «1–12».
+  const groupLabel = groupRangeShort({
+    min_participants: offer.minGroupSize, max_participants: offer.maxGroupSize,
+    group_size_unlimited: offer.groupSizeUnlimited === true,
+  });
 
   return (
     <div
@@ -399,12 +408,10 @@ function OfferCard({ offer, activityType, onBook }: {
               {duration}
             </span>
           )}
-          {(offer.minGroupSize || offer.maxGroupSize) && (
+          {groupLabel && (
             <span className="flex items-center gap-1">
               <Users className="w-3.5 h-3.5" style={{ color: accentColor }} />
-              {offer.minGroupSize && offer.maxGroupSize
-                ? `${offer.minGroupSize}–${offer.maxGroupSize}`
-                : `до ${offer.maxGroupSize}`}
+              {groupLabel}
             </span>
           )}
           {seasonStr && (
@@ -1946,6 +1953,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           priceUnit={bookingOffer.priceUnit}
           duration={{ multi_day_count: bookingOffer.multiDayCount, duration_hours: bookingOffer.durationHours }}
           maxGroupSize={bookingOffer.maxGroupSize}
+          groupSizeUnlimited={bookingOffer.groupSizeUnlimited === true}
           nextDeparture={calendarDate ?? bookingOffer.nextDeparture}
         />
       )}

@@ -63,7 +63,8 @@ export async function GET() {
   // Ближайший выезд — из живого календаря tour_availability (свободные места
   // из реальных броней), а не из полу-мёртвой tour_departures, где счётчик
   // занятости никогда не заполнялся. Тур — с витрины (#2642): без
-  // is_published публичная плашка звала на выезд черновика.
+  // is_published публичная плашка звала на выезд черновика. В одну дату —
+  // меньший id: без дожима тур выбирался порядком строк, то есть случайно.
   let nextDeparture: { date: string; tourName: string; operatorName: string; slots: number } | null = null;
   try {
     const dRes = await pool.query(
@@ -79,7 +80,7 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
          AND ta.is_cancelled = FALSE
          AND ta.deleted_at IS NULL
          AND GREATEST(0, LEAST(ta.available_slots, COALESCE(t.max_participants, ta.available_slots)) - occ.taken) > 0
-       ORDER BY ta.date ASC
+       ORDER BY ta.date ASC, t.id ASC
        LIMIT 1`,
     );
     if (dRes.rows[0]) {

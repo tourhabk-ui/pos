@@ -28,6 +28,7 @@ interface TourRow {
   duration_type: string | null;
   max_participants: number;
   min_participants: number;
+  group_size_unlimited: boolean | null;
   available_slots: number;
   booked_slots: number;
   free_slots: number;
@@ -106,6 +107,7 @@ export async function GET(request: NextRequest) {
          t.duration_type,
          t.max_participants,
          t.min_participants,
+         t.group_size_unlimited,
          ta.available_slots,
          occ.taken                                                           AS booked_slots,
          GREATEST(0, ta.available_slots - occ.taken)                         AS free_slots,
@@ -155,6 +157,7 @@ export async function GET(request: NextRequest) {
       durationType:   r.duration_type,
       maxParticipants: r.max_participants,
       minParticipants: r.min_participants,
+      groupSizeUnlimited: r.group_size_unlimited === true,
       availableSlots:  r.available_slots,
       bookedSlots:     r.booked_slots,
       freeSlots:       r.free_slots,

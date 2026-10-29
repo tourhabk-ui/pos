@@ -52,6 +52,8 @@ export interface TourCardRow {
   photos: string[] | null;
   max_participants: number;
   min_participants: number | null;
+  /** Группа тура не ограничена (1342). Не прочитано (старая схема) — нет поля, читается как FALSE. */
+  group_size_unlimited?: boolean | null;
   duration_hours: string | null;
   duration_type: string | null;
   multi_day_count: number | null;
@@ -161,7 +163,7 @@ export interface TourCardReview {
 }
 
 /** Колонки, добавленные миграциями 809 и 1194 — их может не быть, если миграция отстала. */
-const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes, ot.video_clips,';
+const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes, ot.video_clips, ot.group_size_unlimited,';
 
 function buildSql(withOptional: boolean): string {
   return `

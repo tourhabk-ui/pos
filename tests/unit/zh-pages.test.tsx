@@ -132,6 +132,10 @@ describe('конспект тура: перевод помечен, оригин
     expect(fact(ZH_DETAIL.facts.price)).toBe('99,000 卢布 每人');
     // Не записано — «未填写», а не ноль.
     expect(fact(ZH_DETAIL.facts.group)).toBe(ZH_DETAIL.notRecorded);
+    // Группа тура не ограничена (1342): «人数不限» и потолок одной заявки
+    // (меньшее из числа тура и потолка формы 12), а не «最多 20 人».
+    rerender(<ZhTourSummary tour={{ ...TOUR, group_size_unlimited: true }} translations={FRESH()} />);
+    expect(fact(ZH_DETAIL.facts.group)).toBe('人数不限（网站单次申请最多 12 人）');
     rerender(<ZhTourSummary tour={{ ...TOUR, base_price: '0' }} translations={FRESH()} />);
     expect(fact(ZH_DETAIL.facts.price)).toBe(ZH_DETAIL.notRecorded);
     expect(container.textContent).not.toContain('0 卢布');
