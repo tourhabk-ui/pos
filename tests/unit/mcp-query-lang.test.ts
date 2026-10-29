@@ -96,33 +96,44 @@ describe('resolveTourByQuery — ранг и запасной поиск по с
     const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
     // Ранг считает база; резолвер берёт лучший. Строка с рангом 2 («Малая
     // Долина гейзеров») другой компании исход не делает неоднозначным.
-    poolQueryMock.mockResolvedValueOnce({ rows: [
+    // Поиск продавца по имени (29.10) продавца не находит — пусто.
+    poolQueryMock.mockImplementation(async (sql: string) => ({ rows: /FROM partners p/.test(sql) ? [] : [
       { id: 31, title: 'Дачные источники (Малая Долина гейзеров)', operator_id: 'b', rank: 2 },
       { id: 54, title: 'Долина гейзеров (вертолёт)', operator_id: 'a', rank: 1 },
-    ] });
+    ] }));
     const t = await resolveTourByQuery('Долина гейзеров');
     expect(t?.id).toBe(54);
     const [sql, params] = poolQueryMock.mock.calls[0];
-    expect(sql).toMatch(/WHEN ot\.title ILIKE \$3 THEN 1 WHEN ot\.title ILIKE \$1 THEN 2/);
+    expect(sql).toMatch(/WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$3 THEN 1 WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$1 THEN 2/);
     expect(sql).not.toMatch(/length\(ot\.title\)|base_price ASC/);
     expect(params).toEqual(['%Долина гейзеров%', 'Долина гейзеров', 'Долина гейзеров%']);
   });
 
+  // Запрос по основам узнаётся по отметкам совпадений (stem_hits); фраза и
+  // поиск продавца по имени (29.10) отвечают пусто.
+  const byStems = (rows: unknown[]) => async (sql: string) => ({ rows: /stem_hits/.test(sql) ? rows : [] });
+
   it('фраза целиком не нашлась → по основам слов (Avachinsky ascent после перевода)', async () => {
     const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
-    poolQueryMock
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 62, title: 'Авачинский перевал' }] });
+    poolQueryMock.mockImplementation(byStems([{ id: 62, title: 'Восхождение на Авачинский вулкан', stem_hits: [true, true] }]));
     const t = await resolveTourByQuery(localizeQuery('Avachinsky ascent').text);
     expect(t?.id).toBe(62);
-    const [, params] = poolQueryMock.mock.calls[1];
+    const [, params] = poolQueryMock.mock.calls.find(([sql]) => /stem_hits/.test(sql)) ?? [];
     expect(params).toEqual(['%авачинск%', '%восхожден%']);
   });
 
-  it('одно слово без совпадений — второго запроса нет, «тура нет»', async () => {
+  it('по основам совпала только часть слов — тур «не найден» как один (ловушка 29.10, name-search)', async () => {
+    // «Авачинский перевал» несёт «авачинск», но не «восхожден»: частичное
+    // совпадение старый вход «один тур» за найденный не выдаёт.
     const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
-    poolQueryMock.mockResolvedValueOnce({ rows: [] });
+    poolQueryMock.mockImplementation(byStems([{ id: 62, title: 'Авачинский перевал', stem_hits: [true, false] }]));
+    expect(await resolveTourByQuery(localizeQuery('Avachinsky ascent').text)).toBeNull();
+  });
+
+  it('одно слово без совпадений — запроса по основам нет, «тура нет»', async () => {
+    const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
+    poolQueryMock.mockResolvedValue({ rows: [] });
     expect(await resolveTourByQuery('несуществующее')).toBeNull();
-    expect(poolQueryMock).toHaveBeenCalledTimes(1);
+    expect(poolQueryMock.mock.calls.some(([sql]) => /stem_hits/.test(sql))).toBe(false);
   });
 });

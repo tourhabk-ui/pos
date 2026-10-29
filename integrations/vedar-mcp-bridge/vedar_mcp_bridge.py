@@ -32,6 +32,7 @@
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -109,6 +110,21 @@ BRIDGE_HIDDEN_ARGS = {"notify_url"}
 def bridge_args(args):
     """Аргументы вызова без скрытых полей: модель их не задаёт."""
     return {k: v for k, v in args.items() if k not in BRIDGE_HIDDEN_ARGS}
+
+
+def bridge_description(text):
+    """Описание без предложений о скрытых полях, не длиннее 1024 знаков.
+
+    Поле модели не показано, значит и фраза о нём ей не нужна: иначе модель
+    читает про notify_url, которого в схеме нет, а на длинных описаниях
+    (create_booking_request) обрезка в 1024 знака резала фразу посередине.
+    """
+    text = (text or "").strip()
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    kept = [s for s in sentences if not any(h in s for h in BRIDGE_HIDDEN_ARGS)]
+    if len(kept) != len(sentences):
+        text = " ".join(kept)
+    return text[:1024]
 
 SYSTEM_PROMPT = """Ты помощник по Камчатке. Отвечай на том языке, на котором задан вопрос.
 
@@ -253,7 +269,7 @@ def to_openai_tools(tools):
             "type": "function",
             "function": {
                 "name": t["name"],
-                "description": (t.get("description") or "").strip()[:1024],
+                "description": bridge_description(t.get("description")),
                 "parameters": schema,
             },
         })

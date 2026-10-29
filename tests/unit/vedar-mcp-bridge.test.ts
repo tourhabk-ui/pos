@@ -82,9 +82,17 @@ describe('мост обещает о платформе только то, чт�
       if (copy.required) copy.required = copy.required.filter((r) => !hidden.has(r));
       return copy;
     };
+    // Предложения о скрытых полях мост из описания убирает (bridge_description):
+    // модели не показано поле — не нужна и фраза о нём.
+    const withoutHiddenSentences = (text: string) => {
+      const sentences = text.trim().split(/(?<=[.!?])\s+/);
+      const kept = sentences.filter((s) => ![...hidden].some((h) => s.includes(h)));
+      return (kept.length === sentences.length ? text.trim() : kept.join(' ')).slice(0, 1024);
+    };
     for (const live of PUBLIC_MCP_TOOLS) {
       const snap = byName.get(live.name);
-      expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(live.description.trim().slice(0, 1024));
+      expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(withoutHiddenSentences(live.description));
+      expect(snap?.description, `${live.name}: фраза о скрытом поле осталась в снимке`).not.toMatch(/notify_url/);
       expect(snap?.parameters, `${live.name}: параметры в снимке устарели`).toEqual(withoutHidden(live.inputSchema));
     }
   });
@@ -164,6 +172,28 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     expect(out.args).toEqual({ name: 'a' });
     // Схема сервера не мутируется — прячется копия.
     expect(out.orig).toEqual(['name', 'notify_url']);
+  });
+
+  it.skipIf(PY.skip)(PY.title('снимок vedar_tools.json собирает сам мост: to_openai_tools по живому реестру даёт файл байт в байт, без фраз о notify_url'), () => {
+    // TS-зеркало правила выше сверяет снимок с реестром, но производитель
+    // снимка — Python. Здесь судит он сам: правка bridge_description без
+    // пересборки файла (или наоборот) краснеет.
+    PY.require('сборку снимка мостом');
+    const tools = PUBLIC_MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'tools = json.loads(sys.stdin.read())',
+      'sys.stdout.write(json.dumps(m.to_openai_tools(tools), ensure_ascii=False, indent=2) + "\\n")',
+    ].join('\n');
+    const built = execFileSync('python3', ['-I', '-B', '-c', code], { input: JSON.stringify(tools), encoding: 'utf-8' });
+    expect(built).toBe(read(`${DIR}/vedar_tools.json`));
+    expect(built).not.toMatch(/notify_url/);
+    // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
+    const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
+    expect(booking?.function.description).toMatch(/согласие на их обработку и передай consent: true\.$/);
   });
 });
 

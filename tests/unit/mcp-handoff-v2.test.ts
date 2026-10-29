@@ -61,6 +61,19 @@ describe('цели v2: резолв — той же функцией, что у 
     expect(tourChoiceTarget({ kind: 'ambiguous', candidates: [cand(61, 'a', null), cand(72, 'b', null)] })).toBeNull();
   });
 
+  // Ловушка 29.10, name-search: продавец и частичное совпадение слов — тур не
+  // выбран, ссылки нет даже при общем месте (страница продавца — в тексте ответа).
+  it('продавец по имени или часть слов — ссылки нет, хотя все туры к одному месту', () => {
+    const seller = { id: 'a', name: 'Тихая Заимка', category: 'operator', slug: 'tikhaya-zaimka', is_public: true };
+    const tours = [cand(61, 'a', GORELY), cand(62, 'a', GORELY)];
+    for (const basis of ['own', 'words'] as const) {
+      expect(tourChoiceTarget({ kind: 'seller', sellers: [seller], basis, tours, partialName: false, rest: null, others: null, words: null }))
+        .toBeNull();
+    }
+    expect(tourChoiceTarget({ kind: 'weak', candidates: [cand(61, 'a', GORELY)], matched: ['Горелый'], apart: [], missing: ['Тюленья'] }))
+      .toBeNull();
+  });
+
   it('места — через resolvePlaceForLink guardian-context', () => {
     expect(TARGETS).toMatch(/resolvePlaceForLink/);
     expect(TARGETS).toMatch(/\/places\/\$\{placeId\}/);

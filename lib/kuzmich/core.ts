@@ -50,7 +50,10 @@ import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { guardPlaceArgs } from '@/lib/kuzmich/place-arg-guard';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
-import { ambiguityNote, resolveTourChoice, samePlaceOffersLine, type TourCandidate, type TourChoice } from '@/lib/kuzmich/tour-availability-tool';
+import {
+  ambiguityNote, choiceListAnswer, resolveSellerInText, resolveTourChoice, samePlaceOffersLine, sellerGenitive, sellerPageUrl,
+  type TourCandidate, type TourChoice,
+} from '@/lib/kuzmich/tour-availability-tool';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
@@ -218,7 +221,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 КОРОТКИЙ ВОПРОС СЛЕДОМ («сколько стоит?», «а в июле?»): отвечай про туры и цены из предыдущих реплик этого разговора. Не начинай тему заново и не подменяй её другим туром.
 СТИЛЬ: спокойный, конкретный, коротко. Как опытный камчадал разговаривает с гостем — без суеты и без продаж. Без markdown-разметки (* ** # _). Платформу называй «Ведар», не старым именем.
 ПОГОДА: цифры погоды (температура, осадки, ветер) называй только из ответа get_weather для ТОЙ ЖЕ точки, что спросили (вершина вулкана ≠ город и ≠ подножие). Дни — только те, что пришли в ответе инструмента; на более поздние даты скажи, что прогноза пока нет. Не называй горизонт прогноза «7 дней», если пришло меньше.
-ПРЕЖДЕ ЧЕМ СКАЗАТЬ «ТАКОГО НЕТ»: если турист назвал тур, жильё, перевозчика, прокатчика или место по имени, сначала найди его по этому имени (тур — get_tour_details, жильё — search_accommodations, трансфер — search_transfers, прокат машины без водителя — search_car_rental, место — get_place_info). «Нет на платформе» говори, только если поиск по имени пуст. Блоки контекста ниже — выборки, а не весь каталог. Похожие имена — разные объекты: гостевой дом «Кутха» не то же, что Кутхины баты или тур на Курильское озеро.
+ПРЕЖДЕ ЧЕМ СКАЗАТЬ «ТАКОГО НЕТ»: если турист назвал тур, компанию или гида, жильё, перевозчика, прокатчика или место по имени, сначала найди его по этому имени (тур, компания или гид, продающие туры, — get_tour_details: на имя продавца он отдаёт его туры и страницу; жильё — search_accommodations, трансфер — search_transfers, прокат машины без водителя — search_car_rental, место — get_place_info). «Нет на платформе» говори, только если поиск по имени пуст. Блоки контекста ниже — выборки, а не весь каталог. Похожие имена — разные объекты: гостевой дом «Кутха» не то же, что Кутхины баты или тур на Курильское озеро.
 НЕСКОЛЬКО ПРЕДЛОЖЕНИЙ: если к месту или запросу подходят туры нескольких компаний — назови все в порядке инструмента, у каждого компанию; выбирает турист, ты не советуешь одну компанию вместо другой.
 МЕДВЕДЬ: никогда не советуй «притвориться мёртвым». Не беги, не поворачивайся спиной, медленно отходи; при нападении — 112.
 СРОК ОТВЕТА ОПЕРАТОРА: называй только срок из ответа инструмента (get_tour_availability, заявки). Нет срока в данных — скажи, что срок подтвердит оператор; не придумывай «обычно в течение дня». Место не закреплено, пока оператор не ответил.
@@ -1328,7 +1331,23 @@ async function chooseTourForBooking(query: string): Promise<TourChoice | 'failed
   }
 }
 
+/**
+ * Продавец в сообщении — раньше слов вида отдыха (ревью 29.10): имя компании
+ * со словом «рыбалка» или «вулкан» иначе превращалось в ключ «рыбалка», и
+ * бронь начиналась на туре другой компании. null — продавца в тексте нет.
+ */
+async function chooseSellerForBooking(text: string): Promise<TourChoice | null | 'failed'> {
+  try {
+    return await resolveSellerInText(text);
+  } catch (err) {
+    console.error('[kuzmich] тур для брони не прочитан', pgCode(err));
+    return 'failed';
+  }
+}
+
 const BOOKING_LIST_SHOWN = 8;
+/** Предел раздела, когда разделов два (туры продавца и туры других компаний). */
+const BOOKING_SECTION_SHOWN = 5;
 const BOOKING_LOOKUP_FAILED = 'Не смог проверить туры — попробуйте позже.';
 
 function bookingTourRow(c: TourCandidate): TourRow {
@@ -1365,25 +1384,97 @@ export function bookingSumLine(tour: TourRow, participants: number): string {
     : 'Сумма: цену назовёт оператор.';
 }
 
-/** Список туров разных компаний: номер, название, компания, цена. */
-function bookingChoiceText(candidates: readonly TourCandidate[]): string {
-  const lines = candidates.slice(0, BOOKING_LIST_SHOWN).map((c) => {
-    // Для человека — единица словами; пометка «для модели» из priceFromUnit
-    // сюда не попадает (ревью 29.10).
-    const price = priceWithUnitWords(c.base_price, c.price_unit);
-    return `<b>${c.id}</b> — ${escapeHtml(c.title)} — ${escapeHtml(c.operator_name ?? 'компания не записана')}${price ? ` — ${escapeHtml(price)}` : ''}`;
-  });
-  const more = candidates.length > BOOKING_LIST_SHOWN
-    ? [`…и ещё ${candidates.length - BOOKING_LIST_SHOWN} — все туры: ${getPublicBaseUrl()}/catalog`]
-    : [];
+/** Раздел списка: подпись (HTML, уже экранирована), туры и что сказать, если их нет. */
+interface BookingSection {
+  title?: string;
+  tours: readonly TourCandidate[];
+  empty?: string;
+}
+
+/** Строка тура в списке: номер, название, компания, цена. */
+function bookingChoiceLine(c: TourCandidate): string {
+  // Для человека — единица словами; пометка «для модели» из priceFromUnit
+  // сюда не попадает (ревью 29.10).
+  const price = priceWithUnitWords(c.base_price, c.price_unit);
+  return `<b>${c.id}</b> — ${escapeHtml(c.title)} — ${escapeHtml(c.operator_name ?? 'компания не записана')}${price ? ` — ${escapeHtml(price)}` : ''}`;
+}
+
+/**
+ * Список туров разделами. head — первая строка (HTML, имена уже экранированы),
+ * tail — строки после списка (страницы продавцов). У каждого раздела свой
+ * предел: склейка двух списков под один срез прятала бы второй целиком, когда
+ * в первом восемь туров и больше (ревью 29.10).
+ */
+function bookingChoiceText(
+  sections: readonly BookingSection[],
+  head = 'Под ваш запрос есть туры разных компаний — напишите номер тура:',
+  tail: readonly string[] = [],
+): string {
+  const limit = sections.length > 1 ? BOOKING_SECTION_SHOWN : BOOKING_LIST_SHOWN;
+  const body = sections.flatMap((s, i) => [
+    ...(i > 0 ? [''] : []),
+    ...(s.title ? [s.title] : []),
+    ...(s.tours.length === 0 && s.empty ? [s.empty] : []),
+    ...s.tours.slice(0, limit).map(bookingChoiceLine),
+    ...(s.tours.length > limit ? [`…и ещё ${s.tours.length - limit} — все туры: ${getPublicBaseUrl()}/catalog`] : []),
+  ]);
   return [
-    'Под ваш запрос есть туры разных компаний — напишите номер тура:',
+    head,
     '',
-    ...lines,
-    ...more,
+    ...body,
+    ...(tail.length > 0 ? ['', ...tail] : []),
     '',
     escapeHtml(OFFER_ORDER_NOTE_AGENT.replace(/^Порядок туров/, 'Порядок списка')),
   ].join('\n');
+}
+
+/**
+ * Тур не выбран — список и шаг «тур»: туры разных компаний, туры названного
+ * продавца (при части имени — и туры других компаний по остальным словам),
+ * туры всех компаний по словам имени из общих слов или туры, где совпала часть
+ * слов (ловушка 29.10, name-search). Бронь молча не начинается ни на одном из
+ * них: номер пишет человек.
+ */
+function bookingListText(choice: Exclude<TourChoice, { kind: 'one' } | { kind: 'none' }>): string {
+  if (choice.kind === 'ambiguous') return bookingChoiceText([{ tours: choice.candidates }]);
+  if (choice.kind === 'weak') {
+    return bookingChoiceText([{ tours: choice.candidates }],
+      'Тура со всеми словами вашего запроса нет — совпала только часть. Если нужный тур есть в списке, напишите его номер:');
+  }
+  const names = choice.sellers.map((s) => `<b>${escapeHtml(s.name)}</b>`).join(', ');
+  const many = choice.sellers.length > 1;
+  const pages = choice.sellers.flatMap((s) => {
+    const url = sellerPageUrl(s);
+    return url ? [`Все туры ${escapeHtml(sellerGenitive(s))}: ${url}`] : [];
+  });
+  if (choice.basis === 'words') {
+    return bookingChoiceText(
+      [{ tours: choice.tours, empty: 'По этим словам туров не нашлось.' }],
+      `${names} — так называется ${many ? 'и не один продавец' : 'и продавец'} на Ведаре, но это и слова в турах разных компаний. Туры всех компаний по этим словам — напишите номер тура:`,
+      pages,
+    );
+  }
+  const whose = many ? 'продавцов' : 'продавца';
+  const head = choice.partialName
+    ? `${names} — совпала часть имени ${whose}; возможно, вы не о ${many ? 'них' : 'нём'}. Напишите номер тура:`
+    : `${names} — ${many ? 'продавцы' : 'продавец'}, а не тур. Напишите номер тура:`;
+  const rest = choice.rest;
+  const sections: BookingSection[] = [{
+    title: rest?.found
+      ? `Туры ${whose} по словам «${escapeHtml(rest.text)}»:`
+      : rest
+        ? `По словам «${escapeHtml(rest.text)}» среди туров ${whose} совпадений не нашлось — все ${many ? 'их' : 'его'} туры:`
+        : undefined,
+    tours: choice.tours,
+  }];
+  if (choice.others && rest) {
+    sections.push({
+      title: `Туры других компаний по словам «${escapeHtml(rest.text)}»:`,
+      tours: choice.others.tours,
+      empty: 'Туров других компаний по этим словам не нашлось.',
+    });
+  }
+  return bookingChoiceText(sections, head, pages);
 }
 
 /** Первая строка заявки: тур и его продавец. */
@@ -1416,6 +1507,11 @@ export async function getTourDetails(query: string): Promise<string> {
     // правилу 1в, первой строкой названы все, выбирает человек.
     const choice = await resolveTourChoice(q);
     if (choice.kind === 'none') return noTourFound(q);
+    // Имя продавца или часть слов (ловушка 29.10, name-search): список туров
+    // и страница продавца, а не детали первого — тур не выбран. До 29.10
+    // фамилия гида давала «тура нет», а имя компании из двух слов — детали
+    // тура другой компании.
+    if (choice.kind === 'seller' || choice.kind === 'weak') return choiceListAnswer(q, choice);
     const resolved = choice.kind === 'one' ? choice.tour : choice.candidates[0];
 
     const { rows } = await pool.query<{
@@ -1890,17 +1986,9 @@ export async function handleBookingStep(
       await reply(chatId, bookingTourLines(b.tour).join('\n'));
       return true;
     }
-    const keywords = extractTourKeywords(t);
-    // Если нет реальных ключевых слов — выходим из flow в AI
-    const hasTourKeywords = TOUR_KEYWORD_KEYS.some(key => {
-      const triggers = TOUR_KEYWORDS_MAP[key];
-      return triggers.some(tr => t.toLowerCase().includes(tr));
-    });
-    if (!hasTourKeywords) {
-      await deleteBookingFlow(chatId, mode, pending);
-      return false; // → processMessage отдаст в aiChat
-    }
-    // Вопросы, советы, опасные темы — не бронируем, отдаём в AI
+    // Вопросы, советы, опасные темы — не бронируем, отдаём в AI. Проверка
+    // стоит первой: и с именем продавца, и со словами вида отдыха вопрос
+    // остаётся вопросом.
     const lowerT = t.toLowerCase();
     const isQuestion = lowerT.includes('?') || /^(что|как|зачем|почему|когда|можно ли|а если)\b/.test(lowerT);
     const isDangerous = /(спрыгн|упа[дс]|погиб|умер|опасн|безопасн|риск|страшн|жерло|лавин|шторм)/i.test(t);
@@ -1908,7 +1996,23 @@ export async function handleBookingStep(
       await deleteBookingFlow(chatId, mode, pending);
       return false; // → AI ответит про безопасность
     }
-    const choice = await chooseTourForBooking(keywords.join(' '));
+    // Продавец назван — его туры, раньше слов вида отдыха (ревью 29.10).
+    const bySeller = await chooseSellerForBooking(t);
+    if (bySeller === 'failed') {
+      await reply(chatId, BOOKING_LOOKUP_FAILED);
+      return true;
+    }
+    const keywords = extractTourKeywords(t);
+    // Если нет ни продавца, ни реальных ключевых слов — выходим из flow в AI
+    const hasTourKeywords = TOUR_KEYWORD_KEYS.some(key => {
+      const triggers = TOUR_KEYWORDS_MAP[key];
+      return triggers.some(tr => t.toLowerCase().includes(tr));
+    });
+    if (!bySeller && !hasTourKeywords) {
+      await deleteBookingFlow(chatId, mode, pending);
+      return false; // → processMessage отдаст в aiChat
+    }
+    const choice = bySeller ?? await chooseTourForBooking(keywords.join(' '));
     if (choice === 'failed') {
       await reply(chatId, BOOKING_LOOKUP_FAILED);
       return true;
@@ -1917,10 +2021,10 @@ export async function handleBookingStep(
       await reply(chatId, 'Не нашёл подходящий тур по этому запросу. Уточни: рыбалка, вулканы, медведи, термальные источники, вертолёт...');
       return true;
     }
-    if (choice.kind === 'ambiguous') {
+    if (choice.kind !== 'one') {
       // Шаг остаётся «тур»: следующий ответ — номер из списка.
       await saveBookingFlow(chatId, mode, b, pending);
-      await reply(chatId, bookingChoiceText(choice.candidates));
+      await reply(chatId, bookingListText(choice));
       return true;
     }
     b.tour  = bookingTourRow(choice.tour);
@@ -2079,12 +2183,16 @@ export async function startBooking(
 ): Promise<boolean> {
   const userMsgs = history.filter(m => m.role === 'user');
 
-  // 1) Narrow: последнее сообщение пользователя (до триггера бронирования)
+  // 1) Narrow: последнее сообщение пользователя (до триггера бронирования).
+  // Сначала — назван ли продавец, тем же правилом, что у get_tour_details:
+  // ключи вида отдыха превращали имя компании со словом «рыбалка» в
+  // «рыбалку», и бронь начиналась на туре другой компании (ревью 29.10).
   const lastRealMsg = userMsgs[userMsgs.length - 1]?.content ?? '';
+  const bySeller = lastRealMsg.trim() ? await chooseSellerForBooking(lastRealMsg) : null;
   const narrowKeywords = extractTourKeywords(lastRealMsg);
-  let choice: TourChoice | 'failed' = narrowKeywords.length
+  let choice: TourChoice | 'failed' = bySeller ?? (narrowKeywords.length
     ? await chooseTourForBooking(narrowKeywords.join(' '))
-    : { kind: 'none' };
+    : { kind: 'none' });
 
   // 2) Fallback: расширяем на последние 3 user + последний AI
   if (choice !== 'failed' && choice.kind === 'none') {
@@ -2101,8 +2209,8 @@ export async function startBooking(
   if (choice.kind !== 'one') {
     const booking: PendingBooking = { step: 'tour', started_at: Date.now() };
     await saveBookingFlow(chatId, mode, booking, pending);
-    await reply(chatId, choice.kind === 'ambiguous'
-      ? bookingChoiceText(choice.candidates)
+    await reply(chatId, choice.kind !== 'none'
+      ? bookingListText(choice)
       : 'Какой тур интересует?\n\nНапиши: рыбалка, вулканы, медведи, термальные источники, вертолёт...');
     return true;
   }
