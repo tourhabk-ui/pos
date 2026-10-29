@@ -66,9 +66,11 @@ describe('get_weather: исполнитель', () => {
     forecast.mockResolvedValueOnce({ ok: true, days: [DAY] });
     const out = await weatherForKuzmich({ lat: '52.45', lng: '158.19', days: '2' });
     expect(forecast).toHaveBeenCalledWith(52.45, 158.19, 2);
-    // Справочник мест не спрашивается. С #2289 база читается ради одного:
-    // действующих предупреждений Росгидромета для района точки.
-    for (const [sql] of q.mock.calls as Array<[string]>) expect(sql).toMatch(/FROM external_alerts/);
+    // Справочник мест не спрашивается. База читается ради двух вещей:
+    // действующих предупреждений Росгидромета для района точки (#2289) и
+    // прогноза Камчатского УГМС по району (29.10) — обе по координате, не по имени.
+    for (const [sql] of q.mock.calls as Array<[string]>) expect(sql).toMatch(/FROM external_alerts|FROM ugms_forecasts/);
+    expect(q.mock.calls.some(([sql]) => /FROM ugms_forecasts/.test(String(sql)))).toBe(true);
     expect(out).toContain('точка 52.45, 158.19');
     expect(out).toContain('26.09: -1…+9°C');
   });

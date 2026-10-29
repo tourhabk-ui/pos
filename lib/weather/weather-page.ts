@@ -20,8 +20,10 @@ import { fetchForecastDays, type ForecastDay, type ForecastHour, type ForecastNo
 import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
 import { SAFETY_SOURCE_EXPECTATIONS } from '@/lib/services/safety/source-health';
-import { WEATHER_PLACES, weatherPlaceBySlug, type WeatherPlace } from '@/lib/weather/places';
+import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceBySlug, type WeatherPlace } from '@/lib/weather/places';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { loadUgmsForecast, type UgmsRead } from '@/lib/weather/ugms-forecast';
+import { DEFAULT_WEATHER_PLACE } from '@/lib/kuzmich/weather-tool';
 
 /** Дней прогноза у каждого места: семь — неделя вперёд, и кэш один на все блоки страницы. */
 export const WEATHER_PAGE_DAYS = 7;
@@ -159,6 +161,11 @@ export interface WeatherPageData {
   /** Все места в порядке списка, выбранное тоже. */
   all: PlaceWeather[];
   warnings: WarningsRead;
+  /**
+   * Прогноз Камчатского УГМС для выбранного места (29.10). Нет поля — не
+   * загружался (старые вызовы); failed — не прочитан, и страница это говорит.
+   */
+  ugms?: UgmsRead;
   /** Сегодня по Камчатке, YYYY-MM-DD. */
   today: string;
   generatedAt: string;
@@ -173,5 +180,14 @@ export async function loadWeatherPage(slug: string, now: Date = new Date()): Pro
     loadMeteoWarnings(now),
   ]);
   const selected = all.find((w) => w.place.slug === place.slug) as PlaceWeather;
-  return { selected, all, warnings, today: kamchatkaDate(now), generatedAt: now.toISOString() };
+  // Район УГМС — по координате места; без координаты (место не нашлось, база
+  // не ответила) район не угадывается — так и сказано.
+  const point = selected.kind === 'ok'
+    ? { lat: selected.lat, lng: selected.lng }
+    : 'point' in place.source && place.source.point ? place.source.point
+      : place.slug === DEFAULT_WEATHER_SLUG ? { lat: DEFAULT_WEATHER_PLACE.lat, lng: DEFAULT_WEATHER_PLACE.lng } : null;
+  const ugms: UgmsRead = point
+    ? await loadUgmsForecast(point.lat, point.lng, now)
+    : { kind: 'failed', reason: 'координаты места не прочитаны — район прогноза не определить' };
+  return { selected, all, warnings, ugms, today: kamchatkaDate(now), generatedAt: now.toISOString() };
 }

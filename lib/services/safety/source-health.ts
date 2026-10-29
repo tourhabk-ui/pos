@@ -125,6 +125,15 @@ export const SAFETY_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
     aliveBy: 'raw_items',
     deadHint: 'meteoalert.meteoinfo.ru не отдаёт регионы Камчатки — проверь доступ с прода и форму ответа',
   },
+  {
+    // Суточный прогноз Камчатского УГМС (29.10, /api/cron/ugms-forecast).
+    // Страницы kammeteo.ru непусты всегда — в них всегда прогноз на завтра,
+    // поэтому живость считается по записанным блокам (`raw_items`), а полтора
+    // суток без них значат «не читаем kammeteo.ru», не «прогноза нет».
+    key: 'ugms_forecast', label: 'Камчатское УГМС — прогноз (kammeteo.ru)', maxSilenceHours: 36,
+    aliveBy: 'raw_items',
+    deadHint: 'kammeteo.ru/prognoz не отдаёт прогноз проду или разметка страницы изменилась (проба 1015 с раннера: 200, текст в абзацах) — проверь доступ с Timeweb и ответ /api/cron/ugms-forecast',
+  },
   // 'firms' (NASA FIRMS, пожары) сюда НЕ входит осознанно: «нет термоточек»
   // неотличимо от «нет пожаров» (зимой месяцами пусто) — dead-алерт по
   // тишине был бы ложью. Health-запись пишется (видно в админке), env-ключ
