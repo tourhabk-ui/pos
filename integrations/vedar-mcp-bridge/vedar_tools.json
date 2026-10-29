@@ -3,7 +3,7 @@
     "type": "function",
     "function": {
       "name": "get_tours",
-      "description": "Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details. Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.",
+      "description": "Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details. Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах. У каждого тура — компания; порядок — правило платформы, названное в ответе (сначала со свободными местами по ближайшей дате, остальные раз в сутки по жребию), а не рекомендация.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -74,7 +74,7 @@
     "type": "function",
     "function": {
       "name": "get_place_info",
-      "description": "Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Для полного контекста с безопасностью и алертами — get_guardian_context.",
+      "description": "Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Для полного контекста с безопасностью и алертами — get_guardian_context.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -502,7 +502,7 @@
     "type": "function",
     "function": {
       "name": "fetch",
-      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
+      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. У места отдаёт все предложения туров к нему с компанией у каждого; порядок — правило платформы, названное в ответе. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -591,7 +591,7 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, заявка не создаётся: в ответе список с номерами туров и компаниями — спроси человека, какой тур он выбрал, и повтори вызов с номером тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
       "parameters": {
         "type": "object",
         "properties": {

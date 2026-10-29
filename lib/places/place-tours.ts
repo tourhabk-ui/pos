@@ -37,7 +37,11 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
-import { offerOrderDay, orderOffers } from '@/lib/tours/offer-order';
+import {
+  OFFER_ORDER_NOTE_AGENT, groupOffersByCompany, offerDatesPhrase, offerOrderDay, offersSummary, orderOffers,
+} from '@/lib/tours/offer-order';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
+import { tourPath } from '@/lib/tours/tour-url';
 import { logText } from '@/lib/log/log-text';
 
 export type PlaceTourLinkKind = 'main_place' | 'waypoint' | 'unknown';
@@ -176,4 +180,106 @@ export async function loadPlaceTours(placePk: string, opts?: { now?: Date }): Pr
     });
     return { state: 'failed' };
   }
+}
+
+// ── Тур на «туры к месту» (агент и карточка тура) ───────────────────────
+
+/** Связь «тур идёт к этому месту»: главное место или точка пути маршрута. */
+export function goesToPlace(o: Pick<PlaceTourOffer, 'linkKind'>): boolean {
+  return o.linkKind === 'main_place' || o.linkKind === 'waypoint';
+}
+
+/**
+ * Строки предложений места для агента (get_place_info, MCP fetch place:).
+ * Компания за компанией в порядке правила 1в, у каждого тура — компания,
+ * цена с единицей словами и фраза о датах. Порядок назван строкой правила:
+ * агент пересказывает его, а не выдумывает «лучший» тур. `base` — адрес
+ * сайта без «/» в конце: ссылки у внешнего агента должны быть полными.
+ */
+export function offerLinesForAgent(placeName: string, r: PlaceToursResult, base: string): string[] {
+  if (r.state === 'failed') {
+    return [`Туры к месту «${placeName}» не загрузились (сбой базы). Не говори, что туров нет.`];
+  }
+  if (r.state === 'empty') return [`К месту «${placeName}» туров на витрине нет.`];
+  const line = (t: PlaceTourOffer): string => {
+    const company = `${t.partnerName}${t.partnerVerified === true ? ' (проверен)' : ''}`;
+    const price = priceWithUnitWords(t.basePrice, t.priceUnit) ?? 'цена не указана';
+    const dates = offerDatesPhrase({
+      nearestFreeDate: t.nearestFreeDate, keepsSchedule: t.keepsSchedule,
+      season_start: t.seasonStart, season_end: t.seasonEnd, duration_type: t.durationType,
+      multi_day_count: t.multiDayCount, duration_hours: t.durationHours,
+    }, r.day, 'ok');
+    return `- ID${t.id} «${t.title}» — ${company} — ${price} — ${dates} — ${base}${tourPath(t)}`;
+  };
+  const listOf = (offers: PlaceTourOffer[]): string[] =>
+    groupOffersByCompany(offers, { day: r.day }).flatMap((g) => g.tours.map(line));
+  const here = r.offers.filter(goesToPlace);
+  const unmarked = r.offers.filter((o) => !goesToPlace(o));
+  const out: string[] = [];
+  if (here.length > 0) {
+    const companies = new Set(here.map((o) => o.partnerId)).size;
+    out.push(`К месту «${placeName}» ${offersSummary(here.length, companies)} (только туры со связью «к этому месту»). ${OFFER_ORDER_NOTE_AGENT}`);
+    out.push(...listOf(here));
+  }
+  if (unmarked.length > 0) {
+    out.push(here.length > 0
+      ? 'По маршрутам, связанным с местом (проходит ли тур через само место — не размечено):'
+      : `К месту «${placeName}» туров со связью «к этому месту» нет. По маршрутам, связанным с местом (проходит ли тур через само место — не размечено). ${OFFER_ORDER_NOTE_AGENT}`);
+    out.push(...listOf(unmarked));
+  }
+  out.push('Туры, которые проходят через несколько мест (облёты, многодневные), здесь не перечислены.');
+  return out;
+}
+
+export interface OfferPlace {
+  id: string;
+  name: string;
+  slug: string | null;
+  ark_id: string | null;
+}
+
+/** Другие предложения к главному месту тура: три исхода и «связи нет». */
+export type PlaceOffersForTour =
+  | { state: 'ok'; place: OfferPlace; others: number }
+  | { state: 'none' }
+  | { state: 'failed' };
+
+/**
+ * Сколько ещё туров идёт к главному месту тура (слово владельца 29.10, «3 да»).
+ * Только по записанной связи `operator_tours.main_place_id`: связь не
+ * выводится ни по координате, ни по имени (§4.1). Считаются туры, которые
+ * карточка места показывает в «Туры к этому месту», без самого тура — тем же
+ * загрузчиком, поэтому число совпадает с тем, что турист увидит по ссылке.
+ * Места нет, оно скрыто или слито — `none`; отказ базы — `failed` с логом.
+ */
+export async function loadPlaceOffersForTour(
+  tour: { id: string | number; main_place_id: string | null | undefined },
+  opts?: { now?: Date },
+): Promise<PlaceOffersForTour> {
+  const placeId = typeof tour.main_place_id === 'string' ? tour.main_place_id.trim() : '';
+  if (!placeId) return { state: 'none' };
+  let place: OfferPlace | undefined;
+  try {
+    const { rows } = await pool.query<{ id: string; name: string; slug: string | null; ark_id: string | null }>(
+      `SELECT id::text AS id, name, slug, ark_id::text AS ark_id
+         FROM places
+        WHERE id = $1 AND is_visible = TRUE AND merged_into_id IS NULL`,
+      [placeId],
+    );
+    place = rows[0];
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[place-tours] главное место тура не прочитано', {
+      tourId: logText(String(tour.id), 20),
+      sqlstate: typeof code === 'string' ? logText(code, 10) : null,
+      message: logText(err instanceof Error ? err.message : err, 200),
+    });
+    return { state: 'failed' };
+  }
+  if (!place) return { state: 'none' };
+  const r = await loadPlaceTours(place.id, opts);
+  if (r.state === 'failed') return { state: 'failed' };
+  const self = String(tour.id);
+  const others = r.state === 'ok' ? r.offers.filter((o) => goesToPlace(o) && o.id !== self).length : 0;
+  return { state: 'ok', place: { id: place.id, name: place.name, slug: place.slug ?? null, ark_id: place.ark_id ?? null }, others };
 }

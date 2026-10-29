@@ -15,12 +15,17 @@ import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceFromUnit, priceWithUnitWords } from '@/lib/tours/price-label';
 import { containsPattern, escapeLike } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
 import { requestWindow, windowLabel, type RequestWindow } from '@/lib/tours/request-window';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
+import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
+import { ruPlacePath } from '@/lib/zh/pages';
+import { plural } from '@/lib/home/data-freshness';
 
 export interface ResolvedTour {
   id: number;
@@ -41,22 +46,44 @@ export interface ResolvedTour {
 }
 
 /**
- * Тур по названию/ключевому слову или числовому ID — тот же паттерн, что у
- * get_tour_details. Только тур на витрине (publicTourSql): черновик
+ * Тур по названию/ключевому слову или числовому ID — один резолвер для
+ * get_tour_details, get_tour_availability, create_booking_request, handoff и
+ * брони в мессенджере. Только тур на витрине (publicTourSql): черновик
  * оператора (is_published = false) через MCP не находился бы ни картой, ни
- * заявкой на бронь — до 29.09 резолвер смотрел лишь is_active и deleted_at.
- * null — такого тура нет; отказ базы — исключение (с
- * логом): до 29.09 он тоже был null, и внешний агент получал ложный факт
- * «тур не найден среди активных» на месте «не смог проверить» (§4.0).
- */
-/**
+ * заявкой. Отказ базы — исключение (с логом), а не «тура нет» (§4.0).
+ *
  * Ранг совпадения названия (17.10): точное название → начинается с запроса →
- * содержит запрос → совпало только описание или место. Затем короче название:
- * «Долина гейзеров (вертолёт)» начинается с запроса и обходит «Дачные источники
- * (Малая Долина гейзеров)», а «Авачинский перевал» — его же вариант «(снегоход)».
- * До этого побеждал самый дешёвый из всех, где запрос встречается в названии.
+ * содержит запрос → совпало только описание, вид или место. «Долина гейзеров
+ * (вертолёт)» начинается с запроса и обходит «Дачные источники (Малая Долина
+ * гейзеров)».
+ *
+ * Несколько предложений (слово владельца 29.10, «1в 2б 3 да»). До 29.10 при
+ * равном ранге побеждало короче название, затем самый дешёвый — и заявка
+ * «на Горелый» уходила той компании, чьё название короче. Выбор продавца по
+ * длине строки — ровно то, чего правило 1в не допускает. Теперь исходов три:
+ *   - `one` — лучший ранг у туров одной компании: продавец ясен, тур внутри
+ *     компании — первый по правилу 1в (lib/tours/offer-order);
+ *   - `ambiguous` — лучший ранг у туров двух и более компаний: инструмент,
+ *     который пишет (заявка), не выбирает продавца за человека, а называет
+ *     всех в порядке правила и просит номер тура;
+ *   - `none` — такого тура нет.
  */
-const TITLE_RANK_SQL = `(CASE WHEN lower(title) = lower($2) THEN 0 WHEN title ILIKE $3 THEN 1 WHEN title ILIKE $1 THEN 2 ELSE 3 END)`;
+const TITLE_RANK_SQL = `(CASE WHEN lower(ot.title) = lower($2) THEN 0 WHEN ot.title ILIKE $3 THEN 1 WHEN ot.title ILIKE $1 THEN 2 ELSE 3 END)`;
+
+/** Колонки кандидата: тур, продавец, главное место (если видимо) и ближайшая свободная дата. */
+const CANDIDATE_COLUMNS = `ot.id, ot.title, ot.operator_id, ot.base_price, ot.price_unit, ot.slug,
+       ot.multi_day_count, ot.duration_hours, ot.duration_type,
+       ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+       ot.main_place_id,
+       p.name AS operator_name,
+       pl.name AS place_name, pl.slug AS place_slug, pl.ark_id::text AS place_ark_id,
+       ${nearestFreeDateSql('ot')} AS nearest_free_date`;
+
+/** Откуда и шлюз витрины — одной строкой: запрос кандидатов без шлюза не собрать. */
+const CANDIDATE_FROM = `FROM operator_tours ot
+  LEFT JOIN partners p ON p.id = ot.operator_id
+  LEFT JOIN places pl ON pl.id = ot.main_place_id AND pl.is_visible = TRUE AND pl.merged_into_id IS NULL
+ WHERE ${publicTourSql('ot')}`;
 
 function startsPattern(q: string): string {
   return `${escapeLike(q)}%`;
@@ -73,52 +100,178 @@ export function tourQueryStems(q: string): string[] {
   return out.slice(0, 5);
 }
 
-export async function resolveTourByQuery(query: string): Promise<ResolvedTour | null> {
+/** Главное место тура, если оно записано и видимо. */
+export interface CandidatePlace {
+  id: string;
+  name: string;
+  slug: string | null;
+  ark_id: string | null;
+}
+
+export interface TourCandidate extends ResolvedTour {
+  /** Витринное имя продавца (partners.name); null — не прочитано. */
+  operator_name: string | null;
+  main_place_id: string | null;
+  /** Главное место, если записано и видимо; иначе null. */
+  place: CandidatePlace | null;
+  /** Ближайшая дата со свободными местами (lib/tours/nearest-free-date). */
+  nearest_free_date: string | null;
+}
+
+export type TourChoice =
+  | { kind: 'one'; tour: TourCandidate }
+  | { kind: 'ambiguous'; candidates: TourCandidate[] }
+  | { kind: 'none' };
+
+interface CandidateRow {
+  id: number | string;
+  title: string;
+  operator_id: string | null;
+  base_price: number | string | null;
+  price_unit: string | null;
+  slug: string | null;
+  multi_day_count: number | null;
+  duration_hours: number | string | null;
+  duration_type: string | null;
+  season_start: string | null;
+  season_end: string | null;
+  main_place_id: string | null;
+  operator_name: string | null;
+  place_name: string | null;
+  place_slug: string | null;
+  place_ark_id: string | null;
+  nearest_free_date: string | null;
+  /** Ранг: меньше — лучше. */
+  rank?: number | string | null;
+}
+
+function toCandidate(r: CandidateRow): TourCandidate {
+  const placeId = typeof r.main_place_id === 'string' && r.main_place_id !== '' ? r.main_place_id : null;
+  return {
+    id: Number(r.id),
+    title: String(r.title ?? ''),
+    operator_id: r.operator_id ?? null,
+    slug: r.slug ?? null,
+    base_price: r.base_price == null ? null : Number(r.base_price),
+    price_unit: r.price_unit ?? null,
+    multi_day_count: r.multi_day_count ?? null,
+    duration_hours: r.duration_hours == null ? null : Number(r.duration_hours),
+    duration_type: r.duration_type ?? null,
+    season_start: r.season_start ?? null,
+    season_end: r.season_end ?? null,
+    operator_name: r.operator_name ?? null,
+    main_place_id: placeId,
+    place: placeId && r.place_name
+      ? { id: placeId, name: r.place_name, slug: r.place_slug ?? null, ark_id: r.place_ark_id ?? null }
+      : null,
+    nearest_free_date: r.nearest_free_date ?? null,
+  };
+}
+
+/** Ключ компании: продавец; тур без продавца — сам себе компания. */
+function companyKey(t: TourCandidate): string {
+  return t.operator_id ?? `tour:${t.id}`;
+}
+
+/**
+ * Из строк лучшего ранга — исход. Порядок кандидатов — правило 1в: тот же,
+ * что у витрин, ничего не решает длина названия или цена.
+ */
+function choose(rows: CandidateRow[], rankOf: (r: CandidateRow) => number): TourChoice {
+  if (rows.length === 0) return { kind: 'none' };
+  const best = Math.min(...rows.map(rankOf));
+  const top = rows.filter((r) => rankOf(r) === best).map(toCandidate);
+  const ordered = orderOffersBy(top, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date }));
+  const companies = new Set(ordered.map(companyKey));
+  return companies.size > 1 ? { kind: 'ambiguous', candidates: ordered } : { kind: 'one', tour: ordered[0] };
+}
+
+export async function resolveTourChoice(query: string): Promise<TourChoice> {
   const q = query.trim();
-  if (!q) return null;
+  if (!q) return { kind: 'none' };
   try {
-    if (/^\d+$/.test(q)) {
-      const { rows } = await pool.query<ResolvedTour>(
-        `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours,
-               duration_type, season_start::text, season_end::text FROM operator_tours
-          WHERE id = $1 AND ${publicTourSql('')}`,
-        [Number(q)],
+    const idMatch = /^(?:id\s*)?(\d+)$/i.exec(q);
+    if (idMatch) {
+      const { rows } = await pool.query<CandidateRow>(
+        `SELECT ${CANDIDATE_COLUMNS} ${CANDIDATE_FROM}
+            AND ot.id = $1`,
+        [Number(idMatch[1])],
       );
       // Номер, которого нет на витрине, — это «тура нет», а не повод искать
       // «%7%» по названиям: так заявка на снятый тур 7 уходила по самому
       // дешёвому туру, где в описании есть семёрка (проверка MCP 29.09).
-      return rows[0] ?? null;
+      return rows[0] ? { kind: 'one', tour: toCandidate(rows[0]) } : { kind: 'none' };
     }
-    const { rows } = await pool.query<ResolvedTour>(
-      `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours,
-               duration_type, season_start::text, season_end::text FROM operator_tours
-        WHERE ${publicTourSql('')}
-          AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
-        ORDER BY ${TITLE_RANK_SQL}, length(title) ASC, base_price ASC NULLS LAST
-        LIMIT 1`,
+    const { rows } = await pool.query<CandidateRow>(
+      `SELECT ${CANDIDATE_COLUMNS}, ${TITLE_RANK_SQL} AS rank ${CANDIDATE_FROM}
+          AND (ot.title ILIKE $1 OR ot.short_description ILIKE $1 OR ot.activity_type ILIKE $1 OR ot.location_name ILIKE $1)`,
       [containsPattern(q), q, startsPattern(q)],
     );
-    if (rows[0]) return rows[0];
+    if (rows.length > 0) return choose(rows, (r) => Number(r.rank ?? 3));
     // Фраза целиком не нашлась («Авачинский восхождение» — слова из перевода
-    // запроса стоят не подряд): по основам слов, побеждает больше совпадений
-    // в названии и месте. Раньше здесь был «тура нет».
+    // запроса стоят не подряд): по основам слов; больше совпадений в
+    // названии и месте — лучше ранг.
     const stems = tourQueryStems(q);
-    if (stems.length < 2) return null;
-    const hits = stems.map((_, i) => `(CASE WHEN title ILIKE $${i + 1} OR location_name ILIKE $${i + 1} THEN 1 ELSE 0 END)`).join(' + ');
-    const { rows: byWords } = await pool.query<ResolvedTour>(
-      `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours,
-               duration_type, season_start::text, season_end::text FROM operator_tours
-        WHERE ${publicTourSql('')} AND (${hits}) > 0
-        ORDER BY (${hits}) DESC, length(title) ASC, base_price ASC NULLS LAST
-        LIMIT 1`,
+    if (stems.length < 2) return { kind: 'none' };
+    const hits = stems.map((_, i) => `(CASE WHEN ot.title ILIKE $${i + 1} OR ot.location_name ILIKE $${i + 1} THEN 1 ELSE 0 END)`).join(' + ');
+    const { rows: byWords } = await pool.query<CandidateRow>(
+      `SELECT ${CANDIDATE_COLUMNS}, -(${hits}) AS rank ${CANDIDATE_FROM}
+          AND (${hits}) > 0`,
       stems.map((t) => containsPattern(t)),
     );
-    return byWords[0] ?? null;
+    return choose(byWords, (r) => Number(r.rank ?? 0));
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[tour-availability] тур не прочитан', { sqlstate: e?.code, message: e?.message });
     throw err;
   }
+}
+
+/**
+ * Старый вход «один тур или ничего». Неоднозначность здесь — тоже null:
+ * выбрать продавца за человека резолвер не вправе. Новые вызовы — только
+ * resolveTourChoice, где неоднозначность названа.
+ */
+export async function resolveTourByQuery(query: string): Promise<ResolvedTour | null> {
+  const choice = await resolveTourChoice(query);
+  return choice.kind === 'one' ? choice.tour : null;
+}
+
+const CANDIDATES_SHOWN = 10;
+
+/**
+ * Список кандидатов для агента: номер, название, компания, цена с единицей.
+ * Больше десяти — «и ещё N» со ссылкой на get_tours.
+ */
+export function candidateLines(candidates: readonly TourCandidate[], limit = CANDIDATES_SHOWN): string[] {
+  const lines = candidates.slice(0, limit).map((c) => {
+    const price = priceWithUnitWords(c.base_price, c.price_unit) ?? 'цена не указана';
+    return `- ID${c.id} «${c.title}» — ${c.operator_name ?? 'компания не записана'} — ${price}`;
+  });
+  if (candidates.length > limit) lines.push(`- и ещё ${candidates.length - limit} — get_tours`);
+  return lines;
+}
+
+/** Строка о неоднозначности для чтения (детали, даты): о ком ответ и кого ещё назвать. */
+export function ambiguityNote(query: string, candidates: readonly TourCandidate[]): string {
+  const companies = new Set(candidates.map(companyKey)).size;
+  const list = candidates.slice(0, CANDIDATES_SHOWN)
+    .map((c) => `ID${c.id} — ${c.operator_name ?? 'компания не записана'}`).join('; ');
+  const more = candidates.length > CANDIDATES_SHOWN ? `; и ещё ${candidates.length - CANDIDATES_SHOWN}` : '';
+  return `По запросу «${query}» подходят туры ${companies} ${plural(companies, 'компании', 'компаний', 'компаний')}: ${list}${more}. `
+    + 'Ниже — первый по порядку платформы (правило, а не рекомендация). Назови человеку все и уточни номер тура; не выбирай компанию за него.';
+}
+
+/**
+ * Хвост ответа о туре: «к месту ещё N предложений» (слово владельца 29.10,
+ * «3 да»). Только по записанной связи тура с местом; нет связи, никого
+ * больше или отказ чтения — пусто (отказ уже в логе загрузчика).
+ */
+export async function samePlaceOffersLine(tour: TourCandidate): Promise<string> {
+  const r = await loadPlaceOffersForTour({ id: tour.id, main_place_id: tour.main_place_id });
+  if (r.state !== 'ok' || r.others === 0) return '';
+  return `К месту «${r.place.name}» ещё ${r.others} ${plural(r.others, 'предложение', 'предложения', 'предложений')} других туров — `
+    + `get_place_info(«${r.place.name}») или ${getPublicBaseUrl()}${ruPlacePath(r.place)}#tours`;
 }
 
 function shortDate(iso: string): string {
@@ -251,14 +404,26 @@ async function onRequestWindow(
   ];
 }
 
-export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_from?: string; days?: string; people?: string }): Promise<string> {
+type AvailabilityArgs = { tour?: string; date_from?: string; days?: string; people?: string };
+
+export async function getTourAvailabilityForKuzmich(args: AvailabilityArgs): Promise<string> {
   const tourQuery = (args.tour ?? '').trim();
   if (!tourQuery) return 'Укажи тур: название, ключевое слово или ID.';
 
-  const tour = await resolveTourByQuery(tourQuery);
-  if (!tour) {
+  const choice = await resolveTourChoice(tourQuery);
+  if (choice.kind === 'none') {
     return `Тур по запросу "${tourQuery}" не найден среди активных. Не выдумывай даты — предложи выбрать тур через get_tours.`;
   }
+  // Туры нескольких компаний: ответ — о первом по правилу 1в, а первой
+  // строкой названы все (агент спрашивает человека, а не выбирает за него).
+  const tour = choice.kind === 'one' ? choice.tour : choice.candidates[0];
+  const body = await availabilityForTour(tour, args);
+  const head = choice.kind === 'ambiguous' ? [ambiguityNote(tourQuery, choice.candidates)] : [];
+  const tail = choice.kind === 'one' ? await samePlaceOffersLine(choice.tour) : '';
+  return [...head, body, ...(tail ? [tail] : [])].join('\n');
+}
+
+async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): Promise<string> {
 
   // «Сегодня» — по Камчатке: даты туров местные. По UTC с 12:00 до 24:00
   // сегодняшнее число на Камчатке уже следующее, и инструмент предлагал

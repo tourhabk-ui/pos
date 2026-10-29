@@ -1076,5 +1076,59 @@ withPg('витрина туров: снятый тур не в плане и н�
       const keep = await loadPlaceTours('tp-place-keep');
       expect(keep.state === 'ok' && keep.offers.map((o) => o.slug)).toEqual(['tp-dup-tour']);
     });
+
+    // ── 29.10, «1в 2б 3 да»: выбор тура по названию и «ещё N» на карточке ───
+    it('резолвер на схеме прода: туры двух компаний — неоднозначно, место у кандидатов, ссылка на туры места', async () => {
+      const B = 'b1100000-0000-4000-8000-0000000000b2';
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, 'Тест Вторая Компания', 'operator', '{}'::jsonb, 'test-tp-second', TRUE, FALSE, 'active')`,
+        [B],
+      );
+      const other = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published,
+                                     main_place_id, main_place_source)
+         VALUES ($1, 'TP многих у второй', 'tp-many-second', 'tp_many', 7000, 'per_group', 1, 10, 8, TRUE, TRUE, 'tp-place-many', 'admin')
+         RETURNING id::text`,
+        [B],
+      )).rows[0].id;
+
+      const { resolveTourChoice } = await import('@/lib/kuzmich/tour-availability-tool');
+      const choice = await resolveTourChoice('TP многих');
+      expect(choice.kind).toBe('ambiguous');
+      if (choice.kind !== 'ambiguous') return;
+      // Восемь туров витрины к месту (семь первой компании и один второй); черновика нет.
+      expect(choice.candidates).toHaveLength(8);
+      expect(choice.candidates.map((c) => c.id)).toContain(Number(other));
+      expect(choice.candidates.map((c) => c.slug)).not.toContain('tp-many-draft');
+      expect(new Set(choice.candidates.map((c) => c.operator_name))).toEqual(new Set([TP.name, 'Тест Вторая Компания']));
+      expect(choice.candidates.every((c) => c.place?.id === 'tp-place-many' && c.place?.slug === 'tp-place-many')).toBe(true);
+      // Первый — тур со свободной датой (правило 1в), а не короче название или дешевле.
+      expect(choice.candidates[0].nearest_free_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+      const { tourChoiceTarget } = await import('@/lib/mcp/handoff-targets');
+      expect(tourChoiceTarget(choice)).toEqual({ targetType: 'place', targetPath: '/places/tp-place-many#tours' });
+
+      // По номеру — один тур той же компании.
+      const one = await resolveTourChoice(other);
+      expect(one.kind === 'one' && one.tour.operator_name).toBe('Тест Вторая Компания');
+
+      // «К месту ещё N предложений»: восемь туров к месту, без самого тура — семь.
+      const { loadPlaceOffersForTour } = await import('@/lib/places/place-tours');
+      const offers = await loadPlaceOffersForTour({ id: other, main_place_id: 'tp-place-many' });
+      expect(offers).toEqual({
+        state: 'ok', others: 7,
+        place: { id: 'tp-place-many', name: 'Место многих туров', slug: 'tp-place-many', ark_id: expect.any(String) },
+      });
+      // Скрытое место и тур без связи — строки нет.
+      expect(await loadPlaceOffersForTour({ id: other, main_place_id: 'tp-place-hidden' })).toEqual({ state: 'none' });
+      expect(await loadPlaceOffersForTour({ id: other, main_place_id: null })).toEqual({ state: 'none' });
+
+      // Карточка тура несёт main_place_id — по нему строится строка.
+      const { getTourForCard } = await import('@/lib/tours/tour-detail-query');
+      expect((await getTourForCard(Number(other)))?.main_place_id).toBe('tp-place-many');
+    });
   });
 });
+

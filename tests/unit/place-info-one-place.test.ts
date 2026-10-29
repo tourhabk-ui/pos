@@ -9,7 +9,9 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
-import { composePlaceInfo, placeFactLines, PLACE_DESCRIPTION_MAX } from '@/lib/kuzmich/place-info-tool';
+import { composePlaceInfo, placeFactLines, placeInfoForKuzmich, PLACE_DESCRIPTION_MAX } from '@/lib/kuzmich/place-info-tool';
+import { pool } from '@/lib/db-pool';
+import { offerLinesForAgent, type PlaceTourOffer } from '@/lib/places/place-tours';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 
 const LAKE = { name: 'Курильское озеро', category: 'lake', district: 'Южная Камчатка', description: 'Нерестовое озеро, медведи.' };
@@ -119,3 +121,73 @@ describe('скрытое место координату не называет (
   });
 });
 
+
+// ── Предложения туров к месту (слово владельца 29.10, «1в 2б 3 да») ─────
+
+const offer = (id: string, partnerId: string, partnerName: string, extra: Partial<PlaceTourOffer> = {}): PlaceTourOffer => ({
+  id, slug: `tur-${id}`, title: `Тур ${id}`, partnerId, partnerName, partnerSlug: null, partnerPublic: true,
+  partnerVerified: null, basePrice: 15000, priceUnit: 'per_person', durationType: 'single_day', multiDayCount: null,
+  durationHours: 10, seasonStart: null, seasonEnd: null, nearestFreeDate: null, keepsSchedule: false,
+  hasDatesByRequest: true, linkKind: 'main_place', ...extra,
+});
+
+describe('get_place_info: все предложения туров к месту', () => {
+  it('две компании — сводка, правило порядка и компания у каждого тура', () => {
+    const lines = offerLinesForAgent('Вулкан Горелый', {
+      state: 'ok', day: '2026-10-29',
+      offers: [
+        offer('61', 'a', 'Местечко Камчатка', { partnerVerified: true }),
+        offer('72', 'b', 'Лагуна Экспедиция', { nearestFreeDate: '2027-07-26', keepsSchedule: true, hasDatesByRequest: false }),
+      ],
+    }, 'https://vedarai.ru');
+    const text = lines.join('\n');
+    expect(text).toContain('К месту «Вулкан Горелый» 2 предложения от 2 компаний');
+    expect(text).toContain('Место в списке не продаётся.');
+    // Компания с датой — первой: правило 1в, а не номер тура.
+    expect(text.indexOf('ID72')).toBeLessThan(text.indexOf('ID61'));
+    expect(text).toMatch(/ID72 «Тур 72» — Лагуна Экспедиция — 15\s000 ₽ за человека — ближайшая дата со свободными местами — 26 июля 2027 — https:\/\/vedarai\.ru\/catalog\/tours\/tur-72/);
+    expect(text).toContain('ID61 «Тур 61» — Местечко Камчатка (проверен)');
+    expect(text).toContain('Туры, которые проходят через несколько мест');
+  });
+
+  it('отказ чтения — «не загрузились», а не «туров нет»; пусто — «нет на витрине»', () => {
+    expect(offerLinesForAgent('Вулкан Горелый', { state: 'failed' }, 'https://vedarai.ru').join('\n'))
+      .toMatch(/не загрузились.*Не говори, что туров нет/);
+    expect(offerLinesForAgent('Вулкан Горелый', { state: 'empty', day: '2026-10-29' }, 'https://vedarai.ru'))
+      .toEqual(['К месту «Вулкан Горелый» туров на витрине нет.']);
+  });
+
+  const PLACE_ROW = { id: 'p-gorely', name: 'Вулкан Горелый', category: 'volcano', district: null, description: null, is_visible: true };
+  const TOUR_ROW = (id: string, partner: string, name: string) => ({
+    id, slug: `tur-${id}`, title: `Тур ${id}`, base_price: '15000', price_unit: 'per_person', duration_type: 'single_day',
+    multi_day_count: null, duration_hours: '10', season_start: null, season_end: null, partner_id: partner, partner_name: name,
+    partner_slug: null, partner_public: true, partner_verified: null, nearest_free_date: null, keeps_schedule: false, link_kind: 'main_place',
+  });
+
+  function db(tours: () => Promise<{ rows: unknown[] }>): void {
+    vi.mocked(pool.query).mockImplementation((async (sql: string) => {
+      if (/FROM route_waypoints/.test(sql)) return tours();
+      if (/FROM places p/.test(sql)) return { rows: [PLACE_ROW] };
+      return { rows: [] };
+    }) as unknown as typeof pool.query);
+  }
+
+  it('MCP (без ссылок на страницы) тоже получает туры места с компаниями', async () => {
+    db(async () => ({ rows: [TOUR_ROW('61', 'a', 'Местечко Камчатка'), TOUR_ROW('72', 'b', 'Лагуна Экспедиция')] }));
+    const out = (await placeInfoForKuzmich('Горелый', { pageLinks: false }))!;
+    expect(out).toContain('2 предложения от 2 компаний');
+    expect(out).toContain('Местечко Камчатка');
+    expect(out).toContain('Лагуна Экспедиция');
+    expect(out).toContain('Место в списке не продаётся.');
+  });
+
+  it('отказ чтения туров не роняет карточку места: «не загрузились»', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db(async () => { throw Object.assign(new Error('boom'), { code: '57014' }); });
+    const out = (await placeInfoForKuzmich('Горелый', { pageLinks: false }))!;
+    expect(out).toContain('Вулкан Горелый');
+    expect(out).toContain('не загрузились');
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('[place-tours]'))).toBe(true);
+    spy.mockRestore();
+  });
+});

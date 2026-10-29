@@ -645,3 +645,36 @@ describe('один сборщик на сайт, Telegram и MAX', () => {
     expect(max).toContain('processMessage');
   });
 });
+
+describe('туры разных компаний (слово владельца 29.10, «1в 2б 3 да»)', () => {
+  const autumn = (id: number, operator: string, place: string | null): CatalogTour => ({
+    id, slug: `t-${id}`, title: `Горелый осенью ${id}`, base_price: 15000, price_unit: 'per_person',
+    multi_day_count: 1, activity_type: 'volcano', season_start: '2026-09-01', season_end: '2026-11-30',
+    operator_name: operator, main_place_ref: place,
+  });
+  const ask = 'Какие туры на вулканы есть осенью? Списком с ценами';
+
+  it('компания — в каждой строке; туры одного места — кнопка на «Туры к этому месту», не на первый тур', () => {
+    const answer = composeCommercial({
+      ...input(ask, ''),
+      tours: { ok: true, tours: [autumn(61, 'Местечко Камчатка', 'vulkan-gorelyy'), autumn(72, 'Лагуна Экспедиция', 'vulkan-gorelyy')] },
+    })!;
+    const lines = answer.visible.split('\n').filter((l) => l.startsWith('- '));
+    expect(lines).toHaveLength(2);
+    expect(lines.some((l) => l.includes(' — Местечко Камчатка — '))).toBe(true);
+    expect(lines.some((l) => l.includes(' — Лагуна Экспедиция — '))).toBe(true);
+    expect(requestButton(answer.visible)).toEqual({
+      text: 'Выбрать тур и отправить запрос',
+      url: `${BASE}/places/vulkan-gorelyy#tours`,
+    });
+    expect(answer.visible).not.toContain('Отправить запрос оператору');
+  });
+
+  it('туры разных мест — кнопка в каталог', () => {
+    const answer = composeCommercial({
+      ...input(ask, ''),
+      tours: { ok: true, tours: [autumn(61, 'Местечко Камчатка', 'vulkan-gorelyy'), autumn(72, 'Лагуна Экспедиция', null)] },
+    })!;
+    expect(requestButton(answer.visible)).toEqual({ text: 'Выбрать тур и отправить запрос', url: `${BASE}/catalog` });
+  });
+});
