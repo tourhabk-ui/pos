@@ -1640,7 +1640,7 @@ export interface OperatorChatDateProposalRow {
 
 /**
  * partner_chat_actions — действие кнопкой из чата кабинета (MAX, Telegram):
- * бронь своего тура в два шага (миграция 1341, lib/bookings/chat-owner-action).
+ * бронь своего тура в два шага (миграция 1343, lib/bookings/chat-owner-action).
  * BIGINT `chat_id` приходит строкой.
  */
 export interface PartnerChatActionRow {

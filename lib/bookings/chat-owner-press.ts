@@ -44,7 +44,7 @@ const CODE_ACTION = new Map(Object.entries(ACTION_CODE).map(([a, c]) => [c, a as
 /**
  * Отметка заявки кнопкой — статус, который она ставит (правило
  * lib/leads/owner-lead-status). Действие в строке partner_chat_actions
- * называется самим статусом (CHECK миграции 1341).
+ * называется самим статусом (CHECK миграции 1343).
  */
 export type LeadChatAction = 'contacted' | 'converted' | 'lost';
 
