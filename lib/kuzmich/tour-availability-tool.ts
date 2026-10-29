@@ -30,6 +30,9 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 import { ACTIVITY_ALIASES, ACTIVITY_LABELS, activityLabel } from '@/lib/tours/labels';
 import { typeMatches } from '@/lib/kuzmich/tour-filter';
 import { stemRu } from '@/lib/search/query-words';
+import { GROUP_TOTAL_EXCLUDES_SENTENCE, groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
+
+export { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 
 export interface ResolvedTour {
   id: number;
@@ -981,7 +984,33 @@ export function parsePeople(raw: string | undefined): number | null {
   return k >= 1 && k <= 30 ? k : null;
 }
 
-const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+/**
+ * Итог за людей на дату — ТЕМ ЖЕ расчётом, что у самой брони
+ * (honestTourPrice → reserveBooking): правила цены тура, ступени группы и
+ * заполненность даты. Один расчёт для окна дат get_tour_availability и для
+ * сравнения туров (compare_tours): свой расчёт где-то ещё разошёлся бы с
+ * суммой брони. Отказ — `failed` со строкой в логе, а не «от» и не ноль.
+ */
+export async function groupTotalOn(tour: ResolvedTour, date: string, people: number): Promise<GroupTotal> {
+  if (tour.base_price == null) return { kind: 'no_price' };
+  try {
+    const p = await honestTourPrice({
+      tourId: tour.id, tourDate: date,
+      baseUnitPrice: Number(tour.base_price), priceUnit: tour.price_unit,
+      participants: people,
+      duration: { multi_day_count: tour.multi_day_count ?? null, duration_hours: tour.duration_hours ?? null },
+    });
+    return { kind: 'total', total: p.total };
+  } catch (err) {
+    // Группа вне ступеней цены — не сбой расчёта: оператор называет цену
+    // сам. Отличать это от «итог не посчитан» обязательно: во втором
+    // случае можно повторить, в первом — нет (#2246).
+    if (err instanceof PriceTierMissError) return { kind: 'tier_miss' };
+    const e = err as { code?: string; message?: string };
+    console.error('[tour-availability] итог не посчитан', { tourId: tour.id, date, sqlstate: e?.code, message: e?.message });
+    return { kind: 'failed' };
+  }
+}
 
 /** Даты окна по порядку, оба края включительно. */
 export function datesBetween(from: string, to: string): string[] {
@@ -1049,16 +1078,16 @@ async function onRequestWindow(
             duration: { multi_day_count: tour.multi_day_count ?? null, duration_hours: tour.duration_hours ?? null },
             rules, tiers, ctx: { tourDate: d, guests: people, occupancyPct: 0 },
           });
-          return `итого за ${people} чел.: ${rub(p.total)}`;
+          return groupTotalLabel({ kind: 'total', total: p.total }, people);
         } catch (err) {
-          if (err instanceof PriceTierMissError) return `для группы из ${people} чел. цену называет оператор`;
+          if (err instanceof PriceTierMissError) return groupTotalLabel({ kind: 'tier_miss' }, people);
           throw err;
         }
       });
     } catch (err) {
       const e = err as { code?: string; message?: string };
       console.error('[tour-availability] итог не посчитан', { tourId: tour.id, sqlstate: e?.code, message: e?.message });
-      labels = dates.map(() => 'итог не посчитан');
+      labels = dates.map(() => groupTotalLabel({ kind: 'failed' }, people));
     }
   } else {
     const price = priceFromUnit(tour.base_price, tour.price_unit);
@@ -1075,7 +1104,7 @@ async function onRequestWindow(
     'Числа мест у тура без календаря нет — дату и группу подтверждает оператор. '
       + 'create_booking_request с датой отправит ему заявку в мессенджер, ответ — до 2 часов. Не обещай, что место закреплено, до его ответа.',
     ...(people !== null && tour.base_price != null
-      ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура). Трансферы и услуги из «не входит» в неё не включены.']
+      ? [`Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура). ${GROUP_TOTAL_EXCLUDES_SENTENCE}`]
       : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
   ];
 }
@@ -1096,7 +1125,7 @@ export function yearAhead(today: string): string {
   return `${Number(today.slice(0, 4)) + 1}-${md === '02-29' ? '02-28' : md}`;
 }
 
-type NearestSlot =
+export type NearestSlot =
   | { state: 'found'; date: string; remaining: number }
   | { state: 'none' }
   | { state: 'failed' };
@@ -1122,6 +1151,15 @@ async function firstFreeSlot(
     console.error('[tour-availability] ближайшая дата вне окна не прочитана', { tourId, side, sqlstate: e?.code, message: e?.message });
     return { state: 'failed' };
   }
+}
+
+/**
+ * Первая дата в пределах года от сегодня, где мест хватит на `people` (без
+ * числа — на одного), — тем же движком, что окно дат и гейт брони. Для
+ * сравнения туров (compare_tours): дата, на которую посчитан итог за группу.
+ */
+export async function nearestSlotFor(tourId: number, people: number | null, today: string): Promise<NearestSlot> {
+  return firstFreeSlot(tourId, today, yearAhead(today), people, 'сравнение', createPlannerCache());
 }
 
 /**
@@ -1299,38 +1337,17 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
     // с суммой брони, и ассистент назвал бы человеку не ту цифру (разбор UCP
     // 03.10: полная стоимость — до подтверждения). Отказ расчёта на дате —
     // «итог не посчитан», а не пропуск строки и не «от».
+    // Группа вне ступеней — «цену называет оператор», сбой — «итог не
+    // посчитан» (groupTotalOn): одни слова с окном без календаря и сравнением.
     const totals = people !== null && tour.base_price != null
-      ? await Promise.all(shown.map(async (s) => {
-          try {
-            const p = await honestTourPrice({
-              tourId: tour.id, tourDate: s.date,
-              baseUnitPrice: Number(tour.base_price), priceUnit: tour.price_unit,
-              participants: people,
-              duration: { multi_day_count: tour.multi_day_count ?? null, duration_hours: tour.duration_hours ?? null },
-            });
-            return p.total;
-          } catch (err) {
-            // Группа вне ступеней цены — не сбой расчёта: оператор называет цену
-            // сам. Отличать это от «итог не посчитан» обязательно: во втором
-            // случае можно повторить, в первом — нет (#2246).
-            if (err instanceof PriceTierMissError) return 'tier_miss' as const;
-            const e = err as { code?: string; message?: string };
-            console.error('[tour-availability] итог не посчитан', { tourId: tour.id, date: s.date, sqlstate: e?.code, message: e?.message });
-            return null;
-          }
-        }))
+      ? await Promise.all(shown.map((s) => groupTotalOn(tour, s.date, people)))
       : null;
     const lines = shown.map((s, i) => {
       // Единица — из тура, а не «р/чел»: у многодневок цена за группу, и
       // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
       // Цена на дату может быть переопределена, но единица у неё та же.
       const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
-      const t = totals ? totals[i] : null;
-      const total = totals
-        ? (t === 'tier_miss'
-            ? `; для группы из ${people} чел. цену называет оператор`
-            : t != null ? `; итого за ${people} чел.: ${rub(t as number)}` : '; итог не посчитан')
-        : '';
+      const total = totals && people !== null ? `; ${groupTotalLabel(totals[i], people)}` : '';
       return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}${total}`;
     });
     const more = slots.length > SHOWN
@@ -1345,7 +1362,7 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
       // ведёт (проверка MCP 29.09).
       `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
       ...(totals
-        ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура и заполненность даты). Трансферы и услуги из «не входит» в неё не включены.']
+        ? [`Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура и заполненность даты). ${GROUP_TOTAL_EXCLUDES_SENTENCE}`]
         : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
     ].join('\n');
   } catch (err) {

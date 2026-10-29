@@ -198,7 +198,7 @@ describe('каждый публичный роут туров спрашивае
 // Проверка MCP 29.09: публичный MCP и Кузьмич — тоже витрина. Резолвер тура
 // смотрел только is_active и deleted_at: черновик находился картой и заявкой.
 describe('туры на пути Кузьмича и MCP — через тот же шлюз', () => {
-  const FILES = ['lib/kuzmich/tour-availability-tool.ts', 'lib/kuzmich/core.ts'];
+  const FILES = ['lib/kuzmich/tour-availability-tool.ts', 'lib/kuzmich/core.ts', 'lib/kuzmich/tour-compare-tool.ts'];
   it('каждый FROM operator_tours в них зовёт publicTourSql', () => {
     for (const f of FILES) {
       const src = readFileSync(join(process.cwd(), f), 'utf-8');
@@ -572,10 +572,19 @@ describe('переведённые читатели — поведением: в
     await run('search_tours', {});
     await run('get_tour_details', { tour_id: '1' });
     await run('check_availability', { tour_id: '1' });
-    await run('compare_tours', { tour_ids: '1,2' });
     const sent = sentPool();
-    expect(sent).toHaveLength(4);
+    expect(sent).toHaveLength(3);
     for (const s of sent) expect(s).toContain(publicTourSql('t'));
+    // Сравнение — общее ядро compare_tours (29.10): каждый тур ищет резолвер
+    // Кузьмича со шлюзом витрины, и тур, которого витрина не отдала, назван
+    // «не найден среди активных», а не выброшен молча.
+    poolQueryMock.mockClear();
+    const cmp = JSON.parse(await run('compare_tours', { tour_ids: '1,2' })) as { comparison?: string };
+    const cmpSent = sentPool();
+    expect(cmpSent.length).toBeGreaterThan(0);
+    for (const s of cmpSent.filter((q) => /\b(?:FROM|JOIN)\s+operator_tours\b/.test(q))) expect(s).toContain(publicTourSql('ot'));
+    expect(cmp.comparison).toContain('Тур по запросу "1" не найден среди активных — в сравнение не взят.');
+    expect(cmp.comparison).toContain('Тур по запросу "2" не найден среди активных — в сравнение не взят.');
   });
 });
 
@@ -643,6 +652,7 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'lib/kuzmich/core.ts': 'общий мозг Кузьмича',
   'lib/kuzmich/tour-availability-tool.ts': 'инструмент дат Кузьмича',
   'lib/agents/sdk/tourist-tools.ts': 'инструменты туриста: поиск, подробности, даты, сравнение',
+  'lib/kuzmich/tour-compare-tool.ts': 'сравнение 2–4 туров для Кузьмича, MCP и A2A (compare_tours)',
   'lib/ai/booking-intent.ts': 'туры в чате по намерению',
   'lib/telegram/tourist-tours.ts': 'кнопки туров в Telegram-боте туриста',
   'lib/kuzmich/engagement.ts': 'напоминание туристу о туре в Telegram',

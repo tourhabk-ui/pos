@@ -24,6 +24,7 @@
  */
 
 import { parseTourQuery } from '@/lib/search/tour-match';
+import { splitTourList } from '@/lib/tours/compare-input';
 
 export type QueryLang = 'ru' | 'en' | 'zh' | 'other';
 
@@ -146,14 +147,21 @@ export function localizeQuery(raw: string): Localized {
 
 /** Поля читающих инструментов, в которых человек называет место, тур или интерес. */
 export const LOCALIZABLE_FIELDS: readonly string[] = [
-  'query', 'name', 'place', 'zone', 'activity_type', 'volcano', 'tour', 'interests',
+  'query', 'name', 'place', 'zone', 'activity_type', 'volcano', 'tour', 'interests', 'tours',
+  // Синонимы tours у compare_tours (схема сводит их к tours уже после
+  // перевода): без них английское название под tour_list дошло бы до
+  // резолвера как есть и стало «не найден среди активных» (ревью 29.10).
+  'tour_ids', 'ids', 'tour_list',
 ];
+
+/** Поля-списки: значения через «;» (или массив) переводятся по одному. */
+const LIST_FIELDS: ReadonlySet<string> = new Set(['tours', 'tour_ids', 'ids', 'tour_list']);
 
 /** Инструменты, чьи аргументы переводятся. Пишущие сюда не входят: там имя и телефон человека. */
 export const LOCALIZABLE_TOOLS: ReadonlySet<string> = new Set([
   'search', 'get_tours', 'get_tour_details', 'get_place_info', 'get_guardian_context', 'get_weather',
   'get_volcano_status', 'search_accommodations', 'search_transfers', 'search_car_rental', 'search_gear', 'make_trip_plan',
-  'get_tour_availability',
+  'get_tour_availability', 'compare_tours',
 ]);
 
 export interface LocalizedArgs {
@@ -170,6 +178,20 @@ export function localizeToolArgs(tool: string, args: Record<string, unknown>): L
   const mapped: Localized['mapped'] = [];
   for (const f of LOCALIZABLE_FIELDS) {
     const v = out[f];
+    if (LIST_FIELDS.has(f)) {
+      // Список туров (compare_tours) переводится по одному: «；» и «、» —
+      // разделители, а перевод всей строки вырезал бы их вместе с прочей
+      // китайской пунктуацией, и четыре названия слились бы в одно.
+      const items = Array.isArray(v) ? v.map((x) => String(x)) : typeof v === 'string' ? splitTourList(v) : [];
+      const ls = items.map(localizeQuery);
+      const foreign = ls.find((l) => l.lang === 'en' || l.lang === 'zh');
+      if (foreign) {
+        if (lang === 'ru') lang = foreign.lang;
+        out[f] = ls.map((l) => l.text).join('; ');
+        for (const l of ls) mapped.push(...l.mapped);
+      }
+      continue;
+    }
     if (typeof v !== 'string' || !v.trim()) continue;
     const l = localizeQuery(v);
     if (l.lang === 'en' || l.lang === 'zh') {

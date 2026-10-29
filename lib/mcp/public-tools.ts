@@ -209,6 +209,8 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   get_tours:             READ,
   get_tour_details:      READ,
   get_tour_availability: READ,
+  // Сравнение 2–4 туров (29.10): только наша база, ничего не пишет.
+  compare_tours:         READ,
   get_guardian_context:  READ,
   get_place_info:        READ,
   safety_status:         READ,
@@ -266,6 +268,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_tours:             { title: 'Tour catalogue',        lead: 'Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details.' },
   get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. A company or guide name returns a tour list and their page instead. To list or search tours use get_tours.' },
   get_tour_availability: { title: 'Tour availability',     lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.' },
+  compare_tours:         { title: 'Compare tours',         lead: 'Side-by-side facts for 2-4 Kamchatka tours on what the user cares about: price or group total, duration, dates, inclusions, cancellation, pickup, operator. No ranking; one tour: get_tour_details.' },
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
   get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context.' },
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source and dates, plus elevated volcanoes (KVERT, KB GS RAS).' },
@@ -322,6 +325,11 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     date_from: { lead: 'Start of the window, YYYY-MM-DD; default today.', example: '2027-07-15' },
     days: { lead: 'Window length in days, 1–31; default 14.', example: '14' },
     people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them.', example: '2' },
+  },
+  compare_tours: {
+    tours: { lead: 'Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable) or titles separated by semicolons.', example: '61, 70' },
+    criteria: { lead: 'What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty means a short default set.', example: 'цена, отмена' },
+    people: { lead: 'Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, and the nearest-date row the first date with seats for all of them. The tool picks the date of the total and names it per tour: the first date with seats for all of them, or the first date open for a request (tours without a schedule); a total on a date the user named comes from get_tour_availability with date_from and people.', example: '2' },
   },
   get_guardian_context: {
     place: { lead: 'Place or route name.', example: 'Авачинский вулкан' },
@@ -535,6 +543,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.8.1',
+  version: '2.9.0',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
 } as const;

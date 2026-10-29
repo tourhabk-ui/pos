@@ -32,7 +32,9 @@ describe('итог брони в get_tour_availability', () => {
     expect(out).toContain('итого за 3 чел.: 54');
     expect(out).toContain('итого за 3 чел.: 59');
     expect(honest).toHaveBeenCalledWith(expect.objectContaining({ tourId: 37, tourDate: '2027-01-15', participants: 3, priceUnit: 'per_day_per_person' }));
-    expect(out).toContain('Трансферы и услуги из «не входит» в неё не включены');
+    // Трансфер не назван «не включённым»: у части туров он в цене (ревью 29.10).
+    expect(out).toContain('Услуги из «не входит» и доплаты, записанные оператором текстом, в итог не добавлены.');
+    expect(out).not.toMatch(/трансфер/i);
   });
 
   it('отказ расчёта на дате — «итог не посчитан», а не «от»', async () => {

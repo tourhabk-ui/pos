@@ -125,3 +125,39 @@ describe('исход инструмента судит один реестр (co
     expect(toolOutputHasData('ID12: Восхождение на Авачинский, 25000 руб')).toBe(true);
   });
 });
+
+// Ревью 29.10: compare_tours завели без записи в список инструментов данных, и
+// честный ответ с ценами из сравнения судился «незаземлённым». Сторож держит
+// связку: каждый инструмент реестра Кузьмича либо заземляет ответ, либо
+// записан здесь с причиной. Запись самоустаревает: инструмент начал
+// заземлять — запись обязана уйти (как KNOWN_UNPRODUCED).
+describe('каждый инструмент реестра Кузьмича назван: заземляет или нет и почему', () => {
+  const NOT_GROUNDING: Record<string, string> = {
+    get_weather: 'погода: ни цен, ни телефонов, ни мест — сигналов метрики в ответе нет',
+    get_volcano_status: 'состояние вулканов: сигналов метрики (цена, телефон, места) не несёт',
+    get_flight_board: 'табло рейсов: время и статус, сигналов метрики не несёт',
+    safety_status: 'обстановка в крае: телефоны в ней экстренные, их источник — код (EMERGENCY_PHONES_RE)',
+    // Известные пробелы — названы, а не спрятаны. Ответ этих инструментов несёт
+    // цены туров, и правка метрики для них — отдельное решение, не часть
+    // compare_tours (ревью 29.10).
+    get_place_info: 'ПРОБЕЛ: туры к месту с ценами (#2835), в список данных не внесён — отдельная правка метрики',
+    make_trip_plan: 'ПРОБЕЛ: план с ценами туров, в список данных не внесён — отдельная правка метрики',
+    edit_trip_plan: 'ПРОБЕЛ: план с ценами туров, в список данных не внесён — отдельная правка метрики',
+  };
+
+  it('нет инструмента без решения; запись о незаземляющем уходит, когда он начал заземлять', async () => {
+    const { KUZMICH_TOOLS } = await import('@/lib/kuzmich/tool-schemas');
+    const grounds = (name: string) => ranDataTool([{ name, producedData: true }]);
+    for (const t of KUZMICH_TOOLS) {
+      const name = t.function.name;
+      if (grounds(name)) {
+        expect(NOT_GROUNDING[name], `${name} заземляет — уберите запись из NOT_GROUNDING`).toBeUndefined();
+      } else {
+        expect(NOT_GROUNDING[name], `${name}: ни в списке инструментов данных (grounding.ts), ни здесь с причиной`).toBeTruthy();
+      }
+    }
+    const names = new Set(KUZMICH_TOOLS.map((t) => t.function.name));
+    for (const k of Object.keys(NOT_GROUNDING)) expect(names.has(k), `${k} — нет в реестре, запись устарела`).toBe(true);
+    expect(grounds('compare_tours')).toBe(true);
+  });
+});

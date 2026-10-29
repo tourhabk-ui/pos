@@ -15,7 +15,7 @@
 
 /** Какой аргумент считать главным — первый найденный из этого порядка. */
 const PRIMARY_KEYS = [
-  'name', 'place', 'volcano', 'tour', 'query', 'task', 'date', 'date_from',
+  'name', 'place', 'volcano', 'tour', 'tours', 'query', 'task', 'date', 'date_from',
   'when', 'interests', 'location', 'activity_type', 'days',
 ] as const;
 

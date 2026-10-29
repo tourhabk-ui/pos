@@ -51,6 +51,17 @@ describe('get_tour_details', () => {
   });
 });
 
+describe('compare_tours', () => {
+  it('tour_ids, ids и tour_list сводятся к tours; массив номеров — списком через «;»', () => {
+    expect(ok('compare_tours', { tour_ids: '61,70' })).toEqual({ tours: '61,70' });
+    expect(ok('compare_tours', { ids: [61, 70] })).toEqual({ tours: '61; 70' });
+    expect(ok('compare_tours', { tour_list: 'Горелый; Мутновский', people: 2 })).toEqual({ tours: 'Горелый; Мутновский', people: '2' });
+  });
+  it('каноническое имя важнее синонима', () => {
+    expect(ok('compare_tours', { tours: '1, 2', tour_ids: '3, 4' })).toEqual({ tours: '1, 2' });
+  });
+});
+
 describe('get_tour_availability', () => {
   it('name/tour_id и start_date сводятся к tour и date_from', () => {
     expect(ok('get_tour_availability', { tour_id: 27, start_date: '2027-07-15', days: 7 }))

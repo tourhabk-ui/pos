@@ -82,6 +82,16 @@ function validDays(d: number | null): d is number {
   return d !== null && Number.isInteger(d) && d >= 0;
 }
 
+/**
+ * Числа условий записаны ОБА и годны — тем же правилом, что computeTourRefund
+ * отличает «условия есть» от «не записаны». Для показа условий рядом с
+ * другими турами (compare_tours): одно число из двух — не условие, и
+ * досчитывать второе нельзя (§4.0). Расчёт возврата не меняет.
+ */
+export function refundTermsRecorded(t: TourRefundTerms): boolean {
+  return validDays(t.freeDays) && validPercent(t.lateRefundPercent);
+}
+
 function money(n: number): number {
   return Math.round(n * 100) / 100;
 }
