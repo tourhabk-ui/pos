@@ -57,6 +57,7 @@ import { alertContextLine } from '@/lib/kuzmich/alert-lines';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
+import { groupSentence } from '@/lib/tours/group-size';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
@@ -1352,6 +1353,8 @@ export async function getTourDetails(query: string): Promise<string> {
       safety_notes: string[] | null;
       pickup_type: string | null;
       pickup_details: string | null;
+      max_participants: number | null;
+      group_size_unlimited: boolean | null;
       operator_name: string | null;
       operator_legal_name: string | null;
       operator_inn: string | null;
@@ -1361,7 +1364,7 @@ export async function getTourDetails(query: string): Promise<string> {
       // без алиаса, и JOIN с partners сделал бы их неоднозначными.
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
-              program, safety_notes, pickup_type, pickup_details,
+              program, safety_notes, pickup_type, pickup_details, max_participants, group_size_unlimited,
               (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
               (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
               (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
@@ -1380,6 +1383,11 @@ export async function getTourDetails(query: string): Promise<string> {
     const priceLine = priceFromUnit(t.base_price, t.price_unit);
     if (priceLine) parts.push(`Цена: ${priceLine}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
+    // Группа — общим правилом с карточкой (lib/tours/group-size, 1341): у тура
+    // без предела агент слышит «не ограничена» и потолок ОДНОЙ заявки, а не
+    // «до 12» как предел гида (слово владельца 29.10).
+    const group = groupSentence(t);
+    if (group) parts.push(group);
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
     if (t.description) {
       // Обрезка называется: агент принимал обрывок за полный текст (проверка MCP 29.09).

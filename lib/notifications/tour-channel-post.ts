@@ -32,6 +32,7 @@ export { absolutePhotoUrls, MAX_PHOTOS } from '@/lib/notifications/photo-urls';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 import { tourPostSeason } from '@/lib/tours/post-season';
 import { tourPath } from '@/lib/tours/tour-url';
+import { groupShort } from '@/lib/tours/group-size';
 
 export interface TourPostRow {
   id: string;
@@ -44,6 +45,8 @@ export interface TourPostRow {
   duration_hours: string | number | null;
   multi_day_count: number | null;
   max_participants: number | null;
+  /** Группа не ограничена (1341); нет поля — FALSE. */
+  group_size_unlimited?: boolean | null;
   difficulty: string | null;
   activity_type: string | null;
   location: string | null;
@@ -81,7 +84,9 @@ export function buildTourPostText(row: TourPostRow, baseUrl: string): string {
   const facts: string[] = [];
   const dur = durationLine(row);
   if (dur) facts.push(dur);
-  if (row.max_participants) facts.push(`до ${row.max_participants} чел.`);
+  // Группа — общим правилом (lib/tours/group-size): «до N» только у тура с пределом.
+  const group = groupShort(row);
+  if (group) facts.push(group);
   const diff = difficultyLabel(row.difficulty, true);
   if (row.difficulty && diff) facts.push(escapeHtml(diff));
 
@@ -135,6 +140,7 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
             ot.duration_hours,
             ot.multi_day_count,
             ot.max_participants,
+            ot.group_size_unlimited,
             ot.difficulty,
             ot.activity_type,
             ot.location_name AS location,

@@ -18,6 +18,7 @@ import type { ChannelTour } from './types';
 import { tourPath } from '@/lib/tours/tour-url';
 import { stripTags } from '@/lib/html/text';
 import { absoluteUrl } from './avito';
+import { groupSentence, isGroupSizeUnlimited } from '@/lib/tours/group-size';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -119,9 +120,9 @@ function buildDescription(tour: ChannelTour): string {
   if (tour.duration_hours) {
     parts.push(`Продолжительность: ${formatDuration(tour.duration_hours)}.`);
   }
-  if (tour.max_participants) {
-    parts.push(`Группа до ${tour.max_participants} человек.`);
-  }
+  // Группа — общим правилом с карточкой (lib/tours/group-size, 1341).
+  const group = groupSentence(tour);
+  if (group) parts.push(group);
   if (tour.season_start || tour.season_end) {
     parts.push(`Сезон: ${formatSeason(tour.season_start, tour.season_end)}.`);
   }
@@ -164,8 +165,9 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
     if (tour.duration_hours) {
       params.push(`      <param name="Длительность">${escapeXml(formatDuration(tour.duration_hours))}</param>`);
     }
-    if (tour.max_participants) {
-      params.push(`      <param name="Размер группы">до ${tour.max_participants} чел.</param>`);
+    const groupParam = isGroupSizeUnlimited(tour) ? 'не ограничен' : (tour.max_participants ? `до ${tour.max_participants} чел.` : null);
+    if (groupParam) {
+      params.push(`      <param name="Размер группы">${escapeXml(groupParam)}</param>`);
     }
     if (tour.difficulty) {
       params.push(`      <param name="Сложность">${escapeXml(DIFFICULTY_LABELS[tour.difficulty] ?? tour.difficulty)}</param>`);

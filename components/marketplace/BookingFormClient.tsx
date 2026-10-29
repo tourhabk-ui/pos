@@ -15,6 +15,7 @@ import { funnelBeacon } from '@/lib/funnel/beacon';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
 import { cancellationTermsLine, type TourRefundTerms } from '@/lib/payments/tour-refund';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { BOOKING_FORM_MAX_PARTICIPANTS } from '@/lib/tours/group-size';
 
 interface BookingFormProps {
   tourId: number;
@@ -24,6 +25,11 @@ interface BookingFormProps {
   /** Длительность — нужна для «за человека в день». */
   duration?: { multi_day_count: number | null; duration_hours: number | null };
   maxParticipants?: number;
+  /**
+   * Группа тура не ограничена (1341): потолок одной заявки остаётся, а под
+   * счётчиком участников сказано, как привести группу больше.
+   */
+  groupSizeUnlimited?: boolean;
   tourTitle?: string;
   /**
    * Дата, уже выбранная снаружи (день в /calendar, «ближайший выезд» на
@@ -76,7 +82,7 @@ interface FormError {
   kind: 'validation' | 'send';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
   const router = useRouter();
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst);
   const [seatsOpen, setSeatsOpen] = useState(false);
@@ -321,7 +327,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     }
   };
 
-  const maxOpts = Math.min(maxParticipants, 12);
+  const maxOpts = Math.min(maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS);
 
   if (!plainBooking) {
     return (
@@ -407,6 +413,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             <option key={n} value={n}>{n} {n === 1 ? 'человек' : n < 5 ? 'человека' : 'человек'}</option>
           ))}
         </select>
+        {groupSizeUnlimited && maxOpts > 0 && (
+          <p id="booking-participants-more" className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+            Группа не ограничена. Больше {maxOpts} человек — напишите в пожеланиях, оператор соберёт группу.
+          </p>
+        )}
       </div>
 
       {/* Контакты */}

@@ -746,12 +746,14 @@ withPg('витрина /operators: факты о живых турах, кноп
         included: string[] | null; safety_notes: string[] | null; program: { title: string; text: string }[] | null;
         what_to_bring: string[] | null; photos: string[] | null; season_start: string | null; season_end: string | null;
         duration_hours: string | null; pickup_type: string | null; meeting_point: string | null; pickup_details: string | null;
+        group_size_unlimited: boolean;
       };
       const rows = (await pool.query<Row>(
         `SELECT slug, is_published, ${publicTourSql('')} AS on_storefront, difficulty, max_participants,
                 short_description, description, price_note, cancellation_policy, cancellation_free_days,
                 cancellation_late_refund_percent, included, safety_notes, program, what_to_bring, photos,
-                season_start::text, season_end::text, duration_hours::text, pickup_type, meeting_point, pickup_details
+                season_start::text, season_end::text, duration_hours::text, pickup_type, meeting_point, pickup_details,
+                group_size_unlimited
            FROM operator_tours WHERE operator_id = $1::uuid ORDER BY slug`, [reg.id],
       )).rows;
       const t = (slug: string) => rows.find((r) => r.slug === slug)!;
@@ -799,6 +801,18 @@ withPg('витрина /operators: факты о живых турах, кноп
       const days = await readTourDays(pool, kid, '2027-08-02', '2027-08-05');
       expect(() => assertDaysOpen(days, { participants: 8, maxParticipants: 12, durationDays: 4 })).not.toThrow();
       expect(() => assertDaysOpen(days, { participants: 13, maxParticipants: 12, durationDays: 4 })).toThrow(/максимум: 12/);
+
+      // 8. Группа не ограничена (слово владельца 29.10) — ровно трём турам, о
+      // которых гид сказал «не ограничено»; прочим — FALSE. Ёмкость признак не
+      // трогает: потолки 12 и 10 те же, гейт выше отклоняет 13 как прежде.
+      const UNLIMITED = ['zaporozhets-bukhta-russkaya', 'zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya'];
+      expect(rows.filter((r) => r.group_size_unlimited).map((r) => r.slug)).toEqual(UNLIMITED);
+      for (const r of rows) expect(r.group_size_unlimited, r.slug).toBe(UNLIMITED.includes(r.slug));
+      // Чужие туры (не гида) признак не получают.
+      const { rows: [{ n: foreign }] } = await pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM operator_tours WHERE group_size_unlimited AND operator_id <> $1::uuid`, [reg.id],
+      );
+      expect(foreign).toBe(0);
 
       // 1–2. Горелый — пещеры в «включено», замечание снято; Толбачик — ночлеги по программе.
       expect(t('zaporozhets-vulkan-gorelyy').included!.some((i) => i.startsWith('посещение пещер'))).toBe(true);
