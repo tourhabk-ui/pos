@@ -94,12 +94,16 @@ withPg('витрина туров: снятый тур не в плане и н�
     );
     for (const s of STATES) {
       // Удаление — как у softDeleteTour: только deleted_at, флаги остаются true.
+      // Отзывов у всех состояний больше, чем у любого тура из миграций: «тренды»
+      // берут первые 50 по отзывам, и без этого туры миграций (1338, 1339 —
+      // уже за 50 на витрине) вытесняли бы наши из выборки. Решать, кто в
+      // выборке, должен шлюз витрины, а не число туров в базе.
       const { rows } = await pool.query<{ id: string }>(
         `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
                                      min_participants, max_participants, duration_hours, difficulty,
-                                     is_active, is_published, deleted_at)
+                                     is_active, is_published, deleted_at, review_count)
          VALUES ($1, $2, $3, $4, 1000, 'per_person', 1, 10, 8, 'easy',
-                 $5, $6, CASE WHEN $7 THEN NOW() ELSE NULL END)
+                 $5, $6, CASE WHEN $7 THEN NOW() ELSE NULL END, 1000000)
          RETURNING id::text`,
         [OPERATOR.id, `W2PT тур ${s}`, `w2pt-tour-${s}`, activity(s), s !== 'inactive', s !== 'unpublished', s === 'deleted'],
       );
