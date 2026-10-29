@@ -209,14 +209,14 @@ withPg('витрина туров: снятый тур не в плане и н�
       `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
        VALUES ($1, 'Каталог без предела', 'operator', '{}'::jsonb, 'w2pt-catalog-all', TRUE, TRUE, 'active')`, [other],
     );
-    for (let i = 0; i < 41; i++) {
-      await pool.query(
-        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
-                                     min_participants, max_participants, duration_hours, is_active, is_published)
-         VALUES ($1, $2, $3, 'helicopter', $4, 'per_person', 1, 6, 8, TRUE, TRUE)`,
-        [other, `W2PT дорогой ${i}`, `w2pt-expensive-${i}`, 900000 + i],
-      );
-    }
+    // Одним запросом: 41 вставка по одной не укладывалась в 5 с на раннере.
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, is_active, is_published)
+       SELECT $1, 'W2PT дорогой ' || i, 'w2pt-expensive-' || i, 'helicopter', 900000 + i, 'per_person', 1, 6, 8, TRUE, TRUE
+         FROM generate_series(0, 40) AS i`,
+      [other],
+    );
     const { publicTourSql } = await import('@/lib/tours/public-visibility');
     const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
     // Один дорогой тур ведёт календарь со свободной датой: по цене он был бы
@@ -433,7 +433,8 @@ withPg('витрина туров: снятый тур не в плане и н�
       spy.mockRestore();
       err.mockRestore();
     }
-  });
+    // Первый импорт lib/kuzmich/core и сборка подсказки на раннере — секунды.
+  }, 30_000);
 
   // ── #2642: кабинет оператора говорит, видит ли тур турист ─────────────────
   // Список туров ставил бейдж по одному is_active, экран «Чего не хватает» —

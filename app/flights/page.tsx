@@ -3,6 +3,7 @@ import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { FlightBoardView } from '@/components/flights/FlightBoardView';
 import { loadPkcBoard } from '@/lib/flights/pkc-board';
+import { loadAirportMetar } from '@/lib/flights/metar';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 /**
@@ -11,13 +12,17 @@ import { defaultOgImages } from '@/lib/seo/og-image';
  * Рендер на каждый запрос: табло меняется каждые несколько минут. Сайт
  * аэропорта на каждый заход не дёргается — у loadPkcBoard своя память на три
  * минуты (lib/flights/pkc-board.ts).
+ *
+ * Рядом — сводка погоды аэродрома (METAR, lib/flights/metar.ts, 29.10): табло
+ * причину задержки не называет, а погоду у полосы показать можно. Обе загрузки
+ * идут параллельно и не ждут друг друга.
  */
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Табло аэропорта Елизово — задержки и отмены рейсов',
   description:
-    'Задержанные и отменённые рейсы аэропорта Петропавловск-Камчатский (Елизово, PKC): вылет и прилёт по табло аэропорта, камчатское время.',
+    'Задержки и отмены рейсов аэропорта Елизово (PKC): вылет и прилёт по табло аэропорта, камчатское время, погода у полосы по сводке METAR.',
   alternates: { canonical: 'https://vedarai.ru/flights' },
   openGraph: {
     images: defaultOgImages(),
@@ -31,12 +36,12 @@ export const metadata: Metadata = {
 };
 
 export default async function FlightsPage() {
-  const board = await loadPkcBoard();
+  const [board, metar] = await Promise.all([loadPkcBoard(), loadAirportMetar()]);
   return (
     <>
       <Header />
       <main className="ds-page px-4 pt-20 pb-24">
-        <FlightBoardView board={board} />
+        <FlightBoardView board={board} metar={metar} />
       </main>
       <BottomNav activePath="/flights" />
     </>

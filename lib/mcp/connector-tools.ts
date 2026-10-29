@@ -63,6 +63,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
+import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -311,6 +312,7 @@ interface TourRow {
   season_start: string | null; season_end: string | null; location_name: string | null;
   included: string[] | null; not_included: string[] | null; what_to_bring: string[] | null; safety_notes: string[] | null;
   program: Array<{ title?: string; text?: string }> | null; price_note: string | null; cancellation_policy: string | null;
+  max_participants: number | null; group_size_unlimited: boolean | null;
   operator_name: string | null;
 }
 
@@ -323,7 +325,7 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
             ot.duration_type, ot.multi_day_count, ot.difficulty,
             ot.season_start::text AS season_start, ot.season_end::text AS season_end, ot.location_name,
             ot.included, ot.not_included, ot.what_to_bring, ot.safety_notes, ot.program, ot.price_note,
-            ot.cancellation_policy, p.name AS operator_name
+            ot.cancellation_policy, ot.max_participants, ot.group_size_unlimited, p.name AS operator_name
        FROM operator_tours ot
        LEFT JOIN partners p ON p.id::text = ot.operator_id::text
       WHERE ot.id = $1::bigint AND ${publicTourSql('ot')}
@@ -342,6 +344,9 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
     line('Цена', price),
     line('Длительность', duration),
     line('Сложность', t.difficulty),
+    // Группа — только у тура без предела (1342): прочим fetch, как и прежде,
+    // числа не называет — max_participants бывает заглушкой (1176), §4.0.
+    groupSentenceIfUnlimited(t),
     t.season_start && t.season_end ? `Сезон: ${t.season_start} — ${t.season_end}` : null,
     t.short_description,
     t.description,

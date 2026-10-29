@@ -30,6 +30,8 @@ import { orderOffersBy, type OfferOrderOptions } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
 import { ZH_TOUR_FIELDS, readField } from '@/lib/zh/fields';
 import { loadTranslations, logZhFailure } from '@/lib/zh/content';
+import { bookingRequestCeiling } from '@/lib/tours/group-size';
+import { approxYuan, type CbrRate } from '@/lib/currency/cbr-rate';
 
 export interface ZhTourRow {
   id: string;
@@ -102,11 +104,20 @@ export async function withZhTitles<T extends ZhTourRow>(rows: T[]): Promise<T[]>
   });
 }
 
-/** «105,000 卢布 每人»; нет цены или ноль — null, а не «0 卢布». */
-export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>): string | null {
+/**
+ * «105,000 卢布 每人»; нет цены или ноль — null, а не «0 卢布».
+ *
+ * С курсом ЦБ (29.10) — ещё «≈ юани» с датой курса и словами «цена в
+ * рублях»: пересчёт подсказка, а не цена. Нет курса — только рубли.
+ */
+export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>, cny?: CbrRate | null): string | null {
   const n = Number(t.base_price);
   if (!Number.isFinite(n) || n <= 0) return null;
-  return `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+  const rub = `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+  const yuan = cny ? approxYuan(n, cny) : null;
+  if (!yuan || !cny) return rub;
+  const [d, m, y] = cny.date.split('.');
+  return `${rub}（${yuan}，按俄罗斯央行 ${y}-${m}-${d} 汇率估算，以卢布计价）`;
 }
 
 /**
@@ -127,13 +138,14 @@ export function zhFactDescription(t: {
   price_unit: string | null;
   duration_hours: string | null;
   max_participants?: number | string | null;
+  group_size_unlimited?: boolean | null;
   season_start?: string | Date | null;
   season_end?: string | Date | null;
 }): string {
   const bits = [
     priceZh(t),
     durationZh(t),
-    groupZh(t.max_participants),
+    groupZh(t.max_participants, t.group_size_unlimited),
     seasonZh(t.season_start, t.season_end),
   ].filter((x): x is string => Boolean(x));
   const facts = bits.length > 0 ? bits.join('，') : '价格、时长与季节未填写';
@@ -162,8 +174,16 @@ export function seasonZh(start: string | Date | null | undefined, end: string | 
   return a && b ? `${a}月 – ${b}月` : null;
 }
 
-/** Предел группы из базы: «最多 12 人»; не записан или ноль — null. */
-export function groupZh(max: number | string | null | undefined): string | null {
+/**
+ * Предел группы из базы: «最多 12 人»; не записан или ноль — null. Группа не
+ * ограничена (1342) — «人数不限» и потолок одной заявки на сайте, тем же
+ * правилом, что русская карточка (lib/tours/group-size).
+ */
+export function groupZh(max: number | string | null | undefined, unlimited?: boolean | null): string | null {
+  if (unlimited === true) {
+    const ceiling = bookingRequestCeiling(max);
+    return ceiling === null ? '人数不限' : `人数不限（网站单次申请最多 ${ceiling} 人）`;
+  }
   const n = Number(max);
   return Number.isFinite(n) && n > 0 ? `最多 ${Math.round(n)} 人` : null;
 }

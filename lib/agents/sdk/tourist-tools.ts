@@ -18,9 +18,22 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
 import { priceFromUnit } from '@/lib/tours/price-label';
+import { unlimitedGroupSentence } from '@/lib/tours/group-size';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { OFFER_ORDER_NOTE_AGENT, orderOffersBy } from '@/lib/tours/offer-order';
+
+/**
+ * Группа тура для агента (1342): у тура без предела — «не ограничена» и
+ * потолок одной заявки, иначе — прежний диапазон «мин-макс».
+ */
+function groupField(r: Record<string, unknown>): string {
+  if (r.group_size_unlimited === true) {
+    const max = typeof r.max_participants === 'number' || typeof r.max_participants === 'string' ? r.max_participants : null;
+    return unlimitedGroupSentence(max).replace(/\.$/, '');
+  }
+  return `${r.min_participants}-${r.max_participants} чел.`;
+}
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -119,7 +132,7 @@ const searchTours: SDKTool = {
       SELECT t.id, t.title, t.base_price, t.activity_type,
              ${DURATION_EXPR} AS duration_days,
              t.difficulty, t.location_name,
-             t.min_participants, t.max_participants,
+             t.min_participants, t.max_participants, t.group_size_unlimited,
              t.available_slots, t.next_available_date,
              COALESCE(p.company_name, p.name) AS operator_name,
              -- Рейтинг — денормализованные колонки тура: их пересчитывает
@@ -158,7 +171,7 @@ const searchTours: SDKTool = {
           duration: `${r.duration_days} дн.`,
           difficulty: r.difficulty,
           location: r.location_name,
-          group: `${r.min_participants}-${r.max_participants} чел.`,
+          group: groupField(r),
           // НЕ «свободно»: available_slots — денормализованная вместимость
           // тура, с бронями её никто не сверяет. Занятость даёт только
           // check_availability (расчёт планера). Обещать места отсюда —
@@ -198,7 +211,7 @@ const getTourDetails: SDKTool = {
                ${DURATION_EXPR} AS duration_days,
                t.difficulty, t.location_name,
                t.included, t.not_included, t.what_to_bring,
-               t.min_participants, t.max_participants,
+               t.min_participants, t.max_participants, t.group_size_unlimited,
                t.available_slots, t.next_available_date,
                t.season_start, t.season_end,
                t.tour_image,
@@ -224,7 +237,7 @@ const getTourDetails: SDKTool = {
         included: t.included,
         not_included: t.not_included,
         what_to_bring: t.what_to_bring,
-        group: `${t.min_participants}-${t.max_participants} чел.`,
+        group: groupField(t),
         capacity_hint: t.available_slots ? `вместимость ${t.available_slots}` : 'уточните у оператора',
         free_places: 'не проверено — спроси check_availability',
         next_date: t.next_available_date ?? 'уточните у оператора',

@@ -197,11 +197,14 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.operator_verified,
          v.tour_image,
          v.operator_hero_image,
-         p.is_public AS operator_public
+         p.is_public AS operator_public,
+         -- Признака группы во вьюхе нет (1342): читается из самого тура.
+         ot.group_size_unlimited
        FROM v_route_marketplace v
        -- Открыта ли карточка оператора — из partners, а не «по построению»
        -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
        JOIN partners p ON p.id = v.operator_id
+       JOIN operator_tours ot ON ot.id = v.tour_id
        WHERE v.route_id = $1`,
       [routeDbId]
     );
@@ -231,6 +234,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       difficulty:       (o.tour_difficulty as string | null) ?? null,
       maxGroupSize:     o.max_group_size != null ? Number(o.max_group_size) : null,
       minGroupSize:     o.min_group_size != null ? Number(o.min_group_size) : null,
+      groupSizeUnlimited: o.group_size_unlimited === true,
       rating:           o.tour_rating != null ? Number(o.tour_rating) : null,
       reviewCount:      o.tour_review_count != null ? Number(o.tour_review_count) : null,
       included:         (o.included as unknown[]) ?? [],

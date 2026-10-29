@@ -49,7 +49,7 @@ export const loadPartnerSite = cache(async (partnerId: string): Promise<PartnerS
             to_char(ot.season_start, 'DD.MM.YYYY') AS season_start,
             to_char(ot.season_end, 'DD.MM.YYYY') AS season_end,
             ot.photos, ot.tour_image,
-            ot.included, ot.not_included, ot.min_participants, ot.max_participants
+            ot.included, ot.not_included, ot.min_participants, ot.max_participants, ot.group_size_unlimited
        FROM operator_tours ot
       WHERE ot.operator_id::text = $1::text AND ${publicTourSql('ot')}
       ORDER BY (ot.pinned_at IS NULL), ot.pinned_at, ot.season_start NULLS LAST, ot.id`,

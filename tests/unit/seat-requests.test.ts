@@ -39,7 +39,7 @@ vi.mock('@/lib/bookings/reserve', async () => {
 import {
   SEAT_REQUEST_DEADLINE_MS, SEAT_REQUEST_STATUSES, FAILURE_KINDS, effectiveStatus, answerPayload, parseAnswerPayload,
   statusTokenFromStart, newStatusToken, hashStatusToken, operatorAnswerKey, verifyOperatorAnswerKey,
-  isFutureOrToday, isRealDate, kamchatkaToday, touristOutcomeText, operatorReplyText,
+  isFutureOrToday, isRealDate, kamchatkaToday, touristOutcomeText, operatorReplyText, SEAT_REQUEST_FAILURE,
 } from '@/lib/seat-requests/core';
 import {
   createSeatRequest, answerSeatRequest, recoverUnfinished, expireOverdue, notifyTourist, statusUrl, bindTouristChat, tourKeepsSchedule,
@@ -273,6 +273,23 @@ describe('создание запроса', () => {
     reachMock.mockResolvedValue({ reachable: false, maxChatId: null, telegramChatId: null });
     expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'operator_unreachable' });
     expect(sqlCalls().some(s => /INSERT INTO tour_seat_requests/.test(s))).toBe(false);
+  });
+
+  it('группа больше потолка тура — отказ до оператора (иначе его «Есть места» кончилось бы MAX_EXCEEDED, ревью 1342)', async () => {
+    const TOUR10 = { match: /FROM operator_tours\s+WHERE id/, rows: [{ operator_id: 'op', title: 'Бухта Русская', max_participants: 10 }] };
+    setDb([TOUR10]);
+    reachMock.mockResolvedValue(reachOk);
+    expect(await createSeatRequest({ ...input, participants: 15 })).toEqual({ ok: false, reason: 'group_too_large' });
+    expect(findCall(/FROM operator_tours\s+WHERE id/)![0]).toMatch(/max_participants/);
+    expect(reachMock).not.toHaveBeenCalled();
+    expect(sqlCalls().some(s => /INSERT INTO tour_seat_requests/.test(s))).toBe(false);
+    expect(pdAlertMock).not.toHaveBeenCalled();
+    // Ровно потолок — проходит дальше (здесь упирается в недоступного оператора).
+    reachMock.mockResolvedValue({ reachable: false, maxChatId: null, telegramChatId: null });
+    expect(await createSeatRequest({ ...input, participants: 10 })).toEqual({ ok: false, reason: 'operator_unreachable' });
+    // Отказ назван человеку словами — и в веб-форме, и в MCP.
+    expect(SEAT_REQUEST_FAILURE.group_too_large).toMatchObject({ status: 422 });
+    expect(SEAT_REQUEST_FAILURE.group_too_large!.error).toMatch(/обычной заявке/);
   });
 
   it('не смогли проверить канал — «не смог», а не «недоступен»', async () => {
