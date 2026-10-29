@@ -1,14 +1,25 @@
 {
-  "timeout": 30,
-  "run": 1010,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образец угрозы PTWC с таблицей прихода волны по пунктам края: сообщения о землетрясении M8.8 у Камчатки 29.07.2025 (номер события по образцу 26297000 — ГГ+день года+000).",
+  "timeout": 60,
+  "run": 1011,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образец настоящей угрозы PTWC: архив международных сообщений о землетрясении M8.8 у Камчатки 29.07.2025 (weather.gov, .docx — проба читает его текстом с #2830). Нужны заголовок сообщения, EVALUATION, TSUNAMI THREAT FORECAST и строки таблицы прихода волны по пунктам края.",
   "urls": [
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/1/WEPA40/WEPA40.txt",
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/3/WEPA40/WEPA40.txt",
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/1/WEPA40/PHEB.json"
+    "https://www.weather.gov/media/itic-car/tsunami_events/2025/29jul2025_Kamchatka/messages/PTWC_International_messages_Kamchatka_20250729.docx"
   ],
   "allowStale": true,
   "retries": 0,
   "text": true,
-  "bytes": 12000
+  "bytes": 14000,
+  "grep": [
+    "TSUNAMI THREAT MESSAGE",
+    "PETROPAVLOVSK",
+    "RUSSIA",
+    "ESTIMATED TIMES OF ARRIVAL"
+  ],
+  "around": [
+    "ESTIMATED TIMES OF ARRIVAL",
+    "TSUNAMI THREAT FORECAST"
+  ],
+  "aroundBefore": 2,
+  "aroundLines": 40,
+  "aroundHits": 2
 }
