@@ -18,6 +18,8 @@ import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { OFFER_ORDER_NOTE_AGENT, offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { reachForTour } from '@/lib/partners/reach';
@@ -242,6 +244,8 @@ interface TourContextRow {
 // выбирать между свежестью занятости и лишними SQL на каждый холодный чат.
 let _tourCatalogCache = '';
 let _tourCatalogAt = 0;
+/** День правила 1в, по которому собран кэш каталога (жребий меняется раз в сутки). */
+let _tourCatalogDay = '';
 const CATALOG_TTL_MS = 3 * 60 * 1000;      // туры: слоты/цены — 3 мин
 let _enrichmentCache = '';
 let _enrichmentAt = 0;
@@ -474,7 +478,9 @@ export async function buildTourCatalog(): Promise<string> {
  * «Туры не найдены.» — ложный факт о каталоге (проверка MCP).
  */
 export async function loadTourCatalog(): Promise<string | null> {
-  if (_tourCatalogCache && Date.now() - _tourCatalogAt < CATALOG_TTL_MS) {
+  // Жребий дня меняется в полночь по Камчатке: кэш вчерашнего дня не отдаётся.
+  const day = offerOrderDay();
+  if (_tourCatalogCache && _tourCatalogDay === day && Date.now() - _tourCatalogAt < CATALOG_TTL_MS) {
     return _tourCatalogCache;
   }
   try {
@@ -487,7 +493,7 @@ export async function loadTourCatalog(): Promise<string | null> {
                -- августа. Агент, процитировавший прошедшую дату, хуже агента
                -- без даты (свежесть — требование MCP-оценки 15.08).
                COALESCE(live.free_slots, 0) AS available_slots,
-               live.next_date::text AS next_available_date,
+               nf.next_date AS next_available_date,
                ot.short_description,
                -- «Расписания нет» ≠ «мест нет»: оператор берёт туристов без
                -- календаря, и честный ответ — спросить его (tourKeepsSchedule,
@@ -499,40 +505,39 @@ export async function loadTourCatalog(): Promise<string | null> {
                p.name AS operator_name
         FROM operator_tours ot
         LEFT JOIN partners p ON p.id = ot.operator_id
+        -- Ближайшая свободная дата — ОДНО условие на все витрины (правило 1в,
+        -- lib/tours/nearest-free-date): «сегодня» по Камчатке, горизонт год,
+        -- места по общей занятости (lib/bookings/occupancy), а не по счётчику
+        -- booked_slots — тот растёт только при оплате (снимок «MCP против
+        -- сайта» 29.09). Агент, процитировавший прошедшую дату, хуже агента
+        -- без даты (аудит пилота 15.08).
+        LEFT JOIN LATERAL (SELECT ${nearestFreeDateSql('ot')} AS next_date) nf ON true
+        -- Сколько мест на эту дату — для строки «Мест: N».
         LEFT JOIN LATERAL (
-          SELECT ta.date AS next_date,
-                 ${freeSlotsSql('ta', 'ot', 'occ.taken')} AS free_slots
+          SELECT ${freeSlotsSql('ta', 'ot', 'occ.taken')} AS free_slots
             FROM tour_availability ta
-           -- Занятость — общее правило платформы (lib/bookings/occupancy), а не
-           -- счётчик booked_slots: тот растёт только при оплате и не видит
-           -- созданные-но-неоплаченные брони, тогда как календарь тура на сайте
-           -- их считает (снимок «MCP против сайта» 29.09). Расхождение было
-           -- скрыто тем, что оплаченных броней на проде ещё не было.
            CROSS JOIN LATERAL (
              ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
            ) occ
-           -- «Сегодня» — по Камчатке: пояс сессии БД не задан, и по UTC
-           -- полсуток каталог называл ближайшей датой уже прошедший там день.
            WHERE ta.operator_tour_id = ot.id
-             AND ta.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+             AND ta.date = nf.next_date::date
              AND COALESCE(ta.is_cancelled, false) = false
              AND ta.deleted_at IS NULL
-             AND ta.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
              AND ${freeSlotsSql('ta', 'ot', 'occ.taken')} > 0
-           ORDER BY ta.date
            LIMIT 1
         ) live ON true
         WHERE ${publicTourSql('ot')}
         -- Весь каталог витрины, без LIMIT (29.10): «LIMIT 40» молча отрезал
-        -- самые дорогие туры — MCP get_tours говорил «туров всего 40» при 42
-        -- на витрине. Страницы делает get_tours, подсказку Кузьмича —
-        -- capTourCatalog с названной обрезкой. id — чтобы страницы не
-        -- перемешивались между вызовами при равной цене.
-        ORDER BY ot.base_price ASC, ot.id ASC
+        -- самые дорогие туры. Страницы делает get_tours, подсказку Кузьмича —
+        -- capTourCatalog с названной обрезкой. Порядка в SQL нет: его задаёт
+        -- правило 1в (lib/tours/offer-order) ниже, одно на все витрины.
       `);
 
-    const { rows } = toursResult;
-    if (!rows.length) return '';
+    if (!toursResult.rows.length) return '';
+    // Правило 1в (слово владельца 29.10): со свободной датой — по ближайшему
+    // выезду, остальные — жребий дня. Не цена: «первые по цене» поднимали
+    // дешёвое и прятали остальное за 40-й строкой подсказки.
+    const rows = orderOffersBy(toursResult.rows, (r) => ({ id: r.id, nearestFreeDate: r.next_available_date ?? null }), { day });
 
     const today = kamchatkaToday();
     const lines = rows.map(r => {
@@ -570,11 +575,13 @@ export async function loadTourCatalog(): Promise<string | null> {
 
     _tourCatalogCache = [
       'РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ (актуальные цены, называй по имени):',
+      OFFER_ORDER_NOTE_AGENT,
       ...lines,
       '',
       'Когда турист спрашивает о конкретном туре — дай факты. Не предлагай оставить заявку первым.',
     ].join('\n');
     _tourCatalogAt = Date.now();
+    _tourCatalogDay = day;
     return _tourCatalogCache;
   } catch (e) {
     // Молчаливый catch прятал сломанный SQL месяцами — «Туры не найдены» при

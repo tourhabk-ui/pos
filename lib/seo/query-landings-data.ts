@@ -2,17 +2,20 @@
  * Туры для посадочных страниц (lib/seo/query-landings) — из базы на запросе.
  *
  * Витрина — тот же предикат, что каталог, /zh и sitemap (publicTourSql).
- * Порядок — то же единственное правило, что у /zh: компания, затем тур
- * (orderZhTours), без поднятий (CLAUDE.md §0). Ближайшая открытая дата —
- * то же условие, что has_availability каталога (hasAvailabilitySql), только
- * MIN(date). Отказ базы — null и SQLSTATE в лог: страница говорит
- * «не загрузилось», а не показывает пустой список (§4.0).
+ * Порядок — правило 1в (слово владельца 29.10, lib/tours/offer-order), то же,
+ * что у /zh и всех общих витрин: со свободной датой — по ближайшему выезду,
+ * остальные — жребий дня; без поднятий (CLAUDE.md §0). Ближайшая открытая
+ * дата — то самое одно условие (lib/tours/nearest-free-date), по которому
+ * строится порядок; своей копии по CURRENT_DATE здесь больше нет. Отказ базы
+ * — null и SQLSTATE в лог: страница говорит «не загрузилось», а не
+ * показывает пустой список (§4.0).
  */
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
-import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
-import { orderZhTours, withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
+import { withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
 import type { LandingTopic } from '@/lib/seo/query-landings';
 
 export interface LandingTourRow extends ZhTourRow {
@@ -61,13 +64,7 @@ export function landingToursSql(): string {
               ot.duration_hours::text AS duration_hours,
               ot.season_start::text AS season_start, ot.activity_type, ot.location_name, ot.season_end::text AS season_end,
               p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-              (SELECT MIN(ta.date)::text FROM tour_availability ta
-                WHERE ta.operator_tour_id = ot.id
-                  AND ta.date >= CURRENT_DATE
-                  AND ta.deleted_at IS NULL
-                  AND ta.is_cancelled = false
-                  AND ta.available_slots > (${occupiedOnDaySql({ booking: 'ob2', day: 'ta.date', tourId: 'ot.id' })})
-              ) AS next_open_date
+              ${nearestFreeDateSql('ot')} AS next_open_date
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
         WHERE ${publicTourSql('ot')}`;
@@ -77,7 +74,8 @@ export async function loadLandingTours(topic: LandingTopic, withZh: boolean): Pr
   try {
     const { rows } = await pool.query<LandingTourRow>(landingToursSql());
     const picked = rows.filter((r) => matchesTopic({ activity_type: r.activity_type ?? null, title: r.title, location_name: r.location_name ?? null }, topic));
-    return orderZhTours(withZh ? await withZhTitles(picked) : picked);
+    const ordered = orderOffersBy(picked, (r) => ({ id: r.id, nearestFreeDate: r.next_open_date ?? null }));
+    return withZh ? await withZhTitles(ordered) : ordered;
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[query-landing] туры не прочитаны:', topic, typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));

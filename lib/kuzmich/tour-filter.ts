@@ -188,7 +188,9 @@ export const PROMPT_CATALOG_TOURS = 40;
  * где остальные. До 29.10 каталог резался в самом запросе (`LIMIT 40`), молча:
  * MCP get_tours отвечал «туров всего 40» при 42 на витрине, и два самых
  * дорогих тура не видел ни внешний агент, ни Кузьмич. Обрезка допустима
- * только здесь и только названной словами.
+ * только здесь и только названной словами. Первые — по порядку витрины
+ * (правило 1в, lib/tours/offer-order; оно названо в шапке каталога), а не по
+ * цене: с 29.10 «первые по цене» больше не порядок каталога.
  */
 export function capTourCatalog(text: string, max: number = PROMPT_CATALOG_TOURS): string {
   const lines = text.split('\n');
@@ -199,7 +201,7 @@ export function capTourCatalog(text: string, max: number = PROMPT_CATALOG_TOURS)
   const lastTour = tourIdx[tourIdx.length - 1];
   return [
     ...lines.slice(0, lastKept + 1),
-    `(Здесь ${max} туров из ${tourIdx.length} — первые по цене. Остальные ${tourIdx.length - max} — инструментом get_tours: страницы и фильтр по виду.)`,
+    `(Здесь ${max} туров из ${tourIdx.length} — первые по порядку витрины (правило в шапке). Остальные ${tourIdx.length - max} — инструментом get_tours: страницы и фильтр по виду.)`,
     ...lines.slice(lastTour + 1),
   ].join('\n');
 }

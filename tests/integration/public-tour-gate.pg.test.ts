@@ -195,7 +195,7 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(ours).toEqual([activity('live'), activity('live2')]);
   });
 
-  it('каталог Кузьмича и MCP (loadTourCatalog): все туры витрины, а не первые 40 по цене (29.10)', async () => {
+  it('каталог Кузьмича и MCP (loadTourCatalog): все туры витрины по правилу 1в, а не первые 40 по цене (29.10)', async () => {
     // До 29.10 запрос резал каталог «LIMIT 40» по цене: MCP get_tours
     // называл «туров всего 40» при 42 на витрине, самых дорогих не было.
     // Чтобы предел точно был превышен, доливаются 41 дорогой тур другого
@@ -214,9 +214,21 @@ withPg('витрина туров: снятый тур не в плане и н�
       );
     }
     const { publicTourSql } = await import('@/lib/tours/public-visibility');
-    const expected = (await pool.query<{ id: string }>(
-      `SELECT ot.id::text AS id FROM operator_tours ot WHERE ${publicTourSql('ot')}`,
-    )).rows.map((r) => r.id).sort();
+    const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    // Один дорогой тур ведёт календарь со свободной датой: по цене он был бы
+    // последним, по правилу 1в (29.10) — первым.
+    const pricey = (await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM operator_tours WHERE slug = 'w2pt-expensive-40'`,
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 3, 6, FALSE)`,
+      [pricey],
+    );
+    const storefront = (await pool.query<{ id: string; d: string | null }>(
+      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d FROM operator_tours ot WHERE ${publicTourSql('ot')}`,
+    )).rows;
+    const expected = storefront.map((r) => r.id).sort();
     expect(expected.length).toBeGreaterThan(40);
 
     // Кэш каталога живёт 3 минуты — часы вперёд, чтобы прочитать базу заново.
@@ -224,10 +236,19 @@ withPg('витрина туров: снятый тур не в плане и н�
     vi.setSystemTime(Date.now() + 10 * 60 * 1000);
     try {
       const { loadTourCatalog, buildTourContext } = await import('@/lib/kuzmich/core');
+      const { orderOffersBy, offerOrderDay, OFFER_ORDER_NOTE_AGENT } = await import('@/lib/tours/offer-order');
       const catalog = await loadTourCatalog();
-      const ids = [...(catalog ?? '').matchAll(/^ID(\d+):/gm)].map((m) => m[1]).sort();
+      const inOrder = [...(catalog ?? '').matchAll(/^ID(\d+):/gm)].map((m) => m[1]);
+      const ids = [...inOrder].sort();
       expect(ids).toEqual(expected);
-      // Самый дорогой — последним, и черновик/удалённый/выключенный не попали.
+      // Порядок — правило 1в: тур с датой первым, остальные — жребий дня; не цена.
+      // (Туры миграций со своими календарями тоже стоят впереди — по своим датам.)
+      const undated = new Set(storefront.filter((r) => r.d == null).map((r) => r.id));
+      expect(undated.has(pricey)).toBe(false);
+      expect(inOrder.indexOf(pricey)).toBeLessThan(Math.min(...inOrder.filter((x) => undated.has(x)).map((x) => inOrder.indexOf(x))));
+      expect(inOrder).toEqual(orderOffersBy(storefront, (r) => ({ id: r.id, nearestFreeDate: r.d }), { day: offerOrderDay() }).map((r) => r.id));
+      expect(catalog).toContain(OFFER_ORDER_NOTE_AGENT);
+      // Черновик/удалённый/выключенный не попали.
       expect(catalog).toContain('"W2PT дорогой 40"');
       for (const h of hidden()) expect(ids).not.toContain(h);
 
@@ -238,9 +259,112 @@ withPg('витрина туров: снятый тур не в плане и н�
       // Подсказка Кузьмича: 40 туров и названо, сколько всего.
       const ctx = await buildTourContext();
       expect(ctx.match(/^ID\d+:/gm)).toHaveLength(40);
-      expect(ctx).toContain(`(Здесь 40 туров из ${expected.length} — первые по цене.`);
+      expect(ctx).toContain(`(Здесь 40 туров из ${expected.length} — первые по порядку витрины (правило в шапке).`);
+      expect(ctx).not.toContain('первые по цене');
     } finally {
       vi.useRealTimers();
+      // Дата — только для этого сценария: дальше файл судит «ближайший выезд» витрины.
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [pricey]);
+    }
+  });
+
+  // ── Правило 1в (слово владельца 29.10): ближайшая свободная дата ─────────
+  // Одно условие на все витрины (lib/tours/nearest-free-date). По нему строится
+  // порядок, поэтому каждая граница судится здесь, на схеме прода.
+
+  it('ближайшая свободная дата: вчера по Камчатке, отменённая, удалённая, занятая и за год — не даты', async () => {
+    const other = '00000000-0000-4000-8000-0000000c4741';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Ближайшая дата', 'operator', '{}'::jsonb, 'w2pt-nearest', TRUE, TRUE, 'active')`, [other],
+    );
+    const mk = async (slug: string): Promise<string> => (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, is_active, is_published)
+       VALUES ($1, $2, $3, 'nfd_probe', 1000, 'per_person', 1, 4, 8, TRUE, TRUE) RETURNING id::text`,
+      [other, `W2PT ближайшая ${slug}`, `w2pt-nearest-${slug}`],
+    )).rows[0].id;
+    const slot = (tour: string, offset: number, extra: { cancelled?: boolean; deleted?: boolean; slots?: number } = {}) => pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, deleted_at)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + $2::int, $3, $4, CASE WHEN $5 THEN NOW() ELSE NULL END)`,
+      [tour, offset, extra.slots ?? 10, extra.cancelled ?? false, extra.deleted ?? false],
+    );
+    const day = async (offset: number) => (await pool.query<{ d: string }>(
+      `SELECT ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date + $1::int)::text AS d`, [offset],
+    )).rows[0].d;
+
+    // A: всё мимо, кроме +5. Вместимость — меньшее из слотов (10) и max_participants (4):
+    // бронь на 4 человека занимает +3 целиком, хотя слотов там 10.
+    const a = await mk('a');
+    await slot(a, -1);
+    await slot(a, 1, { cancelled: true });
+    await slot(a, 2, { deleted: true });
+    await slot(a, 3);
+    await pool.query(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, participants, booking_status)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 3, NULL, 4, 'new')`, [a],
+    );
+    await slot(a, 5);
+    // B: единственная дата — через 13 месяцев, за горизонтом года.
+    const b = await mk('b');
+    await slot(b, 400);
+    // C: календаря нет вовсе — «даты по заявке», свободной даты нет.
+    const c = await mk('c');
+    // D: сегодня по Камчатке — уже дата.
+    const d = await mk('d');
+    await slot(d, 0);
+
+    const { nearestFreeDateSql, loadNearestFreeDates } = await import('@/lib/tours/nearest-free-date');
+    const rows = (await pool.query<{ id: string; d: string | null }>(
+      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d FROM operator_tours ot WHERE ot.id = ANY($1::bigint[])`,
+      [[a, b, c, d]],
+    )).rows;
+    const got = Object.fromEntries(rows.map((r) => [r.id, r.d]));
+    expect(got[a]).toBe(await day(5));
+    expect(got[b]).toBeNull();
+    expect(got[c]).toBeNull();
+    expect(got[d]).toBe(await day(0));
+
+    // Каталог сайта судит «даты есть» тем же условием.
+    const { hasAvailabilitySql } = await import('@/lib/search/tour-search');
+    const has = (await pool.query<{ id: string; h: boolean }>(
+      `SELECT ot.id::text AS id, ${hasAvailabilitySql()} AS h FROM operator_tours ot WHERE ot.id = ANY($1::bigint[])`,
+      [[a, b, c, d]],
+    )).rows;
+    expect(Object.fromEntries(has.map((r) => [r.id, r.h]))).toEqual({ [a]: true, [b]: false, [c]: false, [d]: true });
+
+    // Батч — одним запросом; каждому id ответ, неизвестному — null.
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const spy = vi.spyOn(appPool, 'query');
+    try {
+      const r = await loadNearestFreeDates([a, b, c, '999999999']);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(r.state).toBe('ok');
+      if (r.state === 'ok') {
+        expect(r.byId.get(a)).toBe(await day(5));
+        expect(r.byId.get(b)).toBeNull();
+        expect(r.byId.get(c)).toBeNull();
+        expect(r.byId.get('999999999')).toBeNull();
+      }
+    } finally {
+      spy.mockRestore();
+      // Сцена своя и уходит с витрины: следующие сценарии файла считают
+      // ближайший выезд и подборки по всей витрине.
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE operator_id = $1`, [other]);
+    }
+  });
+
+  it('ближайшие даты не прочитались — «не смог», а не «дат нет»; SQLSTATE в логе', async () => {
+    const { loadNearestFreeDates } = await import('@/lib/tours/nearest-free-date');
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const spy = vi.spyOn(appPool, 'query').mockRejectedValueOnce(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }) as never);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await loadNearestFreeDates(['1', '2'])).toEqual({ state: 'failed' });
+      expect(err.mock.calls.flat().join(' ')).toContain('SQLSTATE=57014');
+    } finally {
+      spy.mockRestore();
+      err.mockRestore();
     }
   });
 

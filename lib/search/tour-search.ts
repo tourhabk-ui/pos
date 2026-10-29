@@ -9,7 +9,7 @@
  *   - app/catalog/page.tsx и app/marketplace/page.tsx (серверный первый рендер).
  */
 
-import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { pool } from '@/lib/db-pool';
@@ -83,19 +83,16 @@ export interface MarketplaceToursResult {
  * здесь развела бы витрины для одного и того же тура, как с «13 турами»
  * (#1780). Сторож: tests/unit/home-plates-tours.test.ts.
  *
- * Алиас тура — `ot` (как у листинга каталога); брони внутри — `ob2`,
- * чтобы не спорить с внешним `ob` листинга.
+ * Алиас тура — `ot` (как у листинга каталога).
+ *
+ * С 29.10 (правило 1в) условие — та же «ближайшая свободная дата», по которой
+ * строится порядок витрин (lib/tours/nearest-free-date): «сегодня» по Камчатке,
+ * горизонт в год, вместимость не больше `max_participants`. До этого здесь
+ * была своя копия по `CURRENT_DATE` без потолка мест, и тур мог быть «с
+ * датами» в каталоге и «без дат» в каталоге Кузьмича.
  */
 export function hasAvailabilitySql(): string {
-  return `EXISTS (
-        SELECT 1 FROM tour_availability ta
-        WHERE ta.operator_tour_id = ot.id
-          AND ta.date >= CURRENT_DATE
-          AND ta.deleted_at IS NULL
-          AND ta.is_cancelled = false
-          AND ta.available_slots > (${occupiedOnDaySql({ booking: 'ob2', day: 'ta.date', tourId: 'ot.id' })}
-          )
-      )`;
+  return `(${nearestFreeDateSql('ot')} IS NOT NULL)`;
 }
 
 export async function queryMarketplaceTours(filters: MarketplaceToursFilters): Promise<MarketplaceToursResult> {

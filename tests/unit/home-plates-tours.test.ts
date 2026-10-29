@@ -36,12 +36,19 @@ describe('главная: платы = туры операторов', () => {
     expect(data).toMatch(/import \{[^}]*hasAvailabilitySql[^}]*\} from '@\/lib\/search\/tour-search'/);
   });
 
-  it('каталог сам зовёт тот же фрагмент — условие одно на обе витрины', () => {
+  it('каталог сам зовёт тот же фрагмент — условие одно на обе витрины', async () => {
     // Иначе экспорт мог бы жить рядом со своей копией в листинге каталога, и
     // «одно условие» снова стало бы двумя.
     const search = readFileSync(join(process.cwd(), 'lib/search/tour-search.ts'), 'utf-8');
     expect(search).toMatch(/\$\{hasAvailabilitySql\(\)\} as has_availability/);
-    expect(search.match(/FROM tour_availability/g) ?? []).toHaveLength(1);
+    // С 29.10 (правило 1в) и сам фрагмент — не своя копия: «даты есть» значит
+    // «есть ближайшая свободная дата» (lib/tours/nearest-free-date), та же,
+    // по которой строится порядок витрин. Своего FROM tour_availability в
+    // каталоге нет вовсе.
+    expect(search, 'каталог считает свободные даты сам').not.toContain('FROM tour_availability');
+    const { hasAvailabilitySql } = await import('@/lib/search/tour-search');
+    const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    expect(hasAvailabilitySql()).toBe(`(${nearestFreeDateSql('ot')} IS NOT NULL)`);
   });
   it('не добивает витрину маршрутами (queryCatalog в турах убран)', () => {
     // С 25.09 queryCatalog в data.ts есть — им «Исследовать» берёт МЕСТА
