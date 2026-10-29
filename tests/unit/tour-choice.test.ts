@@ -700,3 +700,30 @@ describe('ревью 29.10: остаток внутри продавца и сл
     expect(pending.get(4249)?.tour).toBeUndefined();
   });
 });
+
+// Ревью 29.10 (filter-coverage): get_tours имён продавцов не ищет и сам
+// отсылает к get_tour_details — подсказка «и ещё N — get_tours» в ответе о
+// продавце вела по кругу.
+describe('ответ о продавце: остальные туры — не по кругу через get_tours', () => {
+  const BIG_PAGE: FakeSeller = { id: 'c-8', name: 'Бурундучья Сопка', category: 'operator', slug: 'burunduchya-sopka', is_public: true };
+  const BIG_NO_PAGE: FakeSeller = { id: 'c-9', name: 'Медвежий Угол', category: 'operator', slug: null, is_public: false };
+  const many = (seller: FakeSeller, from: number): FakeTour[] => Array.from({ length: 12 }, (_, i) => (
+    { id: from + i, title: `Маршрут номер ${from + i}`, operator_id: seller.id }
+  ));
+
+  it('страница есть — первые десять и «остальные на странице продавца»', async () => {
+    query.mockImplementation(fakeDb(many(BIG_PAGE, 800), [BIG_PAGE]));
+    const text = await getTourDetails('Бурундучья Сопка');
+    expect(text).toContain('https://vedarai.ru/operators/burunduchya-sopka');
+    expect(text).toContain('- и ещё 2 — все на странице продавца');
+    expect(text).not.toMatch(/— get_tours/);
+  });
+
+  it('страницы нет — список целиком, без отсылки к get_tours', async () => {
+    query.mockImplementation(fakeDb(many(BIG_NO_PAGE, 900), [BIG_NO_PAGE]));
+    const text = await getTourDetails('Медвежий Угол');
+    expect(text).toContain('Своей страницы на Ведаре у продавца нет.');
+    for (let id = 900; id < 912; id++) expect(text).toContain(`ID${id} `);
+    expect(text).not.toMatch(/и ещё \d+|— get_tours/);
+  });
+});

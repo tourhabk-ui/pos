@@ -28,7 +28,7 @@
  * нажатием «Есть места» в мессенджере.
  */
 
-import { localizeToolArgs, langNote } from '@/lib/mcp/query-lang';
+import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
@@ -923,7 +923,7 @@ async function executeTool(
   const text = await executeKuzmichTool(name, validation.args, { surface: 'mcp' });
   // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
   if (text === TOOL_EXECUTION_FAILED) return text;
-  return text + langNote(localized.lang, localized.mapped);
+  return text + toolLangNote(name, localized);
 }
 
 /**

@@ -5,7 +5,7 @@
  * пустой список (прогон 50 вопросов: zh 0/10, en 10/15).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { detectQueryLang, localizeQuery, localizeToolArgs, langNote } from '@/lib/mcp/query-lang';
+import { detectQueryLang, localizeQuery, localizeToolArgs, langNote, toolLangNote } from '@/lib/mcp/query-lang';
 import { searchTerms } from '@/lib/mcp/search-terms';
 
 describe('detectQueryLang', () => {
@@ -79,6 +79,20 @@ describe('localizeToolArgs', () => {
     expect(note).toContain('克柳切夫 → Ключевская');
     expect(note).toContain('do not add facts');
     expect(langNote('ru', [])).toBe('');
+  });
+
+  // Ревью 29.10: get_tours переводит слова своим словарём основ, и пометка
+  // «No dictionary match: searched as written» спорила с телом ответа.
+  it('get_tours: пометка называет то, чем фильтр искал, и то, чего не искал', () => {
+    const river = toolLangNote('get_tours', localizeToolArgs('get_tours', { activity_type: 'river' }));
+    expect(river).toContain('river → рек + окончание');
+    expect(river).not.toContain('searched as written');
+    const kayak = toolLangNote('get_tours', localizeToolArgs('get_tours', { activity_type: 'kayaking' }));
+    expect(kayak).toContain('Not searched — no Russian stem for it in the platform dictionary: kayaking.');
+    expect(kayak).not.toContain('searched as written');
+    // Фраза словаря имён — как раньше; у других инструментов — как раньше.
+    expect(toolLangNote('get_tours', localizeToolArgs('get_tours', { activity_type: 'whales' }))).toContain('whales → киты');
+    expect(toolLangNote('get_weather', localizeToolArgs('get_weather', { place: 'Zzyzx' }))).toContain('searched as written');
   });
 });
 

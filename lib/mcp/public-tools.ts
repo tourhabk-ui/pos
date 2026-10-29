@@ -311,7 +311,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     key: { lead: 'Status key from the reply of the writing tool, as is.' },
   },
   get_tours: {
-    activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking.', example: 'вулканы' },
+    activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Matches the activity type and the word in the tour title, place, short description or main place; tours that have the word only in the full description or programme come in a separate unverified block (check them with get_tour_details); company and guide names are not searched.', example: 'вулканы' },
     page: { lead: 'Catalogue page, 7 tours each, starting at 1; the reply ends with the page count and the next page.', example: '2' },
   },
   get_tour_details: {
@@ -535,6 +535,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.8.0',
+  version: '2.8.1',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
 } as const;
