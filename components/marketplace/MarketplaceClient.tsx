@@ -113,6 +113,8 @@ function sortFromUrl(v: string | null): string {
 
 /** Сколько туров дозапрашивает «Показать ещё» — тот же размер, что первая страница. */
 const PAGE_SIZE = 50;
+/** Потолок `limit` роута (MarketplaceToursQuerySchema): перечитывание с начала не просит больше. */
+const MAX_PAGE = 100;
 
 const DIFFICULTY_OPTIONS = [
   { value: '',       label: 'Любая' },
@@ -537,6 +539,12 @@ interface MarketplaceClientProps {
   /** Первый рендер с сервера (SEO): данные, снятые RSC-страницей каталога. */
   initialTours?: Tour[];
   initialTotal?: number;
+  /**
+   * День жребия правила 1в, по которому выстроена первая страница. «Показать
+   * ещё» шлёт его серверу, чтобы следующая страница резалась из того же
+   * порядка (ревью 29.10: после полуночи по Камчатке туры терялись).
+   */
+  initialDay?: string | null;
   /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
   initialKey?: string | null;
   /**
@@ -552,6 +560,7 @@ type Notice = { text: string; href?: string; hrefLabel?: string } | null;
 export default function MarketplaceClient({
   initialTours,
   initialTotal = 0,
+  initialDay = null,
   initialKey = null,
   summary = null,
 }: MarketplaceClientProps) {
@@ -560,6 +569,7 @@ export default function MarketplaceClient({
 
   const [tours, setTours] = useState<Tour[]>(initialTours ?? []);
   const [total, setTotal] = useState(initialTotal);
+  const [orderDay, setOrderDay] = useState<string | null>(initialDay);
   const [loading, setLoading] = useState(initialKey === null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState('');
@@ -702,6 +712,7 @@ export default function MarketplaceClient({
       .then(data => {
         if (data?.tours) setTours(data.tours);
         if (data?.total != null) setTotal(data.total);
+        setOrderDay(typeof data?.day === 'string' ? data.day : null);
       })
       .catch(err => {
         console.error('[catalog] туры не загружены', err instanceof Error ? err.message : err);
@@ -714,32 +725,47 @@ export default function MarketplaceClient({
    * «Показать ещё»: следующая страница того же порядка, дописывается в
    * список. До 29.10 каталог показывал 50 туров и молчал об остальных.
    * Отказ не глушится: сообщение у кнопки, уже показанное остаётся.
+   *
+   * Страница режется из порядка ПЕРВОЙ страницы: с запросом уходит её день
+   * жребия. Если ответ всё же не добавил ни одного нового тура, хотя показано
+   * меньше, чем всего (у тура за это время открылась или занялась дата, и он
+   * переехал между страницами), — список перечитывается с начала на ту же
+   * длину, а не остаётся с кнопкой, которая ничего не добавляет.
    */
-  const loadMore = useCallback(() => {
-    const params = buildParams();
-    params.append('offset', String(tours.length));
-    params.append('limit', String(PAGE_SIZE));
+  const loadMore = useCallback(async () => {
+    const shown = tours;
+    const fetchPage = async (offset: number, limit: number, day: string | null) => {
+      const params = buildParams();
+      params.append('offset', String(offset));
+      params.append('limit', String(limit));
+      if (day) params.append('day', day);
+      const r = await fetch(`/api/hub/marketplace/tours?${params}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return (await r.json()) as { tours?: Tour[]; total?: number; day?: string };
+    };
     setLoadingMore(true);
     setMoreError('');
-    fetch(`/api/hub/marketplace/tours?${params}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data: { tours?: Tour[]; total?: number }) => {
-        const next = data?.tours ?? [];
-        setTours(prev => {
-          const seen = new Set(prev.map(t => t.id));
-          return [...prev, ...next.filter(t => !seen.has(t.id))];
-        });
-        if (data?.total != null) setTotal(data.total);
-      })
-      .catch(err => {
-        console.error('[catalog] следующие туры не загружены', err instanceof Error ? err.message : err);
-        setMoreError('Следующие туры не загрузились. Попробуйте ещё раз.');
-      })
-      .finally(() => setLoadingMore(false));
-  }, [buildParams, tours.length]);
+    try {
+      const data = await fetchPage(shown.length, PAGE_SIZE, orderDay);
+      const seen = new Set(shown.map(t => t.id));
+      const fresh = (data.tours ?? []).filter(t => !seen.has(t.id));
+      const nextTotal = data.total ?? total;
+      if (fresh.length === 0 && shown.length < nextTotal) {
+        const again = await fetchPage(0, Math.min(shown.length + PAGE_SIZE, MAX_PAGE), null);
+        setTours(again.tours ?? shown);
+        if (again.total != null) setTotal(again.total);
+        setOrderDay(typeof again.day === 'string' ? again.day : null);
+        return;
+      }
+      setTours([...shown, ...fresh]);
+      if (data.total != null) setTotal(data.total);
+    } catch (err) {
+      console.error('[catalog] следующие туры не загружены', err instanceof Error ? err.message : err);
+      setMoreError('Следующие туры не загрузились. Попробуйте ещё раз.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [buildParams, tours, total, orderDay]);
 
   // Sync URL — deep-link на текущие фильтры всегда актуален. Первый прогон
   // пропускается: состояние ещё умолчательное, а адрес мог нести фильтры —

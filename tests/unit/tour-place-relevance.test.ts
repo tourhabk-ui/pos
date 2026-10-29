@@ -27,7 +27,7 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
 import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
-import { findRelevantTours } from '@/lib/ai/booking-intent';
+import { findRelevantTours, suggestionOrder } from '@/lib/ai/booking-intent';
 import { orderOffers } from '@/lib/tours/offer-order';
 
 /** Порядок правила 1в (29.10) на этих id без дат — жребий дня. */
@@ -139,6 +139,36 @@ describe('findRelevantTours: кандидаты по месту, а не тол�
     const sql = sqlOf(0);
     expect(sql).not.toContain('activity_type =');
     expect(sql).toContain("ILIKE ANY($1::text[])) AS place_hit");
+  });
+
+  // Ревью 29.10: порядок переехал из SQL в suggestionOrder, и сторож держал
+  // только колонку place_hit. Снятие ключа «место первым» оставалось зелёным.
+  it('совпадение с местом — первый ключ, раньше свободной даты и жребия', () => {
+    const rows = [
+      { id: 1, place_hit: false, nearest_free_date: '2026-11-01' },
+      { id: 2, place_hit: true, nearest_free_date: null },
+      { id: 3, place_hit: null, nearest_free_date: '2026-10-30' },
+      { id: 4, place_hit: true, nearest_free_date: '2026-12-01' },
+    ];
+    const ids = suggestionOrder(rows, { day: '2026-10-29' }).map((r) => r.id);
+    expect(ids.slice(0, 2)).toEqual([4, 2]);
+    expect(ids.slice(2)).toEqual([3, 1]);
+  });
+
+  it('туров к месту больше, чем кандидатов (12): после среза остаются именно они, а не общие туры по жребию', async () => {
+    const generic = Array.from({ length: 30 }, (_, i) => ({
+      id: 500 + i, slug: null, title: `Морская прогулка ${i}`, activity_type: 'boat', location: 'Авачинская бухта рядом',
+      description: 'Прогулка на катере', base_price: 9000, operator_name: 'Морская компания', place_hit: false, nearest_free_date: null,
+    }));
+    const toPlace = Array.from({ length: 14 }, (_, i) => ({
+      id: 700 + i, slug: null, title: `Джип к Авачинскому вулкану ${i}`, activity_type: 'jeep_safari', location: 'Авачинский перевал',
+      description: 'Джип-тур к подножию', base_price: 12000, operator_name: `Компания ${i}`, place_hit: true, nearest_free_date: null,
+    }));
+    query.mockResolvedValueOnce({ rows: [...generic, ...toPlace] });
+    const out = await findRelevantTours(null, 'тур на Авачинский', 3);
+    expect(out).toHaveLength(3);
+    expect(out.every((t) => Number(t.id) >= 700)).toBe(true);
+    expect(out.map((t) => Number(t.id))).toEqual(byRule(toPlace.map((t) => t.id)).slice(0, 3));
   });
 
   it('шлюз витрины в обоих запросах: снятый с витрины тур в чат не идёт', async () => {

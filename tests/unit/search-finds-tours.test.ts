@@ -38,7 +38,7 @@ vi.mock('@/lib/search/tour-search', async () => {
   };
 });
 
-import { activityTypesForQuery, findToursForQuery, tourPriceFrom } from '@/lib/search/tour-query-match';
+import { activityTypesForQuery, findToursForQuery, findToursForQueryCounted, tourPriceFrom } from '@/lib/search/tour-query-match';
 import { GET } from '@/app/api/search/route';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -73,6 +73,16 @@ describe('findToursForQuery', () => {
     );
     const got = await findToursForQuery('рыбалка', 10);
     expect(got.map(t => t.id)).toEqual([4, 6, 5, 9, 11, 10, 7]);
+  });
+  it('сколько совпало всего — без повторов текста и вида; выдача упёрлась в потолок — «не знаем», а не меньше', async () => {
+    toursMock.mockImplementation((f: { search?: string; activity_type?: string }) =>
+      Promise.resolve({ tours: f.search ? FISHING.slice(0, 3) : FISHING, total: f.search ? 3 : FISHING.length }),
+    );
+    const got = await findToursForQueryCounted('рыбалка', 2);
+    expect(got.tours.map(t => t.id)).toEqual([4, 6]);
+    expect(got.total).toBe(7);
+    toursMock.mockImplementation(() => Promise.resolve({ tours: FISHING, total: 500 }));
+    expect((await findToursForQueryCounted('рыбалка', 2)).total).toBeNull();
   });
   it('отказ БД не глушится', async () => {
     toursMock.mockRejectedValue(new Error('db down'));
@@ -176,7 +186,7 @@ describe('GlobalSearchModal', () => {
 describe('/routes — блок «Туры по запросу»', () => {
   const PAGE = read('app/routes/(list)/page.tsx');
   it('при непустом q страница спрашивает туры через lib/search и отдаёт блок клиенту', () => {
-    expect(PAGE).toMatch(/findToursForQuery\(q, /);
+    expect(PAGE).toMatch(/findToursForQueryCounted\(q, /);
     expect(PAGE).toMatch(/<ToursForQuery q=\{q\} state=\{toursState\}/);
     expect(PAGE).toMatch(/toursSlot=\{/);
     expect(PAGE).not.toMatch(/FROM\s+operator_tours/i);

@@ -24,7 +24,8 @@ import {
   telegramOfferLinks,
   type ComposeInput,
 } from '@/lib/kuzmich/answer-quality';
-import { questionWindow } from '@/lib/telegram/tourist-tours';
+import { questionWindow, catalogFacts } from '@/lib/telegram/tourist-tours';
+import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { calendarDay, overlapsWindow, seasonAccusative, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
 
@@ -298,6 +299,27 @@ describe('прод 24.10, сборка 19:53Z: двенадцать туров �
       expect(answer!.visible).not.toContain(hidden.title);
       expect(rubleAmounts(answer!.visible)).not.toContain(Number(hidden.base_price));
     }
+  });
+
+  // Ревью 29.10: какие 8 из 12 попали в ответ, решили ближайшая дата и жребий
+  // дня — правило называется и в чате, а не только на страницах (§0).
+  it('список из нескольких туров называет правило порядка сразу после списка; один тур — без подписи', () => {
+    const dozen = Array.from({ length: 12 }, (_, i) => volcano({ id: 200 + i, slug: `r-${i}`, title: `Осенний тур ${i}`, base_price: 10000 }));
+    const many = composeCommercial({ ...input(prodPrompt, ''), tours: { ok: true, tours: dozen } })!.visible;
+    const rows = many.split('\n');
+    const note = rows.indexOf(OFFER_ORDER_NOTE_SHORT_RU);
+    expect(note).toBeGreaterThan(-1);
+    expect(note).toBeGreaterThan(rows.map((r) => r.startsWith('- ')).lastIndexOf(true));
+    expect(OFFER_ORDER_NOTE_SHORT_RU.endsWith('Место в списке не продаётся.')).toBe(true);
+
+    const one = composeCommercial({ ...input(prodPrompt, ''), tours: { ok: true, tours: [dozen[0]] } })!.visible;
+    expect(one).not.toContain('Место в списке не продаётся.');
+  });
+
+  it('кнопка «Туры» в Telegram (catalogFacts) называет правило под списком', () => {
+    const three = [1, 2, 3].map((i) => volcano({ id: 300 + i, slug: `c-${i}`, title: `Осенний тур ${i}`, base_price: 10000 }));
+    const facts = catalogFacts(prodPrompt, { ok: true, tours: three }, NOW);
+    expect(facts.html.split('\n').at(-1)).toBe(`<i>${OFFER_ORDER_NOTE_SHORT_RU}</i>`);
   });
 });
 

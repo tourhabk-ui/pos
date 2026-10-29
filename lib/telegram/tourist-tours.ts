@@ -15,7 +15,7 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
-import { orderOffersBy } from '@/lib/tours/offer-order';
+import { orderOffersBy, OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { tourPath } from '@/lib/tours/tour-url';
 
 /** Сколько туров называем вместе с карточкой. Остальные — числом, без имён и цен. */
@@ -491,7 +491,9 @@ export function catalogFacts(
     const company = tour.operator_name ? ` — ${escapeHtml(tour.operator_name)}` : '';
     return `<a href="${tourUrl(tour)}">${escapeHtml(tour.title)}</a>${company} — ${escapeHtml(daysPhrase(tour))}, ${escapeHtml(seasonPhrase(tour))}, ${escapeHtml(endSentence(touristPrice(tour)))}${aside ? ` ${escapeHtml(aside)}` : ''}`;
   });
-  const html = [`<b>Из каталога Ведара</b>`, ...htmlRows].join('\n');
+  // Правило порядка названо и в кнопке «Туры» (§0, ревью 29.10).
+  const order = show.length > 1 || picked.unnamedMore > 0 ? [`<i>${escapeHtml(OFFER_ORDER_NOTE_SHORT_RU)}</i>`] : [];
+  const html = [`<b>Из каталога Ведара</b>`, ...htmlRows, ...order].join('\n');
   const inline = {
     inline_keyboard: show.map((tour) => [{ text: buttonLabel(tour), url: tourUrl(tour) }]),
   };

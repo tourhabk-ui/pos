@@ -187,7 +187,7 @@ withPg('китайский контур на схеме прода (CN-quick)', 
     expect(mine[0].id).toBe(dated.rows[0].id);
     expect(mine[0].operator_name).toBe('Ясный Тест');
     expect(mine[0].nearest_free_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    // Остальные — жребий дня (FNV-1a от даты по Камчатке и id), не алфавит и не дата правки.
+    // Остальные — жребий дня (FNV-1a с fmix32 от даты по Камчатке и id), не алфавит и не дата правки.
     const rest = mine.slice(1);
     expect(rest.every((t) => t.nearest_free_date == null)).toBe(true);
     expect(rest.map((t) => t.id)).toEqual([...rest].sort((a, b) => tourLot(day, a.id) - tourLot(day, b.id)).map((t) => t.id));

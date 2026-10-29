@@ -118,6 +118,10 @@ withPg('витрина туров: снятый тур не в плане и н�
         [OPERATOR.id, id.live, id[s], ++priority],
       );
     }
+    // Первый импорт мозга Кузьмича — секунды работы процессора; под нагрузкой
+    // он один съедал предел теста по умолчанию (5 с, CI на main красный по
+    // таймауту, ревью 29.10). Здесь, под пределом beforeAll, — один раз.
+    await import('@/lib/kuzmich/core');
   }, 300_000);
 
   afterAll(async () => {
@@ -234,6 +238,11 @@ withPg('витрина туров: снятый тур не в плане и н�
     // Кэш каталога живёт 3 минуты — часы вперёд, чтобы прочитать базу заново.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    // Живой контекст подсказки (погода, лента МЧС, новости) ходит в чужие
+    // сайты с таймаутом 8 с на ленту: сторож базы не должен зависеть от
+    // aif.ru и kamgov.ru. Сеть закрыта — живой контекст честно пуст.
+    const net = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('сеть закрыта в pg-стороже'));
+    const quiet = [vi.spyOn(console, 'warn').mockImplementation(() => {}), vi.spyOn(console, 'error').mockImplementation(() => {})];
     try {
       const { loadTourCatalog, buildTourContext } = await import('@/lib/kuzmich/core');
       const { orderOffersBy, offerOrderDay, OFFER_ORDER_NOTE_AGENT } = await import('@/lib/tours/offer-order');
@@ -263,10 +272,12 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(ctx).not.toContain('первые по цене');
     } finally {
       vi.useRealTimers();
+      net.mockRestore();
+      for (const q of quiet) q.mockRestore();
       // Дата — только для этого сценария: дальше файл судит «ближайший выезд» витрины.
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [pricey]);
     }
-  });
+  }, 30_000);
 
   it('каталог сайта (queryMarketplaceTours): порядок — правило 1в на тех же строках, цена — ничья правилом, ?sort=recent — как по умолчанию (29.10)', async () => {
     const { queryMarketplaceTours, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
@@ -396,6 +407,11 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect(r.byId.get(b)).toBeNull();
         expect(r.byId.get(c)).toBeNull();
         expect(r.byId.get('999999999')).toBeNull();
+        // Места на ту же дату — потолком max_participants (4), не слотами (10);
+        // нет даты — нет и мест (ревью 29.10: карточка маршрута).
+        expect(r.seatsById.get(a)).toBe(4);
+        expect(r.seatsById.get(b)).toBeNull();
+        expect(r.seatsById.get(c)).toBeNull();
       }
     } finally {
       spy.mockRestore();

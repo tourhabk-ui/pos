@@ -160,7 +160,13 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
   // Вьюха — не наш SQL, поэтому ближайшая свободная дата читается отдельным
   // батчем (lib/tours/nearest-free-date) и порядок задаётся в TypeScript.
   // Отказ батча — в лог, туры идут жребием дня (§4.0): «не смог» не роняет
-  // карточку и не выдаётся за «дат нет» на экране — даты рисует вьюха.
+  // карточку и не выдаётся за «дат нет» — у оффера `datesState: 'failed'`, и
+  // карточка пишет «даты не загрузились».
+  //
+  // Дата и места на экране — из ТОГО ЖЕ батча, что и порядок (ревью 29.10).
+  // Вьюха считает «сегодня» по CURRENT_DATE, а занятость — по booked_slots,
+  // который растёт только при оплате: дата на карточке расходилась с
+  // подписью «по ближайшему выезду» и с кнопкой «Дата».
   let offers: unknown[] = [];
   {
     const offersResult = await query(
@@ -191,8 +197,6 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.operator_verified,
          v.tour_image,
          v.operator_hero_image,
-         v.next_departure_date,
-         v.next_departure_slots,
          p.is_public AS operator_public
        FROM v_route_marketplace v
        -- Открыта ли карточка оператора — из partners, а не «по построению»
@@ -205,6 +209,8 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
     const nearest = await loadNearestFreeDates(offersResult.rows.map(o => String(o.tour_id)));
     const nearestOf = (id: unknown): string | null =>
       nearest.state === 'ok' ? nearest.byId.get(String(id)) ?? null : null;
+    const seatsOf = (id: unknown): number | null =>
+      nearest.state === 'ok' ? nearest.seatsById.get(String(id)) ?? null : null;
     const ordered = orderOffersBy(
       offersResult.rows,
       o => ({ id: String(o.tour_id), nearestFreeDate: nearestOf(o.tour_id) }),
@@ -241,8 +247,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       },
       tourImage:        (o.tour_image as string | null) ?? null,
       operatorHeroImage: (o.operator_hero_image as string | null) ?? null,
-      nextDeparture:    (o.next_departure_date as string | null) ?? null,
-      nextSlots:        o.next_departure_slots != null ? Number(o.next_departure_slots) : null,
+      nextDeparture:    nearestOf(o.tour_id),
+      nextSlots:        seatsOf(o.tour_id),
+      datesState:       nearest.state,
     }));
   }
 

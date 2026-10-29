@@ -3,8 +3,9 @@
  * туров на общих витринах. Судится вызовом функций на граничных данных.
  *
  * Что держит сторож:
- *   - жребий — FNV-1a, воспроизводим: тот же день — тот же порядок, другой
- *     день — другой; вход не меняется;
+ *   - жребий — FNV-1a с перемешиванием fmix32, воспроизводим: тот же день —
+ *     тот же порядок, другой день — другой; вход не меняется; соседние id
+ *     (туры одной компании, заведённые одной миграцией) не держатся вместе;
  *   - тур со свободной датой выше тура без даты, раньше дата — выше; ничья по
  *     дате — жребий, потом id;
  *   - компания с четырьмя турами тянет ОДИН билет жребия, а не четыре;
@@ -14,9 +15,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  fnv1a32, tourLot, companyLot, compareTourOffers, orderOffers, orderOffersBy,
+  fnv1a32, fmix32, lotOf, tourLot, companyLot, compareTourOffers, orderOffers, orderOffersBy,
   groupOffersByCompany, roundRobinByCompany, offersSummary, offerDatesPhrase,
-  offerOrderDay, OFFER_ORDER_NOTE, OFFER_ORDER_NOTE_GROUPED_RU, OFFER_ORDER_NOTE_AGENT,
+  offerOrderDay, pinnedOfferDay, OFFER_ORDER_NOTE, OFFER_ORDER_NOTE_GROUPED_RU, OFFER_ORDER_NOTE_AGENT,
   type DatesPhraseInput,
 } from '@/lib/tours/offer-order';
 import { ZH_TOURS_ORDER_NOTE, OPERATORS_ORDER_NOTE } from '@/lib/operators/order-note';
@@ -41,10 +42,46 @@ describe('FNV-1a 32', () => {
     expect(fnv1a32('ж')).toBe(h >>> 0);
   });
 
+  it('fmix32 — эталон murmur3: ноль в ноль, единица — известное значение', () => {
+    expect(fmix32(0)).toBe(0);
+    expect(fmix32(1)).toBe(0x514e28b7);
+    expect(lotOf('a')).toBe(fmix32(0xe40c292c));
+  });
+
   it('жребий тура и компании различаются для одного id', () => {
-    expect(tourLot(DAY, '7')).toBe(fnv1a32(`${DAY}:7`));
-    expect(companyLot(DAY, '7')).toBe(fnv1a32(`${DAY}:company:7`));
+    expect(tourLot(DAY, '7')).toBe(fmix32(fnv1a32(`${DAY}:7`)));
+    expect(companyLot(DAY, '7')).toBe(fmix32(fnv1a32(`${DAY}:company:7`)));
     expect(tourLot(DAY, 7)).toBe(tourLot(DAY, '7'));
+  });
+});
+
+describe('жребий перемешивает соседние id (ревью 29.10)', () => {
+  // 75 туров с id подряд — как у туров одной компании, заведённых одной
+  // миграцией. Голый FNV-1a ставил пары 2k/2k+1 соседями в ~42% дней.
+  const ids = Array.from({ length: 75 }, (_, i) => 40 + i);
+  const rows = ids.map((id) => ({ id, nearestFreeDate: null }));
+  const days = Array.from({ length: 365 }, (_, d) => shiftDay(DAY, d));
+  const orders = days.map((day) => orderOffers(rows, { day }).map((t) => t.id));
+
+  it('пары последовательных id стоят соседями реже, чем в 10% дней', () => {
+    let adjacent = 0;
+    let pairs = 0;
+    for (const order of orders) {
+      const pos = new Map(order.map((id, i) => [id, i]));
+      for (let k = 40; k < 114; k += 2) {
+        pairs++;
+        if (Math.abs(pos.get(k)! - pos.get(k + 1)!) === 1) adjacent++;
+      }
+    }
+    expect(adjacent / pairs).toBeLessThan(0.1);
+  });
+
+  it('первая десятка: каждый тур попадает туда не реже 20 и не чаще 75 дней в году (ожидание ~49)', () => {
+    const top = new Map<number, number>(ids.map((id) => [id, 0]));
+    for (const order of orders) for (const id of order.slice(0, 10)) top.set(id, top.get(id)! + 1);
+    const counts = [...top.values()];
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(20);
+    expect(Math.max(...counts)).toBeLessThanOrEqual(75);
   });
 });
 
@@ -75,6 +112,16 @@ describe('orderOffers — порядок туров', () => {
     expect(offerOrderDay(new Date('2026-10-29T13:00:00Z'))).toBe('2026-10-30');
     const viaNow = orderOffers(undated, { now: new Date('2026-10-29T13:00:00Z') }).map((t) => t.id);
     expect(viaNow).toEqual(orderOffers(undated, { day: '2026-10-30' }).map((t) => t.id));
+  });
+
+  it('закреплённый день листания: сегодня и вчера по Камчатке принимаются, прочее — сегодня', () => {
+    const now = new Date('2026-10-29T13:00:00Z'); // на Камчатке уже 30.10
+    expect(pinnedOfferDay('2026-10-30', now)).toBe('2026-10-30');
+    expect(pinnedOfferDay('2026-10-29', now)).toBe('2026-10-29');
+    expect(pinnedOfferDay('2026-10-28', now)).toBe('2026-10-30');
+    expect(pinnedOfferDay('2026-10-31', now)).toBe('2026-10-30');
+    expect(pinnedOfferDay('вчера', now)).toBe('2026-10-30');
+    expect(pinnedOfferDay(undefined, now)).toBe('2026-10-30');
   });
 
   it('туры с датой выше туров без даты; раньше дата — выше', () => {
@@ -138,6 +185,25 @@ describe('groupOffersByCompany — порядок компаний', () => {
       const groups = groupOffersByCompany([...big, ...small, dated, sooner], { day: shiftDay(DAY, d) });
       expect(groups.slice(0, 2).map((g) => g.partnerId)).toEqual(['p-sooner', 'p-dated']);
     }
+  });
+
+  it('равная ближайшая дата у двух компаний — жребий компании, не алфавит и не порядок входа', () => {
+    const a: Row = { id: '11', nearestFreeDate: '2026-11-05', partnerId: 'p-a', partnerName: 'Аааа' };
+    const b: Row = { id: '12', nearestFreeDate: '2026-11-05', partnerId: 'p-b', partnerName: 'Бббб' };
+    const sooner: Row = { id: '13', nearestFreeDate: '2026-11-03', partnerId: 'p-c', partnerName: 'Яяяя' };
+    const firsts = new Set<string>();
+    for (let d = 0; d < 40; d++) {
+      const day = shiftDay(DAY, d);
+      // Вход в обоих порядках: порядок групп от него не зависит.
+      for (const input of [[a, b, sooner], [b, a, sooner]]) {
+        const groups = groupOffersByCompany(input, { day });
+        expect(groups[0].partnerId).toBe('p-c');
+        const tied = groups.slice(1).map((g) => g.partnerId);
+        expect(tied).toEqual(['p-a', 'p-b'].sort((x, y) => companyLot(day, x) - companyLot(day, y)));
+        firsts.add(tied[0]);
+      }
+    }
+    expect(firsts).toEqual(new Set(['p-a', 'p-b']));
   });
 
   it('внутри группы — порядок тура; тур с датой первым у своей компании', () => {

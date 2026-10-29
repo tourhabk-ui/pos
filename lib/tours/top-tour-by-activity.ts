@@ -1,14 +1,23 @@
 /**
- * Лучший реальный тур под тип активности — общий резолвер «плана, который
+ * Тур к дню плана под тип активности — общий резолвер «плана, который
  * бронирует». Используют публичная страница плана (/api/trips/share) и
  * программатик-страницы /plans/[slug]: день плана ведёт на карточку тура
  * с бронью, а не на витрину цен «от-до».
  *
  * Только активные и опубликованные туры; сбой одного подбора не роняет
  * остальные (страница плана обязана открываться и без тур-подсказок).
+ *
+ * Какой тур из нескольких продавцов вида — решает правило 1в (слово
+ * владельца 29.10), а не рейтинг и не цена: первый со свободной датой по
+ * ближайшему выезду, иначе — жребий дня (lib/tours/offer-order). До ревью
+ * 29.10 здесь стояло `ORDER BY rating DESC, base_price ASC LIMIT 1`, и день
+ * плана навсегда отдавал продавца одной компании. Сколько всего туров вида —
+ * `offers_of_kind`: страница плана говорит «ещё N» со ссылкой в каталог.
  */
 
 import { pool } from '@/lib/db-pool';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 
 export interface TopTour {
   id: string;
@@ -22,28 +31,45 @@ export interface TopTour {
   operator_public: boolean | null;
   /** Зависимость от погоды — триггер «плана Б» на публичном плане (B-5). */
   weather_dependent: boolean;
+  /**
+   * Сколько живых туров этого вида всего (подбор по виду); у туров черновика
+   * (toursByIds) не считается — там тур выбран самим планом.
+   */
+  offers_of_kind?: number;
 }
 
-/** По каждому типу активности — лучший тур (рейтинг, затем цена). */
-export async function topToursByActivity(activities: string[]): Promise<Record<string, TopTour>> {
+/**
+ * По каждому типу активности — первый тур по правилу 1в. `day` — день
+ * жребия (дата Камчатки); по умолчанию — сегодня.
+ */
+export async function topToursByActivity(
+  activities: string[],
+  opts: { day?: string } = {},
+): Promise<Record<string, TopTour>> {
   const unique = [...new Set(activities.filter(Boolean))];
+  const day = opts.day ?? offerOrderDay();
   const result: Record<string, TopTour> = {};
   await Promise.all(unique.map(async (activity) => {
     try {
-      const { rows } = await pool.query<TopTour>(`
+      // Без ORDER BY и LIMIT: порядок — правило 1в в TypeScript, после SQL.
+      const { rows } = await pool.query<TopTour & { nearest_free_date: string | null }>(`
         SELECT
           ot.id, ot.slug, ot.title, ot.base_price::text,
           COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
           p.name AS operator_name,
-          p.slug AS operator_slug, p.is_public AS operator_public
+          p.slug AS operator_slug, p.is_public AS operator_public,
+          ${nearestFreeDateSql('ot')} AS nearest_free_date
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         WHERE ot.activity_type = $1
           AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
-        ORDER BY ot.rating DESC NULLS LAST, ot.base_price ASC
-        LIMIT 1
       `, [activity]);
-      if (rows[0]) result[activity] = rows[0];
+      const [first] = orderOffersBy(rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }), { day });
+      if (first) {
+        const { nearest_free_date: _date, ...tour } = first;
+        void _date;
+        result[activity] = { ...tour, offers_of_kind: rows.length };
+      }
     } catch (e) {
       // Тур-подсказка необязательна, но отказ подбора — в лог (§4.0).
       console.error('[top-tour-by-activity] подбор не выполнен', {

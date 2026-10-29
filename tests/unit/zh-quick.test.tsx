@@ -89,7 +89,7 @@ describe('/zh: один порядок для всех, названный на 
     expect(shown).toEqual(orderZhTours(tourRows, { day }).map((t) => t.id));
     // Сверху — три тура с датой, раньше дата — выше.
     expect(shown.slice(0, 3)).toEqual([tourRows[12].id, tourRows[41].id, tourRows[30].id]);
-    // Остальные — по жребию дня (FNV-1a от даты по Камчатке и id), не по алфавиту.
+    // Остальные — по жребию дня (FNV-1a с fmix32 от даты по Камчатке и id), не по алфавиту.
     const rest = tourRows.filter((t) => !t.nearest_free_date).map((t) => t.id)
       .sort((a, b) => tourLot(day, a) - tourLot(day, b));
     expect(shown.slice(3)).toEqual(rest);

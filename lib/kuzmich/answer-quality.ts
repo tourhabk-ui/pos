@@ -18,6 +18,7 @@ import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tou
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import {
   MCHS_UNREAD_NOTE, notesForOffering, warningDigest, type ActiveWarning,
 } from '@/lib/safety/mchs-bulletin';
@@ -371,10 +372,13 @@ function composeTours(input: ComposeInput): CommercialAnswer {
     ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю: ${catalog}`
     : '';
   const head = `Туры из каталога на ${picked.windowLabel ? seasonAccusative(picked.windowLabel) : 'сегодня'}:`;
+  // Какие туры попали в список, решило правило 1в — оно названо (§0, ревью
+  // 29.10). Один тур без «ещё» — выбирать было не из чего, подписи нет.
+  const order = picked.tours.length > 1 || picked.unnamedMore > 0 ? OFFER_ORDER_NOTE_SHORT_RU : '';
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
-      [head, ...lines, more, warningFooter(input)].filter(Boolean).join('\n'),
+      [head, ...lines, more, order, warningFooter(input)].filter(Boolean).join('\n'),
       toursCta(picked.tours, input.base, catalog, input.surface),
     ].join('\n\n')),
     tours: picked.tours,

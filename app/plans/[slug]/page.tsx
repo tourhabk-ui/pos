@@ -24,6 +24,8 @@ import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activi
 import { tourPath } from '@/lib/tours/tour-url';
 import { findPlanPreset, planLastModified } from '@/lib/plans/presets';
 import { OtherPlans } from '@/components/plans/OtherPlans';
+import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers';
+import { offerOrderDay } from '@/lib/tours/offer-order';
 import { brandedTitle, fitTitle, PLAN_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
@@ -108,7 +110,9 @@ function formatPrice(from: number, to: number): string | null {
  * недоступной БД не должна жить сутки.
  */
 const loadPresetPlan = unstable_cache(
-  async (slug: string, arrival: string, departure: string): Promise<{ days: DayPlan[]; tours: Record<string, TopTour> }> => {
+  // `day` — день жребия правила 1в (дата Камчатки): аргумент входит в ключ
+  // кэша, и после полуночи по Камчатке тур дня пересчитывается.
+  async (slug: string, arrival: string, departure: string, day: string): Promise<{ days: DayPlan[]; tours: Record<string, TopTour> }> => {
     const preset = findPlanPreset(slug);
     if (!preset) throw new Error(`нет пресета ${slug}`);
     const rec = await recommendTrip({
@@ -122,11 +126,13 @@ const loadPresetPlan = unstable_cache(
       riskMode: 'safe_only',
     });
     if (rec.days.length === 0) throw new Error('движок вернул пустой план');
-    const tours = await topToursByActivity(rec.days.map((d) => d.activityType));
+    const tours = await topToursByActivity(rec.days.map((d) => d.activityType), { day });
     return { days: rec.days, tours };
   },
   // v2 (13.10): в строке тура плана появились slug и is_public оператора.
-  ['plan-preset-v2'],
+  // v3 (29.10): тур дня — по правилу 1в, а не по рейтингу и цене; в строке
+  // появилось offers_of_kind.
+  ['plan-preset-v3'],
   { revalidate: 86400 },
 );
 
@@ -140,7 +146,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
   let tours: Record<string, TopTour> = {};
   const { arrival, departure } = planDates(preset.days, preset.interests);
   try {
-    ({ days, tours } = await loadPresetPlan(slug, arrival, departure));
+    ({ days, tours } = await loadPresetPlan(slug, arrival, departure, offerOrderDay()));
   } catch (e) {
     // План живёт на интро и CTA, но отказ движка — в лог (§4.0).
     console.error('[plans/[slug]] план не рассчитан', { slug, message: e instanceof Error ? e.message : String(e) });
@@ -229,6 +235,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
           {days.length > 0 ? (
             <section className="space-y-3">
               <h2 className="ds-h2">План по дням</h2>
+              {Object.keys(tours).length > 0 && <PlanTourRule />}
               {days.map((day) => {
                 const tour = tours[day.activityType];
                 const price = formatPrice(day.priceFrom, day.priceTo);
@@ -263,6 +270,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                         </span>
                       </div>
                     )}
+                    {tour && <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />}
                   </article>
                 );
               })}

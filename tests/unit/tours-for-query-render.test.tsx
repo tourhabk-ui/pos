@@ -9,7 +9,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import React from 'react';
 
-import { ToursForQuery } from '@/components/search/ToursForQuery';
+import { ToursForQuery, TOURS_FOR_QUERY_ORDER_NOTE } from '@/components/search/ToursForQuery';
 
 afterEach(cleanup);
 
@@ -53,5 +53,32 @@ describe('ToursForQuery', () => {
     expect(container.querySelector('svg.lucide-car')).not.toBeNull();
     // Неизвестный тип — общий значок, а не пустое место.
     expect(container.querySelectorAll('svg.lucide-ticket')).toHaveLength(1);
+  });
+
+  // Ревью 29.10: блок режет выдачу до девяти туров, и какие попали, решает
+  // правило 1в — завтра другие. Правило и «N из M» названы на месте (§0).
+  const nine = Array.from({ length: 9 }, (_, i) => ({ id: 400 + i, title: `Тур ${i}`, operator_name: `Компания ${i}`, activity_type: 'fishing', base_price: 10000 }));
+
+  it('обрезанная выдача — «Показано 9 из 20 туров» и правило с группами, кончается «Место в списке не продаётся.»', () => {
+    const { container, getByText } = render(<ToursForQuery q="вулкан" state={{ status: 'ok', tours: nine, total: 20 }} />);
+    expect(container.textContent).toContain('Показано 9 из 20 туров — остальные в каталоге.');
+    expect(getByText(TOURS_FOR_QUERY_ORDER_NOTE).textContent).toMatch(/Место в списке не продаётся\.$/);
+    expect(TOURS_FOR_QUERY_ORDER_NOTE).toMatch(/совпавшие названием/);
+    // Подпись — до списка туров, а не после.
+    const note = container.querySelector('[data-tours-for-query-note]')!;
+    const list = container.querySelector('ul')!;
+    expect(note.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('все показаны — без «из M»; точного числа нет — так и сказано, а не заниженная цифра', () => {
+    const all = render(<ToursForQuery q="вулкан" state={{ status: 'ok', tours: nine.slice(0, 3), total: 3 }} />);
+    expect(all.container.textContent).not.toMatch(/Показано/);
+    expect(all.container.textContent).toContain('Место в списке не продаётся.');
+    cleanup();
+    const unknown = render(<ToursForQuery q="вулкан" state={{ status: 'ok', tours: nine, total: null }} />);
+    expect(unknown.container.textContent).toContain('здесь не посчитано');
+    cleanup();
+    const one = render(<ToursForQuery q="вулкан" state={{ status: 'ok', tours: nine.slice(0, 1), total: 1 }} />);
+    expect(one.container.querySelector('[data-tours-for-query-note]')).toBeNull();
   });
 });

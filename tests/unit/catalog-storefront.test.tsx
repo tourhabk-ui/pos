@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { catalogAvailability, isInSeason, tourDays, AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import {
   summarizeCatalogRows, queryMarketplaceTours, queryCatalogSummary, MarketplaceToursQuerySchema,
+  orderMarketplaceTours,
 } from '@/lib/search/tour-search';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
@@ -548,6 +549,21 @@ describe('порядок каталога — правило 1в, названн
       expect(next).not.toEqual(a);
     } finally { vi.useRealTimers(); }
   });
+
+  it('закреплённый день (страница 2 после полуночи): вчерашний порядок, чужой день — нет', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(DAY_UTC);
+      const d29 = (await listing({ limit: 100 })).tours.map((t) => t.id);
+      vi.setSystemTime(new Date('2026-10-30T03:00:00Z'));
+      const pinned = await listing({ limit: 100, day: '2026-10-29' });
+      expect(pinned.day).toBe('2026-10-29');
+      expect(pinned.tours.map((t) => t.id)).toEqual(d29);
+      const foreign = await listing({ limit: 100, day: '2026-09-01' });
+      expect(foreign.day).toBe('2026-10-30');
+      expect(MarketplaceToursQuerySchema.safeParse({ day: '29.10.2026' }).success).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe('витрина называет правило и показывает, сколько из скольких (рендер)', () => {
@@ -610,6 +626,57 @@ describe('витрина называет правило и показывает
     await flush();
     expect(screen.getByRole('alert')).toHaveTextContent('Следующие туры не загрузились');
     expect(screen.getByText(/Показано 50 из 75 туров/)).toBeInTheDocument();
+  });
+
+  // Ревью 29.10: страница 2 считалась по свежему дню и свежим датам, а
+  // страница 1 — по дню рендера. На смене суток по Камчатке туры с новых мест
+  // 0..49 не приходили никогда, а кнопка висела без прогресса.
+  describe('«Показать ещё» режет страницу из того же порядка', () => {
+    type Row = Tour & { nearest_free_date: string | null };
+    const rows: Row[] = Array.from({ length: 75 }, (_, i) => ({
+      ...tour({ id: 40 + i, slug: `p${40 + i}`, title: `Пачка ${40 + i}` }), nearest_free_date: null,
+    }));
+    /** Сервер каталога: тот же порядок, что queryMarketplaceTours, по дню из запроса или по «сегодня». */
+    function server(today: string, data: Row[]) {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const sp = new URL(String(input), 'https://x').searchParams;
+        const day = sp.get('day') ?? today;
+        const all = orderMarketplaceTours(data, 'recommended', day);
+        const off = Number(sp.get('offset') ?? 0);
+        const lim = Number(sp.get('limit') ?? 50);
+        return new Response(JSON.stringify({ tours: all.slice(off, off + lim), total: all.length, day }), { status: 200 });
+      });
+    }
+    const ids = () => screen.getAllByRole('link', { name: /^Пачка \d+$/ }).map((a) => a.getAttribute('href'));
+
+    it('полночь между страницами: день первой страницы уходит с запросом, показаны все 75 без потерь', async () => {
+      const D = '2026-10-29';
+      const first = orderMarketplaceTours(rows, 'recommended', D).slice(0, 50);
+      const fetchSpy = server('2026-10-30', rows);
+      render(<MarketplaceClient initialTours={first} initialTotal={75} initialDay={D} initialKey={KEY} summary={SUMMARY} />);
+      fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+      await flush();
+      expect(new URL(String(fetchSpy.mock.calls.at(-1)![0]), 'https://x').searchParams.get('day')).toBe(D);
+      expect(screen.getByText(/Показано 75 из 75 туров/)).toBeInTheDocument();
+      expect(new Set(ids()).size).toBe(75);
+      expect(screen.queryByRole('button', { name: /Показать ещё/ })).toBeNull();
+    });
+
+    it('тур переехал между страницами — список перечитан с начала, кнопка не висит без прогресса', async () => {
+      const D = '2026-10-29';
+      const before = orderMarketplaceTours(rows, 'recommended', D);
+      const moved = before[60].id;
+      const now = rows.map((r) => (r.id === moved ? { ...r, nearest_free_date: '2026-11-05' } : r));
+      server(D, now);
+      render(<MarketplaceClient initialTours={before.slice(0, 50)} initialTotal={75} initialDay={D} initialKey={KEY} summary={SUMMARY} />);
+      fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+      await flush();
+      expect(screen.getByText(/Показано 75 из 75 туров/)).toBeInTheDocument();
+      expect(new Set(ids()).size).toBe(75);
+      expect(screen.getByRole('link', { name: `Пачка ${moved}` })).toBeInTheDocument();
+    });
   });
 
   it('все показаны — кнопки нет', () => {

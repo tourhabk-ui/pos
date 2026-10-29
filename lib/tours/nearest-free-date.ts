@@ -56,7 +56,17 @@ export function nearestFreeDateSql(tourAlias: string): string {
 }
 
 export type NearestDates =
-  | { state: 'ok'; byId: Map<string, string | null> }
+  | {
+    state: 'ok';
+    byId: Map<string, string | null>;
+    /**
+     * Свободных мест на эту же ближайшую дату (то же выражение мест, что у
+     * самой даты); нет даты — null. Карточка маршрута показывает дату и места
+     * из одного источника с порядком (ревью 29.10), а не из вьюхи, где
+     * занятость растёт только при оплате.
+     */
+    seatsById: Map<string, number | null>;
+  }
   | { state: 'failed' };
 
 /**
@@ -67,16 +77,29 @@ export type NearestDates =
 export async function loadNearestFreeDates(tourIds: readonly (string | number)[]): Promise<NearestDates> {
   const ids = [...new Set(tourIds.map((x) => String(x)).filter((x) => /^\d+$/.test(x)))];
   const byId = new Map<string, string | null>(ids.map((id) => [id, null]));
-  if (ids.length === 0) return { state: 'ok', byId };
+  const seatsById = new Map<string, number | null>(ids.map((id) => [id, null]));
+  if (ids.length === 0) return { state: 'ok', byId, seatsById };
   try {
-    const { rows } = await pool.query<{ id: string; nearest_free_date: string | null }>(
-      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS nearest_free_date
+    const { rows } = await pool.query<{ id: string; nearest_free_date: string | null; nearest_free_seats: number | string | null }>(
+      `SELECT ot.id::text AS id, nf.d AS nearest_free_date,
+              (SELECT MAX(${freeSlotsSql('ta_fs', 'ot', 'occ_fs.taken')})::int
+                 FROM tour_availability ta_fs
+                 CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_fs', day: 'ta_fs.date', tourId: 'ta_fs.operator_tour_id' })}) occ_fs
+                WHERE ta_fs.operator_tour_id = ot.id
+                  AND ta_fs.date = nf.d::date
+                  AND COALESCE(ta_fs.is_cancelled, false) = false
+                  AND ta_fs.deleted_at IS NULL) AS nearest_free_seats
          FROM operator_tours ot
+         CROSS JOIN LATERAL (SELECT ${nearestFreeDateSql('ot')} AS d) nf
         WHERE ot.id = ANY($1::bigint[])`,
       [ids],
     );
-    for (const r of rows) byId.set(String(r.id), r.nearest_free_date ?? null);
-    return { state: 'ok', byId };
+    for (const r of rows) {
+      byId.set(String(r.id), r.nearest_free_date ?? null);
+      const seats = r.nearest_free_seats == null ? null : Number(r.nearest_free_seats);
+      seatsById.set(String(r.id), seats != null && Number.isFinite(seats) ? seats : null);
+    }
+    return { state: 'ok', byId, seatsById };
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error(

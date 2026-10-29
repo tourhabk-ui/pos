@@ -25,7 +25,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { resolveTourChoice, resolveTourByQuery, candidateLines } from '@/lib/kuzmich/tour-availability-tool';
-import { handleBookingStep, startBooking, type PendingBooking } from '@/lib/kuzmich/core';
+import { handleBookingStep, startBooking, bookingSumLine, type PendingBooking } from '@/lib/kuzmich/core';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 
 type Row = Record<string, unknown>;
@@ -41,6 +41,9 @@ const row = (id: number, operator: string, extra: Row = {}): Row => ({
 function answer(rows: Row[]): void {
   query.mockImplementation(async (sql: string) => (/FROM operator_tours ot/.test(sql) ? { rows } : { rows: [] }));
 }
+
+/** Разряды toLocaleString — неразрывный пробел; сравниваем с обычным. */
+const nb = (t: string) => t.replace(/[\u00a0\u202f]/g, ' ');
 
 // Тело в фигурных скобках: функция, возвращённая из beforeEach, — это уборка
 // после теста, и vitest вызвал бы сам мок.
@@ -164,6 +167,43 @@ describe('бронь в мессенджере выбирает тур общи�
     expect(String(reply.mock.calls[0][1])).not.toContain('Не нашёл');
     expect(spy.mock.calls.some((c) => String(c[0]).includes('[kuzmich] тур для брони не прочитан'))).toBe(true);
     spy.mockRestore();
+  });
+
+  // Ревью 29.10: тур без цены звучал «от 0 р. с человека», а цена за группу —
+  // «с человека» в сообщении сразу после списка, где она была «за группу».
+  it('тур без цены — «цену назовёт оператор», а не «от 0 р.»', async () => {
+    answer([row(61, 'a', { base_price: null })]);
+    const pending = stepTour();
+    const reply = vi.fn();
+    await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'telegram_bot');
+    const text = String(reply.mock.calls[0][1]);
+    expect(text).toContain('Цену назовёт оператор.');
+    expect(text).not.toMatch(/\b0 р\.|с человека/);
+    expect(pending.get(CHAT)?.tour?.base_price).toBeNull();
+    expect(bookingSumLine(pending.get(CHAT)!.tour!, 3)).toBe('Сумма: цену назовёт оператор.');
+  });
+
+  it('цена за группу — «за группу» и в списке, и в заявке; сумма не умножается на людей', async () => {
+    answer([row(61, 'a', { base_price: 140000, price_unit: 'per_tour' }), row(72, 'b')]);
+    const pending = stepTour();
+    const reply = vi.fn();
+    await handleBookingStep(CHAT, 'хочу на вулкан', 'tg', pending, reply, 'telegram_bot');
+    const list = String(reply.mock.calls[0][1]);
+    expect(nb(list)).toContain('140 000 ₽ за группу');
+    expect(list).not.toContain('не называй');
+    await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'telegram_bot');
+    const next = String(reply.mock.calls.at(-1)![1]);
+    expect(nb(next)).toContain('Стоимость: <b>140 000 ₽ за группу</b>.');
+    expect(next).not.toContain('с человека');
+    const sum = bookingSumLine(pending.get(CHAT)!.tour!, 4);
+    expect(nb(sum)).toContain('140 000 ₽ за группу');
+    expect(sum).toContain('сумму назовёт оператор');
+    expect(sum).not.toContain('560');
+  });
+
+  it('цена за человека — сумма умножается на число людей', () => {
+    expect(nb(bookingSumLine({ id: 1, title: 'Т', base_price: 15000, price_unit: 'per_person', multi_day_count: 1 }, 3)))
+      .toBe('Сумма: <b>45 000 р.</b>');
   });
 
   it('начало брони при турах разных компаний — список, а не первый по цене', async () => {

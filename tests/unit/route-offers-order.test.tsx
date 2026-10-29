@@ -56,7 +56,7 @@ function mockDb(offers: unknown[], nearest: 'ok' | 'fail' = 'ok') {
     if (sql.includes('FROM operator_tours ot') && sql.includes('ANY($1::bigint[])')) {
       if (nearest === 'fail') return Promise.reject(Object.assign(new Error('canceling statement'), { code: '57014' }));
       const ids = (params?.[0] as string[]) ?? [];
-      return Promise.resolve({ rows: ids.map((id) => ({ id, nearest_free_date: NEAREST[id] ?? null })) });
+      return Promise.resolve({ rows: ids.map((id) => ({ id, nearest_free_date: NEAREST[id] ?? null, nearest_free_seats: NEAREST[id] ? 4 : null })) });
     }
     return Promise.resolve({ rows: [] });
   });
@@ -100,6 +100,40 @@ describe('сервер: туры маршрута — правилом 1в, бе
     const ids = await offerIds();
     expect(ids).toEqual(orderOffers([1, 2, 3, 4].map((id) => ({ id, nearestFreeDate: null }))).map((o) => Number(o.id)));
     expect(err.mock.calls.flat().map(String).join(' ')).toMatch(/57014/);
+  });
+});
+
+describe('сервер: дата и места на карточке — из того же источника, что порядок (ревью 29.10)', () => {
+  type LoadedOffer = { tourId: number; nextDeparture: string | null; nextSlots: number | null; datesState?: string; effectivePrice: number | null; priceBase: number | null };
+  async function loaded(): Promise<LoadedOffer[]> {
+    const r = (await loadRouteDetail('r-1', { explain: false, countView: false })) as unknown as Loaded;
+    const data = (r as { data?: Loaded }).data ?? r;
+    return (data.offers ?? []) as unknown as LoadedOffer[];
+  }
+
+  it('вьюха говорит «5 ноября» (неоплаченная бронь её не видит) — карточка показывает свободную дату порядка', async () => {
+    // Тур 2: у вьюхи 5.11 (booked_slots растёт только при оплате), реально свободно 20.11.
+    mockDb([1, 2, 3, 4].map((id) => offer(id, id === 2 ? { next_departure_date: '2026-11-05', next_departure_slots: 10 } : {})));
+    const offers = await loaded();
+    const t2 = offers.find((o) => o.tourId === 2)!;
+    expect(t2.nextDeparture).toBe('2026-11-20');
+    expect(t2.nextSlots).toBe(4);
+    expect(t2.datesState).toBe('ok');
+    // Кнопка «Дата» не противоречит порядку по умолчанию для туров с датой.
+    const dated = (list: LoadedOffer[]) => list.filter((o) => o.nextDeparture).map((o) => o.tourId);
+    expect(dated(sortRouteOffers(offers, 'date'))).toEqual(dated(offers));
+    // Тур без свободной даты — без даты на карточке, даже если вьюха её знает.
+    mockDb([1, 3].map((id) => offer(id, { next_departure_date: '2026-11-01', next_departure_slots: 6 })));
+    for (const o of await loaded()) { expect(o.nextDeparture).toBeNull(); expect(o.nextSlots).toBeNull(); }
+  });
+
+  it('даты не прочитались — у оффера «failed», а не дата вьюхи и не «дат нет»', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockDb([2, 4].map((id) => offer(id, { next_departure_date: '2026-11-05' })), 'fail');
+    for (const o of await loaded()) {
+      expect(o.datesState).toBe('failed');
+      expect(o.nextDeparture).toBeNull();
+    }
   });
 });
 

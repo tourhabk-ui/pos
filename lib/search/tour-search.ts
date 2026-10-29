@@ -10,7 +10,7 @@
  */
 
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
-import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
+import { compareTourOffers, offerOrderDay, pinnedOfferDay } from '@/lib/tours/offer-order';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { pool } from '@/lib/db-pool';
@@ -33,6 +33,10 @@ export const MarketplaceToursQuerySchema = z.object({
   id:            z.coerce.number().int().optional(),
   limit:         z.coerce.number().int().min(1).max(100).default(50),
   offset:        z.coerce.number().int().min(0).default(0),
+  // День жребия первой страницы (ревью 29.10): «Показать ещё» режет страницу
+  // из того же порядка. Принимается только сегодня/вчера по Камчатке
+  // (pinnedOfferDay), иначе — сегодня.
+  day:           z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 export type MarketplaceToursFilters = z.infer<typeof MarketplaceToursQuerySchema>;
@@ -110,7 +114,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
   const {
     search, activity_type, location_type, sort,
     difficulty, duration_type, price_min, price_max,
-    id, limit, offset,
+    id, limit, offset, day: requestedDay,
   } = filters;
 
   const selectFields = `
@@ -206,7 +210,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
     SELECT ${selectFields} ${from} ${where}
     GROUP BY ot.id, p.id`;
 
-  const day = offerOrderDay();
+  const day = pinnedOfferDay(requestedDay);
   const { rows } = await pool.query<MarketplaceTourRow>(dataQuery, params);
   const all = orderMarketplaceTours(
     rows.map((r) => ({ ...r, has_availability: r.nearest_free_date != null })),

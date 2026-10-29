@@ -151,7 +151,10 @@ interface Offer {
   seasonStart: string | null; seasonEnd: string | null;
   operator: { id: string; name: string; slug: string | null; isPublic: boolean | null; rating: number | null; reviewCount: number | null; verified: boolean; };
   tourImage: string | null; operatorHeroImage: string | null;
+  /** Ближайшая свободная дата и места на неё — из того же батча, что порядок (правило 1в). */
   nextDeparture: string | null; nextSlots: number | null;
+  /** 'failed' — даты не прочитались: «не загрузились», а не «дат нет» (§4.0). */
+  datesState?: 'ok' | 'failed';
 }
 
 interface RouteWaypoint {
@@ -462,6 +465,9 @@ function OfferCard({ offer, activityType, onBook }: {
                   : <CheckCircle className="w-3 h-3 inline mr-0.5" />
                 }{isLowSlots ? `${offer.nextSlots} мест · ` : ''}{nextDate}
               </p>
+            )}
+            {offer.datesState === 'failed' && (
+              <p className="text-[11px] mt-1 text-[var(--text-muted)]">даты не загрузились</p>
             )}
           </div>
           <button

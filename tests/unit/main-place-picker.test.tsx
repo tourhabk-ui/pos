@@ -10,7 +10,7 @@
 import React, { useState } from 'react';
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
-import MainPlacePicker, { type MainPlaceValue, type MainPlaceSource } from '@/components/operator/Tours/MainPlacePicker';
+import MainPlacePicker, { asMainPlaceSource, type MainPlaceValue, type MainPlaceSource } from '@/components/operator/Tours/MainPlacePicker';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -64,6 +64,21 @@ describe('выбор главного места тура', () => {
     fireEvent.click(screen.getByRole('button', { name: /Снять/ }));
     expect(picked).toHaveBeenCalledWith(null);
     expect(document.querySelector('[data-main-place-name]')).toBeNull();
+  });
+
+  // Ревью 29.10: 1343 ставит связь «по сверке» 51 туру, и оператор видит
+  // её подпись; источники verified и admin до этого не проверял ни один тест.
+  it('связь по сверке Ведара и связь администратора названы своими словами', () => {
+    render(<Harness initial={{ id: 'p1', name: 'Озеро' }} savedSource={asMainPlaceSource('verified')} savedId="p1" />);
+    expect(screen.getByText(/Связано Ведаром по сверке названия тура и места/)).toBeTruthy();
+    cleanup();
+    render(<Harness initial={{ id: 'p1', name: 'Озеро' }} savedSource={asMainPlaceSource('admin')} savedId="p1" />);
+    expect(screen.getByText('Связано администратором платформы.')).toBeTruthy();
+  });
+
+  it('источник из строки тура: четыре известных, незнакомое — «не знаем откуда»', () => {
+    for (const v of ['coords_equal', 'operator', 'verified', 'admin'] as const) expect(asMainPlaceSource(v)).toBe(v);
+    for (const v of ['migration', '', null, undefined, 1]) expect(asMainPlaceSource(v)).toBeNull();
   });
 
   it('выбор оператора назван выбором оператора', () => {

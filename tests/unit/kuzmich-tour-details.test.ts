@@ -138,6 +138,25 @@ describe('getTourDetails: программа, забор, безопасност
     expect(out).not.toMatch(/дешевле|лучше|выгодн/i);
   });
 
+  // Ревью 29.10: тур со связью неразмеченного рода (unknown) на карточке места
+  // стоит в другом блоке — число «ещё N» его не считает, иначе строка
+  // обещает больше, чем турист найдёт по ссылке в «Туры к этому месту».
+  it('«ещё N» считает только туры к самому месту: неразмеченная связь не входит', async () => {
+    const tour = (id: number, operator: string) => ({ id, title: `Вулкан Горелый ${id}`, operator_id: operator, operator_name: 'X', base_price: 15000, main_place_id: 'p-gorely', rank: 0 });
+    const placeTour = (id: string, partner: string, link_kind: string) => ({ id, title: `Тур ${id}`, partner_id: partner, partner_name: 'X', link_kind, keeps_schedule: false });
+    poolQueryMock.mockImplementation(async (sql: string) => {
+      if (/FROM route_waypoints/.test(sql)) return { rows: [
+        placeTour('61', 'a', 'main_place'), placeTour('72', 'b', 'main_place'),
+        placeTour('83', 'c', 'unknown'), placeTour('84', 'c', 'unknown'), placeTour('94', 'd', 'waypoint'),
+      ] };
+      if (/FROM places\s+WHERE id = \$1/.test(sql)) return { rows: [{ id: 'p-gorely', name: 'Вулкан Горелый', slug: 'vulkan-gorelyy', ark_id: null }] };
+      if (/FROM operator_tours/.test(sql)) return { rows: [tour(61, 'a')] };
+      return { rows: [] };
+    });
+    const out = await getTourDetails('Вулкан Горелый 61');
+    expect(out).toContain('К месту «Вулкан Горелый» ещё 2 предложения других туров');
+  });
+
   it('туры разных компаний по запросу — первой строкой названы все, выбор за человеком', async () => {
     poolQueryMock.mockImplementation(async (sql: string) => {
       if (/FROM operator_tours ot/.test(sql)) return { rows: [

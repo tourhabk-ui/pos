@@ -4,9 +4,16 @@
  *
  * Сначала туры со свободной датой — по ближайшему выезду. Остальные (и ничьи
  * по дате) — «жребий дня»: порядок меняется раз в сутки, по календарной дате
- * Камчатки. Жребий воспроизводим: FNV-1a от строки «дата:id», а не
- * Math.random и не RANDOM() в SQL. Любой, у кого есть дата и id, повторит
- * порядок сам — значит, его можно проверить, а не поверить ему.
+ * Камчатки. Жребий воспроизводим: FNV-1a 32 от строки «дата:id» и
+ * финальное перемешивание fmix32 (murmur3), а не Math.random и не RANDOM()
+ * в SQL. Любой, у кого есть дата и id, повторит порядок сам — значит, его
+ * можно проверить, а не поверить ему.
+ *
+ * Почему fmix32 поверх FNV-1a (ревью 29.10): у туров одной компании id идут
+ * подряд (заведены одной миграцией), строки жребия различаются последней
+ * цифрой, а голый FNV-1a меняет от неё только младшие биты перед последним
+ * умножением — соседние id годами стояли рядом (замер: пары 2k/2k+1 соседи
+ * в 41,8% дней при честных ~2,7%), и туры одной компании шли кучей.
  *
  * Чего в порядке НЕТ и быть не должно (CLAUDE.md §0): комиссии платформы,
  * новизны, номера тура как ранга (id — только последний ключ ради
@@ -34,7 +41,7 @@ import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { plural } from '@/lib/home/data-freshness';
 import { longDay, requestWindow, windowLabel } from '@/lib/tours/request-window';
 
-export const OFFER_ORDER_VERSION = '1v-2026-10-29';
+export const OFFER_ORDER_VERSION = '1v-2026-10-29-fmix';
 
 const encoder = new TextEncoder();
 
@@ -48,19 +55,50 @@ export function fnv1a32(s: string): number {
   return h >>> 0;
 }
 
+/** Финальное перемешивание murmur3 (fmix32): каждый бит входа влияет на все биты выхода. */
+export function fmix32(x: number): number {
+  let h = x >>> 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/** Билет жребия: FNV-1a по строке, затем fmix32. */
+export function lotOf(s: string): number {
+  return fmix32(fnv1a32(s));
+}
+
 /** Жребий дня тура: день — 'YYYY-MM-DD' по Камчатке. */
 export function tourLot(day: string, tourId: string | number): number {
-  return fnv1a32(`${day}:${String(tourId)}`);
+  return lotOf(`${day}:${String(tourId)}`);
 }
 
 /** Жребий дня компании: один билет на компанию, сколько бы туров у неё ни было. */
 export function companyLot(day: string, partnerId: string): number {
-  return fnv1a32(`${day}:company:${partnerId}`);
+  return lotOf(`${day}:company:${partnerId}`);
 }
 
 /** День правила для момента `now` — календарная дата Камчатки. */
 export function offerOrderDay(now: Date = new Date()): string {
   return kamchatkaDate(now);
+}
+
+/**
+ * День жребия, закреплённый за списком, который листают страницами
+ * («Показать ещё», get_tours с offset): страница 2 обязана резаться из того
+ * же порядка, что страница 1, иначе после полуночи по Камчатке туры с новых
+ * мест 0..49 не приходят никогда (ревью 29.10). Принимается только сегодня
+ * или вчера по Камчатке — дальше закреплять нечего, и чужой день не даёт
+ * выбрать порядок произвольно. Иначе — сегодня.
+ */
+export function pinnedOfferDay(requested: string | null | undefined, now: Date = new Date()): string {
+  const today = offerOrderDay(now);
+  if (typeof requested !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return today;
+  const yesterday = offerOrderDay(new Date(now.getTime() - 86_400_000));
+  return requested === today || requested === yesterday ? requested : today;
 }
 
 export interface OfferKeyInput {
@@ -185,6 +223,13 @@ export const OFFER_ORDER_NOTE = {
   en: 'Order: tours with open seats first, by the nearest departure; the rest are reshuffled by lot once a day. Positions are not for sale.',
   zh: '排序：有空位的团队游在前，按最近出发日期排列；其余每天抽签调换一次顺序。排名不出售。',
 } as const;
+
+/**
+ * Короткая подпись для списков в чате (Telegram, MAX, веб-чат) и голоса:
+ * длинная не помещается в ответ, но правило называется и там (§0).
+ */
+export const OFFER_ORDER_NOTE_SHORT_RU =
+  'Порядок: сначала туры со свободными местами, остальные — по жребию дня. Место в списке не продаётся.';
 
 /** Карточка места: порядок КОМПАНИЙ. */
 export const OFFER_ORDER_NOTE_GROUPED_RU =

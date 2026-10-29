@@ -144,7 +144,7 @@ describe('источники данных отдают slug и is_public ряд�
   });
 
   it('кэш страницы плана сменил ключ вместе с формой строки тура', () => {
-    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v2'\]/);
+    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v3'\]/);
   });
 
   // Адрес оператора в JSON-LD рыбалки только у открытой карточки — проверяется
