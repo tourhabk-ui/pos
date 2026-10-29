@@ -145,7 +145,7 @@ const create = (body: unknown) => CREATE(
 );
 const insertCall = () => clientQuery.mock.calls.find(([sql]) => /INSERT INTO operator_tours/.test(sql as string));
 
-describe('создание тура: главное место сразу (1343, слово владельца 29.10)', () => {
+describe('создание тура: главное место сразу (1344, слово владельца 29.10)', () => {
   it('живое место — проверено в транзакции и записано с источником operator', async () => {
     clientQuery.mockImplementation(async (sql: string, values: unknown[]) => {
       if (/FROM places/.test(sql)) return { rows: livePlaces.has(String(values[0])) ? [{ id: values[0] }] : [] };

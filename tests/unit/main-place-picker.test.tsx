@@ -66,7 +66,7 @@ describe('выбор главного места тура', () => {
     expect(document.querySelector('[data-main-place-name]')).toBeNull();
   });
 
-  // Ревью 29.10: 1343 ставит связь «по сверке» 51 туру, и оператор видит
+  // Ревью 29.10: 1344 ставит связь «по сверке» 51 туру, и оператор видит
   // её подпись; источники verified и admin до этого не проверял ни один тест.
   it('связь по сверке Ведара и связь администратора названы своими словами', () => {
     render(<Harness initial={{ id: 'p1', name: 'Озеро' }} savedSource={asMainPlaceSource('verified')} savedId="p1" />);

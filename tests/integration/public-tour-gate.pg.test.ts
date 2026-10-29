@@ -864,7 +864,7 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(await snapshot()).toEqual(expected);
       await pool.query(migration);
       expect(await snapshot()).toEqual(expected);
-      // Источник — только из четырёх названных (1286 + 1343: verified, admin).
+      // Источник — только из четырёх названных (1286 + 1344: verified, admin).
       await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = 'tp-exact'`))
         .rejects.toMatchObject({ code: '23514' });
     });
@@ -1048,9 +1048,9 @@ withPg('витрина туров: снятый тур не в плане и н�
       }
     });
 
-    it('1343: связи по сверке названий; выбор человека не тронут; облёт снят; переименованное место — нет; повтор ничего не меняет', async () => {
-      const m1343 = readFileSync(join(process.cwd(), 'migrations', '1343_tour_main_place_verified.sql'), 'utf8');
-      // Места — с id и именами из списка 1343; одно переименовано.
+    it('1344: связи по сверке названий; выбор человека не тронут; облёт снят; переименованное место — нет; повтор ничего не меняет', async () => {
+      const m1344 = readFileSync(join(process.cwd(), 'migrations', '1344_tour_main_place_verified.sql'), 'utf8');
+      // Места — с id и именами из списка 1344; одно переименовано.
       const PL: Array<[string, string]> = [
         ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'Вулкан Горелый'],
         ['2bf92082-0daf-4770-8031-a51c0f355be8', 'Дачные горячие источники'],
@@ -1084,7 +1084,7 @@ withPg('витрина туров: снятый тур не в плане и н�
       await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-pick', main_place_source = 'operator' WHERE slug = $1`, [T.preset]);
       await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-vilyuchinsky', main_place_source = 'coords_equal' WHERE slug = $1`, [T.oblet]);
 
-      await pool.query(m1343);
+      await pool.query(m1344);
       const snap = async () => Object.fromEntries((await pool.query<{ slug: string; main_place_id: string | null; main_place_source: string | null }>(
         `SELECT slug, main_place_id, main_place_source FROM operator_tours WHERE slug = ANY($1::text[])`, [Object.values(T)],
       )).rows.map((x) => [x.slug, [x.main_place_id, x.main_place_source]]));
@@ -1096,11 +1096,11 @@ withPg('витрина туров: снятый тур не в плане и н�
         [T.renamed]: [null, null],
       };
       expect(await snap()).toEqual(expected);
-      await pool.query(m1343);
+      await pool.query(m1344);
       expect(await snap()).toEqual(expected);
       // Связь, поставленная человеком на облёт, повтором не снимается.
       await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-vilyuchinsky', main_place_source = 'admin' WHERE slug = $1`, [T.oblet]);
-      await pool.query(m1343);
+      await pool.query(m1344);
       expect((await snap())[T.oblet]).toEqual(['tp-place-vilyuchinsky', 'admin']);
       await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = $1`, [T.gorelyM]))
         .rejects.toMatchObject({ code: '23514' });

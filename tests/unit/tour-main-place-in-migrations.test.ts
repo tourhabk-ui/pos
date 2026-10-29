@@ -1,12 +1,12 @@
 /**
  * Новый тур из миграции называет своё главное место — или причину, почему его
- * нет (слово владельца 29.10, «1в 2б 3 да»; миграция 1343).
+ * нет (слово владельца 29.10, «1в 2б 3 да»; миграция 1344).
  *
  * Карточка места показывает все туры к месту по связи
  * operator_tours.main_place_id, карточка тура — «к этому месту есть ещё N
  * предложений». До 29.10 туры, заведённые миграциями (1176, 1217, 1338,
  * 1339), связи не несли: INSERT её не называл, и к Горелому или Дачным
- * «Туры сюда» не показывали ни одного тура из десятка. 1343 связала 51 тур
+ * «Туры сюда» не показывали ни одного тура из десятка. 1344 связала 51 тур
  * задним числом; этот сторож держит, чтобы долг не копился снова.
  *
  * Что держит (текст SQL судится по смыслу — список колонок INSERT, правило
@@ -16,7 +16,7 @@
  *    (облёт трёх вулканов, многодневный по районам, места нет в справочнике);
  *  - запись KNOWN_UNLINKED самоустаревает: файла нет или он уже пишет
  *    `main_place_id` — красный, «уберите запись»;
- *  - у каждой строки 1343 есть причина, имя места, slug тура из миграции,
+ *  - у каждой строки 1344 есть причина, имя места, slug тура из миграции,
  *    которая тур завела, и id места, известный миграциям или снимку схемы, —
  *    связь не выдумана.
  * Сам сторож проверен на подложенном каталоге: миграция с INSERT без
@@ -32,8 +32,8 @@ const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'migrations');
 const BASELINE = join(ROOT, 'lib', 'database', 'baseline', 'schema-baseline.sql');
 
-/** Граница: 1343 связала всё, что было до неё; дальше — правило. */
-const FROM_NUMBER = 1343;
+/** Граница: 1344 связала всё, что было до неё; дальше — правило. */
+const FROM_NUMBER = 1344;
 
 /** Файл → причина, почему туры в нём не называют главное место. Только сокращается. */
 const KNOWN_UNLINKED: Record<string, string> = {};
@@ -96,7 +96,7 @@ export function staleUnlinked(dir: string, known: Record<string, string>): Viola
   return out;
 }
 
-describe('новые туры из миграций называют главное место (1343)', () => {
+describe('новые туры из миграций называют главное место (1344)', () => {
   it('ни одного INSERT туров без main_place_id и без причины', () => {
     expect(unlinkedTourInserts(MIGRATIONS, KNOWN_UNLINKED)).toEqual([]);
   });
@@ -113,11 +113,11 @@ describe('новые туры из миграций называют главн�
     it('INSERT без колонки — нарушение; с колонкой, до границы или в реестре — нет', () => {
       dir = mkdtempSync(join(tmpdir(), 'tour-main-place-'));
       put('1341_before.sql', `INSERT INTO operator_tours (operator_id, title) VALUES ('a', 'b');`);
-      put('1343_no_place.sql', `-- INSERT INTO operator_tours (main_place_id) в комментарии не считается\nINSERT INTO operator_tours (operator_id, title, slug)\nSELECT v.op, v.t, v.s FROM (VALUES ('a','b','c')) AS v(op, t, s);`);
+      put('1344_no_place.sql', `-- INSERT INTO operator_tours (main_place_id) в комментарии не считается\nINSERT INTO operator_tours (operator_id, title, slug)\nSELECT v.op, v.t, v.s FROM (VALUES ('a','b','c')) AS v(op, t, s);`);
       put('1344_with_place.sql', `INSERT INTO operator_tours (operator_id, title, main_place_id, main_place_source) VALUES ('a', 'b', 'p', 'verified');`);
       put('1345_known.sql', `INSERT INTO operator_tours (operator_id, title) VALUES ('a', 'b');`);
       expect(unlinkedTourInserts(dir, { '1345_known.sql': 'облёт трёх вулканов — одного места нет' }))
-        .toEqual([{ file: '1343_no_place.sql', reason: expect.stringContaining('без main_place_id') }]);
+        .toEqual([{ file: '1344_no_place.sql', reason: expect.stringContaining('без main_place_id') }]);
     });
 
     it('запись реестра без файла, без INSERT или уже с колонкой — протухла', () => {
@@ -136,19 +136,19 @@ describe('новые туры из миграций называют главн�
   });
 });
 
-describe('1343: каждая связь названа и не выдумана', () => {
-  const sql = readFileSync(join(MIGRATIONS, '1343_tour_main_place_verified.sql'), 'utf8');
+describe('1344: каждая связь названа и не выдумана', () => {
+  const sql = readFileSync(join(MIGRATIONS, '1344_tour_main_place_verified.sql'), 'utf8');
   const wanted = sql.slice(sql.indexOf('WITH wanted('), sql.indexOf('UPDATE operator_tours t'));
   const rows = [...code(wanted).matchAll(/\('([^']*)', '([^']*)', '([^']*)', '([^']*)', '((?:[^']|'')*)'\)/g)]
     .map(([, op, slug, placeId, placeName, reason]) => ({ op, slug, placeId, placeName, reason }));
 
   // Все файлы, которые заводят туры, — откуда slug «настоящий».
   const tourFiles = readdirSync(MIGRATIONS)
-    .filter((f) => f.endsWith('.sql') && f !== '1343_tour_main_place_verified.sql')
+    .filter((f) => f.endsWith('.sql') && f !== '1344_tour_main_place_verified.sql')
     .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8'))
     .filter((s) => /INSERT\s+INTO\s+operator_tours/i.test(code(s)));
   const otherSql = readdirSync(MIGRATIONS)
-    .filter((f) => f.endsWith('.sql') && f !== '1343_tour_main_place_verified.sql')
+    .filter((f) => f.endsWith('.sql') && f !== '1344_tour_main_place_verified.sql')
     .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8'))
     .join('\n') + readFileSync(BASELINE, 'utf8');
 

@@ -12,7 +12,7 @@ import MainPlacePicker, { type MainPlaceValue } from '@/components/operator/Tour
 export default function NewTourClient() {
   const { user } = useAuth();
   const router = useRouter();
-  // Главное место тура — сразу при создании (1343, слово владельца 29.10):
+  // Главное место тура — сразу при создании (1344, слово владельца 29.10):
   // по нему тур встаёт в «Туры к этому месту» на карточке места. Не выбрано —
   // поле не уходит, тур можно связать позже в правке.
   const [mainPlace, setMainPlace] = useState<MainPlaceValue | null>(null);

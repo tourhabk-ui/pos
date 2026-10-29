@@ -119,7 +119,7 @@ export interface TourCardRow {
    */
   route_id: string | null;
   /**
-   * Главное место тура — `operator_tours.main_place_id` (1286, 1343). По нему
+   * Главное место тура — `operator_tours.main_place_id` (1286, 1344). По нему
    * карточка говорит «к месту ещё N предложений» (слово владельца 29.10).
    * NULL — связь не записана, и строки нет.
    */
