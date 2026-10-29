@@ -223,6 +223,23 @@ jobs:
           # кириллица превращалась в знаки вопроса, и перечень товаров знака
           # прочитать было нельзя. Сперва строгий utf-8, не вышло — cp1251.
           data = sys.stdin.buffer.read()
+          # Текст DOCX (29.10): архив сообщений PTWC о землетрясении у Камчатки
+          # 29.07.2025 weather.gov хранит только в .docx — это zip, и режим
+          # "text" печатал его кашей. Абзац документа — строка.
+          if data[:4] == b'PK\x03\x04':
+              import io, zipfile
+              try:
+                  with zipfile.ZipFile(io.BytesIO(data)) as z:
+                      xml = z.read('word/document.xml').decode('utf-8', 'replace')
+              except Exception as e:
+                  print('[DOCX: текст не извлечён — ' + type(e).__name__ + ']')
+                  sys.exit(0)
+              xml = re.sub(r'<w:tab/>', '\t', xml)
+              xml = re.sub(r'<w:br/>|</w:p>', '\n', xml)
+              text = html.unescape(re.sub(r'(?s)<[^>]+>', '', xml))
+              lines = [re.sub(r'[ \xa0]+', ' ', l).rstrip() for l in text.splitlines()]
+              print('\n'.join(l for l in lines if l.strip()))
+              sys.exit(0)
           if data[:5] == b'%PDF-':
               try:
                   import io
