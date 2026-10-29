@@ -53,7 +53,8 @@
  *   - причина отмены его брони тура и жилья (её пишет оператор, хозяин жилья
  *     или он сам: «турист в больнице») становится нейтральной подписью — и в
  *     брони, и в журнале смены статуса (booking_logs), где прочие комментарии
- *     к его броням тоже заменяются подписью; в ленте CRM — снимается из
+ *     к его броням тоже заменяются подписью, и в журнале действия кнопкой из
+ *     чата гида (partner_chat_actions.reason); в ленте CRM — снимается из
  *     событий его броней;
  *   - медицинское и аллергии в подписанном отказе (booking_waivers) и
  *     контакты его заявки в операторы (operator_applications);
@@ -978,6 +979,18 @@ export async function eraseUser(
           WHEN to_status = 'cancelled' THEN ${sqlTextLiteral(ERASED_REASON)}
           ELSE ${sqlTextLiteral(ERASED_COMMENT)} END
       WHERE booking_id IN (${HIS_BOOKINGS})`],
+    // Третья копия причины отклонения его брони — в журнале действия кнопкой
+    // из чата гида (миграция 1341, lib/bookings/chat-owner-action): «Отклонить»
+    // кладёт слова продавца в partner_chat_actions.reason дословно, и там же
+    // они остаются, если после причины нажато «Не надо». Строка ссылается на
+    // бронь текстом (subject_id) без внешнего ключа, и перепись её по брони
+    // не видит; шаг partner_chat_actions ниже снимает только строки чатов
+    // самого удаляемого. Причина — та же подпись, что в брони; журнал
+    // действия гида (кто, что, когда, итог) остаётся.
+    ['partner_chat_actions.reason', `UPDATE partner_chat_actions SET ${reasonErased('reason')}
+      WHERE subject_kind = 'booking'
+        AND subject_id IN (SELECT hb.id::text FROM (${HIS_BOOKINGS}) hb)
+        AND NULLIF(btrim(reason), '') IS NOT NULL`],
     // full_name NOT NULL (baseline) — имя-заглушка; отметки согласия и МЧС —
     // не ПД, а след обработки, они остаются.
     ['booking_group_members', `UPDATE booking_group_members SET full_name = '${N}', phone = NULL,

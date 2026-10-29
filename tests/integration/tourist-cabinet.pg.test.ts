@@ -1944,6 +1944,97 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     }
   }, 60_000);
 
+  it('удаление туриста: причина отклонения его брони кнопкой в чате гида — подпись и в журнале действия чата, как в брони; чужая причина и журнал гида остаются (ревью 29.10)', async () => {
+    // Ревью: причина «Отклонить» из чата гида лежит дословно в трёх местах —
+    // operator_bookings.cancellation_reason, crm_events.payload.reason и
+    // partner_chat_actions.reason. Удаление туриста стирало первые две, а
+    // третью — только по мессенджеру самого удаляемого (то есть гида), и
+    // ответ говорил «стёрты». Отклонение — настоящей дверью чата.
+    const { handleOwnerPress, captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
+    const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');
+    const { ERASED_REASON } = await import('@/lib/account/erase');
+    // Вне диапазона telegram_id стираемых туристов (freshTourist): совпадение
+    // ключа не должно подменить проверку дороги по брони.
+    const CHAT = 7_340_001;
+    const PRESSER = 7_340_501;
+    const uid = await freshTourist('chat-reason');
+    const otherTourist = await freshTourist('chat-reason-other');
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('chat-reason-guide@example.com', 'Гид причин', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, user_id, max_chat_id, max_owner_user_id)
+       VALUES ('Гид причин', 'guide', '{}', $1, $2, $3) RETURNING id`,
+      [guideUser, CHAT, PRESSER],
+    )).rows[0].id;
+    const tour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+       VALUES ($1, 'Тур причин гида', 9000, 6, TRUE, TRUE) RETURNING id`, [guide],
+    )).rows[0].id;
+    // Свой телефон у каждого: у обоих туристов freshTourist один номер, и CRM
+    // склеила бы их брони в одну карточку — не доказанно его (другая проверка).
+    const booking = async (owner: string, days: number, phone: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, tourist_email, tourist_phone, booking_status, final_price)
+       VALUES ($1, CURRENT_DATE + $3::int, 1, $2::uuid, 'Турист причин', 'chat-reason-' || $2::text || '@example.com', $4, 'new', 9000) RETURNING id::text AS id`,
+      [tour, owner, days, phone],
+    )).rows[0].id;
+    const declined = await booking(uid, 9, '+79991117001');
+    const keptNew = await booking(uid, -2, '+79991117001');
+    const foreign = await booking(otherTourist, 9, '+79991117002');
+    const press = (payload: string) => handleOwnerPress({ channel: 'max', chatId: CHAT, privateChat: true, presserId: PRESSER, payload });
+    const actionIdOf = (reply: { buttons: Array<Array<{ payload: string }>> }, prefix: string) => {
+      const p = reply.buttons.flat().map((b) => b.payload).find((x) => x.startsWith(prefix));
+      if (!p) throw new Error(`нет кнопки ${prefix}: ${JSON.stringify(reply)}`);
+      return p.slice(prefix.length);
+    };
+    const lookup = await findPartnerByChat('max', CHAT);
+    if (lookup.outcome !== 'found') throw new Error('карточка чата не найдена');
+    /** «Отклонить» → причина одним сообщением → вопрос; ответ на вопрос — «Да» или «Не надо». */
+    const decline = async (bk: string, reason: string, yes: boolean) => {
+      await press(`bk:x:${bk}`);
+      const q = await captureOwnerReason({ channel: 'max', chatId: CHAT, partner: lookup.partner, text: reason });
+      if (!q) throw new Error(`причина к брони ${bk} не принята`);
+      return press(`oc:${yes ? 'y' : 'x'}:${actionIdOf(q, yes ? 'oc:y:' : 'oc:x:')}`);
+    };
+    const actions = async (bk: string) => (await pool.query<{ status: string; reason: string | null; outcome: unknown }>(
+      `SELECT status, reason, outcome FROM partner_chat_actions WHERE subject_kind = 'booking' AND subject_id = $1 ORDER BY created_at`, [bk],
+    )).rows;
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const mine = 'У туриста диабет, по здоровью не может';
+      expect((await decline(declined, mine, true)).text).toBe(`Бронь №${declined} отклонена. Туристу ушло письмо с причиной.`);
+      // Причину написал, затем «Не надо»: бронь не тронута, а слова в строке остались.
+      const mineAbandoned = 'Турист с переломом, думаю отклонить';
+      expect((await decline(keptNew, mineAbandoned, false)).text).toBe(`Хорошо, бронь №${keptNew} без изменений.`);
+      const theirs = 'Другой турист опоздал на сбор';
+      expect((await decline(foreign, theirs, true)).text).toBe(`Бронь №${foreign} отклонена. Туристу ушло письмо с причиной.`);
+      expect((await actions(declined)).map((a) => [a.status, a.reason])).toEqual([['done', mine]]);
+      expect((await actions(keptNew)).map((a) => [a.status, a.reason])).toEqual([['cancelled', mineAbandoned]]);
+      const doneOutcome = (await actions(declined))[0].outcome;
+
+      const ok = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+      // Его слова — нигде; журнал действия гида (статус, итог) — на месте.
+      expect((await pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM partner_chat_actions WHERE reason ILIKE '%диабет%' OR reason ILIKE '%перелом%'`,
+      )).rows[0].n).toBe(0);
+      expect(await actions(declined)).toEqual([{ status: 'done', reason: ERASED_REASON, outcome: doneOutcome }]);
+      expect((await actions(keptNew)).map((a) => [a.status, a.reason])).toEqual([['cancelled', ERASED_REASON]]);
+      expect((await pool.query(`SELECT cancellation_reason, booking_status FROM operator_bookings WHERE id = $1`, [declined])).rows)
+        .toEqual([{ cancellation_reason: ERASED_REASON, booking_status: 'cancelled' }]);
+      // Чужая бронь и её причина — не его.
+      expect((await actions(foreign)).map((a) => [a.status, a.reason])).toEqual([['done', theirs]]);
+      expect((await pool.query(`SELECT cancellation_reason FROM operator_bookings WHERE id = $1`, [foreign])).rows)
+        .toEqual([{ cancellation_reason: theirs }]);
+      // Ответ правдив: стёрто всё, что о нём.
+      expect(ok.json.kept).toEqual([]);
+      expect(ok.json.unchecked).toEqual([]);
+      expect(ok.json.message).toMatch(/^Аккаунт удалён, персональные данные стёрты\./);
+    } finally {
+      errSpy.mockRestore();
+    }
+  }, 60_000);
+
   it('заявка кнопкой в чате гида (29.10, шаг 7): вопрос без ПД, два одновременных «Да» — одна смена и одно событие ленты от гида с каналом max; заявка уходит из ждущих «Входящих»; чужая и ничейная — «не найдена», не тронуты и строки нет; повтор — «уже»; CHECK держит род заявки', async () => {
     const { handleOwnerPress, OWNER_ACTION_TEXT } = await import('@/lib/bookings/chat-owner-action');
     const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');

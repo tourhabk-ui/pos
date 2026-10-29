@@ -1652,7 +1652,10 @@ export interface PartnerChatActionRow {
   /** id брони (цифры) или заявки (uuid). */
   subject_id: string;
   action: 'confirm' | 'cancel' | 'complete' | 'no_show' | 'contacted' | 'qualified' | 'converted' | 'lost';
-  /** Причина отклонения брони для туриста; только у action = 'cancel'. */
+  /**
+   * Причина отклонения брони для туриста; только у action = 'cancel'. О нём:
+   * удаление его аккаунта заменяет её подписью ERASED_REASON (lib/account/erase).
+   */
   reason: string | null;
   status: 'awaiting_reason' | 'ready' | 'running' | 'done' | 'refused' | 'cancelled' | 'superseded';
   /** Итог — только у done и refused. */
