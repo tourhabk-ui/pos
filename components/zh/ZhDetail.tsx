@@ -5,7 +5,7 @@
  * Конспект — НЕ вторая карточка тура (CLAUDE.md §11): брони, формы заявки,
  * цены «от» сверх поля базы и своей SOS-кнопки здесь нет. Единственная
  * карточка с бронью — русская /catalog/tours/[slug], и конспект ведёт на неё
- * ссылкой «唯一的预订页面». SOS — одна кнопка платформы в шапке (§2, #887).
+ * ссылкой «唯一的预订页面». SOS — одна кнопка платформы в шапке (§2, issue 887).
  *
  * Что откуда:
  *   - тексты оператора (название, описание, программа, состав, что взять) —
@@ -33,6 +33,7 @@ import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
 import { ruPlacePath } from '@/lib/zh/pages';
 import { priceZh, durationZh, seasonZh, groupZh, zhFactHeading } from '@/lib/zh/entry';
+import type { CbrRate } from '@/lib/currency/cbr-rate';
 import {
   ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, readField,
   type ZhFieldKind, type ZhFieldValue, type ZhFieldView, type ZhProgramStep, type ZhStoredTranslation,
@@ -95,16 +96,16 @@ export function ZhFieldBlock({ heading, kind, view, field, showSource = true }: 
 /** Самая поздняя дата свежего перевода и вычитаны ли все свежие поля. */
 function translationStamp(views: ZhFieldView[]): { date: string | null; any: boolean; allReviewed: boolean } {
   let max: number | null = null;
-  let any = false;
+  let anyFresh = false;
   let allReviewed = true;
   for (const v of views) {
     if (v.state !== 'fresh') continue;
-    any = true;
+    anyFresh = true;
     if (!v.reviewed) allReviewed = false;
     const t = v.translatedAt?.getTime();
     if (t !== undefined && !Number.isNaN(t) && (max === null || t > max)) max = t;
   }
-  return { date: max === null ? null : new Date(max).toISOString().slice(0, 10), any, allReviewed: any && allReviewed };
+  return { date: max === null ? null : new Date(max).toISOString().slice(0, 10), any: anyFresh, allReviewed: anyFresh && allReviewed };
 }
 
 /** Пометка машинного перевода и ссылка на русский оригинал. */
@@ -159,7 +160,7 @@ export function tourViews(tour: ZhTourSourceRow, translations: Translations): Re
   return out;
 }
 
-export function ZhTourSummary({ tour, translations }: { tour: ZhTourSourceRow; translations: Translations }) {
+export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTourSourceRow; translations: Translations; cny?: CbrRate | null }) {
   const v = tourViews(tour, translations);
   const zhTitle = v.title.state === 'fresh' ? (v.title.zh as string) : null;
   const factHeading = zhFactHeading(tour);
@@ -197,7 +198,7 @@ export function ZhTourSummary({ tour, translations }: { tour: ZhTourSourceRow; t
 
       <Facts
         items={[
-          [ZH_DETAIL.facts.price, priceZh(tour)],
+          [ZH_DETAIL.facts.price, priceZh(tour, cny)],
           [ZH_DETAIL.facts.duration, durationZh(tour)],
           [ZH_DETAIL.facts.group, groupZh(tour.max_participants, tour.group_size_unlimited)],
           [ZH_DETAIL.facts.season, seasonZh(tour.season_start, tour.season_end)],

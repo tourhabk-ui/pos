@@ -9,6 +9,7 @@ import { HarbinFlight } from '@/components/zh/HarbinFlight';
 import { HARBIN_PAGE, HARBIN_PATH, loadSaturdayWeekTours } from '@/lib/zh/harbin';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { loadCnyRate } from '@/lib/currency/cbr-rate';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,12 +33,12 @@ export const metadata: Metadata = {
 
 export default async function HarbinPage() {
   recordZhEntryHit(HARBIN_PATH, (await headers()).get('user-agent'));
-  const tours = await loadSaturdayWeekTours();
+  const [tours, cny] = await Promise.all([loadSaturdayWeekTours(), loadCnyRate()]);
   return (
     <>
       <Header />
       <main className="ds-page" lang="zh-CN">
-        <HarbinFlight tours={tours} />
+        <HarbinFlight tours={tours} cny={cny} />
       </main>
     </>
   );

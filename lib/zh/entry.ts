@@ -26,6 +26,7 @@ import { logText } from '@/lib/log/log-text';
 import { ZH_TOUR_FIELDS, readField } from '@/lib/zh/fields';
 import { loadTranslations, logZhFailure } from '@/lib/zh/content';
 import { bookingRequestCeiling } from '@/lib/tours/group-size';
+import { approxYuan, type CbrRate } from '@/lib/currency/cbr-rate';
 
 export interface ZhTourRow {
   id: string;
@@ -96,11 +97,20 @@ export async function withZhTitles<T extends ZhTourRow>(rows: T[]): Promise<T[]>
   });
 }
 
-/** «105,000 卢布 每人»; нет цены или ноль — null, а не «0 卢布». */
-export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>): string | null {
+/**
+ * «105,000 卢布 每人»; нет цены или ноль — null, а не «0 卢布».
+ *
+ * С курсом ЦБ (29.10) — ещё «≈ юани» с датой курса и словами «цена в
+ * рублях»: пересчёт подсказка, а не цена. Нет курса — только рубли.
+ */
+export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>, cny?: CbrRate | null): string | null {
   const n = Number(t.base_price);
   if (!Number.isFinite(n) || n <= 0) return null;
-  return `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+  const rub = `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+  const yuan = cny ? approxYuan(n, cny) : null;
+  if (!yuan || !cny) return rub;
+  const [d, m, y] = cny.date.split('.');
+  return `${rub}（${yuan}，按俄罗斯央行 ${y}-${m}-${d} 汇率估算，以卢布计价）`;
 }
 
 /**

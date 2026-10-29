@@ -26,6 +26,7 @@ import { zhFactDescription, zhFactHeading } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { loadCnyRate } from '@/lib/currency/cbr-rate';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,7 +93,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ZhTourPage({ params }: Props) {
   const { slug } = await params;
   recordZhEntryHit(`/zh/tours/${slug}`, (await headers()).get('user-agent'));
-  const data = await load(slug);
+  const [data, cny] = await Promise.all([load(slug), loadCnyRate()]);
   if (!data) notFound();
   // Пришли по числу, а у тура есть адрес — 308 на адрес: один адрес на конспект.
   if (data.byId && data.tour.slug) permanentRedirect(zhTourPath(data.tour));
@@ -100,7 +101,7 @@ export default async function ZhTourPage({ params }: Props) {
     <>
       <Header />
       <main className="ds-page" lang="zh-CN">
-        <ZhTourSummary tour={data.tour} translations={data.translations} />
+        <ZhTourSummary tour={data.tour} translations={data.translations} cny={cny} />
       </main>
     </>
   );
