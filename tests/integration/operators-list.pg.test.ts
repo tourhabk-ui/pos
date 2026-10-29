@@ -862,4 +862,157 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(await snap()).toBe(before);
     });
   });
+
+  describe('«Лагуна Экспедиция»: снимки 34 туров и логотип (1343)', () => {
+    const MIG_1343 = readFileSync(join(process.cwd(), 'migrations/1343_laguna_expedition_photos.sql'), 'utf-8');
+    const PREFIX = '/api/images/s3/photos/laguna-expedition/';
+    const LOGO = '/images/laguna-expedition/laguna-expedition-logo.png';
+    type TourRow = { slug: string; photos: string[] | null; tour_image: string | null; updated_at: string };
+    const tours = async () => (await pool.query<TourRow>(
+      `SELECT t.slug, t.photos, t.tour_image, t.updated_at::text
+         FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
+        WHERE p.slug = 'laguna-expedition' AND t.slug LIKE 'lagexp-%' ORDER BY t.slug`,
+    )).rows;
+    const partner = async () => (await pool.query<{ logo_image: string | null; gallery_credits: Record<string, string> | null; updated_at: string }>(
+      `SELECT logo_image, gallery_credits, updated_at::text FROM partners WHERE slug = 'laguna-expedition'`,
+    )).rows[0];
+    /** Снимки каждого тура сразу после цепочки миграций шаблона — образец для «дописала в пустое». */
+    let original = new Map<string, string[]>();
+
+    it('цепочка 1339 → 1343: у каждого из 34 туров обложка и галерея из хранилища, у партнёра логотип и подпись каждого снимка', async () => {
+      const rows = await tours();
+      expect(rows).toHaveLength(34);
+      for (const r of rows) {
+        expect(r.photos?.length ?? 0, r.slug).toBeGreaterThanOrEqual(1);
+        expect(r.photos!.length, r.slug).toBeLessThanOrEqual(6);
+        expect(r.tour_image, r.slug).toBe(r.photos![0]);
+        for (const u of r.photos!) expect(u.startsWith(PREFIX), `${r.slug}: ${u}`).toBe(true);
+      }
+      original = new Map(rows.map((r) => [r.slug, r.photos!]));
+      const p = await partner();
+      expect(p.logo_image).toBe(LOGO);
+      const used = [...new Set(rows.flatMap((r) => r.photos!))].sort();
+      const credited = Object.keys(p.gallery_credits ?? {}).filter((u) => u.startsWith(PREFIX)).sort();
+      expect(credited).toEqual(used);
+      for (const u of used) expect(p.gallery_credits![u], u).toBe('Лагуна Экспедиция');
+
+      // Карточка тура подписывает снимки этой картой (lib/tours/photo-credits).
+      const { tourPhotoCaptions } = await import('@/lib/tours/photo-credits');
+      expect(new Set(tourPhotoCaptions(rows[0].photos!, p.gallery_credits))).toEqual(new Set(['Фото: Лагуна Экспедиция']));
+    });
+
+    it('повтор ничего не меняет — ни снимков, ни подписи, ни времени правки', async () => {
+      const before = JSON.stringify([await tours(), await partner()]);
+      await pool.query(MIG_1343);
+      expect(JSON.stringify([await tours(), await partner()])).toBe(before);
+    });
+
+    it('заполненное не перетирается: свои снимки тура, своя обложка, свой логотип, своя подпись; пустое — дописывается', async () => {
+      const [a, b, c, d] = [...original.keys()];
+      const credited = original.get(c)![0];
+      await pool.query(`UPDATE operator_tours SET photos = ARRAY['/images/own/a.jpg'], tour_image = NULL WHERE slug = $1`, [a]);
+      await pool.query(`UPDATE operator_tours SET photos = '{}', tour_image = '/images/own/b.jpg' WHERE slug = $1`, [b]);
+      await pool.query(`UPDATE operator_tours SET photos = NULL, tour_image = NULL WHERE slug = $1`, [c]);
+      await pool.query(`UPDATE operator_tours SET photos = ARRAY['  '], tour_image = '' WHERE slug = $1`, [d]);
+      await pool.query(
+        `UPDATE partners SET logo_image = '/images/own/logo.png',
+                gallery_credits = gallery_credits || jsonb_build_object($1::text, 'Автор оператора')
+          WHERE slug = 'laguna-expedition'`, [credited],
+      );
+      await pool.query(MIG_1343);
+      const rows = new Map((await tours()).map((r) => [r.slug, r]));
+      expect(rows.get(a)).toMatchObject({ photos: ['/images/own/a.jpg'], tour_image: null });
+      expect(rows.get(b)).toMatchObject({ photos: [], tour_image: '/images/own/b.jpg' });
+      expect(rows.get(c)).toMatchObject({ photos: original.get(c), tour_image: original.get(c)![0] });
+      expect(rows.get(d)).toMatchObject({ photos: original.get(d), tour_image: original.get(d)![0] });
+      const p = await partner();
+      expect(p.logo_image).toBe('/images/own/logo.png');
+      expect(p.gallery_credits![credited]).toBe('Автор оператора');
+    });
+
+    it('карточки партнёра нет — WARNING, туры не тронуты', async () => {
+      const slug = [...original.keys()][5];
+      await pool.query(`UPDATE operator_tours SET photos = NULL, tour_image = NULL WHERE slug = $1`, [slug]);
+      await pool.query(`UPDATE partners SET slug = 'laguna-expedition-away' WHERE slug = 'laguna-expedition'`);
+      const client = await pool.connect();
+      const notices: string[] = [];
+      client.on('notice', (n) => notices.push(n.message ?? ''));
+      try {
+        await client.query(MIG_1343);
+      } finally {
+        client.release();
+        await pool.query(`UPDATE partners SET slug = 'laguna-expedition' WHERE slug = 'laguna-expedition-away'`);
+      }
+      expect(notices.some((m) => m.includes('[1343] карточек laguna-expedition: 0'))).toBe(true);
+      const row = (await tours()).find((r) => r.slug === slug);
+      expect(row).toMatchObject({ photos: null, tour_image: null });
+      // Карточка вернулась — повтор дописывает.
+      await pool.query(MIG_1343);
+      expect((await tours()).find((r) => r.slug === slug)?.photos).toEqual(original.get(slug));
+    });
+
+    it('главная (fetchPlates): тур без снимка не попадает даже самым свежим, тур со снимком — попадает', async () => {
+      // Сцена файла: test-tour-1 и test-tour-2 — живые туры «Тест Вертолёты» без
+      // снимков. Делаем их самыми свежими: прежний порядок «сначала с фото»
+      // отдал бы им место, как только туров со снимком не хватало.
+      await pool.query(`UPDATE operator_tours SET created_at = NOW() + interval '1 day' WHERE slug IN ('test-tour-1', 'test-tour-2')`);
+      await pool.query(`UPDATE operator_tours SET photos = ARRAY['/images/test/shot.jpg'] WHERE slug = 'test-tour-2'`);
+      // Тридцать ещё более свежих туров без снимка: выборка главной берёт 24
+      // строки, и без отсечения в SQL они заняли бы её целиком — тур со
+      // снимком не дошёл бы до витрины, хотя правило порядка его пускает.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, max_participants,
+                                     is_active, is_published, created_at)
+         SELECT $1, 'Без снимка ' || i, 'test-bare-' || i, 'helicopter', 1000, 10, TRUE, TRUE, NOW() + interval '2 days'
+           FROM generate_series(1, 30) AS i`, [P.fish.id],
+      );
+      const { fetchPlates } = await import('@/app/_home/data');
+      const plates = await fetchPlates();
+      expect(plates.length).toBeGreaterThan(0);
+      for (const p of plates) expect(p.imageUrl, p.title).toBeTruthy();
+      const slugs = plates.map((p) => p.slug);
+      expect(slugs).not.toContain('test-tour-1');
+      expect(slugs.some((x) => x?.startsWith('test-bare-'))).toBe(false);
+      expect(slugs).toContain('test-tour-2');
+      expect(plates.find((p) => p.slug === 'test-tour-2')?.imageUrl).toBe('/images/test/shot.jpg');
+    });
+
+    it('главная (fetchPlates): самый свежий оператор не забирает выборку — тур другой компании с датами доходит до витрины (ревью 29.10)', async () => {
+      // Прод после 1343: 33 опубликованных тура «Лагуны Экспедиции», заведённые
+      // 1339 последними, получили снимки, и общий `ORDER BY created_at DESC
+      // LIMIT 24` отдавал ей всю выборку — круг операторов в orderPlates
+      // собирать было не из кого, витрина из восьми карточек одной компании.
+      // Сцена: у «Тест Рыбалка» тридцать самых свежих туров со снимками, у
+      // «Тест Вертолёты» — более старые со снимком, один из них с открытой датой.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, max_participants,
+                                     is_active, is_published, photos, created_at)
+         SELECT $1, 'Свежий со снимком ' || i, 'test-fresh-' || i, 'fishing', 1000, 10, TRUE, TRUE,
+                ARRAY['/images/test/fresh-' || i || '.jpg'], NOW() + interval '3 days'
+           FROM generate_series(1, 30) AS i`, [P.fish.id],
+      );
+      await pool.query(
+        `UPDATE operator_tours SET photos = ARRAY['/images/test/dated.jpg'], created_at = NOW() - interval '30 days'
+          WHERE slug = 'test-tour-3'`,
+      );
+      const dated = (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = 'test-tour-3'`)).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots)
+         VALUES ($1, CURRENT_DATE + 10, 5, 0)`, [dated],
+      );
+      const { fetchPlates } = await import('@/app/_home/data');
+      const plates = await fetchPlates();
+      const operators = new Set(plates.map((p) => p.operatorName));
+      expect(operators.size, [...operators].join(', ')).toBeGreaterThanOrEqual(2);
+      // Тур с датами — на витрине и среди первых: порядок «даты → по запросу»,
+      // а не свежесть (туры с датами из цепочки миграций — тоже впереди).
+      const at = plates.findIndex((p) => p.slug === 'test-tour-3');
+      expect(at, plates.map((p) => p.slug).join(', ')).toBeGreaterThanOrEqual(0);
+      expect(plates[at]).toMatchObject({ availability: 'dates', operatorName: 'Тест Вертолёты' });
+      expect(plates.slice(0, at).every((p) => p.availability === 'dates')).toBe(true);
+      const fresh = plates.filter((p) => p.slug?.startsWith('test-fresh-')).length;
+      expect(fresh, 'самый свежий оператор без своих карточек — тоже неправда').toBeGreaterThan(0);
+      expect(fresh).toBeLessThan(plates.length);
+    });
+  });
 });

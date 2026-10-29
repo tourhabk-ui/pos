@@ -1,14 +1,43 @@
 {
   "timeout": 30,
-  "run": 1010,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образец угрозы PTWC с таблицей прихода волны по пунктам края: сообщения о землетрясении M8.8 у Камчатки 29.07.2025 (номер события по образцу 26297000 — ГГ+день года+000).",
+  "run": 1015,
+  "run1014_result": "kammeteo.ru отвечает раннеру 200 (nginx, UTF-8). На главной — ссылки «Прогноз погоды на ближайшие сутки» prognoz/prognozy1.php, «на 2-3 сутки» prognoz/prognozy2.php, «Обзор погодных условий за прошедшие сутки» prognoz/current.php; новости — декадные обзоры погоды по краю. RSS на главной нет. /forecast — 404, проба остановилась на нём (allowStale не стоял); meteoinfo.ru не дошли.",
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «есть же камчатский гидромет». Сами страницы прогноза Камчатского УГМС: форма текста (по районам? по городам? срок выпуска, подпись синоптика), и страница Гидрометцентра по Петропавловску для сравнения.",
   "urls": [
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/1/WEPA40/WEPA40.txt",
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/3/WEPA40/WEPA40.txt",
-    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/1/WEPA40/PHEB.json"
+    "https://kammeteo.ru/prognoz/prognozy1.php",
+    "https://kammeteo.ru/prognoz/prognozy2.php",
+    "https://kammeteo.ru/prognoz/current.php",
+    "https://kammeteo.ru/prognoz/",
+    "https://meteoinfo.ru/forecasts/russia/kamchatka-territory/petropavlovsk-kamchatskiy",
+    "https://meteoinfo.ru/forecasts5000/russia/kamchatka-territory/petropavlovsk-kamchatskiy"
   ],
+  "ua": "VedarBot/1.0 (+https://vedarai.ru)",
   "allowStale": true,
   "retries": 0,
   "text": true,
-  "bytes": 12000
+  "bytes": 9000,
+  "grep": [
+    "Петропавловск",
+    "Елизово",
+    "Усть-Камчатск",
+    "Эссо",
+    "Мильково",
+    "ветер",
+    "Ветер",
+    "температур",
+    "Составил",
+    "составил",
+    "синоптик",
+    "Выпуск",
+    "выпущен",
+    "Штормов",
+    "штормов",
+    "район"
+  ],
+  "around": [
+    "Штормов"
+  ],
+  "aroundBefore": 2,
+  "aroundLines": 12,
+  "aroundHits": 2
 }

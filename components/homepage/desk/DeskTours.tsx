@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, BedDouble, Bus, CalendarCheck, CalendarX, MessageSquareText, RotateCcw } from 'lucide-react';
 import type { Plate } from '@/app/_home/data';
-import { plateFacts, HOME_PLATES_ORDER_NOTE } from '@/lib/home/plate-facts';
+import { plateFacts, HOME_PLATES_ORDER_NOTE, HOME_TOURS_PHOTO_NOTE } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
@@ -214,6 +214,8 @@ export function DeskTours({ plates, transfer = null, stay = null, total, rentalD
         <div className="flex flex-col gap-1.5">
           <h2 id="desk-tours-title" className="font-playfair text-4xl font-bold tracking-[-0.01em] text-[var(--text-primary)]">Можно поехать</h2>
           <p className="text-[15px] text-[var(--text-secondary)]">Туры операторов: цена, даты и условия отмены — до звонка</p>
+          {/* Правило отбора — словами на самой витрине (§0, lib/home/plate-facts). */}
+          <p className="text-sm text-[var(--text-secondary)]">{HOME_TOURS_PHOTO_NOTE}</p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
           {/* Трансфер (владелец 09.10: «доп кнопка на главной») — тот же адрес, что у плитки телефона. */}

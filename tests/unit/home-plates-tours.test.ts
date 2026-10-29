@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { orderPlates, PLATES_LIMIT, HOME_PLATES_ORDER_NOTE } from '@/lib/home/plate-facts';
+import { orderPlates, PLATES_LIMIT, HOME_PLATES_ORDER_NOTE, HOME_TOURS_PHOTO_NOTE } from '@/lib/home/plate-facts';
 import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
 
 const data = readFileSync(join(process.cwd(), 'app/_home/data.ts'), 'utf-8');
@@ -142,6 +142,28 @@ describe('orderPlates: витрина главной — правило 1в, т�
     expect(out.map((p) => p.id).slice(0, 3).sort()).toEqual(['a0', 'a1', 'b0']);
   });
 
+  it('две компании чередуются: A, B, A, B — при любом дне жребия', () => {
+    const input = [
+      ...Array.from({ length: 4 }, (_, i) => t(`a${i}`, 'on_request', 'A')),
+      ...Array.from({ length: 4 }, (_, i) => t(`b${i}`, 'on_request', 'B')),
+    ];
+    for (const day of ['2026-10-29', '2026-10-30', '2026-11-01', '2026-12-31']) {
+      const companies = orderPlates(input, { day }).map((p) => p.partnerId);
+      expect(companies, day).toHaveLength(8);
+      for (let i = 1; i < companies.length; i++) expect(companies[i], `${day}: место ${i}`).not.toBe(companies[i - 1]);
+    }
+  });
+
+  it('тур без снимка не попадает и при кончившемся сезоне; закрытый со снимком — в конце', () => {
+    // Случай 29.10: открытые туры без фото стояли впереди закрытых с фото.
+    const out = orderPlates([
+      t('old', 'season_over', 'B'),
+      ...Array.from({ length: 5 }, (_, i) => t(`bare${i}`, 'dates', 'A', { imageUrl: null })),
+      t('open', 'on_request', 'C'),
+    ], { day: DAY });
+    expect(out.map((p) => p.id)).toEqual(['open', 'old']);
+  });
+
   it('компания с ближайшей свободной датой — первой; внутри компании — тур с датой раньше', () => {
     const out = orderPlates([
       t('b0', 'on_request', 'B'),
@@ -169,9 +191,13 @@ describe('orderPlates: витрина главной — правило 1в, т�
     expect(out.slice(0, 3).map((p) => p.id).sort()).toEqual(['a0', 'x', 'y']);
   });
 
-  it('подпись называет правило, допуск по снимку и кончается «Место в списке не продаётся.»', () => {
-    expect(HOME_PLATES_ORDER_NOTE).toMatch(/туры со снимками; все туры — в каталоге/);
+  it('подписи: порядок кончается «Место в списке не продаётся.», допуск по снимку — своей строкой', () => {
+    expect(HOME_PLATES_ORDER_NOTE).toMatch(/по ближайшему выезду, компании по очереди/);
+    expect(HOME_PLATES_ORDER_NOTE).toMatch(/с закончившимся сезоном — в конце/);
     expect(HOME_PLATES_ORDER_NOTE).toMatch(/Место в списке не продаётся\.$/);
+    expect(HOME_TOURS_PHOTO_NOTE).toBe('На главной — туры со снимками; все туры — в каталоге.');
+    // Смысл не дублируется: обе подписи стоят в одном блоке.
+    expect(HOME_PLATES_ORDER_NOTE).not.toContain(HOME_TOURS_PHOTO_NOTE);
   });
 
   it('не мутирует вход', () => {
