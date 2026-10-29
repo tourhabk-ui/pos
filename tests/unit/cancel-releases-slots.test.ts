@@ -60,7 +60,8 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*
 const ANSWERS: Record<string, 'releases' | string> = {
   // ── Возвращают места ────────────────────────────────────────────────────
   'app/api/bookings/[id]/cancel/route.ts': 'releases',
-  'app/api/hub/operator/bookings/[id]/route.ts': 'releases',
+  // Кабинет оператора и раздел «Свои туры» гида — одно правило продавца тура.
+  'lib/bookings/owner-status.ts': 'releases',
   'app/api/operator/bookings/[id]/route.ts': 'releases',
   // cancelBooking() здесь же чинит #1814 (писала в чужую таблицу bookings) и
   // сразу вызывает releaseSlotsForCancelledBooking — иначе фикс сам открыл бы
@@ -97,6 +98,8 @@ const ANSWERS: Record<string, 'releases' | string> = {
     'пишет только флаг reminder_sent_24h; статус читает в отборе',
   'app/api/cron/payment-test-setup/route.ts':
     'снос обвязки проверки оплаты: пишет deleted_at служебным броням, статуса не меняет',
+  'lib/bookings/notify-operator.ts':
+    'статус брони не меняет: пишет только uon_request_id и uon_synced_at, а статус передаёт в уведомление продавцу (кнопки ответа гиду под ждущей бронью)',
 
   // ── Ловушка на будущее, названная вслух ─────────────────────────────────
   'lib/services/tours/booking.service.ts':

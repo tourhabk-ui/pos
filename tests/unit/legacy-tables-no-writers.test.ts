@@ -39,7 +39,8 @@ const calls: Call[] = [];
 /** Ответ пула по форме запроса — только то, что нужно путям ниже дойти до записи. */
 function answer(sql: string): { rows: Record<string, unknown>[]; rowCount: number } {
   const s = sql.replace(/\s+/g, ' ');
-  if (/SELECT user_id FROM partners/i.test(s)) return { rows: [{ user_id: 'operator-user-1' }], rowCount: 1 };
+  // Роль собеседника — категория карточки (29.10): запрос читает и её.
+  if (/SELECT user_id(?:, category)? FROM partners/i.test(s)) return { rows: [{ user_id: 'operator-user-1', category: 'operator' }], rowCount: 1 };
   if (/INSERT INTO conversations\b/i.test(s)) {
     return { rows: [{ id: 'conv-new', type: 'direct', subject: null, tour_id: null, booking_id: null }], rowCount: 1 };
   }

@@ -173,6 +173,7 @@ export async function POST(req: NextRequest) {
       touristEmail:    data.tourist_email,
       specialRequests: data.special_requests,
       via:             autoConfirmed ? 'website_auto_confirmed' : 'website',
+      bookingStatus,
     });
 
     // Email туристу — не блокирует ответ. Отказ не глушится: sendEmail не

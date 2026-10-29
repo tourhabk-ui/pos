@@ -81,7 +81,10 @@ describe('сообщение: ПД только для MAX', () => {
     expect(m.text).toMatch(/Подошёл срок: 12 задач/);
     expect(m.text).toMatch(/…и ещё 2/);
     expect(m.text).not.toMatch(/Задача 10/);
-    expect(m.buttons).toEqual([{ text: 'Открыть задачи', url: 'https://vedarai.ru/hub/carrier/tasks' }]);
+    // Ссылка — последней; перед ней «Выполнено» на каждую показанную задачу
+    // (шаг 9, подробно — crm-task-press.test.ts).
+    expect(m.buttons.at(-1)).toEqual({ text: 'Открыть задачи', url: 'https://vedarai.ru/hub/carrier/tasks' });
+    expect(m.buttons.filter((b) => 'payload' in b)).toHaveLength(10);
     expect(tasksUrl('stay')).toBe('https://vedarai.ru/hub/stay/tasks');
     expect(tasksUrl('непонятно')).toBe('https://vedarai.ru/hub');
   });
@@ -144,7 +147,7 @@ describe('команда оператора (CRM 2г, решение владе�
   const markOf = (calls: { sql: string; params: unknown[] }[]) => calls.find((c) => c.sql === MARK_REMINDED_SQL)?.params[2];
   const op = (over: Partial<DueTaskRow> = {}) => task({ category: 'operator', ...over });
 
-  it('копия менеджерам — тем же сообщением, что кабинету; исход — канал кабинета', async () => {
+  it('копия менеджерам — тем же текстом, что кабинету, без кнопок-действий; исход — канал кабинета', async () => {
     const { db, calls } = fakeDb([op({ id: 'a' }), op({ id: 'b', title: 'Второе' })]);
     const send = vi.fn(OK);
     const team = teamGot(1);
@@ -153,7 +156,9 @@ describe('команда оператора (CRM 2г, решение владе�
     const [pid, msg, what] = team.mock.calls[0]!;
     expect(pid).toBe('p-1');
     const { to: _to, ...toCabinet } = send.mock.calls[0]![0];
-    expect(msg).toEqual(toCabinet);
+    // «Выполнено» в чате менеджера было бы мёртвой кнопкой: чат кабинета там не найдётся.
+    expect(msg).toEqual({ ...toCabinet, buttons: toCabinet.buttons?.filter((b) => 'url' in b) });
+    expect(toCabinet.buttons?.some((b) => 'payload' in b)).toBe(true);
     expect(what).not.toMatch(/Анна|Перезвонить/); // в лог — без ПД и заголовков
     expect(markOf(calls)).toBe('max');
     expect(r).toMatchObject({ sent_max: 1, team_sent_max: 1, team_only: 0, unreachable: 0 });

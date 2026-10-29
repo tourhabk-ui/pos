@@ -10,7 +10,7 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { isOperatorDatesPhrase } from '@/lib/operators/chat-dates/flow';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
-import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
+import { datesSellerOf, telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import {
   menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
@@ -21,7 +21,9 @@ import {
   loadOperatorTours, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
 import { operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
-import { setOperatorChatCommands } from '@/lib/telegram/role-commands';
+import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
+import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 
 export type RoleSend = (text: string, buttons: MenuButton[][]) => Promise<void>;
 
@@ -35,9 +37,28 @@ export async function tryRoleMenuTelegramMessage(opts: {
   send: RoleSend;
   /** Постоянная клавиатура телефона. Ставится на /start, не на каждое сообщение. */
   sendPersistent?: (text: string) => Promise<void>;
+  /**
+   * Вид чата Telegram (`message.chat.type`). Кнопки действий брони и ожидание
+   * причины отклонения — только в личном (`private`); нет поля — не личный.
+   */
+  chatType?: string;
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome !== 'found') return false;
+  const privateChat = opts.chatType === 'private';
+  // Причина отклонения брони (гид, 29.10): после «Отклонить» следующее
+  // сообщение личного чата — причина для туриста. Раньше полосы: «турист
+  // заболел» иначе ушло бы Кузьмичу туриста. Беда в тексте — блок 112.
+  // Модуль действия тянет правила смены статуса брони и заявки — грузится,
+  // только когда кнопки этой карточке включены (остальным причину не ждут).
+  if (privateChat && chatActionsEnabledFor(lookup.partner)) {
+    const { captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
+    const reason = await captureOwnerReason({ channel: 'telegram', chatId: opts.chatId, partner: lookup.partner, text: opts.text });
+    if (reason) {
+      await opts.send(withSosBlock(reason.text, opts.text).text, reason.buttons);
+      return true;
+    }
+  }
   const menu = partnerMenu(lookup.partner);
   const role = menuRoleOf(lookup.partner);
   if (!menu || !role) {
@@ -65,7 +86,9 @@ export async function tryRoleMenuTelegramMessage(opts: {
   };
   const partner = lookup.partner;
   const head = opts.text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-  const fromSlash: RoleAsk | null = head === '/start' || head === '/help'
+  // «/bookings» — команда строки гида («Брони»). У остальных ролей её нет,
+  // и она уходит дальше, как любая чужая команда.
+  const fromSlash: RoleAsk | 'bookings' | null = head === '/start' || head === '/help'
     ? 'help'
     : head === '/requests'
       ? 'inbox'
@@ -73,14 +96,17 @@ export async function tryRoleMenuTelegramMessage(opts: {
         ? 'tours'
         : head === '/seats'
           ? 'seats'
-          : null;
+          : head === '/bookings' && role === 'guide'
+            ? 'bookings'
+            : null;
   if (head.startsWith('/') && fromSlash === null) return false;
   const asked = fromSlash ?? roleMenuAsk(opts.text);
-  const open = async (action: 'inbox' | 'help' | 'summary') => {
+  const open = async (action: 'inbox' | 'help' | 'summary' | 'bookings' | 'tours') => {
     const screen = await roleMenuScreen({
       role, action, channel: 'telegram', partner, nowMs: Date.now(),
     });
-    await send(screen.text, []);
+    // Кнопки действий брони — только в личном чате: в группе их нажал бы любой.
+    await send(screen.text, privateChat ? (screen.buttons ?? []) : []);
   };
   if (asked === 'help') {
     if (role === 'operator') {
@@ -93,7 +119,15 @@ export async function tryRoleMenuTelegramMessage(opts: {
       }
       return true;
     }
+    // Гиду команды чата — из его строки меню (Входящие, Брони, Мои туры,
+    // Помощь), на «Старт», как оператору.
+    if (role === 'guide' && head === '/start') void setRoleChatCommands(opts.chatId, roleChatCommands(menu));
     await send(partnerMenuHelp(role, menu), []);
+    return true;
+  }
+  if (asked === 'bookings') {
+    // Экран без ПД: канал telegram (lib/guides/chat-screens).
+    await open('bookings');
     return true;
   }
   if (asked === 'inbox') {
@@ -107,8 +141,14 @@ export async function tryRoleMenuTelegramMessage(opts: {
     return true;
   }
   if (asked === 'tours' || asked === 'seats') {
-    if (partner.category !== 'operator') {
+    if (!sellsOwnTours(partner)) {
       await send('Эта кнопка — кабинет туроператора. В этом чате её не выполняю.', []);
+      return true;
+    }
+    // Гид со своими турами — его раздел «Свои туры», не кабинет оператора.
+    if (partner.category === 'guide') {
+      if (asked === 'tours') await open('tours');
+      else await send(operatorSeatsText('guide'), []);
       return true;
     }
     if (asked === 'tours') {
@@ -119,12 +159,13 @@ export async function tryRoleMenuTelegramMessage(opts: {
     return true;
   }
   // Даты словами в Telegram не пишутся: кнопки подтверждения нет. Фраза
-  // туроператора получает тот же ответ, что вторая дверь, и до помощника
-  // не доходит — иначе он может сказать «открыл», не открыв.
-  if (partner.category === 'operator'
+  // продавца своих туров (туроператор, гид с турами — 29.10) получает тот же
+  // ответ, что вторая дверь, со ссылкой в его кабинет, и до помощника не
+  // доходит — иначе он может сказать «открыл», не открыв.
+  if (sellsOwnTours(partner)
     && chatDatesIntent(opts.text) === 'dates'
     && await isOperatorDatesPhrase(opts.text, partner.partnerId)) {
-    await send(telegramDatesText(), []);
+    await send(telegramDatesText(datesSellerOf(partner)), []);
     return true;
   }
   await processPartnerMessage({
@@ -142,6 +183,11 @@ export async function tryRoleMenuTelegramPress(opts: {
   chatId: number;
   payload: string;
   send: RoleSend;
+  /**
+   * Нажатие из личного чата канонического вебхука: только там стоят кнопки
+   * действий брони (`bk:`) и только там есть их обработчик. Нет поля — без них.
+   */
+  privateChat?: boolean;
 }): Promise<boolean> {
   const press = parseRoleMenuPress(opts.payload);
   if (!press || press.role === 'admin') return false;
@@ -173,6 +219,7 @@ export async function tryRoleMenuTelegramPress(opts: {
     partner: lookup.partner,
     nowMs: Date.now(),
   });
-  await opts.send(screen.text, menu.length ? [menu] : []);
+  const actions = opts.privateChat === true ? (screen.buttons ?? []) : [];
+  await opts.send(screen.text, menu.length ? appendMenu(actions, menu) : []);
   return true;
 }

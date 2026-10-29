@@ -1,6 +1,7 @@
 /**
- * «Открой даты словами» в чате кабинета оператора в MAX (решение владельца
- * 22.10, вариант а; спецификация, этап C, §3 и §7). Поток: фраза → разбор
+ * «Открой даты словами» в чате кабинета в MAX — туроператору (решение
+ * владельца 22.10, вариант а; спецификация, этап C, §3 и §7) и, с 29.10, гиду
+ * со своими турами (план «гид в мессенджере», шаг 8). Поток: фраза → разбор
  * правилами → предложение с кнопками «Открыть» / «Не надо» → нажатие →
  * запись той же функцией, что у кабинета → исход по каждой дате словами.
  *
@@ -16,13 +17,21 @@
  * Незаверенное сюда не доходит: проверка `verifiedOrigin` — в роуте, одна на
  * все действия (lib/max/verified-press).
  *
- * Право чата (решения владельца 22.10):
- *   - только туроператор, и только компания с аккаунтом (`partners.user_id`):
- *     записи без кабинета даты из чата не открывают. Гид, перевозчик,
- *     владелец жилья — их сообщение уходит помощнику кабинета, как до этапа
- *     C (четвёртый ревью: готовый отказ «это для туроператора» отнимал у них
- *     помощника на любой фразе с «открой» и датой); помощник даты не меняет
- *     и об этом знает (lib/kuzmich/operator-chat, `partnerSystemPrompt`);
+ * Право чата (решения владельца 22.10 и 29.10):
+ *   - только продавец своих туров (`sellsOwnTours`, lib/partners/tour-seller):
+ *     туроператор и гид с авторскими турами (1338) — даты гида открывает тот
+ *     же поток, что у туроператора (слово владельца 29.10: гид в MAX и
+ *     Telegram — управление кабинетом, «брони, заявки, даты»). Владение туром
+ *     — по `operator_tours.operator_id` его карточки, как у
+ *     /api/guide/own/dates; ссылки гида — в раздел «Свои туры», а не в
+ *     кабинет оператора (тот его не пустит);
+ *   - и только карточка с аккаунтом (`partners.user_id`): записи без
+ *     кабинета даты из чата не открывают. Гид команды без своих туров,
+ *     перевозчик, владелец жилья — их сообщение уходит помощнику кабинета,
+ *     как до этапа C (четвёртый ревью: готовый отказ «это для туроператора»
+ *     отнимал у них помощника на любой фразе с «открой» и датой); помощник
+ *     даты не меняет и об этом знает (lib/kuzmich/operator-chat,
+ *     `partnerSystemPrompt`);
  *   - даты и места — да, цена — нет ни при каких правах;
  *   - закрытые оператором даты и даты вне сезона тура не открываются: строка
  *     предложения называет их и ведёт в кабинет;
@@ -46,6 +55,7 @@
 
 import type { PartnerChatContext, PartnerChatLookup } from '@/lib/kuzmich/operator-chat';
 import { saveMsg } from '@/lib/kuzmich/core';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { CHAT_OPEN_DATES_ENABLED } from './switch';
 import {
@@ -56,8 +66,8 @@ import {
   pressTour, previewDates, readAutoConfirm, readPartnerTours, retireActive,
 } from './proposals';
 import {
-  FLOW_TEXT, type PastFlags, askSeatsText, askText, chooseTourText, historyAsk, historyResult, outcomeText, proposalFits,
-  proposalText, refusalText, repeatText, tourButtonText,
+  type DatesSeller, FLOW_TEXT, type PastFlags, askSeatsText, askText, chooseTourText, datesSellerOf, historyAsk, historyResult,
+  outcomeText, proposalFits, proposalText, refusalText, repeatText, tourButtonText,
 } from './texts';
 
 export interface DatesButton {
@@ -89,10 +99,11 @@ export function parseOdPayload(payload: string): OdPress | null {
   return null;
 }
 
-/** Почему чат туроператора не открывает даты; null — открывает. Не туроператор сюда не доходит. */
+/** Почему чат продавца не открывает даты; null — открывает. Кто не продаёт свои туры, сюда не доходит. */
 function gate(partner: PartnerChatContext): string | null {
-  if (!CHAT_OPEN_DATES_ENABLED) return FLOW_TEXT.switchedOff();
-  if (!partner.userId) return FLOW_TEXT.noAccount();
+  const seller = datesSellerOf(partner);
+  if (!CHAT_OPEN_DATES_ENABLED) return FLOW_TEXT.switchedOff(seller);
+  if (!partner.userId) return FLOW_TEXT.noAccount(seller);
   return null;
 }
 
@@ -135,12 +146,13 @@ interface TextOpts {
  * предложении), тоже снимает действующее предложение туроператора в
  * диалоге: старая «Открыть» не должна жить 30 минут рядом с поправкой.
  * Признак поправки — цифры, слово даты, «мест», «не»/«нет» или слово тура.
+ * Так же у гида со своими турами (29.10).
  */
 export async function handleOperatorDatesText(opts: TextOpts): Promise<boolean> {
   const handled = await handleText(opts);
   if (handled) return true;
   const { partner, chatId, send } = opts;
-  if (partner.category !== 'operator' || (opts.dialog ?? true) !== true || gate(partner) !== null) return false;
+  if (!sellsOwnTours(partner) || (opts.dialog ?? true) !== true || gate(partner) !== null) return false;
   if (chatDatesIntent(opts.text, opts.nowMs ?? Date.now()) === 'cancel') return false;
   let sign = correctionSign(opts.text);
   if (!sign) {
@@ -158,8 +170,10 @@ async function handleText(opts: TextOpts): Promise<boolean> {
   const { chatId, partner, send } = opts;
   const dialog = opts.dialog ?? true;
   const nowMs = opts.nowMs ?? Date.now();
-  // Гид, перевозчик, владелец жилья — помощнику кабинета, как до этапа C.
-  if (partner.category !== 'operator') return false;
+  // Гид команды без своих туров, перевозчик, владелец жилья — помощнику
+  // кабинета, как до этапа C. Гид со своими турами — сюда (29.10).
+  if (!sellsOwnTours(partner)) return false;
+  const seller = datesSellerOf(partner);
   // Только фраза, где даты — предмет (шапка parse.ts, «Чьё это сообщение»):
   // задача, касание, счёт с датой уходят помощнику кабинета, а не сюда.
   const intent = chatDatesIntent(opts.text, nowMs);
@@ -207,18 +221,18 @@ async function handleText(opts: TextOpts): Promise<boolean> {
   const today = kamchatkaDate(new Date(nowMs));
   const sentAt = opts.sentAtMs ?? null;
   switch (parsed.kind) {
-    case 'close_intent': await answerRetiring(chatId, send, FLOW_TEXT.closeIntent(), sentAt); return true;
-    case 'ask': await answerRetiring(chatId, send, askText(parsed, today), sentAt); return true;
-    case 'refused': await answerRetiring(chatId, send, refusalText(parsed, today), sentAt); return true;
+    case 'close_intent': await answerRetiring(chatId, send, FLOW_TEXT.closeIntent(seller), sentAt); return true;
+    case 'ask': await answerRetiring(chatId, send, askText(parsed, today, seller), sentAt); return true;
+    case 'refused': await answerRetiring(chatId, send, refusalText(parsed, today, seller), sentAt); return true;
     case 'proposal': await onProposal(chatId, opts.sourceMid, partner, parsed, tours ?? [], send, nowMs, sentAt); return true;
   }
 }
 
 /**
- * Telegram: фраза про даты туроператора отвечает «это в MAX», дело
- * помощника — помощнику. Решает тот же разбор с прочитанными турами, что в
- * MAX: «Выставь Горелый на 5 августа» — даты, «Открой расписание на июль» —
- * помощнику (пятый ревью 22.10).
+ * Telegram: фраза про даты продавца своих туров (туроператор, гид с турами)
+ * отвечает «это в MAX», дело помощника — помощнику. Решает тот же разбор с
+ * прочитанными турами, что в MAX: «Выставь Горелый на 5 августа» — даты,
+ * «Открой расписание на июль» — помощнику (пятый ревью 22.10).
  */
 export async function isOperatorDatesPhrase(text: string, partnerId: string, nowMs: number = Date.now()): Promise<boolean> {
   if (chatDatesIntent(text, nowMs) !== 'dates') return false;
@@ -234,13 +248,14 @@ async function onProposal(
     priceMentioned: p.priceMentioned, weekdayWords: p.weekdayWords, pastDropped: p.pastDropped, pastNamed: p.pastNamed,
     today: kamchatkaDate(new Date(nowMs)), rule: p.rule,
   };
+  const seller = datesSellerOf(partner);
   switch (p.tour.kind) {
     case 'unread': await answerRetiring(chatId, send, FLOW_TEXT.toursUnread, sentAtMs); return;
-    case 'no_tours': await answerRetiring(chatId, send, FLOW_TEXT.noTours(), sentAtMs); return;
+    case 'no_tours': await answerRetiring(chatId, send, FLOW_TEXT.noTours(seller), sentAtMs); return;
     case 'name_needed':
       await answerRetiring(chatId, send, FLOW_TEXT.nameNeeded(tours.filter((t) => t.active).map((t) => t.title)), sentAtMs);
       return;
-    case 'hidden': await answerRetiring(chatId, send, FLOW_TEXT.hiddenTours(p.tour.titles), sentAtMs); return;
+    case 'hidden': await answerRetiring(chatId, send, FLOW_TEXT.hiddenTours(p.tour.titles, seller), sentAtMs); return;
     case 'choose':
     case 'one':
       break;
@@ -263,7 +278,7 @@ async function onProposal(
   const title = (tid: string) => tours.find((t) => t.id === tid)?.title ?? `тур ${tid}`;
 
   if (created.kind === 'created') {
-    await saveMsg(chatId, 'operator_tg', 'user', historyAsk(tourId ? title(tourId) : null, p.dates, p.seats));
+    await saveMsg(chatId, 'operator_tg', 'user', historyAsk(tourId ? title(tourId) : null, p.dates, p.seats, seller));
   }
   if (candidateIds) {
     await sendChoose(send, id, p.dates, p.seats, candidateIds.map(title), flags, p.tour.kind === 'choose' ? p.tour.hidden : undefined);
@@ -293,12 +308,13 @@ async function sendProposal(
   nowMs: number,
 ): Promise<void> {
   const today = kamchatkaDate(new Date(nowMs));
+  const seller = datesSellerOf(partner);
   const [preview, autoConfirm] = await Promise.all([
     previewDates(chatOpenInput(partner.partnerId, tourId, dates, seats, today)),
     readAutoConfirm(partner.partnerId),
   ]);
   if (preview && !preview.ok) {
-    await send(preview.reason === 'tour_inactive' ? FLOW_TEXT.hidden(preview.title) : 'Тур снят с продажи или больше не ваш — даты не открыты.');
+    await send(preview.reason === 'tour_inactive' ? FLOW_TEXT.hidden(preview.title, seller) : 'Тур снят с продажи или больше не ваш — даты не открыты.');
     return;
   }
   const view = proposalText({
@@ -308,6 +324,7 @@ async function sendProposal(
     perDate: preview?.perDate ?? null,
     facts: preview ? { maxParticipants: preview.tour.maxParticipants, isPublished: preview.tour.isPublished, days: preview.tour.days } : null,
     autoConfirm,
+    seller,
     ...flags,
   });
   await send(view.text, view.canOpen
@@ -367,7 +384,10 @@ async function continueDraft(s: ProposalState, partner: PartnerChatContext, send
 /**
  * Нажатие кнопки `od:` в чате кабинета (апдейт заверен, чат — из сообщения
  * с кнопкой, диалог: это проверил роут). Каждая проверка даёт свой исход:
- * «не смог проверить» не выдаётся за «нельзя», и наоборот (§4.0).
+ * «не смог проверить» не выдаётся за «нельзя», и наоборот (§4.0). Нажимать
+ * вправе продавец своих туров — туроператор и гид с турами (29.10); чужое
+ * предложение и чужой тур не пишутся (`pressOpen`: строка этого партнёра и
+ * чата, тур — по `operator_id` его карточки).
  */
 export async function handleOperatorDatesPress(opts: {
   payload: string;
@@ -377,18 +397,20 @@ export async function handleOperatorDatesPress(opts: {
   nowMs?: number;
 }): Promise<void> {
   const { chatId, lookup, send } = opts;
-  if (!CHAT_OPEN_DATES_ENABLED) { await send(FLOW_TEXT.switchedOff()); return; }
-  if (lookup.outcome === 'unavailable') { await send(FLOW_TEXT.pressUnverifiedPartner()); return; }
-  if (lookup.outcome === 'none' || lookup.partner.category !== 'operator') { await send(FLOW_TEXT.pressNotHere); return; }
+  // Чья ссылка в ответе: карточка найдена — её продавец; иначе как раньше.
+  const seller: DatesSeller = lookup.outcome === 'found' ? datesSellerOf(lookup.partner) : 'operator';
+  if (!CHAT_OPEN_DATES_ENABLED) { await send(FLOW_TEXT.switchedOff(seller)); return; }
+  if (lookup.outcome === 'unavailable') { await send(FLOW_TEXT.pressUnverifiedPartner); return; }
+  if (lookup.outcome === 'none' || !sellsOwnTours(lookup.partner)) { await send(FLOW_TEXT.pressNotHere); return; }
   const partner = lookup.partner;
-  if (!partner.userId) { await send(FLOW_TEXT.noAccount()); return; }
+  if (!partner.userId) { await send(FLOW_TEXT.noAccount(seller)); return; }
   const press = parseOdPayload(opts.payload);
   if (!press) { await send(FLOW_TEXT.badButton); return; }
   const nowMs = opts.nowMs ?? Date.now();
 
   if (press.action === 'cancel') {
     const r = await pressCancel(partner.partnerId, chatId, press.id);
-    await send(r.kind === 'cancelled_now' ? FLOW_TEXT.cancelled : blockedText(r, FLOW_TEXT.dbFailedPress));
+    await send(r.kind === 'cancelled_now' ? FLOW_TEXT.cancelled : blockedText(r, FLOW_TEXT.dbFailedPress, seller));
     return;
   }
 
@@ -398,26 +420,26 @@ export async function handleOperatorDatesPress(opts: {
     // «кнопка устарела» рядом с рабочим предложением (второй ревью 22.10).
     const r = await pressTour(partner.partnerId, chatId, press.id, press.index);
     if (r.kind === 'chosen') { await continueDraft(r.state, partner, send, nowMs); return; }
-    await send(r.kind === 'stale_button' ? FLOW_TEXT.staleButton : blockedText(r, FLOW_TEXT.dbFailedPress));
+    await send(r.kind === 'stale_button' ? FLOW_TEXT.staleButton : blockedText(r, FLOW_TEXT.dbFailedPress, seller));
     return;
   }
 
   const r = await pressOpen(partner.partnerId, chatId, press.id, kamchatkaDate(new Date(nowMs)));
   switch (r.kind) {
     case 'done':
-      await saveMsg(chatId, 'operator_tg', 'assistant', historyResult(r.outcome));
-      await send(outcomeText(r.outcome));
+      await saveMsg(chatId, 'operator_tg', 'assistant', historyResult(r.outcome, seller));
+      await send(outcomeText(r.outcome, seller));
       return;
     case 'need_tour': await send(FLOW_TEXT.needTour); return;
     case 'need_seats': await send(FLOW_TEXT.needSeats); return;
-    default: await send(blockedText(r, FLOW_TEXT.dbFailed));
+    default: await send(blockedText(r, FLOW_TEXT.dbFailed, seller));
   }
 }
 
-function blockedText(r: PressBlocked, dbFailed: string): string {
+function blockedText(r: PressBlocked, dbFailed: string, seller: DatesSeller): string {
   switch (r.kind) {
     case 'not_found': return FLOW_TEXT.notFound;
-    case 'done_before': return repeatText(r.usedAt, r.outcome);
+    case 'done_before': return repeatText(r.usedAt, r.outcome, seller);
     case 'superseded': return FLOW_TEXT.superseded;
     case 'cancelled': return FLOW_TEXT.wasCancelled;
     case 'expired': return FLOW_TEXT.expired;

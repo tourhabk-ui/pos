@@ -58,6 +58,25 @@ describe('копия брони команде кабинета', () => {
   });
 });
 
+describe('продавец тура — гид (28.10)', () => {
+  it('личное сообщение гиду ведёт в «Свои туры»; копия рабочему чату — прежней ссылкой', async () => {
+    expect(await notifyNewBooking({ ...BOOKING, operator_max_chat_id: '900', operator_category: 'guide' }))
+      .toEqual({ state: 'delivered', channel: 'max' });
+    const toGuide = sent().find(s => s.to)!;
+    expect(toGuide.buttons).toEqual([{ text: 'Открыть бронь', url: 'https://vedarai.ru/hub/guide/own' }]);
+    const toAdmin = sent().find(s => !s.to)!;
+    expect(toAdmin.buttons).toEqual([LINK]);
+  });
+
+  it('оператору и без категории — бронь в кабинете оператора', async () => {
+    for (const operator_category of ['operator', null, undefined]) {
+      pdMock.mockClear();
+      await notifyNewBooking({ ...BOOKING, operator_max_chat_id: '900', operator_category });
+      expect(sent().find(s => s.to)!.buttons).toEqual([LINK]);
+    }
+  });
+});
+
 describe('задача администратору «нет канала» знает про команду', () => {
   const handoff = () => sent().find(s => /нет канала|нет своего канала/.test(s.text))!.text;
 

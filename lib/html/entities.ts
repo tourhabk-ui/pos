@@ -39,9 +39,13 @@ const ENTITIES: Record<string, string> = {
   '#187': '»',
   mdash: '—',
   ndash: '–',
+  // 29.10: градус — прогноз Камчатского УГМС пишет температуру «+3,+5&deg;С»
+  // (lib/weather/ugms-forecast); без него знак пропадал бы из дословного текста.
+  deg: '°',
+  '#176': '°',
 };
 
-const ENTITY_RE = /&(nbsp|amp|lt|gt|quot|apos|laquo|raquo|mdash|ndash|#39|#039|#33|#171|#187);/gi;
+const ENTITY_RE = /&(nbsp|amp|lt|gt|quot|apos|laquo|raquo|mdash|ndash|deg|#39|#039|#33|#171|#176|#187);/gi;
 
 export function decodeHtmlEntities(s: string): string {
   return s.replace(ENTITY_RE, (whole, name: string) => ENTITIES[name.toLowerCase()] ?? whole);

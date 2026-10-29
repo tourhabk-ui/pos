@@ -33,7 +33,8 @@ import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } f
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
-import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
+import { datesSellerOf, telegramDatesText } from '@/lib/operators/chat-dates/texts';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
@@ -679,7 +680,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // В личном чате id чата равен id человека; иначе владелец не пишется.
       const opener = typeof msg.from?.id === 'number' && msg.from.id > 0 && msg.from.id === chatId ? msg.from.id : null;
       if (await handlePartnerStart(arg, 'telegram', chatId, async (t, buttons) => {
-        if (buttons?.length) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(buttons.map((row) => [...row])) });
+        // Строка проката (rk:) — своей разметкой, со своей строкой кабинета.
+        // Строка меню гида (rm:gd:) — как есть: строку проката к ней не клеим.
+        const rows = (buttons ?? []).map((row) => [...row]);
+        const rental = rows.some((row) => row.some((b) => b.payload.startsWith('rk:')));
+        if (rows.length && rental) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(rows) });
+        else if (rows.length) {
+          await tgReply(chatId, t, {
+            reply_markup: { inline_keyboard: rows.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) },
+          });
+        }
         else await reply(t);
       }, opener)) return NextResponse.json({ ok: true });
       if (await handleMemberStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });
@@ -758,12 +768,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await say(screen.text);
       } else if (text === '/start') {
         await say(partnerGreeting(partner));
-      } else if (partner.category === 'operator' && chatDatesIntent(text) === 'dates'
+      } else if (sellsOwnTours(partner) && chatDatesIntent(text) === 'dates'
         && await (await import('@/lib/operators/chat-dates/flow')).isOperatorDatesPhrase(text, partner.partnerId)) {
         // «Открой даты словами» (22.10) — только в MAX: там есть кнопка
         // подтверждения. Здесь записи нет, и помощник фразу не получает —
-        // он сказал бы «открыл», не открыв.
-        await say(telegramDatesText());
+        // он сказал бы «открыл», не открыв. Гиду со своими турами (29.10) —
+        // так же, со ссылкой в его раздел «Свои туры».
+        await say(telegramDatesText(datesSellerOf(partner)));
       } else if (pilot && (rentalCabinetAsk(text) === 'requests' || rentalCabinetAsk(text) === 'edits' || rentalCabinetAsk(text) === 'help')) {
         const asked = rentalCabinetAsk(text);
         if (asked) {

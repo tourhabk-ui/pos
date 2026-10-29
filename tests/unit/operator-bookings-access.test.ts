@@ -49,16 +49,18 @@ describe('переходы статуса брони', () => {
     expect(ALLOWED_TRANSITIONS.pending_payment).toEqual(expect.arrayContaining(['confirmed', 'cancelled']));
   });
 
+  // Правило смены статуса — одно на кабинет оператора и раздел «Свои туры»
+  // гида (lib/bookings/owner-status); дверь отвечает 409 на его исход.
   it('кабинет проверяет переход и отвечает 409', () => {
-    const src = read('app/api/hub/operator/bookings/[id]/route.ts');
-    expect(src).toMatch(/ALLOWED_TRANSITIONS/);
-    expect(src).toMatch(/allowed\.includes\(input\.booking_status/);
-    expect(src).toMatch(/badTransition[\s\S]{0,300}status: 409/);
+    const rule = read('lib/bookings/owner-status.ts');
+    expect(rule).toMatch(/ALLOWED_TRANSITIONS/);
+    expect(rule).toMatch(/allowed\.includes\(input\.booking_status/);
+    expect(read('app/api/hub/operator/bookings/[id]/route.ts')).toMatch(/'bad_transition'[\s\S]{0,300}status: 409/);
   });
 });
 
 describe('отмена из кабинета записывает возврат, подтверждение ведёт к оплате', () => {
-  const src = read('app/api/hub/operator/bookings/[id]/route.ts');
+  const src = read('lib/bookings/owner-status.ts');
 
   it('recordRefundDue в транзакции отмены, как у остальных дверей', () => {
     expect(src).toMatch(/refund = await recordRefundDue\(client, id, true\)/);
@@ -79,13 +81,13 @@ describe('Telegram: мёртвый ловец кнопок снят, уведо�
   });
 
   it('кабинет шлёт туристу подтверждение со ссылкой на оплату и отмену с возвратом', () => {
-    const src = read('app/api/hub/operator/bookings/[id]/route.ts');
+    const src = read('lib/bookings/owner-status.ts');
     expect(src).toMatch(/notifyTouristBookingConfirmed\(row\.user_id,[\s\S]{0,300}url: bookingUrl/);
     expect(src).toMatch(/notifyTouristBookingCancelled\(row\.user_id,/);
   });
 
   it('причина отмены от оператора экранируется в письме', () => {
-    expect(read('app/api/hub/operator/bookings/[id]/route.ts')).toMatch(/escapeHtml\(input\.cancellation_reason\)/);
+    expect(read('lib/bookings/owner-status.ts')).toMatch(/escapeHtml\(input\.cancellation_reason\)/);
   });
 });
 
@@ -130,7 +132,12 @@ describe('лиды: скоуп один, ничейный лид станови�
     expect(src).not.toMatch(/if \(!isAdmin && operatorId\)/);
   });
 
+  // Правило смены статуса заявки с 29.10 — общее с гидом
+  // (lib/leads/owner-lead-status); что дверь оператора занимает ничейный лид,
+  // а гид — нет, доказывается на настоящей базе
+  // (tests/integration/tourist-cabinet.pg.test.ts) и вызовом (leads-idor).
   it('правка ничейного лида оператором его занимает', () => {
-    expect(read('app/api/leads/[id]/route.ts')).toMatch(/operator_id = COALESCE\(operator_id, \$/);
+    expect(read('lib/leads/owner-lead-status.ts')).toMatch(/operator_id = COALESCE\(l\.operator_id, \$5::uuid\)/);
+    expect(read('app/api/leads/[id]/route.ts')).toMatch(/scope: await operatorLeadScope\(user\)/);
   });
 });

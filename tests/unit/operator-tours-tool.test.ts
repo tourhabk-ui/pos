@@ -32,6 +32,15 @@ describe('my_tours_schedule (24.10: «разве это мы планирова�
     expect(await runMyToursSchedule('p1', {}, NOW)).toContain('НЕ УДАЛОСЬ');
   });
 
+  it('даты тура не проверились — модели «не удалось», в лог — имя проверки и код (§4.0, не глушится)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    query.mockResolvedValueOnce({ rows: [{ id: 5, title: 'B', is_active: true, is_published: true, max_participants: null, season_start: null, season_end: null }] });
+    avail.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57014' }));
+    expect(await runMyToursSchedule('p1', {}, NOW)).toContain('Даты НЕ УДАЛОСЬ ПРОВЕРИТЬ');
+    expect(err.mock.calls.map((c) => JSON.stringify(c)).join(' ')).toMatch(/my-tours.*тура 5.*57014/);
+    err.mockRestore();
+  });
+
   it('days ограничен 1–120, определение называется my_tours_schedule', () => {
     expect(parseDays(undefined)).toBe(60);
     expect(parseDays('500')).toBe(120);

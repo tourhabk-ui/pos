@@ -39,6 +39,7 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { isOfferEditAsk } from '@/lib/rental/offer-edit';
 import { isNextCommand } from '@/lib/seat-requests/answer-edit';
 import { isSummaryCommand } from '@/lib/seat-requests/summary';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 
 export type BoundChatLane = 'partner' | 'tourist';
 
@@ -88,10 +89,15 @@ function isCrmRecordOfOthers(t: string): boolean {
   return CRM_LEAD.test(t) && !FIRST_PERSON.test(t);
 }
 
-/** Что о партнёре знает классификатор: прокат ли это (его машины, его календарь), туроператор ли (его даты). */
+/**
+ * Что о партнёре знает классификатор: прокат ли это (его машины, его
+ * календарь), продаёт ли он свои туры (его даты). Продавец — туроператор и,
+ * с 29.10, гид с авторскими турами (`sellsOwnTours`); гид команды оператора
+ * своих дат не открывает, и его «нужно добавить даты тура» — как раньше.
+ */
 export interface BoundChatContext {
   rental?: boolean;
-  operator?: boolean;
+  ownTours?: boolean;
 }
 
 /** Прокат: пилот кабинета или категория «машины». */
@@ -100,8 +106,10 @@ export function partnerHasRental(partner: { slug?: string | null; category?: str
 }
 
 /** Контекст классификатора по карточке партнёра — один на все входы. */
-export function boundChatContext(partner: { slug?: string | null; category?: string | null }): BoundChatContext {
-  return { rental: partnerHasRental(partner), operator: partner.category === 'operator' };
+export function boundChatContext(
+  partner: { slug?: string | null; category?: string | null; sellsTours?: boolean },
+): BoundChatContext {
+  return { rental: partnerHasRental(partner), ownTours: sellsOwnTours({ category: partner.category, sellsTours: partner.sellsTours }) };
 }
 
 function isCabinet(raw: string, t: string, ctx: BoundChatContext): boolean {
@@ -129,8 +137,9 @@ export function boundChatLane(text: string, ctx: BoundChatContext = {}): BoundCh
   // просьба туриста, а это даты своего тура — Кузьмич туриста советовал
   // оператору «отправить запрос оператору» (проверка каналов 25.10). Судит
   // фразу поток дат (chatDatesIntent); туристские «хочу тур на 5 ноября» им
-  // не задеты.
-  if (ctx.operator && chatDatesIntent(text) === 'dates') return 'partner';
+  // не задеты. Гиду со своими турами (29.10) — так же: его даты знает
+  // помощник кабинета (my_tours_schedule), а не Кузьмич туриста.
+  if (ctx.ownTours && chatDatesIntent(text) === 'dates') return 'partner';
   if (isCabinet(text, t, ctx)) return 'partner';
   if (RENTAL_EN.test(t)) return 'tourist';
   // «аренда» без машины — тоже просьба туриста, если это вопрос («хочу
@@ -162,7 +171,7 @@ export function boundChatLaneFor(
   const nowMs = opts.nowMs ?? Date.now();
   const key = `${channel}:${chatId}`;
   const emergency = detectEmergency(text).detected;
-  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text, { rental: opts.rental, operator: opts.operator });
+  const lane = opts.admin && emergency ? 'tourist' : boundChatLane(text, { rental: opts.rental, ownTours: opts.ownTours });
   if (emergency && lane === 'tourist') {
     emergencyMarks.set(key, nowMs);
     return lane;
