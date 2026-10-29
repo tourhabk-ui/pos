@@ -523,8 +523,12 @@ export async function loadTourCatalog(): Promise<string | null> {
            LIMIT 1
         ) live ON true
         WHERE ${publicTourSql('ot')}
-        ORDER BY ot.base_price ASC
-        LIMIT 40
+        -- Весь каталог витрины, без LIMIT (29.10): «LIMIT 40» молча отрезал
+        -- самые дорогие туры — MCP get_tours говорил «туров всего 40» при 42
+        -- на витрине. Страницы делает get_tours, подсказку Кузьмича —
+        -- capTourCatalog с названной обрезкой. id — чтобы страницы не
+        -- перемешивались между вызовами при равной цене.
+        ORDER BY ot.base_price ASC, ot.id ASC
       `);
 
     const { rows } = toursResult;
@@ -638,11 +642,14 @@ export async function buildTourContext(): Promise<string> {
   // Дата нужна и без каталога: раньше пустой каталог убирал и «СЕГОДНЯ».
   if (!catalog) return kamchatkaDateContext();
   const enrichment = await buildEnrichment().catch(() => '');
+  // В подсказку — первые туры и сказано, сколько всего: остальные Кузьмич
+  // берёт get_tours (lib/kuzmich/tour-filter, capTourCatalog).
+  const { capTourCatalog } = await import('@/lib/kuzmich/tour-filter');
 
   return [
     kamchatkaDateContext(),
     '',
-    catalog,
+    capTourCatalog(catalog),
     '',
     enrichment,
   ].filter(Boolean).join('\n');
