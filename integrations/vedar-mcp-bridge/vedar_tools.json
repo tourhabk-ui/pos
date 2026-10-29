@@ -74,7 +74,7 @@
     "type": "function",
     "function": {
       "name": "get_place_info",
-      "description": "Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Для полного контекста с безопасностью и алертами — get_guardian_context.",
+      "description": "Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Для полного контекста с безопасностью и алертами — get_guardian_context.",
       "parameters": {
         "type": "object",
         "properties": {
