@@ -57,6 +57,7 @@ const m = vi.hoisted(() => ({
   notifyProposal: vi.fn(),
   sendProposal: vi.fn(),
   ownerPress: vi.fn(),
+  taskPress: vi.fn(),
 }));
 
 vi.mock('@/lib/max/max-fetch', () => ({
@@ -97,6 +98,8 @@ vi.mock('@/lib/bookings/chat-owner-action', () => ({
   captureOwnerReason: vi.fn(async () => null),
   awaitsOwnerReason: vi.fn(async () => false),
 }));
+// «Выполнено» под напоминанием о задаче (29.10): `tk:d:`.
+vi.mock('@/lib/crm/chat-task-action', () => ({ handleTaskPress: m.taskPress }));
 
 const max = await import('@/app/api/max/kuzmich/route');
 // Тесты шлют одни и те же mid: повтор сообщения отсекается (25.10), память — заново на тест.
@@ -147,7 +150,7 @@ const repliesTo = (chatId: number) =>
 
 /** Обработчики действий — ни один не должен быть вызван на незаверенном. */
 const ACTION_HANDLERS = [
-  m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal, m.ownerPress,
+  m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal, m.ownerPress, m.taskPress,
   m.login, m.loginConfirm, m.loginReject,
   m.partnerStart, m.memberStart, m.adminStart, m.findAdmin, m.bindTourist, m.createLead, m.partnerMessage,
 ];
@@ -182,6 +185,7 @@ beforeEach(() => {
   m.bindTourist.mockResolvedValue({ ok: true, notified: false });
   m.createLead.mockResolvedValue('lead-id-1');
   m.ownerPress.mockResolvedValue({ text: 'Подтвердить бронь №7001?', buttons: [] });
+  m.taskPress.mockResolvedValue('Задача «Перезвонить» отмечена выполненной.');
   vi.stubEnv('MAX_BOT_TOKEN', 'test-token');
   vi.stubEnv('MAX_WEBHOOK_SECRET', KEY);
   vi.stubEnv('MAX_OPERATOR_CHAT_ID', String(OPERATOR_CHAT));
@@ -192,7 +196,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 // ── Кнопки-действия ─────────────────────────────────────────────────────────
 
 const OWNER_ACTION = '00000000-0000-4000-8000-000000000001';
-const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login' | 'owner'; applied: () => unknown }> = [
+const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login' | 'owner' | 'task'; applied: () => unknown }> = [
   // Бронь своего тура кнопкой: право (личный диалог, карточка, человек
   // привязки, владение) решает lib/bookings/chat-owner-action; здесь — что
   // туда доходит только заверенное нажатие, с чатом сообщения и нажавшим.
@@ -203,6 +207,12 @@ const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login' | 'owner
       channel: 'max', chatId: OPERATOR_CHAT, privateChat: false, presserId: OPERATOR_CHAT, payload,
     }),
   })),
+  // «Выполнено» под напоминанием о задаче: личный диалог и партнёра чата
+  // проверяет lib/crm/chat-task-action; сюда доходит чат сообщения.
+  {
+    payload: `tk:d:${OWNER_ACTION}`, kind: 'task',
+    applied: () => expect(m.taskPress).toHaveBeenCalledWith({ chatId: OPERATOR_CHAT, privateChat: false, payload: `tk:d:${OWNER_ACTION}` }),
+  },
   { payload: `sr:y:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'yes' }, 'max') },
   { payload: `sr:n:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'no' }, 'max') },
   ...['lead_contacted', 'lead_qualified', 'lead_converted', 'lead_lost'].map((p) => ({

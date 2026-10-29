@@ -25,6 +25,7 @@ import { adminReplyFor, type AdminReply } from '@/lib/max/admin-read';
 import { readSeatSummary, SUMMARY_DB_ERROR, summaryEnabledFor, summaryText } from '@/lib/seat-requests/summary';
 import { OWNER_PRESS_BUTTON_CAP, bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
 import type { MenuButton } from '@/lib/roles/chat-menu';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export interface RoleScreen {
   text: string;
@@ -88,7 +89,9 @@ export async function roleMenuScreen(opts: {
         .filter((item) => item.kind === 'operator_booking')
         .slice(0, OWNER_PRESS_BUTTON_CAP)
         .map((item) => bookingAnswerButtons(item.id)),
-      ...leads.map((item) => leadAnswerButtons(item.id, leads.length > 1 ? (item.title ?? 'Подбор тура') : null)),
+      // Тур заявки словами пишет турист (форма сайта): в подпись кнопки — через
+      // redactPII, как в строке списка (lib/roles/inbox-text).
+      ...leads.map((item) => leadAnswerButtons(item.id, leads.length > 1 ? redactPII(item.title ?? 'Подбор тура') : null)),
     ];
     return { text: inboxMenuText(inbox), pd: false, ...(buttons.length ? { buttons } : {}) };
   }

@@ -24,6 +24,8 @@ import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries
 import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitle } from '@/lib/crm/events';
 import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/lib/crm/tasks';
 import { runTaskReminders } from '@/lib/crm/reminders';
+import { handleTaskPress } from '@/lib/crm/chat-task-action';
+import { TASK_PRESS_TEXT, taskDonePayload } from '@/lib/crm/chat-task-press';
 import { loadInbox } from '@/lib/crm/inbox';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
@@ -650,6 +652,54 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     )).rows[0].id;
     await expect(pool.query(`UPDATE crm_tasks SET reminder_channel = 'max' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
     await expect(pool.query(`UPDATE crm_tasks SET reminded_at = NOW(), reminder_channel = 'sms' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('«Выполнено» под напоминанием (29.10): задача карточки этого чата, чужой чат — «не найдена», повтор — «уже отмечена», событие одно', async () => {
+    const u = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('task-guide@example.com', 'Гид задач', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const mk = async (name: string, category: string, chat: number, userId: string | null) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, user_id, max_chat_id) VALUES ($1, $2, '{}', $3, $4) RETURNING id`,
+        [name, category, userId, chat],
+      )).rows[0].id;
+    // Старшая карточка на том же чате — туроператор того же человека:
+    // findPartnerByChat отдал бы её, а задача — гида. Кнопка отмечает задачу
+    // той карточки, чья она.
+    const elder = await mk('Туроператор на том же чате', 'operator', 9200001, null);
+    await pool.query(`SELECT pg_sleep(0.01)`);
+    const mine = await mk('Гид задач', 'guide', 9200001, u);
+    await mk('Оператор задач', 'operator', 9200002, null);
+    const cabinet = await findPartnerByChat('max', 9200001, pool);
+    expect(cabinet.outcome === 'found' && cabinet.partner.partnerId).toBe(elder);
+    const c = await createManualContact(mine, { display_name: 'Клиент задачи', phone: '+79140009191' }, pool);
+    if (c.outcome !== 'created') throw new Error('клиент не заведён');
+    const t = await createTask(mine, { title: 'Перезвонить <клиенту>', dueAt: new Date(), contactId: c.id }, pool);
+    if (t.outcome !== 'created') throw new Error('задача не заведена');
+    const payload = taskDonePayload(t.task.id);
+    const state = async () => (await pool.query<{ done: boolean; done_by: string | null }>(
+      `SELECT done_at IS NOT NULL AS done, done_by::text AS done_by FROM crm_tasks WHERE id = $1`, [t.task.id],
+    )).rows[0];
+
+    // Чужой чат: карточка другая — задачи «нет», строка не тронута.
+    expect(await handleTaskPress({ chatId: 9200002, privateChat: true, payload }, { db: pool })).toBe(TASK_PRESS_TEXT.notFound);
+    // Чат без карточки — не подключён.
+    expect(await handleTaskPress({ chatId: 9200003, privateChat: true, payload }, { db: pool })).toBe(TASK_PRESS_TEXT.notBound);
+    expect(await state()).toEqual({ done: false, done_by: null });
+
+    // Свой чат: отмечена, автор — аккаунт карточки, событие в ленте клиента.
+    expect(await handleTaskPress({ chatId: 9200001, privateChat: true, payload }, { db: pool }))
+      .toBe(TASK_PRESS_TEXT.done('Перезвонить &lt;клиенту&gt;'));
+    expect(await state()).toEqual({ done: true, done_by: u });
+
+    // Повтор нажатия (MAX повторяет апдейт): «уже отмечена», второго события нет.
+    expect(await handleTaskPress({ chatId: 9200001, privateChat: true, payload }, { db: pool }))
+      .toBe(TASK_PRESS_TEXT.already('Перезвонить &lt;клиенту&gt;'));
+    // Чужой чат и после закрытия видит «не найдена», а не «уже отмечена».
+    expect(await handleTaskPress({ chatId: 9200002, privateChat: true, payload }, { db: pool })).toBe(TASK_PRESS_TEXT.notFound);
+    const events = (await listContactEvents(mine, c.id, 50, pool)).filter((e) => e.kind === 'task_done');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ actor_kind: 'partner_user' });
   });
 
   it('входящие: каждый вид исполняется, ответ партнёра идёт в медиану, автомат и чужое — нет', async () => {

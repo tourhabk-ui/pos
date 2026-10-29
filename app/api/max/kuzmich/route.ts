@@ -595,7 +595,8 @@ interface MaxUpdate {
  *  3. чат вправе нажимать: для мест — MAX-чат оператора запроса, для лида —
  *     рабочий MAX_OPERATOR_CHAT_ID, для дат — личный диалог (`chatType`) чата
  *     кабинета продавца своих туров (туроператор, гид с турами), чьё это
- *     предложение (lib/operators/chat-dates).
+ *     предложение (lib/operators/chat-dates), для «Выполнено» — личный диалог
+ *     кабинета, чья это задача (lib/crm/chat-task-action).
  */
 async function handleActionPress(
   action: MaxPressAction,
@@ -643,6 +644,15 @@ async function handleActionPress(
     });
     if (reply.buttons.length) await maxReplyWithButtons(chatId, reply.text, toMaxButtons(reply.buttons));
     else await maxReply(chatId, reply.text);
+    return;
+  }
+
+  // «Выполнено» под напоминанием о задаче CRM (29.10). Личный диалог и то,
+  // что задача — карточки, к которой подключён этот чат, проверяет
+  // lib/crm/chat-task-action; отмечает тот же completeTask, что кабинет.
+  if (action === 'task') {
+    const { handleTaskPress } = await import('@/lib/crm/chat-task-action');
+    await maxReply(chatId, await handleTaskPress({ chatId, privateChat: chatType === 'dialog', payload }));
     return;
   }
 
