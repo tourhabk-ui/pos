@@ -222,22 +222,22 @@ describe('get_tours: поля тура, а не строка каталога (2
         description: 'Час в воздухе, панорама на Домашние вулканы и океан.' }),
       row(30, { title: 'Город и океан', activity_type: 'sightseeing', operator_name: 'Лагуна Экспедиция' }),
       // Главное место — озеро; слова «озеро» нет ни в названии, ни в описании.
-      row(81, { title: 'Охотское побережье, 4 дня', activity_type: 'jeep_safari', operator_name: 'Андрей Запорожец',
+      row(81, { title: 'Охотское побережье, 4 дня', activity_type: 'jeep_safari', operator_name: 'Гид Савва Кедровец',
         main_place_name: 'Курильское', main_place_type: 'lake',
         description: 'Кутхины Баты — пемзовые скалы, похожие на поставленные вертикально байдарки.',
         program_text: 'День 1. Паужетка Переезд вдоль Охотского моря.' }),
       // Главное место — вулкан: слово «вулкан» даёт подпись типа места.
-      row(70, { title: 'Горелый за день', activity_type: 'jeep_safari', operator_name: 'Андрей Запорожец',
+      row(70, { title: 'Горелый за день', activity_type: 'jeep_safari', operator_name: 'Гид Савва Кедровец',
         main_place_name: 'Горелый', main_place_type: 'volcano' }),
       row(54, { title: 'Долина гейзеров', activity_type: 'helicopter', operator_name: 'Местечко Камчатка',
         description: 'В полёте видно озеро в кратере Малого Семячика.' }),
       // Медведи и киты — только в программе.
       row(40, { title: 'Камчатка за восемь дней', activity_type: 'sightseeing', operator_name: 'Лагуна Экспедиция',
         program_text: 'День 2. Морская прогулка Вероятность встречи с косатками и китами. День 4. Наблюдение за медведями на Курильском озере.' }),
-      row(33, { title: 'Птичьи базары', activity_type: 'boat_trip', operator_name: 'Андрей Запорожец',
+      row(33, { title: 'Птичьи базары', activity_type: 'boat_trip', operator_name: 'Гид Савва Кедровец',
         description: 'Наблюдение за птицами у скал.' }),
       // Основа совпадает с НАЧАЛОМ слова: «кит» — не «Никита», «пеш» — не «успешно».
-      row(90, { title: 'Морская прогулка с капитаном', activity_type: 'boat_trip', operator_name: 'Андрей Запорожец',
+      row(90, { title: 'Морская прогулка с капитаном', activity_type: 'boat_trip', operator_name: 'Гид Савва Кедровец',
         description: 'Ведёт капитан Никита, рейсы успешно идут с 2015 года.' }),
     ]);
   });
