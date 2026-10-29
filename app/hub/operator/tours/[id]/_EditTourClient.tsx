@@ -9,7 +9,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { readApiResponse } from '@/lib/http/api-response';
-import MainPlacePicker, { type MainPlaceValue, type MainPlaceSource } from '@/components/operator/Tours/MainPlacePicker';
+import MainPlacePicker, { asMainPlaceSource, type MainPlaceValue } from '@/components/operator/Tours/MainPlacePicker';
 import TourDateAdd from '@/components/operator/Tours/TourDateAdd';
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
@@ -542,7 +542,7 @@ export default function EditTourClient() {
         <MainPlacePicker
           value={mainPlace}
           savedId={tour.main_place_id ?? null}
-          savedSource={(tour.main_place_source === 'coords_equal' || tour.main_place_source === 'operator') ? tour.main_place_source as MainPlaceSource : null}
+          savedSource={asMainPlaceSource(tour.main_place_source)}
           onChange={setMainPlace}
         />
         <div className="grid grid-cols-2 gap-4">

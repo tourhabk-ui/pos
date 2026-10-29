@@ -93,7 +93,7 @@ describe('создание тура', () => {
 
   it('маршрут тура — route_id, и createTour его пишет', () => {
     expect(CreateTourSchema.parse({ ...base, route_id: '00000000-0000-4000-8000-000000000000' }).route_id).toBeDefined();
-    expect(read('lib/api/operator-tours.ts')).toMatch(/created_by, route_id\n/);
+    expect(read('lib/api/operator-tours.ts')).toMatch(/created_by, route_id, main_place_id, main_place_source\n/);
     expect(read('app/hub/operator/tours/new/_NewTourClient.tsx')).toMatch(/route_id:\s+formData\.routeId/);
   });
 

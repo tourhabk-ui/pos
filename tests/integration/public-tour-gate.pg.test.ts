@@ -796,7 +796,7 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(await snapshot()).toEqual(expected);
       await pool.query(migration);
       expect(await snapshot()).toEqual(expected);
-      // Источник — только из двух названных.
+      // Источник — только из четырёх названных (1286 + 1343: verified, admin).
       await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = 'tp-exact'`))
         .rejects.toMatchObject({ code: '23514' });
     });
@@ -909,6 +909,172 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(pl.main_place_by_source.coords_equal).toBeGreaterThanOrEqual(3);
       expect(pl.main_place_by_source.operator).toBeGreaterThanOrEqual(1);
       expect(pl.unlinked).toBe(pl.unlinked_items.length);
+    });
+
+    // ── 29.10, «1в 2б 3 да»: все туры места, по правилу 1в ───────────────────
+    it('туры места (loadPlaceTours): все, без LIMIT 5, через шлюз витрины, «рядом» нет, ближайшая дата есть', async () => {
+      await pool.query(
+        `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+         VALUES ('tp-place-many', gen_random_uuid(), 'Место многих туров', 'tp-place-many', 59.9, 164.9, TRUE, 'volcano')`,
+      );
+      const ids: string[] = [];
+      for (let i = 1; i <= 7; i++) {
+        ids.push((await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                       min_participants, max_participants, duration_hours, is_active, is_published,
+                                       main_place_id, main_place_source)
+           VALUES ($1, $2, $3, 'tp_many', 5000, 'per_person', 1, 10, 8, TRUE, TRUE, 'tp-place-many', 'operator')
+           RETURNING id::text`,
+          [TP.id, `TP многих ${i}`, `tp-many-${i}`],
+        )).rows[0].id);
+      }
+      // Черновик к тому же месту — не на витрине.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published,
+                                     main_place_id, main_place_source)
+         VALUES ($1, 'TP многих черновик', 'tp-many-draft', 'tp_many', 5000, 'per_person', 1, 10, 8, TRUE, FALSE, 'tp-place-many', 'operator')`,
+        [TP.id],
+      );
+      // У пятого — свободная дата через 10 дней: он первым по правилу.
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots)
+         VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 10, 5)`, [ids[4]],
+      );
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const r = await loadPlaceTours('tp-place-many');
+      expect(r.state).toBe('ok');
+      if (r.state !== 'ok') return;
+      expect(r.offers.map((o) => o.id).sort()).toEqual([...ids].sort());
+      expect(r.offers[0].id).toBe(ids[4]);
+      expect(r.offers[0].nearestFreeDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(r.offers[0].keepsSchedule).toBe(true);
+      expect(r.offers.slice(1).every((o) => o.nearestFreeDate === null && o.keepsSchedule === false && o.hasDatesByRequest)).toBe(true);
+      expect(r.offers[0]).toMatchObject({ partnerId: TP.id, partnerName: TP.name, partnerVerified: true, basePrice: 5000, priceUnit: 'per_person' });
+      // Порядок — правило 1в на тех же строках и том же дне.
+      const { orderOffers } = await import('@/lib/tours/offer-order');
+      expect(r.offers.map((o) => o.id)).toEqual(orderOffers(r.offers, { day: r.day }).map((o) => o.id));
+
+      // «Рядом» и туров нет — «пусто», не «сбой».
+      expect((await loadPlaceTours('tp-place-nearby')).state).toBe('empty');
+
+      // Карточка места: семь туров, а не пять; день правила — тот же.
+      const { loadPlaceDetail } = await import('@/lib/places/place-detail');
+      const card = (await loadPlaceDetail('tp-place-many', { countView: false })).body.data as { tours: unknown[]; toursState: string; toursDay: string };
+      expect(card.tours).toHaveLength(7);
+      expect(card.toursState).toBe('ok');
+      expect(card.toursDay).toBe(r.day);
+    });
+
+    it('туры места не прочитались — «failed» и SQLSTATE в логе; карточка места отвечает 200', async () => {
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const { pool: appPool } = await import('@/lib/db-pool');
+      const spy = vi.spyOn(appPool, 'query').mockRejectedValueOnce(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }) as never);
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        expect(await loadPlaceTours('tp-place-many')).toEqual({ state: 'failed' });
+        expect(err.mock.calls.find((c) => String(c[0]).includes('[place-tours]'))?.[1]).toMatchObject({ sqlstate: '57014' });
+      } finally {
+        spy.mockRestore();
+        err.mockRestore();
+      }
+    });
+
+    it('1343: связи по сверке названий; выбор человека не тронут; облёт снят; переименованное место — нет; повтор ничего не меняет', async () => {
+      const m1343 = readFileSync(join(process.cwd(), 'migrations', '1343_tour_main_place_verified.sql'), 'utf8');
+      // Места — с id и именами из списка 1343; одно переименовано.
+      const PL: Array<[string, string]> = [
+        ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'Вулкан Горелый'],
+        ['2bf92082-0daf-4770-8031-a51c0f355be8', 'Дачные горячие источники'],
+        ['c4310d06-2b6c-4b6e-af3a-b0c7cd678ebe', 'Вачкажец (переименовано)'],
+        ['tp-place-vilyuchinsky', 'Вулкан Вилючинский'],
+      ];
+      for (const [pid, name] of PL) {
+        await pool.query(
+          `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+           VALUES ($1::text, gen_random_uuid(), $2::text, $1::text, 52.7, 158.3, TRUE, 'volcano')
+           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, is_visible = TRUE, merged_into_id = NULL`,
+          [pid, name],
+        );
+      }
+      const T = {
+        gorelyM: 'mestechko-vulkan-gorelyy',
+        gorelyZ: 'zaporozhets-vulkan-gorelyy',
+        preset: 'lagexp-dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300',
+        oblet: 'mestechko-oblet-vilyuchinskiy-mutnovskiy-gorelyy',
+        renamed: 'mestechko-vachkazhets',
+      };
+      const present = (await pool.query<{ slug: string }>(
+        `SELECT slug FROM operator_tours WHERE slug = ANY($1::text[]) AND deleted_at IS NULL`, [Object.values(T)],
+      )).rows.map((x) => x.slug).sort();
+      // Туры заведены миграциями 1217, 1338, 1339 при постройке схемы — сцена на них.
+      expect(present).toEqual(Object.values(T).sort());
+      await pool.query(
+        `UPDATE operator_tours SET main_place_id = NULL, main_place_source = NULL WHERE slug = ANY($1::text[])`,
+        [[T.gorelyM, T.gorelyZ, T.renamed]],
+      );
+      await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-pick', main_place_source = 'operator' WHERE slug = $1`, [T.preset]);
+      await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-vilyuchinsky', main_place_source = 'coords_equal' WHERE slug = $1`, [T.oblet]);
+
+      await pool.query(m1343);
+      const snap = async () => Object.fromEntries((await pool.query<{ slug: string; main_place_id: string | null; main_place_source: string | null }>(
+        `SELECT slug, main_place_id, main_place_source FROM operator_tours WHERE slug = ANY($1::text[])`, [Object.values(T)],
+      )).rows.map((x) => [x.slug, [x.main_place_id, x.main_place_source]]));
+      const expected = {
+        [T.gorelyM]: ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'verified'],
+        [T.gorelyZ]: ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'verified'],
+        [T.preset]: ['tp-place-pick', 'operator'],
+        [T.oblet]: [null, null],
+        [T.renamed]: [null, null],
+      };
+      expect(await snap()).toEqual(expected);
+      await pool.query(m1343);
+      expect(await snap()).toEqual(expected);
+      // Связь, поставленная человеком на облёт, повтором не снимается.
+      await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-vilyuchinsky', main_place_source = 'admin' WHERE slug = $1`, [T.oblet]);
+      await pool.query(m1343);
+      expect((await snap())[T.oblet]).toEqual(['tp-place-vilyuchinsky', 'admin']);
+      await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = $1`, [T.gorelyM]))
+        .rejects.toMatchObject({ code: '23514' });
+
+      // Карточка Горелого: два тура разных компаний.
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const r = await loadPlaceTours('2886ce3b-0753-41fb-bacc-f80e3f75d1aa');
+      expect(r.state).toBe('ok');
+      if (r.state === 'ok') {
+        expect(r.offers.map((o) => o.slug).sort()).toEqual([T.gorelyM, T.gorelyZ].sort());
+        expect(new Set(r.offers.map((o) => o.partnerId)).size).toBe(2);
+      }
+    });
+
+    it('слияние мест (carryTourMainPlace): тур едет к оставшемуся месту, источник сохраняется', async () => {
+      await pool.query(
+        `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+         VALUES ('tp-place-dup', gen_random_uuid(), 'Дубль места', 'tp-place-dup', 60.1, 165.1, TRUE, 'volcano'),
+                ('tp-place-keep', gen_random_uuid(), 'Каноническое место', 'tp-place-keep', 60.1, 165.1, TRUE, 'volcano')`,
+      );
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published,
+                                     main_place_id, main_place_source)
+         VALUES ($1, 'TP тур дубля', 'tp-dup-tour', 'tp_dup', 5000, 'per_person', 1, 10, 8, TRUE, TRUE, 'tp-place-dup', 'verified')`,
+        [TP.id],
+      );
+      const { carryTourMainPlace } = await import('@/lib/places/merge-carry');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        expect(await carryTourMainPlace(client, 'tp-place-keep', 'tp-place-dup')).toBe(1);
+        // merged_into_id — uuid (как в сцене выше, ark_id оставшегося): дубль уходит с витрины.
+        await client.query(`UPDATE places SET merged_into_id = (SELECT ark_id FROM places WHERE id = 'tp-place-keep'), merged_at = NOW() WHERE id = 'tp-place-dup'`);
+        await client.query('COMMIT');
+      } finally {
+        client.release();
+      }
+      expect(await linkOf('tp-dup-tour')).toEqual({ main_place_id: 'tp-place-keep', main_place_source: 'verified' });
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const keep = await loadPlaceTours('tp-place-keep');
+      expect(keep.state === 'ok' && keep.offers.map((o) => o.slug)).toEqual(['tp-dup-tour']);
     });
   });
 });

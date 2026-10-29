@@ -105,21 +105,40 @@ export interface PlaceTour {
   /** Адрес карточки тура (ЧПУ, 1114). */
   slug: string | null;
   title: string;
-  basePrice: number;
-  durationDays: number | null;
+  /** NULL — цена не записана; ноль не подставляется (Number(null) = 0 — ложь, §4.0). */
+  basePrice: number | null;
+  /** operator_tours.price_unit: за человека, за группу, за человека в день. */
+  priceUnit: string | null;
+  durationType: string | null;
+  multiDayCount: number | null;
+  durationHours: number | null;
+  seasonStart: string | null;
+  seasonEnd: string | null;
+  /** Ближайшая дата со свободными местами, 'YYYY-MM-DD'; нет — null (lib/tours/nearest-free-date). */
+  nearestFreeDate: string | null;
+  /** Ведёт ли тур календарь; false — «даты по заявке». */
+  keepsSchedule: boolean;
+  /** partners.id — ключ группы «компания» на карточке места. */
+  partnerId: string;
   operatorName: string;
   operatorSlug: string | null;
   /** partners.is_public — открыта ли страница оператора; null — не прочитано (13.10). */
   operatorPublic: boolean | null;
+  /** partners.is_verified; «проверен» — только при true. */
+  partnerVerified: boolean | null;
   /**
    * Чем тур связан с местом (§4.1): `main_place` — место названо главным
-   * местом тура (operator_tours.main_place_id, 1286: точное совпадение
-   * координат или выбор оператора); `waypoint` — маршрут тура размечен через
-   * место точкой пути; `unknown` — связь маршрута есть, но проходит ли он
-   * через само место, не установлено. «Рядом» сюда не попадает вовсе.
+   * местом тура (operator_tours.main_place_id: 1286 по точному совпадению
+   * координат, 1343 по сверке названий, выбор оператора или администратора);
+   * `waypoint` — маршрут тура размечен через место точкой пути; `unknown` —
+   * связь маршрута есть, но проходит ли он через само место, не установлено.
+   * «Рядом» сюда не попадает вовсе.
    */
   linkKind: 'main_place' | 'waypoint' | 'unknown';
 }
+
+/** Чтение туров места (§4.0): есть / нет / не смог. */
+export type PlaceToursState = 'ok' | 'empty' | 'failed';
 
 export interface PlaceEco {
   zone: 'UNESCO' | 'federal_reserve' | 'national_park' | 'regional_reserve' | 'natural_park' | 'zakaznik' | 'nature_monument' | 'none' | null;
@@ -215,6 +234,10 @@ export interface PlaceData {
   volcanoStatus: VolcanoAccStatus | null;
   routes: PlaceRoute[];
   tours: PlaceTour[];
+  /** Исход чтения туров: «не загрузились» ≠ «туров нет». Старый ответ без поля — как 'ok'. */
+  toursState?: PlaceToursState;
+  /** День правила порядка ('YYYY-MM-DD' по Камчатке), по которому расставлены туры. */
+  toursDay?: string;
   reviews: PlaceReview[];
   /** Сводка по всем отзывам места (а не по показанным десяти). */
   reviewsSummary?: { total: number; avg: number | null };

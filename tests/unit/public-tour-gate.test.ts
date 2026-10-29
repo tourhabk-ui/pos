@@ -410,7 +410,8 @@ const MOVED_TO_GATE = [
   'lib/agents/sdk/tourist-tools.ts',
   'app/_home/data.ts',
   'lib/operators/list-query.ts',
-  'lib/places/place-detail.ts',
+  // 29.10: «Туры сюда» переехали из карточки места в свой загрузчик.
+  'lib/places/place-tours.ts',
   // Ревью #2642: подпись кабинета «Черновик — туристы не видят» правдива,
   // только если черновик не уходит туристу ни одним отбором.
   'app/api/ai/knowledge-base/route.ts',
@@ -622,7 +623,7 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'app/operators/[slug]/page.tsx': 'страница оператора',
   'app/guides/[id]/page.tsx': 'страница гида: счёт его собственных туров (1338)',
   'lib/operators/list-query.ts': 'список компаний /operators, факты из живых туров',
-  'lib/places/place-detail.ts': '«Туры сюда» на карточке места',
+  'lib/places/place-tours.ts': '«Туры сюда» на карточке места (все предложения, правило 1в)',
   // Поиск /api/discovery/search
   'app/api/discovery/search/route.ts': 'поиск туров по AI-тегам',
   'lib/services/tours/tour.service.ts': 'поиск туров по словам и фильтрам',
