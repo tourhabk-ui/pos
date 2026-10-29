@@ -194,8 +194,9 @@ describe('SDK-инструменты агента: search_tours и get_tour_deta
   it('search_tours: строка каталога называет группу тем же правилом', async () => {
     query.mockResolvedValueOnce({ rows: [{ ...ROW, group_size_unlimited: true }, { ...ROW, id: 79, group_size_unlimited: false }] });
     const out = await run('search_tours', { query: 'Курильское' });
-    const groups = (out.tours as Array<{ group: string }>).map((t) => t.group);
-    expect(groups).toEqual(['Группа не ограничена (одна заявка на сайте — до 12 человек)', '1-12 чел.']);
+    // Порядок строк — правило 1в с жребием дня: сверяем по номеру тура.
+    const groups = Object.fromEntries((out.tours as Array<{ id: number; group: string }>).map((t) => [t.id, t.group]));
+    expect(groups).toEqual({ 77: 'Группа не ограничена (одна заявка на сайте — до 12 человек)', 79: '1-12 чел.' });
   });
 });
 
