@@ -451,6 +451,11 @@ const SAFETY_JOBS = [
   // не меньше --max-time workflow.
   { path: '/api/cron/kvert-acc',                 everyMin: 360, timeoutMs: 60000, startAfterMs: 450000 },
   { path: '/api/cron/safety-check',              everyMin: 360, timeoutMs: 60000, startAfterMs: 480000 },
+  // Сверка с PTWC (29.10): видит ли тихоокеанский центр угрозу цунами точкам
+  // края, пока в ленте нет официальной тревоги. Только читает и будит
+  // дежурного; tsunami_warning не пишет. Аренда окна 30 мин — в роуте.
+  // Таймаут — два похода к tsunami.gov по 8 с плюс Telegram: 30 с впритык.
+  { path: '/api/cron/ptwc-check',                everyMin: 30,  timeoutMs: 60000, startAfterMs: 510000 },
 ];
 
 function triggerCron(job) {
