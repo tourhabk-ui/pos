@@ -1,16 +1,15 @@
 {
   "timeout": 30,
-  "run": 1007,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образцы ответов бесплатных API для тестов разбора: METAR и TAF аэродрома Елизово (NOAA AWC, формат raw), ленты PTWC (Atom, CAP), курс ЦБ (с раннера может не пустить — тогда судит проба с прода).",
+  "run": 1008,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образцы сообщений PTWC для разбора: текст и JSON последнего бюллетеня (25.10, Бонины) и каталоги событий 29–30.07.2025 (землетрясение M8.8 у Камчатки) — есть ли там WEPA40 с таблицей прихода волны по пунктам края.",
   "urls": [
-    "https://aviationweather.gov/api/data/metar?ids=UHPP&format=raw&hours=6",
-    "https://aviationweather.gov/api/data/taf?ids=UHPP&format=raw",
-    "https://www.tsunami.gov/events/xml/PHEBAtom.xml",
-    "https://www.tsunami.gov/events/xml/PHEBCAP.xml",
-    "https://www.cbr.ru/scripts/XML_daily.asp"
+    "https://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEGM42/WEGM42.txt",
+    "https://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEGM42/PHEB.json",
+    "https://www.tsunami.gov/events/PHEB/2025/07/29/",
+    "https://www.tsunami.gov/events/PHEB/2025/07/30/"
   ],
   "allowStale": true,
   "retries": 1,
   "text": true,
-  "bytes": 6000
+  "bytes": 7000
 }
