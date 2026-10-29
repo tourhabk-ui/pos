@@ -29,7 +29,9 @@ import {
   leadState, seatState, stayDelivery, stayState, REQUEST_KEY_TTL_DAYS, REQUEST_STATUS_SQL,
   consentBy, confirmConsent, CONFIRM_CONSENT_SQL, AGENT_CONSENT_SOURCE, HUMAN_CONSENT_SOURCE, requestStatusPageUrl, REQUEST_STATUS_PAGE_PATH,
   consentPurposeForTool, readConsentPurpose, CONSENT_PURPOSE_SQL,
+  bookingState, buildRequestView, catalogTourOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow,
 } from '@/lib/mcp/request-status';
+import { BOOKING_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
 import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES } from '@/lib/mcp/request-status-schema';
 import {
   PUBLIC_MCP_TOOLS, TOOL_ANNOTATIONS, TOOL_ENGLISH, PARAM_ENGLISH, WRITE_TOOL_NAMES,
@@ -189,7 +191,7 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'next', 'page', 'participants', 'state', 'tour',
+      'human', 'kind', 'next', 'page', 'participants', 'requested_date', 'state', 'tour',
     ]);
     // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.
     expect(Object.keys(obj).sort()).toEqual(Object.keys(GET_REQUEST_STATUS_TOOL.outputSchema.properties).sort());
@@ -406,5 +408,118 @@ describe('роут MCP', () => {
     // Вахтовка: повтор и новая — одним путём saveCharterLead (общим с формой на
     // странице перевозчика, 13.10), он отдаёт прежний лид или новый; ключ — в том же return.
     expect(ROUTE).toContain('const leadId = await saveCharterLead(');
+  });
+});
+
+// ── Одна правда (29.10, слово владельца «делай, я не знал про эту дыру») ──
+// До 29.10 запрос мест не смотрел на свою бронь: после переноса агент видел
+// старую дату, после отмены — «подтверждена» навсегда; лид после разбора
+// ИИ-конвейером читался «не распознано», неявка — «ждёт оператора».
+
+const NOW = Date.parse('2027-07-01T00:00:00Z');
+const SEAT_BASE: StatusRow = {
+  key_id: 'K', tool_name: 'create_booking_request', lead_id: null, seat_request_id: 'S',
+  lead_status: null, route_title: null, booking_status: null, booking_date: null, booking_participants: null, booking_tour: null,
+  seat_status: 'confirmed', deadline_at: new Date(NOW - 3_600_000), answered_at: new Date(NOW - 7_200_000),
+  seat_date: '2027-07-15', seat_participants: 2, alt_date: null, failure_kind: null, seat_tour: 'Вулкан Горелый',
+  seat_booking_id: '501', seat_booking_status: 'confirmed', seat_booking_date: '2027-07-15', seat_booking_participants: 2, seat_booking_tour: 'Вулкан Горелый',
+  lead_consent_at: null, lead_consent_source: null, seat_consent_at: null, seat_consent_source: null,
+  stay_request_id: null, stay_accommodation_id: null, stay_name: null, stay_check_in: null, stay_check_out: null, stay_guests: null,
+  stay_owner_channel: null, stay_platform_channel: null, stay_delivery_recorded_at: null, stay_consent_at: null, stay_consent_source: null,
+};
+
+describe('запрос мест смотрит на свою бронь', () => {
+  it('подтверждён и бронь на месте — подтверждена, дата из брони, фразы о переносе нет', () => {
+    const v = buildRequestView(SEAT_BASE, NOW);
+    expect(v).toMatchObject({ state: 'confirmed', date: '2027-07-15', requested_date: '2027-07-15', tour: 'Вулкан Горелый', participants: 2 });
+    expect(v.human).not.toMatch(/отличается/);
+  });
+
+  it('бронь перенесена — новая дата, тур и состав из брони; запрошенная дата прежняя; фраза называет обе', () => {
+    const v = buildRequestView({ ...SEAT_BASE, seat_booking_date: '2027-07-20', seat_booking_tour: 'Вулкан Мутновский', seat_booking_participants: 3 }, NOW);
+    expect(v).toMatchObject({ state: 'confirmed', date: '2027-07-20', requested_date: '2027-07-15', tour: 'Вулкан Мутновский', participants: 3 });
+    expect(v.human).toContain('в заявке 2027-07-15, в брони 2027-07-20');
+  });
+
+  it('бронь отменена — отменена, а не «подтверждена» навсегда', () => {
+    expect(buildRequestView({ ...SEAT_BASE, seat_booking_status: 'cancelled' }, NOW).state).toBe('cancelled');
+  });
+
+  it('неявка — отказ/не состоялась, без слов о человеке', () => {
+    const v = buildRequestView({ ...SEAT_BASE, seat_booking_status: 'no_show' }, NOW);
+    expect(v.state).toBe('declined');
+    expect(v.human).not.toMatch(/не пришёл|не явил/);
+  });
+
+  it('номер брони есть, строки нет (удалена) — не «подтверждена», а «не найдена»', () => {
+    const v = buildRequestView({ ...SEAT_BASE, seat_booking_status: null, seat_booking_date: null, seat_booking_tour: null, seat_booking_participants: null }, NOW);
+    expect(v.state).toBe('unknown');
+    expect(v.human).toMatch(/Бронь по заявке не найдена/);
+  });
+
+  it('подтверждение не прошло (failed/system), бронь осталась new — говорит запрос; оператор подтвердил в кабинете — бронь; перенёс — новая дата', () => {
+    const failed = { ...SEAT_BASE, seat_status: 'failed' as const, failure_kind: 'system' as const, seat_booking_status: 'new' };
+    expect(buildRequestView(failed, NOW).state).toBe('failed');
+    expect(buildRequestView({ ...failed, seat_booking_status: 'confirmed' }, NOW).state).toBe('confirmed');
+    const moved = buildRequestView({ ...failed, seat_booking_status: 'confirmed', seat_booking_date: '2027-08-01' }, NOW);
+    expect(moved).toMatchObject({ state: 'confirmed', date: '2027-08-01', requested_date: '2027-07-15' });
+  });
+
+  it('без брони — как прежде: pending до срока ждёт, после срока — нет ответа; время берётся из аргумента', () => {
+    const pending = { ...SEAT_BASE, seat_status: 'pending' as const, answered_at: null, deadline_at: new Date(NOW + 3_600_000), seat_booking_id: null, seat_booking_status: null };
+    expect(buildRequestView(pending, NOW).state).toBe('awaiting_operator');
+    expect(buildRequestView(pending, NOW + 2 * 3_600_000).state).toBe('no_answer');
+  });
+});
+
+describe('словари целиком: ни одного «не распознано» у слова из словаря', () => {
+  it('каждый статус лида и каждый статус брони — своё состояние, не unknown', () => {
+    for (const s of LEAD_STATUSES) expect(leadState(s, null), s).not.toBe('unknown');
+    for (const s of BOOKING_STATUSES) expect(bookingState(s), s).not.toBe('unknown');
+    // Разбор конвейером — не ответ человека.
+    expect(leadState('ai_qualified', null)).toBe('awaiting_operator');
+    expect(leadState('ai_processing', null)).toBe('awaiting_operator');
+    expect(leadState('proposal_sent', null)).toBe('in_progress');
+    expect(bookingState('no_show')).toBe('declined');
+    expect(bookingState('completed')).toBe('confirmed');
+    // Слово вне словаря — честное «не распознано».
+    expect(bookingState('rejected')).toBe('unknown');
+    expect(leadState('weird', null)).toBe('unknown');
+  });
+});
+
+describe('лид: запрошенная дата и перенос брони', () => {
+  const LEAD: StatusRow = { ...SEAT_BASE, seat_request_id: null, seat_status: null, lead_id: 'L', lead_status: 'converted', lead_requested_date: '2027-07-15' };
+
+  it('заявка на бронь тура: бронь на другую дату — фраза; запрошенная дата из заявки', () => {
+    const v = buildRequestView({ ...LEAD, booking_status: 'confirmed', booking_date: '2027-07-18', booking_tour: 'Вулкан Горелый', booking_participants: 2 }, NOW);
+    expect(v).toMatchObject({ state: 'confirmed', date: '2027-07-18', requested_date: '2027-07-15' });
+    expect(v.human).toContain('в заявке 2027-07-15, в брони 2027-07-18');
+  });
+
+  it('дата из source_data не той формы — «не записано»; у подбора (create_lead) запрошенной даты нет', () => {
+    expect(buildRequestView({ ...LEAD, lead_requested_date: '15.07.2027' }, NOW).requested_date).toBeNull();
+    expect(buildRequestView({ ...LEAD, tool_name: 'create_lead' }, NOW).requested_date).toBeNull();
+  });
+
+  it('название тура для уведомления — только из каталога, не направление человека из route_title', () => {
+    const charter = { ...LEAD, tool_name: 'request_charter', route_title: 'Забрать у дома на ул. Тестовой', booking_tour: null };
+    expect(buildRequestView(charter, NOW).tour).toBe('Забрать у дома на ул. Тестовой');
+    expect(catalogTourOf(charter)).toBeNull();
+    expect(catalogTourOf({ ...charter, booking_tour: 'Вулкан Горелый' })).toBe('Вулкан Горелый');
+    expect(catalogTourOf({ ...SEAT_BASE, seat_booking_tour: 'Вулкан Мутновский' })).toBe('Вулкан Мутновский');
+  });
+});
+
+describe('обёртка для сверки', () => {
+  it('по номерам ключей — без отметки прочтения, только живые ключи, та же выборка', () => {
+    expect(REQUEST_STATUS_BY_KEY_IDS_SQL).not.toMatch(/UPDATE|read_count|last_read_at/);
+    expect(REQUEST_STATUS_BY_KEY_IDS_SQL).toContain('id = ANY($1::uuid[])');
+    expect(REQUEST_STATUS_BY_KEY_IDS_SQL).toContain('expires_at > NOW()');
+    // Хвост выборки общий: две обёртки не расходятся в том, ЧТО читают.
+    const tail = (sql: string) => sql.slice(sql.indexOf('SELECT k.id::text'));
+    expect(tail(REQUEST_STATUS_BY_KEY_IDS_SQL)).toBe(tail(REQUEST_STATUS_SQL));
+    expect(REQUEST_STATUS_SQL).toContain('sb.id = r.booking_id AND sb.deleted_at IS NULL');
+    expect(REQUEST_STATUS_SQL).not.toMatch(/tourist_(name|phone)|access_token/);
   });
 });

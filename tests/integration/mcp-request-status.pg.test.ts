@@ -13,6 +13,12 @@
  * собирается из колонок доставки 1213; согласие человека ложится в саму
  * заявку версией «владельцу жилья»; удалили заявку — ключ ушёл с ней.
  *
+ * Одна правда (29.10): запрос мест смотрит на свою бронь — перенос и отмена
+ * подтверждённой брони НАСТОЯЩИМИ rescheduleBooking/cancelBooking доходят до
+ * ключа; лид после разбора ИИ-конвейером — «ждёт оператора»; обёртка по
+ * номерам ключей (для сверки уведомлений) читает то же и не отмечает
+ * прочтение.
+ *
  * Своя база `mcp_request_status_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -211,5 +217,58 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     const { rows } = await pool.query('SELECT 1 FROM agent_request_keys WHERE stay_request_id = $1', [stayRequestId]);
     expect(rows).toHaveLength(0);
     await expect(readRequestStatus(stayKey)).rejects.toThrow(/не найден или истёк/);
+  });
+  it('перенос и отмена подтверждённой брони по запросу мест доходят до ключа (29.10)', async () => {
+    const { issueRequestKey, readRequestStatus } = await import('@/lib/mcp/request-status');
+    const { rescheduleBooking, cancelBooking } = await import('@/lib/bookings/booking.service');
+    const admin = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('status-admin@notify.test', 'Админ теста', 'x', 'admin') RETURNING id::text AS id`,
+    )).rows[0].id;
+    const op = (await pool.query<{ operator_id: string }>('SELECT operator_id::text FROM operator_tours WHERE id = $1', [tourId])).rows[0].operator_id;
+    // Оператор ответил «Есть места»: бронь заведена и подтверждена (как в seat-requests/service).
+    const bookingId = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, duration_days, participants, base_total_price, final_price,
+                                      booking_status, payment_status, tourist_name, tourist_phone)
+       VALUES ($1, '2027-08-10', '2027-08-10', 1, 2, 30000, 30000, 'confirmed', 'pending', 'Иван Тестовый', '+79990001122')
+       RETURNING id::text AS id`, [tourId],
+    )).rows[0].id;
+    const seatId = (await pool.query<{ id: string }>(
+      `INSERT INTO tour_seat_requests (tour_id, operator_id, tour_date, participants, tourist_name, tourist_phone, reply_channel, status,
+                                       status_token_hash, deadline_at, answered_at, booking_id, source, pd_consent_at)
+       VALUES ($1, $2, '2027-08-10', 2, 'Иван Тестовый', '+79990001122', 'phone', 'confirmed',
+               repeat('c', 64), NOW() + INTERVAL '2 hours', NOW(), $3::bigint, 'mcp', NOW()) RETURNING id`,
+      [tourId, op, bookingId],
+    )).rows[0].id;
+    const key = (await issueRequestKey({ seatRequestId: seatId }, 'create_booking_request')) ?? '';
+    expect(await readRequestStatus(key)).toMatchObject({ state: 'confirmed', date: '2027-08-10', requested_date: '2027-08-10' });
+
+    // Перенос — единственной дверью переноса, как её зовёт оператор или админ.
+    await rescheduleBooking(bookingId, admin, 'admin', { targetTourId: String(tourId), targetDate: '2027-08-14' });
+    const moved = await readRequestStatus(key);
+    expect(moved).toMatchObject({ state: 'confirmed', date: '2027-08-14', requested_date: '2027-08-10', tour: 'Вулкан Горелый' });
+    expect(moved.human).toContain('в заявке 2027-08-10, в брони 2027-08-14');
+
+    await cancelBooking(bookingId, admin, 'admin', 'Отмена в тесте статуса');
+    const cancelled = await readRequestStatus(key);
+    expect(cancelled.state).toBe('cancelled');
+    expect(JSON.stringify(cancelled)).not.toMatch(/Иван|7999000/);
+  });
+
+  it('обёртка по номерам ключей: та же правда без отметки прочтения; лид ai_qualified — ждёт оператора', async () => {
+    const { issueRequestKey, buildRequestView, REQUEST_STATUS_BY_KEY_IDS_SQL } = await import('@/lib/mcp/request-status');
+    const lead = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status) VALUES ('Пётр Тестовый', '+79990003344', 'Подбор тура в тесте', 'ai_qualified') RETURNING id`,
+    )).rows[0].id;
+    await issueRequestKey({ leadId: lead }, 'create_lead');
+    const { rows: [k] } = await pool.query<{ id: string; read_count: number }>('SELECT id::text, read_count FROM agent_request_keys WHERE lead_id = $1', [lead]);
+    const { rows } = await pool.query(REQUEST_STATUS_BY_KEY_IDS_SQL, [[k.id]]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].key_id).toBe(k.id);
+    expect(buildRequestView(rows[0], Date.now())).toMatchObject({ state: 'awaiting_operator', kind: 'lead' });
+    const after = await pool.query<{ read_count: number }>('SELECT read_count FROM agent_request_keys WHERE id = $1', [k.id]);
+    expect(Number(after.rows[0].read_count)).toBe(Number(k.read_count));
+    // Истёкший ключ сверка не читает.
+    await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`, [k.id]);
+    expect((await pool.query(REQUEST_STATUS_BY_KEY_IDS_SQL, [[k.id]])).rows).toHaveLength(0);
   });
 });
