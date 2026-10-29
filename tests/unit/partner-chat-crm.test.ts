@@ -264,10 +264,12 @@ describe('гид со своими турами (29.10): помощник зна
     expect(system).toMatch(/бронь №501, 2 чел/);
     expect(system).toMatch(/Ждут вашего подтверждения: 1/);
     expect(system).toMatch(/инструментом my_tours_schedule/);
-    // Его даты — раздел «Свои туры»; кнопку «Открыть» в MAX гиду не обещаем.
+    // Его даты: в MAX — фраза с кнопкой «Открыть» (поток дат открыт гиду с
+    // турами, шаг 8), на сайте — раздел «Свои туры»; кабинета оператора нет.
     expect(system).toMatch(/Даты и места своих туров ты сам не меняешь/);
+    expect(system).toMatch(/В MAX гид открывает их фразой «открой субботы июля, 8 мест» с кнопкой «Открыть»/);
     expect(system).toMatch(/раздел «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
-    expect(system).not.toMatch(/кнопкой «Открыть»|hub\/operator/);
+    expect(system).not.toMatch(/hub\/operator/);
     // Сводка — по его карточке из чата.
     const tourSql = query.mock.calls.find((c) => /FROM operator_tours\s+WHERE operator_id = \$1/.test(String(c[0])));
     expect(tourSql?.[1]).toEqual(['p-1']);

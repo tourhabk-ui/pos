@@ -10,7 +10,7 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { isOperatorDatesPhrase } from '@/lib/operators/chat-dates/flow';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
-import { telegramDatesText } from '@/lib/operators/chat-dates/texts';
+import { datesSellerOf, telegramDatesText } from '@/lib/operators/chat-dates/texts';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import {
   menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
@@ -159,12 +159,13 @@ export async function tryRoleMenuTelegramMessage(opts: {
     return true;
   }
   // Даты словами в Telegram не пишутся: кнопки подтверждения нет. Фраза
-  // туроператора получает тот же ответ, что вторая дверь, и до помощника
-  // не доходит — иначе он может сказать «открыл», не открыв.
-  if (partner.category === 'operator'
+  // продавца своих туров (туроператор, гид с турами — 29.10) получает тот же
+  // ответ, что вторая дверь, со ссылкой в его кабинет, и до помощника не
+  // доходит — иначе он может сказать «открыл», не открыв.
+  if (sellsOwnTours(partner)
     && chatDatesIntent(opts.text) === 'dates'
     && await isOperatorDatesPhrase(opts.text, partner.partnerId)) {
-    await send(telegramDatesText(), []);
+    await send(telegramDatesText(datesSellerOf(partner)), []);
     return true;
   }
   await processPartnerMessage({

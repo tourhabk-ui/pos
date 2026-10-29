@@ -10,6 +10,7 @@ import {
   adminMenu, adminMenuHelp, menuRoleOf, parseRoleMenuPress, partnerMenu, partnerMenuHelp, roleMenuAsk,
 } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { operatorSeatsText } from '@/lib/telegram/operator-desk';
 import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { SUMMARY_PARTNER_IDS } from '@/lib/seat-requests/summary';
 import type { Inbox, InboxItem } from '@/lib/crm/inbox';
@@ -102,8 +103,21 @@ describe('меню роли', () => {
     expect(help).toContain('«Подтвердить» и «Отклонить»');
     expect(help).toContain('бронь меняется только после «Да»');
     expect(help).not.toMatch(/₽/);
+    // Даты словами (шаг 8): фраза в личном диалоге MAX и кнопка «Открыть».
+    expect(help).toContain('Даты можно открыть фразой в личном диалоге с ботом в MAX, например «открой субботы июля, 8 мест»');
+    expect(help).toContain('откроет после кнопки «Открыть»');
     const team = partnerMenuHelp('guide', partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2' }) ?? []);
-    expect(team).not.toMatch(/Брони|Мои туры|Подтвердить/);
+    expect(team).not.toMatch(/Брони|Мои туры|Подтвердить|открой субботы/);
+  });
+
+  it('«Обновить места» гида со своими турами: его раздел «Свои туры» и фраза в MAX; кабинета оператора нет (29.10)', () => {
+    const guide = operatorSeatsText('guide');
+    expect(guide).toMatch(/Откройте даты в разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
+    expect(guide).toContain('В MAX можно написать фразу целиком, например: «открой весь ноябрь, 8 мест» — там есть кнопка подтверждения.');
+    expect(guide).not.toMatch(/\/hub\/operator/);
+    // Туроператору — прежний текст: календарь кабинета и та же фраза.
+    expect(operatorSeatsText()).toMatch(/Откройте календарь: https?:\/\/\S+\/hub\/operator\/calendar/);
+    expect(operatorSeatsText()).toContain('«открой весь ноябрь, 8 мест»');
   });
 
   it('админ — шесть чтений, входящих у него нет', () => {
