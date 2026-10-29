@@ -1377,6 +1377,117 @@ withPg('витрина туров: снятый тур не в плане и н�
       const { getTourForCard } = await import('@/lib/tours/tour-detail-query');
       expect((await getTourForCard(Number(other)))?.main_place_id).toBe('tp-place-many');
     });
+
+    // ── 29.10, ловушка MCP name-search: имя продавца и часть слов ───────────
+    // До 29.10 резолвер не знал имён продавцов: фамилия гида давала «тура
+    // нет», имя компании из двух слов — туры ДРУГОЙ компании по общему слову,
+    // а совпадение одной основы из двух у одной компании — «один тур» и
+    // заявку ей. Здесь — на схеме прода, три продавца (гид с авторскими
+    // турами, компания с отличительным именем, компания с именем из общих
+    // слов) и партнёр с одним черновиком. Имена вымышленные.
+    it('резолвер на схеме прода: продавец по имени — его туры; имя из общих слов не прячет чужие; черновик не делает продавцом; часть слов — не «один тур»', async () => {
+      const P = {
+        guide: { id: 'b1100000-0000-4000-8000-0000000000d1', name: 'Савва Кедровец', category: 'guide', slug: 'test-ns-guide' },
+        zaimka: { id: 'b1100000-0000-4000-8000-0000000000d2', name: 'Тихая Заимка', category: 'operator', slug: 'test-ns-zaimka' },
+        north: { id: 'b1100000-0000-4000-8000-0000000000d3', name: 'Северная Рыбалка', category: 'operator', slug: 'test-ns-north' },
+        drafty: { id: 'b1100000-0000-4000-8000-0000000000d4', name: 'Глухой Распадок', category: 'operator', slug: 'test-ns-drafty' },
+      };
+      for (const x of Object.values(P)) {
+        await pool.query(
+          `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+           VALUES ($1, $2, $3, '{}'::jsonb, $4, TRUE, FALSE, 'active')`,
+          [x.id, x.name, x.category, x.slug],
+        );
+      }
+      const tour = async (owner: string, title: string, slug: string, published: boolean, location: string | null = null) => (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published, location_name)
+         VALUES ($1, $2, $3, 'trekking', 9000, 'per_person', 1, 10, 8, TRUE, $4, $5)
+         RETURNING id::text`,
+        [owner, title, slug, published, location],
+      )).rows[0].id;
+      const ids = {
+        alder: await tour(P.guide.id, 'NS Перевал Ольховый', 'test-ns-alder', true, 'Ольховый'),
+        crystal: await tour(P.guide.id, 'NS Озеро Хрустальное', 'test-ns-crystal', true),
+        guideDraft: await tour(P.guide.id, 'NS Черновик гида', 'test-ns-guide-draft', false),
+        seal: await tour(P.zaimka.id, 'NS Бухта Тюленья', 'test-ns-seal', true),
+        channel: await tour(P.zaimka.id, 'NS Рыбалка на северной протоке', 'test-ns-channel', true),
+        raft: await tour(P.north.id, 'NS Сплав с ночёвкой', 'test-ns-raft', true),
+        cloudberry: await tour(P.drafty.id, 'NS Морошковая падь', 'test-ns-cloudberry', false),
+      };
+      const sorted = (xs: Array<number | string>) => xs.map(Number).sort((a, b) => a - b);
+      try {
+        const { resolveTourChoice, resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
+        const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
+
+        // Фамилия гида — и в именительном, и в родительном: его живые туры, черновика нет.
+        for (const q of ['Кедровец', 'Кедровца', 'туры у Саввы Кедровца']) {
+          const c = await resolveTourChoice(q);
+          expect(c.kind, q).toBe('seller');
+          if (c.kind !== 'seller') continue;
+          expect(c.sellers.map((x) => [x.name, x.category]), q).toEqual([[P.guide.name, 'guide']]);
+          expect(sorted(c.tours.map((t) => t.id)), q).toEqual(sorted([ids.alder, ids.crystal]));
+          expect(c.others, q).toBeNull();
+        }
+        const guideText = await executeKuzmichTool('get_tour_details', { name: 'Кедровца' }, { surface: 'mcp' });
+        expect(guideText).toContain(`гид «${P.guide.name}»`);
+        expect(guideText).toContain(`ID${ids.alder}`);
+        expect(guideText).toContain(`ID${ids.crystal}`);
+        expect(guideText).not.toContain(`ID${ids.guideDraft}`);
+        expect(guideText).toContain(`/operators/${P.guide.slug}`);
+        expect(guideText).not.toContain('Тур на платформе не найден');
+
+        // Отличительное имя компании — её туры, а не чужие по общему слову.
+        const zaimka = await resolveTourChoice('Тихая Заимка');
+        expect(zaimka.kind === 'seller' && sorted(zaimka.tours.map((t) => t.id))).toEqual(sorted([ids.seal, ids.channel]));
+        expect(zaimka.kind === 'seller' && zaimka.others).toBeNull();
+
+        // Компания и слово ЧУЖОГО тура — не «один тур» другого продавца, а «у неё такого нет».
+        const mixed = await resolveTourChoice('Тихая Заимка Ольховый');
+        expect(mixed.kind).toBe('seller');
+        if (mixed.kind === 'seller') {
+          expect(mixed.missing).toBe('Ольховый');
+          expect(mixed.tours.map((t) => t.id)).not.toContain(Number(ids.alder));
+        }
+        expect(await resolveTourByQuery('Тихая Заимка Ольховый')).toBeNull();
+
+        // Имя из одних общих слов: продавец назван, туры других компаний по тем же словам — тоже (§0).
+        const north = await resolveTourChoice('Северная Рыбалка');
+        expect(north.kind).toBe('seller');
+        if (north.kind === 'seller') {
+          expect(north.tours.map((t) => t.id)).toEqual([Number(ids.raft)]);
+          expect(north.others?.map((t) => t.id)).toContain(Number(ids.channel));
+        }
+        const northText = await executeKuzmichTool('get_tour_details', { name: 'Северная Рыбалка' }, { surface: 'mcp' });
+        expect(northText).toContain(`ID${ids.raft}`);
+        expect(northText).toContain(`ID${ids.channel}`);
+        // Фраза в названии чужого тура — ответ по названию: общее имя продавца не поднимается.
+        const byTitle = await resolveTourChoice('северной протоке');
+        expect(byTitle.kind === 'one' && byTitle.tour.id).toBe(Number(ids.channel));
+
+        // Партнёр с одним черновиком — не продавец, и черновик не находится;
+        // рядом с живым продавцом он не назван продавцом, а его имя — остаток запроса.
+        expect((await resolveTourChoice('Глухой Распадок')).kind).toBe('none');
+        const withDraft = await resolveTourChoice('Тихая Заимка Глухой Распадок');
+        expect(withDraft.kind === 'seller' && withDraft.sellers.map((x) => x.name)).toEqual([P.zaimka.name]);
+        expect(withDraft.kind === 'seller' && withDraft.missing).toBe('Глухой Распадок');
+
+        // Совпала одна основа из двух у туров одной компании — не «один тур».
+        const weak = await resolveTourChoice('Ольховый Несуществующий');
+        expect(weak.kind).toBe('weak');
+        if (weak.kind === 'weak') {
+          expect(weak.candidates.map((t) => t.id)).toEqual([Number(ids.alder)]);
+          expect(weak.missing).toEqual(['Несуществующий']);
+        }
+        expect(await resolveTourByQuery('Ольховый Несуществующий')).toBeNull();
+        // Обе основы у одного тура — тур, как раньше.
+        const full = await resolveTourChoice('Ольховый перевал');
+        expect(full.kind === 'one' && full.tour.id).toBe(Number(ids.alder));
+      } finally {
+        await pool.query(`DELETE FROM operator_tours WHERE slug LIKE 'test-ns-%'`);
+        await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [Object.values(P).map((x) => x.id)]);
+      }
+    });
   });
 });
 

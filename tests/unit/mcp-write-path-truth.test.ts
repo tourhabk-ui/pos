@@ -106,6 +106,66 @@ describe('туры разных компаний по одному назван�
   });
 });
 
+// Ловушка MCP 29.10, name-search: имя компании вместо тура или совпадение
+// части слов. До 29.10 запасной путь по основам пропускал тур при ОДНОЙ
+// совпавшей основе из N и при одной компании давал «один тур» — заявка с
+// телефоном человека уходила продавцу, которого он не называл. Имена
+// вымышленные; база отвечает по смыслу запроса резолвера.
+describe('имя продавца или часть слов — заявки нет (ловушка name-search, 29.10)', () => {
+  const tourRow = (id: number, title: string, operator: string, extra: Record<string, unknown> = {}) => ({
+    ...TOUR, id, title, operator_id: operator, operator_name: operator === 'op-z' ? 'Тихая Заимка' : 'Савва Кедровец',
+    nearest_free_date: null, ...extra,
+  });
+  function base(stemRows: unknown[]) {
+    query.mockImplementation(async (sql: string) => {
+      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
+      if (/FROM partners p/.test(sql) && /seller_name/.test(sql)) {
+        return { rows: [
+          { seller_id: 'op-z', seller_name: 'Тихая Заимка', seller_category: 'operator', seller_slug: 'tikhaya-zaimka', seller_is_public: true },
+          { seller_id: 'op-g', seller_name: 'Савва Кедровец', seller_category: 'guide', seller_slug: null, seller_is_public: false },
+        ] };
+      }
+      if (/unnest\(\$1::uuid\[\]/.test(sql)) return { rows: [{ seller_id: 'op-z', key: 'тиха', elsewhere: false }, { seller_id: 'op-z', key: 'заим', elsewhere: false }] };
+      if (/stem_hits/.test(sql)) return { rows: stemRows };
+      if (/AS rank/.test(sql)) return { rows: [] };
+      if (/ot\.operator_id = ANY\(\$1::uuid\[\]\)/.test(sql)) return { rows: [tourRow(201, 'Бухта Тюленья', 'op-z'), tourRow(202, 'Мыс Скалистый', 'op-z')] };
+      return { rows: [] };
+    });
+  }
+  const noLead = () => {
+    expect(createLeadMock).not.toHaveBeenCalled();
+    expect(query.mock.calls.some((c) => /INSERT INTO leads/.test(String(c[0])))).toBe(false);
+  };
+
+  it('в поле tour — имя компании: заявка не создана, её туры с номерами и страница', async () => {
+    base([]);
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Тихая Заимка' }));
+    const text = r.content[0]!.text;
+    expect(text).toContain('найден продавец, а не тур — заявка не создана');
+    expect(text).toContain('ID201');
+    expect(text).toContain('ID202');
+    expect(text).toContain('https://vedarai.ru/operators/tikhaya-zaimka');
+    noLead();
+  });
+
+  it('совпала часть слов у туров ОДНОЙ компании — заявка не создана, а не ушла этой компании', async () => {
+    base([tourRow(101, 'Перевал Ольховый', 'op-g', { stem_hits: [true, false] })]);
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Ольховый Несуществующий' }));
+    const text = r.content[0]!.text;
+    expect(text).toContain('нет тура со всеми словами — заявка не создана');
+    expect(text).toContain('совпали только слова «Ольховый»; «Несуществующий» не найдено');
+    expect(text).toContain('ID101');
+    noLead();
+  });
+
+  it('все слова у одного тура — заявка уходит этому туру, как раньше', async () => {
+    base([tourRow(101, 'Перевал Ольховый', 'op-g', { stem_hits: [true, true] })]);
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Ольховый перевал' }));
+    expect(r.isError).toBeUndefined();
+    expect(createLeadMock).toHaveBeenCalledWith(expect.objectContaining({ operator_id: 'op-g' }));
+  });
+});
+
 describe('W2: десять цифр без кода страны — российский номер', () => {
   it('900 123-45-67 → +79001234567; с плюсом — как есть', () => {
     expect(normalizePhone('900 123-45-67')).toBe('+79001234567');

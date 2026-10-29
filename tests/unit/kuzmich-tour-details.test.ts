@@ -67,9 +67,11 @@ describe('getTourDetails', () => {
       activity_type: 'rafting',
     }] });
     const out = await getTourDetails('Быстрая');
-    // Второй запрос — детали (включая точку сбора) строго по id резолва.
-    const [sql2, params2] = poolQueryMock.mock.calls[1];
-    expect(sql2).toContain('meeting_point');
+    // Запрос деталей (включая точку сбора) — строго по id резолва. С 29.10
+    // между резолвером и деталями бывает поиск продавца по имени (совпадение
+    // не в названии), поэтому запрос деталей ищется по смыслу, а не по номеру.
+    const [sql2, params2] = poolQueryMock.mock.calls.find(([sql]) => sql.includes('meeting_point')) ?? [];
+    expect(sql2).toContain('FROM operator_tours');
     expect(params2).toEqual([42]);
     expect(out).toContain('СПЛАВ ПО РЕКЕ БЫСТРАЯ');
     expect(out).toContain('147-й км трассы А4');

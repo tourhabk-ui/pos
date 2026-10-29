@@ -15,6 +15,8 @@
  *    ссылки на ОДИН тур нет: она выбрала бы продавца за человека. Все
  *    кандидаты идут к одному записанному месту — ссылка на «Туры к этому
  *    месту» его карточки, где они все по правилу 1в; иначе ссылки нет.
+ *  - Запрос назвал продавца или совпал лишь частью слов (ловушка 29.10,
+ *    name-search) — ссылки нет: тур не выбран.
  */
 
 import type { HandoffTarget } from '@/lib/mcp/handoff';
@@ -28,10 +30,15 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-/** Куда вести после ответа о туре: один тур — его карточка; несколько компаний — общее место или никуда. */
+/**
+ * Куда вести после ответа о туре: один тур — его карточка; несколько компаний
+ * — общее место или никуда. Продавец и частичное совпадение слов — никуда:
+ * тур не выбран, а ссылка на один тур выбрала бы его за человека. Страница
+ * продавца стоит полным адресом в тексте ответа (цели «продавец» у handoff нет).
+ */
 export function tourChoiceTarget(choice: TourChoice): HandoffTarget | null {
   if (choice.kind === 'one') return { targetType: 'tour', targetPath: tourPath(choice.tour) };
-  if (choice.kind === 'none') return null;
+  if (choice.kind !== 'ambiguous') return null;
   const first = choice.candidates[0]?.place ?? null;
   if (!first) return null;
   const samePlace = choice.candidates.every((c) => c.place?.id === first.id);

@@ -99,7 +99,8 @@ describe('Кузьмич и MCP get_tour_details', () => {
   it('TRUE — агент слышит «не ограничена» и потолок одной заявки', async () => {
     query.mockResolvedValue({ rows: [{ ...DETAILS_ROW, group_size_unlimited: true }] });
     const out = await getTourDetails('Курильское');
-    expect(query.mock.calls[1][0]).toContain('group_size_unlimited');
+    // Запрос деталей несёт колонку; поиск продавца (29.10) может стоять между ним и резолвером.
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('group_size_unlimited'))).toBe(true);
     expect(out).toContain(UNLIMITED_12);
     expect(out).not.toContain('Группа до 12');
   });

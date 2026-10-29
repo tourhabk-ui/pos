@@ -30,13 +30,13 @@
     "type": "function",
     "function": {
       "name": "get_tour_details",
-      "description": "One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours. Полные детали КОНКРЕТНОГО тура: описание, программа, точка сбора и логистика (старт/забор), что входит и не входит, что взять с собой. Используй ВСЕГДА, когда турист спрашивает про конкретный тур — что там по программе, откуда стартуют, где сбор, что взять. Не выдумывай эти детали сам — бери отсюда.",
+      "description": "One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours. Полные детали КОНКРЕТНОГО тура: описание, программа, точка сбора и логистика (старт/забор), что входит и не входит, что взять с собой. Используй ВСЕГДА, когда турист спрашивает про конкретный тур — что там по программе, откуда стартуют, где сбор, что взять. Не выдумывай эти детали сам — бери отсюда. Назвал компанию или гида, продающих туры, — ответ: их туры на витрине и адрес их страницы, а не один тур. Совпала только часть слов запроса — ответ так и говорит и даёт список: не называй эти туры подходящими.",
       "parameters": {
         "type": "object",
         "properties": {
           "name": {
             "type": "string",
-            "description": "Tour title or a keyword from it. Название тура или ключевое слово так, как их назвал человек",
+            "description": "Tour title, numeric ID, a keyword, or the name of a company or guide selling tours (the reply then lists their tours and their page, not one tour). Название тура, номер, ключевое слово или имя компании либо гида — так, как назвал человек",
             "examples": [
               "рыбалка"
             ]
@@ -446,7 +446,7 @@
         "properties": {
           "tour": {
             "type": "string",
-            "description": "Tour title, keyword or numeric ID from get_tours. Название тура, ключевое слово или числовой ID"
+            "description": "Tour title, keyword or numeric ID from get_tours. A company or guide name returns their tour list without dates — then ask by tour ID. Название тура, ключевое слово или числовой ID. Имя компании или гида — ответ список их туров без дат: даты смотри по номеру тура."
           },
           "date_from": {
             "type": "string",
@@ -591,13 +591,13 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, заявка не создаётся: в ответе список с номерами туров и компаниями — спроси человека, какой тур он выбрал, и повтори вызов с номером тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
       "parameters": {
         "type": "object",
         "properties": {
           "tour": {
             "type": "string",
-            "description": "Tour title or numeric ID from get_tours / get_tour_availability. Название тура или числовой ID (из get_tours / get_tour_availability)"
+            "description": "Numeric tour ID or tour title from get_tours / get_tour_availability. A company or guide name, or a partial word match, creates no request: the reply lists tours by ID. Числовой ID тура или его название (из get_tours / get_tour_availability). Имя компании или гида заявку не создаёт — нужен тур."
           },
           "date": {
             "type": "string",
