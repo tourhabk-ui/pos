@@ -534,6 +534,24 @@ withPg('кого накрывает предупреждение', () => {
     const covered = await coveredBy(id);
     expect(covered).toContain(COMMANDER.id);
     expect(covered).toContain(CITY.id);
+    // 29.10 (#2769, решение владельца «сузить»): «юг края» не доходит до
+    // северной зоны — Шивелуча и Ключевской группы.
+    expect(covered).not.toContain(SHIVELUCH.id);
+  });
+
+  it('одно явление в «севере» и «юге» края доходит и до севера, и до города', async () => {
+    const start = Math.floor(Date.now() / 1000) - 60;
+    const [e] = meteoalertEvents(
+      [
+        { regionId: '95', key: '21', level: 2, phenomenon: 'Ветер', text: 'местами 15-20 м/с', startUnix: start, minutes: 600 },
+        { regionId: '96', key: '21', level: 2, phenomenon: 'Ветер', text: 'местами 15-20 м/с', startUnix: start, minutes: 600 },
+      ],
+      Date.now(),
+    );
+    const id = await insertAlert({ type: 'weather', title: `${e.title} (тест севера и юга)`, zones: [...e.affected_zones] });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(SHIVELUCH.id);
+    expect(covered).toContain(CITY.id);
   });
 
   // 16.10: угроза цунами КБГС несла четыре зоны буквами, и Командоры с
@@ -883,7 +901,8 @@ withPg('кого накрывает предупреждение', () => {
       expect(bare?.zone).toBe('avachinsky');
       expect(bare?.reached_by).toEqual(['krai_wide', 'meteo_south']);
       expect(by.get(COMMANDER.id)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
-      expect(by.get(FAR_NORTH.id)?.reached_by).toEqual(['krai_wide', 'meteo_north', 'meteo_south']);
+      // «Юг края» без северной зоны (29.10, #2769): северное место — только «север».
+      expect(by.get(FAR_NORTH.id)?.reached_by).toEqual(['krai_wide', 'meteo_north']);
       expect(by.get(CITY.id)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
       expect(by.get(MUTNOVSKY.id)?.reached_by).toEqual([]);
 
