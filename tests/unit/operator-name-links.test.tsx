@@ -32,6 +32,7 @@ import React from 'react';
 import { operatorPagePath } from '@/lib/operators/page-link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import PlaceTours from '@/components/places/PlaceTours';
+import type { PlaceTour } from '@/components/places/types';
 import { ToursForQuery } from '@/components/search/ToursForQuery';
 import { FishingPageClient } from '@/app/hub/fishing/_FishingPageClient';
 
@@ -121,7 +122,8 @@ describe('источники данных отдают slug и is_public ряд�
     ['lib/search/tour-search.ts', /p\.slug as operator_slug,\s*p\.is_public as operator_public/],
     ['lib/tours/tour-detail-query.ts', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
     ['app/_home/data.ts', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
-    ['lib/places/place-detail.ts', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
+    // Туры места — свой загрузчик с 29.10 (lib/places/place-tours).
+    ['lib/places/place-tours.ts', /p\.slug AS partner_slug,\s*p\.is_public AS partner_public/],
     ['app/api/availability/day/route.ts', /p\.is_public\s+AS operator_public/],
     ['app/api/hub/bookings/[id]/route.ts', /p\.is_public\s+AS operator_public/],
     ['lib/routes/route-detail.ts', /JOIN partners p ON p\.id = v\.operator_id[\s\S]*?p\.is_public AS operator_public|p\.is_public AS operator_public[\s\S]*?JOIN partners p ON p\.id = v\.operator_id/],
@@ -142,7 +144,7 @@ describe('источники данных отдают slug и is_public ряд�
   });
 
   it('кэш страницы плана сменил ключ вместе с формой строки тура', () => {
-    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v2'\]/);
+    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v3'\]/);
   });
 
   // Адрес оператора в JSON-LD рыбалки только у открытой карточки — проверяется
@@ -153,7 +155,8 @@ describe('источники данных отдают slug и is_public ряд�
   });
 
   it('витрина: смена формы строки — смена ключа кэша', () => {
-    expect(read('lib/search/tour-search.ts')).toMatch(/\['marketplace-tours-query-v3', JSON\.stringify\(filters\)\]/);
+    // v4 (29.10, правило 1в): строка несёт nearest_free_date, в ключе — день Камчатки.
+    expect(read('lib/search/tour-search.ts')).toMatch(/\['marketplace-tours-query-v4', offerOrderDay\(\), JSON\.stringify\(filters\)\]/);
   });
 
   it('«Туры по запросу»: страница копирует slug и is_public в блок', () => {
@@ -163,15 +166,23 @@ describe('источники данных отдают slug и is_public ряд�
 });
 
 describe('карточка-ссылка на тур: имя оператора — своя ссылка, <a> в <a> нет', () => {
-  const tour = { id: '53', slug: 'mestechko-halaktyrskiy-plyazh', title: 'Халактырский пляж', basePrice: 7000, durationDays: null, operatorName: 'Местечко Камчатка', operatorSlug: 'mestechko', operatorPublic: true };
+  const tour: PlaceTour = {
+    id: '53', slug: 'mestechko-halaktyrskiy-plyazh', title: 'Халактырский пляж', basePrice: 7000, priceUnit: 'per_person',
+    durationType: 'day', multiDayCount: null, durationHours: 6, seasonStart: null, seasonEnd: null,
+    nearestFreeDate: null, keepsSchedule: false, partnerId: 'p-mestechko', partnerVerified: true,
+    operatorName: 'Местечко Камчатка', operatorSlug: 'mestechko', operatorPublic: true, linkKind: 'main_place',
+  };
+  const block = (tours: PlaceTour[]) => <PlaceTours tours={tours} state="ok" day="2026-10-29" placeName="Халактырский пляж" />;
 
-  it('PlaceTours: две ссылки — тур слоем и оператор поверх; закрытый оператор — одна', () => {
-    const { container } = render(<PlaceTours tours={[tour]} />);
+  // Туры на карточке места сгруппированы по компаниям (29.10, «1в 2б 3 да»):
+  // имя компании — заголовок блока, под ним строки туров.
+  it('PlaceTours: две ссылки — компания заголовком блока и тур слоем; закрытый оператор — одна', () => {
+    const { container } = render(block([tour]));
     const links = [...container.querySelectorAll('a')];
-    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/catalog/tours/mestechko-halaktyrskiy-plyazh', '/operators/mestechko']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/operators/mestechko', '/catalog/tours/mestechko-halaktyrskiy-plyazh']);
     expect(container.querySelectorAll('a a')).toHaveLength(0);
     cleanup();
-    const closed = render(<PlaceTours tours={[{ ...tour, operatorPublic: false }]} />);
+    const closed = render(block([{ ...tour, operatorPublic: false }]));
     expect([...closed.container.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/catalog/tours/mestechko-halaktyrskiy-plyazh']);
     expect(closed.container.textContent).toContain('Местечко Камчатка');
   });

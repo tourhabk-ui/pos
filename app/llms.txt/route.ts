@@ -9,6 +9,8 @@ import { activityLabel } from '@/lib/tours/labels';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
 import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
@@ -50,18 +52,19 @@ export async function GET(request?: Request) {
   // Живой каталог туров — аудит «как ИИ видят Ведар» (08.08): манифест был
   // силён по местам и слеп по коммерции, модели видели «энциклопедию
   // Камчатки», а не витрину продаж. Витринные флаги — как у sitemap и MCP.
-  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null; operator_verified: boolean | null }[] = [];
+  // Весь каталог и порядок правила 1в (слово владельца 29.10): прежние
+  // «первые 40 по цене» поднимали дешёвое и молча прятали остальное.
+  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null; operator_verified: boolean | null; nearest_free_date: string | null }[] = [];
   try {
     const { rows } = await pool.query<typeof tours[number]>(`
       SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name,
-             p.is_verified AS operator_verified
+             p.is_verified AS operator_verified,
+             ${nearestFreeDateSql('ot')} AS nearest_free_date
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ${publicTourSql('ot')}
-      ORDER BY ot.base_price ASC
-      LIMIT 40
     `);
-    tours = rows;
+    tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null }));
   } catch (e) {
     // Секция туров не печатается, но отказ не глушится (§4.0).
     degraded.push('туры');
@@ -251,6 +254,8 @@ ${tourLines ? `## Актуальные туры операторов (живой
 Каждый тур — предложение оператора; проверен ли оператор платформой, сказано
 в строке тура. Цены и свободные даты меняются: для актуальных данных
 используйте страницу тура или MCP.
+
+${OFFER_ORDER_NOTE.ru}
 
 ${tourLines}` : ''}
 

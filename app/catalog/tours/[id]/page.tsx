@@ -12,6 +12,7 @@ import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
 import { requestWindow, seasonWindowView } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { zhTourAlternatePath } from '@/lib/zh/content';
+import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
 
 export const revalidate = 3600;
 
@@ -83,7 +84,12 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   // Пришли по числу, а у тура есть адрес — 308 на адрес: в выдаче и у
   // людей должен жить один адрес карточки (ЧПУ туров, 30.09).
   if (loaded.byId && tour.slug) permanentRedirect(tourPath(tour));
-  const [reviews, dates, reach] = await Promise.all([getReviews(tour.id), countTourDates(tour.id), reachForTour(tour.id)]);
+  // «К месту ещё N предложений» (слово владельца 29.10, «3 да») — по записанной
+  // связи тура с местом; отказ загрузчик пишет в лог, строки тогда нет.
+  const [reviews, dates, reach, placeOffers] = await Promise.all([
+    getReviews(tour.id), countTourDates(tour.id), reachForTour(tour.id),
+    loadPlaceOffersForTour({ id: tour.id, main_place_id: tour.main_place_id }),
+  ]);
   // Расписания нет, а оператору есть куда написать — первым путём на карточке
   // идёт запрос мест (04.10). «Не смог прочитать» (null) — не повод менять
   // путь: остаётся обычная заявка.
@@ -110,7 +116,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <TourDetailClient tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} />
+      <TourDetailClient tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} placeOffers={placeOffers} />
     </>
   );
 }

@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { orderPlates, PLATES_LIMIT } from '@/lib/home/plate-facts';
+import { orderPlates, PLATES_LIMIT, HOME_PLATES_ORDER_NOTE, HOME_TOURS_PHOTO_NOTE } from '@/lib/home/plate-facts';
 import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
 
 const data = readFileSync(join(process.cwd(), 'app/_home/data.ts'), 'utf-8');
@@ -26,22 +26,35 @@ describe('главная: платы = туры операторов', () => {
     // по-другому решать «даты есть / по запросу» для того же тура (#1780).
     // Прежняя проверка `toContain('is_published = true')` требовала именно
     // своей копии условия — снята, вместо неё требуется общий фрагмент.
-    expect(plates).toContain('${hasAvailabilitySql()}');
+    // С 29.10 (правило 1в) — сама ближайшая свободная дата: по ней порядок,
+    // «даты есть» выводится из неё. Тот же фрагмент, на котором стоит
+    // hasAvailabilitySql каталога.
+    expect(plates).toContain("${nearestFreeDateSql('ot')} AS nearest_free_date");
+    expect(plates).toMatch(/has_availability: r\.nearest_free_date != null/);
     // Живой тур — шлюз витрины publicTourSql; второй канон того же правила
     // (LIVE_TOUR_CONDITIONS) снят находкой аудита 15.10 P1-04.
     expect(plates).toContain("${publicTourSql('ot')}");
     expect(data, 'главная считает свободные даты сама').not.toContain('FROM tour_availability');
     expect(data, 'главная считает занятость сама').not.toMatch(/occupiedOnDaySql\(/);
     expect(plates, 'свой список условий живого тура').not.toMatch(/is_published\s*=\s*true/);
-    expect(data).toMatch(/import \{[^}]*hasAvailabilitySql[^}]*\} from '@\/lib\/search\/tour-search'/);
+    expect(data).toMatch(/import \{[^}]*nearestFreeDateSql[^}]*\} from '@\/lib\/tours\/nearest-free-date'/);
   });
 
-  it('каталог сам зовёт тот же фрагмент — условие одно на обе витрины', () => {
+  it('каталог сам зовёт тот же фрагмент — условие одно на обе витрины', async () => {
     // Иначе экспорт мог бы жить рядом со своей копией в листинге каталога, и
     // «одно условие» снова стало бы двумя.
     const search = readFileSync(join(process.cwd(), 'lib/search/tour-search.ts'), 'utf-8');
-    expect(search).toMatch(/\$\{hasAvailabilitySql\(\)\} as has_availability/);
-    expect(search.match(/FROM tour_availability/g) ?? []).toHaveLength(1);
+    // Каталог берёт сам фрагмент ближайшей даты (ключ порядка, 29.10), а
+    // «даты есть» выводит из него — то же условие, что hasAvailabilitySql.
+    expect(search).toMatch(/\$\{nearestFreeDateSql\('ot'\)\} AS nearest_free_date/);
+    // С 29.10 (правило 1в) и сам фрагмент — не своя копия: «даты есть» значит
+    // «есть ближайшая свободная дата» (lib/tours/nearest-free-date), та же,
+    // по которой строится порядок витрин. Своего FROM tour_availability в
+    // каталоге нет вовсе.
+    expect(search, 'каталог считает свободные даты сам').not.toContain('FROM tour_availability');
+    const { hasAvailabilitySql } = await import('@/lib/search/tour-search');
+    const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    expect(hasAvailabilitySql()).toBe(`(${nearestFreeDateSql('ot')} IS NOT NULL)`);
   });
   it('не добивает витрину маршрутами (queryCatalog в турах убран)', () => {
     // С 25.09 queryCatalog в data.ts есть — им «Исследовать» берёт МЕСТА
@@ -86,64 +99,110 @@ describe('главная: платы = туры операторов', () => {
   });
 });
 
-describe('orderPlates: порядок витрины главной', () => {
-  type P = { id: string; availability: CatalogAvailability; imageUrl: string | null };
-  const t = (id: string, availability: CatalogAvailability): P => ({ id, availability, imageUrl: `/images/t/${id}.jpg` });
-
-  it('даты → по запросу → сезон кончился', () => {
-    const out = orderPlates([t('a', 'season_over'), t('b', 'dates'), t('c', 'on_request')]);
-    expect(out.map((p) => p.id)).toEqual(['b', 'c', 'a']);
+describe('orderPlates: витрина главной — правило 1в, только туры со снимком (29.10)', () => {
+  type P = {
+    id: string; availability: CatalogAvailability; imageUrl: string | null;
+    partnerId: string | null; operatorName: string | null; nearestFreeDate: string | null;
+  };
+  const DAY = '2026-10-29';
+  const t = (id: string, availability: CatalogAvailability, partnerId: string | null, extra: Partial<P> = {}): P => ({
+    id, availability, partnerId, operatorName: partnerId ? `Компания ${partnerId}` : null,
+    imageUrl: `tours/${id}.jpg`, nearestFreeDate: availability === 'dates' ? '2026-11-10' : null, ...extra,
   });
 
-  it('внутри группы сохраняется порядок выборки (фото, свежесть)', () => {
+  it('тур без снимка на главную не попадает при любом сезоне; тур со снимком той же компании — попадает', () => {
     const out = orderPlates([
-      t('s1', 'season_over'), t('d1', 'dates'), t('r1', 'on_request'),
-      t('d2', 'dates'), t('s2', 'season_over'), t('r2', 'on_request'), t('d3', 'dates'),
-    ]);
-    expect(out.map((p) => p.id)).toEqual(['d1', 'd2', 'd3', 'r1', 'r2', 's1', 's2']);
+      t('n1', 'dates', 'A', { imageUrl: null }),
+      t('n2', 'on_request', 'A', { imageUrl: '  ' }),
+      t('n3', 'season_over', 'A', { imageUrl: null }),
+      t('y1', 'on_request', 'A'),
+    ], { day: DAY });
+    expect(out.map((p) => p.id)).toEqual(['y1']);
   });
 
-  it('не больше восьми карточек, и закрытый сезон не вытесняет открытые', () => {
+  it('33 тура одной компании и 1 другой — в восьми плитках обе компании', () => {
     const input = [
-      ...Array.from({ length: 5 }, (_, i) => t(`s${i}`, 'season_over')),
-      ...Array.from({ length: 8 }, (_, i) => t(`d${i}`, 'dates')),
+      ...Array.from({ length: 33 }, (_, i) => t(`a${i}`, 'on_request', 'A')),
+      t('b0', 'on_request', 'B'),
     ];
-    const out = orderPlates(input);
-    expect(PLATES_LIMIT).toBe(8);
-    expect(out).toHaveLength(8);
-    expect(out.every((p) => p.availability === 'dates')).toBe(true);
+    for (const day of ['2026-10-29', '2026-10-30', '2026-11-01', '2026-12-31']) {
+      const out = orderPlates(input, { day });
+      expect(PLATES_LIMIT).toBe(8);
+      expect(out).toHaveLength(8);
+      expect(out.map((p) => p.id), day).toContain('b0');
+      expect(out.slice(0, 2).map((p) => p.partnerId).sort()).toEqual(['A', 'B']);
+    }
   });
 
-  it('один оператор не забирает витрину: операторы идут по очереди (08.10)', () => {
-    // Прод 08.10: девять туров рыбалки с датами, одиннадцать «Края Вулканов»
-    // по запросу, один рафтинг — строгое «даты сначала» отдавало рыбалке все восемь мест.
-    type Q = P & { operatorName: string | null };
-    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ ...t(id, availability), operatorName });
+  it('сезон кончился — после всех открытых, даже при круге компаний', () => {
+    const out = orderPlates([
+      t('s0', 'season_over', 'A'), t('a0', 'dates', 'A'), t('b0', 'on_request', 'B'), t('a1', 'on_request', 'A'),
+    ], { day: DAY });
+    expect(out.map((p) => p.id).slice(-1)).toEqual(['s0']);
+    expect(out.map((p) => p.id).slice(0, 3).sort()).toEqual(['a0', 'a1', 'b0']);
+  });
+
+  it('две компании чередуются: A, B, A, B — при любом дне жребия', () => {
     const input = [
-      ...Array.from({ length: 11 }, (_, i) => q(`v${i}`, 'on_request', 'Край Вулканов')),
-      ...Array.from({ length: 9 }, (_, i) => q(`f${i}`, 'dates', 'Камчатская рыбалка')),
-      q('r0', 'on_request', 'Семейный Рафтинг'),
+      ...Array.from({ length: 4 }, (_, i) => t(`a${i}`, 'on_request', 'A')),
+      ...Array.from({ length: 4 }, (_, i) => t(`b${i}`, 'on_request', 'B')),
     ];
-    const out = orderPlates(input);
-    expect(out).toHaveLength(8);
-    // Оператор с датами впереди круга, внутри оператора — прежний порядок.
-    expect(out.map((p) => p.id)).toEqual(['f0', 'v0', 'r0', 'f1', 'v1', 'f2', 'v2', 'f3']);
-    const per = new Map<string | null, number>();
-    for (const p of out) per.set(p.operatorName, (per.get(p.operatorName) ?? 0) + 1);
-    expect(per.get('Камчатская рыбалка')).toBeLessThan(8);
-    expect(per.get('Край Вулканов')).toBeGreaterThan(0);
+    for (const day of ['2026-10-29', '2026-10-30', '2026-11-01', '2026-12-31']) {
+      const companies = orderPlates(input, { day }).map((p) => p.partnerId);
+      expect(companies, day).toHaveLength(8);
+      for (let i = 1; i < companies.length; i++) expect(companies[i], `${day}: место ${i}`).not.toBe(companies[i - 1]);
+    }
   });
 
-  it('закрытый сезон по-прежнему после всех открытых, даже при круге операторов', () => {
-    type Q = P & { operatorName: string | null };
-    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ ...t(id, availability), operatorName });
-    const out = orderPlates([q('s0', 'season_over', 'A'), q('a0', 'dates', 'A'), q('b0', 'on_request', 'B'), q('a1', 'on_request', 'A')]);
-    expect(out.map((p) => p.id)).toEqual(['a0', 'b0', 'a1', 's0']);
+  it('тур без снимка не попадает и при кончившемся сезоне; закрытый со снимком — в конце', () => {
+    // Случай 29.10: открытые туры без фото стояли впереди закрытых с фото.
+    const out = orderPlates([
+      t('old', 'season_over', 'B'),
+      ...Array.from({ length: 5 }, (_, i) => t(`bare${i}`, 'dates', 'A', { imageUrl: null })),
+      t('open', 'on_request', 'C'),
+    ], { day: DAY });
+    expect(out.map((p) => p.id)).toEqual(['open', 'old']);
+  });
+
+  it('компания с ближайшей свободной датой — первой; внутри компании — тур с датой раньше', () => {
+    const out = orderPlates([
+      t('b0', 'on_request', 'B'),
+      t('a1', 'dates', 'A', { nearestFreeDate: '2026-12-01' }),
+      t('c0', 'dates', 'C', { nearestFreeDate: '2026-11-05' }),
+      t('a0', 'dates', 'A', { nearestFreeDate: '2026-11-20' }),
+    ], { day: DAY });
+    expect(out.map((p) => p.id)).toEqual(['c0', 'a0', 'b0', 'a1']);
+  });
+
+  it('новизна и порядок выборки не влияют: перестановка входа — тот же итог; жребий воспроизводим', () => {
+    const input = [
+      ...Array.from({ length: 6 }, (_, i) => t(`a${i}`, 'on_request', 'A')),
+      ...Array.from({ length: 6 }, (_, i) => t(`b${i}`, 'on_request', 'B')),
+      ...Array.from({ length: 6 }, (_, i) => t(`c${i}`, 'on_request', 'C')),
+    ];
+    const a = orderPlates(input, { day: DAY }).map((p) => p.id);
+    const b = orderPlates([...input].reverse(), { day: DAY }).map((p) => p.id);
+    expect(b).toEqual(a);
+    expect(orderPlates(input, { day: DAY }).map((p) => p.id)).toEqual(a);
+  });
+
+  it('тур без компании — сам себе очередь, а не «одна компания на всех»', () => {
+    const out = orderPlates([t('x', 'on_request', null), t('y', 'on_request', null), t('a0', 'on_request', 'A'), t('a1', 'on_request', 'A')], { day: DAY });
+    expect(out.slice(0, 3).map((p) => p.id).sort()).toEqual(['a0', 'x', 'y']);
+  });
+
+  it('подписи: порядок кончается «Место в списке не продаётся.», допуск по снимку — своей строкой', () => {
+    expect(HOME_PLATES_ORDER_NOTE).toMatch(/по ближайшему выезду, компании по очереди/);
+    expect(HOME_PLATES_ORDER_NOTE).toMatch(/с закончившимся сезоном — в конце/);
+    expect(HOME_PLATES_ORDER_NOTE).toMatch(/Место в списке не продаётся\.$/);
+    expect(HOME_TOURS_PHOTO_NOTE).toBe('На главной — туры со снимками; все туры — в каталоге.');
+    // Смысл не дублируется: обе подписи стоят в одном блоке.
+    expect(HOME_PLATES_ORDER_NOTE).not.toContain(HOME_TOURS_PHOTO_NOTE);
   });
 
   it('не мутирует вход', () => {
-    const input = [t('a', 'season_over'), t('b', 'dates')];
-    orderPlates(input);
+    const input = [t('a', 'season_over', 'A'), t('b', 'dates', 'B')];
+    orderPlates(input, { day: DAY });
     expect(input.map((p) => p.id)).toEqual(['a', 'b']);
   });
 });

@@ -24,6 +24,7 @@ import { z } from 'zod';
 import type { AliceRequest, AliceResponse, AliceButton, AliceEntity } from './types';
 import type { MarketplaceTourRow, MarketplaceToursFilters, MarketplaceToursResult } from '@/lib/search/tour-search';
 import { priceFromOrSay } from '@/lib/tours/price-label';
+import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 
 export type FetchTours = (
   filters: Partial<MarketplaceToursFilters>,
@@ -150,6 +151,22 @@ function formatPrice(row: MarketplaceTourRow): string {
   return priceFromOrSay(row.base_price, 'цена не указана', '₽');
 }
 
+/**
+ * Строка списка голосом: номер, тур, компания, цена. Компания — у каждого
+ * тура (ревью 29.10): туры к одному месту продают разные компании, и две
+ * одинаковые строки «Вулкан Горелый — … ₽» различались только ценой.
+ */
+function listLine(t: MarketplaceTourRow, i: number): string {
+  return `${i + 1}) ${t.title} — ${t.operator_name || 'компания не записана'} — ${formatPrice(t)}`;
+}
+
+/** Правило порядка вслух — одной фразой (§0); цену выбрал сам турист — так и сказано. */
+function orderPhrase(sort: SkillState['sort']): string {
+  return sort === 'price_asc' || sort === 'price_desc'
+    ? 'По цене — как вы попросили. Место в списке не продаётся.'
+    : OFFER_ORDER_NOTE_SHORT_RU;
+}
+
 function tourButton(row: { id: number; title: string }): AliceButton {
   return { title: row.title.slice(0, 60), payload: { action: 'details', id: row.id }, hide: true };
 }
@@ -159,7 +176,9 @@ async function respondList(
   offset: number,
   sort: SkillState['sort'],
 ): Promise<AliceResponse> {
-  const result = await fetchTours({ sort, limit: PAGE_SIZE, offset });
+  // «Новые» сняты правилом 1в (29.10): старое состояние с 'recent' идёт
+  // порядком платформы, как и ссылка каталога ?sort=recent.
+  const result = await fetchTours({ sort: sort === 'recent' ? 'recommended' : sort, limit: PAGE_SIZE, offset });
 
   if (result.total === 0) {
     return {
@@ -176,10 +195,12 @@ async function respondList(
     };
   }
 
-  const lines = result.tours.map((t, i) => `${i + 1}) ${t.title} — ${formatPrice(t)}`);
+  const lines = result.tours.map(listLine);
   const hasMore = offset + result.tours.length < result.total;
+  // Подпись правила — до вопроса, а не в хвосте: потолок длины режет хвост.
   const text = cap(
     `Нашла туров: ${result.total}. Вот ${result.tours.length}:\n${lines.join('\n')}\n` +
+      `${orderPhrase(sort)}\n` +
       'Назовите номер или название тура, чтобы узнать подробнее.' +
       (hasMore ? ' Или скажите «ещё».' : ''),
   );
@@ -230,7 +251,10 @@ async function respondDetailsByQuery(fetchTours: FetchTours, q: string, prior: S
   if (Number.isInteger(asId) && prior?.items.some((it) => it.id === asId)) {
     return respondDetails(fetchTours, asId);
   }
-  const result = await fetchTours({ search: q, limit: 1 });
+  // Не «limit: 1»: первый по жребию дня тур одной компании звучал бы как
+  // единственный, а о туре другой компании с тем же названием Алиса молчала
+  // бы (ревью 29.10). Совпали туры разных компаний — перечисляем, выбирает турист.
+  const result = await fetchTours({ search: q, limit: PAGE_SIZE });
   const tour = result.tours[0];
   if (!tour) {
     return {
@@ -238,7 +262,27 @@ async function respondDetailsByQuery(fetchTours: FetchTours, q: string, prior: S
       version: '1.0',
     };
   }
-  return respondDetails(fetchTours, tour.id);
+  const companies = new Set(result.tours.map((t) => t.operator_id));
+  if (companies.size <= 1 && result.total <= result.tours.length) return respondDetails(fetchTours, tour.id);
+  const more = result.total > result.tours.length
+    ? ` И ещё ${result.total - result.tours.length} — в каталоге на сайте.`
+    : '';
+  const text = cap(
+    `По «${q.slice(0, 60)}» есть туры разных компаний:\n${result.tours.map(listLine).join('\n')}\n` +
+      `${OFFER_ORDER_NOTE_SHORT_RU}\n` +
+      `Назовите номер, чтобы узнать подробнее.${more}`,
+  );
+  return {
+    response: { text, buttons: result.tours.map(tourButton), end_session: false },
+    session_state: {
+      v: 1,
+      items: result.tours.map((t) => ({ id: t.id, title: t.title })),
+      offset: 0,
+      sort: 'recommended',
+      total: result.total,
+    } satisfies SkillState,
+    version: '1.0',
+  };
 }
 
 const HELP_TEXT = cap(

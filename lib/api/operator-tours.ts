@@ -4,7 +4,8 @@
  */
 
 import { z } from 'zod';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
+import { assertLiveMainPlace } from '@/lib/tours/main-place';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { openTourDates, type OpenDatesResult } from '@/lib/tours/availability-open';
@@ -22,12 +23,28 @@ import { openTourDates, type OpenDatesResult } from '@/lib/tours/availability-op
  * «за человека» на «за тур» (группа из восьми платила бы цену одного) и
  * сбрасывали погодные пороги. Умолчания живут только в CreateTourSchema.
  */
+/**
+ * Виды места и активности, которые принимает СОЗДАНИЕ тура и СМЕНА вида в
+ * правке. Туры, заведённые миграциями, несут и другие значения (jeep_safari,
+ * snowmobile, sightseeing, coast, sea, city, cultural, horseback…): правка
+ * такого тура не обязана их менять — сохранённое значение проходит как было
+ * (`kindChangeRejected`), а новое выбирается только из этих списков.
+ */
+export const CREATE_LOCATION_TYPES = ['volcano', 'hot_spring', 'bay', 'lake', 'mountain', 'river', 'geyser', 'other'] as const;
+export const CREATE_ACTIVITY_TYPES = ['trekking', 'thermal', 'boat_trip', 'rafting', 'fishing', 'bears', 'helicopter', 'jeep', 'other'] as const;
+
+/**
+ * Значение вида в правке: любое слово схемы (сохранённое у тура может быть
+ * из миграции), но перемену роут сверяет со списками создания.
+ */
+const KIND_VALUE = z.string().regex(/^[a-z_]{2,40}$/, 'Недопустимое значение вида');
+
 const TourFieldsSchema = z.object({
   title: z.string().min(5).max(255),
   description: z.string().max(2000).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
-  location_type: z.enum(['volcano', 'hot_spring', 'bay', 'lake', 'mountain', 'river', 'geyser', 'other']),
-  activity_type: z.enum(['trekking', 'thermal', 'boat_trip', 'rafting', 'fishing', 'bears', 'helicopter', 'jeep', 'other']),
+  location_type: z.enum(CREATE_LOCATION_TYPES),
+  activity_type: z.enum(CREATE_ACTIVITY_TYPES),
   location_name: z.string().min(3).max(255),
   // Координаты необязательны (§4.0): форма и импорт до 25.09 подставляли
   // 53.0/158.7 — «Петропавловск» у тура в Долине гейзеров. Нет — значит NULL.
@@ -68,6 +85,12 @@ export const CreateTourSchema = TourFieldsSchema.extend({
   min_visibility_m: z.number().positive().default(1000),
   max_wind_kmh: z.number().positive().default(30),
   max_precipitation_mm: z.number().nonnegative().default(2),
+  /**
+   * Главное место тура (places.id) — выбрано в кабинете при создании; пишется
+   * с источником `operator`. Что место живое, проверяет createTour в той же
+   * транзакции, что запись тура. Импорт CSV поле не шлёт: оно необязательно.
+   */
+  main_place_id: z.string().trim().min(1).max(64).nullable().optional(),
 });
 
 // Частичная правка: без умолчаний (см. TourFieldsSchema) + поля, которые
@@ -75,6 +98,11 @@ export const CreateTourSchema = TourFieldsSchema.extend({
 // и Zod их молча выбрасывал: «Изменения сохранены» — а условия отмены,
 // подвоз и публикация не менялись никогда.
 export const UpdateTourSchema = TourFieldsSchema.partial().extend({
+  // Вид — словом схемы, а не перечнем создания: тур из миграции с
+  // jeep_safari отвечал 400 на любую правку, и вместе с полем терялся выбор
+  // главного места. Перемену вида роут сверяет со списками создания.
+  location_type:     KIND_VALUE.optional(),
+  activity_type:     KIND_VALUE.optional(),
   description:       z.string().max(2000).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
   price_old:         z.number().positive().nullable().optional(),
@@ -106,6 +134,28 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
    */
   main_place_id:       z.string().trim().min(1).max(100).nullable().optional(),
 });
+
+/**
+ * Перемена вида в правке тура: новое значение обязано быть из списка
+ * создания; сохранённое у тура (в том числе из миграции) проходит как было.
+ * Возвращает текст отказа или null.
+ */
+export function kindChangeRejected(
+  input: { location_type?: string; activity_type?: string },
+  stored: { location_type?: unknown; activity_type?: unknown },
+): string | null {
+  const loc = input.location_type;
+  if (loc !== undefined && loc !== stored.location_type
+      && !(CREATE_LOCATION_TYPES as readonly string[]).includes(loc)) {
+    return `Тип места «${loc}» не из списка — выберите тип из списка формы`;
+  }
+  const act = input.activity_type;
+  if (act !== undefined && act !== stored.activity_type
+      && !(CREATE_ACTIVITY_TYPES as readonly string[]).includes(act)) {
+    return `Вид активности «${act}» не из списка — выберите вид из списка формы`;
+  }
+  return null;
+}
 
 export const AddAvailabilitySchema = z.object({
   dates: z.array(
@@ -220,69 +270,85 @@ export async function createTour(
   const arrayField = (value: string[] | undefined, column: string) =>
     valueForColumn(value ?? [], column, columnTypes);
 
-  const tourResult = await query(
-    `INSERT INTO operator_tours (
-      operator_id, title, description, short_description,
-      location_type, activity_type, location_name, latitude, longitude,
-      base_price, price_old, price_unit,
-      max_participants, min_participants,
-      duration_hours, duration_type, multi_day_count,
-      season_start, season_end, difficulty,
-      included, not_included, what_to_bring,
-      photos, tour_image, agent_route_id,
-      weather_dependent, min_visibility_m, max_wind_kmh, max_precipitation_mm,
-      created_by, route_id
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
-    RETURNING id, title, base_price, location_type, created_at`,
-    [
-      operatorId,
-      input.title,
-      input.description || null,
-      input.short_description || null,
-      input.location_type,
-      input.activity_type,
-      input.location_name,
-      input.latitude ?? null,
-      input.longitude ?? null,
-      input.base_price,
-      input.price_old || null,
-      input.price_unit,
-      input.max_participants,
-      input.min_participants || 1,
-      input.duration_hours || null,
-      input.duration_type || null,
-      input.multi_day_count || null,
-      input.season_start || null,
-      input.season_end || null,
-      input.difficulty || null,
-      arrayField(input.included, 'included'),
-      arrayField(input.not_included, 'not_included'),
-      arrayField(input.what_to_bring, 'what_to_bring'),
-      arrayField(input.photos, 'photos'),
-      input.tour_image || null,
-      input.agent_route_id || null,
-      input.weather_dependent,
-      input.min_visibility_m,
-      input.max_wind_kmh,
-      input.max_precipitation_mm,
-      userId,
-      input.route_id || null,
-    ]
-  );
+  const mainPlace = input.main_place_id ?? null;
+  type Exec = (sql: string, params: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+  const insert = async (exec: Exec) => {
+    const tourResult = await exec(
+      `INSERT INTO operator_tours (
+        operator_id, title, description, short_description,
+        location_type, activity_type, location_name, latitude, longitude,
+        base_price, price_old, price_unit,
+        max_participants, min_participants,
+        duration_hours, duration_type, multi_day_count,
+        season_start, season_end, difficulty,
+        included, not_included, what_to_bring,
+        photos, tour_image, agent_route_id,
+        weather_dependent, min_visibility_m, max_wind_kmh, max_precipitation_mm,
+        created_by, route_id, main_place_id, main_place_source
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,
+                $33::text, CASE WHEN $33::text IS NULL THEN NULL ELSE 'operator' END)
+      RETURNING id, title, base_price, location_type, created_at`,
+      [
+        operatorId,
+        input.title,
+        input.description || null,
+        input.short_description || null,
+        input.location_type,
+        input.activity_type,
+        input.location_name,
+        input.latitude ?? null,
+        input.longitude ?? null,
+        input.base_price,
+        input.price_old || null,
+        input.price_unit,
+        input.max_participants,
+        input.min_participants || 1,
+        input.duration_hours || null,
+        input.duration_type || null,
+        input.multi_day_count || null,
+        input.season_start || null,
+        input.season_end || null,
+        input.difficulty || null,
+        arrayField(input.included, 'included'),
+        arrayField(input.not_included, 'not_included'),
+        arrayField(input.what_to_bring, 'what_to_bring'),
+        arrayField(input.photos, 'photos'),
+        input.tour_image || null,
+        input.agent_route_id || null,
+        input.weather_dependent,
+        input.min_visibility_m,
+        input.max_wind_kmh,
+        input.max_precipitation_mm,
+        userId,
+        input.route_id || null,
+        mainPlace,
+      ]
+    );
 
-  const tour = tourResult.rows[0];
+    const tour = tourResult.rows[0];
 
-  // Insert tags if provided
-  if (input.tags && input.tags.length > 0) {
-    for (const tag of input.tags) {
-      await query(
-        `INSERT INTO operator_tour_tags (tour_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [tour.id, tag.trim().toLowerCase()]
-      );
+    // Insert tags if provided
+    if (input.tags && input.tags.length > 0) {
+      for (const tag of input.tags) {
+        await exec(
+          `INSERT INTO operator_tour_tags (tour_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [tour.id, tag.trim().toLowerCase()]
+        );
+      }
     }
-  }
 
-  return tour;
+    return tour;
+  };
+
+  // Главное место выбрано — проверка места и запись тура в ОДНОЙ транзакции
+  // (lib/tours/main-place): скрытое или слитое место — 400, тур не создаётся.
+  if (mainPlace !== null) {
+    return transaction(async (client) => {
+      await assertLiveMainPlace(client, mainPlace);
+      return insert((sql, params) => client.query(sql, params));
+    });
+  }
+  return insert((sql, params) => query(sql, params));
 }
 
 /**

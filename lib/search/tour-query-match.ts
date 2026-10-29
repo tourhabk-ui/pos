@@ -67,9 +67,26 @@ export function activityTypesForQuery(q: string): string[] {
  * и тот обязан назвать его (§4.0), а не показать «туров нет».
  */
 export async function findToursForQuery(q: string, limit: number): Promise<MarketplaceTourRow[]> {
+  return (await findToursForQueryCounted(q, limit)).tours;
+}
+
+/** Потолок одного запроса витрины (MarketplaceToursQuerySchema.limit). */
+const COUNT_PAGE = 100;
+
+/**
+ * То же, плюс сколько туров совпало всего (ревью 29.10): блок на /routes
+ * режет выдачу до нескольких строк, и турист должен видеть «показано N из
+ * M», а не догадываться. Совпадения текстом и видом складываются без
+ * повторов. Если хоть одна выдача упёрлась в потолок страницы, точного
+ * числа нет — `total: null` («не знаем»), а не заниженная цифра (§4.0).
+ */
+export async function findToursForQueryCounted(
+  q: string,
+  limit: number,
+): Promise<{ tours: MarketplaceTourRow[]; total: number | null }> {
   const text = q.trim();
-  if (!text) return [];
-  const base = { limit, sort: 'recommended' as const };
+  if (!text) return { tours: [], total: 0 };
+  const base = { limit: COUNT_PAGE, sort: 'recommended' as const };
   const calls = [
     queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ ...base, search: text })),
     ...activityTypesForQuery(text).map(activity_type =>
@@ -79,7 +96,9 @@ export async function findToursForQuery(q: string, limit: number): Promise<Marke
   const results = await Promise.all(calls);
   const seen = new Set<string>();
   const out: MarketplaceTourRow[] = [];
+  let capped = false;
   for (const r of results) {
+    if (r.total > r.tours.length) capped = true;
     for (const t of r.tours) {
       const id = String(t.id);
       if (seen.has(id)) continue;
@@ -87,7 +106,7 @@ export async function findToursForQuery(q: string, limit: number): Promise<Marke
       out.push(t);
     }
   }
-  return out.slice(0, limit);
+  return { tours: out.slice(0, limit), total: capped ? null : out.length };
 }
 
 /**

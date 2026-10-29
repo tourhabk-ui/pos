@@ -957,9 +957,10 @@ withPg('витрина /operators: факты о живых турах, кноп
       // отдал бы им место, как только туров со снимком не хватало.
       await pool.query(`UPDATE operator_tours SET created_at = NOW() + interval '1 day' WHERE slug IN ('test-tour-1', 'test-tour-2')`);
       await pool.query(`UPDATE operator_tours SET photos = ARRAY['/images/test/shot.jpg'] WHERE slug = 'test-tour-2'`);
-      // Тридцать ещё более свежих туров без снимка: выборка главной берёт 24
-      // строки, и без отсечения в SQL они заняли бы её целиком — тур со
-      // снимком не дошёл бы до витрины, хотя правило порядка его пускает.
+      // Тридцать ещё более свежих туров без снимка: до 29.10 выборка главной
+      // брала 24 самых свежих строки, и они заняли бы её целиком. Предела
+      // выборки теперь нет (app/_home/data.ts), а снимок — условие WHERE:
+      // туры без снимка не выбираются вовсе, при любой их свежести.
       await pool.query(
         `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, max_participants,
                                      is_active, is_published, created_at)

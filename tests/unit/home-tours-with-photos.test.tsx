@@ -9,8 +9,13 @@
  * словами на самой витрине — на телефоне и на десктопе.
  *
  * Судится вызовом orderPlates на граничных данных и рендером обоих деревьев
- * главной. Что SQL выборки отсекает такие туры до LIMIT, держит
- * tests/integration/operators-list.pg.test.ts (fetchPlates на настоящей базе).
+ * главной. Что SQL выборки (fetchPlates) не берёт такие туры вовсе — предела
+ * выборки нет, отсечение в WHERE, — держит
+ * tests/integration/operators-list.pg.test.ts на настоящей базе.
+ *
+ * Здесь же рендером судится вторая подпись витрины — правило порядка
+ * (HOME_PLATES_ORDER_NOTE, правило 1в): §0 требует называть его на самой
+ * странице, и строка-константа без рендера этого не доказывает.
  */
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -24,7 +29,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { orderPlates, HOME_TOURS_PHOTO_NOTE } from '@/lib/home/plate-facts';
+import { orderPlates, HOME_TOURS_PHOTO_NOTE, HOME_PLATES_ORDER_NOTE } from '@/lib/home/plate-facts';
 import { DeskTours } from '@/components/homepage/desk/DeskTours';
 import HomeV8Client from '@/app/_home/_HomeV8Client';
 import type { HomeV8Data, Plate } from '@/app/_home/data';
@@ -42,6 +47,24 @@ const plate = (id: string, availability: CatalogAvailability, imageUrl: string |
 });
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+/** Телефонное дерево главной с одним туром; возвращает секцию «Туры сезона». */
+function renderMobileTours(): Element {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+  const data: HomeV8Data = {
+    safety: { activeCount: 0, maxSeverity: 0, alerts: [], volcanoes: [], updatedAt: null },
+    seismic: { events: [], source: 'none', updatedAt: null, checkedAt: null },
+    radar: { hazards: [], center: { lat: 53.04, lng: 158.65, label: 'Петропавловск-Камчатский' } },
+    zones: { open: 0, total: 0, updatedAt: null },
+    plates: [plate('a', 'dates', '/images/a.jpg')], transfer: null, stay: null, explore: [], feed: [], stats: [], elements: [],
+  };
+  const { container } = render(<HomeV8Client data={data} weather={NO_WEATHER} />);
+  const head = [...container.querySelectorAll('h2')].find((h) => h.textContent === 'Туры сезона');
+  expect(head).toBeDefined();
+  const section = head!.closest('section');
+  expect(section).not.toBeNull();
+  return section!;
+}
 
 describe('orderPlates: тур без снимка на главную не попадает', () => {
   it.each(AVAILABILITIES)('без снимка при «%s» — нет; со снимком при том же сезоне — есть', (a) => {
@@ -63,7 +86,8 @@ describe('orderPlates: тур без снимка на главную не по�
       plate('a', 'on_request', '/images/a.jpg', 'А'), plate('b', 'on_request', null, 'Б'),
       plate('c', 'on_request', null, 'А'), plate('d', 'on_request', '/images/d.jpg', 'Б'),
     ]);
-    expect(out.map((p) => p.id)).toEqual(['a', 'd']);
+    // Порядок между компаниями — жребий дня (правило 1в), здесь судится допуск.
+    expect(out.map((p) => p.id).sort()).toEqual(['a', 'd']);
   });
 });
 
@@ -78,23 +102,40 @@ describe('подпись витрины называет правило', () => 
   });
 
   it('телефон: в блоке «Туры сезона» — та же строка, сразу под заголовком', () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
-    const data: HomeV8Data = {
-      safety: { activeCount: 0, maxSeverity: 0, alerts: [], volcanoes: [], updatedAt: null },
-      seismic: { events: [], source: 'none', updatedAt: null, checkedAt: null },
-      radar: { hazards: [], center: { lat: 53.04, lng: 158.65, label: 'Петропавловск-Камчатский' } },
-      zones: { open: 0, total: 0, updatedAt: null },
-      plates: [plate('a', 'dates', '/images/a.jpg')], transfer: null, stay: null, explore: [], feed: [], stats: [], elements: [],
-    };
-    const { container } = render(<HomeV8Client data={data} weather={NO_WEATHER} />);
-    const head = [...container.querySelectorAll('h2')].find((h) => h.textContent === 'Туры сезона');
-    expect(head).toBeDefined();
-    const section = head!.closest('section');
+    const section = renderMobileTours();
     const note = [...(section?.querySelectorAll('p') ?? [])].find((p) => p.textContent === HOME_TOURS_PHOTO_NOTE);
     expect(note).toBeDefined();
     // Подпись стоит до карточек, а не после ленты.
     const firstCard = section!.querySelector('figure.plate');
     expect(firstCard).not.toBeNull();
     expect(note!.compareDocumentPosition(firstCard!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('подпись порядка видна на витрине (правило 1в, §0)', () => {
+  const byText = (root: Element, text: string) => [...root.querySelectorAll('p')].find((p) => p.textContent === text);
+
+  it('десктоп: правило порядка — в блоке «Можно поехать», после карточек, рядом с подписью о снимках', () => {
+    const { container } = render(<DeskTours plates={[plate('a', 'dates', '/images/a.jpg')]} total={40} rentalDoor={false} />);
+    const section = container.querySelector('section[aria-labelledby="desk-tours-title"]')!;
+    const order = byText(section, HOME_PLATES_ORDER_NOTE);
+    expect(order).toBeDefined();
+    expect(order!.textContent).toMatch(/Место в списке не продаётся\.$/);
+    // Обе подписи: допуск над карточками, порядок под ними.
+    const photo = byText(section, HOME_TOURS_PHOTO_NOTE)!;
+    expect(photo.compareDocumentPosition(order!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const card = section.querySelector('a[href^="/catalog/tours/"], a[href^="/tours/"]');
+    expect(card).not.toBeNull();
+    expect(card!.compareDocumentPosition(order!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('телефон: правило порядка — в блоке «Туры сезона», под лентой', () => {
+    const section = renderMobileTours();
+    const order = byText(section, HOME_PLATES_ORDER_NOTE);
+    expect(order).toBeDefined();
+    const firstCard = section.querySelector('figure.plate')!;
+    expect(firstCard.compareDocumentPosition(order!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // И подпись допуска — в той же секции: оба смысла видны вместе.
+    expect(byText(section, HOME_TOURS_PHOTO_NOTE)).toBeDefined();
   });
 });

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { TotalRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
 
@@ -108,7 +109,6 @@ export async function GET(request: NextRequest) {
         `(t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex})`
       );
       queryParams.push(`%${search}%`);
-      paramIndex++;
     }
 
     const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
@@ -146,24 +146,24 @@ export async function GET(request: NextRequest) {
         t.created_at,
         t.updated_at,
         p.name as operator_name,
-        p.hero_image as partner_hero_image
+        p.hero_image as partner_hero_image,
+        ${nearestFreeDateSql('t')} AS nearest_free_date
       FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
       ${whereClause}
-      ORDER BY t.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
-    queryParams.push(limit, offset);
+    // Порядок — правило 1в (слово владельца 29.10), а не новизна: до 29.10
+    // здесь стояло `created_at DESC`. Порядок считается после SQL, страница
+    // (offset/limit) режется после порядка, total — все прошедшие фильтры.
     const result = await query(selectSql, queryParams);
+    const ordered = orderOffersBy(result.rows, (r) => ({
+      id: String(r.id),
+      nearestFreeDate: typeof r.nearest_free_date === 'string' ? r.nearest_free_date : null,
+    }));
+    const total = ordered.length;
 
-    const countResult = await query<TotalRow>(
-      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause}`,
-      queryParams.slice(0, -2),
-    );
-    const total = parseInt(countResult.rows[0]?.total ?? '0');
-
-    const tours: TourResponse[] = result.rows.map(row => {
+    const tours: TourResponse[] = ordered.slice(offset, offset + limit).map(row => {
       const included = Array.isArray(row.included) ? (row.included as string[]) : [];
       const notIncluded = Array.isArray(row.not_included) ? (row.not_included as string[]) : [];
       // Схема хранит сезон парой дат, а точку — парой координат; форму ответа

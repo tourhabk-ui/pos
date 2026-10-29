@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
+import { carryTourMainPlace } from '@/lib/places/merge-carry';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
 
   const warnings: string[] = [];
   const merged: string[] = [];
+  let toursMoved = 0;
 
   try {
     await transaction(async (client) => {
@@ -107,6 +109,10 @@ export async function POST(request: NextRequest) {
         );
         await client.query(`DELETE FROM route_waypoints WHERE place_id = $1`, [mergeId]);
 
+        // Туры, у которых дубль — главное место, едут к оставшемуся месту:
+        // иначе они пропали бы с карточки места (lib/places/merge-carry).
+        toursMoved += await carryTourMainPlace(client, keepId, mergeId);
+
         // Safety-профиль НЕ переносим автоматически — только предупреждаем.
         if (row.ark_id) {
           const safety = await client.query<{ exists: boolean }>(
@@ -132,5 +138,5 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ ok: true, keepId, merged, warnings });
+  return NextResponse.json({ ok: true, keepId, merged, warnings, toursMoved });
 }

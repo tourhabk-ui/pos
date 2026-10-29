@@ -26,6 +26,7 @@ import { tourPhotoCaptions, tourPhotoCreditLine } from '@/lib/tours/photo-credit
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import type { TourClip } from '@/lib/tours/tour-clips';
 import { TourClips } from '@/components/tours/TourClips';
+import { PlaceOffersLine, type PlaceOffersView } from '@/components/tours/PlaceOffersLine';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
@@ -394,7 +395,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, placeOffers = null }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; placeOffers?: PlaceOffersView | null }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -1115,6 +1116,11 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     )}
                   </div>
                 )}
+              </div>
+              {/* Другие предложения к тому же месту (слово владельца 29.10,
+                  «3 да»): нейтральная строка, без цен и сравнений. */}
+              <div className="mt-3">
+                <PlaceOffersLine offers={placeOffers} />
               </div>
             </section>
 

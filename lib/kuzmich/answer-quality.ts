@@ -18,6 +18,7 @@ import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tou
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import {
   MCHS_UNREAD_NOTE, notesForOffering, warningDigest, type ActiveWarning,
 } from '@/lib/safety/mchs-bulletin';
@@ -215,11 +216,22 @@ export function requestCta(who: string, url: string, surface: CommercialSurface)
   return `Отправить запрос ${who}: ${url}. ${pdLine(surface)} Запрос появится у партнёра, когда форма отправлена.`;
 }
 
+/**
+ * Призыв, когда туров несколько (слово владельца 29.10): кнопка ведёт не на
+ * первый тур — его выбрал бы порядок, а не человек, — а туда, где все туры
+ * рядом: на «Туры к этому месту» карточки места или в каталог.
+ */
+export const CHOOSE_TOUR_CTA = 'Выбрать тур и отправить запрос';
+
+export function chooseTourCta(url: string, surface: CommercialSurface): string {
+  return `${CHOOSE_TOUR_CTA}: ${url}. ${pdLine(surface)} Запрос появится у партнёра, когда форма отправлена.`;
+}
+
 /** Кнопка под ответом в Telegram. Нет строки «Отправить запрос» — кнопки нет. */
 export function requestButton(text: string): { text: string; url: string } | null {
-  const match = /Отправить запрос ([^:\n]+): (https:\/\/\S+)/.exec(text);
+  const match = /(Отправить запрос [^:\n]+|Выбрать тур и отправить запрос): (https:\/\/\S+)/.exec(text);
   if (!match) return null;
-  const label = `Отправить запрос ${match[1].trim()}`.slice(0, 64);
+  const label = match[1].trim().slice(0, 64);
   const url = match[2].replace(/[),.;]+$/, '');
   if (!/^https:\/\/vedarai\.ru\//.test(url)) return null;
   return { text: label, url };
@@ -321,6 +333,18 @@ function linesForTransfer(item: TransferItem, needles: string[]): string[] {
   return picked;
 }
 
+/**
+ * Куда ведёт кнопка под списком туров. Тур один — на его карточку: продавца
+ * выбирать не из кого. Туров несколько — не на первый: у всех одно записанное
+ * главное место — на «Туры к этому месту» его карточки, иначе в каталог.
+ */
+function toursCta(tours: readonly CatalogTour[], base: string, catalog: string, surface: CommercialSurface): string {
+  if (tours.length === 1) return requestCta('оператору', joinUrl(base, tourPath(tours[0])), surface);
+  const ref = tours[0]?.main_place_ref ?? null;
+  const samePlace = ref !== null && tours.every((t) => t.main_place_ref === ref);
+  return chooseTourCta(samePlace ? joinUrl(base, `/places/${encodeURIComponent(ref)}#tours`) : catalog, surface);
+}
+
 function composeTours(input: ComposeInput): CommercialAnswer {
   const picked = pickToursForAnswer(input.question, input.tours, input.now);
   const catalog = joinUrl(input.base, '/catalog');
@@ -341,18 +365,21 @@ function composeTours(input: ComposeInput): CommercialAnswer {
   const lines = picked.tours.map((tour) => {
     const url = joinUrl(input.base, tourPath(tour));
     const flag = offeringLine(`${tour.title} ${tour.location_name ?? ''}`, input);
-    return `- ${tour.title} — ${touristPrice(tour)} — ${url}${flag}`;
+    // Компания — в каждой строке: туры к одному месту продают разные компании (29.10).
+    return `- ${tour.title} — ${tour.operator_name ?? 'компания не записана'} — ${touristPrice(tour)} — ${url}${flag}`;
   });
   const more = picked.unnamedMore > 0
     ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю: ${catalog}`
     : '';
   const head = `Туры из каталога на ${picked.windowLabel ? seasonAccusative(picked.windowLabel) : 'сегодня'}:`;
-  const firstUrl = picked.tours[0] ? joinUrl(input.base, tourPath(picked.tours[0])) : catalog;
+  // Какие туры попали в список, решило правило 1в — оно названо (§0, ревью
+  // 29.10). Один тур без «ещё» — выбирать было не из чего, подписи нет.
+  const order = picked.tours.length > 1 || picked.unnamedMore > 0 ? OFFER_ORDER_NOTE_SHORT_RU : '';
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
-      [head, ...lines, more, warningFooter(input)].filter(Boolean).join('\n'),
-      requestCta('оператору', firstUrl, input.surface),
+      [head, ...lines, more, order, warningFooter(input)].filter(Boolean).join('\n'),
+      toursCta(picked.tours, input.base, catalog, input.surface),
     ].join('\n\n')),
     tours: picked.tours,
   };

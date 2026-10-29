@@ -24,7 +24,8 @@ import {
   telegramOfferLinks,
   type ComposeInput,
 } from '@/lib/kuzmich/answer-quality';
-import { questionWindow } from '@/lib/telegram/tourist-tours';
+import { questionWindow, catalogFacts } from '@/lib/telegram/tourist-tours';
+import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { calendarDay, overlapsWindow, seasonAccusative, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
 
@@ -298,6 +299,27 @@ describe('прод 24.10, сборка 19:53Z: двенадцать туров �
       expect(answer!.visible).not.toContain(hidden.title);
       expect(rubleAmounts(answer!.visible)).not.toContain(Number(hidden.base_price));
     }
+  });
+
+  // Ревью 29.10: какие 8 из 12 попали в ответ, решили ближайшая дата и жребий
+  // дня — правило называется и в чате, а не только на страницах (§0).
+  it('список из нескольких туров называет правило порядка сразу после списка; один тур — без подписи', () => {
+    const dozen = Array.from({ length: 12 }, (_, i) => volcano({ id: 200 + i, slug: `r-${i}`, title: `Осенний тур ${i}`, base_price: 10000 }));
+    const many = composeCommercial({ ...input(prodPrompt, ''), tours: { ok: true, tours: dozen } })!.visible;
+    const rows = many.split('\n');
+    const note = rows.indexOf(OFFER_ORDER_NOTE_SHORT_RU);
+    expect(note).toBeGreaterThan(-1);
+    expect(note).toBeGreaterThan(rows.map((r) => r.startsWith('- ')).lastIndexOf(true));
+    expect(OFFER_ORDER_NOTE_SHORT_RU.endsWith('Место в списке не продаётся.')).toBe(true);
+
+    const one = composeCommercial({ ...input(prodPrompt, ''), tours: { ok: true, tours: [dozen[0]] } })!.visible;
+    expect(one).not.toContain('Место в списке не продаётся.');
+  });
+
+  it('кнопка «Туры» в Telegram (catalogFacts) называет правило под списком', () => {
+    const three = [1, 2, 3].map((i) => volcano({ id: 300 + i, slug: `c-${i}`, title: `Осенний тур ${i}`, base_price: 10000 }));
+    const facts = catalogFacts(prodPrompt, { ok: true, tours: three }, NOW);
+    expect(facts.html.split('\n').at(-1)).toBe(`<i>${OFFER_ORDER_NOTE_SHORT_RU}</i>`);
   });
 });
 
@@ -643,5 +665,38 @@ describe('один сборщик на сайт, Telegram и MAX', () => {
     expect(web).toContain('kamchatkaDateContext');
     expect(core).toContain('resolveCommercialTurn');
     expect(max).toContain('processMessage');
+  });
+});
+
+describe('туры разных компаний (слово владельца 29.10, «1в 2б 3 да»)', () => {
+  const autumn = (id: number, operator: string, place: string | null): CatalogTour => ({
+    id, slug: `t-${id}`, title: `Горелый осенью ${id}`, base_price: 15000, price_unit: 'per_person',
+    multi_day_count: 1, activity_type: 'volcano', season_start: '2026-09-01', season_end: '2026-11-30',
+    operator_name: operator, main_place_ref: place,
+  });
+  const ask = 'Какие туры на вулканы есть осенью? Списком с ценами';
+
+  it('компания — в каждой строке; туры одного места — кнопка на «Туры к этому месту», не на первый тур', () => {
+    const answer = composeCommercial({
+      ...input(ask, ''),
+      tours: { ok: true, tours: [autumn(61, 'Местечко Камчатка', 'vulkan-gorelyy'), autumn(72, 'Лагуна Экспедиция', 'vulkan-gorelyy')] },
+    })!;
+    const lines = answer.visible.split('\n').filter((l) => l.startsWith('- '));
+    expect(lines).toHaveLength(2);
+    expect(lines.some((l) => l.includes(' — Местечко Камчатка — '))).toBe(true);
+    expect(lines.some((l) => l.includes(' — Лагуна Экспедиция — '))).toBe(true);
+    expect(requestButton(answer.visible)).toEqual({
+      text: 'Выбрать тур и отправить запрос',
+      url: `${BASE}/places/vulkan-gorelyy#tours`,
+    });
+    expect(answer.visible).not.toContain('Отправить запрос оператору');
+  });
+
+  it('туры разных мест — кнопка в каталог', () => {
+    const answer = composeCommercial({
+      ...input(ask, ''),
+      tours: { ok: true, tours: [autumn(61, 'Местечко Камчатка', 'vulkan-gorelyy'), autumn(72, 'Лагуна Экспедиция', null)] },
+    })!;
+    expect(requestButton(answer.visible)).toEqual({ text: 'Выбрать тур и отправить запрос', url: `${BASE}/catalog` });
   });
 });

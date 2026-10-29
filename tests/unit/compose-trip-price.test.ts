@@ -16,6 +16,7 @@ interface Row {
   id: number; slug: string | null; title: string; activity_type: string; base_price: number;
   price_unit: string; max_participants: number; multi_day_count: number | null; duration_hours: number | null;
   operator_name: string; location: string | null; difficulty: string | null; tour_image: string | null;
+  nearest_free_date?: string | null;
 }
 let ROWS: Row[] = [];
 let TIERS: Record<string, Array<{ min_people: number; max_people: number | null; price_per_person: string }>> = {};
@@ -83,6 +84,38 @@ describe('compose_trip: сумма тура на группу — правило
     ] };
     const trip = await composeTrip({ total_days: 10, budget_total: 2_000_000, interests: ['rafting'], month: 7, group_size: 10 });
     expect(trip!.tours[0]!.group_cost).toBe(115000 * 10);
+  });
+});
+
+describe('compose_trip: кого из вида ставить в план — правило 1в, а не цена (29.10)', () => {
+  it('из двух туров вида в план встаёт тур со свободной датой, хотя другой дешевле', async () => {
+    ROWS = [
+      tour({ id: 61, activity_type: 'rafting', title: 'Сплав дешёвый', base_price: 9000, nearest_free_date: null }),
+      tour({ id: 62, activity_type: 'rafting', title: 'Сплав с датой', base_price: 15000, nearest_free_date: '2026-11-10' }),
+    ];
+    const trip = await composeTrip({ total_days: 3, budget_total: 100000, interests: ['rafting'], month: 7, group_size: 2 });
+    expect(trip!.tours.map((t) => t.id)).toEqual([62]);
+    expect(trip!.summary).toMatch(/Порядок туров — правило платформы \(сначала со свободной датой, остальные жребием дня\), не цена\./);
+  });
+
+  it('первый по правилу не влезает в бюджет — берётся следующий, кто влезает', async () => {
+    ROWS = [
+      tour({ id: 71, activity_type: 'rafting', title: 'Дорогой с датой', base_price: 90000, nearest_free_date: '2026-11-10' }),
+      tour({ id: 72, activity_type: 'rafting', title: 'Без даты', base_price: 9000, nearest_free_date: null }),
+    ];
+    const trip = await composeTrip({ total_days: 3, budget_total: 50000, interests: ['rafting'], month: 7, group_size: 2 });
+    expect(trip!.tours.map((t) => t.id)).toEqual([72]);
+  });
+
+  it('SQL без цены в ORDER BY и без LIMIT', async () => {
+    const { pool } = await import('@/lib/db-pool');
+    ROWS = [tour({ id: 27, activity_type: 'rafting', base_price: 13000 })];
+    await composeTrip({ total_days: 3, budget_total: 100000, interests: ['rafting'], month: 7, group_size: 3 });
+    const sql = (pool.query as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .map((c) => String(c[0])).find((q) => q.includes('FROM operator_tours t'))!;
+    // Внутри фрагмента ближайшей даты свой ORDER BY ta_nf.date LIMIT 1 — это не порядок туров.
+    expect(sql).not.toMatch(/t\.base_price ASC|LIMIT 100/);
+    expect(sql).toMatch(/AS nearest_free_date/);
   });
 });
 

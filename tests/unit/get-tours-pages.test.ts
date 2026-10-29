@@ -61,7 +61,7 @@ describe('capTourCatalog — каталог в подсказке Кузьмич
     expect(out.match(/^ID\d+:/gm)).toHaveLength(40);
     expect(out).toContain('ID40: ');
     expect(out).not.toContain('ID41: ');
-    expect(out).toContain('(Здесь 40 туров из 45 — первые по цене. Остальные 5 — инструментом get_tours: страницы и фильтр по виду.)');
+    expect(out).toContain('(Здесь 40 туров из 45 — первые по порядку витрины (правило в шапке). Остальные 5 — инструментом get_tours: страницы и фильтр по виду.)');
     expect(out).toMatch(/^РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ:/);
     expect(out.endsWith('Хвост каталога.')).toBe(true);
   });

@@ -34,6 +34,8 @@ import { describeForAgent } from '@/lib/places/description-voice';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { loadPlaceTours, offerLinesForAgent } from '@/lib/places/place-tours';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export interface PlaceRow {
   /** id места — для ссылки на карточку (только в чате, см. pageLinks). */
@@ -109,6 +111,12 @@ export interface PlaceInfoOptions {
   pageLinks?: boolean;
   /** Строки маршрутов этого места (routesLinesForKuzmich) — внутрь карточки. */
   routeLines?: string[];
+  /**
+   * Предложения туров к месту (lib/places/place-tours, offerLinesForAgent) —
+   * на обеих поверхностях, чат и MCP: все туры с компанией у каждого, в
+   * порядке правила 1в, который назван строкой (слово владельца 29.10).
+   */
+  offerLines?: string[];
 }
 
 export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[], opts: PlaceInfoOptions = {}): string | null {
@@ -142,6 +150,7 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
       card.push(`Страница места на сайте: ${placePageUrl(primary.id)}`);
       card.push(...(opts.routeLines ?? []));
     }
+    if (primary.is_visible !== false) card.push(...(opts.offerLines ?? []));
     const descLine = describeForAgent(primary.description, PLACE_DESCRIPTION_MAX);
     if (descLine) card.push(descLine);
     parts.push(card.join('\n'));
@@ -191,8 +200,14 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
   // Маршруты — у той же записи, что в карточке, и только там, где дана ссылка:
   // скрытое место ссылки и маршрутов не получает.
   const primary = pr.rows[0];
-  const routeLines = opts.pageLinks && primary?.id && primary.is_visible !== false
-    ? await routesLinesForKuzmich(primary.id)
-    : undefined;
-  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines });
+  const visible = Boolean(primary?.id) && primary?.is_visible !== false;
+  const [routeLines, offers] = await Promise.all([
+    opts.pageLinks && visible ? routesLinesForKuzmich(primary.id as string) : Promise.resolve(undefined),
+    // Туры к месту — только у видимого места: у скрытого нет страницы, куда
+    // вела бы ссылка «все предложения». Отказ чтения — строка «не
+    // загрузились» внутри ответа, а не пустота (§4.0).
+    visible ? loadPlaceTours(primary.id as string) : Promise.resolve(null),
+  ]);
+  const offerLines = offers && primary ? offerLinesForAgent(primary.name, offers, getPublicBaseUrl()) : undefined;
+  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines, offerLines });
 }

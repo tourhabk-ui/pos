@@ -117,6 +117,19 @@ describe('стандарт карточки тура — честность да
     expect(src).not.toMatch(/k: 'Сложность', v: diffBadge\.label/);
   });
 
+  it('другие предложения к месту — отдельным компонентом, без сравнений (29.10, «3 да»)', () => {
+    // Что видит турист и что строка стоит на карточке, судит рендер
+    // (tests/unit/tour-card-place-offers.test.tsx, tour-place-offers.test.tsx);
+    // здесь — только запрет: ни карточка, ни строка не сравнивают туры словами.
+    // Комментарии вырезаются: в них слово «лучше» живёт законно.
+    const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const line = readFileSync(join(process.cwd(), 'components/tours/PlaceOffersLine.tsx'), 'utf-8');
+    for (const text of [code(src), code(line)]) {
+      expect(text).not.toMatch(/дешевле|выгоднее|альтернатив/i);
+      expect(text).not.toMatch(/[^а-яё]лучше[^а-яё]/i);
+    }
+  });
+
   it('нет партнёрских блоков агрегаторов', () => {
     // Решение владельца 04.08. Они печатали рекламный дисклеймер с ИНН чужих
     // юрлиц под карточкой тура нашего проверенного оператора — турист видел

@@ -9,7 +9,8 @@
  *   - app/catalog/page.tsx и app/marketplace/page.tsx (серверный первый рендер).
  */
 
-import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { compareTourOffers, offerOrderDay, pinnedOfferDay } from '@/lib/tours/offer-order';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { pool } from '@/lib/db-pool';
@@ -20,7 +21,11 @@ export const MarketplaceToursQuerySchema = z.object({
   search:        z.string().max(200).optional(),
   activity_type: z.string().max(60).optional(),
   location_type: z.string().max(60).optional(),
-  sort:          z.enum(['recommended', 'price_asc', 'price_desc', 'recent']).default('recommended'),
+  // «Новые» (recent) сняты правилом 1в (слово владельца 29.10): новизна в
+  // порядок не входит. Старые ссылки `?sort=recent` не ломаются — идут как
+  // порядок по правилу.
+  sort:          z.enum(['recommended', 'price_asc', 'price_desc', 'recent']).default('recommended')
+                   .transform((s) => (s === 'recent' ? 'recommended' : s)),
   difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
   duration_type: z.enum(['day', 'half_day', 'multi_day']).optional(),
   price_min:     z.coerce.number().min(0).optional(),
@@ -28,6 +33,10 @@ export const MarketplaceToursQuerySchema = z.object({
   id:            z.coerce.number().int().optional(),
   limit:         z.coerce.number().int().min(1).max(100).default(50),
   offset:        z.coerce.number().int().min(0).default(0),
+  // День жребия первой страницы (ревью 29.10): «Показать ещё» режет страницу
+  // из того же порядка. Принимается только сегодня/вчера по Камчатке
+  // (pinnedOfferDay), иначе — сегодня.
+  day:           z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 export type MarketplaceToursFilters = z.infer<typeof MarketplaceToursQuerySchema>;
@@ -67,42 +76,45 @@ export interface MarketplaceTourRow {
   operator_public: boolean | null;
   bookings_count: number;
   has_availability: boolean;
+  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
+  nearest_free_date: string | null;
 }
 
 export interface MarketplaceToursResult {
   tours: MarketplaceTourRow[];
+  /** Сколько туров прошло фильтры — для «показано N из M». */
   total: number;
+  /** День правила 1в (дата Камчатки), по которому выстроен жребий. */
+  day?: string;
 }
 
 /**
- * «У тура есть свободные даты» — одно условие для каталога и главной.
+ * «У тура есть свободные даты» — одно условие для витрин (ленты площадок).
  *
- * Главная (app/_home/data.ts, fetchPlates) решает по нему «даты есть / по
- * запросу / сезон кончился» тем же правилом catalogAvailability. Первая
+ * С 29.10 каталог и главная (app/_home/data.ts, fetchPlates) берут саму
+ * ближайшую свободную дату (nearestFreeDateSql) — по ней строится порядок, а
+ * «даты есть» выводится из неё: то же условие, без второго подзапроса. Первая
  * редакция П4 (24.09) держала там ручную копию этого EXISTS — правка условия
  * здесь развела бы витрины для одного и того же тура, как с «13 турами»
  * (#1780). Сторож: tests/unit/home-plates-tours.test.ts.
  *
- * Алиас тура — `ot` (как у листинга каталога); брони внутри — `ob2`,
- * чтобы не спорить с внешним `ob` листинга.
+ * Алиас тура — `ot` (как у листинга каталога).
+ *
+ * С 29.10 (правило 1в) условие — та же «ближайшая свободная дата», по которой
+ * строится порядок витрин (lib/tours/nearest-free-date): «сегодня» по Камчатке,
+ * горизонт в год, вместимость не больше `max_participants`. До этого здесь
+ * была своя копия по `CURRENT_DATE` без потолка мест, и тур мог быть «с
+ * датами» в каталоге и «без дат» в каталоге Кузьмича.
  */
 export function hasAvailabilitySql(): string {
-  return `EXISTS (
-        SELECT 1 FROM tour_availability ta
-        WHERE ta.operator_tour_id = ot.id
-          AND ta.date >= CURRENT_DATE
-          AND ta.deleted_at IS NULL
-          AND ta.is_cancelled = false
-          AND ta.available_slots > (${occupiedOnDaySql({ booking: 'ob2', day: 'ta.date', tourId: 'ot.id' })}
-          )
-      )`;
+  return `(${nearestFreeDateSql('ot')} IS NOT NULL)`;
 }
 
 export async function queryMarketplaceTours(filters: MarketplaceToursFilters): Promise<MarketplaceToursResult> {
   const {
     search, activity_type, location_type, sort,
     difficulty, duration_type, price_min, price_max,
-    id, limit, offset,
+    id, limit, offset, day: requestedDay,
   } = filters;
 
   const selectFields = `
@@ -133,7 +145,9 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
       p.slug as operator_slug,
       p.is_public as operator_public,
       COUNT(ob.id)::INT as bookings_count,
-      ${hasAvailabilitySql()} as has_availability`;
+      -- Ключ порядка (правило 1в) и «есть даты» — одно условие,
+      -- lib/tours/nearest-free-date: has_availability выводится из него в TS.
+      ${nearestFreeDateSql('ot')} AS nearest_free_date`;
 
   const from = `
     FROM operator_tours ot
@@ -186,32 +200,63 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
 
   const where = `WHERE ${conditions.join(' AND ')}`;
 
-  const orderBy =
-    sort === 'price_asc'  ? 'ot.base_price ASC, ot.title ASC' :
-    sort === 'price_desc' ? 'ot.base_price DESC, ot.title ASC' :
-    sort === 'recent'     ? 'ot.created_at DESC' :
-    /* recommended */       'has_availability DESC, ot.created_at DESC';
-
+  // Порядок — правило 1в, в TypeScript (lib/tours/offer-order), а не в
+  // ORDER BY: второй копии правила в SQL нет. До 29.10 здесь стояло
+  // `has_availability DESC, created_at DESC` — новизна поднимала свежие туры,
+  // и «показано 50» резало хвост без продолжения. Живых туров на витрине —
+  // десятки, загрузить все и отрезать страницу в памяти дешевле, чем держать
+  // два правила.
   const dataQuery = `
     SELECT ${selectFields} ${from} ${where}
-    GROUP BY ot.id, p.id
-    ORDER BY ${orderBy}
-    LIMIT $${idx++} OFFSET $${idx++}`;
-  const dataParams = [...params, limit, offset];
+    GROUP BY ot.id, p.id`;
 
-  const countQuery = `
-    SELECT COUNT(DISTINCT ot.id)::INT as total
-    ${from} ${where}`;
-
-  const [dataResult, countResult] = await Promise.all([
-    pool.query<MarketplaceTourRow>(dataQuery, dataParams),
-    pool.query<{ total: number }>(countQuery, params),
-  ]);
+  const day = pinnedOfferDay(requestedDay);
+  const { rows } = await pool.query<MarketplaceTourRow>(dataQuery, params);
+  const all = orderMarketplaceTours(
+    rows.map((r) => ({ ...r, has_availability: r.nearest_free_date != null })),
+    sort,
+    day,
+  );
 
   return {
-    tours: dataResult.rows,
-    total: countResult.rows[0]?.total ?? 0,
+    tours: all.slice(offset, offset + limit),
+    total: all.length,
+    day,
   };
+}
+
+/**
+ * Порядок выдачи каталога. `recommended` — правило 1в как есть. Цена — только
+ * когда её выбрал турист (кнопка с подписью SORT_CHOICE_NOTE_RU), и равные
+ * цены идут тем же правилом, а не по названию. Цена без записи (null) — в
+ * конце при любом направлении: «не знаем» не дешевле и не дороже.
+ */
+export function orderMarketplaceTours<T extends { id: number | string; base_price: number | string | null; nearest_free_date: string | null }>(
+  rows: readonly T[],
+  sort: MarketplaceToursFilters['sort'],
+  day: string,
+): T[] {
+  const rule = compareTourOffers(day);
+  const byRule = (a: T, b: T) => rule(
+    { id: a.id, nearestFreeDate: a.nearest_free_date },
+    { id: b.id, nearestFreeDate: b.nearest_free_date },
+  );
+  const price = (r: T): number | null => {
+    if (r.base_price == null) return null;
+    const n = Number(r.base_price);
+    return Number.isFinite(n) ? n : null;
+  };
+  if (sort === 'price_asc' || sort === 'price_desc') {
+    const dir = sort === 'price_asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const pa = price(a);
+      const pb = price(b);
+      if ((pa === null) !== (pb === null)) return pa === null ? 1 : -1;
+      if (pa !== null && pb !== null && pa !== pb) return (pa - pb) * dir;
+      return byRule(a, b);
+    });
+  }
+  return [...rows].sort(byRule);
 }
 
 /**
@@ -225,7 +270,9 @@ export async function queryMarketplaceToursForPage(filters: MarketplaceToursFilt
     // v2: строка получила operator_verified (аудит П5); v3 — operator_slug и
     // operator_public (ссылка на страницу оператора, 13.10). Смена формы
     // строки — смена ключа, иначе кэш 600с отдаёт карточке строки без поля.
-    ['marketplace-tours-query-v3', JSON.stringify(filters)],
+    // v4 — правило 1в (29.10): строка несёт nearest_free_date, а в ключе стоит
+    // день Камчатки — иначе после полуночи до 10 минут стоял бы вчерашний жребий.
+    ['marketplace-tours-query-v4', offerOrderDay(), JSON.stringify(filters)],
     { revalidate: 600 }
   )();
 }

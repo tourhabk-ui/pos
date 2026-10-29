@@ -58,7 +58,7 @@ const SURFACES = [
   'app/api/cron/explain-availability/route.ts',   // диагностика «почему занято»
   'app/api/agent/find-tours/route.ts',            // агентский подбор
   'lib/planner/data.ts',                          // планер
-  'lib/search/tour-search.ts',                    // поиск туров
+  'lib/tours/nearest-free-date.ts',               // ближайшая свободная дата: каталог, поиск, главная, /zh, лендинги (правило 1в, 29.10)
   'lib/octo/service.ts',                          // внешний канал
   'lib/kuzmich/core.ts',                          // каталог для агентов (get_tours): места и ближайшая дата
   'lib/tours/open-dates.ts',                      // availability в разметке карточки тура

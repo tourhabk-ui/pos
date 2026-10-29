@@ -22,7 +22,7 @@ export interface MainPlaceValue {
   name: string;
 }
 
-export type MainPlaceSource = 'coords_equal' | 'operator' | null;
+export type MainPlaceSource = 'coords_equal' | 'operator' | 'verified' | 'admin' | null;
 
 interface PlaceHit {
   id: string;
@@ -47,6 +47,11 @@ interface Props {
 
 const MIN_QUERY = 2;
 
+/** Источник связи из строки тура; незнакомое значение — «не знаем откуда», а не догадка. */
+export function asMainPlaceSource(v: unknown): MainPlaceSource {
+  return v === 'coords_equal' || v === 'operator' || v === 'verified' || v === 'admin' ? v : null;
+}
+
 function isPlaceHit(x: unknown): x is PlaceHit {
   if (!x || typeof x !== 'object') return false;
   const r = x as Record<string, unknown>;
@@ -59,6 +64,10 @@ export function sourceNote(value: MainPlaceValue | null, savedId: string | null,
   if (savedSource === 'coords_equal') {
     return 'Связано автоматически: координаты тура совпали с координатами этого места. Проверьте и при необходимости выберите другое.';
   }
+  if (savedSource === 'verified') {
+    return 'Связано Ведаром по сверке названия тура и места. Проверьте и при необходимости выберите другое.';
+  }
+  if (savedSource === 'admin') return 'Связано администратором платформы.';
   if (savedSource === 'operator') return 'Выбрано в кабинете.';
   return 'Связь сохранена.';
 }

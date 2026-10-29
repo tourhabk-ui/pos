@@ -118,6 +118,12 @@ export interface TourCardRow {
    * платформы: без маршрута контуру не на что опереться.
    */
   route_id: string | null;
+  /**
+   * Главное место тура — `operator_tours.main_place_id` (1286, 1344). По нему
+   * карточка говорит «к месту ещё N предложений» (слово владельца 29.10).
+   * NULL — связь не записана, и строки нет.
+   */
+  main_place_id?: string | null;
 }
 
 /**
@@ -186,6 +192,7 @@ function buildSql(withOptional: boolean): string {
       ot.weather_dependent,
       ot.rating, ot.review_count,
       ot.route_id,
+      ot.main_place_id,
       ${withOptional ? OPTIONAL_COLUMNS : ''}
       p.name AS operator_name, p.id AS operator_id,
       p.logo_image AS operator_logo,

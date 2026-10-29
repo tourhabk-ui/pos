@@ -100,6 +100,7 @@ export default async function CatalogPage() {
       <MarketplaceClient
         initialTours={initial?.tours ?? []}
         initialTotal={initial?.total ?? 0}
+        initialDay={initial?.day ?? null}
         initialKey={initial === null ? null : initialKey}
         summary={summary}
       />
