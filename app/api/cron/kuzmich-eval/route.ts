@@ -2,7 +2,9 @@
  * GET /api/cron/kuzmich-eval
  *
  * Faithfulness-регрессия живых ответов Кузьмича (Roitman §16.8.3): прогоняет
- * фиксированный набор из 20 вопросов через реальный retrieval + агент-цикл
+ * фиксированный набор из 20 вопросов (`?set=commercial` — вопросы о турах,
+ * судятся ещё и критериями, lib/agents/eval/commercial-checks.ts) через
+ * реальный retrieval + агент-цикл
  * Кузьмича, судья оценивает faithfulness ответа относительно приложенного
  * контекста. Порог тревоги — pass_rate < 0.8 или >30% ответов без вердикта
  * судьи (тогда "судья недоступен", а не ложное "всё хорошо").
@@ -13,6 +15,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runKuzmichFaithfulnessEval, failedCases } from '@/lib/agents/eval/kuzmich-faithfulness';
+import { fixtureQuestions, commercialFailures } from '@/lib/agents/eval/kuzmich-faithfulness';
+import { commercialRunStatus } from '@/lib/agents/eval/commercial-checks';
 import { sampleLiveQuestions } from '@/lib/agents/eval/live-questions';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -40,6 +44,10 @@ export async function GET(request: NextRequest) {
   // систематически оптимистичнее реального трафика. ?limit= (1..15, дефолт 10)
   // держит длительность в бюджете maxDuration.
   const source = request.nextUrl.searchParams.get('source') === 'live' ? 'live' : 'fixture';
+  // ?set=commercial — вопросы о турах (шаг 1 разбора «мозг Кузьмича», 29.10):
+  // отдельный прогон, чтобы pass_rate базовых двадцати остался сравним со
+  // своей историей. Судятся критериями против эталона в момент прогона.
+  const commercialSet = source === 'fixture' && request.nextUrl.searchParams.get('set') === 'commercial';
   const limitRaw = parseInt(request.nextUrl.searchParams.get('limit') ?? '10', 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 15) : 10;
 
@@ -76,7 +84,7 @@ export async function GET(request: NextRequest) {
       }
       report = await runKuzmichFaithfulnessEval({ questions });
     } else {
-      report = await runKuzmichFaithfulnessEval();
+      report = await runKuzmichFaithfulnessEval({ questions: fixtureQuestions(commercialSet ? 'commercial' : 'base') });
     }
 
     // Исход прогона и ПРИЧИНА, по которой он не «success», считаются вместе:
@@ -93,16 +101,21 @@ export async function GET(request: NextRequest) {
     const skip_reason = judgeMostlySilent
       ? 'judge_unavailable'
       : (report.pass_rate >= 0.8 ? null : 'pass_rate_below_threshold');
+    // Коммерческий набор судится своими критериями: исход прогона — их, а
+    // faithfulness судьи едет рядом в metadata.
+    const outcome: ReturnType<typeof commercialRunStatus> = commercialSet
+      ? commercialRunStatus(report.commercial)
+      : { status, skip_reason };
 
     void logAgentRun({
-      agent_id: source === 'live' ? 'kuzmich-eval-live' : 'kuzmich-eval',
-      status,
+      agent_id: source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval'),
+      status: outcome.status,
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
       items_processed: report.asked,
       items_created: report.judged,
       metadata: {
-        skip_reason,
+        skip_reason: outcome.skip_reason,
         pass_rate: report.pass_rate,
         wilson_low: report.wilson_low,
         judge_unavailable_ratio: report.judge_unavailable_ratio,
@@ -114,14 +127,18 @@ export async function GET(request: NextRequest) {
         // «75%» не говорит, какие вопросы и чем плохи. Вопросы живого
         // трафика чистятся redactPII — это сообщения туристов (§8).
         failed_cases: failedCases(report.cases),
+        ...(report.commercial ? {
+          commercial: report.commercial,
+          commercial_failures: commercialFailures(report.cases),
+        } : {}),
       },
     });
 
-    return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), source, ...report });
+    return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), source, set: commercialSet ? 'commercial' : 'base', ...report });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     void logAgentRun({
-      agent_id: source === 'live' ? 'kuzmich-eval-live' : 'kuzmich-eval',
+      agent_id: source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval'),
       status: 'failed',
       started_at,
       duration_ms: Date.now() - started_at.getTime(),

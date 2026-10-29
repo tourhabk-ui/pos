@@ -7,9 +7,11 @@
  * Кузьмича (lib/kuzmich/core.ts) её не было: деградацию retrieval/промпта
  * первым увидит турист на живом чате, а не мониторинг.
  *
- * Фикстура kuzmich-eval-questions.json — 20 фиксированных вопросов по
- * реальным объектам платформы (места уже фигурируют как реальные в
- * KUZMICH_SYSTEM, lib/kuzmich/core.ts). ВАЖНО: существование каждого места
+ * Фикстура kuzmich-eval-questions.json — 20 базовых вопросов по
+ * реальным объектам платформы и (с 29.10) отдельный набор вопросов о турах,
+ * которые судятся критериями (lib/agents/eval/commercial-checks.ts) и идут
+ * своим прогоном (`fixtureQuestions('commercial')`). Места базовых вопросов
+ * уже фигурируют как реальные в KUZMICH_SYSTEM (lib/kuzmich/core.ts). ВАЖНО: существование каждого места
  * в текущей prod-БД `places` НЕ проверено live-запросом из этой сессии
  * разработки — нет доступа к прод-БД. Перед первым прогоном на проде
  * сверить через /api/admin/audit-knowledge или ручной SELECT.
@@ -19,20 +21,57 @@
  * штраф за выдуманные факты безопасности выше, чем за обычную неточность.
  */
 
-import { askKuzmichForEval } from '@/lib/kuzmich/core';
+import { z } from 'zod';
+import { askKuzmichForEval, executeKuzmichTool } from '@/lib/kuzmich/core';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { judgeWithFallback } from '@/lib/agents/eval/editor-judge';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
 import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
 import { redactPII } from '@/lib/security/pii-redact';
+import {
+  CommercialCheckSchema,
+  judgeCommercial,
+  loadReferences,
+  summarizeCommercial,
+  type CommercialCheck,
+  type CommercialSummary,
+  type CommercialVerdict,
+  type ReferenceTool,
+} from '@/lib/agents/eval/commercial-checks';
 
 export interface EvalQuestion {
   id: string;
   // 'live' — вопрос, сэмплированный из реальных chat_sessions (см.
   // lib/agents/eval/live-questions.ts): модели различают тестовый и живой
   // контекст, фикстура может систематически получать более аккуратные ответы.
-  category: 'route' | 'safety' | 'season' | 'logistics' | 'live';
+  // 'commercial' — вопросы о турах (шаг 1 разбора «мозг Кузьмича», 29.10):
+  // судятся критериями `checks` против эталона в момент прогона
+  // (lib/agents/eval/commercial-checks.ts), а не цифрами в фикстуре.
+  category: 'route' | 'safety' | 'season' | 'logistics' | 'live' | 'commercial';
   question: string;
+  checks?: CommercialCheck[];
+}
+
+const FixtureSchema = z.array(z.object({
+  id: z.string().min(1),
+  category: z.enum(['route', 'safety', 'season', 'logistics', 'commercial']),
+  question: z.string().min(3),
+  checks: z.array(CommercialCheckSchema).min(1).optional(),
+}).refine((q) => (q.category === 'commercial') === (q.checks !== undefined), {
+  message: 'критерии есть ровно у коммерческих вопросов',
+}));
+
+/**
+ * Набор фикстуры. `base` — двадцать вопросов о местах и безопасности, с
+ * которыми сравнимы все прогоны с 11.09; `commercial` — вопросы о турах.
+ * Наборы идут разными прогонами: смешай их — и pass_rate базового набора
+ * перестал бы сравниваться со своей историей.
+ */
+export type FixtureSet = 'base' | 'commercial';
+
+export function fixtureQuestions(set: FixtureSet): EvalQuestion[] {
+  const all = FixtureSchema.parse(questionsFixture);
+  return all.filter((q) => (set === 'commercial') === (q.category === 'commercial'));
 }
 
 export interface EvalCase {
@@ -43,6 +82,8 @@ export interface EvalCase {
   context_len: number;
   score: number | null; // null = нет ответа, либо судья недоступен/не распарсился
   reason: string;
+  /** Только у коммерческих вопросов: исход критериев. */
+  commercial?: CommercialVerdict;
 }
 
 export interface EvalReport {
@@ -54,6 +95,8 @@ export interface EvalReport {
   judge_unavailable_ratio: number; // (asked - judged) / asked
   alerts_sent: boolean;
   cases: EvalCase[];
+  /** Сводка критериев коммерческих вопросов; null — их в прогоне не было. */
+  commercial: CommercialSummary | null;
 }
 
 const PASS_MIN = 4;                 // балл судьи >=4 считаем faithful (как QUALITY_GOOD_MIN у editor)
@@ -250,18 +293,55 @@ export function summarizeFaithfulness(cases: EvalCase[]): Omit<EvalReport, 'aler
     wilson_high: Math.round(ci.high * 1000) / 1000,
     judge_unavailable_ratio: Math.round(judge_unavailable_ratio * 1000) / 1000,
     cases,
+    commercial: commercialOf(cases),
   };
+}
+
+function commercialOf(cases: EvalCase[]): CommercialSummary | null {
+  const verdicts = cases.map((c) => c.commercial).filter((v): v is CommercialVerdict => v !== undefined);
+  return verdicts.length > 0 ? summarizeCommercial(verdicts) : null;
+}
+
+/** Проваленная или несудимая проверка коммерческого вопроса — для записи прогона. */
+export interface CommercialFailureNote {
+  id: string;
+  outcome: 'fail' | 'unknown';
+  checks: { kind: string; outcome: string; reason: string }[];
+}
+
+/** Сколько коммерческих провалов класть в запись прогона. */
+const COMMERCIAL_FAILURES_KEPT = 20;
+
+/**
+ * Коммерческие вопросы, не прошедшие критерии, — для журнала прогона.
+ * Вопросы фикстуры наши, но причины несут названия туров и цены — не ПД;
+ * текст ответа Кузьмича в журнал не кладётся (он есть в HTTP-отчёте).
+ */
+export function commercialFailures(cases: EvalCase[]): CommercialFailureNote[] {
+  return cases
+    .filter((c): c is EvalCase & { commercial: CommercialVerdict } => c.commercial !== undefined && c.commercial.outcome !== 'pass')
+    .slice(0, COMMERCIAL_FAILURES_KEPT)
+    .map((c) => ({
+      id: c.id,
+      outcome: c.commercial.outcome as 'fail' | 'unknown',
+      checks: c.commercial.checks
+        .filter((v) => v.outcome !== 'pass')
+        .map((v) => ({ kind: v.kind, outcome: v.outcome, reason: v.reason.slice(0, REASON_CHARS) })),
+    }));
 }
 
 /** Решает, нужен ли алерт, и с каким текстом — отдельно от вычисления отчёта (тестируемо без fetch). */
 export function decideAlert(summary: Omit<EvalReport, 'alerts_sent'>): string | null {
+  // Два понедельничных прогона фикстуры — базовый и о турах — тревожат одним
+  // заголовком; без пометки владелец не отличил бы один от другого.
+  const set = summary.commercial ? ' (вопросы о турах)' : '';
   if (summary.asked > 0 && summary.judge_unavailable_ratio > ALERT_JUDGE_NULL_RATIO) {
-    return `<b>Kuzmich Eval: судья недоступен</b>\n` +
+    return `<b>Kuzmich Eval${set}: судья недоступен</b>\n` +
       `Не оценено ${summary.asked - summary.judged} из ${summary.asked} вопросов ` +
       `(${Math.round(summary.judge_unavailable_ratio * 100)}%) — результат ненадёжен, это НЕ "всё хорошо".`;
   }
   if (summary.judged > 0 && summary.pass_rate < ALERT_PASS_RATE_THRESHOLD) {
-    return `<b>Kuzmich Eval: faithfulness ниже порога</b>\n` +
+    return `<b>Kuzmich Eval${set}: faithfulness ниже порога</b>\n` +
       `Pass rate: ${(summary.pass_rate * 100).toFixed(1)}% (порог ${ALERT_PASS_RATE_THRESHOLD * 100}%), ` +
       `Wilson CI low=${summary.wilson_low}\n` +
       `Проверь retrieval/промпт Кузьмича — возможна деградация или выдуманные факты безопасности.`;
@@ -271,8 +351,24 @@ export function decideAlert(summary: Omit<EvalReport, 'alerts_sent'>): string | 
 
 // ── Оркестратор (живой AI + retrieval, НЕ юнит-тестируется напрямую) ─────────
 
-export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuestion[] }): Promise<EvalReport> {
-  const questions = opts?.questions ?? (questionsFixture as EvalQuestion[]);
+/**
+ * Зависимости прогона. По умолчанию — настоящие: ответ Кузьмича через
+ * askKuzmichForEval, судья с фоллбэком провайдера, инструменты Кузьмича для
+ * эталонов коммерческих критериев. Подменяются в тестах.
+ */
+export interface EvalDeps {
+  ask?: (question: string) => Promise<{ answer: string; context: string } | null>;
+  judge?: (question: string, context: string, answer: string) => Promise<{ score: number | null; reason: string }>;
+  tool?: ReferenceTool;
+}
+
+export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuestion[]; deps?: EvalDeps }): Promise<EvalReport> {
+  const questions = opts?.questions ?? fixtureQuestions('base');
+  const ask = opts?.deps?.ask ?? askKuzmichForEval;
+  const judge = opts?.deps?.judge ?? judgeFaithfulness;
+  // Эталон — тот же инструмент, что у Кузьмича в чате (поверхность chat:
+  // каталог по слову целиком, без страниц).
+  const tool: ReferenceTool = opts?.deps?.tool ?? ((name, args) => executeKuzmichTool(name, args));
 
   // Порядок результатов сохраняется: отчёт читают глазами, и случайный
   // порядок вопросов сделал бы два прогона несравнимыми.
@@ -280,7 +376,7 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
     let answer: string | null = null;
     let context = '';
     try {
-      const result = await askKuzmichForEval(q.question);
+      const result = await ask(q.question);
       answer = result?.answer ?? null;
       context = result?.context ?? '';
     } catch (err) {
@@ -298,13 +394,26 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
         id: q.id, category: q.category, question: q.question,
         answer: null, context_len: context.length, score: null,
         reason: 'нет ответа от Кузьмича (waterfall недоступен или таймаут)',
+        // Нет ответа — критерии судить не по чему: «не смог», а не «прошёл».
+        ...(q.checks ? { commercial: {
+          outcome: 'unknown' as const,
+          checks: q.checks.map((c) => ({ kind: c.kind, outcome: 'unknown' as const, reason: 'нет ответа от Кузьмича' })),
+        } } : {}),
       };
     }
 
-    const verdict = await judgeFaithfulness(q.question, context, answer);
+    // Критерии — детерминированно, эталон берётся в момент прогона.
+    let commercial: CommercialVerdict | undefined;
+    if (q.checks) {
+      const references = await loadReferences(q.checks, tool);
+      commercial = judgeCommercial({ question: q.question, answer, context, checks: q.checks, references });
+    }
+
+    const verdict = await judge(q.question, context, answer);
     return {
       id: q.id, category: q.category, question: q.question,
       answer, context_len: context.length, score: verdict.score, reason: verdict.reason,
+      ...(commercial ? { commercial } : {}),
     };
   });
 

@@ -333,7 +333,8 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     // Сверено с кодом 24.07: cron-kuzmich-eval.yml дёргает /api/cron/kuzmich-eval,
-    // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live).
+    // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live,
+    // 'kuzmich-eval-commercial' при set=commercial — вопросы о турах, 29.10).
     // До этого здесь стоял agentId 'kuzmich-redteam' — телеметрия ДРУГОЙ джобы
     // (ежемесячный red-team), из-за чего панель могла показывать недельный eval
     // зелёным по чужим прогонам. Реестр сам запрещает врать зелёным — исправлено.

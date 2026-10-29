@@ -528,6 +528,105 @@ withPg('витрина туров: снятый тур не в плане и н�
     }
   });
 
+  // ── Полнота поиска туров Кузьмича: три компании к одному месту (29.10) ──
+  // Шаг 1 разбора «мозг Кузьмича при росте каталога»: база «до» без модели.
+  // На «все туры к Толбачику» на проде шесть туров четырёх компаний, и
+  // сравнивать устройство поиска можно, только зная, что каждый путь отдаёт
+  // сегодня. Пути, отдающие не всё, записаны в KNOWN_INCOMPLETE с причиной и
+  // нынешним числом: починит их ветка multi-offer — запись обязана уйти, тест
+  // покраснеет на старом числе (самоустаревает, как KNOWN_UNPRODUCED).
+  it('поиск туров Кузьмича: девять туров трёх компаний к одному месту — что отдаёт каждый путь (29.10)', async () => {
+    const PLACE = 'Пробный';
+    const companies = [
+      { id: 'b1100000-0000-4000-8000-0000000000c1', name: 'W2PT Компания Альфа', slug: 'w2pt-alpha' },
+      { id: 'b1100000-0000-4000-8000-0000000000c2', name: 'W2PT Компания Бета', slug: 'w2pt-beta' },
+      { id: 'b1100000-0000-4000-8000-0000000000c3', name: 'W2PT Компания Гамма', slug: 'w2pt-gamma' },
+    ];
+    const KNOWN_INCOMPLETE = {
+      // resolveTourByQuery: «LIMIT 1» — на слово места один тур одной компании.
+      get_tour_details: { gives: 1, why: 'resolveTourByQuery отдаёт один тур (LIMIT 1); ветка multi-offer' },
+      // toursMentioningPlace: «.slice(0, 3)» — к прайсу машин едут три тура места.
+      search_transfers: { gives: 3, why: 'toursMentioningPlace режет туры места до трёх строк' },
+      // filterTourCatalog сравнивает по основе слова: опечатка в окончании
+      // прощается, внутри основы — нет.
+      get_tours_typo_inside_stem: { starts: 'Туров «прабный» у операторов платформы сейчас нет', why: 'опечатка внутри основы слова: get_tours сравнивает по основе' },
+    } as const;
+    const tourIds: string[] = [];
+    for (const [ci, c] of companies.entries()) {
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, $2, 'operator', '{}'::jsonb, $3, TRUE, TRUE, 'active')`,
+        [c.id, c.name, c.slug],
+      );
+      for (const [ki, kind] of ['jeep_safari', 'helicopter', 'trekking'].entries()) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                       min_participants, max_participants, duration_hours, difficulty,
+                                       is_active, is_published, location_name)
+           VALUES ($1, $2, $3, $4, $5, 'per_person', 1, 8, 8, 'easy', TRUE, TRUE, $6)
+           RETURNING id::text`,
+          [c.id, `W2PT ${PLACE} ${c.slug} ${kind}`, `w2pt-probe-${c.slug}-${ki}`, kind, 2000 + ci * 10 + ki, `Вулкан ${PLACE}`],
+        );
+        tourIds.push(rows[0].id);
+      }
+    }
+    const all = [...tourIds].sort();
+    const idsIn = (text: string) => [...text.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => all.includes(x)).sort();
+
+    // Кэш каталога живёт 3 минуты, и прежний тест уже сдвигал часы на 10 —
+    // вперёд дальше, чтобы каталог прочитался с новыми турами.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+    try {
+      const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
+
+      // get_tours в чате: по слову места — все девять, у каждого компания.
+      const chat = await executeKuzmichTool('get_tours', { activity_type: PLACE });
+      expect(idsIn(chat)).toEqual(all);
+      for (const c of companies) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(3);
+
+      // MCP: страницами по семь — первая неполная и называет, сколько всего;
+      // две страницы вместе — все девять.
+      const p1 = await executeKuzmichTool('get_tours', { activity_type: PLACE }, { surface: 'mcp' });
+      const p2 = await executeKuzmichTool('get_tours', { activity_type: PLACE, page: '2' }, { surface: 'mcp' });
+      expect(idsIn(p1)).toHaveLength(7);
+      expect(p1).toContain('Страница 1 из 2, туров всего 9.');
+      expect([...idsIn(p1), ...idsIn(p2)].sort()).toEqual(all);
+
+      // «Что есть у компании»: слово туриста — имя компании; отдаются её три
+      // тура, чужих нет (совпадение по строке «Оп:», не отдельный фильтр).
+      const beta = companies[1];
+      const betaIds = tourIds.slice(3, 6).sort();
+      const byCompany = await executeKuzmichTool('get_tours', { activity_type: 'Компания Бета' });
+      expect(idsIn(byCompany)).toEqual(betaIds);
+      expect(byCompany.match(new RegExp(`Оп: ${beta.name}`, 'g'))).toHaveLength(3);
+
+      // Опечатка в окончании («пробнай») — основа та же, все девять.
+      expect(idsIn(await executeKuzmichTool('get_tours', { activity_type: 'пробнай' }))).toEqual(all);
+      // Опечатка внутри основы («прабный») — инструмент туров не находит и
+      // честно говорит «туров нет» (каталог следом — замена с оговоркой):
+      // исправлять слово остаётся модели. Записано как пробел, а не спрятано.
+      const typoInside = await executeKuzmichTool('get_tours', { activity_type: 'прабный' });
+      expect(typoInside.startsWith(KNOWN_INCOMPLETE.get_tours_typo_inside_stem.starts), KNOWN_INCOMPLETE.get_tours_typo_inside_stem.why)
+        .toBe(true);
+
+      // Известные пробелы — нынешнее число, не спрятанное «всё хорошо».
+      const details = await executeKuzmichTool('get_tour_details', { name: PLACE });
+      const detailsTours = all.filter((tid) => details.includes(`/tours/${tid}`) || details.includes(`ID${tid}`));
+      const titlesInDetails = companies.flatMap((c) => ['jeep_safari', 'helicopter', 'trekking']
+        .map((k) => `W2PT ${PLACE} ${c.slug} ${k}`)).filter((t) => details.includes(t));
+      expect(titlesInDetails.length, `${KNOWN_INCOMPLETE.get_tour_details.why} (ids ${detailsTours.join(',')})`)
+        .toBe(KNOWN_INCOMPLETE.get_tour_details.gives);
+
+      const transfers = await executeKuzmichTool('search_transfers', { place: PLACE });
+      expect(idsIn(transfers).length, KNOWN_INCOMPLETE.search_transfers.why).toBe(KNOWN_INCOMPLETE.search_transfers.gives);
+    } finally {
+      vi.useRealTimers();
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [tourIds]);
+      await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [companies.map((c) => c.id)]);
+    }
+  });
+
   it('чат виджета партнёра (loadPartnerTours): только живые туры этого оператора, закреплённый первым, соседа нет', async () => {
     // Аудит 15.10, WID-safety: чат на сайте партнёра подбирал туры по всей
     // платформе и советовал туры конкурентов. Сосед с живым туром и
