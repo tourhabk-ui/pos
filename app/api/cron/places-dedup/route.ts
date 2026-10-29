@@ -37,6 +37,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
 import { recordAlias, moveAliases } from '@/lib/places/aliases';
+import { carryTourMainPlace } from '@/lib/places/merge-carry';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -387,8 +388,8 @@ async function thresholdPlan(
 /** Применение плана. Одно и то же для обоих режимов: мягко и обратимо. */
 async function applyPlan(
   plan: PlanItem[]
-): Promise<Array<{ keep: string; merge: string; warning?: string }>> {
-  const merged: Array<{ keep: string; merge: string; warning?: string }> = [];
+): Promise<Array<{ keep: string; merge: string; warning?: string; tours_moved: number }>> {
+  const merged: Array<{ keep: string; merge: string; warning?: string; tours_moved: number }> = [];
   for (const p of plan) {
     await transaction(async client => {
       if (p.keepArk && p.mergeArk) {
@@ -409,6 +410,9 @@ async function applyPlan(
       await client.query(`DELETE FROM route_waypoints WHERE place_id = $1`, [
         p.mergeId,
       ]);
+      // Туры, у которых дубль — главное место, едут к оставшемуся
+      // (lib/places/merge-carry): иначе они пропали бы с карточки места.
+      const toursMoved = await carryTourMainPlace(client, p.keepId, p.mergeId);
 
       // Имя слитого места не пропадает, а становится псевдонимом оставшегося:
       // «Авачинский вулкан» ищут не реже, чем «Вулкан Авачинский». До этого
@@ -462,7 +466,7 @@ async function applyPlan(
         `UPDATE places SET merged_into_id = $1, merged_at = NOW() WHERE id = $2 AND merged_into_id IS NULL`,
         [p.keepId, p.mergeId]
       );
-      merged.push({ keep: p.keepName, merge: p.mergeName, warning });
+      merged.push({ keep: p.keepName, merge: p.mergeName, warning, tours_moved: toursMoved });
     });
   }
   return merged;

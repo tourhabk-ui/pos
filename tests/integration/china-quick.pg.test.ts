@@ -7,8 +7,9 @@
  *
  *   - /zh берёт ВСЕ живые туры под шлюзом витрины (publicTourSql) — больше
  *     прежнего среза в 40, — с вывеской, адресом и открытостью карточки
- *     компании; удалённый и снятый тур в список не входят; порядок — по
- *     названию компании, затем тура, а не по дате правки;
+ *     компании; удалённый и снятый тур в список не входят; порядок — правило
+ *     1в (слово владельца 29.10): тур со свободной датой первым, остальные —
+ *     жребий дня, а не дата правки и не алфавит компаний;
  *   - счётчик пишет /zh, /zh/* и /sitemap.xml в agent_entry_hits по
  *     семейству и не пишет человека;
  *   - перепись A2A выполняется на схеме прода: окно отсекает старое, регион и
@@ -161,18 +162,35 @@ withPg('китайский контур на схеме прода (CN-quick)', 
     await (appPool as unknown as { end?: () => Promise<void> }).end?.();
   });
 
-  it('/zh: все живые туры без среза, с компанией; порядок по названию компании, затем тура', async () => {
+  it('/zh: все живые туры без среза, с компанией; порядок — правило 1в (29.10)', async () => {
+    // Один тур «Ясного» (последнего по алфавиту) ведёт календарь со свободной
+    // датой: по алфавиту он стоял бы в хвосте, по правилу 1в — первым.
+    const dated = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM operator_tours WHERE operator_id = $1 AND slug LIKE 'test-zh-tour-%' ORDER BY id DESC LIMIT 1`,
+      [OPS.ya.id],
+    );
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 20, 6, FALSE)`,
+      [dated.rows[0].id],
+    );
     const { loadZhTours } = await import('@/lib/zh/entry');
+    const { offerOrderDay, tourLot } = await import('@/lib/tours/offer-order');
     const tours = await loadZhTours();
+    const day = offerOrderDay();
     expect(tours).not.toBeNull();
     const mine = (tours ?? []).filter((t) => t.slug?.startsWith('test-zh-'));
     expect(mine).toHaveLength(LIVE_PER_OPERATOR * 2);
     expect(mine.map((t) => t.slug)).not.toContain('test-zh-deleted');
     expect(mine.map((t) => t.slug)).not.toContain('test-zh-inactive');
-    // Альфа раньше Ясного, хотя Ясный правил туры последним.
-    expect(mine[0].operator_name).toBe('Альфа Тест');
-    expect(mine[mine.length - 1].operator_name).toBe('Ясный Тест');
-    expect(mine.slice(0, 3).map((t) => t.title)).toEqual(['Тур 00', 'Тур 01', 'Тур 02']);
+    // Тур со свободной датой — первым, дата пришла из базы.
+    expect(mine[0].id).toBe(dated.rows[0].id);
+    expect(mine[0].operator_name).toBe('Ясный Тест');
+    expect(mine[0].nearest_free_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // Остальные — жребий дня (FNV-1a с fmix32 от даты по Камчатке и id), не алфавит и не дата правки.
+    const rest = mine.slice(1);
+    expect(rest.every((t) => t.nearest_free_date == null)).toBe(true);
+    expect(rest.map((t) => t.id)).toEqual([...rest].sort((a, b) => tourLot(day, a.id) - tourLot(day, b.id)).map((t) => t.id));
     // Адрес и открытость карточки компании приходят из базы — ссылкой станет только открытая.
     expect(mine.find((t) => t.operator_name === 'Ясный Тест')).toMatchObject({ operator_slug: 'test-zh-ya', operator_public: true });
     expect(mine.find((t) => t.operator_name === 'Альфа Тест')).toMatchObject({ operator_public: false });

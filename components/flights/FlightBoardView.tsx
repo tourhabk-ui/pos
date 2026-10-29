@@ -19,6 +19,8 @@ import {
   PKC_BOARD_URL, PKC_INFO_PHONE,
   type BoardFlight, type BoardRead, type PkcBoard,
 } from '@/lib/flights/pkc-board';
+import type { MetarRead } from '@/lib/flights/metar';
+import { AirportWeather } from '@/components/flights/AirportWeather';
 
 function StatusChip({ f }: { f: BoardFlight }) {
   if (!f.status) return <span className="text-xs text-[var(--text-muted)]">статус не указан</span>;
@@ -84,7 +86,7 @@ function Side({ title, icon, read }: { title: string; icon: ReactNode; read: Boa
   );
 }
 
-export function FlightBoardView({ board }: { board: PkcBoard }) {
+export function FlightBoardView({ board, metar }: { board: PkcBoard; metar?: MetarRead }) {
   const fetched = kamchatkaClock(board.fetchedAt);
   const loaded = [board.departures, board.arrivals].filter((r): r is Extract<BoardRead, { kind: 'ok' }> => r.kind === 'ok');
   const disrupted = loaded.flatMap((r) => r.flights).filter(isDisrupted);
@@ -127,6 +129,8 @@ export function FlightBoardView({ board }: { board: PkcBoard }) {
           </p>
         </section>
       )}
+
+      {metar && <AirportWeather read={metar} />}
 
       <Side title="Вылет" icon={<PlaneTakeoff size={18} className="text-[var(--ocean)]" aria-hidden />} read={board.departures} />
       <Side title="Прилёт" icon={<PlaneLanding size={18} className="text-[var(--ocean)]" aria-hidden />} read={board.arrivals} />

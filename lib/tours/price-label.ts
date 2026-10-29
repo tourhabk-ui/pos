@@ -32,7 +32,7 @@
  * цены нет, а не подставлять её. Складывать «не знаю» с нулём запрещено.
  */
 
-import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+import { PRICE_UNIT_LABELS, PRICE_UNIT_SHORT } from '@/lib/tours/labels';
 
 /**
  * «от 13 000 ₽/чел.» либо `null`, если цена не записана.
@@ -110,4 +110,24 @@ export function priceFromUnitOrSay(
   absent = 'цена не указана',
 ): string {
   return priceFromUnit(basePrice, priceUnit) ?? absent;
+}
+
+/**
+ * Цена тура в списке предложений, где цена — факт строки, а не призыв
+ * (карточка места, §9: «название, оператор, цена» без «от … ₽» как CTA):
+ * «15 000 ₽ за человека», «48 000 ₽ за группу». Единица — словами из того же
+ * словаря, что каталог (`PRICE_UNIT_LABELS`); незнакомая — названа
+ * незаписанной, а не «за человека» (§4.0). Цены нет — `null`: вызывающий
+ * говорит «цена не указана» сам.
+ */
+export function priceWithUnitWords(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+): string | null {
+  if (basePrice == null) return null;
+  const n = Number(basePrice);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const sum = `${n.toLocaleString('ru-RU')} ₽`;
+  const words = priceUnit ? PRICE_UNIT_LABELS[priceUnit] : undefined;
+  return words ? `${sum} ${words}` : `${sum} — за что назначена цена, не записано`;
 }

@@ -315,15 +315,27 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
 
-  const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
+  const { resolveTourChoice, candidateLines } = await import('@/lib/kuzmich/tour-availability-tool');
   // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
   // это сбой, а не отсутствие тура (проверка MCP 29.09).
-  const tour = await resolveTourByQuery(tourQuery).catch(() => {
+  const choice = await resolveTourChoice(tourQuery).catch(() => {
     throw new McpUserError('Не удалось проверить тур — заявка не создана, повторите позже.', 'tour_lookup_failed');
   });
-  if (!tour) {
+  if (choice.kind === 'none') {
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
   }
+  // Туры нескольких компаний (слово владельца 29.10, «1в 2б 3 да»): пишущий
+  // инструмент продавца не выбирает. До 29.10 заявка уходила той компании,
+  // чьё название короче, — телефон человека получал продавец, которого он не
+  // называл. Теперь заявки нет, пока агент не передаст номер тура.
+  if (choice.kind === 'ambiguous') {
+    return [
+      `По запросу «${tourQuery}» подходят туры разных компаний — заявка не создана. Повторите create_booking_request с номером тура (поле tour):`,
+      ...candidateLines(choice.candidates),
+      'Порядок списка — правило платформы, а не рекомендация. Спросите человека, какой тур и какая компания ему нужны.',
+    ].join('\n');
+  }
+  const tour = choice.tour;
 
   // Несуществующая дата (2027-02-30) проходила регулярку и падала в базе
   // с 22008 — общим «внутренняя ошибка» вместо внятного отказа (29.09).

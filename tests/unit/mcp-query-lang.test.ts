@@ -92,14 +92,19 @@ vi.mock('@/lib/db-pool', () => ({
 describe('resolveTourByQuery — ранг и запасной поиск по словам', () => {
   beforeEach(() => poolQueryMock.mockReset());
 
-  it('начало названия выше вхождения, затем короче название', async () => {
+  it('начало названия выше вхождения; длина названия и цена продавца не выбирают (29.10)', async () => {
     const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
-    poolQueryMock.mockResolvedValueOnce({ rows: [{ id: 54, title: 'Долина гейзеров (вертолёт)' }] });
+    // Ранг считает база; резолвер берёт лучший. Строка с рангом 2 («Малая
+    // Долина гейзеров») другой компании исход не делает неоднозначным.
+    poolQueryMock.mockResolvedValueOnce({ rows: [
+      { id: 31, title: 'Дачные источники (Малая Долина гейзеров)', operator_id: 'b', rank: 2 },
+      { id: 54, title: 'Долина гейзеров (вертолёт)', operator_id: 'a', rank: 1 },
+    ] });
     const t = await resolveTourByQuery('Долина гейзеров');
     expect(t?.id).toBe(54);
     const [sql, params] = poolQueryMock.mock.calls[0];
-    expect(sql).toMatch(/WHEN title ILIKE \$3 THEN 1 WHEN title ILIKE \$1 THEN 2/);
-    expect(sql.indexOf('length(title) ASC')).toBeLessThan(sql.indexOf('base_price ASC'));
+    expect(sql).toMatch(/WHEN ot\.title ILIKE \$3 THEN 1 WHEN ot\.title ILIKE \$1 THEN 2/);
+    expect(sql).not.toMatch(/length\(ot\.title\)|base_price ASC/);
     expect(params).toEqual(['%Долина гейзеров%', 'Долина гейзеров', 'Долина гейзеров%']);
   });
 

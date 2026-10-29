@@ -23,9 +23,10 @@ import { asCoordSource } from '@/lib/places/coord-source';
 import { descriptionWrittenByModel, type LastDescriptionWrite } from '@/lib/places/description-by-model';
 import { isOutsideKraiSources } from '@/lib/safety/kuril-north';
 import { publicReviewerName } from '@/lib/reviews/public-name';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { loadPlaceTours, type PlaceTourOffer } from '@/lib/places/place-tours';
+import { offerOrderDay } from '@/lib/tours/offer-order';
 import { descriptionVoice } from '@/lib/places/description-voice';
-import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
+import type { PlacePhotoAttribution, PlacePhotoRights, PlaceTour } from '@/components/places/types';
 
 export interface PlaceDetailResult {
   status: number;
@@ -278,47 +279,11 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     // Отбор — общий с Кузьмичом (lib/places/place-routes): одна копия фильтра.
     const routesResult = await query(PLACE_ROUTES_SQL, [r.place_pk]);
 
-    // Туры сюда — по ЛЮБОЙ из двух явных связей (аудит 15.10, TOUR-PLACE):
-    //   - маршрут тура проходит через место (route_waypoints → kamchatka_routes
-    //     → operator_tours.route_id), род связи не «рядом»;
-    //   - место названо главным местом тура (operator_tours.main_place_id,
-    //     миграция 1286: точное совпадение координат или выбор оператора).
-    // У туров, заведённых миграциями, route_id пуст, и первая цепочка одна
-    // давала на проде ноль туров на всех карточках мест.
-    const toursResult = await query(
-      `SELECT DISTINCT ON (ot.id)
-         ot.id, ot.slug, ot.title, ot.base_price, ot.multi_day_count AS duration_days,
-         p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-         link.link_kind
-       FROM (
-         SELECT ot_r.id AS tour_id, COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') AS link_kind
-           FROM route_waypoints rw
-           JOIN kamchatka_routes kr ON kr.id = rw.route_id
-           JOIN operator_tours ot_r ON ot_r.route_id = kr.id
-          WHERE rw.place_id = $1
-            AND kr.merged_into_id IS NULL
-            -- «Туры сюда» — только по маршрутам, которые сюда ИДУТ (03.10):
-            -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
-            -- месту в 15 км от центра своего маршрута.
-            AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-         UNION ALL
-         SELECT ot_m.id, 'main_place'
-           FROM operator_tours ot_m
-          WHERE ot_m.main_place_id = $1
-       ) link
-       JOIN operator_tours ot ON ot.id = link.tour_id
-       JOIN partners p ON p.id = ot.operator_id
-       -- Шлюз витрины, а не копия флагов (15.10): копия не смотрела
-       -- deleted_at, и удалённый тур оставался в списке.
-       WHERE ${publicTourSql('ot')}
-       -- Род связи — до экрана (15.10, §0): «к этому месту» вправе сказать
-       -- главное место тура или размеченная точка пути; если тур связан с
-       -- местом несколькими строками, побеждает самая сильная.
-       ORDER BY ot.id,
-         CASE link.link_kind WHEN 'main_place' THEN 0 WHEN 'waypoint' THEN 1 ELSE 2 END
-       LIMIT 5`,
-      [r.place_pk]
-    );
+    // Туры сюда — все предложения к месту, в порядке правила 1в (слово
+    // владельца 29.10): lib/places/place-tours. Загрузчик сам ловит отказ и
+    // отвечает «не смог» (§4.0) — сбой туров не роняет карточку места в 500,
+    // а становится строкой «туры не загрузились» в её блоке.
+    const toursResult = await loadPlaceTours(String(r.place_pk));
 
     // Шаблон 070/0645 выдумал опасности, лимит, сложность и рельеф по
     // location_type. Доказанный шаблон не произносится как факт — правило одно
@@ -551,17 +516,12 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           linkKind: (rt.link_kind as 'waypoint' | 'nearby' | 'unknown' | null) ?? null,
         })),
 
-        tours: toursResult.rows.map(t => ({
-          id: t.id as string,
-          slug: (t.slug as string | null) ?? null,
-          title: t.title as string,
-          basePrice: Number(t.base_price),
-          durationDays: t.duration_days != null ? Number(t.duration_days) : null,
-          operatorName: t.operator_name as string,
-          operatorSlug: t.operator_slug as string | null,
-          operatorPublic: (t.operator_public as boolean | null) ?? null,
-          linkKind: t.link_kind === 'waypoint' || t.link_kind === 'main_place' ? t.link_kind : 'unknown',
-        })),
+        tours: toursResult.state === 'ok' ? toursResult.offers.map(toPlaceTour) : [],
+        // Три исхода чтения туров (§4.0): «туров нет» и «не загрузились» —
+        // разные слова на карточке. День правила — тот же, по которому
+        // загрузчик расставил туры: группировка на экране берёт его же.
+        toursState: toursResult.state,
+        toursDay: toursResult.state === 'failed' ? offerOrderDay() : toursResult.day,
 
         reviewsSummary: {
           total: Number(reviewsSummaryResult.rows[0]?.total ?? reviewsResult.rows.length),
@@ -601,6 +561,30 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     });
     return { status: 500, body: { success: false, error: 'Не удалось загрузить место. Мы записали отказ.' } };
   }
+}
+
+/** Предложение загрузчика → строка карточки места (одна форма для роута и страницы). */
+export function toPlaceTour(t: PlaceTourOffer): PlaceTour {
+  return {
+    id: t.id,
+    slug: t.slug,
+    title: t.title,
+    basePrice: t.basePrice,
+    priceUnit: t.priceUnit,
+    durationType: t.durationType,
+    multiDayCount: t.multiDayCount,
+    durationHours: t.durationHours,
+    seasonStart: t.seasonStart,
+    seasonEnd: t.seasonEnd,
+    nearestFreeDate: t.nearestFreeDate,
+    keepsSchedule: t.keepsSchedule,
+    partnerId: t.partnerId,
+    operatorName: t.partnerName,
+    operatorSlug: t.partnerSlug,
+    operatorPublic: t.partnerPublic,
+    partnerVerified: t.partnerVerified,
+    linkKind: t.linkKind,
+  };
 }
 
 /**

@@ -507,7 +507,7 @@ describe('турист: клавиатура, порядок ответов, д�
       if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) {
         return { rows: [...m.history].reverse() };
       }
-      if (q.includes('multi_day_count DESC NULLS LAST')) {
+      if (q.includes('FROM operator_tours') && q.includes('AS nearest_free_date') && q.includes('match_text')) {
         return { rows: [{
           id: 7, slug: 'k-vulkanu', title: 'К вулкану',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 1,
@@ -569,7 +569,7 @@ describe('турист: клавиатура, порядок ответов, д�
       if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) {
         return { rows: [...m.history].reverse() };
       }
-      if (q.includes('multi_day_count DESC NULLS LAST')) {
+      if (q.includes('FROM operator_tours') && q.includes('AS nearest_free_date') && q.includes('match_text')) {
         return { rows: [{
           id: 7, slug: 'k-vulkanu', title: 'К вулкану',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 1,
@@ -674,7 +674,7 @@ describe('турист: клавиатура, порядок ответов, д�
     m.pool.mockImplementation(async (sql: unknown) => {
       const q = String(sql);
       if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) return { rows: [] };
-      if (q.includes('multi_day_count DESC NULLS LAST')) {
+      if (q.includes('FROM operator_tours') && q.includes('AS nearest_free_date') && q.includes('match_text')) {
         return { rows: [{
           id: 7, slug: 'pyat-dney', title: 'Пять дней по Камчатке',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 5,

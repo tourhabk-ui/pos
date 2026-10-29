@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryLandingView } from '@/components/seo/QueryLanding';
 import { landingByKey } from '@/lib/seo/query-landings';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
+import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
 
 const row: LandingTourRow = {
   id: '7', slug: 'vulkan-gorelyy', title: 'Вулкан Горелый', base_price: '15000', price_unit: 'per_person',
@@ -34,6 +35,16 @@ describe('QueryLandingView', () => {
     expect(html).toContain('堪察加团队游，约 10 小时');
     expect(html).toContain('俄文原名');
     expect(html).not.toContain('>Вулкан Горелый</a>');
+  });
+  it('правило порядка 1в названо на языке страницы; без списка подписи нет', () => {
+    const cases = [['ru-bears', OFFER_ORDER_NOTE.ru], ['en-booking', OFFER_ORDER_NOTE.en], ['zh-volcano', OFFER_ORDER_NOTE.zh]] as const;
+    for (const [key, note] of cases) {
+      expect(renderToStaticMarkup(<QueryLandingView landing={landingByKey(key)} tours={[row]} />), key).toContain(note);
+      expect(renderToStaticMarkup(<QueryLandingView landing={landingByKey(key)} tours={null} />), key).not.toContain(note);
+    }
+    const ru = renderToStaticMarkup(<QueryLandingView landing={landingByKey('ru-bears')} tours={[row]} />);
+    expect(ru).toContain('Место в списке не продаётся.');
+    expect(ru).not.toContain('по названию компании');
   });
   it('en: без перевода — русское имя с lang="ru"', () => {
     const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('en-booking')} tours={[{ ...row, title_zh: undefined }]} />);

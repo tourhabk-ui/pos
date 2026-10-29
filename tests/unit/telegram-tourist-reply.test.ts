@@ -1,11 +1,16 @@
 /**
  * Каталог в ответе бота: даты заезда из базы, не календарь «в июле всё открыто».
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 import { emphasizeTripDays } from '@/lib/telegram/kuzmich-format';
 import { detectTourIntent, isCarRentalAsk, isSafetyOrSituationAsk, wantsTourCards } from '@/lib/ai/booking-intent';
 import { boundChatLane } from '@/lib/kuzmich/bound-chat-route';
-import { catalogFacts, pickToursForAnswer, seasonOverlaps, showcaseLookup, showcaseQuery, type CatalogTour } from '@/lib/telegram/tourist-tours';
+import { catalogFacts, loadShowcaseTours, pickToursForAnswer, seasonOverlaps, showcaseLookup, showcaseQuery, type CatalogTour } from '@/lib/telegram/tourist-tours';
+import { orderOffersBy } from '@/lib/tours/offer-order';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { enqueueTelegramChat, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { matchTouristButton, touristRentalText, touristReplyMarkup } from '@/lib/telegram/tourist-keyboard';
 
@@ -355,5 +360,40 @@ describe('очередь чата', () => {
 
   it('на сервере вебхук не ждёт модель', () => {
     expect(webhookAwaitsHandler({} as NodeJS.ProcessEnv)).toBe(false);
+  });
+});
+
+describe('витрина туров в чате — правило 1в (слово владельца 29.10)', () => {
+  it('в запросе нет ни порядка, ни среза: «многодневные и дешёвые первыми» сняты', () => {
+    for (const q of ['туры', 'хочу на Авачинский', 'хочу на рыбалку']) {
+      const { sql } = showcaseQuery(q);
+      // Подзапрос ближайшей даты несёт свои ORDER BY и LIMIT 1 — это выбор
+      // даты одного тура, а не порядок списка; судится внешний запрос.
+      expect(sql.replace(nearestFreeDateSql('ot'), '')).not.toMatch(/ORDER BY|LIMIT/);
+      expect(sql).toContain('AS nearest_free_date');
+      expect(sql).toContain('AS main_place_ref');
+    }
+  });
+
+  it('порядок списка — правило 1в: с датой первыми, остальные жребием дня, а не ценой', async () => {
+    const rows = [
+      { ...FIVE, id: 1, base_price: 5000, nearest_free_date: null },
+      { ...FIVE, id: 2, base_price: 900000, nearest_free_date: '2027-07-26' },
+      { ...FIVE, id: 3, base_price: 7000, nearest_free_date: null },
+      { ...FIVE, id: 4, base_price: 6000, nearest_free_date: null },
+    ];
+    query.mockResolvedValueOnce({ rows });
+    const loaded = await loadShowcaseTours('туры');
+    if (!loaded.ok) throw new Error('каталог не прочитан');
+    expect(loaded.complete).toBe(true);
+    expect(loaded.tours[0].id).toBe(2);
+    expect(loaded.tours.map((t) => t.id))
+      .toEqual(orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date })).map((t) => t.id));
+  });
+
+  it('у каждого тура в карточке чата — компания', () => {
+    const facts = catalogFacts('Какие туры есть?', { ok: true, tours: [{ ...FIVE, operator_name: 'Местечко Камчатка' }] }, new Date('2027-08-26T00:00:00Z'));
+    expect(facts.html).toContain('</a> — Местечко Камчатка —');
+    expect(facts.note).toContain('«Пять дней по Камчатке» (Местечко Камчатка)');
   });
 });

@@ -1,7 +1,7 @@
 {
   "upload": true,
-  "run": 16,
-  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/. Прогон 6 (14.10): восемь снимков природного парка «Быстринский» с Wikimedia Commons (CC BY-SA 4.0 NadezhdaKhaustova, CC BY-SA 3.0 Johannes Rohr) — главный кадр и галерея карточки, главный кадр статьи летописи (владелец: «Природный парк «Быстринский» так же»). Ключи под photos/bystrinsky/. Прогон 7 (14.10): тринадцать снимков природного парка «Налычево» с Wikimedia Commons (CC BY-SA 4.0 — Alphatetia, Кирилл Уютнов, Jeskela, Rost.galis; CC BY 2.0 — Елена Ветрова; общественное достояние — Gistereziz) — главный кадр и галерея карточек парка, Налычевской долины, Налычевских источников и Грифона Иванова, главный кадр статьи летописи (владелец: «Природный парк «Налычево» го»). Ключи под photos/nalychevo/. Прогон 8 (14.10): владелец того же дня: «Только используй наши фотографии или фото партнеров по возможности» — четыре снимка партнёра «Местечко Камчатка» с его туров (облёт Корякского и Авачинского с Налычевскими источниками, Авачинский перевал; права у оператора, размещение по его «ДА», миграция 1217): купальня «Третья лужа» на кордоне «Центральный», кратер Авачинского и два вулкана с воздуха, евражка на перевале. Ключи под photos/nalychevo/mestechko-*. Снимки Commons прогона 7 на карточки не ставятся. Прогон 9 (14.10): национальный парк «Вулканы Камчатки» (постановление Правительства от 9 октября 2026 года, на базе природных парков «Ключевской» и «Южно-Камчатский») — по тому же слову владельца «только наши фотографии или фото партнеров»: пять снимков партнёра «Край Вулканов» с его туров к подножию Ключевской группы, облёта и Плоского Толбачика (права у оператора, перенос по слову владельца 08.10, миграция 1177) и четыре снимка партнёра «Местечко Камчатка» (Толбачик, Горелый, Мутновский; права у оператора, размещение по его «ДА», 1217). Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/vulkany-kamchatki/. Прогон 10 (14.10): Южно-Камчатский федеральный заказник имени Т. И. Шпиленка (Курильское озеро) — по тому же слову владельца «только наши фотографии или фото партнеров»: четыре снимка партнёра «Край Вулканов» с его автомобильного тура на Курильское озеро (табличка «Курильское озеро» на берегу, стоянка группы у озера, Кутхины Баты издали и вблизи; права у оператора, перенос по слову владельца 08.10, миграция 1177) и снимок партнёра «Местечко Камчатка» с вертолётной экскурсии на Курильское озеро (медведица с медвежонком у воды; права у оператора, размещение по его «ДА», 1217). Кадры той же экскурсии с кальдерой Ксудач и вертолётом на поляне не берутся: Ксудач — не заказник, а где сел вертолёт, по кадру не сказать. Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/yuzhno-kamchatskij-zakaznik/. Прогон 11 (14.10): природный парк «Вилючинский» (постановление Правительства Камчатского края № 743-П от 28.12.2022) — по тому же слову владельца «только наши фотографии или фото партнеров»: два снимка партнёра «Местечко Камчатка» с его вертолётного облёта Вилючинского, Мутновского и Горелого — Вилючинский вулкан осенью и в снегу (права у оператора, размещение по его «ДА», 1217). Остальные кадры той же экскурсии — Мутновский и Горелый (01 и 03 стоят у национального парка, прогон 9). Байты — те же, что в public/images/mestechko/, без пережатия. Ключи под photos/vilyuchinsky/. Прогон 12 (14.10): памятники природы у Петропавловска — по тому же слову владельца «только наши фотографии или фото партнеров»: снимок партнёра «Местечко Камчатка» с его морской прогулки к острову Старичков — птичий базар на скалах (права у оператора, размещение по его «ДА», 1217). Остальные кадры той прогулки — катера и рулевой, острова на них не видно, они не берутся. Байты — те же, что в public/images/mestechko/ostrov-starichkov-02.jpg, без пережатия, метаданных в файле нет. Ключ под photos/starichkov/. Прогон 13 (15.10): два снимка владельца — для главных кадров статей летописи «Налычево» и «Вилючинский» вместо кадров партнёра «Местечко Камчатка»: согласия партнёра на показ вне его туров пока нет (владелец 15.10: «пока нет получим согласе востановим», миграция 1263; выкачена под номером 1260 и перенумерована из-за тёзки). Корякская сопка вечером (985, байты те же, что migrations/photos/804cf57c….jpg) и Вилючинский вулкан с облачным поясом (979, байты те же, что migrations/photos/853153….jpg) — без пережатия, метаданных в файлах нет. Копии нужны потому, что раздача статей (/api/images/s3/) отдаёт только ключи под photos/. Ключи под photos/nalychevo/vladelec-* и photos/vilyuchinsky/vladelec-*. Прогон 14 (15.10): снимок владельца для главного кадра статьи летописи «Южно-Камчатский заказник» вместо кадра партнёра «Край Вулканов»: слово владельца «публикуй фото и туры» (1177) — о турах партнёра, а не о карточках мест и летописи; его снимки с карточек мест спрятаны до согласия тем же порядком, что «Местечко» (миграция 1265). Бурый медведь с медвежонком на берегу Курильского озера (958, байты те же, что migrations/photos/84b7294d….jpg) — без пережатия, метаданных в файле нет. Ключ под photos/yuzhno-kamchatskij-zakaznik/vladelec-*. Прогон 15 (15.10): шесть снимков Wikimedia Commons двум карточкам, оставшимся без единого снимка после 1263 и 1265 (кадры партнёров спрятаны до их согласия, своих снимков этих мест у платформы нет): остров Старичков — Кулик Мария Владимировна, Aysa t, DoctisDM (CC BY-SA 4.0); парк «Ключевской» — Tamten (общественное достояние), Giorgio Galeotti (CC BY-SA 4.0), Zhuravell (CC BY-SA 3.0). Авторы и лицензии — extmetadata Commons (проба 941), оригиналы — закачка operator-photos, прогон 8. Пережаты до 1600 px по длинной стороне, метаданные сняты; авторство и лицензию пишет миграция 1271 рядом с ключом. Ключи под photos/starichkov/ и photos/vulkany-kamchatki/klyuchevskaya-*. Прогон 16 (29.10): шесть клипов Курильского озера из альбома видео гида-партнёра для его туров «Курильское озеро на внедорожнике» 3 и 4 дня (владелец: «красиво нужно делать и видео круто»). Вертикаль 540×960, 8 с, без звука, метаданные сняты (в роликах телефона бывает место съёмки); лиц туристов в отрезках нет. Ключи под videos/zaporozhets/.",
+  "run": 17,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/. Прогон 6 (14.10): восемь снимков природного парка «Быстринский» с Wikimedia Commons (CC BY-SA 4.0 NadezhdaKhaustova, CC BY-SA 3.0 Johannes Rohr) — главный кадр и галерея карточки, главный кадр статьи летописи (владелец: «Природный парк «Быстринский» так же»). Ключи под photos/bystrinsky/. Прогон 7 (14.10): тринадцать снимков природного парка «Налычево» с Wikimedia Commons (CC BY-SA 4.0 — Alphatetia, Кирилл Уютнов, Jeskela, Rost.galis; CC BY 2.0 — Елена Ветрова; общественное достояние — Gistereziz) — главный кадр и галерея карточек парка, Налычевской долины, Налычевских источников и Грифона Иванова, главный кадр статьи летописи (владелец: «Природный парк «Налычево» го»). Ключи под photos/nalychevo/. Прогон 8 (14.10): владелец того же дня: «Только используй наши фотографии или фото партнеров по возможности» — четыре снимка партнёра «Местечко Камчатка» с его туров (облёт Корякского и Авачинского с Налычевскими источниками, Авачинский перевал; права у оператора, размещение по его «ДА», миграция 1217): купальня «Третья лужа» на кордоне «Центральный», кратер Авачинского и два вулкана с воздуха, евражка на перевале. Ключи под photos/nalychevo/mestechko-*. Снимки Commons прогона 7 на карточки не ставятся. Прогон 9 (14.10): национальный парк «Вулканы Камчатки» (постановление Правительства от 9 октября 2026 года, на базе природных парков «Ключевской» и «Южно-Камчатский») — по тому же слову владельца «только наши фотографии или фото партнеров»: пять снимков партнёра «Край Вулканов» с его туров к подножию Ключевской группы, облёта и Плоского Толбачика (права у оператора, перенос по слову владельца 08.10, миграция 1177) и четыре снимка партнёра «Местечко Камчатка» (Толбачик, Горелый, Мутновский; права у оператора, размещение по его «ДА», 1217). Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/vulkany-kamchatki/. Прогон 10 (14.10): Южно-Камчатский федеральный заказник имени Т. И. Шпиленка (Курильское озеро) — по тому же слову владельца «только наши фотографии или фото партнеров»: четыре снимка партнёра «Край Вулканов» с его автомобильного тура на Курильское озеро (табличка «Курильское озеро» на берегу, стоянка группы у озера, Кутхины Баты издали и вблизи; права у оператора, перенос по слову владельца 08.10, миграция 1177) и снимок партнёра «Местечко Камчатка» с вертолётной экскурсии на Курильское озеро (медведица с медвежонком у воды; права у оператора, размещение по его «ДА», 1217). Кадры той же экскурсии с кальдерой Ксудач и вертолётом на поляне не берутся: Ксудач — не заказник, а где сел вертолёт, по кадру не сказать. Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/yuzhno-kamchatskij-zakaznik/. Прогон 11 (14.10): природный парк «Вилючинский» (постановление Правительства Камчатского края № 743-П от 28.12.2022) — по тому же слову владельца «только наши фотографии или фото партнеров»: два снимка партнёра «Местечко Камчатка» с его вертолётного облёта Вилючинского, Мутновского и Горелого — Вилючинский вулкан осенью и в снегу (права у оператора, размещение по его «ДА», 1217). Остальные кадры той же экскурсии — Мутновский и Горелый (01 и 03 стоят у национального парка, прогон 9). Байты — те же, что в public/images/mestechko/, без пережатия. Ключи под photos/vilyuchinsky/. Прогон 12 (14.10): памятники природы у Петропавловска — по тому же слову владельца «только наши фотографии или фото партнеров»: снимок партнёра «Местечко Камчатка» с его морской прогулки к острову Старичков — птичий базар на скалах (права у оператора, размещение по его «ДА», 1217). Остальные кадры той прогулки — катера и рулевой, острова на них не видно, они не берутся. Байты — те же, что в public/images/mestechko/ostrov-starichkov-02.jpg, без пережатия, метаданных в файле нет. Ключ под photos/starichkov/. Прогон 13 (15.10): два снимка владельца — для главных кадров статей летописи «Налычево» и «Вилючинский» вместо кадров партнёра «Местечко Камчатка»: согласия партнёра на показ вне его туров пока нет (владелец 15.10: «пока нет получим согласе востановим», миграция 1263; выкачена под номером 1260 и перенумерована из-за тёзки). Корякская сопка вечером (985, байты те же, что migrations/photos/804cf57c….jpg) и Вилючинский вулкан с облачным поясом (979, байты те же, что migrations/photos/853153….jpg) — без пережатия, метаданных в файлах нет. Копии нужны потому, что раздача статей (/api/images/s3/) отдаёт только ключи под photos/. Ключи под photos/nalychevo/vladelec-* и photos/vilyuchinsky/vladelec-*. Прогон 14 (15.10): снимок владельца для главного кадра статьи летописи «Южно-Камчатский заказник» вместо кадра партнёра «Край Вулканов»: слово владельца «публикуй фото и туры» (1177) — о турах партнёра, а не о карточках мест и летописи; его снимки с карточек мест спрятаны до согласия тем же порядком, что «Местечко» (миграция 1265). Бурый медведь с медвежонком на берегу Курильского озера (958, байты те же, что migrations/photos/84b7294d….jpg) — без пережатия, метаданных в файле нет. Ключ под photos/yuzhno-kamchatskij-zakaznik/vladelec-*. Прогон 15 (15.10): шесть снимков Wikimedia Commons двум карточкам, оставшимся без единого снимка после 1263 и 1265 (кадры партнёров спрятаны до их согласия, своих снимков этих мест у платформы нет): остров Старичков — Кулик Мария Владимировна, Aysa t, DoctisDM (CC BY-SA 4.0); парк «Ключевской» — Tamten (общественное достояние), Giorgio Galeotti (CC BY-SA 4.0), Zhuravell (CC BY-SA 3.0). Авторы и лицензии — extmetadata Commons (проба 941), оригиналы — закачка operator-photos, прогон 8. Пережаты до 1600 px по длинной стороне, метаданные сняты; авторство и лицензию пишет миграция 1271 рядом с ключом. Ключи под photos/starichkov/ и photos/vulkany-kamchatki/klyuchevskaya-*. Прогон 16 (29.10): шесть клипов Курильского озера из альбома видео гида-партнёра для его туров «Курильское озеро на внедорожнике» 3 и 4 дня (владелец: «красиво нужно делать и видео круто»). Вертикаль 540×960, 8 с, без звука, метаданные сняты (в роликах телефона бывает место съёмки); лиц туристов в отрезках нет. Ключи под videos/zaporozhets/. Прогон 17 (29.10): снимки туроператора «Лагуна Экспедиция» для его 34 туров (миграция 1343) — по слову владельца «они дали добро на использоваеие»: 133 кадра со страниц туров laguna-expedition.ru/tours/<id>-<адрес>, отобраны глазами (без людей главными в кадре — узнаваемых лиц крупным планом и групп, позирующих в камеру, — без баннеров, рекламы с адресом сайта, коллажей и кадров, обещающих то, чего в программе нет), пережаты до 1600 px по длинной стороне, JPEG 82, метаданные сняты (в части снимков были координаты места съёмки). Одинаковые файлы разных туров залиты один раз. Ключи под photos/laguna-expedition/.",
   "items": [
     {
       "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
@@ -398,6 +398,538 @@
     {
       "file": "media/s3/videos/zaporozhets/clip-two-bears.poster.jpg",
       "key": "videos/zaporozhets/clip-two-bears.poster.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-cover.jpg",
+      "key": "photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-1.jpg",
+      "key": "photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-2.jpg",
+      "key": "photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-3.jpg",
+      "key": "photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-4.jpg",
+      "key": "photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-5.jpg",
+      "key": "photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-cover.jpg",
+      "key": "photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-1.jpg",
+      "key": "photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-2.jpg",
+      "key": "photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-3.jpg",
+      "key": "photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-4.jpg",
+      "key": "photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-5.jpg",
+      "key": "photos/laguna-expedition/na-kraj-sveta-mys-mayachnyj-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-cover.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-1.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-2.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-3.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-4.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-5.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-khalaktyrskij-plyazh-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-cover.jpg",
+      "key": "photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-1.jpg",
+      "key": "photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-2.jpg",
+      "key": "photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-3.jpg",
+      "key": "photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-4.jpg",
+      "key": "photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-5.jpg",
+      "key": "photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-cover.jpg",
+      "key": "photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-1.jpg",
+      "key": "photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-2.jpg",
+      "key": "photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-4.jpg",
+      "key": "photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-5.jpg",
+      "key": "photos/laguna-expedition/siti-tur-tuda-gde-vstaet-solntse-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/konnaya-progulka-cover.jpg",
+      "key": "photos/laguna-expedition/konnaya-progulka-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/karymshinskie-termalnye-istochniki-cover.jpg",
+      "key": "photos/laguna-expedition/karymshinskie-termalnye-istochniki-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/karymshinskie-termalnye-istochniki-1.jpg",
+      "key": "photos/laguna-expedition/karymshinskie-termalnye-istochniki-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/karymshinskie-termalnye-istochniki-2.jpg",
+      "key": "photos/laguna-expedition/karymshinskie-termalnye-istochniki-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/karymshinskie-termalnye-istochniki-3.jpg",
+      "key": "photos/laguna-expedition/karymshinskie-termalnye-istochniki-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/karymshinskie-termalnye-istochniki-4.jpg",
+      "key": "photos/laguna-expedition/karymshinskie-termalnye-istochniki-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/karymshinskie-termalnye-istochniki-5.jpg",
+      "key": "photos/laguna-expedition/karymshinskie-termalnye-istochniki-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pervyj-rassvet-cover.jpg",
+      "key": "photos/laguna-expedition/pervyj-rassvet-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pervyj-rassvet-1.jpg",
+      "key": "photos/laguna-expedition/pervyj-rassvet-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pervyj-rassvet-2.jpg",
+      "key": "photos/laguna-expedition/pervyj-rassvet-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pervyj-rassvet-3.jpg",
+      "key": "photos/laguna-expedition/pervyj-rassvet-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-cover.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-1.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-2.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/mys-mayachnyj-3.jpg",
+      "key": "photos/laguna-expedition/mys-mayachnyj-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/chasovaya-progulka-cover.jpg",
+      "key": "photos/laguna-expedition/chasovaya-progulka-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/chasovaya-progulka-1.jpg",
+      "key": "photos/laguna-expedition/chasovaya-progulka-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/chasovaya-progulka-2.jpg",
+      "key": "photos/laguna-expedition/chasovaya-progulka-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-1.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-2.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-3.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-4.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-5.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vezdekhode-sever-truck-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-cover.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-1.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-2.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-3.jpg",
+      "key": "photos/laguna-expedition/dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/khalaktyrskij-plyazh-2.jpg",
+      "key": "photos/laguna-expedition/khalaktyrskij-plyazh-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/khalaktyrskij-plyazh-3.jpg",
+      "key": "photos/laguna-expedition/khalaktyrskij-plyazh-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/khalaktyrskij-plyazh-4.jpg",
+      "key": "photos/laguna-expedition/khalaktyrskij-plyazh-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-cover.jpg",
+      "key": "photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-1.jpg",
+      "key": "photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-2.jpg",
+      "key": "photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-3.jpg",
+      "key": "photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-4.jpg",
+      "key": "photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-cover.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-1.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-2.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-3.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-4.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-5.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-vulkanov-vilyuchinskij-mutnovskij-i-gorelyj-vertoljotnaya-ekskursiya-cover.jpg",
+      "key": "photos/laguna-expedition/obljot-vulkanov-vilyuchinskij-mutnovskij-i-gorelyj-vertoljotnaya-ekskursiya-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-vulkanov-vilyuchinskij-mutnovskij-i-gorelyj-vertoljotnaya-ekskursiya-1.jpg",
+      "key": "photos/laguna-expedition/obljot-vulkanov-vilyuchinskij-mutnovskij-i-gorelyj-vertoljotnaya-ekskursiya-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-vulkanov-vilyuchinskij-mutnovskij-i-gorelyj-vertoljotnaya-ekskursiya-2.jpg",
+      "key": "photos/laguna-expedition/obljot-vulkanov-vilyuchinskij-mutnovskij-i-gorelyj-vertoljotnaya-ekskursiya-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-cover.jpg",
+      "key": "photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-1.jpg",
+      "key": "photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-2.jpg",
+      "key": "photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-3.jpg",
+      "key": "photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-4.jpg",
+      "key": "photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dukh-kamchatki-cover.jpg",
+      "key": "photos/laguna-expedition/dukh-kamchatki-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-cover.jpg",
+      "key": "photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-1.jpg",
+      "key": "photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-2.jpg",
+      "key": "photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-3.jpg",
+      "key": "photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-4.jpg",
+      "key": "photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-5.jpg",
+      "key": "photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-na-vezdekhode-sever-truck-cover.jpg",
+      "key": "photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-na-vezdekhode-sever-truck-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-na-vezdekhode-sever-truck-1.jpg",
+      "key": "photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-na-vezdekhode-sever-truck-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-na-vezdekhode-sever-truck-2.jpg",
+      "key": "photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-na-vezdekhode-sever-truck-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-1.jpg",
+      "key": "photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-2.jpg",
+      "key": "photos/laguna-expedition/vodopad-snezhnyj-bars-vilyuchinskij-pereval-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novyj-god-na-kamchatke-cover.jpg",
+      "key": "photos/laguna-expedition/novyj-god-na-kamchatke-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novyj-god-na-kamchatke-1.jpg",
+      "key": "photos/laguna-expedition/novyj-god-na-kamchatke-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novyj-god-na-kamchatke-2.jpg",
+      "key": "photos/laguna-expedition/novyj-god-na-kamchatke-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novyj-god-na-kamchatke-3.jpg",
+      "key": "photos/laguna-expedition/novyj-god-na-kamchatke-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novyj-god-na-kamchatke-4.jpg",
+      "key": "photos/laguna-expedition/novyj-god-na-kamchatke-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novyj-god-na-kamchatke-5.jpg",
+      "key": "photos/laguna-expedition/novyj-god-na-kamchatke-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/krabovoe-safari-v-avachinskoj-bukhte-cover.jpg",
+      "key": "photos/laguna-expedition/krabovoe-safari-v-avachinskoj-bukhte-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/krabovoe-safari-v-avachinskoj-bukhte-1.jpg",
+      "key": "photos/laguna-expedition/krabovoe-safari-v-avachinskoj-bukhte-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg",
+      "key": "photos/laguna-expedition/zelenovskie-ozerki-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-2.jpg",
+      "key": "photos/laguna-expedition/dva-vulkana-avachinskij-pereval-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-3.jpg",
+      "key": "photos/laguna-expedition/dva-vulkana-avachinskij-pereval-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-cover.jpg",
+      "key": "photos/laguna-expedition/pogruzhenie-v-kulturu-severa-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-1.jpg",
+      "key": "photos/laguna-expedition/pogruzhenie-v-kulturu-severa-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-3.jpg",
+      "key": "photos/laguna-expedition/pogruzhenie-v-kulturu-severa-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-4.jpg",
+      "key": "photos/laguna-expedition/pogruzhenie-v-kulturu-severa-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-5.jpg",
+      "key": "photos/laguna-expedition/pogruzhenie-v-kulturu-severa-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-cover.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-1.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-2.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-3.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-4.jpg",
+      "key": "photos/laguna-expedition/kanon-opasnyj-dachnye-istochniki-na-vezdekhode-sever-truck-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-cover.jpg",
+      "key": "photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-1.jpg",
+      "key": "photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-2.jpg",
+      "key": "photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-3.jpg",
+      "key": "photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-4.jpg",
+      "key": "photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-5.jpg",
+      "key": "photos/laguna-expedition/obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki-5.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/okhotskoe-more-cover.jpg",
+      "key": "photos/laguna-expedition/okhotskoe-more-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/okhotskoe-more-1.jpg",
+      "key": "photos/laguna-expedition/okhotskoe-more-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/okhotskoe-more-2.jpg",
+      "key": "photos/laguna-expedition/okhotskoe-more-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/okhotskoe-more-3.jpg",
+      "key": "photos/laguna-expedition/okhotskoe-more-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/okhotskoe-more-4.jpg",
+      "key": "photos/laguna-expedition/okhotskoe-more-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-termalnyj-marshrut-cover.jpg",
+      "key": "photos/laguna-expedition/kamchatka-termalnyj-marshrut-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/kamchatka-termalnyj-marshrut-3.jpg",
+      "key": "photos/laguna-expedition/kamchatka-termalnyj-marshrut-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novogodnie-vulkany-kamchatki-laguna-4-cover.jpg",
+      "key": "photos/laguna-expedition/novogodnie-vulkany-kamchatki-laguna-4-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novogodnie-vulkany-kamchatki-laguna-4-1.jpg",
+      "key": "photos/laguna-expedition/novogodnie-vulkany-kamchatki-laguna-4-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki-cover.jpg",
+      "key": "photos/laguna-expedition/novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki-2.jpg",
+      "key": "photos/laguna-expedition/novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki-3.jpg",
+      "key": "photos/laguna-expedition/novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-cover.jpg",
+      "key": "photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-cover.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-1.jpg",
+      "key": "photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-2.jpg",
+      "key": "photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-3.jpg",
+      "key": "photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-3.jpg"
     }
   ]
 }

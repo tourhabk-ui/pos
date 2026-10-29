@@ -12,10 +12,19 @@
  * а его карточка отвечала 404. Чтения истории самого туриста (профиль
  * предпочтений по его броням) шлюз не спрашивают: это его прошлое, а не
  * предложение.
+ *
+ * Порядок внутри стратегии (правило 1в, слово владельца 29.10): балл
+ * совпадения с историей туриста — релевантность, он остаётся первым ключом;
+ * ничья — правило платформы (свободная дата по ближайшему выезду, остальные —
+ * жребием дня), а не рейтинг тура и не новизна. Потолок стратегии — после
+ * порядка, ближайшие даты читаются одним батчем на все стратегии. Туриста без
+ * истории встречают туры по правилу платформы, а не «топ по рейтингу».
  */
 
 import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
+import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
 
 // ── Типы ──────────────────────────────────────────────────────
 export type RecommendationStrategy =
@@ -41,6 +50,29 @@ export interface RecommendedTour {
   strategyLabel: string;
 }
 
+/** Кандидат стратегии: балл совпадения — релевантность, больше — выше. */
+type Candidate = Omit<RecommendedTour, 'strategy' | 'strategyLabel'> & { match_score?: number | string | null };
+
+/**
+ * Балл совпадения DESC, ничья — правило 1в. Чистая функция, со сторожем
+ * (tests/unit/tour-recommend-order.test.ts).
+ */
+export function orderByScoreThenRule<T extends { id: string | number; match_score?: number | string | null }>(
+  rows: readonly T[],
+  dates: ReadonlyMap<string, string | null>,
+  day: string,
+): T[] {
+  const rule = compareTourOffers(day);
+  const score = (r: T) => {
+    const n = Number(r.match_score ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return [...rows].sort((a, b) => score(b) - score(a) || rule(
+    { id: a.id, nearestFreeDate: dates.get(String(a.id)) ?? null },
+    { id: b.id, nearestFreeDate: dates.get(String(b.id)) ?? null },
+  ));
+}
+
 const STRATEGY_LABELS: Record<RecommendationStrategy, string> = {
   SIMILAR_USERS: 'Популярно среди похожих путешественников',
   TOUR_CONTENT: 'На основе вашей истории',
@@ -55,13 +87,12 @@ const STRATEGY_LABELS: Record<RecommendationStrategy, string> = {
 async function getSimilarUsersRecommendations(
   userId: string,
   bookedTourIds: string[],
-  limit: number,
   category?: string
-): Promise<RecommendedTour[]> {
+): Promise<Candidate[]> {
   if (bookedTourIds.length === 0) return [];
 
   try {
-    const result = await query<RecommendedTour>(
+    const result = await query<Candidate>(
       `SELECT DISTINCT
          t.id, t.slug, t.title, t.description,
          t.base_price                  AS price,
@@ -70,7 +101,8 @@ async function getSimilarUsersRecommendations(
          t.activity_type               AS category,
          t.location_name               AS location,
          t.rating,
-         t.photos AS images
+         t.photos AS images,
+         COUNT(DISTINCT b2.user_id)::int AS match_score
        FROM operator_bookings b1
        JOIN operator_bookings b2 ON b2.operator_tour_id = b1.operator_tour_id
                                 AND b2.user_id != $1
@@ -82,24 +114,18 @@ async function getSimilarUsersRecommendations(
        JOIN operator_tours t ON t.id = b3.operator_tour_id
                             AND t.id != ALL($2::bigint[])
                             AND ${publicTourSql('t')}
-                            AND ($4::text IS NULL OR t.activity_type = $4)
+                            AND ($3::text IS NULL OR t.activity_type = $3)
        WHERE b1.user_id = $1
          AND b1.booking_status IN ('confirmed', 'completed')
          AND b1.deleted_at IS NULL
        GROUP BY t.id, t.slug, t.title, t.description, t.base_price, t.difficulty,
                 t.duration_hours, t.activity_type, t.location_name, t.rating,
                 t.photos
-       HAVING COUNT(DISTINCT b2.user_id) >= 1
-       ORDER BY COUNT(DISTINCT b2.user_id) DESC, t.rating DESC NULLS LAST
-       LIMIT $3`,
-      [userId, bookedTourIds, limit, category ?? null]
+       HAVING COUNT(DISTINCT b2.user_id) >= 1`,
+      [userId, bookedTourIds, category ?? null]
     );
 
-    return result.rows.map((r) => ({
-      ...r,
-      strategy: 'SIMILAR_USERS' as const,
-      strategyLabel: STRATEGY_LABELS.SIMILAR_USERS,
-    }));
+    return result.rows;
   } catch (err) {
     // Пустой catch превращал отказ в «похожих нет»: запрос джойнился по
     // фантомной operator_bookings.tour_id и падал на каждом вызове, а наружу
@@ -120,9 +146,8 @@ async function getSimilarUsersRecommendations(
  */
 async function getContentBasedRecommendations(
   bookedTourIds: string[],
-  limit: number,
   category?: string
-): Promise<RecommendedTour[]> {
+): Promise<Candidate[]> {
   if (bookedTourIds.length === 0) return [];
 
   try {
@@ -148,7 +173,7 @@ async function getContentBasedRecommendations(
     const minPrice = Math.round(avg_price * 0.7);
     const maxPrice = Math.round(avg_price * 1.3);
 
-    const result = await query<RecommendedTour>(
+    const result = await query<Candidate>(
       `SELECT
          id, slug, title, description,
          base_price      AS price,
@@ -157,7 +182,10 @@ async function getContentBasedRecommendations(
          activity_type   AS category,
          location_name   AS location,
          rating,
-         photos AS images
+         photos AS images,
+         (CASE WHEN activity_type = $2 THEN 3 ELSE 0 END +
+          CASE WHEN difficulty = $3 THEN 2 ELSE 0 END +
+          CASE WHEN base_price BETWEEN $4 AND $5 THEN 1 ELSE 0 END) AS match_score
        FROM operator_tours
        WHERE id != ALL($1::bigint[])
          AND ${publicTourSql('')}
@@ -166,21 +194,11 @@ async function getContentBasedRecommendations(
            OR difficulty = $3
            OR (base_price BETWEEN $4 AND $5)
          )
-         AND ($7::text IS NULL OR activity_type = $7)
-       ORDER BY
-         (CASE WHEN activity_type = $2 THEN 3 ELSE 0 END +
-          CASE WHEN difficulty = $3 THEN 2 ELSE 0 END +
-          CASE WHEN base_price BETWEEN $4 AND $5 THEN 1 ELSE 0 END) DESC,
-         rating DESC NULLS LAST
-       LIMIT $6`,
-      [bookedTourIds, top_category, top_difficulty, minPrice, maxPrice, limit, category ?? null]
+         AND ($6::text IS NULL OR activity_type = $6)`,
+      [bookedTourIds, top_category, top_difficulty, minPrice, maxPrice, category ?? null]
     );
 
-    return result.rows.map((r) => ({
-      ...r,
-      strategy: 'TOUR_CONTENT' as const,
-      strategyLabel: STRATEGY_LABELS.TOUR_CONTENT,
-    }));
+    return result.rows;
   } catch (err) {
     // Ловим, но не молчим (§4.0): text[] против bigint падало на каждом вызове.
     console.error('[tour-recommend] TOUR_CONTENT не выполнен:',
@@ -197,12 +215,11 @@ async function getContentBasedRecommendations(
  */
 async function getEcoOptimizedRecommendations(
   bookedTourIds: string[],
-  limit: number,
   category?: string
-): Promise<RecommendedTour[]> {
+): Promise<Candidate[]> {
   try {
-    // category — явный выбор режима похода, всегда $3 (стабильная позиция)
-    const params: (string | number | string[] | null)[] = [bookedTourIds, limit, category ?? null];
+    // category — явный выбор режима похода, всегда $2 (стабильная позиция)
+    const params: (string | number | string[] | null)[] = [bookedTourIds, category ?? null];
 
     // Топ категории пользователя (если есть история) — отдельный, необязательный фильтр
     let categoryFilter = '';
@@ -213,12 +230,12 @@ async function getEcoOptimizedRecommendations(
       );
       if (cats.rows.length > 0) {
         const categories = cats.rows.map((r) => r.category);
-        categoryFilter = `AND activity_type = ANY($4::text[])`;
+        categoryFilter = `AND activity_type = ANY($3::text[])`;
         params.push(categories);
       }
     }
 
-    const result = await query<RecommendedTour>(
+    const result = await query<Candidate>(
       `SELECT
          id, slug, title, description,
          base_price      AS price,
@@ -227,24 +244,19 @@ async function getEcoOptimizedRecommendations(
          activity_type   AS category,
          location_name   AS location,
          rating,
-         photos AS images, eco_points_reward
+         photos AS images, eco_points_reward,
+         eco_points_reward AS match_score
        FROM operator_tours
        WHERE id != ALL($1::bigint[])
          AND ${publicTourSql('')}
          AND eco_points_reward IS NOT NULL
          AND eco_points_reward > 0
-         AND ($3::text IS NULL OR activity_type = $3)
-         ${categoryFilter}
-       ORDER BY eco_points_reward DESC, rating DESC NULLS LAST
-       LIMIT $2`,
+         AND ($2::text IS NULL OR activity_type = $2)
+         ${categoryFilter}`,
       params
     );
 
-    return result.rows.map((r) => ({
-      ...r,
-      strategy: 'ECO_OPTIMIZED' as const,
-      strategyLabel: STRATEGY_LABELS.ECO_OPTIMIZED,
-    }));
+    return result.rows;
   } catch (err) {
     // Колонки operator_tours.eco_points_reward нет в схеме ВООБЩЕ — ни в
     // baseline, ни в миграциях. Стратегия падала на каждом вызове, а пустой
@@ -281,11 +293,26 @@ export async function getRecommendations(
 
   // Запускаем все 3 стратегии параллельно
   const perStrategy = Math.ceil(limit / 3);
-  const [similar, content, eco] = await Promise.all([
-    getSimilarUsersRecommendations(userId, bookedTourIds, perStrategy, category),
-    getContentBasedRecommendations(bookedTourIds, perStrategy, category),
-    getEcoOptimizedRecommendations(bookedTourIds, perStrategy, category),
+  const [similarAll, contentAll, ecoAll] = await Promise.all([
+    getSimilarUsersRecommendations(userId, bookedTourIds, category),
+    getContentBasedRecommendations(bookedTourIds, category),
+    getEcoOptimizedRecommendations(bookedTourIds, category),
   ]);
+
+  // Ближайшие свободные даты — одним батчем на все стратегии. Отказ уже в
+  // логе (nearest-free-date), туры тогда идут жребием дня (§4.0).
+  const day = offerOrderDay();
+  const nearest = await loadNearestFreeDates([...similarAll, ...contentAll, ...ecoAll].map((r) => String(r.id)));
+  const dates: ReadonlyMap<string, string | null> = nearest.state === 'ok' ? nearest.byId : new Map();
+  const top = (rows: Candidate[], strategy: RecommendationStrategy): RecommendedTour[] =>
+    orderByScoreThenRule(rows, dates, day).slice(0, perStrategy).map(({ match_score: _score, ...r }) => ({
+      ...r,
+      strategy,
+      strategyLabel: STRATEGY_LABELS[strategy],
+    }));
+  const similar = top(similarAll, 'SIMILAR_USERS');
+  const content = top(contentAll, 'TOUR_CONTENT');
+  const eco = top(ecoAll, 'ECO_OPTIMIZED');
 
   // Дедупликация по id
   const seen = new Set<string>();
@@ -298,9 +325,10 @@ export async function getRecommendations(
     }
   }
 
-  // Если история пустая — возвращаем топ по рейтингу (с учётом category, если задан)
+  // История пустая — туры витрины по правилу платформы (с учётом category,
+  // если задан), а не «топ по рейтингу»: рейтинг в порядок не входит (1в).
   if (merged.length === 0) {
-    const fallback = await query<RecommendedTour>(
+    const fallback = await query<Candidate>(
       `SELECT id, slug, title, description,
               base_price     AS price,
               difficulty,
@@ -310,16 +338,17 @@ export async function getRecommendations(
               rating, photos AS images
        FROM operator_tours
        WHERE ${publicTourSql('')}
-         AND ($2::text IS NULL OR activity_type = $2)
-       ORDER BY rating DESC NULLS LAST, created_at DESC
-       LIMIT $1`,
-      [limit, category ?? null]
+         AND ($1::text IS NULL OR activity_type = $1)`,
+      [category ?? null]
     );
-    return fallback.rows.map((r) => ({
-      ...r,
-      strategy: 'TOUR_CONTENT' as const,
-      strategyLabel: 'Рекомендуем попробовать',
-    }));
+    const fbDates = await loadNearestFreeDates(fallback.rows.map((r) => String(r.id)));
+    return orderByScoreThenRule(fallback.rows, fbDates.state === 'ok' ? fbDates.byId : new Map(), day)
+      .slice(0, limit)
+      .map(({ match_score: _score, ...r }) => ({
+        ...r,
+        strategy: 'TOUR_CONTENT' as const,
+        strategyLabel: 'Туры платформы: сначала со свободными местами',
+      }));
   }
 
   return merged;

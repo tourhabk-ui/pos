@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
+import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
 
 interface FishingTour {
   id: number;
@@ -128,7 +129,8 @@ function TourCard({ tour }: { tour: FishingTour }) {
 
 // ── Главный компонент ──────────────────────────────────────────────────────
 
-export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
+/** `failed` — база не ответила (§4.0): список «не загрузился», а не «Туры (0)». */
+export function FishingPageClient({ tours, failed = false }: { tours: FishingTour[]; failed?: boolean }) {
   const [filter, setFilter] = useState<'all' | 'day' | 'multi'>('all');
 
   const filtered = tours.filter(t => {
@@ -212,7 +214,7 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
 
       {/* ── Фильтры ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
-        <h2 className="ds-h2">Туры ({filtered.length})</h2>
+        <h2 className="ds-h2">{failed ? 'Туры' : `Туры (${filtered.length})`}</h2>
         <div className="flex gap-2">
           {DURATION_FILTERS.map(f => (
             <button
@@ -230,10 +232,23 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
         </div>
       </div>
 
+      {/* Правило порядка — словами на странице (правило 1в, 29.10). */}
+      <p className="-mt-3 mb-5 text-xs leading-relaxed text-[var(--text-secondary)]">{OFFER_ORDER_NOTE.ru}</p>
+
       {/* ── Карточки туров ──────────────────────────────────────────── */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-12">
-        {filtered.map(t => <TourCard key={t.id} tour={t} />)}
-      </div>
+      {failed ? (
+        <p role="status" className="text-sm text-[var(--warning)] mb-12">
+          Список туров сейчас не загрузился. Это не значит, что туров нет — обновите страницу чуть позже.
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-[var(--text-secondary)] mb-12">
+          {hasTours ? 'Под этот фильтр туров нет.' : 'Открытых рыболовных туров на витрине сейчас нет.'}
+        </p>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-12">
+          {filtered.map(t => <TourCard key={t.id} tour={t} />)}
+        </div>
+      )}
 
       {/* ── Почему мы ───────────────────────────────────────────────── */}
       <div className="ds-card p-8 mb-8">

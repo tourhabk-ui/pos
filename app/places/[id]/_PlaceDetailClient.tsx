@@ -22,6 +22,7 @@ import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { composeAccessText } from '@/lib/places/access-text';
 import { PLACE_PHOTO_UPLOAD_ANCHOR } from '@/components/places/AddPhotoLink';
 import PhotoCredit, { creditFor } from '@/components/places/PhotoCredit';
+import { offerOrderDay } from '@/lib/tours/offer-order';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -311,7 +312,11 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
   // лимит — держало раздел у мест без записанного режима только случайной
   // связью с eco_zone = 'none' 170-й, а у 98 мест с пустым режимом кнопки 112
   // в теле карточки не было вовсе (перепись place-eco-census).
-  const hasNext = place.routes.length > 0 || place.tours.length > 0 || place.nearby.length > 0;
+  // Туры: «не загрузились» — тоже повод для раздела (§4.0): строка сбоя
+  // стоит там, где были бы туры, а не пропадает вместе с ними.
+  const toursState = place.toursState ?? (place.tours.length > 0 ? 'ok' : 'empty');
+  const showTours = toursState === 'failed' || place.tours.length > 0;
+  const hasNext = place.routes.length > 0 || showTours || place.nearby.length > 0;
 
   return (
     <>
@@ -613,7 +618,14 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
           {hasNext && (
             <Section title="Дальше">
               {place.routes.length > 0 && <PlaceRoutes routes={place.routes} placeId={place.id} />}
-              {place.tours.length > 0 && <PlaceTours tours={place.tours} />}
+              {showTours && (
+                <PlaceTours
+                  tours={place.tours}
+                  state={toursState}
+                  day={place.toursDay ?? offerOrderDay()}
+                  placeName={place.name}
+                />
+              )}
               {place.nearby.length > 0 && <PlaceNearby nearby={place.nearby} placeId={place.id} />}
             </Section>
           )}

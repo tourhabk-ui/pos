@@ -115,6 +115,54 @@ describe('подбор туров', () => {
   });
 });
 
+describe('подбор по заявке — правило 1в в ничьей, без окна «последние 30» (29.10)', () => {
+  type Matcher = { matchTours(i: unknown, r: string | null, o: string | null): Promise<Array<{ id: string }>> };
+  const intent = { activity_types: ['volcano'], group_size: 2, budget_rub: null, desired_dates: null,
+    duration_days: null, interests: [], urgency: 'medium', qualification_notes: '' };
+  const row = (id: number, nearest: string | null = null) => ({
+    id: String(id), title: `Тур ${id}`, price: 10000, duration_type: 'single_day', multi_day_count: null,
+    duration_hours: 8, activity_type: 'volcano', description: '', nearest_free_date: nearest,
+  });
+
+  it('SQL без ORDER BY id DESC и LIMIT 30: 35 кандидатов — все оценены, лучший из хвоста доходит до тройки', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-29T03:00:00Z'));
+    try {
+      // Старый тур (id 1) — единственный со свободной датой; в окне «последние 30 по номеру» его не было бы.
+      const rows = [...Array.from({ length: 34 }, (_, i) => row(100 + i)), row(1, '2026-11-05')];
+      queryMock.mockResolvedValue({ rows });
+      const out = await (new LeadProcessorService() as unknown as Matcher).matchTours(intent, null, null);
+      expect(out).toHaveLength(3);
+      expect(out[0]!.id).toBe('1');
+      const sql = String(queryMock.mock.calls[0]![0]);
+      expect(sql).not.toMatch(/ORDER BY id DESC|LIMIT 30/);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('новый тур не выигрывает ничью у старого: равный балл — по правилу 1в, не по номеру', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-29T03:00:00Z'));
+    try {
+      const { orderOffers } = await import('@/lib/tours/offer-order');
+      const ids = [3, 900, 41, 7, 512, 64];
+      queryMock.mockResolvedValue({ rows: ids.map((id) => row(id)) });
+      const out = await (new LeadProcessorService() as unknown as Matcher).matchTours(intent, null, null);
+      const expected = orderOffers(ids.map((id) => ({ id: String(id), nearestFreeDate: null }))).slice(0, 3).map((t) => t.id);
+      expect(out.map((t) => t.id)).toEqual(expected);
+      // Перестановка строк выборки итог не меняет.
+      queryMock.mockResolvedValue({ rows: [...ids].reverse().map((id) => row(id)) });
+      const again = await (new LeadProcessorService() as unknown as Matcher).matchTours(intent, null, null);
+      expect(again.map((t) => t.id)).toEqual(expected);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('балл совпадения по-прежнему выше правила: тур нужного вида без даты — выше тура чужого вида с датой', async () => {
+    queryMock.mockResolvedValue({ rows: [{ ...row(5, '2026-11-01'), activity_type: 'fishing' }, row(6)] });
+    const out = await (new LeadProcessorService() as unknown as Matcher).matchTours(intent, null, null);
+    expect(out.map((t) => t.id)).toEqual(['6', '5']);
+  });
+});
+
 describe('getProposal', () => {
   it('отдаёт разбор, альтернативы и NULL-оценку как null', async () => {
     queryMock.mockImplementation(async (sql: string) => {

@@ -72,6 +72,40 @@ describe('W1: заявка на бронь ложится оператору т�
   });
 });
 
+describe('туры разных компаний по одному названию — заявки нет (слово владельца 29.10)', () => {
+  const tourRow = (id: number, operator: string, name: string) => ({
+    ...TOUR, id, title: `Вулкан Горелый ${id}`, operator_id: operator, operator_name: name, rank: 2, nearest_free_date: null,
+  });
+
+  it('«Горелый» у двух компаний — заявка не создана, в ответе оба номера и обе компании', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
+      if (/FROM operator_tours/.test(sql)) return { rows: [tourRow(61, 'op-a', 'Местечко Камчатка'), tourRow(72, 'op-b', 'Лагуна Экспедиция')] };
+      return { rows: [] };
+    });
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Горелый' }));
+    const text = r.content[0]!.text;
+    expect(text).toContain('заявка не создана');
+    expect(text).toContain('ID61');
+    expect(text).toContain('Местечко Камчатка');
+    expect(text).toContain('ID72');
+    expect(text).toContain('Лагуна Экспедиция');
+    expect(createLeadMock).not.toHaveBeenCalled();
+    expect(query.mock.calls.some((c) => /INSERT INTO leads/.test(String(c[0])))).toBe(false);
+  });
+
+  it('с номером тура — заявка создаётся этому туру', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
+      if (/FROM operator_tours/.test(sql)) return { rows: [tourRow(61, 'op-a', 'Местечко Камчатка')] };
+      return { rows: [] };
+    });
+    const r = await result(await call('create_booking_request', { ...BOOKING, tour: '61' }));
+    expect(r.isError).toBeUndefined();
+    expect(createLeadMock).toHaveBeenCalledWith(expect.objectContaining({ operator_id: 'op-a' }));
+  });
+});
+
 describe('W2: десять цифр без кода страны — российский номер', () => {
   it('900 123-45-67 → +79001234567; с плюсом — как есть', () => {
     expect(normalizePhone('900 123-45-67')).toBe('+79001234567');

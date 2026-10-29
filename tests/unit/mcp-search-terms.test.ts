@@ -84,8 +84,11 @@ describe('SQL по словам', () => {
   it('четыре запроса ранжируют сперва по hits, потом по похожести; гейты витрины на месте', () => {
     const sql = searchSql(3);
     for (const kind of ['tour', 'place', 'stay', 'route'] as const) {
-      expect(sql[kind]).toMatch(/ AS hits\n/);
-      expect(sql[kind]).toMatch(/ORDER BY hits DESC, similarity\(/);
+      expect(sql[kind]).toMatch(/ AS hits[,\n]/);
+      // Туры (29.10, правило 1в): в SQL только hits — релевантность; внутри
+      // равного числа слов порядок задаёт orderTourHits, а не похожесть.
+      if (kind === 'tour') expect(sql[kind]).toMatch(/ORDER BY hits DESC\s*$/);
+      else expect(sql[kind]).toMatch(/ORDER BY hits DESC, similarity\(/);
       expect(sql[kind]).toContain('ILIKE $4');
       expect(sql[kind]).not.toContain('ILIKE $5');
       expect(sql[kind]).not.toMatch(/\|\| *'%'/);

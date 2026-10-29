@@ -71,10 +71,10 @@ function req(): NextRequest {
 }
 const ctx = { params: Promise.resolve({ id: ROUTE_ID }) };
 
-function mockQueries(reviews: unknown[] | Error) {
+function mockQueries(reviews: unknown[] | Error, offers: unknown[] = []) {
   queryMock.mockImplementation((sql: string) => {
     if (sql.includes('FROM agent_route_knowledge')) return Promise.resolve({ rows: [ROUTE_ROW] });
-    if (sql.includes('FROM v_route_marketplace')) return Promise.resolve({ rows: [] });
+    if (sql.includes('FROM v_route_marketplace')) return Promise.resolve({ rows: offers });
     if (sql.includes('FROM route_waypoints')) return Promise.resolve({ rows: [] });
     if (sql.includes('FROM reviews')) {
       return reviews instanceof Error ? Promise.reject(reviews) : Promise.resolve({ rows: reviews });
@@ -124,5 +124,20 @@ describe('GET /api/routes/[id] — reviews + pdfUrl (объединение ка
     expect(json.success).toBe(true);
     expect(json.data.reviews).toEqual([]);
     expect(json.data.title).toBe('Авачинский перевал');
+  });
+});
+
+describe('GET /api/routes/[id] — туры по маршруту знают признак группы (1342)', () => {
+  it('group_size_unlimited читается из тура и уходит в предложение; нет — FALSE', async () => {
+    const offer = {
+      tour_id: 77, tour_name: 'Курильское озеро, 3 дня', min_group_size: 1, max_group_size: 12,
+      operator_id: 'p-77', operator_name: 'Андрей Запорожец', operator_verified: false, included: [],
+    };
+    mockQueries([], [{ ...offer, group_size_unlimited: true }, { ...offer, tour_id: 79, group_size_unlimited: false }]);
+    const json = await (await GET(req(), ctx)).json();
+    const offersSql = String(queryMock.mock.calls.find(([sql]) => String(sql).includes('FROM v_route_marketplace'))![0]);
+    expect(offersSql).toContain('ot.group_size_unlimited');
+    expect(offersSql).toMatch(/JOIN operator_tours ot ON ot\.id = v\.tour_id/);
+    expect(json.data.offers.map((o: { groupSizeUnlimited: boolean }) => o.groupSizeUnlimited)).toEqual([true, false]);
   });
 });

@@ -136,6 +136,8 @@ export interface ZhTourSourceRow {
   price_unit: string | null;
   duration_hours: string | null;
   max_participants: number | null;
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
+  group_size_unlimited?: boolean | null;
   /** DATE текстом 'YYYY-MM-DD' — без перевода часовых поясов драйвером. */
   season_start: string | null;
   season_end: string | null;
@@ -149,7 +151,7 @@ const TOUR_SELECT = `
   SELECT ot.id::text AS id, ot.slug, ot.title, ot.short_description, ot.description,
          ot.program, ot.included, ot.not_included, ot.what_to_bring,
          ot.base_price::text AS base_price, ot.price_unit, ot.duration_hours::text AS duration_hours,
-         ot.max_participants, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+         ot.max_participants, ot.group_size_unlimited, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
          ot.safety_notes,
          p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
     FROM operator_tours ot

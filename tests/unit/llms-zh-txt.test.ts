@@ -17,6 +17,8 @@ import { LLMS_ZH_TOPICS } from '@/lib/mcp/zh-layer';
 import { ACTIVITY_LABELS } from '@/lib/tours/labels';
 import { AGENT_ENTRY_PATHS } from '@/lib/analytics/agent-entry-paths';
 
+// Курс ЦБ (≈ ¥ у цены) — без сети: страница ждала бы настоящий cbr.ru.
+vi.mock('@/lib/currency/cbr-rate', async (orig) => ({ ...(await orig<typeof import('@/lib/currency/cbr-rate')>()), loadCnyRate: async () => null }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'user-agent': 'Mozilla/5.0 (compatible; Baiduspider/2.0)' }) }));

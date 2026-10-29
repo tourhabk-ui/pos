@@ -47,6 +47,26 @@
 `tests/unit/operators-storefront.test.tsx`, `tests/unit/operators-list-query.test.ts`,
 `tests/integration/operators-list.pg.test.ts`.
 
+**Туры — правило 1в (слово владельца 29.10, «1в 2б 3 да»)**: на общих витринах
+туров (карточка места, каталог, карточка маршрута, главная, планер, подбор по
+заявке, ответы Кузьмича и MCP, /zh, посадочные, /fish) сначала
+туры со свободными местами — по ближайшему выезду, остальные — жребий дня
+(FNV-1a с перемешиванием fmix32 от даты по Камчатке и id, воспроизводим, не `RANDOM()`). Правило одно —
+`lib/tours/offer-order.ts`, «свободная дата» одна — `lib/tours/nearest-free-date.ts`,
+подпись — `OFFER_ORDER_NOTE` и кончается «Место в списке не продаётся.». Цена —
+только кнопка туриста с подписью. Пишущий инструмент (заявка) продавца не выбирает:
+туры разных компаний по одному названию — список с номерами, заявки нет, пока
+человек не назвал номер. Балл совпадения с запросом (подбор по заявке, личные
+рекомендации, поиск) — релевантность и остаётся первым ключом, ничья — правилом.
+Каталог говорит «показано N из M» и дозагружает остальное; карточка маршрута
+больше не ставит выше по комиссии вьюхи (`marketplace_score`); на главную туры
+допускаются только со снимком (поправка владельца 29.10), туры без снимка — в
+каталоге. Компании на `/operators` — по алфавиту (это не список туров). Сторожа:
+`tests/unit/offer-order.test.ts`, `tests/unit/tour-choice.test.ts`,
+`tests/unit/place-tours-offers.test.tsx`, `tests/unit/catalog-storefront.test.tsx`,
+`tests/unit/route-offers-order.test.tsx`, `tests/unit/home-plates-tours.test.ts`,
+`tests/unit/planner-offer-order.test.ts`.
+
 **Виджет на сайте партнёра — его витрина** (аудит 15.10, WID-safety): чат
 виджета показывает только живые туры этого партнёра, чужих там нет. Заявку чат
 сам не создаёт: оставить её можно только формой, с телефоном и согласием на ПД.
@@ -1595,9 +1615,21 @@ COPY --from=builder /app/start.js ./start.js
 - Кнопки "Все отзывы" + "Оставить отзыв"
 - Таблица: `reviews` с `place_id` (добавить колонку)
 
-**11. Туры сюда (компактные ссылки):**
-- `operator_tours` связанные через `route_waypoints` → `kamchatka_routes` → `places`
-- Формат: название, оператор, цена → ссылка на `/marketplace/tours/[id]`
+**11. Туры сюда (компактные ссылки, правило 1в — слово владельца 29.10):**
+- Две записанные связи тура с местом: главное место тура
+  (`operator_tours.main_place_id`, миграции 1286, 1344) и точка пути маршрута тура
+  (`route_waypoints`, род `waypoint`); загрузчик — `lib/places/place-tours.ts`, без LIMIT.
+  Тур со связью неразмеченного рода (`unknown`) идёт отдельным блоком «Туры по маршрутам,
+  связанным с местом» с оговоркой, а не в «Туры к этому месту», и в число «ещё N» §11 не входит
+- Группы по компаниям, порядок групп — правило 1в (`groupOffersByCompany`), под
+  заголовком подпись `OFFER_ORDER_NOTE_GROUPED_RU` («…Место в списке не продаётся.»);
+  в группе видно три тура, остальные — кнопкой «ещё N»
+- Строка тура: название, длительность, цена с единицей без «от» (`priceWithUnitWords`),
+  фраза о датах (`offerDatesPhrase`) → ссылка на `/catalog/tours/[id]`; у секции якорь `#tours`
+  (на него ведёт строка «к месту ещё N предложений» карточки тура, §11)
+- Три исхода чтения (§4.0): есть / пусто (раздела нет) / не загрузились (раздел есть, строка сбоя)
+- Сторожа: `tests/unit/place-tours-offers.test.tsx`, `tests/unit/place-tours-link-kind.test.tsx`,
+  `tests/unit/place-know-section-always.test.tsx`
 
 **12. Рядом:**
 - Ближайшие точки по координатам с расстоянием
@@ -1653,7 +1685,7 @@ COPY --from=builder /app/start.js ./start.js
 | Безопасность | `location_safety_profile` | `agent_route_id = places.ark_id` |
 | Реалтайм | `location_real_time_status` | `agent_route_id = places.ark_id` |
 | Кузьмич | `places.kuzmich_review` или `_agent_route_knowledge_legacy` | — |
-| Туры к месту | `operator_tours` → `route_waypoints` → `places` | через route_waypoints |
+| Туры к месту | `operator_tours` (`main_place_id`) и `operator_tours` → `route_waypoints` (`waypoint`) → `places` | `lib/places/place-tours.ts`, правило 1в |
 
 ### Файлы
 
@@ -1800,6 +1832,10 @@ SOS-кнопки там нет: китайское название рядом �
 9. **Безопасность** — `SafetyWarnings` (живые сигналы платформы) + правила тура из `safety_notes[]`.
 10. **Точка сбора** — `meeting_point`.
 11. **Оператор** — имя, отметка проверки, кнопка чата платформы + прямые контакты из `partners.contacts`.
+11а. **Другие предложения к этому месту** (слово владельца 29.10 «3 да») — нейтральная строка
+   «К месту «X» есть ещё N предложений — посмотреть» → `/places/<slug>#tours`. Только по записанной
+   связи `main_place_id`, без слов «дешевле/лучше» и без цен. На своей витрине партнёра (страница,
+   сайт, виджет) строки нет. Сторожа — рендер строки `tests/unit/tour-place-offers.test.tsx` и карточки со страницей `tests/unit/tour-card-place-offers.test.tsx`.
 12. **Отзывы** → **Кузьмич** → **липкая бронь** (цена, `BookingFormClient`). На этом карточка заканчивается.
 
 ### Источники данных
@@ -1830,7 +1866,7 @@ SOS-кнопки там нет: китайское название рядом �
   `font-black`, дисплейный шрифт кроме Playfair.
 - Показывать цену/бронь на карточке ТОЧКИ (§9) — это разные сущности.
 
-Сторож: `tests/unit/tour-card-standard.test.ts`.
+Сторожа: `tests/unit/tour-card-standard.test.ts`, `tests/unit/tour-place-offers.test.tsx`.
 
 ---
 

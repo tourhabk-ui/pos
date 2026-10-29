@@ -1,25 +1,43 @@
 {
   "timeout": 30,
-  "run": 1006,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Разметка строки табло pkc.aero/board/ (для разбора: классы ячеек, дата, статус, ожидаемое время, примечание) и robots.txt сайта.",
+  "run": 1015,
+  "run1014_result": "kammeteo.ru отвечает раннеру 200 (nginx, UTF-8). На главной — ссылки «Прогноз погоды на ближайшие сутки» prognoz/prognozy1.php, «на 2-3 сутки» prognoz/prognozy2.php, «Обзор погодных условий за прошедшие сутки» prognoz/current.php; новости — декадные обзоры погоды по краю. RSS на главной нет. /forecast — 404, проба остановилась на нём (allowStale не стоял); meteoinfo.ru не дошли.",
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «есть же камчатский гидромет». Сами страницы прогноза Камчатского УГМС: форма текста (по районам? по городам? срок выпуска, подпись синоптика), и страница Гидрометцентра по Петропавловску для сравнения.",
   "urls": [
-    "https://pkc.aero/robots.txt",
-    "https://pkc.aero/board/"
+    "https://kammeteo.ru/prognoz/prognozy1.php",
+    "https://kammeteo.ru/prognoz/prognozy2.php",
+    "https://kammeteo.ru/prognoz/current.php",
+    "https://kammeteo.ru/prognoz/",
+    "https://meteoinfo.ru/forecasts/russia/kamchatka-territory/petropavlovsk-kamchatskiy",
+    "https://meteoinfo.ru/forecasts5000/russia/kamchatka-territory/petropavlovsk-kamchatskiy"
   ],
+  "ua": "VedarBot/1.0 (+https://vedarai.ru)",
   "allowStale": true,
-  "retries": 1,
-  "text": false,
-  "bytes": 1500,
+  "retries": 0,
+  "text": true,
+  "bytes": 9000,
   "grep": [
-    "Disallow",
-    "table-flex",
-    "Задержан"
+    "Петропавловск",
+    "Елизово",
+    "Усть-Камчатск",
+    "Эссо",
+    "Мильково",
+    "ветер",
+    "Ветер",
+    "температур",
+    "Составил",
+    "составил",
+    "синоптик",
+    "Выпуск",
+    "выпущен",
+    "Штормов",
+    "штормов",
+    "район"
   ],
   "around": [
-    "Время по расписанию",
-    "Задержан"
+    "Штормов"
   ],
-  "aroundBefore": 6,
-  "aroundLines": 70,
-  "aroundHits": 1
+  "aroundBefore": 2,
+  "aroundLines": 12,
+  "aroundHits": 2
 }

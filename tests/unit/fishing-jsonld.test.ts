@@ -58,6 +58,16 @@ function jsonLd(node: ReactNode): Record<string, unknown> | null {
   return jsonLd(props.children);
 }
 
+/**
+ * Элемент разметки по названию тура: порядок туров на странице — правило 1в
+ * (жребий дня, 29.10), а не порядок строк выборки, поэтому индекс ничего не значит.
+ */
+function byName(items: Record<string, unknown>[], name: string): Record<string, unknown> {
+  const it = items.find((i) => i.name === name);
+  expect(it, name).toBeDefined();
+  return it!;
+}
+
 async function render(): Promise<{ ld: Record<string, unknown>; items: Record<string, unknown>[] }> {
   const { default: FishingPage } = await import('@/app/hub/fishing/page');
   const ld = jsonLd(await FishingPage());
@@ -69,17 +79,17 @@ async function render(): Promise<{ ld: Record<string, unknown>; items: Record<st
 describe('/hub/fishing: разметка туров', { timeout: 30_000 }, () => {
   it('снимок — абсолютным адресом; уже абсолютный не трогается', async () => {
     const { items } = await render();
-    expect(items[0].image).toBe(`${SITE}/images/activities/fishing.jpg`);
-    expect(items[1].image).toBe('https://cdn.example.org/splav.jpg');
+    expect(byName(items, 'Рыбалка на Быстрой').image).toBe(`${SITE}/images/activities/fishing.jpg`);
+    expect(byName(items, 'Сплав с рыбалкой').image).toBe('https://cdn.example.org/splav.jpg');
   });
 
   it('оператор — организация; адрес и @id — только у открытой страницы', async () => {
     const { items } = await render();
-    expect(items[0].provider).toEqual({
+    expect(byName(items, 'Рыбалка на Быстрой').provider).toEqual({
       '@type': 'Organization', '@id': `${SITE}/operators/fishingkam#organization`,
       name: 'Камчатская рыбалка', url: `${SITE}/operators/fishingkam`,
     });
-    expect(items[1].provider).toEqual({ '@type': 'Organization', name: 'Оператор без страницы' });
+    expect(byName(items, 'Сплав с рыбалкой').provider).toEqual({ '@type': 'Organization', name: 'Оператор без страницы' });
   });
 
   it('нет «0 дн.» и «справочного бюро» вместо оператора', async () => {

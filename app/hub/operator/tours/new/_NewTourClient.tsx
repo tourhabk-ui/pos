@@ -1,16 +1,21 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { TourForm } from '@/components/operator/Tours/TourForm';
 import { TourFormData } from '@/types/operator';
 import { useAuth } from '@/contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { categoryToTourTypes } from '@/lib/tours/form-category';
+import MainPlacePicker, { type MainPlaceValue } from '@/components/operator/Tours/MainPlacePicker';
 
 export default function NewTourClient() {
   const { user } = useAuth();
   const router = useRouter();
+  // Главное место тура — сразу при создании (1344, слово владельца 29.10):
+  // по нему тур встаёт в «Туры к этому месту» на карточке места. Не выбрано —
+  // поле не уходит, тур можно связать позже в правке.
+  const [mainPlace, setMainPlace] = useState<MainPlaceValue | null>(null);
 
   const handleSubmit = async (formData: TourFormData, routeTitle?: string) => {
     const response = await fetch('/api/hub/operator/tours', {
@@ -37,6 +42,7 @@ export default function NewTourClient() {
         // Маршрут тура — route_id (по нему карточка находит трек); в
         // agent_route_id он уходил мимо, и связь терялась.
         route_id:         formData.routeId   || undefined,
+        main_place_id:    mainPlace?.id,
       }),
     });
 
@@ -64,6 +70,10 @@ export default function NewTourClient() {
         <p className="text-sm text-[var(--text-muted)] mt-0.5">
           Заполните информацию о туре
         </p>
+      </div>
+
+      <div className="ds-card p-4">
+        <MainPlacePicker value={mainPlace} savedSource={null} savedId={null} onChange={setMainPlace} />
       </div>
 
       {/* Content */}

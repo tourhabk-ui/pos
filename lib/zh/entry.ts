@@ -8,8 +8,11 @@
  * (§4.0), а не показывает пустой список.
  *
  * Аудит 15.10 (CN-quick), §0: /zh — общая витрина, и порядок у неё один для
- * всех и назван на странице (ZH_TOURS_ORDER_NOTE): по названию компании, внутри
- * — по названию тура. Прежний ORDER BY updated_at DESC тайно поднимал того,
+ * всех и назван на странице (ZH_TOURS_ORDER_NOTE). С 29.10 это правило 1в
+ * (слово владельца «1в 2б 3 да», lib/tours/offer-order) — то же, что у всех
+ * общих витрин: сначала туры со свободной датой по ближайшему выезду,
+ * остальные — жребий дня. Алфавит компаний (15.10) ставил одних и тех же
+ * впереди навсегда. Прежний ORDER BY updated_at DESC тайно поднимал того,
  * кто чаще правит тур. Среза больше нет: заголовок «当前团队游（N）» писал число
  * показанных как общее, и с 41-го тура молча соврал бы.
  *
@@ -22,9 +25,13 @@
 
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy, type OfferOrderOptions } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
 import { ZH_TOUR_FIELDS, readField } from '@/lib/zh/fields';
 import { loadTranslations, logZhFailure } from '@/lib/zh/content';
+import { bookingRequestCeiling } from '@/lib/tours/group-size';
+import { approxYuan, type CbrRate } from '@/lib/currency/cbr-rate';
 
 export interface ZhTourRow {
   id: string;
@@ -33,12 +40,14 @@ export interface ZhTourRow {
   base_price: string | null;
   price_unit: string | null;
   duration_hours: string | null;
-  /** Вывеска оператора (partners.name) — ключ порядка, показывается рядом с туром. */
+  /** Вывеска оператора (partners.name) — показывается рядом с туром. */
   operator_name: string;
   operator_slug: string | null;
   operator_public: boolean | null;
   /** Китайское название — только свежий перевод; null/нет — показывается русское. */
   title_zh?: string | null;
+  /** Ближайшая свободная дата (lib/tours/nearest-free-date) — ключ порядка 1в. */
+  nearest_free_date?: string | null;
 }
 
 /** Единицы цены — те же три, что считает lib/tours/booking-total. */
@@ -48,18 +57,17 @@ export const PRICE_UNIT_ZH: Record<string, string> = {
   per_day_per_person: '每人每天',
 };
 
-const RU = new Intl.Collator('ru', { sensitivity: 'base', numeric: true });
-
 /**
- * Единственное правило порядка /zh: название компании, затем название тура,
- * затем id — чтобы равные имена не прыгали между запросами. Ни дата правки,
- * ни цена, ни закрепление в порядок не входят. Новый массив, вход не меняется.
+ * Порядок /zh — правило 1в (lib/tours/offer-order), имя оставлено ради
+ * импортов: со свободной датой — по ближайшему выезду, остальные — жребий
+ * дня. Ни дата правки, ни цена, ни закрепление, ни алфавит в порядок не
+ * входят. Новый массив, вход не меняется.
  */
-export function orderZhTours<T extends Pick<ZhTourRow, 'id' | 'title' | 'operator_name'>>(rows: readonly T[]): T[] {
-  return [...rows].sort((a, b) =>
-    RU.compare(a.operator_name.trim(), b.operator_name.trim())
-    || RU.compare(a.title.trim(), b.title.trim())
-    || RU.compare(a.id, b.id));
+export function orderZhTours<T extends Pick<ZhTourRow, 'id' | 'nearest_free_date'>>(
+  rows: readonly T[],
+  opts?: OfferOrderOptions,
+): T[] {
+  return orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null }), opts);
 }
 
 export async function loadZhTours(): Promise<ZhTourRow[] | null> {
@@ -67,7 +75,8 @@ export async function loadZhTours(): Promise<ZhTourRow[] | null> {
     const { rows } = await pool.query<ZhTourRow>(
       `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS base_price, ot.price_unit,
               ot.duration_hours::text AS duration_hours,
-              p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
+              p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
+              ${nearestFreeDateSql('ot')} AS nearest_free_date
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
         WHERE ${publicTourSql('ot')}`,
@@ -95,11 +104,20 @@ export async function withZhTitles<T extends ZhTourRow>(rows: T[]): Promise<T[]>
   });
 }
 
-/** «105,000 卢布 每人»; нет цены или ноль — null, а не «0 卢布». */
-export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>): string | null {
+/**
+ * «105,000 卢布 每人»; нет цены или ноль — null, а не «0 卢布».
+ *
+ * С курсом ЦБ (29.10) — ещё «≈ юани» с датой курса и словами «цена в
+ * рублях»: пересчёт подсказка, а не цена. Нет курса — только рубли.
+ */
+export function priceZh(t: Pick<ZhTourRow, 'base_price' | 'price_unit'>, cny?: CbrRate | null): string | null {
   const n = Number(t.base_price);
   if (!Number.isFinite(n) || n <= 0) return null;
-  return `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+  const rub = `${n.toLocaleString('zh-CN')} 卢布 ${PRICE_UNIT_ZH[t.price_unit ?? ''] ?? PRICE_UNIT_ZH.per_person}`;
+  const yuan = cny ? approxYuan(n, cny) : null;
+  if (!yuan || !cny) return rub;
+  const [d, m, y] = cny.date.split('.');
+  return `${rub}（${yuan}，按俄罗斯央行 ${y}-${m}-${d} 汇率估算，以卢布计价）`;
 }
 
 /**
@@ -120,13 +138,14 @@ export function zhFactDescription(t: {
   price_unit: string | null;
   duration_hours: string | null;
   max_participants?: number | string | null;
+  group_size_unlimited?: boolean | null;
   season_start?: string | Date | null;
   season_end?: string | Date | null;
 }): string {
   const bits = [
     priceZh(t),
     durationZh(t),
-    groupZh(t.max_participants),
+    groupZh(t.max_participants, t.group_size_unlimited),
     seasonZh(t.season_start, t.season_end),
   ].filter((x): x is string => Boolean(x));
   const facts = bits.length > 0 ? bits.join('，') : '价格、时长与季节未填写';
@@ -155,8 +174,16 @@ export function seasonZh(start: string | Date | null | undefined, end: string | 
   return a && b ? `${a}月 – ${b}月` : null;
 }
 
-/** Предел группы из базы: «最多 12 人»; не записан или ноль — null. */
-export function groupZh(max: number | string | null | undefined): string | null {
+/**
+ * Предел группы из базы: «最多 12 人»; не записан или ноль — null. Группа не
+ * ограничена (1342) — «人数不限» и потолок одной заявки на сайте, тем же
+ * правилом, что русская карточка (lib/tours/group-size).
+ */
+export function groupZh(max: number | string | null | undefined, unlimited?: boolean | null): string | null {
+  if (unlimited === true) {
+    const ceiling = bookingRequestCeiling(max);
+    return ceiling === null ? '人数不限' : `人数不限（网站单次申请最多 ${ceiling} 人）`;
+  }
   const n = Number(max);
   return Number.isFinite(n) && n > 0 ? `最多 ${Math.round(n)} 人` : null;
 }

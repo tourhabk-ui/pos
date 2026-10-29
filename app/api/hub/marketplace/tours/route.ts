@@ -23,11 +23,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { tours, total } = await queryMarketplaceTours(parsed.data);
+    const { tours, total, day } = await queryMarketplaceTours(parsed.data);
     const res = NextResponse.json({
       success: true,
       tours,
       total,
+      // День жребия этой выдачи: клиент шлёт его со следующей страницей.
+      day,
       count: tours.length,
       limit: parsed.data.limit,
       offset: parsed.data.offset,

@@ -32,6 +32,12 @@ vi.mock('@/lib/tours/tour-detail-query', () => ({
 vi.mock('@/app/catalog/tours/[id]/_TourDetailClient', () => ({ default: () => null }));
 vi.mock('@/app/places/[id]/_PlaceDetailClient', () => ({ default: () => null }));
 vi.mock('@/components/places/PlaceSOS', () => ({ default: () => null }));
+// Курс ЦБ (≈ ¥ у цены) — без сети; по умолчанию его нет, тест с курсом ставит свой.
+const { cnyRate } = vi.hoisted(() => ({ cnyRate: { current: null as null | { code: string; rubPerUnit: number; date: string } } }));
+vi.mock('@/lib/currency/cbr-rate', async (orig) => ({
+  ...(await orig<typeof import('@/lib/currency/cbr-rate')>()),
+  loadCnyRate: async () => cnyRate.current,
+}));
 
 import { ZhTourSummary, ZhPlaceSummary } from '@/components/zh/ZhDetail';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
@@ -132,6 +138,10 @@ describe('конспект тура: перевод помечен, оригин
     expect(fact(ZH_DETAIL.facts.price)).toBe('99,000 卢布 每人');
     // Не записано — «未填写», а не ноль.
     expect(fact(ZH_DETAIL.facts.group)).toBe(ZH_DETAIL.notRecorded);
+    // Группа тура не ограничена (1342): «人数不限» и потолок одной заявки
+    // (меньшее из числа тура и потолка формы 12), а не «最多 20 人».
+    rerender(<ZhTourSummary tour={{ ...TOUR, group_size_unlimited: true }} translations={FRESH()} />);
+    expect(fact(ZH_DETAIL.facts.group)).toBe('人数不限（网站单次申请最多 12 人）');
     rerender(<ZhTourSummary tour={{ ...TOUR, base_price: '0' }} translations={FRESH()} />);
     expect(fact(ZH_DETAIL.facts.price)).toBe(ZH_DETAIL.notRecorded);
     expect(container.textContent).not.toContain('0 卢布');
@@ -307,6 +317,22 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     expect(container.querySelector('main')?.getAttribute('lang')).toBe('zh-CN');
     expect(container.querySelector('[data-zh-tour-summary="51"]')).not.toBeNull();
     expect(container.querySelector('form, button')).toBeNull();
+  });
+
+  it('курс ЦБ прочитан — у цены ориентир в юанях с датой курса и «цена в рублях»; нет курса — только рубли', async () => {
+    translationRows = withEntity('51', FRESH());
+    const mod = await import('@/app/zh/tours/[slug]/page');
+    cnyRate.current = { code: 'CNY', rubPerUnit: 11.2, date: '30.10.2026' };
+    try {
+      const { container } = render(await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) }));
+      expect(container.textContent).toContain('105,000 卢布 每人（约 9,400 元，按俄罗斯央行 2026-10-30 汇率估算，以卢布计价）');
+    } finally {
+      cnyRate.current = null;
+    }
+    cleanup();
+    const { container } = render(await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) }));
+    expect(container.textContent).toContain('105,000 卢布 每人');
+    expect(container.textContent).not.toContain('俄罗斯央行');
   });
 
   it('перевода нет — index, hreflang и китайский заголовок из фактов; страница открывается', async () => {

@@ -11,6 +11,7 @@ import {
   PKC_BOARD_URL, PKC_INFO_PHONE,
   type BoardFlight, type BoardRead, type PkcBoard,
 } from '@/lib/flights/pkc-board';
+import { loadAirportMetar, metarLines, type MetarRead } from '@/lib/flights/metar';
 
 /** Кириллица, похожая на латиницу видом: «РТК-107» набрано вместо «PTK-107». */
 const LOOKS_LATIN: Record<string, string> = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X', У: 'Y' };
@@ -50,28 +51,47 @@ function failedLine(label: string, read: BoardRead): string | null {
   return read.kind === 'failed' ? `Табло ${label} не прочиталось: ${read.reason}.` : null;
 }
 
-export function flightBoardText(board: PkcBoard, args: { flight?: string }): string {
+/**
+ * Строка о погоде в аэропорту (METAR, 29.10): табло причину задержки не
+ * называет, а погода у полосы — то, что Кузьмич может сказать из данных.
+ * Причиной задержки её не называет: связь — догадка, решает авиакомпания.
+ */
+export function metarLine(read: MetarRead): string {
+  if (read.kind === 'ok') {
+    const at = kamchatkaClock(read.metar.observedAt as string);
+    const when = read.stale ? `старая сводка, за ${at.time} ${at.date}` : `сводка за ${at.time}`;
+    return `Погода в аэропорту (${when}; наблюдение метеостанции аэропорта, получено через NOAA Aviation Weather Center, не для планирования полётов): ${metarLines(read.metar).join(', ')}.`;
+  }
+  return read.kind === 'none'
+    ? 'Сводок погоды аэропорта за три часа нет.'
+    : `Сводка погоды аэропорта не загрузилась: ${read.reason}.`;
+}
+
+export function flightBoardText(board: PkcBoard, args: { flight?: string }, metar?: MetarRead): string {
   const fetched = kamchatkaClock(board.fetchedAt);
   const head = `Табло аэропорта Елизово (${PKC_BOARD_URL}), снято в ${fetched.time} по Камчатке. Время — камчатское.`;
   const failures = [failedLine('вылета', board.departures), failedLine('прилёта', board.arrivals)].filter(Boolean) as string[];
   const all = [board.departures, board.arrivals].flatMap((r) => (r.kind === 'ok' ? r.flights : []));
+  const weather = metar ? [metarLine(metar)] : [];
 
   if (failures.length === 2) {
     return [
       head,
       ...failures,
       `Это не значит, что задержек нет. Проверить можно на ${PKC_BOARD_URL} или в справочной аэропорта ${PKC_INFO_PHONE}, точное время — у авиакомпании.`,
+      ...weather,
     ].join('\n');
   }
 
   const wanted = args.flight ? flightKeys(args.flight) : [];
   if (wanted.length > 0) {
     const hits = all.filter((f) => wanted.includes(normalizeFlightNo(f.flight)));
-    if (hits.length > 0) return [head, ...hits.map(flightLine), ...failures].join('\n');
+    if (hits.length > 0) return [head, ...hits.map(flightLine), ...failures, ...weather].join('\n');
     return [
       head,
       `Рейса ${args.flight} на табло сейчас нет. Табло показывает рейсы вчера–завтра, а уже вылетевшие аэропорт скрывает; проверь номер или спроси у авиакомпании.`,
       ...failures,
+      ...weather,
     ].join('\n');
   }
 
@@ -79,9 +99,10 @@ export function flightBoardText(board: PkcBoard, args: { flight?: string }): str
   const lines = disrupted.length > 0
     ? ['Задержки и отмены:', ...disrupted.map(flightLine)]
     : [`Задержек и отмен на прочитанном табло нет (рейсов на нём: ${all.length}).`];
-  return [head, ...lines, ...failures, 'Причину задержки табло не называет.'].join('\n');
+  return [head, ...lines, ...failures, 'Причину задержки табло не называет.', ...weather].join('\n');
 }
 
 export async function flightBoardForKuzmich(args: { flight?: string }): Promise<string> {
-  return flightBoardText(await loadPkcBoard(), args);
+  const [board, metar] = await Promise.all([loadPkcBoard(), loadAirportMetar()]);
+  return flightBoardText(board, args, metar);
 }

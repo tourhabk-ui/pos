@@ -28,11 +28,13 @@ import { join } from 'node:path';
 import { catalogAvailability, isInSeason, tourDays, AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import {
   summarizeCatalogRows, queryMarketplaceTours, queryCatalogSummary, MarketplaceToursQuerySchema,
+  orderMarketplaceTours,
 } from '@/lib/search/tour-search';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { activityLabel } from '@/lib/tours/labels';
 import { activityIcon } from '@/lib/tours/activity-icons';
+import { OFFER_ORDER_NOTE, SORT_CHOICE_NOTE_RU, orderOffers } from '@/lib/tours/offer-order';
 
 vi.mock('next/image', () => ({
   default: (p: { src: string; alt: string }) => React.createElement('img', { src: p.src, alt: p.alt }),
@@ -291,7 +293,9 @@ describe('сводка витрины: направления только с т
     await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({}));
     await queryCatalogSummary();
     const sent = poolQuery.mock.calls.map((c) => String(c[0]));
-    expect(sent).toHaveLength(3);
+    // Листинг — один запрос (число «из M» — длина отфильтрованного списка,
+    // правило 1в, 29.10), сводка — второй.
+    expect(sent).toHaveLength(2);
     for (const sql of sent) expect(sql).toContain(publicTourSql('ot'));
   });
   it('чипы — из сводки: вид значком из единого словаря и числом, название — в доступном имени; aria-pressed и цель 44px', () => {
@@ -458,5 +462,226 @@ describe('каркас страниц каталога', () => {
       expect(existsSync(join(ROOT, file)), file).toBe(true);
       expect(read(file), file).toMatch(new RegExp(`<BottomNav activePath="${p}"`));
     }
+  });
+});
+
+// ─── Правило 1в (слово владельца 29.10) ─────────────────────────────────────
+
+describe('порядок каталога — правило 1в, названное на странице', () => {
+  type Row = { id: number; base_price: number | null; nearest_free_date: string | null; title: string };
+  const rows: Row[] = [
+    { id: 11, base_price: 9000, nearest_free_date: null, title: 'Без даты А' },
+    { id: 12, base_price: 30000, nearest_free_date: '2026-11-20', title: 'Дата позже' },
+    { id: 13, base_price: 9000, nearest_free_date: null, title: 'Без даты Б' },
+    { id: 14, base_price: 50000, nearest_free_date: '2026-11-03', title: 'Дата раньше' },
+    { id: 15, base_price: null, nearest_free_date: null, title: 'Цена не записана' },
+    ...Array.from({ length: 20 }, (_, i) => ({ id: 100 + i, base_price: 9000, nearest_free_date: null, title: `Ничья ${i}` })),
+  ];
+  const DAY_UTC = new Date('2026-10-29T03:00:00Z'); // 29.10 по Камчатке
+  const rule = (list: Row[]) => orderOffers(list.map((r) => ({ ...r, nearestFreeDate: r.nearest_free_date }))).map((r) => r.id);
+  async function listing(params: Record<string, unknown>) {
+    poolQuery.mockReset();
+    poolQuery.mockResolvedValue({ rows: rows.map((r) => ({ ...r })), rowCount: rows.length });
+    return queryMarketplaceTours(MarketplaceToursQuerySchema.parse(params));
+  }
+
+  it('по умолчанию — ровно orderOffers: сначала даты по ближайшей, остальные жребием дня; в SQL нет ORDER BY и LIMIT', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(DAY_UTC);
+    try {
+      const r = await listing({ limit: 100 });
+      expect(r.tours.map((t) => t.id)).toEqual(rule(rows));
+      expect(r.tours.slice(0, 2).map((t) => t.id)).toEqual([14, 12]);
+      expect(r.total).toBe(rows.length);
+      expect(r.day).toBe('2026-10-29');
+      expect(r.tours.find((t) => t.id === 14)?.has_availability).toBe(true);
+      expect(r.tours.find((t) => t.id === 11)?.has_availability).toBe(false);
+      const sql = String(poolQuery.mock.calls[0]![0]);
+      expect(sql).not.toMatch(/ORDER BY ot\.|created_at|LIMIT \$/);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('страница режется после порядка: offset/limit — кусок того же списка, total — все прошедшие фильтры', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(DAY_UTC);
+    try {
+      const full = rule(rows);
+      const page2 = await listing({ limit: 5, offset: 5 });
+      expect(page2.tours.map((t) => t.id)).toEqual(full.slice(5, 10));
+      expect(page2.total).toBe(rows.length);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('«Новые» (?sort=recent) — тот же порядок, что по умолчанию: новизна в порядок не входит', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(DAY_UTC);
+    try {
+      expect(MarketplaceToursQuerySchema.parse({ sort: 'recent' }).sort).toBe('recommended');
+      const recent = await listing({ sort: 'recent', limit: 100 });
+      expect(recent.tours.map((t) => t.id)).toEqual(rule(rows));
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('цену включает турист: равные цены — правилом, а не по названию; цена не записана — в конце', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(DAY_UTC);
+    try {
+      const asc = (await listing({ sort: 'price_asc', limit: 100 })).tours;
+      const cheap = rows.filter((r) => r.base_price === 9000);
+      expect(asc.slice(0, cheap.length).map((t) => t.id)).toEqual(rule(cheap));
+      expect(asc[asc.length - 1]!.id).toBe(15);
+      const desc = (await listing({ sort: 'price_desc', limit: 100 })).tours;
+      expect(desc.slice(0, 2).map((t) => t.id)).toEqual([14, 12]);
+      expect(desc[desc.length - 1]!.id).toBe(15);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('жребий дня воспроизводим и меняется с датой Камчатки, а не с запросом', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(DAY_UTC);
+      const a = (await listing({ limit: 100 })).tours.map((t) => t.id);
+      const b = (await listing({ limit: 100 })).tours.map((t) => t.id);
+      expect(b).toEqual(a);
+      vi.setSystemTime(new Date('2026-10-30T03:00:00Z'));
+      const next = (await listing({ limit: 100 })).tours.map((t) => t.id);
+      expect(next.slice(0, 2)).toEqual([14, 12]);
+      expect(next).not.toEqual(a);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('закреплённый день (страница 2 после полуночи): вчерашний порядок, чужой день — нет', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(DAY_UTC);
+      const d29 = (await listing({ limit: 100 })).tours.map((t) => t.id);
+      vi.setSystemTime(new Date('2026-10-30T03:00:00Z'));
+      const pinned = await listing({ limit: 100, day: '2026-10-29' });
+      expect(pinned.day).toBe('2026-10-29');
+      expect(pinned.tours.map((t) => t.id)).toEqual(d29);
+      const foreign = await listing({ limit: 100, day: '2026-09-01' });
+      expect(foreign.day).toBe('2026-10-30');
+      expect(MarketplaceToursQuerySchema.safeParse({ day: '29.10.2026' }).success).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('витрина называет правило и показывает, сколько из скольких (рендер)', () => {
+  const many = Array.from({ length: 50 }, (_, i) => tour({ id: i + 1, slug: `t${i + 1}`, title: `Тур ${i + 1}` }));
+
+  it('подпись правила кончается «Место в списке не продаётся.», под ней — что цену включает сам турист', () => {
+    storefront();
+    const note = screen.getByText(OFFER_ORDER_NOTE.ru);
+    expect(note.textContent).toMatch(/Место в списке не продаётся\.$/);
+    const sortNote = screen.getByText(SORT_CHOICE_NOTE_RU);
+    expect(note.compareDocumentPosition(sortNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('сортировка: «Сначала со свободными местами» и цена; «Рекомендуемые» и «Новые» нет', () => {
+    storefront();
+    const select = screen.getByLabelText('Сортировка') as HTMLSelectElement;
+    const labels = [...select.options].map((o) => o.textContent);
+    expect(labels).toEqual(['Сначала со свободными местами', 'Цена: дешевле', 'Цена: дороже']);
+    expect(select.value).toBe('recommended');
+  });
+
+  it('старый адрес ?sort=recent открывает порядок по правилу, а не пустой выбор', async () => {
+    window.history.replaceState({}, '', '/catalog?sort=recent');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ tours: TOURS, total: 4 }), { status: 200 }),
+    );
+    try {
+      storefront();
+      await flush();
+      expect((screen.getByLabelText('Сортировка') as HTMLSelectElement).value).toBe('recommended');
+      const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes('sort=recent'))).toBe(false);
+    } finally { window.history.replaceState({}, '', '/catalog'); }
+  });
+
+  it('«Показано 50 из 75» и «Показать ещё» дозапрашивает с offset=50 и дописывает список', async () => {
+    const more = Array.from({ length: 25 }, (_, i) => tour({ id: 51 + i, slug: `m${i}`, title: `Ещё тур ${i + 1}` }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ tours: more, total: 75 }), { status: 200 }),
+    );
+    render(<MarketplaceClient initialTours={many} initialTotal={75} initialKey={KEY} summary={SUMMARY} />);
+    expect(screen.getByText(/Показано 50 из 75 туров/)).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /Показать ещё/ });
+    expect(btn.className).toMatch(/min-h-\[44px\]/);
+    fireEvent.click(btn);
+    await flush();
+    const url = String(fetchSpy.mock.calls.at(-1)![0]);
+    expect(url).toMatch(/^\/api\/hub\/marketplace\/tours\?/);
+    expect(new URL(url, 'https://x').searchParams.get('offset')).toBe('50');
+    expect(screen.getByText(/Показано 75 из 75 туров/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ещё тур 25' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Показать ещё/ })).toBeNull();
+  });
+
+  it('отказ «Показать ещё» — слова у кнопки, показанное остаётся', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 500 }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<MarketplaceClient initialTours={many} initialTotal={75} initialKey={KEY} summary={SUMMARY} />);
+    fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+    await flush();
+    expect(screen.getByRole('alert')).toHaveTextContent('Следующие туры не загрузились');
+    expect(screen.getByText(/Показано 50 из 75 туров/)).toBeInTheDocument();
+  });
+
+  // Ревью 29.10: страница 2 считалась по свежему дню и свежим датам, а
+  // страница 1 — по дню рендера. На смене суток по Камчатке туры с новых мест
+  // 0..49 не приходили никогда, а кнопка висела без прогресса.
+  describe('«Показать ещё» режет страницу из того же порядка', () => {
+    type Row = Tour & { nearest_free_date: string | null };
+    const rows: Row[] = Array.from({ length: 75 }, (_, i) => ({
+      ...tour({ id: 40 + i, slug: `p${40 + i}`, title: `Пачка ${40 + i}` }), nearest_free_date: null,
+    }));
+    /** Сервер каталога: тот же порядок, что queryMarketplaceTours, по дню из запроса или по «сегодня». */
+    function server(today: string, data: Row[]) {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const sp = new URL(String(input), 'https://x').searchParams;
+        const day = sp.get('day') ?? today;
+        const all = orderMarketplaceTours(data, 'recommended', day);
+        const off = Number(sp.get('offset') ?? 0);
+        const lim = Number(sp.get('limit') ?? 50);
+        return new Response(JSON.stringify({ tours: all.slice(off, off + lim), total: all.length, day }), { status: 200 });
+      });
+    }
+    const ids = () => screen.getAllByRole('link', { name: /^Пачка \d+$/ }).map((a) => a.getAttribute('href'));
+
+    it('полночь между страницами: день первой страницы уходит с запросом, показаны все 75 без потерь', async () => {
+      const D = '2026-10-29';
+      const first = orderMarketplaceTours(rows, 'recommended', D).slice(0, 50);
+      const fetchSpy = server('2026-10-30', rows);
+      render(<MarketplaceClient initialTours={first} initialTotal={75} initialDay={D} initialKey={KEY} summary={SUMMARY} />);
+      fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+      await flush();
+      expect(new URL(String(fetchSpy.mock.calls.at(-1)![0]), 'https://x').searchParams.get('day')).toBe(D);
+      expect(screen.getByText(/Показано 75 из 75 туров/)).toBeInTheDocument();
+      expect(new Set(ids()).size).toBe(75);
+      expect(screen.queryByRole('button', { name: /Показать ещё/ })).toBeNull();
+    });
+
+    it('тур переехал между страницами — список перечитан с начала, кнопка не висит без прогресса', async () => {
+      const D = '2026-10-29';
+      const before = orderMarketplaceTours(rows, 'recommended', D);
+      const moved = before[60].id;
+      const now = rows.map((r) => (r.id === moved ? { ...r, nearest_free_date: '2026-11-05' } : r));
+      server(D, now);
+      render(<MarketplaceClient initialTours={before.slice(0, 50)} initialTotal={75} initialDay={D} initialKey={KEY} summary={SUMMARY} />);
+      fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: /Показать ещё/ }));
+      await flush();
+      expect(screen.getByText(/Показано 75 из 75 туров/)).toBeInTheDocument();
+      expect(new Set(ids()).size).toBe(75);
+      expect(screen.getByRole('link', { name: `Пачка ${moved}` })).toBeInTheDocument();
+    });
+  });
+
+  it('все показаны — кнопки нет', () => {
+    storefront();
+    expect(screen.getByText(/Показано 4 из 4 туров/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Показать ещё/ })).toBeNull();
   });
 });
