@@ -1445,6 +1445,146 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     }
   });
 
+  it('заявка своего тура: гид отмечает ответ одним правилом с оператором — событие в ленте один раз, повтор «уже»; чужая и ничейная — 404 и не тронуты; дверь оператора ничейную занимает, как раньше; своя проба владельца — не заявка (29.10)', async () => {
+    // До 29.10 заявку гида можно было только прочитать: дверь заявок
+    // (/api/leads/[id]) пускала одного оператора, и во «Входящие» гида
+    // заявку класть было нельзя. Правило смены теперь одно
+    // (lib/leads/owner-lead-status), скоуп у двери свой.
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('lead-guide@example.com', 'Гид заявок', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Гид заявок', 'guide', '{}', TRUE, TRUE, 'lead-guide', $1) RETURNING id`, [guideUser],
+    )).rows[0].id;
+    const opUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('lead-op@example.com', 'Оператор заявок', 'x', 'operator') RETURNING id`,
+    )).rows[0].id;
+    const op = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Оператор заявок', 'operator', '{}', TRUE, TRUE, 'lead-op', $1) RETURNING id`, [opUser],
+    )).rows[0].id;
+    const lead = async (operatorId: string | null, phone: string, isSelf = false) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, is_self, desired_dates, group_size)
+       VALUES ('Турист заявки', $2, 'Хотим на вулкан', 'new', $1, $3, 'конец июля', 2) RETURNING id::text AS id`,
+      [operatorId, phone, isSelf],
+    )).rows[0].id;
+    const mine = await lead(guide, '+79990100001');
+    const selfProbe = await lead(guide, '+79990100002', true);
+    const foreign = await lead(op, '+79990100003');
+    const unowned = await lead(null, '+79990100004');
+    const row = async (id: string) => (await pool.query<{ status: string; operator_id: string | null; updated_at: string }>(
+      `SELECT status, operator_id::text AS operator_id, updated_at::text AS updated_at FROM leads WHERE id = $1`, [id],
+    )).rows[0];
+    const events = async (id: string) => (await pool.query<{ partner_id: string; actor_kind: string; actor_user_id: string | null; from: string; to: string; via: string }>(
+      `SELECT partner_id::text AS partner_id, actor_kind, actor_user_id::text AS actor_user_id,
+              payload->>'from' AS from, payload->>'to' AS to, payload->>'via' AS via
+         FROM crm_events WHERE source_kind = 'lead' AND source_id = $1 AND kind = 'status_change' ORDER BY id`, [id],
+    )).rows;
+
+    const { NextRequest } = await import('next/server');
+    const guidePatch = async (id: string, body: unknown) => {
+      authAs.userId = guideUser;
+      authAs.role = 'guide';
+      try {
+        const { PATCH } = await import('@/app/api/guide/own/leads/[id]/route');
+        const res = await PATCH(new NextRequest(`http://localhost/api/guide/own/leads/${id}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+        }) as unknown as NextRequest, { params: Promise.resolve({ id }) });
+        return { status: res.status, json: await res.json() as { changed?: boolean; data?: { id: string; status: string }; error?: string } };
+      } finally {
+        authAs.userId = userId;
+        authAs.role = 'tourist';
+      }
+    };
+    const opPatch = async (id: string, body: unknown) => {
+      authAs.userId = opUser;
+      authAs.role = 'operator';
+      try {
+        const { PATCH } = await import('@/app/api/leads/[id]/route');
+        const res = await PATCH(new NextRequest(`http://localhost/api/leads/${id}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+        }) as unknown as NextRequest, { params: Promise.resolve({ id }) });
+        return { status: res.status, json: await res.json() as { changed?: boolean; lead?: { status: string }; error?: string } };
+      } finally {
+        authAs.userId = userId;
+        authAs.role = 'tourist';
+      }
+    };
+
+    // «Свои туры» и «Входящие» — одни заявки: своя проба владельца не заявка,
+    // чужая и ничейная не его; ссылка ответа ведёт туда, где заявка есть.
+    authAs.userId = guideUser;
+    authAs.role = 'guide';
+    let ownLeads: string[];
+    try {
+      const { GET } = await import('@/app/api/guide/own/route');
+      const res = await GET(new NextRequest('http://localhost/api/guide/own') as unknown as NextRequest);
+      const body = await res.json() as { data: { leads: Array<{ id: string }> } };
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      ownLeads = body.data.leads.map((l) => l.id);
+    } finally {
+      authAs.userId = userId;
+      authAs.role = 'tourist';
+    }
+    expect(ownLeads).toEqual([mine]);
+    const { loadInbox } = await import('@/lib/crm/inbox');
+    const { inboxActionFor } = await import('@/lib/crm/inbox-kinds');
+    const before = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
+    expect(before.failed).toEqual([]);
+    expect(before.items.filter((i) => i.kind === 'lead').map((i) => i.id)).toEqual([mine]);
+    expect(inboxActionFor('guide', 'lead').href).toBe('/hub/guide/own');
+
+    // Чужая и ничейная — «не найдена среди ваших», и ни одна не тронута:
+    // ничейную гид не занимает.
+    for (const id of [foreign, unowned]) {
+      expect((await guidePatch(id, { status: 'contacted' })).status, id).toBe(404);
+    }
+    expect(await row(foreign)).toMatchObject({ status: 'new', operator_id: op });
+    expect(await row(unowned)).toMatchObject({ status: 'new', operator_id: null });
+    // Статусы конвейера платформы гиду не ставятся; номер — только uuid.
+    expect((await guidePatch(mine, { status: 'ai_qualified' })).status).toBe(400);
+    expect((await guidePatch('not-a-uuid', { status: 'contacted' })).status).toBe(400);
+    expect((await row(mine)).status).toBe('new');
+
+    // Своя: отметка записана, событие в ленте — одно, от гида, с каналом.
+    const first = await guidePatch(mine, { status: 'contacted' });
+    expect(first.status, JSON.stringify(first.json)).toBe(200);
+    expect(first.json).toMatchObject({ changed: true, data: { id: mine, status: 'contacted' } });
+    const afterFirst = await row(mine);
+    expect(afterFirst).toMatchObject({ status: 'contacted', operator_id: guide });
+    expect(await events(mine)).toEqual([
+      { partner_id: guide, actor_kind: 'partner_user', actor_user_id: guideUser, from: 'new', to: 'contacted', via: 'site' },
+    ]);
+    // Повтор — «уже»: второго события нет, время правки прежнее.
+    const again = await guidePatch(mine, { status: 'contacted' });
+    expect(again.status).toBe(200);
+    expect(again.json.changed).toBe(false);
+    expect(await row(mine)).toEqual(afterFirst);
+    expect(await events(mine)).toHaveLength(1);
+    // Ответ снял заявку из «Входящих».
+    const after = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
+    expect(after.items.filter((i) => i.kind === 'lead')).toEqual([]);
+
+    // Дверь оператора — как раньше: ничейную занимает первым действием,
+    // заявку гида не видит.
+    const claimed = await opPatch(unowned, { status: 'contacted' });
+    expect(claimed.status, JSON.stringify(claimed.json)).toBe(200);
+    expect(claimed.json).toMatchObject({ changed: true, lead: { status: 'contacted' } });
+    expect(await row(unowned)).toMatchObject({ status: 'contacted', operator_id: op });
+    expect(await events(unowned)).toEqual([
+      { partner_id: op, actor_kind: 'partner_user', actor_user_id: opUser, from: 'new', to: 'contacted', via: 'site' },
+    ]);
+    expect((await opPatch(mine, { status: 'lost' })).status).toBe(404);
+    expect((await row(mine)).status).toBe('contacted');
+    // Заметка без статуса — пишется, события смены нет.
+    const note = await opPatch(foreign, { notes: 'перезвонить в среду' });
+    expect(note.status).toBe(200);
+    expect(note.json.changed).toBe(false);
+    expect((await pool.query<{ notes: string }>(`SELECT notes FROM leads WHERE id = $1`, [foreign])).rows[0].notes).toBe('перезвонить в среду');
+    expect(await events(foreign)).toEqual([]);
+  });
+
   it('повтор того же статуса — не новое действие: двери оператора и гида подтверждают и отменяют дважды — письмо, push, Telegram, места и возврат по разу, ответ changed:false, время и причина отмены первые; из отменённой в подтверждённую — 409 (29.10)', async () => {
     // Второе нажатие (двойной клик, повтор кнопки в чате) раньше слало
     // туристу второе письмо «подтверждено» и переписывало время и причину

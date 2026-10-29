@@ -12,9 +12,11 @@
  * Здесь — чтение раздела: туры гида, брони и заявки по ним. Кто вправе —
  * карточка вошедшего гида (`getGuidePartnerId`), а не параметр запроса.
  * Смена статуса брони — общее правило продавца тура
- * (`lib/bookings/owner-status`), открытие дат — общее `openTourDates`.
+ * (`lib/bookings/owner-status`), заявки — `lib/leads/owner-lead-status`,
+ * открытие дат — общее `openTourDates`.
  */
 import { query } from '@/lib/database';
+import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 
 export interface OwnTour {
   id: string;
@@ -98,16 +100,22 @@ export async function loadOwnBookings(partnerId: string): Promise<OwnBooking[]> 
   return rows;
 }
 
-/** Заявки, адресованные гиду (форма на его странице, заявка агента на тур). */
+/**
+ * Заявки, адресованные гиду (форма на его странице, заявка агента на тур), —
+ * тот же отбор, что у «Входящих» (lib/crm/inbox-sql, вид `lead`): своя проба
+ * владельца (`is_self`) — не заявка. Ждущие ответа — первыми и любой
+ * давности: ссылка «Входящих» ведёт сюда, и каждая ждущая обязана тут быть.
+ * Ответ — `PATCH /api/guide/own/leads/[id]` (lib/leads/owner-lead-status).
+ */
 export async function loadOwnLeads(partnerId: string): Promise<OwnLead[]> {
   const { rows } = await query<OwnLead>(
     `SELECT l.id::text AS id, l.created_at::text AS created_at, l.status, l.name, l.phone, l.email,
             l.comment, l.desired_dates, l.group_size
        FROM leads l
-      WHERE l.operator_id = $1::uuid
-      ORDER BY l.created_at DESC
+      WHERE l.operator_id = $1::uuid AND l.is_self = FALSE
+      ORDER BY (l.status = ANY($2::text[])) DESC, l.created_at DESC
       LIMIT 100`,
-    [partnerId],
+    [partnerId, [...LEAD_WAITING_STATUSES]],
   );
   return rows;
 }

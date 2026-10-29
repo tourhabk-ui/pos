@@ -132,7 +132,12 @@ describe('лиды: скоуп один, ничейный лид станови�
     expect(src).not.toMatch(/if \(!isAdmin && operatorId\)/);
   });
 
+  // Правило смены статуса заявки с 29.10 — общее с гидом
+  // (lib/leads/owner-lead-status); что дверь оператора занимает ничейный лид,
+  // а гид — нет, доказывается на настоящей базе
+  // (tests/integration/tourist-cabinet.pg.test.ts) и вызовом (leads-idor).
   it('правка ничейного лида оператором его занимает', () => {
-    expect(read('app/api/leads/[id]/route.ts')).toMatch(/operator_id = COALESCE\(operator_id, \$/);
+    expect(read('lib/leads/owner-lead-status.ts')).toMatch(/operator_id = COALESCE\(l\.operator_id, \$5::uuid\)/);
+    expect(read('app/api/leads/[id]/route.ts')).toMatch(/scope: await operatorLeadScope\(user\)/);
   });
 });

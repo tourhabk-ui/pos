@@ -11,7 +11,9 @@
  *   — даты открываются только у опубликованных туров, черновик назван
  *     черновиком;
  *   — личные сообщения ведут гида в «Свои туры», а оператора — в его кабинет
- *     (lib/partners/cabinet-links).
+ *     (lib/partners/cabinet-links);
+ *   — заявка своего тура отмечается в два шага (29.10): кнопка, затем «Да»;
+ *     PATCH уходит в дверь гида с выбранной отметкой, повтор назван повтором.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -20,6 +22,7 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-li
 vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
 
 import OwnToursClient, { actionsFor, STATUS_LABEL } from '@/app/hub/guide/own/_OwnToursClient';
+import { LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, OWNER_LEAD_STATUSES } from '@/lib/leads/owner-lead-words';
 import { ownerBookingsListUrl, ownerBookingsUrl, ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 
@@ -32,6 +35,10 @@ const BOOKING = {
   id: '7001', tour_id: '101', tour_title: 'Толбачик, 4 дня', booking_date: '2027-07-26', participants: 2,
   booking_status: 'new', tourist_name: 'Пётр', tourist_phone: '+79990001122', tourist_email: null,
   special_requests: 'Вегетарианское питание', created_at: '2026-10-28',
+};
+const LEAD = {
+  id: '6f1c2a10-0000-4000-8000-000000000001', created_at: '2026-10-27T10:00:00Z', status: 'new',
+  name: 'Ольга', phone: '+79990003344', email: null, comment: 'Хотим на Толбачик вдвоём', desired_dates: 'конец июля', group_size: 2,
 };
 
 type Reply = { ok: boolean; status?: number; body: unknown };
@@ -132,6 +139,69 @@ describe('«Свои туры» гида', () => {
     expect([...select.options].map((o) => o.textContent)).toEqual(['Толбачик, 4 дня']);
     expect(screen.getByRole('link', { name: 'Толбачик, 4 дня' }).getAttribute('href')).toBe('/catalog/tours/101');
     expect(screen.getByText(/Бухта Русская/).parentElement?.textContent).toContain('черновик, на сайте не виден');
+  });
+});
+
+describe('заявки своего тура: отметка ответа в два шага (29.10)', () => {
+  const withLead = (lead: Record<string, unknown>) => {
+    ownReply = { ok: true, body: { success: true, data: { tours: [TOUR], bookings: [], leads: [lead] } } };
+  };
+
+  it('новая заявка — с контактами и статусом; «Связался» → вопрос → «Да» — PATCH в дверь гида с этой отметкой', async () => {
+    withLead(LEAD);
+    patchReply = { ok: true, body: { success: true, changed: true, data: { id: LEAD.id, status: 'contacted' } } };
+    render(<OwnToursClient />);
+    const row = await screen.findByTestId(`own-lead-${LEAD.id}`);
+    expect(within(row).getByText(LEAD_STATUS_WORDS.new)).toBeTruthy();
+    expect(within(row).getByRole('link', { name: /\+79990003344/ }).getAttribute('href')).toBe('tel:+79990003344');
+    expect(within(row).getByText(/Даты: конец июля/)).toBeTruthy();
+    // Отметки — все четыре, ни одна не уходит без «Да».
+    expect(within(row).getAllByRole('button').map((b) => b.textContent?.trim()))
+      .toEqual(OWNER_LEAD_STATUSES.map((st) => OWNER_LEAD_ACTION_LABEL[st]));
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Связался' }));
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    const question = within(row).getByText(/Отметить заявку: «Связался»\?/);
+    expect(question.textContent).toContain('Туристу ничего не отправляется.');
+    expect(question.textContent).toContain('Заявка уйдёт из «Входящих».');
+
+    fireEvent.click(within(row).getByRole('button', { name: /Да, отметить/ }));
+    await screen.findByText(/Заявка от .*: «Вы связались»\./);
+    expect(calls.find((c) => c.method === 'PATCH')).toEqual({
+      url: `/api/guide/own/leads/${LEAD.id}`, method: 'PATCH', body: { status: 'contacted' },
+    });
+  });
+
+  it('«Назад» — ничего не уходит; отметка, которая уже стоит, не предлагается, а заявка не из «Входящих» не обещает уйти оттуда', async () => {
+    withLead({ ...LEAD, status: 'contacted' });
+    render(<OwnToursClient />);
+    const row = await screen.findByTestId(`own-lead-${LEAD.id}`);
+    expect(within(row).getByText(LEAD_STATUS_WORDS.contacted)).toBeTruthy();
+    expect(within(row).queryByRole('button', { name: 'Связался' })).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Договорились' }));
+    expect(within(row).getByText(/Отметить заявку: «Договорились»\?/).textContent).not.toContain('«Входящих»');
+    fireEvent.click(within(row).getByRole('button', { name: 'Назад' }));
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    expect(within(row).getByRole('button', { name: 'Договорились' })).toBeTruthy();
+  });
+
+  it('повтор — «уже отмечена, ничего не изменено»; отказ сервера — его словами, без «отмечено»', async () => {
+    withLead(LEAD);
+    patchReply = { ok: true, body: { success: true, changed: false, data: { id: LEAD.id, status: 'lost' } } };
+    render(<OwnToursClient />);
+    let row = await screen.findByTestId(`own-lead-${LEAD.id}`);
+    fireEvent.click(within(row).getByRole('button', { name: 'Отказ' }));
+    fireEvent.click(within(row).getByRole('button', { name: /Да, отметить/ }));
+    await screen.findByText('Заявка уже отмечена: «Отказ» — ничего не изменено.');
+    cleanup();
+
+    patchReply = { ok: false, status: 404, body: { success: false, error: 'Заявка не найдена среди ваших' } };
+    render(<OwnToursClient />);
+    row = await screen.findByTestId(`own-lead-${LEAD.id}`);
+    fireEvent.click(within(row).getByRole('button', { name: 'Отказ' }));
+    fireEvent.click(within(row).getByRole('button', { name: /Да, отметить/ }));
+    expect((await within(row).findByRole('alert')).textContent).toBe('Заявка не найдена среди ваших');
+    expect(screen.queryByText(/Заявка от .*: «/)).toBeNull();
   });
 });
 

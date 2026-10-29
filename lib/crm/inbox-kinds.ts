@@ -32,11 +32,12 @@ export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxK
   stay: ['accommodation_booking', 'stay_review'],
   gear: ['gear_rental'],
   transfer: ['transfer_seat_booking'],
-  // Гид продаёт и свои туры (28.10, миграция 1338): брони и запросы мест на
-  // них ждут его ответа так же, как у оператора, и запросы читают по
-  // `operator_id` тура — карточке гида. Отвечает он в разделе «Свои туры» и
-  // кнопками запроса мест здесь же. Гиду без своих туров эти виды пусты.
-  guide: ['seat_request', 'operator_booking', 'guide_invite', 'guide_review'],
+  // Гид продаёт и свои туры (28.10, миграция 1338): брони, запросы мест и
+  // заявки на них ждут его ответа так же, как у оператора, и запросы читают
+  // по `operator_id` — карточке гида. На бронь и заявку он отвечает в разделе
+  // «Свои туры» (заявка — с 29.10, `PATCH /api/guide/own/leads/[id]`), на
+  // запрос мест — кнопками здесь же. Гиду без своих туров эти виды пусты.
+  guide: ['seat_request', 'operator_booking', 'lead', 'guide_invite', 'guide_review'],
   agent: [],
 };
 
@@ -57,9 +58,6 @@ export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>
   ],
   guide: [
     'Назначение на бронь в команде оператора подтверждать не нужно — оно сразу в расписании.',
-    // Заявке гида двери ответа пока нет: раздел «Свои туры» её только
-    // показывает, а /api/leads/[id] пускает одного оператора.
-    'Заявки на туры, которые вы продаёте сами, — в разделе «Свои туры»: здесь их нет, отметить ответ на заявку в кабинете гида пока нельзя.',
     // Ответ на отзыв о туре — дверь оператора (app/api/operator/reviews/[id]/reply).
     'Отзывы туристов о турах, которые вы продаёте сами, сюда не попадают: ответить на них из кабинета гида пока нельзя.',
   ],
@@ -118,7 +116,7 @@ const ACTION_BY_KIND: Readonly<Record<InboxKind, InboxAction>> = {
  */
 const GUIDE_ACTION: Readonly<Partial<Record<InboxKind, InboxAction>>> = {
   operator_booking: { href: ownerBookingsPath('guide'), hint: 'Подтвердить или отклонить в разделе «Свои туры»' },
-  lead: { href: ownerLeadsPath('guide'), hint: 'Посмотреть в разделе «Свои туры»' },
+  lead: { href: ownerLeadsPath('guide'), hint: 'Отметить ответ в разделе «Свои туры»: связались, договорились или отказ' },
 };
 
 /**

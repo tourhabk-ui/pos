@@ -6,12 +6,17 @@ import { Compass, CalendarPlus, Inbox, Loader2, AlertCircle, RefreshCw, Phone, M
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 import type { OwnBooking, OwnLead, OwnTour } from '@/lib/guides/own-tours';
 import { alreadyInStatusText } from '@/lib/bookings/owner-status-words';
+import {
+  LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText, leadIsWaiting, ownerLeadActionsFor, type OwnerLeadStatus,
+} from '@/lib/leads/owner-lead-words';
 
 /**
  * «Свои туры» гида — туры, которые гид продаёт сам: брони по ним (подтвердить,
- * отклонить, отметить итог), заявки и открытие дат. Данные — GET
- * /api/guide/own; смена статуса — PATCH /api/guide/own/bookings/[id] (то же
- * правило, что у кабинета оператора); даты — POST /api/guide/own/dates.
+ * отклонить, отметить итог), заявки (отметить ответ) и открытие дат. Данные —
+ * GET /api/guide/own; смена статуса брони — PATCH /api/guide/own/bookings/[id],
+ * заявки — PATCH /api/guide/own/leads/[id] (те же правила, что у кабинета
+ * оператора); даты — POST /api/guide/own/dates. Каждое действие — в два шага:
+ * кнопка, затем «Да».
  *
  * Список, который не прочитался, приходит null и показывается «не
  * загрузилось», а не «пусто» (§4.0).
@@ -149,6 +154,77 @@ function BookingRow({ b, onDone }: { b: OwnBooking; onDone: (msg: string) => voi
   );
 }
 
+function LeadRow({ l, onDone }: { l: OwnLead; onDone: (msg: string) => void }) {
+  const [pending, setPending] = useState<OwnerLeadStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const send = async (status: OwnerLeadStatus) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/guide/own/leads/${l.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; changed?: boolean } | null;
+      if (!res.ok || !json?.success) { setError(json?.error ?? 'Не записано — попробуйте ещё раз'); return; }
+      setPending(null);
+      // Заявка уже была с этой отметкой (другая вкладка, повтор): ничего не
+      // изменено — так и сказано.
+      onDone(json.changed === false
+        ? leadAlreadyText(status)
+        : `Заявка от ${fmtDate(l.created_at)}: «${LEAD_STATUS_WORDS[status] ?? status}».`);
+    } catch {
+      setError('Сеть недоступна — ничего не изменено');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const actions = ownerLeadActionsFor(l.status);
+  return (
+    <li className="ds-card space-y-2 text-sm" data-testid={`own-lead-${l.id}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[var(--text-primary)] font-medium">{l.name ?? 'Без имени'} · {fmtDate(l.created_at)}</p>
+        <span className="text-[var(--text-secondary)]">{LEAD_STATUS_WORDS[l.status ?? ''] ?? l.status ?? 'Статус не записан'}</span>
+      </div>
+      <p className="flex flex-wrap gap-x-4 gap-y-1 text-[var(--text-secondary)]">
+        {l.phone && <a href={`tel:${l.phone}`} className="inline-flex items-center gap-1 text-[var(--ocean)]"><Phone size={14} /> {l.phone}</a>}
+        {l.email && <a href={`mailto:${l.email}`} className="inline-flex items-center gap-1 text-[var(--ocean)]"><Mail size={14} /> {l.email}</a>}
+        {l.desired_dates && <span>Даты: {l.desired_dates}</span>}
+        {l.group_size ? <span>Человек: {l.group_size}</span> : null}
+      </p>
+      {l.comment && <p className="text-[var(--text-muted)] whitespace-pre-line">{l.comment}</p>}
+
+      {pending ? (
+        <div className="space-y-2">
+          <p className="text-[var(--text-primary)]">
+            Отметить заявку: «{OWNER_LEAD_ACTION_LABEL[pending]}»? Туристу ничего не отправляется.
+            {leadIsWaiting(l.status) ? ' Заявка уйдёт из «Входящих».' : ''}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="ds-btn ds-btn-primary" disabled={busy} onClick={() => void send(pending)}>
+              {busy ? <Loader2 size={14} className="animate-spin" /> : null} Да, отметить
+            </button>
+            <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => setPending(null)}>Назад</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {actions.map((a) => (
+            <button key={a} type="button" className={`ds-btn ${a === 'converted' ? 'ds-btn-primary' : 'ds-btn-secondary'}`} onClick={() => setPending(a)}>
+              {OWNER_LEAD_ACTION_LABEL[a]}
+            </button>
+          ))}
+        </div>
+      )}
+      {error && <p role="alert" className="text-[var(--danger)]">{error}</p>}
+    </li>
+  );
+}
+
 function OpenDatesForm({ tours, onDone }: { tours: OwnTour[]; onDone: (msg: string) => void }) {
   const [tourId, setTourId] = useState(tours[0]?.id ?? '');
   const [startDate, setStart] = useState('');
@@ -277,20 +353,7 @@ export default function OwnToursClient() {
             ) : leads.length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">Заявок пока нет.</p>
             ) : (
-              <ul className="space-y-3">
-                {leads.map((l) => (
-                  <li key={l.id} className="ds-card space-y-1 text-sm" data-testid={`own-lead-${l.id}`}>
-                    <p className="text-[var(--text-primary)] font-medium">{l.name ?? 'Без имени'} · {fmtDate(l.created_at)}</p>
-                    <p className="flex flex-wrap gap-x-4 gap-y-1 text-[var(--text-secondary)]">
-                      {l.phone && <a href={`tel:${l.phone}`} className="inline-flex items-center gap-1 text-[var(--ocean)]"><Phone size={14} /> {l.phone}</a>}
-                      {l.email && <a href={`mailto:${l.email}`} className="inline-flex items-center gap-1 text-[var(--ocean)]"><Mail size={14} /> {l.email}</a>}
-                      {l.desired_dates && <span>Даты: {l.desired_dates}</span>}
-                      {l.group_size ? <span>Человек: {l.group_size}</span> : null}
-                    </p>
-                    {l.comment && <p className="text-[var(--text-muted)] whitespace-pre-line">{l.comment}</p>}
-                  </li>
-                ))}
-              </ul>
+              <ul className="space-y-3">{leads.map((l) => <LeadRow key={l.id} l={l} onDone={done} />)}</ul>
             )}
           </section>
 

@@ -14,12 +14,31 @@
  * вынесена в общий модуль ИМЕННО чтобы такой дрейф не повторялся: один
  * источник формулы, а не шесть копий, которые расходятся по одной.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Формула владения — вызовом: кабинет вошедшего (operatorAccess) и пул
+// подменены, запрос смены статуса заявки ловится вместе с параметрами.
+const access = vi.hoisted(() => ({ result: { kind: 'owner', partnerId: 'P-OWN' } as Record<string, unknown>, calls: 0 }));
+const poolQuery = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/operators/team-access', () => ({
+  operatorAccess: async () => { access.calls += 1; return access.result; },
+}));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+vi.mock('@/lib/crm/events', () => ({
+  recordSourceEventQuietly: vi.fn(async () => undefined),
+  statusChangeTitle: (_k: string, from: string | null, to: string) => `${from ?? ''} → ${to}`,
+}));
+
+import { leadScopeCond, operatorLeadScope, leadOwnershipCond } from '@/lib/leads/ownership';
+import { changeLeadStatus } from '@/lib/leads/owner-lead-status';
+import type { JWTPayload } from '@/lib/auth/jwt';
+
+const operator = { userId: 'u-op', role: 'operator' } as unknown as JWTPayload;
+const admin = { userId: 'u-admin', role: 'admin' } as unknown as JWTPayload;
+
 const ROOT = process.cwd();
-const OWNERSHIP = readFileSync(join(ROOT, 'lib/leads/ownership.ts'), 'utf-8');
 const DETAIL = readFileSync(join(ROOT, 'app/api/leads/[id]/route.ts'), 'utf-8');
 const LIST = readFileSync(join(ROOT, 'app/api/leads/route.ts'), 'utf-8');
 const PROPOSAL = readFileSync(join(ROOT, 'app/api/leads/[id]/proposal/route.ts'), 'utf-8');
@@ -29,31 +48,69 @@ const PROCESS_BY_ID = readFileSync(join(ROOT, 'app/api/leads/[id]/process/route.
 const PROCESS_BODY = readFileSync(join(ROOT, 'app/api/leads/process/route.ts'), 'utf-8');
 
 describe('lib/leads/ownership.ts — единственный источник формулы', () => {
-  it('формула: свои ИЛИ ничейные, админ без скоупа', () => {
-    expect(OWNERSHIP).toMatch(/operator_id = \$\$\{nextIdx\} OR operator_id IS NULL/);
-    expect(OWNERSHIP).toMatch(/user\.role === 'admin'.*\{ cond: '', vals: \[\] \}/);
-    expect(OWNERSHIP).toMatch(/AND operator_id IS NULL/);
-    // Партнёр — кабинет вошедшего, свой или команды (CRM 2г): один резолвер,
-    // «не смогли проверить» не превращается в «только ничейные».
-    expect(OWNERSHIP).toMatch(/const access = await operatorAccess\(user\.userId\)/);
-    expect(OWNERSHIP).toMatch(/access\.kind === 'unavailable'\) throw/);
+  beforeEach(() => {
+    access.result = { kind: 'owner', partnerId: 'P-OWN' };
+    access.calls = 0;
+    poolQuery.mockReset();
   });
 
-  it('canAccessLead применяет ту же формулу через leadOwnershipCond', () => {
-    expect(OWNERSHIP).toMatch(/canAccessLead[\s\S]*leadOwnershipCond/);
+  it('формула: продавец — свои и (у кабинета оператора) ничейные; гид — только свои; без карточки — только ничейные; админ без скоупа', () => {
+    expect(leadScopeCond({ kind: 'admin' }, 3)).toEqual({ cond: '', vals: [] });
+    expect(leadScopeCond({ kind: 'owner', partnerId: 'P', claimUnowned: true }, 3))
+      .toEqual({ cond: ' AND (operator_id = $3 OR operator_id IS NULL)', vals: ['P'] });
+    expect(leadScopeCond({ kind: 'owner', partnerId: 'P', claimUnowned: false }, 3))
+      .toEqual({ cond: ' AND operator_id = $3', vals: ['P'] });
+    expect(leadScopeCond({ kind: 'unowned_only' }, 3)).toEqual({ cond: ' AND operator_id IS NULL', vals: [] });
+  });
+
+  it('кабинет оператора: свой или команды — карточка кабинета; нет карточки — только ничейные; «не смогли проверить» — отказ, а не «только ничейные»', async () => {
+    expect(await operatorLeadScope(admin)).toEqual({ kind: 'admin' });
+    expect(access.calls).toBe(0);
+    expect(await operatorLeadScope(operator)).toEqual({ kind: 'owner', partnerId: 'P-OWN', claimUnowned: true });
+    access.result = { kind: 'manager', partnerId: 'P-TEAM', memberId: 'm', perms: {} };
+    expect(await operatorLeadScope(operator)).toEqual({ kind: 'owner', partnerId: 'P-TEAM', claimUnowned: true });
+    access.result = { kind: 'none', reason: 'no_profile' };
+    expect(await operatorLeadScope(operator)).toEqual({ kind: 'unowned_only' });
+    access.result = { kind: 'unavailable', reason: 'sqlstate 57P01' };
+    await expect(operatorLeadScope(operator)).rejects.toThrow(/не проверен/);
+    await expect(leadOwnershipCond(operator, 2)).rejects.toThrow(/не проверен/);
+  });
+
+  it('смена статуса заявки: скоуп — в условии блокируемой строки; занять ничейную может только скоуп кабинета оператора', async () => {
+    poolQuery.mockResolvedValue({ rows: [] });
+    const lead = '11111111-2222-4333-8444-555555555555';
+    const call = async (scope: Parameters<typeof changeLeadStatus>[0]['scope']) => {
+      poolQuery.mockClear();
+      const r = await changeLeadStatus({ leadId: lead, status: 'contacted', actor: { kind: 'partner_user', userId: 'u' }, scope, via: 'site' });
+      const [sql, params] = poolQuery.mock.calls[0] as [string, unknown[]];
+      return { r, prevCte: sql.slice(0, sql.indexOf('FOR UPDATE')), params };
+    };
+    const guide = await call({ kind: 'owner', partnerId: 'G', claimUnowned: false });
+    expect(guide.r).toEqual({ kind: 'not_found' });
+    expect(guide.prevCte).toContain('AND operator_id = $6');
+    expect(guide.prevCte).not.toContain('IS NULL');
+    expect(guide.params).toEqual([lead, 'contacted', false, null, null, 'G']);
+
+    const op = await call({ kind: 'owner', partnerId: 'P', claimUnowned: true });
+    expect(op.prevCte).toContain('AND (operator_id = $6 OR operator_id IS NULL)');
+    expect(op.params).toEqual([lead, 'contacted', false, null, 'P', 'P']);
+
+    const none = await call({ kind: 'unowned_only' });
+    expect(none.prevCte).toContain('AND operator_id IS NULL');
+    expect(none.params).toEqual([lead, 'contacted', false, null, null]);
   });
 });
 
 describe('владение лидом: /api/leads/[id]', () => {
-  it('GET и PATCH оба применяют скоуп владения к SQL', () => {
-    const scoped = DETAIL.match(/\$\{scope\.cond\}/g) ?? [];
-    expect(scoped.length).toBeGreaterThanOrEqual(2);
-    expect(DETAIL).toMatch(/UPDATE leads SET \$\{sets\.join\(', '\)\} WHERE id = \$\$\{idx\}\$\{scope\.cond\}/);
+  it('GET применяет скоуп к SQL, PATCH отдаёт скоуп кабинета общему правилу смены (lib/leads/owner-lead-status)', () => {
     expect(DETAIL).toMatch(/FROM leads WHERE id = \$1\$\{scope\.cond\}/);
+    const patch = DETAIL.slice(DETAIL.indexOf('export async function PATCH'), DETAIL.indexOf('export async function GET'));
+    expect(patch).toMatch(/changeLeadStatus\(\{[\s\S]*scope: await operatorLeadScope\(user\)/);
+    expect(patch).not.toMatch(/UPDATE leads/);
   });
 
   it('импортирует общую формулу, а не держит свою копию', () => {
-    expect(DETAIL).toMatch(/import \{ leadOwnershipCond \} from '@\/lib\/leads\/ownership'/);
+    expect(DETAIL).toMatch(/import \{ leadOwnershipCond, operatorLeadScope \} from '@\/lib\/leads\/ownership'/);
   });
 
   it('список берёт ту же формулу владения, а не свою копию', () => {

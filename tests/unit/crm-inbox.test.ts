@@ -138,26 +138,32 @@ describe('SQL и словарь', () => {
     }
   });
 
-  it('гид: бронь своего тура — в «Свои туры», запрос мест — кнопками во «Входящих»; у оператора — его кабинет', () => {
-    expect(kinds.INBOX_BY_CATEGORY.guide).toEqual(expect.arrayContaining(['operator_booking', 'seat_request']));
+  it('гид: бронь и заявка своего тура — в «Свои туры», запрос мест — кнопками во «Входящих»; у оператора — его кабинет', () => {
+    expect(kinds.INBOX_BY_CATEGORY.guide).toEqual(expect.arrayContaining(['operator_booking', 'seat_request', 'lead']));
     expect(kinds.inboxActionFor('guide', 'operator_booking')).toEqual({
       href: '/hub/guide/own', hint: 'Подтвердить или отклонить в разделе «Свои туры»',
+    });
+    // Заявка — с 29.10: дверь ответа гида PATCH /api/guide/own/leads/[id].
+    expect(kinds.inboxActionFor('guide', 'lead')).toEqual({
+      href: '/hub/guide/own', hint: 'Отметить ответ в разделе «Свои туры»: связались, договорились или отказ',
     });
     expect(kinds.inboxActionFor('guide', 'seat_request').href).toBeNull();
     expect(kinds.inboxActionFor('operator', 'operator_booking').href).toBe('/hub/operator/bookings');
     expect(kinds.inboxActionFor('operator', 'lead').href).toBe('/hub/operator/leads');
   });
 
-  it('гид: чего нет — названо (назначение в команде, заявки и отзывы своих туров), и этих видов во «Входящих» правда нет', () => {
+  it('гид: чего нет — названо (назначение в команде, отзывы своих туров), и этих видов во «Входящих» правда нет; что есть — не названо отсутствующим', () => {
     const notHere = kinds.INBOX_NOT_HERE.guide.join(' ');
     expect(notHere).toMatch(/Назначение на бронь в команде оператора/);
-    // Двери ответа на заявку и на отзыв о туре у гида пока нет: вид, у
-    // которого нет ответа, — не во «Входящих», а здесь, словами. Появится
-    // дверь и вид войдёт в список — строка обязана уйти.
-    expect(kinds.INBOX_BY_CATEGORY.guide).not.toContain('lead');
-    expect(notHere).toMatch(/Заявки на туры, которые вы продаёте сами/);
+    // Двери ответа на отзыв о туре у гида пока нет: вид, у которого нет
+    // ответа, — не во «Входящих», а здесь, словами. Появится дверь и вид
+    // войдёт в список — строка обязана уйти.
     expect(kinds.INBOX_BY_CATEGORY.guide).not.toContain('tour_review');
     expect(notHere).toMatch(/Отзывы туристов о турах, которые вы продаёте сами/);
+    // Заявка своего тура вошла (дверь ответа появилась 29.10) — строка о том,
+    // что её здесь нет, ушла.
+    expect(kinds.INBOX_BY_CATEGORY.guide).toContain('lead');
+    expect(notHere).not.toMatch(/Заявки на туры, которые вы продаёте сами/);
   });
 
   it('у роли без входящих это сказано словами', () => {
