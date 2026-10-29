@@ -97,6 +97,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ...WEATHER_PLACES.filter((p) => p.slug !== DEFAULT_WEATHER_SLUG).map((p) => ({
       url: `${BASE}${weatherPlaceHref(p)}`, lastModified: new Date(), changeFrequency: 'hourly' as const, priority: 0.75,
     })),
+    // Табло аэропорта Елизово (29.10): задержки и отмены, меняется за минуты.
+    { url: `${BASE}/flights`,              lastModified: new Date(),  changeFrequency: 'hourly',  priority: 0.6 },
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают

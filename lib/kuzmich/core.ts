@@ -2230,6 +2230,11 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       const { weatherForKuzmich } = await import('@/lib/kuzmich/weather-tool');
       return await weatherForKuzmich({ place: args.place, lat: args.lat, lng: args.lng, days: args.days });
     }
+    if (name === 'get_flight_board') {
+      // Табло Елизово (29.10, #2788) — lib/kuzmich/flight-tool.
+      const { flightBoardForKuzmich } = await import('@/lib/kuzmich/flight-tool');
+      return await flightBoardForKuzmich({ flight: args.flight });
+    }
     if (name === 'get_volcano_status') {
       const { volcanoStatusForKuzmich } = await import('@/lib/kuzmich/volcano-tool');
       return await volcanoStatusForKuzmich({ volcano: args.volcano });

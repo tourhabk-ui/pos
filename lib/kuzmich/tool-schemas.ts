@@ -132,6 +132,13 @@ const getVolcanoStatusSchema = z.object({
 
 const safetyStatusSchema = z.object({});
 
+// ── get_flight_board ─────────────────────────────────────────────────────────
+// Табло аэропорта Елизово (29.10, карт-бланш владельца, #2788). Исполнитель —
+// flight-tool, источник — pkc.aero. Во внешний MCP не выдаётся (EXCLUDED_TOOLS).
+const getFlightBoardSchema = z.object({
+  flight: looseString(20).optional(),
+});
+
 // ── make_trip_plan ──────────────────────────────────────────────────────────
 // План поездки по дням («Мой план 2.0», A-2). Оба поля необязательны:
 // без days — неделя, без interests — классика первой поездки.
@@ -339,6 +346,23 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: getVolcanoStatusSchema,
+  },
+  get_flight_board: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'get_flight_board',
+        description: 'Табло аэропорта Елизово (Петропавловск-Камчатский, PKC) с официального сайта аэропорта: задержки, отмены, ожидаемое время вылета и прилёта. С номером рейса — этот рейс; без номера — задержанные и отменённые. Причину задержки табло не называет — не придумывай её.',
+        parameters: {
+          type: 'object',
+          properties: {
+            flight: { type: 'string', description: 'Номер рейса так, как его назвал человек, например «SU 1731» или «HZ-5685». Пусто — все задержки и отмены.' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: getFlightBoardSchema,
   },
   search_accommodations: {
     definition: {
