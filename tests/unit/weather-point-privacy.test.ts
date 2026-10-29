@@ -8,6 +8,18 @@
  * потолка, при том что публичный MCP принимает любую точку Земли.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Запас прогноза в базе (lib/weather/last-good-store, #2655) пишется без
+// ожидания (`void saveLastGood`). Базы в юнит-тесте нет: 5200 записей ниже
+// падали и писали отказ в консоль уже после конца теста, и vitest отвечал
+// «Closing rpc while onUserConsoleLog was pending» — две необработанные
+// ошибки на весь прогон. Запас здесь не предмет проверки: тест держит потолок
+// кэша в памяти.
+vi.mock('@/lib/weather/last-good-store', () => ({
+  saveLastGood: vi.fn(async () => {}),
+  loadLastGood: vi.fn(async () => null),
+}));
+
 import { weatherTarget } from '@/lib/kuzmich/weather-tool';
 import { fetchForecastDays, forecastCacheSize } from '@/lib/planner/intelligence';
 
