@@ -156,6 +156,8 @@ describe('задачи и то, чего нет', () => {
     for (const op of ['CreateTaskPushNotificationConfig', 'GetTaskPushNotificationConfig', 'ListTaskPushNotificationConfigs', 'DeleteTaskPushNotificationConfig'] as const) {
       const out = await handleA2A(op, {}, ctx(), d);
       expect(!out.ok && out.error.code, op).toBe(-32003);
+      // Агент, постучавшийся в push задачи, узнаёт, куда идти за изменениями заявки (29.10).
+      expect(!out.ok && out.error.message, op).toMatch(/notify_url/);
     }
   });
 

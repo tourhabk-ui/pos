@@ -19,11 +19,17 @@
 
 import { logAgentRun } from './run-logger';
 
+/**
+ * `partial` — прогон прошёл, но дела не довёл: ответ крона при этом может быть
+ * 200 (шаг workflow зелёный), а серию таких прогонов видит сторож «крон идёт,
+ * результата нет» (lib/agents/cron-fruitless). Причину он читает из
+ * `metadata.skip_reason` и `metadata.empty_reasons[0]`.
+ */
 export function recordCronRun(
   agentId: string,
   startedAtMs: number,
-  status: 'success' | 'failed',
-  opts?: { items?: number; error?: string },
+  status: 'success' | 'partial' | 'failed',
+  opts?: { items?: number; error?: string; metadata?: Record<string, unknown> },
 ): void {
   void logAgentRun({
     agent_id: agentId,
@@ -32,5 +38,6 @@ export function recordCronRun(
     duration_ms: Math.max(0, Date.now() - startedAtMs),
     items_processed: opts?.items,
     error_msg: opts?.error,
+    metadata: opts?.metadata,
   });
 }

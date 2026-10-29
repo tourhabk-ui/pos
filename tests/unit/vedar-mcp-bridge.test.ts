@@ -72,10 +72,28 @@ describe('мост обещает о платформе только то, чт�
     // (to_openai_tools: описание обрезается до 1024 знаков, схема — как есть).
     const snapshot = JSON.parse(read(`${DIR}/vedar_tools.json`)) as Array<{ function: { name: string; description: string; parameters: unknown } }>;
     const byName = new Map(snapshot.map((t) => [t.function.name, t.function]));
+    // Поля, которые мост модели не показывает (BRIDGE_HIDDEN_ARGS, 29.10:
+    // notify_url — своего приёмника у моста нет), убираются тем же правилом.
+    const hidden = new Set(pythonSet(src, 'BRIDGE_HIDDEN_ARGS'));
+    expect([...hidden]).toEqual(['notify_url']);
+    const withoutHidden = (schema: unknown) => {
+      const copy = JSON.parse(JSON.stringify(schema)) as { properties?: Record<string, unknown>; required?: string[] };
+      for (const h of hidden) delete copy.properties?.[h];
+      if (copy.required) copy.required = copy.required.filter((r) => !hidden.has(r));
+      return copy;
+    };
+    // Предложения о скрытых полях мост из описания убирает (bridge_description):
+    // модели не показано поле — не нужна и фраза о нём.
+    const withoutHiddenSentences = (text: string) => {
+      const sentences = text.trim().split(/(?<=[.!?])\s+/);
+      const kept = sentences.filter((s) => ![...hidden].some((h) => s.includes(h)));
+      return (kept.length === sentences.length ? text.trim() : kept.join(' ')).slice(0, 1024);
+    };
     for (const live of PUBLIC_MCP_TOOLS) {
       const snap = byName.get(live.name);
-      expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(live.description.trim().slice(0, 1024));
-      expect(snap?.parameters, `${live.name}: параметры в снимке устарели`).toEqual(live.inputSchema);
+      expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(withoutHiddenSentences(live.description));
+      expect(snap?.description, `${live.name}: фраза о скрытом поле осталась в снимке`).not.toMatch(/notify_url/);
+      expect(snap?.parameters, `${live.name}: параметры в снимке устарели`).toEqual(withoutHidden(live.inputSchema));
     }
   });
 
@@ -132,6 +150,50 @@ describe('мост обещает о платформе только то, чт�
     // Оба сразу — понятная ошибка, а не тихий выбор одного.
     expect(out.both).toMatch(/одним параметром — name/);
     expect(out.both).toMatch(/client_name/);
+  });
+});
+
+describe('notify_url модели не отдаётся (29.10)', () => {
+  it.skipIf(PY.skip)(PY.title('to_openai_tools прячет notify_url, вызов его вычищает: модель не выдумает адрес приёмника'), () => {
+    PY.require('скрытые аргументы моста');
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'tool = {"name": "create_lead", "description": "x", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "notify_url": {"type": "string"}}, "required": ["name", "notify_url"]}}',
+      'out = m.to_openai_tools([tool])[0]["function"]["parameters"]',
+      'args = m.bridge_args({"name": "a", "notify_url": "https://evil.example-agent.ru/x"})',
+      'sys.stdout.write(json.dumps({"props": sorted(out["properties"]), "required": out["required"], "args": args, "orig": sorted(tool["inputSchema"]["properties"])}))',
+    ].join('\n');
+    const out = JSON.parse(execFileSync('python3', ['-I', '-B', '-c', code], { encoding: 'utf-8' })) as { props: string[]; required: string[]; args: Record<string, string>; orig: string[] };
+    expect(out.props).toEqual(['name']);
+    expect(out.required).toEqual(['name']);
+    expect(out.args).toEqual({ name: 'a' });
+    // Схема сервера не мутируется — прячется копия.
+    expect(out.orig).toEqual(['name', 'notify_url']);
+  });
+
+  it.skipIf(PY.skip)(PY.title('снимок vedar_tools.json собирает сам мост: to_openai_tools по живому реестру даёт файл байт в байт, без фраз о notify_url'), () => {
+    // TS-зеркало правила выше сверяет снимок с реестром, но производитель
+    // снимка — Python. Здесь судит он сам: правка bridge_description без
+    // пересборки файла (или наоборот) краснеет.
+    PY.require('сборку снимка мостом');
+    const tools = PUBLIC_MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'tools = json.loads(sys.stdin.read())',
+      'sys.stdout.write(json.dumps(m.to_openai_tools(tools), ensure_ascii=False, indent=2) + "\\n")',
+    ].join('\n');
+    const built = execFileSync('python3', ['-I', '-B', '-c', code], { input: JSON.stringify(tools), encoding: 'utf-8' });
+    expect(built).toBe(read(`${DIR}/vedar_tools.json`));
+    expect(built).not.toMatch(/notify_url/);
+    // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
+    const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
+    expect(booking?.function.description).toMatch(/согласие на их обработку и передай consent: true\.$/);
   });
 });
 

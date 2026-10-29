@@ -215,7 +215,7 @@ export async function handleA2A(
     case 'GetTaskPushNotificationConfig':
     case 'ListTaskPushNotificationConfigs':
     case 'DeleteTaskPushNotificationConfig':
-      return { ok: false, error: a2aError('PushNotificationNotSupported', 'Push-уведомления не поддерживаются (capabilities.pushNotifications = false): задача завершается в ответе на SendMessage.') };
+      return { ok: false, error: a2aError('PushNotificationNotSupported', 'Push-уведомления задач не поддерживаются (capabilities.pushNotifications = false): задача завершается в ответе на SendMessage. Об изменении самой заявки — необязательный notify_url в аргументах пишущего инструмента: подписанный POST по Standard Webhooks.') };
     case 'GetExtendedAgentCard':
       return { ok: false, error: a2aError('UnsupportedOperation', 'Расширенной карточки нет (capabilities.extendedAgentCard = false): всё — в /.well-known/agent-card.json.') };
   }

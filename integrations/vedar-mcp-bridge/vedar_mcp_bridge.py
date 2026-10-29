@@ -32,6 +32,7 @@
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -98,6 +99,32 @@ WRITE_TOOLS = {
     "request_charter",
     "create_car_rental_request",
 }
+
+# Аргументы, которые мост модели не показывает и не передаёт (29.10).
+# notify_url — адрес приёмника уведомлений об изменении заявки: своего
+# приёмника у моста нет, а модель могла бы выдумать адрес — и снимки чужих
+# заявок ушли бы третьей стороне. Состояние мост узнаёт get_request_status.
+BRIDGE_HIDDEN_ARGS = {"notify_url"}
+
+
+def bridge_args(args):
+    """Аргументы вызова без скрытых полей: модель их не задаёт."""
+    return {k: v for k, v in args.items() if k not in BRIDGE_HIDDEN_ARGS}
+
+
+def bridge_description(text):
+    """Описание без предложений о скрытых полях, не длиннее 1024 знаков.
+
+    Поле модели не показано, значит и фраза о нём ей не нужна: иначе модель
+    читает про notify_url, которого в схеме нет, а на длинных описаниях
+    (create_booking_request) обрезка в 1024 знака резала фразу посередине.
+    """
+    text = (text or "").strip()
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    kept = [s for s in sentences if not any(h in s for h in BRIDGE_HIDDEN_ARGS)]
+    if len(kept) != len(sentences):
+        text = " ".join(kept)
+    return text[:1024]
 
 SYSTEM_PROMPT = """Ты помощник по Камчатке. Отвечай на том языке, на котором задан вопрос.
 
@@ -230,15 +257,19 @@ class VedarMCP:
 def to_openai_tools(tools):
     out = []
     for t in tools:
-        schema = t.get("inputSchema") or {"type": "object", "properties": {}}
+        schema = json.loads(json.dumps(t.get("inputSchema") or {"type": "object", "properties": {}}))
         if schema.get("type") != "object":
             schema = {"type": "object", "properties": schema}
         schema.setdefault("properties", {})
+        for hidden in BRIDGE_HIDDEN_ARGS:
+            schema["properties"].pop(hidden, None)
+        if "required" in schema:
+            schema["required"] = [r for r in schema["required"] if r not in BRIDGE_HIDDEN_ARGS]
         out.append({
             "type": "function",
             "function": {
                 "name": t["name"],
-                "description": (t.get("description") or "").strip()[:1024],
+                "description": bridge_description(t.get("description")),
                 "parameters": schema,
             },
         })
@@ -305,7 +336,7 @@ class Agent:
             for call in calls:
                 fn = call["function"]["name"]
                 try:
-                    args = json.loads(call["function"].get("arguments") or "{}")
+                    args = bridge_args(json.loads(call["function"].get("arguments") or "{}"))
                 except json.JSONDecodeError:
                     args = {}
 

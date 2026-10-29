@@ -77,7 +77,9 @@ describe('идемпотентность заявки на бронь: (теле
     expect(fn).toMatch(/const leadId = existing \?\? await createLead\(/);
     expect(fn).not.toMatch(/if \(existing\)/);
     expect((fn.match(/return accepted/g) ?? []).length).toBe(1);
-    expect(fn.trimEnd()).toMatch(/return accepted \+ keyLine\(await issueRequestKey\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name\)\);\s*\}$/);
+    // С 29.10 ключ и подписка на уведомления (notify_url) — одной функцией;
+    // её хвост от повтора тоже не зависит.
+    expect(fn.trimEnd()).toMatch(/return accepted \+ await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url\);\s*\}$/);
     expect(fn).not.toMatch(/номер \$\{leadId\}/);
   });
 
