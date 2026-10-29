@@ -332,6 +332,27 @@ jobs:
           echo "HTTP: $HTTP" && cat /tmp/ptwc_check.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
+      # ── Уведомления агентам об изменении заявок (29.10) ─────────────────
+      # Слово владельца: «делай, я не знал про эту дыру». Сверка подписок
+      # notify_url (миграция 1348): вид заявки той же функцией, что у
+      # get_request_status, разница — подписанным POST агенту. Последним: по
+      # цене отказа он дешевле safety-шагов выше. Отказ приёмника — его исход
+      # (200 с числами); 502 — нет ENCRYPTION_KEY при живых подписках; 500 —
+      # SQL. Роут сам перестаёт начинать отправки через 45 с; тело ответа —
+      # только числа и коды, его печатает этот публичный лог.
+      - name: Agent request notifications
+        id: agent_request_notify
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
+          HTTP=$(curl -s -o /tmp/agent_request_notify.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/agent-request-notify")
+          echo "HTTP: $HTTP" && cat /tmp/agent_request_notify.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
       # ── Итог: job краснеет, если хоть один шаг отказал ──────────────────
       #
       # continue-on-error на каждом шаге держит job зелёным по умолчанию —
@@ -354,6 +375,7 @@ jobs:
             [seat_requests_expire]="${{ steps.seat_requests_expire.outcome }}"
             [crm_reminders]="${{ steps.crm_reminders.outcome }}"
             [ptwc_check]="${{ steps.ptwc_check.outcome }}"
+            [agent_request_notify]="${{ steps.agent_request_notify.outcome }}"
           )
           # followups намеренно не входит в сводку — тем же было прежнее
           # поведение cron-leads.yml: отказ этого шага не считался провалом.
@@ -369,4 +391,4 @@ jobs:
             echo "Отказали:$FAILED"
             exit 1
           fi
-          echo "Все двенадцать эндпоинтов отработали"
+          echo "Все тринадцать эндпоинтов отработали"

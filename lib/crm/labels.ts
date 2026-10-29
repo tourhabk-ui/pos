@@ -58,7 +58,7 @@ const STATUS_LABELS: Readonly<Record<string, string>> = {
 const STATUS_LABELS_BY_KIND: Partial<Record<SourceKind, Readonly<Record<string, string>>>> = {
   agent_client: { prospect: 'потенциальный', active: 'в работе', inactive: 'неактивный' },
   // У заявки хозяину своего статуса нет (1206): «передана», пока хозяин не
-  // ответил в переписке, и «хозяин ответил» после его сообщения (1348).
+  // ответил в переписке, и «хозяин ответил» после его сообщения (1349).
   stay_request: { delivered: 'передана', answered: 'хозяин ответил' },
 };
 

@@ -30,8 +30,9 @@ describe('MCP create_booking_request — личная доставка опер�
     expect(ROUTE).toMatch(/if \(!existing && !ctx\.self && tour\.operator_id\) \{/);
     const call = ROUTE.indexOf('notifyPartnerPersonallyAboutMcpLead({');
     expect(call).toBeGreaterThan(ROUTE.indexOf('const leadId = existing ?? await createLead({'));
-    expect(call).toBeLessThan(ROUTE.indexOf('return accepted + keyLine'));
-    const block = ROUTE.slice(call, ROUTE.indexOf('return accepted + keyLine'));
+    // С 29.10 ключ статуса и подписка на уведомления выдаются одной функцией.
+    expect(call).toBeLessThan(ROUTE.indexOf('return accepted + await issueKeyWithNotify'));
+    const block = ROUTE.slice(call, ROUTE.indexOf('return accepted + await issueKeyWithNotify'));
     expect(block).toMatch(/operatorId: tour\.operator_id/);
     expect(block).toMatch(/routeTitle: tour\.title/);
   });

@@ -22,6 +22,7 @@ import McpLandingPage from '@/app/mcp/page';
 import { MCP_CONNECT_OPTIONS, MCP_TRANSPORT_SPELLINGS, MCP_ENDPOINT } from '@/lib/mcp/connect';
 import { MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, CLIENT_WINDOW_MINUTES } from '@/lib/mcp/write-limits';
+import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 
 function page() {
   return render(McpLandingPage());
@@ -88,5 +89,23 @@ describe('/mcp: правда о записях и лимитах', () => {
     expect(text).toContain(`чтение — ${MCP_READ_PER_MINUTE} вызовов в минуту`);
     expect(text).toContain(`заявки — ${CLIENT_MAX_PER_WINDOW} за ${CLIENT_WINDOW_MINUTES} минут и ${CLIENT_MAX_PER_DAY} в сутки`);
     expect(text).toContain(`npx -y mcp-remote ${MCP_ENDPOINT} --transport http-only`);
+  });
+});
+
+describe('/mcp: уведомления об изменении заявки (29.10)', () => {
+  it('раздел виден: поле, инструменты, как проверить подпись и защититься от повтора, 410, жильё без уведомлений', () => {
+    const { container } = page();
+    const section = container.querySelector('#notify');
+    expect(section).not.toBeNull();
+    const text = section!.textContent ?? '';
+    expect(text).toContain('notify_url');
+    for (const n of NOTIFY_TOOL_NAMES) expect(text).toContain(n);
+    expect(text).toContain(NOTIFY_HOW_TO_VERIFY);
+    expect(text).toMatch(/старше 5 минут/);
+    // Правило ответа целиком (ревью 29.10): не «410 отключает», а любой 4xx,
+    // кроме 408/425/429, — так ведёт себя отправитель.
+    expect(text).toContain(NOTIFY_RESPONSE_RULES);
+    expect(text).toMatch(/У заявки на жильё уведомлений нет/);
+    expect(text).not.toMatch(/create_stay_request/);
   });
 });

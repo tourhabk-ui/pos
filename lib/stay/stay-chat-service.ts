@@ -1,7 +1,7 @@
 /**
  * lib/stay/stay-chat-service.ts — переписка хозяина жилья и гостя по заявке:
  * запись, доставка второй стороне, ожидание сообщения после кнопки и
- * подключение чата MAX гостя (1348, #2843). Правила и тексты —
+ * подключение чата MAX гостя (1349, #2843). Правила и тексты —
  * `lib/stay/stay-chat.ts`.
  *
  * Двери три, правило одно:
@@ -306,7 +306,7 @@ function chatMayWrite(r: RequestRow, side: StayChatSide, chatId: number): boolea
 /**
  * Кнопка «Ответить гостю» / «Написать владельцу»: проверить право чата и
  * завести ожидание. Новое ожидание гасит прежнее этого чата (одно живое —
- * индекс в 1348).
+ * индекс в 1349).
  */
 export async function armStayChatWait(side: StayChatSide, requestId: string, chatId: number): Promise<StayChatReply> {
   let r: RequestRow | undefined;

@@ -91,7 +91,7 @@ const TASK_GET = /^tasks\/([^/:]+)$/;
 const TASK_PUSH = /^tasks\/[^/:]+\/pushNotificationConfigs(?:\/.*)?$/;
 
 const UNSUPPORTED_STREAM = 'Поток не поддерживается (capabilities.streaming = false): используйте POST /message:send.';
-const PUSH_UNSUPPORTED = 'Push-уведомления не поддерживаются (capabilities.pushNotifications = false).';
+const PUSH_UNSUPPORTED = 'Push-уведомления задач не поддерживаются (capabilities.pushNotifications = false). Об изменении самой заявки — необязательный notify_url в аргументах пишущего инструмента: подписанный POST по Standard Webhooks.';
 
 export async function OPTIONS() {
   return optionsResponse();

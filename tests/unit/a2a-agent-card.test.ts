@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildAgentCard, buildLegacyAgentCard, buildSkills, skillToolNames, SKILL_TAGS, CHAT_SKILL_ID,
+  buildAgentCard, buildLegacyAgentCard, buildSkills, skillToolNames, SKILL_TAGS, CHAT_SKILL_ID, A2A_DESCRIPTION,
   AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH, A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION,
 } from '@/lib/a2a/agent-card';
 import { PUBLIC_MCP_TOOL_NAMES, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
@@ -151,6 +151,12 @@ describe('описание не обещает лишнего', () => {
     expect(d.slice(0, 300)).not.toMatch(/[А-Яа-яЁё]/);
     expect(d.indexOf('Русский:')).toBeGreaterThan(0);
     expect(legacy.description).toBe(d);
+  });
+
+  it('изменения заявки — notify_url пишущего инструмента; push задач не объявлен (29.10)', () => {
+    expect(A2A_DESCRIPTION).toMatch(/notify_url/);
+    expect(A2A_DESCRIPTION).toMatch(/Standard Webhooks/);
+    expect((card.capabilities as { pushNotifications: boolean }).pushNotifications).toBe(false);
   });
 
   it('ни телефонов, ни почт людей, ни секретов', () => {

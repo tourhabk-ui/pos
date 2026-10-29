@@ -165,7 +165,7 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
              ${NO_CONSENT}, s.created_at::timestamptz AS occurred_at`,
     eligible: `TRUE`,
   },
-  // Заявка хозяину жилья без своей брони (1206, CRM — 1348): имя и телефон
+  // Заявка хозяину жилья без своей брони (1206, CRM — 1349): имя и телефон
   // гостя хозяин получает в самом сообщении о заявке, согласие на передачу
   // владельцу записано в заявке. Аккаунта у заявки нет.
   stay_request: {

@@ -1,4 +1,4 @@
--- Migration 1348: переписка хозяина жилья и гостя по заявке (#2843)
+-- Migration 1349: переписка хозяина жилья и гостя по заявке (#2843)
 -- Created: 2026-10-29
 --
 -- Слово владельца 29.10: «нужно чтоб с гостем он общался через этот же чат»,
@@ -58,13 +58,13 @@ CREATE INDEX IF NOT EXISTS stay_request_messages_request_idx
   ON stay_request_messages (stay_request_id, created_at);
 
 COMMENT ON TABLE stay_request_messages IS
-  'Переписка хозяина жилья и гостя по заявке (1348, #2843). Текст — слова людей; в промпты моделей и в ответы инструментов MCP не уходит.';
+  'Переписка хозяина жилья и гостя по заявке (1349, #2843). Текст — слова людей; в промпты моделей и в ответы инструментов MCP не уходит.';
 
 ALTER TABLE stay_requests ADD COLUMN IF NOT EXISTS guest_max_chat_id BIGINT;
 ALTER TABLE stay_requests ADD COLUMN IF NOT EXISTS guest_chat_bound_at TIMESTAMPTZ;
 
 COMMENT ON COLUMN stay_requests.guest_max_chat_id IS
-  'Личный чат гостя с ботом MAX — по «Старту» со ссылкой ключа статуса заявки (1348). Чужой чат не перезаписывается.';
+  'Личный чат гостя с ботом MAX — по «Старту» со ссылкой ключа статуса заявки (1349). Чужой чат не перезаписывается.';
 
 CREATE TABLE IF NOT EXISTS stay_chat_waits (
   id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

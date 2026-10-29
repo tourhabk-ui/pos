@@ -37,7 +37,9 @@
  * create_stay_request выдаёт ключ тем же путём. Своего жизненного цикла у
  * такой заявки нет: платформа знает, кому она доставлена (1213), а ответ
  * владелец даёт гостю звонком. Поэтому статус — `delivered` с тем, кому
- * передана, а не «ждёт ответа», который никогда не придёт.
+ * передана, а не «ждёт ответа», который никогда не придёт. С 1349 владелец
+ * отвечает и в переписке на странице заявки: агенту видно число его ответов
+ * (`owner_replies`), текста нет.
  *
  * Согласие человек подтверждает тем текстом, кому уходят его данные
  * (`consent_purpose`): владельцу жилья, перевозчику или туроператору. До
@@ -60,8 +62,10 @@ import { stayGuestBotLink } from '@/lib/stay/stay-chat';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
-  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
+  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, publicDisabledReason,
+  type RequestState, type RequestKind, type ConsentPurpose, type RequestNotifyStatus,
 } from '@/lib/mcp/request-status-schema';
+import { BOOKING_STATUSES, LEAD_STATUSES, type BookingStatus, type LeadStatus } from '@/lib/types/statuses';
 
 export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 
@@ -96,11 +100,12 @@ export function consentBy(source: string | null | undefined, at: Date | string |
 /** Пишущие инструменты, чьи данные уходят не туроператору (lib/mcp/public-tools). */
 const STAY_TOOL_NAME = 'create_stay_request';
 /**
- * Ключ заявки на жильё, оставленной формой на карточке объекта (1348): с ним
+ * Ключ заявки на жильё, оставленной формой на карточке объекта (1349): с ним
  * гость открывает страницу заявки с перепиской и подключает MAX. Это не
  * инструмент MCP — имя двери в той же колонке `tool_name`.
  */
 export const STAY_FORM_KEY_NAME = 'stay-request-form';
+const BOOKING_TOOL_NAME = 'create_booking_request';
 const CHARTER_TOOL_NAME = 'request_charter';
 const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
 
@@ -130,17 +135,31 @@ export type RequestKeyTarget = { leadId: string } | { seatRequestId: string } | 
  * ключа она не хуже, чем была до 12.10; агент услышит, что ключа нет.
  */
 export async function issueRequestKey(target: RequestKeyTarget, toolName: string): Promise<string | null> {
+  return (await issueRequestKeyRecord(target, toolName))?.key ?? null;
+}
+
+/** Выданный ключ и номер его строки: номер нужен подписке на уведомления (1348). */
+export interface IssuedRequestKey {
+  key: string;
+  /** Номер строки ключа; null — база не вернула строку (не бывает при живой вставке). */
+  keyId: string | null;
+}
+
+/** То же, что issueRequestKey, но с номером строки ключа — для подписки на уведомления. */
+export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: string): Promise<IssuedRequestKey | null> {
   const key = randomBytes(24).toString('base64url');
   const leadId = 'leadId' in target ? target.leadId : null;
   const seatRequestId = 'seatRequestId' in target ? target.seatRequestId : null;
   const stayRequestId = 'stayRequestId' in target ? target.stayRequestId : null;
   try {
-    await pool.query(
+    const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO agent_request_keys (key_hash, lead_id, seat_request_id, stay_request_id, tool_name, expires_at)
-       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'))`,
+       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'))
+       RETURNING id::text AS id`,
       [sha256(key), leadId, seatRequestId, stayRequestId, toolName, REQUEST_KEY_TTL_DAYS],
     );
-    return key;
+    const row = rows?.[0];
+    return { key, keyId: row?.id ?? null };
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[request-status] ключ не выдан:', logText(toolName), typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
@@ -150,8 +169,9 @@ export async function issueRequestKey(target: RequestKeyTarget, toolName: string
 
 /**
  * Хвост ответа пишущего инструмента: ключ есть — как им пользоваться; нет —
- * так и сказано. У заявки на жильё ответа владельца платформа не видит, и
- * хвост этого не обещает.
+ * так и сказано. У заявки на жильё хвост ведёт человека в переписку с
+ * владельцем (страница заявки и MAX, 1349); текст переписки инструменты не
+ * отдают.
  */
 export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'): string {
   if (kind === 'stay') {
@@ -177,8 +197,10 @@ export interface RequestStatusView {
   /** Объект и его карточка — у заявки на жильё; на карточке телефон владельца. */
   accommodation: string | null;
   accommodation_url: string | null;
-  /** Дата тура или заезда. */
+  /** Дата тура или заезда — действующая: у брони та, что в брони сейчас (оператор мог перенести). */
   date: string | null;
+  /** Дата, которую просили в заявке, — если записана (запрос мест, заявка на бронь тура, жильё). */
+  requested_date: string | null;
   /** Дата выезда — у заявки на жильё. */
   check_out: string | null;
   participants: number | null;
@@ -192,19 +214,32 @@ export interface RequestStatusView {
   consent_purpose: ConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
-  /** Заявка на жильё: сколько сообщений владелец написал в переписке (1348); у других — null. Текста нет. */
+  /** Заявка на жильё: сколько сообщений владелец написал в переписке (1349); у других — null. Текста нет. */
   owner_replies: number | null;
   owner_last_reply_at: string | null;
   /** Заявка на жильё: ссылка подключить MAX гостя; null — подключён или заявка не на жильё. */
   max_link: string | null;
+  /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
+  notify: RequestNotifyStatus | null;
 }
 
-interface StatusRow {
+/**
+ * Строка читателя — одна форма на обе обёртки SQL (по ключу и по номерам
+ * ключей). Поля, которых нет у старых строк тестов, необязательны: их
+ * отсутствие читается как «не записано».
+ */
+export interface StatusRow {
+  /** Номер ключа — его отдаёт обёртка по номерам (для сверки уведомлений). */
+  key_id?: string | null;
   tool_name: string;
   lead_id: string | null;
   seat_request_id: string | null;
   lead_status: string | null;
   route_title: string | null;
+  /** Дата из заявки на бронь тура (`source_data.date`): текст, проверяется здесь, а не `::date` в SQL. */
+  lead_requested_date?: string | null;
+  /** Тур заявки на бронь — из каталога по номеру `source_data.tour_id`, который записал роут MCP (не текст человека). */
+  lead_tour?: string | null;
   booking_status: string | null;
   booking_date: string | null;
   booking_participants: number | null;
@@ -217,6 +252,15 @@ interface StatusRow {
   alt_date: string | null;
   failure_kind: FailureKind | null;
   seat_tour: string | null;
+  /** Бронь, заведённая по запросу мест (`tour_seat_requests.booking_id`); статус NULL при номере — бронь удалена. */
+  seat_booking_id?: string | null;
+  seat_booking_status?: string | null;
+  seat_booking_date?: string | null;
+  seat_booking_participants?: number | null;
+  seat_booking_tour?: string | null;
+  /** Подписка на уведомления по этому ключу (1348). */
+  notify_ref?: string | null;
+  notify_disabled_reason?: string | null;
   lead_consent_at: Date | string | null;
   lead_consent_source: string | null;
   seat_consent_at: Date | string | null;
@@ -232,26 +276,65 @@ interface StatusRow {
   stay_delivery_recorded_at: Date | string | null;
   stay_consent_at: Date | string | null;
   stay_consent_source: string | null;
-  stay_owner_replies: number | null;
-  stay_owner_last_at: Date | string | null;
-  stay_guest_on_max: boolean | null;
+  /** Переписка по заявке на жильё (1349): сколько написал владелец, когда последнее, подключён ли MAX гостя. */
+  stay_owner_replies?: number | null;
+  stay_owner_last_at?: Date | string | null;
+  stay_guest_on_max?: boolean | null;
+}
+
+/**
+ * Статус брони → состояние для агента. Одна таблица на лид и запрос мест: до
+ * 29.10 запрос мест на бронь не смотрел вовсе, а лид знал три слова из
+ * шести, и неявка (`no_show`) читалась «ждёт оператора».
+ *
+ * `Record` по словарю — компилятор не даст добавить статус в
+ * `BOOKING_STATUSES` без строки здесь. `no_show` — `declined`: его текст
+ * («отказал или она не состоялась») уже покрывает неявку, а фраза «человек не
+ * пришёл» — факт о человеке, и чужому адресу уведомления он ни к чему.
+ * `pending_payment` — как прежде «ждёт оператора»: оплата через платформу
+ * выключена с 05.10.
+ */
+const BOOKING_STATE: Record<BookingStatus, RequestState> = {
+  new: 'awaiting_operator',
+  pending_payment: 'awaiting_operator',
+  confirmed: 'confirmed',
+  completed: 'confirmed',
+  cancelled: 'cancelled',
+  no_show: 'declined',
+};
+
+/**
+ * Статус лида → состояние. Весь словарь `LEAD_STATUSES`: до 29.10 здесь было
+ * пять слов из девяти, и лид после разбора ИИ-конвейером (`ai_qualified`
+ * через полчаса после create_lead) читался «состояние не распознано».
+ * Конвейер — не ответ человека (`UNATTENDED_LEAD_STATUSES`): `ai_*` — «ждёт
+ * оператора»; предложение отправлено и ждёт подтверждения — «в работе».
+ */
+const LEAD_STATE: Record<LeadStatus, RequestState> = {
+  new: 'awaiting_operator',
+  ai_processing: 'awaiting_operator',
+  ai_qualified: 'awaiting_operator',
+  contacted: 'operator_contacted',
+  qualified: 'in_progress',
+  proposal_sent: 'in_progress',
+  awaiting_confirm: 'in_progress',
+  converted: 'confirmed',
+  lost: 'declined',
+};
+
+function inDictionary<T extends string>(dict: readonly T[], value: string | null | undefined): value is T {
+  return typeof value === 'string' && (dict as readonly string[]).includes(value);
+}
+
+/** Слово вне словаря — `unknown`: «не распознано» честнее догадки. */
+export function bookingState(status: string | null | undefined): RequestState {
+  return inDictionary(BOOKING_STATUSES, status) ? BOOKING_STATE[status] : 'unknown';
 }
 
 /** Лид: сначала бронь по нему (если оператор уже завёл), иначе статус самого лида. */
 export function leadState(leadStatus: string | null, bookingStatus: string | null): RequestState {
-  if (bookingStatus) {
-    if (bookingStatus === 'confirmed' || bookingStatus === 'completed') return 'confirmed';
-    if (bookingStatus === 'cancelled') return 'cancelled';
-    return 'awaiting_operator';
-  }
-  switch (leadStatus) {
-    case 'new': return 'awaiting_operator';
-    case 'contacted': return 'operator_contacted';
-    case 'qualified': return 'in_progress';
-    case 'converted': return 'confirmed';
-    case 'lost': return 'declined';
-    default: return 'unknown';
-  }
+  if (bookingStatus) return bookingState(bookingStatus);
+  return inDictionary(LEAD_STATUSES, leadStatus) ? LEAD_STATE[leadStatus] : 'unknown';
 }
 
 export function seatState(status: SeatRequestStatus): RequestState {
@@ -349,21 +432,20 @@ function readKey(raw: unknown): string {
 }
 
 /**
- * Один запрос: ключ живой → отметка прочтения и строка лида или запроса мест.
- * Бронь по лиду — последняя не удалённая (оператор мог завести одну).
+ * Что читать о заявке — общая часть двух обёрток (по ключу и по номерам
+ * ключей). Бронь по лиду — последняя не удалённая (оператор мог завести
+ * одну). Запрос мест смотрит на СВОЮ бронь (`r.booking_id`): до 29.10 он её
+ * не читал, и после переноса агент видел старую дату, а после отмены —
+ * «подтверждена» навсегда.
  */
-export const REQUEST_STATUS_SQL = `
-  WITH k AS (
-    UPDATE agent_request_keys
-       SET last_read_at = NOW(), read_count = read_count + 1
-     WHERE key_hash = $1 AND expires_at > NOW()
-    RETURNING lead_id, seat_request_id, stay_request_id, tool_name
-  )
-  SELECT k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
-         l.status AS lead_status, l.route_title,
+const REQUEST_STATUS_SELECT = `
+  SELECT k.id::text AS key_id, k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
+         l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date, lt.title AS lead_tour,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
+         r.booking_id::text AS seat_booking_id, sb.booking_status AS seat_booking_status,
+         sb.booking_date::text AS seat_booking_date, sb.participants AS seat_booking_participants, sbt.title AS seat_booking_tour,
          l.pd_consent_at AS lead_consent_at, l.pd_consent_source AS lead_consent_source,
          r.pd_consent_at AS seat_consent_at, r.pd_consent_source AS seat_consent_source,
          s.accommodation_id::text AS stay_accommodation_id, a.name AS stay_name,
@@ -372,9 +454,15 @@ export const REQUEST_STATUS_SQL = `
          s.delivery_recorded_at AS stay_delivery_recorded_at,
          s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source,
          sm.n AS stay_owner_replies, sm.last_at AS stay_owner_last_at,
-         (s.guest_max_chat_id IS NOT NULL) AS stay_guest_on_max
+         (s.guest_max_chat_id IS NOT NULL) AS stay_guest_on_max,
+         n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
+    -- Тур заявки на бронь — по номеру, который записал роут MCP; приведение
+    -- только числу: source_data — jsonb, и чужая форма даёт «не записано», а
+    -- не 22P02 на весь ответ.
+    LEFT JOIN operator_tours lt
+           ON lt.id = CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END
     LEFT JOIN LATERAL (
       SELECT b.booking_status, b.booking_date, b.participants, b.operator_tour_id
         FROM operator_bookings b
@@ -385,13 +473,216 @@ export const REQUEST_STATUS_SQL = `
     LEFT JOIN operator_tours ot ON ot.id = ob.operator_tour_id
     LEFT JOIN tour_seat_requests r ON r.id = k.seat_request_id
     LEFT JOIN operator_tours st ON st.id = r.tour_id
+    LEFT JOIN operator_bookings sb ON sb.id = r.booking_id AND sb.deleted_at IS NULL
+    LEFT JOIN operator_tours sbt ON sbt.id = sb.operator_tour_id
     LEFT JOIN stay_requests s ON s.id = k.stay_request_id
     LEFT JOIN accommodations a ON a.id = s.accommodation_id
     LEFT JOIN LATERAL (
       SELECT count(*)::int AS n, max(m.created_at) AS last_at
         FROM stay_request_messages m
        WHERE m.stay_request_id = s.id AND m.author = 'owner'
-    ) sm ON k.stay_request_id IS NOT NULL`;
+    ) sm ON k.stay_request_id IS NOT NULL
+    LEFT JOIN agent_request_notify n ON n.key_id = k.id`;
+
+/** По ключу: живой ключ → отметка прочтения и строка заявки. Это читает агент. */
+export const REQUEST_STATUS_SQL = `
+  WITH k AS (
+    UPDATE agent_request_keys
+       SET last_read_at = NOW(), read_count = read_count + 1
+     WHERE key_hash = $1 AND expires_at > NOW()
+    RETURNING id, lead_id, seat_request_id, stay_request_id, tool_name
+  )${REQUEST_STATUS_SELECT}`;
+
+/**
+ * По номерам ключей, без отметки прочтения: так читает сверка уведомлений.
+ * Сырого ключа у неё нет и быть не должно, а прочтение — это обращение
+ * агента, не наше.
+ */
+export const REQUEST_STATUS_BY_KEY_IDS_SQL = `
+  WITH k AS (
+    SELECT id, lead_id, seat_request_id, stay_request_id, tool_name
+      FROM agent_request_keys
+     WHERE id = ANY($1::uuid[]) AND expires_at > NOW()
+  )${REQUEST_STATUS_SELECT}`;
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Дата из `source_data` — текст, записанный агентом; не той формы — «не записано». */
+function dayOrNull(v: string | null | undefined): string | null {
+  return typeof v === 'string' && ISO_DAY.test(v) ? v : null;
+}
+
+/**
+ * Дата брони не та, что просили в заявке: оператор перенёс бронь или завёл
+ * её на другую дату. Агенту это видно и без уведомления — одной строкой.
+ */
+function dateChangeNote(requested: string | null, actual: string | null): string {
+  return requested && actual && requested !== actual
+    ? ` Дата отличается от заявки: в заявке ${requested}, в брони ${actual}.`
+    : '';
+}
+
+/**
+ * Вид заявки без страницы человека: его собирают и агенту, и сверке
+ * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
+ * сырого ключа у сверки нет и быть не должно.
+ */
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link'>;
+
+/** Переписки у запроса мест и лида нет (1349 — только жильё): поля есть, значения null. */
+const NO_CHAT = { owner_replies: null, owner_last_reply_at: null } as const;
+
+/** Поле notify ответа: есть строка подписки — номер, жива ли и почему нет (словом для агента). */
+export function notifyStatusOf(row: StatusRow): RequestNotifyStatus | null {
+  if (!row.notify_ref) return null;
+  const reason = publicDisabledReason(row.notify_disabled_reason);
+  return { ref: row.notify_ref, active: row.notify_disabled_reason == null, disabled_reason: reason };
+}
+
+const BOOKING_GONE_HUMAN = 'Бронь по заявке не найдена — исход выясняется у оператора напрямую.';
+
+/**
+ * Состояние по строке — ОДНА функция на get_request_status и на сверку
+ * уведомлений: две сборки разошлись бы, и уведомление сказало бы одно, а
+ * опрос — другое. Чистая: строка и время на входе, без базы.
+ */
+export function buildRequestView(row: StatusRow, now: number): RequestCore {
+  const consent_purpose = consentPurposeForTool(row.tool_name);
+
+  if (row.stay_request_id) {
+    // Строки заявки нет (удалена между UPDATE и JOIN) — честное unknown.
+    const exists = row.stay_accommodation_id !== null;
+    const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
+    const state = exists ? stayState(delivery) : 'unknown';
+    // Переписка (1349): сколько написал владелец — без текста.
+    const replies = Number(row.stay_owner_replies ?? 0);
+    return {
+      state,
+      kind: 'stay_request',
+      tour: null,
+      accommodation: row.stay_name,
+      accommodation_url: exists ? `${getPublicBaseUrl()}/accommodations/${row.stay_accommodation_id}` : null,
+      date: row.stay_check_in,
+      requested_date: row.stay_check_in,
+      check_out: row.stay_check_out,
+      participants: row.stay_guests,
+      alt_date: null,
+      deadline: null,
+      human: !exists ? HUMAN.unknown
+        : replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+        : STAY_HUMAN[delivery],
+      next: !exists ? NEXT.unknown
+        : replies > 0 ? 'Дайте человеку страницу заявки (page): там ответ владельца, и ответить ему можно там же или в MAX (max_link).'
+        : STAY_NEXT[delivery],
+      consent: consentBy(row.stay_consent_source, row.stay_consent_at),
+      consent_purpose,
+      owner_replies: exists ? replies : null,
+      owner_last_reply_at: exists ? iso(row.stay_owner_last_at ?? null) : null,
+    };
+  }
+
+  if (row.seat_request_id && row.seat_status) {
+    const own = effectiveStatus({ status: row.seat_status, deadline_at: row.deadline_at ?? new Date(0), answered_at: row.answered_at }, now);
+    const requested = row.seat_date;
+    const consent = consentBy(row.seat_consent_source, row.seat_consent_at);
+    // Бронь записана (номер есть) — правда о заявке в ней: перенос, отмена,
+    // неявка. Пока бронь `new`, а запрос `failed` (подтверждение не прошло,
+    // seat-requests/service), говорит сам запрос; вышла из `new` — бронь.
+    if (row.seat_booking_id) {
+      const bs = row.seat_booking_status ?? null;
+      if (bs === null) {
+        // Номер есть, строки нет — бронь удалена. Подтверждённый запрос без
+        // брони — не «подтверждена»: исход знает только оператор.
+        const state: RequestState = own === 'confirmed' ? 'unknown' : seatState(own);
+        return {
+          state, kind: 'seat_request', tour: row.seat_tour, accommodation: null, accommodation_url: null,
+          date: requested, requested_date: requested, check_out: null, participants: row.seat_participants,
+          alt_date: null, deadline: null,
+          human: state === 'unknown' ? BOOKING_GONE_HUMAN : HUMAN[state],
+          next: NEXT[state], consent, consent_purpose, ...NO_CHAT,
+        };
+      }
+      const state: RequestState = bs === 'new' && own === 'failed' ? 'failed' : bookingState(bs);
+      const date = row.seat_booking_date ?? requested;
+      return {
+        state, kind: 'seat_request', tour: row.seat_booking_tour ?? row.seat_tour, accommodation: null, accommodation_url: null,
+        date, requested_date: requested, check_out: null,
+        participants: row.seat_booking_participants ?? row.seat_participants,
+        alt_date: null, deadline: null,
+        human: HUMAN[state]
+          + (state === 'failed' && row.failure_kind === 'unfinished' ? ' Ответ оператора был получен, но не записан.' : '')
+          + dateChangeNote(requested, date),
+        next: NEXT[state], consent, consent_purpose, ...NO_CHAT,
+      };
+    }
+    const state = seatState(own);
+    return {
+      state,
+      kind: 'seat_request',
+      tour: row.seat_tour,
+      accommodation: null,
+      accommodation_url: null,
+      date: requested,
+      requested_date: requested,
+      check_out: null,
+      participants: row.seat_participants,
+      alt_date: state === 'other_date' ? row.alt_date : null,
+      deadline: state === 'awaiting_operator' ? iso(row.deadline_at) : null,
+      human: HUMAN[state] + (state === 'failed' && row.failure_kind === 'unfinished' ? ' Ответ оператора был получен, но не записан.' : ''),
+      next: NEXT[state],
+      consent,
+      consent_purpose,
+      ...NO_CHAT,
+    };
+  }
+
+  // Лид без строки lead: сама заявка удалена (ON DELETE CASCADE снял бы и
+  // ключ, но строка могла исчезнуть между UPDATE и JOIN) — честное unknown.
+  const state = row.lead_id ? leadState(row.lead_status, row.booking_status) : 'unknown';
+  // Запрошенная дата есть только у заявки на бронь тура (её пишет роут MCP в
+  // source_data); у подбора, машины и проката даты в этом смысле нет.
+  const requested = row.tool_name === BOOKING_TOOL_NAME ? dayOrNull(row.lead_requested_date) : null;
+  return {
+    state,
+    kind: 'lead',
+    tour: row.booking_tour ?? leadCatalogTour(row) ?? row.route_title,
+    accommodation: null,
+    accommodation_url: null,
+    date: row.booking_date,
+    requested_date: requested,
+    check_out: null,
+    participants: row.booking_participants,
+    alt_date: null,
+    deadline: null,
+    human: HUMAN[state] + (row.booking_status ? dateChangeNote(requested, row.booking_date) : ''),
+    next: NEXT[state],
+    consent: consentBy(row.lead_consent_source, row.lead_consent_at),
+    consent_purpose,
+    ...NO_CHAT,
+  };
+}
+
+/**
+ * Тур заявки на бронь из каталога — по номеру, который записал роут MCP.
+ * Одна функция на вид заявки и на снимок уведомления (ревью 29.10): до этого
+ * get_request_status называл тур с самого создания, уведомление — только
+ * после брони, и первая же бронь на тот же тур приходила с `changed: tour`,
+ * будто оператор тур поменял.
+ */
+function leadCatalogTour(row: StatusRow): string | null {
+  return row.tool_name === BOOKING_TOOL_NAME ? row.lead_tour ?? null : null;
+}
+
+/**
+ * Название тура из каталога (`operator_tours`) — и только оттуда. У лида
+ * `tour` вида падает на `leads.route_title`, а у заявки на машину там
+ * направление, набранное человеком: свободный текст наружу не уходит.
+ */
+export function catalogTourOf(row: StatusRow): string | null {
+  if (row.stay_request_id) return null;
+  if (row.seat_request_id) return row.seat_booking_tour ?? row.seat_tour ?? null;
+  return row.booking_tour ?? leadCatalogTour(row);
+}
 
 export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {
   const key = readKey(rawKey);
@@ -406,89 +697,14 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
   if (!row) {
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней). Проверьте, что передан ключ из ответа инструмента целиком.`, 'key_not_found');
   }
-
-  const consent_purpose = consentPurposeForTool(row.tool_name);
-
-  if (row.stay_request_id) {
-    // Строки заявки нет (удалена между UPDATE и JOIN) — честное unknown.
-    const exists = row.stay_accommodation_id !== null;
-    const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
-    const state = exists ? stayState(delivery) : 'unknown';
-    // Переписка (1348): сколько написал владелец — без текста.
-    const replies = Number(row.stay_owner_replies ?? 0);
-    return {
-      state,
-      kind: 'stay_request',
-      tour: null,
-      accommodation: row.stay_name,
-      accommodation_url: exists ? `${getPublicBaseUrl()}/accommodations/${row.stay_accommodation_id}` : null,
-      date: row.stay_check_in,
-      check_out: row.stay_check_out,
-      participants: row.stay_guests,
-      alt_date: null,
-      deadline: null,
-      human: !exists ? HUMAN.unknown
-        : replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
-        : STAY_HUMAN[delivery],
-      next: !exists ? NEXT.unknown
-        : replies > 0 ? 'Дайте человеку страницу заявки (page): там ответ владельца, и ответить ему можно там же или в MAX (max_link).'
-        : STAY_NEXT[delivery],
-      consent: consentBy(row.stay_consent_source, row.stay_consent_at),
-      consent_purpose,
-      page: requestStatusPageUrl(key),
-      owner_replies: exists ? replies : null,
-      owner_last_reply_at: exists ? iso(row.stay_owner_last_at) : null,
-      max_link: exists && row.stay_guest_on_max !== true ? stayGuestBotLink(maxBot(), key) : null,
-    };
-  }
-
-  if (row.seat_request_id && row.seat_status) {
-    const status = effectiveStatus({ status: row.seat_status, deadline_at: row.deadline_at ?? new Date(0), answered_at: row.answered_at });
-    const state = seatState(status);
-    return {
-      state,
-      kind: 'seat_request',
-      tour: row.seat_tour,
-      accommodation: null,
-      accommodation_url: null,
-      date: row.seat_date,
-      check_out: null,
-      participants: row.seat_participants,
-      alt_date: state === 'other_date' ? row.alt_date : null,
-      deadline: state === 'awaiting_operator' ? iso(row.deadline_at) : null,
-      human: HUMAN[state] + (state === 'failed' && row.failure_kind === 'unfinished' ? ' Ответ оператора был получен, но не записан.' : ''),
-      next: NEXT[state],
-      consent: consentBy(row.seat_consent_source, row.seat_consent_at),
-      consent_purpose,
-      page: requestStatusPageUrl(key),
-      owner_replies: null,
-      owner_last_reply_at: null,
-      max_link: null,
-    };
-  }
-
-  // Лид без строки lead: сама заявка удалена (ON DELETE CASCADE снял бы и
-  // ключ, но строка могла исчезнуть между UPDATE и JOIN) — честное unknown.
-  const state = row.lead_id ? leadState(row.lead_status, row.booking_status) : 'unknown';
+  const core = buildRequestView(row, Date.now());
   return {
-    state,
-    kind: 'lead',
-    tour: row.booking_tour ?? row.route_title,
-    accommodation: null,
-    accommodation_url: null,
-    date: row.booking_date,
-    check_out: null,
-    participants: row.booking_participants,
-    alt_date: null,
-    deadline: null,
-    human: HUMAN[state],
-    next: NEXT[state],
-    consent: consentBy(row.lead_consent_source, row.lead_consent_at),
-    consent_purpose,
+    ...core,
     page: requestStatusPageUrl(key),
-    owner_replies: null,
-    owner_last_reply_at: null,
-    max_link: null,
+    // Подключить MAX гостя (1349): ссылку строит сырой ключ, он есть только
+    // здесь. Переписка есть — owner_replies не null (заявка на жильё жива).
+    max_link: core.owner_replies !== null && row.stay_guest_on_max !== true ? stayGuestBotLink(maxBot(), key) : null,
+    notify: notifyStatusOf(row),
   };
 }
 

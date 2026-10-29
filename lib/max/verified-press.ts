@@ -98,7 +98,7 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
  * (`lib/bookings/chat-owner-press`, 29.10), `tk:` — «Выполнено» под
  * напоминанием о задаче CRM (`lib/crm/chat-task-press`, 29.10), `sq:` —
  * «Ответить гостю» / «Написать владельцу» в переписке по заявке на жильё
- * (`lib/stay/stay-chat`, 1348). Прочие кнопки
+ * (`lib/stay/stay-chat`, 1349). Прочие кнопки
  * (темы, «Оформить заявку», «Другой вариант») только отвечают в чат.
  */
 export function pressActionOf(payload: string): MaxPressAction | null {

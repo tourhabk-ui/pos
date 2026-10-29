@@ -254,3 +254,19 @@ describe('ключ статуса заявки на жильё (14.10, мигр�
     spy.mockRestore();
   });
 });
+
+describe('notify_url у заявки на жильё (29.10)', () => {
+  it('подписки нет — состояние после передачи не меняется; агенту это сказано, ключ статуса выдан', async () => {
+    const r = await result(await call({ ...ARGS, notify_url: 'https://hooks.agent-example.ru/in' }));
+    expect(r.isError).toBeUndefined();
+    const text = r.content[0]!.text;
+    expect(text).toMatch(/notify_url для заявки на жильё не заводится/);
+    expect(text).toMatch(/Ключ статуса заявки:/);
+    expect(query.mock.calls.some(([sql]) => /INSERT INTO agent_request_notify/.test(String(sql)))).toBe(false);
+  });
+
+  it('без notify_url — фразы нет', async () => {
+    const r = await result(await call(ARGS));
+    expect(r.content[0]!.text).not.toMatch(/notify_url/);
+  });
+});

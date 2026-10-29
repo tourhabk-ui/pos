@@ -42,14 +42,61 @@ export type RequestKind = (typeof REQUEST_KINDS)[number];
 export const CONSENT_PURPOSES = ['operator', 'stay', 'carrier', 'rental'] as const satisfies readonly PdConsentPurpose[];
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
+// ── Подписка на уведомления (29.10, lib/mcp/request-notify-schema) ──────────
+// Здесь, а не там: поле notify — часть ответа этого инструмента, а модуль
+// уведомлений сам читает словари отсюда; две стороны цикла импорта не нужны.
+
+/**
+ * Что из причин отключения подписки (NOTIFY_DISABLED_REASONS в
+ * lib/mcp/request-notify-schema, CHECK миграции 1348) видит агент. Грубо намеренно: исход доставки — не оракул
+ * сканирования сети. «Адрес разрешился во внутренний» отдельным словом не
+ * называется и отдельным графиком не отключается (критика безопасности
+ * 29.10): по нему агент перебирал бы, во что резолвер прода разрешает имена.
+ * `expired` агент не увидит никогда — срок подписки равен сроку ключа, а
+ * истёкший ключ не читается вовсе.
+ */
+export const NOTIFY_PUBLIC_REASONS = ['gone', 'undeliverable', 'vedar_failure'] as const;
+export type NotifyPublicReason = (typeof NOTIFY_PUBLIC_REASONS)[number];
+
+export function publicDisabledReason(reason: string | null | undefined): NotifyPublicReason | null {
+  switch (reason) {
+    case null:
+    case undefined:
+      return null;
+    case 'gone': return 'gone';
+    case 'undecryptable': return 'vedar_failure';
+    default: return 'undeliverable';
+  }
+}
+
+/** Поле notify в ответе get_request_status. */
+export const NOTIFY_STATUS_PROPERTY = {
+  type: ['object', 'null'],
+  description: 'Подписка на уведомления этой заявки: null — не заводилась (notify_url не передан) или удалена через 30 дней после отключения. active: false — уведомлений больше не будет, опрашивайте get_request_status; disabled_reason: gone — приёмник ответил 410; undeliverable — доставить не удалось (ответ 4xx или повторы исчерпаны; причина бывает и на пути до приёмника); vedar_failure — сбой на стороне Ведара',
+  properties: {
+    ref: { type: 'string' },
+    active: { type: 'boolean' },
+    disabled_reason: { type: ['string', 'null'], enum: [...NOTIFY_PUBLIC_REASONS, null] },
+  },
+  required: ['ref', 'active', 'disabled_reason'],
+} as const;
+
+export interface RequestNotifyStatus {
+  ref: string;
+  active: boolean;
+  disabled_reason: NotifyPublicReason | null;
+}
+
 export const GET_REQUEST_STATUS_TOOL = {
   name: REQUEST_STATUS_TOOL_NAME,
   description:
     'Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request, по ключу статуса из ответа того инструмента: '
     + 'ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. '
-    + 'Заявка на жильё — кому передана (delivered): владелец отвечает человеку звонком или сообщением на странице заявки; owner_replies — сколько сообщений владелец уже написал (текст переписки инструмент не отдаёт). Без имени и телефона. '
+    + 'Заявка на жильё — кому передана (delivered); владелец отвечает звонком или в переписке, owner_replies — сколько он написал (без текста). Без имени и телефона. '
     + 'Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. '
-    + 'В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора.',
+    + 'В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора. '
+    + 'date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату. '
+    + 'Если при создании заявки передан notify_url, об изменении состояния, даты, предложенной даты, тура или числа человек приходит подписанный POST; поле notify показывает, жива ли подписка.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -68,7 +115,8 @@ export const GET_REQUEST_STATUS_TOOL = {
       tour: { type: ['string', 'null'], description: 'Название тура, если заявка про тур' },
       accommodation: { type: ['string', 'null'], description: 'Название объекта, если заявка на жильё' },
       accommodation_url: { type: ['string', 'null'], description: 'Карточка объекта жилья: там телефон владельца' },
-      date: { type: ['string', 'null'], description: 'Дата тура YYYY-MM-DD, если есть; у заявки на жильё — дата заезда' },
+      date: { type: ['string', 'null'], description: 'Дата тура YYYY-MM-DD, если есть, — действующая: у брони та, что в брони сейчас (оператор мог перенести); у заявки на жильё — дата заезда' },
+      requested_date: { type: ['string', 'null'], description: 'Дата YYYY-MM-DD, которую просили в заявке, если записана (заявка на тур, запрос мест, жильё). Отличается от date — бронь перенесена или заведена на другую дату' },
       check_out: { type: ['string', 'null'], description: 'Дата выезда YYYY-MM-DD, у заявки на жильё' },
       participants: { type: ['integer', 'null'], description: 'Число человек в заявке (у жилья — гостей), если записано' },
       alt_date: { type: ['string', 'null'], description: 'Дата, которую предложил оператор вместо запрошенной' },
@@ -81,6 +129,7 @@ export const GET_REQUEST_STATUS_TOOL = {
       owner_replies: { type: ['integer', 'null'], description: 'У заявки на жильё — сколько сообщений владелец написал в переписке (текст — только на странице заявки); у других заявок null' },
       owner_last_reply_at: { type: ['string', 'null'], description: 'Когда владелец жилья написал последнее сообщение (ISO 8601); null — не писал или заявка не на жильё' },
       max_link: { type: ['string', 'null'], description: 'У заявки на жильё — ссылка подключить MAX: ответы владельца будут приходить человеку туда. Дайте её человеку, не публикуйте; null — MAX уже подключён или заявка не на жильё' },
+      notify: NOTIFY_STATUS_PROPERTY,
     },
     required: ['state', 'kind', 'human', 'next', 'consent', 'consent_purpose', 'page'],
   },

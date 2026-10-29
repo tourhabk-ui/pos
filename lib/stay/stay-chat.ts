@@ -1,5 +1,5 @@
 /**
- * lib/stay/stay-chat.ts — переписка хозяина жилья и гостя по заявке (1348,
+ * lib/stay/stay-chat.ts — переписка хозяина жилья и гостя по заявке (1349,
  * #2843): правила и тексты без базы и без сети. Запись и доставка —
  * `lib/stay/stay-chat-service.ts`.
  *
@@ -31,7 +31,7 @@
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ruDate } from '@/lib/stay/stay-request';
 
-/** Предел длины одного сообщения — тот же, что CHECK в 1348. */
+/** Предел длины одного сообщения — тот же, что CHECK в 1349. */
 export const STAY_CHAT_MAX_LEN = 2000;
 /** Сколько ждём текст после кнопки. */
 export const STAY_CHAT_WAIT_MIN = 30;

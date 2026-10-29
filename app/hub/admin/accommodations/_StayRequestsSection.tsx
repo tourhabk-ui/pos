@@ -46,7 +46,7 @@ interface StayRequestMessage {
   at: string;
 }
 
-/** Исход доставки сообщения второй стороне (1348). Не записан — так и сказано. */
+/** Исход доставки сообщения второй стороне (1349). Не записан — так и сказано. */
 const MESSAGE_DELIVERY: Record<string, string> = {
   max: 'дошло в MAX',
   no_address: 'у получателя нет MAX',

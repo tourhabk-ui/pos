@@ -31,7 +31,7 @@ export type InboxKind = (typeof INBOX_KINDS)[number];
 export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxKind[]>> = {
   operator: ['seat_request', 'operator_booking', 'lead', 'tour_review'],
   // Заявка хозяину (1206) — у объекта «через владельца»: номеров и кабинета
-  // нет, отвечают кнопкой в MAX или звонком (1348).
+  // нет, отвечают кнопкой в MAX или звонком (1349).
   stay: ['stay_request', 'accommodation_booking', 'stay_review'],
   gear: ['gear_rental'],
   transfer: ['transfer_seat_booking'],

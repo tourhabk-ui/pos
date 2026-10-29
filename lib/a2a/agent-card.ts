@@ -55,6 +55,7 @@ export const A2A_DESCRIPTION =
   + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
   + 'five human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
   + 'consent: true required), no instant booking, no payment through the guide, no auth. '
+  + 'Change notifications: optional notify_url in the arguments of a request tool (not for stays) gets a signed POST (Standard Webhooks) when the request changes; task push notifications are not used, a task completes in the reply. '
   + 'Русский: информационный портал «Ведар Камчатка» и ИИ-проводник, не турагентство и не туроператор. '
   + 'Туры местных операторов с живой занятостью, безопасность мест и обстановка в крае, '
   + 'жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
@@ -63,6 +64,7 @@ export const A2A_DESCRIPTION =
   + 'заявки, которые подтверждает человек: create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request '
   + '(нужен consent: true — согласие человека на обработку имени и телефона). Брони и оплаты через агента нет. '
   + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
+  + 'Об изменении самой заявки — необязательный notify_url в аргументах пишущего инструмента (кроме жилья): подписанный POST по Standard Webhooks; push-уведомлений задач нет. '
   // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
   + A2A_DESCRIPTION_ZH;
 
