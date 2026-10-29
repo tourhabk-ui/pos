@@ -35,6 +35,7 @@ import {
 } from '@/lib/a2a/agent-card';
 import { SERVER_CARD_PATH, AI_CATALOG_PATH, SERVER_CARD_MEDIA_TYPE, AI_CATALOG_MEDIA_TYPE, A2A_CARD_MEDIA_TYPE } from '@/lib/mcp/server-card';
 import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
+import { REQUEST_NOTIFICATION_SCHEMA, NOTIFY_HOW_TO_VERIFY } from '@/lib/mcp/request-notify-schema';
 
 export const OPENAPI_PATH = '/openapi.json';
 export const API_CATALOG_PATH = '/.well-known/api-catalog';
@@ -93,6 +94,9 @@ export function buildOpenApiDocument(base: string): Json {
   const toolCalls = toolCallSchemas();
 
   const schemas: Record<string, Json> = {
+    // Тело уведомления об изменении заявки (notify_url, 29.10) — та же схема,
+    // что держит сторож тела (lib/mcp/request-notify-schema).
+    RequestNotification: clone(REQUEST_NOTIFICATION_SCHEMA) as Json,
     ErrorEnvelope: {
       type: 'object',
       required: ['success', 'error'],
@@ -992,6 +996,35 @@ export function buildOpenApiDocument(base: string): Json {
       { name: 'discovery', description: 'Манифесты, визитки и каталоги' },
     ],
     paths,
+    // Уведомление агенту об изменении заявки (29.10): адрес — notify_url в
+    // аргументах пишущего инструмента, тело — RequestNotification, подпись —
+    // Standard Webhooks. Сервер шлёт POST сам; это не путь, который зовёт клиент.
+    webhooks: {
+      requestUpdated: {
+        post: {
+          operationId: 'requestUpdated',
+          summary: 'Заявка изменилась / Request changed',
+          description:
+            'Приходит на notify_url, переданный при создании заявки (create_lead, create_booking_request, request_charter, create_car_rental_request), '
+            + 'когда меняются состояние, дата, предложенная оператором дата, тур или число человек. Сверка идёт по расписанию примерно раз в 30 минут, срок не гарантирован. '
+            + NOTIFY_HOW_TO_VERIFY + ' '
+            + 'Ответ 2xx — доставлено; 410 — больше не слать; прочее — повтор с растущим интервалом, после семи неудач подписка отключается. '
+            + 'Sent to the notify_url given when the request was created, when its state, date, offered date, tour or group size changes; signed per Standard Webhooks '
+            + '(webhook-id, webhook-timestamp, webhook-signature v1 = base64 HMAC-SHA256 of "id.timestamp.body", key = base64 after whsec_). '
+            + 'Reject timestamps older than 5 minutes, drop repeated webhook-id, prefer the later observed_at. Reply 410 to stop.',
+          parameters: [
+            { name: 'webhook-id', in: 'header', required: true, schema: { type: 'string', pattern: '^evt_[0-9a-f]{32}$' }, description: 'Один и тот же у повторов одного уведомления / same for retries of one delivery' },
+            { name: 'webhook-timestamp', in: 'header', required: true, schema: { type: 'string', pattern: '^[0-9]+$' }, description: 'Секунды Unix в момент попытки / Unix seconds of the attempt' },
+            { name: 'webhook-signature', in: 'header', required: true, schema: { type: 'string', pattern: '^v1,' }, description: 'v1,<base64 HMAC-SHA256>' },
+          ],
+          requestBody: { required: true, content: { [JSON_CT]: { schema: ref('RequestNotification') } } },
+          responses: {
+            '200': { description: 'Принято / accepted (any 2xx)' },
+            '410': { description: 'Подписку отключить / disable the subscription' },
+          },
+        },
+      },
+    },
     components: { schemas },
   };
 }

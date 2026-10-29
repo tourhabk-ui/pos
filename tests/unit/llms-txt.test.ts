@@ -58,6 +58,15 @@ describe('/llms.txt — актуально и честно', () => {
     expect(text).toContain('2+ объектах');
   });
 
+  it('заявок пять, и об изменении заявки сказано: notify_url, подпись, без жилья (29.10)', () => {
+    expect(text).not.toMatch(/те же четыре/);
+    expect(text).toMatch(/Заявки — те же пять/);
+    expect(text).toMatch(/notify_url/);
+    expect(text).toMatch(/Standard Webhooks/);
+    expect(text).toMatch(/requested_date/);
+    expect(text).toMatch(/у заявки на жильё\s+уведомлений нет/);
+  });
+
   it('дата обновления — сегодняшняя: списки в файле собираются из базы', () => {
     expect(text).toContain(`Last-Updated: ${new Date().toISOString().slice(0, 10)}`);
   });

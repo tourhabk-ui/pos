@@ -99,6 +99,17 @@ WRITE_TOOLS = {
     "create_car_rental_request",
 }
 
+# Аргументы, которые мост модели не показывает и не передаёт (29.10).
+# notify_url — адрес приёмника уведомлений об изменении заявки: своего
+# приёмника у моста нет, а модель могла бы выдумать адрес — и снимки чужих
+# заявок ушли бы третьей стороне. Состояние мост узнаёт get_request_status.
+BRIDGE_HIDDEN_ARGS = {"notify_url"}
+
+
+def bridge_args(args):
+    """Аргументы вызова без скрытых полей: модель их не задаёт."""
+    return {k: v for k, v in args.items() if k not in BRIDGE_HIDDEN_ARGS}
+
 SYSTEM_PROMPT = """Ты помощник по Камчатке. Отвечай на том языке, на котором задан вопрос.
 
 Данные бери ТОЛЬКО из инструментов. Чего в базе нет — не выдумывай,
@@ -230,10 +241,14 @@ class VedarMCP:
 def to_openai_tools(tools):
     out = []
     for t in tools:
-        schema = t.get("inputSchema") or {"type": "object", "properties": {}}
+        schema = json.loads(json.dumps(t.get("inputSchema") or {"type": "object", "properties": {}}))
         if schema.get("type") != "object":
             schema = {"type": "object", "properties": schema}
         schema.setdefault("properties", {})
+        for hidden in BRIDGE_HIDDEN_ARGS:
+            schema["properties"].pop(hidden, None)
+        if "required" in schema:
+            schema["required"] = [r for r in schema["required"] if r not in BRIDGE_HIDDEN_ARGS]
         out.append({
             "type": "function",
             "function": {
@@ -305,7 +320,7 @@ class Agent:
             for call in calls:
                 fn = call["function"]["name"]
                 try:
-                    args = json.loads(call["function"].get("arguments") or "{}")
+                    args = bridge_args(json.loads(call["function"].get("arguments") or "{}"))
                 except json.JSONDecodeError:
                     args = {}
 

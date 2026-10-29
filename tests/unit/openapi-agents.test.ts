@@ -41,6 +41,7 @@ import {
   OPENAPI_PATH, API_CATALOG_PATH, OPENAPI_VERSION, OPENAPI_MEDIA_TYPE, LINKSET_MEDIA_TYPE,
 } from '@/lib/api/openapi';
 import { PUBLIC_MCP_TOOLS } from '@/lib/mcp/public-tools';
+import { REQUEST_NOTIFICATION_SCHEMA, NOTIFY_TOOL_NAMES } from '@/lib/mcp/request-notify-schema';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { AGENT_ENTRY_PATHS } from '@/lib/analytics/agent-entry-paths';
 import { CatalogQuerySchema } from '@/lib/routes/catalog-query';
@@ -68,6 +69,7 @@ type OpenApiDoc = {
   servers: { url: string }[];
   paths: Record<string, Record<string, unknown>>;
   components: { schemas: Record<string, Json> };
+  webhooks?: Record<string, { post: Operation & { description: string } }>;
 };
 type Target = { href: string; type: string };
 type Context = { anchor: string } & Record<string, Target[] | string>;
@@ -271,6 +273,34 @@ describe('документ OpenAPI 3.1', () => {
     expect(text).not.toMatch(/@[\w.-]+\.(?:ru|com)/);
     expect(text).not.toMatch(/\+7 ?\d{3}|8 ?\(?\d{3}\)? ?\d{3}/);
     expect(text).not.toMatch(/secret|token|password/i);
+  });
+});
+
+describe('уведомление об изменении заявки (notify_url, 29.10)', () => {
+  it('webhooks.requestUpdated: тело — та же схема, что у отправителя; три заголовка Standard Webhooks; 2xx и 410', () => {
+    const hook = doc.webhooks?.requestUpdated?.post;
+    expect(hook).toBeDefined();
+    expect(doc.components.schemas.RequestNotification).toEqual(JSON.parse(JSON.stringify(REQUEST_NOTIFICATION_SCHEMA)));
+    expect(hook!.requestBody).toEqual({ required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/RequestNotification' } } } });
+    expect(hook!.parameters!.map((p) => [p.name, p.in, p.required])).toEqual([
+      ['webhook-id', 'header', true], ['webhook-timestamp', 'header', true], ['webhook-signature', 'header', true],
+    ]);
+    expect(Object.keys(hook!.responses).sort()).toEqual(['200', '410']);
+  });
+
+  it('описание учит защите от повтора: метка старше 5 минут — отвергнуть, повтор id — отсечь, верить позднему observed_at', () => {
+    const d = doc.webhooks!.requestUpdated!.post.description;
+    expect(d).toMatch(/старше 5 минут/);
+    expect(d).toMatch(/older than 5 minutes/);
+    expect(d).toMatch(/webhook-id/);
+    expect(d).toMatch(/observed_at/);
+  });
+
+  it('поле notify_url — ровно у инструментов уведомлений; у заявки на жильё его нет', () => {
+    for (const t of PUBLIC_MCP_TOOLS) {
+      const args = (doc.components.schemas[`ToolCall_${t.name}`] as { properties: { arguments: { properties?: Record<string, unknown> } } }).properties.arguments;
+      expect(Boolean(args.properties?.notify_url), t.name).toBe((NOTIFY_TOOL_NAMES as readonly string[]).includes(t.name));
+    }
   });
 });
 

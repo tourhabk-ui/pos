@@ -322,6 +322,14 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   create_stay_request (заявка владельцу жилья на даты; даты и цену подтверждает он) и
   create_car_rental_request (заявка прокатчику на машину без водителя на даты;
   занятость не проверяется — подтверждает менеджер с прокатчиком)
+- Состояние заявки — get_request_status по ключу из ответа; date — действующая
+  дата брони (оператор мог перенести), requested_date — дата из заявки
+- Уведомление об изменении заявки — необязательный notify_url у create_lead,
+  create_booking_request, request_charter и create_car_rental_request:
+  подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,
+  webhook-signature), ключ подписи — в ответе один раз; сверка примерно раз
+  в 30 минут, срок не гарантирован; ответ 410 отключает; у заявки на жильё
+  уведомлений нет — её состояние после передачи не меняется
 - Мгновенного подтверждения и оплаты через MCP нет by design. Rate-limit по IP.
 - Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
   турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы
@@ -344,8 +352,11 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 - REST: ${BASE}/api/a2a/v1 (POST /message:send, GET /tasks/{id}, POST /tasks/{id}:cancel)
 - Текстом (TextPart) — отвечает Кузьмич с теми же инструментами; точный вызов —
   DataPart {"tool": "<имя>", "arguments": {...}} по схемам MCP
-- Заявки — те же четыре, подтверждает человек, нужен consent: true; потока и
-  push-уведомлений нет, задача завершается в ответе и хранится час
+- Заявки — те же пять, подтверждает человек, нужен consent: true; потока и
+  push-уведомлений задач нет, задача завершается в ответе и хранится час
+- Об изменении заявки — необязательный notify_url в аргументах пишущего
+  инструмента (кроме заявки на жильё): подписанный POST по Standard Webhooks,
+  ключ подписи — в ответе один раз; состояние без уведомлений — get_request_status
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
 - Реестр A2A: ${A2A_CATALOGS.map((c) => `${c.catalog} — заявка подана ${c.registered_at.split('-').reverse().join('.')}, id ${c.id}`).join('; ')};
@@ -357,8 +368,9 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 фреймворков) — описание OpenAPI 3.1: ${BASE}${OPENAPI_PATH}. В нём REST-биндинг
 A2A (любой инструмент одним POST), публичные читающие эндпоинты (каталог мест,
 маршрутов и туров, туры и их занятость, карточка места, статус дня, сейсмика,
-вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же четыре
-заявки через DataPart с consent: true. Каталог API по RFC 9727 (linkset):
+вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же пять
+заявок через DataPart с consent: true; тело уведомления об изменении заявки
+(notify_url) описано в разделе webhooks. Каталог API по RFC 9727 (linkset):
 ${BASE}${API_CATALOG_PATH} — на него же указывает заголовок Link rel="api-catalog"
 главной страницы.
 - English: OpenAPI 3.1 for agents without MCP or A2A clients (GPT Actions,

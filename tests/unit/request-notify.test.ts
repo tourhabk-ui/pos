@@ -682,3 +682,49 @@ describe('сверка: исходы прогона и хранение', () => 
     expect(JSON.stringify(r)).not.toMatch(/agent-example|https?:|\/in\//);
   });
 });
+
+// ── Объявление (правило 10.09: объявленное — с производителем и потребителем) ──
+import { PUBLIC_MCP_TOOLS, PARAM_ENGLISH, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { NOTIFY_TOOL_NAMES, NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE, NOTIFY_DISABLED_REASONS } from '@/lib/mcp/request-notify-schema';
+import { GET_REQUEST_STATUS_TOOL, NOTIFY_PUBLIC_REASONS } from '@/lib/mcp/request-status-schema';
+import { readFileSync } from 'node:fs';
+
+describe('объявление notify_url', () => {
+  it('поле есть ровно у четырёх инструментов уведомлений — у жилья нет; описание и английский слой называют его', () => {
+    const withField = PUBLIC_MCP_TOOLS.filter((t) => (t.inputSchema as { properties?: Record<string, unknown> }).properties?.notify_url).map((t) => t.name);
+    expect(withField.sort()).toEqual([...NOTIFY_TOOL_NAMES].sort());
+    for (const name of NOTIFY_TOOL_NAMES) {
+      const t = PUBLIC_MCP_TOOLS.find((x) => x.name === name)!;
+      expect(t.description, name).toContain(NOTIFY_TOOL_PHRASE.trim());
+      const prop = (t.inputSchema as { properties: Record<string, { type: string; description: string }> }).properties.notify_url;
+      expect(prop.type).toBe(NOTIFY_URL_PROPERTY.type);
+      expect(prop.description).toContain(NOTIFY_URL_PROPERTY.description);
+      expect(PARAM_ENGLISH[name]?.notify_url?.lead, name).toMatch(/Standard Webhooks/);
+      expect(PARAM_ENGLISH[name]?.notify_url?.lead, name).not.toMatch(/\b(secret|token|password)\b/i);
+      // В обязательных поле не стоит: старые агенты не ломаются.
+      expect((t.inputSchema as { required: string[] }).required).not.toContain('notify_url');
+    }
+  });
+
+  it('get_request_status объявляет notify и requested_date; словарь причин наружу — подмножество внутреннего', () => {
+    const props = GET_REQUEST_STATUS_TOOL.outputSchema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty('notify');
+    expect(props).toHaveProperty('requested_date');
+    expect(GET_REQUEST_STATUS_TOOL.description).toMatch(/notify_url/);
+    expect(GET_REQUEST_STATUS_TOOL.description).toMatch(/requested_date/);
+    expect(NOTIFY_PUBLIC_REASONS).not.toContain('expired');
+    expect(NOTIFY_PUBLIC_REASONS).not.toContain('address_refused');
+    // Каждая внутренняя причина CHECK миграции 1348 переводится в слово наружу.
+    const migration = readFileSync('migrations/1348_agent_request_notify.sql', 'utf8');
+    for (const r of NOTIFY_DISABLED_REASONS) {
+      expect(migration).toContain(`'${r}'`);
+      expect(NOTIFY_PUBLIC_REASONS).toContain(notifyStatusOf({ ...ROW, notify_ref: 'nr_a', notify_disabled_reason: r })!.disabled_reason);
+    }
+  });
+
+  it('версия MCP — в коде и в server.json одна, 2.8.0 (новое поле на входе и в ответе)', () => {
+    const manifest = JSON.parse(readFileSync('server.json', 'utf8')) as { version: string };
+    expect(MCP_SERVER_INFO.version).toBe('2.8.0');
+    expect(manifest.version).toBe(MCP_SERVER_INFO.version);
+  });
+});
