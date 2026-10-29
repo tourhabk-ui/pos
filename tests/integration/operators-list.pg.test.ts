@@ -976,5 +976,43 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(slugs).toContain('test-tour-2');
       expect(plates.find((p) => p.slug === 'test-tour-2')?.imageUrl).toBe('/images/test/shot.jpg');
     });
+
+    it('главная (fetchPlates): самый свежий оператор не забирает выборку — тур другой компании с датами доходит до витрины (ревью 29.10)', async () => {
+      // Прод после 1343: 33 опубликованных тура «Лагуны Экспедиции», заведённые
+      // 1339 последними, получили снимки, и общий `ORDER BY created_at DESC
+      // LIMIT 24` отдавал ей всю выборку — круг операторов в orderPlates
+      // собирать было не из кого, витрина из восьми карточек одной компании.
+      // Сцена: у «Тест Рыбалка» тридцать самых свежих туров со снимками, у
+      // «Тест Вертолёты» — более старые со снимком, один из них с открытой датой.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, max_participants,
+                                     is_active, is_published, photos, created_at)
+         SELECT $1, 'Свежий со снимком ' || i, 'test-fresh-' || i, 'fishing', 1000, 10, TRUE, TRUE,
+                ARRAY['/images/test/fresh-' || i || '.jpg'], NOW() + interval '3 days'
+           FROM generate_series(1, 30) AS i`, [P.fish.id],
+      );
+      await pool.query(
+        `UPDATE operator_tours SET photos = ARRAY['/images/test/dated.jpg'], created_at = NOW() - interval '30 days'
+          WHERE slug = 'test-tour-3'`,
+      );
+      const dated = (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = 'test-tour-3'`)).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots)
+         VALUES ($1, CURRENT_DATE + 10, 5, 0)`, [dated],
+      );
+      const { fetchPlates } = await import('@/app/_home/data');
+      const plates = await fetchPlates();
+      const operators = new Set(plates.map((p) => p.operatorName));
+      expect(operators.size, [...operators].join(', ')).toBeGreaterThanOrEqual(2);
+      // Тур с датами — на витрине и среди первых: порядок «даты → по запросу»,
+      // а не свежесть (туры с датами из цепочки миграций — тоже впереди).
+      const at = plates.findIndex((p) => p.slug === 'test-tour-3');
+      expect(at, plates.map((p) => p.slug).join(', ')).toBeGreaterThanOrEqual(0);
+      expect(plates[at]).toMatchObject({ availability: 'dates', operatorName: 'Тест Вертолёты' });
+      expect(plates.slice(0, at).every((p) => p.availability === 'dates')).toBe(true);
+      const fresh = plates.filter((p) => p.slug?.startsWith('test-fresh-')).length;
+      expect(fresh, 'самый свежий оператор без своих карточек — тоже неправда').toBeGreaterThan(0);
+      expect(fresh).toBeLessThan(plates.length);
+    });
   });
 });

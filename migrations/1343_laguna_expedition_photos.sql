@@ -4,12 +4,18 @@
 -- На вопрос «почему у Лагуны экспедиции фото не загружены» владелец ответил:
 -- «они дали добро на использоваеие» и «и логотип». Снимки и логотип берутся с
 -- сайта оператора сейчас — тем же порядком, что 1338 взяла снимки гида по
--- слову владельца («фото согласие он мне дал»). Где хранить — тоже слово
--- владельца 29.10: «фото в s3?» — да.
+-- слову владельца («фото согласие он мне дал»). Где хранить — правило §4.1
+-- (решение владельца 18.09: байтам фотографии в базе не место); 29.10
+-- владелец спросил «фото в s3?» — да, в хранилище.
 -- Записанного согласия партнёра (partner_material_consents, 1321) пока НЕТ:
 -- его партнёр подписывает сам по ссылке /partner-consent, администратор за
 -- него согласие не пишет. Это остаётся открытым пунктом, и строки «партнёр
--- разрешил … — согласие от …» на его странице до подписи не будет.
+-- разрешил … — согласие от …» на его странице до подписи не будет. В тот же
+-- пункт — показать партнёру итоговый знак: логотип здесь не его файл, а
+-- переделка (белые буквы на сером круге, ниже), и текст согласия (1321) о
+-- логотипе говорит только «уменьшает» — подложку и перекраску он не
+-- называет. Либо партнёр видит и принимает знак на круге, либо текст
+-- согласия называет подложку.
 --
 -- ── Откуда снимки ─────────────────────────────────────────────────────────
 -- Со страниц туров laguna-expedition.ru/tours/<id>-<адрес> — та же страница,
@@ -21,32 +27,38 @@
 -- сайта, 960×640. Стоят ли эти туры на витрине — вопрос оператору, не этой
 -- миграции.
 --
--- Всего с 34 страниц разобрано глазами 282 кадра. Взято 153 (обложка и до
+-- Всего с 34 страниц разобрано глазами 282 кадра. Взято 147 (обложка и до
 -- пяти в галерею у каждого тура), 24 годных оставлены запасом — галерея не
--- длиннее пяти кадров, — отброшено 105:
+-- длиннее пяти кадров, — отброшено 111:
 --   • 55 — повторы и почти-повторы (тот же вид, тот же день, тот же ракурс);
 --   • 17 — слабее отобранных или сверх пяти кадров: мелкий файл, блики
 --     объектива, палец в кадре, парковка без маршрута, непонятная постройка;
---   • 16 — люди главные в кадре: узнаваемые лица крупным планом, группы,
---     позирующие в камеру, ребёнок; записанного согласия изображённых нет;
+--   • 21 — люди главные в кадре: узнаваемые лица крупным планом, группы,
+--     позирующие в камеру, ребёнок; записанного согласия изображённых нет.
+--     Исключений нет ни для исполнителей этнопрограммы (портрет с бубном,
+--     двое у костра), ни для туристов в нарте и за столом: пять таких кадров
+--     сняты на ревью 29.10, и у «Духа Камчатки» осталась одна обложка, у
+--     «Двух вулканов» — нарта со снегоходом без людей;
 --   • 8 — кадр обещает то, чего в программе нет: катание на упряжке, Дед
 --     Мороз, тюбинг, восхождение на Горелый, вертолёт, летний пляж в зимнем
 --     туре;
---   • 7 — текст и реклама поверх смысла: баннер «ВСЁ ВКЛЮЧЕНО», открытка с
+--   • 8 — текст и реклама поверх смысла: баннер «ВСЁ ВКЛЮЧЕНО», открытка с
 --     надписью, коллаж полароидов, крупная реклама производителя вездехода
---     с адресом его сайта;
+--     с адресом его сайта (один и тот же кадр двери у визит-центра — во всех
+--     трёх турах, где он стоял, у «Часовой прогулки» снят на ревью 29.10);
 --   • 1 — авторство под сомнением (краб на палубе чужого судна, похоже на
 --     репортажный снимок); вернуть можно, если оператор подтвердит, что он его;
 --   • 1 — кладбище посёлка на первом плане.
--- Наклейка производителя на двери вездехода, на котором едет тур, — часть
--- машины, а не знак поверх снимка; такие кадры оставлены, но не обложкой,
--- если надпись крупная.
+-- Ливрея производителя на борту вездехода, на котором едет тур, — часть
+-- машины, а не знак поверх снимка: кадр, где машина видна целиком на
+-- маршруте, оставлен (не обложкой, если надпись крупная). Кадр, где дверь с
+-- адресом сайта и аккаунтом занимает пол-кадра, а маршрута нет, — реклама.
 --
 -- ── Как хранятся ──────────────────────────────────────────────────────────
 -- Байтов в базе и в образе нет (§4.1, решение владельца 18.09). Кадры пережаты
 -- до 1600 px по длинной стороне, JPEG 82, метаданные сняты (у части снимков
 -- в EXIF были координаты места съёмки), и лежат в media/s3/photos/
--- laguna-expedition/ — 139 файлов, 35 МБ; одинаковые файлы разных туров
+-- laguna-expedition/ — 133 файла, 34 МБ; одинаковые файлы разных туров
 -- залиты один раз (у части туров оператор ставит одни и те же кадры: маршрут
 -- у них общий). В хранилище их кладёт media-to-s3.yml по маркеру
 -- .github/triggers/media-to-s3.json (прогон 17) с чтением обратно; в туре
@@ -145,8 +157,7 @@ WITH v(slug, photos) AS (VALUES
   ('lagexp-chasovaya-progulka', ARRAY[
      '/api/images/s3/photos/laguna-expedition/chasovaya-progulka-cover.jpg',
      '/api/images/s3/photos/laguna-expedition/chasovaya-progulka-1.jpg',
-     '/api/images/s3/photos/laguna-expedition/chasovaya-progulka-2.jpg',
-     '/api/images/s3/photos/laguna-expedition/chasovaya-progulka-3.jpg'
+     '/api/images/s3/photos/laguna-expedition/chasovaya-progulka-2.jpg'
    ]::text[]),
   ('lagexp-dachnye-goryachie-istochniki-na-vezdekhode-sever-truck', ARRAY[
      '/api/images/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-cover.jpg',
@@ -202,8 +213,7 @@ WITH v(slug, photos) AS (VALUES
      '/api/images/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-4.jpg'
    ]::text[]),
   ('lagexp-dukh-kamchatki', ARRAY[
-     '/api/images/s3/photos/laguna-expedition/dukh-kamchatki-cover.jpg',
-     '/api/images/s3/photos/laguna-expedition/dukh-kamchatki-1.jpg'
+     '/api/images/s3/photos/laguna-expedition/dukh-kamchatki-cover.jpg'
    ]::text[]),
   ('lagexp-kamchatka-na-maksimum-osennij-marshrut', ARRAY[
      '/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-cover.jpg',
@@ -239,15 +249,12 @@ WITH v(slug, photos) AS (VALUES
      '/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg'
    ]::text[]),
   ('lagexp-dva-vulkana-avachinskij-pereval', ARRAY[
-     '/api/images/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-cover.jpg',
-     '/api/images/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-1.jpg',
      '/api/images/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-2.jpg',
      '/api/images/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-3.jpg'
    ]::text[]),
   ('lagexp-pogruzhenie-v-kulturu-severa', ARRAY[
      '/api/images/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-cover.jpg',
      '/api/images/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-1.jpg',
-     '/api/images/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-2.jpg',
      '/api/images/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-3.jpg',
      '/api/images/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-4.jpg',
      '/api/images/s3/photos/laguna-expedition/pogruzhenie-v-kulturu-severa-5.jpg'
@@ -297,7 +304,6 @@ WITH v(slug, photos) AS (VALUES
      '/api/images/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-1.jpg',
      '/api/images/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-2.jpg',
      '/api/images/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-3.jpg',
-     '/api/images/s3/photos/laguna-expedition/k-domashnim-vulkanam-na-vezdekhode-sever-truck-4.jpg',
      '/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-1.jpg'
    ]::text[])
 )

@@ -1,7 +1,7 @@
 /**
  * Снимки 34 туров «Лагуны Экспедиции» и её логотип (миграция 1343, слово
- * владельца 29.10: «они дали добро на использоваеие», «и логотип», «фото в
- * s3?» — да).
+ * владельца 29.10: «они дали добро на использоваеие», «и логотип»; хранение —
+ * правило §4.1, на вопрос владельца «фото в s3?» ответ — да, в хранилище).
  *
  * Здесь — связка, которую база проверить не может: каждый адрес, который
  * миграция пишет туру, открывается раздачей (/api/images/s3/ отдаёт только
@@ -64,6 +64,31 @@ describe('1343: снимки туров «Лагуны Экспедиции» �
       expect(photos.length, slug).toBeLessThanOrEqual(6);
       expect(new Set(photos).size, `${slug}: снимок дважды`).toBe(photos.length);
     }
+  });
+
+  it('кадры, снятые на ревью 29.10, не возвращаются: люди главные в кадре и дверь-реклама', () => {
+    // Шапка 1343 отбрасывает людей главными в кадре (согласия изображённых нет)
+    // и рекламу с адресом сайта — а эти шесть стояли в турах вопреки ей, один
+    // обложкой «Двух вулканов». Возврат любого из них — красный: правило
+    // шапки и состав туров снова разошлись бы.
+    const rejected = [
+      'dva-vulkana-avachinskij-pereval-cover.jpg', // трое позируют в нарте и на снегоходе
+      'dva-vulkana-avachinskij-pereval-1.jpg', // группа в нарте, лицо водителя
+      'dukh-kamchatki-1.jpg', // портрет крупным планом
+      'pogruzhenie-v-kulturu-severa-2.jpg', // двое у костра, лица
+      'k-domashnim-vulkanam-na-vezdekhode-sever-truck-4.jpg', // группа за столом позирует
+      'chasovaya-progulka-3.jpg', // дверь с адресом сайта производителя, маршрута нет
+    ];
+    const onDisk = new Set(readdirSync(join(ROOT, DIR)));
+    const keys = new Set(marker.items.map((i) => i.key));
+    for (const f of rejected) {
+      expect(URLS, f).not.toContain(`/api/images/s3/photos/laguna-expedition/${f}`);
+      expect(onDisk.has(f), `${f} лежит в media/s3`).toBe(false);
+      expect(keys.has(`photos/laguna-expedition/${f}`), `${f} в маркере`).toBe(false);
+    }
+    expect(TOURS.get('lagexp-dva-vulkana-avachinskij-pereval')?.[0]).toBe(
+      '/api/images/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-2.jpg',
+    );
   });
 
   it('каждый адрес открывается раздачей /api/images/s3/ и собран photoPath', () => {
