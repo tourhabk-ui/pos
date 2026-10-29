@@ -87,8 +87,8 @@ describe('главная: платы = туры операторов', () => {
 });
 
 describe('orderPlates: порядок витрины главной', () => {
-  type P = { id: string; availability: CatalogAvailability };
-  const t = (id: string, availability: CatalogAvailability): P => ({ id, availability });
+  type P = { id: string; availability: CatalogAvailability; imageUrl: string | null };
+  const t = (id: string, availability: CatalogAvailability): P => ({ id, availability, imageUrl: `/images/t/${id}.jpg` });
 
   it('даты → по запросу → сезон кончился', () => {
     const out = orderPlates([t('a', 'season_over'), t('b', 'dates'), t('c', 'on_request')]);
@@ -118,7 +118,7 @@ describe('orderPlates: порядок витрины главной', () => {
     // Прод 08.10: девять туров рыбалки с датами, одиннадцать «Края Вулканов»
     // по запросу, один рафтинг — строгое «даты сначала» отдавало рыбалке все восемь мест.
     type Q = P & { operatorName: string | null };
-    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ id, availability, operatorName });
+    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ ...t(id, availability), operatorName });
     const input = [
       ...Array.from({ length: 11 }, (_, i) => q(`v${i}`, 'on_request', 'Край Вулканов')),
       ...Array.from({ length: 9 }, (_, i) => q(`f${i}`, 'dates', 'Камчатская рыбалка')),
@@ -136,7 +136,7 @@ describe('orderPlates: порядок витрины главной', () => {
 
   it('закрытый сезон по-прежнему после всех открытых, даже при круге операторов', () => {
     type Q = P & { operatorName: string | null };
-    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ id, availability, operatorName });
+    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ ...t(id, availability), operatorName });
     const out = orderPlates([q('s0', 'season_over', 'A'), q('a0', 'dates', 'A'), q('b0', 'on_request', 'B'), q('a1', 'on_request', 'A')]);
     expect(out.map((p) => p.id)).toEqual(['a0', 'b0', 'a1', 's0']);
   });

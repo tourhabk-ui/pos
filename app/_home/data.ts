@@ -345,8 +345,12 @@ export async function fetchPlates(): Promise<Plate[]> {
   // «Туры сезона» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
   // места/маршруты. Прежде тянули из agent_route_knowledge (места+маршруты,
   // туров там нет) и добивали маршрутами — на телефоне коммерция была спрятана.
-  // Теперь только коммерция: опубликованные туры, сначала с фото. Нет туров →
-  // пустой массив (блок честно не рисуется), никаких мест-заглушек.
+  // Теперь только коммерция: опубликованные туры СО СНИМКОМ (29.10: тур без
+  // снимка на витрину главной не попадает вовсе, при любом сезоне — правило в
+  // orderPlates, здесь оно же отсекает такие туры до LIMIT, чтобы они не
+  // занимали выборку). Снимок — тем же правилом, что герой карточки
+  // (tourHeroImageSql). Нет туров → пустой массив (блок честно не рисуется),
+  // никаких мест-заглушек.
   //
   // Аудит 24.09 (#39/#120/#122): карточка знала только цену. Теперь выборка
   // несёт то, что карточка обещает словами — имя оператора, длительность,
@@ -386,9 +390,8 @@ export async function fetchPlates(): Promise<Plate[]> {
         FROM operator_tours ot
         JOIN partners p ON ot.operator_id = p.id
        WHERE ${publicTourSql('ot')}
-       ORDER BY (ot.tour_image IS NOT NULL
-                 OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
-                ot.created_at DESC
+         AND ${tourHeroImageSql('ot')} IS NOT NULL
+       ORDER BY ot.created_at DESC
        LIMIT 24
     `);
     const plates: Plate[] = rows.map((r) => {
