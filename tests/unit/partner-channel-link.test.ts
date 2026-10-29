@@ -137,6 +137,9 @@ describe('запись канала', () => {
       rebound: false,
       cabinetOf: null,
       others: [],
+      // Карточка и признак «продаёт свои туры» (строка меню гида) — из той же записи.
+      partnerId: PID,
+      sellsTours: false,
     });
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toMatch(/SET telegram_chat_id = \$1::bigint/);
@@ -279,6 +282,53 @@ describe('гид в мессенджере: тексты обещают толь
     for (const b of menu) expect(text).toContain(`«${b.text}»`);
     expect(roleMenuAsk('Входящие')).toBe('inbox');
     expect(roleMenuAsk('Помощь')).toBe('help');
+  });
+
+  it('гид-продавец: текст называет «Брони» и «Мои туры» — ровно те кнопки, что строка под ответом (29.10)', async () => {
+    const { boundMenuRow } = await import('@/lib/partners/bind-channel');
+    const seller = { ...guideBound, partnerId: PID, sellsTours: true };
+    const row = boundMenuRow(seller);
+    expect(row?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    for (const channel of ['max', 'telegram'] as const) {
+      const text = channelBoundText(channel, seller);
+      for (const b of row ?? []) expect(text, channel).toContain(`«${b.text}»`);
+    }
+    // Гид команды — без них.
+    const team = channelBoundText('max', { ...guideBound, partnerId: PID, sellsTours: false });
+    expect(team).not.toMatch(/«Брони»|«Мои туры»/);
+  });
+
+  it('кабинет в чате у другой карточки — строки гида нет, и текст кнопок не обещает', async () => {
+    const { boundMenuRow } = await import('@/lib/partners/bind-channel');
+    const shared = { ...guideBound, partnerId: PID, sellsTours: true, cabinetOf: 'Старшая карточка', others: ['Старшая карточка'] };
+    expect(boundMenuRow(shared)).toBeNull();
+    const text = channelBoundText('max', shared);
+    expect(text).not.toMatch(/Кнопки под этим сообщением|«Брони»/);
+    expect(text).toContain('кабинет в нём — «Старшая карточка»');
+    // Не гид и неудача записи — строки гида нет.
+    expect(boundMenuRow({ ...guideBound, partnerId: PID, sellsTours: true, category: 'operator' })).toBeNull();
+    expect(boundMenuRow({ ok: false, reason: 'db_error' })).toBeNull();
+  });
+
+  it('ссылка привязки гида (handlePartnerStart): под ответом его строка меню в обоих каналах', async () => {
+    const { handlePartnerStart } = await import('@/lib/partners/bind-channel');
+    const t = createPartnerLinkToken(PID, Date.now());
+    if (!t.ok) throw new Error('нет токена');
+    for (const channel of ['max', 'telegram'] as const) {
+      for (const [sells, payloads] of [
+        [true, ['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']],
+        [false, ['rm:gd:in', 'rm:gd:hp']],
+      ] as const) {
+        poolQueryMock.mockReset();
+        poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Гид А', category: 'guide', slug: 'g', previous: null, sells_tours: sells }] });
+        poolQueryMock.mockResolvedValueOnce({ rows: [{ id: PID, name: 'Гид А' }] });
+        const reply = vi.fn().mockResolvedValue(undefined);
+        expect(await handlePartnerStart(`op_${t.token}`, channel, 5, reply)).toBe(true);
+        const [text, buttons] = reply.mock.calls[0] as [string, Array<Array<{ payload: string }>>];
+        expect(text, channel).toContain('Вы подключены как гид');
+        expect(buttons.flat().map((b) => b.payload), `${channel} sellsTours=${sells}`).toEqual(payloads);
+      }
+    }
   });
 
   it('администратор и прежний чат слышат «гид», а не «оператор»', async () => {

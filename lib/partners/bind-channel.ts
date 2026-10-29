@@ -35,6 +35,8 @@ import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-p
 import { operatorBoundText, operatorDeskButtons } from '@/lib/telegram/operator-desk';
 import { getPublicBaseUrl } from '@/lib/config';
 import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
+import { partnerMenu } from '@/lib/roles/role-menu';
+import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export type PartnerChannel = 'telegram' | 'max';
 
@@ -57,6 +59,14 @@ export type BindResult =
        */
       cabinetOf: string | null;
       others: string[];
+      /** Записанная карточка. */
+      partnerId: string;
+      /**
+       * Есть ли у карточки свои неудалённые туры — тем же запросом, что
+       * запись (EXISTS по operator_tours, черновики считаются). Решает строку
+       * меню гида: «Брони» и «Мои туры» — только продавцу (`sellsOwnTours`).
+       */
+      sellsTours: boolean;
     }
   | { ok: false; reason: 'not_found' | 'db_error' };
 
@@ -94,7 +104,9 @@ export async function bindPartnerChannel(
         WHERE p.id = prev.id
         RETURNING p.name,
                   COALESCE(NULLIF(btrim(p.company_name), ''), p.name) AS display_name,
-                  p.category, p.slug, prev.old AS previous`
+                  p.category, p.slug, prev.old AS previous,
+                  EXISTS (SELECT 1 FROM operator_tours own
+                           WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours`
     : `UPDATE partners p
           SET max_chat_id = $1::bigint,
               max_owner_user_id = COALESCE($3::bigint, p.max_owner_user_id),
@@ -103,11 +115,17 @@ export async function bindPartnerChannel(
         WHERE p.id = prev.id
         RETURNING p.name,
                   COALESCE(NULLIF(btrim(p.company_name), ''), p.name) AS display_name,
-                  p.category, p.slug, prev.old AS previous`;
+                  p.category, p.slug, prev.old AS previous,
+                  EXISTS (SELECT 1 FROM operator_tours own
+                           WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours`;
 
-  let row: { name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null } | undefined;
+  type BoundRow = {
+    name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null;
+    sells_tours: boolean | null;
+  };
+  let row: BoundRow | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId, owner]));
+    ({ rows: [row] } = await pool.query<BoundRow>(sql, [String(chatId), partnerId, owner]));
   } catch (err) {
     const e = err as { message?: string; code?: string };
     console.error(
@@ -131,7 +149,25 @@ export async function bindPartnerChannel(
   return {
     ok: true, partnerName: row.name, displayName, category, slug, previousChatId: previous, rebound,
     cabinetOf: shared.cabinetOf, others: shared.others,
+    partnerId, sellsTours: row.sells_tours === true,
   };
+}
+
+/**
+ * Строка меню гида под ответом на привязку: та же, что `partnerMenu` в его
+ * чате (Входящие, Помощь; продавцу своих туров — ещё Брони и Мои туры).
+ * null — не гид, привязка не записана или кабинет в этом чате у другой
+ * карточки (`cabinetOf`): кнопки гида там отказали бы «не этот кабинет».
+ * Туроператор и пилот проката получают свои кнопки отдельно.
+ */
+export function boundMenuRow(result: BindResult): MenuButton[] | null {
+  if (!result.ok || result.category !== 'guide' || result.cabinetOf !== null) return null;
+  return partnerMenu({
+    partnerId: result.partnerId,
+    category: 'guide',
+    slug: result.slug,
+    sellsTours: result.sellsTours === true,
+  });
 }
 
 /**
@@ -238,21 +274,25 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  * Текст гиду после записи чата (29.10). До этого гид слышал «подключён к
  * оператору». Называет только то, что в чате есть: личные сообщения о бронях,
  * заявках и запросах мест его собственных туров и о сообщениях туристов,
- * строку «Входящие / Помощь» под ответом (lib/roles/role-menu, partnerMenu
- * для гида) и где подтверждают бронь — кнопки подтверждения в чате нет.
+ * кнопки строки меню под этим же ответом (`boundMenuRow`: продавцу своих
+ * туров — ещё «Брони» и «Мои туры») и где подтверждают бронь — кнопки
+ * подтверждения в чате нет. Строки нет (кабинет чата у другой карточки) —
+ * кнопок текст не обещает.
  */
-export function guideBoundText(name: string, channel: PartnerChannel): string {
+export function guideBoundText(name: string, channel: PartnerChannel, menu: readonly MenuButton[] | null = null): string {
   const contacts = channel === 'max'
     ? 'Имя и телефон туриста приходят в этот чат.'
     : 'Имя и телефон туриста в этот чат не приходят — по закону о персональных данных их принимает MAX.';
-  return [
+  const lines = [
     `Вы подключены как гид «${escapeHtml(name)}».`,
     'Сюда будут приходить брони, заявки и запросы мест на туры, которые вы продаёте сами, и сообщения туристов из чата платформы.',
     contacts,
-    '',
-    'Напишите «Входящие» — пришлю, что ждёт ответа. «Помощь» — справка. Под ответом будут эти две кнопки.',
-    `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`,
-  ].join('\n');
+  ];
+  if (menu && menu.length > 0) {
+    lines.push('', `Кнопки под этим сообщением: ${menu.map((b) => `«${b.text}»`).join(', ')}. «Помощь» — что каждая показывает.`);
+  }
+  lines.push(`Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
+  return lines.join('\n');
 }
 
 /**
@@ -264,7 +304,7 @@ export function channelBoundText(channel: PartnerChannel, result: BindResult): s
   const base = result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)
     ? operatorBoundText(result.displayName || result.partnerName, channel)
     : result.ok && result.category === 'guide'
-      ? guideBoundText(result.displayName || result.partnerName, channel)
+      ? guideBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result))
       : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
         ? rentalPilotBoundText(result.partnerName)
         : bindReplyText(channel, result);
@@ -312,11 +352,14 @@ export async function handlePartnerStart(
   const pilot = bound.ok && isRentalPilotSlug(bound.slug);
   const desk = bound.ok && bound.category === 'operator' && !pilot;
   const text = channelBoundText(channel, bound);
+  const guideRow = boundMenuRow(bound);
   const buttons = pilot
     ? [rentalCabinetBar()]
     : desk && channel === 'max'
       ? operatorDeskButtons()
-      : undefined;
+      : guideRow
+        ? [guideRow]
+        : undefined;
   await reply(text, buttons);
   return true;
 }

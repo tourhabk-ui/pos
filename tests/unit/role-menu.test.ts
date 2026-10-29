@@ -74,6 +74,35 @@ describe('меню роли', () => {
       .toEqual(['rm:gd:in', 'rm:gd:hp']);
   });
 
+  it('гид, который продаёт свои туры, — ещё «Брони» и «Мои туры»; гид команды и оператор — без них (29.10)', () => {
+    const seller = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
+    expect(seller?.map((b) => b.text)).toEqual(['Входящие', 'Брони', 'Мои туры', 'Помощь']);
+    expect(seller?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    for (const b of seller ?? []) expect(b.payload.length).toBeLessThan(64);
+    expect(partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2', sellsTours: false })?.map((b) => b.payload))
+      .toEqual(['rm:gd:in', 'rm:gd:hp']);
+    // Признак у туроператора строку не меняет: его туры — постоянная клавиатура и /tours.
+    expect(partnerMenu({ partnerId: OTHER, category: 'operator', slug: 'op', sellsTours: true })?.map((b) => b.payload))
+      .toEqual(['rm:op:in', 'rm:op:hp']);
+
+    expect(parseRoleMenuPress('rm:gd:bk')).toEqual({ role: 'guide', action: 'bookings' });
+    expect(parseRoleMenuPress('rm:gd:tr')).toEqual({ role: 'guide', action: 'tours' });
+    for (const p of ['rm:op:tr', 'rm:st:bk', 'rm:tf:tr', 'rm:ad:tr', 'rm:gd:dt', 'rm:gd:ld']) {
+      expect(parseRoleMenuPress(p), p).toBeNull();
+    }
+  });
+
+  it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — ни слова о них', () => {
+    const seller = partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true }) ?? [];
+    const help = partnerMenuHelp('guide', seller);
+    expect(help).toContain('Под ответом кнопки: Входящие, Брони, Мои туры, Помощь.');
+    expect(help).toContain('Имя и телефон туриста — только в MAX');
+    expect(help).toContain('/hub/guide/own');
+    expect(help).not.toMatch(/₽/);
+    const team = partnerMenuHelp('guide', partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'g-2' }) ?? []);
+    expect(team).not.toMatch(/Брони|Мои туры/);
+  });
+
   it('админ — шесть чтений, входящих у него нет', () => {
     const row = adminMenu();
     expect(row.map((b) => b.text)).toEqual(['Даты', 'Брони', 'Заявки', 'Сводка', 'Здоровье', 'Помощь']);

@@ -66,7 +66,7 @@ import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerLinkArgFromText, partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
-import { bindPartnerChannel, badLinkReplyText, channelBoundText } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, badLinkReplyText, boundMenuRow, channelBoundText } from '@/lib/partners/bind-channel';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
@@ -77,7 +77,7 @@ import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
 import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
-import { setOperatorChatCommands } from '@/lib/telegram/role-commands';
+import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
@@ -282,6 +282,14 @@ async function replyOperatorBound(
   if (bound.ok && bound.category === 'operator') {
     await sendOperatorKeyboard(chatId, text);
     void setOperatorChatCommands(numericChatId);
+    return;
+  }
+  // Гид — его строка меню под ответом и те же команды чата. Нет строки
+  // (кабинет в этом чате у другой карточки) — без кнопок: они не сработали бы.
+  const row = boundMenuRow(bound);
+  if (row) {
+    await sendRoleRows(chatId, text, [row]);
+    void setRoleChatCommands(numericChatId, roleChatCommands(row));
     return;
   }
   await sendHTML(chatId, text);
@@ -1150,9 +1158,10 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
-    // Команды кабинета туроператора — раньше туристской справки.
+    // Команды кабинета туроператора и гида (/bookings) — раньше туристской справки.
     const deskHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-    if (!admin && (deskHead === '/help' || deskHead === '/requests' || deskHead === '/tours' || deskHead === '/seats')) {
+    if (!admin && (deskHead === '/help' || deskHead === '/requests' || deskHead === '/tours' || deskHead === '/seats'
+      || deskHead === '/bookings')) {
       if (await tryRoleMenuTelegramMessage({
         chatId: update.message.chat.id,
         text,

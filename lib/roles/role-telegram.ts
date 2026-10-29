@@ -21,7 +21,8 @@ import {
   loadOperatorTours, operatorHelpText, operatorInboxView, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
 import { operatorInboxOrHelpPress } from '@/lib/telegram/operator-desk-press';
-import { setOperatorChatCommands } from '@/lib/telegram/role-commands';
+import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 
 export type RoleSend = (text: string, buttons: MenuButton[][]) => Promise<void>;
 
@@ -65,7 +66,9 @@ export async function tryRoleMenuTelegramMessage(opts: {
   };
   const partner = lookup.partner;
   const head = opts.text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-  const fromSlash: RoleAsk | null = head === '/start' || head === '/help'
+  // «/bookings» — команда строки гида («Брони»). У остальных ролей её нет,
+  // и она уходит дальше, как любая чужая команда.
+  const fromSlash: RoleAsk | 'bookings' | null = head === '/start' || head === '/help'
     ? 'help'
     : head === '/requests'
       ? 'inbox'
@@ -73,10 +76,12 @@ export async function tryRoleMenuTelegramMessage(opts: {
         ? 'tours'
         : head === '/seats'
           ? 'seats'
-          : null;
+          : head === '/bookings' && role === 'guide'
+            ? 'bookings'
+            : null;
   if (head.startsWith('/') && fromSlash === null) return false;
   const asked = fromSlash ?? roleMenuAsk(opts.text);
-  const open = async (action: 'inbox' | 'help' | 'summary') => {
+  const open = async (action: 'inbox' | 'help' | 'summary' | 'bookings' | 'tours') => {
     const screen = await roleMenuScreen({
       role, action, channel: 'telegram', partner, nowMs: Date.now(),
     });
@@ -93,7 +98,15 @@ export async function tryRoleMenuTelegramMessage(opts: {
       }
       return true;
     }
+    // Гиду команды чата — из его строки меню (Входящие, Брони, Мои туры,
+    // Помощь), на «Старт», как оператору.
+    if (role === 'guide' && head === '/start') void setRoleChatCommands(opts.chatId, roleChatCommands(menu));
     await send(partnerMenuHelp(role, menu), []);
+    return true;
+  }
+  if (asked === 'bookings') {
+    // Экран без ПД: канал telegram (lib/guides/chat-screens).
+    await open('bookings');
     return true;
   }
   if (asked === 'inbox') {
@@ -107,8 +120,14 @@ export async function tryRoleMenuTelegramMessage(opts: {
     return true;
   }
   if (asked === 'tours' || asked === 'seats') {
-    if (partner.category !== 'operator') {
+    if (!sellsOwnTours(partner)) {
       await send('Эта кнопка — кабинет туроператора. В этом чате её не выполняю.', []);
+      return true;
+    }
+    // Гид со своими турами — его раздел «Свои туры», не кабинет оператора.
+    if (partner.category === 'guide') {
+      if (asked === 'tours') await open('tours');
+      else await send(operatorSeatsText('guide'), []);
       return true;
     }
     if (asked === 'tours') {

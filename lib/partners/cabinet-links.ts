@@ -52,3 +52,21 @@ export function ownerLeadUrl(category: string | null | undefined, leadId: string
     ? `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
     : `${getPublicBaseUrl()}${ownerLeadsPath(category)}/${leadId}`;
 }
+
+/**
+ * Где продавец открывает даты: у оператора — календарь кабинета, у гида —
+ * тот же раздел «Свои туры» (там форма «Открыть даты»). Кабинет оператора
+ * гида не пустит, и ссылка на календарь вела бы его на отказ.
+ */
+export function ownerCalendarUrl(category: string | null | undefined): string {
+  return isGuide(category)
+    ? `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
+    : `${getPublicBaseUrl()}/hub/operator/calendar`;
+}
+
+/** Где продавец видит свои туры. */
+export function ownerToursUrl(category: string | null | undefined): string {
+  return isGuide(category)
+    ? `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
+    : `${getPublicBaseUrl()}/hub/operator/tours`;
+}

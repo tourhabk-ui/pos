@@ -49,14 +49,15 @@ import {
 } from '@/lib/rental/cabinet-bar';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
-import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { PARTNER_PD_UNDELIVERED, roleMenuScreen, type RoleScreen } from '@/lib/roles/role-screen';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
-import { bindPartnerChannel, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, boundMenuRow, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
 import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { handleMemberStart } from '@/lib/operators/member-channel';
@@ -197,6 +198,35 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
     });
   } catch (err) {
     logFailure('ответ с кнопками в чат MAX', err);
+  }
+}
+
+/**
+ * Экран меню партнёра в чат MAX. С ПД (брони гида — имя и телефон туриста)
+ * — только через sendPdAlert и только в этот чат MAX: `telegramChatId: null`,
+ * заглушки в Telegram нет. Не доставилось — строка без ПД. Без ПД — обычный
+ * ответ со строкой меню. `wrap` — блок 112, если в тексте человека беда.
+ */
+async function sendPartnerScreen(
+  chatId: number,
+  screen: RoleScreen,
+  row: MenuButton[],
+  wrap: (body: string) => string = (body) => body,
+): Promise<void> {
+  if (!screen.pd) {
+    await maxReplyWithButtons(chatId, wrap(screen.text), toMaxButtons(row.length ? [row] : []));
+    return;
+  }
+  const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
+  const sent = await sendPdAlert({
+    text: wrap(screen.text),
+    stub: 'Список с контактами туристов в MAX не доставлен.',
+    buttons: row,
+    to: { maxChatId: chatId, telegramChatId: null },
+  });
+  if (!sent.delivered) {
+    console.error('[max/kuzmich] экран с ПД партнёру не доставлен:', sent.reason);
+    await maxReplyWithButtons(chatId, wrap(PARTNER_PD_UNDELIVERED), toMaxButtons(row.length ? [row] : []));
   }
 }
 
@@ -779,11 +809,15 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         const text = channelBoundText('max', bound);
         const pilot = bound.ok && isRentalPilotSlug(bound.slug);
         const desk = bound.ok && bound.category === 'operator' && !pilot;
+        // Гид — его строка меню (продавцу своих туров — с «Бронями» и «Моими турами»).
+        const guideRow = boundMenuRow(bound);
         const buttons = pilot
           ? toMaxButtons([rentalCabinetBar()])
           : desk
             ? toMaxButtons(operatorDeskButtons())
-            : null;
+            : guideRow
+              ? toMaxButtons([guideRow])
+              : null;
         if (buttons) await maxReplyWithButtons(chatId, text, buttons);
         else await maxReply(chatId, text);
         return;
@@ -1203,12 +1237,37 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         const role = menuRoleOf(lookup.partner);
         const askedRole = roleMenuAsk(text);
         const slashHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-        if (role === 'operator' && (askedRole === 'tours' || askedRole === 'seats' || slashHead === '/tours' || slashHead === '/seats')) {
+        // Туры и места — продавцу своих туров: туроператору и гиду с
+        // авторскими турами. Гиду — его раздел «Свои туры», не кабинет
+        // оператора (тот его не пустит). Меню — только в личном диалоге.
+        if (role && sellsOwnTours(lookup.partner)
+          && (askedRole === 'tours' || askedRole === 'seats' || slashHead === '/tours' || slashHead === '/seats')) {
           const which = askedRole === 'seats' || slashHead === '/seats' ? 'seats' : 'tours';
+          if (role === 'guide') {
+            if (which === 'seats') {
+              await say(operatorSeatsText('guide'));
+            } else {
+              const screen = await roleMenuScreen({ role, action: 'tours', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
+              await sendPartnerScreen(chatId, screen, menu ?? [], sos);
+            }
+            return;
+          }
           const body = which === 'tours'
             ? operatorToursReply(await loadOperatorTours(lookup.partner.partnerId))
             : operatorSeatsText();
           await say(body);
+          return;
+        }
+        // «/bookings» — «Брони» гида со своими турами. Контакты туриста —
+        // только через sendPdAlert и только в личном диалоге: в группе их
+        // увидел бы любой участник.
+        if (role === 'guide' && slashHead === '/bookings') {
+          if (!dialog) {
+            await say('Брони с контактами туристов показываю только в личном диалоге с ботом.');
+            return;
+          }
+          const screen = await roleMenuScreen({ role, action: 'bookings', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
+          await sendPartnerScreen(chatId, screen, menu ?? [], sos);
           return;
         }
         if (role === 'operator' && (text.trim() === '/start' || slashHead === '/help' || askedRole === 'help')) {
@@ -1418,7 +1477,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         partner: roleLookup.partner,
         nowMs: Date.now(),
       });
-      await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons(row.length ? [row] : []));
+      await sendPartnerScreen(messageChatId, screen, row);
       return;
     }
 

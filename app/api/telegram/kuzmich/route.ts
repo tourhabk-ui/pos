@@ -679,7 +679,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // В личном чате id чата равен id человека; иначе владелец не пишется.
       const opener = typeof msg.from?.id === 'number' && msg.from.id > 0 && msg.from.id === chatId ? msg.from.id : null;
       if (await handlePartnerStart(arg, 'telegram', chatId, async (t, buttons) => {
-        if (buttons?.length) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(buttons.map((row) => [...row])) });
+        // Строка проката (rk:) — своей разметкой, со своей строкой кабинета.
+        // Строка меню гида (rm:gd:) — как есть: строку проката к ней не клеим.
+        const rows = (buttons ?? []).map((row) => [...row]);
+        const rental = rows.some((row) => row.some((b) => b.payload.startsWith('rk:')));
+        if (rows.length && rental) await tgReply(chatId, t, { reply_markup: telegramCabinetMarkup(rows) });
+        else if (rows.length) {
+          await tgReply(chatId, t, {
+            reply_markup: { inline_keyboard: rows.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) },
+          });
+        }
         else await reply(t);
       }, opener)) return NextResponse.json({ ok: true });
       if (await handleMemberStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });

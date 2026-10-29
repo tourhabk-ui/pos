@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Compass, CalendarPlus, Inbox, Loader2, AlertCircle, RefreshCw, Phone, Mail, Users } from 'lucide-react';
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 import type { OwnBooking, OwnLead, OwnTour } from '@/lib/guides/own-tours';
-import { alreadyInStatusText } from '@/lib/bookings/owner-status-words';
+import { OWNER_BOOKING_STATUS_LABEL, alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 import {
   LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText, leadIsWaiting, ownerLeadActionsFor, type OwnerLeadStatus,
 } from '@/lib/leads/owner-lead-words';
@@ -25,14 +25,8 @@ interface OwnData { tours: OwnTour[] | null; bookings: OwnBooking[] | null; lead
 
 type Action = 'confirmed' | 'cancelled' | 'completed' | 'no_show';
 
-export const STATUS_LABEL: Record<string, string> = {
-  new: 'Новая — ждёт вашего ответа',
-  pending_payment: 'Ждёт оплаты',
-  confirmed: 'Подтверждена',
-  cancelled: 'Отменена',
-  completed: 'Завершена',
-  no_show: 'Турист не пришёл',
-};
+/** Подписи статуса — общие с экраном «Брони» в чате гида. */
+export const STATUS_LABEL = OWNER_BOOKING_STATUS_LABEL;
 
 const ACTION_LABEL: Record<Action, string> = {
   confirmed: 'Подтвердить',

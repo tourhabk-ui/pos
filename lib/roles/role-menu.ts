@@ -8,15 +8,22 @@
  *
  * Администратор — шесть чтений из lib/max/admin-read. Партнёр —
  * «Входящие» кабинета (loadInbox) и, у пилота запросов мест, «Сводка».
+ * Гид, который продаёт свои туры (`sellsOwnTours`, 29.10), — ещё «Брони» и
+ * «Мои туры»: те же чтения, что раздел «Свои туры» на сайте
+ * (lib/guides/chat-screens). Гид команды оператора без своих туров —
+ * прежняя строка: броней и туров ему показывать нечего.
  */
 
+import { getPublicBaseUrl } from '@/lib/config';
+import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { summaryEnabledFor } from '@/lib/seat-requests/summary';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export type MenuRole = 'admin' | 'operator' | 'transfer' | 'stay' | 'guide';
 
-export type MenuAction = 'inbox' | 'summary' | 'dates' | 'bookings' | 'leads' | 'health' | 'help';
+export type MenuAction = 'inbox' | 'summary' | 'dates' | 'bookings' | 'leads' | 'tours' | 'health' | 'help';
 
 const ROLE_CODE: Record<MenuRole, string> = {
   admin: 'ad',
@@ -34,6 +41,7 @@ const ACTION_CODE: Record<MenuAction, string> = {
   dates: 'dt',
   bookings: 'bk',
   leads: 'ld',
+  tours: 'tr',
   health: 'hl',
   help: 'hp',
 };
@@ -61,6 +69,24 @@ export interface MenuPartner {
   slug?: string | null;
   /** `partners.user_id`. Нет аккаунта — непрочитанное чата кабинета не считается. */
   userId?: string | null;
+  /**
+   * Есть ли у карточки свои неудалённые туры — `findPartnerByChat` и
+   * `bindPartnerChannel` читают его тем же запросом, что карточку. Решает
+   * `sellsOwnTours`; поля нет — не продаёт.
+   */
+  sellsTours?: boolean;
+}
+
+/**
+ * Окно «ближайших» броней в чате гида, дней. Одно число на экран «Брони»
+ * (lib/guides/chat-screens) и справку, которая его называет. На сайте — все
+ * предстоящие.
+ */
+export const CHAT_BOOKINGS_WINDOW_DAYS = 14;
+
+/** Гид, который продаёт свои туры: у него в строке «Брони» и «Мои туры». */
+export function guideSellsOwnTours(partner: MenuPartner): boolean {
+  return partner.category === 'guide' && sellsOwnTours(partner);
 }
 
 /** null — этой записи меню роли нет (пилот проката, агент, снаряжение, чужая категория). Админ сюда не входит: его меню не из карточки партнёра. */
@@ -83,6 +109,9 @@ export function partnerMenu(partner: MenuPartner): MenuButton[] | null {
   if (role === 'operator' && summaryEnabledFor(partner.partnerId)) {
     row.push(button(role, 'summary', 'Сводка'));
   }
+  if (guideSellsOwnTours(partner)) {
+    row.push(button(role, 'bookings', 'Брони'), button(role, 'tours', 'Мои туры'));
+  }
   row.push(button(role, 'help', 'Помощь'));
   return row;
 }
@@ -94,10 +123,14 @@ export function parseRoleMenuPress(payload: string): { role: MenuRole; action: M
   const action = CODE_ACTION.get(match[2] ?? '');
   if (!role || !action) return null;
   if (role === 'admin') {
-    if (action === 'inbox') return null;
+    // У администратора нет «Входящих» и «Моих туров» — только его шесть чтений.
+    if (action === 'inbox' || action === 'tours') return null;
     return { role, action };
   }
   if (action === 'inbox' || action === 'summary' || action === 'help') return { role, action };
+  // «Брони» и «Мои туры» — только у гида. Продаёт ли он свои туры, решает
+  // экран по карточке чата, а не payload.
+  if (role === 'guide' && (action === 'bookings' || action === 'tours')) return { role, action };
   return null;
 }
 
@@ -151,6 +184,17 @@ export function partnerMenuHelp(role: Exclude<MenuRole, 'admin'>, menu: MenuButt
   ];
   if (menu.some((b) => b.payload.endsWith(':sm'))) {
     lines.push('Сводка — числа по запросам мест: сколько ждут, без имени и телефона.');
+  }
+  const bookings = menu.some((b) => b.payload.endsWith(':bk'));
+  const tours = menu.some((b) => b.payload.endsWith(':tr'));
+  if (bookings) {
+    lines.push(`Брони — ждут вашего ответа и действующие на ближайшие ${CHAT_BOOKINGS_WINDOW_DAYS} дней. Имя и телефон туриста — только в MAX.`);
+  }
+  if (tours) {
+    lines.push('Мои туры — ваши туры: на сайте или черновик и сколько открытых дат.');
+  }
+  if (bookings || tours) {
+    lines.push(`Подтвердить или отклонить бронь и открыть даты — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
   }
   lines.push('Помощь — этот текст.');
   lines.push('Оплата через платформу не принимается.');

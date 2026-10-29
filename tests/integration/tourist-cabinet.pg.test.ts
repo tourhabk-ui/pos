@@ -1445,6 +1445,55 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     }
   });
 
+  it('гид в мессенджере (29.10): привязка узнаёт продавца своих туров тем же запросом, что пишет чат; «Брони» в Telegram — без имени и телефона, в MAX — с ними', async () => {
+    const { bindPartnerChannel, boundMenuRow } = await import('@/lib/partners/bind-channel');
+    const { guideBookingsScreen, guideToursScreen } = await import('@/lib/guides/chat-screens');
+    const guide = async (name: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ($1, 'guide', '{}') RETURNING id`, [name],
+    )).rows[0].id;
+    const seller = await guide('Гид-продавец в мессенджере');
+    const team = await guide('Гид команды в мессенджере');
+    const gone = await guide('Гид с удалённым туром в мессенджере');
+    await pool.query(`UPDATE partners SET guide_operator_id = $2 WHERE id = $1`, [team, operatorId]);
+    // Черновик — тоже его тур; удалённый — нет.
+    const draft = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+       VALUES ($1, 'Черновик гида <в чате>', 9000, 6, TRUE, FALSE) RETURNING id`, [seller],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, base_price, deleted_at) VALUES ($1, 'Удалённый тур гида в чате', 9000, NOW())`, [gone],
+    );
+    const b = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, tourist_name, tourist_phone, tourist_email, special_requests, booking_status)
+       VALUES ($1, CURRENT_DATE + 3, 2, 'Турист мессенджера', '+70000000088', 'pd-msgr@example.com', 'пожелание туриста', 'new')
+       RETURNING id::text`, [draft],
+    )).rows[0].id;
+
+    const boundSeller = await bindPartnerChannel(seller, 'max', 929_001, 929_001);
+    expect(boundSeller).toMatchObject({ ok: true, partnerId: seller, category: 'guide', sellsTours: true, cabinetOf: null });
+    expect(boundMenuRow(boundSeller)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    for (const [id, chat] of [[team, 929_002], [gone, 929_003]] as const) {
+      const r = await bindPartnerChannel(id, 'telegram', chat, null);
+      expect(r).toMatchObject({ ok: true, partnerId: id, sellsTours: false });
+      expect(boundMenuRow(r)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:hp']);
+    }
+    // Чат записан туда, откуда его читают доставка и findPartnerByChat.
+    expect((await pool.query(`SELECT max_chat_id::text AS c FROM partners WHERE id = $1`, [seller])).rows[0].c).toBe('929001');
+
+    const tg = await guideBookingsScreen(seller, 'telegram', Date.now());
+    expect(tg.pd).toBe(false);
+    expect(tg.text).toContain(`№${b}`);
+    expect(tg.text).toContain('Черновик гида &lt;в чате&gt;');
+    expect(tg.text).not.toMatch(/Турист мессенджера|70000000088|pd-msgr|пожелание туриста/);
+    const mx = await guideBookingsScreen(seller, 'max', Date.now());
+    expect(mx.pd).toBe(true);
+    expect(mx.text).toContain('Турист мессенджера, +70000000088');
+    expect(mx.text).not.toMatch(/pd-msgr|пожелание туриста/);
+    // Туры — те же, что раздел «Свои туры»: черновик назван черновиком.
+    expect(await guideToursScreen(seller)).toContain('Черновик гида &lt;в чате&gt; — Черновик — туристы не видят');
+    expect(await guideToursScreen(team)).toContain('Своих туров в кабинете нет');
+  });
+
   it('заявка своего тура: гид отмечает ответ одним правилом с оператором — событие в ленте один раз, повтор «уже»; чужая и ничейная — 404 и не тронуты; дверь оператора ничейную занимает, как раньше; своя проба владельца — не заявка (29.10)', async () => {
     // До 29.10 заявку гида можно было только прочитать: дверь заявок
     // (/api/leads/[id]) пускала одного оператора, и во «Входящие» гида

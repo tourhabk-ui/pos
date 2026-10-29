@@ -20,7 +20,7 @@
  */
 
 import { escapeHtml } from '@/lib/text/escape-html';
-import { getPublicBaseUrl } from '@/lib/config';
+import { ownerCalendarUrl, ownerToursUrl } from '@/lib/partners/cabinet-links';
 import { windowLabel } from '@/lib/tours/request-window';
 import { horizonLastDate, isCalendarDate, tourHiddenText, type DateOpenResult } from '@/lib/tours/availability-open';
 import { type DatesAsk, type DatesRefusal, MAX_DATES_PER_PROPOSAL, weekdayOf, weekdaysPlural } from './parse';
@@ -30,8 +30,9 @@ export const PROPOSAL_TTL_MIN = 30;
 /** Потолок длины сообщения MAX с запасом. */
 export const MAX_MESSAGE_CHARS = 4000;
 
+/** Календарь кабинета туроператора. Адреса кабинета строит одно место — lib/partners/cabinet-links. */
 export function calendarLink(): string {
-  return `${getPublicBaseUrl()}/hub/operator/calendar`;
+  return ownerCalendarUrl('operator');
 }
 
 // ── Слова и даты ──────────────────────────────────────────────────────────
@@ -771,7 +772,7 @@ export const FLOW_TEXT = {
   // Слышит и турист: проверка чата не прошла — значит, неизвестно, чей он.
   partnerUnknown: 'Сбой на нашей стороне — ничего не изменено, попробуйте через минуту.',
   toursUnread: 'Не смог прочитать ваши туры — ничего не открыто, попробуйте через минуту.',
-  noTours: () => `У вас нет активных туров — открывать даты некуда. Тур включается в кабинете: ${getPublicBaseUrl()}/hub/operator/tours`,
+  noTours: () => `У вас нет активных туров — открывать даты некуда. Тур включается в кабинете: ${ownerToursUrl('operator')}`,
   nameNeeded: (titles: string[]) => 'Напишите фразу заново с названием тура. Ваши туры:\n' +
     titles.map((t) => `— ${escapeHtml(t)}`).join('\n'),
   hidden: (title: string) => `${escapeHtml(tourHiddenText(title))} Ничего не открыто.`,

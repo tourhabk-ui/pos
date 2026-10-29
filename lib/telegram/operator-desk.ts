@@ -10,7 +10,7 @@ import { priceFromUnit } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
-import { calendarLink } from '@/lib/operators/chat-dates/texts';
+import { ownerCalendarUrl } from '@/lib/partners/cabinet-links';
 import { chatAnswerButtons, chatAnswerOfInbox } from '@/lib/requests/chat-answer';
 import { inboxMenuText } from '@/lib/roles/inbox-text';
 import type { Inbox } from '@/lib/crm/inbox';
@@ -86,10 +86,22 @@ export function operatorHelpText(): string {
   ].join('\n');
 }
 
-export function operatorSeatsText(): string {
+/**
+ * «Обновить места» — где отметить занятость. Туроператору — календарь и фраза
+ * в MAX; гиду со своими турами — раздел «Свои туры» (кабинет оператора его не
+ * пустит). Фразу дат в MAX гиду не обещаем: поток дат словами открыт только
+ * туроператору (lib/operators/chat-dates/flow).
+ */
+export function operatorSeatsText(category: string | null = 'operator'): string {
+  if (category === 'guide') {
+    return [
+      'Места на даты этим сообщением не меняются.',
+      `Откройте даты в разделе «Свои туры»: ${ownerCalendarUrl(category)}`,
+    ].join('\n');
+  }
   return [
     'Места на даты этим сообщением не меняются.',
-    `Откройте календарь: ${calendarLink()}`,
+    `Откройте календарь: ${ownerCalendarUrl(category)}`,
     'В MAX можно написать фразу целиком, например: «открой весь ноябрь, 8 мест» — там есть кнопка подтверждения.',
   ].join('\n');
 }
