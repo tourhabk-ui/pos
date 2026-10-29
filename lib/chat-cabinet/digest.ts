@@ -1,6 +1,6 @@
 /**
  * Утренняя сводка кабинета в чате (решение владельца 30.10, «всё сразу +
- * Telegram»): раз в камчатские сутки, с 08:00 до 10:00 по Камчатке, партнёру,
+ * Telegram»): раз в камчатские сутки, с 08:00 до 12:00 по Камчатке, партнёру,
  * у которого что-то ждёт ответа или подошёл срок задачи. Зовёт крон
  * напоминаний (`GET /api/cron/crm-reminders`, каждые 30 минут) третьим
  * прогоном после задач и входящих.
@@ -23,6 +23,15 @@
  *  - **Отказ чтения не глушится** (§4.0): не прочитались входящие или задачи
  *    — сводки нет, строка не ставится, в отчёте `read_failed`; не прочитался
  *    один вид входящих — сводка говорит, что именно не прочиталось.
+ *  - **Окно в четыре часа, а не в два.** Крон идёт каждые 30 минут, но
+ *    планировщик GitHub сбивает запуски в кучи раз в 2–5 часов (CLAUDE.md,
+ *    20.09): в окно 08–10 прогон мог не попасть ни один. Второй сводки
+ *    широкое окно не даёт — её держит строка дня.
+ *  - **«Застрял» — про путь, а не про одного партнёра.** Не дошла сводка
+ *    одному (бот заблокирован) — он остаётся в каждом прогоне окна. Прогон,
+ *    где он один и не дошёл, путь не опровергает, если сегодня сводка уже
+ *    кому-то дошла (`done_today`): иначе шаг краснел бы каждые полчаса до
+ *    полудня из-за одного чата.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -47,9 +56,9 @@ interface Queryable {
   query: typeof pool.query;
 }
 
-/** Окно сводки по Камчатке: с конца тихих часов до 10:00. */
+/** Окно сводки по Камчатке: с конца тихих часов до полудня. */
 export const DIGEST_FROM_HOUR = 8;
-export const DIGEST_UNTIL_HOUR = 10;
+export const DIGEST_UNTIL_HOUR = 12;
 export const DIGEST_TASKS_SHOWN = 5;
 export const DIGEST_BATCH = 300;
 
@@ -81,6 +90,11 @@ export const DIGEST_CLAIM_SQL = `
 export const DIGEST_FINISH_SQL = `
   UPDATE crm_chat_digests SET channel = $3
    WHERE partner_id = $1::uuid AND digest_date = $2::date AND channel = 'sending'`;
+
+/** Сколько кабинетов сегодня уже разобрано (дошло, пусто, некуда). */
+export const DIGEST_DONE_TODAY_SQL = `
+  SELECT count(*)::int AS n FROM crm_chat_digests
+   WHERE digest_date = $1::date AND channel <> 'sending'`;
 
 export const DIGEST_RELEASE_SQL = `
   DELETE FROM crm_chat_digests
@@ -165,6 +179,12 @@ export interface DigestReport {
   /** Список кабинетов не прочитался — прогон ничего не разослал (§4.0: не «некому»). */
   query_failed: boolean;
   truncated: boolean;
+  /**
+   * Кабинетов, разобранных сегодня раньше. Считается, только когда этот
+   * прогон ничего не разобрал и были отказы; null — не считали или счёт не
+   * прочитался (тогда отказ прогона — отказ пути).
+   */
+  done_today: number | null;
 }
 
 export interface DigestDeps {
@@ -212,7 +232,7 @@ export async function runMorningDigest(now: Date, deps: DigestDeps = {}): Promis
   const sendTg = deps.sendTelegram ?? sendTelegramDigest;
   const report: DigestReport = {
     window: false, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
-    failed: 0, read_failed: 0, query_failed: false, truncated: false,
+    failed: 0, read_failed: 0, query_failed: false, truncated: false, done_today: null,
   };
   const hour = kamchatkaHour(now);
   if (hour < DIGEST_FROM_HOUR || hour >= DIGEST_UNTIL_HOUR) return report;
@@ -255,37 +275,49 @@ export async function runMorningDigest(now: Date, deps: DigestDeps = {}): Promis
     const base = getPublicBaseUrl();
     const cabinet = { text: 'Кабинет на сайте', url: siteUrl(base, role as CabinetRole) };
     const tgText = digestText(facts, 'telegram', nowMs);
-    let channel: 'max' | 'telegram' | null = null;
-    if (c.max_cabinet && c.max_chat_id) {
-      const res = await sendPd({
-        text: digestText(facts, 'max', nowMs),
-        stub: tgText,
-        buttons: [
-          { text: 'Входящие', payload: cabinetPayload.openInbox() },
-          { text: 'Задачи', payload: cabinetPayload.openTasks() },
-          cabinet,
-        ],
-        // Заглушка — только в Telegram-кабинет этой же карточки.
-        to: { maxChatId: c.max_chat_id, telegramChatId: c.telegram_cabinet ? c.telegram_chat_id : null },
-      });
-      if (res.channel === 'max') {
-        channel = 'max';
-        report.sent_max += 1;
-      } else if (res.channel === 'telegram-stub') {
-        channel = 'telegram';
-        report.sent_stub += 1;
-      } else {
+    const deliver = async (): Promise<'max' | 'telegram' | null> => {
+      if (c.max_cabinet && c.max_chat_id) {
+        const res = await sendPd({
+          text: digestText(facts, 'max', nowMs),
+          stub: tgText,
+          buttons: [
+            { text: 'Входящие', payload: cabinetPayload.openInbox() },
+            { text: 'Задачи', payload: cabinetPayload.openTasks() },
+            cabinet,
+          ],
+          // Заглушка — только в Telegram-кабинет этой же карточки.
+          to: { maxChatId: c.max_chat_id, telegramChatId: c.telegram_cabinet ? c.telegram_chat_id : null },
+        });
+        if (res.channel === 'max') {
+          report.sent_max += 1;
+          return 'max';
+        }
+        if (res.channel === 'telegram-stub') {
+          report.sent_stub += 1;
+          return 'telegram';
+        }
         console.error('[chat-digest] сводка не доставлена, повтор в следующем прогоне:', res.reason);
+        return null;
       }
-    } else if (c.telegram_cabinet && c.telegram_chat_id) {
-      const ok = await sendTg(c.telegram_chat_id, tgText, telegramCabinetKeyboard([
-        [{ text: 'Входящие', payload: cabinetPayload.openInbox() }, { text: 'Задачи', payload: cabinetPayload.openTasks() }],
-        [cabinet],
-      ]));
-      if (ok) {
-        channel = 'telegram';
-        report.sent_tg += 1;
+      if (c.telegram_cabinet && c.telegram_chat_id) {
+        const ok = await sendTg(c.telegram_chat_id, tgText, telegramCabinetKeyboard([
+          [{ text: 'Входящие', payload: cabinetPayload.openInbox() }, { text: 'Задачи', payload: cabinetPayload.openTasks() }],
+          [cabinet],
+        ]));
+        if (ok) {
+          report.sent_tg += 1;
+          return 'telegram';
+        }
       }
+      return null;
+    };
+    // Отправка бросила — строка снимается, как при отказе: иначе сводка этого
+    // кабинета стояла бы «отправляется» до конца дня, не уйдя.
+    let channel: 'max' | 'telegram' | null = null;
+    try {
+      channel = await deliver();
+    } catch (err) {
+      console.error(`[chat-digest] отправка сводки бросила — повтор в следующем прогоне: ${err instanceof Error ? err.name : 'отказ'}`);
     }
     if (channel) {
       await db.query(DIGEST_FINISH_SQL, [c.partner_id, day, channel]);
@@ -302,6 +334,15 @@ export async function runMorningDigest(now: Date, deps: DigestDeps = {}): Promis
       // Отказ записи строки сводки — этот кабинет в следующем прогоне, остальные идут дальше.
       console.error(`[chat-digest] сводка кабинета — отказ, SQLSTATE ${sqlstate(err)}`);
       report.failed += 1;
+    }
+  }
+  const processed = report.sent_max + report.sent_tg + report.sent_stub + report.empty + report.unreachable;
+  if (report.failed + report.read_failed > 0 && processed === 0) {
+    try {
+      const { rows: [r] } = await db.query<{ n: number }>(DIGEST_DONE_TODAY_SQL, [day]);
+      report.done_today = r?.n ?? 0;
+    } catch (err) {
+      console.error(`[chat-digest] счёт разобранных за день не прочитан — отказ, SQLSTATE ${sqlstate(err)}`);
     }
   }
   return report;

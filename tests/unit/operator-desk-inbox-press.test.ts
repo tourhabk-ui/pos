@@ -14,6 +14,13 @@ vi.mock('@/lib/crm/inbox', () => ({
   loadInbox: (...args: unknown[]) => loadInbox(...args),
 }));
 
+// Полоса чата подменена: беду с командой классификатор обычно отдаёт Кузьмичу
+// туриста. Здесь судится случай, когда полоса оставила её кабинету.
+vi.mock('@/lib/kuzmich/bound-chat-route', async (orig) => ({
+  ...(await orig<typeof import('@/lib/kuzmich/bound-chat-route')>()),
+  boundChatLaneFor: () => 'partner',
+}));
+
 vi.mock('@/lib/kuzmich/operator-chat', () => ({
   findPartnerByChat: (...args: unknown[]) => findPartnerByChat(...args),
   processPartnerMessage: vi.fn(),
@@ -91,6 +98,25 @@ describe('кнопка входящих туроператора — кабин�
     expect(sendCabinet).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith(CABINET_IN_DIALOG, []);
     expect(loadInbox).not.toHaveBeenCalled();
+  });
+
+  it('беда в тексте команды — блок 112 отдельным сообщением перед экраном: правка экрана кнопкой его не сотрёт', async () => {
+    const { tryRoleMenuTelegramMessage } = await import('@/lib/roles/role-telegram');
+    const order: string[] = [];
+    const send = vi.fn(async (text: string) => { order.push(`send:${text}`); });
+    const sendCabinet = vi.fn(async (screen: { text: string }) => { order.push(`cabinet:${screen.text}`); });
+    findPartnerByChat.mockResolvedValue({
+      outcome: 'found', partner: { ...PARTNER, category: 'guide', crmCategory: 'guide', sellsTours: false },
+    });
+    const handled = await tryRoleMenuTelegramMessage({
+      chatId: 42, text: '/requests человек упал со скалы, помогите', fromName: null, send, sendCabinet, chatType: 'private',
+    });
+    expect(handled).toBe(true);
+    expect(order).toHaveLength(2);
+    expect(order[0]).toMatch(/^send:[\s\S]*112/);
+    expect(order[1]).toMatch(/^cabinet:<b>Входящие<\/b>/);
+    expect(order[1]).not.toContain('112');
+    expect(send).toHaveBeenCalledWith(expect.any(String), []);
   });
 
   it('«Помощь» в Telegram — справка кабинета и кнопка поддержки, не тикет', async () => {

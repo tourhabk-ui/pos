@@ -81,9 +81,9 @@ import { armChatWait, bindGuestChat, captureChatText, type ChatReply } from '@/l
 import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
 import { operatorDeskButtons, operatorHelpText, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
-import { cabinetSectionFor, captureCabinetSearch, type CabinetSection } from '@/lib/chat-cabinet/service';
-import { maxCabinetRows } from '@/lib/chat-cabinet/render';
+import { cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, type CabinetSection } from '@/lib/chat-cabinet/service';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
+import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 
@@ -314,44 +314,18 @@ function rentalCalendarSend(chatId: number, bar: boolean) {
 }
 
 /**
- * Экран кабинета в чате (lib/chat-cabinet). Кнопка самого экрана (`cb:`)
- * правит это же сообщение — кабинет листается, а не засыпает чат; кнопка
- * строки меню, слово и команда — новое сообщение (строка меню стоит и под
- * уведомлениями, их править нельзя). MAX правит только свои сообщения не
- * старше суток: не принял — новым сообщением.
- * Экран с именем и телефоном клиента уходит в этот же личный диалог MAX, из
- * которого пришло нажатие; в Telegram такой экран не попадает (замок —
- * lib/chat-cabinet/service).
+ * Экран кабинета в чате: правка сообщения с кнопкой или новое сообщение, блок
+ * 112 — отдельным сообщением перед экраном (lib/chat-cabinet/max-deliver).
  */
 async function showCabinetMax(
   chatId: number,
   screen: CabinetScreen,
   editMid: string | null,
-  wrap: (body: string) => string = (body) => body,
+  userText?: string,
 ): Promise<void> {
   const api = getApi();
   if (!api) return;
-  const rows = maxCabinetRows(screen.rows);
-  const attachments = rows.length ? [{ type: 'inline_keyboard', payload: { buttons: rows } }] : [];
-  const text = wrap(screen.text);
-  if (editMid) {
-    try {
-      const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
-        text, format: 'html', attachments,
-      });
-      if (res?.success !== false) return;
-      console.error('[max/kuzmich] правка экрана кабинета не принята MAX — отправляю новым сообщением');
-    } catch (err) {
-      logFailure('правка экрана кабинета', err);
-    }
-  }
-  try {
-    await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
-      format: 'html', attachments,
-    });
-  } catch (err) {
-    logFailure('экран кабинета в чат MAX', err);
-  }
+  await deliverCabinetMax(api as unknown as MaxCabinetApi, chatId, screen, editMid, userText);
 }
 
 /** Раздел кабинета по слову или команде: «Входящие», /requests, «Задачи», «Клиенты». */
@@ -1336,7 +1310,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
         const found = await captureCabinetSearch({ chatId, partner: lookup.partner, text });
         if (found) {
-          await showCabinetMax(chatId, found, null, sos);
+          await showCabinetMax(chatId, found, null, text);
           return;
         }
       }
@@ -1469,7 +1443,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
             await say(CABINET_IN_DIALOG);
             return;
           }
-          await showCabinetMax(chatId, await cabinetSectionFor(lookup.partner, 'max', section), null, sos);
+          await showCabinetMax(chatId, await cabinetSectionFor(lookup.partner, 'max', section), null, text);
           return;
         }
         if (role && (text.trim() === '/start' || slashHead === '/help' || askedRole !== null)) {
@@ -1486,7 +1460,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
             await say(CABINET_IN_DIALOG);
             return;
           }
-          await showCabinetMax(chatId, await cabinetSectionFor(lookup.partner, 'max', 'inbox'), null, sos);
+          await showCabinetMax(chatId, await cabinetSectionFor(lookup.partner, 'max', 'inbox'), null, text);
           return;
         }
         const asked = rentalCabinetAsk(text);
@@ -1658,6 +1632,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(messageChatId, 'Эта кнопка — меню кабинета. В этом чате её не выполняю.');
         return;
       }
+      // Кнопка меню — другая кнопка кабинета: ждущий поиск клиента снят.
+      await dropCabinetSearch(messageChatId);
       // Вкладка кабинета в чате — раздел новым сообщением: строка меню стоит
       // и под уведомлениями, и править их нельзя.
       if (isCabinetSection(rolePress.action)) {

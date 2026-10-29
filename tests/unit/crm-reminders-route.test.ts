@@ -26,7 +26,7 @@ describe('GET /api/cron/crm-reminders', () => {
   const inboxBase = { quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0, failed_kinds: [] };
   const digestBase = {
     window: false, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
-    failed: 0, read_failed: 0, query_failed: false, truncated: false,
+    failed: 0, read_failed: 0, query_failed: false, truncated: false, done_today: null,
   };
 
   beforeEach(() => {
@@ -106,6 +106,16 @@ describe('GET /api/cron/crm-reminders', () => {
     expect(r.status).toBe(200);
     expect((await r.json()).digest.sent_max).toBe(1);
     expect(recordCronRun).toHaveBeenLastCalledWith('crm-reminders', expect.any(Number), 'success', { items: 1 });
+  });
+
+  it('сводка: в прогоне остался один недоступный чат, а сегодня другим уже дошло — 200; не дошло никому или счёт не прочитан — 502', async () => {
+    run.mockResolvedValue(base);
+    runDigest.mockResolvedValueOnce({ ...digestBase, window: true, candidates: 1, failed: 1, done_today: 4 });
+    expect((await call()).status).toBe(200);
+    runDigest.mockResolvedValueOnce({ ...digestBase, window: true, candidates: 1, failed: 1, done_today: 0 });
+    expect((await call()).status).toBe(502);
+    runDigest.mockResolvedValueOnce({ ...digestBase, window: true, candidates: 1, failed: 1, done_today: null });
+    expect((await call()).status).toBe(502);
   });
 
   it('отказ базы — 500, в ответе нет текста ошибки базы', async () => {

@@ -4,7 +4,7 @@
  * судит tests/integration/chat-cabinet.pg.test.ts.
  *
  * Держит:
- *  - только окно 08:00–10:00 по Камчатке; вне его база не спрашивается;
+ *  - только окно 08:00–12:00 по Камчатке; вне его база не спрашивается;
  *  - один раз в камчатские сутки: замок `sending` до отправки, итог после,
  *    отказ отправки снимает замок (повтор — в следующем прогоне);
  *  - нечего сказать — молчим (`empty`); чат — кабинет другой карточки или
@@ -12,7 +12,10 @@
  *    не ставим замок (`read_failed`), это не «ничего нет»;
  *  - ПД: в MAX — через sendPdAlert, заглушка — только в Telegram-кабинет этой
  *    карточки и без заголовков задач и имён; кабинет только в Telegram —
- *    сводка без ПД с кнопками кабинета.
+ *    сводка без ПД с кнопками кабинета;
+ *  - отправка бросила — замок снят, как при отказе;
+ *  - прогон без единой сводки при отказах считает, разобран ли сегодня хоть
+ *    один кабинет (`done_today`): одному недоступному чату шаг не краснеет.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DigestCandidate, DigestFacts } from '@/lib/chat-cabinet/digest';
@@ -71,13 +74,16 @@ const released = (calls: Array<{ sql: string; params: unknown[] }>) =>
 beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => undefined); });
 
 describe('окно', () => {
-  it('до 08:00 и с 10:00 по Камчатке — база не спрашивается', async () => {
-    for (const at of [new Date(Date.UTC(2026, 9, 29, 19, 59)), new Date(Date.UTC(2026, 9, 29, 22, 0))]) {
+  it('до 08:00 и с 12:00 по Камчатке — база не спрашивается; 11:59 — ещё окно', async () => {
+    for (const at of [new Date(Date.UTC(2026, 9, 29, 19, 59)), new Date(Date.UTC(2026, 9, 30, 0, 0))]) {
       const { db, calls } = fakeDb([cand()]);
       const r = await D.runMorningDigest(at, { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
       expect(r.window).toBe(false);
       expect(calls).toEqual([]);
     }
+    const { db } = fakeDb([]);
+    const late = await D.runMorningDigest(new Date(Date.UTC(2026, 9, 29, 23, 59)), { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+    expect(late.window).toBe(true);
   });
 
   it('в окне — кандидаты по камчатской дате (30.10, а не 29.10 сервера)', async () => {
@@ -211,5 +217,53 @@ describe('отказы', () => {
     expect(r2.sent_max).toBe(2);
     expect(r2.failed).toBe(1);
     expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('40001');
+    // Сводки в прогоне ушли — разобранное за день не считается.
+    expect(r2.done_today).toBeNull();
+  });
+
+  it('отправка бросила — замок снят, повтор в следующем прогоне', async () => {
+    const { db, calls } = fakeDb([cand()]);
+    const r = await D.runMorningDigest(AT, {
+      db, read: async () => facts(), sendTelegram: vi.fn(),
+      sendPd: async () => { throw new TypeError('сеть'); },
+    });
+    expect(r.failed).toBe(1);
+    expect(finished(calls)).toEqual([]);
+    expect(released(calls)).toBe(1);
+  });
+
+  it('прогон ничего не разослал при отказах — счёт разобранных за день; сводка дошла — не считает', async () => {
+    const counted = (n: number | 'throw') => {
+      const calls: string[] = [];
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          calls.push(sql);
+          if (sql === D.DIGEST_CANDIDATES_SQL) return { rows: [cand()], rowCount: 1 };
+          if (sql === D.DIGEST_DONE_TODAY_SQL) {
+            if (n === 'throw') throw Object.assign(new Error('z'), { code: '57P01' });
+            return { rows: [{ n }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 1 };
+        }),
+      } as never;
+      return { db, calls };
+    };
+    const none = async () => ({ channel: 'none' as const, delivered: false, reason: 'бот заблокирован' });
+    let x = counted(3);
+    let r = await D.runMorningDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
+    expect(r).toMatchObject({ failed: 1, done_today: 3 });
+    x = counted(0);
+    r = await D.runMorningDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
+    expect(r.done_today).toBe(0);
+    x = counted('throw');
+    r = await D.runMorningDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
+    expect(r.done_today).toBeNull();
+    x = counted(5);
+    r = await D.runMorningDigest(AT, {
+      db: x.db, read: async () => facts(), sendTelegram: vi.fn(),
+      sendPd: async () => ({ channel: 'max' as const, delivered: true, reason: '' }),
+    });
+    expect(r.done_today).toBeNull();
+    expect(x.calls).not.toContain(D.DIGEST_DONE_TODAY_SQL);
   });
 });

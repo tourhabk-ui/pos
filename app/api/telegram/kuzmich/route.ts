@@ -34,6 +34,7 @@ import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
 import { isCabinetPayload } from '@/lib/chat-cabinet/payload';
 import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
+import type { CabinetButton as CabinetScreenButton } from '@/lib/chat-cabinet/screens';
 import { cabinetSectionFor } from '@/lib/chat-cabinet/service';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { datesSellerOf, telegramDatesText } from '@/lib/operators/chat-dates/texts';
@@ -73,6 +74,20 @@ async function botToken(): Promise<string> {
 
 function roleRows(buttons: MenuButton[][]): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) };
+}
+
+/**
+ * Кнопки, которые этот вход умеет нажимать: кабинет (`cb:`) и меню роли
+ * (`rm:`). Ответы на бронь, заявку и запрос (`bk:`, `ia:`, `opd:`…) живут в
+ * основном боте (/api/telegram/webhook) — здесь кнопка была бы мёртвой, и
+ * карточка приходит без них: ответить можно в основном боте или в кабинете.
+ */
+function handledHere(payload: string): boolean {
+  return payload.startsWith('cb:') || payload.startsWith('rm:');
+}
+
+function secondEntryCabinetRows(rows: readonly CabinetScreenButton[][]): CabinetScreenButton[][] {
+  return rows.map((row) => row.filter((b) => !('payload' in b) || handledHere(b.payload)));
 }
 
 async function tgReply(chatId: number, text: string, extra?: Record<string, unknown>): Promise<void> {
@@ -512,7 +527,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const screen = await handleCabinetPress({
           channel: 'telegram', chatId, privateChat: cq.message?.chat?.type === 'private', payload: cq.data,
         });
-        await tgReply(chatId, screen.text, { reply_markup: telegramCabinetKeyboard(screen.rows) });
+        await tgReply(chatId, screen.text, { reply_markup: telegramCabinetKeyboard(secondEntryCabinetRows(screen.rows)) });
         return NextResponse.json({ ok: true });
       }
 
@@ -546,11 +561,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           chatId,
           payload: cq.data,
           send: async (body, buttons) => {
-            if (buttons.length === 0) await tgReply(chatId, body);
-            else await tgReply(chatId, body, { reply_markup: roleRows(buttons) });
+            const here = buttons.map((row) => row.filter((b) => handledHere(b.payload))).filter((row) => row.length > 0);
+            if (here.length === 0) await tgReply(chatId, body);
+            else await tgReply(chatId, body, { reply_markup: roleRows(here) });
           },
           sendCabinet: async (screen) => {
-            await tgReply(chatId, screen.text, { reply_markup: telegramCabinetKeyboard(screen.rows) });
+            await tgReply(chatId, screen.text, { reply_markup: telegramCabinetKeyboard(secondEntryCabinetRows(screen.rows)) });
           },
           privateChat: cq.message?.chat?.type === 'private',
         });
@@ -783,7 +799,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         } else {
           // Вкладка кабинета в чате; прочие слова меню — «Входящие», как раньше.
           const screen = await cabinetSectionFor(partner, 'telegram', asked === 'tasks' || asked === 'clients' ? asked : 'inbox');
-          await tgReply(chatId, withSosBlock(screen.text, text).text, { reply_markup: telegramCabinetKeyboard(screen.rows) });
+          await tgReply(chatId, withSosBlock(screen.text, text).text, { reply_markup: telegramCabinetKeyboard(secondEntryCabinetRows(screen.rows)) });
         }
       } else if (text === '/start') {
         await say(partnerGreeting(partner));

@@ -9,9 +9,11 @@
  *    вторую не заводит;
  *  - «Готово» и «На завтра» меняют задачу карточки чата; задача другой
  *    карточки остаётся как была;
- *  - «Найти клиента»: одно ожидание на чат; кнопка гасит ожидание причины
- *    отказа брони и сообщения по заявке; поиск уступает кнопке, нажатой
- *    позже; найденный клиент — только своей карточки;
+ *  - «Найти клиента»: одно ожидание на чат, и два одновременных нажатия —
+ *    оба «жду запрос», без ложного отказа; кнопка гасит ожидание причины
+ *    отказа брони и сообщения по заявке; другая кнопка кабинета гасит поиск;
+ *    кнопке брони, нажатой позже, поиск уступает и запрос никуда не отдаёт;
+ *    найденный клиент — только своей карточки;
  *  - утренняя сводка: кандидаты по камчатской дате, кабинет чата — старшая
  *    карточка, замок `sending` — один на сутки, снятие возвращает в очередь;
  *  - миграция 1351 повторяется без вреда, а ожидание не из MAX база не примет.
@@ -216,13 +218,36 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(await svc.captureCabinetSearch({ chatId: CHAT, partner: await partner(), text: 'анна' })).toBeNull();
     });
 
-    it('кнопка, нажатая после поиска, главная: поиск уступает и гаснет', async () => {
+    it('кнопка брони, нажатая после поиска, главная: поиск гаснет, а текст не уходит ни в поиск, ни дальше', async () => {
       await press(pay.search());
       // Чуть позже — «Отклонить» под бронью: её ожидание создано после поиска.
       await new Promise((r) => setTimeout(r, 15));
       await reasonWait();
-      expect(await svc.captureCabinetSearch({ chatId: CHAT, partner: await partner(), text: 'анна' })).toBeNull();
+      expect(await svc.awaitsCabinetSearch(CHAT)).toBe(true);
+      const s = await svc.captureCabinetSearch({ chatId: CHAT, partner: await partner(), text: 'анна' });
+      expect(s?.text).toContain('Поиск клиента снят');
+      expect(s?.text).not.toContain('Найдено');
       expect((await waits()).at(-1)).toBe('superseded');
+      expect(await svc.awaitsCabinetSearch(CHAT)).toBe(false);
+    });
+
+    it('другая кнопка кабинета («Задачи») снимает поиск: следующий текст — не запрос', async () => {
+      await press(pay.search());
+      expect(await svc.awaitsCabinetSearch(CHAT)).toBe(true);
+      await press(pay.tasks());
+      expect((await waits()).at(-1)).toBe('superseded');
+      expect(await svc.captureCabinetSearch({ chatId: CHAT, partner: await partner(), text: 'запиши звонок Анне' })).toBeNull();
+    });
+
+    it('два одновременных «Найти клиента» (повтор апдейта) — оба «жду запрос», ожидание одно', async () => {
+      const [a, b] = await Promise.all([press(pay.search()), press(pay.search())]);
+      for (const x of [a, b]) {
+        expect(x.text).toContain('<b>Найти клиента</b>');
+        expect(x.text).not.toContain('База не ответила');
+      }
+      const n = await pool.query(`SELECT 1 FROM chat_cabinet_waits WHERE chat_id = $1 AND status = 'waiting'`, [CHAT]);
+      expect(n.rowCount).toBe(1);
+      await press(pay.searchCancel());
     });
 
     it('«не надо» — отмена; кнопка «Не надо» — тоже', async () => {
@@ -252,7 +277,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((await pool.query(digest.DIGEST_CLAIM_SQL, [partnerId, '2026-10-30', 'sending'])).rowCount).toBe(0);
       await pool.query(digest.DIGEST_RELEASE_SQL, [partnerId, '2026-10-30']);
       expect((await pool.query(digest.DIGEST_CLAIM_SQL, [partnerId, '2026-10-30', 'sending'])).rowCount).toBe(1);
+      // «Отправляется» — не разобран: счёт дня его не видит.
+      expect((await pool.query<{ n: number }>(digest.DIGEST_DONE_TODAY_SQL, ['2026-10-30'])).rows[0]?.n).toBe(0);
       await pool.query(digest.DIGEST_FINISH_SQL, [partnerId, '2026-10-30', 'max']);
+      expect((await pool.query<{ n: number }>(digest.DIGEST_DONE_TODAY_SQL, ['2026-10-30'])).rows[0]?.n).toBe(1);
       // Итог записан — снятие его не трогает.
       await pool.query(digest.DIGEST_RELEASE_SQL, [partnerId, '2026-10-30']);
       const left = await pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-30', 50]);

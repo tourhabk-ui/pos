@@ -114,7 +114,12 @@ export async function tryRoleMenuTelegramMessage(opts: {
       return;
     }
     const screen = await cabinetSectionFor(partner, 'telegram', section, Date.now());
-    await opts.sendCabinet({ ...screen, text: withSosBlock(screen.text, opts.text).text });
+    // Беда в тексте — блок 112 отдельным сообщением перед экраном: кнопки
+    // кабинета правят сообщение, под которым стоят, и блок над экраном стёрла
+    // бы первая же из них.
+    const sos = withSosBlock('', opts.text);
+    if (sos.emergency) await opts.send(sos.text.trim(), []);
+    await opts.sendCabinet(screen);
   };
   const open = async (action: 'help' | 'summary' | 'bookings' | 'tours') => {
     const screen = await roleMenuScreen({

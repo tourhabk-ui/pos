@@ -1039,7 +1039,7 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       [b, now.toISOString()],
     );
 
-    const sent: Array<{ buttons?: Array<{ text: string; url?: string }>; to: { maxChatId: string | null } }> = [];
+    const sent: Array<{ buttons?: Array<{ text: string; url?: string; payload?: string }>; to: { maxChatId: string | null } }> = [];
     const reach = async (id: string) => ({ reachable: true, maxChatId: id === guide ? 'guide-chat' : 'other-chat', telegramChatId: null }) as never;
     const send = async (p: (typeof sent)[number]) => { sent.push(p); return { channel: 'max' as const, delivered: true, reason: 'ok' }; };
     const r = await runInboxReminders(now, { db: pool, reach, send: send as never });
@@ -1051,7 +1051,8 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(marked.rows).toEqual([{ item_kind: 'operator_booking', item_id: b }]);
     const toGuide = sent.filter((m) => m.to.maxChatId === 'guide-chat');
     expect(toGuide).toHaveLength(1);
-    expect(toGuide[0].buttons?.map((x) => x.url)).toEqual(['https://vedarai.ru/hub/guide/inbox']);
+    // «Входящие в чате» (кабинет в чате, 30.10) — новым сообщением, затем кабинет на сайте.
+    expect(toGuide[0].buttons?.map((x) => x.url ?? x.payload)).toEqual(['cb:n:i', 'https://vedarai.ru/hub/guide/inbox']);
 
     // Кнопка ведёт во «Входящие» гида — и напомненная бронь там стоит.
     const g = await loadInbox(guide, 'guide', null, { db: pool, nowMs: now.getTime() });

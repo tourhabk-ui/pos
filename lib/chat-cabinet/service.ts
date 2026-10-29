@@ -134,13 +134,21 @@ async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): 
   return inboxScreen(inbox, page, { notice });
 }
 
+/**
+ * Список не прочитался. После записи, которая прошла (`notice` — её итог),
+ * «ничего не изменено» было бы неправдой: итог записи остаётся, отказ — списка.
+ */
+function listFailedScreen(notice?: string): CabinetScreen {
+  return noticeScreen(notice ? `${notice}\n${CABINET_TEXT.listFailed}` : CABINET_TEXT.dbFailed);
+}
+
 async function tasksView(c: Ctx, channel: CabinetChannel, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
   try {
     const tasks = await listTasks(c.ctx.partnerId, { status: 'open' });
     return tasksScreen({ tasks, page, channel, role: c.partner.role, base: base(), nowMs, notice });
   } catch (err) {
     logFail('задачи', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return listFailedScreen(notice);
   }
 }
 
@@ -157,7 +165,7 @@ async function clientsView(c: Ctx, channel: CabinetChannel, page: number, notice
     return clientsScreen({ items: list.items, total: list.total, page: p, channel, role: c.partner.role, base: base(), notice });
   } catch (err) {
     logFail('клиенты', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return listFailedScreen(notice);
   }
 }
 
@@ -378,9 +386,12 @@ async function armSearch(c: Ctx, chatId: number): Promise<CabinetScreen> {
     );
     // Время — часы базы, как у ожиданий, с которыми поиск сравнивается
     // (partner_chat_actions, request_chat_waits): часы приложения могут уйти.
+    // Два одновременных нажатия (MAX повторил апдейт): второе упирается в
+    // ожидание первого и ничего не вставляет — поиск и так ждёт, это не отказ.
     await client.query(
       `INSERT INTO chat_cabinet_waits (channel, chat_id, partner_id, purpose, expires_at)
-       VALUES ('max', $1::bigint, $2::uuid, 'client_search', NOW() + make_interval(mins => $3::int))`,
+       VALUES ('max', $1::bigint, $2::uuid, 'client_search', NOW() + make_interval(mins => $3::int))
+       ON CONFLICT (channel, chat_id) WHERE status = 'waiting' DO NOTHING`,
       [String(chatId), c.ctx.partnerId, SEARCH_WAIT_MIN],
     );
     await client.query('COMMIT');
@@ -395,16 +406,36 @@ async function armSearch(c: Ctx, chatId: number): Promise<CabinetScreen> {
 }
 
 async function cancelSearch(c: Ctx, chatId: number): Promise<CabinetScreen> {
+  let notice: string;
   try {
     const r = await pool.query(
       `UPDATE chat_cabinet_waits SET status = 'cancelled'
         WHERE channel = 'max' AND chat_id = $1::bigint AND status = 'waiting'`,
       [String(chatId)],
     );
-    return clientsView(c, 'max', 0, (r.rowCount ?? 0) > 0 ? 'Поиск отменён.' : 'Поиск уже не ждал сообщения.');
+    notice = (r.rowCount ?? 0) > 0 ? 'Поиск отменён.' : 'Поиск уже не ждал сообщения.';
   } catch (err) {
     logFail('отмена поиска', err);
     return noticeScreen(CABINET_TEXT.dbFailed);
+  }
+  return clientsView(c, 'max', 0, notice);
+}
+
+/**
+ * Другая кнопка кабинета в этом чате снимает поиск (подсказка поиска говорит
+ * это словами): экран поиска уже правкой заменён, и следующее сообщение —
+ * не запрос. Отказ не останавливает нажатие: ожидание всё равно уступит
+ * кнопке, которая ждёт текст (`newer`), и истечёт через 10 минут.
+ */
+export async function dropCabinetSearch(chatId: number): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE chat_cabinet_waits SET status = 'superseded'
+        WHERE channel = 'max' AND chat_id = $1::bigint AND status = 'waiting'`,
+      [String(chatId)],
+    );
+  } catch (err) {
+    logFail('снятие поиска другой кнопкой', err);
   }
 }
 
@@ -453,10 +484,11 @@ export async function captureCabinetSearch(input: {
   }
   if (!wait) return null;
   const g = withPartner(input.partner);
-  const yieldWait = !g.ok || wait.partner_id !== input.partner.partnerId || wait.newer
+  // Чужое ожидание, беда, контроль выхода — сообщение идёт своим путём.
+  const passOn = !g.ok || wait.partner_id !== input.partner.partnerId
     || detectEmergency(text).detected || isWatchTrigger(text);
-  const cancel = !yieldWait && CANCEL_WORDS.test(normWords(text));
-  if (yieldWait || cancel) {
+  const cancel = !passOn && !wait.newer && CANCEL_WORDS.test(normWords(text));
+  if (passOn || wait.newer || cancel) {
     try {
       await pool.query(
         `UPDATE chat_cabinet_waits SET status = $2 WHERE id = $1::uuid AND status = 'waiting'`,
@@ -465,8 +497,13 @@ export async function captureCabinetSearch(input: {
     } catch (err) {
       logFail('снятие ожидания поиска', err);
     }
-    if (!cancel || !g.ok) return null;
-    return clientsView(g, 'max', 0, 'Поиск отменён.');
+    if (passOn || !g.ok) return null;
+    if (cancel) return clientsView(g, 'max', 0, 'Поиск отменён.');
+    // Позже нажата кнопка брони или заявки, её ожидание уже исполнено. Это
+    // сообщение могло быть запросом поиска (подсказка поиска стоит выше), и
+    // помощнику оно не отдаётся: подсказка обещала, что текст поиска уходит
+    // только в CRM. Один ответ, и чат снова как обычно.
+    return noticeScreen(CABINET_TEXT.searchYielded);
   }
   if (!g.ok) return null;
   try {
@@ -487,6 +524,22 @@ export async function captureCabinetSearch(input: {
   } catch (err) {
     logFail('поиск клиента', err);
     return noticeScreen(CABINET_TEXT.dbFailed);
+  }
+}
+
+/**
+ * Ждёт ли этот чат MAX запрос поиска — для чата, который ещё и чат
+ * администратора (lib/roles/admin-partner-chat): запрос «Бронникова» иначе
+ * забрала бы консоль по слову «брон». База не ответила — false, консоль
+ * работает как раньше (так же устроено ожидание причины отказа брони).
+ */
+export async function awaitsCabinetSearch(chatId: number): Promise<boolean> {
+  try {
+    const { rows } = await pool.query<{ newer: boolean }>(SEARCH_WAIT_SQL, [String(chatId)]);
+    return rows.length > 0;
+  } catch (err) {
+    logFail('ждёт ли чат поиск (чат администратора)', err);
+    return false;
   }
 }
 
@@ -511,6 +564,9 @@ export async function handleCabinetPress(input: {
   const nowMs = input.nowMs ?? Date.now();
   const db = deps.db ?? pool;
   const ch = input.channel;
+  // Другая кнопка кабинета снимает поиск: «Задачи» после «Найти клиента»
+  // правкой убрали подсказку, и следующее сообщение — уже не запрос.
+  if (ch === 'max' && press.kind !== 'search' && press.kind !== 'search_cancel') await dropCabinetSearch(input.chatId);
   let out: CabinetScreen;
   switch (press.kind) {
     case 'more': out = moreScreen(g.partner, base()); break;

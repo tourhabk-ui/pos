@@ -1471,11 +1471,12 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
 
     const boundSeller = await bindPartnerChannel(seller, 'max', 929_001, 929_001);
     expect(boundSeller).toMatchObject({ ok: true, partnerId: seller, category: 'guide', sellsTours: true, cabinetOf: null });
-    expect(boundMenuRow(boundSeller)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    // Кабинет в чате (30.10): вкладки одни у всех; «Брони» и «Мои туры» гида со своими турами — в «Ещё».
+    expect(boundMenuRow(boundSeller)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     for (const [id, chat] of [[team, 929_002], [gone, 929_003]] as const) {
       const r = await bindPartnerChannel(id, 'telegram', chat, null);
       expect(r).toMatchObject({ ok: true, partnerId: id, sellsTours: false });
-      expect(boundMenuRow(r)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:hp']);
+      expect(boundMenuRow(r)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     }
     // Чат записан туда, откуда его читают доставка и findPartnerByChat.
     expect((await pool.query(`SELECT max_chat_id::text AS c FROM partners WHERE id = $1`, [seller])).rows[0].c).toBe('929001');
@@ -2039,7 +2040,10 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const { handleOwnerPress, OWNER_ACTION_TEXT } = await import('@/lib/bookings/chat-owner-action');
     const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');
     const { loadInbox } = await import('@/lib/crm/inbox');
-    const { roleMenuScreen } = await import('@/lib/roles/role-screen');
+    const { cabinetSectionFor, handleCabinetPress } = await import('@/lib/chat-cabinet/service');
+    const { cabinetPayload } = await import('@/lib/chat-cabinet/payload');
+    const payloadsOf = (scr: { rows: ReadonlyArray<ReadonlyArray<object>> }) =>
+      scr.rows.flat().flatMap((b) => ('payload' in b && typeof b.payload === 'string' ? [b.payload] : []));
     const CHAT = 932_001;
     const PRESSER = 932_501;
     const guideUser = (await pool.query<{ id: string }>(
@@ -2090,12 +2094,14 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       expect(await row(foreign)).toEqual({ status: 'new', operator_id: operatorId });
       expect(await row(unowned)).toEqual({ status: 'new', operator_id: null });
 
-      // «Входящие» на настоящей базе: заявка ждёт, под ней — кнопки ответа.
+      // «Входящие» кабинета в чате на настоящей базе: заявка ждёт строкой, в её карточке — кнопки ответа.
       const lookup = await findPartnerByChat('max', CHAT);
       if (lookup.outcome !== 'found') throw new Error('карточка чата не найдена');
       expect(lookup.partner.sellsTours).toBe(true);
-      const screen = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'max', partner: lookup.partner });
-      expect(screen.buttons?.flat().map((b) => b.payload)).toEqual([`ld:k:${mine}`, `ld:w:${mine}`, `ld:l:${mine}`]);
+      const itemPayload = cabinetPayload.item('lead', mine);
+      expect(payloadsOf(await cabinetSectionFor(lookup.partner, 'max', 'inbox'))).toContain(itemPayload);
+      const card = await handleCabinetPress({ channel: 'max', chatId: CHAT, privateChat: true, payload: itemPayload });
+      expect(payloadsOf(card).filter((x) => x.startsWith('ld:'))).toEqual([`ld:k:${mine}`, `ld:w:${mine}`, `ld:l:${mine}`]);
       const waitingBefore = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
       expect(waitingBefore.items.filter((i) => i.kind === 'lead').map((i) => i.id)).toEqual([mine]);
 
@@ -2123,7 +2129,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       // Ответ снял заявку из ждущих «Входящих» — кнопок под ней больше нет.
       const waitingAfter = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
       expect(waitingAfter.items.filter((i) => i.kind === 'lead')).toEqual([]);
-      expect((await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'max', partner: lookup.partner })).buttons).toBeUndefined();
+      expect(payloadsOf(await cabinetSectionFor(lookup.partner, 'max', 'inbox'))).not.toContain(itemPayload);
 
       // Тот же статус — «уже», вопроса и строки нет; другой — второе событие.
       expect((await press(`ld:k:${mine}`)).text).toBe('Заявка уже отмечена: «Вы связались» — ничего не изменено.');

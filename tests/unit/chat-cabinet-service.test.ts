@@ -97,6 +97,15 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
+/** Снятие ждущего поиска другой кнопкой кабинета (`dropCabinetSearch`) — до любого действия в MAX. */
+const isDrop = (sql: unknown) => /^\s*UPDATE chat_cabinet_waits SET status = 'superseded'/.test(String(sql));
+/** Ответы базы по порядку; снятие поиска отвечает само и в очередь не входит. */
+function answers(...vals: Array<{ rows: unknown[]; rowCount?: number }>) {
+  const q = [...vals];
+  m.query.mockImplementation(async (sql: unknown) => (isDrop(sql) ? { rows: [], rowCount: 0 } : (q.shift() ?? { rows: [], rowCount: 0 })));
+}
+const sqlCalls = () => m.query.mock.calls.filter((c) => !isDrop(c[0]));
+
 const nothingTouched = () => {
   for (const f of [m.inbox, m.listTasks, m.completeTask, m.updateTask, m.createTask, m.listContacts, m.card, m.touch, m.query]) {
     expect(f).not.toHaveBeenCalled();
@@ -195,11 +204,11 @@ describe('задачи', () => {
 
 describe('звонок и напоминание', () => {
   it('звонок: клиент этой карточки — касание в ленту её аккаунтом; повтор за две минуты не пишется', async () => {
-    m.query.mockResolvedValueOnce({ rows: [{ display_name: 'Анна Петрова', repeated: false }] });
+    answers({ rows: [{ display_name: 'Анна Петрова', repeated: false }] });
     m.touch.mockResolvedValue({ outcome: 'recorded', id: '1' });
     const s = await press(cabinetPayload.touch('missed', CONTACT));
-    expect(m.query.mock.calls[0]![0]).toBe(svc.TOUCH_GUARD_SQL);
-    expect(m.query.mock.calls[0]![1]).toEqual([PID, CONTACT, 'call', 'Звонок: не дозвонился']);
+    expect(sqlCalls()[0]![0]).toBe(svc.TOUCH_GUARD_SQL);
+    expect(sqlCalls()[0]![1]).toEqual([PID, CONTACT, 'call', 'Звонок: не дозвонился']);
     expect(m.touch).toHaveBeenCalledWith(PID, CONTACT, {
       kind: 'call', title: 'Звонок: не дозвонился', actorKind: 'partner_user', actorUserId: USER,
     }, expect.anything());
@@ -208,18 +217,18 @@ describe('звонок и напоминание', () => {
     expect(s.rows.flat().some((b) => 'payload' in b && b.payload === cabinetPayload.remind('hour', CONTACT))).toBe(true);
 
     m.touch.mockClear();
-    m.query.mockResolvedValueOnce({ rows: [{ display_name: 'Анна Петрова', repeated: true }] });
+    answers({ rows: [{ display_name: 'Анна Петрова', repeated: true }] });
     expect((await press(cabinetPayload.touch('missed', CONTACT))).text).toContain('уже записан только что');
     expect(m.touch).not.toHaveBeenCalled();
   });
 
   it('«Договорились» — заметка; чужой клиент — «нет в вашей CRM», ничего не записано', async () => {
-    m.query.mockResolvedValueOnce({ rows: [{ display_name: null, repeated: false }] });
+    answers({ rows: [{ display_name: null, repeated: false }] });
     m.touch.mockResolvedValue({ outcome: 'recorded', id: '2' });
     await press(cabinetPayload.touch('agreed', CONTACT));
     expect(m.touch.mock.calls[0]![2]).toMatchObject({ kind: 'note', title: 'Договорились' });
     m.touch.mockClear();
-    m.query.mockResolvedValueOnce({ rows: [] });
+    answers({ rows: [] });
     expect((await press(cabinetPayload.touch('reached', CONTACT))).text).toBe(CLIENT_NOT_FOUND);
     expect(m.touch).not.toHaveBeenCalled();
   });
@@ -232,16 +241,16 @@ describe('звонок и напоминание', () => {
       ['days3', new Date('2026-11-01T22:00:00.000Z')],
     ] as const) {
       m.createTask.mockClear();
-      m.query.mockResolvedValueOnce({ rows: [{ display_name: 'Анна Петрова', repeated: false }] });
+      answers({ rows: [{ display_name: 'Анна Петрова', repeated: false }] });
       const s = await press(cabinetPayload.remind(when, CONTACT));
-      expect(m.query.mock.calls.at(-1)![1]).toEqual([PID, CONTACT, 'Связаться с клиентом', at.toISOString()]);
+      expect(sqlCalls().at(-1)![1]).toEqual([PID, CONTACT, 'Связаться с клиентом', at.toISOString()]);
       expect(m.createTask).toHaveBeenCalledWith(PID, {
         title: 'Связаться с клиентом', dueAt: at, contactId: CONTACT, createdBy: USER, origin: 'manual',
       }, expect.anything());
       expect(s.text).toContain('Завёл задачу «Связаться с клиентом»');
     }
     m.createTask.mockClear();
-    m.query.mockResolvedValueOnce({ rows: [{ display_name: 'Анна Петрова', repeated: true }] });
+    answers({ rows: [{ display_name: 'Анна Петрова', repeated: true }] });
     expect((await press(cabinetPayload.remind('tomorrow', CONTACT))).text).toContain('уже есть — вторую не завожу');
     expect(m.createTask).not.toHaveBeenCalled();
   });
@@ -272,8 +281,27 @@ describe('поиск клиента', () => {
     expect(m.tx[1]).toMatch(/^UPDATE chat_cabinet_waits SET status = 'superseded'/);
     expect(m.tx[2]).toMatch(/^UPDATE partner_chat_actions SET status = 'superseded' .*status = 'awaiting_reason'/);
     expect(m.tx[3]).toMatch(/^UPDATE request_chat_waits SET status = 'superseded' .*status = 'waiting'/);
-    expect(m.tx[4]).toMatch(/^INSERT INTO chat_cabinet_waits .*NOW\(\) \+ make_interval/);
+    // Повтор апдейта упирается в ожидание первого нажатия и ничего не вставляет — не отказ.
+    expect(m.tx[4]).toMatch(/^INSERT INTO chat_cabinet_waits .*NOW\(\) \+ make_interval.*ON CONFLICT \(channel, chat_id\) WHERE status = 'waiting' DO NOTHING$/);
     expect(m.tx[5]).toBe('COMMIT');
+    // Сама кнопка поиска своё ожидание не снимает.
+    expect(m.query.mock.calls.some((c) => isDrop(c[0]))).toBe(false);
+  });
+
+  it('другая кнопка кабинета в MAX снимает ждущий поиск до действия; «Не надо» и Telegram — нет', async () => {
+    await press(cabinetPayload.tasks());
+    expect(isDrop(m.query.mock.calls[0]![0])).toBe(true);
+    expect(m.query.mock.calls[0]![1]).toEqual([String(CHAT)]);
+    m.query.mockClear();
+    await press(cabinetPayload.searchCancel());
+    expect(m.query.mock.calls.some((c) => isDrop(c[0]))).toBe(false);
+    m.query.mockClear();
+    await press(cabinetPayload.tasks(), { channel: 'telegram' });
+    expect(m.query).not.toHaveBeenCalled();
+    // Отказ снятия нажатие не останавливает: экран открыт, в лог — SQLSTATE.
+    m.query.mockRejectedValueOnce(Object.assign(new Error('d'), { code: '53300' }));
+    expect((await press(cabinetPayload.tasks())).text).toMatch(/^<b>Задачи<\/b>/);
+    expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('53300');
   });
 
   const wait = (over: Record<string, unknown> = {}) => ({ rows: [{ id: WAIT, partner_id: PID, newer: false, ...over }], rowCount: 1 });
@@ -295,9 +323,20 @@ describe('поиск клиента', () => {
     expect(m.query).not.toHaveBeenCalled();
   });
 
-  it('кнопку нажали позже, беда, контроль выхода, чат другой карточки — ожидание гаснет, текст идёт своим путём', async () => {
+  it('позже нажата кнопка брони или заявки — ожидание гаснет, а текст не уходит ни в поиск, ни дальше', async () => {
+    m.query.mockResolvedValueOnce(wait({ newer: true })).mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    const s = await capture('Петрова');
+    expect(s?.text).toBe(CABINET_TEXT.searchYielded);
+    expect(m.query.mock.calls[1]![1]).toEqual([WAIT, 'superseded']);
+    expect(m.listContacts).not.toHaveBeenCalled();
+    // Беда сильнее: даже при более поздней кнопке сообщение идёт своим путём.
+    m.query.mockReset();
+    m.query.mockResolvedValueOnce(wait({ newer: true })).mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    expect(await capture('помогите, человек упал со скалы')).toBeNull();
+  });
+
+  it('беда, контроль выхода, чат другой карточки — ожидание гаснет, текст идёт своим путём', async () => {
     for (const [text, over] of [
-      ['Петрова', { newer: true }],
       ['помогите, человек упал со скалы', {}],
       ['поставьте на контроль выхода', {}],
       ['Петрова', { partner_id: '99999999-9999-4999-8999-999999999999' }],
@@ -331,6 +370,17 @@ describe('поиск клиента', () => {
     expect(await capture('Петрова')).toBeNull();
     expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('08006');
   });
+
+  it('awaitsCabinetSearch (чат администратора): ждёт — true; нет — false; база не ответила — false и SQLSTATE', async () => {
+    m.query.mockResolvedValueOnce(wait());
+    expect(await svc.awaitsCabinetSearch(CHAT)).toBe(true);
+    expect(m.query.mock.calls[0]).toEqual([svc.SEARCH_WAIT_SQL, [String(CHAT)]]);
+    m.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    expect(await svc.awaitsCabinetSearch(CHAT)).toBe(false);
+    m.query.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '08001' }));
+    expect(await svc.awaitsCabinetSearch(CHAT)).toBe(false);
+    expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('08001');
+  });
 });
 
 describe('разделы без нажатия', () => {
@@ -350,5 +400,20 @@ describe('разделы без нажатия', () => {
     const s = await press(cabinetPayload.tasks());
     expect(s.text).toBe(CABINET_TEXT.dbFailed);
     expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('42P01');
+  });
+
+  it('запись прошла, а список следом не прочитался — итог записи остаётся, не «ничего не изменено»', async () => {
+    m.completeTask.mockResolvedValue({ outcome: 'done', task: taskItem() });
+    m.listTasks.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57P01' }));
+    const s = await press(cabinetPayload.taskDone(TASK));
+    expect(s.text).toContain('Готово: «Перезвонить Анне».');
+    expect(s.text).toContain(CABINET_TEXT.listFailed);
+    expect(s.text).not.toContain('ничего не изменено');
+    // Отмена поиска прошла, список клиентов не прочитался.
+    answers({ rows: [], rowCount: 1 });
+    m.listContacts.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57P01' }));
+    const c = await press(cabinetPayload.searchCancel());
+    expect(c.text).toContain('Поиск отменён.');
+    expect(c.text).toContain(CABINET_TEXT.listFailed);
   });
 });
