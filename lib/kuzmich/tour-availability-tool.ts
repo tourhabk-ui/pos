@@ -404,6 +404,111 @@ async function onRequestWindow(
   ];
 }
 
+/** День через n суток (n может быть отрицательным), YYYY-MM-DD. */
+function addDays(iso: string, n: number): string {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+}
+
+/**
+ * Горизонт поиска ближайшей даты — тот же день через год, как `INTERVAL
+ * '1 year'` в nearestFreeDateSql (дата «Ближайшая дата» каталога get_tours):
+ * 29.02 даёт 28.02, а не 01.03. «+365 дней» разошёлся бы с ним на день в
+ * високосный год.
+ */
+export function yearAhead(today: string): string {
+  const md = today.slice(5);
+  return `${Number(today.slice(0, 4)) + 1}-${md === '02-29' ? '02-28' : md}`;
+}
+
+type NearestSlot =
+  | { state: 'found'; date: string; remaining: number }
+  | { state: 'none' }
+  | { state: 'failed' };
+
+/**
+ * Первая дата диапазона со свободными местами — тем же движком, что окно и
+ * гейт брони (шапка файла). С числом людей — первая, где мест хватит на всех:
+ * дату «свободно 2» при группе из четырёх гейт create_booking_request
+ * отклонил бы. Отказ чтения — `failed` со строкой в логе (SQLSTATE пишет сам
+ * планер), а не «дат нет» и не общий «занятость недоступна» (§4.0).
+ *
+ * Без LIMIT: до года строк одного тура, и только в пустой ветке.
+ */
+async function firstFreeSlot(
+  tourId: number, from: string, to: string, people: number | null, side: string, cache: ReturnType<typeof createPlannerCache>,
+): Promise<NearestSlot> {
+  try {
+    const slots = await fetchAvailabilityForTour(String(tourId), from, to, cache);
+    const hit = slots.find((s) => s.remaining >= (people ?? 1));
+    return hit ? { state: 'found', date: hit.date, remaining: hit.remaining } : { state: 'none' };
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tour-availability] ближайшая дата вне окна не прочитана', { tourId, side, sqlstate: e?.code, message: e?.message });
+    return { state: 'failed' };
+  }
+}
+
+/**
+ * Окно пусто, а расписание у тура есть (ловушка MCP 29.10, availability-nearest).
+ *
+ * До 29.10 ответ был одной фразой «свободных мест с … по … нет, можно
+ * проверить другое окно или другой тур». Тур 79 в окне 29.10–11.11 так и
+ * отвечал, а get_tours в ту же минуту называл его «Ближайшая дата: 19 июля»:
+ * два инструмента одного канала расходились, и агент уводил человека к
+ * другому туру, хотя свободный выезд был и платформа его знала. Описание
+ * инструмента в MCP при этом обещало «nearest open dates».
+ *
+ * Теперь пустое окно называет соседей тем же движком:
+ *   - после окна — до горизонта в год (тот же, что у «Ближайшей даты»);
+ *   - раньше окна — если смотрели не с сегодня: иначе свободная дата раньше
+ *     окна осталась бы невидимой, а совет «другой тур» — той же ловушкой,
+ *     только для позднего окна;
+ *   - окно дальше года — так и сказано, а не молчание.
+ * «Другой тур» советуется, только когда пусто и до, и после окна. Дата
+ * соседа — НЕ строкой слота «- ДД.ММ (…): свободно N»: сверка каналов
+ * (lib/quality/channel-parity) засчитала бы её датой окна.
+ *
+ * nearest_free_date кандидата здесь не годится: она считается от сегодня, без
+ * числа людей, и при date_from в будущем указывает раньше окна.
+ */
+async function emptyWindowAnswer(
+  tour: ResolvedTour, from: string, to: string, today: string, people: number | null,
+  cache: ReturnType<typeof createPlannerCache>,
+): Promise<string[]> {
+  const horizon = yearAhead(today);
+  const afterFrom = addDays(to, 1);
+  const beforeTo = addDays(from, -1) < horizon ? addDays(from, -1) : horizon;
+  const before = from > today
+    ? await firstFreeSlot(tour.id, today, beforeTo, people, 'раньше окна', cache)
+    : null;
+  const after = afterFrom <= horizon
+    ? await firstFreeSlot(tour.id, afterFrom, horizon, people, 'после окна', cache)
+    : null;
+  const forGroup = people !== null ? ` на ${people} чел.` : '';
+  const lines = [
+    `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${dayIn(from, today)} по ${dayIn(to, today)} нет — по расписанию и броням; не обещай места на эти даты.`,
+  ];
+  if (before?.state === 'found') {
+    lines.push(`Раньше этого окна есть ${people !== null ? `дата, где хватит мест на ${people} чел.,` : 'свободная дата'} — ${dayIn(before.date, today)}, свободно ${before.remaining}; её покажет get_tour_availability с date_from=${before.date}.`);
+  } else if (before?.state === 'none') {
+    lines.push(`Раньше этого окна, с ${dayIn(today, today)} по ${dayIn(beforeTo, today)}, свободных дат${forGroup} тоже нет.`);
+  } else if (before?.state === 'failed') {
+    lines.push('Свободные даты раньше этого окна проверить не смог — не говори, что их нет.');
+  }
+  if (after === null) {
+    lines.push(`Дальше года от сегодняшнего дня (после ${dayIn(horizon, today)}) не смотрю.`);
+  } else if (after.state === 'found') {
+    lines.push(`Ближайшая ${people !== null ? `дата после этого окна, где хватит мест на ${people} чел.,` : 'свободная дата после этого окна'} — ${dayIn(after.date, today)}, свободно ${after.remaining}; её и следующие покажет get_tour_availability с date_from=${after.date}. До неё мест не обещай.`);
+  } else if (after.state === 'none') {
+    const elsewhere = before === null || before.state === 'none';
+    lines.push(`После этого окна до ${dayIn(horizon, today)} свободных дат${forGroup} нет — выезды заняты или не открыты.`
+      + (elsewhere ? ' Не обещай места; предложи другой тур.' : ''));
+  } else {
+    lines.push('Ближайшую свободную дату после этого окна проверить не смог — не говори, что дат нет; предложи повторить позже или страницу тура.');
+  }
+  return lines;
+}
+
 type AvailabilityArgs = { tour?: string; date_from?: string; days?: string; people?: string };
 
 export async function getTourAvailabilityForKuzmich(args: AvailabilityArgs): Promise<string> {
@@ -445,7 +550,8 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
   const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
 
   try {
-    const slots = await fetchAvailabilityForTour(String(tour.id), from, to, createPlannerCache());
+    const cache = createPlannerCache();
+    const slots = await fetchAvailabilityForTour(String(tour.id), from, to, cache);
     if (slots.length === 0) {
       // «Мест нет» — только когда расписание есть и места разобраны. Тур без
       // календаря (оператор берёт без него) — иной случай: места уточняются у
@@ -494,10 +600,14 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
           + 'Не утверждай, что мест нет, — предложи уточнить у оператора или повторить позже.',
         ].join('\n');
       }
-      return [...notes,
-        `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${shortDate(from)} по ${shortDate(to)} нет. `
-        + 'Это реальная занятость мест — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.',
-      ].join('\n');
+      const people = parsePeople(args.people);
+      if (args.people != null && args.people.trim() !== '' && people === null) {
+        notes.push(`Число людей «${args.people}» не распознано (нужно 1–30) — ближайшую дату ищу без него.`);
+      }
+      // Отказ поиска за окном — свой третий исход внутри emptyWindowAnswer,
+      // а не внешний «Занятость временно недоступна»: окно-то прочитано.
+      const body = await emptyWindowAnswer(tour, from, to, today, people, cache);
+      return [...notes, ...body].join('\n');
     }
     const SHOWN = 12;
     const people = parsePeople(args.people);

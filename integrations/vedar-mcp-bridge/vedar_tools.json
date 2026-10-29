@@ -440,7 +440,7 @@
     "type": "function",
     "function": {
       "name": "get_tour_availability",
-      "description": "Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request. Свободные даты и места КОНКРЕТНОГО тура из реальной занятости мест. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда.",
+      "description": "Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request. Свободные даты и места КОНКРЕТНОГО тура из реальной занятости мест. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда. Если в окне мест нет, ответ называет ближайшую свободную дату после окна (в пределах года) и, если окно начинается не с сегодня, — раньше окна.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -464,7 +464,7 @@
           },
           "people": {
             "type": "string",
-            "description": "Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses. Сколько человек (1–30). Дано — к каждой дате итоговая сумма поездки, тем же расчётом, что при оформлении заявки.",
+            "description": "Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them. Сколько человек (1–30). Дано — к каждой дате итоговая сумма поездки, тем же расчётом, что при оформлении заявки; если в окне мест нет — ближайшая дата, где мест хватит на всех.",
             "examples": [
               "2"
             ]

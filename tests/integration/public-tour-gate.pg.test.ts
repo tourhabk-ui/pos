@@ -413,13 +413,63 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect(r.seatsById.get(b)).toBeNull();
         expect(r.seatsById.get(c)).toBeNull();
       }
+
+      // get_tour_availability на той же сцене (ловушка MCP 29.10,
+      // availability-nearest): пустое окно у тура с расписанием называет
+      // ближайшую свободную дату тем же движком, что гейт брони, — а не
+      // «другой тур», когда «Ближайшая дата» каталога у тура есть.
+      const { getTourAvailabilityForKuzmich, yearAhead } = await import('@/lib/kuzmich/tour-availability-tool');
+      const { parseAvailabilityText } = await import('@/lib/quality/channel-parity');
+      const today = await day(0);
+      // Горизонт JS — тот же день, что INTERVAL '1 year' на сервере.
+      const horizon = (await pool.query<{ h: string }>(
+        `SELECT ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year')::date::text AS h`,
+      )).rows[0].h;
+      expect(yearAhead(today)).toBe(horizon);
+      const fmt = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}${iso.slice(0, 4) === today.slice(0, 4) ? '' : `.${iso.slice(0, 4)}`}`;
+      const d5 = await day(5);
+
+      // A, окно [0, +2] пусто: после окна +3 занята, +5 свободна — 4 места
+      // (потолок max_participants, а не 10 слотов).
+      const nearA = await getTourAvailabilityForKuzmich({ tour: a, days: '3' });
+      expect(nearA).toContain(`свободных мест с ${fmt(today)} по ${fmt(await day(2))} нет`);
+      expect(nearA).toContain(`Ближайшая свободная дата после этого окна — ${fmt(d5)}, свободно 4`);
+      expect(nearA).toContain(`date_from=${d5}`);
+      expect(nearA).not.toContain(`— ${fmt(await day(3))},`);
+      expect(nearA).not.toMatch(/другой тур/);
+      // Сверка каналов читает этот ответ как «мест нет», без дат окна.
+      expect(parseAvailabilityText(nearA)).toMatchObject({ dates: [], none_free: true });
+
+      // A, окно [+6, +8]: +5 раньше окна названа, «другой тур» не советуется.
+      const lateA = await getTourAvailabilityForKuzmich({ tour: a, date_from: await day(6), days: '3' });
+      expect(lateA).toContain(`Раньше этого окна есть свободная дата — ${fmt(d5)}, свободно 4`);
+      expect(lateA).toContain(`После этого окна до ${fmt(horizon)} свободных дат нет`);
+      expect(lateA).not.toMatch(/другой тур/);
+
+      // A на пятерых: на +5 четыре места — не дата для этой группы.
+      const groupA = await getTourAvailabilityForKuzmich({ tour: a, days: '3', people: '5' });
+      expect(groupA).toContain(`После этого окна до ${fmt(horizon)} свободных дат на 5 чел. нет`);
+      expect(groupA).not.toContain(fmt(d5));
+      expect(groupA).toMatch(/предложи другой тур/);
+
+      // B: единственная дата за горизонтом — «до горизонта нет», не «вовсе».
+      const farB = await getTourAvailabilityForKuzmich({ tour: b, days: '3' });
+      expect(farB).toContain(`После этого окна до ${fmt(horizon)} свободных дат нет`);
+      expect(farB).not.toMatch(/вовсе/);
+      expect(farB).not.toContain(fmt(await day(400)));
+
+      // C без календаря — прежний ответ «по заявке», числа мест нет.
+      const onRequest = await getTourAvailabilityForKuzmich({ tour: c });
+      expect(onRequest).toContain('расписания в системе нет');
+      expect(onRequest).toContain('оператор собирает группу под запрос');
+      expect(onRequest).not.toMatch(/свободно \d/);
     } finally {
       spy.mockRestore();
       // Сцена своя и уходит с витрины: следующие сценарии файла считают
       // ближайший выезд и подборки по всей витрине.
       await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE operator_id = $1`, [other]);
     }
-  });
+  }, 30_000);
 
   it('ближайшие даты не прочитались — «не смог», а не «дат нет»; SQLSTATE в логе', async () => {
     const { loadNearestFreeDates } = await import('@/lib/tours/nearest-free-date');
