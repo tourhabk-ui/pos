@@ -219,6 +219,36 @@ describe('разбор слов: состав и бюджет', () => {
     }
   });
 
+  // Ревью 29.10: пустой элемент массива выбрасывался — [""] давал «детей
+  // нет» (план для взрослых), [6, ""] — частичный список [6] без младшего.
+  it('дети: пустой элемент списка — отказ, а не «детей нет» и не частичный список', () => {
+    for (const surface of ['chat', 'mcp'] as const) {
+      for (const raw of ['[""]', '[" "]', '["",""]', '[,]', '[6, ""]', '["", 6]', '[6,]']) {
+        expect(readChildren(raw, surface).kind, `${surface} ${raw}`).toBe('unknown');
+        expect(refusal(raw, surface), `${surface} ${raw}`).toMatch(/^План не собран: .*не разобрал «пустой элемент»/);
+      }
+      // Пустой список — по-прежнему «детей нет».
+      expect(readChildren('[]', surface)).toEqual({ kind: 'none', children: [] });
+      expect(readChildren('[ ]', surface)).toEqual({ kind: 'none', children: [] });
+    }
+  });
+
+  // Ревью 29.10: «1,5 года» запятая делила на двоих детей, 1 и 5 лет, —
+  // единица прилипала к последнему числу, и отказа не было.
+  it('дети: дробный возраст — отказ «в полных годах», а не двое детей', () => {
+    for (const surface of ['chat', 'mcp'] as const) {
+      for (const raw of ['1,5 года', '7,5 лет', '1,5года', '0,5 года', '2.5 years', '6, 1,5 года', '["1,5 года"]']) {
+        expect(readChildren(raw, surface).kind, `${surface} «${raw}»`).toBe('unknown');
+        expect(refusal(raw, surface), `${surface} «${raw}»`).toMatch(/дробный возраст «\d{1,2}[.,]\d ?[\p{L}.]+» — нужен возраст каждого ребёнка в полных годах/u);
+      }
+      // Без единицы и с двумя цифрами после запятой — список, как было.
+      expect(ages('6,10', surface)).toEqual([6, 10]);
+      expect(ages('6,10 лет', surface)).toEqual([6, 10]);
+      expect(ages('[1,5]', surface)).toEqual([1, 5]);
+    }
+    expect(refusal('1,5 года', 'chat')).not.toMatch(/children/);
+  });
+
   it('дети: больше 30 возрастов — отказ, а не тихая обрезка', () => {
     const many = Array.from({ length: 31 }, (_, i) => String(i % 18)).join(', ');
     for (const surface of ['chat', 'mcp'] as const) {
@@ -369,6 +399,11 @@ describe('схема: одна правда для MCP и Кузьмича', () 
     expect(readChildren(children([12]), 'mcp')).toEqual({ kind: 'ages', children: [12] });
     expect(readChildren(children(12), 'mcp').kind).toBe('unknown');
     expect(readChildren(children([]), 'mcp')).toEqual({ kind: 'none', children: [] });
+    // Пустой элемент массива доходит до разборщика и даёт отказ (ревью 29.10).
+    expect(children([''])).toBe('[""]');
+    expect(readChildren(children(['']), 'mcp').kind).toBe('unknown');
+    expect(readChildren(children([6, '']), 'mcp').kind).toBe('unknown');
+    expect(readChildren(children(['1,5 года']), 'mcp').kind).toBe('unknown');
     // Длинное не обрезается молча (обрезка теряла бы ребёнка) — отказ схемы.
     expect(spec.schema.safeParse({ children: 'x'.repeat(401) }).success).toBe(false);
   });

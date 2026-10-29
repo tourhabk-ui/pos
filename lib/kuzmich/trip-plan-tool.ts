@@ -295,7 +295,12 @@ export function readAdults(raw: string | undefined): { adults: number; given: bo
  *    нынешним порогам, и первая активность с порогом 2 молча её сломает;
  *  - любое другое слово («двое», «детей», «малыш», «6-10», «25», «месяцев») —
  *    отказ с этим словом, без «считаю без детей» и без частичного списка;
- *  - больше 30 возрастов — отказ (группа — до 30 человек), без обрезки.
+ *  - больше 30 возрастов — отказ (группа — до 30 человек), без обрезки;
+ *  - пустой элемент списка ([""], [6, ""], «[,]») — отказ: это ребёнок без
+ *    возраста, а не «детей нет» и не повод выбросить его из списка;
+ *  - дробный возраст с единицей («1,5 года», «7,5 лет») — отказ: десятичная
+ *    запятая иначе делит его на двух детей, 1 и 5 лет. Без единицы «6,10» —
+ *    по-прежнему список.
  *
  * Одно исключение — «0» в чате туриста: там поле заполняет Кузьмич по
  * описанию «детей нет — не передавай», и «0» по-прежнему «детей нет»
@@ -318,6 +323,13 @@ const AGE_UNIT = /^(лет|год|года|годик|годика|г\.?|years?|
 const AGE_WITH_UNIT = /^(\d{1,2})(лет|год|года|г\.?|y|yo|years?)$/i;
 /** Связки между возрастами: «6 и 10», «6 and 10». */
 const AGE_JOINER = /^(и|and|&|\+)$/i;
+/**
+ * Дробный возраст с единицей: «1,5 года», «7,5 лет», «1,5года», «2.5 years».
+ * Одна цифра после разделителя и без пробела — «6,10 лет» остаётся списком.
+ */
+const FRACTIONAL_AGE = /(?<![\d.,])\d{1,2}[.,]\d(?!\d)\s*(лет|годика|годик|года|год|г\.?|years?|yrs?|yo|y\.o\.?|y\/o|y)(?![\p{L}\d])/iu;
+/** Пустой элемент списка возрастов — так он назван в отказе. */
+const EMPTY_AGE_ITEM = 'пустой элемент';
 const MAX_CHILD_AGE = 17;
 
 function isChildAge(n: number): boolean {
@@ -341,11 +353,17 @@ function childrenRefusal(why: string, surface: DraftSurface): ChildrenRead {
 
 /** Возрасты из JSON-массива (строкой «[6,10]»): каждый элемент — возраст. */
 function readAgeList(inner: string, surface: DraftSurface): ChildrenRead {
-  const items = inner.split(',').map((x) => x.trim().replace(/^"|"$/g, '').trim()).filter(Boolean);
-  if (items.length === 0) return { kind: 'none', children: [] };
+  if (inner.trim() === '') return { kind: 'none', children: [] };
+  // Пустой элемент не выбрасывается: [""] — ребёнок без возраста, а не
+  // «детей нет», [6, ""] — двое, и младший мог остаться неназванным.
+  const items = inner.split(',').map((x) => x.trim().replace(/^"|"$/g, '').trim());
   const ages: number[] = [];
   const bad: string[] = [];
   for (const item of items) {
+    if (!item) {
+      bad.push(EMPTY_AGE_ITEM);
+      continue;
+    }
     const words = item.split(/\s+/);
     const unit = words.length === 2 && AGE_UNIT.test(words[1]);
     const glued = AGE_WITH_UNIT.exec(item);
@@ -367,6 +385,14 @@ export function readChildren(raw: string | undefined, surface: DraftSurface = 'c
   const t = (raw ?? '').trim();
   if (!t || NO_CHILDREN.test(t)) return { kind: 'none', children: [] };
   if (t === '0' && surface === 'chat') return { kind: 'none', children: [] };
+
+  // До разбора на слова: «1,5 года» запятая разрезала бы на «1» и «5 года» —
+  // двое детей вместо одного полуторагодовалого.
+  const fractional = FRACTIONAL_AGE.exec(t);
+  if (fractional) {
+    const where = surface === 'mcp' ? `в children «${t}»` : `в возрасте детей «${t}»`;
+    return childrenRefusal(`${where} дробный возраст «${fractional[0]}» — нужен возраст каждого ребёнка в полных годах: полтора года — «1 год», полгода — «до года».`, surface);
+  }
 
   const list = /^\[([\s\S]*)\]$/.exec(t);
   if (list) return readAgeList(list[1], surface);
