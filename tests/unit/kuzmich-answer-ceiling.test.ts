@@ -151,7 +151,11 @@ describe('цикл: после потолка новый ход не начин�
     expect(runs).toEqual([]);
     expect(query.mock.calls.some((c) => String(c[0]).includes('FROM places'))).toBe(false);
     expect(answer).toBe(CEILING_NOTHING_LINE);
-    expect(timing).toEqual({ turns: 1, toolRounds: 0, elapsedMs: CEILING + 1_000, ceilingHit: true });
+    expect(timing).toEqual({
+      turns: 1, toolRounds: 0, elapsedMs: CEILING + 1_000, ceilingHit: true,
+      // Подложенный ход usage не несёт — «не знаю», а не ноль (шаг 0 разбора 29.10).
+      tokens: expect.objectContaining({ reportedCalls: 0, unreportedCalls: 1 }),
+    });
   });
 
   it('инструменты отработали, к следующему ходу потолок прошёл — ответ из того, что они принесли', async () => {
@@ -181,7 +185,10 @@ describe('цикл: после потолка новый ход не начин�
 
     expect(tools).toHaveBeenCalledTimes(2);
     expect(answer).toBe('Авачинский спокоен.');
-    expect(timing).toEqual({ turns: 2, toolRounds: 1, elapsedMs: 25_000, ceilingHit: false });
+    expect(timing).toEqual({
+      turns: 2, toolRounds: 1, elapsedMs: 25_000, ceilingHit: false,
+      tokens: expect.objectContaining({ reportedCalls: 0, unreportedCalls: 2 }),
+    });
   });
 
   it('готовый ответ, пришедший после потолка, отдаётся как есть: ждать уже нечего', async () => {

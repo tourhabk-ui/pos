@@ -53,7 +53,8 @@
  *   - причина отмены его брони тура и жилья (её пишет оператор, хозяин жилья
  *     или он сам: «турист в больнице») становится нейтральной подписью — и в
  *     брони, и в журнале смены статуса (booking_logs), где прочие комментарии
- *     к его броням тоже заменяются подписью; в ленте CRM — снимается из
+ *     к его броням тоже заменяются подписью, и в журнале действия кнопкой из
+ *     чата гида (partner_chat_actions.reason); в ленте CRM — снимается из
  *     событий его броней;
  *   - медицинское и аллергии в подписанном отказе (booking_waivers) и
  *     контакты его заявки в операторы (operator_applications);
@@ -89,7 +90,8 @@
  *     столбцам: его id в Telegram или MAX, или диалог MAX, где он писал
  *     Кузьмичу; чужой канал карточки (чат команды) остаётся и называется в
  *     ответе (ERASE_STEP_LEAVES); предложения «открыть даты» из его диалога
- *     MAX (operator_chat_date_proposals) и коды привязки мессенджера, которыми
+ *     MAX (operator_chat_date_proposals), действия кнопкой из его чата
+ *     кабинета (partner_chat_actions) и коды привязки мессенджера, которыми
  *     этот канал заводили (messenger_bind_codes), удаляются тем же ключом;
  *   - спутники, описание маршрута и последняя точка в его прошедших
  *     регистрациях маршрута, адресат в журнале доставки тревог по ним
@@ -977,6 +979,18 @@ export async function eraseUser(
           WHEN to_status = 'cancelled' THEN ${sqlTextLiteral(ERASED_REASON)}
           ELSE ${sqlTextLiteral(ERASED_COMMENT)} END
       WHERE booking_id IN (${HIS_BOOKINGS})`],
+    // Третья копия причины отклонения его брони — в журнале действия кнопкой
+    // из чата гида (миграция 1346, lib/bookings/chat-owner-action): «Отклонить»
+    // кладёт слова продавца в partner_chat_actions.reason дословно, и там же
+    // они остаются, если после причины нажато «Не надо». Строка ссылается на
+    // бронь текстом (subject_id) без внешнего ключа, и перепись её по брони
+    // не видит; шаг partner_chat_actions ниже снимает только строки чатов
+    // самого удаляемого. Причина — та же подпись, что в брони; журнал
+    // действия гида (кто, что, когда, итог) остаётся.
+    ['partner_chat_actions.reason', `UPDATE partner_chat_actions SET ${reasonErased('reason')}
+      WHERE subject_kind = 'booking'
+        AND subject_id IN (SELECT hb.id::text FROM (${HIS_BOOKINGS}) hb)
+        AND NULLIF(btrim(reason), '') IS NOT NULL`],
     // full_name NOT NULL (baseline) — имя-заглушка; отметки согласия и МЧС —
     // не ПД, а след обработки, они остаются.
     ['booking_group_members', `UPDATE booking_group_members SET full_name = '${N}', phone = NULL,
@@ -1171,6 +1185,17 @@ export async function eraseUser(
     ['operator_chat_date_proposals', `DELETE FROM operator_chat_date_proposals p
       USING (${HIS_MESSENGER_IDS}) his
       WHERE p.channel = 'max' AND p.chat_id = ANY(his.mx)`],
+    // Действия кнопкой из его чата кабинета (миграция 1346,
+    // lib/bookings/chat-owner-action): бронь своего тура в два шага. Строка
+    // ссылается на карточку, а не на него (ERASE_DETACH_ONLY), но несёт id его
+    // диалога и причину отклонения, написанную им. Ключ тот же, что у
+    // предложений дат: его Telegram или его диалог MAX. Статус брони, который
+    // он поставил, живёт в operator_bookings и не трогается. ДО шагов
+    // tg_conversations и users — ключи к диалогу живут там.
+    ['partner_chat_actions', `DELETE FROM partner_chat_actions a
+      USING (${HIS_MESSENGER_IDS}) his
+      WHERE (a.channel = 'max' AND a.chat_id = ANY(his.mx))
+         OR (a.channel = 'telegram' AND a.chat_id = ANY(his.tg))`],
     // Коды «/start ABC123» из кабинета (миграция 1333, lib/partners/bind-code):
     // погашенный код хранит id чата, которым канал карточки заводили, — ту же
     // копию, что снимает шаг partners выше, и по ссылке на карточку она не его

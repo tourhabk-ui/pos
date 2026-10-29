@@ -43,7 +43,7 @@ import { ACTOR_KIND_LABELS, EVENT_KIND_LABELS, TITLE_MAX, TOUCH_KINDS } from '@/
 import { createTask, completeTask, listTasks } from '@/lib/crm/tasks';
 import { loadInbox } from '@/lib/crm/inbox';
 import { countRentalRequestsWaiting } from '@/lib/rental/requests-waiting';
-import { INBOX_ACTION, INBOX_KIND_LABELS } from '@/lib/crm/inbox-kinds';
+import { INBOX_KIND_LABELS, inboxActionFor } from '@/lib/crm/inbox-kinds';
 import { SOURCE_KIND_LABELS, statusLabel } from '@/lib/crm/labels';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { hasPII, redactPII } from '@/lib/security/pii-redact';
@@ -234,7 +234,7 @@ const crmInbox = tool(
           people: i.people,
           client: client(i.contact_id, i.contact_name),
           waiting_minutes: i.waiting_minutes,
-          where_to_answer: INBOX_ACTION[i.kind].hint,
+          where_to_answer: inboxActionFor(ctx.category, i.kind).hint,
         })),
         // Не прочитался вид — так и сказать, а не «всё отвечено» (§4.0).
         not_read: inbox.failed.map((k) => INBOX_KIND_LABELS[k]),

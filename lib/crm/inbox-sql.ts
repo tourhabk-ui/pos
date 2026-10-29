@@ -24,8 +24,11 @@
  */
 import type { SourceKind } from '@/lib/crm/contacts';
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
+import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 
 const RESPONSE_ACTORS = `('partner_user', 'kuzmich', 'mcp')`;
+/** Заявка ждёт ответа — один набор с разделом «Свои туры» гида (lib/leads/owner-lead-words). */
+const LEAD_WAITING_SQL = `(${LEAD_WAITING_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 const RESPONSE_EVENT_KINDS = `('status_change', 'call', 'meeting', 'message_out')`;
 
 /** Первый ответ партнёра по источнику CRM — из ленты. */
@@ -73,13 +76,13 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
   lead: `
     SELECT l.id::text AS item_id, l.created_at, COALESCE(NULLIF(btrim(l.route_title), ''), 'Подбор тура') AS title,
            l.desired_dates AS item_date, l.group_size::int AS people,
-           (l.status IN ('new', 'ai_qualified', 'awaiting_confirm')) AS waiting,
+           (l.status IN ${LEAD_WAITING_SQL}) AS waiting,
            ${firstResponse('lead', 'l.id::text')} AS responded_at,
            ${CONTACT}
       FROM leads l
       ${contactJoin('lead', 'l.id::text')}
      WHERE l.operator_id = $1 AND l.is_self = FALSE
-       AND (l.status IN ('new', 'ai_qualified', 'awaiting_confirm') OR l.created_at >= $2)`,
+       AND (l.status IN ${LEAD_WAITING_SQL} OR l.created_at >= $2)`,
 
   accommodation_booking: `
     SELECT ab.id::text AS item_id, ab.created_at, a.name AS title, ab.check_in_date::text AS item_date,

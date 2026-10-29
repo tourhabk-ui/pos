@@ -5,9 +5,10 @@
  *  - дверь третья, функция та же: роут зовёт answerSeatRequest и своего
  *    UPDATE не имеет — атомарный захват, срок 2 часа и бронь при «есть
  *    места» остаются в одном месте;
- *  - право: вход в кабинет оператора (requirePartner, категория operator) и
- *    запрос, адресованный ему (operator_id в SQL); чужой — 404, как
- *    несуществующий, и до ответа дело не доходит; база молчит — 503;
+ *  - право: вход в кабинет продавца тура (requirePartner, категория operator
+ *    или guide — гид продаёт и свои туры, 1338) и запрос, адресованный ему
+ *    (operator_id в SQL); чужой — 404, как несуществующий, и до ответа дело
+ *    не доходит; перевозчик и прочие роли — 403; база молчит — 503;
  *  - контактов туриста роут не читает: они приходят уведомлением о брони
  *    только после «есть места» (решение 29.09). Шире: ни один роут кабинета
  *    под app/api/hub не берёт tourist_name/tourist_phone из запросов мест —
@@ -52,9 +53,32 @@ describe('право ответить', () => {
     expect(requestBelongsToPartner).not.toHaveBeenCalled();
   });
 
-  it('не оператор — 403: запросы мест получают операторы туров', async () => {
-    requirePartner.mockResolvedValueOnce({ ...OP, category: 'guide' });
-    expect((await call({ answer: 'yes' })).status).toBe(403);
+  it('не продавец тура — 403: перевозчик, жильё, агент запросов мест не получают', async () => {
+    for (const category of ['transfer', 'stay', 'gear', 'agent']) {
+      requirePartner.mockResolvedValueOnce({ ...OP, category });
+      const r = await call({ answer: 'yes' });
+      expect(r.status, category).toBe(403);
+      expect((await r.json()).error, category).toMatch(/операторы и гиды со своими турами/);
+    }
+    expect(requestBelongsToPartner).not.toHaveBeenCalled();
+    expect(answerSeatRequest).not.toHaveBeenCalled();
+  });
+
+  it('гид отвечает на запрос мест своего тура тем же путём; чужой запрос — 404 и без ответа', async () => {
+    // Кнопки запроса мест стоят во «Входящих» гида (INBOX_BY_CATEGORY.guide):
+    // до 29.10 они отвечали гиду 403.
+    const GUIDE = { ...OP, partnerId: 'p-guide', category: 'guide' };
+    requirePartner.mockResolvedValue(GUIDE);
+    requestBelongsToPartner.mockResolvedValueOnce(true);
+    answerSeatRequest.mockResolvedValueOnce({ ok: true, status: 'declined', tourTitle: 'Авторский тур', date: '2030-07-01' });
+    const ok = await call({ answer: 'no' });
+    expect(ok.status).toBe(200);
+    expect(requestBelongsToPartner).toHaveBeenLastCalledWith(RID, 'p-guide');
+    expect(answerSeatRequest).toHaveBeenCalledWith(RID, { kind: 'no' }, 'web');
+
+    answerSeatRequest.mockClear();
+    requestBelongsToPartner.mockResolvedValueOnce(false);
+    expect((await call({ answer: 'yes' })).status).toBe(404);
     expect(answerSeatRequest).not.toHaveBeenCalled();
   });
 

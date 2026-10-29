@@ -1016,4 +1016,74 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(fresh).toBeLessThan(plates.length);
     });
   });
+  describe('«Лагуна Экспедиция»: обложка компании — её собственный кадр (1347)', () => {
+    const MIG_1347 = readFileSync(join(process.cwd(), 'migrations/1347_laguna_expedition_hero.sql'), 'utf-8');
+    const HERO = '/api/images/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-cover.jpg';
+    const hero = async () => (await pool.query<{ hero_image: string | null; updated_at: string }>(
+      `SELECT hero_image, updated_at::text FROM partners WHERE slug = 'laguna-expedition'`,
+    )).rows[0];
+    const listed = async () => {
+      const { queryOperators } = await import('@/lib/operators/list-query');
+      const r = await queryOperators({ search: 'Лагуна Экспедиция', page: 1, limit: 12 });
+      return r.items.find((o) => o.slug === 'laguna-expedition');
+    };
+    // Сцена файла снимает с витрины все карточки из миграций (is_public = FALSE);
+    // «Лагуну Экспедицию» на время этих проверок возвращаем, как на проде.
+    beforeAll(async () => {
+      await pool.query(`UPDATE partners SET is_public = TRUE WHERE slug = 'laguna-expedition'`);
+    });
+    afterAll(async () => {
+      await pool.query(`UPDATE partners SET is_public = FALSE WHERE slug = 'laguna-expedition'`);
+    });
+
+    it('после цепочки миграций у карточки в списке /operators есть обложка, и это кадр её тура из хранилища', async () => {
+      expect((await hero()).hero_image).toBe(HERO);
+      const op = await listed();
+      expect(op, 'компания в списке').toBeTruthy();
+      expect(op!.heroImage).toBe(HERO);
+      // Кадр — один из снимков её туров (1343) и подписан её именем.
+      const own = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
+          WHERE p.slug = 'laguna-expedition' AND $1 = ANY(t.photos)`, [HERO],
+      );
+      expect(Number(own.rows[0].n)).toBeGreaterThanOrEqual(1);
+      const credit = await pool.query<{ c: string | null }>(
+        `SELECT gallery_credits ->> $1 AS c FROM partners WHERE slug = 'laguna-expedition'`, [HERO],
+      );
+      expect(credit.rows[0].c).toBe('Лагуна Экспедиция');
+    });
+
+    it('повтор ничего не меняет; обложку, выбранную человеком, не перетирает; пустую — ставит', async () => {
+      const before = await hero();
+      await pool.query(MIG_1347);
+      expect(await hero()).toEqual(before);
+
+      await pool.query(`UPDATE partners SET hero_image = '/images/own/hero.jpg' WHERE slug = 'laguna-expedition'`);
+      await pool.query(MIG_1347);
+      expect((await hero()).hero_image).toBe('/images/own/hero.jpg');
+
+      await pool.query(`UPDATE partners SET hero_image = '  ' WHERE slug = 'laguna-expedition'`);
+      await pool.query(MIG_1347);
+      expect((await hero()).hero_image).toBe(HERO);
+      expect((await listed())!.heroImage).toBe(HERO);
+    });
+
+    it('карточки нет — WARNING, никто не получает чужую обложку', async () => {
+      await pool.query(`UPDATE partners SET hero_image = NULL, slug = 'laguna-expedition-away' WHERE slug = 'laguna-expedition'`);
+      const client = await pool.connect();
+      const notices: string[] = [];
+      client.on('notice', (n) => notices.push(n.message ?? ''));
+      try {
+        await client.query(MIG_1347);
+      } finally {
+        client.release();
+      }
+      expect(notices.some((m) => m.includes('[1347] карточек laguna-expedition: 0'))).toBe(true);
+      const taken = await pool.query<{ n: string }>(`SELECT count(*)::text AS n FROM partners WHERE hero_image = $1`, [HERO]);
+      expect(taken.rows[0].n).toBe('0');
+      await pool.query(`UPDATE partners SET slug = 'laguna-expedition' WHERE slug = 'laguna-expedition-away'`);
+      await pool.query(MIG_1347);
+      expect((await hero()).hero_image).toBe(HERO);
+    });
+  });
 });

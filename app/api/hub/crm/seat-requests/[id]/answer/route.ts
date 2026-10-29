@@ -1,5 +1,5 @@
 /**
- * POST /api/hub/crm/seat-requests/[id]/answer — ответ оператора на запрос мест
+ * POST /api/hub/crm/seat-requests/[id]/answer — ответ продавца тура на запрос мест
  * прямо из «Входящих» кабинета (CRM, хвосты фазы 1, #2325).
  *
  * До этого ответить можно было только кнопкой в MAX или по ссылке из
@@ -8,8 +8,12 @@
  * атомарный захват, срок 2 часа, бронь при «есть места». Своего UPDATE здесь
  * нет.
  *
- * Право — вход в кабинет оператора (`requirePartner`, категория operator) и
- * запрос, адресованный ему (`requestBelongsToPartner`, operator_id в SQL).
+ * Право — вход в кабинет продавца тура (`requirePartner`, категория operator
+ * или guide) и запрос, адресованный ему (`requestBelongsToPartner`,
+ * operator_id в SQL). Гид продаёт и свои туры (28.10, миграция 1338): запрос
+ * мест на его тур записывается его карточке, и во «Входящих» гида он стоит с
+ * теми же кнопками — до этой строки они отвечали 403. Гид из команды
+ * оператора чужих запросов не видит: владение — по туру его карточки.
  * Контактов туриста роут не читает и не отдаёт: они приходят оператору
  * уведомлением о брони только после «есть места» (решение 29.09).
  */
@@ -25,6 +29,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const Id = z.string().uuid();
 
+/** Кто продаёт туры и получает на них запросы мест. */
+const SEAT_REQUEST_SELLERS: ReadonlySet<string> = new Set(['operator', 'guide']);
+
 export const SeatAnswerSchema = z.object({
   answer: z.enum(['yes', 'no', 'other_date']),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат даты: ГГГГ-ММ-ДД').optional(),
@@ -33,8 +40,8 @@ export const SeatAnswerSchema = z.object({
 export async function POST(req: NextRequest, { params }: Ctx) {
   const ctx = await requirePartner(req);
   if (ctx instanceof NextResponse) return ctx;
-  if (ctx.category !== 'operator') {
-    return NextResponse.json({ success: false, error: 'Запросы мест получают операторы туров' }, { status: 403 });
+  if (!SEAT_REQUEST_SELLERS.has(ctx.category)) {
+    return NextResponse.json({ success: false, error: 'Запросы мест получают продавцы туров: операторы и гиды со своими турами' }, { status: 403 });
   }
 
   const id = Id.safeParse((await params).id);

@@ -13,9 +13,15 @@
  * партнёра своей формой (кнопки запроса мест и меню роли, кабинет проката) и
  * всё, чего консоль не понимает, уходят кабинету партнёра. Кнопки
  * администратора (rm:ad:) идут своим путём и этим не затронуты.
+ *
+ * Пока кабинет гида ждёт причину отклонения брони (после кнопки «Отклонить»,
+ * lib/bookings/chat-owner-action), любое сообщение этого чата — кабинету:
+ * иначе причина со словом команды консоли («брони перенесли») ушла бы консоли,
+ * а гид не получил бы вопроса «Да / Не надо».
  */
 
 import { findPartnerByChat } from '@/lib/kuzmich/operator-chat';
+import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { adminCommandOf } from '@/lib/max/admin-read';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
 import { roleMenuAsk } from '@/lib/roles/role-menu';
@@ -44,6 +50,10 @@ export async function adminChatYieldsToPartner(
 ): Promise<boolean> {
   const lookup = await findPartnerByChat(channel, chatId);
   if (lookup.outcome !== 'found') return false;
+  if (chatActionsEnabledFor(lookup.partner)) {
+    const { awaitsOwnerReason } = await import('@/lib/bookings/chat-owner-action');
+    if (await awaitsOwnerReason(channel, chatId)) return true;
+  }
   if (partnerCabinetCommand(text, lookup.partner.partnerId)) return true;
   return adminCommandOf(text) === null;
 }

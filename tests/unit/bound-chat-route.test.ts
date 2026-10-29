@@ -5,7 +5,9 @@
  * цены, открытие дат — остаётся помощнику. Неузнанное тоже остаётся кабинету.
  */
 import { describe, expect, it } from 'vitest';
-import { boundChatContext, boundChatLane, partnerHasRental } from '@/lib/kuzmich/bound-chat-route';
+import {
+  boundChatContext, boundChatLane, boundChatLaneFor, clearBoundChatEmergencies, partnerHasRental,
+} from '@/lib/kuzmich/bound-chat-route';
 
 const tourist = [
   'найди мне в аренду автомобиль',
@@ -159,22 +161,62 @@ describe('привязанный чат прокатчика: свои маши�
 describe('привязанный чат туроператора: даты своего тура — кабинет', () => {
   const datesAsks = ['нужно добавить даты тура на ноябрь', 'хочу выставить тур на 5 ноября, 8 мест'];
   it.each(datesAsks)('туроператор — кабинет: %s', (text) => {
-    expect(boundChatLane(text, { operator: true })).toBe('partner');
+    expect(boundChatLane(text, { ownTours: true })).toBe('partner');
   });
   it.each(datesAsks)('не туроператор — как раньше: %s', (text) => {
     expect(boundChatLane(text)).toBe('tourist');
   });
   it.each(['хочу забронировать тур на 15 июля', 'подбери тур на 5 ноября', 'спланируй поездку на 5 дней в июле'])(
     'просьба туриста у туроператора остаётся Кузьмичу туриста: %s', (text) => {
-      expect(boundChatLane(text, { operator: true })).toBe('tourist');
+      expect(boundChatLane(text, { ownTours: true })).toBe('tourist');
     },
   );
   it('беда с датами — Кузьмичу туриста и у туроператора', () => {
-    expect(boundChatLane('турист сломал ногу, закрой субботу', { operator: true })).toBe('tourist');
+    expect(boundChatLane('турист сломал ногу, закрой субботу', { ownTours: true })).toBe('tourist');
   });
   it('контекст по карточке: оператор, прокат, остальные', () => {
-    expect(boundChatContext({ category: 'operator', slug: 'vulkan-tur' })).toEqual({ rental: false, operator: true });
-    expect(boundChatContext({ category: 'transfer', slug: 'laguna-prokat' })).toEqual({ rental: true, operator: false });
-    expect(boundChatContext({ category: 'guide', slug: null })).toEqual({ rental: false, operator: false });
+    expect(boundChatContext({ category: 'operator', slug: 'vulkan-tur' })).toEqual({ rental: false, ownTours: true });
+    expect(boundChatContext({ category: 'transfer', slug: 'laguna-prokat' })).toEqual({ rental: true, ownTours: false });
+    expect(boundChatContext({ category: 'guide', slug: null })).toEqual({ rental: false, ownTours: false });
+  });
+});
+
+// 29.10: гид продаёт свои туры (1338). Его «нужно добавить даты тура на
+// ноябрь» — дело его кабинета (сводка и расписание у помощника), а не
+// просьба туриста. Гид команды оператора без своих туров — как раньше.
+describe('привязанный чат гида: даты своего тура — кабинет, если туры его', () => {
+  const datesAsks = ['нужно добавить даты тура на ноябрь', 'хочу выставить тур на 5 ноября, 8 мест'];
+  const seller = boundChatContext({ category: 'guide', slug: null, sellsTours: true });
+  const team = boundChatContext({ category: 'guide', slug: null, sellsTours: false });
+  const unknown = boundChatContext({ category: 'guide', slug: null });
+
+  it('признак продавца — только у гида со своими турами', () => {
+    expect(seller).toEqual({ rental: false, ownTours: true });
+    expect(team).toEqual({ rental: false, ownTours: false });
+    expect(unknown).toEqual({ rental: false, ownTours: false });
+    // Поле «продаёт» у перевозчика и жилья ничего не меняет.
+    expect(boundChatContext({ category: 'transfer', slug: null, sellsTours: true }).ownTours).toBe(false);
+    expect(boundChatContext({ category: 'stay', slug: null, sellsTours: true }).ownTours).toBe(false);
+  });
+  it.each(datesAsks)('гид-продавец — кабинет: %s', (text) => {
+    expect(boundChatLane(text, seller)).toBe('partner');
+  });
+  it.each(datesAsks)('гид команды — как раньше, Кузьмичу туриста: %s', (text) => {
+    expect(boundChatLane(text, team)).toBe('tourist');
+    expect(boundChatLane(text, unknown)).toBe('tourist');
+  });
+  it.each(['хочу забронировать тур на 15 июля', 'подбери тур на 5 ноября'])(
+    'просьба туриста у гида-продавца остаётся Кузьмичу туриста: %s', (text) => {
+      expect(boundChatLane(text, seller)).toBe('tourist');
+    },
+  );
+  it('беда с датами у гида-продавца — Кузьмичу туриста', () => {
+    expect(boundChatLane('турист сломал ногу, закрой субботу', seller)).toBe('tourist');
+  });
+  it('вход с памятью беды (MAX, Telegram) передаёт признак дальше', () => {
+    clearBoundChatEmergencies();
+    expect(boundChatLaneFor('max', 4242, 'нужно добавить даты тура на ноябрь', seller)).toBe('partner');
+    expect(boundChatLaneFor('telegram', 4242, 'нужно добавить даты тура на ноябрь', seller)).toBe('partner');
+    expect(boundChatLaneFor('max', 4243, 'нужно добавить даты тура на ноябрь', team)).toBe('tourist');
   });
 });

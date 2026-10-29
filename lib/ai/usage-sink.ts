@@ -36,6 +36,11 @@ export interface UsageRowToReport {
   prompt_tokens: number;
   completion_tokens: number;
   agent_id: string | null;
+  /**
+   * Прочитано из кэша подсказок. Нет поля или null — источник не сообщил;
+   * прод пишет NULL, а не ноль (миграция 1285). Роут приёма поле уже знает.
+   */
+  cache_read_tokens?: number | null;
 }
 
 /**

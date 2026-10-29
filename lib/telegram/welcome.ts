@@ -7,20 +7,29 @@
  * Вызывается:
  *   1. После TG Login Widget (app/api/auth/telegram/route.ts)
  *   2. После привязки через deep link /start link_{token} (webhook)
+ *
+ * Обещать можно только то, что придёт (§10.09, 29.10). Оператору и гиду до
+ * этого дня обещались «бронирования с кнопками Подтвердить / Отклонить» и
+ * «лиды с контактами туристов»: кнопок в Telegram нет (ловец confirm_/cancel_
+ * снят), а имя и телефон туриста по закону о ПД в Telegram не уходят —
+ * только в MAX (lib/notifications/pd-alert). Гиду ссылка вела в кабинет
+ * оператора, куда его не пускают.
  */
 
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { ROLE_HUB } from '@/lib/auth/role-routes';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
-interface WelcomeContext {
+export interface WelcomeContext {
   telegramId: number;
   name: string;
   role: string;
   isNewUser: boolean;
 }
 
-interface UserStats {
+export interface UserStats {
   bookings?: number;
   tours?: number;
 }
@@ -42,11 +51,15 @@ async function getUserStats(userId: string, role: string): Promise<UserStats> {
       );
       return { tours: parseInt(res.rows[0]?.cnt ?? '0') };
     }
-  } catch {}
+  } catch (err) {
+    // Без счёта приветствие уходит без строки о числе — это не выдумка.
+    logSwallowedFailure('telegram-welcome', 'счёт для приветствия', err);
+  }
   return {};
 }
 
-function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
+/** Текст приветствия — отдельно от отправки, чтобы его судил вызов. */
+export function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
   const name = ctx.name.split(' ')[0]; // только имя
   const site = 'https://vedarai.ru';
 
@@ -75,17 +88,23 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
     const toursLine = stats.tours !== undefined
       ? `\nАктивных туров: <b>${stats.tours}</b>`
       : '';
+    // Гид продаёт только свои туры (1338); у гида из команды оператора своих
+    // броней нет — строка говорит, о каких турах речь.
+    const whose = ctx.role === 'guide' ? ' на туры, которые вы продаёте сами' : '';
     return [
       `<b>${name}, личный канал подключён!</b>`,
       '',
       'Отсюда будут приходить:',
-      '— новые бронирования с кнопками Подтвердить / Отклонить',
-      '— горячие лиды с контактами туристов',
+      `— новые брони и заявки${whose}: номер, тур, дата и ссылка в кабинет`,
+      '— сообщения туристов из чата платформы',
       ...(platformAcceptsPayments() ? ['— еженедельные отчёты по выплатам'] : []),
       '— важные уведомления платформы',
+      '',
+      'Имя и телефон туриста по закону о персональных данных в Telegram не приходят — они в кабинете и в MAX.',
+      'Подтвердить или отклонить бронь — в кабинете.',
       toursLine,
       '',
-      `<a href="${site}/hub/operator">Открыть кабинет →</a>`,
+      `<a href="${site}${ROLE_HUB[ctx.role]}">Открыть кабинет →</a>`,
     ].filter(s => s !== '').join('\n');
   }
 
@@ -122,7 +141,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
 
 /**
  * Отправляет персональное приветствие при первом подключении Telegram.
- * Не блокирует основной поток — ошибки подавляются.
+ * Не блокирует основной поток: отказ не бросается, а пишется в лог.
  */
 export async function sendWelcomeMessage(
   userId: string,
@@ -132,12 +151,14 @@ export async function sendWelcomeMessage(
     const stats = await getUserStats(userId, ctx.role);
     const text = buildWelcomeText(ctx, stats);
 
-    await telegramService.sendMessage({
+    const res = await telegramService.sendMessage({
       chatId: String(ctx.telegramId),
       text,
       parseMode: 'HTML',
     });
-  } catch {
-    // Не блокируем авторизацию если TG недоступен
+    if (!res.success) console.error(`[telegram-welcome] приветствие (${ctx.role}) не доставлено: ${res.error ?? 'нет ответа'}`);
+  } catch (err) {
+    // Не блокируем авторизацию, если Telegram недоступен.
+    logSwallowedFailure('telegram-welcome', 'приветствие', err);
   }
 }

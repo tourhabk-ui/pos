@@ -25,6 +25,12 @@
  *
  * Хук в `chat.service.sendMessage`: никогда не роняет отправку сообщения,
  * отказ — в лог.
+ *
+ * Выход без уведомления по правилу (пишет сам партнёр, серия, не текст,
+ * беседа не один на один) молчит. Выход, при котором партнёр должен был
+ * узнать и не узнает, — роль без чата, нет карточки, не прочитан счёт, —
+ * пишет причину в лог (29.10): гид, записанный в беседу «оператором»,
+ * уходил отсюда без единой строки, и о сообщениях туристов не знал никто.
  */
 import { pool } from '@/lib/db-pool';
 import { ROLE_TO_CATEGORY } from '@/lib/crm/partner-context';
@@ -70,13 +76,19 @@ export async function notifyPartnerOfChatMessageQuietly(
     if (!partnerSide || !touristSide || partnerSide.user_id === touristSide.user_id) return;
 
     const category = ROLE_TO_CATEGORY[partnerSide.role];
-    // Чат с туристами на платформе есть только у оператора и гида
-    // (INBOX_CHAT_CATEGORIES): остальным ролям отвечать негде.
-    if (!INBOX_CHAT_CATEGORIES.has(category)) return;
-
     // Пишет партнёр — уведомлять его же не о чем. Туристов не уведомляем.
     if (senderId === partnerSide.user_id) return;
-    if (senderId !== touristSide.user_id) return;
+    if (senderId !== touristSide.user_id) {
+      console.error(`[chat-notify] беседа ${conversationId}: сообщение не от участника беседы — уведомление не отправлено`);
+      return;
+    }
+
+    // Чат с туристами на платформе есть только у оператора и гида
+    // (INBOX_CHAT_CATEGORIES): остальным ролям отвечать негде.
+    if (!INBOX_CHAT_CATEGORIES.has(category)) {
+      console.error(`[chat-notify] беседа ${conversationId}: у роли «${partnerSide.role}» нет чата с туристами на платформе — уведомление не отправлено`);
+      return;
+    }
 
     const partner = (await db.query<{ id: string }>(
       `SELECT id FROM partners
@@ -84,7 +96,10 @@ export async function notifyPartnerOfChatMessageQuietly(
         ORDER BY created_at ASC NULLS LAST, id ASC LIMIT 1`,
       [partnerSide.user_id, category],
     )).rows[0];
-    if (!partner) return;
+    if (!partner) {
+      console.error(`[chat-notify] беседа ${conversationId}: у собеседника с ролью «${partnerSide.role}» нет карточки категории «${category}» — о сообщении туриста он не узнает`);
+      return;
+    }
 
     // Дедуп серией: уведомляем только о первом непрочитанном. Запрос идёт
     // после вставки, поэтому «1» значит «это сообщение — единственное,
@@ -100,7 +115,11 @@ export async function notifyPartnerOfChatMessageQuietly(
         WHERE cp.conversation_id = $1 AND cp.user_id = $2`,
       [conversationId, partnerSide.user_id],
     )).rows[0];
-    if (!unread || parseInt(unread.count, 10) !== 1) return;
+    if (!unread) {
+      console.error(`[chat-notify] беседа ${conversationId}: счёт непрочитанных у партнёра ${partner.id} не вернулся — уведомление не отправлено`);
+      return;
+    }
+    if (parseInt(unread.count, 10) !== 1) return;
 
     const reach = await reachForPartner(partner.id);
     if (reach === null) {

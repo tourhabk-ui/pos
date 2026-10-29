@@ -274,6 +274,7 @@ export async function POST(request: NextRequest) {
           operator_email:            op?.email ?? null,
           via:                       AGENT_BOOKING_VIA,
           operator_partner_id:       result.operatorId,
+          operator_category:         reach?.category ?? null,
         });
       } catch (err) {
         console.error(

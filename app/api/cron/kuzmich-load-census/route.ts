@@ -31,6 +31,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { KUZMICH_ANSWER_ACTION } from '@/lib/kuzmich/answer-ceiling';
+import { TOOLS_LOOP_AGENT_ID } from '@/lib/ai/provider-usage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -58,6 +59,55 @@ async function section<T>(name: string, run: () => Promise<T>): Promise<Section<
   }
 }
 
+type KuzmichUsageRow = {
+  provider: string | null; is_total: boolean; calls: number;
+  p50_input_tokens: number | null; p95_input_tokens: number | null; max_input_tokens: number | null;
+  input_tokens: number; cache_read_tokens: number | null; cache_reported_calls: number;
+  input_tokens_where_cache_reported: number | null; completion_tokens: number;
+};
+
+/** Доля кэша — только по вызовам, где провайдер кэш назвал; не назвал никто — null. */
+function cacheShare(r: KuzmichUsageRow): number | null {
+  if (r.cache_reported_calls === 0 || !r.input_tokens_where_cache_reported) return null;
+  return Math.round(((r.cache_read_tokens ?? 0) / r.input_tokens_where_cache_reported) * 1000) / 1000;
+}
+
+/**
+ * Расход цикла Кузьмича из строк ROLLUP. Ноль строк — честное «учёт ещё
+ * пуст», а не нули: нули читались бы как «Кузьмич не тратил».
+ */
+function summarizeKuzmichUsage(rows: KuzmichUsageRow[]):
+  | { empty: true; note: string }
+  | { empty: false; total: Record<string, number | null>; by_provider: Array<Record<string, string | number | null>> } {
+  const total = rows.find((r) => r.is_total);
+  if (!total || total.calls === 0) {
+    return {
+      empty: true,
+      note: 'учёт ещё пуст: ноги цикла инструментов пишут расход с 29.10, строк kuzmich в окне нет',
+    };
+  }
+  const describe = (r: KuzmichUsageRow) => ({
+    calls: r.calls,
+    p50_input_tokens: r.p50_input_tokens,
+    p95_input_tokens: r.p95_input_tokens,
+    max_input_tokens: r.max_input_tokens,
+    completion_tokens: r.completion_tokens,
+    cache_read_share: cacheShare(r),
+    calls_cache_unknown: r.calls - r.cache_reported_calls,
+  });
+  return {
+    empty: false,
+    total: describe(total),
+    by_provider: rows
+      .filter((r) => !r.is_total)
+      .map((r) => ({
+        provider: r.provider ?? '(провайдер не записан)',
+        share_of_calls: Math.round((r.calls / total.calls) * 1000) / 1000,
+        ...describe(r),
+      })),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -70,7 +120,7 @@ export async function GET(request: NextRequest) {
   const days = clampInt(request.nextUrl.searchParams.get('days'), 30, 1, 365);
 
   // Интервал — параметром с приведением, не конкатенацией (sql-interval-not-concatenated).
-  const [telegramMax, telegramMaxDaily, web, llm, llmUntrackedModels, answerTime] = await Promise.all([
+  const [telegramMax, telegramMaxDaily, web, llm, llmUntrackedModels, kuzmichUsage, answerTime] = await Promise.all([
     // Telegram и MAX через общий мозг lib/kuzmich/core.ts (saveMsg).
     section('tg_conversations', async () => {
       const { rows } = await pool.query<{
@@ -140,12 +190,19 @@ export async function GET(request: NextRequest) {
 
     // Расход. SUM пропускает NULL молча — неизвестная цена считается отдельно
     // (комментарий колонки, миграция 961).
+    //
+    // Три корзины, а не две. До 29.10 строки без agent_id назывались «верхней
+    // границей расхода Кузьмича» — и это было неверно: цикл инструментов, его
+    // главный путь, в книги не писал вовсе, так что граница не ограничивала
+    // ничего. Теперь ноги цикла пишут agent_id = 'kuzmich'.
     section('llm_usage_log', async () => {
       const { rows } = await pool.query<{
-        untracked: boolean; calls: number; tokens: number;
+        bucket: 'kuzmich' | 'other_agent' | 'no_agent'; calls: number; tokens: number;
         known_cost_usd: number | null; calls_unknown_price: number;
       }>(
-        `SELECT (agent_id IS NULL)                                          AS untracked,
+        `SELECT CASE WHEN agent_id = $2 THEN 'kuzmich'
+                     WHEN agent_id IS NULL THEN 'no_agent'
+                     ELSE 'other_agent' END                                  AS bucket,
                 COUNT(*)::int                                               AS calls,
                 COALESCE(SUM(total_tokens), 0)::float8                      AS tokens,
                 SUM(estimated_cost_usd)::float8                             AS known_cost_usd,
@@ -153,22 +210,24 @@ export async function GET(request: NextRequest) {
            FROM llm_usage_log
           WHERE created_at > NOW() - ($1::int * INTERVAL '1 day')
           GROUP BY 1`,
-        [days],
+        [days, TOOLS_LOOP_AGENT_ID],
       );
       // Строки нет — вызовов не было, и потрачено ровно ноль: это известный
       // ноль, не «цена неизвестна». null остаётся только за SUM по строкам,
       // у которых у всех цена NULL.
-      const pick = (untracked: boolean) => rows.find((r) => r.untracked === untracked) ?? {
-        calls: 0, tokens: 0, known_cost_usd: 0, calls_unknown_price: 0,
+      const pick = (bucket: string) => {
+        const r = rows.find((x) => x.bucket === bucket);
+        return r
+          ? { calls: r.calls, tokens: r.tokens, known_cost_usd: r.known_cost_usd, calls_unknown_price: r.calls_unknown_price }
+          : { calls: 0, tokens: 0, known_cost_usd: 0, calls_unknown_price: 0 };
       };
-      const strip = ({ calls, tokens, known_cost_usd, calls_unknown_price }: {
-        calls: number; tokens: number; known_cost_usd: number | null; calls_unknown_price: number;
-      }) => ({ calls, tokens, known_cost_usd, calls_unknown_price });
       return {
-        /** Без agent_id: живой Кузьмич И всё прочее, что зовёт модель без трекинга. */
-        untracked_upper_bound_for_kuzmich: strip(pick(true)),
-        /** С agent_id: кроны, судья эволюции, ревью — не Кузьмич. */
-        attributed_to_agents: strip(pick(false)),
+        /** Цикл инструментов Кузьмича (agent_id 'kuzmich'): сайт, Telegram, MAX, A2A, Кузьмич партнёра. */
+        kuzmich_tools_loop: pick('kuzmich'),
+        /** С иным agent_id: кроны, судья эволюции, ревью, эвал. */
+        attributed_to_other_agents: pick('other_agent'),
+        /** Без agent_id: запасной водопад Кузьмича, виджет и всё прочее без учёта агента — вперемешку. */
+        without_agent: pick('no_agent'),
       };
     }),
 
@@ -191,6 +250,42 @@ export async function GET(request: NextRequest) {
       return rows;
     }),
 
+    // Расход цикла инструментов по вызовам (шаг 0 разбора 29.10): сколько весит
+    // ход, сколько из него прочитано из кэша и кто отвечал. Строка книг —
+    // один вызов модели. Вход целиком = prompt_tokens + cache_read_tokens:
+    // прочитанное из кэша лежит в своей колонке (миграция 1285). Провайдер —
+    // вендор ключа (`deepseek:`, `qwen:`, `x-ai:`); ключ без двоеточия — слаг
+    // OpenRouter (`vendor/model`), так их пишут ноги цикла (lib/ai/providers).
+    section('расход цикла Кузьмича', async () => {
+      const { rows } = await pool.query<{
+        provider: string | null; is_total: boolean; calls: number;
+        p50_input_tokens: number | null; p95_input_tokens: number | null; max_input_tokens: number | null;
+        input_tokens: number; cache_read_tokens: number | null; cache_reported_calls: number;
+        input_tokens_where_cache_reported: number | null; completion_tokens: number;
+      }>(
+        `SELECT CASE WHEN position(':' in route) > 0 THEN split_part(route, ':', 1)
+                     ELSE 'openrouter' END                                   AS provider,
+                (GROUPING(CASE WHEN position(':' in route) > 0 THEN split_part(route, ':', 1)
+                               ELSE 'openrouter' END) = 1)                   AS is_total,
+                COUNT(*)::int                                               AS calls,
+                percentile_cont(0.5)  WITHIN GROUP (ORDER BY prompt_tokens + COALESCE(cache_read_tokens, 0)) AS p50_input_tokens,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY prompt_tokens + COALESCE(cache_read_tokens, 0)) AS p95_input_tokens,
+                MAX(prompt_tokens + COALESCE(cache_read_tokens, 0))::float8 AS max_input_tokens,
+                COALESCE(SUM(prompt_tokens + COALESCE(cache_read_tokens, 0)), 0)::float8 AS input_tokens,
+                SUM(cache_read_tokens)::float8                              AS cache_read_tokens,
+                COUNT(cache_read_tokens)::int                               AS cache_reported_calls,
+                SUM(prompt_tokens + cache_read_tokens)::float8              AS input_tokens_where_cache_reported,
+                COALESCE(SUM(completion_tokens), 0)::float8                 AS completion_tokens
+           FROM llm_usage_log
+          WHERE created_at > NOW() - ($1::int * INTERVAL '1 day')
+            AND agent_id = $2
+          GROUP BY ROLLUP (1)
+          ORDER BY is_total DESC, calls DESC`,
+        [days, TOOLS_LOOP_AGENT_ID],
+      );
+      return summarizeKuzmichUsage(rows);
+    }),
+
     // Сколько человек ждёт ответа (аудит 15.10, A19): замер пишет
     // lib/kuzmich/answer-timing на четырёх поверхностях. По p95 отсюда
     // потолок цикла (KUZMICH_ANSWER_CEILING_MS) снижается после недели данных.
@@ -199,6 +294,8 @@ export async function GET(request: NextRequest) {
         surface: string | null; path: string | null; answers: number;
         p50_ms: number | null; p95_ms: number | null; max_ms: number | null;
         avg_turns: number | null; ceiling_hits: number;
+        answers_with_tokens: number; answers_tokens_partial: number;
+        p50_input_tokens: number | null; p95_input_tokens: number | null; p95_max_call_input_tokens: number | null;
       }>(
         `SELECT metadata->>'surface'                                                  AS surface,
                 metadata->>'path'                                                     AS path,
@@ -207,7 +304,21 @@ export async function GET(request: NextRequest) {
                 percentile_cont(0.95) WITHIN GROUP (ORDER BY (metadata->>'elapsed_ms')::float8) AS p95_ms,
                 MAX((metadata->>'elapsed_ms')::float8)                                AS max_ms,
                 AVG((metadata->>'turns')::float8)                                     AS avg_turns,
-                COUNT(*) FILTER (WHERE (metadata->>'ceiling_hit')::boolean)::int     AS ceiling_hits
+                COUNT(*) FILTER (WHERE (metadata->>'ceiling_hit')::boolean)::int     AS ceiling_hits,
+                -- Вход ответа (сумма ходов) и самый тяжёлый ход — шаг 0 разбора
+                -- 29.10. Только ответы, где usage отдал КАЖДЫЙ ход: неполная
+                -- сумма занизила бы перцентиль; такие посчитаны отдельно.
+                COUNT(*) FILTER (WHERE (metadata->>'usage_calls')::int > 0
+                                   AND (metadata->>'usage_unreported_calls')::int = 0)::int AS answers_with_tokens,
+                COUNT(*) FILTER (WHERE (metadata->>'usage_unreported_calls')::int > 0)::int AS answers_tokens_partial,
+                percentile_cont(0.5)  WITHIN GROUP (ORDER BY (metadata->>'input_tokens')::float8)
+                  FILTER (WHERE (metadata->>'usage_calls')::int > 0
+                            AND (metadata->>'usage_unreported_calls')::int = 0)        AS p50_input_tokens,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY (metadata->>'input_tokens')::float8)
+                  FILTER (WHERE (metadata->>'usage_calls')::int > 0
+                            AND (metadata->>'usage_unreported_calls')::int = 0)        AS p95_input_tokens,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY (metadata->>'max_call_input_tokens')::float8)
+                  FILTER (WHERE (metadata->>'usage_calls')::int > 0)                   AS p95_max_call_input_tokens
            FROM ai_actions_log
           WHERE action_type = $2
             AND created_at > NOW() - ($1::int * INTERVAL '1 day')
@@ -224,7 +335,10 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  const sections = { telegram_max: telegramMax, telegram_max_daily: telegramMaxDaily, web, llm, llm_untracked_models: llmUntrackedModels, answer_time: answerTime };
+  const sections = {
+    telegram_max: telegramMax, telegram_max_daily: telegramMaxDaily, web, llm,
+    llm_untracked_models: llmUntrackedModels, kuzmich_usage: kuzmichUsage, answer_time: answerTime,
+  };
   const refused = Object.entries(sections).filter(([, s]) => s.refused).map(([k]) => k);
 
   return NextResponse.json(
@@ -235,7 +349,10 @@ export async function GET(request: NextRequest) {
       refused_sections: refused,
       ...sections,
       caveats: [
-        'Расход без agent_id — ВЕРХНЯЯ граница расхода Кузьмича, а не его расход: живые запросы Кузьмича пишутся без agent_id вместе со всем прочим, что зовёт модель без трекинга (lib/ai/providers.ts, logLLMUsage).',
+        'Расход Кузьмича в книгах — его цикл инструментов (agent_id kuzmich), пишется с 29.10; строк до этого дня нет, и «учёт ещё пуст» значит «не накопилось», а не «Кузьмич не тратил». Запасной водопад Кузьмича и виджет пишутся без agent_id вперемешку со всем прочим — ни верхней, ни нижней границей расхода Кузьмича эта корзина не служит.',
+        'Цена строки с прочитанным кэшем у вендоров, кроме Anthropic, — оценка сверху (cost_basis *_cache_upper_bound): скидку за чтение кэша у них книги не знают и не выдумывают, прочитанное посчитано по полной цене входа (lib/ai/providers, resolveCostWithCache). Запись в кэш у них — цена неизвестна.',
+        'Эвал (kuzmich-eval, -commercial, -live) и red-team пишут расход под своими agent_id, а не kuzmich. Фактический экзамен (scripts/kuzmich-fact-exam.ts) ходит через публичный /api/a2a как внешний агент — его ходы лежат в корзине kuzmich и в замере ответа с поверхностью a2a вперемешку с настоящими агентами: отделить их по книгам нельзя.',
+        'Ответ, данный запасным путём после ходов цикла, засчитан в answer_time неполным (usage_unreported_calls > 0): вызов, который ответил, в замер не входит. Ходы ног, оплаченные и отвергнутые (пустой ответ, лёгкая модель перед сильной), входят и в книги, и в замер.',
         'chat_sessions.user_message_count — счётчик за всю жизнь сессии; сессия, обновлённая в окне, несёт и сообщения до окна. Это оценка сверху.',
         'chat_sessions не различает канал: туда пишут веб-чат и виджет. Оба входа Telegram с 15.10 (TG-BRAIN) пишут в tg_conversations; строки tg_ в chat_sessions — история до перевода (миграция 1287 скопировала её туда).',
         'Время ответа (answer_time) пишется с 15.10 (аудит A19): строк меньше, чем обращений, за дни до замера. Нет строк — замер ещё не накопился, а не «ответы мгновенные». Агент брони веб-чата ходов не считает: turns у него null и в среднее не входит.',

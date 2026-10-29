@@ -12,7 +12,8 @@
 import { useEffect, useState } from 'react';
 import { Inbox, Clock, ArrowUpRight, MessageSquare, AlertTriangle } from 'lucide-react';
 import type { Inbox as InboxData, InboxItem } from '@/lib/crm/inbox';
-import { INBOX_ACTION, INBOX_KIND_LABELS, INBOX_SLOW_MINUTES, RESPONSE_MIN_SAMPLE } from '@/lib/crm/inbox-kinds';
+import { INBOX_KIND_LABELS, INBOX_SLOW_MINUTES, RESPONSE_MIN_SAMPLE, inboxActionFor } from '@/lib/crm/inbox-kinds';
+import type { PartnerCategory } from '@/lib/crm/partner-context';
 import { CRM_INBOX_API } from './api';
 import { formatSourceDate } from './labels';
 import { ContactPanel } from './ContactPanel';
@@ -62,8 +63,15 @@ function ResponseLine({ data }: { data: InboxData }) {
   );
 }
 
-function ItemRow({ item, onOpenContact, onAnswered }: { item: InboxItem; onOpenContact: (id: string) => void; onAnswered: () => void }) {
-  const action = INBOX_ACTION[item.kind];
+function ItemRow({ item, category, onOpenContact, onAnswered }: {
+  item: InboxItem;
+  category: PartnerCategory;
+  onOpenContact: (id: string) => void;
+  onAnswered: () => void;
+}) {
+  // Где ответить — по роли: бронь тура гид подтверждает в «Своих турах», а не
+  // в кабинете оператора, куда его не пустят.
+  const action = inboxActionFor(category, item.kind);
   const slow = item.waiting_minutes >= INBOX_SLOW_MINUTES;
   const date = formatSourceDate(item.date);
   return (
@@ -187,7 +195,7 @@ export function InboxScreen() {
           ) : (
             <ul className="space-y-2">
               {state.data.items.map((it) => (
-                <ItemRow key={`${it.kind}:${it.id}`} item={it} onOpenContact={setOpenId} onAnswered={refresh} />
+                <ItemRow key={`${it.kind}:${it.id}`} item={it} category={state.data.category} onOpenContact={setOpenId} onAnswered={refresh} />
               ))}
             </ul>
           )}

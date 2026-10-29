@@ -24,8 +24,9 @@
  * подделать его так же легко, как user_id (шапка lib/max/verified-press).
  *
  * «Открой даты словами» (решение владельца 22.10, вариант а): фраза про даты
- * в чате кабинета туроператора — предложение с кнопками «Открыть» / «Не
- * надо» (`od:`), запись — только по нажатию. И фраза, и нажатие — только по
+ * в чате кабинета туроператора и, с 29.10, гида со своими турами —
+ * предложение с кнопками «Открыть» / «Не надо» (`od:`), запись — только по
+ * нажатию. И фраза, и нажатие — только по
  * заверенному апдейту и только из личного диалога (`chat_type`), чат нажатия
  * — из сообщения с кнопкой; фраза про даты из группы получает ответ «даты —
  * в личном диалоге», а не молчание; порядок проверок и тексты —
@@ -49,14 +50,15 @@ import {
 } from '@/lib/rental/cabinet-bar';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
-import { roleMenuScreen } from '@/lib/roles/role-screen';
+import { PARTNER_PD_UNDELIVERED, roleMenuScreen, type RoleScreen } from '@/lib/roles/role-screen';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
-import { bindPartnerChannel, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
+import { bindPartnerChannel, boundMenuRow, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
 import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCode } from '@/lib/partners/bind-code';
 import { handleMemberStart } from '@/lib/operators/member-channel';
@@ -68,6 +70,7 @@ import {
   PRESS_WITHOUT_MESSAGE_REPLY, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY,
   UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf,
 } from '@/lib/max/verified-press';
+import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
@@ -197,6 +200,40 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
     });
   } catch (err) {
     logFailure('ответ с кнопками в чат MAX', err);
+  }
+}
+
+/**
+ * Экран меню партнёра в чат MAX. С ПД (брони гида — имя и телефон туриста)
+ * — только через sendPdAlert и только в этот чат MAX: `telegramChatId: null`,
+ * заглушки в Telegram нет. Не доставилось — строка без ПД. Без ПД — обычный
+ * ответ со строкой меню. `wrap` — блок 112, если в тексте человека беда.
+ */
+async function sendPartnerScreen(
+  chatId: number,
+  screen: RoleScreen,
+  row: MenuButton[],
+  wrap: (body: string) => string = (body) => body,
+): Promise<void> {
+  // Кнопки действий экрана (бронь гида: вопрос, затем «Да») — над строкой меню.
+  // Строки меню нет — чат не личный диалог, и кнопки действий не ставятся.
+  const actions = row.length ? (screen.buttons ?? []) : [];
+  const rows = row.length ? appendMenu(actions, row) : [];
+  if (!screen.pd) {
+    if (rows.length) await maxReplyWithButtons(chatId, wrap(screen.text), toMaxButtons(rows));
+    else await maxReply(chatId, wrap(screen.text));
+    return;
+  }
+  const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
+  const sent = await sendPdAlert({
+    text: wrap(screen.text),
+    stub: 'Список с контактами туристов в MAX не доставлен.',
+    buttons: rows.flat(),
+    to: { maxChatId: chatId, telegramChatId: null },
+  });
+  if (!sent.delivered) {
+    console.error('[max/kuzmich] экран с ПД партнёру не доставлен:', sent.reason);
+    await maxReplyWithButtons(chatId, wrap(PARTNER_PD_UNDELIVERED), toMaxButtons(row.length ? [row] : []));
   }
 }
 
@@ -557,7 +594,9 @@ interface MaxUpdate {
  *     без ключа это открытый ответчик (шапка lib/max/verified-press);
  *  3. чат вправе нажимать: для мест — MAX-чат оператора запроса, для лида —
  *     рабочий MAX_OPERATOR_CHAT_ID, для дат — личный диалог (`chatType`) чата
- *     кабинета туроператора, чьё это предложение (lib/operators/chat-dates).
+ *     кабинета продавца своих туров (туроператор, гид с турами), чьё это
+ *     предложение (lib/operators/chat-dates), для «Выполнено» — личный диалог
+ *     кабинета, чья это задача (lib/crm/chat-task-action).
  */
 async function handleActionPress(
   action: MaxPressAction,
@@ -590,6 +629,30 @@ async function handleActionPress(
       : confirm ? await confirmMaxLoginSession(nonce, presserId)
       : await rejectMaxLoginSession(nonce, presserId);
     await maxReply(chatId, !done ? MAX_LOGIN_TEXT.stale : confirm ? MAX_LOGIN_TEXT.confirmed : MAX_LOGIN_TEXT.rejected);
+    return;
+  }
+
+  // Бронь и заявка своего тура кнопкой (гид, 29.10): вопрос `bk:` / `ld:`,
+  // затем «Да» / «Не надо» `oc:`. Личный диалог, карточка чата, аккаунт,
+  // человек привязки и владение бронью и заявкой проверяет
+  // lib/bookings/chat-owner-action; нажавший — из заверенного апдейта (его
+  // user_id прислал MAX).
+  if (action === 'owner') {
+    const { handleOwnerPress } = await import('@/lib/bookings/chat-owner-action');
+    const reply = await handleOwnerPress({
+      channel: 'max', chatId, privateChat: chatType === 'dialog', presserId, payload,
+    });
+    if (reply.buttons.length) await maxReplyWithButtons(chatId, reply.text, toMaxButtons(reply.buttons));
+    else await maxReply(chatId, reply.text);
+    return;
+  }
+
+  // «Выполнено» под напоминанием о задаче CRM (29.10). Личный диалог и то,
+  // что задача — карточки, к которой подключён этот чат, проверяет
+  // lib/crm/chat-task-action; отмечает тот же completeTask, что кабинет.
+  if (action === 'task') {
+    const { handleTaskPress } = await import('@/lib/crm/chat-task-action');
+    await maxReply(chatId, await handleTaskPress({ chatId, privateChat: chatType === 'dialog', payload }));
     return;
   }
 
@@ -779,11 +842,15 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         const text = channelBoundText('max', bound);
         const pilot = bound.ok && isRentalPilotSlug(bound.slug);
         const desk = bound.ok && bound.category === 'operator' && !pilot;
+        // Гид — его строка меню (продавцу своих туров — с «Бронями» и «Моими турами»).
+        const guideRow = boundMenuRow(bound);
         const buttons = pilot
           ? toMaxButtons([rentalCabinetBar()])
           : desk
             ? toMaxButtons(operatorDeskButtons())
-            : null;
+            : guideRow
+              ? toMaxButtons([guideRow])
+              : null;
         if (buttons) await maxReplyWithButtons(chatId, text, buttons);
         else await maxReply(chatId, text);
         return;
@@ -1121,6 +1188,19 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(chatId, sos(DATES_TEXT.partnerUnknown));
         return;
       }
+      // Причина отклонения брони (гид, 29.10): после «Отклонить» следующее
+      // сообщение личного диалога — причина для туриста. Раньше полосы и
+      // потока дат: «турист заболел» иначе ушло бы Кузьмичу туриста. Беда в
+      // тексте — блок 112 над вопросом, как над любым ответом этой ветки.
+      // Модуль действия грузится, только когда кнопки карточке включены.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true && chatActionsEnabledFor(lookup.partner)) {
+        const { captureOwnerReason } = await import('@/lib/bookings/chat-owner-action');
+        const reason = await captureOwnerReason({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (reason) {
+          await maxReplyWithButtons(chatId, sos(reason.text), toMaxButtons(reason.buttons));
+          return;
+        }
+      }
       // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
       // отвечает про клиентов и свои туры и отказывает в аренде. Кабинет
       // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному
@@ -1203,12 +1283,37 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         const role = menuRoleOf(lookup.partner);
         const askedRole = roleMenuAsk(text);
         const slashHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-        if (role === 'operator' && (askedRole === 'tours' || askedRole === 'seats' || slashHead === '/tours' || slashHead === '/seats')) {
+        // Туры и места — продавцу своих туров: туроператору и гиду с
+        // авторскими турами. Гиду — его раздел «Свои туры», не кабинет
+        // оператора (тот его не пустит). Меню — только в личном диалоге.
+        if (role && sellsOwnTours(lookup.partner)
+          && (askedRole === 'tours' || askedRole === 'seats' || slashHead === '/tours' || slashHead === '/seats')) {
           const which = askedRole === 'seats' || slashHead === '/seats' ? 'seats' : 'tours';
+          if (role === 'guide') {
+            if (which === 'seats') {
+              await say(operatorSeatsText('guide'));
+            } else {
+              const screen = await roleMenuScreen({ role, action: 'tours', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
+              await sendPartnerScreen(chatId, screen, menu ?? [], sos);
+            }
+            return;
+          }
           const body = which === 'tours'
             ? operatorToursReply(await loadOperatorTours(lookup.partner.partnerId))
             : operatorSeatsText();
           await say(body);
+          return;
+        }
+        // «/bookings» — «Брони» гида со своими турами. Контакты туриста —
+        // только через sendPdAlert и только в личном диалоге: в группе их
+        // увидел бы любой участник.
+        if (role === 'guide' && slashHead === '/bookings') {
+          if (!dialog) {
+            await say('Брони с контактами туристов показываю только в личном диалоге с ботом.');
+            return;
+          }
+          const screen = await roleMenuScreen({ role, action: 'bookings', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
+          await sendPartnerScreen(chatId, screen, menu ?? [], sos);
           return;
         }
         if (role === 'operator' && (text.trim() === '/start' || slashHead === '/help' || askedRole === 'help')) {
@@ -1227,7 +1332,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           const screen = await roleMenuScreen({
             role, action, channel: 'max', partner: lookup.partner, nowMs: Date.now(),
           });
-          await say(screen.text);
+          // Кнопки ответа под «Входящими» гида — только в личном диалоге (menu есть только там).
+          await sendPartnerScreen(chatId, screen, menu ?? [], sos);
           return;
         }
         const asked = rentalCabinetAsk(text);
@@ -1418,7 +1524,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         partner: roleLookup.partner,
         nowMs: Date.now(),
       });
-      await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons(row.length ? [row] : []));
+      await sendPartnerScreen(messageChatId, screen, row);
       return;
     }
 

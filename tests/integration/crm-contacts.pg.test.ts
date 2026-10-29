@@ -24,12 +24,15 @@ import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries
 import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitle } from '@/lib/crm/events';
 import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/lib/crm/tasks';
 import { runTaskReminders } from '@/lib/crm/reminders';
+import { handleTaskPress } from '@/lib/crm/chat-task-action';
+import { TASK_PRESS_TEXT, taskDonePayload } from '@/lib/crm/chat-task-press';
 import { loadInbox } from '@/lib/crm/inbox';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
 import { createAgentKey, listAgentKeys, resolveAgentKey, revokeAgentKey, MAX_ACTIVE_KEYS } from '@/lib/crm/agent-keys';
 import { exchangeAuthorizationCode, issueAuthorizationCode, refreshAccessToken, MAX_OAUTH_CONNECTIONS } from '@/lib/crm/partner-oauth';
-import { buildOperatorContext } from '@/lib/kuzmich/operator-chat';
+import { buildOperatorContext, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -651,6 +654,54 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     await expect(pool.query(`UPDATE crm_tasks SET reminded_at = NOW(), reminder_channel = 'sms' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
   });
 
+  it('«Выполнено» под напоминанием (29.10): задача карточки этого чата, чужой чат — «не найдена», повтор — «уже отмечена», событие одно', async () => {
+    const u = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('task-guide@example.com', 'Гид задач', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const mk = async (name: string, category: string, chat: number, userId: string | null) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, user_id, max_chat_id) VALUES ($1, $2, '{}', $3, $4) RETURNING id`,
+        [name, category, userId, chat],
+      )).rows[0].id;
+    // Старшая карточка на том же чате — туроператор того же человека:
+    // findPartnerByChat отдал бы её, а задача — гида. Кнопка отмечает задачу
+    // той карточки, чья она.
+    const elder = await mk('Туроператор на том же чате', 'operator', 9200001, null);
+    await pool.query(`SELECT pg_sleep(0.01)`);
+    const mine = await mk('Гид задач', 'guide', 9200001, u);
+    await mk('Оператор задач', 'operator', 9200002, null);
+    const cabinet = await findPartnerByChat('max', 9200001, pool);
+    expect(cabinet.outcome === 'found' && cabinet.partner.partnerId).toBe(elder);
+    const c = await createManualContact(mine, { display_name: 'Клиент задачи', phone: '+79140009191' }, pool);
+    if (c.outcome !== 'created') throw new Error('клиент не заведён');
+    const t = await createTask(mine, { title: 'Перезвонить <клиенту>', dueAt: new Date(), contactId: c.id }, pool);
+    if (t.outcome !== 'created') throw new Error('задача не заведена');
+    const payload = taskDonePayload(t.task.id);
+    const state = async () => (await pool.query<{ done: boolean; done_by: string | null }>(
+      `SELECT done_at IS NOT NULL AS done, done_by::text AS done_by FROM crm_tasks WHERE id = $1`, [t.task.id],
+    )).rows[0];
+
+    // Чужой чат: карточка другая — задачи «нет», строка не тронута.
+    expect(await handleTaskPress({ chatId: 9200002, privateChat: true, payload }, { db: pool })).toBe(TASK_PRESS_TEXT.notFound);
+    // Чат без карточки — не подключён.
+    expect(await handleTaskPress({ chatId: 9200003, privateChat: true, payload }, { db: pool })).toBe(TASK_PRESS_TEXT.notBound);
+    expect(await state()).toEqual({ done: false, done_by: null });
+
+    // Свой чат: отмечена, автор — аккаунт карточки, событие в ленте клиента.
+    expect(await handleTaskPress({ chatId: 9200001, privateChat: true, payload }, { db: pool }))
+      .toBe(TASK_PRESS_TEXT.done('Перезвонить &lt;клиенту&gt;'));
+    expect(await state()).toEqual({ done: true, done_by: u });
+
+    // Повтор нажатия (MAX повторяет апдейт): «уже отмечена», второго события нет.
+    expect(await handleTaskPress({ chatId: 9200001, privateChat: true, payload }, { db: pool }))
+      .toBe(TASK_PRESS_TEXT.already('Перезвонить &lt;клиенту&gt;'));
+    // Чужой чат и после закрытия видит «не найдена», а не «уже отмечена».
+    expect(await handleTaskPress({ chatId: 9200002, privateChat: true, payload }, { db: pool })).toBe(TASK_PRESS_TEXT.notFound);
+    const events = (await listContactEvents(mine, c.id, 50, pool)).filter((e) => e.kind === 'task_done');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ actor_kind: 'partner_user' });
+  });
+
   it('входящие: каждый вид исполняется, ответ партнёра идёт в медиану, автомат и чужое — нет', async () => {
     const mk = async (name: string, category: string) =>
       (await pool.query<{ id: string }>(
@@ -865,6 +916,146 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     await expect(pool.query(
       `INSERT INTO crm_inbox_reminders (partner_id, item_kind, item_id, channel) VALUES ($1, 'gear_rental', 'x', 'sms')`, [stay],
     )).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('входящие гида со своими турами: бронь и запрос мест его тура — да, бронь тура оператора, куда гида назначили, — нет; ответ — в «Свои туры» и на экране, и в crm_inbox (29.10)', async () => {
+    // Гид продаёт свои туры (1338): запрос читает их по operator_id тура —
+    // его карточке. Бронь тура его оператора, где он назначен гидом
+    // (guide_partner_id), — дело оператора: подтверждать её гиду не нужно.
+    const mk = async (name: string, category: string) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+      )).rows[0].id;
+    const guide = await mk('Гид со своими турами', 'guide');
+    const op = await mk('Оператор команды гида', 'operator');
+    await pool.query(`UPDATE partners SET guide_operator_id = $2 WHERE id = $1`, [guide, op]);
+    const tour = async (operatorId: string, title: string) =>
+      Number((await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, $2, 5000) RETURNING id`, [operatorId, title],
+      )).rows[0].id);
+    const ownTour = await tour(guide, 'Авторский тур гида');
+    const teamTour = await tour(op, 'Тур оператора команды');
+    const own = await booking(ownTour, { name: 'Турист гида', phone: '+79140001010' });
+    const assigned = await booking(teamTour, { name: 'Турист оператора', phone: '+79140002020', guide });
+    await pool.query(`UPDATE operator_bookings SET booking_status = 'new' WHERE id = ANY($1::bigint[])`, [[own, assigned]]);
+    const seat = (await pool.query<{ id: string }>(
+      `INSERT INTO tour_seat_requests (tour_id, operator_id, tour_date, participants, tourist_name, tourist_phone,
+         reply_channel, status_token_hash, deadline_at, pd_consent_at)
+       VALUES ($1, $2, CURRENT_DATE + 20, 2, 'Скрытый Турист Гида', '+79140003030', 'telegram',
+               encode(sha256('guide-inbox-seat'::bytea), 'hex'), NOW() + INTERVAL '2 hours', NOW())
+       RETURNING id::text`,
+      [ownTour, guide],
+    )).rows[0].id;
+
+    const g = await loadInbox(guide, 'guide', null, { db: pool });
+    expect(g.failed).toEqual([]);
+    expect(g.items.map((i) => `${i.kind}:${i.id}`).sort()).toEqual([`operator_booking:${own}`, `seat_request:${seat}`].sort());
+    expect(g.items.find((i) => i.kind === 'operator_booking')).toMatchObject({ title: 'Авторский тур гида', people: 2 });
+    // Ни чужого тура, ни имени и телефона из запроса мест.
+    expect(JSON.stringify(g)).not.toMatch(/Тур оператора команды|Скрытый Турист|0003030/);
+    // Бронь, куда гида назначили, ждёт ответа у оператора — как и раньше.
+    const o = await loadInbox(op, 'operator', null, { db: pool });
+    expect(o.items.map((i) => i.id)).toContain(assigned);
+    expect(o.items.map((i) => i.id)).not.toContain(own);
+
+    // crm_inbox (MCP и помощник в чате) называет ту же дверь, что экран.
+    const ctx = { partnerId: guide, category: 'guide' as const, userId: null, actor: 'kuzmich' as const, canWrite: false };
+    const tool = await executeCrmTool('crm_inbox', {}, ctx, pool);
+    if (!tool.ok) throw new Error(tool.error);
+    const waiting = (tool.data as { waiting: Array<{ item_id: string; where_to_answer: string }> }).waiting;
+    expect(waiting.find((w) => w.item_id === own)?.where_to_answer).toBe('Подтвердить или отклонить в разделе «Свои туры»');
+    expect(crmToolText(tool)).not.toMatch(/«Бронированиях»|Тур оператора команды|Скрытый Турист/);
+  });
+
+  it('гид по привязанному чату (29.10): свои туры — тем же запросом; черновик считается, удалённый нет, туры оператора команды — нет', async () => {
+    // Признак решает, получит ли помощник гида сводку его туров и
+    // my_tours_schedule. Гид команды без своих туров — как раньше.
+    const mk = async (name: string, category: string) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+      )).rows[0].id;
+    const seller = await mk('Гид-продавец по чату', 'guide');
+    const team = await mk('Гид команды по чату', 'guide');
+    const gone = await mk('Гид с удалённым туром', 'guide');
+    const op = await mk('Оператор команды по чату', 'operator');
+    const bare = await mk('Оператор без туров по чату', 'operator');
+    await pool.query(`UPDATE partners SET guide_operator_id = $2 WHERE id = $1`, [team, op]);
+    const chats: Array<[string, number]> = [[seller, 9100001], [team, 9100002], [gone, 9100003], [bare, 9100004]];
+    for (const [id, chat] of chats) await pool.query(`UPDATE partners SET max_chat_id = $2 WHERE id = $1`, [id, chat]);
+    await pool.query(`UPDATE partners SET telegram_chat_id = 9100011 WHERE id = $1`, [seller]);
+
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, base_price, is_published) VALUES ($1, 'Черновик гида по чату', 5000, false)`, [seller],
+    );
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, base_price, deleted_at) VALUES ($1, 'Удалённый тур гида', 5000, NOW())`, [gone],
+    );
+    // Тур оператора команды, куда гида назначили, — не его тур.
+    const teamTour = Number((await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур оператора по чату', 5000) RETURNING id`, [op],
+    )).rows[0].id);
+    await booking(teamTour, { name: 'Турист команды', phone: '+79140005050', guide: team });
+
+    const look = async (channel: 'max' | 'telegram', chat: number) => {
+      const r = await findPartnerByChat(channel, chat, pool);
+      if (r.outcome !== 'found') throw new Error(`чат ${chat}: ${r.outcome}`);
+      return r.partner;
+    };
+    const s = await look('max', 9100001);
+    expect(s).toMatchObject({ partnerId: seller, category: 'guide', crmCategory: 'guide', sellsTours: true });
+    expect(sellsOwnTours(s)).toBe(true);
+    expect(await look('telegram', 9100011)).toMatchObject({ partnerId: seller, sellsTours: true });
+
+    for (const chat of [9100002, 9100003]) {
+      const g = await look('max', chat);
+      expect(g).toMatchObject({ category: 'guide', sellsTours: false });
+      expect(sellsOwnTours(g)).toBe(false);
+    }
+    // Туроператор — продавец по категории, и без своих туров.
+    const o = await look('max', 9100004);
+    expect(o).toMatchObject({ partnerId: bare, sellsTours: false });
+    expect(sellsOwnTours(o)).toBe(true);
+
+    // Сводка помощника — по той же карточке: черновик виден, удалённого нет.
+    const ctx = await buildOperatorContext(seller, pool);
+    expect(ctx).toContain('"Черновик гида по чату"');
+    expect(ctx).toContain('скрыт с витрины');
+    expect(ctx).not.toMatch(/Тур оператора по чату|Турист команды/);
+    expect(await buildOperatorContext(gone, pool)).toContain('Туры не найдены.');
+  });
+
+  it('напоминание гиду о брони его тура ведёт во «Входящие» гида — и эта бронь там есть (до 29.10 там было пусто)', async () => {
+    // Позже окон напоминаний остальных тестов: их предметы сюда не попадают.
+    const now = new Date('2026-10-12T22:00:00Z'); // 10:00 по Камчатке
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ('Гид напоминания о брони', 'guide', '{}') RETURNING id`,
+    )).rows[0].id;
+    const ownTour = Number((await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур гида с напоминанием', 5000) RETURNING id`, [guide],
+    )).rows[0].id);
+    const b = await booking(ownTour, { name: 'Турист напоминания', phone: '+79140004040' });
+    await pool.query(
+      `UPDATE operator_bookings SET booking_status = 'new', created_at = $2::timestamptz - INTERVAL '3 hours' WHERE id = $1`,
+      [b, now.toISOString()],
+    );
+
+    const sent: Array<{ buttons?: Array<{ text: string; url?: string }>; to: { maxChatId: string | null } }> = [];
+    const reach = async (id: string) => ({ reachable: true, maxChatId: id === guide ? 'guide-chat' : 'other-chat', telegramChatId: null }) as never;
+    const send = async (p: (typeof sent)[number]) => { sent.push(p); return { channel: 'max' as const, delivered: true, reason: 'ok' }; };
+    const r = await runInboxReminders(now, { db: pool, reach, send: send as never });
+    expect(r.failed_kinds).toEqual([]);
+
+    const marked = await pool.query<{ item_kind: string; item_id: string }>(
+      `SELECT item_kind, item_id FROM crm_inbox_reminders WHERE partner_id = $1`, [guide],
+    );
+    expect(marked.rows).toEqual([{ item_kind: 'operator_booking', item_id: b }]);
+    const toGuide = sent.filter((m) => m.to.maxChatId === 'guide-chat');
+    expect(toGuide).toHaveLength(1);
+    expect(toGuide[0].buttons?.map((x) => x.url)).toEqual(['https://vedarai.ru/hub/guide/inbox']);
+
+    // Кнопка ведёт во «Входящие» гида — и напомненная бронь там стоит.
+    const g = await loadInbox(guide, 'guide', null, { db: pool, nowMs: now.getTime() });
+    expect(g.items.map((i) => `${i.kind}:${i.id}`)).toContain(`operator_booking:${b}`);
   });
 
   it('инструменты CRM на настоящей базе: подпись без телефона; задача и выполнение — от Кузьмича', async () => {

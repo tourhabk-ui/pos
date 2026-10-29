@@ -797,8 +797,20 @@ describe('приёмник расхода: кэш подсказок', () => {
     expect(params.slice(7)).toEqual([null, null]);
   });
 
-  it('кэш у вендора, чьих множителей мы не знаем, — цена неизвестна, а не вход без кэша', async () => {
+  it('чтение кэша у вендора, чьих множителей мы не знаем, — оценка сверху с пометкой, а не вход без кэша', async () => {
+    // Чтение кэша не дороже входа: прочитанное по полной цене входа — граница
+    // сверху, видимая дневному бюджету (ревью 29.10). Прежде здесь была NULL.
     const res = await post([{ model: 'othervendor:some-model', prompt_tokens: 1000, completion_tokens: 200, cache_read_tokens: 5000 }]);
+    expect(res.status).toBe(200);
+    const [[, params]] = inserts() as Array<[string, unknown[]]>;
+    expect(params[4] as number).toBeCloseTo(((1000 + 5000) * IN_PRICE + 200 * OUT_PRICE) / 1e6, 10);
+    expect(params[5]).toBe('model_catalog_cache_upper_bound');
+    const body = await res.json() as { unknown_cost: number };
+    expect(body.unknown_cost).toBe(0);
+  });
+
+  it('запись в кэш у вендора, чьих множителей мы не знаем, — цена неизвестна: граница есть только у чтения', async () => {
+    const res = await post([{ model: 'othervendor:some-model', prompt_tokens: 1000, completion_tokens: 200, cache_creation_tokens: 5000 }]);
     expect(res.status).toBe(200);
     const [[, params]] = inserts() as Array<[string, unknown[]]>;
     expect(params[4]).toBeNull();

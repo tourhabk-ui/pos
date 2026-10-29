@@ -121,7 +121,7 @@ describe('экран, «Входящие», страница объекта', ()
   it('отзыв гостя без ответа — во «Входящих» жилья, и больше не в «чего здесь нет»', async () => {
     const kinds = await import('@/lib/crm/inbox-kinds');
     expect(kinds.INBOX_BY_CATEGORY.stay).toContain('stay_review');
-    expect(kinds.INBOX_ACTION.stay_review.href).toBe('/hub/stay/reviews');
+    expect(kinds.inboxActionFor('stay', 'stay_review').href).toBe('/hub/stay/reviews');
     expect(kinds.RESPONSE_METRIC_KINDS.has('stay_review')).toBe(false);
     expect(kinds.INBOX_NOT_HERE.stay).toEqual([]);
     const { INBOX_SQL } = await import('@/lib/crm/inbox-sql');

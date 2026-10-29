@@ -207,7 +207,9 @@ describe('версия Anthropic через дефис находит цену, 
 
   it('версия из одного числа и чужой вендор третьего кандидата не порождают', () => {
     expect(priceLookupIds('anthropic:claude-opus-5')).toEqual(['anthropic:claude-opus-5', 'anthropic/claude-opus-5']);
-    expect(priceLookupIds('deepseek:deepseek-v4-1-2')).toEqual(['deepseek:deepseek-v4-1-2', 'deepseek/deepseek-v4-1-2']);
+    // DeepSeek — голое имя третьим кандидатом: так ту же модель пишет текстовый путь callDeepSeek (ревью 29.10).
+    expect(priceLookupIds('deepseek:deepseek-v4-1-2')).toEqual(['deepseek:deepseek-v4-1-2', 'deepseek/deepseek-v4-1-2', 'deepseek-v4-1-2']);
+    expect(priceLookupIds('qwen:qwen-plus')).toEqual(['qwen:qwen-plus', 'qwen/qwen-plus']);
   });
 });
 
@@ -222,7 +224,7 @@ describe('logLLMUsage пишет cost_basis рядом с ценой', () => {
     const start = SRC.indexOf('async function logLLMUsage');
     const body = SRC.slice(start, start + WINDOW);
     expect(body).toMatch(/estimated_cost_usd,\s*cost_basis/);
-    expect(body).toMatch(/\[model, prompt, completion, total, cost, basis, currentAgentId\(\)\]/);
+    expect(body).toMatch(/\[model, prompt, completion, total, cost, basis, agentId, cacheRead\]/);
   });
 
   it('отказ INSERT не глушится молча — логируется с моделью и причиной', () => {

@@ -13,8 +13,14 @@
  *   - на фразу про даты из незаверенного апдейта, из группы и из чата, чей
  *     партнёр не проверен (в туристский поток она не уходит); из группы —
  *     ответ «даты — в личном диалоге», а не молчание (четвёртый ревью);
- *   - гид, перевозчик, владелец жилья: фраза с «открой» и датой — помощнику
- *     кабинета, как до этапа C, а не готовый отказ (четвёртый ревью);
+ *   - гид команды без своих туров, перевозчик, владелец жилья: фраза с
+ *     «открой» и датой — помощнику кабинета, как до этапа C, а не готовый
+ *     отказ (четвёртый ревью);
+ *   - гид со своими турами (29.10, шаг 8 плана «гид в мессенджере»): тот же
+ *     поток, что у туроператора — фраза доходит до потока, а не до
+ *     помощника; поправка снимает его предложение; нажатие `od:` ищет
+ *     предложение его карточки; каждая ссылка ответа — раздел «Свои туры», а
+ *     не кабинет оператора;
  *   - поправка текстом (отказ, вопрос) и «отмена» снимают действующее
  *     предложение чата: старая кнопка «Открыть» больше не пишет; поправка,
  *     ушедшая помощнику («нет, 4 места», «4», «не тот тур»), — тоже, со
@@ -92,6 +98,15 @@ const UNVERIFIED = ['http://localhost/api/max/kuzmich', 'http://localhost/api/ma
 const OD_PAYLOADS = [`od:o:${PROPOSAL}`, `od:x:${PROPOSAL}`, `od:t:${PROPOSAL}:1`];
 
 const operator = { partnerId: 'p-op', partnerName: 'Оператор', category: 'operator', crmCategory: 'operator', userId: 'u-op' };
+/** Гид со своими турами (1338): признак `sellsTours` приносит `findPartnerByChat`. */
+const guideSeller = { ...operator, partnerId: 'p-gd', partnerName: 'Гид', category: 'guide', crmCategory: 'guide', userId: 'u-gd', sellsTours: true };
+/** Гид из команды оператора — своих туров нет. */
+const teamGuide = { ...operator, partnerId: 'p-tg', partnerName: 'Гид команды', category: 'guide', crmCategory: 'guide', userId: 'u-tg', sellsTours: false };
+/** Ни одной ссылки в кабинет оператора: гида он не пустит. */
+const expectGuideLinks = (texts: string[]): void => {
+  for (const t of texts) expect(t).not.toMatch(/\/hub\/operator/);
+  expect(texts.some((t) => /https?:\/\/\S+\/hub\/guide\/own/.test(t))).toBe(true);
+};
 
 const post = (url: string, body: unknown) => max.POST(new NextRequest(url, { method: 'POST', body: JSON.stringify(body) }));
 const keyless = (): void => { vi.stubEnv('MAX_WEBHOOK_SECRET', ''); };
@@ -200,6 +215,8 @@ describe('нажатие od: — только заверенное, из диа�
       [{ outcome: 'unavailable' }, /^Не смог проверить нажатие — ничего не изменено/],
       [{ outcome: 'none' }, /^Эта кнопка работает только в чате кабинета оператора/],
       [{ outcome: 'found', partner: { ...operator, category: 'transfer' } }, /^Эта кнопка работает только в чате кабинета оператора/],
+      // Гид команды без своих туров — не продавец: кнопка дат не его.
+      [{ outcome: 'found', partner: teamGuide }, /^Эта кнопка работает только в чате кабинета оператора или гида со своими турами/],
       [{ outcome: 'found', partner: { ...operator, userId: null } }, /только компания с кабинетом/],
     ];
     for (const [lookup, reply] of cases) {
@@ -315,13 +332,20 @@ describe('фраза про даты в чате партнёра', () => {
     expect(m.partnerMessage).not.toHaveBeenCalled();
   });
 
-  it('гид, перевозчик, владелец жилья: фраза про даты — помощнику кабинета, как до этапа C, а не отказ «это для туроператора»', async () => {
+  it('гид команды без своих туров, перевозчик, владелец жилья: фраза про даты — помощнику кабинета, как до этапа C, а не отказ «это для туроператора»', async () => {
     const phrases = [PHRASE, 'открой 3 августа, 8 мест', 'открой весь июль без выходных', 'отмена', '8'];
-    for (const category of ['guide', 'transfer', 'stay']) {
+    const partners = [
+      teamGuide,
+      // Старый вызов без признака — не продавец, как до 29.10.
+      { ...operator, category: 'guide', crmCategory: 'guide' },
+      { ...operator, category: 'transfer', crmCategory: 'transfer' },
+      { ...operator, category: 'stay', crmCategory: 'stay' },
+    ];
+    for (const partner of partners) {
       m.partnerMessage.mockClear();
-      m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...operator, category, crmCategory: category } });
+      m.findPartner.mockResolvedValue({ outcome: 'found', partner });
       for (const text of phrases) await post(VERIFIED, message(text));
-      expect(m.partnerMessage.mock.calls.map((c) => (c[0] as { text: string }).text), category).toEqual(phrases);
+      expect(m.partnerMessage.mock.calls.map((c) => (c[0] as { text: string }).text), partner.category).toEqual(phrases);
     }
     expect(m.maxSend).not.toHaveBeenCalled();
     expect(m.pool).not.toHaveBeenCalled();
@@ -341,6 +365,80 @@ describe('фраза про даты в чате партнёра', () => {
     expect(retires()).toEqual([['superseded', String(CHAT)]]);
     expectNoDatesWritten();
     expect(errorLog.mock.calls.some((c) => c.map(String).join(' ').includes('SQLSTATE 57014'))).toBe(true);
+  });
+});
+
+describe('гид со своими турами (29.10): даты словами — тот же поток, ссылки — «Свои туры»', () => {
+  const PHRASE = 'открой субботы июля, 8 мест';
+  /** Запросы к турам партнёра (поток дат читает их перед разбором). */
+  const tourReads = () => m.pool.mock.calls.filter((c) => /FROM operator_tours/.test(String(c[0])));
+  beforeEach(() => { m.findPartner.mockResolvedValue({ outcome: 'found', partner: guideSeller }); });
+
+  it('фраза доходит до потока, а не до помощника: туры читаются по его карточке; нет активных — ответ со ссылкой в «Свои туры»', async () => {
+    await post(VERIFIED, message(PHRASE));
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expect(m.processMessage).not.toHaveBeenCalled();
+    expect(tourReads().map((c) => (c[1] as unknown[])[0])).toEqual(['p-gd']);
+    const said = repliesTo(CHAT);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^У вас нет активных туров — открывать даты некуда\. Скрытый тур включает менеджер Ведара\. Ваши туры: /);
+    expectGuideLinks(said);
+    expectNoDatesWritten();
+  });
+
+  it('отказ и вопрос разбора — ссылка в «Свои туры», прежнее предложение снято', async () => {
+    for (const text of ['закрой субботы июля', 'открой июль, 8 мест']) await post(VERIFIED, message(text));
+    const said = repliesTo(CHAT);
+    expect(said).toHaveLength(2);
+    expect(said[0]).toMatch(/^Закрыть даты из чата пока нельзя\. В кабинете: https?:\/\/\S+\/hub\/guide\/own$/);
+    expect(said[1]).toMatch(/^Весь июль/);
+    for (const t of said) expectGuideLinks([t]);
+    expect(retires()).toEqual([['superseded', String(CHAT)], ['superseded', String(CHAT)]]);
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expectNoDatesWritten();
+  });
+
+  it('карточка без кабинета — отказ словами гида; туры не читаются, записи нет', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...guideSeller, userId: null } });
+    await post(VERIFIED, message(PHRASE));
+    const said = repliesTo(CHAT);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^Открывать даты из чата может только гид с кабинетом на Ведаре/);
+    expectGuideLinks(said);
+    expect(tourReads()).toEqual([]);
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expectNothingWritten();
+  });
+
+  it('из группы — «в личном диалоге», предложения нет', async () => {
+    await post(VERIFIED, message(PHRASE, 'chat'));
+    expect(repliesTo(CHAT)).toEqual([expect.stringMatching(/^Открывать даты словами можно только в личном диалоге со мной/)]);
+    expect(m.partnerMessage).not.toHaveBeenCalled();
+    expectNothingWritten();
+  });
+
+  it('нажатие od: — предложение ищется по карточке гида и его чату; чужое — «не найдено», записи нет', async () => {
+    await post(VERIFIED, press(`od:o:${PROPOSAL}`));
+    expect(repliesTo(CHAT)).toEqual(['Это предложение не найдено в этом чате — ничего не изменено.']);
+    const params = m.client.mock.calls.find((c) => /FOR UPDATE/.test(String(c[0])))?.[1];
+    expect(params).toEqual([PROPOSAL, String(CHAT), 'p-gd']);
+    expectNothingWritten();
+  });
+
+  it('нажатие гида без кабинета — отказ словами гида; выключатель — ссылка в «Свои туры»', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...guideSeller, userId: null } });
+    await post(VERIFIED, press(`od:o:${PROPOSAL}`));
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: guideSeller });
+    m.switchOn.value = false;
+    await post(VERIFIED, message(PHRASE));
+    await post(VERIFIED, press(`od:o:${PROPOSAL}`));
+    const said = repliesTo(CHAT);
+    expect(said).toHaveLength(3);
+    expect(said[0]).toMatch(/^Открывать даты из чата может только гид с кабинетом/);
+    expect(said[1]).toMatch(/^Открывать даты из чата сейчас нельзя\. В кабинете: https?:\/\/\S+\/hub\/guide\/own$/);
+    expect(said[2]).toBe(said[1]);
+    for (const t of said) expectGuideLinks([t]);
+    expectNothingWritten();
   });
 });
 
@@ -465,14 +563,26 @@ describe('пятый ревью 22.10: поправка, ушедшая помо
     expect(m.partnerMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('гид и перевозчик — предложений дат у них нет, снимать нечего', async () => {
+  it('гид команды без своих туров и перевозчик — предложений дат у них нет, снимать нечего', async () => {
     active();
-    for (const category of ['guide', 'transfer']) {
-      m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...operator, category, crmCategory: category } });
+    for (const partner of [teamGuide, { ...operator, category: 'transfer', crmCategory: 'transfer' }]) {
+      m.findPartner.mockResolvedValue({ outcome: 'found', partner });
       await post(VERIFIED, message('нет, 4 места'));
     }
     expect(retires()).toEqual([]);
     expect(m.maxSend).not.toHaveBeenCalled();
+  });
+
+  it('гид со своими турами — поправка снимает его предложение, как у туроператора; текст — помощнику', async () => {
+    active();
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: guideSeller });
+    await post(VERIFIED, message('нет, 4 места'));
+    expect(retires()).toEqual([['superseded', String(CHAT)]]);
+    expect(repliesTo(CHAT)).toEqual([
+      'Прежнее предложение дат снято — по нему ничего не открыто. Если хотели его поправить, напишите фразу целиком: даты, тур и места.',
+    ]);
+    expect(m.partnerMessage).toHaveBeenCalledTimes(1);
+    expectNoInsertNoOpen();
   });
 
   it('из группы — не трогается: предложение живёт в личном диалоге', async () => {
@@ -527,9 +637,10 @@ describe('ревью 22.10: дела помощника кабинета пот�
     // Третий ревью 22.10: клиент в CRM, а не 5 августа на 2 места.
     'Добавь Иванова на 5 августа, 2 места',
   ];
-  const roles: Array<[string, typeof operator]> = [
+  const roles: Array<[string, typeof operator & { sellsTours?: boolean }]> = [
     ['туроператор', operator],
-    ['гид', { ...operator, category: 'guide', crmCategory: 'guide' }],
+    ['гид команды', teamGuide],
+    ['гид со своими турами', guideSeller],
     ['перевозчик', { ...operator, category: 'transfer', crmCategory: 'transfer' }],
   ];
   for (const [role, partner] of roles) {
@@ -545,7 +656,7 @@ describe('ревью 22.10: дела помощника кабинета пот�
       const proposalSql = [...m.pool.mock.calls, ...m.client.mock.calls]
         .filter((c) => /operator_chat_date_proposals/.test(String(c[0])) && !RETIRE.test(String(c[0])));
       expect(proposalSql).toEqual([]);
-      if (partner.category !== 'operator') expect(retires()).toEqual([]);
+      if (partner.category !== 'operator' && partner.sellsTours !== true) expect(retires()).toEqual([]);
       expectNoDatesWritten();
     });
   }

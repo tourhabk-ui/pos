@@ -14,7 +14,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { KUZMICH_ANSWER_ACTION, KUZMICH_ANSWER_CEILING_MS } from '@/lib/kuzmich/answer-ceiling';
+import { KUZMICH_ANSWER_ACTION, KUZMICH_ANSWER_CEILING_MS, type LoopTokens } from '@/lib/kuzmich/answer-ceiling';
 
 /** Где прозвучал ответ. */
 export type AnswerSurface = 'web' | 'web-stream' | 'telegram' | 'max' | 'widget' | 'a2a' | 'other';
@@ -37,6 +37,26 @@ export interface KuzmichAnswerRecord {
   path: AnswerPath | null;
   provider: string | null;
   ceilingHit: boolean;
+  /**
+   * Расход ходов цикла (шаг 0 разбора 29.10). null/нет — цикл модели не звал
+   * или путь его не считает: ключей в замере нет, и перепись не примет это
+   * за ноль.
+   */
+  tokens?: LoopTokens | null;
+}
+
+/** Числа расхода для metadata замера — только числа, без слов реплик (pd-guard). */
+function tokenMetadata(t: LoopTokens | null | undefined): Record<string, number | null> {
+  if (!t) return {};
+  return {
+    input_tokens: t.inputTokens,
+    max_call_input_tokens: t.maxCallInputTokens,
+    completion_tokens: t.completionTokens,
+    // Ни один ход кэш не назвал — «не знаю», а не «кэша не было».
+    cache_read_tokens: t.cacheReportedCalls > 0 ? t.cacheReadTokens : null,
+    usage_calls: t.reportedCalls,
+    usage_unreported_calls: t.unreportedCalls,
+  };
 }
 
 export const RECORD_KUZMICH_ANSWER_SQL =
@@ -60,6 +80,7 @@ export async function recordKuzmichAnswer(rec: KuzmichAnswerRecord): Promise<voi
         path: rec.path,
         ceiling_hit: rec.ceilingHit,
         ceiling_ms: KUZMICH_ANSWER_CEILING_MS,
+        ...tokenMetadata(rec.tokens),
       }),
     ]);
   } catch (err) {

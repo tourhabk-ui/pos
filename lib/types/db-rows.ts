@@ -1639,3 +1639,30 @@ export interface OperatorChatDateProposalRow {
   expires_at: Date;
   used_at: Date | null;
 }
+
+/**
+ * partner_chat_actions — действие кнопкой из чата кабинета (MAX, Telegram):
+ * бронь своего тура в два шага (миграция 1346, lib/bookings/chat-owner-action).
+ * BIGINT `chat_id` приходит строкой.
+ */
+export interface PartnerChatActionRow {
+  id: string;
+  partner_id: string;
+  channel: 'max' | 'telegram';
+  chat_id: string;
+  subject_kind: 'booking' | 'lead';
+  /** id брони (цифры) или заявки (uuid). */
+  subject_id: string;
+  action: 'confirm' | 'cancel' | 'complete' | 'no_show' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  /**
+   * Причина отклонения брони для туриста; только у action = 'cancel'. О нём:
+   * удаление его аккаунта заменяет её подписью ERASED_REASON (lib/account/erase).
+   */
+  reason: string | null;
+  status: 'awaiting_reason' | 'ready' | 'running' | 'done' | 'refused' | 'cancelled' | 'superseded';
+  /** Итог — только у done и refused. */
+  outcome: unknown;
+  created_at: Date;
+  expires_at: Date;
+  used_at: Date | null;
+}

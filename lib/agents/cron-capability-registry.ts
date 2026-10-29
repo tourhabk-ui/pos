@@ -62,6 +62,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'booking-stall-alert': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // net_out — удаление в хранилище и проверка HEAD по публичному адресу.
   's3-object-delete': ['db_read', 'net_out'],
+  // 29.10: прогноз Камчатского УГМС — чтение двух страниц kammeteo.ru,
+  // запись в ugms_forecasts, аренда окна, здоровье источника.
+  'ugms-forecast': ['db_read', 'db_write', 'net_out'],
   'user-photo-hero': ['db_read', 'db_write', 'pd_direct'],
   'user-photo-moderate': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'build-sha-probe': [],
@@ -69,6 +72,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'client-ip-headers-probe': [],
   'catalog-census': ['db_read'],
   'pricing-rules-census': ['db_read'],
+  // 29.10: сверка с PTWC. db_write — аренда окна, здоровье источника и
+  // журнал решений; в external_alerts только SELECT (tsunami_warning не
+  // пишет и не снимает). telegram — дежурному при расхождении с лентой.
+  'ptwc-check': ['db_read', 'db_write', 'net_out', 'telegram'],
   'catalog-diag': ['db_read'],
   'channel-photo-check': ['db_read'],
   'channel-post': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],

@@ -135,4 +135,16 @@ describe('1343: снимки туров «Лагуны Экспедиции» �
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([512, 512]);
     expect(existsSync(join(ROOT, 'public/images/laguna-expedition', 'laguna-expedition-logo.png'))).toBe(true);
   });
+
+  it('1347: обложка компании — один из этих снимков (уже в хранилище и в маркере), горизонтальный, не меньше 1200 px', () => {
+    const mig = readFileSync(join(ROOT, 'migrations/1347_laguna_expedition_hero.sql'), 'utf-8');
+    const set = [...mig.matchAll(/SET hero_image = '([^']+)'/g)].map((m) => m[1]);
+    expect(set).toHaveLength(1);
+    const hero = set[0];
+    expect(URLS, 'обложка не из снимков туров 1343 — её нет в хранилище').toContain(hero);
+    const size = jpegSize(readFileSync(join(ROOT, 'media/s3', hero.replace(/^\/api\/images\/s3\//, ''))));
+    expect(size, hero).not.toBeNull();
+    expect(size!.w, 'карточка /operators горизонтальная — портрет обрежется').toBeGreaterThan(size!.h);
+    expect(size!.w).toBeGreaterThanOrEqual(1200);
+  });
 });
