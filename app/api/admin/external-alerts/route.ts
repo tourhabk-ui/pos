@@ -16,14 +16,24 @@ export const dynamic = 'force-dynamic';
  */
 
 const ZONES = ['northern', 'eastern', 'western', 'avachinsky'] as const;
-const ALERT_TYPES = ['road_closure', 'info', 'flood', 'fire_danger', 'volcanic_eruption', 'tsunami_warning'] as const;
+/**
+ * `park_closure` (29.10, карт-бланш владельца): закрытие маршрутов природного
+ * парка — как у автоконвейера (#2133), привязывается ПАРКОМ, не зоной: зона
+ * «avachinsky» — это и Налычево, и город. Парки — слаги справочника `parks`,
+ * зоны у такой тревоги пустые (PARK_SCOPED_SQL красит то, что лежит в парке).
+ * Еженедельная сводка Минтура до 29.10 в ленту не попадала вовсе, и руками
+ * положить «закрыты парки» было нельзя — типа не было.
+ */
+const ALERT_TYPES = ['road_closure', 'info', 'flood', 'fire_danger', 'volcanic_eruption', 'tsunami_warning', 'park_closure'] as const;
 
 const CreateAlertSchema = z.object({
   title: z.string().min(5, 'Заголовок минимум 5 символов').max(200),
   description: z.string().max(2000).optional(),
   alertType: z.enum(ALERT_TYPES, { message: 'Недопустимый тип алерта' }),
   severity: z.number().int().min(0).max(3),
-  affectedZones: z.array(z.enum(ZONES)).min(1, 'Укажите хотя бы одну зону'),
+  affectedZones: z.array(z.enum(ZONES)).default([]),
+  /** Слаги закрытых парков (parks.slug) — обязательны у park_closure, запрещены у прочих. */
+  affectedParks: z.array(z.string().regex(/^[a-z0-9-]{2,64}$/, 'Слаг парка — латиница, цифры и дефис')).max(20).optional(),
   expiresAt: z.string().datetime({ offset: true, message: 'expiresAt — ISO дата со смещением' }),
   sourceUrl: z.string().url().optional(),
   externalId: z.string().max(100).optional(),
@@ -91,7 +101,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, description, alertType, severity, affectedZones, expiresAt, sourceUrl, externalId, basisTitle, basisUrl } = parsed.data;
+    const { title, description, alertType, severity, affectedZones, affectedParks, expiresAt, sourceUrl, externalId, basisTitle, basisUrl } = parsed.data;
 
     const expires = new Date(expiresAt);
     if (expires.getTime() <= Date.now()) {
@@ -101,19 +111,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Адресат тревоги: парк — у закрытия парка, зона — у остальных. Без
+    // адресата тревога не красит никого и в ленте читается как край целиком.
+    if (alertType === 'park_closure') {
+      if (!affectedParks || affectedParks.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Закрытие парка: укажите хотя бы один парк (affectedParks, слаги справочника parks)' } as ApiResponse<null>,
+          { status: 400 }
+        );
+      }
+      const known = await query(`SELECT slug FROM parks WHERE slug = ANY($1::text[])`, [affectedParks]);
+      const knownSlugs = new Set((known.rows as Array<{ slug: string }>).map((r) => r.slug));
+      const unknown = affectedParks.filter((s) => !knownSlugs.has(s));
+      if (unknown.length > 0) {
+        return NextResponse.json(
+          { success: false, error: `Парка нет в справочнике: ${unknown.join(', ')}` } as ApiResponse<null>,
+          { status: 400 }
+        );
+      }
+    } else {
+      if (affectedParks && affectedParks.length > 0) {
+        return NextResponse.json(
+          { success: false, error: 'Парки указываются только у закрытия парка (park_closure)' } as ApiResponse<null>,
+          { status: 400 }
+        );
+      }
+      if (affectedZones.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Укажите хотя бы одну зону' } as ApiResponse<null>,
+          { status: 400 }
+        );
+      }
+    }
+
     const externalIdFinal = externalId || `manual-${slugify(title)}`;
 
     const result = await query(
       `INSERT INTO external_alerts (
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at, source_url, external_id,
-        basis_title, basis_url, basis_origin
+        basis_title, basis_url, basis_origin, affected_parks
       ) VALUES ($1, $2, $3, $4, $5, ${UTC_WALL_NOW_SQL}, $6, $7, $8, $9::text, $10::text,
-                CASE WHEN $9::text IS NULL THEN NULL ELSE 'manual' END)
+                CASE WHEN $9::text IS NULL THEN NULL ELSE 'manual' END, $11::text[])
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
-      [alertType, severity, title, description ?? '', affectedZones, expires, sourceUrl ?? null, externalIdFinal,
-        basisTitle ?? null, basisTitle ? (basisUrl ?? null) : null]
+      [alertType, severity, title, description ?? '', alertType === 'park_closure' ? [] : affectedZones, expires, sourceUrl ?? null, externalIdFinal,
+        basisTitle ?? null, basisTitle ? (basisUrl ?? null) : null,
+        alertType === 'park_closure' ? affectedParks ?? null : null]
     );
 
     if (result.rows.length === 0) {

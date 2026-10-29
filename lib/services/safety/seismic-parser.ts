@@ -8,7 +8,7 @@
  *   affected_zones: ['avachinsky','northern','eastern','western']
  */
 
-import { detectParkClosure, parkClosureHours } from '@/lib/safety/park-closure';
+import { detectParkClosure, parkClosureHours, PARK_CLOSURE_DEFAULT_HOURS } from '@/lib/safety/park-closure';
 import { query } from '@/lib/database';
 import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
 import { zonesForEpicenter, distanceKm, PETROPAVLOVSK } from '@/lib/services/safety/seismic-zones';
@@ -196,8 +196,22 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
 const ROAD_RESTRICTION_RE =
   /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)|ограничени[а-яё]*[\s\S]{0,80}?(?:автодорог|дорог|проезд|движени)|(?:закрыт|перекрыт)[а-яё]*[\s\S]{0,40}?маршрут|маршрут[а-яё]*[\s\S]{0,60}?(?:закрыт|перекрыт)|перекрыти[а-яё]*[\s\S]{0,40}?маршрут/i;
 
+/**
+ * Дорога повреждена, но формально не закрыта: «размыв дороги, образовался
+ * овраг — передвижение осложнено и небезопасно» (Авачинский перевал),
+ * «зафиксирован подмыв у моста» (Палана — аэропорт). Сводка Минтура 29.10
+ * называла три дороги, и две из трёх прежнее правило не брало: в строке нет
+ * ни «закрыт», ни «ограничен». Жёлтый уровень, как у пропускного режима.
+ * Починенное — не повреждение: «движение восстановлено», «размыв устранён».
+ */
+const ROAD_DAMAGE_RE = /размы[вт][а-яё]*\s+(?:дорог|дорожн|полотн|участк)|подмы[вт][а-яё]*\s+(?:у\s+)?(?:мост|дорог|опор|полотн)|передвижени[а-яё]*\s+(?:по\s+[а-яё]+\s+)?осложнен/i;
+const ROAD_REPAIRED_RE = /восстановлен[а-яё]*\s+(?:движени|проезд)|(?:движени|проезд)[а-яё]*\s+(?:полностью\s+)?восстановлен|устранен|ликвидирован[а-яё]*\s+(?:размыв|подмыв)/i;
+
 export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null {
-  if (!ROAD_RESTRICTION_RE.test(text)) return null;
+  if (!ROAD_RESTRICTION_RE.test(text)) {
+    if (ROAD_DAMAGE_RE.test(text) && !ROAD_REPAIRED_RE.test(text)) return { severity: 1 };
+    return null;
+  }
   // Полное закрытие — красный уровень, ограничение/пропуска — жёлтый
   const severity: 1 | 2 = /закрыт|перекрыт/i.test(text) ? 2 : 1;
   return { severity };
@@ -1538,9 +1552,27 @@ export function splitSummaryItems(text: string): string[] {
  * «одно предупреждение — один item» верно, и дробить его — значит вернуть ту
  * самую шестикратную россыпь одного предупреждения, от которой уходили.
  */
-/** Сводка Минтура о доступности туристических объектов (kamgov.ru/mintur). */
+/**
+ * Сводка Минтура о доступности туристических объектов (kamgov.ru/mintur).
+ * С 21.10 выпуск называется «Еженедельная сводка о доступности туристических
+ * объектов» — без слова «оперативная» (посты t.me/visitkamchatka41 29.10 и
+ * 21.10); прежнее правило такую сводку не узнавало и отдало бы её одним
+ * событием целиком.
+ */
 export function isMinturBulletin(text: string): boolean {
-  return /оперативн[а-я]* сводк/i.test(text) && /доступност[а-я]* туристическ/i.test(text);
+  return /(?:оперативн|еженедельн)[а-я]* сводк/i.test(text) && /доступност[а-я]* туристическ/i.test(text);
+}
+
+/**
+ * Источники, у которых пост — недельная сводка Минтура, а не оперативное
+ * сообщение: запрет из неё живёт до следующего выпуска (168 ч), а не 48
+ * (issue #1985: Мутновский зелёный при живой рекомендации). kamgov — сам
+ * раздел Минтура, kamtoday — его пересказ (#2064), visitkamchatka — турпортал
+ * края и его Telegram-канал, где сводка публикуется слово в слово (29.10).
+ */
+export const WEEKLY_BULLETIN_PREFIXES: readonly string[] = ['kamgov', 'kamtoday', 'visitkamchatka'];
+export function isWeeklyBulletinSource(sourcePrefix: string): boolean {
+  return WEEKLY_BULLETIN_PREFIXES.includes(sourcePrefix);
 }
 
 function topicKey(ev: SeismicEvent): string {
@@ -1548,6 +1580,11 @@ function topicKey(ev: SeismicEvent): string {
   // схлопываются в «север» и в баннере остаётся только первый.
   if (ev.volcano_name) return `${ev.alert_type}|v:${ev.volcano_name.toLowerCase()}`;
   if (ev.alert_type === 'road_closure') return `${ev.alert_type}|${titleFingerprint(ev.title)}`;
+  // Закрытие парка привязано парком, а зон у него нет (#2133): два пункта
+  // сводки о разных парках («Налычево закрыто до 24 октября», «Ключевской —
+  // на зимний сезон», 21.10) по пустым зонам сходились в одну тему, и второй
+  // парк терялся.
+  if (ev.alert_type === 'park_closure') return `${ev.alert_type}|p:${[...(ev.affected_parks ?? [])].sort().join(',')}`;
   return `${ev.alert_type}|${[...ev.affected_zones].sort().join(',')}`;
 }
 
@@ -2296,6 +2333,11 @@ export function classifyMchsItem(
     // красного статуса. Срок — до названной даты включительно.
     alert_type = 'park_closure'; severity = 2;
     expires_hours = parkClosureHours(text, new Date(pubDate));
+    // Срок без названной даты — двое суток для оперативного поста. Недельная
+    // сводка Минтура («закрыты маршруты парков …», 29.10) переиздаётся раз в
+    // неделю: с 48 ч парк зеленел бы посреди недели при живом закрытии.
+    // Названная дата («до 24 октября включительно», 22.10) остаётся как есть.
+    if (expires_hours === PARK_CLOSURE_DEFAULT_HOURS && isWeeklyBulletinSource(sourcePrefix)) expires_hours = 168;
   } else if (/лавин/.test(text)) {
     // Лавины — ДО погодной ветки, а не после: лавинное предупреждение МЧС
     // почти всегда идёт вместе с метелью и сильным ветром, и ветка «ураган |
@@ -2404,7 +2446,7 @@ export function classifyMchsItem(
     // переиздаются чаще — там короткое окно 48ч остаётся прежним.
     // Недельная сводка Минтура — неделя жизни, откуда бы ни пришла: с kamgov
     // или пересказом kamtoday (#2064).
-    expires_hours = severity >= 2 ? (sourcePrefix === 'kamgov' || sourcePrefix === 'kamtoday' ? 168 : 48) : 24;
+    expires_hours = severity >= 2 ? (isWeeklyBulletinSource(sourcePrefix) ? 168 : 48) : 24;
   } else if (
     // Сход грунта БЕЗ вулкана: сель, оползень, камнепад, обвал породы. Ветка
     // стоит ПОСЛЕ вулканической намеренно — «оползни и обвалы с вулкана
@@ -2695,29 +2737,29 @@ const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?
       'https://www.kamgov.ru/mintur/news/rss',
     ],
   },
-  // WordPress-фиды турпортала; из среды разработки сеть к нему закрыта,
-  // работоспособность не проверена — источник optional: недоступность
-  // не считается ошибкой конвейера, fetchOneMchsFeed отбрасывает не-RSS.
-  {
-    prefix: 'visitkamchatka',
-    optional: true,
-    candidates: [
-      'https://visitkamchatka.ru/security/feed/',
-      'https://visitkamchatka.ru/feed/',
-    ],
-  },
+  // Турпортала здесь больше нет (29.10): его «WordPress-фиды» /feed/ и
+  // /security/feed/ стояли optional с пометкой «работоспособность не
+  // проверена», а проба 1016 с раннера показала, что сайт на Bitrix и RSS у
+  // него нет вовсе — оба пути отдают HTML страницы поиска. Источник молчал по
+  // построению и назывался «необязательным». Сводка Минтура теперь приходит
+  // его Telegram-каналом через раннер — lib/services/safety/visitkamchatka-channel.
 ];
+
+/** Префикс `external_id` турпортала края (visitkamchatka.ru и t.me/visitkamchatka41). */
+export const VISITKAMCHATKA_PREFIX = 'visitkamchatka';
 
 /**
  * Все префиксы `external_id`, которые новостные ленты пишут через
- * classifyMchsItem: РСС МЧС и каждый источник из NEWS_FEED_SOURCES. Перепись
- * для alert-origin.test.ts — новая лента здесь без правила происхождения
+ * classifyMchsItem: РСС МЧС, каждый источник из NEWS_FEED_SOURCES и турпортал
+ * (его посты приносит раннер, не этот список). Перепись для
+ * alert-origin.test.ts — новая лента здесь без правила происхождения
  * в lib/safety/alert-origin.ts делает тот тест красным (случай 18.09:
  * visitkamchatka писал тревоги, а статус подписывал их «источник не записан»).
  */
 export const NEWS_FEED_PREFIXES: readonly string[] = [
   MCHS_FEED_PREFIX,
   ...NEWS_FEED_SOURCES.map((s) => s.prefix),
+  VISITKAMCHATKA_PREFIX,
 ];
 
 /**
