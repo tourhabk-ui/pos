@@ -99,7 +99,7 @@ interface TourFull {
   max_participants: number;
   min_participants: number | null;
   /**
-   * Группа тура не ограничена (1341, слово владельца 29.10). Ёмкость не
+   * Группа тура не ограничена (1342, слово владельца 29.10). Ёмкость не
    * меняет: потолок заявки и места на датах — прежние. Нет поля — FALSE.
    */
   group_size_unlimited?: boolean | null;

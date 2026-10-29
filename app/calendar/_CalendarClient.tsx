@@ -35,7 +35,7 @@ interface Tour {
   durationType: string | null;
   freeSlots: number;
   availableSlots: number;
-  /** Группа тура не ограничена (1341); нет поля — FALSE. */
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
   groupSizeUnlimited?: boolean;
   weatherStatus: string;
   operator: {

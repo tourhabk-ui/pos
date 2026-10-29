@@ -145,7 +145,7 @@ interface Offer {
   durationHours: number | null; durationType: string | null; multiDayCount: number | null;
   difficulty: string | null;
   maxGroupSize: number | null; minGroupSize: number | null;
-  /** Группа тура не ограничена (1341); нет поля — FALSE. */
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
   groupSizeUnlimited?: boolean;
   rating: number | null; reviewCount: number | null;
   included: string[];
@@ -314,7 +314,7 @@ function OfferCard({ offer, activityType, onBook }: {
   const isLowSlots = offer.nextSlots != null && offer.nextSlots > 0 && offer.nextSlots <= 3;
   const cardImage = offer.tourImage || offer.operatorHeroImage;
   const seasonStr = formatSeasonDates(offer.seasonStart, offer.seasonEnd);
-  // Группа — общим правилом с карточкой тура (lib/tours/group-size, 1341):
+  // Группа — общим правилом с карточкой тура (lib/tours/group-size, 1342):
   // у тура без предела «не ограничена», а не «1–12».
   const groupLabel = groupRangeShort({
     min_participants: offer.minGroupSize, max_participants: offer.maxGroupSize,

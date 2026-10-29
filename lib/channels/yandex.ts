@@ -120,7 +120,7 @@ function buildDescription(tour: ChannelTour): string {
   if (tour.duration_hours) {
     parts.push(`Продолжительность: ${formatDuration(tour.duration_hours)}.`);
   }
-  // Группа — общим правилом с карточкой (lib/tours/group-size, 1341).
+  // Группа — общим правилом с карточкой (lib/tours/group-size, 1342).
   const group = groupSentence(tour);
   if (group) parts.push(group);
   if (tour.season_start || tour.season_end) {

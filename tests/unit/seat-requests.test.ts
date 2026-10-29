@@ -275,7 +275,7 @@ describe('создание запроса', () => {
     expect(sqlCalls().some(s => /INSERT INTO tour_seat_requests/.test(s))).toBe(false);
   });
 
-  it('группа больше потолка тура — отказ до оператора (иначе его «Есть места» кончилось бы MAX_EXCEEDED, ревью 1341)', async () => {
+  it('группа больше потолка тура — отказ до оператора (иначе его «Есть места» кончилось бы MAX_EXCEEDED, ревью 1342)', async () => {
     const TOUR10 = { match: /FROM operator_tours\s+WHERE id/, rows: [{ operator_id: 'op', title: 'Бухта Русская', max_participants: 10 }] };
     setDb([TOUR10]);
     reachMock.mockResolvedValue(reachOk);

@@ -159,7 +159,7 @@ export function seasonZh(start: string | Date | null | undefined, end: string | 
 
 /**
  * Предел группы из базы: «最多 12 人»; не записан или ноль — null. Группа не
- * ограничена (1341) — «人数不限» и потолок одной заявки на сайте, тем же
+ * ограничена (1342) — «人数不限» и потолок одной заявки на сайте, тем же
  * правилом, что русская карточка (lib/tours/group-size).
  */
 export function groupZh(max: number | string | null | undefined, unlimited?: boolean | null): string | null {

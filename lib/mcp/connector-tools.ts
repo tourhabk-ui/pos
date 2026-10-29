@@ -295,7 +295,7 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
     line('Цена', price),
     line('Длительность', duration),
     line('Сложность', t.difficulty),
-    // Группа — только у тура без предела (1341): прочим fetch, как и прежде,
+    // Группа — только у тура без предела (1342): прочим fetch, как и прежде,
     // числа не называет — max_participants бывает заглушкой (1176), §4.0.
     groupSentenceIfUnlimited(t),
     t.season_start && t.season_end ? `Сезон: ${t.season_start} — ${t.season_end}` : null,

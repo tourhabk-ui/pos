@@ -52,7 +52,7 @@ export interface TourCardRow {
   photos: string[] | null;
   max_participants: number;
   min_participants: number | null;
-  /** Группа тура не ограничена (1341). Не прочитано (старая схема) — нет поля, читается как FALSE. */
+  /** Группа тура не ограничена (1342). Не прочитано (старая схема) — нет поля, читается как FALSE. */
   group_size_unlimited?: boolean | null;
   duration_hours: string | null;
   duration_type: string | null;

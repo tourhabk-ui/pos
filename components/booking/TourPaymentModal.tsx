@@ -39,7 +39,7 @@ interface TourPaymentModalProps {
   duration?: { multi_day_count: number | null; duration_hours: number | null };
   maxGroupSize: number | null;
   /**
-   * Группа тура не ограничена (1341): форма под счётчиком говорит, как
+   * Группа тура не ограничена (1342): форма под счётчиком говорит, как
    * заявить группу больше. Потолок заявки прежний.
    */
   groupSizeUnlimited?: boolean;

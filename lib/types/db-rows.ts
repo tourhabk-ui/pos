@@ -1388,7 +1388,7 @@ export interface PartnerSiteTourRow extends OperatorPageTourRow {
   not_included: string[] | null;
   min_participants: number | null;
   max_participants: number | null;
-  /** operator_tours.group_size_unlimited (1341): группа тура не ограничена. Нет поля — FALSE. */
+  /** operator_tours.group_size_unlimited (1342): группа тура не ограничена. Нет поля — FALSE. */
   group_size_unlimited?: boolean | null;
 }
 

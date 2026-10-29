@@ -136,7 +136,7 @@ export interface ZhTourSourceRow {
   price_unit: string | null;
   duration_hours: string | null;
   max_participants: number | null;
-  /** Группа тура не ограничена (1341); нет поля — FALSE. */
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
   group_size_unlimited?: boolean | null;
   /** DATE текстом 'YYYY-MM-DD' — без перевода часовых поясов драйвером. */
   season_start: string | null;

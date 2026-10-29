@@ -43,7 +43,7 @@ export interface TourFacts {
   season_end?: string | null;
   max_participants?: number | null;
   min_participants?: number | null;
-  /** Группа не ограничена (1341): «до N» тогда — потолок одной заявки, а не тура. */
+  /** Группа не ограничена (1342): «до N» тогда — потолок одной заявки, а не тура. */
   group_size_unlimited?: boolean | null;
   weather_dependent?: boolean | null;
   program?: unknown;

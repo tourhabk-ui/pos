@@ -23,7 +23,7 @@ export interface ChannelTour {
   longitude: number | null;
   base_price: number;
   max_participants: number;
-  /** Группа не ограничена (1341); нет поля — FALSE. */
+  /** Группа не ограничена (1342); нет поля — FALSE. */
   group_size_unlimited?: boolean | null;
   duration_hours: number | null;
   difficulty: string | null;

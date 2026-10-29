@@ -1,5 +1,5 @@
 /**
- * «Группа не ограничена» в словах для агентов и в текстах тура (1341, слово
+ * «Группа не ограничена» в словах для агентов и в текстах тура (1342, слово
  * владельца 29.10). Тот же признак, что на карточке
  * (tests/unit/tour-group-unlimited.test.tsx): агент MCP, Кузьмич, собранное
  * описание, пост канала и фид Яндекса при TRUE слышат «не ограничена» и
@@ -49,7 +49,7 @@ describe('правило группы (lib/tours/group-size)', () => {
       expect(groupStripValue({ max_participants: 12, group_size_unlimited: flag })).toBe('до 12');
       expect(groupSentence({ max_participants: 12, group_size_unlimited: flag })).toBe('Группа до 12 человек.');
       expect(groupShort({ max_participants: 12, group_size_unlimited: flag })).toBe('до 12 чел.');
-      // Поверхности, молчавшие о группе до 1341, называют её только при TRUE.
+      // Поверхности, молчавшие о группе до 1342, называют её только при TRUE.
       expect(groupSentenceIfUnlimited({ max_participants: 15, group_size_unlimited: flag })).toBeNull();
     }
     expect(groupSentenceIfUnlimited({ max_participants: 12, group_size_unlimited: true })).toBe(UNLIMITED_12);
@@ -103,7 +103,7 @@ describe('Кузьмич и MCP get_tour_details', () => {
     expect(out).toContain(UNLIMITED_12);
     expect(out).not.toContain('Группа до 12');
   });
-  it('FALSE — о группе молчит, как до 1341: число бывает заглушкой автора миграции (1176), §4.0', async () => {
+  it('FALSE — о группе молчит, как до 1342: число бывает заглушкой автора миграции (1176), §4.0', async () => {
     query.mockResolvedValue({ rows: [{ ...DETAILS_ROW, max_participants: 15, group_size_unlimited: false }] });
     const out = await getTourDetails('Курильское');
     expect(out).not.toMatch(/Группа/);
@@ -126,7 +126,7 @@ describe('MCP fetch tour:', () => {
     expect(query.mock.calls[0][0]).toContain('ot.group_size_unlimited');
     expect(doc.text).toContain('Группа не ограничена (одна заявка на сайте — до 10 человек).');
   });
-  it('FALSE — о группе молчит, как до 1341 (число не выдаётся агенту фактом)', async () => {
+  it('FALSE — о группе молчит, как до 1342 (число не выдаётся агенту фактом)', async () => {
     query.mockResolvedValueOnce({ rows: [{ ...FETCH_ROW, max_participants: 15, group_size_unlimited: false }] });
     const doc = await fetchDocument('tour:78', 'https://vedarai.ru');
     expect(doc.text).not.toMatch(/Группа/);

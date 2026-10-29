@@ -47,7 +47,7 @@ export function tourPriceText(t: Pick<PartnerSiteTourRow, 'base_price' | 'price_
 }
 
 function groupText(t: PartnerSiteTourRow): string | null {
-  // Группа не ограничена (1341) — без «до N»: тем же словом, что карточка тура.
+  // Группа не ограничена (1342) — без «до N»: тем же словом, что карточка тура.
   if (t.group_size_unlimited === true) return 'группа не ограничена';
   const min = t.min_participants ?? 0;
   const max = t.max_participants ?? 0;

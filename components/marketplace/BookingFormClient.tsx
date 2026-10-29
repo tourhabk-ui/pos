@@ -26,7 +26,7 @@ interface BookingFormProps {
   duration?: { multi_day_count: number | null; duration_hours: number | null };
   maxParticipants?: number;
   /**
-   * Группа тура не ограничена (1341): потолок одной заявки остаётся, а под
+   * Группа тура не ограничена (1342): потолок одной заявки остаётся, а под
    * счётчиком участников сказано, как привести группу больше.
    */
   groupSizeUnlimited?: boolean;

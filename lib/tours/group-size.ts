@@ -9,7 +9,7 @@
  * `max_participants` как группу тура и писала «Группа: до 12» — это потолок
  * одной заявки в форме платформы, а не предел гида.
  *
- * Признак `operator_tours.group_size_unlimited` (миграция 1341) говорит
+ * Признак `operator_tours.group_size_unlimited` (миграция 1342) говорит
  * правду о туре словами; ёмкость он НЕ меняет: потолок заявки
  * (`max_participants`, форма — не больше {@link BOOKING_FORM_MAX_PARTICIPANTS})
  * и места на датах гейт брони судит как прежде (lib/bookings/reserve.ts).
@@ -23,7 +23,7 @@ export const BOOKING_FORM_MAX_PARTICIPANTS = 12;
 
 export interface GroupSizeFacts {
   max_participants?: number | string | null;
-  /** operator_tours.group_size_unlimited (1341). Нет поля — как FALSE. */
+  /** operator_tours.group_size_unlimited (1342). Нет поля — как FALSE. */
   group_size_unlimited?: boolean | null;
 }
 
@@ -79,7 +79,7 @@ export function unlimitedGroupSentence(maxParticipants: number | string | null |
 
 /**
  * Строка группы только для тура БЕЗ предела, иначе null. Для поверхностей,
- * которые до 1341 о группе молчали (get_tour_details Кузьмича, MCP fetch
+ * которые до 1342 о группе молчали (get_tour_details Кузьмича, MCP fetch
  * tour:): `max_participants` у части туров — не слово оператора, а заглушка
  * (1176: «технический потолок набора 15 … уточнить у оператора»; 955:
  * «Единица неверна»), и «Группа до 15 человек.» ушла бы агенту фактом о туре

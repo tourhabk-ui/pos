@@ -1383,10 +1383,10 @@ export async function getTourDetails(query: string): Promise<string> {
     const priceLine = priceFromUnit(t.base_price, t.price_unit);
     if (priceLine) parts.push(`Цена: ${priceLine}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
-    // Группа — общим правилом с карточкой (lib/tours/group-size, 1341): у тура
+    // Группа — общим правилом с карточкой (lib/tours/group-size, 1342): у тура
     // без предела агент слышит «не ограничена» и потолок ОДНОЙ заявки, а не
     // «до 12» как предел гида (слово владельца 29.10). У прочих — молчание,
-    // как до 1341: max_participants бывает заглушкой автора миграции (1176),
+    // как до 1342: max_participants бывает заглушкой автора миграции (1176),
     // и «Группа до 15» стала бы для агента фактом о туре (§4.0).
     const group = groupSentenceIfUnlimited(t);
     if (group) parts.push(group);

@@ -127,7 +127,7 @@ describe('GET /api/routes/[id] — reviews + pdfUrl (объединение ка
   });
 });
 
-describe('GET /api/routes/[id] — туры по маршруту знают признак группы (1341)', () => {
+describe('GET /api/routes/[id] — туры по маршруту знают признак группы (1342)', () => {
   it('group_size_unlimited читается из тура и уходит в предложение; нет — FALSE', async () => {
     const offer = {
       tour_id: 77, tour_name: 'Курильское озеро, 3 дня', min_group_size: 1, max_group_size: 12,

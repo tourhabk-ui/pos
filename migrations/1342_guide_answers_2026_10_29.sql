@@ -1,4 +1,7 @@
--- 1341: туры гида Андрея Запорожца (1338) — его ответы 29.10 и три описания с Диска.
+-- 1342: туры гида Андрея Запорожца (1338) — его ответы 29.10 и три описания с Диска.
+--
+-- Номер: писалась как 1341; 29.10 этот номер занял main (#2825,
+-- 1341_external_tools_unsourced_ratings) — перенумерована до влития.
 --
 -- ── Основание — ответы гида, переслал владелец 29.10 ──────────────────────
 -- Слова гида дословно:
@@ -172,7 +175,7 @@
 -- п. 8: колонка — до блока, чтобы и база без карточки гида получила схему.
 ALTER TABLE operator_tours ADD COLUMN IF NOT EXISTS group_size_unlimited BOOLEAN NOT NULL DEFAULT FALSE;
 COMMENT ON COLUMN operator_tours.group_size_unlimited IS
-  'Группа тура не ограничена (слова оператора, 1341). Ёмкость не меняет: потолок заявки — max_participants, места на датах — tour_availability. Карточка пишет «не ограничена» вместо «до N».';
+  'Группа тура не ограничена (слова оператора, 1342). Ёмкость не меняет: потолок заявки — max_participants, места на датах — tour_availability. Карточка пишет «не ограничена» вместо «до N».';
 
 DO $$
 DECLARE
@@ -189,7 +192,7 @@ DECLARE
 BEGIN
   SELECT count(*) INTO v_n FROM partners WHERE slug = 'andrey-zaporozhets' AND category = 'guide';
   IF v_n <> 1 THEN
-    RAISE WARNING '[1341] карточка гида andrey-zaporozhets не найдена (или не одна: %) — ответы гида не внесены', v_n;
+    RAISE WARNING '[1342] карточка гида andrey-zaporozhets не найдена (или не одна: %) — ответы гида не внесены', v_n;
     RETURN;
   END IF;
   SELECT id INTO v_gid FROM partners WHERE slug = 'andrey-zaporozhets' AND category = 'guide';
@@ -202,7 +205,7 @@ BEGIN
     'zaporozhets-tolmachevo', 'zaporozhets-ganalskie-vostryaki'
   ] LOOP
     IF NOT EXISTS (SELECT 1 FROM operator_tours WHERE slug = v_slug AND operator_id = v_gid AND deleted_at IS NULL) THEN
-      RAISE WARNING '[1341] тура % у гида нет — его ответы к этому туру не внесены', v_slug;
+      RAISE WARNING '[1342] тура % у гида нет — его ответы к этому туру не внесены', v_slug;
     END IF;
   END LOOP;
 
@@ -269,7 +272,7 @@ BEGIN
    WHERE t.operator_id = v_gid AND t.slug IN ('zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya')
      AND ta.deleted_at IS NULL AND ta.available_slots = 4;
   IF v_cnt > 0 THEN
-    RAISE WARNING '[1341] Курильское озеро: % дат(ы) выездов остались на 4 местах (на дату есть бронь или её правил человек) — проверьте вручную', v_cnt;
+    RAISE WARNING '[1342] Курильское озеро: % дат(ы) выездов остались на 4 местах (на дату есть бронь или её правил человек) — проверьте вручную', v_cnt;
   END IF;
   UPDATE operator_tours SET included = included || 'сбор за посещение Южно-Камчатского федерального заказника (со слов гида 29.10: «сбор есть и он входит в цену»)'::text
    WHERE slug IN ('zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya') AND operator_id = v_gid AND deleted_at IS NULL
@@ -352,7 +355,7 @@ BEGIN
    WHERE operator_id = v_gid AND deleted_at IS NULL AND is_published = FALSE
      AND slug IN ('zaporozhets-avacha-voskhozhdenie', 'zaporozhets-vachkazhets-ozerki', 'zaporozhets-bukhta-russkaya');
   IF v_cnt > 0 THEN
-    RAISE WARNING '[1341] % из трёх туров (Авача, Вачкажец, бухта Русская) не опубликованы: черновик уже правил человек — описания гида не внесены', v_cnt;
+    RAISE WARNING '[1342] % из трёх туров (Авача, Вачкажец, бухта Русская) не опубликованы: черновик уже правил человек — описания гида не внесены', v_cnt;
   END IF;
 
   -- ── 5. Сезон черновикам без сезона ─────────────────────────────────────

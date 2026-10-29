@@ -186,7 +186,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.next_departure_slots,
          v.marketplace_score,
          p.is_public AS operator_public,
-         -- Признака группы во вьюхе нет (1341): читается из самого тура.
+         -- Признака группы во вьюхе нет (1342): читается из самого тура.
          ot.group_size_unlimited
        FROM v_route_marketplace v
        -- Открыта ли карточка оператора — из partners, а не «по построению»

@@ -45,7 +45,7 @@ export interface TourPostRow {
   duration_hours: string | number | null;
   multi_day_count: number | null;
   max_participants: number | null;
-  /** Группа не ограничена (1341); нет поля — FALSE. */
+  /** Группа не ограничена (1342); нет поля — FALSE. */
   group_size_unlimited?: boolean | null;
   difficulty: string | null;
   activity_type: string | null;

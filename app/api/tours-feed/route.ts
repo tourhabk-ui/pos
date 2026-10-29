@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     group: {
       min: t.min_group_size || 1,
       max: t.max_group_size || 10,
-      // Группа тура не ограничена (1341): max тогда — потолок одной заявки,
+      // Группа тура не ограничена (1342): max тогда — потолок одной заявки,
       // а не предел тура; площадке это сказано полем, а не умолчанием.
       unlimited: t.group_size_unlimited === true,
     },

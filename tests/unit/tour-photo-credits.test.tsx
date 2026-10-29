@@ -98,16 +98,16 @@ describe('карточка тура показывает подпись', () => 
  * только пока под ней ЕГО кадры: каждый адрес карты подписей 1338 — файл на
  * диске с нарезкой в манифесте вариантов и снимок хотя бы одного тура.
  *
- * 1341 (описания 29.10 с Диска) снимков не добавляет намеренно: все семь
+ * 1342 (описания 29.10 с Диска) снимков не добавляет намеренно: все семь
  * картинок трёх docx — выгрузки с чужих сайтов (подписи kamchattour.ru,
  * tildacdn.com, «… туры и экскурсии на Камчатке», размер 664×442), и подпись
- * гида под ними была бы неправдой об авторстве. Запрет: адрес снимка в 1341
+ * гида под ними была бы неправдой об авторстве. Запрет: адрес снимка в 1342
  * появится только вместе с его файлом и записью в карте подписей.
  */
-describe('снимки гида — его кадры с подписью (1338, 1341)', () => {
+describe('снимки гида — его кадры с подписью (1338, 1342)', () => {
   const ROOT = process.cwd();
   const m1338 = readFileSync(join(ROOT, 'migrations/1338_guide_zaporozhets_tours.sql'), 'utf-8');
-  const m1341 = readFileSync(join(ROOT, 'migrations/1341_guide_answers_2026_10_29.sql'), 'utf-8');
+  const m1342 = readFileSync(join(ROOT, 'migrations/1342_guide_answers_2026_10_29.sql'), 'utf-8');
   const manifest = new Set((JSON.parse(readFileSync(join(ROOT, 'lib/images/photo-variants.json'), 'utf-8')) as { src: string }[]).map((v) => v.src));
   const credited = [...new Set([...m1338.matchAll(/'(\/images\/zaporozhets\/[a-z0-9-]+\.jpg)', 'Андрей Запорожец'/g)].map((m) => m[1]))];
   const inTours = new Set([...m1338.matchAll(/ARRAY\[('\/images\/zaporozhets\/[^\]]+)\]::text\[\]/g)]
@@ -123,8 +123,8 @@ describe('снимки гида — его кадры с подписью (1338,
     for (const src of inTours) expect(credited, src).toContain(src);
   });
 
-  it('1341 снимков не добавляет: туры по описаниям 29.10 идут без чужих картинок docx', () => {
-    expect(m1341).not.toMatch(/\/images\//);
-    expect(m1341).not.toMatch(/gallery_credits|tour_image|photos\s*=/);
+  it('1342 снимков не добавляет: туры по описаниям 29.10 идут без чужих картинок docx', () => {
+    expect(m1342).not.toMatch(/\/images\//);
+    expect(m1342).not.toMatch(/gallery_credits|tour_image|photos\s*=/);
   });
 });

@@ -214,11 +214,11 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   } catch (err) { logFail('тур не прочитан', err); return { ok: false, reason: 'check_failed' }; }
   if (!tour) return { ok: false, reason: 'tour_not_found' };
 
-  // Группа больше потолка тура (ревью 1341): «Есть места» оператора идёт в
+  // Группа больше потолка тура (ревью 1342): «Есть места» оператора идёт в
   // reserveBooking, а у дня без строки календаря потолок брони — именно
   // max_participants (assertDaysOpen). Запрос на 15 человек к туру «до 10»
   // дошёл бы до оператора, его согласие кончилось бы MAX_EXCEEDED и отказом
-  // туристу. Слова «группа не ограничена» (1341) такой запрос подталкивают —
+  // туристу. Слова «группа не ограничена» (1342) такой запрос подталкивают —
   // поэтому отказ до отправки, с внятной причиной.
   const maxPeople = Number(tour.max_participants);
   if (Number.isInteger(maxPeople) && maxPeople > 0 && input.participants > maxPeople) {

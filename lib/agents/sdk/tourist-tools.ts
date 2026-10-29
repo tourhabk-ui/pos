@@ -22,7 +22,7 @@ import { unlimitedGroupSentence } from '@/lib/tours/group-size';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 
 /**
- * Группа тура для агента (1341): у тура без предела — «не ограничена» и
+ * Группа тура для агента (1342): у тура без предела — «не ограничена» и
  * потолок одной заявки, иначе — прежний диапазон «мин-макс».
  */
 function groupField(r: Record<string, unknown>): string {

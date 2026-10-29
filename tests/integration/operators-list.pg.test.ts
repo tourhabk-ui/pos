@@ -485,7 +485,7 @@ withPg('витрина /operators: факты о живых турах, кноп
     )).rows.map((r) => r.slug);
     /**
      * Восемь туров с описанием гида — на витрине: пять по docx 26.10 (1338) и
-     * три по docx 29.10 (1341: Авача, Вачкажец, бухта Русская); пять строк
+     * три по docx 29.10 (1342: Авача, Вачкажец, бухта Русская); пять строк
      * прайса без описания — черновики.
      */
     const TOUR_SLUGS = [
@@ -515,7 +515,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(await guideTours(rows[0].id)).toEqual(ALL_SLUGS);
     });
 
-    it('туры на витрине: цена за человека; группа до 4, у Курильского — до 12, у бухты Русской — до 10 в лодке (1341); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
+    it('туры на витрине: цена за человека; группа до 4, у Курильского — до 12, у бухты Русской — до 10 в лодке (1342); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
       // Общий beforeAll файла закрыл все карточки; гиду её возвращаем, как на проде после 1338.
       await pool.query(`UPDATE partners SET is_public = TRUE WHERE slug = $1`, [SLUG]);
       const { publicTourSql } = await import('@/lib/tours/public-visibility');
@@ -603,7 +603,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE)).toHaveLength(6);
     });
 
-    it('выезды гида: Толбачик — его даты по 4 места, Курильское — те же даты по 12 (1341); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
+    it('выезды гида: Толбачик — его даты по 4 места, Курильское — те же даты по 12 (1342); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
       const { GET } = await import('@/app/api/tours/[id]/slots/route');
       const { NextRequest } = await import('next/server');
       const id = async (slug: string) => (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = $1`, [slug])).rows[0].id;
@@ -712,14 +712,14 @@ withPg('витрина /operators: факты о живых турах, кноп
     });
 
     /**
-     * Ответы гида 29.10 (1341) поверх 1338 → 1340 на подложенной карточке
+     * Ответы гида 29.10 (1342) поверх 1338 → 1340 на подложенной карточке
      * реестра. Правки гида, сделанные до миграции, должны остаться: свои
      * условия отмены у Горелого, своё описание у черновика Вачкажца, своя
      * строка цены у Курильского на 3 дня.
      */
-    it('ответы гида 29.10 (1341): три тура на витрине, Курильское лёгкое и без «до 4», отмена словами без чисел, правки гида целы, повтор ничего не меняет', async () => {
+    it('ответы гида 29.10 (1342): три тура на витрине, Курильское лёгкое и без «до 4», отмена словами без чисел, правки гида целы, повтор ничего не меняет', async () => {
       const MIG_1340 = readFileSync(join(process.cwd(), 'migrations/1340_guide_kurile_lake_clips.sql'), 'utf-8');
-      const MIG_1341 = readFileSync(join(process.cwd(), 'migrations/1341_guide_answers_2026_10_29.sql'), 'utf-8');
+      const MIG_1342 = readFileSync(join(process.cwd(), 'migrations/1342_guide_answers_2026_10_29.sql'), 'utf-8');
       const { publicTourSql } = await import('@/lib/tours/public-visibility');
       const { readTourDays, assertDaysOpen } = await import('@/lib/bookings/reserve');
       await reset();
@@ -730,14 +730,14 @@ withPg('витрина /operators: факты о живых турах, кноп
       );
       await pool.query(MIG_1338);
       await pool.query(MIG_1340);
-      // Правки гида до 1341.
+      // Правки гида до 1342.
       const OWN_CANCEL = 'Свои условия гида: отмена за неделю.';
       const OWN_DESCR = 'Своё описание гида про Вачкажец.';
       const OWN_NOTE = 'Своя строка цены гида.';
       await pool.query(`UPDATE operator_tours SET cancellation_policy = $1 WHERE slug = 'zaporozhets-vulkan-gorelyy'`, [OWN_CANCEL]);
       await pool.query(`UPDATE operator_tours SET description = $1 WHERE slug = 'zaporozhets-vachkazhets-ozerki'`, [OWN_DESCR]);
       await pool.query(`UPDATE operator_tours SET price_note = $1 WHERE slug = 'zaporozhets-kurilskoe-ozero-3-dnya'`, [OWN_NOTE]);
-      await pool.query(MIG_1341);
+      await pool.query(MIG_1342);
 
       type Row = {
         slug: string; is_published: boolean; on_storefront: boolean; difficulty: string | null; max_participants: number;
@@ -858,7 +858,7 @@ withPg('витрина /operators: факты о живых турах, кноп
                  || (SELECT row_to_json(p)::text FROM partners p WHERE p.id = $1::uuid)) AS h`, [reg.id],
       )).rows[0].h;
       const before = await snap();
-      await pool.query(MIG_1341);
+      await pool.query(MIG_1342);
       expect(await snap()).toBe(before);
     });
   });
