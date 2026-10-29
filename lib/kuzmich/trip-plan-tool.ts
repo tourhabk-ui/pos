@@ -270,46 +270,161 @@ export function readAdults(raw: string | undefined): { adults: number; given: bo
 }
 
 /**
- * Дети — возрасты через запятую: «6, 10» (массив от MCP приходит той же
- * строкой «6,10»). Возраст — целое 0..17. Что не разобрано, не выбрасывается
- * молча: называется, и такой ребёнок в план не идёт — выдумывать ему возраст
- * нельзя, а от возраста зависят допуски активностей.
+ * Дети — разбор поля с тремя исходами (§4.0): возрасты, «детей нет», «не знаю».
  *
- * Одиночный «0» значит разное в зависимости от того, кто заполнял поле
- * (ревью 22.10). У внешнего агента (`mcp`, через MCP и A2A) описание поля —
- * «возрасты, не число детей», и «0» — это младенец до года; туда же
- * сворачивается массив `[0]` (строковое поле приводит его к «0»). Прочесть
- * его как «детей нет» значило бы молча потерять ребёнка и не применить к
- * семье ни одного возрастного допуска (медведи — с 6 лет). Ошибка в другую
- * сторону — лишние допуски — видна: строка группы называет «до года», а
- * заметка — прочтение поля и как сказать «детей нет». В чате туриста поле
- * заполняет Кузьмич по описанию «детей нет — не передавай», и там «0»
- * по-прежнему «детей нет».
+ * ── Что было (ловушка MCP 29.10) ─────────────────────────────────────────
+ *
+ * Возраст и число детей пишутся в одно поле одинаково, а разборщик не умел
+ * сказать «не знаю». Голое «12» (агент имел в виду «12 детей») читалось как
+ * ребёнок 12 лет — и план ставил школьной группе восхождения на Горелый и
+ * Авачинский: порог «вулкан с 12» пройден. «Двое детей» и «6-10» не
+ * разбирались вовсе, и ответ говорил «считаю без детей»: план собирался
+ * взрослым, ни одного возрастного допуска. «12, малыш» отбрасывал как раз
+ * младшего. Заметка в ответе это называла, но план с восхождениями всё равно
+ * уходил.
+ *
+ * Теперь неразобранное — отказ, а не допущение: плана нет, пока не известен
+ * возраст каждого ребёнка. Правила одни на чат и на внешнего агента:
+ *  - список из двух и больше целых 0–17 — возрасты («6, 10», «6 лет и 10 лет»);
+ *  - одно число со словом единицы — возраст («12 лет», «2 года», «до года»);
+ *  - JSON-массив — однозначный список возрастов: [12] — ребёнок 12 лет,
+ *    [0] — до года, [] — детей нет (схема сохраняет признак массива, см.
+ *    agesString в tool-schemas);
+ *  - одно голое число — «возраст одного ребёнка или число детей?», отказ.
+ *    Угадывать по величине («до двух — возраст») нельзя: это привязка к
+ *    нынешним порогам, и первая активность с порогом 2 молча её сломает;
+ *  - любое другое слово («двое», «детей», «малыш», «6-10», «25», «месяцев») —
+ *    отказ с этим словом, без «считаю без детей» и без частичного списка;
+ *  - больше 30 возрастов — отказ (группа — до 30 человек), без обрезки.
+ *
+ * Одно исключение — «0» в чате туриста: там поле заполняет Кузьмич по
+ * описанию «детей нет — не передавай», и «0» по-прежнему «детей нет»
+ * (решение 22.10). У внешнего агента «0» — тот же вопрос, что любое голое
+ * число: младенец или «детей нет»; младенец — [0] или «до года».
+ *
+ * Текст отказа в чате — без имён полей (их видит турист, решение 22.10), у
+ * внешнего агента — с формой повтора, выполнимой и по старой схеме.
  */
-export function readChildren(
-  raw: string | undefined, surface: DraftSurface = 'chat',
-): { children: number[]; note: string | null } {
-  const t = (raw ?? '').trim();
-  if (t === '0' && surface === 'mcp') {
-    return {
-      children: [0],
-      note: 'Поле children «0» прочитал как одного ребёнка до года: поле — возрасты в годах, а не число детей. Детей нет — не передавай поле.',
-    };
-  }
-  if (!t || /^(нет|0|-|\[\s*\])$/i.test(t)) return { children: [], note: null };
-  const parts = t.replace(/^\[|\]$/g, '').split(/[,;\s]+/).filter(Boolean);
+export type ChildrenRead =
+  | { kind: 'none'; children: number[] }
+  | { kind: 'ages'; children: number[] }
+  | { kind: 'unknown'; refusal: string };
+
+/** «Детей нет» словами — однозначно, на любой поверхности. */
+const NO_CHILDREN = /^(нет|-|—|без детей|детей нет|нет детей|0 детей|none|no|no children|0 children)$/i;
+/** Единица возраста после числа: «6 лет», «2 года», «1 год», «10 years», «5 yo». */
+const AGE_UNIT = /^(лет|год|года|годик|годика|г\.?|years?|yrs?|yo|y\.o\.?|y\/o)$/i;
+/** То же слитно: «6лет», «2года», «10y». */
+const AGE_WITH_UNIT = /^(\d{1,2})(лет|год|года|г\.?|y|yo|years?)$/i;
+/** Связки между возрастами: «6 и 10», «6 and 10». */
+const AGE_JOINER = /^(и|and|&|\+)$/i;
+const MAX_CHILD_AGE = 17;
+
+function isChildAge(n: number): boolean {
+  return Number.isInteger(n) && n >= 0 && n <= MAX_CHILD_AGE;
+}
+
+/** Как повторить вызов — словами для поверхности; чат имён полей не называет. */
+function childAgesHint(surface: DraftSurface): string {
+  return surface === 'mcp'
+    ? 'Повтори с возрастом каждого ребёнка: один ребёнок 12 лет — children: "12 лет" или [12]; '
+      + 'двое, 6 и 10 лет — "6 лет, 10 лет" или [6, 10]; ребёнок до года — "до года" или [0]. '
+      + 'Знаешь только, сколько детей, — спроси у человека возраст каждого: от возраста младшего зависят допуски активностей. '
+      + 'Детей нет — не передавай поле children.'
+    : 'Спроси у человека возраст каждого ребёнка и повтори с возрастами словами: «12 лет», «6 лет, 10 лет», «до года». '
+      + 'От возраста младшего зависят допуски активностей. Детей нет — повтори без детей.';
+}
+
+function childrenRefusal(why: string, surface: DraftSurface): ChildrenRead {
+  return { kind: 'unknown', refusal: `План не собран: ${why} ${childAgesHint(surface)}` };
+}
+
+/** Возрасты из JSON-массива (строкой «[6,10]»): каждый элемент — возраст. */
+function readAgeList(inner: string, surface: DraftSurface): ChildrenRead {
+  const items = inner.split(',').map((x) => x.trim().replace(/^"|"$/g, '').trim()).filter(Boolean);
+  if (items.length === 0) return { kind: 'none', children: [] };
   const ages: number[] = [];
   const bad: string[] = [];
-  for (const p of parts) {
-    const n = /^\d{1,2}$/.test(p) ? Number(p) : NaN;
-    if (Number.isInteger(n) && n >= 0 && n <= 17) ages.push(n);
-    else bad.push(p);
+  for (const item of items) {
+    const words = item.split(/\s+/);
+    const unit = words.length === 2 && AGE_UNIT.test(words[1]);
+    const glued = AGE_WITH_UNIT.exec(item);
+    const raw = /^до\s+(1\s+)?года?$/i.test(item) ? '0' : glued ? glued[1] : unit ? words[0] : item;
+    const n = /^\d{1,2}$/.test(raw) ? Number(raw) : NaN;
+    if (isChildAge(n)) ages.push(n);
+    else bad.push(item);
   }
-  const kept = ages.slice(0, MAX_GROUP);
-  const note = bad.length > 0
-    ? `Возраст детей «${bad.join(', ')}» не разобрал (нужно число лет 0–17) — ${kept.length > 0 ? 'считаю только названных числом' : 'считаю без детей'}.`
-    : null;
-  return { children: kept, note };
+  if (bad.length > 0) {
+    return childrenRefusal(`в списке возрастов детей не разобрал ${bad.map((b) => `«${b}»`).join(', ')} — нужен возраст каждого ребёнка в годах (0–${MAX_CHILD_AGE}).`, surface);
+  }
+  if (ages.length > MAX_GROUP) {
+    return childrenRefusal(`возрастов детей ${ages.length}, а группа — не больше ${MAX_GROUP} человек.`, surface);
+  }
+  return { kind: 'ages', children: ages };
+}
+
+export function readChildren(raw: string | undefined, surface: DraftSurface = 'chat'): ChildrenRead {
+  const t = (raw ?? '').trim();
+  if (!t || NO_CHILDREN.test(t)) return { kind: 'none', children: [] };
+  if (t === '0' && surface === 'chat') return { kind: 'none', children: [] };
+
+  const list = /^\[([\s\S]*)\]$/.exec(t);
+  if (list) return readAgeList(list[1], surface);
+
+  // Слова по порядку: число, за ним может стоять единица («6 лет»), «до года»
+  // — возраст 0 с единицей, связки пропускаются, остальное — неразобранное.
+  const words = t.split(/[\s,;]+/).filter(Boolean);
+  const ages: Array<{ n: number; unit: boolean }> = [];
+  const bad: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (AGE_JOINER.test(w)) continue;
+    if (/^до$/i.test(w)) {
+      const one = words[i + 1] === '1' ? 1 : 0;
+      if (/^года?$/i.test(words[i + 1 + one] ?? '')) {
+        ages.push({ n: 0, unit: true });
+        i += 1 + one;
+        continue;
+      }
+      bad.push(w);
+      continue;
+    }
+    const glued = AGE_WITH_UNIT.exec(w);
+    if (glued && isChildAge(Number(glued[1]))) {
+      ages.push({ n: Number(glued[1]), unit: true });
+      continue;
+    }
+    const n = /^\d{1,2}$/.test(w) ? Number(w) : NaN;
+    const unit = AGE_UNIT.test(words[i + 1] ?? '');
+    if (!isChildAge(n)) {
+      // «25 лет» — одно неразобранное, а не два: единица идёт вместе с числом.
+      bad.push(unit ? `${w} ${words[i + 1]}` : w);
+      if (unit) i += 1;
+      continue;
+    }
+    ages.push({ n, unit });
+    if (unit) i += 1;
+  }
+
+  if (bad.length > 0) {
+    const where = surface === 'mcp' ? `в children «${t}»` : `в возрасте детей «${t}»`;
+    return childrenRefusal(`${where} не разобрал ${bad.map((b) => `«${b}»`).join(', ')} — нужен возраст каждого ребёнка в годах (0–${MAX_CHILD_AGE}), а не число детей и не диапазон.`, surface);
+  }
+  if (ages.length === 0) {
+    return childrenRefusal(surface === 'mcp' ? `в children «${t}» нет ни одного возраста.` : `в «${t}» нет ни одного возраста детей.`, surface);
+  }
+  if (ages.length === 1 && !ages[0].unit) {
+    const n = ages[0].n;
+    const question = n === 0
+      ? 'это ребёнок до года или «детей нет»?'
+      : `это возраст одного ребёнка (${n} ${plural(n, 'год', 'года', 'лет')}) или число детей?`;
+    const where = surface === 'mcp' ? `children «${t}» — одно число без «лет»` : `«${t}» — одно число без «лет»`;
+    return childrenRefusal(`${where}: ${question}`, surface);
+  }
+  if (ages.length > MAX_GROUP) {
+    return childrenRefusal(`возрастов детей ${ages.length}, а группа — не больше ${MAX_GROUP} человек.`, surface);
+  }
+  return { kind: 'ages', children: ages.map((a) => a.n) };
 }
 
 // Слова жилья (#2224, «замени жильё на базу») ведут к тому же уровню, по
@@ -350,6 +465,9 @@ function ageWords(n: number): string {
  * четверых — сумма на группу вышла меньше на четверть, и из ответа это не
  * было видно. Строка теперь называет и людей числом, и прочтение поля:
  * агент, ошибившийся с полем, увидит это в ответе и пересоберёт план.
+ * С 29.10 голое число до этой строки не доходит — readChildren отказывает
+ * («возраст одного ребёнка или число детей?»); строка осталась для
+ * разобранных возрастов, в том числе массива из одного ([2]).
  *
  * В чате туриста этой строки нет: там поле заполняет Кузьмич из слов
  * человека, и «поле children» туристу ничего не говорит.
@@ -672,6 +790,9 @@ export async function makeTripPlanForKuzmich(
 
   const group = readAdults(args.adults);
   const kids = readChildren(args.children, opts.surface ?? 'chat');
+  // Возраст детей не разобран — плана нет и черновика нет: собрать план
+  // «как для взрослых» значило бы снять возрастные допуски (ловушка 29.10).
+  if (kids.kind === 'unknown') return kids.refusal;
   const budget = readBudgetTier(args.budget_tier);
 
   const start = parsePlanStart(args.when, Date.now());
@@ -725,7 +846,7 @@ export async function makeTripPlanForKuzmich(
   }, opts.surface ?? 'chat');
   const notes = [
     startNote(start, plannedFor), daysNote, interestsNote,
-    group.note, kids.note, budget.note, assumptions,
+    group.note, budget.note, assumptions,
   ].filter(Boolean);
 
   // План сохраняется черновиком — правка идёт по его id (#2224). Отказа

@@ -350,7 +350,7 @@
           },
           "children": {
             "type": "string",
-            "description": "Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → \"6, 10\"; one child aged 2 → \"2\"; a baby under one year → \"0\". Ages decide which activities are allowed. No children — omit the field. Возрасты детей в годах через запятую — не число детей: двое детей 6 и 10 лет → «6, 10», один ребёнок 2 лет → «2». От возраста зависят допуски активностей. Детей нет — не передавай.",
+            "description": "Age of each child in years — NOT a count: two children aged 6 and 10 → \"6, 10\" or \"6 years, 10 years\"; one child aged 2 → \"2 years\"; a baby under one → \"0 years\". A single bare number is ambiguous (one child's age or how many children?) and returns a refusal with no plan. The youngest age decides which activities are allowed: if you only know how many children, ask the person for each age. No children — omit the field. Возраст каждого ребёнка в годах — не число детей: двое детей 6 и 10 лет → «6, 10» или «6 лет, 10 лет»; один ребёнок 2 лет → «2 года»; ребёнок до года → «до года». Одно число без «лет» неоднозначно (возраст одного ребёнка или число детей?) — план не собирается, придёт вопрос. От возраста младшего зависят допуски активностей: знаешь только, сколько детей, — спроси возраст каждого. Детей нет — не передавай.",
             "examples": [
               "6, 10"
             ]

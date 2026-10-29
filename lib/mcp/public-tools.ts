@@ -357,7 +357,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
-    children: { lead: 'Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → "6, 10"; one child aged 2 → "2"; a baby under one year → "0". Ages decide which activities are allowed. No children — omit the field.', example: '6, 10' },
+    children: { lead: 'Age of each child in years — NOT a count: two children aged 6 and 10 → "6, 10" or "6 years, 10 years"; one child aged 2 → "2 years"; a baby under one → "0 years". A single bare number is ambiguous (one child\'s age or how many children?) and returns a refusal with no plan. The youngest age decides which activities are allowed: if you only know how many children, ask the person for each age. No children — omit the field.', example: '6, 10' },
     budget_tier: { lead: 'Budget level: economy, comfort or premium; default comfort.', example: 'economy' },
   },
   edit_trip_plan: {
@@ -523,6 +523,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.7.0',
+  version: '2.7.1',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
 } as const;
