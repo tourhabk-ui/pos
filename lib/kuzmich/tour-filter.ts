@@ -175,3 +175,31 @@ export function paginateTourText(text: string, page: number, size: number = TOUR
   out.push('', `Страница ${page} из ${pages}, туров всего ${total}.${next}`);
   return out.join('\n');
 }
+
+/**
+ * Сколько туров каталога идёт в подсказку Кузьмича. Каталог входит в КАЖДЫЙ
+ * чат, и с 75 турами (29.10: «Лагуна Экспедиция» и гид) он раздувал бы
+ * подсказку вдвое. Остальные туры Кузьмич берёт инструментом get_tours.
+ */
+export const PROMPT_CATALOG_TOURS = 40;
+
+/**
+ * Каталог для подсказки: первые `max` туров и строка о том, сколько их всего и
+ * где остальные. До 29.10 каталог резался в самом запросе (`LIMIT 40`), молча:
+ * MCP get_tours отвечал «туров всего 40» при 42 на витрине, и два самых
+ * дорогих тура не видел ни внешний агент, ни Кузьмич. Обрезка допустима
+ * только здесь и только названной словами.
+ */
+export function capTourCatalog(text: string, max: number = PROMPT_CATALOG_TOURS): string {
+  const lines = text.split('\n');
+  const isTour = (l: string) => /^ID\d+:/.test(l);
+  const tourIdx = lines.map((l, i) => (isTour(l) ? i : -1)).filter((i) => i >= 0);
+  if (tourIdx.length <= max) return text;
+  const lastKept = tourIdx[max - 1];
+  const lastTour = tourIdx[tourIdx.length - 1];
+  return [
+    ...lines.slice(0, lastKept + 1),
+    `(Здесь ${max} туров из ${tourIdx.length} — первые по цене. Остальные ${tourIdx.length - max} — инструментом get_tours: страницы и фильтр по виду.)`,
+    ...lines.slice(lastTour + 1),
+  ].join('\n');
+}

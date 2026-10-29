@@ -195,6 +195,55 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(ours).toEqual([activity('live'), activity('live2')]);
   });
 
+  it('каталог Кузьмича и MCP (loadTourCatalog): все туры витрины, а не первые 40 по цене (29.10)', async () => {
+    // До 29.10 запрос резал каталог «LIMIT 40» по цене: MCP get_tours
+    // называл «туров всего 40» при 42 на витрине, самых дорогих не было.
+    // Чтобы предел точно был превышен, доливаются 41 дорогой тур другого
+    // оператора (свой — не трогать: прочие тесты файла считают свои туры).
+    const other = '00000000-0000-4000-8000-0000000c4740';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Каталог без предела', 'operator', '{}'::jsonb, 'w2pt-catalog-all', TRUE, TRUE, 'active')`, [other],
+    );
+    for (let i = 0; i < 41; i++) {
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published)
+         VALUES ($1, $2, $3, 'helicopter', $4, 'per_person', 1, 6, 8, TRUE, TRUE)`,
+        [other, `W2PT дорогой ${i}`, `w2pt-expensive-${i}`, 900000 + i],
+      );
+    }
+    const { publicTourSql } = await import('@/lib/tours/public-visibility');
+    const expected = (await pool.query<{ id: string }>(
+      `SELECT ot.id::text AS id FROM operator_tours ot WHERE ${publicTourSql('ot')}`,
+    )).rows.map((r) => r.id).sort();
+    expect(expected.length).toBeGreaterThan(40);
+
+    // Кэш каталога живёт 3 минуты — часы вперёд, чтобы прочитать базу заново.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    try {
+      const { loadTourCatalog, buildTourContext } = await import('@/lib/kuzmich/core');
+      const catalog = await loadTourCatalog();
+      const ids = [...(catalog ?? '').matchAll(/^ID(\d+):/gm)].map((m) => m[1]).sort();
+      expect(ids).toEqual(expected);
+      // Самый дорогой — последним, и черновик/удалённый/выключенный не попали.
+      expect(catalog).toContain('"W2PT дорогой 40"');
+      for (const h of hidden()) expect(ids).not.toContain(h);
+
+      const { paginateTourText, TOURS_PAGE_SIZE } = await import('@/lib/kuzmich/tour-filter');
+      const pages = Math.ceil(expected.length / TOURS_PAGE_SIZE);
+      expect(paginateTourText(catalog ?? '', pages)).toContain(`туров всего ${expected.length}. Это последняя.`);
+
+      // Подсказка Кузьмича: 40 туров и названо, сколько всего.
+      const ctx = await buildTourContext();
+      expect(ctx.match(/^ID\d+:/gm)).toHaveLength(40);
+      expect(ctx).toContain(`(Здесь 40 туров из ${expected.length} — первые по цене.`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── #2642: кабинет оператора говорит, видит ли тур турист ─────────────────
   // Список туров ставил бейдж по одному is_active, экран «Чего не хватает» —
   // по одному is_published. Теперь оба читают ответ того же шлюза

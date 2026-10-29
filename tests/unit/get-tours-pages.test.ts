@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { paginateTourText, TOURS_PAGE_SIZE } from '@/lib/kuzmich/tour-filter';
+import { capTourCatalog, paginateTourText, PROMPT_CATALOG_TOURS, TOURS_PAGE_SIZE } from '@/lib/kuzmich/tour-filter';
 
 const tours = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `ID${from + i}: "Тур ${from + i}" тип:volcano`);
 const catalog = (n: number) => ['РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ:', ...tours(n), '', 'Хвост каталога.'].join('\n');
@@ -51,6 +51,28 @@ describe('paginateTourText', () => {
     expect(paginateTourText(long, 1)).toContain(note);
     expect(paginateTourText(long, 2)).toContain(note);
     expect(paginateTourText(long, 2).indexOf(note)).toBeLessThan(paginateTourText(long, 2).indexOf('ID8:'));
+  });
+});
+
+describe('capTourCatalog — каталог в подсказке Кузьмича (29.10)', () => {
+  it('туров больше предела — первые 40 и названо, сколько всего и где остальные; хвост на месте', () => {
+    expect(PROMPT_CATALOG_TOURS).toBe(40);
+    const out = capTourCatalog(catalog(45));
+    expect(out.match(/^ID\d+:/gm)).toHaveLength(40);
+    expect(out).toContain('ID40: ');
+    expect(out).not.toContain('ID41: ');
+    expect(out).toContain('(Здесь 40 туров из 45 — первые по цене. Остальные 5 — инструментом get_tours: страницы и фильтр по виду.)');
+    expect(out).toMatch(/^РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ:/);
+    expect(out.endsWith('Хвост каталога.')).toBe(true);
+  });
+
+  it('в пределе — текст как был, без приписки', () => {
+    expect(capTourCatalog(catalog(40))).toBe(catalog(40));
+    expect(capTourCatalog(catalog(3))).toBe(catalog(3));
+  });
+
+  it('страницы get_tours идут по ВСЕМУ каталогу: 75 туров — 11 страниц, последняя называет всех', () => {
+    expect(paginateTourText(catalog(75), 11)).toMatch(/Страница 11 из 11, туров всего 75\. Это последняя\./);
   });
 });
 
