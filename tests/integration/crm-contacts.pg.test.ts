@@ -29,7 +29,8 @@ import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
 import { createAgentKey, listAgentKeys, resolveAgentKey, revokeAgentKey, MAX_ACTIVE_KEYS } from '@/lib/crm/agent-keys';
 import { exchangeAuthorizationCode, issueAuthorizationCode, refreshAccessToken, MAX_OAUTH_CONNECTIONS } from '@/lib/crm/partner-oauth';
-import { buildOperatorContext } from '@/lib/kuzmich/operator-chat';
+import { buildOperatorContext, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -914,6 +915,63 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     const waiting = (tool.data as { waiting: Array<{ item_id: string; where_to_answer: string }> }).waiting;
     expect(waiting.find((w) => w.item_id === own)?.where_to_answer).toBe('Подтвердить или отклонить в разделе «Свои туры»');
     expect(crmToolText(tool)).not.toMatch(/«Бронированиях»|Тур оператора команды|Скрытый Турист/);
+  });
+
+  it('гид по привязанному чату (29.10): свои туры — тем же запросом; черновик считается, удалённый нет, туры оператора команды — нет', async () => {
+    // Признак решает, получит ли помощник гида сводку его туров и
+    // my_tours_schedule. Гид команды без своих туров — как раньше.
+    const mk = async (name: string, category: string) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+      )).rows[0].id;
+    const seller = await mk('Гид-продавец по чату', 'guide');
+    const team = await mk('Гид команды по чату', 'guide');
+    const gone = await mk('Гид с удалённым туром', 'guide');
+    const op = await mk('Оператор команды по чату', 'operator');
+    const bare = await mk('Оператор без туров по чату', 'operator');
+    await pool.query(`UPDATE partners SET guide_operator_id = $2 WHERE id = $1`, [team, op]);
+    const chats: Array<[string, number]> = [[seller, 9100001], [team, 9100002], [gone, 9100003], [bare, 9100004]];
+    for (const [id, chat] of chats) await pool.query(`UPDATE partners SET max_chat_id = $2 WHERE id = $1`, [id, chat]);
+    await pool.query(`UPDATE partners SET telegram_chat_id = 9100011 WHERE id = $1`, [seller]);
+
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, base_price, is_published) VALUES ($1, 'Черновик гида по чату', 5000, false)`, [seller],
+    );
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, base_price, deleted_at) VALUES ($1, 'Удалённый тур гида', 5000, NOW())`, [gone],
+    );
+    // Тур оператора команды, куда гида назначили, — не его тур.
+    const teamTour = Number((await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур оператора по чату', 5000) RETURNING id`, [op],
+    )).rows[0].id);
+    await booking(teamTour, { name: 'Турист команды', phone: '+79140005050', guide: team });
+
+    const look = async (channel: 'max' | 'telegram', chat: number) => {
+      const r = await findPartnerByChat(channel, chat, pool);
+      if (r.outcome !== 'found') throw new Error(`чат ${chat}: ${r.outcome}`);
+      return r.partner;
+    };
+    const s = await look('max', 9100001);
+    expect(s).toMatchObject({ partnerId: seller, category: 'guide', crmCategory: 'guide', sellsTours: true });
+    expect(sellsOwnTours(s)).toBe(true);
+    expect(await look('telegram', 9100011)).toMatchObject({ partnerId: seller, sellsTours: true });
+
+    for (const chat of [9100002, 9100003]) {
+      const g = await look('max', chat);
+      expect(g).toMatchObject({ category: 'guide', sellsTours: false });
+      expect(sellsOwnTours(g)).toBe(false);
+    }
+    // Туроператор — продавец по категории, и без своих туров.
+    const o = await look('max', 9100004);
+    expect(o).toMatchObject({ partnerId: bare, sellsTours: false });
+    expect(sellsOwnTours(o)).toBe(true);
+
+    // Сводка помощника — по той же карточке: черновик виден, удалённого нет.
+    const ctx = await buildOperatorContext(seller, pool);
+    expect(ctx).toContain('"Черновик гида по чату"');
+    expect(ctx).toContain('скрыт с витрины');
+    expect(ctx).not.toMatch(/Тур оператора по чату|Турист команды/);
+    expect(await buildOperatorContext(gone, pool)).toContain('Туры не найдены.');
   });
 
   it('напоминание гиду о брони его тура ведёт во «Входящие» гида — и эта бронь там есть (до 29.10 там было пусто)', async () => {

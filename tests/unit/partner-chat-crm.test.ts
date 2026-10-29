@@ -10,7 +10,9 @@
  *  - записи сделаны, а модель не дошла до ответа — партнёр узнаёт, что
  *    записано, а не «не могу ответить» (иначе попросит снова, и будет дубль);
  *  - без инструментов помощник о клиентах ничего не утверждает;
- *  - в промпт оператора бронь идёт номером, без имени туриста.
+ *  - в промпт оператора бронь идёт номером, без имени туриста;
+ *  - гид со своими турами (29.10) получает то же знание туров, что
+ *    туроператор: сводку и my_tours_schedule; гид команды без туров — нет.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -53,7 +55,7 @@ describe('кто партнёр по чату', () => {
   it('найден по колонке своего канала; категория CRM — из шести ролей', async () => {
     query.mockResolvedValueOnce({ rows: [row()] });
     const r = await chat.findPartnerByChat('max', 777);
-    expect(r).toEqual({ outcome: 'found', partner: { partnerId: 'p-1', partnerName: 'Вулкан-Тур', slug: null, category: 'guide', crmCategory: 'guide', userId: 'u-1' } });
+    expect(r).toEqual({ outcome: 'found', partner: { partnerId: 'p-1', partnerName: 'Вулкан-Тур', slug: null, category: 'guide', crmCategory: 'guide', userId: 'u-1', sellsTours: false } });
     expect(query.mock.calls[0][0]).toMatch(/NULLIF\(btrim\(slug\), ''\) AS slug/);
     expect(query.mock.calls[0][0]).toMatch(/WHERE max_chat_id = \$1/);
     expect(query.mock.calls[0][1]).toEqual([777]);
@@ -61,6 +63,14 @@ describe('кто партнёр по чату', () => {
     query.mockResolvedValueOnce({ rows: [row()] });
     await chat.findPartnerByChat('telegram', 5);
     expect(query.mock.calls[1][0]).toMatch(/WHERE telegram_chat_id = \$1/);
+  });
+
+  it('свои туры — тем же запросом: колонка базы true — продаёт; нет колонки или NULL — нет', async () => {
+    query.mockResolvedValueOnce({ rows: [row({ sells_tours: true })] });
+    expect(await chat.findPartnerByChat('max', 1)).toMatchObject({ partner: { category: 'guide', sellsTours: true } });
+    query.mockResolvedValueOnce({ rows: [row({ sells_tours: null })] });
+    expect(await chat.findPartnerByChat('max', 1)).toMatchObject({ partner: { sellsTours: false } });
+    expect(query).toHaveBeenCalledTimes(2);
   });
 
   it('агент без одобрения и роль вне CRM — партнёр, но без инструментов CRM', async () => {
@@ -215,5 +225,96 @@ describe('ответ партнёру', () => {
     }
     const operator = { ...guide, category: 'operator', crmCategory: 'operator' as const };
     expect(chat.partnerSystemPrompt(operator, NOW, true)).not.toMatch(/Календарь, даты/);
+  });
+});
+
+describe('гид со своими турами (29.10): помощник знает его туры, как туроператор', () => {
+  const base = { partnerId: 'p-1', partnerName: 'Гид', category: 'guide', crmCategory: 'guide' as const, userId: 'u-1' };
+  const seller = { ...base, sellsTours: true };
+  const team = { ...base, sellsTours: false };
+  const reply = vi.fn(async () => undefined);
+  beforeEach(() => reply.mockReset());
+
+  /** Сводка туров и броней: брони без имён, как у туроператора. */
+  function bizRows(): void {
+    query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours\s+WHERE operator_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY is_active DESC, created_at DESC\s+LIMIT 10/.test(sql)) {
+        return { rows: [{ id: 7, title: 'Авторский тур', base_price: 15000, is_active: true, is_published: false, available_slots: null }] };
+      }
+      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ cnt: '1', awaiting: '1' }] };
+      if (/ob\.participants/.test(sql)) {
+        return { rows: [{ id: '501', booking_date: '2026-11-05', participants: 2, final_price: 30000, booking_status: 'new' }] };
+      }
+      // my_tours_schedule: туров по запросу нет — до дат дело не доходит.
+      return { rows: [] };
+    });
+  }
+
+  const toolNames = (call: number) =>
+    (callToolsWaterfall.mock.calls[call][1] as Array<{ function: { name: string } }>).map((t) => t.function.name);
+
+  it('гид-продавец: сводка его туров и броней в промпте, инструмент расписания есть', async () => {
+    bizRows();
+    callToolsWaterfall.mockResolvedValueOnce({ content: 'Одна бронь ждёт.', tool_calls: null });
+    await chat.processPartnerMessage({ chatId: 9, text: 'какие у меня брони?', fromName: null, partner: seller, reply, nowMs: NOW });
+
+    expect(toolNames(0)).toContain('my_tours_schedule');
+    const system = (callToolsWaterfall.mock.calls[0][0] as Array<{ content: string }>)[0].content;
+    expect(system).toMatch(/МОИ ТУРЫ:\n- "Авторский тур" \| 15[\s\u00a0]000 ₽\/чел \| активен, скрыт с витрины/);
+    expect(system).toMatch(/бронь №501, 2 чел/);
+    expect(system).toMatch(/Ждут вашего подтверждения: 1/);
+    expect(system).toMatch(/инструментом my_tours_schedule/);
+    // Его даты — раздел «Свои туры»; кнопку «Открыть» в MAX гиду не обещаем.
+    expect(system).toMatch(/Даты и места своих туров ты сам не меняешь/);
+    expect(system).toMatch(/раздел «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
+    expect(system).not.toMatch(/кнопкой «Открыть»|hub\/operator/);
+    // Сводка — по его карточке из чата.
+    const tourSql = query.mock.calls.find((c) => /FROM operator_tours\s+WHERE operator_id = \$1/.test(String(c[0])));
+    expect(tourSql?.[1]).toEqual(['p-1']);
+  });
+
+  it('гид-продавец: расписание спрашивается по карточке из чата, а не по аргументу модели', async () => {
+    bizRows();
+    callToolsWaterfall
+      .mockResolvedValueOnce({ content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'my_tours_schedule', arguments: '{"tour":"Горелый","partner_id":"чужой"}' } }] })
+      .mockResolvedValueOnce({ content: 'Такого тура нет.', tool_calls: null });
+    await chat.processPartnerMessage({ chatId: 9, text: 'какие даты открыты на Горелый?', fromName: null, partner: seller, reply, nowMs: NOW });
+
+    const schedule = query.mock.calls.find((c) => /operator_id = \$1::uuid/.test(String(c[0])));
+    expect(schedule?.[1]?.[0]).toBe('p-1');
+    expect(schedule?.[1]?.[1]).toBe('Горелый');
+    expect(executeCrmTool).not.toHaveBeenCalled();
+    const second = callToolsWaterfall.mock.calls[1][0] as Array<{ role: string; content: string }>;
+    expect(second.find((m) => m.role === 'tool')?.content).toMatch(/Среди своих туров нет подходящего под «Горелый»/);
+    expect(reply).toHaveBeenCalledWith(9, 'Такого тура нет.');
+  });
+
+  it('гид команды без своих туров — как до 29.10: ни сводки, ни расписания, ни запроса туров', async () => {
+    bizRows();
+    callToolsWaterfall.mockResolvedValueOnce({ content: 'Смотрю входящие.', tool_calls: null });
+    await chat.processPartnerMessage({ chatId: 9, text: 'какие у меня брони?', fromName: null, partner: team, reply, nowMs: NOW });
+
+    expect(toolNames(0).every((n) => n.startsWith('crm_'))).toBe(true);
+    const system = (callToolsWaterfall.mock.calls[0][0] as Array<{ content: string }>)[0].content;
+    expect(system).not.toMatch(/МОИ ТУРЫ|my_tours_schedule|Свои туры/);
+    expect(system).toMatch(/Календарь, даты и свободные места ты не меняешь/);
+    expect(query.mock.calls.some((c) => /operator_tours/.test(String(c[0])))).toBe(false);
+  });
+
+  it('гид-продавец без инструментов (водопад инструментов молчит) — сводка туров всё равно в промпте', async () => {
+    bizRows();
+    callToolsWaterfall.mockResolvedValueOnce(null);
+    callAIWaterfallOrNull.mockResolvedValueOnce('Бронь №501 ждёт.');
+    await chat.processPartnerMessage({ chatId: 9, text: 'брони?', fromName: null, partner: seller, reply, nowMs: NOW });
+    const system = (callAIWaterfallOrNull.mock.calls[0][0] as Array<{ content: string }>)[0].content;
+    expect(system).toMatch(/бронь №501/);
+    expect(system).not.toMatch(/my_tours_schedule/);
+  });
+
+  it('перевозчик и владелец жилья с полем «продаёт» — не продавцы туров: признак только у гида', () => {
+    for (const category of ['transfer', 'stay', 'agent'] as const) {
+      const p = { ...base, category, crmCategory: category, sellsTours: true };
+      expect(chat.partnerSystemPrompt(p, NOW, true)).not.toMatch(/my_tours_schedule|Свои туры/);
+    }
   });
 });

@@ -13,8 +13,10 @@
  *   касание, задача, выполнение;
  * - помочь составить ответ клиенту.
  * Данные о клиентах — только инструментами CRM (`lib/crm/tools.ts`), там же
- * правило «телефонов и почт модели не отдаём». Оператору вдобавок
- * подкладываются его туры и брони за неделю — без имён туристов.
+ * правило «телефонов и почт модели не отдаём». Продавцу своих туров —
+ * туроператору и гиду с авторскими турами (`sellsOwnTours`, 29.10) —
+ * вдобавок подкладываются его туры и брони за неделю, без имён туристов, и
+ * даётся инструмент расписания my_tours_schedule.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -36,6 +38,9 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { handleRentalOfferEdit } from '@/lib/rental/offer-edit-flow';
 import { redactPII } from '@/lib/security/pii-redact';
 import { withSosBlock } from '@/lib/safety/sos-detector';
+import { sellsOwnTours } from '@/lib/partners/tour-seller';
+import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
+import { getPublicBaseUrl } from '@/lib/config';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 
@@ -57,6 +62,13 @@ export interface PartnerChatContext {
   crmCategory: PartnerCategory | null;
   /** `partners.user_id`; NULL — у записи нет аккаунта. */
   userId: string | null;
+  /**
+   * Есть ли у карточки свои неудалённые туры (`operator_tours.operator_id`).
+   * Решает `sellsOwnTours` (lib/partners/tour-seller): гид с авторскими
+   * турами получает их сводку и расписание, гид команды — нет. Поля нет —
+   * не продаёт (старые вызовы и моки).
+   */
+  sellsTours?: boolean;
 }
 
 /**
@@ -76,12 +88,26 @@ const CHAT_COLUMN = { telegram: 'telegram_chat_id', max: 'max_chat_id' } as cons
  * кабинете: прежнее условие `status != 'blocked'` не отсекало никого (такого
  * статуса нет в CHECK, миграции его не заводили). Один человек с двумя
  * профилями на одном чате — берётся старший профиль, как у partnerContextFor.
+ *
+ * Свои туры (`sells_tours`) читаются тем же запросом, без второго: черновик
+ * считается (это тур гида, его видно в «Своих турах»), удалённый — нет.
+ * База по умолчанию — пул приложения; параметр — для проверки на настоящем
+ * PostgreSQL (crm-contacts.pg).
  */
-export async function findPartnerByChat(channel: keyof typeof CHAT_COLUMN, chatId: number): Promise<PartnerChatLookup> {
+export async function findPartnerByChat(
+  channel: keyof typeof CHAT_COLUMN,
+  chatId: number,
+  db: Pick<typeof pool, 'query'> = pool,
+): Promise<PartnerChatLookup> {
   try {
-    const { rows } = await pool.query<{ id: string; slug: string | null; name: string; category: string; user_id: string | null; profile_status: string | null }>(
+    const { rows } = await db.query<{
+      id: string; slug: string | null; name: string; category: string; user_id: string | null;
+      profile_status: string | null; sells_tours: boolean | null;
+    }>(
       `SELECT id::text AS id, NULLIF(btrim(slug), '') AS slug, COALESCE(company_name, name) AS name, category,
-              user_id::text AS user_id, profile_status
+              user_id::text AS user_id, profile_status,
+              EXISTS (SELECT 1 FROM operator_tours own
+                       WHERE own.operator_id = partners.id AND own.deleted_at IS NULL) AS sells_tours
          FROM partners
         WHERE ${CHAT_COLUMN[channel]} = $1
         ORDER BY created_at ASC NULLS LAST, id ASC
@@ -99,6 +125,7 @@ export async function findPartnerByChat(channel: keyof typeof CHAT_COLUMN, chatI
         category: row.category,
         crmCategory: crmCategoryFor(row.category, row.profile_status),
         userId: row.user_id,
+        sellsTours: row.sells_tours === true,
       },
     };
   } catch (err) {
@@ -273,6 +300,14 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
       'Даты и места туров ты сам не меняешь и не говоришь, что открыл или закрыл их. '
       + 'В MAX их открывают фразой «открой субботы июля, 8 мест» с кнопкой «Открыть», в остальных случаях — в кабинете.',
     );
+  } else if (sellsOwnTours(partner)) {
+    // Гид со своими турами (29.10): поток дат словами ему пока не открыт
+    // (lib/operators/chat-dates/flow — только туроператор), его даты — в
+    // разделе «Свои туры». Кабинет оператора гида не пустит.
+    lines.push(
+      'Даты и места своих туров ты сам не меняешь и не говоришь, что открыл или закрыл их. '
+      + `Гид открывает даты, отвечает на брони и заявки в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`,
+    );
   } else {
     // Гиду, перевозчику, владельцу жилья фраза с «открой» и датой тоже
     // приходит сюда (четвёртый ревью 22.10: раньше поток дат отвечал им
@@ -283,7 +318,7 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
     lines.push(
       'О клиентах, входящих и задачах знаешь только то, что вернули инструменты crm_*. Чего инструмент не вернул — не утверждай.',
       'Клиента называй подписью из инструмента («Анна П.»). Телефонов и почт клиентов у тебя нет: связаться партнёр может из кабинета.',
-      ...(partner.category === 'operator'
+      ...(sellsOwnTours(partner)
         ? ['Свои туры (и скрытые с витрины тоже) и открытые даты со свободными местами узнавай инструментом my_tours_schedule — не говори, что расписания или туров нет, не вызвав его.']
         : []),
       ...(isRentalPilotSlug(partner.slug)
@@ -401,7 +436,7 @@ export async function processPartnerMessage(opts: {
 
   const [storedHistory, bizContext] = await Promise.all([
     getHistory(chatId, 'operator_tg'),
-    partner.category === 'operator' ? buildOperatorContext(partner.partnerId) : Promise.resolve(''),
+    sellsOwnTours(partner) ? buildOperatorContext(partner.partnerId) : Promise.resolve(''),
   ]);
   const withContext = (system: string) => (bizContext ? `${system}\n\n${bizContext}` : system);
   // Строки, записанные до очистки (до 25.10), чистятся на входе модели —
@@ -429,7 +464,7 @@ export async function processPartnerMessage(opts: {
         history,
         ctx,
         writes,
-        partner.category === 'operator',
+        sellsOwnTours(partner),
         fleetCtx,
       ))?.trim() ?? '';
     } catch (err) {
