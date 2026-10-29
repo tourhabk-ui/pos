@@ -128,6 +128,27 @@ describe('миграция 1194', () => {
   });
 });
 
+describe('миграция 1340 (клипы Курильского у туров гида)', () => {
+  const sql = read('migrations/1340_guide_kurile_lake_clips.sql');
+
+  it('ключи — только из маркера заливки и лежат в media/s3; вертолёта во внедорожном туре нет', () => {
+    const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    const keys = [...sql.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]);
+    expect(keys).toHaveLength(12);
+    for (const k of keys) {
+      expect(uploaded.has(k), k).toBe(true);
+      expect(existsSync(join(ROOT, 'media/s3', k)), k).toBe(true);
+    }
+    expect(sql).not.toMatch(/vertolet|helicopter/);
+  });
+
+  it('только два тура Курильского и только пустой список', () => {
+    expect(sql).toMatch(/WHERE ot\.slug IN \('zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya'\)/);
+    expect(sql).toMatch(/AND ot\.video_clips = '\[\]'::jsonb;/);
+  });
+});
+
 describe('карточка тура и CSP', () => {
   it('сервер собирает адреса, ключи до клиента не доходят', () => {
     const q = read('lib/tours/tour-detail-query.ts');

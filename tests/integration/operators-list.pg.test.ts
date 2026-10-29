@@ -542,6 +542,38 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(operatorPagePath({ slug: card!.tour.operator_slug, is_public: card!.tour.operator_public })).toBe('/operators/andrey-zaporozhets');
     });
 
+    it('клипы Курильского (1340): шесть по порядку у обоих туров Курильского, у прочих туров гида — нет; повтор не затирает', async () => {
+      const { parseTourClips } = await import('@/lib/tours/tour-clips');
+      const BASE = 'https://s3.example/bucket';
+      const clipsOf = async (slug: string) => (await pool.query<{ video_clips: unknown }>(
+        `SELECT video_clips FROM operator_tours WHERE slug = $1`, [slug],
+      )).rows[0]?.video_clips;
+      const LABELS = [
+        'Медведь поймал рыбу', 'Кутхины Баты: пемзовые столбы', 'Медвежата возятся у коряги',
+        'Тюлени на песчаной косе', 'Красная рыба в прозрачной воде', 'Два медведя на галечном берегу',
+      ];
+      for (const slug of ['zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya']) {
+        const clips = parseTourClips(await clipsOf(slug), BASE);
+        expect(clips.map((c) => c.label), slug).toEqual(LABELS);
+        expect(clips[0]).toEqual({
+          url: `${BASE}/videos/zaporozhets/clip-bear-fish.mp4`,
+          poster: `${BASE}/videos/zaporozhets/clip-bear-fish.poster.jpg`,
+          label: 'Медведь поймал рыбу',
+        });
+      }
+      for (const slug of ['zaporozhets-tolbachik-4-dnya', 'zaporozhets-vulkan-gorelyy', 'zaporozhets-kanyon-opasnyy-dachnye']) {
+        expect(await clipsOf(slug), slug).toEqual([]);
+      }
+      // Свой выбор гида миграция не трогает: повтор с непустым списком — без изменений.
+      const own = [{ key: 'videos/zaporozhets/own.mp4', poster: 'videos/zaporozhets/own.poster.jpg', label: 'Свой клип' }];
+      await pool.query(`UPDATE operator_tours SET video_clips = $1::jsonb WHERE slug = 'zaporozhets-kurilskoe-ozero-3-dnya'`, [JSON.stringify(own)]);
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      await pool.query(readFileSync(join(process.cwd(), 'migrations/1340_guide_kurile_lake_clips.sql'), 'utf8'));
+      expect(await clipsOf('zaporozhets-kurilskoe-ozero-3-dnya')).toEqual(own);
+      expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE)).toHaveLength(6);
+    });
+
     it('выезды гида: Курильское и Толбачик — его даты по 4 места; Горелый — сезон без ежедневных мест; черновики не видны', async () => {
       const { GET } = await import('@/app/api/tours/[id]/slots/route');
       const { NextRequest } = await import('next/server');
