@@ -310,7 +310,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   каталог домена (AI Catalog, application/ai-catalog+json): ${BASE}/.well-known/ai-catalog.json
 - Страница о сервере (HTML): ${BASE}/mcp
 - Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
-  занятость по датам (get_tour_availability), обстановка и безопасность
+  занятость по датам (get_tour_availability), сравнение 2–4 туров (compare_tours —
+  факты из базы рядом, без оценок), обстановка и безопасность
   (safety_status, get_guardian_context), погода, жильё, снаряжение,
   трансферы (search_transfers — прайс машины целиком, не места), прокат машин
   без водителя (search_car_rental — цена за сутки за машину, залог), план поездки (make_trip_plan) и его правка по ID (edit_trip_plan)

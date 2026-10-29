@@ -2648,6 +2648,12 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       const { getTourAvailabilityForKuzmich } = await import('@/lib/kuzmich/tour-availability-tool');
       return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days, people: args.people });
     }
+    if (name === 'compare_tours') {
+      // 2–4 тура рядом по тому, что важно человеку (слово владельца 29.10) —
+      // lib/kuzmich/tour-compare-tool: тот же резолвер и шлюз, что у деталей.
+      const { compareToursForKuzmich } = await import('@/lib/kuzmich/tour-compare-tool');
+      return await compareToursForKuzmich({ tours: args.tours, criteria: args.criteria, people: args.people });
+    }
     return 'Неизвестный инструмент.';
   } catch (err) {
     // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
@@ -2680,11 +2686,17 @@ export { executeTool as executeKuzmichTool };
  */
 const TOOL_OUTPUT_KEEP = 2000;
 const PLACE_TOOL_OUTPUT_KEEP = 12_000;
-const PLACE_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info']);
+/**
+ * Сравнение туров (compare_tours) — тем же потолком, что место: четыре тура
+ * по семи строкам — 3–5 тысяч знаков, а цены и даты стоят по всему ответу.
+ * Обрезок на двух тысячах судья эвала и сверка цен назвали бы выдумкой
+ * настоящие цифры второго тура.
+ */
+const LONG_OUTPUT_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info', 'compare_tours']);
 
 /** Вывод инструмента для журнала вызовов — с потолком по роду инструмента. */
 export function journalToolOutput(name: string, content: string): string {
-  return content.slice(0, PLACE_TOOLS.has(name) ? PLACE_TOOL_OUTPUT_KEEP : TOOL_OUTPUT_KEEP);
+  return content.slice(0, LONG_OUTPUT_TOOLS.has(name) ? PLACE_TOOL_OUTPUT_KEEP : TOOL_OUTPUT_KEEP);
 }
 
 export async function aiChatAgentLoop(

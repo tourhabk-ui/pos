@@ -331,56 +331,37 @@ const checkAvailability: SDKTool = {
 
 // ── Compare Tours ─────────────────────────────────────────────────
 
+/**
+ * Сравнение — то же ядро, что у Кузьмича и MCP (lib/kuzmich/tour-compare-tool),
+ * а не своя копия. Прежняя копия здесь печатала «null руб.» у тура без цены,
+ * выдумывала «1 дн.» длительности (COALESCE(..., 1)), брала устаревшую
+ * available_slots, рейтинг, порядок из SQL и молча выбрасывала снятый тур —
+ * второе правило сравнения тех же туров на том же сайте (29.10).
+ */
 const compareTours: SDKTool = {
   name: 'compare_tours',
-  description: 'Сравнить 2-3 тура по цене, продолжительности, сложности, рейтингу.',
+  description: 'Сравнить 2–4 тура фактами из базы рядом: цена (с числом людей — итог тем же расчётом, что заявка), длительность, даты, что входит, условия отмены, как попасть на тур, оператор. Без оценок и рейтинга: порядок — как назвал турист, выбирает он.',
   parameters: {
     type: 'object',
     properties: {
-      tour_ids: { type: 'string', description: 'ID туров через запятую (например "12,34,56")' },
+      tour_ids: { type: 'string', description: 'ID туров через запятую в порядке, как назвал турист (например "12,34")' },
+      criteria: { type: 'string', description: 'Что важно туристу, через запятую: цена, длительность, группа, сложность, сезон, программа, что входит, что не входит, отмена, подвоз, оператор, ближайшая дата' },
+      people: { type: 'string', description: 'Сколько человек (1–30) — для итога за всех' },
     },
     required: ['tour_ids'],
   },
   execute: async (args) => {
-    const ids = String(args.tour_ids).split(',').map(s => Number(s.trim())).filter(n => n > 0).slice(0, 3);
-    if (ids.length < 2) return JSON.stringify({ error: 'Нужно минимум 2 ID тура для сравнения' });
-
     try {
-      const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-      const result = await pool.query(`
-        SELECT t.id, t.title, t.base_price,
-               ${DURATION_EXPR} AS duration_days,
-               t.difficulty, t.activity_type, t.location_name,
-               t.included, t.available_slots,
-               COALESCE(p.company_name, p.name) AS operator_name,
-               -- Та же замена, что в search_tours выше: подзапрос к старой
-               -- reviews (uuid против bigint, 42883) ронял всё сравнение.
-               t.rating AS avg_rating,
-               t.review_count AS review_count
-        FROM operator_tours t
-        JOIN partners p ON p.id = t.operator_id
-        WHERE t.id IN (${placeholders}) AND ${ON_SHOWCASE}
-      `, ids);
-
-      return JSON.stringify({
-        comparison: result.rows.map((t: Record<string, unknown>) => ({
-          id: t.id,
-          title: t.title,
-          price: `${t.base_price} руб.`,
-          duration: `${t.duration_days} дн.`,
-          difficulty: t.difficulty,
-          activity: t.activity_type,
-          location: t.location_name,
-          operator: t.operator_name,
-          capacity_hint: t.available_slots ?? 'уточните',
-          free_places: 'не проверено — спроси check_availability',
-          rating: t.avg_rating ? `${t.avg_rating}/5 (${t.review_count})` : 'нет отзывов',
-          included: t.included,
-        })),
+      const { compareToursForKuzmich } = await import('@/lib/kuzmich/tour-compare-tool');
+      const comparison = await compareToursForKuzmich({
+        tours: String(args.tour_ids ?? ''),
+        ...(args.criteria != null ? { criteria: String(args.criteria) } : {}),
+        ...(args.people != null ? { people: String(args.people) } : {}),
       });
+      return JSON.stringify({ comparison });
     } catch (err) {
       logSwallowedFailure('tourist-tools', 'сравнение туров', err);
-      return JSON.stringify({ error: 'Ошибка сравнения' });
+      return JSON.stringify({ error: 'Сравнение не собрано: туры не прочитались. Не сравнивай по памяти — скажи, что проверить не смог.' });
     }
   },
 };

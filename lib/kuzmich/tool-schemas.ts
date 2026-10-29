@@ -19,6 +19,7 @@
 
 import { z } from 'zod';
 import type { ToolDefinition } from '@/lib/ai/providers';
+import { COMPARE_MAX_TOURS, COMPARE_MIN_TOURS, splitTourList } from '@/lib/tours/compare-input';
 
 /**
  * Строковое поле: допускает нестроковый JSON (число/bool → String(...)),
@@ -218,6 +219,42 @@ const getTourAvailabilitySchema = z.object({
   people: v.people,
 }))
   .refine(v => !!v.tour, { message: 'нужно указать tour (название, ключевое слово или ID тура)' });
+
+// ── compare_tours ─────────────────────────────────────────────────────────
+// 2–4 тура рядом по тому, что важно человеку (слово владельца 29.10).
+// Синонимы: tour_ids — имя поля у SDK-инструмента сравнения, его агенты
+// угадывают первым; ids и tour_list — по образцу TOUR_ALIASES.
+const COMPARE_TOURS_ALIASES = ['tour_ids', 'ids', 'tour_list'] as const;
+
+/**
+ * Список строкой. Массив (агент передал [61, 70]) сохраняется как «61; 70»:
+ * признак списка не теряется (как у agesString). Не обрезается: обрезка
+ * молча потеряла бы тур — длиннее предела отказ схемы.
+ */
+function listString(max: number) {
+  return z.preprocess(
+    (v) => {
+      if (v === undefined || v === null) return v;
+      if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean).join('; ');
+      return String(v).trim();
+    },
+    z.string().min(1).max(max),
+  );
+}
+
+const compareToursSchema = z.object({
+  tours: listString(600).optional(),
+  ...Object.fromEntries(COMPARE_TOURS_ALIASES.map((n) => [n, listString(600).optional()])) as Record<string, z.ZodOptional<ReturnType<typeof listString>>>,
+  criteria: listString(300).optional(),
+  people: looseString(10).optional(),
+}).transform((v) => ({
+  tours: firstOf(v, ['tours', ...COMPARE_TOURS_ALIASES]),
+  ...(v.criteria ? { criteria: v.criteria as string } : {}),
+  ...(v.people ? { people: v.people as string } : {}),
+}))
+  .refine((v) => !!v.tours, { message: 'нужно указать tours: 2–4 тура номерами через запятую («61, 70») или названиями через «;»' })
+  .refine((v) => !v.tours || splitTourList(v.tours).length >= COMPARE_MIN_TOURS, { message: 'назван один тур — для сравнения нужно 2–4: номера через запятую («61, 70») или названия через «;»' })
+  .refine((v) => !v.tours || splitTourList(v.tours).length <= COMPARE_MAX_TOURS, { message: 'сравниваю не больше 4 туров за раз — выбери с человеком четыре' });
 
 // ── search_taaft ──────────────────────────────────────────────────────────
 // executeTool принимает `task` ИЛИ `query` (args.task ?? args.query).
@@ -544,6 +581,25 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: getTourAvailabilitySchema,
+  },
+  compare_tours: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'compare_tours',
+        description: 'Разложить рядом 2–4 КОНКРЕТНЫХ тура по тому, что важно человеку, — фактами из базы, строкой на каждый тур: цена (с числом людей — итог тем же расчётом, что у get_tour_availability), длительность, группа, сложность, сезон, программа, что входит и не входит, условия отмены, как попасть на тур, оператор и его проверка, ближайшая свободная дата. Туры — номерами через запятую (надёжнее) или названиями через «;»; порядок туров в ответе — как их назвал человек. Оценок нет: у строки только «одинаково», «отличается» или «не сравнить» (у кого-то не записано); лучший тур не называй — выбирает человек. Название подходит турам разных компаний или это имя продавца — сравнения нет, в ответе номера: спроси человека. Тур не с витрины в сравнение не берётся.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tours: { type: 'string', description: 'Два–четыре тура в том порядке, как назвал человек: номера через запятую («61, 70») — надёжнее; названия — через «;». Номера — из get_tours, get_place_info, get_tour_details.' },
+            criteria: { type: 'string', description: 'Что важно человеку, через запятую: цена, длительность, группа, сложность, сезон, программа, что входит, что не входит, отмена, подвоз, оператор, ближайшая дата. Не сказано — короткий набор: цена, длительность, ближайшая дата, сложность, подвоз, отмена, оператор.' },
+            people: { type: 'string', description: 'Сколько человек (1–30). Дано — в строке «цена» итог за всех тем же расчётом, что у get_tour_availability, на названную дату; в строке «ближайшая дата» — первая дата, где мест хватит на всех.' },
+          },
+          required: ['tours'],
+        },
+      },
+    },
+    schema: compareToursSchema,
   },
   search_taaft: {
     definition: {

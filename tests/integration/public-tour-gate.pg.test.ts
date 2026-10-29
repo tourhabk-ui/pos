@@ -186,8 +186,17 @@ withPg('витрина туров: снятый тур не в плане и н�
     }
     expect((await run('get_tour_details', { tour_id: id.live })).title).toBe('W2PT тур live');
 
+    // Сравнение — общее ядро compare_tours (29.10): снятые названы «не найден
+    // среди активных», а не выброшены молча; одного живого сравнивать не с чем.
     const cmp = await run('compare_tours', { tour_ids: [id.live, id.deleted, id.inactive].join(',') });
-    expect((cmp.comparison as { id: string | number }[]).map((t) => String(t.id))).toEqual([id.live]);
+    const text = String(cmp.comparison);
+    expect(text).toMatch(new RegExp(`^Сравнивать нечего: на витрине из названных остался один тур \\(ID${id.live}\\)`));
+    for (const h of [id.deleted, id.inactive]) expect(text).toContain(`Тур по запросу "${h}" не найден среди активных — в сравнение не взят.`);
+    expect(text).not.toMatch(/W2PT тур (deleted|inactive)/);
+    const two = String((await run('compare_tours', { tour_ids: `${id.live2},${id.unpublished},${id.live}` })).comparison);
+    expect(two).toMatch(new RegExp(`^Сравнение 2 туров[^\\n]*\\n1\\. ID${id.live2} «W2PT тур live2»[^\\n]*\\n2\\. ID${id.live} «W2PT тур live»`));
+    expect(two).toContain(`Тур по запросу "${id.unpublished}" не найден среди активных — в сравнение не взят.`);
+    expect(two).not.toContain('W2PT тур unpublished');
   });
 
   it('каталог и его сводка после снятия второго канона: те же два живых тура', async () => {
@@ -925,6 +934,92 @@ withPg('витрина туров: снятый тур не в плане и н�
       // Каждое слово места, а не любое: «Пробный перевал» — не «Пробный».
       const twoWords = await executeKuzmichTool('search_transfers', { place: `${PLACE} перевал` });
       expect([...twoWords.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => x === linkedId || all.includes(x))).toEqual([]);
+
+      // ── compare_tours: 2–4 тура рядом фактами из базы (слово владельца 29.10) ──
+      // Подготовка — после всех проверок выше, чтобы их не задеть. У Альфы
+      // записаны условия отмены текстом и числами, программа и подвоз; у
+      // Беты (tourIds[4], дата +2 на 6 мест) — ступень цены 2–4 чел. по 1500:
+      // без неё подмена итога на base_price × people не отличалась бы от
+      // честного расчёта. У Гаммы цены, условий и программы нет, и компания
+      // без отметки «проверен».
+      await pool.query(
+        `UPDATE operator_tours SET cancellation_policy = 'Бесплатно за 3 дня', cancellation_free_days = 3,
+                cancellation_late_refund_percent = 50, program = $2::jsonb, pickup_type = 'hotel_pickup',
+                pickup_details = 'Из гостиниц Петропавловска'
+          WHERE id::text = $1`,
+        [tourIds[0], JSON.stringify([{ title: 'Дорога к вулкану', text: 'Выезд утром' }, { title: 'Восхождение', text: 'Три часа' }])],
+      );
+      await pool.query(
+        `INSERT INTO tour_price_tiers (operator_tour_id, min_people, max_people, price_per_person) VALUES ($1, 2, 4, 1500)`,
+        [tourIds[4]],
+      );
+      await pool.query(
+        `UPDATE operator_tours SET base_price = NULL, cancellation_policy = NULL, cancellation_free_days = NULL,
+                cancellation_late_refund_percent = NULL, program = NULL
+          WHERE id::text = $1`,
+        [tourIds[6]],
+      );
+      await pool.query(`UPDATE partners SET is_verified = FALSE WHERE id = $1`, [companies[2].id]);
+      const cmp = (args: Record<string, string>, surface?: 'mcp') =>
+        executeKuzmichTool('compare_tours', args, surface ? { surface } : {});
+      const headIds = (text: string) => [...text.matchAll(/^\d\. ID(\d+) /gm)].map((m) => m[1]);
+
+      // Порядок туров — как назвал человек, а не цена, номер или жребий.
+      expect(headIds(await cmp({ tours: `${tourIds[6]}, ${tourIds[0]}` }))).toEqual([tourIds[6], tourIds[0]]);
+      expect(headIds(await cmp({ tours: `${tourIds[0]}, ${tourIds[6]}` }))).toEqual([tourIds[0], tourIds[6]]);
+
+      // Итог за людей — тем же расчётом и на ту же дату, что первая строка
+      // get_tour_availability с people; ступень цены делает его не равным
+      // base_price × 2.
+      const avail = await executeKuzmichTool('get_tour_availability', { tour: tourIds[4], people: '2' });
+      const firstSlot = /^- \d\d\.\d\d \((\d{4}-\d{2}-\d{2})\): [^\n]*итого за 2 чел\.: ([^\n]+ ₽)$/m.exec(avail);
+      expect(firstSlot, avail).not.toBeNull();
+      const { longDay } = await import('@/lib/tours/request-window');
+      const priced = await cmp({ tours: `${tourIds[4]}, ${tourIds[0]}`, criteria: 'цена', people: '2' });
+      expect(priced).toContain(`- ID${tourIds[4]}: итого за 2 чел.: ${firstSlot![2]} — на ${longDay(firstSlot![1])} (первая дата, где мест хватит на 2 чел.)`);
+      const base4 = Number((await pool.query<{ p: string }>(`SELECT base_price::text AS p FROM operator_tours WHERE id::text = $1`, [tourIds[4]])).rows[0].p);
+      expect(firstSlot![2]).not.toBe(`${(base4 * 2).toLocaleString('ru-RU')} ₽`);
+      // Тур без календаря — на первую дату заявки, и это названо.
+      expect(priced).toMatch(new RegExp(`- ID${tourIds[0]}: итого за 2 чел\\.: 4\u00a0000 ₽ — на [^(]+\\(первая дата для заявки; расписания нет\\)`));
+
+      // «Не записано» вместо нуля и выдумки; проверка оператора — из partners.
+      const facts = await cmp({ tours: `${tourIds[0]}, ${tourIds[6]}`, criteria: 'цена, отмена, программа, оператор' });
+      expect(facts).toContain(`- ID${tourIds[6]}: цена не указана`);
+      expect(facts).not.toMatch(/(^|[^\d\u00a0])0 ₽/m);
+      expect(facts).toContain(`- ID${tourIds[6]}: условия отмены не записаны`);
+      expect(facts).not.toMatch(/вернём всю сумму/);
+      expect(facts).toContain(`- ID${tourIds[6]}: программа по дням не записана`);
+      expect(facts).toContain(`- ID${tourIds[0]}: записана: 2 пункта — Дорога к вулкану; Восхождение`);
+      expect(facts).toContain(`- ID${tourIds[0]}: текст тура: «Бесплатно за 3 дня»; числами: Бесплатная отмена не позднее чем за 3 дня до тура, позже возвращается 50%.`);
+      expect(facts).toContain(`- ID${tourIds[0]}: ${companies[0].name} — проверен платформой`);
+      expect(facts).toContain(`- ID${tourIds[6]}: ${companies[2].name} — отметки «проверен платформой» нет`);
+      expect(facts).not.toMatch(/лучш|дешевл|дороже|рекоменд|рейтинг|балл/i);
+
+      // Витрина: черновик и удалённый не сравниваются и названы словами соседей.
+      const gate = await cmp({ tours: `${tourIds[0]}, ${id.unpublished}, ${id.deleted}, ${tourIds[3]}` });
+      expect(headIds(gate)).toEqual([tourIds[0], tourIds[3]]);
+      for (const h of [id.unpublished, id.deleted]) expect(gate).toContain(`Тур по запросу "${h}" не найден среди активных — в сравнение не взят.`);
+      expect(gate).not.toMatch(/W2PT тур (unpublished|deleted)/);
+      expect(await cmp({ tours: `${tourIds[0]}, ${id.inactive}` })).toMatch(/^Сравнивать нечего: на витрине из названных остался один тур/);
+
+      // Неоднозначное имя — сравнения нет, номера туров разных компаний.
+      const amb = await cmp({ tours: `W2PT ${PLACE}; ${tourIds[0]}` });
+      expect(amb).toMatch(/сравнение не собрано/);
+      const listed = [...amb.matchAll(/^- ID(\d+) /gm)].map((m) => m[1]);
+      const ops = (await pool.query<{ op: string }>(
+        `SELECT DISTINCT operator_id::text AS op FROM operator_tours WHERE id::text = ANY($1::text[])`, [listed],
+      )).rows;
+      expect(ops.length).toBeGreaterThanOrEqual(2);
+      expect(amb).not.toMatch(/^Цена/m);
+
+      // Один тур дважды — один раз; двух разных нет — сравнивать нечего.
+      const dup = await cmp({ tours: `${tourIds[0]}; ID${tourIds[0]}` });
+      expect(dup).toContain(`один и тот же тур ID${tourIds[0]}; в сравнении он один раз.`);
+      expect(dup).toMatch(/^Сравнивать нечего/);
+
+      // MCP — тот же исполнитель и тот же текст.
+      const chatText = await cmp({ tours: `${tourIds[6]}, ${tourIds[0]}`, criteria: 'отмена, оператор' });
+      expect(await cmp({ tours: `${tourIds[6]}, ${tourIds[0]}`, criteria: 'отмена, оператор' }, 'mcp')).toBe(chatText);
     } finally {
       vi.useRealTimers();
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id::text = ANY($1::text[])`, [[tourIds[4], farId]]);

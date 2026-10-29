@@ -479,6 +479,42 @@
   {
     "type": "function",
     "function": {
+      "name": "compare_tours",
+      "description": "Side-by-side facts for 2-4 Kamchatka tours on what the user cares about: price or group total, duration, dates, inclusions, cancellation, pickup, operator. No ranking; one tour: get_tour_details. Разложить рядом 2–4 КОНКРЕТНЫХ тура по тому, что важно человеку, — фактами из базы, строкой на каждый тур: цена (с числом людей — итог тем же расчётом, что у get_tour_availability), длительность, группа, сложность, сезон, программа, что входит и не входит, условия отмены, как попасть на тур, оператор и его проверка, ближайшая свободная дата. Туры — номерами через запятую (надёжнее) или названиями через «;»; порядок туров в ответе — как их назвал человек. Оценок нет: у строки только «одинаково», «отличается» или «не сравнить» (у кого-то не записано); лучший тур не называй — выбирает человек. Название подходит турам разных компаний или это имя продавца — сравнения нет, в ответе номера: спроси человека. Тур не с витрины в сравнение не берётся.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tours": {
+            "type": "string",
+            "description": "Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable) or titles separated by semicolons. Два–четыре тура в том порядке, как назвал человек: номера через запятую («61, 70») — надёжнее; названия — через «;». Номера — из get_tours, get_place_info, get_tour_details.",
+            "examples": [
+              "61, 70"
+            ]
+          },
+          "criteria": {
+            "type": "string",
+            "description": "What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty means a short default set. Что важно человеку, через запятую: цена, длительность, группа, сложность, сезон, программа, что входит, что не входит, отмена, подвоз, оператор, ближайшая дата. Не сказано — короткий набор: цена, длительность, ближайшая дата, сложность, подвоз, отмена, оператор.",
+            "examples": [
+              "цена, отмена"
+            ]
+          },
+          "people": {
+            "type": "string",
+            "description": "Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, on a named date. Сколько человек (1–30). Дано — в строке «цена» итог за всех тем же расчётом, что у get_tour_availability, на названную дату; в строке «ближайшая дата» — первая дата, где мест хватит на всех.",
+            "examples": [
+              "2"
+            ]
+          }
+        },
+        "required": [
+          "tours"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "search",
       "description": "Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability. Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status.",
       "parameters": {
