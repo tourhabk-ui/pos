@@ -55,6 +55,8 @@ import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
+import { maxBot } from '@/lib/partners/channel-link';
+import { stayGuestBotLink } from '@/lib/stay/stay-chat';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
@@ -156,7 +158,8 @@ export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'
     return key
       ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка (без имени и телефона).`
         + ' Ответ владелец даёт звонком или сообщением на странице заявки; текст переписки get_request_status не отдаёт.'
-        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья, переписывается с владельцем и может подключить MAX, чтобы ответы приходили туда.`
+        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья и переписывается с владельцем.`
+        + ` Чтобы ответы владельца приходили человеку в MAX, дайте ему и эту ссылку: ${stayGuestBotLink(maxBot(), key)}.`
         + ' Ключ и ссылку не публикуйте.'
       : ' Ключ статуса заявки не выдан (сбой записи ключа): исход знает только владелец, телефон — на карточке объекта.';
   }
@@ -189,6 +192,11 @@ export interface RequestStatusView {
   consent_purpose: ConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
+  /** Заявка на жильё: сколько сообщений владелец написал в переписке (1348); у других — null. Текста нет. */
+  owner_replies: number | null;
+  owner_last_reply_at: string | null;
+  /** Заявка на жильё: ссылка подключить MAX гостя; null — подключён или заявка не на жильё. */
+  max_link: string | null;
 }
 
 interface StatusRow {
@@ -224,6 +232,9 @@ interface StatusRow {
   stay_delivery_recorded_at: Date | string | null;
   stay_consent_at: Date | string | null;
   stay_consent_source: string | null;
+  stay_owner_replies: number | null;
+  stay_owner_last_at: Date | string | null;
+  stay_guest_on_max: boolean | null;
 }
 
 /** Лид: сначала бронь по нему (если оператор уже завёл), иначе статус самого лида. */
@@ -359,7 +370,9 @@ export const REQUEST_STATUS_SQL = `
          s.check_in_date::text AS stay_check_in, s.check_out_date::text AS stay_check_out, s.guests AS stay_guests,
          s.owner_channel AS stay_owner_channel, s.platform_channel AS stay_platform_channel,
          s.delivery_recorded_at AS stay_delivery_recorded_at,
-         s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source
+         s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source,
+         sm.n AS stay_owner_replies, sm.last_at AS stay_owner_last_at,
+         (s.guest_max_chat_id IS NOT NULL) AS stay_guest_on_max
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
     LEFT JOIN LATERAL (
@@ -373,7 +386,12 @@ export const REQUEST_STATUS_SQL = `
     LEFT JOIN tour_seat_requests r ON r.id = k.seat_request_id
     LEFT JOIN operator_tours st ON st.id = r.tour_id
     LEFT JOIN stay_requests s ON s.id = k.stay_request_id
-    LEFT JOIN accommodations a ON a.id = s.accommodation_id`;
+    LEFT JOIN accommodations a ON a.id = s.accommodation_id
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS n, max(m.created_at) AS last_at
+        FROM stay_request_messages m
+       WHERE m.stay_request_id = s.id AND m.author = 'owner'
+    ) sm ON k.stay_request_id IS NOT NULL`;
 
 export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {
   const key = readKey(rawKey);
@@ -396,6 +414,8 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     const exists = row.stay_accommodation_id !== null;
     const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
     const state = exists ? stayState(delivery) : 'unknown';
+    // Переписка (1348): сколько написал владелец — без текста.
+    const replies = Number(row.stay_owner_replies ?? 0);
     return {
       state,
       kind: 'stay_request',
@@ -407,11 +427,18 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
       participants: row.stay_guests,
       alt_date: null,
       deadline: null,
-      human: exists ? STAY_HUMAN[delivery] : HUMAN.unknown,
-      next: exists ? STAY_NEXT[delivery] : NEXT.unknown,
+      human: !exists ? HUMAN.unknown
+        : replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+        : STAY_HUMAN[delivery],
+      next: !exists ? NEXT.unknown
+        : replies > 0 ? 'Дайте человеку страницу заявки (page): там ответ владельца, и ответить ему можно там же или в MAX (max_link).'
+        : STAY_NEXT[delivery],
       consent: consentBy(row.stay_consent_source, row.stay_consent_at),
       consent_purpose,
       page: requestStatusPageUrl(key),
+      owner_replies: exists ? replies : null,
+      owner_last_reply_at: exists ? iso(row.stay_owner_last_at) : null,
+      max_link: exists && row.stay_guest_on_max !== true ? stayGuestBotLink(maxBot(), key) : null,
     };
   }
 
@@ -434,6 +461,9 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
       consent: consentBy(row.seat_consent_source, row.seat_consent_at),
       consent_purpose,
       page: requestStatusPageUrl(key),
+      owner_replies: null,
+      owner_last_reply_at: null,
+      max_link: null,
     };
   }
 
@@ -456,6 +486,9 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     consent: consentBy(row.lead_consent_source, row.lead_consent_at),
     consent_purpose,
     page: requestStatusPageUrl(key),
+    owner_replies: null,
+    owner_last_reply_at: null,
+    max_link: null,
   };
 }
 

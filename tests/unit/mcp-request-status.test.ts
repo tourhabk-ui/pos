@@ -189,7 +189,7 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'next', 'page', 'participants', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'owner_last_reply_at', 'owner_replies', 'page', 'participants', 'state', 'tour',
     ]);
     // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.
     expect(Object.keys(obj).sort()).toEqual(Object.keys(GET_REQUEST_STATUS_TOOL.outputSchema.properties).sort());
@@ -201,6 +201,8 @@ describe('чтение состояния', () => {
   it('заявке на жильё SQL не берёт ни имени гостя, ни телефона, ни комментария', () => {
     expect(REQUEST_STATUS_SQL).not.toMatch(/\bs\.(guest_name|guest_phone|comment|pd_consent_ip)\b/);
     expect(REQUEST_STATUS_SQL).not.toMatch(/\ba\.(contact_phone|contact_email)\b/);
+    // Переписка (1348): только число и время сообщений владельца, текста нет.
+    expect(REQUEST_STATUS_SQL).not.toMatch(/\bbody\b/);
   });
 
   it('база не ответила — исключение с SQLSTATE в логе, не «ждёт оператора»', async () => {

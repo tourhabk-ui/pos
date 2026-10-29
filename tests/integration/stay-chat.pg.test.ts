@@ -189,6 +189,17 @@ withPg('переписка по заявке на жильё на настоящ
     ]);
   });
 
+  it('статус для помощника (MCP, A2A): владелец ответил, текста нет, есть ссылка подключить MAX', async () => {
+    const { readRequestStatus } = await import('@/lib/mcp/request-status');
+    const v = await readRequestStatus(key);
+    expect(v.owner_replies).toBe(1);
+    expect(v.owner_last_reply_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(v.max_link).toMatch(new RegExp(`\\?start=sq_${key}$`));
+    expect(v.human).toMatch(/Владелец уже ответил/);
+    expect(JSON.stringify(v)).not.toContain('ждём с 12:00');
+    expect(JSON.stringify(v)).not.toContain('Можно заехать');
+  });
+
   it('«Входящие»: после ответа хозяина заявка не ждёт', async () => {
     const { INBOX_SQL } = await import('@/lib/crm/inbox-sql');
     const r = await pool.query(INBOX_SQL.stay_request, [partnerId, new Date(Date.now() - 7 * 86400_000)]);
@@ -205,6 +216,11 @@ withPg('переписка по заявке на жильё на настоящ
     expect(again[0].text).toMatch(/уже подключён другой чат/);
     const row = await pool.query(`SELECT guest_max_chat_id::text AS c FROM stay_requests WHERE id = $1`, [requestId]);
     expect(row.rows[0].c).toBe(String(GUEST_CHAT));
+  });
+
+  it('после подключения MAX статус ссылку подключения не даёт', async () => {
+    const { readRequestStatus } = await import('@/lib/mcp/request-status');
+    expect((await readRequestStatus(key)).max_link).toBeNull();
   });
 
   it('ответ хозяина уходит в MAX гостя с кнопкой «Написать владельцу»', async () => {
