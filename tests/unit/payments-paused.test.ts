@@ -76,6 +76,10 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     'app/seat-request/answer/[id]/_OperatorAnswerClient.tsx',
     'lib/bookings/owner-status.ts',
     'app/p/[code]/_SelectionClient.tsx',
+    // Инструкция хосту в рукопожатии MCP (29.10): правило оплаты тура — по
+    // выключателю; машина, прокат и жильё — безусловно (сторож
+    // mcp-server-instructions держит оба положения вызовом).
+    'lib/mcp/server-instructions.ts',
   ])('%s говорит о платеже по выключателю, а не безусловно', (f) => {
     expect(read(f)).toMatch(/platformAcceptsPayments\(\)/);
   });

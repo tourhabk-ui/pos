@@ -22,6 +22,7 @@ import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU, MCP_TRANSPORT_SPELLINGS } from '@/lib/mcp/connect';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { CopyButton } from '@/components/mcp/CopyButton';
 
@@ -382,6 +383,18 @@ export default function McpLandingPage() {
               </pre>
               <pre className="text-xs whitespace-pre-wrap rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
                 {MCP_SYSTEM_PROMPT_LINE_RU}
+              </pre>
+            </div>
+            {/* Правила, которые сервер сам отдаёт в рукопожатии: строку выше
+                вставляет человек, этот текст хост получает без него. Один
+                источник — lib/mcp/server-instructions.ts. */}
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Правила работы с инструментами сервер отдаёт сам — в ответе <code>initialize</code>, поле{' '}
+              <code>instructions</code>; хост может положить их в контекст модели:
+            </p>
+            <div className="ds-card p-4" data-server-instructions>
+              <pre className="text-xs whitespace-pre-wrap rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
+                {SERVER_INSTRUCTIONS}
               </pre>
             </div>
           </section>

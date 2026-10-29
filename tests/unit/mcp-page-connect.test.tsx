@@ -23,6 +23,7 @@ import { MCP_CONNECT_OPTIONS, MCP_TRANSPORT_SPELLINGS, MCP_ENDPOINT } from '@/li
 import { MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, CLIENT_WINDOW_MINUTES } from '@/lib/mcp/write-limits';
 import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 
 function page() {
   return render(McpLandingPage());
@@ -107,5 +108,18 @@ describe('/mcp: уведомления об изменении заявки (29.
     expect(text).toContain(NOTIFY_RESPONSE_RULES);
     expect(text).toMatch(/У заявки на жильё уведомлений нет/);
     expect(text).not.toMatch(/create_stay_request/);
+  });
+});
+
+describe('/mcp: правила сервера рядом со строкой системного промпта (29.10)', () => {
+  it('тот же текст, что в initialize, — в разделе «Строка для системного промпта», а не вторым блоком', () => {
+    const { container } = page();
+    const block = container.querySelector('[data-server-instructions]');
+    expect(block).not.toBeNull();
+    expect(block!.querySelector('pre')!.textContent).toBe(SERVER_INSTRUCTIONS);
+    const section = block!.closest('section');
+    expect(section!.querySelector('h2')!.textContent).toBe('Строка для системного промпта');
+    expect(section!.textContent).toMatch(/initialize.*instructions/);
+    expect(container.querySelectorAll('[data-server-instructions]')).toHaveLength(1);
   });
 });
