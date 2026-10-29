@@ -1,14 +1,14 @@
 {
   "timeout": 30,
-  "run": 1009,
-  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Последнее международное сообщение PTWC для Тихого океана (WEPA40) в JSON и тексте — образец для разбора таблицы прихода волны.",
+  "run": 1010,
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Образец угрозы PTWC с таблицей прихода волны по пунктам края: сообщения о землетрясении M8.8 у Камчатки 29.07.2025 (номер события по образцу 26297000 — ГГ+день года+000).",
   "urls": [
-    "https://www.tsunami.gov/events/json/PHEBWEPA40.json",
-    "https://www.tsunami.gov/events/xml/PHEBWEPA40.xml",
-    "https://www.tsunami.gov/events/json/PHEBWEPA40.txt"
+    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/1/WEPA40/WEPA40.txt",
+    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/3/WEPA40/WEPA40.txt",
+    "https://www.tsunami.gov/events/PHEB/2025/07/29/25210000/1/WEPA40/PHEB.json"
   ],
   "allowStale": true,
-  "retries": 1,
+  "retries": 0,
   "text": true,
-  "bytes": 9000
+  "bytes": 12000
 }
