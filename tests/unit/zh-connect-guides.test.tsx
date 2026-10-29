@@ -19,6 +19,8 @@ import { join } from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, within, screen } from '@testing-library/react';
 
+// Курс ЦБ (≈ ¥ у цены) — без сети: страница ждала бы настоящий cbr.ru.
+vi.mock('@/lib/currency/cbr-rate', async (orig) => ({ ...(await orig<typeof import('@/lib/currency/cbr-rate')>()), loadCnyRate: async () => null }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 // /zh зовёт счётчик краулеров с User-Agent запроса (аудит 15.10, CN-quick).

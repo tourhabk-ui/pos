@@ -4,11 +4,12 @@
  */
 import Link from 'next/link';
 import { ZhTourList } from '@/components/zh/ZhTourList';
+import type { CbrRate } from '@/lib/currency/cbr-rate';
 import { HARBIN_PAGE, HARBIN_SOURCES } from '@/lib/zh/harbin';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import type { ZhTourRow } from '@/lib/zh/entry';
 
-export function HarbinFlight({ tours }: { tours: ZhTourRow[] | null }) {
+export function HarbinFlight({ tours, cny = null }: { tours: ZhTourRow[] | null; cny?: CbrRate | null }) {
   return (
     <article className="max-w-3xl mx-auto px-4 py-8 space-y-8" data-zh-harbin>
       <header className="space-y-3">
@@ -44,7 +45,7 @@ export function HarbinFlight({ tours }: { tours: ZhTourRow[] | null }) {
         ) : tours.length === 0 ? (
           <p className="ds-card p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>{HARBIN_PAGE.toursEmpty}</p>
         ) : (
-          <ZhTourList tours={tours} />
+          <ZhTourList tours={tours} cny={cny} />
         )}
       </section>
 
