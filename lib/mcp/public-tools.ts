@@ -262,7 +262,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours.' },
   get_tour_availability: { title: 'Tour availability',     lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.' },
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
-  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context.' },
+  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context.' },
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source and dates, plus elevated volcanoes (KVERT, KB GS RAS).' },
   get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
   get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
@@ -313,7 +313,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     tour: { lead: 'Tour title, keyword or numeric ID from get_tours.' },
     date_from: { lead: 'Start of the window, YYYY-MM-DD; default today.', example: '2027-07-15' },
     days: { lead: 'Window length in days, 1–31; default 14.', example: '14' },
-    people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses.', example: '2' },
+    people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them.', example: '2' },
   },
   get_guardian_context: {
     place: { lead: 'Place or route name.', example: 'Авачинский вулкан' },
@@ -357,7 +357,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
-    children: { lead: 'Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → "6, 10"; one child aged 2 → "2"; a baby under one year → "0". Ages decide which activities are allowed. No children — omit the field.', example: '6, 10' },
+    children: { lead: 'Age of each child in years — NOT a count: two children aged 6 and 10 → "6, 10" or "6 years, 10 years"; one child aged 2 → "2 years"; a baby under one → "0 years". A single bare number is ambiguous (one child\'s age or how many children?) and returns a refusal with no plan. The youngest age decides which activities are allowed: if you only know how many children, ask the person for each age. No children — omit the field.', example: '6, 10' },
     budget_tier: { lead: 'Budget level: economy, comfort or premium; default comfort.', example: 'economy' },
   },
   edit_trip_plan: {
@@ -523,6 +523,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.7.0',
+  version: '2.7.3',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
 } as const;
