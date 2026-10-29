@@ -19,6 +19,8 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { containsPattern } from '@/lib/db/like';
+import { linkContactQuietly } from '@/lib/crm/contacts';
+import { STAY_CHAT_BUTTON, stayChatPressPayload } from '@/lib/stay/stay-chat';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import {
   MAX_REQUEST_NIGHTS,
@@ -141,7 +143,10 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   let ownerReason = 'у хозяина нет подключённого MAX или Telegram';
   let ownerDelivered = false;
   if (obj.max_chat_id || obj.telegram_chat_id) {
-    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
+    // «Ответить гостю» — переписка в этом же чате (1349). Действие работает
+    // только в MAX: в Telegram-заглушку кнопка-действие не уходит (pd-alert).
+    const reply = { text: STAY_CHAT_BUTTON.owner, payload: stayChatPressPayload('owner', requestId) };
+    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [reply, card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
     ownerChannel = r.channel;
     ownerReason = r.reason;
     ownerDelivered = r.delivered;
@@ -159,6 +164,9 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   if (!adminRes.delivered) console.error(`[stay-request:${i.door}] ${requestId}: оператору не доставлено (${adminRes.channel}) — ${adminRes.reason}`);
 
   await recordStayDelivery(requestId, i.door, ownerChannel, ownerReason, adminRes.channel, adminRes.reason);
+  // Клиент CRM хозяина (1349): имя и телефон гостя хозяин получил в этом же
+  // сообщении. Отказ заявку не роняет — подберёт задел crm-contacts-sync.
+  await linkContactQuietly('stay_request', requestId);
 
   const delivered: StayRequestDelivery = ownerDelivered ? 'owner' : adminRes.delivered ? 'platform' : 'none';
   return { ok: true, delivered, accommodationName: obj.name, requestId };

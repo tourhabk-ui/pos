@@ -119,7 +119,7 @@ describe('выдача ключа', () => {
     expect(line).toContain(KEY);
     expect(line).toContain(requestStatusPageUrl(KEY));
     expect(line).toContain('владельцу жилья');
-    expect(line).toMatch(/платформа его не видит/);
+    expect(line).toMatch(/текст переписки get_request_status не отдаёт/);
     expect(line).not.toMatch(/ответил ли оператор|видит ответ оператора/);
     expect(keyLine(null, 'stay')).toMatch(/не выдан/);
     expect(keyLine(null, 'stay')).not.toMatch(/звонку оператора/);
@@ -191,7 +191,7 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'next', 'notify', 'page', 'participants', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'notify', 'owner_last_reply_at', 'owner_replies', 'page', 'participants', 'requested_date', 'state', 'tour',
     ]);
     // Подписки на уведомления не заводилось — null, а не выдуманная (1348).
     expect(obj.notify).toBeNull();
@@ -205,6 +205,8 @@ describe('чтение состояния', () => {
   it('заявке на жильё SQL не берёт ни имени гостя, ни телефона, ни комментария', () => {
     expect(REQUEST_STATUS_SQL).not.toMatch(/\bs\.(guest_name|guest_phone|comment|pd_consent_ip)\b/);
     expect(REQUEST_STATUS_SQL).not.toMatch(/\ba\.(contact_phone|contact_email)\b/);
+    // Переписка (1349): только число и время сообщений владельца, текста нет.
+    expect(REQUEST_STATUS_SQL).not.toMatch(/\bbody\b/);
   });
 
   it('база не ответила — исключение с SQLSTATE в логе, не «ждёт оператора»', async () => {
@@ -250,7 +252,8 @@ describe('заявка на жильё (14.10, миграция 1238)', () => {
       consent: 'agent', consent_purpose: 'stay', page: requestStatusPageUrl(KEY),
     });
     expect(v.human).toMatch(/владельцу жилья/);
-    expect(v.human).toMatch(/платформа не видит/);
+    // Текст переписки (1349) статус не отдаёт — и говорит это.
+    expect(v.human).toMatch(/текст переписки здесь не показывается/);
     // Обещания «ждём ответа» нет: статус после передачи не меняется.
     expect(v.next).toMatch(/незачем/);
     expect(v.human + v.next).not.toMatch(/оператор ещё не ответил/);

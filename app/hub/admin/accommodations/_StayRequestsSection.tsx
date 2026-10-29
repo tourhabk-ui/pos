@@ -33,7 +33,25 @@ interface StayRequestItem {
   platformChannel: string | null;
   platformReason: string | null;
   deliveryRecordedAt: string | null;
+  guestOnMax?: boolean;
+  messages?: StayRequestMessage[];
 }
+
+interface StayRequestMessage {
+  author: 'owner' | 'guest';
+  door: string;
+  body: string;
+  delivery: string | null;
+  deliveryReason: string | null;
+  at: string;
+}
+
+/** Исход доставки сообщения второй стороне (1349). Не записан — так и сказано. */
+const MESSAGE_DELIVERY: Record<string, string> = {
+  max: 'дошло в MAX',
+  no_address: 'у получателя нет MAX',
+  failed: 'MAX не доставил',
+};
 
 function isList(v: unknown): v is { success: true; data: { total: number; requests: StayRequestItem[] } } {
   if (typeof v !== 'object' || v === null) return false;
@@ -181,6 +199,20 @@ export function StayRequestsSection() {
                   <p className="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-line">
                     <Sensitive>{r.comment}</Sensitive>
                   </p>
+                )}
+
+                {r.messages && r.messages.length > 0 && (
+                  <ol className="mt-2 space-y-1 border-l-2 border-[var(--border)] pl-3" aria-label="Переписка">
+                    {r.messages.map((m, i) => (
+                      <li key={`${m.at}-${i}`} className="text-sm">
+                        <span className="text-xs text-[var(--text-muted)]">
+                          {m.author === 'owner' ? 'Хозяин' : 'Гость'} · {kamchatkaTime.format(new Date(m.at))}
+                          {' · '}{m.delivery ? MESSAGE_DELIVERY[m.delivery] ?? m.delivery : 'исход не записан'}
+                        </span>
+                        <p className="text-[var(--text-primary)] whitespace-pre-line"><Sensitive>{m.body}</Sensitive></p>
+                      </li>
+                    ))}
+                  </ol>
                 )}
 
                 <div className="mt-2 space-y-0.5">

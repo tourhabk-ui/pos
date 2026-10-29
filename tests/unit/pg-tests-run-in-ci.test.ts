@@ -521,7 +521,12 @@ describe('pg-тесты доходят до CI', () => {
     // оператором INSERT. Замер, не память: job kernel-pg PR #2825 на 48
     // файлах — шаг «Integration tests (real PostgreSQL)» 71 с (02:02:52–
     // 02:04:03 UTC). При таймауте job в 15 минут размен честен.
-    const SEQUENTIAL_BUDGET = 48;
+    // Сорок девятый (29.10, переписка хозяина жилья и гостя, #2843) —
+    // `stay-chat`: миграция 1349, UPDATE … FROM agent_request_keys с условием
+    // «чужой чат не перезаписывается», LEAST по переписке и ленте во
+    // «Входящих», каскад удаления заявки. Локальный прогон файла — 4 с; при
+    // 71 с на 48 файлах размен остаётся честным.
+    const SEQUENTIAL_BUDGET = 49;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,

@@ -96,6 +96,30 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
      WHERE a.partner_id = $1
        AND (ab.status = 'pending' OR ab.created_at >= $2)`,
 
+  // Заявка хозяину жилья (1206). Ответ — первое сообщение хозяина в переписке
+  // (1349) или его касание в ленте («запиши звонок»): звонка самого платформа
+  // не видит. Ждёт ответа, пока не наступил день заезда по Камчатке.
+  stay_request: `
+    SELECT x.* FROM (
+      SELECT s.id::text AS item_id, s.created_at, a.name AS title, s.check_in_date::text AS item_date,
+             s.guests::int AS people,
+             (r.responded_at IS NULL AND s.check_in_date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date) AS waiting,
+             r.responded_at,
+             ${CONTACT}
+        FROM stay_requests s
+        JOIN accommodations a ON a.id = s.accommodation_id
+        CROSS JOIN LATERAL (
+          SELECT LEAST(
+                   (SELECT min(m.created_at) FROM stay_request_messages m
+                     WHERE m.stay_request_id = s.id AND m.author = 'owner'),
+                   ${firstResponse('stay_request', 's.id::text')}
+                 ) AS responded_at
+        ) r
+        ${contactJoin('stay_request', 's.id::text')}
+       WHERE a.partner_id = $1
+    ) x
+     WHERE x.waiting OR x.created_at >= $2`,
+
   gear_rental: `
     SELECT gr.id::text AS item_id, gr.created_at, gi.name AS title, gr.start_date::text AS item_date,
            gr.quantity::int AS people,

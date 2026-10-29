@@ -37,7 +37,9 @@
  * create_stay_request выдаёт ключ тем же путём. Своего жизненного цикла у
  * такой заявки нет: платформа знает, кому она доставлена (1213), а ответ
  * владелец даёт гостю звонком. Поэтому статус — `delivered` с тем, кому
- * передана, а не «ждёт ответа», который никогда не придёт.
+ * передана, а не «ждёт ответа», который никогда не придёт. С 1349 владелец
+ * отвечает и в переписке на странице заявки: агенту видно число его ответов
+ * (`owner_replies`), текста нет.
  *
  * Согласие человек подтверждает тем текстом, кому уходят его данные
  * (`consent_purpose`): владельцу жилья, перевозчику или туроператору. До
@@ -55,6 +57,8 @@ import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
+import { maxBot } from '@/lib/partners/channel-link';
+import { stayGuestBotLink } from '@/lib/stay/stay-chat';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
@@ -95,6 +99,12 @@ export function consentBy(source: string | null | undefined, at: Date | string |
 
 /** Пишущие инструменты, чьи данные уходят не туроператору (lib/mcp/public-tools). */
 const STAY_TOOL_NAME = 'create_stay_request';
+/**
+ * Ключ заявки на жильё, оставленной формой на карточке объекта (1349): с ним
+ * гость открывает страницу заявки с перепиской и подключает MAX. Это не
+ * инструмент MCP — имя двери в той же колонке `tool_name`.
+ */
+export const STAY_FORM_KEY_NAME = 'stay-request-form';
 const BOOKING_TOOL_NAME = 'create_booking_request';
 const CHARTER_TOOL_NAME = 'request_charter';
 const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
@@ -105,7 +115,7 @@ const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
  * «туроператору» их не покрывает.
  */
 export function consentPurposeForTool(toolName: string): ConsentPurpose {
-  if (toolName === STAY_TOOL_NAME) return 'stay';
+  if (toolName === STAY_TOOL_NAME || toolName === STAY_FORM_KEY_NAME) return 'stay';
   if (toolName === CHARTER_TOOL_NAME) return 'carrier';
   if (toolName === CAR_RENTAL_TOOL_NAME) return 'rental';
   return 'operator';
@@ -159,15 +169,17 @@ export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: 
 
 /**
  * Хвост ответа пишущего инструмента: ключ есть — как им пользоваться; нет —
- * так и сказано. У заявки на жильё ответа владельца платформа не видит, и
- * хвост этого не обещает.
+ * так и сказано. У заявки на жильё хвост ведёт человека в переписку с
+ * владельцем (страница заявки и MAX, 1349); текст переписки инструменты не
+ * отдают.
  */
 export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'): string {
   if (kind === 'stay') {
     return key
       ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка (без имени и телефона).`
-        + ' Ответ владелец даёт звонком, и платформа его не видит.'
-        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья.`
+        + ' Ответ владелец даёт звонком или сообщением на странице заявки; текст переписки get_request_status не отдаёт.'
+        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья и переписывается с владельцем.`
+        + ` Чтобы ответы владельца приходили человеку в MAX, дайте ему и эту ссылку: ${stayGuestBotLink(maxBot(), key)}.`
         + ' Ключ и ссылку не публикуйте.'
       : ' Ключ статуса заявки не выдан (сбой записи ключа): исход знает только владелец, телефон — на карточке объекта.';
   }
@@ -202,6 +214,11 @@ export interface RequestStatusView {
   consent_purpose: ConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
+  /** Заявка на жильё: сколько сообщений владелец написал в переписке (1349); у других — null. Текста нет. */
+  owner_replies: number | null;
+  owner_last_reply_at: string | null;
+  /** Заявка на жильё: ссылка подключить MAX гостя; null — подключён или заявка не на жильё. */
+  max_link: string | null;
   /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
   notify: RequestNotifyStatus | null;
 }
@@ -259,6 +276,10 @@ export interface StatusRow {
   stay_delivery_recorded_at: Date | string | null;
   stay_consent_at: Date | string | null;
   stay_consent_source: string | null;
+  /** Переписка по заявке на жильё (1349): сколько написал владелец, когда последнее, подключён ли MAX гостя. */
+  stay_owner_replies?: number | null;
+  stay_owner_last_at?: Date | string | null;
+  stay_guest_on_max?: boolean | null;
 }
 
 /**
@@ -353,8 +374,8 @@ export function stayState(delivery: StayDelivery): RequestState {
 }
 
 const STAY_HUMAN: Record<StayDelivery, string> = {
-  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки, и его ответа платформа не видит.',
-  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком, и его ответа платформа не видит.',
+  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки или сообщением на странице заявки; текст переписки здесь не показывается.',
+  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком или сообщением на странице заявки; текст переписки здесь не показывается.',
   none: 'Заявка записана, но не дошла ни владельцу, ни оператору Ведара.',
   not_recorded: 'Заявка записана, но куда она дошла, не записано.',
 };
@@ -432,6 +453,8 @@ const REQUEST_STATUS_SELECT = `
          s.owner_channel AS stay_owner_channel, s.platform_channel AS stay_platform_channel,
          s.delivery_recorded_at AS stay_delivery_recorded_at,
          s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source,
+         sm.n AS stay_owner_replies, sm.last_at AS stay_owner_last_at,
+         (s.guest_max_chat_id IS NOT NULL) AS stay_guest_on_max,
          n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
@@ -454,6 +477,11 @@ const REQUEST_STATUS_SELECT = `
     LEFT JOIN operator_tours sbt ON sbt.id = sb.operator_tour_id
     LEFT JOIN stay_requests s ON s.id = k.stay_request_id
     LEFT JOIN accommodations a ON a.id = s.accommodation_id
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS n, max(m.created_at) AS last_at
+        FROM stay_request_messages m
+       WHERE m.stay_request_id = s.id AND m.author = 'owner'
+    ) sm ON k.stay_request_id IS NOT NULL
     LEFT JOIN agent_request_notify n ON n.key_id = k.id`;
 
 /** По ключу: живой ключ → отметка прочтения и строка заявки. Это читает агент. */
@@ -494,8 +522,15 @@ function dateChangeNote(requested: string | null, actual: string | null): string
     : '';
 }
 
-/** Вид заявки без страницы человека: его собирают и агенту, и сверке уведомлений. */
-export type RequestCore = Omit<RequestStatusView, 'page' | 'notify'>;
+/**
+ * Вид заявки без страницы человека: его собирают и агенту, и сверке
+ * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
+ * сырого ключа у сверки нет и быть не должно.
+ */
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link'>;
+
+/** Переписки у запроса мест и лида нет (1349 — только жильё): поля есть, значения null. */
+const NO_CHAT = { owner_replies: null, owner_last_reply_at: null } as const;
 
 /** Поле notify ответа: есть строка подписки — номер, жива ли и почему нет (словом для агента). */
 export function notifyStatusOf(row: StatusRow): RequestNotifyStatus | null {
@@ -519,6 +554,8 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     const exists = row.stay_accommodation_id !== null;
     const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
     const state = exists ? stayState(delivery) : 'unknown';
+    // Переписка (1349): сколько написал владелец — без текста.
+    const replies = Number(row.stay_owner_replies ?? 0);
     return {
       state,
       kind: 'stay_request',
@@ -531,10 +568,16 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
       participants: row.stay_guests,
       alt_date: null,
       deadline: null,
-      human: exists ? STAY_HUMAN[delivery] : HUMAN.unknown,
-      next: exists ? STAY_NEXT[delivery] : NEXT.unknown,
+      human: !exists ? HUMAN.unknown
+        : replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+        : STAY_HUMAN[delivery],
+      next: !exists ? NEXT.unknown
+        : replies > 0 ? 'Дайте человеку страницу заявки (page): там ответ владельца, и ответить ему можно там же или в MAX (max_link).'
+        : STAY_NEXT[delivery],
       consent: consentBy(row.stay_consent_source, row.stay_consent_at),
       consent_purpose,
+      owner_replies: exists ? replies : null,
+      owner_last_reply_at: exists ? iso(row.stay_owner_last_at ?? null) : null,
     };
   }
 
@@ -556,7 +599,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
           date: requested, requested_date: requested, check_out: null, participants: row.seat_participants,
           alt_date: null, deadline: null,
           human: state === 'unknown' ? BOOKING_GONE_HUMAN : HUMAN[state],
-          next: NEXT[state], consent, consent_purpose,
+          next: NEXT[state], consent, consent_purpose, ...NO_CHAT,
         };
       }
       const state: RequestState = bs === 'new' && own === 'failed' ? 'failed' : bookingState(bs);
@@ -569,7 +612,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
         human: HUMAN[state]
           + (state === 'failed' && row.failure_kind === 'unfinished' ? ' Ответ оператора был получен, но не записан.' : '')
           + dateChangeNote(requested, date),
-        next: NEXT[state], consent, consent_purpose,
+        next: NEXT[state], consent, consent_purpose, ...NO_CHAT,
       };
     }
     const state = seatState(own);
@@ -589,6 +632,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
       next: NEXT[state],
       consent,
       consent_purpose,
+      ...NO_CHAT,
     };
   }
 
@@ -614,6 +658,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     next: NEXT[state],
     consent: consentBy(row.lead_consent_source, row.lead_consent_at),
     consent_purpose,
+    ...NO_CHAT,
   };
 }
 
@@ -652,7 +697,15 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
   if (!row) {
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней). Проверьте, что передан ключ из ответа инструмента целиком.`, 'key_not_found');
   }
-  return { ...buildRequestView(row, Date.now()), page: requestStatusPageUrl(key), notify: notifyStatusOf(row) };
+  const core = buildRequestView(row, Date.now());
+  return {
+    ...core,
+    page: requestStatusPageUrl(key),
+    // Подключить MAX гостя (1349): ссылку строит сырой ключ, он есть только
+    // здесь. Переписка есть — owner_replies не null (заявка на жильё жива).
+    max_link: core.owner_replies !== null && row.stay_guest_on_max !== true ? stayGuestBotLink(maxBot(), key) : null,
+    notify: notifyStatusOf(row),
+  };
 }
 
 export type ConfirmOutcome = 'recorded' | 'already' | 'gone';
