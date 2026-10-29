@@ -46,6 +46,21 @@ const CANDIDATES: ReadonlyArray<{ url: string; why: string }> = [
   { url: 'https://kamchatka.aif.ru/rss/all.php', why: 'АиФ-Камчатка — обычный адрес ленты изданий АиФ' },
   { url: 'https://kamchatka.aif.ru/rss.php', why: 'АиФ-Камчатка — второй обычный адрес ленты' },
   { url: 'https://kamchatka.aif.ru/feed', why: 'АиФ-Камчатка — адрес ленты в движках общего вида' },
+  // 29.10, карт-бланш владельца на бесплатные API: разведка (workflow
+  // free-api-recon-kamchatka) не дошла ни до одного хоста из песочницы, а
+  // раннер стоит вне РФ. Брать ли источник, решает ответ ОТСЮДА.
+  { url: 'https://aviationweather.gov/api/data/metar?ids=UHPP&format=json&hours=3', why: 'METAR аэродрома Елизово (NOAA AWC): наблюдение погоды в аэропорту к табло /flights' },
+  { url: 'https://aviationweather.gov/api/data/taf?ids=UHPP&format=json', why: 'TAF аэродрома Елизово (NOAA AWC): прогноз аэродрома' },
+  { url: 'https://www.tsunami.gov/events/xml/PHEBAtom.xml', why: 'PTWC — лента сообщений тихоокеанского центра (только дополнение к официальной тревоге, не замена)' },
+  { url: 'https://www.tsunami.gov/events/xml/PHEBCAP.xml', why: 'PTWC — последнее сообщение в CAP' },
+  { url: 'https://www.tsunami.gov/events/json/PHEBWEPA40.json', why: 'PTWC — слот угрозы для Тихого океана в JSON (недокументированный, сверка с Atom)' },
+  { url: 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json', why: 'NOAA SWPC — прогноз Kp на 3 дня (северное сияние)' },
+  { url: 'https://services.swpc.noaa.gov/text/3-day-forecast.txt', why: 'NOAA SWPC — текстовый прогноз на 3 дня' },
+  { url: 'https://www.cbr.ru/scripts/XML_daily.asp', why: 'Банк России — официальные курсы на сегодня (≈ ¥ у цены на китайских страницах)' },
+  { url: 'https://api.inaturalist.org/v1/observations?taxon_name=Ursus%20arctos&quality_grade=research&swlat=50&swlng=155&nelat=65.5&nelng=174&per_page=1', why: 'iNaturalist — наблюдения бурого медведя в рамке края (доступ и объём; лицензия — отдельный вопрос)' },
+  { url: 'https://api.gbif.org/v1/occurrence/search?decimalLatitude=50,65.5&decimalLongitude=155,174&hasCoordinate=true&limit=0&facet=license', why: 'GBIF — записи в рамке края по лицензиям (доля CC0/CC BY)' },
+  { url: 'https://query.wikidata.org/sparql?format=json&query=SELECT%20%3Fru%20WHERE%20%7B%20wd%3AQ7948%20rdfs%3Alabel%20%3Fru%20.%20FILTER(LANG(%3Fru)%20%3D%20%22ru%22)%20%7D', why: 'Wikidata — запрос о Камчатском крае (доступ к SPARQL)' },
+  { url: 'https://api.opentopodata.org/v1/srtm30m?locations=53.255,158.83|53.04,158.65', why: 'Open Topo Data — высоты Авачинского и Петропавловска (уже в проде, сверка набора в ответе)' },
 ];
 
 /**
@@ -93,6 +108,16 @@ interface Attempt {
   looks_like_feed: boolean | null;
   /** Название беды словами, когда ответа нет. */
   error: string | null;
+  /**
+   * Начало тела (29.10): «200» ещё не значит «данные». У API без ключа отказ
+   * часто приходит кодом 200 с телом ошибки, а лента бывает пустой; судить
+   * можно только по содержимому.
+   */
+  head: string | null;
+  /** Сколько шёл ответ, мс. */
+  ms: number | null;
+  /** Last-Modified: у лент вроде PTWC это единственный признак живого канала. */
+  last_modified: string | null;
 }
 
 interface ProbeResult {
@@ -116,6 +141,7 @@ interface ProbeResult {
 }
 
 async function attempt(url: string, persona: Persona): Promise<Attempt> {
+  const started = Date.now();
   try {
     const res = await fetch(url, {
       headers: PERSONAS[persona],
@@ -133,12 +159,15 @@ async function attempt(url: string, persona: Persona): Promise<Attempt> {
         (ct ?? '').toLowerCase().includes('xml')
         || head.includes('<rss') || head.includes('<feed') || head.includes('<rdf'),
       error: null,
+      head: body.slice(0, 240).replace(/\s+/g, ' '),
+      ms: Date.now() - started,
+      last_modified: res.headers.get('last-modified'),
     };
   } catch (err) {
     // Отказ называется вслух: молчащая проба неотличима от пройденной.
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[source-probe] ${url} (${persona}): ${message}`);
-    return { status: null, content_type: null, bytes: null, looks_like_feed: null, error: message.slice(0, 160) };
+    return { status: null, content_type: null, bytes: null, looks_like_feed: null, error: message.slice(0, 160), head: null, ms: Date.now() - started, last_modified: null };
   }
 }
 
