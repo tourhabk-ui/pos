@@ -38,7 +38,8 @@ describe('getTourDetails', () => {
     expect(sql).toContain('is_active = true');
     expect(sql).toContain('deleted_at IS NULL');
     // Ранг 17.10: точное название → начинается с запроса → содержит; затем короче.
-    expect(sql).toMatch(/WHEN lower\(ot\.title\) = lower\(\$2\) THEN 0 WHEN ot\.title ILIKE \$3 THEN 1 WHEN ot\.title ILIKE \$1 THEN 2/);
+    // «ё» и «е» — одна буква (ревью 29.10): название сравнивается без «ё».
+    expect(sql).toMatch(/WHEN lower\(translate\(ot\.title, 'Ёё', 'Ее'\)\) = lower\(\$2\) THEN 0 WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$3 THEN 1 WHEN translate\(ot\.title, 'Ёё', 'Ее'\) ILIKE \$1 THEN 2/);
     // С 29.10 короче название и дешевле не выбирают продавца: при равном ранге
     // у разных компаний исход — «неоднозначно» (tests/unit/tour-choice.test.ts).
     expect(sql).not.toMatch(/length\(ot\.title\)|base_price ASC/);
@@ -67,9 +68,11 @@ describe('getTourDetails', () => {
       activity_type: 'rafting',
     }] });
     const out = await getTourDetails('Быстрая');
-    // Второй запрос — детали (включая точку сбора) строго по id резолва.
-    const [sql2, params2] = poolQueryMock.mock.calls[1];
-    expect(sql2).toContain('meeting_point');
+    // Запрос деталей (включая точку сбора) — строго по id резолва. С 29.10
+    // между резолвером и деталями бывает поиск продавца по имени (совпадение
+    // не в названии), поэтому запрос деталей ищется по смыслу, а не по номеру.
+    const [sql2, params2] = poolQueryMock.mock.calls.find(([sql]) => sql.includes('meeting_point')) ?? [];
+    expect(sql2).toContain('FROM operator_tours');
     expect(params2).toEqual([42]);
     expect(out).toContain('СПЛАВ ПО РЕКЕ БЫСТРАЯ');
     expect(out).toContain('147-й км трассы А4');

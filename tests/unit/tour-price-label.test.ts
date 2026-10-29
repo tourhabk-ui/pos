@@ -135,17 +135,22 @@ describe('единицы цены не вшиты ни в одну поверх�
     const sent: string[] = [];
     const spy = vi.spyOn(pool, 'query').mockImplementation((async (sql: string) => {
       sent.push(sql);
-      // Фраза целиком не находится — резолвер идёт третьим запросом, по словам.
-      if (/ILIKE \$3/.test(sql)) return { rows: [] };
-      return { rows: [{ id: 5, title: 'Тур', operator_id: 'a', price_unit: 'per_group', rank: 0 }] };
+      // Фраза целиком не находится — резолвер ищет продавца по имени (его
+      // нет) и идёт запросом по словам; у тура совпали обе основы.
+      if (/ILIKE \$3/.test(sql) || /FROM partners p/.test(sql)) return { rows: [] };
+      return { rows: [{ id: 5, title: 'Тур', operator_id: 'a', price_unit: 'per_group', stem_hits: [true, true] }] };
     }) as unknown as typeof pool.query);
     try {
       const byId = await resolveTourChoice('5');
       const byWords = await resolveTourChoice('Авачинский восхождение');
       expect(byId.kind === 'one' && byId.tour.price_unit).toBe('per_group');
       expect(byWords.kind === 'one' && byWords.tour.price_unit).toBe('per_group');
-      expect(sent).toHaveLength(3);
-      for (const sql of sent) expect(sql).toMatch(/ot\.price_unit/);
+      // Три запроса туров (номер, фраза, слова) и поиск продавца — он туров
+      // не выбирает, ему единица ни к чему.
+      const tourQueries = sent.filter((sql) => !/FROM partners p/.test(sql));
+      expect(tourQueries).toHaveLength(3);
+      expect(sent).toHaveLength(4);
+      for (const sql of tourQueries) expect(sql).toMatch(/ot\.price_unit/);
     } finally {
       spy.mockRestore();
     }
