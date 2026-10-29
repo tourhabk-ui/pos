@@ -29,6 +29,8 @@ import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline/route-map-save';
 import { parseSavedMap, savedMapKey } from '@/lib/offline/saved-map';
+import { probeCoverage } from '@/lib/offline/coverage';
+import { routeMapReadiness } from '@/lib/offline/route-map-readiness';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { trackLine } from '@/lib/map/line-standard';
 // Сложность — из ЕДИНОГО словаря (lib/tours/labels). Здесь лежали свои
@@ -526,11 +528,25 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const regionPacks = useMemo(() => builtRegionPacks(mapPackBaseUrl), [mapPackBaseUrl]);
 
   // Карта уже в телефоне (с этой кнопки или с полевого экрана — запись одна).
+  // Запись — заявление закачки; на месте ли карта сейчас, говорит проба
+  // Cache Storage (#2558, #2789): неполная или вычищенная — «Повторить».
   useEffect(() => {
+    let rec: ReturnType<typeof parseSavedMap> = null;
     try {
-      const rec = parseSavedMap(localStorage.getItem(savedMapKey(id)));
-      if (rec) { setDlState('done'); setDlNote(`Карта маршрута в телефоне: ${rec.mb} МБ`); }
+      rec = parseSavedMap(localStorage.getItem(savedMapKey(id)));
     } catch { /* хранилище закрыто — значит, записи нет */ }
+    if (!rec) return;
+    const saved = rec;
+    let alive = true;
+    const show = (coverage: Awaited<ReturnType<typeof probeCoverage>> | null) => {
+      if (!alive) return;
+      const r = routeMapReadiness(saved, coverage);
+      setDlState(r.state === 'redo' ? 'error' : 'done');
+      setDlNote(r.note);
+    };
+    show(null);
+    void probeCoverage(saved.sampleUrls).then(show, () => show(null));
+    return () => { alive = false; };
   }, [id]);
 
   /**
