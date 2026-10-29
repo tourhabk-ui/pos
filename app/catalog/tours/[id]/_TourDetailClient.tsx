@@ -26,6 +26,7 @@ import { tourPhotoCaptions, tourPhotoCreditLine } from '@/lib/tours/photo-credit
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import type { TourClip } from '@/lib/tours/tour-clips';
 import { TourClips } from '@/components/tours/TourClips';
+import { PlaceOffersLine, type PlaceOffersView } from '@/components/tours/PlaceOffersLine';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
@@ -55,6 +56,7 @@ import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
+import { groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -97,6 +99,11 @@ interface TourFull {
   photos: string[] | null;
   max_participants: number;
   min_participants: number | null;
+  /**
+   * Группа тура не ограничена (1342, слово владельца 29.10). Ёмкость не
+   * меняет: потолок заявки и места на датах — прежние. Нет поля — FALSE.
+   */
+  group_size_unlimited?: boolean | null;
   duration_hours: string | null;
   duration_type: string | null;
   multi_day_count: number | null;
@@ -388,7 +395,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, placeOffers = null }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; placeOffers?: PlaceOffersView | null }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -576,7 +583,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   const instrument: { k: string; v: string }[] = [];
   if (seasonLabel) instrument.push({ k: 'Сезон', v: seasonLabel });
   if (durationLabel) instrument.push({ k: 'Длится', v: durationLabel });
-  instrument.push({ k: 'Группа', v: `до ${tour.max_participants}` });
+  // «до N» — только когда группа тура ограничена: у тура с признаком
+  // group_size_unlimited число N — потолок одной заявки, а не предел гида.
+  const groupValue = groupStripValue(tour);
+  if (groupValue) instrument.push({ k: 'Группа', v: groupValue });
   if (tour.difficulty) {
     const short = difficultyLabel(tour.difficulty, true);
     if (short) instrument.push({ k: 'Сложность', v: short });
@@ -959,7 +969,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 {[
                   'Условия и детали подтверждаются оператором до оплаты',
                   ...(tour.route_id ? ['Маршрут проходит через контур безопасности платформы'] : []),
-                  `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`,
+                  isGroupSizeUnlimited(tour)
+                    ? unlimitedGroupSentence(tour.max_participants).replace(/\.$/, '')
+                    : `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`,
                 ].map(t => (
                   <div key={t} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{t}</span></div>
                 ))}
@@ -1105,6 +1117,11 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   </div>
                 )}
               </div>
+              {/* Другие предложения к тому же месту (слово владельца 29.10,
+                  «3 да»): нейтральная строка, без цен и сравнений. */}
+              <div className="mt-3">
+                <PlaceOffersLine offers={placeOffers} />
+              </div>
             </section>
 
             {/* Отзывы. id — якорь ссылки из просьбы об отзыве после тура
@@ -1240,6 +1257,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     без отступа форма уходит под фиксированную шапку. */}
                 <div id="booking" ref={bookingRef} className="scroll-mt-24">
                   <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
+                    groupSizeUnlimited={isGroupSizeUnlimited(tour)}
                     priceUnit={tour.price_unit}
                     askSeatsFirst={askSeatsFirst}
                     seasonWindow={seasonWindow}

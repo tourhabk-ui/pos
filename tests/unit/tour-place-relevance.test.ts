@@ -27,7 +27,11 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
 import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
-import { findRelevantTours } from '@/lib/ai/booking-intent';
+import { findRelevantTours, suggestionOrder } from '@/lib/ai/booking-intent';
+import { orderOffers } from '@/lib/tours/offer-order';
+
+/** Порядок правила 1в (29.10) на этих id без дат — жребий дня. */
+const byRule = (ids: number[]) => orderOffers(ids.map((id) => ({ id, nearestFreeDate: null }))).map((t) => Number(t.id));
 
 const PROBE_QUESTION = 'Служебная проверка журнала общения Ведара: какая сейчас обстановка у Авачинского вулкана? Ответь в двух предложениях.';
 
@@ -101,38 +105,70 @@ describe('findRelevantTours: кандидаты по месту, а не тол�
   const sqlOf = (i: number) => String(query.mock.calls[i]![0]).replace(/\s+/g, ' ');
 
   it('«и даже не один тур»: туры к Авачинскому любого типа — в отборе и первыми, Ключевская отсеяна', async () => {
-    // Порядок строк — как его задаёт ORDER BY: совпавшие местом первыми.
-    query.mockResolvedValueOnce({ rows: [REAL.jeep, REAL.snow, REAL.klyuch] });
+    // Совпадение с местом считает база (place_hit) — это релевантность и первый
+    // ключ; внутри — правило 1в, а не новизна (29.10).
+    query.mockResolvedValueOnce({ rows: [{ ...REAL.klyuch, place_hit: false }, { ...REAL.jeep, place_hit: true }, { ...REAL.snow, place_hit: true }] });
     const out = await findRelevantTours('volcano', PROBE_QUESTION, 3);
-    expect(out.map((t) => t.id)).toEqual([62, 52]);
+    expect(out.map((t) => t.id)).toEqual(byRule([62, 52]));
 
-    expect(query.mock.calls[0]![1]).toEqual([12, 'volcano', '%вулкан%', ['%авачин%']]);
+    expect(query.mock.calls[0]![1]).toEqual(['volcano', '%вулкан%', ['%авачин%']]);
     const sql = sqlOf(0);
     // Тип и место — через ИЛИ: тип не сужает туры к месту.
     expect(sql).toContain(
-      "((ot.activity_type = $2 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $3) OR translate(concat_ws(' ', ot.title, ot.location_name, ot.description), 'Ёё', 'Ее') ILIKE ANY($4::text[]))",
+      "((ot.activity_type = $1 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $2) OR translate(concat_ws(' ', ot.title, ot.location_name, ot.description), 'Ёё', 'Ее') ILIKE ANY($3::text[]))",
     );
-    expect(sql).toMatch(/ORDER BY \(translate\(concat_ws\(.+\) ILIKE ANY\(\$4::text\[\]\)\) DESC, ot\.created_at DESC LIMIT \$1/);
+    expect(sql).toMatch(/\(translate\(concat_ws\(.+\) ILIKE ANY\(\$3::text\[\]\)\) AS place_hit/);
+    expect(sql).not.toMatch(/ORDER BY ot\.|created_at|LIMIT \$/);
   });
 
-  it('вулкан не назван: слово «вулкан» — тип ИЛИ название, порядок по новизне', async () => {
+  it('вулкан не назван: слово «вулкан» — тип ИЛИ название, порядок — правило 1в, а не новизна', async () => {
     query.mockResolvedValueOnce({ rows: [REAL.jeep, REAL.klyuch] });
     const out = await findRelevantTours('volcano', 'хочу на вулкан', 3);
-    expect(out.map((t) => t.id)).toEqual([62, 46]);
-    expect(query.mock.calls[0]![1]).toEqual([12, 'volcano', '%вулкан%']);
+    expect(out.map((t) => t.id)).toEqual(byRule([62, 46]));
+    expect(query.mock.calls[0]![1]).toEqual(['volcano', '%вулкан%']);
     const sql = sqlOf(0);
-    expect(sql).toContain("(ot.activity_type = $2 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $3)");
+    expect(sql).toContain("(ot.activity_type = $1 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $2)");
     expect(sql).not.toContain('ILIKE ANY');
-    expect(sql).toMatch(/ORDER BY ot\.created_at DESC LIMIT \$1/);
+    expect(sql).not.toMatch(/ORDER BY ot\.|created_at|LIMIT \$/);
   });
 
   it('без вида активности — весь каталог, туры к названному вулкану первыми', async () => {
     query.mockResolvedValueOnce({ rows: [REAL.jeep, REAL.snow] });
     await findRelevantTours(null, 'тур на Авачинский', 3);
-    expect(query.mock.calls[0]![1]).toEqual([12, ['%авачин%']]);
+    expect(query.mock.calls[0]![1]).toEqual([['%авачин%']]);
     const sql = sqlOf(0);
     expect(sql).not.toContain('activity_type =');
-    expect(sql).toContain("ILIKE ANY($2::text[])) DESC, ot.created_at DESC");
+    expect(sql).toContain("ILIKE ANY($1::text[])) AS place_hit");
+  });
+
+  // Ревью 29.10: порядок переехал из SQL в suggestionOrder, и сторож держал
+  // только колонку place_hit. Снятие ключа «место первым» оставалось зелёным.
+  it('совпадение с местом — первый ключ, раньше свободной даты и жребия', () => {
+    const rows = [
+      { id: 1, place_hit: false, nearest_free_date: '2026-11-01' },
+      { id: 2, place_hit: true, nearest_free_date: null },
+      { id: 3, place_hit: null, nearest_free_date: '2026-10-30' },
+      { id: 4, place_hit: true, nearest_free_date: '2026-12-01' },
+    ];
+    const ids = suggestionOrder(rows, { day: '2026-10-29' }).map((r) => r.id);
+    expect(ids.slice(0, 2)).toEqual([4, 2]);
+    expect(ids.slice(2)).toEqual([3, 1]);
+  });
+
+  it('туров к месту больше, чем кандидатов (12): после среза остаются именно они, а не общие туры по жребию', async () => {
+    const generic = Array.from({ length: 30 }, (_, i) => ({
+      id: 500 + i, slug: null, title: `Морская прогулка ${i}`, activity_type: 'boat', location: 'Авачинская бухта рядом',
+      description: 'Прогулка на катере', base_price: 9000, operator_name: 'Морская компания', place_hit: false, nearest_free_date: null,
+    }));
+    const toPlace = Array.from({ length: 14 }, (_, i) => ({
+      id: 700 + i, slug: null, title: `Джип к Авачинскому вулкану ${i}`, activity_type: 'jeep_safari', location: 'Авачинский перевал',
+      description: 'Джип-тур к подножию', base_price: 12000, operator_name: `Компания ${i}`, place_hit: true, nearest_free_date: null,
+    }));
+    query.mockResolvedValueOnce({ rows: [...generic, ...toPlace] });
+    const out = await findRelevantTours(null, 'тур на Авачинский', 3);
+    expect(out).toHaveLength(3);
+    expect(out.every((t) => Number(t.id) >= 700)).toBe(true);
+    expect(out.map((t) => Number(t.id))).toEqual(byRule(toPlace.map((t) => t.id)).slice(0, 3));
   });
 
   it('шлюз витрины в обоих запросах: снятый с витрины тур в чат не идёт', async () => {

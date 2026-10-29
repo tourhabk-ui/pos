@@ -6,7 +6,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
+import { kindChangeRejected } from '@/lib/api/operator-tours';
+import { assertLiveMainPlace, MainPlaceRejected } from '@/lib/tours/main-place';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { redactPII } from '@/lib/security/pii-redact';
 import { pingTourChanged } from '@/lib/seo/indexnow';
@@ -42,8 +44,10 @@ const UpdateSchema = z.object({
   title: z.string().min(5).max(255).optional(),
   description: z.string().max(2000).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
-  location_type: z.enum(['volcano', 'hot_spring', 'bay', 'lake', 'mountain', 'river', 'geyser', 'other']).optional(),
-  activity_type: z.enum(['trekking', 'thermal', 'boat_trip', 'rafting', 'fishing', 'bears', 'helicopter', 'jeep', 'other']).optional(),
+  // Вид — словом схемы: тур из миграции несёт jeep_safari, snowmobile… и
+  // обязан сохраняться как был; перемену сверяет kindChangeRejected ниже.
+  location_type: z.string().regex(/^[a-z_]{2,40}$/).optional(),
+  activity_type: z.string().regex(/^[a-z_]{2,40}$/).optional(),
   location_name: z.string().min(3).max(255).optional(),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
@@ -73,6 +77,12 @@ const UpdateSchema = z.object({
   agent_route_id: z.string().uuid().nullable().optional(),
   notes: z.string().max(1000).nullable().optional(),
   tags: z.array(z.string().max(100)).max(20).optional(),
+  /**
+   * Главное место тура (places.id), поставленное администратором — например,
+   * за гида без кабинета. Пишется с источником `admin`; null — снять связь.
+   * Только живое место справочника (lib/tours/main-place).
+   */
+  main_place_id: z.string().trim().min(1).max(64).nullable().optional(),
 });
 
 const ALLOWED_FIELDS = [
@@ -148,7 +158,8 @@ export async function PATCH(
   let existing;
   try {
     existing = await query(
-      `SELECT id FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT id, location_type, activity_type, main_place_id
+         FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
       [tourId]
     );
   } catch (error) {
@@ -172,7 +183,16 @@ export async function PATCH(
   }
 
   const input = parseResult.data;
-  const { tags, ...rest } = input;
+  const { tags, main_place_id: mainPlaceInput, ...rest } = input;
+
+  const stored = existing.rows[0] as Record<string, unknown>;
+  const kindRejected = kindChangeRejected(rest, stored);
+  if (kindRejected) return NextResponse.json({ error: kindRejected }, { status: 400 });
+
+  // Главное место: пишется только ПЕРЕМЕНА (как в кабинете) — сохранение
+  // формы с прежним местом не выдаёт связь миграции за выбор администратора.
+  const currentMainPlace = (stored.main_place_id as string | null | undefined) ?? null;
+  const mainPlaceChange = mainPlaceInput !== undefined && mainPlaceInput !== currentMainPlace;
 
   // Строим SET-список из переданных полей
   const fields: string[] = [];
@@ -199,6 +219,13 @@ export async function PATCH(
     }
   }
 
+  if (mainPlaceChange) {
+    fields.push(`main_place_id = $${idx++}::text`);
+    values.push(mainPlaceInput);
+    fields.push(`main_place_source = $${idx++}::text`);
+    values.push(mainPlaceInput === null ? null : 'admin');
+  }
+
   if (fields.length === 0 && tags === undefined) {
     return NextResponse.json({ error: 'Нет полей для обновления' }, { status: 400 });
   }
@@ -206,11 +233,18 @@ export async function PATCH(
   try {
     if (fields.length > 0) {
       values.push(tourId);
-      await query(
-        `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
-         WHERE id = $${idx} AND deleted_at IS NULL`,
-        values
-      );
+      const updateSql = `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
+         WHERE id = $${idx} AND deleted_at IS NULL`;
+      if (mainPlaceChange && mainPlaceInput !== null && mainPlaceInput !== undefined) {
+        // Проверка места и запись — в одной транзакции: место не скроют и не
+        // сольют между ними (FOR SHARE).
+        await transaction(async (client) => {
+          await assertLiveMainPlace(client, mainPlaceInput);
+          await client.query(updateSql, values);
+        });
+      } else {
+        await query(updateSql, values);
+      }
     }
 
     // Обновляем теги — один DELETE + один batch INSERT через UNNEST
@@ -243,6 +277,9 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, data: updated.rows[0] });
   } catch (error) {
+    if (error instanceof MainPlaceRejected) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return dbFailure(error, 'сохранить тур');
   }
 }

@@ -24,6 +24,7 @@ import { activityIcon } from '@/lib/tours/activity-icons';
 import { tourPriceFrom } from '@/lib/search/tour-query-match';
 import { tourPath } from '@/lib/tours/tour-url';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
+import { plural } from '@/lib/home/data-freshness';
 
 export interface ToursForQueryItem {
   id: number | string;
@@ -37,8 +38,16 @@ export interface ToursForQueryItem {
 }
 
 export type ToursForQueryState =
-  | { status: 'ok'; tours: ToursForQueryItem[] }
+  /** total — сколько совпало всего; null — точного числа нет; нет поля — не считалось. */
+  | { status: 'ok'; tours: ToursForQueryItem[]; total?: number | null }
   | { status: 'unavailable' };
+
+/**
+ * Как выстроен блок (ревью 29.10): правило 1в работает внутри двух групп,
+ * поэтому группы названы, а подпись кончается словами §0.
+ */
+export const TOURS_FOR_QUERY_ORDER_NOTE =
+  'Сначала туры, совпавшие названием или описанием, затем — видом занятия; внутри каждой группы — сначала со свободными местами по ближайшему выезду, остальные раз в сутки по жребию. Место в списке не продаётся.';
 
 export function ToursForQuery({ q, state }: { q: string; state: ToursForQueryState }) {
   const catalogHref = `/catalog?search=${encodeURIComponent(q)}`;
@@ -73,6 +82,22 @@ export function ToursForQuery({ q, state }: { q: string; state: ToursForQuerySta
           В каталоге <ArrowRight size={14} aria-hidden />
         </Link>
       </div>
+      {(() => {
+        const shown = state.tours.length;
+        const total = state.total;
+        const count = typeof total === 'number' && total > shown
+          ? `Показано ${shown} из ${total} ${plural(total, 'тура', 'туров', 'туров')} — остальные в каталоге.`
+          : total === null
+            ? `Показано ${shown} — сколько совпало всего, здесь не посчитано; все — в каталоге.`
+            : null;
+        if (!count && shown < 2) return null;
+        return (
+          <div className="mb-3 space-y-1 text-xs text-[var(--text-secondary)]" data-tours-for-query-note>
+            {count && <p>{count}</p>}
+            {shown > 1 && <p>{TOURS_FOR_QUERY_ORDER_NOTE}</p>}
+          </div>
+        );
+      })()}
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {state.tours.map(t => {
           const price = tourPriceFrom(t.base_price);

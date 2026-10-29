@@ -14,6 +14,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { dayPriceLine } from '@/lib/planner/day-price';
 import { OfflineSave } from './_OfflineSave';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -42,6 +43,8 @@ interface ShareTour {
   /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
   operator_slug?: string | null;
   operator_public?: boolean | null;
+  /** Сколько туров вида всего (подбор по виду, правило 1в); у тура черновика нет. */
+  offers_of_kind?: number;
 }
 
 export interface Trip {
@@ -317,6 +320,8 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
         </div>
 
         <div className="space-y-3">
+          {/* Туры, подобранные по виду, выбраны правилом 1в — оно названо (§0). */}
+          {Object.keys(trip.top_tours ?? {}).length > 0 && <PlanTourRule />}
           {trip.days.map((day) => {
             const transport = trip.transport_by_day?.[String(day.day)] || day.defaultTransport;
             const zoneColor = ZONE_COLORS[day.zone] || 'var(--text-secondary)';
@@ -406,6 +411,13 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     </div>
                   );
                 })()}
+                {/* Тур по виду выбран правилом 1в из нескольких продавцов —
+                    строка «ещё N» ведёт в каталог (ревью 29.10). */}
+                {tour && !trip.day_tours?.[String(day.day)] && (
+                  <div className="mt-2">
+                    <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />
+                  </div>
+                )}
                 {/* Погода на дату дня (B-5): прогноз Open-Meteo по координатам
                     дня; плохая (ветер/осадки) подсвечивается warning-цветом. */}
                 {(() => {

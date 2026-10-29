@@ -6,6 +6,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { searchService } from '@/lib/services';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import {
   badQueryParam, nonNegativeAmount, queryInput, queryText, wholeNumber,
@@ -82,7 +84,8 @@ export async function GET(request: NextRequest) {
     const activity = input.activity ?? null;
     const difficulty = input.difficulty ?? null;
     const { minPrice, maxPrice, rating } = input;
-    const sortBy = input.sortBy ?? 'rating';
+    // Порядок по умолчанию — правило 1в (слово владельца 29.10), не рейтинг.
+    const sortBy = input.sortBy ?? 'order';
 
     // AI-теги фильтры (из ai_tags JSONB колонки)
     const tagLandscape = input.landscape;
@@ -95,7 +98,7 @@ export async function GET(request: NextRequest) {
     // кабинет говорит «туристы не видят», находился поиском по тегам.
     if (tagLandscape || tagActivity || tagFeature) {
       check = 'поиск по AI-тегам';
-      const conditions: string[] = [publicTourSql('')];
+      const conditions: string[] = [publicTourSql('ot')];
       const sqlParams: (string | number)[] = [];
       let pIdx = 1;
 
@@ -112,28 +115,32 @@ export async function GET(request: NextRequest) {
       if (tagFeature) {
         conditions.push(`ai_tags->'features' ? $${pIdx}`);
         sqlParams.push(tagFeature);
-        pIdx++;
       }
-
-      sqlParams.push(limit, offset);
 
       const { query: dbQuery } = await import('@/lib/database');
       const tagResult = await dbQuery<{
         id: string; title: string; description: string; price: number;
         category: string; difficulty: string; ai_tags: Record<string, unknown>;
+        nearest_free_date: string | null;
       }>(
-        `SELECT id, title, description, base_price AS price, activity_type AS category, difficulty, ai_tags
-         FROM operator_tours
-         WHERE ${conditions.join(' AND ')}
-         ORDER BY rating DESC NULLS LAST
-         LIMIT $${pIdx} OFFSET $${pIdx + 1}`,
+        `SELECT ot.id, title, description, base_price AS price, activity_type AS category, difficulty, ai_tags,
+                ${nearestFreeDateSql('ot')} AS nearest_free_date
+         FROM operator_tours ot
+         WHERE ${conditions.join(' AND ')}`,
         sqlParams
       );
+      // Порядок — правило 1в, а не рейтинг (до 29.10 — `rating DESC`);
+      // страница режется после порядка.
+      const tagOrdered = orderOffersBy(tagResult.rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }));
+      const tagPage = tagOrdered.slice(offset, offset + limit).map((r) => ({
+        id: r.id, title: r.title, description: r.description, price: r.price,
+        category: r.category, difficulty: r.difficulty, ai_tags: r.ai_tags,
+      }));
 
       return NextResponse.json({
         success: true,
-        data: tagResult.rows,
-        pagination: { page, limit, total: tagResult.rows.length, hasMore: false },
+        data: tagPage,
+        pagination: { page, limit, total: tagOrdered.length, hasMore: offset + limit < tagOrdered.length },
         meta: { filteredByAiTags: true },
       }, { status: 200 });
     }

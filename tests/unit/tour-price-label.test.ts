@@ -13,7 +13,7 @@
  * давал нулевую комиссию платформы молча. Здесь он обещает бесплатный тур.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { priceFrom, priceFromOrSay, priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -126,10 +126,29 @@ describe('единицы цены не вшиты ни в одну поверх�
     expect(tool).toMatch(/priceFromUnit\(s\.priceOverride \?\? tour\.base_price, tour\.price_unit\)/);
   });
 
-  it('все три запроса резолвера (номер, название, запасной по словам) выбирают price_unit', () => {
-    // Иначе единица снова «отбрасывается», а не «неизвестна».
-    const selects = tool.match(/SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours[,\s\w:]*FROM operator_tours/g) ?? [];
-    expect(selects.length).toBe(3);
+  it('все три запроса резолвера (номер, название, запасной по словам) выбирают price_unit', async () => {
+    // Иначе единица снова «отбрасывается», а не «неизвестна». С 29.10 колонки
+    // кандидата общие у трёх запросов (resolveTourChoice): судится вызов —
+    // каждый отправленный запрос берёт ot.price_unit, и единица доходит до тура.
+    const { pool } = await import('@/lib/db-pool');
+    const { resolveTourChoice } = await import('@/lib/kuzmich/tour-availability-tool');
+    const sent: string[] = [];
+    const spy = vi.spyOn(pool, 'query').mockImplementation((async (sql: string) => {
+      sent.push(sql);
+      // Фраза целиком не находится — резолвер идёт третьим запросом, по словам.
+      if (/ILIKE \$3/.test(sql)) return { rows: [] };
+      return { rows: [{ id: 5, title: 'Тур', operator_id: 'a', price_unit: 'per_group', rank: 0 }] };
+    }) as unknown as typeof pool.query);
+    try {
+      const byId = await resolveTourChoice('5');
+      const byWords = await resolveTourChoice('Авачинский восхождение');
+      expect(byId.kind === 'one' && byId.tour.price_unit).toBe('per_group');
+      expect(byWords.kind === 'one' && byWords.tour.price_unit).toBe('per_group');
+      expect(sent).toHaveLength(3);
+      for (const sql of sent) expect(sql).toMatch(/ot\.price_unit/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('каталог и детали выбирают price_unit', () => {

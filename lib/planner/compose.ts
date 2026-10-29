@@ -23,6 +23,8 @@ import { tourGroupCost } from '@/lib/planner/estimate';
 import { planTourPrice } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 
 
 
@@ -83,6 +85,29 @@ interface TourRow {
   location: string | null;
   difficulty: string | null;
   tour_image: string | null;
+  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
+  nearest_free_date: string | null;
+}
+
+/**
+ * Кандидаты compose_trip: виды — группами в порядке первого появления,
+ * внутри вида — правило 1в. Чистая функция, со сторожем
+ * (tests/unit/planner-offer-order.test.ts).
+ */
+export function orderComposeCandidates<T extends { row: { id: number | string; activity_type: string | null; nearest_free_date: string | null } }>(
+  items: readonly T[],
+  day: string,
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const it of items) {
+    const key = it.row.activity_type ?? 'other';
+    const g = groups.get(key);
+    if (g) g.push(it);
+    else groups.set(key, [it]);
+  }
+  return [...groups.values()].flatMap((g) =>
+    orderOffersBy(g, (it) => ({ id: String(it.row.id), nearestFreeDate: it.row.nearest_free_date ?? null }), { day }),
+  );
 }
 
 // Сезонная доступность активностей
@@ -166,14 +191,14 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
            t.base_price, t.price_unit, t.max_participants,
            t.multi_day_count, t.duration_hours,
            COALESCE(p.company_name, p.name) AS operator_name,
-           t.location_name AS location, t.difficulty, t.tour_image
+           t.location_name AS location, t.difficulty, t.tour_image,
+           ${nearestFreeDateSql('t')} AS nearest_free_date
     FROM operator_tours t
     JOIN partners p ON p.id = t.operator_id
     WHERE ${publicTourSql('t')}
       AND t.activity_type IN (${placeholders})
       ${difficultyClause}
-    ORDER BY t.activity_type, t.base_price ASC
-    LIMIT 100
+    ORDER BY t.activity_type
   `;
 
   let rows: TourRow[];
@@ -212,8 +237,13 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
     if (!cost) { unpriced.push(row.title); continue; }
     priced.push({ row, days, cost: cost.total });
   }
-  // Дешевле для группы — раньше: так жадный отбор кладёт больше туров в бюджет.
-  priced.sort((a, b) => a.cost - b.cost);
+  // Порядок кандидатов — правило 1в (слово владельца 29.10), а не цена.
+  // До 29.10 здесь стояло «дешевле для группы — раньше», и жадный отбор
+  // ставил в план САМЫЙ ДЕШЁВЫЙ тур каждого вида: место в плане решала цена
+  // за компанию, а не то, когда у тура есть свободная дата. Теперь виды идут
+  // группами в порядке выборки (по названию вида), внутри вида — правило, и
+  // в план встаёт первый по правилу, кто влезает в дни и бюджет (×1.1).
+  const ordered = orderComposeCandidates(priced, offerOrderDay());
 
   // Жадная компоновка: выбираем по одному туру каждого типа активности,
   // не превышая total_days и budget_total
@@ -222,7 +252,7 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
   let usedDays = 0;
   let usedBudget = 0;
 
-  for (const { row, days: tourDays, cost } of priced) {
+  for (const { row, days: tourDays, cost } of ordered) {
     const activity = row.activity_type ?? 'other';
     if (usedActivities.has(activity)) continue;
 
@@ -314,7 +344,8 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
     `Включает: ${activityLabels}. ` +
     `Итого на группу: ${totalPrice.toLocaleString('ru-RU')} руб. (${Math.round(totalPrice / group_size).toLocaleString('ru-RU')} руб/чел, `
     + 'если делить поровну; туры по своей единице цены). ' +
-    `Свободных дней: ${freeDaysTotal}.` +
+    `Свободных дней: ${freeDaysTotal}. ` +
+    'Порядок туров — правило платформы (сначала со свободной датой, остальные жребием дня), не цена.' +
     (unpriced.length > 0 ? ` Без цены для группы из ${group_size} чел. (цену называет оператор): ${unpriced.slice(0, 3).map((t) => `«${t}»`).join(', ')}.` : '');
 
   // AI-объяснение для каждого тура: почему именно этот тур подходит туристу

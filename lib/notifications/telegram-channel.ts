@@ -1074,6 +1074,7 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
            ot.duration_hours,
            ot.multi_day_count,
            ot.max_participants,
+           ot.group_size_unlimited,
            ot.difficulty,
            ot.activity_type,
            ot.location_name AS location,

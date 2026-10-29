@@ -22,6 +22,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { loadPlatformWeekStats, platformWeekLine, platformWeekPromptLines, type PlatformWeekRead } from '@/lib/agents/platform-week-stats';
 
 interface StructuredProposal {
   title: string;
@@ -231,7 +232,7 @@ export { salvageTruncatedArray };
 async function generateStructuredProposals(
   repoContext: string,
   intelContext: string,
-  platformStats: { bookings_week: string; confirmed_week: string; new_operators: string },
+  platformStats: PlatformWeekRead,
   apiRoutesList: string,
   gitContext?: { git_log?: string; changed_files?: string },
 ): Promise<{ proposals: StructuredProposal[]; diag: string; modelUsed: string }> {
@@ -289,8 +290,7 @@ ${apiRoutesSection}
 ${intelContext}
 
 === СТАТИСТИКА ПЛАТФОРМЫ ЗА 7 ДНЕЙ ===
-- Бронирований: ${platformStats.bookings_week} всего, ${platformStats.confirmed_week} подтверждено
-- Новых операторов: ${platformStats.new_operators}
+${platformWeekPromptLines(platformStats).join('\n')}
 ${gitSection}
 
 Прежде чем писать JSON, мысленно выбери 2-3 САМЫХ ОСТРЫХ триггера выше (не общие идеи). Для каждого проверь: (а) нет ли уже такого в открытых/закрытых задачах и прошлых запусках, (б) что все пути в files_to_change есть в списках выше или это явно новый файл в существующей структуре, (в) что why ссылается на дословный факт из контекста. Если острых триггеров меньше трёх — верни меньше предложений, не добивай водой. Если в контексте недостаточно данных для предложения — верни пустой массив [].
@@ -357,7 +357,7 @@ ${gitSection}
 function formatTelegramMessage(
   proposals: StructuredProposal[],
   dateKey: string,
-  platformStats: { bookings_week: string; confirmed_week: string; new_operators: string },
+  platformStats: PlatformWeekRead,
 ): string {
   const lines: string[] = [
     `<b>Scout-Innovator ${dateKey}</b>`,
@@ -374,7 +374,7 @@ function formatTelegramMessage(
     lines.push('');
   });
 
-  lines.push(`<b>Платформа за 7 дней:</b> ${platformStats.bookings_week} бронирований, ${platformStats.confirmed_week} подтверждено, ${platformStats.new_operators} новых операторов`);
+  lines.push(platformWeekLine(platformStats));
 
   return lines.join('\n');
 }
@@ -618,24 +618,9 @@ export async function runScoutInnovator(
 
   const allPages = [...intelPages, ...scoutPages].slice(0, 6);
 
-  // 2. Платформа за 7 дней
-  let platformStats = { bookings_week: '0', confirmed_week: '0', new_operators: '0' };
-  try {
-    const { rows } = await pool.query<{
-      bookings_week: string;
-      confirmed_week: string;
-      new_operators: string;
-    }>(`
-      SELECT
-        COUNT(*) FILTER (WHERE created_at > NOW() - '7 days'::interval)::text AS bookings_week,
-        COUNT(*) FILTER (WHERE created_at > NOW() - '7 days'::interval AND booking_status = 'confirmed')::text AS confirmed_week,
-        (SELECT COUNT(*)::text FROM partners WHERE created_at > NOW() - '7 days'::interval) AS new_operators
-      FROM operator_bookings
-    `);
-    if (rows[0]) platformStats = rows[0];
-  } catch (err) {
-    console.error('[scout-innovator] Failed to read platform stats:', err);
-  }
+  // 2. Платформа за 7 дней — одна выборка с правилом витрины (#2767);
+  // отказ базы остаётся отказом, а не нулями.
+  const platformStats = await loadPlatformWeekStats();
 
   if (allPages.length === 0) {
     console.error('[scout-innovator] No intel data in Brain — skipping');
@@ -763,7 +748,7 @@ export async function runScoutInnovator(
       compiled_truth: tgMessage,
       metadata: {
         intel_entries: allPages.length,
-        bookings_week: platformStats.bookings_week,
+        bookings_week: platformStats.kind === 'ok' ? platformStats.stats.bookings_week : null,
         generated_at: dateKey,
         proposals_count: proposals.length,
         skipped_duplicates,

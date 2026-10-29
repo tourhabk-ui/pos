@@ -8,6 +8,8 @@
 import { pool } from '@/lib/db-pool';
 import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
 import { namesVehicle } from '@/lib/ai/vehicle-words';
 
 export interface TourSuggestion {
@@ -29,6 +31,10 @@ export interface TourSuggestion {
   /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
   operator_slug: string | null;
   operator_public: boolean | null;
+  /** Ближайшая дата со свободными местами; ключ порядка (правило 1в). */
+  nearest_free_date?: string | null;
+  /** Совпало ли с местом, названным в вопросе (релевантность). */
+  place_hit?: boolean | null;
 }
 
 // Keywords that signal the user wants to find / book something concrete
@@ -182,6 +188,21 @@ export function detectTourIntent(text: string): {
   return { detected: true, activityType: kw ? ACTIVITY_MAP[kw]! : null, rawWords: text.slice(0, 200) };
 }
 
+/**
+ * Порядок подсказок в чате — правило 1в (слово владельца 29.10), а не
+ * новизна (до 29.10 — `created_at DESC`, «три самых новых»). Совпадение с
+ * названным в вопросе местом — релевантность и идёт первым ключом.
+ */
+export function suggestionOrder<T extends { id: number | string; nearest_free_date?: string | null; place_hit?: boolean | null }>(
+  rows: readonly T[],
+  opts?: { day?: string },
+): T[] {
+  const rule = compareTourOffers(opts?.day ?? offerOrderDay());
+  return [...rows].sort((a, b) =>
+    (b.place_hit === true ? 1 : 0) - (a.place_hit === true ? 1 : 0)
+    || rule({ id: a.id, nearestFreeDate: a.nearest_free_date ?? null }, { id: b.id, nearestFreeDate: b.nearest_free_date ?? null }));
+}
+
 // ── Fetch relevant tours from DB ──────────────────────────────────
 export async function findRelevantTours(
   activityType: string | null,
@@ -193,11 +214,13 @@ export async function findRelevantTours(
   // названный не должен остаться за лимитом в три самых новых.
   const candidates = Math.min(limit * 4, 20);
   try {
-    const params: unknown[] = [candidates];
+    const params: unknown[] = [];
     // Шлюз витрины (lib/tours/public-visibility): снятый с витрины тур —
     // демо, черновик, чужой партнёр — в чат не идёт, как и в каталог.
     const where: string[] = [publicTourSql('ot')];
-    let placeFirst = '';
+    // Совпадение с названным местом — релевантность вопросу, а не порядок
+    // витрины: туры к месту идут первыми, внутри — правило 1в.
+    let placeHit = 'false';
 
     // Слово туриста — не всегда тип (тот же урок, что у get_tours в
     // lib/kuzmich/tour-filter, 25.09 и 08.10): тип volcano — это восхождение,
@@ -223,7 +246,7 @@ export async function findRelevantTours(
       const placeCond = `translate(concat_ws(' ', ot.title, ot.location_name, ot.description), 'Ёё', 'Ее') ILIKE ANY($${params.length}::text[])`;
       // Без типа отбор и так по всему каталогу — меняется только порядок.
       if (typeCond) where.push(`(${typeCond} OR ${placeCond})`);
-      placeFirst = `(${placeCond}) DESC, `;
+      placeHit = `(${placeCond})`;
     } else if (typeCond) {
       where.push(typeCond);
     }
@@ -240,12 +263,12 @@ export async function findRelevantTours(
          ot.location_name AS location,
          ot.tour_image,
          p.name AS operator_name,
-         p.slug AS operator_slug, p.is_public AS operator_public
+         p.slug AS operator_slug, p.is_public AS operator_public,
+         ${placeHit} AS place_hit,
+         ${nearestFreeDateSql('ot')} AS nearest_free_date
        FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
-       WHERE ${where.join(' AND ')}
-       ORDER BY ${placeFirst}ot.created_at DESC
-       LIMIT $1`,
+       WHERE ${where.join(' AND ')}`,
       params,
     );
 
@@ -259,19 +282,18 @@ export async function findRelevantTours(
            ot.price_unit, ot.multi_day_count, ot.duration_hours::float AS duration_hours,
            ot.location_type, ot.location_name AS location, ot.tour_image,
            p.name AS operator_name,
-           p.slug AS operator_slug, p.is_public AS operator_public
+           p.slug AS operator_slug, p.is_public AS operator_public,
+           ${nearestFreeDateSql('ot')} AS nearest_free_date
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
          WHERE ${publicTourSql('ot')}
-           AND ot.title ILIKE $1
-         ORDER BY ot.created_at DESC
-         LIMIT $2`,
-        [`%${rawText.split(' ').slice(0, 3).join('%')}%`, candidates],
+           AND ot.title ILIKE $1`,
+        [`%${rawText.split(' ').slice(0, 3).join('%')}%`],
       );
-      return pickToursForMessage(rawText, fallback.rows, limit);
+      return pickToursForMessage(rawText, suggestionOrder(fallback.rows).slice(0, candidates), limit);
     }
 
-    return pickToursForMessage(rawText, result.rows, limit);
+    return pickToursForMessage(rawText, suggestionOrder(result.rows).slice(0, candidates), limit);
   } catch (e) {
     // Подсказки туров необязательны для ответа, но отказ — в лог (§4.0).
     console.error('[booking-intent] подбор туров не выполнен', {

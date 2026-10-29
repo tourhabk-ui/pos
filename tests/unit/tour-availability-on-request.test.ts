@@ -22,7 +22,7 @@ const TOUR = {
 
 function mockDb(opts: { tiers?: Array<Record<string, unknown>> } = {}) {
   query.mockImplementation(async (sql: string) => {
-    if (/FROM operator_tours/.test(sql) && /WHERE id = \$1/.test(sql)) return { rows: [TOUR] };
+    if (/FROM operator_tours/.test(sql) && /(WHERE|AND) (ot\.)?id = \$1/.test(sql)) return { rows: [TOUR] };
     if (/SELECT EXISTS/.test(sql)) return { rows: [{ has: false }] };
     if (/tour_price_tiers/.test(sql)) return { rows: opts.tiers ?? [] };
     return { rows: [] };

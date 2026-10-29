@@ -154,7 +154,7 @@ describe('Н7: расчёт готового плана кэшируется', (
   it('/plans/[slug] зовёт движок через unstable_cache', () => {
     const src = code('app/plans/[slug]/page.tsx');
     expect(src).toMatch(/unstable_cache\(/);
-    expect(src).toMatch(/await loadPresetPlan\(slug, arrival, departure\)/);
+    expect(src).toMatch(/await loadPresetPlan\(slug, arrival, departure, offerOrderDay\(\)\)/);
   });
 });
 

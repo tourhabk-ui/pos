@@ -12,6 +12,7 @@ import { loadZhTours } from '@/lib/zh/entry';
 import { ZH_CATALOG_PATH, catalogHreflang } from '@/lib/zh/pages';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { loadCnyRate } from '@/lib/currency/cbr-rate';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,7 @@ export const metadata: Metadata = {
 
 export default async function ZhCatalogPage() {
   recordZhEntryHit(ZH_CATALOG_PATH, (await headers()).get('user-agent'));
-  const tours = await loadZhTours();
+  const [tours, cny] = await Promise.all([loadZhTours(), loadCnyRate()]);
   return (
     <>
       <Header />
@@ -50,7 +51,7 @@ export default async function ZhCatalogPage() {
             </h1>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{ZH_CATALOG.intro}</p>
           </header>
-          <ZhTourList tours={tours} />
+          <ZhTourList tours={tours} cny={cny} />
           <footer className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             <Link className="underline" href="/catalog">俄文目录</Link>
             {' · '}<Link className="underline" href="/zh/harbin">从哈尔滨飞往堪察加</Link>

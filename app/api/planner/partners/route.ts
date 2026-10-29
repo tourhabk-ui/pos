@@ -2,7 +2,9 @@
  * GET /api/planner/partners?activity_type=fishing
  * Returns operators relevant for a given day's activity type.
  * Prioritises operators with published tours for that activity_type,
- * falls back to all public operators ordered by rating.
+ * затем — по названию компании (правило списка компаний /operators,
+ * lib/operators/list-query): рейтинг компании в порядок не входит (правило
+ * 1в, слово владельца 29.10, CLAUDE.md §0 — место в списке не продаётся).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -77,7 +79,7 @@ export async function GET(req: NextRequest) {
         AND p.category = 'operator'
       ORDER BY
         ($1 = ANY(COALESCE(tm.activity_types, '{}'))) DESC,
-        COALESCE(p.rating, 0) DESC
+        lower(p.name), p.id
       LIMIT 6
     `, [activityType]);
 

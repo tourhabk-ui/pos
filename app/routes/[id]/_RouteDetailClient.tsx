@@ -11,7 +11,7 @@ import Image from 'next/image';
 import {
   ArrowLeft, MapPin, Clock, Calendar, AlertTriangle, Users, Send,
   Star, CheckCircle, Phone, ChevronLeft, ChevronRight,
-  TrendingUp, MessageSquare,
+  MessageSquare,
   Download, Navigation, ShieldAlert, ExternalLink, FileText,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -21,6 +21,8 @@ import { SURFACE_TYPES as SURFACE_LABELS } from '@/lib/import/elevation-profile'
 import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
+import { RouteOfferSortBar } from '@/components/routes/RouteOfferSortBar';
+import { sortRouteOffers, type RouteOfferSort } from '@/lib/routes/route-offer-sort';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
@@ -29,6 +31,8 @@ import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline/route-map-save';
 import { parseSavedMap, savedMapKey } from '@/lib/offline/saved-map';
+import { probeCoverage } from '@/lib/offline/coverage';
+import { routeMapReadiness } from '@/lib/offline/route-map-readiness';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { trackLine } from '@/lib/map/line-standard';
 // Сложность — из ЕДИНОГО словаря (lib/tours/labels). Здесь лежали свои
@@ -57,6 +61,7 @@ import { locationTypeLabel } from '@/lib/places/location-types';
 import BottomNav from '@/components/shared/BottomNav';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { groupRangeShort } from '@/lib/tours/group-size';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -144,12 +149,17 @@ interface Offer {
   durationHours: number | null; durationType: string | null; multiDayCount: number | null;
   difficulty: string | null;
   maxGroupSize: number | null; minGroupSize: number | null;
+  /** Группа тура не ограничена (1342); нет поля — FALSE. */
+  groupSizeUnlimited?: boolean;
   rating: number | null; reviewCount: number | null;
   included: string[];
   seasonStart: string | null; seasonEnd: string | null;
   operator: { id: string; name: string; slug: string | null; isPublic: boolean | null; rating: number | null; reviewCount: number | null; verified: boolean; };
   tourImage: string | null; operatorHeroImage: string | null;
+  /** Ближайшая свободная дата и места на неё — из того же батча, что порядок (правило 1в). */
   nextDeparture: string | null; nextSlots: number | null;
+  /** 'failed' — даты не прочитались: «не загрузились», а не «дат нет» (§4.0). */
+  datesState?: 'ok' | 'failed';
 }
 
 interface RouteWaypoint {
@@ -311,6 +321,12 @@ function OfferCard({ offer, activityType, onBook }: {
   const isLowSlots = offer.nextSlots != null && offer.nextSlots > 0 && offer.nextSlots <= 3;
   const cardImage = offer.tourImage || offer.operatorHeroImage;
   const seasonStr = formatSeasonDates(offer.seasonStart, offer.seasonEnd);
+  // Группа — общим правилом с карточкой тура (lib/tours/group-size, 1342):
+  // у тура без предела «не ограничена», а не «1–12».
+  const groupLabel = groupRangeShort({
+    min_participants: offer.minGroupSize, max_participants: offer.maxGroupSize,
+    group_size_unlimited: offer.groupSizeUnlimited === true,
+  });
 
   return (
     <div
@@ -399,12 +415,10 @@ function OfferCard({ offer, activityType, onBook }: {
               {duration}
             </span>
           )}
-          {(offer.minGroupSize || offer.maxGroupSize) && (
+          {groupLabel && (
             <span className="flex items-center gap-1">
               <Users className="w-3.5 h-3.5" style={{ color: accentColor }} />
-              {offer.minGroupSize && offer.maxGroupSize
-                ? `${offer.minGroupSize}–${offer.maxGroupSize}`
-                : `до ${offer.maxGroupSize}`}
+              {groupLabel}
             </span>
           )}
           {seasonStr && (
@@ -461,6 +475,9 @@ function OfferCard({ offer, activityType, onBook }: {
                 }{isLowSlots ? `${offer.nextSlots} мест · ` : ''}{nextDate}
               </p>
             )}
+            {offer.datesState === 'failed' && (
+              <p className="text-[11px] mt-1 text-[var(--text-muted)]">даты не загрузились</p>
+            )}
           </div>
           <button
             type="button"
@@ -504,7 +521,8 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [showAllOffers, setShowAllOffers] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [sortBy, setSortBy] = useState<'price' | 'rating' | 'date' | 'slots'>('price');
+  // 'order' — порядок сервера (правило 1в); цену, дату и места включает турист.
+  const [sortBy, setSortBy] = useState<RouteOfferSort>('order');
   const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000000]);
   const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
@@ -519,11 +537,25 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const regionPacks = useMemo(() => builtRegionPacks(mapPackBaseUrl), [mapPackBaseUrl]);
 
   // Карта уже в телефоне (с этой кнопки или с полевого экрана — запись одна).
+  // Запись — заявление закачки; на месте ли карта сейчас, говорит проба
+  // Cache Storage (#2558, #2789): неполная или вычищенная — «Повторить».
   useEffect(() => {
+    let rec: ReturnType<typeof parseSavedMap> = null;
     try {
-      const rec = parseSavedMap(localStorage.getItem(savedMapKey(id)));
-      if (rec) { setDlState('done'); setDlNote(`Карта маршрута в телефоне: ${rec.mb} МБ`); }
+      rec = parseSavedMap(localStorage.getItem(savedMapKey(id)));
     } catch { /* хранилище закрыто — значит, записи нет */ }
+    if (!rec) return;
+    const saved = rec;
+    let alive = true;
+    const show = (coverage: Awaited<ReturnType<typeof probeCoverage>> | null) => {
+      if (!alive) return;
+      const r = routeMapReadiness(saved, coverage);
+      setDlState(r.state === 'redo' ? 'error' : 'done');
+      setDlNote(r.note);
+    };
+    show(null);
+    void probeCoverage(saved.sampleUrls).then(show, () => show(null));
+    return () => { alive = false; };
   }, [id]);
 
   /**
@@ -801,30 +833,14 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
 
   // Фильтрация и сортировка туров
   const allOffers = route.offers ?? [];
-  const filteredOffers = allOffers
+  const filteredOffers = sortRouteOffers(allOffers
     .filter(o => {
       const price = o.effectivePrice ?? o.priceBase ?? 0;
       if (price < priceRange[0] || price > priceRange[1]) return false;
       if (filterDifficulty && o.difficulty !== filterDifficulty) return false;
       if (filterDurationType && o.durationType !== filterDurationType) return false;
       return true;
-    })
-    .sort((a, b) => {
-      const priceA = a.effectivePrice ?? a.priceBase ?? 0;
-      const priceB = b.effectivePrice ?? b.priceBase ?? 0;
-      const ratingA = a.rating ?? 0;
-      const ratingB = b.rating ?? 0;
-      const dateA = a.nextDeparture ? new Date(a.nextDeparture).getTime() : Infinity;
-      const dateB = b.nextDeparture ? new Date(b.nextDeparture).getTime() : Infinity;
-
-      switch (sortBy) {
-        case 'price': return priceA - priceB;
-        case 'rating': return ratingB - ratingA;
-        case 'date': return dateA - dateB;
-        case 'slots': return (b.nextSlots ?? 0) - (a.nextSlots ?? 0);
-        default: return 0;
-      }
-    });
+    }), sortBy);
 
   const offers = filteredOffers;
   const maxPrice = allOffers.length > 0
@@ -1289,28 +1305,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
             {/* Фильтры и сортировка туров */}
             {allOffers.length > 1 && (
               <section className="space-y-3">
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {/* Сортировка */}
-                  <label className="flex-shrink-0 text-xs font-semibold text-[var(--text-muted)] pt-2">
-                    Сортировка:
-                  </label>
-                  {(['price', 'rating', 'date', 'slots'] as const).map(option => (
-                    <button
-                      key={option}
-                      onClick={() => setSortBy(option)}
-                      className={`flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                        sortBy === option
-                          ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
-                          : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]'
-                      }`}
-                    >
-                      {option === 'price' && <><TrendingUp className="w-3 h-3 inline mr-1" />Цена</>}
-                      {option === 'rating' && <><Star className="w-3 h-3 inline mr-1" />Рейтинг</>}
-                      {option === 'date' && <><Calendar className="w-3 h-3 inline mr-1" />Дата</>}
-                      {option === 'slots' && <><Users className="w-3 h-3 inline mr-1" />Места</>}
-                    </button>
-                  ))}
-                </div>
+                {/* Порядок туров: по умолчанию правило 1в с подписью; цену, дату
+                    и места включает сам турист (слово владельца 29.10). */}
+                <RouteOfferSortBar sortBy={sortBy} onChange={setSortBy} />
 
                 <div className="flex gap-2 flex-wrap">
                   {/* Сложность */}
@@ -1946,6 +1943,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           priceUnit={bookingOffer.priceUnit}
           duration={{ multi_day_count: bookingOffer.multiDayCount, duration_hours: bookingOffer.durationHours }}
           maxGroupSize={bookingOffer.maxGroupSize}
+          groupSizeUnlimited={bookingOffer.groupSizeUnlimited === true}
           nextDeparture={calendarDate ?? bookingOffer.nextDeparture}
         />
       )}

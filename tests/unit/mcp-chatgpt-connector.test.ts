@@ -21,8 +21,9 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
 import {
   SEARCH_TOOL, FETCH_TOOL, CONNECTOR_TOOL_NAMES, parseDocId, docId, docUrl, searchDocuments, fetchDocument, runConnectorTool,
-  SEARCH_RESULTS_MAX, QUERY_MIN_CHARS,
+  SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, orderTourHits,
 } from '@/lib/mcp/connector-tools';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, TOOL_ANNOTATIONS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 
@@ -300,5 +301,45 @@ describe('подключение в роут MCP и в A2A', () => {
 
   it('llms.txt называет пару для ChatGPT', () => {
     expect(read('app/llms.txt/route.ts')).toMatch(/search \/ fetch/);
+  });
+});
+
+describe('туры в поиске и туры места — правило 1в (слово владельца 29.10)', () => {
+  it('внутри равного числа слов туры идут по правилу, а не по похожести и длине названия', () => {
+    const rows = [
+      { key: '1', title: 'Горелый', score: 0.9, hits: 1, nearest_free_date: null },
+      { key: '2', title: 'Горелый — длинное название тура', score: 0.2, hits: 1, nearest_free_date: '2027-07-26' },
+      { key: '3', title: 'Горелый и Мутновский', score: 0.5, hits: 2, nearest_free_date: null },
+      { key: '4', title: 'Вулкан Горелый', score: 0.7, hits: 1, nearest_free_date: null },
+    ];
+    const out = orderTourHits(rows, '2026-10-29');
+    // Больше совпавших слов — выше: это релевантность запросу.
+    expect(out[0].key).toBe('3');
+    // Среди hits = 1: с датой первым, остальные — жребием дня.
+    const ones = orderOffersBy(rows.filter((r) => r.hits === 1), (r) => ({ id: r.key, nearestFreeDate: r.nearest_free_date }), { day: '2026-10-29' });
+    expect(out.slice(1).map((r) => r.key)).toEqual(ones.map((r) => r.key));
+    expect(out[1].key).toBe('2');
+  });
+
+  it('fetch места: все предложения туров с компанией у каждого, после 112', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (/FROM route_waypoints/.test(sql)) {
+        return { rows: [
+          { id: '61', slug: 'gorely-61', title: 'Горелый', partner_id: 'a', partner_name: 'Местечко Камчатка', link_kind: 'main_place', keeps_schedule: false, base_price: '15000', price_unit: 'per_person' },
+          { id: '72', slug: 'gorely-72', title: 'Горелый', partner_id: 'b', partner_name: 'Лагуна Экспедиция', link_kind: 'main_place', keeps_schedule: false, base_price: '18000', price_unit: 'per_person' },
+        ] };
+      }
+      return { rows: [{
+        key: 'vulkan-gorelyy', id: 'p-gorely', name: 'Вулкан Горелый', description: null, essence: null, location_type: 'volcano', category: null,
+        district: null, lat: '52.5588', lng: '158.0369', best_season: null, access_info: null, eco_permit_required: false,
+        hazard_types: [], profile_source: 'manual', nearest_medical_km: null,
+      }] };
+    });
+    const doc = await fetchDocument('place:vulkan-gorelyy', BASE);
+    expect(doc.text).toContain('2 предложения от 2 компаний');
+    expect(doc.text).toContain('Местечко Камчатка');
+    expect(doc.text).toContain('Лагуна Экспедиция');
+    expect(doc.text).toContain('https://vedarai.ru/catalog/tours/gorely-61');
+    expect(doc.text.indexOf('112')).toBeLessThan(doc.text.indexOf('2 предложения'));
   });
 });

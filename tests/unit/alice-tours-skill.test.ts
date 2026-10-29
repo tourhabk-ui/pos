@@ -210,3 +210,48 @@ describe('прочие ветки диалога', () => {
     expect(res.response.text).toContain('Сплав по реке Быстрая');
   });
 });
+
+// Ревью 29.10: голосовая витрина — общая (правило 1в). Компания называется у
+// каждого тура, правило порядка — словами, и поиск по названию не выбирает
+// продавца за туриста.
+describe('несколько продавцов — компания, правило и выбор за туристом', () => {
+  const STATE = { v: 1, items: [{ id: 1, title: 'X' }], offset: 1, sort: 'recommended', total: 1 };
+
+  it('список называет компанию у каждого тура и правило порядка', async () => {
+    const tours = [
+      row({ id: 1, title: 'Вулкан Горелый', operator_name: 'Компания А', operator_id: 'a' }),
+      row({ id: 2, title: 'Вулкан Горелый', operator_name: 'Компания Б', operator_id: 'b' }),
+    ];
+    const res = await handleAliceTours(simpleUtterance('какие есть туры'), vi.fn(async () => fakeResult(tours, 2)));
+    expect(res.response.text).toContain('1) Вулкан Горелый — Компания А —');
+    expect(res.response.text).toContain('2) Вулкан Горелый — Компания Б —');
+    expect(res.response.text).toContain('Место в списке не продаётся.');
+  });
+
+  it('«подешевле» — правило называет выбор туриста, а не жребий', async () => {
+    const res = await handleAliceTours(simpleUtterance('подешевле', STATE), vi.fn(async () => fakeResult([row()], 1)));
+    expect(res.response.text).toContain('По цене — как вы попросили. Место в списке не продаётся.');
+  });
+
+  it('название совпало у туров двух компаний — перечислены обе, подробностей одной нет; номер выбирает тур', async () => {
+    const two = [
+      row({ id: 31, title: 'Вулкан Горелый', operator_name: 'Компания А', operator_id: 'a', description: 'Описание А' }),
+      row({ id: 32, title: 'Вулкан Горелый', operator_name: 'Компания Б', operator_id: 'b', description: 'Описание Б' }),
+    ];
+    const fetchTours: FetchTours = vi.fn(async (filters) => {
+      if ('search' in filters) {
+        expect(filters.limit).toBeGreaterThan(1);
+        return fakeResult(two, 2);
+      }
+      return fakeResult(two.filter((t) => t.id === filters.id), 1);
+    });
+    const res = await handleAliceTours(simpleUtterance('горелый', STATE), fetchTours);
+    expect(res.response.text).toContain('есть туры разных компаний');
+    expect(res.response.text).toContain('Компания А');
+    expect(res.response.text).toContain('Компания Б');
+    expect(res.response.text).not.toContain('Описание А');
+    expect(fetchTours).toHaveBeenCalledTimes(1);
+    const second = await handleAliceTours(simpleUtterance('второй', res.session_state as Record<string, unknown>), fetchTours);
+    expect(second.response.text).toContain('Оператор — Компания Б');
+  });
+});

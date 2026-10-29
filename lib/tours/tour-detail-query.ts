@@ -52,6 +52,8 @@ export interface TourCardRow {
   photos: string[] | null;
   max_participants: number;
   min_participants: number | null;
+  /** Группа тура не ограничена (1342). Не прочитано (старая схема) — нет поля, читается как FALSE. */
+  group_size_unlimited?: boolean | null;
   duration_hours: string | null;
   duration_type: string | null;
   multi_day_count: number | null;
@@ -116,6 +118,12 @@ export interface TourCardRow {
    * платформы: без маршрута контуру не на что опереться.
    */
   route_id: string | null;
+  /**
+   * Главное место тура — `operator_tours.main_place_id` (1286, 1344). По нему
+   * карточка говорит «к месту ещё N предложений» (слово владельца 29.10).
+   * NULL — связь не записана, и строки нет.
+   */
+  main_place_id?: string | null;
 }
 
 /**
@@ -161,7 +169,7 @@ export interface TourCardReview {
 }
 
 /** Колонки, добавленные миграциями 809 и 1194 — их может не быть, если миграция отстала. */
-const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes, ot.video_clips,';
+const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes, ot.video_clips, ot.group_size_unlimited,';
 
 function buildSql(withOptional: boolean): string {
   return `
@@ -184,6 +192,7 @@ function buildSql(withOptional: boolean): string {
       ot.weather_dependent,
       ot.rating, ot.review_count,
       ot.route_id,
+      ot.main_place_id,
       ${withOptional ? OPTIONAL_COLUMNS : ''}
       p.name AS operator_name, p.id AS operator_id,
       p.logo_image AS operator_logo,

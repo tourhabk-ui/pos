@@ -10,8 +10,10 @@ import { requireOperator } from '@/lib/auth/middleware';
 import {
   UpdateTourSchema,
   getTourById,
+  kindChangeRejected,
   softDeleteTour,
 } from '@/lib/api/operator-tours';
+import { assertLiveMainPlace, MainPlaceRejected } from '@/lib/tours/main-place';
 import { transaction } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { pingTourChanged } from '@/lib/seo/indexnow';
@@ -32,17 +34,6 @@ function parseTourId(raw: string): bigint | null {
     return BigInt(raw);
   } catch {
     return null;
-  }
-}
-
-/**
- * Главное место тура не принято: такого места нет, оно скрыто или слито в
- * другое. Отказ клиенту (400), а не сбой: выбрать можно только живое место
- * справочника (аудит 15.10, TOUR-PLACE).
- */
-class MainPlaceRejected extends Error {
-  constructor() {
-    super('Главное место не найдено в справочнике мест или скрыто — выберите место из списка');
   }
 }
 
@@ -108,6 +99,13 @@ export async function PATCH(
 
     const body = await request.json();
     const input = UpdateTourSchema.parse(body);
+
+    // Вид места и активности: сохранённое у тура проходит как было (туры из
+    // миграций несут jeep_safari, snowmobile, sightseeing…), новое — только из
+    // списка формы. Прежде схема отвергала сохранённое, и тур из миграции
+    // нельзя было сохранить вовсе — вместе с выбором главного места.
+    const kindRejected = kindChangeRejected(input, tour as Record<string, unknown>);
+    if (kindRejected) return NextResponse.json({ error: kindRejected }, { status: 400 });
 
     // Цена тура — право, которое даёт владелец кабинета (CRM 2г): менеджер
     // без него правит программу, описание и даты, но не цену. Редактор шлёт
@@ -217,13 +215,7 @@ export async function PATCH(
     // (аудит кабинета оператора).
     const updatedRow = await transaction(async (client) => {
       if (mainPlaceChange && mainPlaceInput !== null) {
-        const place = await client.query(
-          `SELECT id FROM places
-            WHERE id = $1 AND is_visible = TRUE AND merged_into_id IS NULL
-            FOR SHARE`,
-          [mainPlaceInput],
-        );
-        if (place.rows.length === 0) throw new MainPlaceRejected();
+        await assertLiveMainPlace(client, mainPlaceInput);
       }
 
       const result = await client.query(
