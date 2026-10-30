@@ -25,21 +25,11 @@
 import { MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { TOURS_PAGE_SIZE } from '@/lib/kuzmich/tour-filter';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { paymentRule } from '@/lib/mcp/payment-rule';
 
-/**
- * Оплата: у тура — по выключателю (lib/payments/accepting.ts). Машина под
- * заказ, прокат и жильё через платформу не оплачиваются никогда (CLAUDE.md
- * §14, описания request_charter, create_car_rental_request,
- * create_stay_request) — эта половина от выключателя не зависит. При
- * включённой оплате слова — как на странице статуса заявки («Оператор
- * скажет, как оплатить»); ссылку на оплату ни один ответ сейчас не выдаёт.
- */
-export function paymentRule(acceptsPayments: boolean): string {
-  return (acceptsPayments
-    ? 'Оплата тура — только после подтверждения оператором; как оплатить, скажет он'
-    : 'Ведар сейчас оплату не принимает: тур оплачивают исполнителю напрямую')
-    + '; машина под заказ, прокат и жильё через платформу не оплачиваются.';
-}
+// Правило оплаты — общее с /llms-*.txt (lib/mcp/payment-rule): один текст,
+// а не две копии, которые разойдутся при включении оплаты.
+export { paymentRule };
 
 export function buildServerInstructions(opts: { acceptsPayments: boolean }): string {
   return [

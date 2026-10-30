@@ -13,7 +13,7 @@ describe('/llms-en.txt', () => {
     const res = await GET();
     expect(res.headers.get('content-language')).toBe('en');
     const body = await res.text();
-    for (const s of ['Vedar Kamchatka (vedarai.ru', 'Ведар Камчатка', 'not a travel agency', 'Kamchatka', 'https://vedarai.ru/api/mcp', 'Model Context Protocol', 'no payment through the portal', 'free for tourists']) {
+    for (const s of ['Vedar Kamchatka (vedarai.ru', 'Ведар Камчатка', 'not a travel agency', 'Kamchatka', 'https://vedarai.ru/api/mcp', 'Model Context Protocol', 'not paid through the platform', 'free for tourists']) {
       expect(body).toContain(s);
     }
     expect(body).not.toMatch(/Multi-Channel|Master Channel Partner/);

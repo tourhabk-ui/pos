@@ -25,16 +25,24 @@
  */
 
 import { MCP_CONNECT_OPTIONS, MCP_ENDPOINT, MCP_SERVER_KEY, type McpConnectOption } from '@/lib/mcp/connect';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { paymentRuleZh } from '@/lib/mcp/payment-rule';
 
 /** Заголовок: латинское имя и «Камчатка» иероглифами — так бренд ищут, без голого vedarai. */
 export const MCP_TITLE_ZH = 'Vedar 堪察加 — 堪察加旅游信息门户';
 
-/** Описание сервера — манифест, страница /mcp. */
-export const MCP_DESCRIPTION_ZH =
+/**
+ * Описание сервера — манифест, страница /mcp. Голова и хвост отдельно: файл
+ * /llms-zh.txt собирает описание без «无在线支付» и говорит об оплате правилом
+ * по выключателю (lib/mcp/payment-rule, 30.10).
+ */
+const MCP_DESCRIPTION_ZH_HEAD =
   'Vedar 堪察加（vedarai.ru，俄文名 Ведар Камчатка）是俄罗斯堪察加半岛的旅游信息门户，不是旅行社，也不是旅游运营商。向 AI 代理开放 MCP 服务器与 A2A 接口：'
   + '本地运营商的团队游及其真实余位、地点与路线的安全信息和当前状况（火山、地震、天气预警）、住宿、装备租赁、接送、天气、行程规划。'
   + '写操作只有五种申请（选团 create_lead、指定团和日期的预订申请 create_booking_request、住宿申请 create_stay_request、包车申请 request_charter、租车申请 create_car_rental_request），'
-  + '均由人工确认，无在线支付，无需认证，按 IP 限流。接口返回的名称与说明为俄文，工具参数以俄文或英文为佳。中文页面另列价格、时长与季节。堪察加紧急电话：112。';
+  + '均由人工确认';
+const MCP_DESCRIPTION_ZH_TAIL = '无需认证，按 IP 限流。接口返回的名称与说明为俄文，工具参数以俄文或英文为佳。中文页面另列价格、时长与季节。堪察加紧急电话：112。';
+export const MCP_DESCRIPTION_ZH = `${MCP_DESCRIPTION_ZH_HEAD}，无在线支付，${MCP_DESCRIPTION_ZH_TAIL}`;
 
 /** Хвост описания агента A2A — та же суть, короче. */
 export const A2A_DESCRIPTION_ZH =
@@ -273,7 +281,7 @@ function llmsClientLines(base: string): string[] {
  * Раздел llms.txt. Факты о крае — те же, что в русском разделе «ключевые
  * факты» того же файла; ссылки — на те же входы, что и в русских разделах.
  */
-export function llmsSectionZh(base: string): string {
+export function llmsSectionZh(base: string, acceptsPayments: boolean = platformAcceptsPayments()): string {
   return [
     '## 中文说明（面向中文 AI 助手）',
     '',
@@ -281,7 +289,7 @@ export function llmsSectionZh(base: string): string {
     `- Vedar 堪察加（${base}，俄文名 Ведар Камчатка）是堪察加旅游信息门户，不是旅行社：地点与路线目录、安全信息（火山活动、地震、天气预警）、本地运营商的团队游及真实余位、住宿、接送、行程规划。`,
     '- 中文页面给出价格、时长、季节与人数，均来自数据库；旅行社介绍仅在已存译文时显示，并标明机器翻译。堪察加：俄罗斯远东半岛，联合国教科文组织世界遗产“堪察加火山群”，300 多座火山（29 座活火山），旅游季 6–9 月，时区 UTC+12。',
     `- AI 代理接口：MCP 服务器 ${base}/api/mcp（JSON-RPC 2.0，Streamable HTTP，无需认证），清单 ${base}/.well-known/mcp.json；A2A 代理卡片 ${base}/.well-known/agent-card.json，JSON-RPC ${base}/api/a2a。`,
-    '- 写操作仅限五种申请（create_lead、create_booking_request、create_stay_request、request_charter、create_car_rental_request），均由人工确认；无在线支付。',
+    '- 写操作仅限五种申请（create_lead、create_booking_request、create_stay_request、request_charter、create_car_rental_request），均由人工确认。' + paymentRuleZh(acceptsPayments),
     ...llmsClientLines(base),
     '- 紧急情况：堪察加紧急电话 112。',
   ].join('\n');
@@ -294,6 +302,9 @@ export function llmsSectionZh(base: string): string {
  * было, и проба 12.10 показала, что DeepSeek и Qwen о vedarai.ru не знают.
  * Факты — те же, что в разделах выше; ничего, чего нет в коде и llms.txt.
  */
+/** Пять заявок — без слов об оплате: их добавляет поверхность (страница /zh или правило по выключателю). */
+const ZH_BOOKING_REQUESTS = '预订只有五种申请：选团（create_lead）、指定团和日期的预订申请（create_booking_request）、住宿申请（create_stay_request）、包车申请（request_charter）、租车申请（create_car_rental_request）。均由人工确认';
+
 export const ZH_PAGE = {
   /** Заголовок вкладки: латинское имя, иероглифы и что это, в одну строку. */
   title: 'Vedar 堪察加 — 堪察加旅游信息门户：团队游、安全信息、AI 向导',
@@ -306,7 +317,7 @@ export const ZH_PAGE = {
     '地点与路线的安全信息和当前状况：火山活动、地震、天气预警',
     '住宿、装备租赁、包车交通、天气预报、行程规划',
   ],
-  booking: '预订只有五种申请：选团（create_lead）、指定团和日期的预订申请（create_booking_request）、住宿申请（create_stay_request）、包车申请（request_charter）、租车申请（create_car_rental_request）。均由人工确认；无在线支付，款项直接付给旅行社。',
+  booking: `${ZH_BOOKING_REQUESTS}；无在线支付，款项直接付给旅行社。`,
   agents: 'AI 代理可通过 MCP 服务器（JSON-RPC 2.0，Streamable HTTP，无需认证）、A2A 代理卡或 OpenAPI 3.1 描述接入；工具参数以俄文或英文为佳。',
   emergency: '堪察加紧急电话：112。',
   /** Каталог не прочитан — говорится вслух, а не пустым списком (§4.0). */
@@ -342,11 +353,11 @@ export const LLMS_ZH_TOPICS: readonly { key: string; zh: string }[] = [
   { key: 'trekking', zh: '徒步' },
 ];
 
-export function llmsZhFile(base: string): string {
+export function llmsZhFile(base: string, acceptsPayments: boolean = platformAcceptsPayments()): string {
   return [
     `# ${MCP_TITLE_ZH}`,
     '',
-    `> ${MCP_DESCRIPTION_ZH}`,
+    `> ${MCP_DESCRIPTION_ZH_HEAD}，${MCP_DESCRIPTION_ZH_TAIL}`,
     '',
     '关键词：堪察加 旅游、堪察加 火山、堪察加 温泉、堪察加 观熊、堪察加 住宿、堪察加 接送、堪察加 包车、堪察加 预订、彼得罗巴甫洛夫斯克-堪察加斯基。',
     '',
@@ -358,12 +369,12 @@ export function llmsZhFile(base: string): string {
     '',
     '## 如何预订',
     '',
-    `- ${ZH_PAGE.booking}`,
+    `- ${ZH_BOOKING_REQUESTS}。${paymentRuleZh(acceptsPayments)}`,
     '- 住宿：search_accommodations 查询，create_stay_request 提交住宿申请。',
     '- 接送与包车：search_transfers 查询，request_charter 提交包车申请。',
     '- 租车（无司机，按天计价）：search_car_rental 查询；create_car_rental_request 提交租车申请（或在租车公司页面提交），由人工确认。',
     '',
-    llmsSectionZh(base),
+    llmsSectionZh(base, acceptsPayments),
     '',
     '## 页面',
     '',

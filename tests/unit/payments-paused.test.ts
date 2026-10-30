@@ -80,6 +80,12 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     // выключателю; машина, прокат и жильё — безусловно (сторож
     // mcp-server-instructions держит оба положения вызовом).
     'lib/mcp/server-instructions.ts',
+    // Файлы для агентов (30.10): прежде «оплаты через платформу нет»
+    // безусловно; оба положения выключателя держит вызов в
+    // llms-payment-switch.test.ts.
+    'app/llms.txt/route.ts',
+    'lib/mcp/en-layer.ts',
+    'lib/mcp/zh-layer.ts',
   ])('%s говорит о платеже по выключателю, а не безусловно', (f) => {
     expect(read(f)).toMatch(/platformAcceptsPayments\(\)/);
   });

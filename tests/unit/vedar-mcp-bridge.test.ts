@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { chinaClientFamily, clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { externalBinary } from '../helpers/external-binary';
+import { buildServerInstructions } from '@/lib/mcp/server-instructions';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -194,6 +195,70 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
     const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
     expect(booking?.function.description).toMatch(/согласие на их обработку и передай consent: true\.$/);
+  });
+});
+
+describe('инструкция сервера из initialize доходит до модели (30.10)', () => {
+  // Мост держал свою копию правил платформы, и в ней безусловно стояло
+  // строка о прямой оплате — а у сервера оплата тура по выключателю.
+  // Теперь системный промпт = правила моста + поле instructions из initialize.
+  // Судит вызов: Agent собирается на подложенном _post (сеть не нужна),
+  // initialize отдаёт настоящий текст buildServerInstructions.
+  const runAgent = (instructions: string | null) => {
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'instr = json.loads(sys.stdin.read())',
+      'def fake_post(url, payload, headers, timeout=None):',
+      '    method = payload.get("method")',
+      '    if method == "initialize":',
+      '        res = {"serverInfo": {"name": "vedar", "version": "t"}}',
+      '        if instr is not None:',
+      '            res["instructions"] = instr',
+      '        return {"result": res}',
+      '    if method == "tools/list":',
+      '        return {"result": {"tools": [{"name": "get_tours", "description": "x", "inputSchema": {"type": "object", "properties": {}}}]}}',
+      '    raise RuntimeError("неожиданный вызов " + str(method))',
+      'm._post = fake_post',
+      'agent = m.Agent({"provider": "deepseek", "base_url": "http://x", "model": "x", "key": "k"})',
+      'sys.stdout.write(json.dumps({"system": agent.history[0]["content"], "role": agent.history[0]["role"]}, ensure_ascii=False))',
+    ].join('\n');
+    return JSON.parse(execFileSync('python3', ['-I', '-B', '-c', code], { input: JSON.stringify(instructions), encoding: 'utf-8' })) as { system: string; role: string };
+  };
+
+  it.skipIf(PY.skip)(PY.title('системный промпт агента содержит instructions сервера целиком — при обоих положениях выключателя оплаты'), () => {
+    PY.require('системный промпт моста');
+    for (const acceptsPayments of [false, true]) {
+      const instr = buildServerInstructions({ acceptsPayments });
+      const out = runAgent(instr);
+      expect(out.role).toBe('system');
+      expect(out.system).toContain(instr);
+      // Свои правила моста остались: ворота согласия и порядок вызовов безопасности.
+      expect(out.system).toMatch(/согласен на обработку данных/);
+      expect(out.system).toMatch(/safety_status/);
+      // Слова об оплате — только сервера: ровно его правило, своего у моста нет.
+      const paymentLines = out.system.split('\n').filter((l) => /оплат/i.test(l));
+      expect(paymentLines.length, `оплата в промпте: ${paymentLines.join(' | ')}`).toBe(1);
+      expect(instr).toContain(paymentLines[0]);
+    }
+  });
+
+  it.skipIf(PY.skip)(PY.title('без instructions от сервера — общие правила моста, и ни слова об оплате'), () => {
+    PY.require('системный промпт моста без инструкции');
+    for (const instr of [null, '', '   ']) {
+      const out = runAgent(instr);
+      expect(out.system).toMatch(/Данные бери ТОЛЬКО из инструментов/);
+      expect(out.system).toMatch(/112/);
+      expect(out.system).not.toMatch(/оплат/i);
+      expect(out.system).not.toMatch(/Инструкция сервера/);
+    }
+  });
+
+  it('безусловной строки об оплате в мосту нет', () => {
+    // Запрет по исходнику: оплата — дело сервера и его выключателя.
+    expect(read(SCRIPT)).not.toMatch(/оплата идёт напрямую/);
   });
 });
 
