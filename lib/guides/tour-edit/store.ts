@@ -144,7 +144,7 @@ export async function readEditTours(partnerId: string, db: Pick<PoolClient, 'que
 }
 
 /**
- * Свой тур под блокировкой — в транзакции записи (документ гида, 1360):
+ * Свой тур под блокировкой — в транзакции записи (документ гида, 1361):
  * строка для `writeTourPatch` и тур для сверки «было». null — тура нет или не
  * её. Отказ базы — исключение (транзакция вызывающего откатится).
  */
@@ -196,10 +196,10 @@ export interface Draft {
 const SUPERSEDE_SQL = `UPDATE tour_chat_edits SET status = 'superseded', decided_at = NOW()
   WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
 
-/** Открытый черновик роли гида в этом чате (1359: ответ на отзыв, профиль) — тоже: последнее действие главное. */
+/** Открытый черновик роли гида в этом чате (1360: ответ на отзыв, профиль) — тоже: последнее действие главное. */
 const SUPERSEDE_ROLE_SQL = `UPDATE guide_chat_drafts SET status = 'superseded', decided_at = NOW()
   WHERE channel = $1 AND chat_id = $2::bigint AND status IN ('awaiting_text', 'pending')`;
-/** И документ гида (1360), ждущий кнопки. */
+/** И документ гида (1361), ждущий кнопки. */
 const SUPERSEDE_DOC_SQL = `UPDATE tour_doc_drafts SET status = 'superseded', decided_at = NOW()
   WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
 

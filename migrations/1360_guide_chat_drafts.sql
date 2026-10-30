@@ -1,4 +1,4 @@
--- Migration 1359: ответ на отзыв и профиль гида из чата кабинета — черновик до кнопки
+-- Migration 1360: ответ на отзыв и профиль гида из чата кабинета — черновик до кнопки
 -- Created: 2026-10-30
 --
 -- Слово владельца 30.10: «гид должен полностью управлять своей ролью из
@@ -67,6 +67,6 @@ CREATE INDEX IF NOT EXISTS guide_chat_drafts_partner_idx
   ON guide_chat_drafts (partner_id, created_at DESC);
 
 COMMENT ON TABLE guide_chat_drafts IS
-  'Ответ на отзыв и поле профиля гида из чата кабинета (1359): черновик до кнопки. Один открытый на чат; кнопка сверяет live_value с базой и пишет общей функцией сайта (lib/guides/review-reply, lib/guides/profile-write).';
+  'Ответ на отзыв и поле профиля гида из чата кабинета (1360): черновик до кнопки. Один открытый на чат; кнопка сверяет live_value с базой и пишет общей функцией сайта (lib/guides/review-reply, lib/guides/profile-write).';
 
 COMMIT;
