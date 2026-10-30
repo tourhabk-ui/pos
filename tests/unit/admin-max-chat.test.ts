@@ -459,7 +459,7 @@ describe('кнопки меню роли в MAX (rm:)', () => {
     expect(repliesTo(ADMIN_CHAT)).toEqual(['Не удалось проверить, чей это чат. Кнопку не выполнил.']);
   });
 
-  it('«Входящие» в чате этого оператора — его входящие, со строкой его меню', async () => {
+  it('«Входящие» в чате этого оператора — его входящие кабинетом в чате, со строкой кабинета (30.10)', async () => {
     m.findPartner.mockResolvedValue({ outcome: 'found', partner: OPERATOR });
     await post(VERIFIED, roleTap('rm:op:in'));
     expect(m.loadInbox).toHaveBeenCalledWith(OPERATOR.partnerId, 'operator', null, expect.any(Object));
@@ -468,7 +468,8 @@ describe('кнопки меню роли в MAX (rm:)', () => {
     const call = m.maxSend.mock.calls.find((c) => c[0] === ADMIN_CHAT);
     expect(String(call?.[1])).toContain('Входящие');
     const buttons = JSON.stringify(call?.[2] ?? {});
-    expect(buttons).toContain('rm:op:in');
+    // Строка кабинета в чате листает его на месте (cb:), не консоль администратора.
+    for (const p of ['cb:i', 'cb:t', 'cb:c', 'cb:m']) expect(buttons).toContain(`"payload":"${p}"`);
     expect(buttons).not.toContain('rm:ad:');
   });
 });

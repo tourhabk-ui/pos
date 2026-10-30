@@ -49,19 +49,24 @@ export function chatAnswerOfInbox(kind: InboxKind): ChatAnswerKind | null {
   return INBOX_KIND[kind] ?? null;
 }
 
+/**
+ * Четыре кнопки ответа. `n` — номер строки списка, когда под ним кнопки
+ * нескольких заявок; null — кнопки карточки одной заявки (кабинет в чате,
+ * lib/chat-cabinet/screens), номер не нужен.
+ */
 export function chatAnswerButtons(
-  n: number,
+  n: number | null,
   kind: ChatAnswerKind,
   subjectId: string,
 ): Array<{ text: string; payload: string }> {
   const code = KIND_CODE[kind];
   const id = subjectId.toLowerCase();
-  const mark = String(n);
+  const mark = n === null ? '' : `${n} · `;
   return [
-    { text: `${mark} · Принять`, payload: `ia:${ANSWER_CODE.accept}:${code}:${id}` },
-    { text: `${mark} · Нет мест`, payload: `ia:${ANSWER_CODE.no_seats}:${code}:${id}` },
-    { text: `${mark} · Уточнить`, payload: `ia:${ANSWER_CODE.clarify}:${code}:${id}` },
-    { text: `${mark} · Свяжусь сам`, payload: `ia:${ANSWER_CODE.self}:${code}:${id}` },
+    { text: `${mark}Принять`, payload: `ia:${ANSWER_CODE.accept}:${code}:${id}` },
+    { text: `${mark}Нет мест`, payload: `ia:${ANSWER_CODE.no_seats}:${code}:${id}` },
+    { text: `${mark}Уточнить`, payload: `ia:${ANSWER_CODE.clarify}:${code}:${id}` },
+    { text: `${mark}Свяжусь сам`, payload: `ia:${ANSWER_CODE.self}:${code}:${id}` },
   ];
 }
 

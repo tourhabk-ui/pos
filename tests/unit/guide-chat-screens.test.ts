@@ -69,7 +69,7 @@ vi.mock('@/lib/telegram/group-monitor', () => ({ groupMonitor: { processMessage:
 
 const screens = await import('@/lib/guides/chat-screens');
 const { roleMenuScreen, GUIDE_NO_OWN_TOURS, PARTNER_PD_UNDELIVERED } = await import('@/lib/roles/role-screen');
-const { partnerMenu } = await import('@/lib/roles/role-menu');
+const { partnerMenu, partnerMenuExtras } = await import('@/lib/roles/role-menu');
 const { roleChatCommands } = await import('@/lib/telegram/role-commands');
 const { createPartnerLinkToken } = await import('@/lib/partners/channel-link');
 const max = await import('@/app/api/max/kuzmich/route');
@@ -243,16 +243,19 @@ describe('кнопка меню → экран', () => {
     expect(mx.text).toContain(PHONE);
   });
 
-  it('команды чата Telegram — из строки меню: у продавца четыре, у гида команды две, сводки командой нет', () => {
-    const seller = roleChatCommands(partnerMenu(SELLER) ?? []);
+  it('команды чата Telegram — из вкладок и «Ещё»: у продавца шесть, у гида команды четыре; сводки и «Ещё» командой нет', () => {
+    const seller = roleChatCommands([...(partnerMenu(SELLER) ?? []), ...partnerMenuExtras(SELLER)]);
     expect(seller).toEqual([
       { command: 'requests', description: 'Входящие' },
+      { command: 'tasks', description: 'Задачи' },
+      { command: 'clients', description: 'Клиенты' },
       { command: 'bookings', description: 'Брони' },
       { command: 'tours', description: 'Мои туры' },
       { command: 'help', description: 'Помощь' },
     ]);
-    expect(roleChatCommands(partnerMenu(TEAM_GUIDE) ?? []).map((c) => c.command)).toEqual(['requests', 'help']);
-    expect(roleChatCommands([{ text: 'Сводка', payload: 'rm:op:sm' }])).toEqual([]);
+    expect(roleChatCommands([...(partnerMenu(TEAM_GUIDE) ?? []), ...partnerMenuExtras(TEAM_GUIDE)]).map((c) => c.command))
+      .toEqual(['requests', 'tasks', 'clients', 'help']);
+    expect(roleChatCommands([{ text: 'Сводка', payload: 'rm:op:sm' }, { text: 'Ещё', payload: 'rm:op:mn' }])).toEqual([]);
   });
 });
 
@@ -297,7 +300,7 @@ describe('MAX: «Брони» гида', () => {
     expect(alert.text).toContain(PHONE);
     noPd(alert.stub);
     // Кнопки ответа ждущей брони (шаг 6: вопрос, затем «Да») — над строкой меню.
-    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     // Обычным сообщением ПД не уходят.
     for (const t of maxTexts()) noPd(t);
   });
@@ -331,7 +334,8 @@ describe('MAX: «Брони» гида', () => {
     expect(m.tours).toHaveBeenCalledWith(SELLER.partnerId);
     expect(m.pdAlert).not.toHaveBeenCalled();
     expect(maxTexts()[0]).toContain('<b>Мои туры</b>');
-    expect(maxButtons()).toContain('rm:gd:tr');
+    // Под экраном — вкладки кабинета; «Мои туры» сама живёт в «Ещё».
+    expect(maxButtons()).toContain('rm:gd:mn');
   });
 
   it('команда /bookings: в диалоге — через sendPdAlert; в группе — отказ без чтения', async () => {
@@ -348,12 +352,12 @@ describe('MAX: «Брони» гида', () => {
     for (const t of maxTexts()) noPd(t);
   });
 
-  it('привязка гида по ссылке: под ответом его строка меню, продавцу — с «Бронями» и «Моими турами»', async () => {
+  it('привязка гида по ссылке: под ответом вкладки кабинета — у продавца и у гида команды одни', async () => {
     const token = createPartnerLinkToken(SELLER.partnerId, Date.now());
     if (!token.ok) throw new Error('нет токена');
     for (const [sells, expected] of [
-      [true, ['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']],
-      [false, ['rm:gd:in', 'rm:gd:hp']],
+      [true, ['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']],
+      [false, ['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']],
     ] as const) {
       m.maxSend.mockClear();
       clearMaxMessageDedup();
@@ -427,12 +431,13 @@ describe('Telegram: «Брони» гида', () => {
   it('«Старт» в уже привязанном чате гида — справка со строкой меню и команды чата из неё', async () => {
     await tgSay('/start');
     const [help] = tgSent();
-    expect(help.text).toContain('Кабинет гида. Под ответом кнопки: Входящие, Брони, Мои туры, Помощь.');
+    expect(help.text).toContain('Кабинет гида в чате. Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
+    expect(help.text).toContain('Ещё — Брони, Мои туры, Помощь, кабинет на сайте.');
     expect(help.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+      .toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     const commands = vi.mocked(globalThis.fetch).mock.calls.find((c) => String(c[0]).endsWith('/setMyCommands'));
     const body = JSON.parse(String((commands?.[1] as RequestInit | undefined)?.body ?? '{}')) as { commands?: Array<{ command: string }> };
-    expect(body.commands?.map((c) => c.command)).toEqual(['requests', 'bookings', 'tours', 'help']);
+    expect(body.commands?.map((c) => c.command)).toEqual(['requests', 'tasks', 'clients', 'bookings', 'tours', 'help']);
   });
 
   it('привязка гида по ссылке: строка меню под ответом и команды чата из неё же', async () => {
@@ -445,15 +450,15 @@ describe('Telegram: «Брони» гида', () => {
     ));
     await tgSay(`/start op_${token.token}`);
     const bound = tgSent().find((x) => x.text.includes('Вы подключены как гид'));
-    expect(bound?.text).toContain('«Брони»');
+    expect(bound?.text).toContain('под «Бронями» в «Ещё»');
     noPd(bound?.text ?? '');
     expect(bound?.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+      .toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     const fetchMock = vi.mocked(globalThis.fetch);
     const commands = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/setMyCommands'));
     expect(commands).toBeTruthy();
     const body = JSON.parse(String((commands?.[1] as RequestInit).body)) as { commands: Array<{ command: string }>; scope: unknown };
-    expect(body.commands.map((c) => c.command)).toEqual(['requests', 'bookings', 'tours', 'help']);
+    expect(body.commands.map((c) => c.command)).toEqual(['requests', 'tasks', 'clients', 'bookings', 'tours', 'help']);
     expect(body.scope).toEqual({ type: 'chat', chat_id: TG_CHAT });
   });
 });

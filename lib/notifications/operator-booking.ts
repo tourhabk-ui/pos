@@ -14,7 +14,7 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { getPublicBaseUrl } from '@/lib/config';
 import { ownerBookingsUrl } from '@/lib/partners/cabinet-links';
-import { bookingAnswerButtons, chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
+import { bookingAnswerButtons, bookingChatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 
 async function tgSend(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -154,12 +154,15 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
   const teamDelivered = team?.state === 'sent' ? team.delivered : 0;
 
   // Оператор — только если у него есть хоть один адрес. Ссылка — в его
-  // кабинет: у гида со своими турами это «Свои туры». Гиду с ждущей бронью —
-  // ещё кнопки ответа (только MAX: из заглушки Telegram sendPdAlert их убирает).
-  // Бронь его тура — значит, свои туры он продаёт.
+  // кабинет: у гида со своими турами это «Свои туры». Ждущей брони — ещё
+  // кнопки ответа «Подтвердить» и «Отклонить» (туроператору — со слова
+  // владельца 30.10 «Да, как у гида»; только MAX: из заглушки Telegram
+  // sendPdAlert их убирает). Бронь его тура — значит, свои туры он продаёт.
+  // Копии менеджерам команды кнопок нет: нажать их вправе только тот, кто
+  // подключил чат кабинета (lib/bookings/chat-owner-action).
   if (payload.operator_max_chat_id || payload.operator_telegram_chat_id) {
     const answer = payload.booking_status === 'new'
-      && chatActionsEnabledFor({ category: payload.operator_category, sellsTours: true })
+      && bookingChatActionsEnabledFor({ category: payload.operator_category, sellsTours: true })
       ? bookingAnswerButtons(String(payload.booking_id))
       : [];
     const opRes = await sendPdAlert({

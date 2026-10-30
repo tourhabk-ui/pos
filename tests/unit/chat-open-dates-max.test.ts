@@ -69,6 +69,20 @@ vi.mock('@/lib/requests/request-chat-service', () => ({
   armChatWait: async () => ({ text: '', buttons: [] }),
   bindGuestChat: async () => [],
 }));
+// Поиск клиента кабинета в чате (30.10) тоже смотрит базу на каждый текст
+// личного диалога партнёра — по той же причине подменён: чат поиск не ждёт.
+// Его путь — tests/unit/chat-cabinet-service.test.ts и chat-cabinet.pg.test.ts.
+vi.mock('@/lib/chat-cabinet/service', async (orig) => ({
+  ...(await orig<typeof import('@/lib/chat-cabinet/service')>()),
+  captureCabinetSearch: async () => null,
+}));
+// Причину отказа брони с 30.10 ждут и у туроператора («Да, как у гида»):
+// проверка ожидания — тоже запрос на каждый текст. Её путь —
+// tests/unit/guide-chat-booking-action.test.ts.
+vi.mock('@/lib/bookings/chat-owner-action', async (orig) => ({
+  ...(await orig<typeof import('@/lib/bookings/chat-owner-action')>()),
+  captureOwnerReason: async () => null,
+}));
 vi.mock('@/lib/kuzmich/core', () => ({
   // Живого черновика заявки нет: развилка чата судится без него.
   hasLiveBookingFlow: vi.fn(async () => false),

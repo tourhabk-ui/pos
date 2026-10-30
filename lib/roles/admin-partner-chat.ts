@@ -17,7 +17,8 @@
  * Пока кабинет гида ждёт причину отклонения брони (после кнопки «Отклонить»,
  * lib/bookings/chat-owner-action), любое сообщение этого чата — кабинету:
  * иначе причина со словом команды консоли («брони перенесли») ушла бы консоли,
- * а гид не получил бы вопроса «Да / Не надо».
+ * а гид не получил бы вопроса «Да / Не надо». Так же — пока кабинет в чате
+ * MAX ждёт запрос поиска клиента (кнопка «Найти клиента», lib/chat-cabinet).
  */
 
 import { findPartnerByChat } from '@/lib/kuzmich/operator-chat';
@@ -53,6 +54,12 @@ export async function adminChatYieldsToPartner(
   if (chatActionsEnabledFor(lookup.partner)) {
     const { awaitsOwnerReason } = await import('@/lib/bookings/chat-owner-action');
     if (await awaitsOwnerReason(channel, chatId)) return true;
+  }
+  // Поиск клиента кабинета в чате (только MAX): запрос «Бронникова» иначе
+  // забрала бы консоль по слову «брон».
+  if (channel === 'max') {
+    const { awaitsCabinetSearch } = await import('@/lib/chat-cabinet/service');
+    if (await awaitsCabinetSearch(chatId)) return true;
   }
   if (partnerCabinetCommand(text, lookup.partner.partnerId)) return true;
   return adminCommandOf(text) === null;

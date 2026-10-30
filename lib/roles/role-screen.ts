@@ -1,31 +1,31 @@
 /**
  * Что открывает кнопка меню роли. Чтений новых нет: администратор — те же
- * команды, что словами, партнёр — входящие кабинета и сводка запросов мест,
- * гид со своими турами — «Брони» и «Мои туры» раздела «Свои туры»
+ * команды, что словами, партнёр — справка и сводка запросов мест, гид со
+ * своими турами — «Брони» и «Мои туры» раздела «Свои туры»
  * (lib/guides/chat-screens). Строку кнопок клеит вызывающий.
+ *
+ * Вкладки кабинета в чате — «Входящие», «Задачи», «Клиенты», «Ещё»
+ * (`isCabinetSection`) — открывает lib/chat-cabinet, а не этот модуль:
+ * вызывающий проверяет их раньше и сюда с ними не идёт.
  *
  * Экран с `pd: true` (брони гида в MAX) вызывающий отдаёт только через
  * `sendPdAlert` с `telegramChatId: null`. В Telegram такой экран не строится:
  * канал telegram получает текст без ПД.
  *
  * `buttons` — кнопки действий над строкой меню: у гида со своими турами под
- * «Бронями» и под ждущими бронями «Входящих» — «Подтвердить» и «Отклонить»,
- * под ждущими заявками «Входящих» — «Связался», «Договорились», «Отказ»
- * (lib/bookings/chat-owner-press). Вызывающий ставит их только в личном
- * диалоге: в группе кнопку нажал бы любой участник.
+ * «Бронями» — «Подтвердить» и «Отклонить» (lib/bookings/chat-owner-press).
+ * Вызывающий ставит их только в личном диалоге: в группе кнопку нажал бы
+ * любой участник.
  */
 
-import { loadInbox } from '@/lib/crm/inbox';
 import { guideBookingsScreen, guideToursScreen } from '@/lib/guides/chat-screens';
 import {
-  adminMenuHelp, guideSellsOwnTours, partnerMenu, partnerMenuHelp, type MenuAction, type MenuPartner, type MenuRole,
+  adminMenuHelp, guideSellsOwnTours, partnerMenuHelp, type MenuAction, type MenuPartner, type MenuRole,
 } from '@/lib/roles/role-menu';
-import { inboxMenuText } from '@/lib/roles/inbox-text';
 import { adminReplyFor, type AdminReply } from '@/lib/max/admin-read';
 import { readSeatSummary, SUMMARY_DB_ERROR, summaryEnabledFor, summaryText } from '@/lib/seat-requests/summary';
-import { OWNER_PRESS_BUTTON_CAP, bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
 import type { MenuButton } from '@/lib/roles/chat-menu';
-import { redactPII } from '@/lib/security/pii-redact';
+import type { CabinetSection } from '@/lib/chat-cabinet/service';
 
 export interface RoleScreen {
   text: string;
@@ -45,6 +45,11 @@ export const PARTNER_PD_UNDELIVERED = 'Брони с контактами тур
 /** Устаревшая кнопка у гида, у которого своих туров больше нет. */
 export const GUIDE_NO_OWN_TOURS = 'Своих туров в этом кабинете нет. «Брони» и «Мои туры» — для гида, который продаёт туры сам.';
 
+/** Вкладка кабинета в чате: её открывает lib/chat-cabinet, а не roleMenuScreen. */
+export function isCabinetSection(action: MenuAction): action is CabinetSection & MenuAction {
+  return action === 'inbox' || action === 'tasks' || action === 'clients' || action === 'more';
+}
+
 export async function roleMenuScreen(opts: {
   role: MenuRole;
   action: MenuAction;
@@ -58,8 +63,7 @@ export async function roleMenuScreen(opts: {
     return { text: 'Эта кнопка — меню другой роли. В этом чате её не выполняю.', pd: false };
   }
   if (opts.action === 'help') {
-    const menu = partnerMenu(opts.partner) ?? [];
-    return { text: partnerMenuHelp(role, menu), pd: false };
+    return { text: partnerMenuHelp(role, opts.partner), pd: false };
   }
   if (opts.action === 'summary') {
     if (!summaryEnabledFor(opts.partner.partnerId)) return { text: SUMMARY_OFF, pd: false };
@@ -75,27 +79,9 @@ export async function roleMenuScreen(opts: {
     if (screen.pd && opts.channel !== 'max') return { text: TELEGRAM_PD, pd: false };
     return screen;
   }
-  if (opts.action !== 'inbox') {
-    return { text: 'Такой кнопки в этом кабинете нет.', pd: false };
-  }
-  const inbox = await loadInbox(opts.partner.partnerId, role, opts.partner.userId ?? null, { nowMs: opts.nowMs });
-  // Гиду со своими турами — ответ двум первым ждущим броням кнопкой, как в
-  // «Бронях», и двум первым ждущим заявкам. Заявка — без номера на экране:
-  // когда их под экраном две, кнопку подписывает тур, как строка «Входящих».
-  if (role === 'guide' && guideSellsOwnTours(opts.partner)) {
-    const leads = inbox.items.filter((item) => item.kind === 'lead').slice(0, OWNER_PRESS_BUTTON_CAP);
-    const buttons = [
-      ...inbox.items
-        .filter((item) => item.kind === 'operator_booking')
-        .slice(0, OWNER_PRESS_BUTTON_CAP)
-        .map((item) => bookingAnswerButtons(item.id)),
-      // Тур заявки словами пишет турист (форма сайта): в подпись кнопки — через
-      // redactPII, как в строке списка (lib/roles/inbox-text).
-      ...leads.map((item) => leadAnswerButtons(item.id, leads.length > 1 ? redactPII(item.title ?? 'Подбор тура') : null)),
-    ];
-    return { text: inboxMenuText(inbox), pd: false, ...(buttons.length ? { buttons } : {}) };
-  }
-  return { text: inboxMenuText(inbox), pd: false };
+  // Вкладки кабинета сюда не приходят (шапка): вызывающий открыл бы их
+  // старым экраном без кнопок карточки.
+  return { text: 'Такой кнопки в этом кабинете нет.', pd: false };
 }
 
 async function adminScreen(action: MenuAction, channel: 'max' | 'telegram', nowMs?: number): Promise<RoleScreen> {

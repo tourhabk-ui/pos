@@ -49,6 +49,40 @@ export class TelegramNotificationService {
   }
 
   // Отправка сообщения в Telegram
+  /**
+   * Правка своего сообщения с кнопками — кабинет в чате (lib/chat-cabinet)
+   * листается в том же сообщении. «message is not modified» — не отказ: на
+   * экране уже то, что нужно (повтор нажатия). Отказ — вызывающий шлёт новое.
+   */
+  async editMessageText(message: TelegramMessage & { messageId: number }): Promise<TelegramResponse> {
+    if (!this.botToken) {
+      return { success: false, error: 'Telegram bot not configured' };
+    }
+    try {
+      const response = await fetch(`${this.baseUrl}/editMessageText`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: message.chatId,
+          message_id: message.messageId,
+          text: message.text,
+          parse_mode: message.parseMode || 'HTML',
+          reply_markup: message.replyMarkup,
+          disable_web_page_preview: true,
+          link_preview_options: { is_disabled: true },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const data = await response.json() as { ok?: boolean; description?: string };
+      if (data.ok || /message is not modified/i.test(data.description ?? '')) {
+        return { success: true, messageId: message.messageId };
+      }
+      return { success: false, error: data.description || 'Unknown error' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   async sendMessage(message: TelegramMessage): Promise<TelegramResponse> {
     if (!this.botToken) {
       return {

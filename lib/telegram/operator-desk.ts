@@ -11,18 +11,18 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
 import { ownerCalendarUrl } from '@/lib/partners/cabinet-links';
-import { chatAnswerButtons, chatAnswerOfInbox } from '@/lib/requests/chat-answer';
-import { inboxMenuText } from '@/lib/roles/inbox-text';
-import type { Inbox } from '@/lib/crm/inbox';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export const OPERATOR_REPLY_ROWS: ReadonlyArray<ReadonlyArray<string>> = [
   ['Новые заявки', 'Мои туры и цены'],
+  ['Задачи', 'Клиенты'],
   ['Обновить места', 'Помощь'],
 ];
 
 export const OPERATOR_COMMANDS: ReadonlyArray<{ command: string; description: string }> = [
   { command: 'requests', description: 'Новые заявки' },
+  { command: 'tasks', description: 'Задачи' },
+  { command: 'clients', description: 'Клиенты' },
   { command: 'tours', description: 'Мои туры и цены' },
   { command: 'seats', description: 'Обновить места' },
   { command: 'help', description: 'Помощь' },
@@ -51,7 +51,8 @@ export function operatorBoundText(name: string, channel: 'telegram' | 'max' = 't
     contacts,
     '',
     'Дальше, кнопки внизу:',
-    '«Новые заявки» — что ждёт ответа, с кнопками карточки.',
+    '«Новые заявки» — что ждёт ответа: номер в списке открывает карточку с кнопками ответа.',
+    '«Задачи» и «Клиенты» — задачи и клиенты вашей CRM. Имена и телефоны клиентов — только в MAX.',
     '«Мои туры и цены» — живые туры и цена из каталога.',
     '«Обновить места» — как отметить места на даты.',
     '«Помощь» — справка. Заявка в поддержку создаётся только кнопкой «Написать в поддержку».',
@@ -67,6 +68,10 @@ export function operatorDeskButtons(): MenuButton[][] {
       { text: 'Мои туры и цены', payload: 'opd:tours' },
     ],
     [
+      { text: 'Задачи', payload: 'rm:op:tk' },
+      { text: 'Клиенты', payload: 'rm:op:cl' },
+    ],
+    [
       { text: 'Обновить места', payload: 'opd:seats' },
       { text: 'Помощь', payload: 'rm:op:hp' },
     ],
@@ -77,12 +82,18 @@ export function operatorDeskButtons(): MenuButton[][] {
 export function operatorHelpText(): string {
   return [
     'Кабинет туроператора. Кнопки внизу:',
-    '«Новые заявки» и «Мои заявки» — один список: что ждёт ответа.',
+    '«Новые заявки» и «Мои заявки» — один список: что ждёт ответа. Номер в списке открывает карточку.',
+    '«Задачи» — открытые задачи по сроку: «Готово» и «На завтра». «Клиенты» — клиенты CRM и поиск. '
+      + 'Имена, телефоны и заголовки задач — только в MAX.',
     '«Мои туры и цены» — название и цена из каталога, без оценки.',
     '«Обновить места» — где отметить занятость. Само сообщение места не закрывает.',
+    'В карточке брони — «Подтвердить» и «Отклонить»: бот спросит, и бронь меняется только после «Да». '
+      + 'Нажимает тот, кто подключил этот чат ссылкой из кабинета.',
+    'В карточке заявки — «Принять», «Нет мест», «Уточнить», «Свяжусь сам». Бронь кнопкой ответа на заявку не подтверждается.',
+    'Утром, если что-то ждёт ответа или подошёл срок задачи, бот пришлёт короткую сводку.',
     '«Помощь» — этот текст.',
     '«Написать в поддержку» — отдельная кнопка. Само слово «Помощь» тикет не создаёт.',
-    'Оплата через платформу не принимается. Бронь кнопкой ответа не подтверждается.',
+    'Оплата через платформу не принимается.',
   ].join('\n');
 }
 
@@ -121,24 +132,6 @@ export function tourPriceLabel(price: number | string | null, unit: string | nul
   return labeled
     ? labeled.replace(' (за что назначена цена — не записано, не называй её ценой с человека)', '')
     : null;
-}
-
-const BUTTON_CAP = 2;
-
-/** Список входящих и кнопки карточки на первые две заявки, у которых ответ уже определён. */
-export function operatorInboxView(inbox: Inbox): { text: string; buttons: MenuButton[][] } {
-  const text = inboxMenuText(inbox);
-  const buttons: MenuButton[][] = [];
-  let n = 0;
-  for (const item of inbox.items) {
-    const kind = chatAnswerOfInbox(item.kind);
-    if (!kind) continue;
-    n += 1;
-    if (n > BUTTON_CAP) break;
-    const row = chatAnswerButtons(n, kind, item.id);
-    buttons.push(row.slice(0, 2), row.slice(2));
-  }
-  return { text, buttons };
 }
 
 export type OperatorTourLine = { title: string; price: string | null; url: string };

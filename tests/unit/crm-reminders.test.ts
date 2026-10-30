@@ -84,7 +84,7 @@ describe('сообщение: ПД только для MAX', () => {
     // Ссылка — последней; перед ней «Выполнено» на каждую показанную задачу
     // (шаг 9, подробно — crm-task-press.test.ts).
     expect(m.buttons.at(-1)).toEqual({ text: 'Открыть задачи', url: 'https://vedarai.ru/hub/carrier/tasks' });
-    expect(m.buttons.filter((b) => 'payload' in b)).toHaveLength(10);
+    expect(m.buttons.filter((b) => 'payload' in b && b.payload.startsWith('tk:d:'))).toHaveLength(10);
     expect(tasksUrl('stay')).toBe('https://vedarai.ru/hub/stay/tasks');
     expect(tasksUrl('непонятно')).toBe('https://vedarai.ru/hub');
   });

@@ -160,7 +160,8 @@ const { OWNER_ACTION_TEXT, awaitsOwnerReason } = await import('@/lib/bookings/ch
 const press = await import('@/lib/bookings/chat-owner-press');
 const { pressActionOf, UNVERIFIED_PRESS_REPLY, PRESS_WITHOUT_MESSAGE_REPLY } = await import('@/lib/max/verified-press');
 const screens = await import('@/lib/guides/chat-screens');
-const { roleMenuScreen } = await import('@/lib/roles/role-screen');
+const { cabinetPartnerOf } = await import('@/lib/chat-cabinet/service');
+const { itemCardScreen } = await import('@/lib/chat-cabinet/screens');
 const { adminChatYieldsToPartner } = await import('@/lib/roles/admin-partner-chat');
 const { notifyNewBooking } = await import('@/lib/notifications/operator-booking');
 const { withSosBlock } = await import('@/lib/safety/sos-detector');
@@ -302,10 +303,15 @@ describe('форма кнопок брони', () => {
     }
   });
 
-  it('кнопки включены гиду со своими турами; туроператору и гиду команды — нет', () => {
-    expect(press.chatActionsEnabledFor({ category: 'guide', sellsTours: true })).toBe(true);
+  it('кнопки брони — гиду со своими турами и туроператору (30.10); заявки — только гиду со своими турами', () => {
+    expect(press.bookingChatActionsEnabledFor({ category: 'guide', sellsTours: true })).toBe(true);
+    expect(press.bookingChatActionsEnabledFor({ category: 'guide', sellsTours: false })).toBe(false);
+    expect(press.bookingChatActionsEnabledFor({ category: 'operator', sellsTours: true })).toBe(true);
+    expect(press.bookingChatActionsEnabledFor({ category: 'stay', sellsTours: true })).toBe(false);
+    expect(press.leadChatActionsEnabledFor({ category: 'guide', sellsTours: true })).toBe(true);
+    expect(press.leadChatActionsEnabledFor({ category: 'operator', sellsTours: true })).toBe(false);
+    expect(press.chatActionsEnabledFor({ category: 'operator', sellsTours: true })).toBe(true);
     expect(press.chatActionsEnabledFor({ category: 'guide', sellsTours: false })).toBe(false);
-    expect(press.chatActionsEnabledFor({ category: 'operator', sellsTours: true })).toBe(false);
     expect(press.chatActionsEnabledFor({ category: 'stay', sellsTours: true })).toBe(false);
   });
 });
@@ -324,7 +330,6 @@ describe('MAX: кто вправе нажать', () => {
   const REFUSALS: Array<{ name: string; setup: () => void; text: string; chatType?: string }> = [
     { name: 'групповой чат', setup: () => undefined, text: OWNER_ACTION_TEXT.notDialog, chatType: 'chat' },
     { name: 'гид команды без своих туров', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, sellsTours: false } }), text: OWNER_ACTION_TEXT.notThis },
-    { name: 'туроператор', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, category: 'operator', crmCategory: 'operator' } }), text: OWNER_ACTION_TEXT.operatorNotYet },
     { name: 'карточка без аккаунта', setup: () => m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, userId: null } }), text: OWNER_ACTION_TEXT.noAccount },
     { name: 'привязка без записанного человека', setup: () => { db.owner = null; }, text: OWNER_ACTION_TEXT.noBindOwner },
     { name: 'нажал не тот, кто подключил чат', setup: () => { db.owner = '999'; }, text: OWNER_ACTION_TEXT.notOwner },
@@ -343,6 +348,30 @@ describe('MAX: кто вправе нажать', () => {
       expect(m.change).not.toHaveBeenCalled();
     });
   }
+
+  it('туроператор (слово владельца 30.10 «Да, как у гида»): вопрос, затем «Да» — то же правило с его карточкой', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, category: 'operator', crmCategory: 'operator' } });
+    await postMax(VERIFIED, tap('bk:c:501'));
+    const q = lastMax();
+    expect(q.text).toMatch(/^Подтвердить бронь №501 /);
+    noPd(q.text);
+    const id = idFrom(q.payloads, 'oc:y:');
+    // Под вопросом — «Да», «Не надо» и вкладки кабинета туроператора.
+    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn']);
+    expect(m.change).not.toHaveBeenCalled();
+    await postMax(VERIFIED, tap(`oc:y:${id}`));
+    expect(m.change).toHaveBeenCalledWith({
+      ownerPartnerId: SELLER.partnerId, actorUserId: SELLER.userId, bookingId: '501',
+      input: { booking_status: 'confirmed' }, via: 'max',
+    });
+    expect(lastMax().text).toBe('Бронь №501 подтверждена. Туристу ушло письмо.');
+    // Нажать вправе только тот, кто подключил чат, — как у гида.
+    db.owner = '999';
+    m.change.mockClear();
+    await postMax(VERIFIED, tap('bk:x:501'));
+    expect(lastMax().text).toBe(OWNER_ACTION_TEXT.notOwner);
+    expect(m.change).not.toHaveBeenCalled();
+  });
 
   it('незаверенное нажатие — «не засчитано», карточка не читается, ничего не записано', async () => {
     vi.stubEnv('MAX_WEBHOOK_SECRET', '');
@@ -371,7 +400,7 @@ describe('MAX: вопрос, затем «Да»', () => {
     noPd(q.text);
     expect(m.change).not.toHaveBeenCalled();
     const id = idFrom(q.payloads, 'oc:y:');
-    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
 
     await postMax(VERIFIED, tap(`oc:y:${id}`));
     expect(m.change).toHaveBeenCalledTimes(1);
@@ -490,10 +519,10 @@ describe('Telegram: те же два шага', () => {
     const viaButton = tgSent().at(-1)!;
     noPd(viaButton.text);
     expect(viaButton.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     await tgSay('/bookings');
     expect(tgSent().at(-1)!.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
   });
 
   it('группа — отказ без записи; кнопка без сообщения — не применена', async () => {
@@ -529,38 +558,36 @@ describe('кнопки под экранами и уведомлением', () 
     await postMax(VERIFIED, tap('rm:gd:bk'));
     const alert = m.pdAlert.mock.calls[0]![0] as { to: unknown; buttons: Array<{ payload?: string }> };
     expect(alert.to).toEqual({ maxChatId: GUIDE_CHAT, telegramChatId: null });
-    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
   });
 
-  it('«Входящие» гида-продавца — кнопки ответа под ждущими бронями (и заявками, шаг 7); гиду команды — нет', async () => {
-    m.inbox.mockResolvedValue({
-      category: 'guide', failed: [], not_here: [], chat: { state: 'none' },
-      response: { window_days: 30, median_minutes: null, responded: 0, enough: false, complete: true },
-      items: [
-        { kind: 'operator_booking', id: '501', created_at: '2026-10-28', title: 'Пещеры', date: '2026-11-05', people: 2, contact_id: null, contact_name: null, waiting_minutes: 30 },
-        { kind: 'lead', id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', created_at: '2026-10-28', title: null, date: null, people: null, contact_id: null, contact_name: null, waiting_minutes: 30 },
-      ],
-    });
-    const seller = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: SELLER, nowMs: NOW });
-    expect(seller.buttons?.map((r) => r.map((b) => b.payload))).toEqual([
-      ['bk:c:501', 'bk:x:501'],
-      ['ld:k:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'ld:w:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'ld:l:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'],
-    ]);
-    const team = await roleMenuScreen({ role: 'guide', action: 'inbox', channel: 'telegram', partner: { ...SELLER, sellsTours: false }, nowMs: NOW });
-    expect(team.buttons).toBeUndefined();
+  it('«Входящие» гида-продавца: в карточке брони — кнопки ответа, в карточке заявки — кнопки заявки (шаг 7); гиду команды — нет', () => {
+    const lead = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const booking = { kind: 'operator_booking' as const, id: '501', created_at: '2026-10-28', title: 'Пещеры', date: '2026-11-05', people: 2, contact_id: null, contact_name: null, waiting_minutes: 30 };
+    const leadItem = { kind: 'lead' as const, id: lead, created_at: '2026-10-28', title: null, date: null, people: null, contact_id: null, contact_name: null, waiting_minutes: 30 };
+    const cardPayloads = (item: typeof booking | typeof leadItem, sellsTours: boolean) => {
+      const partner = cabinetPartnerOf({ ...SELLER, sellsTours })!;
+      return itemCardScreen({ item, partner, channel: 'telegram', base: 'https://vedarai.ru' }).rows.flat()
+        .flatMap((b) => ('payload' in b ? [b.payload] : []));
+    };
+    expect(cardPayloads(booking, true)).toEqual(expect.arrayContaining(['bk:c:501', 'bk:x:501']));
+    expect(cardPayloads(leadItem, true)).toEqual(expect.arrayContaining([`ld:k:${lead}`, `ld:w:${lead}`, `ld:l:${lead}`]));
+    for (const p of [...cardPayloads(booking, false), ...cardPayloads(leadItem, false)]) {
+      expect(p, 'гиду команды кнопок брони и заявки нет').not.toMatch(/^(?:bk|ld):/);
+    }
   });
 
   it('текст привязки: продавцу названы кнопки под «Бронями», гиду команды — только кабинет', async () => {
     const { guideBoundText } = await import('@/lib/partners/bind-channel');
     const { partnerMenu } = await import('@/lib/roles/role-menu');
-    const seller = guideBoundText('Гид', 'max', partnerMenu(SELLER));
-    expect(seller).toContain('кнопками под «Бронями» (бот спросит, бронь меняется после «Да»)');
-    const team = guideBoundText('Гид', 'max', partnerMenu({ ...SELLER, sellsTours: false }));
+    const seller = guideBoundText('Гид', 'max', partnerMenu(SELLER), true);
+    expect(seller).toContain('кнопками в карточке во «Входящих» и под «Бронями» в «Ещё» (бот спросит, бронь меняется после «Да»)');
+    const team = guideBoundText('Гид', 'max', partnerMenu({ ...SELLER, sellsTours: false }), false);
     expect(team).toContain('Подтвердить или отклонить бронь — в кабинете');
     expect(team).not.toContain('кнопками');
   });
 
-  it('личное уведомление о новой брони: гиду со ждущей бронью — «Подтвердить» и «Отклонить»; туроператору и уже подтверждённой — нет', async () => {
+  it('личное уведомление о новой брони: гиду и туроператору (30.10) со ждущей бронью — «Подтвердить» и «Отклонить»; уже подтверждённой — нет', async () => {
     const base = {
       booking_id: '501', tour_title: 'Пещеры', tourist_name: NAME, tourist_phone: PHONE, booking_date: '2026-11-05',
       participants: 2, operator_name: 'Гид', operator_max_chat_id: GUIDE_CHAT, operator_telegram_chat_id: String(TG_CHAT),
@@ -576,6 +603,9 @@ describe('кнопки под экранами и уведомлением', () 
       .toEqual(['bk:c:501', 'bk:x:501', 'url:/hub/guide/own']);
     expect(await payloadsOf({ operator_category: 'guide', booking_status: 'confirmed' })).toEqual(['url:/hub/guide/own']);
     expect(await payloadsOf({ operator_category: 'guide' })).toEqual(['url:/hub/guide/own']);
-    expect(await payloadsOf({ operator_category: 'operator', booking_status: 'new' })).toEqual(['url:/hub/operator/bookings/501']);
+    expect(await payloadsOf({ operator_category: 'operator', booking_status: 'new' }))
+      .toEqual(['bk:c:501', 'bk:x:501', 'url:/hub/operator/bookings/501']);
+    expect(await payloadsOf({ operator_category: 'operator', booking_status: 'confirmed' })).toEqual(['url:/hub/operator/bookings/501']);
+    expect(await payloadsOf({ operator_category: 'stay', booking_status: 'new' })).not.toContain('bk:c:501');
   });
 });

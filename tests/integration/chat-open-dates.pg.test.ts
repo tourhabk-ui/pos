@@ -258,7 +258,7 @@ withPg('«открой даты словами» на настоящем Postgre
     expect(await rows(tour.gorely)).toEqual([]);
     const id = proposalId(CHAT_A);
     expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual([
-      `od:o:${id}`, `od:x:${id}`, 'rm:op:in', 'rm:op:hp',
+      `od:o:${id}`, `od:x:${id}`, 'rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn',
     ]);
 
     await press(CHAT_A, `od:o:${id}`);
@@ -546,7 +546,7 @@ withPg('«открой даты словами» на настоящем Postgre
     const hiddenText = lastTo(CHAT_A)?.text ?? '';
     expect(hiddenText).toMatch(/^Туры «Каньон Ветровой \((?:летний|зимний)\)», «Каньон Ветровой \((?:летний|зимний)\)» скрыты[\s\S]*Ничего не открыто\.$/);
     for (const t of ['«Каньон Ветровой (летний)»', '«Каньон Ветровой (зимний)»']) expect(hiddenText).toContain(t);
-    expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:hp']);
+    expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn']);
     const after = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM operator_chat_date_proposals WHERE chat_id = $1`, [CHAT_A])).rows[0]!.n;
     expect(after).toBe(before);
     expect(await rows(summer)).toEqual([]);
@@ -723,7 +723,7 @@ withPg('«открой даты словами» на настоящем Postgre
     ])('«%s» — отказ, строки предложения нет, календарь не тронут', async (text) => {
       const before = await count();
       await say(CHAT_A, text);
-      expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:hp']);
+      expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toEqual(['rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn']);
       expect(await count()).toBe(before);
       expect((await rows(tour.gorely)).some((r) => r.date === day(60) || r.date === day(61))).toBe(false);
     });
@@ -782,7 +782,7 @@ withPg('«открой даты словами» на настоящем Postgre
       expect(await rows(tour.guideDraft)).toEqual([]);
       const id = proposalId(CHAT_GUIDE);
       expect(buttons(lastTo(CHAT_GUIDE)).map((b) => b.payload)).toEqual([
-        `od:o:${id}`, `od:x:${id}`, 'rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp',
+        `od:o:${id}`, `od:x:${id}`, 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn',
       ]);
 
       await press(CHAT_GUIDE, `od:o:${id}`);

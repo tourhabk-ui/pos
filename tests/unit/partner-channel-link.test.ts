@@ -284,18 +284,22 @@ describe('гид в мессенджере: тексты обещают толь
     expect(roleMenuAsk('Помощь')).toBe('help');
   });
 
-  it('гид-продавец: текст называет «Брони» и «Мои туры» — ровно те кнопки, что строка под ответом (29.10)', async () => {
+  it('гид: текст называет ровно вкладки строки под ответом; продавцу — кнопки брони и «Брони» в «Ещё» (30.10)', async () => {
     const { boundMenuRow } = await import('@/lib/partners/bind-channel');
     const seller = { ...guideBound, partnerId: PID, sellsTours: true };
     const row = boundMenuRow(seller);
-    expect(row?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']);
+    expect(row?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
     for (const channel of ['max', 'telegram'] as const) {
       const text = channelBoundText(channel, seller);
       for (const b of row ?? []) expect(text, channel).toContain(`«${b.text}»`);
+      expect(text, channel).toContain('под «Бронями» в «Ещё»');
+      expect(text, channel).toContain('«Связался», «Договорились», «Отказ»');
     }
-    // Гид команды — без них.
+    // Гид команды — те же вкладки, а кнопок брони и заявки нет.
     const team = channelBoundText('max', { ...guideBound, partnerId: PID, sellsTours: false });
-    expect(team).not.toMatch(/«Брони»|«Мои туры»/);
+    expect(team).not.toMatch(/«Брони»|«Мои туры»|«Связался»/);
+    expect(boundMenuRow({ ...guideBound, partnerId: PID, sellsTours: false })?.map((b) => b.payload))
+      .toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
   });
 
   it('кабинет в чате у другой карточки — строки гида нет, и текст кнопок не обещает', async () => {
@@ -315,9 +319,10 @@ describe('гид в мессенджере: тексты обещают толь
     const t = createPartnerLinkToken(PID, Date.now());
     if (!t.ok) throw new Error('нет токена');
     for (const channel of ['max', 'telegram'] as const) {
+      // Вкладки кабинета в чате (30.10) — одни у продавца и у гида команды.
       for (const [sells, payloads] of [
-        [true, ['rm:gd:in', 'rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp']],
-        [false, ['rm:gd:in', 'rm:gd:hp']],
+        [true, ['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']],
+        [false, ['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']],
       ] as const) {
         poolQueryMock.mockReset();
         poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Гид А', category: 'guide', slug: 'g', previous: null, sells_tours: sells }] });

@@ -27,6 +27,7 @@ import { reachForPartner, type PartnerReach } from '@/lib/partners/reach';
 import { sendPdAlert, type PdAlertParams, type PdAlertResult } from '@/lib/notifications/pd-alert';
 import { isQuietHour } from '@/lib/crm/reminders';
 import { INBOX_KIND_LABELS } from '@/lib/crm/inbox-kinds';
+import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 
 interface Queryable {
   query: typeof pool.query;
@@ -172,7 +173,13 @@ export function inboxReminderMessage(items: readonly Item[]): Pick<PdAlertParams
   return {
     text: [head, ...lines].join('\n'),
     stub: `${head}\nЧто именно — в кабинете, во «Входящих»: имена клиентов в Telegram не пересылаются.`,
-    buttons: [{ text: 'Открыть входящие', url: inboxUrl(items[0]?.category ?? '') }],
+    // «Входящие в чате» — кабинет в чате (lib/chat-cabinet), карточки с
+    // кнопками ответа. Кнопка-действие — только в MAX: из заглушки Telegram
+    // sendPdAlert её убирает, там остаётся ссылка.
+    buttons: [
+      { text: 'Входящие в чате', payload: cabinetPayload.openInbox() },
+      { text: 'Открыть входящие', url: inboxUrl(items[0]?.category ?? '') },
+    ],
   };
 }
 

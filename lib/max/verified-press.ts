@@ -47,6 +47,7 @@
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { isTaskPressPayload } from '@/lib/crm/chat-task-press';
 import { isChatPressPayload } from '@/lib/requests/request-chat';
+import { isCabinetPayload } from '@/lib/chat-cabinet/payload';
 
 /**
  * Задан ли ключ подписки — та же проверка, что в `isVerifiedMaxWebhook`
@@ -57,7 +58,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'request_chat';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'request_chat' | 'cabinet';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -105,6 +106,9 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   if (isOwnerPressPayload(payload)) return 'owner';
   if (isTaskPressPayload(payload)) return 'task';
   if (isChatPressPayload(payload)) return 'request_chat';
+  // Кабинет в чате (lib/chat-cabinet): экраны с именами клиентов, звонок и
+  // задача по клиенту — только по заверенному апдейту.
+  if (isCabinetPayload(payload)) return 'cabinet';
   if (payload.startsWith('sr:')) return 'seat';
   if (payload.startsWith('lead_')) return 'lead';
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
@@ -151,6 +155,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Задача не отмечена — отметьте её в кабинете, раздел «Задачи».',
   request_chat: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Сообщение по заявке отсюда не уйдёт — позвоните по телефону из заявки или напишите на странице заявки.',
+  cabinet: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Ничего не открыто и не записано — откройте кабинет на vedarai.ru.',
 };
 
 /**
@@ -171,6 +177,8 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
     + 'отметьте её в кабинете, раздел «Задачи».',
   request_chat: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Нажмите «Ответить» под другим сообщением '
     + 'по заявке или позвоните по телефону из заявки.',
+  cabinet: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ничего не открыто и не записано — '
+    + 'нажмите «Входящие» под любым сообщением бота.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */

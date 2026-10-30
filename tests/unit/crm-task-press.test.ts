@@ -73,6 +73,8 @@ describe('напоминание: кнопка на каждую показан�
     const msg = reminderMessage([task()]);
     expect(msg.buttons).toEqual([
       { text: 'Выполнено', payload: `tk:d:${MINE}` },
+      // Кабинет в чате (30.10): там же «На завтра».
+      { text: 'Задачи в чате', payload: 'cb:n:t' },
       { text: 'Открыть задачи', url: 'https://vedarai.ru/hub/guide/tasks' },
     ]);
     expect(msg.text).toMatch(/^• Перезвонить — Клиент Один/m);
@@ -83,8 +85,9 @@ describe('напоминание: кнопка на каждую показан�
       id: `00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`, title: `Задача ${i}`,
     }));
     const msg = reminderMessage(many);
-    const actions = msg.buttons.filter((b): b is { text: string; payload: string } => 'payload' in b);
+    const actions = msg.buttons.filter((b): b is { text: string; payload: string } => 'payload' in b && b.payload.startsWith('tk:'));
     expect(actions).toHaveLength(SHOWN_PER_MESSAGE);
+    expect(msg.buttons.filter((b) => 'payload' in b && b.payload === 'cb:n:t')).toHaveLength(1);
     expect(actions.map((b) => b.payload)).toEqual(many.slice(0, SHOWN_PER_MESSAGE).map((t) => `tk:d:${t.id}`));
     expect(actions[0]?.text).toBe('Выполнено: 1. Задача 0');
     expect(actions[9]?.text).toBe('Выполнено: 10. Задача 9');
