@@ -214,14 +214,14 @@ describe('аннотации — у каждого инструмента, и п
     }
   });
 
-  it('заявок ровно пять; edit_trip_plan — честная запись черновика, остальное читает', () => {
+  it('заявок ровно пять; make_trip_plan и edit_trip_plan — честная запись черновика, остальное читает', () => {
     expect([...WRITE_TOOL_NAMES].sort()).toEqual(['create_booking_request', 'create_car_rental_request', 'create_lead', 'create_stay_request', 'request_charter']);
     for (const t of PUBLIC_MCP_TOOLS) {
       const a = t.annotations!;
       if (WRITE_TOOL_NAMES.has(t.name)) {
         expect(a.readOnlyHint).toBe(false);
         expect(a.destructiveHint).toBe(false);
-      } else if (t.name === 'edit_trip_plan') {
+      } else if (t.name === 'edit_trip_plan' || t.name === 'make_trip_plan') {
         // Persists an anonymous draft plan server-side (7 days, by id):
         // honest annotation is a write, but no human/operator receives
         // it, so it is not in WRITE_TOOL_NAMES and keeps the read limit.

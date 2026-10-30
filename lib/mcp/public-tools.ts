@@ -220,7 +220,10 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   search_transfers:      READ,
   search_car_rental:     READ,
   search_gear:           READ,
-  make_trip_plan:        { ...READ, openWorldHint: true },
+  // make_trip_plan saves an anonymous 7-day draft (saveDraft → trip_plan_drafts)
+  // when it produces days, so it is not read-only and not idempotent
+  // (dsh-mcp-connector-registry#44 review). No human/operator is reached.
+  make_trip_plan:        { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   // Правка черновика плана (#2224). Черновик — внутреннее состояние самого
   // инструмента, анонимное и на 7 дней; до человека или оператора он не
   // доходит, в отличие от заявки. Поэтому «только чтение» по смыслу хоста и
