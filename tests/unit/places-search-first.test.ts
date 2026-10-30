@@ -18,13 +18,15 @@ import { join } from 'node:path';
 const CLIENT = readFileSync(join(process.cwd(), 'app/routes/_RoutesPageClient.tsx'), 'utf-8');
 
 describe('/routes и /places: поиск первым', () => {
-  it('строка поиска стоит раньше блока туров и вкладок, блок туров — раньше вкладок', () => {
+  // 30.10 владелец: вкладки «Места» / «Маршруты» — самым верхом каталога,
+  // строка поиска — сразу под ними, блок туров — после поиска.
+  it('вкладки вверху, затем строка поиска, затем блок туров', () => {
+    const tabs = CLIENT.indexOf('Вкладки «Места» / «Маршруты»');
     const search = CLIENT.indexOf('placeholder={searchPlaceholder}');
     const slot = CLIENT.indexOf('{toursSlot}');
-    const tabs = CLIENT.indexOf('Kind tabs');
-    expect(search).toBeGreaterThan(0);
+    expect(tabs).toBeGreaterThan(0);
+    expect(tabs).toBeLessThan(search);
     expect(search).toBeLessThan(slot);
-    expect(slot).toBeLessThan(tabs);
   });
 
   it('признак поиска — непустой запрос без пробелов по краям', () => {
