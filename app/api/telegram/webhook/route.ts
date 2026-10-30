@@ -1801,6 +1801,8 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         chatId: cq.message?.chat?.id ?? senderChatId,
         payload: data,
         send: (body, buttons) => sendRentalCabinet(callbackChatId, body, buttons),
+        // Перевозчик (не пилот проката) — ответ без строки кабинета проката.
+        sendBare: (body) => sendHTML(callbackChatId, body),
       });
       return;
     }

@@ -115,7 +115,7 @@ describe('SQL и словарь', () => {
   });
 
   it('ответ партнёра — событие от партнёра, а не от автомата', () => {
-    for (const k of ['operator_booking', 'lead', 'accommodation_booking', 'gear_rental', 'transfer_seat_booking'] as const) {
+    for (const k of ['operator_booking', 'lead', 'accommodation_booking', 'gear_rental', 'charter_request'] as const) {
       expect(INBOX_SQL[k], k).toMatch(/actor_kind IN \('partner_user', 'kuzmich', 'mcp'\)/);
       expect(INBOX_SQL[k], k).not.toMatch(/'system'/);
     }

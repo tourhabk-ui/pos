@@ -19,7 +19,7 @@ export const INBOX_KINDS = [
   'accommodation_booking',
   'stay_request',
   'gear_rental',
-  'transfer_seat_booking',
+  'charter_request',
   'guide_invite',
   'guide_review',
   'tour_review',
@@ -34,7 +34,12 @@ export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxK
   // нет, отвечают кнопкой в MAX или звонком (1349).
   stay: ['stay_request', 'accommodation_booking', 'stay_review'],
   gear: ['gear_rental'],
-  transfer: ['transfer_seat_booking'],
+  // Трансфер — машина целиком (владелец 13.10): у перевозчика ждёт ответа
+  // заявка на машину (#2862 этап A, 30.10) — «Беру» / «Не могу» кнопками под
+  // заявкой в MAX, в карточке кабинета в чате и во «Входящих» на сайте.
+  // Снятый товар «места в машине» (схема 926) из ящика убран: витрины мест
+  // нет, новых запросов не будет; оставшиеся кабинет показывает под парком.
+  transfer: ['charter_request'],
   // Гид продаёт и свои туры (28.10, миграция 1338): брони, запросы мест и
   // заявки на них ждут его ответа так же, как у оператора, и запросы читают
   // по `operator_id` — карточке гида. На бронь и заявку он отвечает в разделе
@@ -54,11 +59,9 @@ export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>
   ],
   stay: [],
   gear: [],
-  // Трансфер — машина целиком (владелец 13.10). Заявку на машину ведёт
-  // менеджер: ответить на неё из кабинета нельзя, и сюда она не попадает.
-  transfer: [
-    'Заявки на машину целиком подтверждает с вами менеджер Ведара — отвечать на них здесь не нужно; сами заявки видны в «Клиентах».',
-  ],
+  // Запросы мест в поездках (снятый товар, 13.10) ответа здесь не ждут:
+  // оставшиеся — под парком в кабинете, пока они есть.
+  transfer: [],
   guide: [
     'Назначение на бронь в команде оператора подтверждать не нужно — оно сразу в расписании.',
     // Ответ на отзыв о туре — дверь оператора (app/api/operator/reviews/[id]/reply).
@@ -77,7 +80,7 @@ export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   accommodation_booking: 'Бронь жилья',
   stay_request: 'Заявка на жильё',
   gear_rental: 'Заказ снаряжения',
-  transfer_seat_booking: 'Места в машине',
+  charter_request: 'Заявка на машину',
   guide_invite: 'Приглашение в команду',
   guide_review: 'Отзыв без ответа',
   tour_review: 'Отзыв о туре без ответа',
@@ -112,7 +115,14 @@ const ACTION_BY_KIND: Readonly<Record<InboxKind, InboxAction>> = {
     hint: 'Ответить кнопкой «Ответить гостю» под заявкой в MAX или позвонить по телефону из заявки; звонок запишите словами: «запиши звонок Анне»',
   },
   gear_rental: { href: '/hub/gear/rentals', hint: 'Подтвердить или отклонить в «Арендах»' },
-  transfer_seat_booking: { href: '/hub/carrier', hint: 'Ответить в «Кабинете», раздел «Запросы мест»' },
+  // Перевозчик отвечает «Беру» / «Не могу» прямо во «Входящих»
+  // (components/crm/CharterRequestActions), под заявкой в MAX или в карточке
+  // кабинета в чате. «Беру» — готов выполнить и свяжется сам; машина заявкой
+  // не закрепляется (§14).
+  charter_request: {
+    href: null,
+    hint: 'Ответить «Беру» или «Не могу» во «Входящих», под заявкой в MAX или в карточке кабинета в чате; «Беру» — вы свяжетесь с заказчиком сами',
+  },
   guide_invite: { href: '/hub/guide', hint: 'Принять или отклонить в «Обзоре»' },
   guide_review: { href: '/hub/guide/reviews', hint: 'Ответить в «Отзывах»' },
   tour_review: { href: '/hub/operator/reviews', hint: 'Ответить в «Отзывах»' },
@@ -144,7 +154,7 @@ export function inboxActionFor(category: PartnerCategory, kind: InboxKind): Inbo
  */
 export const RESPONSE_METRIC_KINDS: ReadonlySet<InboxKind> = new Set<InboxKind>([
   'operator_booking', 'seat_request', 'lead', 'accommodation_booking', 'stay_request',
-  'gear_rental', 'transfer_seat_booking', 'guide_invite',
+  'gear_rental', 'charter_request', 'guide_invite',
 ]);
 
 /** Окно медианы и порог: меньше пяти ответов — «мало данных», а не число. */

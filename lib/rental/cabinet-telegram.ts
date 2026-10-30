@@ -76,11 +76,21 @@ export async function tryRentalCabinetTelegramMessage(opts: {
   return true;
 }
 
-/** true — payload наш (rk: или rr:) и ответ уже отправлен. */
+/**
+ * true — payload наш (rk: или rr:) и ответ уже отправлен.
+ *
+ * `rr:` («Беру» / «Не могу») принимается у любого привязанного партнёра:
+ * вид заявки — прокат пилота или машина перевозчика (#2862) — решает поток
+ * по лиду. Перевозчику ответ уходит `sendBare` (без строки кабинета
+ * проката — она не его); нет `sendBare` — обычным `send`. Строка `rk:` —
+ * по-прежнему только пилот.
+ */
 export async function tryRentalCabinetTelegramPress(opts: {
   chatId: number;
   payload: string;
   send: CabinetSend;
+  /** Ответ без строки кабинета проката — партнёру не из пилота. */
+  sendBare?: (text: string) => Promise<void>;
 }): Promise<boolean> {
   const action = parseRentalCabinetPress(opts.payload);
   const request = opts.payload.startsWith('rr:');
@@ -91,21 +101,27 @@ export async function tryRentalCabinetTelegramPress(opts: {
     await opts.send(UNREAD, []);
     return true;
   }
+  if (request) {
+    const pilot = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
+    const bare = opts.sendBare;
+    await handleRentalRequestAnswer({
+      lookup,
+      payload: opts.payload,
+      editMid: null,
+      originalText: null,
+      via: 'telegram',
+      send: async (text) => {
+        if (!pilot && bare) await bare(text);
+        else await opts.send(text, []);
+      },
+    });
+    return true;
+  }
   if (lookup.outcome !== 'found' || !isRentalPilotSlug(lookup.partner.slug)) {
     await opts.send(NOT_THIS_CHAT, []);
     return true;
   }
   const partner = lookup.partner;
-  if (request) {
-    await handleRentalRequestAnswer({
-      lookup: { outcome: 'found', partner },
-      payload: opts.payload,
-      editMid: null,
-      originalText: null,
-      send: async (text) => { await opts.send(text, []); },
-    });
-    return true;
-  }
   await openRentalCabinetScreen({
     action: action!,
     partner: { partnerId: partner.partnerId, partnerName: partner.partnerName, slug: partner.slug },

@@ -45,6 +45,8 @@ export function answerTellStatus(tell: AnswerTell): number {
     case 'take_no_car':
     case 'take_bad_dates':
     case 'decline':
+    case 'charter_take':
+    case 'charter_decline':
       return 200;
     case 'already':
       return 409;

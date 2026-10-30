@@ -9,8 +9,9 @@
  *   · адрес — только партнёра (`to`), без отката на рабочий чат платформы;
  *   · ПД заказчика — только в тексте для MAX; заглушка для Telegram без ПД и
  *     без слов про кабинет (у перевозчика и прокатчика кабинета заявок нет);
- *   · у заявки на машину кнопок нет; у проката пилота — «Беру» / «Не могу»
- *     (payload, без url: в заглушку Telegram такие кнопки не попадают);
+ *   · «Беру» / «Не могу» (payload, без url: в заглушку Telegram такие кнопки
+ *     не попадают) — у заявки на машину каждому перевозчику (#2862, 30.10),
+ *     у проката — пилоту; без uuid заявки кнопок нет;
  *   · исходов четыре: доставлено / заглушка / нет канала / адрес не прочитался;
  *   · факты для партнёра — без его телефона и без заметок менеджеру;
  *   · оба сервиса записи зовут доставку после createLead, пишут исход в журнал
@@ -160,10 +161,21 @@ describe('доставка: адрес партнёра, четыре исход
     expect(lastPd().buttons).toEqual(buttons);
     expect(lastPd().stub).not.toContain('Анна');
 
-    // Не пилот — только переписка; id не uuid — ни одной кнопки-действия.
+    // Не пилот проката — только переписка; id не uuid — ни одной кнопки-действия.
     const replyOnly = [{ text: 'Ответить клиенту', payload: `lq:o:${leadId}` }];
-    expect(partnerRequestButtons({ ...rental, kind: 'charter', companySlug: 'laguna-prokat' })).toEqual(replyOnly);
     expect(partnerRequestButtons({ ...rental, companySlug: 'fishing' })).toEqual(replyOnly);
+    // Заявка на машину (#2862): «Беру» / «Не могу» у любого перевозчика, пилот не при чём;
+    // текст объясняет, что «Беру» — не бронь; заглушка зовёт во «Входящие» чата, не на сайт.
+    const charter: PartnerRequestNotice = { ...rental, kind: 'charter', companySlug: 'shatun' };
+    expect(partnerRequestButtons(charter)).toEqual(buttons);
+    expect(partnerRequestTexts(charter).text).toContain('Машина заявкой не закрепляется');
+    expect(partnerRequestTexts(charter).text).not.toContain('Менеджер Ведара согласует заказ');
+    expect(partnerRequestTexts(charter).text).not.toContain('отмечает эти дни занятыми');
+    expect(partnerRequestTexts(charter).stub).toContain('во «Входящих»');
+    expect(partnerRequestTexts(charter).stub).not.toContain('+79001234567');
+    expect(partnerRequestTexts(charter).stub).not.toMatch(/кабинет на сайте/i);
+    expect(partnerRequestButtons({ ...charter, leadId: 'lead-7' })).toBeUndefined();
+    expect(partnerRequestTexts({ ...charter, leadId: 'lead-7' }).text).toContain('Менеджер Ведара согласует заказ');
     expect(partnerRequestButtons({ ...rental, leadId: 'lead-7' })).toBeUndefined();
     expect(partnerRequestTexts({ ...rental, companySlug: 'fishing' }).text).not.toContain('«Беру»');
     expect(partnerRequestTexts({ ...rental, companySlug: 'fishing' }).text).toContain('«Ответить клиенту»');

@@ -8,14 +8,15 @@
  *   — запросы мест, которые ещё ждут ответа, видны под парком, пока они есть;
  *     ответить на них можно; нет таких — раздела нет;
  *   — не прочитались — «не смогли прочитать», а не тишина (§4.0);
- *   — во «Входящих» перевозчика сказано, где заявки на машину.
+ *   — во «Входящих» перевозчика ждёт ответа заявка на машину (#2862), и
+ *     отвечают на неё прямо там; запросов мест в ящике нет.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, within, fireEvent } from '@testing-library/react';
 
 import CarrierClient from '@/app/hub/carrier/_CarrierClient';
-import { INBOX_NOT_HERE, inboxActionFor } from '@/lib/crm/inbox-kinds';
+import { INBOX_BY_CATEGORY, INBOX_NOT_HERE, inboxActionFor } from '@/lib/crm/inbox-kinds';
 
 const VEHICLE = { id: 'v1', kind: 'vahtovka', title: 'КамАЗ синяя', seats: 26, notes: null, is_active: true };
 const REQUEST = {
@@ -79,8 +80,11 @@ describe('кабинет перевозчика — машина целиком'
 });
 
 describe('«Входящие» перевозчика', () => {
-  it('сказано, где заявки на машину; к запросам мест — путь в кабинет', () => {
-    expect(INBOX_NOT_HERE.transfer.join(' ')).toMatch(/Заявки на машину целиком подтверждает с вами менеджер Ведара/);
-    expect(inboxActionFor('transfer', 'transfer_seat_booking')).toEqual({ href: '/hub/carrier', hint: 'Ответить в «Кабинете», раздел «Запросы мест»' });
+  it('ждёт ответа заявка на машину, отвечают прямо во «Входящих»; строки «ведёт менеджер» больше нет (#2862)', () => {
+    expect(INBOX_BY_CATEGORY.transfer).toEqual(['charter_request']);
+    expect(INBOX_NOT_HERE.transfer.join(' ')).not.toMatch(/менеджер/);
+    const action = inboxActionFor('transfer', 'charter_request');
+    expect(action.href).toBeNull();
+    expect(action.hint).toMatch(/«Беру» или «Не могу»/);
   });
 });

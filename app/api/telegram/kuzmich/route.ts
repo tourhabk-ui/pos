@@ -515,6 +515,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           send: async (body, buttons) => {
             await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
           },
+          // Перевозчик (не пилот проката) — ответ без строки кабинета проката.
+          sendBare: async (body) => { await tgReply(chatId, body); },
         });
         return NextResponse.json({ ok: true });
       }

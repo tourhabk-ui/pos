@@ -18,6 +18,7 @@ import { CRM_INBOX_API } from './api';
 import { formatSourceDate } from './labels';
 import { ContactPanel } from './ContactPanel';
 import { SeatRequestActions } from './SeatRequestActions';
+import { CharterRequestActions, type AnswerNotice } from './CharterRequestActions';
 
 type LoadState =
   | { kind: 'loading' }
@@ -67,7 +68,8 @@ function ItemRow({ item, category, onOpenContact, onAnswered }: {
   item: InboxItem;
   category: PartnerCategory;
   onOpenContact: (id: string) => void;
-  onAnswered: () => void;
+  /** Ответ записан: список перечитывается; итог, если он есть, остаётся над списком. */
+  onAnswered: (notice?: AnswerNotice) => void;
 }) {
   // Где ответить — по роли: бронь тура гид подтверждает в «Своих турах», а не
   // в кабинете оператора, куда его не пустят.
@@ -110,7 +112,8 @@ function ItemRow({ item, category, onOpenContact, onAnswered }: {
       ) : (
         <p className="text-xs text-[var(--text-muted)]">{action.hint}</p>
       )}
-      {item.kind === 'seat_request' && <SeatRequestActions requestId={item.id} onAnswered={onAnswered} />}
+      {item.kind === 'seat_request' && <SeatRequestActions requestId={item.id} onAnswered={() => onAnswered()} />}
+      {item.kind === 'charter_request' && category === 'transfer' && <CharterRequestActions leadId={item.id} onAnswered={onAnswered} />}
     </li>
   );
 }
@@ -120,6 +123,8 @@ export function InboxScreen() {
   const [result, setResult] = useState<{ key: number; state: LoadState } | null>(null);
   const state: LoadState = result?.key === reload ? result.state : { kind: 'loading' };
   const [openId, setOpenId] = useState<string | null>(null);
+  /** Итог последнего ответа из списка: карточка после ответа уходит, итог остаётся. */
+  const [notice, setNotice] = useState<AnswerNotice | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -140,6 +145,10 @@ export function InboxScreen() {
   }, [reload]);
 
   const refresh = () => setReload((n) => n + 1);
+  const answered = (n?: AnswerNotice) => {
+    setNotice(n ?? null);
+    refresh();
+  };
 
   return (
     <div className="p-5 lg:p-6 space-y-4">
@@ -162,6 +171,12 @@ export function InboxScreen() {
           <p className="text-sm text-[var(--text-secondary)]">{state.message}</p>
           {state.retry && <button type="button" onClick={refresh} className="ds-btn ds-btn-secondary">Повторить</button>}
         </div>
+      )}
+
+      {notice && (
+        <p role="status" className={`text-xs ${notice.tone === 'ok' ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}>
+          {notice.text}
+        </p>
       )}
 
       {state.kind === 'ready' && (
@@ -195,7 +210,7 @@ export function InboxScreen() {
           ) : (
             <ul className="space-y-2">
               {state.data.items.map((it) => (
-                <ItemRow key={`${it.kind}:${it.id}`} item={it} category={state.data.category} onOpenContact={setOpenId} onAnswered={refresh} />
+                <ItemRow key={`${it.kind}:${it.id}`} item={it} category={state.data.category} onOpenContact={setOpenId} onAnswered={answered} />
               ))}
             </ul>
           )}

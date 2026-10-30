@@ -88,6 +88,8 @@ export const GATES: Record<string, Gate> = {
   'app/api/hub/crm/contacts/export/route.ts': { seat: 'team' },
   'app/api/hub/crm/inbox/route.ts': { seat: 'team' },
   'app/api/hub/crm/seat-requests/[id]/answer/route.ts': { seat: 'team' },
+  // Ответ перевозчика на заявку на машину (#2862): requirePartner, категория transfer.
+  'app/api/hub/crm/charter-requests/[id]/answer/route.ts': { seat: 'team' },
   'app/api/hub/crm/tasks/route.ts': { seat: 'team' },
   'app/api/hub/crm/tasks/[id]/route.ts': { seat: 'team' },
 

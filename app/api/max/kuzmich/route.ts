@@ -259,11 +259,14 @@ async function sendPartnerScreen(
 
 /**
  * Ответ «Беру» / «Не могу»: правим то же сообщение и снимаем кнопки заявки.
- * У пилота на их месте остаётся строка кабинета.
+ * У пилота на их месте остаётся строка кабинета; у перевозчика (#2862) —
+ * кнопка «Ответить клиенту» (`keep`), чтобы переписка с заказчиком не
+ * пропала вместе с кнопками ответа.
  */
 function rentalAnswerSend(chatId: number, bar: boolean) {
-  const buttons = bar ? maxCabinetButtons([]) : [];
-  return async (text: string, editMid: string | null): Promise<void> => {
+  return async (text: string, editMid: string | null, keep?: Array<{ text: string; payload: string }>): Promise<void> => {
+    const keepRows = keep && keep.length ? [keep] : [];
+    const buttons = bar ? maxCabinetButtons(keepRows) : toMaxButtons(keepRows);
     const api = getApi();
     const attachments = buttons.length
       ? [{ type: 'inline_keyboard', payload: { buttons } }]
@@ -747,6 +750,7 @@ async function handleActionPress(
         payload,
         editMid: pressed?.mid ?? null,
         originalText: pressed?.text ?? null,
+        via: 'max',
         send: rentalAnswerSend(chatId, bar),
       });
       return;

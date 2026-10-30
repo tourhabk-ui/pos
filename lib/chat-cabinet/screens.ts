@@ -32,6 +32,7 @@ import { contactLabel } from '@/lib/crm/tools';
 import { inboxItemField, inboxItemLine, waitingAge } from '@/lib/roles/inbox-text';
 import { bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
 import { chatAnswerButtons } from '@/lib/requests/chat-answer';
+import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
@@ -222,6 +223,12 @@ export function itemCardScreen(args: {
     const answers = chatAnswerButtons(null, 'lead', item.id);
     rows.push(answers.slice(0, 2), answers.slice(2));
     lines.push('Ответ записывается сразу; бронь им не подтверждается.');
+  } else if (item.kind === 'charter_request' && partner.role === 'transfer' && rentalAnswerButtons(item.id)) {
+    // Заявка на машину (#2862): те же кнопки, что под заявкой в MAX (`rr:`),
+    // в обоих каналах — вид заявки сервер читает из лида. Машина не
+    // закрепляется, суммы нет (§14).
+    rows.push(rentalAnswerButtons(item.id)!);
+    lines.push('«Беру» — вы готовы выполнить и свяжетесь с заказчиком сами; «Не могу» — заявка остаётся у менеджера Ведара. Ответ записывается сразу и один раз; машина заявкой не закрепляется.');
   } else {
     lines.push(`Где ответить: ${escapeHtml(action.hint)}.`);
   }
@@ -229,7 +236,7 @@ export function itemCardScreen(args: {
   if (channel === 'max' && item.kind === 'stay_request' && isChatTargetId(item.id)) {
     rows.push([ownerReplyButton({ kind: 'stay', id: item.id })]);
   }
-  if (channel === 'max' && item.kind === 'lead' && isChatTargetId(item.id)) {
+  if (channel === 'max' && (item.kind === 'lead' || item.kind === 'charter_request') && isChatTargetId(item.id)) {
     rows.push([ownerReplyButton({ kind: 'lead', id: item.id })]);
   }
   if (item.contact_id) {

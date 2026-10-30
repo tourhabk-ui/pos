@@ -142,18 +142,46 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
      WHERE gi.partner_id = $1
        AND (gr.status = 'pending' OR gr.created_at >= $2)`,
 
-  transfer_seat_booking: `
-    SELECT sb.id::text AS item_id, sb.created_at, (tr.from_text || ' — ' || tr.to_text) AS title,
-           tr.trip_date::text AS item_date, sb.seats::int AS people,
-           (sb.status = 'requested') AS waiting,
-           ${firstResponse('transfer_seat_booking', 'sb.id::text')} AS responded_at,
-           ${CONTACT}
-      FROM transfer_seat_bookings sb
-      JOIN transfer_trips tr ON tr.id = sb.trip_id
-      JOIN transfer_fleet_vehicles v ON v.id = tr.vehicle_id
-      ${contactJoin('transfer_seat_booking', 'sb.id::text')}
-     WHERE v.partner_id = $1
-       AND (sb.status = 'requested' OR sb.created_at >= $2)`,
+  // Заявка на машину целиком перевозчику (#2862 этап A): лид с
+  // source_data.kind = 'charter' (lib/transfers/charter-request). Ответ —
+  // «Беру» / «Не могу» (lead_activity_log.partner_answered, один на заявку,
+  // 1326), первое сообщение перевозчика в переписке (1350) или его касание в
+  // ленте; время ответа — `at` из деталей журнала (ISO из приложения). Ждёт,
+  // пока нет ответа, статус ждущий и день выезда по Камчатке не прошёл: о
+  // поездке на вчера отвечать поздно, и висеть вечно она не должна. Факты —
+  // из структурных полей заявки, не из комментария: направление, дата
+  // выезда, люди. Направление пишет заказчик словами — `inboxItemField`
+  // прогонит его через redactPII на экране чата (TOURIST_TEXT_KINDS).
+  charter_request: `
+    SELECT x.* FROM (
+      SELECT l.id::text AS item_id, l.created_at,
+             COALESCE(NULLIF(btrim(l.source_data->>'destination'), ''), NULLIF(btrim(l.route_title), ''), 'Машина под заказ') AS title,
+             NULLIF(btrim(l.source_data->>'date_from'), '') AS item_date,
+             CASE WHEN l.source_data->>'passengers' ~ '^[0-9]{1,4}$' THEN (l.source_data->>'passengers')::int END AS people,
+             (pa.answers = 0 AND lm.first_at IS NULL
+               AND l.status IN ${LEAD_WAITING_SQL}
+               AND COALESCE(
+                 CASE WHEN l.source_data->>'date_from' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                      THEN (l.source_data->>'date_from')::date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date END,
+                 TRUE)) AS waiting,
+             LEAST(${firstResponse('lead', 'l.id::text')}, lm.first_at, pa.answered_at) AS responded_at,
+             ${CONTACT}
+        FROM leads l
+        CROSS JOIN LATERAL (
+          SELECT min(m.created_at) AS first_at FROM request_messages m
+           WHERE m.lead_id = l.id AND m.author = 'owner'
+        ) lm
+        CROSS JOIN LATERAL (
+          SELECT count(*)::int AS answers,
+                 min(CASE WHEN a.details->>'at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}' THEN (a.details->>'at')::timestamptz END) AS answered_at
+            FROM lead_activity_log a
+           WHERE a.lead_id = l.id AND a.action = 'partner_answered'
+        ) pa
+        ${contactJoin('lead', 'l.id::text')}
+       WHERE l.operator_id = $1 AND l.is_self = FALSE
+         AND l.source_data->>'kind' = 'charter'
+    ) x
+     WHERE x.waiting OR x.created_at >= $2`,
 
   guide_invite: `
     SELECT i.id::text AS item_id, i.created_at, op.name AS title, NULL::text AS item_date, NULL::int AS people,
