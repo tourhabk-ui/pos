@@ -178,6 +178,10 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
       program: null, included: null, not_included: null, what_to_bring: null, safety_notes: null,
     }]);
   }
+  // Профиль гида (lib/guides/chat-role, этап 2): карточка гида чата.
+  if (/FROM partners WHERE id = \$1::uuid AND category = 'guide'/.test(sql)) {
+    return res([{ name: 'Гид-продавец', profile_status: 'approved', description: null, experience_years: null, languages: null }]);
+  }
   if (/INSERT INTO tour_chat_edits/.test(sql)) {
     db.writes.push(sql);
     return res([{ id: `eeeeeeee-0000-4000-8000-${String(++db.seq).padStart(12, '0')}` }]);
@@ -347,7 +351,8 @@ type Outcome =
   | 'task_done' | 'task_tomorrow' | 'max_only';
 
 /** Вкладки строки меню и экраны «Ещё». */
-type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь';
+type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь'
+  | 'Расписание' | 'Заработок' | 'Профиль' | 'Отзывы';
 
 interface DeskRow {
   /** Как действие называет справка (у кнопки — начало подписи). */
@@ -383,6 +388,11 @@ const DESK: readonly DeskRow[] = [
   { name: 'Брони', namedBy: 'help', max: 'screen_pd', telegram: 'screen', screen: /^<b>Брони<\/b>/ },
   { name: 'Мои туры', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Мои туры<\/b>/ },
   { name: 'Помощь', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^Кабинет гида в чате\./ },
+  // «Ещё» — роль гида, этап 2 (lib/guides/chat-role): экраны кабинета в чате.
+  { name: 'Расписание', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Расписание<\/b>/, cabinet: true },
+  { name: 'Заработок', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Заработок за 30 дней<\/b>/, cabinet: true },
+  { name: 'Профиль', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Профиль<\/b>/, cabinet: true },
+  { name: 'Отзывы', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Отзывы<\/b>/, cabinet: true },
   // Задачи: «Готово» и «На завтра» — в MAX, где видно, что за задача.
   { name: 'Готово', namedBy: 'help', max: 'task_done', telegram: 'max_only' },
   { name: 'На завтра', namedBy: 'help', max: 'task_tomorrow', telegram: 'max_only' },
@@ -429,10 +439,11 @@ const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Задачи', 'К
 /** Что лежит в «Ещё» у продавца своих туров. */
 const MORE_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Помощь'];
 /** Что есть у гида команды без своих туров. */
-const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Готово', 'На завтра']);
+const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Готово', 'На завтра', 'Расписание', 'Заработок', 'Профиль', 'Отзывы']);
 /** Падежные формы, которыми тексты называют экраны строки. */
 const ALIASES: Readonly<Record<string, string>> = {
   Бронях: 'Брони', Бронями: 'Брони', Входящих: 'Входящие', Входящими: 'Входящие',
+  Отзывах: 'Отзывы', Профиле: 'Профиль',
 };
 /**
  * Названо в «…», но не кнопка чата: раздел кабинета и отметка заявки, которую

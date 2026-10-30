@@ -618,4 +618,223 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(await row()).toMatchObject({ available_slots: 8, is_cancelled: false });
     });
   });
+
+  describe('роль гида, этап 2: отзыв, профиль, команда, расписание, заработок (1358)', () => {
+    const G_CHAT = 8_301;
+    const G_STRANGER = 8_302;
+    let gid = '';
+    let otherGuide = '';
+    let opA = '';
+    let opB = '';
+    let touristId = '';
+    let reviewId = '';
+    let foreignReview = '';
+    let role: typeof import('@/lib/guides/chat-role/flow');
+    let partner: import('@/lib/kuzmich/operator-chat').PartnerChatContext;
+    const rpress = (payload: string, chatId = G_CHAT, channel: 'max' | 'telegram' = 'max') =>
+      svc.handleCabinetPress({ channel, chatId, privateChat: true, payload, nowMs: NOW });
+    const say = (text: string, chatId = G_CHAT) => role.captureGuideRoleText({ channel: 'max', chatId, partner, text });
+    const btn = (s: { rows: Array<Array<{ text: string } & Partial<{ payload: string }>>> } | null, text: string) =>
+      s?.rows.flat().find((b) => b.text === text && 'payload' in b)?.payload ?? '';
+    const reply = async (id: string) => (await pool.query<{ guide_reply: string | null; guide_reply_at: string | null }>(
+      `SELECT guide_reply, guide_reply_at::text FROM guide_reviews WHERE id = $1`, [id],
+    )).rows[0]!;
+
+    beforeAll(async () => {
+      role = await import('@/lib/guides/chat-role/flow');
+      const guideUser = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('role-guide@example.com', 'Гид роли', 'x', 'guide') RETURNING id`,
+      )).rows[0]!.id;
+      gid = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, user_id, max_chat_id, telegram_chat_id, description)
+         VALUES ('Гид без своих туров', 'guide', '{}', $1, $2, $2, 'Старое о себе.') RETURNING id`, [guideUser, G_CHAT],
+      )).rows[0]!.id;
+      otherGuide = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ('Другой гид', 'guide', '{}') RETURNING id`,
+      )).rows[0]!.id;
+      opA = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ('Оператор А', 'operator', '{}') RETURNING id`,
+      )).rows[0]!.id;
+      opB = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ('Оператор Б', 'operator', '{}') RETURNING id`,
+      )).rows[0]!.id;
+      touristId = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('role-tourist@example.com', 'Анна Петрова', 'x', 'tourist') RETURNING id`,
+      )).rows[0]!.id;
+      reviewId = (await pool.query<{ id: string }>(
+        `INSERT INTO guide_reviews (guide_id, tourist_id, rating, comment, is_public)
+         VALUES ($1, $2, 5, 'Отличный гид <b>!</b>', TRUE) RETURNING id::text`, [gid, touristId],
+      )).rows[0]!.id;
+      foreignReview = (await pool.query<{ id: string }>(
+        `INSERT INTO guide_reviews (guide_id, tourist_id, rating, comment) VALUES ($1, $2, 3, 'Чужой отзыв') RETURNING id::text`,
+        [otherGuide, touristId],
+      )).rows[0]!.id;
+      const found = await (await import('@/lib/kuzmich/operator-chat')).findPartnerByChat('max', G_CHAT);
+      if (found.outcome !== 'found') throw new Error('карточка гида не найдена по чату');
+      partner = found.partner;
+    });
+
+    it('миграция 1358 повторяется без вреда; черновик без цели и чужой вид база не примет', async () => {
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1358_guide_chat_drafts.sql'), 'utf8'));
+      await expect(pool.query(
+        `INSERT INTO guide_chat_drafts (partner_id, channel, chat_id, kind, live_value, status, expires_at)
+         VALUES ($1, 'max', 1, 'reply', 'null', 'pending', NOW())`, [gid],
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(pool.query(
+        `INSERT INTO guide_chat_drafts (partner_id, channel, chat_id, kind, field, new_value, live_value, status, expires_at)
+         VALUES ($1, 'max', 1, 'profile', 'name', '"x"', 'null', 'pending', NOW())`, [gid],
+      )).rejects.toMatchObject({ code: '23514' });
+      // Показанный ответ без «станет» база не примет; снятое ожидание — примет.
+      await expect(pool.query(
+        `INSERT INTO guide_chat_drafts (partner_id, channel, chat_id, kind, review_id, live_value, status, expires_at)
+         VALUES ($1, 'max', 1, 'reply', $2, 'null', 'pending', NOW())`, [gid, reviewId],
+      )).rejects.toMatchObject({ code: '23514' });
+      await pool.query(
+        `INSERT INTO guide_chat_drafts (partner_id, channel, chat_id, kind, review_id, live_value, status, decided_at, expires_at)
+         VALUES ($1, 'max', 1, 'reply', $2, 'null', 'superseded', NOW(), NOW())`, [gid, reviewId],
+      );
+    });
+
+    it('«Ещё» гида — расписание, заработок, профиль, отзывы', async () => {
+      const more = await rpress('cb:m');
+      expect(more.rows.flat().map((b) => b.text)).toEqual(expect.arrayContaining(['Расписание', 'Заработок', 'Профиль', 'Отзывы']));
+    });
+
+    it('ответ на отзыв: «Ответить» → текст → «было → станет»; без кнопки не пишется; «Опубликовать» — общей функцией сайта, туристу уведомление', async () => {
+      const card = await rpress(`cb:o:gv:${reviewId}`);
+      expect(card.text).toContain('Автор: Анна П.');
+      expect(card.text).not.toContain('Петрова');
+      expect(card.text).toContain('&lt;b&gt;!&lt;/b&gt;');
+      // В Telegram — без подписи автора.
+      const tg = await rpress(`cb:a:v:${reviewId}`, G_CHAT, 'telegram');
+      expect(tg.text).not.toContain('Анна');
+      const ask = await rpress(btn(card, 'Ответить'));
+      expect(ask.text).toMatch(/Пришлите текст ответа/);
+      const preview = await say('Спасибо, <приезжайте> ещё!');
+      expect(preview?.text).toContain('Спасибо, &lt;приезжайте&gt; ещё!');
+      expect((await reply(reviewId)).guide_reply).toBeNull();
+      const publish = btn(preview, 'Опубликовать');
+      expect(publish).toMatch(/^cb:b:s:/);
+      // Чужой чат той же кнопкой не пишет.
+      expect((await rpress(publish, G_STRANGER)).text).not.toMatch(/Опубликовано/);
+      expect((await reply(reviewId)).guide_reply).toBeNull();
+      const done = await rpress(publish);
+      expect(done.text).toMatch(/Опубликовано/);
+      const r = await reply(reviewId);
+      expect(r.guide_reply).toBe('Спасибо, <приезжайте> ещё!');
+      expect(r.guide_reply_at).not.toBeNull();
+      const notes = await pool.query(`SELECT 1 FROM notifications WHERE user_id = $1 AND type = 'guide_reply'`, [touristId]);
+      expect(notes.rows).toHaveLength(1);
+      expect((await rpress(publish)).text).toBe('Это уже записано.');
+    });
+
+    it('изменить ответ: правка на сайте после предпросмотра — не пишет и показывает новое «было»; удалить — кнопкой', async () => {
+      await rpress(`cb:a:r:${reviewId}`);
+      const preview = await say('Новый ответ.');
+      await pool.query(`UPDATE guide_reviews SET guide_reply = 'Правка на сайте.' WHERE id = $1`, [reviewId]);
+      const stale = await rpress(btn(preview, 'Опубликовать'));
+      expect(stale.text).toMatch(/изменили/);
+      expect((await reply(reviewId)).guide_reply).toBe('Правка на сайте.');
+      expect((await rpress(btn(preview, 'Опубликовать'))).text).toMatch(/Опубликовано/);
+      expect((await reply(reviewId)).guide_reply).toBe('Новый ответ.');
+      const del = await rpress(`cb:a:d:${reviewId}`);
+      expect(del.text).toContain('Новый ответ.');
+      expect((await reply(reviewId)).guide_reply).toBe('Новый ответ.');
+      expect((await rpress(btn(del, 'Удалить'))).text).toMatch(/Ответ удалён/);
+      expect(await reply(reviewId)).toMatchObject({ guide_reply: null, guide_reply_at: null });
+    });
+
+    it('чужой отзыв — «не найден», общая запись с карточкой гида его не трогает', async () => {
+      expect((await rpress(`cb:a:r:${foreignReview}`)).text).toMatch(/не найден/);
+      expect((await rpress(`cb:a:v:${foreignReview}`)).text).toMatch(/не найден/);
+      const { writeGuideReviewReply } = await import('@/lib/guides/review-reply');
+      const w = await writeGuideReviewReply((t, p) => pool.query(t, p), {
+        owner: { partnerId: gid }, reviewId: foreignReview, action: 'post', reply: 'чужое',
+      });
+      expect(w.outcome).toBe('not_found');
+      expect((await reply(foreignReview)).guide_reply).toBeNull();
+    });
+
+    it('ожидание ответа: другая кнопка его снимает; «отмена» — тоже; тур- и профиль-фраза ответом не становятся', async () => {
+      await rpress(`cb:a:r:${reviewId}`);
+      await rpress('cb:i');
+      expect(await say('Просто вопрос помощнику')).toBeNull();
+      await rpress(`cb:a:r:${reviewId}`);
+      expect((await say('отмена'))?.text).toMatch(/не опубликован/);
+      await rpress(`cb:a:r:${reviewId}`);
+      const profile = await say('опыт: 12');
+      expect(profile?.text).toContain('Опыт');
+      expect(btn(profile, 'Сохранить')).toMatch(/^cb:b:s:/);
+      expect((await reply(reviewId)).guide_reply).toBeNull();
+    });
+
+    it('профиль: «о себе: …» — «было → станет», без кнопки не пишется; «Сохранить» — общей функцией сайта', async () => {
+      const desc = async () => (await pool.query<{ description: string | null; experience_years: number | null; languages: string[] | null }>(
+        `SELECT description, experience_years, languages FROM partners WHERE id = $1`, [gid],
+      )).rows[0]!;
+      const preview = await say('о себе: Вожу на вулканы с 2010 года.');
+      expect(preview?.text).toContain('Старое о себе.');
+      expect((await desc()).description).toBe('Старое о себе.');
+      expect((await rpress(btn(preview, 'Сохранить'))).text).toMatch(/Сохранено/);
+      expect((await desc()).description).toBe('Вожу на вулканы с 2010 года.');
+      const langs = await say('языки: русский, английский');
+      await rpress(btn(langs, 'Сохранить'));
+      expect((await desc()).languages).toEqual(['русский', 'английский']);
+      expect((await say('опыт: 99'))?.text).toMatch(/от 0 до 60/);
+    });
+
+    it('команда: «Принять» из «Входящих» пишет членство; второе приглашение — «другая команда»; «Выйти» — после «Да»', async () => {
+      const invA = (await pool.query<{ id: string }>(
+        `INSERT INTO guide_operator_invites (operator_id, guide_partner_id) VALUES ($1, $2) RETURNING id::text`, [opA, gid],
+      )).rows[0]!.id;
+      const invB = (await pool.query<{ id: string }>(
+        `INSERT INTO guide_operator_invites (operator_id, guide_partner_id) VALUES ($1, $2) RETURNING id::text`, [opB, gid],
+      )).rows[0]!.id;
+      const team = async () => (await pool.query<{ guide_operator_id: string | null }>(
+        `SELECT guide_operator_id::text FROM partners WHERE id = $1`, [gid],
+      )).rows[0]!.guide_operator_id;
+      const card = await rpress(`cb:o:gi:${invA}`);
+      expect(card.text).toContain('Оператор А');
+      // Чужой чат кнопкой «Принять» членство не пишет.
+      await rpress(btn(card, 'Принять'), G_STRANGER);
+      expect(await team()).toBeNull();
+      expect((await rpress(btn(card, 'Принять'))).text).toMatch(/Вы в команде оператора/);
+      expect(await team()).toBe(opA);
+      expect((await rpress(`cb:p:a:${invB}`)).text).toMatch(/уже в команде другого оператора/);
+      expect(await team()).toBe(opA);
+      const ask = await rpress('cb:p:l');
+      expect(ask.text).toMatch(/Выйти из команды оператора «Оператор А»/);
+      expect(await team()).toBe(opA);
+      expect((await rpress(btn(ask, 'Да, выйти'))).text).toMatch(/Вы вышли из команды/);
+      expect(await team()).toBeNull();
+      expect((await rpress('cb:p:n:' + invB)).text).toMatch(/Приглашение отклонено/);
+    });
+
+    it('расписание на 14 дней: запись календаря; заработок за 30 дней: сумма начислений, нет данных — не «0 ₽»', async () => {
+      const empty = await rpress('cb:j');
+      expect(empty.text).toMatch(/не записано — это не «заработано 0 ₽»/);
+      await pool.query(
+        `INSERT INTO guide_schedule (guide_id, tour_date, start_time, end_time, title, status)
+         VALUES ($1, '2026-11-02', '09:00', '18:00', 'Выход на Авачу', 'scheduled')`, [gid],
+      );
+      await pool.query(`INSERT INTO guide_earnings (guide_id, amount, payment_status, payment_date) VALUES ($1, 7000, 'paid', '2026-10-20')`, [gid]);
+      const sch = await rpress('cb:s');
+      expect(sch.text).toContain('09:00–18:00 Выход на Авачу (запланировано)');
+      const earn = await rpress('cb:j');
+      expect(earn.text.replace(/\u00a0/g, ' ')).toContain('Начислено: 7 000 ₽');
+    });
+
+    it('срок аттестата: за 7 дней — строка сводки; чужой срок и отклонённый — нет', async () => {
+      const { listGuideCertifications, certReminderLines } = await import('@/lib/guides/cert-reminders');
+      await pool.query(
+        `INSERT INTO guide_certifications (guide_id, name, issuing_authority, certificate_number, issue_date, expiry_date, is_verified, source)
+         VALUES ($1, 'Инструктор-проводник', 'ФСТР', 'N1', '2025-01-10', '2026-11-06', TRUE, 'guide'),
+                ($1, 'Отклонённый', 'ФСТР', 'N2', '2025-01-10', '2026-11-06', FALSE, 'guide')`, [gid],
+      );
+      await pool.query(`UPDATE guide_certifications SET reviewed_at = NOW() WHERE name = 'Отклонённый'`);
+      const lines = certReminderLines(await listGuideCertifications(gid), '2026-10-30');
+      expect(lines).toEqual(['Аттестат «Инструктор-проводник» истекает через 7 дней, 06.11. Новый — в кабинете на сайте, раздел «Аттестаты».']);
+      expect(certReminderLines(await listGuideCertifications(gid), '2026-10-31')).toEqual([]);
+    });
+  });
 });

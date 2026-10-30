@@ -4,12 +4,13 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
-import { SCHEDULE_SQL, TEAM_SQL } from '@/lib/guides/team-queries';
+import { SCHEDULE_SQL } from '@/lib/guides/team-queries';
 import { logGuideFailure } from '@/lib/guides/team';
 import {
   checkScheduleOverlap, checkBookingEntryConflict, bookingAssignedToGuide,
 } from '@/lib/guides/schedule';
-import { mapScheduleRow, DATE_RE, TIME_RE, SCHEDULE_STATUSES, type ScheduleRow } from '@/lib/guides/schedule-shape';
+import { readGuideSchedule } from '@/lib/guides/schedule-read';
+import { DATE_RE, TIME_RE, SCHEDULE_STATUSES } from '@/lib/guides/schedule-shape';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,28 +86,9 @@ export async function GET(request: NextRequest) {
   const { dateFrom, dateTo, status } = parsed.data;
 
   try {
-    const [entries, assignments] = await Promise.all([
-      query<ScheduleRow>(SCHEDULE_SQL.list, [guideId, dateFrom, dateTo, status === 'all' ? null : status]),
-      query<{ booking_id: string; booking_date: string; tour_title: string; participants: number; booking_status: string }>(
-        TEAM_SQL.assignedInRange, [guideId, dateFrom, dateTo],
-      ),
-    ]);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        schedule: entries.rows.map(mapScheduleRow),
-        // Назначения оператора в тот же период — без ПД туриста: контакт
-        // живёт в «Группах», здесь только что и когда.
-        assignments: assignments.rows.map((r) => ({
-          bookingId: r.booking_id,
-          date: r.booking_date,
-          tourTitle: r.tour_title,
-          participants: Number(r.participants),
-          status: r.booking_status,
-        })),
-      },
-    } as ApiResponse<unknown>);
+    // То же чтение, что экран «Расписание» в чате кабинета (lib/guides/schedule-read).
+    const data = await readGuideSchedule(guideId, dateFrom, dateTo, status === 'all' ? null : status);
+    return NextResponse.json({ success: true, data } as ApiResponse<unknown>);
   } catch (error) {
     logGuideFailure('guide.schedule.list', error);
     return NextResponse.json(

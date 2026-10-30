@@ -76,6 +76,14 @@ vi.mock('@/lib/chat-cabinet/service', async (orig) => ({
   ...(await orig<typeof import('@/lib/chat-cabinet/service')>()),
   captureCabinetSearch: async () => null,
 }));
+// Ответ гида на отзыв (этап 2 роли гида, 30.10): ждёт ли чат текст ответа —
+// тоже запрос на каждый текст личного диалога гида. Подменён по той же
+// причине: чат ответа не ждёт. Его путь — tests/unit/guide-chat-role.test.ts
+// и chat-cabinet.pg.test.ts.
+vi.mock('@/lib/guides/chat-role/flow', async (orig) => ({
+  ...(await orig<typeof import('@/lib/guides/chat-role/flow')>()),
+  captureGuideRoleText: async () => null,
+}));
 // Причину отказа брони с 30.10 ждут и у туроператора («Да, как у гида»):
 // проверка ожидания — тоже запрос на каждый текст. Её путь —
 // tests/unit/guide-chat-booking-action.test.ts.

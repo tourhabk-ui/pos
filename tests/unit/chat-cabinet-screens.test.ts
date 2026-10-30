@@ -358,8 +358,10 @@ describe('«Ещё»', () => {
   it('туроператор — его кабинет; гид со своими турами — «Брони» и «Мои туры»; у всех — сводка, «Помощь» и сайт', () => {
     expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
     expect(payloads(moreScreen(partner({ summary: true }), BASE))).toContain('rm:op:sm');
-    expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', 'cb:g', 'rm:gd:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:gd:hp', ...NAV]);
+    // У любого гида — расписание, заработок, профиль и отзывы (роль гида, этап 2, 30.10).
+    const guideRole = ['cb:s', 'cb:j', 'cb:p', 'cb:a'];
+    expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual([...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
     // Перевозчик: «Машины и прайс» (#2862 этап C) — парк и черновики прайса, затем сводка.
     expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:y', 'cb:g', 'rm:tf:hp', ...NAV]);
     expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:st:hp', ...NAV]);

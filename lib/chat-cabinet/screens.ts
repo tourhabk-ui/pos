@@ -542,6 +542,14 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
     lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик, открытые даты; нажмите тур — даты кнопками, текст и цена.');
   }
+  if (partner.role === 'guide') {
+    // Роль гида, этап 2 (30.10, «гид должен полностью управлять своей ролью
+    // из MAX»): lib/guides/chat-role — у любого гида, со своими турами и без.
+    rows.push([{ text: 'Расписание', payload: cabinetPayload.schedule() }, { text: 'Заработок', payload: cabinetPayload.earnings() }]);
+    rows.push([{ text: 'Профиль', payload: cabinetPayload.profile() }, { text: 'Отзывы', payload: cabinetPayload.reviews() }]);
+    lines.push('Расписание — записи календаря и группы на 14 дней. Заработок — начисления за 30 дней.');
+    lines.push('Профиль — «о себе», опыт, языки и команда оператора: приглашения кнопками. Отзывы — ответить, изменить или удалить свой ответ.');
+  }
   if (partner.role === 'transfer') {
     // Парк и прайс перевозчика (#2862 этап C): кнопка снять машину с линии,
     // цена — фразой, на модерацию.

@@ -1353,6 +1353,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // и «было → станет» с кнопками «Сохранить» / «Отмена»; в тур пишет
       // только кнопка (lib/guides/tour-edit). Раньше полосы и потока дат:
       // «описание: выезд 5 августа» — текст тура, а не открытие даты.
+      // Роль гида, этап 2 (30.10): текст ответа на отзыв после «Ответить» и
+      // правка профиля «о себе: …» — черновик и «было → станет», пишет только
+      // кнопка (lib/guides/chat-role). Раньше правки тура: ожидание ответа —
+      // последняя кнопка, и «о себе: …» не фраза тура.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const { captureGuideRoleText } = await import('@/lib/guides/chat-role/flow');
+        const role = await captureGuideRoleText({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (role) {
+          await showCabinetMax(chatId, role, null, text);
+          return;
+        }
+      }
       if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
         const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
         const edit = await captureGuideTourEdit({ channel: 'max', chatId, partner: lookup.partner, text });

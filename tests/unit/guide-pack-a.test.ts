@@ -59,7 +59,8 @@ describe('1. отзывы гида не соединяют uuid с bigint', () =
 
 // ── 2. Заработок ────────────────────────────────────────────────────────────
 describe('2. заработок: партнёр, а не пользователь; отменённое не в сумме', () => {
-  const src = code('app/api/guide/earnings/route.ts');
+  // Чтение вынесено в lib/guides/earnings-read (его же зовёт «Заработок» в чате кабинета).
+  const src = `${code('app/api/guide/earnings/route.ts')}\n${code('lib/guides/earnings-read.ts')}`;
   it('guide_id берётся через getGuidePartnerId, а не users.id', () => {
     expect(src).toMatch(/getGuidePartnerId\(/);
     expect(src).toMatch(/\[guideId, interval\]/);
@@ -76,7 +77,8 @@ describe('2. заработок: партнёр, а не пользовател�
     expect(src).not.toMatch(/10\.00/);
   });
   it('период читается и уходит в SQL параметром', () => {
-    expect(src).toMatch(/period: z\.enum\(\['week', 'month', 'year', 'all'\]\)/);
+    expect(src).toMatch(/EARNINGS_PERIODS = \['week', 'month', 'year', 'all'\] as const/);
+    expect(src).toMatch(/period: z\.enum\(EARNINGS_PERIODS\)/);
     expect(src).toMatch(/\$2::interval/);
   });
   it('экран читает summary/items, показывает ошибку и честную пустоту, а не 0 ₽', () => {
@@ -123,7 +125,8 @@ describe('3. профиль гида сохраняется', () => {
     expect(code('lib/auth/guide-helpers.ts')).not.toMatch(/INSERT INTO partners/);
   });
   it('PUT пишет users и partners одной транзакцией, «О себе» — в description', () => {
-    const src = code('app/api/guide/profile/route.ts');
+    // Запись вынесена в lib/guides/profile-write (её же зовёт «Сохранить» в чате кабинета).
+    const src = `${code('app/api/guide/profile/route.ts')}\n${code('lib/guides/profile-write.ts')}`;
     expect(src).toMatch(/await transaction\(async \(client\)/);
     expect(src).not.toMatch(/\bbio\b/);
     expect(src).toMatch(/description = \$\$\{i\}/);
@@ -142,7 +145,7 @@ describe('3. профиль гида сохраняется', () => {
     expect(ui).not.toMatch(/contact: phone\.trim\(\) \?/);
     expect(ui).toMatch(/partnerName: partnerName\.trim\(\)/);
     expect(ui).toMatch(/description: bio/);
-    const api = code('app/api/guide/profile/route.ts');
+    const api = code('lib/guides/profile-write.ts');
     expect(api).toMatch(/experienceYears: z\.number\(\)\.int\(\)\.min\(0/);
   });
 });
@@ -249,7 +252,8 @@ describe('5. публичный реестр — одно условие, и о�
 
 // ── 6. Ответ на отзыв ───────────────────────────────────────────────────────
 describe('6. ответ на отзыв и уведомление туристу', () => {
-  const src = code('app/api/guide/reviews/[id]/reply/route.ts');
+  // Запись и уведомление — lib/guides/review-reply (общие у сайта и чата кабинета).
+  const src = `${code('app/api/guide/reviews/[id]/reply/route.ts')}\n${code('lib/guides/review-reply.ts')}`;
   it("priority — из CHECK (normal), а не 'medium'", () => {
     expect(src).not.toMatch(/'medium'/);
     expect(src).toMatch(/\$3, 'normal'\)/);

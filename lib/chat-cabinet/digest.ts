@@ -29,6 +29,11 @@
  *  - **Отказ чтения не глушится** (§4.0): не прочитались входящие или задачи
  *    — сводки нет, строка не ставится, в отчёте `read_failed`; не прочитался
  *    один вид входящих — сводка говорит, что именно не прочиталось.
+ *  - **Срок аттестата гида** (этап 2 роли гида, 30.10): за 30, 7 и 1 день
+ *    до срока действия аттестата или переаттестации — строка в сводке
+ *    (lib/guides/cert-reminders), и в такой день сводка приходит и без
+ *    входящих. Не прочитались аттестаты — строка «не прочитались» при другой
+ *    новости и след в логе; одна она сводку не будит.
  *  - **Окно в четыре часа, а не в два.** Крон идёт каждые 30 минут, но
  *    планировщик GitHub сбивает запуски в кучи раз в 2–5 часов (CLAUDE.md,
  *    20.09): в окно 08–10 прогон мог не попасть ни один. Второй сводки
@@ -58,6 +63,7 @@ import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 import { digestSlotOfHour, dueWords, siteUrl, type CabinetRole } from '@/lib/chat-cabinet/screens';
 import type { DigestMode } from '@/lib/chat-cabinet/payload';
 import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
+import { certReminderLines, listGuideCertifications } from '@/lib/guides/cert-reminders';
 
 interface Queryable {
   query: typeof pool.query;
@@ -126,6 +132,11 @@ export interface DigestFacts {
   /** Открытые задачи со сроком до конца камчатских суток — по сроку. */
   due: TaskItem[];
   overdue: number;
+  /**
+   * Напоминания о сроке аттестата гида на сегодня (пусто — не о чем);
+   * null — аттестаты не прочитались; нет поля — карточка не гид.
+   */
+  certs?: string[] | null;
 }
 
 function kindCounts(inbox: Inbox): string {
@@ -136,7 +147,7 @@ function kindCounts(inbox: Inbox): string {
 
 /** Есть что сказать: кто-то ждёт ответа, подошёл срок задачи или что-то не прочиталось. */
 export function digestHasNews(f: DigestFacts): boolean {
-  return f.inbox.items.length > 0 || f.due.length > 0 || f.inbox.failed.length > 0;
+  return f.inbox.items.length > 0 || f.due.length > 0 || f.inbox.failed.length > 0 || (f.certs?.length ?? 0) > 0;
 }
 
 /**
@@ -179,6 +190,9 @@ export function digestText(
       lines.push('Заголовки задач и имена клиентов в Telegram не пересылаются — они в MAX и в кабинете.');
     }
   }
+  // Срок аттестата — без ПД, в оба канала.
+  if (f.certs) lines.push(...f.certs);
+  else if (f.certs === null) lines.push('Сроки аттестатов не прочитались — проверьте в кабинете на сайте.');
   lines.push('Кнопки ниже открывают кабинет прямо в этом чате. Сводка — раз в день, когда что-то ждёт; время или «не присылать» — кнопкой «Время сводки».');
   return lines.join('\n');
 }
@@ -227,11 +241,24 @@ async function readFacts(c: DigestCandidate, nowMs: number): Promise<DigestFacts
       loadInbox(c.partner_id, crm, c.user_id, { nowMs }),
       listTasks(c.partner_id, { status: 'open' }),
     ]);
-    const end = kamchatkaDayStart(shiftDate(kamchatkaDate(new Date(nowMs)), 1)).getTime();
+    const today = kamchatkaDate(new Date(nowMs));
+    const end = kamchatkaDayStart(shiftDate(today, 1)).getTime();
     const due = open.filter((t) => Date.parse(t.due_at) < end);
-    return { inbox, due, overdue: due.filter((t) => Date.parse(t.due_at) < nowMs).length };
+    const facts: DigestFacts = { inbox, due, overdue: due.filter((t) => Date.parse(t.due_at) < nowMs).length };
+    if (c.category === 'guide') facts.certs = await readCertLines(c.partner_id, today);
+    return facts;
   } catch (err) {
     console.error(`[chat-digest] данные сводки не прочитаны — отказ, SQLSTATE ${sqlstate(err)}`);
+    return null;
+  }
+}
+
+/** Строки о сроке аттестата; null — не прочитались (отказ в лог, сводку не роняет). */
+async function readCertLines(partnerId: string, today: string): Promise<string[] | null> {
+  try {
+    return certReminderLines(await listGuideCertifications(partnerId), today);
+  } catch (err) {
+    console.error(`[chat-digest] аттестаты гида не прочитаны — отказ, SQLSTATE ${sqlstate(err)}`);
     return null;
   }
 }
