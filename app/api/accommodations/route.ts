@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { roomNightsSql } from '@/lib/stay/availability';
+import { hasActiveRoomsSql, objectBusyNightsSql } from '@/lib/stay/busy-flow';
 import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 
 export const dynamic = 'force-dynamic';
@@ -209,15 +210,22 @@ export async function GET(request: NextRequest) {
     // которые держат номер. Формула одна с book-роутом
     // (lib/stay/availability.ts) — каталог не обещает того, что бронь потом
     // отклонит.
+    // Объект БЕЗ номеров (заявка хозяину, 1206) строк по номерам не имеет и до
+    // 30.10 при датах выпадал из выдачи молча. Теперь он остаётся, если хозяин
+    // не отметил ни одну ночь окна занятой («занято с … по …» в MAX), и
+    // карточка в списке говорит «Даты уточняет хозяин» (dates_by_owner).
     if (checkIn && checkOut) {
       const ci = `$${paramIndex++}`;
       const co = `$${paramIndex++}`;
       params.push(checkIn, checkOut);
-      conditions.push(`EXISTS (
+      conditions.push(`(EXISTS (
         SELECT 1 FROM (${roomNightsSql({ accommodation: 'a.id', start: `${ci}::date`, endExclusive: `${co}::date` })}) rn
         GROUP BY rn.room_id
         HAVING bool_and(NOT rn.blocked AND rn.free_units > 0)
-      )`);
+      ) OR (
+        NOT ${hasActiveRoomsSql('a.id')}
+        AND NOT EXISTS (${objectBusyNightsSql('a.id', `${ci}::date`, `${co}::date`)})
+      ))`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -251,6 +259,7 @@ export async function GET(request: NextRequest) {
         a.is_verified,
         a.created_at,
         p.name as partner_name,
+        (NOT ${hasActiveRoomsSql('a.id')}) AS dates_by_owner,
         (
           SELECT json_agg(json_build_object('url', ast.url, 'alt', ast.alt) ORDER BY ${STAY_PHOTO_ORDER_SQL})
           FROM accommodation_assets aa
@@ -271,7 +280,7 @@ export async function GET(request: NextRequest) {
       address: string | null; coordinates: unknown; location_zone: string; star_rating: unknown;
       price_per_night_from: string | null; price_per_night_to: string | null; currency: string;
       amenities: unknown; rating: string | null; review_count: unknown; is_verified: boolean;
-      created_at: unknown; partner_name: string | null; images: unknown;
+      created_at: unknown; partner_name: string | null; images: unknown; dates_by_owner: boolean;
     }>(accommodationsQuery, params);
     
     // Форматируем данные
@@ -300,6 +309,9 @@ export async function GET(request: NextRequest) {
       rating: publicRating(row.rating, row.review_count),
       reviewCount: row.review_count || 0,
       isVerified: row.is_verified,
+      // Номеров нет: занятость — слово хозяина, при поиске по датам карточка
+      // говорит «Даты уточняет хозяин», а не обещает свободное место.
+      datesByOwner: row.dates_by_owner === true,
       partnerName: row.partner_name,
       images: row.images || [],
       createdAt: row.created_at,

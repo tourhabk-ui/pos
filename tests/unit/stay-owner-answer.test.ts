@@ -164,13 +164,14 @@ describe('привязка и справка хозяина жилья — пр�
     cabinetOf: null, others: [], partnerId: PARTNER, sellsTours: false,
   };
 
-  it('после привязки — кто он, что придёт, три кнопки, две кнопки строки; не «подключён к оператору» и без кабинета', () => {
+  it('после привязки — кто он, что придёт, три кнопки, три кнопки строки; не «подключён к оператору» и без кабинета', () => {
     const row = boundMenuRow(bound as never);
-    expect(row?.map((b) => b.text)).toEqual(['Заявки', 'Помощь']);
+    expect(row?.map((b) => b.text)).toEqual(['Заявки', 'Занято', 'Помощь']);
     const text = channelBoundText('max', bound as never);
     expect(text).toContain('Вы подключены как хозяин жилья «Кутха»');
     expect(text).toContain('«Свободно, беру», «Занято», «Позвоню сам»');
-    expect(text).toContain('Кнопки под этим сообщением: «Заявки» и «Помощь»');
+    expect(text).toContain('Кнопки под этим сообщением: «Заявки», «Занято», «Помощь»');
+    expect(text).toContain('«занято с 5 по 9 ноября»');
     expect(text).not.toMatch(/подключён к оператору|кабинет/i);
     expect(stayBoundText('Кутха', 'telegram', null)).toContain('только в MAX');
   });
@@ -181,7 +182,8 @@ describe('привязка и справка хозяина жилья — пр�
     expect(help).toContain('1. Гость оставляет заявку');
     expect(help).toContain('2. Под сообщением три кнопки');
     expect(help).toContain('3. Если за два часа ответа нет');
+    expect(help).toContain('4. Когда у вас занято, напишите сюда одним сообщением: «занято с 5 по 9 ноября»');
     expect(help).not.toMatch(/Задачи|Клиенты|кабинет на сайте|vedarai\.ru\/hub/);
-    expect(partnerMenu({ partnerId: PARTNER, category: 'stay', slug: null })?.map((b) => b.text)).toEqual(['Заявки', 'Помощь']);
+    expect(partnerMenu({ partnerId: PARTNER, category: 'stay', slug: null })?.map((b) => b.text)).toEqual(['Заявки', 'Занято', 'Помощь']);
   });
 });

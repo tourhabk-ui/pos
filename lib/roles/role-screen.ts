@@ -47,7 +47,7 @@ export const GUIDE_NO_OWN_TOURS = 'Своих туров в этом кабин�
 
 /** Вкладка кабинета в чате: её открывает lib/chat-cabinet, а не roleMenuScreen. */
 export function isCabinetSection(action: MenuAction): action is CabinetSection & MenuAction {
-  return action === 'inbox' || action === 'tasks' || action === 'clients' || action === 'more';
+  return action === 'inbox' || action === 'tasks' || action === 'clients' || action === 'more' || action === 'busy';
 }
 
 export async function roleMenuScreen(opts: {

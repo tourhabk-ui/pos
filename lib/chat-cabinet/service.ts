@@ -55,7 +55,7 @@ import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
@@ -63,6 +63,8 @@ import {
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
 import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
+import { loadOwnerBusy, setObjectBusy } from '@/lib/stay/busy-flow';
+import { BUSY_TEXT, busySavedText } from '@/lib/stay/busy-dates';
 
 interface Queryable {
   query: typeof pool.query;
@@ -221,12 +223,13 @@ async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetP
 }
 
 /** Экран раздела без нажатия: кнопка строки меню (`rm:`), команда или слово. */
-export type CabinetSection = 'inbox' | 'tasks' | 'clients' | 'more';
+export type CabinetSection = 'inbox' | 'tasks' | 'clients' | 'more' | 'busy';
 
 async function sectionView(c: Ctx, channel: CabinetChannel, section: CabinetSection, nowMs: number): Promise<CabinetScreen> {
   if (section === 'inbox') return inboxView(c, 0, nowMs);
   if (section === 'tasks') return tasksView(c, channel, 0, nowMs);
   if (section === 'clients') return clientsView(c, channel, 0);
+  if (section === 'busy') return busyView(c, nowMs);
   return moreView(c);
 }
 
@@ -517,6 +520,25 @@ async function vehicleActive(c: Ctx, press: Extract<CabinetPress, { kind: 'vehic
   return fleetView(c, press.active ? `«${title}» снова на линии.` : `«${title}» снята с линии: на витрине её нет.`);
 }
 
+// ── Занято (хозяин жилья, 30.10) ────────────────────────────────────────────
+
+async function busyView(c: Ctx, nowMs: number, notice?: string): Promise<CabinetScreen> {
+  if (c.partner.role !== 'stay') return noticeScreen(BUSY_TEXT.notStay);
+  const objects = await loadOwnerBusy(c.ctx.partnerId, kamchatkaDate(new Date(nowMs)));
+  const out = busyScreen({ objects, base: base(), notice });
+  return objects === null ? { ...out, failed: true } : out;
+}
+
+async function busyRelease(c: Ctx, press: Extract<CabinetPress, { kind: 'busy_release' }>, channel: CabinetChannel, nowMs: number): Promise<CabinetScreen> {
+  if (c.partner.role !== 'stay') return noticeScreen(BUSY_TEXT.notStay);
+  const r = await setObjectBusy({
+    partnerId: c.ctx.partnerId, accommodationId: press.accommodationId, from: press.from, to: press.to, action: 'release', via: channel,
+  });
+  if (r.outcome === 'db_error') return busyView(c, nowMs, BUSY_TEXT.saveFailed);
+  if (r.outcome === 'not_yours') return busyView(c, nowMs, BUSY_TEXT.notYours);
+  return busyView(c, nowMs, busySavedText({ name: r.name, from: press.from, to: press.to, action: 'release' }));
+}
+
 /** Сводка перевозчика (#2862 этап D): блоки читаются отдельно, не прочитавшийся назван. */
 async function carrierSummaryView(c: Ctx): Promise<CabinetScreen> {
   if (c.partner.role !== 'transfer') return noticeScreen(FLEET_TEXT.notCarrier);
@@ -771,6 +793,8 @@ export async function handleCabinetPress(input: {
     case 'fleet': out = await fleetView(g); break;
     case 'vehicle_active': out = await vehicleActive(g, press); break;
     case 'carrier_summary': out = await carrierSummaryView(g); break;
+    case 'busy': out = await busyView(g, nowMs); break;
+    case 'busy_release': out = await busyRelease(g, press, ch, nowMs); break;
     // «Мои туры» гида (30.10): даты, правка текста и цены — lib/guides/tour-edit.
     // Роль, кабинет карточки и владение туром проверяет поток.
     case 'my_tours':

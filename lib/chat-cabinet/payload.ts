@@ -98,6 +98,9 @@ export type CabinetPress =
   | { kind: 'fleet' }
   | { kind: 'vehicle_active'; vehicleId: string; active: boolean }
   | { kind: 'carrier_summary' }
+  /** «Занято» хозяина жилья (30.10): список занятых дат и «Освободить» отрезок [from, to] (YYYY-MM-DD). */
+  | { kind: 'busy' }
+  | { kind: 'busy_release'; accommodationId: string; from: string; to: string }
   | { kind: 'my_tours' }
   | { kind: 'tour'; tourId: string }
   | { kind: 'tour_dates'; tourId: string; page: number }
@@ -115,6 +118,13 @@ const PAGE = '\\d{1,2}';
 const TOUR = '\\d{1,18}';
 /** Страниц дат — до полугода вперёд по 14 дней. */
 export const TOUR_DATES_MAX_PAGE = 12;
+
+/** 'YYYYMMDD' → 'YYYY-MM-DD'; null — такого дня нет (31 февраля). */
+function ymdOf(d: string): string | null {
+  const iso = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+  const t = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === iso ? iso : null;
+}
 
 const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]> = [
   [/^cb:m$/, () => ({ kind: 'more' })],
@@ -149,6 +159,12 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   }],
   [/^cb:v$/, () => ({ kind: 'fleet' })],
   [/^cb:y$/, () => ({ kind: 'carrier_summary' })],
+  [/^cb:b$/, () => ({ kind: 'busy' })],
+  [new RegExp(`^cb:b:r:(${UUID}):(\\d{8}):(\\d{8})$`), (m) => {
+    const from = ymdOf(m[2]!);
+    const to = ymdOf(m[3]!);
+    return from && to && from <= to ? { kind: 'busy_release', accommodationId: m[1]!, from, to } : null;
+  }],
   [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
   [/^cb:u$/, () => ({ kind: 'my_tours' })],
   [new RegExp(`^cb:u:(${TOUR})$`), (m) => ({ kind: 'tour', tourId: m[1]! })],
@@ -212,6 +228,10 @@ export const cabinetPayload = {
   touch: (outcome: TouchOutcome, contactId: string): string => `cb:k:${TOUCH_CODE[outcome]}:${contactId.toLowerCase()}`,
   remind: (when: RemindWhen, contactId: string): string => `cb:r:${REMIND_CODE[when]}:${contactId.toLowerCase()}`,
   fleet: (): string => 'cb:v',
+  /** «Занято» хозяина жилья и «Освободить» отрезок. */
+  busy: (): string => 'cb:b',
+  busyRelease: (accommodationId: string, from: string, to: string): string =>
+    `cb:b:r:${accommodationId.toLowerCase()}:${from.replace(/-/g, '')}:${to.replace(/-/g, '')}`,
   /** «Сводка» перевозчика: заявки, ответы, поездки, отзывы за 30 дней (#2862 этап D). */
   carrierSummary: (): string => 'cb:y',
   vehicleActive: (vehicleId: string, active: boolean): string => `cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`,

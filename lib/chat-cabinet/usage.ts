@@ -27,7 +27,7 @@ export type CabinetSeat = 'owner' | 'member';
 /** Что сделано: нажатие кнопки кабинета, раздел словом или кнопкой меню, запрос поиска. */
 export type CabinetUsageAction =
   | CabinetPress['kind']
-  | 'open_inbox' | 'open_tasks' | 'open_clients' | 'open_more'
+  | 'open_inbox' | 'open_tasks' | 'open_clients' | 'open_more' | 'open_busy'
   | 'search_query';
 
 export const CABINET_USAGE_SQL = `

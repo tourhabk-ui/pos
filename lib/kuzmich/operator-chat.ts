@@ -37,6 +37,7 @@ import { rentalCalendarToolText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { handleRentalOfferEdit } from '@/lib/rental/offer-edit-flow';
 import { handleCharterPriceEdit } from '@/lib/transfers/price-edit-flow';
+import { handleStayBusyPhrase } from '@/lib/stay/busy-flow';
 import { redactPII } from '@/lib/security/pii-redact';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -404,6 +405,8 @@ export async function processPartnerMessage(opts: {
   partner: PartnerChatContext;
   reply: (chatId: number, text: string) => Promise<void>;
   nowMs?: number;
+  /** Откуда пришло слово партнёра — в запись занятости жилья («хозяин: занято (max)»). Не названо — MAX. */
+  channel?: 'max' | 'telegram';
 }): Promise<void> {
   const { chatId, text, fromName, partner } = opts;
   const nowMs = opts.nowMs ?? Date.now();
@@ -447,6 +450,21 @@ export async function processPartnerMessage(opts: {
   if (charterEdited !== null) {
     await saveAnswer(charterEdited);
     await reply(chatId, charterEdited);
+    return;
+  }
+
+  // Хозяин жилья: «занято с 5 по 9 ноября» / «свободно …» — занятость объекта
+  // без номеров (30.10), без модели: даты записываются из слов хозяина.
+  const busy = await handleStayBusyPhrase({
+    partnerId: partner.partnerId,
+    category: partner.category,
+    text,
+    today: kamchatkaDate(new Date(nowMs)),
+    via: opts.channel ?? 'max',
+  });
+  if (busy !== null) {
+    await saveAnswer(busy);
+    await reply(chatId, busy);
     return;
   }
 

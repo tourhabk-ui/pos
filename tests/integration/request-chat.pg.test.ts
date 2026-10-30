@@ -354,6 +354,57 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(due.rows).toEqual([]);
     });
 
+    it('«занято с … по …» словами хозяина (30.10): ночи объекта без номеров закрыты своим и только своим, гость их видит, заявка на них не пишется, «свободно» открывает', async () => {
+      const { setObjectBusy, loadOwnerBusy, handleStayBusyPhrase, objectBusyNightsSql } = await import('@/lib/stay/busy-flow');
+      const acc = await pool.query<{ id: string }>(`SELECT accommodation_id::text AS id FROM stay_requests WHERE id = $1`, [requestId]);
+      const accId = acc.rows[0].id;
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_public, is_verified) VALUES ('Соседний дом', 'stay', '{}', FALSE, FALSE) RETURNING id`,
+      );
+      // Чужой партнёр: объект не его — ни строки.
+      expect(await setObjectBusy({ partnerId: other.rows[0].id, accommodationId: accId, from: '2099-07-10', to: '2099-07-12', action: 'block', via: 'max', db: pool }))
+        .toEqual({ outcome: 'not_yours' });
+      expect((await pool.query(`SELECT 1 FROM accommodation_availability WHERE accommodation_id = $1`, [accId])).rows).toEqual([]);
+
+      // Хозяин фразой: записано на уровне объекта (room_id IS NULL), повтор того же — не дубль (ON CONFLICT по 721).
+      const said = await handleStayBusyPhrase({ partnerId, category: 'stay', text: 'занято с 10 по 12 июля 2099', today: '2099-07-01', via: 'max', db: pool });
+      expect(said).toContain('«Кутха» занято с 10.07.2099 по 12.07.2099 (3 ночи)');
+      await setObjectBusy({ partnerId, accommodationId: accId, from: '2099-07-11', to: '2099-07-13', action: 'block', via: 'telegram', db: pool });
+      const rows = await pool.query<{ date: string; room_id: string | null; is_blocked: boolean; block_reason: string }>(
+        `SELECT date::text, room_id, is_blocked, block_reason FROM accommodation_availability WHERE accommodation_id = $1 ORDER BY date`, [accId],
+      );
+      expect(rows.rows.map((r) => r.date)).toEqual(['2099-07-10', '2099-07-11', '2099-07-12', '2099-07-13']);
+      expect(rows.rows.every((r) => r.room_id === null && r.is_blocked)).toBe(true);
+      expect(rows.rows[1].block_reason).toBe('хозяин: занято (telegram)');
+
+      // Экран «Занято» хозяина и чтение гостем — одни и те же ночи.
+      expect(await loadOwnerBusy(partnerId, '2099-07-01', pool)).toEqual([{ id: accId, name: 'Кутха', dates: ['2099-07-10', '2099-07-11', '2099-07-12', '2099-07-13'] }]);
+      const guest = await pool.query<{ night: string }>(`${objectBusyNightsSql('$1::uuid', '$2::date', '$3::date')} ORDER BY av.date`, [accId, '2099-07-12', '2099-07-20']);
+      expect(guest.rows.map((r) => r.night)).toEqual(['2099-07-12', '2099-07-13']);
+
+      // Заявка на закрытые даты не пишется и называет даты; с открытых — пишется.
+      // Объект — на витрине (гейт модерации, lib/stay/moderation): иначе исход «не принимает», а не «занято».
+      await pool.query(`UPDATE accommodations SET is_active = TRUE, moderation_status = 'approved' WHERE id = $1`, [accId]);
+      const { submitStayRequest } = await import('@/lib/stay/stay-request-service');
+      const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+      const consent = { at: new Date().toISOString(), ip: '203.0.113.9', source: 'stay-request', version: PD_CONSENT_STAY_VERSION };
+      const base = { accommodationId: accId, guests: 2, guestName: 'Пётр Гость', guestPhone: '+79990003344', comment: null, consent: consent as never, door: 'form' as const };
+      const before = Number((await pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM stay_requests WHERE accommodation_id = $1`, [accId])).rows[0].n);
+      const busy = await submitStayRequest({ ...base, checkIn: '2099-07-12', checkOut: '2099-07-15', nights: 3 });
+      expect(busy).toEqual({ ok: false, reason: 'busy', busyDates: ['2099-07-12', '2099-07-13'] });
+      const after = Number((await pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM stay_requests WHERE accommodation_id = $1`, [accId])).rows[0].n);
+      expect(after).toBe(before);
+
+      // «Свободно» снимает только блоки объекта в отрезке.
+      expect(await handleStayBusyPhrase({ partnerId, category: 'stay', text: 'свободно с 12 по 13 июля 2099', today: '2099-07-01', via: 'max', db: pool }))
+        .toContain('«Кутха» свободно с 12.07.2099 по 13.07.2099');
+      const left = await pool.query<{ date: string }>(
+        `SELECT date::text FROM accommodation_availability WHERE accommodation_id = $1 AND is_blocked ORDER BY date`, [accId],
+      );
+      expect(left.rows.map((r) => r.date)).toEqual(['2099-07-10', '2099-07-11']);
+      expect((await submitStayRequest({ ...base, checkIn: '2099-07-12', checkOut: '2099-07-15', nights: 3 })).ok).toBe(true);
+    });
+
     it('удалили заявку — переписка и ожидания ушли с ней', async () => {
       await pool.query(`DELETE FROM stay_requests WHERE id = $1`, [requestId]);
       const m = await pool.query(`SELECT count(*)::int AS n FROM request_messages WHERE stay_request_id = $1`, [requestId]);

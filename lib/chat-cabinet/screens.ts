@@ -35,6 +35,7 @@ import { chatAnswerButtons } from '@/lib/requests/chat-answer';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
 import { STAY_ANSWER_HINT, stayAnswerButtons } from '@/lib/stay/owner-answer';
+import { busyScreenLines, groupRanges, rangeWords, type BusyObjectView } from '@/lib/stay/busy-dates';
 import { formatRub, vehicleKindWord, type CharterVehicleKind } from '@/lib/transfers/charter-format';
 import { priceRowLabel, type CharterPriceRow } from '@/lib/transfers/price-edit';
 import { carrierSummaryText, type CarrierSummary } from '@/lib/transfers/carrier-summary';
@@ -556,6 +557,11 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     lines.push('Машины и прайс — парк (снять с линии и вернуть кнопкой) и строки прайса с черновиками на модерации.');
     lines.push('Сводка — заявки на машину, ответы, поездки и отзывы за 30 дней, без имён.');
   }
+  if (partner.role === 'stay') {
+    // Занятость объекта без номеров словами хозяина (30.10): список и «Освободить».
+    rows.push([{ text: 'Занято', payload: cabinetPayload.busy() }]);
+    lines.push('Занято — какие даты вы закрыли для гостей сайта; закрыть — фразой «занято с 5 по 9 ноября», открыть — кнопкой.');
+  }
   if (partner.summary) {
     rows.push([{ text: 'Сводка', payload: `rm:${code}:sm` }]);
     lines.push('Сводка — числа по запросам мест, без имён.');
@@ -752,6 +758,35 @@ export const CABINET_TEXT = {
 } as const;
 
 /** Короткий ответ без экрана данных: текст и строка кабинета. */
+// ── Занято (хозяин жилья, 30.10) ────────────────────────────────────────────
+
+/** Сколько отрезков получают кнопку «Освободить»: дальше — фразой «свободно с … по …». */
+export const BUSY_RELEASE_BUTTONS_MAX = 6;
+
+/**
+ * Занятые даты объектов хозяина с кнопкой «Освободить» у каждого отрезка.
+ * ПД нет — идёт в оба канала. null — не прочиталось, и это сказано.
+ */
+export function busyScreen(args: { objects: BusyObjectView[] | null; base: string; notice?: string }): CabinetScreen {
+  const rows: CabinetButton[][] = [];
+  if (args.objects) {
+    const many = args.objects.length > 1;
+    let shown = 0;
+    for (const o of args.objects) {
+      for (const r of groupRanges(o.dates)) {
+        if (shown >= BUSY_RELEASE_BUTTONS_MAX) break;
+        shown += 1;
+        const label = many ? `Освободить ${o.name}: ${rangeWords(r)}` : `Освободить ${rangeWords(r)}`;
+        rows.push([{ text: clip(label), payload: cabinetPayload.busyRelease(o.id, r.from, r.to), intent: 'positive' }]);
+      }
+    }
+  }
+  const lines = busyScreenLines(args.objects, args.notice);
+  if (rows.length >= BUSY_RELEASE_BUTTONS_MAX) lines.push(`Кнопки — у первых ${BUSY_RELEASE_BUTTONS_MAX} отрезков; остальные открываются фразой «свободно с … по …».`);
+  rows.push([{ text: 'Календарь на сайте', url: `${args.base.replace(/\/$/, '')}/hub/stay/calendar` }]);
+  return screen(lines, rows);
+}
+
 export function noticeScreen(text: string, withNav = true): CabinetScreen {
   return { text, rows: withNav ? [cabinetNavRow()] : [], pd: false };
 }

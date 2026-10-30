@@ -100,7 +100,8 @@ describe('согласие называет настоящего получат�
     expect(FORM).toMatch(/pd_consent: pdConsent/);
     expect(FORM).not.toMatch(/pd_consent:\s*true/);
     expect(FORM).toMatch(/if \(!pdConsent\)/);
-    expect(FORM).toMatch(/disabled=\{sending \|\| !pdConsent\}/);
+    // Кнопка гаснет без согласия; с 30.10 — и на даты, закрытые хозяином (stay-request-form-busy — рендером).
+    expect(FORM).toMatch(/disabled=\{sending \|\| !pdConsent/);
   });
 
   it('роут записывает согласие варианта «жильё» в той же вставке', () => {
