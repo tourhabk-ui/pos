@@ -89,6 +89,20 @@ export async function tryRoleMenuTelegramMessage(opts: {
       return true;
     }
   }
+  // Правка своего тура гидом (30.10): «Горелый: описание: …» — черновик и
+  // «было → станет» с кнопками «Сохранить» / «Отмена» (lib/guides/tour-edit).
+  // В тур пишет только кнопка. Раньше полосы туриста: строгая форма фразы —
+  // дело гида. Текст тура — не ПД, поэтому и в Telegram; только личный чат.
+  if (privateChat) {
+    const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
+    const edit = await captureGuideTourEdit({ channel: 'telegram', chatId: opts.chatId, partner: lookup.partner, text: opts.text });
+    if (edit) {
+      const sos = withSosBlock('', opts.text);
+      if (sos.emergency) await opts.send(sos.text.trim(), []);
+      await opts.sendCabinet(edit);
+      return true;
+    }
+  }
   const menu = partnerMenu(lookup.partner);
   const role = menuRoleOf(lookup.partner);
   if (!menu || !role) {

@@ -239,7 +239,9 @@ describe('массовое открытие дат', () => {
 
 describe('закрыть даты — работа команды', () => {
   it('менеджер закрывает даты тура кабинета', async () => {
-    db('manager', sql => ownsTour(sql) ? { rows: [{ '?column?': 1 }] } : { rows: [] });
+    // Закрытие — общее выражение с гидом (lib/tours/availability-close): владение и счёт — в нём же.
+    db('manager', sql => ownsTour(sql) ? { rows: [{ '?column?': 1 }] }
+      : sql.includes('INSERT INTO tour_availability') ? { rows: [{ owned: 1, closed: 2 }] } : { rows: [] });
     const res = await block.POST(json('http://localhost/api/operator/calendar/block', 'POST', {
       tourId: 7, startDate: '2026-11-01', endDate: '2026-11-02', reason: 'Шторм',
     }));

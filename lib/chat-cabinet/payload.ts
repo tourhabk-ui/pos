@@ -25,6 +25,14 @@
  *   cb:v:<a|z>:<uuid>   — машину вернуть на линию / снять с линии
  *   cb:y                — «Сводка» перевозчика: заявки, ответы, поездки,
  *                         отзывы за 30 дней (#2862 этап D)
+ *   cb:u                — «Мои туры» гида со своими турами (30.10, «гид
+ *                         должен полностью управлять своей ролью из MAX»)
+ *   cb:u:<тур>          — карточка своего тура: даты, правка текста, страница
+ *   cb:w:<тур>[:<стр>]  — даты тура, по 14 дней на странице
+ *   cb:w:<o|c>:<тур>:<ггггммдд> — открыть / закрыть дату (lib/guides/own-dates)
+ *   cb:h:<тур>          — как править текст тура фразой
+ *   cb:e:<s|x>:<uuid>   — черновик правки тура: «Сохранить» / «Отмена»
+ *   cb:e:t:<uuid>:<i>   — черновик правки: выбрать тур из кандидатов
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -89,13 +97,24 @@ export type CabinetPress =
   | { kind: 'digest_set'; mode: DigestMode }
   | { kind: 'fleet' }
   | { kind: 'vehicle_active'; vehicleId: string; active: boolean }
-  | { kind: 'carrier_summary' };
+  | { kind: 'carrier_summary' }
+  | { kind: 'my_tours' }
+  | { kind: 'tour'; tourId: string }
+  | { kind: 'tour_dates'; tourId: string; page: number }
+  | { kind: 'date_open' | 'date_close'; tourId: string; date: string }
+  | { kind: 'tour_hint'; tourId: string }
+  | { kind: 'edit_save' | 'edit_cancel'; draftId: string }
+  | { kind: 'edit_tour'; draftId: string; index: number };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
 const ITEM_ID = `(?:\\d{1,18}|${UUID})`;
 /** Страниц больше сотни в чате не листают — дальше кабинет на сайте. */
 const PAGE = '\\d{1,2}';
+/** Номер тура (`operator_tours.id`, bigint). */
+const TOUR = '\\d{1,18}';
+/** Страниц дат — до полугода вперёд по 14 дней. */
+export const TOUR_DATES_MAX_PAGE = 12;
 
 const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]> = [
   [/^cb:m$/, () => ({ kind: 'more' })],
@@ -131,6 +150,20 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [/^cb:v$/, () => ({ kind: 'fleet' })],
   [/^cb:y$/, () => ({ kind: 'carrier_summary' })],
   [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
+  [/^cb:u$/, () => ({ kind: 'my_tours' })],
+  [new RegExp(`^cb:u:(${TOUR})$`), (m) => ({ kind: 'tour', tourId: m[1]! })],
+  [new RegExp(`^cb:w:(${TOUR})(?::(\\d{1,2}))?$`), (m) => {
+    const page = Number(m[2] ?? 0);
+    return page <= TOUR_DATES_MAX_PAGE ? { kind: 'tour_dates', tourId: m[1]!, page } : null;
+  }],
+  [new RegExp(`^cb:w:([oc]):(${TOUR}):(\\d{8})$`), (m) => {
+    const d = m[3]!;
+    const date = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+    return { kind: m[1] === 'o' ? 'date_open' : 'date_close', tourId: m[2]!, date };
+  }],
+  [new RegExp(`^cb:h:(${TOUR})$`), (m) => ({ kind: 'tour_hint', tourId: m[1]! })],
+  [new RegExp(`^cb:e:([sx]):(${UUID})$`), (m) => ({ kind: m[1] === 's' ? 'edit_save' : 'edit_cancel', draftId: m[2]! })],
+  [new RegExp(`^cb:e:t:(${UUID}):([0-7])$`), (m) => ({ kind: 'edit_tour', draftId: m[1]!, index: Number(m[2]) })],
 ];
 
 export function isCabinetPayload(payload: string): boolean {
@@ -182,6 +215,16 @@ export const cabinetPayload = {
   /** «Сводка» перевозчика: заявки, ответы, поездки, отзывы за 30 дней (#2862 этап D). */
   carrierSummary: (): string => 'cb:y',
   vehicleActive: (vehicleId: string, active: boolean): string => `cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`,
+  /** «Мои туры» гида со своими турами. */
+  myTours: (): string => 'cb:u',
+  tour: (tourId: string): string => `cb:u:${tourId}`,
+  tourDates: (tourId: string, page = 0): string => (page > 0 ? `cb:w:${tourId}:${page}` : `cb:w:${tourId}`),
+  dateOpen: (tourId: string, date: string): string => `cb:w:o:${tourId}:${date.replace(/-/g, '')}`,
+  dateClose: (tourId: string, date: string): string => `cb:w:c:${tourId}:${date.replace(/-/g, '')}`,
+  tourHint: (tourId: string): string => `cb:h:${tourId}`,
+  editSave: (draftId: string): string => `cb:e:s:${draftId.toLowerCase()}`,
+  editCancel: (draftId: string): string => `cb:e:x:${draftId.toLowerCase()}`,
+  editTour: (draftId: string, index: number): string => `cb:e:t:${draftId.toLowerCase()}:${index}`,
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */

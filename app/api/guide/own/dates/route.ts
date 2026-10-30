@@ -1,6 +1,7 @@
 /**
  * POST /api/guide/own/dates — гид открывает даты своего тура. Тот же путь,
- * что у кабинета оператора (`openTourDates`, lib/tours/availability-open):
+ * что у кабинета оператора (`openTourDates`, lib/tours/availability-open) и
+ * у кнопки «Открыть» в чате кабинета (`openGuideTourDates`, lib/guides/own-dates):
  * места не ниже уже записанных, горизонт и сезон — его правила. Цену на дату
  * гид здесь не меняет: цена тура — одна, из карточки.
  */
@@ -8,7 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
-import { countResults, datesInRange, MAX_SLOTS_PER_DATE, openTourDates, tourHiddenText } from '@/lib/tours/availability-open';
+import { countResults, datesInRange, MAX_SLOTS_PER_DATE, tourHiddenText } from '@/lib/tours/availability-open';
+import { openGuideTourDates } from '@/lib/guides/own-dates';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export const dynamic = 'force-dynamic';
@@ -44,19 +46,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'В диапазоне нет дат' }, { status: 400 });
   }
 
-  const outcome = await openTourDates({
-    operatorId: partnerId,
-    tourId,
-    rows: dates.map((date) => ({ date, slots, price: null })),
-    mayPrice: false,
-    inactiveTour: 'refuse',
-    skipExisting: false,
-    closedDates: 'reopen',
-    // Прошедшие и дальше горизонта не открываются, вне сезона тура — тоже:
-    // заявку вне сезона форма туриста всё равно не примет.
-    today: kamchatkaToday(),
-    enforceSeason: true,
-  });
+  // Одна функция с кнопкой «Открыть» в чате кабинета (lib/guides/own-dates, 30.10).
+  const outcome = await openGuideTourDates({ partnerId, tourId, dates, slots, today: kamchatkaToday() });
   if (!outcome.ok) {
     if (outcome.reason === 'tour_not_found') {
       return NextResponse.json({ success: false, error: 'Тур не найден среди ваших' }, { status: 404 });

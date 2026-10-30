@@ -123,7 +123,8 @@ describe('производитель и потребитель', () => {
 
 describe('данные и правка условий оператором', () => {
   const mig = read('migrations/1012_tour_refund_terms.sql');
-  const patch = read('app/api/hub/operator/tours/[id]/route.ts');
+  // Запись PATCH — общая функция сайта и чата гида (lib/tours/tour-write, 30.10).
+  const patch = read('lib/tours/tour-write.ts');
 
   it('миграция заполняет числа только для дословного правила владельца', () => {
     expect(mig).toMatch(/SET cancellation_free_days = 3,\s*cancellation_late_refund_percent = 50/);
