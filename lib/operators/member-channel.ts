@@ -204,8 +204,15 @@ export function memberBindReplyText(channel: MemberChannel, result: MemberBindRe
   const tail = channel === 'telegram'
     ? 'Сюда будут приходить номера броней и заявок и ссылки в кабинет. Имя и телефон туриста по закону о персональных данных приходят только в MAX — подключите и его.'
     : 'Сюда будут приходить новые брони, заявки, запросы мест и напоминания о задачах кабинета — с именами и телефонами клиентов.';
-  return `Готово: ${CHANNEL_LABEL[channel]} подключён к уведомлениям кабинета «${escapeHtml(result.partnerName)}». ${tail}`;
+  return `Готово: ${CHANNEL_LABEL[channel]} подключён к уведомлениям кабинета «${escapeHtml(result.partnerName)}». ${tail} ${MEMBER_CABINET_HINT}`;
 }
+
+/**
+ * Кабинет в чате у менеджера (30.10): тот же, что у владельца, кроме кнопок
+ * ответа на бронь и заявку — они у чата карточки.
+ */
+export const MEMBER_CABINET_HINT =
+  'Напишите «Входящие», «Задачи» или «Клиенты» — откроется кабинет в чате; звонок клиенту и задача запишутся от вас. Брони подтверждает владелец кабинета.';
 
 export function memberBadLinkReplyText(reason: 'malformed' | 'bad_signature' | 'expired' | 'no_secret'): string {
   if (reason === 'expired') return 'Ссылка для подключения устарела (действует сутки). Возьмите новую в своём кабинете.';

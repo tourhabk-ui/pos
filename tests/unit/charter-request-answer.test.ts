@@ -234,7 +234,7 @@ describe('нажатие в чате', () => {
   });
 
   it('карточка заявки в кабинете чата: «Беру» / «Не могу» в обоих каналах, переписка — только в MAX, ПД в карточке нет', () => {
-    const partner: CabinetPartner = { partnerId: PARTNER, role: 'transfer', bookingActions: false, leadActions: false, operatorAnswers: false, sellsTours: false, summary: false };
+    const partner: CabinetPartner = { partnerId: PARTNER, role: 'transfer', seat: 'owner', bookingActions: false, leadActions: false, operatorAnswers: false, sellsTours: false, summary: false };
     const item: InboxItem = {
       kind: 'charter_request', id: LEAD, created_at: '2026-10-30T00:00:00Z', title: 'Вулкан Горелый', date: '2026-11-10',
       people: 10, contact_id: null, contact_name: null, waiting_minutes: 90,

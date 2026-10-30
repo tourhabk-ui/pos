@@ -86,7 +86,7 @@ describe('inboxMenuText: свободный текст заявки', () => {
 
 describe('кабинет в чате: список и карточка заявки гида со своими турами', () => {
   const guide: CabinetPartner = {
-    partnerId: '22222222-2222-4222-8222-222222222222', role: 'guide', bookingActions: true, leadActions: true,
+    partnerId: '22222222-2222-4222-8222-222222222222', role: 'guide', seat: 'owner', bookingActions: true, leadActions: true,
     operatorAnswers: false, sellsTours: true, summary: false,
   };
   // Номер и почта стоят в начале тура — чтобы обрезка сама их не спрятала.

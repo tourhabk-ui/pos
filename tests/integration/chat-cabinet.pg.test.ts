@@ -266,7 +266,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
     const AT = new Date(Date.UTC(2026, 9, 29, 20, 12));
 
     it('кандидаты: кабинет чата — старшая карточка; после строки сводки — не кандидат до следующих суток', async () => {
-      const { rows } = await pool.query<{ partner_id: string; max_cabinet: boolean }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-30', 50]);
+      const { rows } = await pool.query<{ partner_id: string; max_cabinet: boolean }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-30', 50, 'morning']);
       const byId = new Map(rows.map((r) => [r.partner_id, r.max_cabinet]));
       expect(byId.get(partnerId)).toBe(true);
       expect(byId.get(youngerId)).toBe(false);
@@ -283,16 +283,16 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((await pool.query<{ n: number }>(digest.DIGEST_DONE_TODAY_SQL, ['2026-10-30'])).rows[0]?.n).toBe(1);
       // Итог записан — снятие его не трогает.
       await pool.query(digest.DIGEST_RELEASE_SQL, [partnerId, '2026-10-30']);
-      const left = await pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-30', 50]);
+      const left = await pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-30', 50, 'morning']);
       expect(left.rows.map((r) => r.partner_id)).not.toContain(partnerId);
-      const tomorrow = await pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-31', 50]);
+      const tomorrow = await pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-10-31', 50, 'morning']);
       expect(tomorrow.rows.map((r) => r.partner_id)).toContain(partnerId);
       await expect(pool.query(digest.DIGEST_CLAIM_SQL, [otherId, '2026-10-30', 'late'])).rejects.toMatchObject({ code: '23514' });
     });
 
     it('прогон целиком: настоящие задачи и строки, отправка подменена', async () => {
       await pool.query(`DELETE FROM crm_chat_digests`);
-      const r = await digest.runMorningDigest(AT, { sendTelegram: async () => true });
+      const r = await digest.runChatDigest(AT, { sendTelegram: async () => true });
       expect(r.window).toBe(true);
       expect(r.query_failed).toBe(false);
       const rows = await pool.query<{ partner_id: string; channel: string }>(
@@ -305,8 +305,126 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       // Чужая карточка: её задача на сегодня — сводка ушла в MAX.
       expect(by.get(otherId)).toBe('max');
       // Второй прогон того же утра — никому второй сводки.
-      const again = await digest.runMorningDigest(AT, { sendTelegram: async () => true });
+      const again = await digest.runChatDigest(AT, { sendTelegram: async () => true });
       expect(again.sent_max + again.sent_tg + again.sent_stub).toBe(0);
+    });
+
+    it('время сводки (1353): кнопка пишет карточке чата; кандидат — только в своё окно; «не присылать» — никогда', async () => {
+      const at = (slot: string) => pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-11-02', 50, slot]);
+      const ids = async (slot: string) => (await at(slot)).rows.map((r) => r.partner_id);
+      // Строки нет — утром.
+      expect(await ids('morning')).toContain(otherId);
+      expect(await ids('evening')).not.toContain(otherId);
+      const chosen = await svc.handleCabinetPress({ channel: 'max', chatId: OTHER_CHAT, privateChat: true, payload: pay.digestSet('evening'), nowMs: NOW });
+      expect(chosen.text).toContain('вечером, с 18:00');
+      const row = (await pool.query<{ digest: string }>(`SELECT digest FROM chat_cabinet_settings WHERE partner_id = $1`, [otherId])).rows[0];
+      expect(row?.digest).toBe('evening');
+      expect(await ids('morning')).not.toContain(otherId);
+      expect(await ids('evening')).toContain(otherId);
+      // Повтор того же нажатия — та же строка, не вторая.
+      await svc.handleCabinetPress({ channel: 'max', chatId: OTHER_CHAT, privateChat: true, payload: pay.digestSet('off'), nowMs: NOW });
+      const all = await pool.query(`SELECT 1 FROM chat_cabinet_settings WHERE partner_id = $1`, [otherId]);
+      expect(all.rowCount).toBe(1);
+      for (const slot of ['morning', 'day', 'evening']) expect(await ids(slot)).not.toContain(otherId);
+      await expect(pool.query(
+        `INSERT INTO chat_cabinet_settings (partner_id, digest) VALUES ($1, 'night')`, [partnerId],
+      )).rejects.toMatchObject({ code: '23514' });
+    });
+  });
+
+  describe('менеджер команды и счёт (1353)', () => {
+    const MEMBER_CHAT = 8_201;
+    let memberUser = '';
+    let memberRow = '';
+
+    beforeAll(async () => {
+      memberUser = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('cab-mgr@example.com', 'Менеджер кабинета', 'x', 'operator') RETURNING id`,
+      )).rows[0]!.id;
+      memberRow = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_members (partner_id, user_id, status, accepted_at, max_chat_id, channel_bound_at)
+         VALUES ($1, $2, 'active', NOW(), $3, NOW()) RETURNING id`, [partnerId, memberUser, MEMBER_CHAT],
+      )).rows[0]!.id;
+    });
+
+    it('чат менеджера — его карточка оператора и его аккаунт; снят — чата нет', async () => {
+      const { findMemberByChat } = await import('@/lib/operators/member-chat');
+      const found = await findMemberByChat('max', MEMBER_CHAT);
+      expect(found).toMatchObject({ outcome: 'found', member: { memberId: memberRow, partner: { partnerId, userId: memberUser } } });
+      expect(await findMemberByChat('telegram', MEMBER_CHAT)).toEqual({ outcome: 'none' });
+      await pool.query(`UPDATE operator_members SET status = 'revoked', revoked_at = NOW() WHERE id = $1`, [memberRow]);
+      expect(await findMemberByChat('max', MEMBER_CHAT)).toEqual({ outcome: 'none' });
+      await pool.query(`UPDATE operator_members SET status = 'active', revoked_at = NULL WHERE id = $1`, [memberRow]);
+    });
+
+    it('один чат у менеджеров двух команд — «не смог проверить», а не чей-то кабинет', async () => {
+      const { findMemberByChat } = await import('@/lib/operators/member-chat');
+      const otherUser = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('cab-mgr2@example.com', 'Второй', 'x', 'operator') RETURNING id`,
+      )).rows[0]!.id;
+      const twin = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_members (partner_id, user_id, status, accepted_at, max_chat_id, channel_bound_at)
+         VALUES ($1, $2, 'active', NOW(), $3, NOW()) RETURNING id`, [otherId, otherUser, MEMBER_CHAT],
+      )).rows[0]!.id;
+      expect(await findMemberByChat('max', MEMBER_CHAT)).toEqual({ outcome: 'unavailable' });
+      await pool.query(`DELETE FROM operator_members WHERE id = $1`, [twin]);
+    });
+
+    it('кнопка из чата менеджера: «Готово» пишет менеджер; сводку он не настраивает; счёт — с местом member', async () => {
+      const task = (await pool.query<{ id: string }>(
+        `INSERT INTO crm_tasks (partner_id, title, due_at) VALUES ($1, 'Счёт менеджеру', $2) RETURNING id`,
+        [partnerId, new Date(NOW + 3_600_000).toISOString()],
+      )).rows[0]!.id;
+      const m = (payload: string) => svc.handleCabinetPress({ channel: 'max', chatId: MEMBER_CHAT, privateChat: true, payload, nowMs: NOW });
+      expect((await m(pay.taskDone(task))).text).toContain('Готово: «Счёт менеджеру».');
+      const done = (await pool.query<{ done_by: string | null }>(`SELECT done_by::text AS done_by FROM crm_tasks WHERE id = $1`, [task])).rows[0];
+      expect(done?.done_by).toBe(memberUser);
+      await m(pay.digestSet('off'));
+      const set = await pool.query(`SELECT 1 FROM chat_cabinet_settings WHERE partner_id = $1`, [partnerId]);
+      expect(set.rowCount).toBe(0);
+      const usage = await pool.query<{ seat: string; action: string; outcome: string; n: number }>(
+        `SELECT seat, action, outcome, n FROM chat_cabinet_usage WHERE partner_id = $1 AND seat = 'member' ORDER BY action`, [partnerId],
+      );
+      expect(usage.rows).toEqual([
+        { seat: 'member', action: 'digest_set', outcome: 'ok', n: 1 },
+        { seat: 'member', action: 'task_done', outcome: 'ok', n: 1 },
+      ]);
+    });
+
+    it('счёт: повтор того же дня складывается в одну строку; день — камчатский; лишнее место база не примет', async () => {
+      const before = (await pool.query<{ n: number }>(
+        `SELECT COALESCE(SUM(n), 0)::int AS n FROM chat_cabinet_usage WHERE partner_id = $1 AND action = 'clients' AND seat = 'owner'`, [partnerId],
+      )).rows[0]!.n;
+      await press(pay.clients());
+      await press(pay.clients());
+      const rows = (await pool.query<{ day: string; n: number }>(
+        `SELECT day::text AS day, n FROM chat_cabinet_usage WHERE partner_id = $1 AND action = 'clients' AND seat = 'owner'`, [partnerId],
+      )).rows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toEqual({ day: '2026-10-30', n: before + 2 });
+      const { CABINET_USAGE_SQL } = await import('@/lib/chat-cabinet/usage');
+      await expect(pool.query(CABINET_USAGE_SQL, ['2026-10-30', partnerId, 'guest', 'max', 'tasks', 'ok'])).rejects.toMatchObject({ code: '23514' });
+    });
+
+    it('перепись: числа на настоящей схеме, без чатов и текстов', async () => {
+      process.env.CRON_SECRET = 'census-secret-for-test';
+      const { NextRequest } = await import('next/server');
+      const { GET } = await import('@/app/api/cron/chat-cabinet-census/route');
+      const res = await GET(new NextRequest('http://localhost/api/cron/chat-cabinet-census?days=400', {
+        headers: { authorization: 'Bearer census-secret-for-test' },
+      }));
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, { refused?: boolean; data?: unknown }> & { days: number; totals: { ok: number } | null };
+      expect(body.days).toBe(90);
+      for (const k of ['by_action', 'by_day', 'by_partner', 'reachable_partners', 'reachable_members', 'digests']) {
+        expect(body[k]?.refused, k).toBe(false);
+      }
+      expect(body.totals?.ok).toBeGreaterThan(0);
+      expect(body.reachable_members?.data).toBe(1);
+      const text = JSON.stringify(body);
+      for (const leak of [String(CHAT), String(MEMBER_CHAT), 'Анна', 'Петрова', '+79140001122']) expect(text, leak).not.toContain(leak);
+      const unauth = await GET(new NextRequest('http://localhost/api/cron/chat-cabinet-census'));
+      expect(unauth.status).toBe(401);
     });
   });
 });

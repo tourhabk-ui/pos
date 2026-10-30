@@ -22,7 +22,7 @@ import {
 } from '@/lib/chat-cabinet/payload';
 import {
   canMoveToTomorrow, clientCardScreen, clientsScreen, contactResultScreen, dueWords, inboxScreen, itemCardScreen,
-  kamchatkaMorning, moreScreen, searchResultsScreen, tasksScreen,
+  kamchatkaMorning, moreScreen, searchResultsScreen, tasksScreen, digestScreen, digestSlotOfHour, MEMBER_ANSWER_LINE,
   type CabinetPartner, type CabinetScreen,
 } from '@/lib/chat-cabinet/screens';
 import { maxCabinetRows, telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
@@ -59,7 +59,7 @@ function inbox(items: InboxItem[], over: Partial<Inbox> = {}): Inbox {
 
 function partner(over: Partial<CabinetPartner> = {}): CabinetPartner {
   return {
-    partnerId: '11111111-1111-4111-8111-111111111111', role: 'operator', bookingActions: true, leadActions: false,
+    partnerId: '11111111-1111-4111-8111-111111111111', role: 'operator', seat: 'owner', bookingActions: true, leadActions: false,
     operatorAnswers: true, sellsTours: true, summary: false, ...over,
   };
 }
@@ -111,6 +111,12 @@ describe('кнопки кабинета: форма', () => {
       [cabinetPayload.remind('hour', CONTACT), { kind: 'remind', when: 'hour', contactId: CONTACT }],
       [cabinetPayload.remind('tomorrow', CONTACT), { kind: 'remind', when: 'tomorrow', contactId: CONTACT }],
       [cabinetPayload.remind('days3', CONTACT), { kind: 'remind', when: 'days3', contactId: CONTACT }],
+      [cabinetPayload.digest(), { kind: 'digest' }],
+      [cabinetPayload.openDigest(), { kind: 'digest' }],
+      [cabinetPayload.digestSet('morning'), { kind: 'digest_set', mode: 'morning' }],
+      [cabinetPayload.digestSet('day'), { kind: 'digest_set', mode: 'day' }],
+      [cabinetPayload.digestSet('evening'), { kind: 'digest_set', mode: 'evening' }],
+      [cabinetPayload.digestSet('off'), { kind: 'digest_set', mode: 'off' }],
     ];
     for (const kind of INBOX_KINDS) {
       forms.push([cabinetPayload.item(kind, UUID), { kind: 'item', item: kind, id: UUID }]);
@@ -131,6 +137,7 @@ describe('кнопки кабинета: форма', () => {
     for (const bad of [
       'cb:', 'cb:q', 'cb:i:x', 'cb:i:100', 'cb:o:zz:501', 'cb:o:ob:', 'cb:o:ob:5o1', `cb:d:${UUID}x`, 'cb:d:501',
       'cb:k:q:' + CONTACT, 'cb:r:x:' + CONTACT, 'cb:c:not-a-uuid', 'cb:l:', 'rm:op:in', 'tk:d:' + UUID,
+      'cb:g:x', 'cb:g:', 'cb:g:mm', 'cb:n:x',
     ]) {
       expect(parseCabinetPress(bad), bad).toBeNull();
     }
@@ -140,6 +147,8 @@ describe('кнопки кабинета: форма', () => {
   it('кнопки под напоминанием и сводкой (cb:n:) сообщение не правят — остальные правят', () => {
     expect(cabinetPressEdits(cabinetPayload.openInbox())).toBe(false);
     expect(cabinetPressEdits(cabinetPayload.openTasks())).toBe(false);
+    expect(cabinetPressEdits(cabinetPayload.openDigest())).toBe(false);
+    expect(cabinetPressEdits(cabinetPayload.digest())).toBe(true);
     for (const p of [cabinetPayload.inbox(), cabinetPayload.tasks(1), cabinetPayload.client(CONTACT), cabinetPayload.more()]) {
       expect(cabinetPressEdits(p), p).toBe(true);
     }
@@ -340,14 +349,60 @@ describe('«Клиенты» и карточка клиента', () => {
 });
 
 describe('«Ещё»', () => {
-  it('туроператор — его кабинет; гид со своими турами — «Брони» и «Мои туры»; у всех — «Помощь» и сайт', () => {
-    expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'rm:op:hp', 'sup:new', ...NAV]);
+  it('туроператор — его кабинет; гид со своими турами — «Брони» и «Мои туры»; у всех — сводка, «Помощь» и сайт', () => {
+    expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
     expect(payloads(moreScreen(partner({ summary: true }), BASE))).toContain('rm:op:sm');
-    expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', 'rm:gd:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['rm:gd:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['rm:tf:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', 'cb:g', 'rm:gd:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:gd:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:tf:hp', ...NAV]);
     const site = moreScreen(partner({ role: 'transfer' }), BASE).rows.flat().find((b) => 'url' in b);
     expect(site).toEqual({ text: 'Кабинет на сайте', url: `${BASE}/hub/carrier` });
+    // Кнопка сводки называет нынешнее время; не прочиталось — без слова о времени.
+    expect(texts(moreScreen(partner(), BASE, 'evening'))).toContain('Ежедневная сводка: вечером');
+    expect(texts(moreScreen(partner(), BASE, 'off'))).toContain('Ежедневная сводка: не присылать');
+    expect(texts(moreScreen(partner(), BASE, null))).toContain('Ежедневная сводка');
+  });
+
+  it('менеджер команды: в «Ещё» нет кнопок оператора (туры, места, поддержка, помощь, сводка) — только сайт и правило', () => {
+    const more = moreScreen(partner({ seat: 'member' }), BASE, 'morning');
+    expect(payloads(more)).toEqual(NAV);
+    expect(more.text).toContain('Брони подтверждает и отклоняет владелец кабинета');
+    expect(more.rows.flat().some((b) => 'url' in b && b.url === `${BASE}/hub/operator`)).toBe(true);
+  });
+});
+
+describe('менеджер команды — карточка предмета', () => {
+  it('без кнопок ответа на бронь и заявку и без переписки с клиентом; звонок и задача — есть', () => {
+    const member = partner({ seat: 'member', bookingActions: false, operatorAnswers: false });
+    const b = itemCardScreen({ item: item(), partner: member, channel: 'max', base: BASE });
+    expect(payloads(b).some((p) => /^(?:bk|ld|ia|oc|lq|sq|rr):/.test(p))).toBe(false);
+    expect(b.text).toContain(MEMBER_ANSWER_LINE);
+    expect(payloads(b)).toEqual(expect.arrayContaining([cabinetPayload.touch('reached', CONTACT), cabinetPayload.remind('hour', CONTACT)]));
+    const l = itemCardScreen({ item: item({ kind: 'lead', id: UUID }), partner: member, channel: 'max', base: BASE });
+    expect(payloads(l).some((p) => /^(?:ia|ld|lq):/.test(p))).toBe(false);
+    // Даже если флаги кнопок по ошибке включены — место решает.
+    const forced = itemCardScreen({ item: item(), partner: partner({ seat: 'member' }), channel: 'max', base: BASE });
+    expect(payloads(forced).some((p) => p.startsWith('bk:'))).toBe(false);
+  });
+});
+
+describe('ежедневная сводка — экран времени', () => {
+  it('нынешнее время отмечено; четыре кнопки; «не присылать» говорит, что не приходит', () => {
+    const s = digestScreen('day');
+    expect(s.text).toContain('Сейчас приходит днём, с 13:00 по Камчатке.');
+    expect(payloads(s).slice(0, 4)).toEqual(['cb:g:m', 'cb:g:d', 'cb:g:e', 'cb:g:o']);
+    expect(texts(s)).toContain('• Днём, 13:00');
+    expect(texts(s)).toContain('Утром, 08:00');
+    expect(digestScreen('off').text).toContain('Сейчас сводка не приходит.');
+    expect(texts(digestScreen('off'))).toContain('• Не присылать');
+  });
+
+  it('окна не пересекаются: каждый час — не больше одного окна, в 12 и ночью — ни одного', () => {
+    const slots = Array.from({ length: 24 }, (_, h) => digestSlotOfHour(h));
+    expect(slots.slice(8, 12).every((x) => x === 'morning')).toBe(true);
+    expect(slots.slice(13, 17).every((x) => x === 'day')).toBe(true);
+    expect(slots.slice(18, 22).every((x) => x === 'evening')).toBe(true);
+    for (const h of [0, 5, 7, 12, 17, 22, 23]) expect(slots[h], String(h)).toBeNull();
   });
 });
 

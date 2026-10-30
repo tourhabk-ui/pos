@@ -48,13 +48,16 @@ import { bookingChatActionsEnabledFor, leadChatActionsEnabledFor } from '@/lib/b
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { isWatchTrigger } from '@/lib/kuzmich/watch-flow';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { parseCabinetPress, type CabinetPress, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
+import { parseCabinetPress, type CabinetPress, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
+import { countCabinetUse, type CabinetUsageAction } from '@/lib/chat-cabinet/usage';
+import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
   contactResultScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
-  type CabinetChannel, type CabinetPartner, type CabinetScreen,
+  type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
 } from '@/lib/chat-cabinet/screens';
 
 interface Queryable {
@@ -69,24 +72,37 @@ function logFail(what: string, err: unknown): void {
   console.error(`[chat-cabinet] ${what} — отказ, SQLSTATE ${sqlstate(err)}`);
 }
 
-/** Что карточке чата открыто в кабинете. null — кабинета в чате у неё нет. */
-export function cabinetPartnerOf(p: PartnerChatContext): CabinetPartner | null {
+/**
+ * Что карточке чата открыто в кабинете. null — кабинета в чате у неё нет.
+ * Менеджер команды (`member`, чат из operator_members) видит то же, но без
+ * кнопок ответа на бронь и заявку и без кнопок кабинета оператора: их вправе
+ * нажимать только чат карточки (слово владельца 30.10).
+ */
+export function cabinetPartnerOf(p: PartnerChatContext, seat: CabinetSeat = 'owner'): CabinetPartner | null {
   const role = menuRoleOf(p);
   if (!role || p.crmCategory === null) return null;
+  const owner = seat === 'owner';
   return {
     partnerId: p.partnerId,
     role,
-    bookingActions: bookingChatActionsEnabledFor(p),
-    leadActions: leadChatActionsEnabledFor(p),
-    operatorAnswers: role === 'operator',
+    seat,
+    bookingActions: owner && bookingChatActionsEnabledFor(p),
+    leadActions: owner && leadChatActionsEnabledFor(p),
+    operatorAnswers: owner && role === 'operator',
     sellsTours: sellsOwnTours(p),
-    summary: role === 'operator' && summaryEnabledFor(p.partnerId),
+    summary: owner && role === 'operator' && summaryEnabledFor(p.partnerId),
   };
 }
 
 type Ctx = { ctx: PartnerChatContext & { crmCategory: NonNullable<PartnerChatContext['crmCategory']> }; partner: CabinetPartner };
 type Gate = ({ ok: true } & Ctx) | { ok: false; screen: CabinetScreen };
 
+/**
+ * Чей чат. Сначала чат карточки (владелец); не он — чат менеджера команды
+ * (lib/operators/member-chat): до 30.10 кабинет отвечал менеджеру «чат не
+ * подключён», хотя его чат записан. «Не смог проверить» любой из двух — не
+ * «не подключён» (§4.0).
+ */
 async function gate(channel: CabinetChannel, chatId: number, privateChat: boolean): Promise<Gate> {
   if (!privateChat) {
     console.error(`[chat-cabinet] кнопка кабинета не из личного диалога (${channel}) — не выполнена`);
@@ -94,14 +110,21 @@ async function gate(channel: CabinetChannel, chatId: number, privateChat: boolea
   }
   const lookup = await findPartnerByChat(channel, chatId);
   if (lookup.outcome === 'unavailable') return { ok: false, screen: noticeScreen(CABINET_TEXT.unchecked, false) };
-  if (lookup.outcome === 'none') return { ok: false, screen: noticeScreen(CABINET_TEXT.notBound, false) };
-  return withPartner(lookup.partner);
+  if (lookup.outcome === 'found') return withPartner(lookup.partner);
+  const member = await findMemberByChat(channel, chatId);
+  if (member.outcome === 'unavailable') return { ok: false, screen: noticeScreen(CABINET_TEXT.unchecked, false) };
+  if (member.outcome === 'none') return { ok: false, screen: noticeScreen(CABINET_TEXT.notBound, false) };
+  return withPartner(member.member.partner, 'member');
 }
 
-function withPartner(ctx: PartnerChatContext): Gate {
-  const partner = cabinetPartnerOf(ctx);
+function withPartner(ctx: PartnerChatContext, seat: CabinetSeat = 'owner'): Gate {
+  const partner = cabinetPartnerOf(ctx, seat);
   if (!partner || ctx.crmCategory === null) return { ok: false, screen: noticeScreen(CABINET_TEXT.noCabinet, false) };
   return { ok: true, ctx: { ...ctx, crmCategory: ctx.crmCategory }, partner };
+}
+
+function count(c: Ctx, channel: CabinetChannel, action: CabinetUsageAction, screen: CabinetScreen, nowMs: number): Promise<void> {
+  return countCabinetUse({ partnerId: c.partner.partnerId, seat: c.partner.seat, channel, action, screen }, nowMs);
 }
 
 /** Второй замок: имя и телефон клиента — только в MAX. */
@@ -130,7 +153,7 @@ async function readInbox(c: Ctx, nowMs: number): Promise<Inbox | null> {
 
 async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
   const inbox = await readInbox(c, nowMs);
-  if (!inbox) return noticeScreen(CABINET_TEXT.inboxFailed);
+  if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
   return inboxScreen(inbox, page, { notice });
 }
 
@@ -139,7 +162,7 @@ async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): 
  * «ничего не изменено» было бы неправдой: итог записи остаётся, отказ — списка.
  */
 function listFailedScreen(notice?: string): CabinetScreen {
-  return noticeScreen(notice ? `${notice}\n${CABINET_TEXT.listFailed}` : CABINET_TEXT.dbFailed);
+  return failedScreen(notice ? `${notice}\n${CABINET_TEXT.listFailed}` : CABINET_TEXT.dbFailed);
 }
 
 async function tasksView(c: Ctx, channel: CabinetChannel, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
@@ -178,17 +201,17 @@ async function clientView(c: Ctx, channel: CabinetChannel, contactId: string, no
     return clientCardScreen({ card, openTasks: open.length, role: c.partner.role, base: base(), notice });
   } catch (err) {
     logFail('карточка клиента', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
 }
 
 async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetPress, { kind: 'item' }>, nowMs: number): Promise<CabinetScreen> {
   const inbox = await readInbox(c, nowMs);
-  if (!inbox) return noticeScreen(CABINET_TEXT.inboxFailed);
+  if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
   const item = inbox.items.find((i) => i.kind === press.item && i.id.toLowerCase() === press.id);
   if (item) return itemCardScreen({ item, partner: c.partner, channel, base: base() });
   // Вид не прочитался — «не знаю», а не «уже ответили» (§4.0).
-  if (inbox.failed.includes(press.item)) return inboxScreen(inbox, 0, { notice: CABINET_TEXT.inboxFailed });
+  if (inbox.failed.includes(press.item)) return { ...inboxScreen(inbox, 0, { notice: CABINET_TEXT.inboxFailed }), failed: true };
   return itemGoneScreen(inbox);
 }
 
@@ -199,23 +222,97 @@ async function sectionView(c: Ctx, channel: CabinetChannel, section: CabinetSect
   if (section === 'inbox') return inboxView(c, 0, nowMs);
   if (section === 'tasks') return tasksView(c, channel, 0, nowMs);
   if (section === 'clients') return clientsView(c, channel, 0);
-  return moreScreen(c.partner, base());
+  return moreView(c);
 }
 
 /**
  * Раздел кабинета для карточки, которую вызывающий уже прочитал по чату
  * (текст «Входящие», команда /requests, кнопка строки меню). Личный диалог —
- * забота вызывающего: в группе он сюда не идёт.
+ * забота вызывающего: в группе он сюда не идёт. `seat` — чей чат: карточки
+ * или менеджера команды (его карточку вызывающий взял из lib/operators/member-chat).
  */
 export async function cabinetSectionFor(
   partner: PartnerChatContext,
   channel: CabinetChannel,
   section: CabinetSection,
   nowMs: number = Date.now(),
+  seat: CabinetSeat = 'owner',
 ): Promise<CabinetScreen> {
-  const g = withPartner(partner);
+  const g = withPartner(partner, seat);
   if (!g.ok) return g.screen;
-  return lockForChannel(await sectionView(g, channel, section, nowMs), channel);
+  const out = lockForChannel(await sectionView(g, channel, section, nowMs), channel);
+  await count(g, channel, `open_${section}`, out, nowMs);
+  return out;
+}
+
+/**
+ * Раздел кабинета по тексту менеджера команды в его чате: слово меню
+ * («Входящие», «Задачи», «Клиенты», «Помощь») или команда. Строки меню роли у
+ * менеджера нет, и всё прочее — «Мои туры и цены», «Обновить места», /start,
+ * /help — открывает его «Ещё»: там сказано, что из этого у владельца. null —
+ * текст не про кабинет, и чат его не перехватывает.
+ */
+export function memberCabinetSectionOf(text: string): CabinetSection | null {
+  const head = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  if (head === '/requests') return 'inbox';
+  if (head === '/tasks') return 'tasks';
+  if (head === '/clients') return 'clients';
+  if (head === '/start' || head === '/help') return 'more';
+  if (head.startsWith('/')) return null;
+  const asked = roleMenuAsk(text);
+  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients') return asked;
+  if (asked === 'help' || asked === 'tours' || asked === 'seats') return 'more';
+  return null;
+}
+
+// ── Ежедневная сводка: когда приходит (1353) ───────────────────────────────
+
+export const DIGEST_MODE_SQL = `SELECT digest FROM chat_cabinet_settings WHERE partner_id = $1::uuid`;
+
+export const DIGEST_SET_SQL = `
+  INSERT INTO chat_cabinet_settings (partner_id, digest, updated_at, updated_by)
+  VALUES ($1::uuid, $2, NOW(), $3::uuid)
+  ON CONFLICT (partner_id) DO UPDATE
+     SET digest = EXCLUDED.digest, updated_at = NOW(), updated_by = EXCLUDED.updated_by`;
+
+function isDigestMode(v: unknown): v is DigestMode {
+  return v === 'morning' || v === 'day' || v === 'evening' || v === 'off';
+}
+
+/** Когда приходит сводка карточки. Строки нет — утром; не прочиталось — null (§4.0). */
+async function readDigestMode(partnerId: string): Promise<DigestMode | null> {
+  try {
+    const { rows: [row] } = await pool.query<{ digest: string }>(DIGEST_MODE_SQL, [partnerId]);
+    if (!row) return 'morning';
+    return isDigestMode(row.digest) ? row.digest : null;
+  } catch (err) {
+    logFail('время сводки', err);
+    return null;
+  }
+}
+
+async function moreView(c: Ctx): Promise<CabinetScreen> {
+  if (c.partner.seat === 'member') return moreScreen(c.partner, base());
+  return moreScreen(c.partner, base(), await readDigestMode(c.partner.partnerId));
+}
+
+async function digestView(c: Ctx): Promise<CabinetScreen> {
+  if (c.partner.seat === 'member') return noticeScreen(DIGEST_MEMBER);
+  const mode = await readDigestMode(c.partner.partnerId);
+  return mode === null ? failedScreen(CABINET_TEXT.dbFailed) : digestScreen(mode);
+}
+
+async function setDigest(c: Ctx, mode: DigestMode): Promise<CabinetScreen> {
+  if (c.partner.seat === 'member') return noticeScreen(DIGEST_MEMBER);
+  try {
+    await pool.query(DIGEST_SET_SQL, [c.partner.partnerId, mode, c.ctx.userId]);
+  } catch (err) {
+    logFail('время сводки — запись', err);
+    return failedScreen(CABINET_TEXT.dbFailed);
+  }
+  return digestScreen(mode, mode === 'off'
+    ? 'Сводка выключена. Включить — здесь же.'
+    : `Готово: сводка будет приходить ${DIGEST_WORDS[mode].long}, когда что-то ждёт.`);
 }
 
 /** Раздел кабинета по чату: проверка права здесь же. */
@@ -228,7 +325,10 @@ export async function openCabinet(input: {
 }): Promise<CabinetScreen> {
   const g = await gate(input.channel, input.chatId, input.privateChat);
   if (!g.ok) return g.screen;
-  return lockForChannel(await sectionView(g, input.channel, input.section, input.nowMs ?? Date.now()), input.channel);
+  const nowMs = input.nowMs ?? Date.now();
+  const out = lockForChannel(await sectionView(g, input.channel, input.section, nowMs), input.channel);
+  await count(g, input.channel, `open_${input.section}`, out, nowMs);
+  return out;
 }
 
 // ── Записи ──────────────────────────────────────────────────────────────────
@@ -244,7 +344,7 @@ async function taskDone(c: Ctx, channel: CabinetChannel, taskId: string, nowMs: 
       : TASK_GONE;
   } catch (err) {
     logFail('отметка задачи', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
   return tasksView(c, channel, 0, nowMs, notice);
 }
@@ -268,7 +368,7 @@ async function taskTomorrow(c: Ctx, channel: CabinetChannel, taskId: string, now
     }
   } catch (err) {
     logFail('перенос задачи', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
   return tasksView(c, channel, 0, nowMs, notice);
 }
@@ -310,7 +410,7 @@ async function touch(c: Ctx, channel: CabinetChannel, outcome: TouchOutcome, con
     });
   } catch (err) {
     logFail('звонок клиенту', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
 }
 
@@ -353,7 +453,7 @@ async function remind(c: Ctx, channel: CabinetChannel, when: RemindWhen, contact
     });
   } catch (err) {
     logFail('напоминание о клиенте', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
 }
 
@@ -398,7 +498,7 @@ async function armSearch(c: Ctx, chatId: number): Promise<CabinetScreen> {
   } catch (err) {
     await client.query('ROLLBACK').catch((e: unknown) => logFail('откат ожидания поиска', e));
     logFail('ожидание поиска', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   } finally {
     client.release();
   }
@@ -416,7 +516,7 @@ async function cancelSearch(c: Ctx, chatId: number): Promise<CabinetScreen> {
     notice = (r.rowCount ?? 0) > 0 ? 'Поиск отменён.' : 'Поиск уже не ждал сообщения.';
   } catch (err) {
     logFail('отмена поиска', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
   return clientsView(c, 'max', 0, notice);
 }
@@ -470,6 +570,9 @@ export async function captureCabinetSearch(input: {
   chatId: number;
   partner: PartnerChatContext;
   text: string;
+  /** Чей чат: карточки или менеджера команды. */
+  seat?: CabinetSeat;
+  nowMs?: number;
 }): Promise<CabinetScreen | null> {
   const text = input.text.trim();
   if (!text || text.startsWith('/') || roleMenuAsk(text) !== null) return null;
@@ -483,7 +586,7 @@ export async function captureCabinetSearch(input: {
     return null;
   }
   if (!wait) return null;
-  const g = withPartner(input.partner);
+  const g = withPartner(input.partner, input.seat ?? 'owner');
   // Чужое ожидание, беда, контроль выхода — сообщение идёт своим путём.
   const passOn = !g.ok || wait.partner_id !== input.partner.partnerId
     || detectEmergency(text).detected || isWatchTrigger(text);
@@ -515,16 +618,19 @@ export async function captureCabinetSearch(input: {
     if ((used.rowCount ?? 0) === 0) return null;
   } catch (err) {
     logFail('ожидание поиска', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    return failedScreen(CABINET_TEXT.dbFailed);
   }
   const query = text.slice(0, SEARCH_QUERY_MAX);
+  let out: CabinetScreen;
   try {
     const list = await listContacts(g.ctx.partnerId, { q: query, limit: CLIENTS_PAGE_SIZE, offset: 0 });
-    return searchResultsScreen({ query, items: list.items, total: list.total });
+    out = searchResultsScreen({ query, items: list.items, total: list.total });
   } catch (err) {
     logFail('поиск клиента', err);
-    return noticeScreen(CABINET_TEXT.dbFailed);
+    out = failedScreen(CABINET_TEXT.dbFailed);
   }
+  await count(g, 'max', 'search_query', out, input.nowMs ?? Date.now());
+  return out;
 }
 
 /**
@@ -569,7 +675,9 @@ export async function handleCabinetPress(input: {
   if (ch === 'max' && press.kind !== 'search' && press.kind !== 'search_cancel') await dropCabinetSearch(input.chatId);
   let out: CabinetScreen;
   switch (press.kind) {
-    case 'more': out = moreScreen(g.partner, base()); break;
+    case 'more': out = await moreView(g); break;
+    case 'digest': out = await digestView(g); break;
+    case 'digest_set': out = await setDigest(g, press.mode); break;
     case 'inbox': out = await inboxView(g, press.page, nowMs); break;
     case 'item': out = await itemView(g, ch, press, nowMs); break;
     case 'tasks': out = await tasksView(g, ch, press.page, nowMs); break;
@@ -582,5 +690,7 @@ export async function handleCabinetPress(input: {
     case 'touch': out = await touch(g, ch, press.outcome, press.contactId, db); break;
     case 'remind': out = await remind(g, ch, press.when, press.contactId, nowMs, db); break;
   }
-  return lockForChannel(out, ch);
+  const shown = lockForChannel(out, ch);
+  await count(g, ch, press.kind, shown, nowMs);
+  return shown;
 }
