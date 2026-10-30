@@ -31,9 +31,17 @@ vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequ
 vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: (...a: unknown[]) => recordMock(...a) }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...a),
+  createLeadDetailed: async (...a: unknown[]) => { const id = await createLeadMock(...a); return id ? { id, created: true } : null; },
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
 }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
+const { issueKeyMock } = vi.hoisted(() => ({ issueKeyMock: vi.fn() }));
+// Ключ статуса заявки (1238) и переписка (1350): выдача — своим сторожем
+// (mcp-request-status), здесь — что ключ выдан и открывает ли он переписку.
+vi.mock('@/lib/mcp/request-status', async (orig) => ({
+  ...(await orig<typeof import('@/lib/mcp/request-status')>()),
+  issueRequestKey: (...a: unknown[]) => issueKeyMock(...a),
+}));
 vi.mock('@/lib/transfers/charter', async (orig) => ({
   ...(await orig<typeof import('@/lib/transfers/charter')>()),
   loadCarrierBySlug: (...a: unknown[]) => carrierBySlug(...a),
@@ -62,6 +70,9 @@ const CARRIER: CarrierProfile = {
 };
 
 const today = kamchatkaToday();
+let keyN = 0;
+/** Ключ у каждого ответа свой (случайный): сравнивается всё, кроме него. */
+const sansKey = (j: unknown) => JSON.parse(JSON.stringify(j).replace(/K\d{31}/g, '<ключ>')) as unknown;
 let ip = 0;
 const body = (over: Record<string, unknown> = {}) => ({
   carrier: 'shatun', destination: 'Вулкан Горелый', date_from: addDays(today, 30), passengers: 8,
@@ -80,6 +91,7 @@ beforeEach(() => {
   notifyMock.mockReset().mockResolvedValue({ state: 'no_channel' });
   recordMock.mockReset().mockResolvedValue(true);
   createLeadMock.mockReset().mockResolvedValue('lead-1');
+  issueKeyMock.mockReset().mockImplementation(async () => `K${String(++keyN).padStart(31, '0')}`);
   recentLeadMock.mockReset().mockResolvedValue(null);
   carrierBySlug.mockReset().mockResolvedValue(CARRIER);
   dbQuery.mockReset();
@@ -103,6 +115,11 @@ describe('POST /api/charter-requests: заявка ложится перевоз
     expect(String(lead.comment)).toContain('по прайсу: Вулкан Горелый 75000 руб за машину');
     // Повтор ищется тем же префиксом, что у MCP: два входа — одна заявка.
     expect(recentLeadMock).toHaveBeenCalledWith('+79001234567', `[Заявка на машину] «Шатун», с ${body().date_from},`);
+    // Страница заявки с перепиской и подключение MAX (1350): ключ новой заявки переписку открывает.
+    expect(issueKeyMock).toHaveBeenCalledWith({ leadId: 'lead-1' }, 'charter-request-form', { opensChat: true });
+    const key = issueKeyMock.mock.results[0]?.value as Promise<string>;
+    expect(json.data.page).toBe(`https://vedarai.ru/request-status#${await key}`);
+    expect(json.data.max_link).toMatch(new RegExp(`\\?start=sq_${await key}$`));
   });
 
   it('после записи заявка уходит перевозчику лично: факты без его телефона, ПД заказчика; исход — в журнал лида', async () => {
@@ -123,7 +140,9 @@ describe('POST /api/charter-requests: заявка ложится перевоз
     notifyMock.mockClear();
     const again = await (await post(body())).json();
     expect(createLeadMock).not.toHaveBeenCalled();
-    expect(again).toEqual(first);
+    expect(sansKey(again)).toEqual(sansKey(first));
+    // Ключ повтора — только статус (1350): телефон не секрет, переписку открыл бы любой, кто его знает.
+    expect(issueKeyMock.mock.calls.map((c) => c[2])).toEqual([{ opensChat: true }, { opensChat: false }]);
     await new Promise((r) => setTimeout(r, 0));
     expect(notifyMock).not.toHaveBeenCalled();
   });
@@ -312,5 +331,7 @@ describe('свой визит владельца', () => {
     createLeadMock.mockClear();
     await post(body({ phone: '+79007654321' }));
     expect((createLeadMock.mock.calls[0]![0] as Record<string, unknown>).is_self).toBe(false);
+    // Своя проба переписку не открывает: перевозчика она не будит, отвечать некому.
+    expect(issueKeyMock.mock.calls.map((c) => c[2])).toEqual([{ opensChat: false }, { opensChat: true }]);
   });
 });

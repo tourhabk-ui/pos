@@ -164,6 +164,30 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     await expect(confirmConsent('AbCdEfGhIjKlMnOpQrStUvWxYz012345', record)).rejects.toThrow(/не найден или истёк/);
   });
 
+  it('согласие человека с формы сайта ключ не перезаписывает — и ключ повтора тоже (1350)', async () => {
+    const { confirmConsent, issueRequestKey, HUMAN_CONSENT_SOURCE, CHARTER_FORM_KEY_NAME } = await import('@/lib/mcp/request-status');
+    const { buildConsentRecord } = await import('@/lib/legal/pd-consent');
+    const op = await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ('Перевозчик согласия', 'transfer', '{}') RETURNING id`,
+    );
+    const formAt = new Date('2026-10-29T10:00:00Z');
+    const l = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
+       VALUES ('Анна', '+79990002233', '[Заявка на машину] тест', 'new', $1, $2, '198.51.100.1', 'transfer-page', '2026-10-13-carrier')
+       RETURNING id`,
+      [op.rows[0].id, formAt],
+    );
+    // Ключ, выданный на повтор той же заявки (форма отдала прежний лид).
+    const repeatKey = await issueRequestKey({ leadId: l.rows[0].id }, CHARTER_FORM_KEY_NAME, { opensChat: false });
+    const record = buildConsentRecord(true, '203.0.113.66', HUMAN_CONSENT_SOURCE, 'carrier');
+    if (!repeatKey || !record) throw new Error('ключ или запись согласия не собрались');
+    expect(await confirmConsent(repeatKey, record)).toBe('already');
+    const after = await pool.query<{ pd_consent_source: string; pd_consent_ip: string; at: Date }>(
+      'SELECT pd_consent_source, pd_consent_ip, pd_consent_at AS at FROM leads WHERE id = $1', [l.rows[0].id]);
+    expect(after.rows[0]).toMatchObject({ pd_consent_source: 'transfer-page', pd_consent_ip: '198.51.100.1' });
+    expect(new Date(after.rows[0].at).toISOString()).toBe(formAt.toISOString());
+  });
+
   it('запрос мест pending → ждёт с дедлайном; просроченный ключ — «не найден или истёк»', async () => {
     const { readRequestStatus } = await import('@/lib/mcp/request-status');
     const v = await readRequestStatus(seatKey);

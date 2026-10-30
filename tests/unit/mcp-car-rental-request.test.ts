@@ -17,7 +17,7 @@ describe('create_car_rental_request', () => {
   });
 
   it('идёт через сервис формы проката, пробная не доставляется прокатчику, событие в журнал', () => {
-    expect(ROUTE).toMatch(/saveRentalLead\(/);
+    expect(ROUTE).toMatch(/saveRentalLeadDetailed\(/);
     expect(ROUTE).toMatch(/isSelf: ctx\.self \|\| isTest/);
     expect(ROUTE).toMatch(/recordSourceEventQuietly\(/);
     expect(ROUTE).toMatch(/admitWrite\([^)]*'rental'\)/);

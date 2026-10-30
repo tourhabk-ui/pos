@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     const ids = list.rows.map((r) => r.id);
     const msgs = ids.length === 0 ? { rows: [] as MessageRow[] } : await pool.query<MessageRow>(
       `SELECT stay_request_id::text AS stay_request_id, author, door, body, delivery_channel, delivery_reason, created_at
-         FROM stay_request_messages
+         FROM request_messages
         WHERE stay_request_id = ANY($1::uuid[])
         ORDER BY created_at, id`,
       [ids],

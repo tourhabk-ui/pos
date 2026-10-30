@@ -162,7 +162,9 @@ describe('согласие человека', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ success: true, data: { consent: 'human', recorded: true } });
       const params = query.mock.calls[1][1] as unknown[];
-      expect({ tool, written: params.slice(3) }).toEqual({ tool, written: [HUMAN_CONSENT_SOURCE, version] });
+      // Последний параметр — источник записи агента: поверх неё (или пустоты)
+      // согласие человека пишется, поверх согласия человека — нет (1350).
+      expect({ tool, written: params.slice(3) }).toEqual({ tool, written: [HUMAN_CONSENT_SOURCE, version, AGENT_CONSENT_SOURCE] });
     }
   });
 

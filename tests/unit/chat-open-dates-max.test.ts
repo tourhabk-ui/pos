@@ -61,12 +61,12 @@ vi.mock('@/lib/db-pool', () => ({
     connect: async () => ({ query: m.client, release: () => undefined }),
   },
 }));
-// Переписка по заявке на жильё (1349) смотрит базу на каждый текст личного
+// Переписка по заявке (1349, 1350) смотрит базу на каждый текст личного
 // диалога; здесь судятся обращения к базе потока дат, поэтому она подменена:
-// чат ничего не ждёт по заявке. Её путь — tests/integration/stay-chat.pg.test.ts.
-vi.mock('@/lib/stay/stay-chat-service', () => ({
-  captureStayChatText: async () => null,
-  armStayChatWait: async () => ({ text: '', buttons: [] }),
+// чат ничего не ждёт по заявке. Её путь — tests/integration/request-chat.pg.test.ts.
+vi.mock('@/lib/requests/request-chat-service', () => ({
+  captureChatText: async () => null,
+  armChatWait: async () => ({ text: '', buttons: [] }),
   bindGuestChat: async () => [],
 }));
 vi.mock('@/lib/kuzmich/core', () => ({

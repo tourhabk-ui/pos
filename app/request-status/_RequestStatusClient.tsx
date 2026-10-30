@@ -13,7 +13,7 @@
  * переспрашивает состояние сама; «ссылка неверна» / «не найдена» окончательны.
  *
  * Заявка на жильё (14.10): своего статуса ответа у неё нет — владелец звонит
- * гостю или пишет в переписке ниже (1349, components/stay/StayChat), и
+ * гостю или пишет в переписке ниже (1349, components/requests/RequestChat), и
  * страница говорит «передана», не переспрашивая состояние.
  * Галочка — тем текстом, кому уходят данные (`consent_purpose`): владельцу
  * жилья, перевозчику или туроператору; тот же текст записывает сервер.
@@ -23,7 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
-import { StayChat } from '@/components/stay/StayChat';
+import { RequestChat } from '@/components/requests/RequestChat';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
@@ -322,8 +322,9 @@ export function RequestStatusClient() {
             </div>
           </div>
         )}
-        {/* Переписка с владельцем жилья (1349): страница заявки и есть чат гостя. */}
-        {view && view.kind === 'stay_request' && key && <StayChat requestKey={key} />}
+        {/* Переписка с адресатом заявки (1349, 1350): страница заявки и есть чат
+            клиента. У запроса мест переписки нет — там свой ответ оператора. */}
+        {view && (view.kind === 'stay_request' || view.kind === 'lead') && key && <RequestChat requestKey={key} />}
       </div>
     </main>
   );

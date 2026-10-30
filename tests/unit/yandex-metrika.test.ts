@@ -109,7 +109,8 @@ describe('загрузчик — по согласию, не везде, с хи
 describe('где счётчика нет', () => {
   it('кабинеты, вход, брони, контроль выхода, офлайн-контур — исключены', () => {
     for (const p of ['/hub', '/hub/operator/clients', '/hub/admin', '/auth/login', '/register', '/profile',
-      '/booking-success/12', '/watch/abc', '/checkin-ok', '/sos', '/emergency', '/offline', '/field-check']) {
+      '/booking-success/12', '/watch/abc', '/checkin-ok', '/sos', '/emergency', '/offline', '/field-check',
+      '/request-status']) {
       expect(shouldTrackPath(p), `${p} должен быть без счётчика`).toBe(false);
     }
   });

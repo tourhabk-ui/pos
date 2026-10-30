@@ -40,7 +40,10 @@ const { poolQuery, createLeadMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
-vi.mock('@/lib/leads/create', () => ({ createLead: createLeadMock }));
+vi.mock('@/lib/leads/create', () => ({
+  createLead: createLeadMock,
+  createLeadDetailed: async (p: unknown) => { const id = await createLeadMock(p); return id ? { id, created: true } : null; },
+}));
 vi.mock('@/lib/notifications/telegram', () => ({ telegramService: { sendMessage: vi.fn(async () => null) } }));
 vi.mock('@/lib/notifications/lead-notify', () => ({
   notifyOperatorNewLead: vi.fn(async () => ({ ok: true })),

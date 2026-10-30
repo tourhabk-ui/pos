@@ -23,6 +23,7 @@ const tourMock = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...(a as [])),
+  createLeadDetailed: async (...a: unknown[]) => { const id = await createLeadMock(...(a as [])); return id ? { id, created: true } : null; },
   findRecentLeadByCommentPrefix: async () => null,
 }));
 vi.mock('@/lib/kuzmich/tool-schemas', () => ({

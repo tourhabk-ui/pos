@@ -25,6 +25,7 @@
 import type { SourceKind } from '@/lib/crm/contacts';
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
 import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
+import { leadPeopleSql } from '@/lib/leads/lead-people';
 
 const RESPONSE_ACTORS = `('partner_user', 'kuzmich', 'mcp')`;
 /** Заявка ждёт ответа — один набор с разделом «Свои туры» гида (lib/leads/owner-lead-words). */
@@ -73,16 +74,25 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
        AND (r.status = 'pending' OR r.created_at >= $2)`,
 
   // Только заявки, отданные этому оператору, и не его собственные пробы.
+  // Ответ в переписке с клиентом (1350) — тоже ответ: заявка, на которую
+  // партнёр уже написал клиенту, не висит «ждёт ответа», даже если статус ещё
+  // не переведён. Первое сообщение партнёра идёт и в медиану. Число людей —
+  // только записанное дверью (lib/leads/lead-people): `group_size` не пишет
+  // никто, и «1 чел» у каждой заявки было выдумкой (§4.0).
   lead: `
     SELECT l.id::text AS item_id, l.created_at, COALESCE(NULLIF(btrim(l.route_title), ''), 'Подбор тура') AS title,
-           l.desired_dates AS item_date, l.group_size::int AS people,
-           (l.status IN ${LEAD_WAITING_SQL}) AS waiting,
-           ${firstResponse('lead', 'l.id::text')} AS responded_at,
+           l.desired_dates AS item_date, ${leadPeopleSql('l')} AS people,
+           (l.status IN ${LEAD_WAITING_SQL} AND lm.first_at IS NULL) AS waiting,
+           LEAST(${firstResponse('lead', 'l.id::text')}, lm.first_at) AS responded_at,
            ${CONTACT}
       FROM leads l
+      CROSS JOIN LATERAL (
+        SELECT min(m.created_at) AS first_at FROM request_messages m
+         WHERE m.lead_id = l.id AND m.author = 'owner'
+      ) lm
       ${contactJoin('lead', 'l.id::text')}
      WHERE l.operator_id = $1 AND l.is_self = FALSE
-       AND (l.status IN ${LEAD_WAITING_SQL} OR l.created_at >= $2)`,
+       AND ((l.status IN ${LEAD_WAITING_SQL} AND lm.first_at IS NULL) OR l.created_at >= $2)`,
 
   accommodation_booking: `
     SELECT ab.id::text AS item_id, ab.created_at, a.name AS title, ab.check_in_date::text AS item_date,
@@ -110,7 +120,7 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
         JOIN accommodations a ON a.id = s.accommodation_id
         CROSS JOIN LATERAL (
           SELECT LEAST(
-                   (SELECT min(m.created_at) FROM stay_request_messages m
+                   (SELECT min(m.created_at) FROM request_messages m
                      WHERE m.stay_request_id = s.id AND m.author = 'owner'),
                    ${firstResponse('stay_request', 's.id::text')}
                  ) AS responded_at

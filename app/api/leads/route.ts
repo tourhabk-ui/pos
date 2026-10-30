@@ -8,7 +8,8 @@ import { notifyOperatorNewLead, notifyPartnerNewLeadPersonally } from '@/lib/not
 import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
-import { createLead } from '@/lib/leads/create';
+import { createLeadDetailed } from '@/lib/leads/create';
+import { LEAD_FORM_KEY_NAME, issueRequestKey, requestPageLinks } from '@/lib/mcp/request-status';
 import { isSelfVisit } from '@/lib/analytics/self-visit';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
@@ -177,18 +178,20 @@ export async function POST(req: NextRequest) {
   );
 
   // Единый путь: скоринг → INSERT → уведомление админу
-  const leadId = await createLead({
+  const isSelf = isSelfVisit(req.headers.get('cookie'));
+  const created = await createLeadDetailed({
     name, phone, comment, route_id, route_title, source_url,
     pd_consent: buildConsentRecord(true, getTrustedClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
     source_data: mcpHandoffId ? { ...(leadSourceData ?? {}), mcp_handoff_id: mcpHandoffId } : leadSourceData,
     operator_id: operatorId,
     // Свой заход (cookie владельца) — лид с пометкой, вне счёта спроса (1145).
-    is_self: isSelfVisit(req.headers.get('cookie')),
+    is_self: isSelf,
   });
 
-  if (!leadId) {
+  if (!created) {
     return NextResponse.json({ success: false, error: 'Ошибка сервера. Попробуйте позже.' }, { status: 500 });
   }
+  const leadId = created.id;
 
   // Telegram — LEADS_CHAT_ID (старый канал, параллельно с admin-чатом).
   // ПД сюда больше не уходят (решение владельца 23.08): имя, телефон и
@@ -230,6 +233,8 @@ export async function POST(req: NextRequest) {
       ? await notifyPartnerNewLeadPersonally({
           operatorId: partner.id, leadId, name, phone, comment,
           routeTitle: route_title, origin, sourceUrl: source_url,
+          // Своя проба (1145) — без переписки: партнёру некому отвечать.
+          chat: !isSelf,
         })
       : null;
     // Итог личной доставки — в журнал заявки: «дошла ли до оператора» должно
@@ -250,7 +255,14 @@ export async function POST(req: NextRequest) {
   // AI обработка — fire-and-forget, не блокирует ответ туристу
   void autoProcessLead(leadId, name);
 
-  return NextResponse.json({ success: true, id: leadId }, { status: 201 });
+  // Заявка компании (страница, её сайт, виджет) — страница заявки с перепиской
+  // и ссылка подключить MAX (1350). Ключ выдаётся и повтору (ответ тот же), но
+  // переписку открывает только ключ новой заявки. Заявка без компании — менеджеру
+  // Ведара: переписки с адресатом у неё нет, ключа тоже.
+  const key = partner
+    ? await issueRequestKey({ leadId }, LEAD_FORM_KEY_NAME, { opensChat: created.created && !isSelf })
+    : null;
+  return NextResponse.json({ success: true, id: leadId, ...(partner ? requestPageLinks(key) : {}) }, { status: 201 });
 }
 
 function escHtml(s: string): string {

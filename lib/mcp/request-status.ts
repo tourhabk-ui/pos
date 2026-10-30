@@ -38,8 +38,8 @@
  * такой заявки нет: платформа знает, кому она доставлена (1213), а ответ
  * владелец даёт гостю звонком. Поэтому статус — `delivered` с тем, кому
  * передана, а не «ждёт ответа», который никогда не придёт. С 1349 владелец
- * отвечает и в переписке на странице заявки: агенту видно число его ответов
- * (`owner_replies`), текста нет.
+ * отвечает и в переписке на странице заявки, с 1350 — любой адресат заявки:
+ * агенту видно число ответов (`partner_replies`), текста нет.
  *
  * Согласие человек подтверждает тем текстом, кому уходят его данные
  * (`consent_purpose`): владельцу жилья, перевозчику или туроператору. До
@@ -58,7 +58,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { maxBot } from '@/lib/partners/channel-link';
-import { stayGuestBotLink } from '@/lib/stay/stay-chat';
+import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
@@ -77,6 +77,16 @@ export const REQUEST_STATUS_PAGE_PATH = '/request-status';
 
 export function requestStatusPageUrl(key: string): string {
   return `${getPublicBaseUrl()}${REQUEST_STATUS_PAGE_PATH}#${key}`;
+}
+
+/**
+ * Ссылки человеку после отправки формы (1349, 1350): страница заявки и
+ * подключение MAX. Ключ не выдался — обе null, и форма говорит это словами.
+ * Форма одинакова у новой заявки и у повтора: у повтора ключ только статусный
+ * (`opens_chat` false), и ответ двери не выдаёт, что заявка уже была.
+ */
+export function requestPageLinks(key: string | null): { page: string | null; max_link: string | null } {
+  return key ? { page: requestStatusPageUrl(key), max_link: guestBotLink(maxBot(), key) } : { page: null, max_link: null };
 }
 
 /**
@@ -105,6 +115,15 @@ const STAY_TOOL_NAME = 'create_stay_request';
  * инструмент MCP — имя двери в той же колонке `tool_name`.
  */
 export const STAY_FORM_KEY_NAME = 'stay-request-form';
+/**
+ * Ключи заявок с форм сайта, адресованных партнёру (1350): машина у
+ * перевозчика, прокат, заявка туроператору или гиду со страницы компании,
+ * её сайта или виджета. С ключом человек открывает страницу заявки с
+ * перепиской и подключает MAX.
+ */
+export const CHARTER_FORM_KEY_NAME = 'charter-request-form';
+export const RENTAL_FORM_KEY_NAME = 'car-rental-request-form';
+export const LEAD_FORM_KEY_NAME = 'partner-lead-form';
 const BOOKING_TOOL_NAME = 'create_booking_request';
 const CHARTER_TOOL_NAME = 'request_charter';
 const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
@@ -116,8 +135,8 @@ const CAR_RENTAL_TOOL_NAME = 'create_car_rental_request';
  */
 export function consentPurposeForTool(toolName: string): ConsentPurpose {
   if (toolName === STAY_TOOL_NAME || toolName === STAY_FORM_KEY_NAME) return 'stay';
-  if (toolName === CHARTER_TOOL_NAME) return 'carrier';
-  if (toolName === CAR_RENTAL_TOOL_NAME) return 'rental';
+  if (toolName === CHARTER_TOOL_NAME || toolName === CHARTER_FORM_KEY_NAME) return 'carrier';
+  if (toolName === CAR_RENTAL_TOOL_NAME || toolName === RENTAL_FORM_KEY_NAME) return 'rental';
   return 'operator';
 }
 
@@ -133,9 +152,20 @@ export type RequestKeyTarget = { leadId: string } | { seatRequestId: string } | 
  * Выдать ключ на заявку. В базу — только хеш; сырой ключ возвращается ровно
  * один раз. Отказ базы — null и строка в лог: заявка уже принята, и без
  * ключа она не хуже, чем была до 12.10; агент услышит, что ключа нет.
+ *
+ * `opensChat` (1350) — ключ откроет переписку с адресатом заявки. Ставит его
+ * только дверь, которая в этом же вызове СОЗДАЛА заявку: повтор лида
+ * возвращает прежний лид, и его ключ получил бы любой, кто знает чужой
+ * телефон, — такому ключу только статус.
  */
-export async function issueRequestKey(target: RequestKeyTarget, toolName: string): Promise<string | null> {
-  return (await issueRequestKeyRecord(target, toolName))?.key ?? null;
+export async function issueRequestKey(target: RequestKeyTarget, toolName: string, opts: IssueKeyOptions = {}): Promise<string | null> {
+  return (await issueRequestKeyRecord(target, toolName, opts))?.key ?? null;
+}
+
+/** Что ключ открывает, кроме статуса (1350). */
+export interface IssueKeyOptions {
+  /** Переписку с адресатом заявки — только у ключа НОВОЙ заявки. */
+  opensChat?: boolean;
 }
 
 /** Выданный ключ и номер его строки: номер нужен подписке на уведомления (1348). */
@@ -146,17 +176,17 @@ export interface IssuedRequestKey {
 }
 
 /** То же, что issueRequestKey, но с номером строки ключа — для подписки на уведомления. */
-export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: string): Promise<IssuedRequestKey | null> {
+export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: string, opts: IssueKeyOptions = {}): Promise<IssuedRequestKey | null> {
   const key = randomBytes(24).toString('base64url');
   const leadId = 'leadId' in target ? target.leadId : null;
   const seatRequestId = 'seatRequestId' in target ? target.seatRequestId : null;
   const stayRequestId = 'stayRequestId' in target ? target.stayRequestId : null;
   try {
     const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO agent_request_keys (key_hash, lead_id, seat_request_id, stay_request_id, tool_name, expires_at)
-       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'))
+      `INSERT INTO agent_request_keys (key_hash, lead_id, seat_request_id, stay_request_id, tool_name, expires_at, opens_chat)
+       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'), $7)
        RETURNING id::text AS id`,
-      [sha256(key), leadId, seatRequestId, stayRequestId, toolName, REQUEST_KEY_TTL_DAYS],
+      [sha256(key), leadId, seatRequestId, stayRequestId, toolName, REQUEST_KEY_TTL_DAYS, opts.opensChat === true],
     );
     const row = rows?.[0];
     return { key, keyId: row?.id ?? null };
@@ -169,25 +199,30 @@ export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: 
 
 /**
  * Хвост ответа пишущего инструмента: ключ есть — как им пользоваться; нет —
- * так и сказано. У заявки на жильё хвост ведёт человека в переписку с
- * владельцем (страница заявки и MAX, 1349); текст переписки инструменты не
- * отдают.
+ * так и сказано. Переписку (1349, 1350) хвост обещает, когда заявка
+ * адресована партнёру, который может ответить (`chat`), — и у новой заявки,
+ * и у повтора: ответ на повтор не отличается от ответа на новую (анти-оракул
+ * 29.09). Что ключ повтора только статусный, видно лишь по самой ссылке.
  */
-export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'): string {
+export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request', chat = false): string {
   if (kind === 'stay') {
     return key
-      ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка (без имени и телефона).`
+      ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка и сколько владелец ответил (без имени и телефона).`
         + ' Ответ владелец даёт звонком или сообщением на странице заявки; текст переписки get_request_status не отдаёт.'
         + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья и переписывается с владельцем.`
-        + ` Чтобы ответы владельца приходили человеку в MAX, дайте ему и эту ссылку: ${stayGuestBotLink(maxBot(), key)}.`
-        + ' Ключ и ссылку не публикуйте.'
+        + ` Чтобы ответы владельца приходили человеку в MAX, дайте ему и эту ссылку: ${guestBotLink(maxBot(), key)}.`
+        + ' Ключ и ссылку не публикуйте; ссылку на MAX — тоже.'
       : ' Ключ статуса заявки не выдан (сбой записи ключа): исход знает только владелец, телефон — на карточке объекта.';
   }
-  return key
-    ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, ответил ли оператор (без имени и телефона).`
+  if (!key) return ' Ключ статуса заявки не выдан (сбой записи ключа): узнать исход можно только по звонку оператора.';
+  return chat
+    ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет состояние и сколько адресат ответил в переписке (без имени и телефона); текст переписки get_request_status не отдаёт.`
+      + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на обработку данных и переписывается с адресатом заявки.`
+      + ` Чтобы ответы приходили человеку в MAX, дайте ему и эту ссылку: ${guestBotLink(maxBot(), key)}.`
+      + ' Ключ и ссылку не публикуйте; ссылку на MAX — тоже.'
+    : ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, ответил ли оператор (без имени и телефона).`
       + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на обработку данных и видит ответ оператора.`
-      + ' Ключ и ссылку не публикуйте.'
-    : ' Ключ статуса заявки не выдан (сбой записи ключа): узнать исход можно только по звонку оператора.';
+      + ' Ключ и ссылку не публикуйте.';
 }
 
 export interface RequestStatusView {
@@ -214,10 +249,15 @@ export interface RequestStatusView {
   consent_purpose: ConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
-  /** Заявка на жильё: сколько сообщений владелец написал в переписке (1349); у других — null. Текста нет. */
-  owner_replies: number | null;
-  owner_last_reply_at: string | null;
-  /** Заявка на жильё: ссылка подключить MAX гостя; null — подключён или заявка не на жильё. */
+  /**
+   * Переписка (1349, 1350): сколько сообщений написал адресат заявки —
+   * владелец жилья, туроператор, перевозчик, прокат — и когда последнее.
+   * null — переписки по этому ключу нет (ключ повтора, запрос мест, лид без
+   * адресата). Текста нет.
+   */
+  partner_replies: number | null;
+  partner_last_reply_at: string | null;
+  /** Ссылка подключить MAX клиента; null — подключён или переписки по ключу нет. */
   max_link: string | null;
   /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
   notify: RequestNotifyStatus | null;
@@ -276,10 +316,15 @@ export interface StatusRow {
   stay_delivery_recorded_at: Date | string | null;
   stay_consent_at: Date | string | null;
   stay_consent_source: string | null;
-  /** Переписка по заявке на жильё (1349): сколько написал владелец, когда последнее, подключён ли MAX гостя. */
-  stay_owner_replies?: number | null;
-  stay_owner_last_at?: Date | string | null;
-  stay_guest_on_max?: boolean | null;
+  /**
+   * Переписка (1349, 1350): открывает ли её ключ, адресован ли лид партнёру,
+   * сколько написал адресат и когда последнее, подключён ли MAX клиента.
+   */
+  opens_chat?: boolean | null;
+  lead_addressed?: boolean | null;
+  chat_partner_replies?: number | null;
+  chat_partner_last_at?: Date | string | null;
+  chat_guest_on_max?: boolean | null;
 }
 
 /**
@@ -453,8 +498,9 @@ const REQUEST_STATUS_SELECT = `
          s.owner_channel AS stay_owner_channel, s.platform_channel AS stay_platform_channel,
          s.delivery_recorded_at AS stay_delivery_recorded_at,
          s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source,
-         sm.n AS stay_owner_replies, sm.last_at AS stay_owner_last_at,
-         (s.guest_max_chat_id IS NOT NULL) AS stay_guest_on_max,
+         k.opens_chat, (l.operator_id IS NOT NULL AND l.is_self = FALSE) AS lead_addressed,
+         sm.n AS chat_partner_replies, sm.last_at AS chat_partner_last_at,
+         (COALESCE(s.guest_max_chat_id, l.guest_max_chat_id) IS NOT NULL) AS chat_guest_on_max,
          n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
@@ -479,9 +525,9 @@ const REQUEST_STATUS_SELECT = `
     LEFT JOIN accommodations a ON a.id = s.accommodation_id
     LEFT JOIN LATERAL (
       SELECT count(*)::int AS n, max(m.created_at) AS last_at
-        FROM stay_request_messages m
-       WHERE m.stay_request_id = s.id AND m.author = 'owner'
-    ) sm ON k.stay_request_id IS NOT NULL
+        FROM request_messages m
+       WHERE m.author = 'owner' AND (m.stay_request_id = k.stay_request_id OR m.lead_id = k.lead_id)
+    ) sm ON k.opens_chat
     LEFT JOIN agent_request_notify n ON n.key_id = k.id`;
 
 /** По ключу: живой ключ → отметка прочтения и строка заявки. Это читает агент. */
@@ -490,7 +536,9 @@ export const REQUEST_STATUS_SQL = `
     UPDATE agent_request_keys
        SET last_read_at = NOW(), read_count = read_count + 1
      WHERE key_hash = $1 AND expires_at > NOW()
-    RETURNING id, lead_id, seat_request_id, stay_request_id, tool_name
+    RETURNING id, lead_id, seat_request_id, stay_request_id, tool_name,
+              -- Ключ жилья открывает переписку всегда: склейки у жилья нет (1350).
+              (opens_chat OR stay_request_id IS NOT NULL) AS opens_chat
   )${REQUEST_STATUS_SELECT}`;
 
 /**
@@ -500,7 +548,8 @@ export const REQUEST_STATUS_SQL = `
  */
 export const REQUEST_STATUS_BY_KEY_IDS_SQL = `
   WITH k AS (
-    SELECT id, lead_id, seat_request_id, stay_request_id, tool_name
+    SELECT id, lead_id, seat_request_id, stay_request_id, tool_name,
+           (opens_chat OR stay_request_id IS NOT NULL) AS opens_chat
       FROM agent_request_keys
      WHERE id = ANY($1::uuid[]) AND expires_at > NOW()
   )${REQUEST_STATUS_SELECT}`;
@@ -529,8 +578,15 @@ function dateChangeNote(requested: string | null, actual: string | null): string
  */
 export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link'>;
 
-/** Переписки у запроса мест и лида нет (1349 — только жильё): поля есть, значения null. */
-const NO_CHAT = { owner_replies: null, owner_last_reply_at: null } as const;
+/** Переписки у запроса мест нет: поля есть, значения null. */
+const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
+
+/**
+ * Адресат уже ответил в переписке. Те же слова уходят и в уведомление (поле
+ * next), а в его теле нет ни страницы, ни ссылки MAX — поэтому текст отсылает
+ * к ответу get_request_status, а не к полям этого же ответа.
+ */
+const CHAT_REPLIED_NEXT = 'Дайте человеку страницу заявки из ответа get_request_status: там ответ, и ответить можно там же или в MAX.';
 
 /** Поле notify ответа: есть строка подписки — номер, жива ли и почему нет (словом для агента). */
 export function notifyStatusOf(row: StatusRow): RequestNotifyStatus | null {
@@ -555,7 +611,8 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
     const state = exists ? stayState(delivery) : 'unknown';
     // Переписка (1349): сколько написал владелец — без текста.
-    const replies = Number(row.stay_owner_replies ?? 0);
+    const chat = exists && row.opens_chat === true;
+    const replies = Number(row.chat_partner_replies ?? 0);
     return {
       state,
       kind: 'stay_request',
@@ -569,15 +626,15 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
       alt_date: null,
       deadline: null,
       human: !exists ? HUMAN.unknown
-        : replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+        : chat && replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
         : STAY_HUMAN[delivery],
       next: !exists ? NEXT.unknown
-        : replies > 0 ? 'Дайте человеку страницу заявки (page): там ответ владельца, и ответить ему можно там же или в MAX (max_link).'
+        : chat && replies > 0 ? CHAT_REPLIED_NEXT
         : STAY_NEXT[delivery],
       consent: consentBy(row.stay_consent_source, row.stay_consent_at),
       consent_purpose,
-      owner_replies: exists ? replies : null,
-      owner_last_reply_at: exists ? iso(row.stay_owner_last_at ?? null) : null,
+      partner_replies: chat ? replies : null,
+      partner_last_reply_at: chat ? iso(row.chat_partner_last_at ?? null) : null,
     };
   }
 
@@ -642,6 +699,11 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
   // Запрошенная дата есть только у заявки на бронь тура (её пишет роут MCP в
   // source_data); у подбора, машины и проката даты в этом смысле нет.
   const requested = row.tool_name === BOOKING_TOOL_NAME ? dayOrNull(row.lead_requested_date) : null;
+  // Переписка с адресатом лида (1350): только ключ новой заявки и только лид,
+  // адресованный партнёру. Без текста — число и время ответов.
+  const chat = row.lead_id !== null && row.lead_status !== null && row.opens_chat === true && row.lead_addressed === true;
+  const replies = Number(row.chat_partner_replies ?? 0);
+  const human = HUMAN[state] + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
   return {
     state,
     kind: 'lead',
@@ -654,11 +716,14 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     participants: row.booking_participants,
     alt_date: null,
     deadline: null,
-    human: HUMAN[state] + (row.booking_status ? dateChangeNote(requested, row.booking_date) : ''),
-    next: NEXT[state],
+    human: chat && replies > 0
+      ? `${human} Адресат заявки ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+      : human,
+    next: chat && replies > 0 ? CHAT_REPLIED_NEXT : NEXT[state],
     consent: consentBy(row.lead_consent_source, row.lead_consent_at),
     consent_purpose,
-    ...NO_CHAT,
+    partner_replies: chat ? replies : null,
+    partner_last_reply_at: chat ? iso(row.chat_partner_last_at ?? null) : null,
   };
 }
 
@@ -701,9 +766,9 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
   return {
     ...core,
     page: requestStatusPageUrl(key),
-    // Подключить MAX гостя (1349): ссылку строит сырой ключ, он есть только
-    // здесь. Переписка есть — owner_replies не null (заявка на жильё жива).
-    max_link: core.owner_replies !== null && row.stay_guest_on_max !== true ? stayGuestBotLink(maxBot(), key) : null,
+    // Подключить MAX клиента (1349, 1350): ссылку строит сырой ключ, он есть
+    // только здесь. Переписка по ключу открыта — partner_replies не null.
+    max_link: core.partner_replies !== null && row.chat_guest_on_max !== true ? guestBotLink(maxBot(), key) : null,
     notify: notifyStatusOf(row),
   };
 }
@@ -713,8 +778,12 @@ export type ConfirmOutcome = 'recorded' | 'already' | 'gone';
 /**
  * Один запрос: ключ живой → согласие человека пишется в лид, запрос мест или
  * заявку на жильё ПОВЕРХ записи агента (основание сильнее — его и храним; факт вызова агента
- * остаётся в журнале mcp_tool_calls). Уже подтверждал сам — запись не
- * трогается: первое подтверждение и есть доказательство. Подзапросы к
+ * остаётся в журнале mcp_tool_calls) или туда, где согласия нет вовсе. Согласие
+ * человека — на странице заявки или галочкой формы — не трогается: первое
+ * подтверждение и есть доказательство. С 1350 ключ выдаёт и форма сайта, и
+ * повтор заявки (тот же телефон) получает свой ключ: перезапиши подтверждение
+ * страницы чужое согласие с формы — держатель ключа повтора заменил бы адрес и
+ * время, которыми человек сам дал согласие (ревью 30.10). Подзапросы к
  * leads/tour_seat_requests в хвосте видят снимок ДО UPDATE той же команды —
  * так и задумано: prior_source — что стояло раньше, target_exists — есть ли
  * сама заявка.
@@ -727,17 +796,17 @@ export const CONFIRM_CONSENT_SQL = `
   ), l AS (
     UPDATE leads
        SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
-     WHERE id = (SELECT lead_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
+     WHERE id = (SELECT lead_id FROM k) AND (pd_consent_at IS NULL OR pd_consent_source = $6::varchar)
     RETURNING id
   ), r AS (
     UPDATE tour_seat_requests
        SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
-     WHERE id = (SELECT seat_request_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
+     WHERE id = (SELECT seat_request_id FROM k) AND (pd_consent_at IS NULL OR pd_consent_source = $6::varchar)
     RETURNING id
   ), s AS (
     UPDATE stay_requests
        SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
-     WHERE id = (SELECT stay_request_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
+     WHERE id = (SELECT stay_request_id FROM k) AND (pd_consent_at IS NULL OR pd_consent_source = $6::varchar)
     RETURNING id
   )
   SELECT ((SELECT COUNT(*) FROM l) + (SELECT COUNT(*) FROM r) + (SELECT COUNT(*) FROM s))::int AS updated,
@@ -759,7 +828,7 @@ export async function confirmConsent(rawKey: unknown, record: PdConsentRecord): 
   const key = readKey(rawKey);
   let row: ConfirmRow | undefined;
   try {
-    ({ rows: [row] } = await pool.query<ConfirmRow>(CONFIRM_CONSENT_SQL, [sha256(key), record.at, record.ip, record.source, record.version]));
+    ({ rows: [row] } = await pool.query<ConfirmRow>(CONFIRM_CONSENT_SQL, [sha256(key), record.at, record.ip, record.source, record.version, AGENT_CONSENT_SOURCE]));
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[request-status] согласие не записано:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));

@@ -254,6 +254,29 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     expect(result.checks.failed.map((f) => f.check)).not.toContain('checkUnprocessedLeads');
   }, 120_000);
 
+  it('сторож «лиды >2ч»: ответ партнёра клиенту в переписке по заявке — реакция (1350)', async () => {
+    const { runWatchdog } = await import('@/lib/agents/watchdog');
+    const lead = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, created_at)
+       VALUES ('Клиент переписки', '+79990004455', 'вахтовка на перевал', 'new', NOW() - INTERVAL '3 hours') RETURNING id::text AS id`,
+    );
+    const count = async () => (await runWatchdog()).alerts.find((a) => a.type === 'unprocessed_lead')?.count ?? 0;
+    const before = await count();
+    await pool.query(
+      `INSERT INTO request_messages (lead_id, author, door, body) VALUES ($1::uuid, 'owner', 'max', 'Подача в 7:00')`,
+      [lead.rows[0].id],
+    );
+    expect(await count()).toBe(before - 1);
+    // Сообщение клиента — не реакция партнёра.
+    await pool.query(`DELETE FROM request_messages WHERE lead_id = $1::uuid`, [lead.rows[0].id]);
+    await pool.query(
+      `INSERT INTO request_messages (lead_id, author, door, body) VALUES ($1::uuid, 'guest', 'page', 'Есть новости?')`,
+      [lead.rows[0].id],
+    );
+    expect(await count()).toBe(before);
+    await pool.query(`DELETE FROM leads WHERE id = $1::uuid`, [lead.rows[0].id]);
+  }, 120_000);
+
   // Аудит 15.10, W3-pseudo. Строки добавляются ПОСЛЕ тестов выше: отбор
   // добивки там сверяется с точным набором, а здесь нужны лиды старше 6 и
   // 24 часов. Ожидаемое число считается по известным id псевдолидов, а не

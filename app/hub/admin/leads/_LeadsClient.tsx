@@ -6,6 +6,7 @@ import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, Refre
 import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { LeadsKanban } from './_LeadsKanban';
+import { LeadConversation } from './_LeadConversation';
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 
 type View = 'list' | 'kanban';
@@ -38,6 +39,8 @@ export interface Lead {
   route_title: string | null;
   source_url: string | null;
   source_data: LeadSourceData | null;
+  /** Адресат заявки (партнёр); null — заявку ведёт менеджер Ведара. */
+  operator_id?: string | null;
   status: LeadStatus;
   notes: string | null;
   ai_score: number | null;
@@ -383,6 +386,9 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
               {lead.source_url && <div>Страница: {lead.source_url}</div>}
             </div>
           )}
+
+          {/* Переписка адресата и клиента (1350) — у лида, адресованного партнёру. */}
+          {lead.operator_id && <LeadConversation leadId={lead.id} />}
 
           {/* ID */}
           <div className="flex items-center gap-1 text-xs text-[var(--text-muted)] font-mono">

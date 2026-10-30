@@ -267,21 +267,32 @@ export function notifyLine(o: SubscribeOutcome): string {
     + ' Подписка живёт столько же, сколько ключ статуса (90 дней). В теле нет ни ключа статуса, ни имени и телефона.';
 }
 
+/** Переписка с адресатом заявки (1350): что ключ открывает и что хвост ответа обещает. */
+export interface KeyChat {
+  /** Ключ откроет переписку — только у НОВОЙ заявки (ключ повтора — только статус). */
+  opensChat?: boolean;
+  /** Хвост обещает переписку — и у повтора: ответ на повтор тот же (анти-оракул 29.09). */
+  offersChat?: boolean;
+}
+
 /**
  * Ключ статуса и, если агент оставил адрес, подписка — хвост ответа целиком.
  * Без адреса — прежний путь без изменений.
  */
 export async function issueKeyWithNotify(
   target: RequestKeyTarget, toolName: string, notifyUrl: string | undefined, kind: 'request' | 'stay' = 'request',
+  chat: KeyChat = {},
 ): Promise<string> {
-  if (!notifyUrl) return keyLine(await issueRequestKey(target, toolName), kind);
-  const issued = await issueRequestKeyRecord(target, toolName);
-  if (!issued) return `${keyLine(null, kind)} Уведомления не заведены: без ключа статуса подписки нет.`;
-  return keyLine(issued.key, kind) + notifyLine(await subscribeNotify(issued, notifyUrl));
+  const opts = { opensChat: chat.opensChat === true };
+  const offers = chat.offersChat === true;
+  if (!notifyUrl) return keyLine(await issueRequestKey(target, toolName, opts), kind, offers);
+  const issued = await issueRequestKeyRecord(target, toolName, opts);
+  if (!issued) return `${keyLine(null, kind, offers)} Уведомления не заведены: без ключа статуса подписки нет.`;
+  return keyLine(issued.key, kind, offers) + notifyLine(await subscribeNotify(issued, notifyUrl));
 }
 
 /** Агент передал notify_url заявке на жильё: подписки нет, и это сказано словами. */
-export const STAY_NOTIFY_REFUSAL = ' notify_url для заявки на жильё не заводится: после передачи владельцу её состояние не меняется. Ответ владелец даёт звонком или в переписке на странице заявки; сколько он написал, покажет get_request_status (owner_replies).';
+export const STAY_NOTIFY_REFUSAL = ' notify_url для заявки на жильё не заводится: после передачи владельцу её состояние не меняется. Ответ владелец даёт звонком или в переписке на странице заявки; сколько он написал, покажет get_request_status (partner_replies).';
 
 // ── Сверка (крон) ───────────────────────────────────────────────────────────
 

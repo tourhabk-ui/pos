@@ -24,6 +24,7 @@ import { reachForPartner } from '@/lib/partners/reach';
 import { ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { chatActionsEnabledFor, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
+import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -188,6 +189,11 @@ export async function notifyPartnerNewLeadPersonally(params: {
   /** Откуда заявка — словами для оператора («форма на вашей странице на Ведаре»). */
   origin?: string;
   sourceUrl?: string;
+  /**
+   * Кнопка «Ответить клиенту» — переписка по заявке (1350). false — у заявки
+   * переписки нет: своя проба (is_self, 1145) — партнёру некому отвечать.
+   */
+  chat?: boolean;
 }): Promise<PersonalLeadOutcome> {
   // Общая часть — без ПД: её видно в обоих каналах.
   const common = [
@@ -231,10 +237,14 @@ export async function notifyPartnerNewLeadPersonally(params: {
     return { state: 'no_channel' };
   }
 
+  // «Ответить клиенту» — переписка с клиентом в этом же чате (1350). Ответ
+  // уходит клиенту в MAX и на страницу заявки; кнопка-действие — только в MAX.
+  const reply = params.chat !== false && isChatTargetId(params.leadId) ? [ownerReplyButton({ kind: 'lead', id: params.leadId })] : [];
   const res = await sendPdAlert({
-    text,
+    // Подсказка про кнопку — только в личное сообщение: у копии команде кнопки нет.
+    text: reply.length > 0 ? `${text}\n\nНаписать клиенту в этом чате — кнопка «Ответить клиенту».` : text,
     stub,
-    buttons: [...answer, ...buttons],
+    buttons: [...reply, ...answer, ...buttons],
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return { state: 'delivered', channel: 'max' };

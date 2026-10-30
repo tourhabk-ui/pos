@@ -18,6 +18,7 @@ import { useState, type FormEvent } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { formatRub, rateOnScreenOf, type CharterRate } from '@/lib/transfers/charter-format';
+import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
 
 /** Своё направление вместо строки прайса. */
 const OTHER = '__other__';
@@ -38,6 +39,9 @@ interface Props {
 }
 
 interface Sent {
+  /** Страница заявки с перепиской и MAX (1350); null — ключ не выдался. */
+  page: string | null;
+  maxLink: string | null;
   destination: string;
   priceLine: { to: string; price_rub: number; note: string | null } | null;
 }
@@ -129,10 +133,13 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
       const data: unknown = await res.json().catch(() => null);
       const body = (data && typeof data === 'object' ? data : {}) as {
         success?: unknown; error?: unknown; field?: unknown;
-        data?: { price_line?: Sent['priceLine'] };
+        data?: { price_line?: Sent['priceLine']; page?: string | null; max_link?: string | null };
       };
       if (res.ok && body.success === true) {
-        setOutcome({ kind: 'sent', sent: { destination, priceLine: body.data?.price_line ?? null } });
+        setOutcome({
+          kind: 'sent',
+          sent: { destination, priceLine: body.data?.price_line ?? null, page: body.data?.page ?? null, maxLink: body.data?.max_link ?? null },
+        });
       } else {
         setOutcome({
           kind: 'error',
@@ -171,6 +178,7 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
             <p className="text-sm text-[var(--text-secondary)]">Этого направления нет в прайсе — цену назовёт перевозчик.</p>
           )}
           <p className="text-xs text-[var(--text-muted)]">Расчёт — напрямую с перевозчиком: через Ведар машина не оплачивается.</p>
+          <RequestChatLinks page={sent.page} maxLink={sent.maxLink} />
         </div>
       </div>
     );

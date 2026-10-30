@@ -26,6 +26,7 @@ vi.mock('@/lib/partners/reach', () => ({ reachForPartner: reachMock }));
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: pdMock }));
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...a),
+  createLeadDetailed: async (...a: unknown[]) => { const id = await createLeadMock(...a); return id ? { id, created: true } : null; },
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
 }));
 vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: (...a: unknown[]) => recordMock(...a) }));
@@ -143,7 +144,9 @@ describe('доставка: адрес партнёра, четыре исход
     };
     vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
     const buttons = partnerRequestButtons(rental);
+    // «Ответить клиенту» (переписка, 1350) — первой, у пилота следом «Беру» / «Не могу».
     expect(buttons).toEqual([
+      { text: 'Ответить клиенту', payload: `lq:o:${leadId}` },
       { text: 'Беру', payload: `rr:y:${leadId}` },
       { text: 'Не могу', payload: `rr:n:${leadId}` },
     ]);
@@ -157,11 +160,15 @@ describe('доставка: адрес партнёра, четыре исход
     expect(lastPd().buttons).toEqual(buttons);
     expect(lastPd().stub).not.toContain('Анна');
 
-    expect(partnerRequestButtons({ ...rental, kind: 'charter', companySlug: 'laguna-prokat' })).toBeUndefined();
-    expect(partnerRequestButtons({ ...rental, companySlug: 'fishing' })).toBeUndefined();
+    // Не пилот — только переписка; id не uuid — ни одной кнопки-действия.
+    const replyOnly = [{ text: 'Ответить клиенту', payload: `lq:o:${leadId}` }];
+    expect(partnerRequestButtons({ ...rental, kind: 'charter', companySlug: 'laguna-prokat' })).toEqual(replyOnly);
+    expect(partnerRequestButtons({ ...rental, companySlug: 'fishing' })).toEqual(replyOnly);
     expect(partnerRequestButtons({ ...rental, leadId: 'lead-7' })).toBeUndefined();
+    expect(partnerRequestTexts({ ...rental, companySlug: 'fishing' }).text).not.toContain('«Беру»');
+    expect(partnerRequestTexts({ ...rental, companySlug: 'fishing' }).text).toContain('«Ответить клиенту»');
     vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', '');
-    expect(partnerRequestButtons(rental)).toBeUndefined();
+    expect(partnerRequestButtons(rental)).toEqual(replyOnly);
     vi.unstubAllEnvs();
   });
 
@@ -256,6 +263,7 @@ describe('сервисы записи зовут доставку после cre
     });
     await flush();
     expect(lastPd().buttons).toEqual([
+      { text: 'Ответить клиенту', payload: 'lq:o:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
       { text: 'Беру', payload: 'rr:y:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
       { text: 'Не могу', payload: 'rr:n:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
     ]);
