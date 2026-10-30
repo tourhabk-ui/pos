@@ -29,8 +29,8 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
 beforeEach(() => vi.spyOn(console, 'error').mockImplementation(() => undefined));
 
 describe('SQL', () => {
-  it('виды — только те, где напоминание наше: без заявок, запросов мест и отзывов', () => {
-    expect([...R.INBOX_REMIND_KINDS]).toEqual(['operator_booking', 'accommodation_booking', 'gear_rental', 'transfer_seat_booking', 'guide_invite']);
+  it('виды — только те, где напоминание наше: без заявок на подбор, запросов мест и отзывов; заявка на машину — наша (#2862)', () => {
+    expect([...R.INBOX_REMIND_KINDS]).toEqual(['operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'guide_invite']);
   });
 
   it('у каждого вида: ждёт статус «новый», ступень и окно — параметрами, напоминание одно', () => {
@@ -41,7 +41,10 @@ describe('SQL', () => {
       expect(sql, k).toMatch(new RegExp(`NOT EXISTS \\(SELECT 1 FROM crm_inbox_reminders r[\\s\\S]*r\\.item_kind = '${k}'`));
     }
     expect(R.INBOX_REMIND_SQL.operator_booking).toMatch(/booking_status = 'new' AND b\.deleted_at IS NULL/);
-    expect(R.INBOX_REMIND_SQL.transfer_seat_booking).toMatch(/sb\.status = 'requested'/);
+    // Заявка на машину ждёт, пока перевозчик не ответил кнопкой и не написал заказчику.
+    expect(R.INBOX_REMIND_SQL.charter_request).toMatch(/source_data->>'kind' = 'charter'/);
+    expect(R.INBOX_REMIND_SQL.charter_request).toMatch(/action = 'partner_answered'/);
+    expect(R.INBOX_REMIND_SQL.charter_request).toMatch(/m\.author = 'owner'/);
     expect(R.INBOX_REMIND_SQL.guide_invite).toMatch(/i\.status = 'pending'/);
   });
 
@@ -70,7 +73,7 @@ describe('сообщение', () => {
   });
 
   it('перевозчик ведётся в свой кабинет; больше десяти — «и ещё»', () => {
-    const many = Array.from({ length: 12 }, (_, i) => ({ ...row({ item_id: `t${i}`, category: 'transfer', contact_name: null }), kind: 'transfer_seat_booking' }));
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...row({ item_id: `t${i}`, category: 'transfer', contact_name: null }), kind: 'charter_request' }));
     const m = R.inboxReminderMessage(many as never);
     expect(m.buttons?.find((b) => 'url' in b)).toEqual({ text: 'Открыть входящие', url: 'https://vedarai.ru/hub/carrier/inbox' });
     expect(m.text).toContain('…и ещё 2');

@@ -208,10 +208,13 @@ describe('поток ответа', () => {
     expect(pool.mock.calls.some((c) => /INSERT/.test(String(c[0])))).toBe(false);
     expect(sent[0]?.text).toContain('не ваша');
 
+    // Не пилот: заявка проката читается (вид заявки — из лида, #2862), но
+    // ни дни, ни журнал не пишутся, менеджера не будят.
     arm();
     pool.mockClear();
     await press(`rr:y:${LEAD}`, 'fishing');
-    expect(pool.mock.calls.some((c) => /FROM leads/.test(String(c[0])))).toBe(false);
+    expect(pool.mock.calls.some((c) => /INSERT/.test(String(c[0])))).toBe(false);
+    expect(managers).toHaveLength(0);
     expect(sent.at(-1)?.text).toContain('не принимаю');
   });
 

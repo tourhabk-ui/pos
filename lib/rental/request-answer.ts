@@ -1,11 +1,17 @@
 /**
- * «Беру» / «Не могу» на заявке проката. Чистые функции: разбор кнопки,
+ * «Беру» / «Не могу» на заявке партнёру: прокат (прокатчик, пилот) и машина
+ * целиком (перевозчик, #2862 этап A, 30.10). Чистые функции: разбор кнопки,
  * дни аренды, тексты ответа. Запись — в request-answer-store, дверь — в
  * request-answer-flow.
  *
  * Payload `rr:y:<leadId>` / `rr:n:<leadId>` короче 128 символов (лимит
  * callback MAX) и 64 байт (лимит callback_data Telegram). Партнёр и право
- * нажатия в payload не кладутся: их берёт вебхук из привязанного чата.
+ * нажатия в payload не кладутся: их берёт вебхук из привязанного чата. Вид
+ * заявки (прокат или машина) в кнопке тоже не лежит — его читает сервер из
+ * самого лида (`source_data.kind`): одна кнопка, два смысла по данным.
+ *
+ * У перевозчика «Беру» значит «готов выполнить и свяжусь с заказчиком», а не
+ * бронь: машина заявкой не закрепляется, занятость система не ведёт (§14).
  *
  * В списке «Заявки» под одним сообщением несколько пар кнопок. Там кнопка
  * несёт номер строки (`rr:y:<leadId>:2`, «Беру №2»): ответ необратим, и
@@ -23,6 +29,9 @@ const LEAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MAX_SPAN_DAYS = 30;
 
 export type RequestAnswer = 'take' | 'decline';
+
+/** Вид заявки партнёру: прокат машины без водителя или машина целиком с водителем. */
+export type PartnerRequestKind = 'car_rental' | 'charter';
 
 export function isLeadId(value: string): boolean {
   return LEAD_ID.test(value);
@@ -95,11 +104,21 @@ export function rentalSpanDays(from: string, to: string): string[] | null {
   return null;
 }
 
+/**
+ * Дошёл ли ответ до заказчика в переписке заявки (1350): true — записан и
+ * виден (в MAX или на странице заявки), false — не записался, null — не
+ * проверяли (перевозчик без переписки). Третий исход назван, а не спрятан.
+ */
+export type ClientTold = boolean | null;
+
 export type AnswerTell =
   | { kind: 'decline' }
   | { kind: 'take'; from: string; to: string; marked: number }
   | { kind: 'take_no_car' }
   | { kind: 'take_bad_dates' }
+  /** Перевозчик берёт заявку на машину: без отметки дней и без закрепления машины. */
+  | { kind: 'charter_take'; clientTold: ClientTold }
+  | { kind: 'charter_decline'; clientTold: ClientTold }
   | { kind: 'retry' }
   | { kind: 'already'; answer: RequestAnswer }
   | { kind: 'not_yours' }
@@ -119,6 +138,10 @@ export function partnerAnswerText(tell: AnswerTell): string {
       return '<b>Ваш ответ:</b> беру. Машину в вашем прайсе не нашёл — дни не отметил.';
     case 'take_bad_dates':
       return '<b>Ваш ответ:</b> беру. Даты в заявке не разобрать — дни не отметил.';
+    case 'charter_take':
+      return `<b>Ваш ответ:</b> беру. Машина заявкой не закрепляется — свяжитесь с заказчиком и договоритесь напрямую. ${clientToldLine(tell.clientTold, 'берёте заявку и свяжетесь')}`;
+    case 'charter_decline':
+      return `<b>Ваш ответ:</b> не могу. Заявка остаётся у менеджера Ведара. ${clientToldLine(tell.clientTold, 'не можете выполнить заявку')}`;
     case 'retry':
       return 'Ответ не записал: календарь не ответил. Нажмите кнопку ещё раз.';
     case 'already':
@@ -138,6 +161,25 @@ export function partnerAnswerText(tell: AnswerTell): string {
   }
 }
 
+/** Что сказано заказчику — тремя исходами: сообщил / не ушло / не отправляли. */
+function clientToldLine(told: ClientTold, what: string): string {
+  if (told === true) return `Заказчику сообщил, что вы ${what}.`;
+  if (told === false) return 'Сообщение заказчику не ушло — свяжитесь с ним сами по телефону из заявки.';
+  return '';
+}
+
+/**
+ * Заказчику в переписку заявки (1350): ответ перевозчика его словами, без
+ * суммы и без обещания машины — машина заявкой не закрепляется (§14).
+ * Текст уходит в MAX клиента и на страницу заявки: там он без разметки.
+ */
+export function clientCharterAnswerText(partnerName: string, answer: RequestAnswer): string {
+  const who = partnerName.trim() || 'Перевозчик';
+  return answer === 'take'
+    ? `Перевозчик «${who}» берёт вашу заявку и свяжется с вами по телефону из заявки. Условия и сумму вы согласуете с ним напрямую.`
+    : `Перевозчик «${who}» не может выполнить эту заявку. Заявка остаётся у менеджера Ведара — он свяжется с вами.`;
+}
+
 /**
  * Текст правки сообщения заявки: исходный текст (из MAX приходит без
  * разметки — экранируется) и строка ответа. Кнопки вызывающий снимает.
@@ -155,9 +197,12 @@ export function requestAnswerEditText(originalText: string | null | undefined, r
  * заказчика: их менеджер уже видел в своей копии заявки.
  */
 export function managerAnswerText(opts: {
+  /** Прокат (по умолчанию — так звали до 30.10) или машина целиком. */
+  kind?: PartnerRequestKind;
   partnerName: string;
   leadId: string;
   answer: RequestAnswer;
+  /** У проката — машина; у заявки на машину — направление. */
   carTitle: string | null;
   from: string | null;
   to: string | null;
@@ -165,6 +210,17 @@ export function managerAnswerText(opts: {
 }): string {
   const who = escapeHtml(opts.partnerName);
   const verb = opts.answer === 'take' ? 'беру' : 'не могу';
+  if (opts.kind === 'charter') {
+    const lines = [
+      `Перевозчик «${who}» ответил «${verb}» на заявку на машину <code>${escapeHtml(opts.leadId)}</code>.`,
+    ];
+    if (opts.carTitle) lines.push(`Направление: ${escapeHtml(opts.carTitle)}`);
+    if (opts.from) lines.push(opts.to ? `Даты: с ${escapeHtml(opts.from)} по ${escapeHtml(opts.to)}` : `Дата выезда: ${escapeHtml(opts.from)}`);
+    lines.push(opts.answer === 'take'
+      ? 'Перевозчик свяжется с заказчиком сам; машина заявкой не закреплена.'
+      : 'Нужен другой перевозчик: заявка остаётся у менеджера.');
+    return lines.join('\n');
+  }
   const lines = [
     `Прокатчик «${who}» ответил «${verb}» на заявку <code>${escapeHtml(opts.leadId)}</code>.`,
   ];

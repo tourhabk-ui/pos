@@ -4,14 +4,17 @@
  * (`GET /api/cron/crm-reminders`, шаг cron-safety-heartbeat.yml, 30 минут).
  *
  * Правила:
- *  - **Одна ступень — 2 часа.** Бронь, заказ, места в машине, приглашение
+ *  - **Одна ступень — 2 часа.** Бронь, заказ, заявка на машину, приглашение
  *    гиду ждут ответа два часа — партнёру одно сообщение со всеми такими
- *    предметами. Через 24 часа о бронях жилья, проката и мест уже пишет
+ *    предметами. Через 24 часа о бронях жилья и проката уже пишет
  *    Watchdog (о брони тура — через 48), поэтому окно здесь — до 24 часов:
  *    старше — его дверь, а не наша.
- *  - **Каких предметов нет и почему.** Заявку через 2 часа перераспределяет
- *    `leads-followup` (решение владельца 09.10 «лид да 2 часа»); запрос мест
- *    сам истекает через 2 часа; отзыв не ждёт ответа «быстро».
+ *  - **Каких предметов нет и почему.** Заявку на подбор через 2 часа
+ *    перераспределяет `leads-followup` (решение владельца 09.10 «лид да
+ *    2 часа»); заявку на машину он другим не отдаёт (#2447), поэтому о ней
+ *    перевозчику напоминаем здесь (#2862); запрос мест сам истекает через
+ *    2 часа; отзыв не ждёт ответа «быстро». Места в машине (снятый товар,
+ *    13.10) из напоминаний убраны вместе с ящиком.
  *  - **Тихие часы 22:00–08:00 по Камчатке** — те же, что у задач: ночной
  *    предмет догоняется утром.
  *  - **ПД только в MAX** (`sendPdAlert`): имена клиентов — в MAX, в
@@ -27,6 +30,8 @@ import { reachForPartner, type PartnerReach } from '@/lib/partners/reach';
 import { sendPdAlert, type PdAlertParams, type PdAlertResult } from '@/lib/notifications/pd-alert';
 import { isQuietHour } from '@/lib/crm/reminders';
 import { INBOX_KIND_LABELS } from '@/lib/crm/inbox-kinds';
+import type { SourceKind } from '@/lib/crm/contacts';
+import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 
 interface Queryable {
@@ -34,7 +39,7 @@ interface Queryable {
 }
 
 export const INBOX_REMIND_KINDS = [
-  'operator_booking', 'accommodation_booking', 'gear_rental', 'transfer_seat_booking', 'guide_invite',
+  'operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'guide_invite',
 ] as const;
 export type InboxRemindKind = (typeof INBOX_REMIND_KINDS)[number];
 
@@ -58,8 +63,9 @@ function waitedWindow(createdExpr: string): string {
           AND ${createdExpr} > $1::timestamptz - ($3::int * INTERVAL '1 hour')`;
 }
 
-function contactJoin(kind: InboxRemindKind, partnerExpr: string, idExpr: string): string {
-  return `LEFT JOIN crm_contact_links cl ON cl.partner_id = ${partnerExpr} AND cl.source_kind = '${kind}' AND cl.source_id = ${idExpr}
+/** Клиент CRM по источнику (`source_kind` ленты, у заявки на машину — `lead`). */
+function contactJoin(sourceKind: SourceKind, partnerExpr: string, idExpr: string): string {
+  return `LEFT JOIN crm_contact_links cl ON cl.partner_id = ${partnerExpr} AND cl.source_kind = '${sourceKind}' AND cl.source_id = ${idExpr}
           LEFT JOIN crm_contacts cc ON cc.id = cl.contact_id AND cc.partner_id = ${partnerExpr}`;
 }
 
@@ -101,17 +107,23 @@ export const INBOX_REMIND_SQL: Readonly<Record<InboxRemindKind, string>> = {
        AND ${waitedWindow('gr.created_at')}
        AND ${notReminded('gi.partner_id', 'gear_rental', 'gr.id::text')}`,
 
-  transfer_seat_booking: `
-    SELECT v.partner_id, p.category, sb.id::text AS item_id, sb.created_at,
-           (tr.from_text || ' — ' || tr.to_text) AS title, tr.trip_date::text AS item_date, cc.display_name AS contact_name
-      FROM transfer_seat_bookings sb
-      JOIN transfer_trips tr ON tr.id = sb.trip_id
-      JOIN transfer_fleet_vehicles v ON v.id = tr.vehicle_id
-      JOIN partners p ON p.id = v.partner_id
-      ${contactJoin('transfer_seat_booking', 'v.partner_id', 'sb.id::text')}
-     WHERE sb.status = 'requested'
-       AND ${waitedWindow('sb.created_at')}
-       AND ${notReminded('v.partner_id', 'transfer_seat_booking', 'sb.id::text')}`,
+  // Заявка на машину (#2862): ждёт, пока перевозчик не ответил кнопкой
+  // (partner_answered) и не написал заказчику (1350) — то же «ждёт», что у
+  // вида charter_request в lib/crm/inbox-sql. Направление — слова заказчика:
+  // в MAX оно идёт как есть (там и его имя), в заглушку Telegram не идёт.
+  charter_request: `
+    SELECT l.operator_id AS partner_id, p.category, l.id::text AS item_id, l.created_at,
+           COALESCE(NULLIF(btrim(l.source_data->>'destination'), ''), NULLIF(btrim(l.route_title), '')) AS title,
+           NULLIF(btrim(l.source_data->>'date_from'), '') AS item_date, cc.display_name AS contact_name
+      FROM leads l
+      JOIN partners p ON p.id = l.operator_id
+      ${contactJoin('lead', 'l.operator_id', 'l.id::text')}
+     WHERE l.is_self = FALSE AND l.source_data->>'kind' = 'charter'
+       AND l.status IN (${LEAD_WAITING_STATUSES.map((s) => `'${s}'`).join(', ')})
+       AND NOT EXISTS (SELECT 1 FROM lead_activity_log a WHERE a.lead_id = l.id AND a.action = 'partner_answered')
+       AND NOT EXISTS (SELECT 1 FROM request_messages m WHERE m.lead_id = l.id AND m.author = 'owner')
+       AND ${waitedWindow('l.created_at')}
+       AND ${notReminded('l.operator_id', 'charter_request', 'l.id::text')}`,
 
   guide_invite: `
     SELECT i.guide_partner_id AS partner_id, p.category, i.id::text AS item_id, i.created_at,

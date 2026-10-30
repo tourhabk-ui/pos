@@ -809,16 +809,21 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       `INSERT INTO gear_rentals (gear_id, customer_name, customer_email, customer_phone, start_date, end_date, days_count, base_price, total_price)
        VALUES ($1, 'Глеб', 'gleb2@example.com', '+79147770000', CURRENT_DATE + 1, CURRENT_DATE + 3, 2, 600, 600)`, [gi],
     );
-    const veh = (await pool.query<{ id: string }>(
-      `INSERT INTO transfer_fleet_vehicles (partner_id, kind, title, seats) VALUES ($1, 'vahtovka', 'Урал', 20) RETURNING id`, [carrier],
-    )).rows[0].id;
-    const trip = (await pool.query<{ id: string }>(
-      `INSERT INTO transfer_trips (vehicle_id, trip_date, from_text, to_text, seats_total)
-       VALUES ($1, CURRENT_DATE + 4, 'Елизово', 'Толбачик', 16) RETURNING id`, [veh],
+    // Заявка на машину целиком (#2862): структурные поля — как пишет
+    // lib/transfers/charter-request; вчерашняя заявка ответа уже не ждёт.
+    const charter = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, operator_id, status, route_title, source_data)
+       VALUES ('Заказчик Машины', '+79148880000', $1::uuid, 'new', 'Вахтовка: Толбачик',
+               jsonb_build_object('kind', 'charter', 'carrier_id', $1::uuid::text, 'destination', 'Толбачик',
+                                  'date_from', (CURRENT_DATE + 4)::text, 'passengers', 12))
+       RETURNING id::text`,
+      [carrier],
     )).rows[0].id;
     await pool.query(
-      `INSERT INTO transfer_seat_bookings (trip_id, ordered_by_user_id, seats, contact_phone) VALUES ($1, $2, 2, '+79148880000')`,
-      [trip, touristId],
+      `INSERT INTO leads (name, phone, operator_id, status, route_title, source_data)
+       VALUES ('Вчерашний', '+79148880001', $1, 'new', 'Вахтовка: Эссо',
+               jsonb_build_object('kind', 'charter', 'destination', 'Эссо', 'date_from', (CURRENT_DATE - 1)::text, 'passengers', 3))`,
+      [carrier],
     );
     await pool.query(`INSERT INTO guide_operator_invites (operator_id, guide_partner_id) VALUES ($1, $2)`, [op, guide]);
     await pool.query(`INSERT INTO guide_reviews (guide_id, rating, comment) VALUES ($1, 4, 'Хорошо')`, [guide]);
@@ -848,8 +853,19 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     await pool.query(`UPDATE accommodation_reviews SET owner_reply = 'Спасибо', owner_reply_at = NOW() WHERE accommodation_id = $1`, [acc]);
     await expectKinds(stay, 'stay', ['accommodation_booking']);
     await expectKinds(gear, 'gear', ['gear_rental']);
-    const t = await expectKinds(carrier, 'transfer', ['transfer_seat_booking']);
-    expect(t.items[0]).toMatchObject({ title: 'Елизово — Толбачик', people: 2 });
+    const t = await expectKinds(carrier, 'transfer', ['charter_request']);
+    expect(t.items[0]).toMatchObject({ id: charter, title: 'Толбачик', date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), people: 12 });
+    expect(JSON.stringify(t)).not.toMatch(/79148880000/);
+    // «Беру» перевозчика (lead_activity_log.partner_answered с меткой `at`) снимает заявку из ждущих
+    // и даёт время первого ответа; одного ответа для медианы мало.
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1::uuid, 'partner', 'partner_answered', jsonb_build_object('answer', 'take', 'kind', 'charter', 'at', $2::text))`,
+      // ISO из приложения — так пишет claimPartnerAnswer (lib/rental/request-answer-store).
+      [charter, new Date(Date.now() + 40 * 60_000).toISOString()],
+    );
+    const tAnswered = await expectKinds(carrier, 'transfer', []);
+    expect(tAnswered.response.responded).toBe(1);
     const g = await expectKinds(guide, 'guide', ['guide_invite', 'guide_review']);
     expect(g.items.find((i) => i.kind === 'guide_invite')).toMatchObject({ title: 'Оператор входящих' });
     expect(g.items.find((i) => i.kind === 'guide_review')).toMatchObject({ title: 'Оценка 4 из 5' });
@@ -883,6 +899,17 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       `INSERT INTO guide_operator_invites (operator_id, guide_partner_id, created_at) VALUES ($1, $2, $3::timestamptz - INTERVAL '5 hours')`,
       [op, guide, now.toISOString()],
     );
+    // Заявка на машину перевозчику без ответа 3 часа — напоминание (#2862);
+    // исход с видом charter_request база принимает (CHECK — 1352).
+    const carrierR = await mk('Перевозчик напоминаний', 'transfer');
+    const charterDue = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, operator_id, status, route_title, source_data, created_at)
+       VALUES ('Заказчик', '+79148880002', $1, 'new', 'Вахтовка: Толбачик',
+               jsonb_build_object('kind', 'charter', 'destination', 'Толбачик', 'date_from', (CURRENT_DATE + 7)::text, 'passengers', 10),
+               $2::timestamptz - INTERVAL '3 hours')
+       RETURNING id::text`,
+      [carrierR, now.toISOString()],
+    )).rows[0].id;
 
     const sent: Array<{ text: string; stub: string }> = [];
     const send = async (p: { text: string; stub: string }) => { sent.push(p); return { channel: 'max' as const, delivered: true, reason: 'ok' }; };
@@ -896,13 +923,15 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     // их окно от фиксированного now не задевает; считаем свои.
     const mine = await pool.query<{ partner_id: string; item_kind: string; item_id: string; channel: string }>(
       `SELECT partner_id, item_kind, item_id, channel FROM crm_inbox_reminders WHERE partner_id = ANY($1::uuid[]) ORDER BY item_kind`,
-      [[stay, guide]],
+      [[stay, guide, carrierR]],
     );
     expect(mine.rows).toEqual([
       { partner_id: stay, item_kind: 'accommodation_booking', item_id: due, channel: 'max' },
+      { partner_id: carrierR, item_kind: 'charter_request', item_id: charterDue, channel: 'max' },
       { partner_id: guide, item_kind: 'guide_invite', item_id: expect.any(String), channel: 'unreachable' },
     ]);
     expect(sent.some((m) => m.text.includes('Бронь жилья «Дом напоминаний»') && m.text.includes('Аккаунт Туриста'))).toBe(true);
+    expect(sent.some((m) => m.text.includes('Заявка на машину «Толбачик»') && !m.stub.includes('Толбачик'))).toBe(true);
 
     // Второй прогон — о тех же предметах не напоминает.
     const again: string[] = [];

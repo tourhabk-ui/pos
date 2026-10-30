@@ -1,20 +1,29 @@
 /**
- * Чтение заявки проката и запись ответа прокатчика.
- * Партнёр — из привязанного чата: чужой lead_id строку не создаёт.
+ * Чтение заявки партнёру (прокат или машина целиком, #2862) и запись его
+ * ответа. Партнёр — из привязанного чата: чужой lead_id строку не создаёт.
  * Отказ базы — отдельный исход, с SQLSTATE в логе, без ПД.
+ *
+ * Ответ обоих видов — одна строка `lead_activity_log.partner_answered` под
+ * одним уникальным индексом (1326): второго ответа на заявку не бывает ни
+ * у проката, ни у перевозчика. В деталях — `kind` и `at` (ISO из
+ * приложения: у `created_at` таблицы тип без зоны, см. delivery-outcome), по
+ * `at` «Входящие» перевозчика считают время первого ответа.
  */
 
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
-import { isLeadId, rentalSpanDays, type RequestAnswer } from '@/lib/rental/request-answer';
+import { isLeadId, rentalSpanDays, type PartnerRequestKind, type RequestAnswer } from '@/lib/rental/request-answer';
 
 interface Sql {
   query: PoolClient['query'];
 }
 
 export interface OwnedRentalRequest {
+  kind: PartnerRequestKind;
   leadId: string;
+  /** Машина проката из заявки; у заявки на машину целиком — null. */
   offerId: string | null;
+  /** У проката — машина, у заявки на машину — направление. */
   title: string | null;
   dateFrom: string | null;
   dateTo: string | null;
@@ -22,7 +31,8 @@ export interface OwnedRentalRequest {
 
 export type LoadRequest =
   | { outcome: 'ok'; request: OwnedRentalRequest }
-  | { outcome: 'missing' | 'not_yours' | 'not_rental' | 'db_error' };
+  /** `not_request` — лид есть и этого партнёра, но это не заявка на прокат и не на машину. */
+  | { outcome: 'missing' | 'not_yours' | 'not_request' | 'db_error' };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -46,13 +56,31 @@ export async function loadOwnedRentalRequest(partnerId: string, leadId: string):
     if (!row) return { outcome: 'missing' };
     if (row.operator_id !== partnerId) return { outcome: 'not_yours' };
     const data = asRecord(row.source_data);
-    if (!data || data.kind !== 'car_rental') return { outcome: 'not_rental' };
+    if (!data || (data.kind !== 'car_rental' && data.kind !== 'charter')) return { outcome: 'not_request' };
+    if (data.kind === 'charter') {
+      // Заявка на машину целиком (lib/transfers/charter-request): адресат —
+      // carrier_id; расходится с operator_id — не его, как у проката company_id.
+      const carrierId = asText(data.carrier_id);
+      if (carrierId && carrierId !== partnerId) return { outcome: 'not_yours' };
+      return {
+        outcome: 'ok',
+        request: {
+          kind: 'charter',
+          leadId: row.id,
+          offerId: null,
+          title: asText(data.destination),
+          dateFrom: asText(data.date_from),
+          dateTo: asText(data.date_to),
+        },
+      };
+    }
     const companyId = asText(data.company_id);
     if (companyId && companyId !== partnerId) return { outcome: 'not_yours' };
     const offerId = asText(data.offer_id);
     return {
       outcome: 'ok',
       request: {
+        kind: 'car_rental',
         leadId: row.id,
         offerId: offerId && isLeadId(offerId) ? offerId.toLowerCase() : null,
         title: asText(data.offer_title),
@@ -184,6 +212,8 @@ export type ClaimAnswer =
 export async function claimPartnerAnswer(opts: {
   leadId: string;
   answer: RequestAnswer;
+  /** Вид заявки — в детали журнала; по умолчанию прокат (так писали до 30.10). */
+  kind?: PartnerRequestKind;
   partnerId: string;
   offerId: string | null;
   carTitle: string | null;
@@ -191,6 +221,8 @@ export async function claimPartnerAnswer(opts: {
   dateTo: string | null;
   /** Отметить дни в этой же транзакции. null — ответ без отметки. */
   mark: { offerId: string; dateFrom: string; dateTo: string } | null;
+  /** Часы приложения — для `at` в деталях; подставляются в тесте. */
+  now?: Date;
 }): Promise<ClaimAnswer> {
   let client: PoolClient;
   try {
@@ -223,6 +255,8 @@ export async function claimPartnerAnswer(opts: {
        VALUES ($1::uuid, 'partner', 'partner_answered', $2::jsonb)`,
       [opts.leadId, JSON.stringify({
         answer: opts.answer,
+        kind: opts.kind ?? 'car_rental',
+        at: (opts.now ?? new Date()).toISOString(),
         offer_id: opts.offerId,
         car_title: opts.carTitle,
         date_from: opts.dateFrom,

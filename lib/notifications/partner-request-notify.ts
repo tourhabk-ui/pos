@@ -7,20 +7,22 @@
  * та написана для туроператора — её единственная кнопка ведёт в кабинет
  * оператора `/hub/operator/leads/<id>`, куда у партнёра категории `transfer`
  * роли нет, а заглушка для Telegram обещает «имя и телефон — в кабинете».
- * У перевозчика и прокатчика кабинета заявок нет: заявку ведёт менеджер
- * Ведара (§14, `INBOX_NOT_HERE`), партнёру нужно знать, ЧТО просят и КТО, —
- * и этого достаточно, чтобы ответить менеджеру или позвонить заказчику.
+ * У перевозчика и прокатчика кабинета заявок на сайте нет: партнёру нужно
+ * знать, ЧТО просят и КТО, — и ответить кнопкой.
  *
  * Правила те же, что у личной доставки оператору:
  *   · адрес — только партнёра (`reachForPartner` → `sendPdAlert({ to })`,
  *     строго, без отката на рабочий чат платформы);
  *   · ПД (имя, телефон, пожелания) — только в тексте для MAX; в заглушке для
- *     Telegram их нет, и она НЕ зовёт в кабинет;
- *   · кнопок нет у заявки на машину перевозчика: ссылку давать некуда.
- *     У заявки на прокат пилота (`RENTAL_OPERATOR_PILOT_SLUGS`, без переменной
- *     — `laguna-prokat`) под текстом для MAX две кнопки «Беру» / «Не могу»
- *     (`rr:`). Это действия, не ссылки: в заглушку Telegram они не попадают
- *     (`pd-alert` отдаёт туда только кнопки с url, этот файл не трогает);
+ *     Telegram их нет, и она зовёт не в кабинет на сайте, а во «Входящие»
+ *     кабинета в чате — там карточка заявки с теми же кнопками;
+ *   · под текстом для MAX две кнопки «Беру» / «Не могу» (`rr:`): у заявки на
+ *     машину — каждому перевозчику (#2862 этап A, 30.10: до этого дня заявку
+ *     на машину вёл только менеджер, а перевозчик ответить через платформу
+ *     не мог), у заявки на прокат — пилоту (`RENTAL_OPERATOR_PILOT_SLUGS`,
+ *     без переменной — `laguna-prokat`). Это действия, не ссылки: в заглушку
+ *     Telegram они не попадают (`pd-alert` отдаёт туда только кнопки с url,
+ *     этот файл не трогает);
  *   · исходы — четыре (§4.0): доставлено / заглушка / нет канала / адрес не
  *     прочитался, и каждый, кроме доставки, назван в логе без ПД.
  *
@@ -53,7 +55,7 @@ export interface PartnerRequestNotice {
   name: string;
   phone: string;
   comment: string | null;
-  /** Slug прокатчика. Кнопки «Беру» / «Не могу» — только у пилота и только на прокате. */
+  /** Slug прокатчика. У заявки на прокат кнопки «Беру» / «Не могу» — только у пилота. */
   companySlug?: string | null;
 }
 
@@ -62,27 +64,36 @@ const HEADLINE: Record<PartnerRequestKind, string> = {
   car_rental: 'Новая заявка на прокат с Ведара',
 };
 
-/** «Беру» / «Не могу» — только прокат пилота и только с uuid заявки. */
-function pilotAnswerButtons(n: PartnerRequestNotice): PdAlertButton[] {
-  if (n.kind !== 'car_rental' || !isRentalPilotSlug(n.companySlug)) return [];
+/**
+ * «Беру» / «Не могу» — только с uuid заявки: на машину — каждому
+ * перевозчику, на прокат — пилоту.
+ */
+function answerButtons(n: PartnerRequestNotice): PdAlertButton[] {
+  if (n.kind === 'car_rental' && !isRentalPilotSlug(n.companySlug)) return [];
   return rentalAnswerButtons(n.leadId) ?? [];
 }
 
 /**
  * Кнопки под заявкой: «Ответить клиенту» — переписка с заказчиком в этом же
- * чате (1350) — у каждой заявки с uuid; «Беру» / «Не могу» — у пилота
- * проката. Нет ни одной — undefined.
+ * чате (1350) — у каждой заявки с uuid; следом «Беру» / «Не могу». Нет ни
+ * одной — undefined.
  */
 export function partnerRequestButtons(n: PartnerRequestNotice): PdAlertButton[] | undefined {
   const reply = isChatTargetId(n.leadId) ? [ownerReplyButton({ kind: 'lead', id: n.leadId })] : [];
-  const all = [...reply, ...pilotAnswerButtons(n)];
+  const all = [...reply, ...answerButtons(n)];
   return all.length > 0 ? all : undefined;
 }
+
+/** Что делают кнопки ответа — по виду заявки. У прокатчика «Беру» ещё и занимает дни. */
+const ANSWER_LINE: Record<PartnerRequestKind, string> = {
+  charter: '«Беру» — вы готовы выполнить и свяжетесь с заказчиком сами; «Не могу» — заявка остаётся у менеджера Ведара. Машина заявкой не закрепляется.',
+  car_rental: '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.',
+};
 
 /** Текст с ПД (MAX) и заглушка без ПД (Telegram) из одних фактов. */
 export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; stub: string } {
   const common = [`<b>${HEADLINE[n.kind]}</b>`, ...n.lines.map((l) => esc(l))];
-  const pilot = pilotAnswerButtons(n).length > 0;
+  const answers = answerButtons(n).length > 0;
   const reply = isChatTargetId(n.leadId);
   const text = [
     ...common,
@@ -91,16 +102,22 @@ export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; st
     `<b>Телефон:</b> ${esc(n.phone)}`,
     n.comment ? `<b>Пожелания:</b> ${esc(n.comment.slice(0, 200))}` : '',
     '',
-    'Менеджер Ведара согласует заказ с вами и подтвердит заказчику.',
+    // Перевозчик с кнопками отвечает сам; без кнопок (id не uuid) и у проката заказ согласует менеджер.
+    n.kind === 'charter' && answers
+      ? 'Ответьте кнопкой ниже — заказчик и менеджер Ведара узнают ваш ответ.'
+      : 'Менеджер Ведара согласует заказ с вами и подтвердит заказчику.',
     reply ? 'Написать заказчику в этом чате — кнопка «Ответить клиенту».' : '',
-    pilot ? '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает.' : '',
+    answers ? ANSWER_LINE[n.kind] : '',
   ].filter(Boolean).join('\n');
   const stub = [
     ...common,
     '',
     `Заявка <code>${esc(n.leadId)}</code> принята.`,
     'Контакты заказчика — у менеджера Ведара: в Telegram они не передаются.',
-  ].join('\n');
+    n.kind === 'charter' && answers
+      ? 'Ответить «Беру» или «Не могу» — в карточке заявки во «Входящих» (кнопка «Входящие» под сообщениями бота).'
+      : '',
+  ].filter(Boolean).join('\n');
   return { text, stub };
 }
 

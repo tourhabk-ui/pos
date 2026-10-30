@@ -39,3 +39,10 @@ export const CRM_KEYS_API = '/api/hub/crm/keys';
  * ссылка из сообщения.
  */
 export const CRM_SEAT_ANSWER_API = '/api/hub/crm/seat-requests';
+
+/**
+ * Ответ перевозчика на заявку на машину из «Входящих» (#2862):
+ * `${CRM_CHARTER_ANSWER_API}/<leadId>/answer`. Та же функция, что кнопки
+ * «Беру» / «Не могу» под заявкой в MAX и в карточке кабинета в чате.
+ */
+export const CRM_CHARTER_ANSWER_API = '/api/hub/crm/charter-requests';
