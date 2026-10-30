@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { hashStr } from '@/lib/notifications/post-image';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
-import { tgPostPhoto, tgPostMediaGroup, maxChannelPost } from '@/lib/notifications/telegram-channel';
+import { tgPostPhoto, tgPostMediaGroup, tgPostVideo, maxChannelPost } from '@/lib/notifications/telegram-channel';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
 
@@ -34,6 +34,12 @@ export const ManualChannelPostSchema = z.object({
    * AI-картинок в OpenGraph (#878).
    */
   photos: z.array(z.string().min(2).max(500)).min(2).max(10).optional(),
+  /**
+   * Видео-пост (sendVideo): путь с нашего сайта ('/media/...') или https-URL,
+   * mp4 до 20 МБ (лимит Telegram для отправки ссылкой). Взаимоисключимо с photos.
+   * В MAX видео не зеркалится — toMax с video игнорируется.
+   */
+  video: z.string().min(2).max(500).optional(),
   seed: z.number().int().nonnegative().optional(),
   /** Кросс-пост в MAX-канал (госмессенджер). Автоматические публикаторы
    * зеркалят в MAX всегда; у ручных это опция владельца. */
@@ -55,8 +61,9 @@ export function resolveChannelId(channel: ManualChannelPost['channel']): string 
  * контейнер, который отбросил photos; с чисто текстовым хэшем повторная
  * публикация альбома была бы навсегда заблокирована как «дубль».
  */
-export function manualPostTextHash(text: string, photos?: string[]): string {
-  const content = photos?.length ? `${text}\n${photos.join('\n')}` : text;
+export function manualPostTextHash(text: string, photos?: string[], video?: string): string {
+  let content = photos?.length ? `${text}\n${photos.join('\n')}` : text;
+  if (video) content = `${content}\nvideo:${video}`;
   return createHash('sha256').update(content).digest('hex').slice(0, 32);
 }
 
@@ -72,7 +79,7 @@ export async function publishManualChannelPost(
     return { ok: false, error: `Канал ${post.channel} не настроен (env отсутствует)` };
   }
 
-  const textHash = manualPostTextHash(post.text, post.photos);
+  const textHash = manualPostTextHash(post.text, post.photos, post.video);
   let tgDuplicate = false;
   try {
     const dup = await query(
@@ -91,7 +98,7 @@ export async function publishManualChannelPost(
   // Поэтому duplicate по TG не выходит сразу: если toMax запрошен и MAX ещё
   // не доставлялся — догоняем только MAX, TG не задваивая.
   if (tgDuplicate) {
-    if (post.toMax) {
+    if (post.toMax && !post.video) {
       let maxAlready = true; // лог недоступен → не рискуем дублем в MAX
       try {
         const maxDup = await query(
@@ -137,7 +144,12 @@ export async function publishManualChannelPost(
   let coverUrl: string;
   let imageSource: string;
 
-  if (post.photos && post.photos.length >= 2) {
+  if (post.video) {
+    const videoUrl = post.video.startsWith('/') ? `${SITE_URL}${post.video}` : post.video;
+    result = await tgPostVideo(channelId, videoUrl, post.text);
+    coverUrl = videoUrl;
+    imageSource = 'video';
+  } else if (post.photos && post.photos.length >= 2) {
     const urls = post.photos.map((p) => (p.startsWith('/') ? `${SITE_URL}${p}` : p));
     result = await tgPostMediaGroup(channelId, urls, post.text);
     coverUrl = urls[0];
@@ -157,7 +169,7 @@ export async function publishManualChannelPost(
   // MAX — после успешного TG-поста, fire-and-forget (как у автоматических
   // публикаторов): сбой MAX не должен ронять доставку и логирование TG.
   // Успех фиксируется отдельной записью — дедуп по каналам раздельный.
-  if (result.ok && post.toMax) {
+  if (result.ok && post.toMax && !post.video) {
     maxChannelPost(post.text, coverUrl).then(async r => {
       if (!r.ok) { console.error('[manual-channel-post] MAX error:', r.error); return; }
       try {
@@ -179,6 +191,7 @@ export async function publishManualChannelPost(
           text_preview: post.text.slice(0, 200),
           image_source: imageSource,
           photos_count: post.photos?.length ?? 0,
+          video: post.video ?? null,
         })],
       );
     } catch { /* not critical */ }
