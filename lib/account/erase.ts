@@ -1404,6 +1404,12 @@ export const ERASE_KEEP: Readonly<Record<string, KeepEntry>> = {
   'rental_offer_edits.moderation_reason': {
     reason: 'ссылка moderated_by — на администратора, который решил правку цены или описания машины; текст — причина по строке прайса, а не данные этого человека',
   },
+  'transfer_charter_price_edits.moderation_reason': {
+    reason: 'ссылка moderated_by — на администратора, который решил правку прайса перевозчика (1355); текст — причина по строке прайса, а не данные этого человека',
+  },
+  'transfer_charter_price_edits.price_note': {
+    reason: 'ссылка moderated_by — на администратора; примечание — к цене строки прайса («плюс переправы»), о машине и дороге, а не о человеке',
+  },
   guide_certifications: {
     reason: 'ссылка reviewed_by — на проверявшего администратора; имя в строке — аттестованного гида из реестра, не его',
   },

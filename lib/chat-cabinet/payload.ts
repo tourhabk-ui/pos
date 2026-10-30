@@ -20,6 +20,9 @@
  *                         кнопка под напоминанием и сводкой не стирает их правкой
  *   cb:g                — «Сводка»: когда приходит (1354)
  *   cb:g:<m|d|e|o>      — сводка утром / днём / вечером / не присылать
+ *   cb:v                — «Машины и прайс» перевозчика: парк и строки прайса
+ *                         с черновиками (#2862 этап C)
+ *   cb:v:<a|z>:<uuid>   — машину вернуть на линию / снять с линии
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -81,7 +84,9 @@ export type CabinetPress =
   | { kind: 'touch'; outcome: TouchOutcome; contactId: string }
   | { kind: 'remind'; when: RemindWhen; contactId: string }
   | { kind: 'digest' }
-  | { kind: 'digest_set'; mode: DigestMode };
+  | { kind: 'digest_set'; mode: DigestMode }
+  | { kind: 'fleet' }
+  | { kind: 'vehicle_active'; vehicleId: string; active: boolean };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -120,6 +125,8 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
     const when = CODE_REMIND.get(m[1] ?? '');
     return when ? { kind: 'remind', when, contactId: m[2]! } : null;
   }],
+  [/^cb:v$/, () => ({ kind: 'fleet' })],
+  [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
 ];
 
 export function isCabinetPayload(payload: string): boolean {
@@ -167,6 +174,8 @@ export const cabinetPayload = {
   searchCancel: (): string => 'cb:x',
   touch: (outcome: TouchOutcome, contactId: string): string => `cb:k:${TOUCH_CODE[outcome]}:${contactId.toLowerCase()}`,
   remind: (when: RemindWhen, contactId: string): string => `cb:r:${REMIND_CODE[when]}:${contactId.toLowerCase()}`,
+  fleet: (): string => 'cb:v',
+  vehicleActive: (vehicleId: string, active: boolean): string => `cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`,
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */

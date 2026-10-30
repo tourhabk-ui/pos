@@ -34,6 +34,9 @@ import { bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-own
 import { chatAnswerButtons } from '@/lib/requests/chat-answer';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
+import { formatRub, vehicleKindWord, type CharterVehicleKind } from '@/lib/transfers/charter-format';
+import { priceRowLabel, type CharterPriceRow } from '@/lib/transfers/price-edit';
+import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
@@ -534,6 +537,12 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
     lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик и открытые даты.');
   }
+  if (partner.role === 'transfer') {
+    // Парк и прайс перевозчика (#2862 этап C): кнопка снять машину с линии,
+    // цена — фразой, на модерацию.
+    rows.push([{ text: 'Машины и прайс', payload: cabinetPayload.fleet() }]);
+    lines.push('Машины и прайс — парк (снять с линии и вернуть кнопкой) и строки прайса с черновиками на модерации.');
+  }
   if (partner.summary) {
     rows.push([{ text: 'Сводка', payload: `rm:${code}:sm` }]);
     lines.push('Сводка — числа по запросам мест, без имён.');
@@ -602,6 +611,99 @@ export function digestScreen(mode: DigestMode, notice?: string | null): CabinetS
 
 /** Сводку настраивает только чат карточки: она приходит туда. */
 export const DIGEST_MEMBER = 'Ежедневная сводка приходит владельцу кабинета — время меняет он в своём чате.';
+
+// ── Машины и прайс перевозчика (#2862 этап C) ──────────────────────────────
+
+/** Машина парка глазами экрана: без partner_id, он известен из чата. */
+export interface FleetVehicleView {
+  id: string;
+  kind: CharterVehicleKind;
+  title: string;
+  seats: number | null;
+  notes: string | null;
+  is_active: boolean;
+}
+
+export const FLEET_TEXT = {
+  notCarrier: 'Раздел «Машины и прайс» есть только у перевозчика.',
+  vehiclesFailed: 'Парк не прочитался — это не «машин нет».',
+  pricesFailed: 'Прайс не прочитался — это не «прайса нет».',
+  draftsFailed: 'Черновики не прочитались.',
+} as const;
+
+/**
+ * Парк и прайс перевозчика в чате: машины с кнопкой «Снять с линии» /
+ * «Вернуть», строки прайса с ценой и черновиком на модерации. ПД нет — экран
+ * идёт в оба канала. Цена меняется фразой «цена <направление> <рубли>» —
+ * черновиком; примечание, условия и новая строка — в кабинете на сайте.
+ * Каждый список может не прочитаться отдельно (null) — и это названо.
+ */
+export function fleetScreen(args: {
+  vehicles: FleetVehicleView[] | null;
+  prices: CharterPriceRow[] | null;
+  drafts: OwnDraft[] | null;
+  base: string;
+  notice?: string;
+}): CabinetScreen {
+  const lines: Array<string | null> = [args.notice ? `${args.notice}\n` : null, '<b>Машины и прайс</b>'];
+  const rows: CabinetButton[][] = [];
+
+  lines.push('', '<b>Парк</b>');
+  if (args.vehicles === null) {
+    lines.push(FLEET_TEXT.vehiclesFailed);
+  } else if (args.vehicles.length === 0) {
+    lines.push('Машин не записано. Добавить — в кабинете на сайте.');
+  } else {
+    args.vehicles.forEach((v, i) => {
+      const seats = v.seats === null ? 'число мест не записано' : `${v.seats} мест`;
+      const notes = v.notes ? `, ${escapeHtml(v.notes)}` : '';
+      const state = v.is_active ? '' : ' — снята с линии';
+      lines.push(`${i + 1}. ${escapeHtml(v.title)} (${vehicleKindWord(v.kind)}, ${seats}${notes})${state}`);
+    });
+    const toggles = args.vehicles.slice(0, 6).map((v, i) => ({
+      text: clip(`${i + 1}. ${v.is_active ? 'Снять с линии' : 'Вернуть на линию'}`),
+      payload: cabinetPayload.vehicleActive(v.id, !v.is_active),
+      intent: (v.is_active ? 'negative' : 'positive') as 'negative' | 'positive',
+    }));
+    for (let i = 0; i < toggles.length; i += 2) rows.push(toggles.slice(i, i + 2));
+    if (args.vehicles.length > 6) lines.push('Кнопки — у первых шести машин; остальные — в кабинете на сайте.');
+  }
+
+  lines.push('', '<b>Прайс</b>');
+  if (args.prices === null) {
+    lines.push(FLEET_TEXT.pricesFailed);
+  } else if (args.prices.length === 0) {
+    lines.push('Строк прайса нет. Добавить — в кабинете на сайте: без прайса перевозчика на витрине нет.');
+  } else {
+    const pending = new Map((args.drafts ?? []).filter((d) => d.status === 'pending' && d.priceId).map((d) => [d.priceId as string, d]));
+    for (const p of args.prices) {
+      const d = pending.get(p.id);
+      const draft = d
+        ? ` — черновик на модерации${d.priceRub !== null ? `: ${formatRub(d.priceRub)}` : ''}${d.isActive === false ? ', скрыть' : d.isActive === true ? ', показать' : ''}`
+        : '';
+      const hidden = p.isActive ? '' : ' (скрыта с сайта)';
+      lines.push(`• ${escapeHtml(priceRowLabel(p))}: ${formatRub(p.priceRub)}${hidden}${draft}`);
+    }
+    const newDrafts = (args.drafts ?? []).filter((d) => d.status === 'pending' && !d.priceId);
+    for (const d of newDrafts) {
+      const label = priceRowLabel({
+        lineKind: d.lineKind ?? 'destination', fromText: d.fromText, toText: d.toText, vehicleKind: d.vehicleKind ?? 'other',
+      });
+      lines.push(`• Новая строка на модерации: ${escapeHtml(label)}${d.priceRub !== null ? ` — ${formatRub(d.priceRub)}` : ''}`);
+    }
+    if (args.drafts === null) lines.push(FLEET_TEXT.draftsFailed);
+  }
+  const rejected = (args.drafts ?? []).filter((d) => d.status === 'rejected').slice(0, 3);
+  if (rejected.length > 0) {
+    lines.push('', 'Отклонённые правки:');
+    for (const d of rejected) lines.push(`— ${escapeHtml(d.reason ?? 'причина не записана')}`);
+  }
+  // Без угловых скобок: текст уходит в MAX как HTML.
+  lines.push('', 'Изменить цену — фразой: слово «цена», направление как в прайсе и рубли, например «цена Авачинский 65000». '
+    + 'Это черновик, на сайт он попадёт после одобрения. Примечание, условия, новая строка и скрытие строки — в кабинете на сайте.');
+  rows.push([{ text: 'Прайс на сайте', url: siteUrl(args.base, 'transfer') }]);
+  return screen(lines, rows);
+}
 
 // ── Отказы ──────────────────────────────────────────────────────────────────
 

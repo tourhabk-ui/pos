@@ -36,6 +36,7 @@ import { RENTAL_CALENDAR_TOOL, RENTAL_CALENDAR_TOOL_NAME } from '@/lib/rental/ca
 import { rentalCalendarToolText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { handleRentalOfferEdit } from '@/lib/rental/offer-edit-flow';
+import { handleCharterPriceEdit } from '@/lib/transfers/price-edit-flow';
 import { redactPII } from '@/lib/security/pii-redact';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -423,6 +424,20 @@ export async function processPartnerMessage(opts: {
   if (edited !== null) {
     await saveAnswer(edited);
     await reply(chatId, edited);
+    return;
+  }
+
+  // Перевозчик: «цена <направление> <рубли>» — черновик прайса на модерацию
+  // (#2862 этап C), тоже без модели.
+  const charterEdited = await handleCharterPriceEdit({
+    partnerId: partner.partnerId,
+    category: partner.category,
+    slug: partner.slug ?? null,
+    text,
+  });
+  if (charterEdited !== null) {
+    await saveAnswer(charterEdited);
+    await reply(chatId, charterEdited);
     return;
   }
 

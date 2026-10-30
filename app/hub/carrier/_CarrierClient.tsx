@@ -15,10 +15,17 @@
  * seats_over_capacity, not_enough_seats…), а не «что-то пошло не так».
  * Записи — только через /api/hub/carrier/* (requireCarrier), напрямую в
  * таблицы этот экран не ходит.
+ *
+ * Прайс (#2862 этап C, 1355): правки — черновиком на модерацию
+ * (CharterPriceBoard). Парк не модерируется: снять машину с линии, число
+ * мест и заметку перевозчик правит сам — PATCH /api/hub/carrier/vehicles/[id].
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Bus, Inbox, Plus, Check, X, AlertCircle } from 'lucide-react';
+import { Bus, Inbox, Plus, Check, X, AlertCircle, Tag, Pencil } from 'lucide-react';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { CARRIER_PRICES_API, CharterPriceBoard, type BoardLoad } from '@/components/carrier/CharterPriceBoard';
+import type { CharterPriceRow } from '@/lib/transfers/price-edit';
+import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 
 interface Vehicle { id: string; kind: string; title: string; seats: number | null; notes: string | null; is_active: boolean }
 interface SeatRequest {
@@ -45,7 +52,28 @@ function fmtDate(s: string): string {
 export default function CarrierClient() {
   const [vehicles, setVehicles] = useState<Load<Vehicle>>({ state: 'loading' });
   const [requests, setRequests] = useState<Load<SeatRequest>>({ state: 'loading' });
+  const [prices, setPrices] = useState<BoardLoad<CharterPriceRow>>({ state: 'loading' });
+  const [drafts, setDrafts] = useState<BoardLoad<OwnDraft>>({ state: 'loading' });
   const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  // Прайс и черновики — одним ответом, но каждый список может не прочитаться отдельно (null).
+  const loadPrices = useCallback(async () => {
+    setPrices({ state: 'loading' });
+    setDrafts({ state: 'loading' });
+    try {
+      const r = await readJson<{ rows: CharterPriceRow[] | null; drafts: OwnDraft[] | null }>(await fetch(CARRIER_PRICES_API, { credentials: 'include' }));
+      if (!r.ok || !r.data) {
+        setPrices({ state: 'failed', message: r.error ?? 'не прочитали' });
+        setDrafts({ state: 'failed', message: r.error ?? 'не прочитали' });
+        return;
+      }
+      setPrices(r.data.rows ? { state: 'ok', items: r.data.rows } : { state: 'failed', message: 'база не ответила' });
+      setDrafts(r.data.drafts ? { state: 'ok', items: r.data.drafts } : { state: 'failed', message: 'база не ответила' });
+    } catch {
+      setPrices({ state: 'failed', message: 'нет связи с сервером' });
+      setDrafts({ state: 'failed', message: 'нет связи с сервером' });
+    }
+  }, []);
 
   const load = useCallback(async <T,>(url: string, set: (v: Load<T>) => void) => {
     set({ state: 'loading' });
@@ -60,7 +88,8 @@ export default function CarrierClient() {
   const reloadAll = useCallback(() => {
     void load<Vehicle>('/api/hub/carrier/vehicles', setVehicles);
     void load<SeatRequest>('/api/hub/carrier/requests?status=requested', setRequests);
-  }, [load]);
+    void loadPrices();
+  }, [load, loadPrices]);
 
   useEffect(() => { reloadAll(); }, [reloadAll]);
 
@@ -83,6 +112,11 @@ export default function CarrierClient() {
 
       <h2 className="ds-h2 mb-3 flex items-center gap-2"><Bus size={16} /> Парк</h2>
       <Fleet vehicles={vehicles} onChanged={reloadAll} say={say} />
+
+      <section className="mt-8" data-testid="carrier-prices">
+        <h2 className="ds-h2 mb-1 flex items-center gap-2"><Tag size={16} /> Прайс</h2>
+        <CharterPriceBoard rows={prices} drafts={drafts} onChanged={loadPrices} say={say} />
+      </section>
 
       {showRequests && (
         <section className="mt-8" data-testid="seat-requests-left">
@@ -112,7 +146,7 @@ function Fleet({ vehicles, onChanged, say }: { vehicles: Load<Vehicle>; onChange
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState('jeep');
   const [title, setTitle] = useState('');
-  const [seats, setSeats] = useState(6);
+  const [seats, setSeats] = useState('6');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -121,7 +155,7 @@ function Fleet({ vehicles, onChanged, say }: { vehicles: Load<Vehicle>; onChange
     try {
       const r = await readJson(await fetch('/api/hub/carrier/vehicles', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, title, seats, notes: notes || null }),
+        body: JSON.stringify({ kind, title, seats: seats.trim() ? Number(seats) : null, notes: notes || null }),
       }));
       if (!r.ok) { say('err', r.error ?? 'Машина не добавлена'); return; }
       say('ok', 'Машина добавлена'); setOpen(false); setTitle(''); setNotes(''); onChanged();
@@ -138,13 +172,7 @@ function Fleet({ vehicles, onChanged, say }: { vehicles: Load<Vehicle>; onChange
       {vehicles.state === 'ok' && vehicles.items.length > 0 && (
         <ul className="flex flex-col gap-2 mb-4">
           {vehicles.items.map(v => (
-            <li key={v.id} className="ds-card p-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-[var(--text-primary)]">{v.title}</p>
-                <p className="text-xs text-[var(--text-secondary)]">{KIND_LABEL[v.kind] ?? v.kind} · мест: {v.seats ?? 'не записано'}{v.notes ? ` · ${v.notes}` : ''}</p>
-              </div>
-              {!v.is_active && <span className="ds-badge">не активна</span>}
-            </li>
+            <VehicleRow key={v.id} vehicle={v} onChanged={onChanged} say={say} />
           ))}
         </ul>
       )}
@@ -157,8 +185,8 @@ function Fleet({ vehicles, onChanged, say }: { vehicles: Load<Vehicle>; onChange
               {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
-          <label className="text-xs text-[var(--text-secondary)]">Мест
-            <input type="number" min={1} max={60} className="ds-input mt-1 w-full" value={seats} onChange={e => setSeats(Number(e.target.value) || 1)} />
+          <label className="text-xs text-[var(--text-secondary)]">Мест (пусто — не записано)
+            <input type="number" min={1} max={60} className="ds-input mt-1 w-full" value={seats} onChange={e => setSeats(e.target.value)} />
           </label>
           <label className="text-xs text-[var(--text-secondary)] col-span-2">Название
             <input className="ds-input mt-1 w-full" value={title} onChange={e => setTitle(e.target.value)} required minLength={2} maxLength={100} placeholder="Например, КАМАЗ-вахтовка 4310" />
@@ -173,6 +201,72 @@ function Fleet({ vehicles, onChanged, say }: { vehicles: Load<Vehicle>; onChange
         </form>
       )}
     </section>
+  );
+}
+
+/** Машина парка: снять с линии / вернуть одной кнопкой, места и заметка — формой. Модерации нет. */
+function VehicleRow({ vehicle: v, onChanged, say }: { vehicle: Vehicle; onChanged: () => void; say: (k: 'ok' | 'err', t: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [seats, setSeats] = useState(v.seats === null ? '' : String(v.seats));
+  const [notes, setNotes] = useState(v.notes ?? '');
+  const [busy, setBusy] = useState(false);
+
+  const patch = async (body: Record<string, unknown>, okText: string) => {
+    setBusy(true);
+    try {
+      const r = await readJson(await fetch(`/api/hub/carrier/vehicles/${v.id}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }));
+      if (!r.ok) { say('err', r.error ?? 'Машина не обновлена'); return false; }
+      say('ok', okText);
+      onChanged();
+      return true;
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <li className="ds-card p-3" data-testid="vehicle-row">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">{v.title}</p>
+          <p className="text-xs text-[var(--text-secondary)]">{KIND_LABEL[v.kind] ?? v.kind} · мест: {v.seats ?? 'не записано'}{v.notes ? ` · ${v.notes}` : ''}</p>
+          {!v.is_active && <span className="ds-badge mt-1">снята с линии</span>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button type="button" className="ds-btn ds-btn-secondary text-sm flex items-center gap-1" disabled={busy} onClick={() => setEditing(!editing)}>
+            <Pencil size={14} /> Изменить
+          </button>
+          <button
+            type="button"
+            className="ds-btn ds-btn-secondary text-sm"
+            disabled={busy}
+            onClick={() => void patch({ is_active: !v.is_active }, v.is_active ? 'Машина снята с линии: на витрине её нет' : 'Машина снова на линии')}
+          >
+            {v.is_active ? 'Снять с линии' : 'Вернуть на линию'}
+          </button>
+        </div>
+      </div>
+      {editing && (
+        <form
+          className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[var(--border)]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void patch({ seats: seats.trim() ? Number(seats) : null, notes: notes.trim() || null }, 'Машина обновлена').then((ok) => { if (ok) setEditing(false); });
+          }}
+        >
+          <label className="text-xs text-[var(--text-secondary)]">Мест (пусто — не записано)
+            <input type="number" min={1} max={60} className="ds-input mt-1 w-full" value={seats} onChange={(e) => setSeats(e.target.value)} />
+          </label>
+          <label className="text-xs text-[var(--text-secondary)]">Заметка
+            <input className="ds-input mt-1 w-full" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={300} />
+          </label>
+          <div className="col-span-2 flex gap-2">
+            <button type="submit" className="ds-btn ds-btn-primary text-sm" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить'}</button>
+            <button type="button" className="ds-btn ds-btn-secondary text-sm" onClick={() => setEditing(false)}>Отмена</button>
+          </div>
+        </form>
+      )}
+    </li>
   );
 }
 

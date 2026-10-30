@@ -2,11 +2,15 @@
  * Парк перевозчика.
  *   GET  /api/hub/carrier/vehicles — свои машины
  *   POST /api/hub/carrier/vehicles — добавить машину
+ *   (правка одной — PATCH /api/hub/carrier/vehicles/[id])
  *
  * Новый путь, не адрес мёртвого модуля (/api/transfer-operator/*): старый
  * URL, оживший с новой семантикой, — «сломанное выглядит менее сломанным» на
  * уровне маршрутизации (решение владельца 01.09). Схема — миграция 926,
  * логика — lib/transfers/service.ts.
+ *
+ * Число мест может быть не записано (1292): форма без него принимается, в
+ * базу идёт NULL — «не записано», а не выдуманная цифра (§4.0).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -18,7 +22,7 @@ export const dynamic = 'force-dynamic';
 const VehicleSchema = z.object({
   kind: z.enum(['jeep', 'vahtovka', 'minibus', 'other']),
   title: z.string().trim().min(2, 'Назовите машину').max(100),
-  seats: z.number().int().min(1).max(60),
+  seats: z.number().int().min(1).max(60).nullable().optional(),
   notes: z.string().trim().max(300).optional().nullable(),
 });
 
@@ -46,7 +50,7 @@ export async function POST(request: NextRequest) {
     );
   }
   try {
-    const vehicle = await addVehicle({ partnerId: carrier.partnerId, ...parsed.data });
+    const vehicle = await addVehicle({ partnerId: carrier.partnerId, ...parsed.data, seats: parsed.data.seats ?? null });
     return NextResponse.json({ success: true, data: vehicle }, { status: 201 });
   } catch (err) {
     console.error('[carrier/vehicles] add:', err instanceof Error ? err.message : err);
