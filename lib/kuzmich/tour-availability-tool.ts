@@ -1223,6 +1223,37 @@ async function emptyWindowAnswer(
   return lines;
 }
 
+/**
+ * Группа больше свободных мест хотя бы на одной показанной дате (30.10).
+ * Строка слота называет «на N чел. мест не хватит» сама; здесь — что делать:
+ * ближайшая дата, где мест хватит на всех, — в окне (первая подходящая) или
+ * после него тем же движком, что пустое окно. Дата — НЕ строкой слота
+ * «- ДД.ММ (…): свободно N» (сверка каналов, см. emptyWindowAnswer).
+ */
+async function shortGroupLines(
+  tour: ResolvedTour, slots: Array<{ date: string; remaining: number }>, people: number,
+  to: string, today: string, cache: ReturnType<typeof createPlannerCache>,
+): Promise<string[]> {
+  const head = `На даты, где свободно меньше ${people}, мест на ${people} чел. не хватит: не называй там итог и не отправляй заявку на всю группу.`;
+  const inWindow = slots.find((s) => s.remaining >= people);
+  if (inWindow) {
+    return [`${head} Ближайшая дата, где хватит мест на ${people} чел., — ${dayIn(inWindow.date, today)}, свободно ${inWindow.remaining}.`];
+  }
+  const horizon = yearAhead(today);
+  const afterFrom = addDays(to, 1);
+  if (afterFrom > horizon) {
+    return [`${head} В этом окне такой даты нет, а дальше года от сегодняшнего дня (после ${dayIn(horizon, today)}) не смотрю.`];
+  }
+  const after = await firstFreeSlot(tour.id, afterFrom, horizon, people, 'для группы', cache);
+  if (after.state === 'found') {
+    return [`${head} В этом окне такой даты нет; ближайшая дата после окна, где хватит мест на ${people} чел., — ${dayIn(after.date, today)}, свободно ${after.remaining}; её покажет get_tour_availability с date_from=${after.date}.`];
+  }
+  if (after.state === 'none') {
+    return [`${head} До ${dayIn(horizon, today)} даты, где хватит мест на ${people} чел., нет — предложи разделить группу или другой тур.`];
+  }
+  return [`${head} Ближайшую дату, где хватит мест на ${people} чел., после этого окна проверить не смог — не говори, что её нет.`];
+}
+
 type AvailabilityArgs = { tour?: string; date_from?: string; days?: string; people?: string };
 
 export async function getTourAvailabilityForKuzmich(args: AvailabilityArgs): Promise<string> {
@@ -1339,25 +1370,36 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
     // «итог не посчитан», а не пропуск строки и не «от».
     // Группа вне ступеней — «цену называет оператор», сбой — «итог не
     // посчитан» (groupTotalOn): одни слова с окном без календаря и сравнением.
+    // Группа больше свободных мест (30.10): на такой дате итог не
+    // называется — «свободно 2; итого за 4 чел.» агент пересказал бы как
+    // готовую к заявке сумму, а гейт create_booking_request её отклонит.
+    const short = (s: { remaining: number }) => people !== null && s.remaining < people;
     const totals = people !== null && tour.base_price != null
-      ? await Promise.all(shown.map((s) => groupTotalOn(tour, s.date, people)))
+      ? await Promise.all(shown.map((s) => (short(s) ? null : groupTotalOn(tour, s.date, people))))
       : null;
     const lines = shown.map((s, i) => {
       // Единица — из тура, а не «р/чел»: у многодневок цена за группу, и
       // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
       // Цена на дату может быть переопределена, но единица у неё та же.
       const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
-      const total = totals && people !== null ? `; ${groupTotalLabel(totals[i], people)}` : '';
+      const t = totals?.[i];
+      const total = people !== null && short(s)
+        ? `; на ${people} чел. мест не хватит`
+        : t && people !== null ? `; ${groupTotalLabel(t, people)}` : '';
       return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}${total}`;
     });
     const more = slots.length > SHOWN
       ? [`…и ещё ${slots.length - SHOWN} дат с местами до ${shortDate(to)} — чтобы увидеть их, сдвиньте date_from.`]
+      : [];
+    const groupLines = people !== null && shown.some(short)
+      ? await shortGroupLines(tour, slots, people, to, today, cache)
       : [];
     return [
       ...notes,
       `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость мест):`,
       ...lines,
       ...more,
+      ...groupLines,
       // Ссылка — полным адресом: относительная у внешнего агента никуда не
       // ведёт (проверка MCP 29.09).
       `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,

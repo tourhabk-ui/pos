@@ -126,10 +126,14 @@ def bridge_description(text):
         text = " ".join(kept)
     return text[:1024]
 
-SYSTEM_PROMPT = """Ты помощник по Камчатке. Отвечай на том языке, на котором задан вопрос.
-
-Данные бери ТОЛЬКО из инструментов. Чего в базе нет — не выдумывай,
-не называй точных дат и мест по памяти: говори, что данных нет.
+# Системный промпт моста = правила самого моста + инструкция сервера из
+# ответа initialize (поле instructions, 30.10). До этого мост держал свою
+# копию правил платформы, и она расходилась с сервером: строка о прямой оплате
+# стояла безусловно, а у сервера оплата тура — по выключателю
+# (lib/payments/accepting.ts). Правила платформы говорит сервер; здесь —
+# только то, что про сам мост: язык ответа, порядок вызовов и ворота согласия,
+# которые мост ставит сам (WRITE_TOOLS).
+BRIDGE_PROMPT = """Ты помощник по Камчатке. Отвечай на том языке, на котором задан вопрос.
 
 Инструменты с безопасностью (safety_status, get_guardian_context,
 get_volcano_status, get_weather) вызывай ДО того, как советовать поездку,
@@ -139,12 +143,22 @@ get_volcano_status, get_weather) вызывай ДО того, как совет
 create_stay_request, request_charter, create_car_rental_request) вызывай ТОЛЬКО если пользователь
 в этом же диалоге явно сказал, что он согласен на обработку данных,
 и только с теми данными, которые он назвал сам. Никогда не подставляй
-свой телефон, имя или согласие от себя.
+свой телефон, имя или согласие от себя."""
 
-Заявка — это не бронь: мест она не закрепляет, оплата идёт напрямую.
-Говори об этом пользователю.
+# Только когда сервер инструкции не прислал (старая версия, сбой): самое
+# общее, без утверждений об оплате и бронях — их знает только сервер.
+FALLBACK_RULES = """Данные бери ТОЛЬКО из инструментов. Чего в базе нет — не выдумывай,
+не называй точных дат и мест по памяти: говори, что данных нет.
 
 Экстренный вызов на Камчатке — 112."""
+
+
+def build_system_prompt(server_instructions=None):
+    """Системный промпт: правила моста и инструкция сервера из initialize."""
+    text = server_instructions.strip() if isinstance(server_instructions, str) else ""
+    if not text:
+        return f"{BRIDGE_PROMPT}\n\n{FALLBACK_RULES}"
+    return f"{BRIDGE_PROMPT}\n\nИнструкция сервера Ведара (правила платформы):\n{text}"
 
 
 # ---------------------------------------------------------------- конфиг
@@ -211,6 +225,7 @@ class VedarMCP:
         }
         self._id = 0
         self.server_info = None
+        self.instructions = None
 
     def _rpc(self, method, params=None, timeout=TIMEOUT):
         self._id += 1
@@ -236,6 +251,7 @@ class VedarMCP:
             },
         )
         self.server_info = res.get("serverInfo")
+        self.instructions = res.get("instructions")
         return res
 
     def list_tools(self):
@@ -308,11 +324,13 @@ class Agent:
     def __init__(self, cfg):
         self.cfg = cfg
         self.mcp = VedarMCP(name=client_name(cfg["provider"]))
-        info = self.mcp.initialize().get("serverInfo", {})
+        init = self.mcp.initialize()
+        info = init.get("serverInfo", {})
         self.tools = to_openai_tools(self.mcp.list_tools())
         self.title = info.get("title") or info.get("name")
         self.version = info.get("version", "?")
-        self.history = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.system_prompt = build_system_prompt(init.get("instructions"))
+        self.history = [{"role": "system", "content": self.system_prompt}]
 
     def say(self, text):
         info = f"[{self.title} v{self.version} | тулов: {len(self.tools)} | "
@@ -433,6 +451,10 @@ def doctor(cfg):
     tools = mcp.list_tools()
     print(f"MCP      {MCP_URL}")
     print(f"          {info.get('title')} v{info.get('version')}, тулов: {len(tools)}")
+    if isinstance(mcp.instructions, str) and mcp.instructions.strip():
+        print(f"          инструкция сервера: {len(mcp.instructions.strip())} знаков, идёт в системный промпт")
+    else:
+        print("          инструкции сервер не прислал — в промпте общие правила моста")
     print(f"Провайдер {cfg['provider']}")
     print(f"base_url  {cfg['base_url'] or '— НЕ ЗАДАН —'}")
     print(f"модель    {cfg['model'] or '— НЕ ЗАДАНА —'}")
