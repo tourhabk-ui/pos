@@ -775,13 +775,14 @@ export function buildOpenApiDocument(base: string): Json {
       post: {
         tags: ['mcp'],
         operationId: 'mcpJsonRpc',
-        summary: 'MCP-сервер: JSON-RPC 2.0 по Streamable HTTP (initialize, tools/list, tools/call, ping)',
-        description: `Анонимно, без сессий. Версии протокола: ${[...SUPPORTED_PROTOCOL_VERSIONS].join(', ')} (заголовок MCP-Protocol-Version проверяется, если есть). Лимиты по адресу на вызов инструмента: чтение 30 в минуту, заявки 5 в час. Пакет — до 20 сообщений, тело — до 64 КиБ. Отказ инструмента — result с isError: true и HTTP 200; неизвестный инструмент — error -32602 с data.available.`,
+        summary: 'MCP-сервер: JSON-RPC 2.0 по Streamable HTTP (initialize, tools/list, tools/call, ping; в 2026-07-28 — server/discover, tools/list, tools/call)',
+        description: `Анонимно, без сессий. Версии протокола: ${[...SUPPORTED_PROTOCOL_VERSIONS].join(', ')} (заголовок MCP-Protocol-Version проверяется, если есть). Ревизия 2026-07-28 — без initialize: версия и clientCapabilities в params._meta каждого запроса, заголовки MCP-Protocol-Version, Mcp-Method и Mcp-Name (у tools/call) сверяются с телом (-32020), чужая версия — -32022 с data.supported, неизвестный метод — HTTP 404 и -32601, пакетов нет. Лимиты по адресу на вызов инструмента: чтение 30 в минуту, заявки 5 в час. Пакет — до 20 сообщений, тело — до 64 КиБ. Отказ инструмента — result с isError: true и HTTP 200; неизвестный инструмент — error -32602 с data.available.`,
         requestBody: { required: true, content: { [JSON_CT]: { schema: { oneOf: [ref('JsonRpcRequest'), { type: 'array', items: ref('JsonRpcRequest'), maxItems: 20 }] } } } },
         responses: {
           '200': jsonResponse('Ответ JSON-RPC (или массив для пакета)', { oneOf: [ref('JsonRpcResponse'), { type: 'array', items: ref('JsonRpcResponse') }] }),
           '202': { description: 'Уведомление или пакет из одних уведомлений' },
-          '400': jsonResponse('Невалидный JSON, пустой пакет, неподдерживаемая версия', ref('JsonRpcResponse')),
+          '400': jsonResponse('Невалидный JSON, пустой пакет, неподдерживаемая версия; в 2026-07-28 — заголовки не совпали с телом, нет обязательных полей _meta', ref('JsonRpcResponse')),
+          '404': jsonResponse('Ревизия 2026-07-28: метода нет на сервере (-32601)', ref('JsonRpcResponse')),
           '413': { description: 'Тело больше 64 КиБ' },
         },
       },

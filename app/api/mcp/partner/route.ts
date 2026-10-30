@@ -26,7 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { bearerKey, resolveAgentKey, touchAgentKey } from '@/lib/crm/agent-keys';
 import { handlePartnerMessage } from '@/lib/mcp/partner-server';
 import { jsonrpcError } from '@/lib/mcp/jsonrpc';
-import { isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
+import { isLegacyProtocolVersion, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { partnerWwwAuthenticate } from '@/lib/crm/partner-oauth-metadata';
@@ -78,10 +78,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(jsonrpcError(null, -32029, 'Слишком много запросов по этому ключу — подождите минуту'), { status: 429 });
   }
 
+  // Партнёрский сервер живёт только в эпохе initialize: версию 2026-07-28
+  // (рукопожатия нет, версия в _meta) он не обслуживает и называет это
+  // прямо, а не отвечает ей по старым правилам (lib/mcp/protocol-version.ts).
   const headerVersion = request.headers.get('mcp-protocol-version');
-  if (headerVersion !== null && !isSupportedProtocolVersion(headerVersion)) {
+  if (headerVersion !== null && !isLegacyProtocolVersion(headerVersion)) {
     return NextResponse.json(
-      jsonrpcError(null, -32600, `Unsupported MCP-Protocol-Version: ${headerVersion.slice(0, 40)}. Supported: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`),
+      jsonrpcError(null, -32600, `Unsupported MCP-Protocol-Version: ${headerVersion.slice(0, 40)}. Supported: ${LEGACY_PROTOCOL_VERSIONS.join(', ')}`),
       { status: 400 },
     );
   }

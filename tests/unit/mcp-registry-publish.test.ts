@@ -32,6 +32,7 @@ import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, TOOL_ANNOTATIONS, MCP_SERVER_INFO }
 import { CANONICAL_BASE_URL } from '@/lib/config';
 import {
   SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION, negotiateProtocolVersion,
+  LEGACY_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS, LATEST_LEGACY_PROTOCOL_VERSION,
 } from '@/lib/mcp/protocol-version';
 import {
   MCP_REGISTRY_PUBKEY, MCP_REGISTRY_PRIVATE_KEY_SECRET, ED25519_PUBKEY_B64, registryAuthLine,
@@ -250,11 +251,20 @@ describe('версия протокола договаривается, а не 
     expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-03-26');
   });
 
-  it('запрошенную поддерживаемую — возвращает ту же; незнакомую — новейшую нашу', () => {
-    for (const v of SUPPORTED_PROTOCOL_VERSIONS) expect(negotiateProtocolVersion(v)).toBe(v);
-    expect(negotiateProtocolVersion('2099-01-01')).toBe(LATEST_PROTOCOL_VERSION);
-    expect(negotiateProtocolVersion(undefined)).toBe(LATEST_PROTOCOL_VERSION);
-    expect(negotiateProtocolVersion(42)).toBe(LATEST_PROTOCOL_VERSION);
+  it('две эпохи: общий список — modern, затем legacy; ни одна версия не в обеих', () => {
+    expect([...SUPPORTED_PROTOCOL_VERSIONS]).toEqual([...MODERN_PROTOCOL_VERSIONS, ...LEGACY_PROTOCOL_VERSIONS]);
+    for (const v of MODERN_PROTOCOL_VERSIONS) expect(LEGACY_PROTOCOL_VERSIONS as readonly string[]).not.toContain(v);
+    expect(LATEST_LEGACY_PROTOCOL_VERSION).toBe(LEGACY_PROTOCOL_VERSIONS[0]);
+  });
+
+  it('initialize: запрошенную legacy — ту же; незнакомую и modern — новейшую legacy', () => {
+    for (const v of LEGACY_PROTOCOL_VERSIONS) expect(negotiateProtocolVersion(v)).toBe(v);
+    // В modern рукопожатия нет: назвать её в ответе на initialize — назвать
+    // то, чем этот разговор не является (lib/mcp/protocol-version.ts).
+    for (const v of MODERN_PROTOCOL_VERSIONS) expect(negotiateProtocolVersion(v)).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+    expect(negotiateProtocolVersion('2099-01-01')).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+    expect(negotiateProtocolVersion(undefined)).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+    expect(negotiateProtocolVersion(42)).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
   });
 
   it('роут зовёт переговоры и не держит версию константой', () => {

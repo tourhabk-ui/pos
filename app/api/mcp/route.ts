@@ -34,7 +34,8 @@ import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
-import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
+import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
+import { hasModernMeta, checkModernRequest, META_SERVER_INFO } from '@/lib/mcp/modern-request';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
@@ -1033,7 +1034,9 @@ export async function OPTIONS() {
       Allow: 'GET, POST, OPTIONS',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version',
+      // Mcp-Method и Mcp-Name — заголовки запроса ревизии 2026-07-28: без них
+      // в списке браузер не пустит modern-клиента дальше предполёта.
+      'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version, Mcp-Method, Mcp-Name',
     },
   });
 }
@@ -1236,6 +1239,23 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
 }
 
 /**
+ * Implementation сервера — одна на обе эпохи: `serverInfo` рукопожатия
+ * legacy и `_meta["io.modelcontextprotocol/serverInfo"]` каждого результата
+ * modern. description, websiteUrl и icons — ревизия 2025-11-25
+ * (lib/mcp/protocol-version.ts).
+ */
+function serverImplementation() {
+  return {
+    name: MCP_SERVER_INFO.name,
+    title: MCP_SERVER_INFO.title,
+    version: MCP_SERVER_INFO.version,
+    description: MCP_SERVER_INFO.description,
+    websiteUrl: MCP_SERVER_INFO.websiteUrl,
+    icons: MCP_SERVER_INFO.icons,
+  };
+}
+
+/**
  * Одно сообщение JSON-RPC → ответ или null (уведомление и ответ клиента
  * ответа не получают). Ошибки протокола уходят телом JSON-RPC с HTTP 200:
  * клиент SDK на не-2xx бросает транспортную ошибку и не видит кода -32601.
@@ -1243,7 +1263,7 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
 async function handleMessage(
   request: NextRequest,
   raw: unknown,
-): Promise<ReturnType<typeof jsonrpcSuccess> | ReturnType<typeof jsonrpcError> | null> {
+): Promise<JsonRpcReply | null> {
   const msg = classifyMessage(raw);
   if (msg.kind === 'response' || msg.kind === 'notification') return null;
   if (msg.kind === 'invalid') return jsonrpcError(msg.id, -32600, `Invalid Request: ${msg.reason}`);
@@ -1269,15 +1289,7 @@ async function handleMessage(
         // «жить с этим» за клиентом (lib/mcp/protocol-version.ts).
         protocolVersion: negotiateProtocolVersion(params.protocolVersion),
         capabilities: { tools: {} },
-        serverInfo: {
-          name: MCP_SERVER_INFO.name,
-          title: MCP_SERVER_INFO.title,
-          version: MCP_SERVER_INFO.version,
-          // Ревизия 2025-11-25 (lib/mcp/protocol-version.ts).
-          description: MCP_SERVER_INFO.description,
-          websiteUrl: MCP_SERVER_INFO.websiteUrl,
-          icons: MCP_SERVER_INFO.icons,
-        },
+        serverInfo: serverImplementation(),
         // Сквозные правила для модели хоста — lib/mcp/server-instructions.ts.
         instructions: SERVER_INSTRUCTIONS,
       });
@@ -1303,32 +1315,141 @@ async function handleMessage(
 /** Пакет длиннее — не наш клиент, а флуд одним HTTP-запросом мимо лимита соединений. */
 const MAX_BATCH = 20;
 
-async function handlePost(request: NextRequest): Promise<NextResponse> {
-  // Ревизия 2025-06-18: неподдерживаемая версия в заголовке — 400. Нет
-  // заголовка — клиент старше 2025-06-18, и это его право.
-  const headerVersion = request.headers.get('mcp-protocol-version');
-  if (headerVersion !== null && !isSupportedProtocolVersion(headerVersion)) {
+/**
+ * Сколько клиент вправе считать свежим список инструментов и ответ
+ * `server/discover` (ревизия 2026-07-28, CacheableResult). Меняются они
+ * только выкатом, а выкат — не чаще раза в десятки минут; четверть часа
+ * ставит потолок тому, сколько клиент проживёт со списком без нового
+ * инструмента. `public`: ни там, ни там нет ничего про того, кто спросил.
+ */
+const MODERN_LIST_TTL_MS = 15 * 60_000;
+
+type JsonRpcReply = ReturnType<typeof jsonrpcSuccess> | ReturnType<typeof jsonrpcError>;
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Результат modern-эпохи: `resultType` обязателен в каждом (basic/index,
+ * «ResultType»), `serverInfo` в `_meta` — SHOULD, и мы его даём: без
+ * рукопожатия это единственное место, где клиент узнаёт, с кем говорит.
+ * Ошибка JSON-RPC проходит как есть — у неё нет `result`.
+ */
+function modernResult(reply: JsonRpcReply): JsonRpcReply {
+  if (!('result' in reply) || !isPlainObject(reply.result)) return reply;
+  return jsonrpcSuccess(reply.id, {
+    resultType: 'complete',
+    ...reply.result,
+    _meta: { [META_SERVER_INFO]: serverImplementation() },
+  });
+}
+
+/**
+ * Запрос эпохи 2026-07-28 — без рукопожатия, с версией в `_meta`.
+ *
+ * Отказы формы запроса (испорченная `_meta`, заголовки не совпали с телом,
+ * чужая версия) — HTTP 400, неизвестный метод — HTTP 404: в этой эпохе
+ * спека велит так прямо (streamable-http, «Protocol Version Header»), и по
+ * телу ошибки dual-era клиент отличает modern-сервер от старого. В legacy
+ * неизвестный метод по-прежнему 200 — там клиент SDK на не-2xx бросает
+ * транспортную ошибку и кода не видит (см. handleMessage).
+ */
+async function handleModernPost(request: NextRequest, body: unknown): Promise<NextResponse> {
+  if (Array.isArray(body)) {
     return NextResponse.json(
-      jsonrpcError(null, -32600, `Unsupported MCP-Protocol-Version: ${headerVersion.slice(0, 40)}. Supported: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`),
+      jsonrpcError(null, -32600, 'Invalid Request: в ревизии 2026-07-28 тело POST — одно сообщение JSON-RPC, пакетов нет'),
       { status: 400 },
     );
   }
+  const msg = classifyMessage(body);
+  if (msg.kind === 'response' || msg.kind === 'notification') return new NextResponse(null, { status: 202 });
+  if (msg.kind === 'invalid') return NextResponse.json(jsonrpcError(msg.id, -32600, `Invalid Request: ${msg.reason}`), { status: 400 });
+
+  const { id, method, params } = msg;
+  const check = checkModernRequest(request.headers, method, params);
+  if (!check.ok) return NextResponse.json(jsonrpcError(id, check.code, check.message, check.data), { status: 400 });
+
+  // Кто спрашивает — клиент называет себя в каждом запросе. Пишем на
+  // discover и списке инструментов, с которых клиент начинает разговор,
+  // под тем же лимитом чтения, что и рукопожатие legacy.
+  const noteClient = () => {
+    if (check.clientInfo !== undefined && readLimiter.check(`r:${clientIp(request)}`)) {
+      logMcpClient({ ip: clientIp(request), userAgent: request.headers.get('user-agent') ?? '', clientInfo: check.clientInfo });
+    }
+  };
+
+  switch (method) {
+    case 'server/discover':
+      noteClient();
+      return NextResponse.json(modernResult(jsonrpcSuccess(id, {
+        supportedVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+        capabilities: { tools: {} },
+        // Тот же текст, что в рукопожатии legacy, — lib/mcp/server-instructions.ts.
+        instructions: SERVER_INSTRUCTIONS,
+        ttlMs: MODERN_LIST_TTL_MS,
+        cacheScope: 'public',
+      })));
+    case 'tools/list':
+      noteClient();
+      return NextResponse.json(modernResult(jsonrpcSuccess(id, {
+        tools: PUBLIC_MCP_TOOLS,
+        ttlMs: MODERN_LIST_TTL_MS,
+        cacheScope: 'public',
+      })));
+    case 'tools/call':
+      return NextResponse.json(modernResult(await handleToolsCall(request, id, params)));
+    case 'initialize':
+    case 'ping':
+      // В 2026-07-28 этих методов нет (changelog, пп. 2 и 5). Спека велит
+      // назвать в отказе на initialize свои версии: у legacy-клиента нет
+      // пути вперёд, и это сообщение может оказаться единственным, что он
+      // покажет человеку (basic/versioning, «Backward Compatibility»).
+      return NextResponse.json(
+        jsonrpcError(id, -32601, `Method not found: ${method} в ревизии 2026-07-28 нет. Без _meta версии ${LEGACY_PROTOCOL_VERSIONS.join(', ')} начинаются с initialize`, { supported: [...SUPPORTED_PROTOCOL_VERSIONS] }),
+        { status: 404 },
+      );
+    default:
+      return NextResponse.json(jsonrpcError(id, -32601, `Method not found: ${method.slice(0, 80)}`), { status: 404 });
+  }
+}
+
+async function handlePost(request: NextRequest): Promise<NextResponse> {
+  // Ревизия 2025-06-18: неподдерживаемая версия в заголовке — 400. Нет
+  // заголовка — клиент старше 2025-06-18, и это его право. Отказ отложен до
+  // разбора тела: modern-запросу с чужой версией спека велит ответить своим
+  // кодом (-32022 с data.supported), а не legacy-отказом.
+  const headerVersion = request.headers.get('mcp-protocol-version');
+  const headerRefusal = headerVersion !== null && !isSupportedProtocolVersion(headerVersion)
+    ? NextResponse.json(
+      jsonrpcError(null, -32600, `Unsupported MCP-Protocol-Version: ${headerVersion.slice(0, 40)}. Supported: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`),
+      { status: 400 },
+    )
+    : null;
 
   // Тело — не больше MAX_BODY_BYTES: длины режет Zod, но уже ПОСЛЕ разбора,
   // а многомегабайтный POST — дешёвый способ занять память контейнера мимо
   // лимита на вызовы (проверка MCP 29.09).
   const raw = await readBodyLimited(request);
   if (raw === null) {
-    return NextResponse.json(jsonrpcError(null, -32600, `Invalid Request: тело больше ${MAX_BODY_BYTES / 1024} КБ`), { status: 413 });
+    return headerRefusal ?? NextResponse.json(jsonrpcError(null, -32600, `Invalid Request: тело больше ${MAX_BODY_BYTES / 1024} КБ`), { status: 413 });
   }
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
-    return NextResponse.json(jsonrpcError(null, -32700, 'Parse error'), { status: 400 });
+    return headerRefusal ?? NextResponse.json(jsonrpcError(null, -32700, 'Parse error'), { status: 400 });
   }
 
   try {
+    // Эпоха — по тому, как клиент начал (basic/versioning, «dual-era»):
+    // версия в _meta тела или modern-версия в заголовке — 2026-07-28; иначе
+    // всё как было до неё, байт в байт.
+    if (hasModernMeta(body) || (headerVersion !== null && isModernProtocolVersion(headerVersion))) {
+      return await handleModernPost(request, body);
+    }
+    if (headerRefusal) return headerRefusal;
+
     // Пакет (массив сообщений) — ревизия 2025-03-26 требует его принимать.
     // Ответы — только на запросы с id; одни уведомления — пустой 202.
     if (Array.isArray(body)) {
