@@ -32,6 +32,14 @@ export interface MaxLoginSession {
   max_username: string | null;
   consumed: boolean;
   expires_at: string;
+  /**
+   * Истекла ли сессия — по часам БАЗЫ (`expires_at <= NOW()`), не Node.
+   * «Нет, не я» гасит сессию записью `expires_at = NOW()` часами базы; читать
+   * её часами приложения с усечением микросекунд (`new Date(text) < Date.now()`)
+   * значило, что в той же миллисекунде сессия ещё «pending» (kernel-pg на main
+   * f0408ac, 30.10). Запись и чтение судят одним и тем же временем.
+   */
+  expired: boolean;
 }
 
 /** Создать одноразовую сессию входа. Возвращает nonce для deep-link. */
@@ -119,7 +127,8 @@ export async function rejectMaxLoginSession(nonce: string, maxUserId: number): P
 /** Прочитать статус сессии (без побочных эффектов). */
 export async function getMaxLoginSession(nonce: string): Promise<MaxLoginSession | null> {
   const r = await query<MaxLoginSession>(
-    `SELECT status, max_user_id::text, max_name, max_username, consumed, expires_at::text
+    `SELECT status, max_user_id::text, max_name, max_username, consumed, expires_at::text,
+            (expires_at <= NOW()) AS expired
        FROM max_login_sessions WHERE nonce = $1`,
     [nonce],
   );

@@ -64,7 +64,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const session = await getMaxLoginSession(nonce);
   if (!session) return NextResponse.json({ success: false, status: 'expired' });
-  if (new Date(session.expires_at).getTime() < Date.now()) {
+  // Истечение судит база (`expired`), а не часы приложения: «Нет, не я»
+  // гасит сессию по часам базы, и одна и та же миллисекунда не должна
+  // читаться как «ещё pending» (lib/auth/max-login, MaxLoginSession.expired).
+  if (session.expired) {
     return NextResponse.json({ success: false, status: 'expired' });
   }
   if (session.status === 'pending') {
