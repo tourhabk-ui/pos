@@ -253,6 +253,10 @@ const nextConfig = {
       // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
       // дубли отдавали идентичный контент и каннибалили бы друг друга в индексе.
       // marketplace-вариант — до общего :path*-правила, чтобы редирект был одним хопом.
+      // Список туров — /catalog; /catalog/tours без id отдавал 404, а ссылки
+      // «vedarai.ru/marketplace/tours» уже ходят в постах (30.10).
+      { source: '/marketplace/tours', destination: '/catalog', permanent: true },
+      { source: '/catalog/tours',     destination: '/catalog', permanent: true },
       { source: '/marketplace/operators', destination: '/operators',                    permanent: true },
       { source: '/catalog/operators',  destination: '/operators',                      permanent: true },
       { source: '/marketplace/:path*', destination: '/catalog/:path*',                 permanent: true },
