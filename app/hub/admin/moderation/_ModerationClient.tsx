@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { RentalEditQueue, type RentalEditCard } from '@/components/admin/RentalEditQueue';
+import { CharterPriceEditQueue, type CharterPriceEditCard } from '@/components/admin/CharterPriceEditQueue';
 import { Shield, Check, X, Loader2, Star, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface PendingReview {
@@ -20,6 +21,12 @@ export default function ModerationClient() {
   const [editsError, setEditsError] = useState('');
   const [actingEdit, setActingEdit] = useState<string | null>(null);
   const [editActionError, setEditActionError] = useState('');
+  // Прайс перевозчиков (1355, #2862 этап C): своя очередь, тот же порядок решения.
+  const [priceEdits, setPriceEdits] = useState<CharterPriceEditCard[]>([]);
+  const [priceEditsLoading, setPriceEditsLoading] = useState(true);
+  const [priceEditsError, setPriceEditsError] = useState('');
+  const [actingPriceEdit, setActingPriceEdit] = useState<string | null>(null);
+  const [priceEditActionError, setPriceEditActionError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,8 +73,49 @@ export default function ModerationClient() {
     }
   }, []);
 
+  const loadPriceEdits = useCallback(async () => {
+    setPriceEditsLoading(true);
+    setPriceEditsError('');
+    try {
+      const res = await fetch('/api/admin/moderation/charter-price-edits');
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; data?: { edits?: CharterPriceEditCard[] } } | null;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setPriceEdits(Array.isArray(json.data?.edits) ? json.data.edits : []);
+    } catch (e) {
+      setPriceEditsError(e instanceof Error ? e.message : 'Не смог загрузить правки прайса перевозчиков');
+    } finally {
+      setPriceEditsLoading(false);
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadEdits(); }, [loadEdits]);
+  useEffect(() => { loadPriceEdits(); }, [loadPriceEdits]);
+
+  async function decidePriceEdit(id: string, action: 'approve' | 'reject', reason?: string) {
+    // Одобряется то, что видно в карточке: все поля черновика едут с решением.
+    const shown = priceEdits.find((row) => row.id === id);
+    if (action === 'approve' && !shown) return;
+    setActingPriceEdit(id);
+    setPriceEditActionError('');
+    let stale = false;
+    try {
+      const res = await fetch(`/api/admin/moderation/charter-price-edits/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'reject' ? { action, reason } : { action, seen: shown?.draft }),
+      });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      stale = res.status === 409;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setPriceEdits((prev) => prev.filter((row) => row.id !== id));
+    } catch (e) {
+      setPriceEditActionError(e instanceof Error ? e.message : 'Не смог записать решение');
+    } finally {
+      setActingPriceEdit(null);
+    }
+    if (stale) await loadPriceEdits();
+  }
 
   async function decideEdit(id: string, action: 'approve' | 'reject', reason?: string) {
     // Одобряется то, что видно в карточке: цена и описание едут вместе с
@@ -139,6 +187,17 @@ export default function ModerationClient() {
           onRetry={loadEdits}
           onApprove={(id) => decideEdit(id, 'approve')}
           onReject={(id, reason) => decideEdit(id, 'reject', reason)}
+        />
+
+        <CharterPriceEditQueue
+          loading={priceEditsLoading}
+          error={priceEditsError}
+          edits={priceEdits}
+          actingId={actingPriceEdit}
+          actionError={priceEditActionError}
+          onRetry={loadPriceEdits}
+          onApprove={(id) => decidePriceEdit(id, 'approve')}
+          onReject={(id, reason) => decidePriceEdit(id, 'reject', reason)}
         />
 
         {loading ? (

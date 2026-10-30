@@ -128,7 +128,8 @@ export async function addVehicle(input: {
   partnerId: string;
   kind: TransferVehicleKind;
   title: string;
-  seats: number;
+  /** null — число мест не записано (1292): честнее выдуманной цифры. */
+  seats: number | null;
   notes?: string | null;
 }): Promise<TransferVehicleRow> {
   const { rows } = await pool.query<TransferVehicleRow>(
@@ -138,6 +139,49 @@ export async function addVehicle(input: {
     [input.partnerId, input.kind, input.title, input.seats, input.notes ?? null],
   );
   return rows[0]!;
+}
+
+/**
+ * Правка своей машины (#2862 этап C): снять с линии или вернуть, число мест,
+ * заметка, название. Поле, которого нет в patch, не трогается. Чужая машина
+ * — `not_your_vehicle`, нет такой — `vehicle_not_found`. Парк не модерируется:
+ * на сайте он назван только числом и видом машин, цены там нет.
+ */
+export async function updateVehicle(input: {
+  partnerId: string;
+  vehicleId: string;
+  patch: { isActive?: boolean; seats?: number | null; notes?: string | null; title?: string };
+}): Promise<TransferResult<TransferVehicleRow>> {
+  const p = input.patch;
+  const hasSeats = p.seats !== undefined;
+  const hasNotes = p.notes !== undefined;
+  try {
+    const { rows } = await pool.query<TransferVehicleRow>(
+      `UPDATE transfer_fleet_vehicles
+          SET is_active = COALESCE($3::boolean, is_active),
+              seats = CASE WHEN $4::boolean THEN $5::int ELSE seats END,
+              notes = CASE WHEN $6::boolean THEN $7::text ELSE notes END,
+              title = COALESCE($8::varchar, title),
+              updated_at = NOW()
+        WHERE id = $1::uuid AND partner_id = $2::uuid
+      RETURNING ${VEHICLE_FIELDS}`,
+      [
+        input.vehicleId, input.partnerId, p.isActive ?? null,
+        hasSeats, hasSeats ? p.seats : null,
+        hasNotes, hasNotes ? p.notes : null,
+        p.title ?? null,
+      ],
+    );
+    if (rows.length === 1) return { ok: true, value: rows[0]! };
+    const { rows: why } = await pool.query<{ partner_id: string }>(
+      `SELECT partner_id FROM transfer_fleet_vehicles WHERE id = $1::uuid`,
+      [input.vehicleId],
+    );
+    if (why.length === 0) return { ok: false, code: 'vehicle_not_found', message: 'Машина не найдена' };
+    return { ok: false, code: 'not_your_vehicle', message: 'Машина принадлежит другому перевозчику' };
+  } catch (err) {
+    return failure(err, 'машина не обновлена');
+  }
 }
 
 // ── Поездки ─────────────────────────────────────────────────────────────────

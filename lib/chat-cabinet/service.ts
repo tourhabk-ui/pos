@@ -53,13 +53,15 @@ import { parseCabinetPress, type CabinetPress, type DigestMode, type RemindWhen,
 import { countCabinetUse, type CabinetUsageAction } from '@/lib/chat-cabinet/usage';
 import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
-  CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
+  CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  contactResultScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
 } from '@/lib/chat-cabinet/screens';
+import { listVehicles, updateVehicle } from '@/lib/transfers/service';
+import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
 
 interface Queryable {
   query: typeof pool.query;
@@ -484,6 +486,36 @@ async function remind(c: Ctx, channel: CabinetChannel, when: RemindWhen, contact
   }
 }
 
+// ── Машины и прайс перевозчика (#2862 этап C) ──────────────────────────────
+
+/** Парк и прайс — тремя чтениями; каждое может не пройти отдельно (null). */
+async function fleetView(c: Ctx, notice?: string): Promise<CabinetScreen> {
+  if (c.partner.role !== 'transfer') return noticeScreen(FLEET_TEXT.notCarrier);
+  const [vehicles, prices, drafts] = await Promise.all([
+    listVehicles(c.ctx.partnerId).catch((err: unknown) => { logFail('парк', err); return null; }),
+    loadOwnPriceRows(c.ctx.partnerId),
+    loadOwnDrafts(c.ctx.partnerId),
+  ]);
+  return fleetScreen({
+    vehicles,
+    prices: prices.outcome === 'ok' ? prices.rows : null,
+    drafts: drafts.outcome === 'ok' ? drafts.drafts : null,
+    base: base(),
+    notice,
+  });
+}
+
+async function vehicleActive(c: Ctx, press: Extract<CabinetPress, { kind: 'vehicle_active' }>): Promise<CabinetScreen> {
+  if (c.partner.role !== 'transfer') return noticeScreen(FLEET_TEXT.notCarrier);
+  const r = await updateVehicle({ partnerId: c.ctx.partnerId, vehicleId: press.vehicleId, patch: { isActive: press.active } });
+  if (!r.ok) {
+    if (r.code === 'db_error') return noticeScreen(CABINET_TEXT.dbFailed);
+    return fleetView(c, 'Эта машина не найдена среди ваших — ничего не изменено.');
+  }
+  const title = escapeHtml(r.value.title);
+  return fleetView(c, press.active ? `«${title}» снова на линии.` : `«${title}» снята с линии: на витрине её нет.`);
+}
+
 // ── Поиск клиента (только MAX) ──────────────────────────────────────────────
 
 /**
@@ -729,6 +761,8 @@ export async function handleCabinetPress(input: {
     case 'search_cancel': out = ch === 'max' ? await cancelSearch(g, input.chatId) : await clientsView(g, ch, 0); break;
     case 'touch': out = await touch(g, ch, press.outcome, press.contactId, db); break;
     case 'remind': out = await remind(g, ch, press.when, press.contactId, nowMs, db); break;
+    case 'fleet': out = await fleetView(g); break;
+    case 'vehicle_active': out = await vehicleActive(g, press); break;
   }
   const shown = lockForChannel(out, ch);
   await count(g, ch, press.kind, shown, nowMs);

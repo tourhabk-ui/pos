@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { notifyPartnerEditDecisionQuietly } from '@/lib/notifications/partner-edit-notify';
 import { decideOfferEdit } from '@/lib/rental/offer-edit-store';
 
 export const dynamic = 'force-dynamic';
@@ -93,6 +94,15 @@ export async function POST(
   if (decided.outcome === 'already') {
     return NextResponse.json({ success: false, error: 'По этой правке решение уже записано' }, { status: 409 });
   }
+  // Прокатчику — решение и причина отказа лично (#2862 этап C): до этого дня
+  // одобренный и отклонённый черновик просто пропадал из его списка.
+  await notifyPartnerEditDecisionQuietly({
+    partnerId: decided.partnerId,
+    subject: 'car_rental',
+    label: decided.title,
+    outcome: decided.outcome,
+    reason,
+  });
   return NextResponse.json({
     success: true,
     data: { id: parsedParams.data.id, outcome: decided.outcome, title: decided.title },

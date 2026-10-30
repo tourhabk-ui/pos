@@ -34,6 +34,10 @@ function serve(editsStatus: number) {
     if (url.includes('/api/admin/content/reviews')) {
       return new Response(JSON.stringify({ success: true, data: { reviews: [] } }));
     }
+    // Очередь прайса перевозчиков (1354) на той же странице — здесь пуста.
+    if (url.includes('/api/admin/moderation/charter-price-edits')) {
+      return new Response(JSON.stringify({ success: true, data: { edits: [] } }));
+    }
     if (url.includes('/api/admin/moderation/rental-edits/') && init?.method === 'POST') {
       posts.push({ url, body: String(init.body) });
       return new Response(JSON.stringify({ success: true }));
@@ -76,6 +80,9 @@ describe('модерация правки прайса', () => {
       if (url.includes('/api/admin/content/reviews')) {
         return new Response(JSON.stringify({ success: true, data: { reviews: [] } }));
       }
+      if (url.includes('/api/admin/moderation/charter-price-edits')) {
+        return new Response(JSON.stringify({ success: true, data: { edits: [] } }));
+      }
       if (url.includes('/api/admin/moderation/rental-edits/') && init?.method === 'POST') {
         return new Response(JSON.stringify({
           success: false, code: 'changed',
@@ -113,7 +120,7 @@ describe('модерация правки прайса', () => {
   it('отказ загрузки не называется пустой очередью', async () => {
     serve(503);
     render(React.createElement(ModerationClient));
-    expect(await screen.findByText(/Не смог загрузить правки прайса/)).toBeTruthy();
+    expect(await screen.findByText(/Не смог загрузить правки прайса\. Не смог прочитать правки прайса/)).toBeTruthy();
     expect(screen.queryByText('Правок прайса проката нет.')).toBeNull();
   });
 });

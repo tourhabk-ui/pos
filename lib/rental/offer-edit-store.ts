@@ -64,8 +64,8 @@ export interface SeenDraft {
 }
 
 export type DecideEdit =
-  | { outcome: 'approved'; title: string }
-  | { outcome: 'rejected'; title: string }
+  | { outcome: 'approved'; title: string; partnerId: string }
+  | { outcome: 'rejected'; title: string; partnerId: string }
   | { outcome: 'already' }
   | { outcome: 'changed' }
   | { outcome: 'not_found' }
@@ -266,8 +266,8 @@ export async function decideOfferEdit(opts: {
     }
     await client.query('COMMIT');
     return opts.action === 'approve'
-      ? { outcome: 'approved', title: row.title }
-      : { outcome: 'rejected', title: row.title };
+      ? { outcome: 'approved', title: row.title, partnerId: row.partner_id }
+      : { outcome: 'rejected', title: row.title, partnerId: row.partner_id };
   } catch (err) {
     try {
       await client.query('ROLLBACK');

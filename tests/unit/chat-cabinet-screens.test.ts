@@ -21,11 +21,12 @@ import {
   CABINET_PAYLOAD_MAX_BYTES, INBOX_KIND_CODE, cabinetPayload, cabinetPressEdits, isCabinetPayload, parseCabinetPress,
 } from '@/lib/chat-cabinet/payload';
 import {
-  canMoveToTomorrow, clientCardScreen, clientsScreen, contactResultScreen, dueWords, inboxScreen, itemCardScreen,
-  kamchatkaMorning, moreScreen, searchResultsScreen, tasksScreen, digestScreen, digestSlotOfHour, MEMBER_ANSWER_LINE,
+  FLEET_TEXT, canMoveToTomorrow, clientCardScreen, clientsScreen, contactResultScreen, dueWords, fleetScreen, inboxScreen,
+  itemCardScreen, kamchatkaMorning, moreScreen, searchResultsScreen, tasksScreen, digestScreen, digestSlotOfHour, MEMBER_ANSWER_LINE,
   type CabinetPartner, type CabinetScreen,
 } from '@/lib/chat-cabinet/screens';
 import { maxCabinetRows, telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
+import { formatRub } from '@/lib/transfers/charter-format';
 import { bookingPressPayload, leadPressPayload } from '@/lib/bookings/chat-owner-press';
 import { INBOX_KINDS } from '@/lib/crm/inbox-kinds';
 import type { Inbox, InboxItem } from '@/lib/crm/inbox';
@@ -117,6 +118,9 @@ describe('кнопки кабинета: форма', () => {
       [cabinetPayload.digestSet('day'), { kind: 'digest_set', mode: 'day' }],
       [cabinetPayload.digestSet('evening'), { kind: 'digest_set', mode: 'evening' }],
       [cabinetPayload.digestSet('off'), { kind: 'digest_set', mode: 'off' }],
+      [cabinetPayload.fleet(), { kind: 'fleet' }],
+      [cabinetPayload.vehicleActive(UUID, true), { kind: 'vehicle_active', vehicleId: UUID, active: true }],
+      [cabinetPayload.vehicleActive(UUID, false), { kind: 'vehicle_active', vehicleId: UUID, active: false }],
     ];
     for (const kind of INBOX_KINDS) {
       forms.push([cabinetPayload.item(kind, UUID), { kind: 'item', item: kind, id: UUID }]);
@@ -138,6 +142,7 @@ describe('кнопки кабинета: форма', () => {
       'cb:', 'cb:q', 'cb:i:x', 'cb:i:100', 'cb:o:zz:501', 'cb:o:ob:', 'cb:o:ob:5o1', `cb:d:${UUID}x`, 'cb:d:501',
       'cb:k:q:' + CONTACT, 'cb:r:x:' + CONTACT, 'cb:c:not-a-uuid', 'cb:l:', 'rm:op:in', 'tk:d:' + UUID,
       'cb:g:x', 'cb:g:', 'cb:g:mm', 'cb:n:x',
+      'cb:v:', 'cb:v:q:' + UUID, 'cb:v:a:501',
     ]) {
       expect(parseCabinetPress(bad), bad).toBeNull();
     }
@@ -354,7 +359,9 @@ describe('«Ещё»', () => {
     expect(payloads(moreScreen(partner({ summary: true }), BASE))).toContain('rm:op:sm');
     expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', 'cb:g', 'rm:gd:hp', ...NAV]);
     expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:gd:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:tf:hp', ...NAV]);
+    // Перевозчик: «Машины и прайс» (#2862 этап C) — парк и черновики прайса, затем сводка.
+    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:g', 'rm:tf:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:st:hp', ...NAV]);
     const site = moreScreen(partner({ role: 'transfer' }), BASE).rows.flat().find((b) => 'url' in b);
     expect(site).toEqual({ text: 'Кабинет на сайте', url: `${BASE}/hub/carrier` });
     // Кнопка сводки называет нынешнее время; не прочиталось — без слова о времени.
@@ -403,6 +410,65 @@ describe('ежедневная сводка — экран времени', () =
     expect(slots.slice(13, 17).every((x) => x === 'day')).toBe(true);
     expect(slots.slice(18, 22).every((x) => x === 'evening')).toBe(true);
     for (const h of [0, 5, 7, 12, 17, 22, 23]) expect(slots[h], String(h)).toBeNull();
+  });
+});
+
+describe('«Машины и прайс» перевозчика (#2862 этап C)', () => {
+  const PRICE_ID = '7a7a7a7a-1111-4111-8111-7a7a7a7a7a7a';
+  const VEHICLE_ID = '5b5b5b5b-2222-4222-8222-5b5b5b5b5b5b';
+  const row = {
+    id: PRICE_ID, vehicleKind: 'vahtovka' as const, lineKind: 'destination' as const,
+    fromText: 'Петропавловск', toText: 'Авачинский <x>', priceRub: 65000, priceNote: null, conditions: null, validYear: 2026, isActive: true,
+  };
+  const draft = {
+    id: UUID, priceId: PRICE_ID, priceRub: 70000, priceNote: null, conditions: null, isActive: null,
+    vehicleKind: null, lineKind: null, fromText: null, toText: null, validYear: null,
+    status: 'pending' as const, reason: null, createdAt: '2026-10-30T00:00:00Z', moderatedAt: null,
+  };
+  const vehicle = { id: VEHICLE_ID, kind: 'vahtovka' as const, title: 'КамАЗ <синяя>', seats: 26, notes: null, is_active: true };
+
+  it('машина — кнопка «Снять с линии»; цена с черновиком; экранировано; без ПД; строка кабинета последней', () => {
+    const s = fleetScreen({ vehicles: [vehicle], prices: [row], drafts: [draft], base: BASE });
+    expect(s.pd).toBe(false);
+    expect(s.text).toContain('КамАЗ &lt;синяя&gt;');
+    expect(s.text).toContain('Авачинский &lt;x&gt;');
+    expect(s.text).toContain(formatRub(65000));
+    expect(s.text).toContain(`черновик на модерации: ${formatRub(70000)}`);
+    expect(payloads(s)).toEqual([cabinetPayload.vehicleActive(VEHICLE_ID, false), ...NAV]);
+    expect(texts(s)).toContain('1. Снять с линии');
+    const site = s.rows.flat().find((b) => 'url' in b);
+    expect(site).toEqual({ text: 'Прайс на сайте', url: `${BASE}/hub/carrier` });
+    noPd('машины и прайс', s);
+  });
+
+  it('снятая машина — «Вернуть на линию»; скрытая строка, новая строка и отказ — названы', () => {
+    const s = fleetScreen({
+      vehicles: [{ ...vehicle, is_active: false }],
+      prices: [{ ...row, isActive: false }],
+      drafts: [
+        { ...draft, id: CONTACT, priceId: null, priceRub: 15000, lineKind: 'extra_day', vehicleKind: 'vahtovka' },
+        { ...draft, status: 'rejected', reason: 'не та <цифра>', moderatedAt: '2026-10-30T01:00:00Z' },
+      ],
+      base: BASE,
+    });
+    expect(s.text).toContain('снята с линии');
+    expect(s.text).toContain('(скрыта с сайта)');
+    expect(s.text).toContain(`Новая строка на модерации: Доплата за день на месте (вахтовка) — ${formatRub(15000)}`);
+    expect(s.text).toContain('не та &lt;цифра&gt;');
+    expect(payloads(s)[0]).toBe(cabinetPayload.vehicleActive(VEHICLE_ID, true));
+    expect(texts(s)).toContain('1. Вернуть на линию');
+  });
+
+  it('не прочитался парк, прайс или черновики — названо, не «нет»', () => {
+    const s = fleetScreen({ vehicles: null, prices: null, drafts: null, base: BASE });
+    expect(s.text).toContain(FLEET_TEXT.vehiclesFailed);
+    expect(s.text).toContain(FLEET_TEXT.pricesFailed);
+    expect(s.text).not.toContain('Машин не записано');
+    expect(s.text).not.toContain('Строк прайса нет');
+    const empty = fleetScreen({ vehicles: [], prices: [], drafts: [], base: BASE });
+    expect(empty.text).toContain('Машин не записано');
+    expect(empty.text).toContain('Строк прайса нет');
+    expect(payloads(empty)).toEqual(NAV);
   });
 });
 
