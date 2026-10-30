@@ -71,7 +71,6 @@ const waits = (src: string) => /run: bash scripts\/wait-for-deploy\.sh/.test(src
  */
 const NO_WAIT_MEASURED_07_09 = [
   'channel-post-tour.yml',
-  'channel-post.yml',
   'cron-enrich-routes.yml',
   'cron-intelligence.yml',
   'cron-osm-traces.yml',
