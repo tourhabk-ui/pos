@@ -497,7 +497,7 @@ describe('менеджер команды (30.10)', () => {
   });
 });
 
-describe('ежедневная сводка — время (1353)', () => {
+describe('ежедневная сводка — время (1354)', () => {
   it('экран: строки нет — «утром»; есть — её время; не прочиталось — отказ, а не «утром»', async () => {
     answers({ rows: [] });
     expect((await press(cabinetPayload.digest())).text).toContain('утром, с 08:00');
@@ -546,7 +546,7 @@ describe('ежедневная сводка — время (1353)', () => {
   });
 });
 
-describe('счёт пользования (1353)', () => {
+describe('счёт пользования (1354)', () => {
   it('нажатие считается с местом, каналом, действием и экраном; отказ базы — тем же экраном', async () => {
     await press(cabinetPayload.tasks());
     expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ partnerId: PID, seat: 'owner', channel: 'max', action: 'tasks' }), NOW);

@@ -18,7 +18,7 @@
  *   cb:r:<h|t|w>:<uuid> — напомнить о клиенте: через час / завтра 10:00 / через 3 дня
  *   cb:n:<i|t|g>        — «Входящие» / «Задачи» / «Сводка» НОВЫМ сообщением:
  *                         кнопка под напоминанием и сводкой не стирает их правкой
- *   cb:g                — «Сводка»: когда приходит (1353)
+ *   cb:g                — «Сводка»: когда приходит (1354)
  *   cb:g:<m|d|e|o>      — сводка утром / днём / вечером / не присылать
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
@@ -57,7 +57,7 @@ const CODE_KIND = new Map(Object.entries(INBOX_KIND_CODE).map(([kind, code]) => 
 
 export type TouchOutcome = 'reached' | 'missed' | 'agreed';
 export type RemindWhen = 'hour' | 'tomorrow' | 'days3';
-/** Когда приходит сводка кабинета (chat_cabinet_settings.digest, 1353). */
+/** Когда приходит сводка кабинета (chat_cabinet_settings.digest, 1354). */
 export type DigestMode = 'morning' | 'day' | 'evening' | 'off';
 
 const TOUCH_CODE: Readonly<Record<TouchOutcome, string>> = { reached: 'd', missed: 'n', agreed: 'a' };

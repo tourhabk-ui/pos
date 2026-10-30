@@ -309,7 +309,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(again.sent_max + again.sent_tg + again.sent_stub).toBe(0);
     });
 
-    it('время сводки (1353): кнопка пишет карточке чата; кандидат — только в своё окно; «не присылать» — никогда', async () => {
+    it('время сводки (1354): кнопка пишет карточке чата; кандидат — только в своё окно; «не присылать» — никогда', async () => {
       const at = (slot: string) => pool.query<{ partner_id: string }>(digest.DIGEST_CANDIDATES_SQL, ['2026-11-02', 50, slot]);
       const ids = async (slot: string) => (await at(slot)).rows.map((r) => r.partner_id);
       // Строки нет — утром.
@@ -344,7 +344,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
     });
   });
 
-  describe('менеджер команды и счёт (1353)', () => {
+  describe('менеджер команды и счёт (1354)', () => {
     const MEMBER_CHAT = 8_201;
     let memberUser = '';
     let memberRow = '';

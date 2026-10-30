@@ -1,4 +1,4 @@
--- Migration 1353: кабинет в чате — время сводки и счёт пользования
+-- Migration 1354: кабинет в чате — время сводки и счёт пользования
 -- Created: 2026-10-30
 --
 -- Слово владельца 30.10 (после кабинета в чате, 1351): «если ещё продумать» —
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS chat_cabinet_settings (
 );
 
 COMMENT ON TABLE chat_cabinet_settings IS
-  'Кабинет в чате (1353): когда приходит сводка — morning (с 08:00), day (с 13:00), evening (с 18:00) по Камчатке или off. Строки нет — morning.';
+  'Кабинет в чате (1354): когда приходит сводка — morning (с 08:00), day (с 13:00), evening (с 18:00) по Камчатке или off. Строки нет — morning.';
 
 CREATE TABLE IF NOT EXISTS chat_cabinet_usage (
   day         DATE    NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS chat_cabinet_usage (
 );
 
 COMMENT ON TABLE chat_cabinet_usage IS
-  'Кабинет в чате (1353): счётчик нажатий по камчатскому дню, карточке, месту (owner — чат карточки, member — менеджер команды), каналу, действию и исходу. Без текста, чата и человека.';
+  'Кабинет в чате (1354): счётчик нажатий по камчатскому дню, карточке, месту (owner — чат карточки, member — менеджер команды), каналу, действию и исходу. Без текста, чата и человека.';
 COMMENT ON COLUMN chat_cabinet_usage.day IS
   'Камчатская дата нажатия (UTC+12), а не дата сервера.';
 

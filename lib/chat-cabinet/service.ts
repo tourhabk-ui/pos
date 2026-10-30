@@ -267,7 +267,7 @@ export function memberCabinetSectionOf(text: string): CabinetSection | null {
   return null;
 }
 
-// ── Ежедневная сводка: когда приходит (1353) ───────────────────────────────
+// ── Ежедневная сводка: когда приходит (1354) ───────────────────────────────
 
 export const DIGEST_MODE_SQL = `SELECT digest FROM chat_cabinet_settings WHERE partner_id = $1::uuid`;
 

@@ -93,7 +93,7 @@ describe('окно', () => {
     expect(calls[0]!.params).toEqual(['2026-10-30', D.DIGEST_BATCH, 'morning']);
   });
 
-  it('окно этого часа — время, выбранное партнёром (1353): днём 13–17, вечером 18–22; в 12 и после 22 — ни одного', async () => {
+  it('окно этого часа — время, выбранное партнёром (1354): днём 13–17, вечером 18–22; в 12 и после 22 — ни одного', async () => {
     const at = (hour: number) => new Date(Date.UTC(2026, 9, 29, hour - 12 + (hour < 12 ? 24 : 0), 5));
     for (const [hour, slot] of [[13, 'day'], [16, 'day'], [18, 'evening'], [21, 'evening']] as const) {
       const { db, calls } = fakeDb([]);

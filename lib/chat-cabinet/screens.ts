@@ -54,7 +54,7 @@ export interface CabinetScreen {
   rows: CabinetButton[][];
   /** В тексте или кнопках имя или телефон клиента: экран только для MAX. */
   pd: boolean;
-  /** База не ответила — экран говорит об отказе (счёт пользования, 1353). */
+  /** База не ответила — экран говорит об отказе (счёт пользования, 1354). */
   failed?: boolean;
 }
 
@@ -561,7 +561,7 @@ function memberMoreScreen(partner: CabinetPartner, base: string): CabinetScreen 
   ], [[{ text: 'Кабинет на сайте', url: siteUrl(base, partner.role) }]]);
 }
 
-// ── Ежедневная сводка: когда приходит (1353) ───────────────────────────────
+// ── Ежедневная сводка: когда приходит (1354) ───────────────────────────────
 
 /** Окно сводки по Камчатке: [с, до). Крон идёт каждые 30 минут — сводка уходит первым прогоном окна. */
 export const DIGEST_WINDOWS: Readonly<Record<Exclude<DigestMode, 'off'>, { from: number; until: number }>> = {

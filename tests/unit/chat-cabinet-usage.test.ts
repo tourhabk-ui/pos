@@ -1,5 +1,5 @@
 /**
- * Счёт пользования кабинетом в чате (lib/chat-cabinet/usage, 1353) — вызовом
+ * Счёт пользования кабинетом в чате (lib/chat-cabinet/usage, 1354) — вызовом
  * с подменённой базой. Запрос на настоящей схеме судит
  * tests/integration/chat-cabinet.pg.test.ts.
  *

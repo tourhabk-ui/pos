@@ -86,7 +86,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'channel-post': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-post-tour': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-readiness': ['db_read', 'pd_direct'],
-  // Кабинет в чате (1353, слово владельца 30.10 «счёт: пользуются ли»): числа
+  // Кабинет в чате (1354, слово владельца 30.10 «счёт: пользуются ли»): числа
   // нажатий и сводок. pd_direct — идентификаторы чатов (max_chat_id,
   // telegram_chat_id): перепись сравнивает их в SQL, чтобы посчитать, у кого чат
   // — кабинет, и наружу не отдаёт; имя в ответе — витринное имя карточки
