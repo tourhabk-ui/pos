@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { safeMsg } from '@/lib/errors/sanitize';
-import { FUNNEL_STEPS, EXECUTION_STEPS } from '@/lib/funnel/steps';
+import { ALL_FUNNEL_STEPS, EXECUTION_STEPS } from '@/lib/funnel/steps';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,9 +76,10 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Все шаги словаря присутствуют в ответе, даже с нулями: отсутствие
-    // строки читалось бы как «шаг не существует», а это разные вещи.
+    // строки читалось бы как «шаг не существует», а это разные вещи. Шаги
+    // сервера (заявка отправлена, отказ; #2882) — тоже здесь.
     const found = new Map(bySteps.rows.map((r) => [r.step, r]));
-    const steps = FUNNEL_STEPS.map((step) => {
+    const steps = ALL_FUNNEL_STEPS.map((step) => {
       const r = found.get(step);
       return {
         step,

@@ -106,6 +106,7 @@ import { tourDurationDays, tourEndDate, type TourDurationSource } from '@/lib/bo
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { recordFunnelEvent, type VisitorContext } from '@/lib/funnel/record';
 
 /** Причины отказа. Текст решает вызывающий: у чата и формы он разный. */
 export type ReserveErrorCode =
@@ -134,6 +135,11 @@ export interface ReserveInput {
   specialRequests?: string | null;
   /** Откуда пришла бронь: 'website', 'kuzmich_tg', 'kuzmich_max'. */
   createdVia: string;
+  /**
+   * Заголовки запроса для анонимного суточного хэша в воронке (#2882). Есть у
+   * двери сайта; у чата и агента нет — событие пишется без хэша.
+   */
+  visitor?: VisitorContext | null;
   /**
    * Аккаунт платформы, если он известен. У гостевой брони и у брони из чата
    * его может не быть вовсе — тогда null, и это честное «мы не знаем», а не
@@ -479,6 +485,25 @@ export async function insertBookingRow(
  * одновременных туриста прочитают одну и ту же занятость и оба пройдут.
  */
 export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
+  // Воронка брони (#2882): заявка заведена или отклонена — пишет этот модуль,
+  // потому что через него идут все двери (форма сайта, Кузьмич, агент, запрос
+  // мест). Код отказа — тот же ReserveErrorCode, типизирован словарём причин
+  // (lib/funnel/steps): новый код без записи там не соберётся. Запись не
+  // бросает и не меняет ответ — бронь от аналитики не зависит.
+  const entityId = String(input.tourId);
+  try {
+    const reserved = await reserveBookingInner(input);
+    await recordFunnelEvent({ step: 'booking_submitted', entityId, source: input.createdVia, visitor: input.visitor ?? null });
+    return reserved;
+  } catch (err) {
+    if (err instanceof ReserveError) {
+      await recordFunnelEvent({ step: 'booking_rejected', entityId, source: input.createdVia, reason: err.code, visitor: input.visitor ?? null });
+    }
+    throw err;
+  }
+}
+
+async function reserveBookingInner(input: ReserveInput): Promise<Reserved> {
   const reserved = await transaction(async (client: PoolClient): Promise<Reserved> => {
     const tourResult = await client.query<{
       operator_id: string;
