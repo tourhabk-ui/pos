@@ -145,10 +145,18 @@ describe('разбор фразы правки', () => {
     expect(parseTourEdit(`Горелый: программа: ${long}`)).toMatchObject({ ok: false, reason: 'step_no_title', index: 1 });
   });
 
-  it('пределы формы кабинета: описание до 2000, название от 5, пусто — отказ', () => {
-    expect(parseTourEdit(`Горелый: описание: ${'я'.repeat(2001)}`)).toMatchObject({ ok: false, reason: 'too_long', max: 2000 });
+  it('пределы формы кабинета: описание до 4000, название от 5, пусто — отказ', () => {
+    // Решение владельца 30.10: описание до 4000 (было 2000) — 2684 знака гида проходят.
+    expect(parseTourEdit(`Горелый: описание: ${'я'.repeat(2684)}`)).toMatchObject({ ok: true });
+    expect(parseTourEdit(`Горелый: описание: ${'я'.repeat(4001)}`)).toMatchObject({ ok: false, reason: 'too_long', max: 4000 });
     expect(parseTourEdit('Горелый: название: Ой')).toMatchObject({ ok: false, reason: 'too_short' });
     expect(parseTourEdit('Горелый: описание:')).toMatchObject({ ok: false, reason: 'empty' });
+  });
+
+  it('пункт безопасности — до 500 знаков, пункт «что взять» — по-прежнему до 200', () => {
+    expect(parseTourEdit(`Горелый: безопасность: ${'б'.repeat(500)}`)).toMatchObject({ ok: true });
+    expect(parseTourEdit(`Горелый: безопасность: ${'б'.repeat(501)}`)).toMatchObject({ ok: false, reason: 'item_too_long', max: 500 });
+    expect(parseTourEdit(`Горелый: что взять: ${'в'.repeat(201)}`)).toMatchObject({ ok: false, reason: 'item_too_long', max: 200 });
   });
 
   it('не правка — null: разговор, вопрос, задача, команда и «описание» внутри фразы', () => {

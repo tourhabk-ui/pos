@@ -123,8 +123,11 @@ describe('разделы документа гида → поля тура', () 
   });
 
   it('не помещается в пределы сайта — поле не пишется и названо, остальные — пишутся', () => {
-    const s = docSections(docxParagraphsOk(['«Тур»', 'Важно знать', { text: 'х'.repeat(201), list: true }, 'Что взять с собой', { text: 'куртка', list: true }]));
-    expect(s.rejects).toEqual([{ field: 'safety_notes', reject: { reason: 'item_too_long', index: 1, max: 200 } }]);
+    // Пункт безопасности 300 знаков (как у гида) теперь проходит; 501 — нет (решение владельца 30.10).
+    const ok = docSections(docxParagraphsOk(['«Тур»', 'Важно знать', { text: 'х'.repeat(300), list: true }]));
+    expect(ok.rejects).toEqual([]);
+    const s = docSections(docxParagraphsOk(['«Тур»', 'Важно знать', { text: 'х'.repeat(501), list: true }, 'Что взять с собой', { text: 'куртка', list: true }]));
+    expect(s.rejects).toEqual([{ field: 'safety_notes', reject: { reason: 'item_too_long', index: 1, max: 500 } }]);
     expect(s.values).toEqual({ what_to_bring: ['куртка'] });
   });
 });
