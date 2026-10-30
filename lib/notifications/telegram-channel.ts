@@ -244,6 +244,32 @@ export async function tgPostPhoto(
   return { ...textResult, fellBackToText: true };
 }
 
+/**
+ * Видео-пост (sendVideo) ссылкой: Telegram сам скачивает файл по URL
+ * (лимит для ссылок — 20 МБ). Без фолбэка в текст: видео-пост, ушедший
+ * голым текстом, — это не видео-пост, отказ должен быть виден.
+ */
+export async function tgPostVideo(
+  chatId: string,
+  videoUrl: string,
+  caption: string,
+  botToken?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return { ok: false, error: 'not configured' };
+  const data = await tgFetchWithRetry(
+    `${tgApiBase()}/bot${token}/sendVideo`,
+    {
+      chat_id: chatId,
+      video: videoUrl,
+      caption: repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT),
+      parse_mode: 'HTML',
+      supports_streaming: true,
+    },
+  );
+  return { ok: data.ok, error: data.description };
+}
+
 /** Отправка в MAX канал через MAX Platform API.
  * Экспорт — для ручных постов (manual-channel-post.ts), не только для
  * автоматических публикаторов через postToAllChannels. */
