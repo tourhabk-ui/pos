@@ -781,6 +781,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // в тур пишет только кнопка. Раньше развилки туриста и кабинета: строгая
     // форма фразы — дело гида, а «описание: выезд 5 августа» — текст тура, не
     // даты. Текст тура — не ПД, поэтому и в Telegram.
+    // Роль гида, этап 2 (30.10): ответ на отзыв после «Ответить» и «о себе: …»
+    // (lib/guides/chat-role) — черновик, пишет только кнопка. Отзыв в Telegram
+    // без подписи автора, ответ и профиль — не ПД.
+    if (partner && msg.text) {
+      const { captureGuideRoleText } = await import('@/lib/guides/chat-role/flow');
+      const role = await captureGuideRoleText({ channel: 'telegram', chatId, partner, text: msg.text });
+      if (role) {
+        await tgReply(chatId, withSosBlock(role.text, msg.text).text, {
+          reply_markup: telegramCabinetKeyboard(secondEntryCabinetRows(role.rows)),
+        });
+        return NextResponse.json({ ok: true });
+      }
+    }
     if (partner && msg.text) {
       const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
       const edit = await captureGuideTourEdit({ channel: 'telegram', chatId, partner, text: msg.text });

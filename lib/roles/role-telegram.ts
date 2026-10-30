@@ -89,6 +89,18 @@ export async function tryRoleMenuTelegramMessage(opts: {
       return true;
     }
   }
+  // Роль гида, этап 2 (30.10): ответ на отзыв после «Ответить» и «о себе: …»
+  // (lib/guides/chat-role) — черновик, пишет только кнопка; раньше правки тура.
+  if (privateChat) {
+    const { captureGuideRoleText } = await import('@/lib/guides/chat-role/flow');
+    const role = await captureGuideRoleText({ channel: 'telegram', chatId: opts.chatId, partner: lookup.partner, text: opts.text });
+    if (role) {
+      const sos = withSosBlock('', opts.text);
+      if (sos.emergency) await opts.send(sos.text.trim(), []);
+      await opts.sendCabinet(role);
+      return true;
+    }
+  }
   // Правка своего тура гидом (30.10): «Горелый: описание: …» — черновик и
   // «было → станет» с кнопками «Сохранить» / «Отмена» (lib/guides/tour-edit).
   // В тур пишет только кнопка. Раньше полосы туриста: строгая форма фразы —

@@ -1,5 +1,6 @@
 'use client';
 
+import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, AlertCircle, Upload, Loader2 } from 'lucide-react';
 import { TourFormData } from '@/types/operator';
@@ -205,7 +206,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
               ? <p className="text-xs text-[var(--danger)] flex items-center gap-1"><AlertCircle size={12} />{errors.description}</p>
               : <span />}
             <span className={`text-xs ${formData.description.length < 20 ? 'text-[var(--text-muted)]' : 'text-[var(--success)]'}`}>
-              {formData.description.length} / 2000
+              {formData.description.length} / {TOUR_DESCRIPTION_MAX}
             </span>
           </div>
         </div>

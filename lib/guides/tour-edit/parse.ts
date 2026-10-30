@@ -19,10 +19,11 @@
  * иначе сказал бы «сохранил», ничего не сохранив.
  *
  * Пределы — те же, что у формы кабинета оператора (UpdateTourSchema):
- * название 5–255, анонс до 500, описание до 2000, пункт списка до 200, не
+ * название 5–255, анонс до 500, описание до 4000, пункт списка до 200 (безопасность — до 500; lib/tours/text-limits), не
  * больше 30 пунктов.
  */
 
+import { TOUR_DESCRIPTION_MAX, TOUR_LIST_ITEM_MAX, TOUR_SAFETY_ITEM_MAX } from '@/lib/tours/text-limits';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 
 export const EDIT_FIELDS = [
@@ -82,8 +83,9 @@ export const LIMITS = {
   titleMin: 5,
   title: 255,
   short_description: 500,
-  description: 2000,
-  listItem: 200,
+  description: TOUR_DESCRIPTION_MAX,
+  listItem: TOUR_LIST_ITEM_MAX,
+  safetyItem: TOUR_SAFETY_ITEM_MAX,
   listItems: 30,
   programSteps: 20,
   stepTitle: 200,
@@ -158,6 +160,15 @@ export function parseTourEdit(raw: string): EditParse | null {
   return { ok: true, edit: { tourWords, field, value: value.value } };
 }
 
+/**
+ * Значение поля из готового текста — тем же правилом и пределами, что у фразы.
+ * Зовёт разбор документа гида (lib/guides/tour-edit/doc-sections): поле из
+ * .docx проходит ровно ту проверку, что поле из сообщения.
+ */
+export function parseFieldValue(field: EditField, body: string): { value: EditValue } | EditReject {
+  return parseValue(field, body);
+}
+
 function parseValue(field: EditField, after: string): { value: EditValue } | EditReject {
   const body = after.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!body) return { reason: 'empty' };
@@ -221,8 +232,9 @@ function parseList(field: ListField, body: string): { value: string[] } | EditRe
   const clean = items.map((i) => i.replace(BULLET, '').trim()).filter((i) => i.length > 0);
   if (clean.length === 0) return { reason: 'empty' };
   if (clean.length > LIMITS.listItems) return { reason: 'too_many', max: LIMITS.listItems, got: clean.length };
-  const long = clean.findIndex((i) => i.length > LIMITS.listItem);
-  if (long >= 0) return { reason: 'item_too_long', index: long + 1, max: LIMITS.listItem };
+  const itemMax = field === 'safety_notes' ? LIMITS.safetyItem : LIMITS.listItem;
+  const long = clean.findIndex((i) => i.length > itemMax);
+  if (long >= 0) return { reason: 'item_too_long', index: long + 1, max: itemMax };
   return { value: clean };
 }
 

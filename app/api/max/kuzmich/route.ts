@@ -602,6 +602,34 @@ async function downloadMedia(url: string): Promise<{ base64: string; mimeType: s
   }
 }
 
+/** Сколько файла принимаем из MAX: документ тура — десятки килобайт. */
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Файл из MAX байтами — тот же SSRF-барьер, что у медиа (только https на
+ * хосты MAX), и предел размера до чтения тела. null — не скачался (причина в
+ * логе); 'too_big' — больше предела, не качали.
+ */
+async function downloadMaxFile(url: string): Promise<Buffer | null | 'too_big'> {
+  if (!isAllowedMediaUrl(url)) {
+    console.error('[max/kuzmich] файл не с хоста MAX — не скачан (хост — MAX_MEDIA_HOSTS)');
+    return null;
+  }
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) {
+      console.error(`[max/kuzmich] файл не скачан: HTTP ${res.status}`);
+      return null;
+    }
+    if (Number(res.headers.get('content-length') ?? '0') > MAX_FILE_BYTES) return 'too_big';
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > MAX_FILE_BYTES ? 'too_big' : buf;
+  } catch (err) {
+    logFailure('скачивание файла', err);
+    return null;
+  }
+}
+
 // ── Типы апдейтов MAX ────────────────────────────────────────────────────────
 
 interface MaxAttachment {
@@ -1185,6 +1213,28 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // лишнего не откроет — только не узнает его на одно сообщение.
     }
 
+    // Документ гида (.docx) → поля своего тура (30.10, «гид должен полностью
+    // управлять своей ролью из MAX»): разбор правилами, «было → станет» по
+    // полям, пишет только кнопка (lib/guides/tour-edit/doc-flow). Личный
+    // диалог и заверенный апдейт; прочие файлы и прочие чаты — прежним путём.
+    const fileAtt = attachments.find(a => a.type === 'file');
+    if (fileAtt && msg.recipient.chat_type === 'dialog' && opts?.verifiedOrigin === true) {
+      const doc = await import('@/lib/guides/tour-edit/doc-flow');
+      const { editsOwnTours } = await import('@/lib/guides/tour-edit/flow');
+      const fileName = fileAtt.filename ?? null;
+      if (doc.isDocxName(fileName)) {
+        const owner = await findPartnerByChat('max', chatId);
+        if (owner.outcome === 'found' && editsOwnTours(owner.partner)) {
+          const bytes = fileAtt.payload?.url ? await downloadMaxFile(fileAtt.payload.url) : null;
+          const shown = await doc.captureGuideTourDoc({ channel: 'max', chatId, partner: owner.partner, fileName, caption: text, bytes });
+          if (shown) {
+            await showCabinetMax(chatId, shown, null, text);
+            return;
+          }
+        }
+      }
+    }
+
     // Фото → Gemini Vision
     const photoAtt = attachments.find(a => a.type === 'image');
     if (photoAtt?.payload?.url) {
@@ -1377,6 +1427,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // и «было → станет» с кнопками «Сохранить» / «Отмена»; в тур пишет
       // только кнопка (lib/guides/tour-edit). Раньше полосы и потока дат:
       // «описание: выезд 5 августа» — текст тура, а не открытие даты.
+      // Роль гида, этап 2 (30.10): текст ответа на отзыв после «Ответить» и
+      // правка профиля «о себе: …» — черновик и «было → станет», пишет только
+      // кнопка (lib/guides/chat-role). Раньше правки тура: ожидание ответа —
+      // последняя кнопка, и «о себе: …» не фраза тура.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const { captureGuideRoleText } = await import('@/lib/guides/chat-role/flow');
+        const role = await captureGuideRoleText({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (role) {
+          await showCabinetMax(chatId, role, null, text);
+          return;
+        }
+      }
       if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
         const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
         const edit = await captureGuideTourEdit({ channel: 'max', chatId, partner: lookup.partner, text });

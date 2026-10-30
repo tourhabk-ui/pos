@@ -216,6 +216,13 @@ async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetP
   const inbox = await readInbox(c, nowMs);
   if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
   const item = inbox.items.find((i) => i.kind === press.item && i.id.toLowerCase() === press.id);
+  // Отзыв и приглашение гида — карточка с кнопками ответа (этап 2, 30.10):
+  // «Ответить» и «Принять» / «Отклонить» вместо ссылки на сайт.
+  if (item && c.partner.role === 'guide' && (item.kind === 'guide_review' || item.kind === 'guide_invite')) {
+    const { guideInboxCard } = await import('@/lib/guides/chat-role/flow');
+    const card = await guideInboxCard(item, { partner: c.ctx, owner: c.partner.seat === 'owner', channel });
+    if (card) return card;
+  }
   if (item) return itemCardScreen({ item, partner: c.partner, channel, base: base() });
   // Вид не прочитался — «не знаю», а не «уже ответили» (§4.0).
   if (inbox.failed.includes(press.item)) return { ...inboxScreen(inbox, 0, { notice: CABINET_TEXT.inboxFailed }), failed: true };
@@ -774,6 +781,13 @@ export async function handleCabinetPress(input: {
   // Другая кнопка кабинета снимает поиск: «Задачи» после «Найти клиента»
   // правкой убрали подсказку, и следующее сообщение — уже не запрос.
   if (ch === 'max' && press.kind !== 'search' && press.kind !== 'search_cancel') await dropCabinetSearch(input.chatId);
+  // Так же другая кнопка снимает ожидание ответа на отзыв (этап 2): экран
+  // «Пришлите текст ответа» правкой заменён, и следующее сообщение — не ответ
+  // туристам. Кнопки самого черновика («Отмена», «Опубликовать») — нет.
+  if (g.partner.role === 'guide' && press.kind !== 'draft_cancel' && press.kind !== 'draft_save') {
+    const { dropAwaitingForChat } = await import('@/lib/guides/chat-role/store');
+    await dropAwaitingForChat(ch, input.chatId);
+  }
   let out: CabinetScreen;
   switch (press.kind) {
     case 'more': out = await moreView(g); break;
@@ -810,6 +824,36 @@ export async function handleCabinetPress(input: {
       out = await guideTourPress(press, {
         partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId, nowMs,
       });
+      break;
+    }
+    // Роль гида, этап 2 (30.10): отзывы и ответ, профиль и команда,
+    // расписание, заработок — lib/guides/chat-role. Роль, кабинет карточки и
+    // чьё (отзыв, приглашение) проверяет поток и SQL общих функций сайта.
+    case 'reviews':
+    case 'review':
+    case 'review_reply':
+    case 'review_delete':
+    case 'draft_save':
+    case 'draft_cancel':
+    case 'schedule':
+    case 'earnings':
+    case 'profile':
+    case 'invite_accept':
+    case 'invite_decline':
+    case 'team_leave':
+    case 'team_leave_yes': {
+      const { guideRolePress } = await import('@/lib/guides/chat-role/flow');
+      out = await guideRolePress(press, {
+        partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId, nowMs,
+      });
+      break;
+    }
+    // Документ гида (.docx → поля тура, 1361): «Сохранить всё», по полю, выбор тура.
+    case 'doc_save':
+    case 'doc_cancel':
+    case 'doc_tour': {
+      const { guideDocPress } = await import('@/lib/guides/tour-edit/doc-flow');
+      out = await guideDocPress(press, { partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId });
       break;
     }
   }

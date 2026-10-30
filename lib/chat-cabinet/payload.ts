@@ -33,6 +33,20 @@
  *   cb:h:<тур>          — как править текст тура фразой
  *   cb:e:<s|x>:<uuid>   — черновик правки тура: «Сохранить» / «Отмена»
  *   cb:e:t:<uuid>:<i>   — черновик правки: выбрать тур из кандидатов
+ *   cb:a | cb:a:<стр>   — «Отзывы» гида (этап 2, 30.10), страница
+ *   cb:a:v:<uuid>       — отзыв: текст, ответ, кнопки
+ *   cb:a:r:<uuid>       — «Ответить» / «Изменить ответ»: следующее сообщение — текст
+ *   cb:a:d:<uuid>       — «Удалить ответ»: предпросмотр с кнопкой
+ *   cb:b:<s|x>:<uuid>   — черновик гида (ответ, удаление, профиль): записать / отмена
+ *   cb:s | cb:s:<стр>   — «Расписание» гида на 14 дней, страница
+ *   cb:j                — «Заработок» гида за 30 дней
+ *   cb:p                — «Профиль и команда» гида
+ *   cb:p:<a|n>:<uuid>   — приглашение в команду: принять / отклонить
+ *   cb:p:l | cb:p:y     — «Выйти из команды»: вопрос / подтверждение
+ *   cb:q:a:<uuid>       — документ гида (.docx, 1361): «Сохранить всё»
+ *   cb:q:f:<uuid>:<i>   — документ гида: сохранить одно поле (номер в DOC_FIELDS)
+ *   cb:q:t:<uuid>:<i>   — документ гида: выбрать тур из кандидатов
+ *   cb:q:x:<uuid>       — документ гида: отмена
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -107,7 +121,20 @@ export type CabinetPress =
   | { kind: 'date_open' | 'date_close'; tourId: string; date: string }
   | { kind: 'tour_hint'; tourId: string }
   | { kind: 'edit_save' | 'edit_cancel'; draftId: string }
-  | { kind: 'edit_tour'; draftId: string; index: number };
+  | { kind: 'edit_tour'; draftId: string; index: number }
+  | { kind: 'reviews'; page: number }
+  | { kind: 'review' | 'review_reply' | 'review_delete'; reviewId: string }
+  | { kind: 'draft_save' | 'draft_cancel'; draftId: string }
+  | { kind: 'schedule'; page: number }
+  | { kind: 'earnings' }
+  | { kind: 'profile' }
+  | { kind: 'invite_accept' | 'invite_decline'; inviteId: string }
+  | { kind: 'team_leave' }
+  | { kind: 'team_leave_yes' }
+  /** `field` — номер поля в DOC_FIELDS (lib/guides/tour-edit/doc-sections); null — все. */
+  | { kind: 'doc_save'; draftId: string; field: number | null }
+  | { kind: 'doc_cancel'; draftId: string }
+  | { kind: 'doc_tour'; draftId: string; index: number };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -118,6 +145,12 @@ const PAGE = '\\d{1,2}';
 const TOUR = '\\d{1,18}';
 /** Страниц дат — до полугода вперёд по 14 дней. */
 export const TOUR_DATES_MAX_PAGE = 12;
+/** Страниц расписания гида — по 14 дней, до десяти недель вперёд. */
+export const SCHEDULE_MAX_PAGE = 4;
+
+const REVIEW_ACTION: Readonly<Record<string, 'review' | 'review_reply' | 'review_delete'>> = {
+  v: 'review', r: 'review_reply', d: 'review_delete',
+};
 
 /** 'YYYYMMDD' → 'YYYY-MM-DD'; null — такого дня нет (31 февраля). */
 function ymdOf(d: string): string | null {
@@ -180,6 +213,22 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [new RegExp(`^cb:h:(${TOUR})$`), (m) => ({ kind: 'tour_hint', tourId: m[1]! })],
   [new RegExp(`^cb:e:([sx]):(${UUID})$`), (m) => ({ kind: m[1] === 's' ? 'edit_save' : 'edit_cancel', draftId: m[2]! })],
   [new RegExp(`^cb:e:t:(${UUID}):([0-7])$`), (m) => ({ kind: 'edit_tour', draftId: m[1]!, index: Number(m[2]) })],
+  [new RegExp(`^cb:a(?::(${PAGE}))?$`), (m) => ({ kind: 'reviews', page: Number(m[1] ?? 0) })],
+  [new RegExp(`^cb:a:([vrd]):(${UUID})$`), (m) => ({ kind: REVIEW_ACTION[m[1]!]!, reviewId: m[2]! })],
+  [new RegExp(`^cb:b:([sx]):(${UUID})$`), (m) => ({ kind: m[1] === 's' ? 'draft_save' : 'draft_cancel', draftId: m[2]! })],
+  [/^cb:s(?::(\d))?$/, (m) => {
+    const page = Number(m[1] ?? 0);
+    return page <= SCHEDULE_MAX_PAGE ? { kind: 'schedule', page } : null;
+  }],
+  [/^cb:j$/, () => ({ kind: 'earnings' })],
+  [/^cb:p$/, () => ({ kind: 'profile' })],
+  [new RegExp(`^cb:p:([an]):(${UUID})$`), (m) => ({ kind: m[1] === 'a' ? 'invite_accept' : 'invite_decline', inviteId: m[2]! })],
+  [/^cb:p:l$/, () => ({ kind: 'team_leave' })],
+  [/^cb:p:y$/, () => ({ kind: 'team_leave_yes' })],
+  [new RegExp(`^cb:q:a:(${UUID})$`), (m) => ({ kind: 'doc_save', draftId: m[1]!, field: null })],
+  [new RegExp(`^cb:q:f:(${UUID}):([0-5])$`), (m) => ({ kind: 'doc_save', draftId: m[1]!, field: Number(m[2]) })],
+  [new RegExp(`^cb:q:x:(${UUID})$`), (m) => ({ kind: 'doc_cancel', draftId: m[1]! })],
+  [new RegExp(`^cb:q:t:(${UUID}):([0-7])$`), (m) => ({ kind: 'doc_tour', draftId: m[1]!, index: Number(m[2]) })],
 ];
 
 export function isCabinetPayload(payload: string): boolean {
@@ -245,6 +294,26 @@ export const cabinetPayload = {
   editSave: (draftId: string): string => `cb:e:s:${draftId.toLowerCase()}`,
   editCancel: (draftId: string): string => `cb:e:x:${draftId.toLowerCase()}`,
   editTour: (draftId: string, index: number): string => `cb:e:t:${draftId.toLowerCase()}:${index}`,
+  /** «Отзывы» гида. */
+  reviews: (page = 0): string => (page > 0 ? `cb:a:${page}` : 'cb:a'),
+  review: (reviewId: string): string => `cb:a:v:${reviewId.toLowerCase()}`,
+  reviewReply: (reviewId: string): string => `cb:a:r:${reviewId.toLowerCase()}`,
+  reviewDelete: (reviewId: string): string => `cb:a:d:${reviewId.toLowerCase()}`,
+  draftSave: (draftId: string): string => `cb:b:s:${draftId.toLowerCase()}`,
+  draftCancel: (draftId: string): string => `cb:b:x:${draftId.toLowerCase()}`,
+  /** «Расписание» гида на 14 дней. */
+  schedule: (page = 0): string => (page > 0 ? `cb:s:${page}` : 'cb:s'),
+  earnings: (): string => 'cb:j',
+  profile: (): string => 'cb:p',
+  inviteAccept: (inviteId: string): string => `cb:p:a:${inviteId.toLowerCase()}`,
+  inviteDecline: (inviteId: string): string => `cb:p:n:${inviteId.toLowerCase()}`,
+  teamLeave: (): string => 'cb:p:l',
+  teamLeaveYes: (): string => 'cb:p:y',
+  /** Документ гида (.docx → поля тура, 1361). */
+  docSaveAll: (draftId: string): string => `cb:q:a:${draftId.toLowerCase()}`,
+  docSaveField: (draftId: string, field: number): string => `cb:q:f:${draftId.toLowerCase()}:${field}`,
+  docCancel: (draftId: string): string => `cb:q:x:${draftId.toLowerCase()}`,
+  docTour: (draftId: string, index: number): string => `cb:q:t:${draftId.toLowerCase()}:${index}`,
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */
