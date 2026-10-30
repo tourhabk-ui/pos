@@ -282,7 +282,7 @@ describe('поверхности', () => {
   });
 
   it('карточка «Поездка состоялась?» в кабинете чата: кнопки в обоих каналах, переписка — в MAX; у оператора кнопок нет', () => {
-    const partner: CabinetPartner = { partnerId: PARTNER, role: 'transfer', bookingActions: false, leadActions: false, operatorAnswers: false, sellsTours: false, summary: false };
+    const partner: CabinetPartner = { partnerId: PARTNER, role: 'transfer', bookingActions: false, leadActions: false, operatorAnswers: false, sellsTours: false, summary: false, seat: 'owner' };
     const item: InboxItem = {
       kind: 'charter_ride', id: LEAD, created_at: '2026-10-29T12:00:00Z', title: 'Вулкан Горелый', date: '2026-10-28',
       people: 10, contact_id: null, contact_name: null, waiting_minutes: 600,
@@ -299,6 +299,11 @@ describe('поверхности', () => {
     }
     const op = itemCardScreen({ item, partner: { ...partner, role: 'operator' }, channel: 'max', base: 'https://vedarai.ru' });
     expect(op.rows.flat().map((b) => ('payload' in b ? b.payload : ''))).not.toContain(`rc:y:${LEAD}`);
+    // Менеджер команды исход поездки не отмечает и переписку не ведёт: это слово владельца карточки.
+    const member = itemCardScreen({ item, partner: { ...partner, seat: 'member' }, channel: 'max', base: 'https://vedarai.ru' });
+    const memberPayloads = member.rows.flat().map((b) => ('payload' in b ? b.payload : ''));
+    expect(memberPayloads).not.toContain(`rc:y:${LEAD}`);
+    expect(memberPayloads).not.toContain(`lq:o:${LEAD}`);
   });
 
   it('дверь сайта: перевозчик — 200 и текст без разметки; не перевозчик — 403 без чтения; кривое тело — 400', async () => {
