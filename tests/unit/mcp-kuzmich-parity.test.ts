@@ -17,7 +17,9 @@ vi.mock('@/lib/kuzmich/core', () => ({
 import { GET, POST } from '@/app/api/mcp/route';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 
-const EXCLUDED = ['search_kamchatka', 'search_taaft'];
+// get_flight_board (29.10) — табло Елизово только в чате Кузьмича: без
+// английского/китайского слоя и подсказок хосту внешнему агенту не выдаётся.
+const EXCLUDED = ['search_kamchatka', 'search_taaft', 'get_flight_board'];
 
 function rpc(method: string, params?: Record<string, unknown>) {
   return POST(

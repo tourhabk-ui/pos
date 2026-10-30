@@ -26,6 +26,7 @@
  */
 
 import { pickupWording, isPickupType } from '@/lib/tours/pickup';
+import { groupSentence } from '@/lib/tours/group-size';
 
 /** Порог чужих витрин — тот же, что у переписи готовности. */
 export const MIN_DESCRIPTION_CHARS = 300;
@@ -42,6 +43,8 @@ export interface TourFacts {
   season_end?: string | null;
   max_participants?: number | null;
   min_participants?: number | null;
+  /** Группа не ограничена (1342): «до N» тогда — потолок одной заявки, а не тура. */
+  group_size_unlimited?: boolean | null;
   weather_dependent?: boolean | null;
   program?: unknown;
   included?: string[] | null;
@@ -170,10 +173,12 @@ export function composeTourDescription(f: TourFacts): ComposeResult {
     used.push('weather_dependent');
   }
 
-  // 5. Группа.
-  if (f.max_participants && f.max_participants > 0) {
-    parts.push(`Группа до ${f.max_participants} человек.`);
-    used.push('max_participants');
+  // 5. Группа — общим правилом (lib/tours/group-size): у тура без предела
+  // «Группа до 12» было бы неправдой о гиде (слово владельца 29.10).
+  const group = groupSentence(f);
+  if (group) {
+    parts.push(group);
+    used.push(f.group_size_unlimited === true ? 'group_size_unlimited' : 'max_participants');
   }
 
   // 6. Что включено и что взять.

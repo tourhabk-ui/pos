@@ -3,22 +3,12 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAdmin, requireOperator } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
-import { leadOwnershipCond } from '@/lib/leads/ownership';
-import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { leadOwnershipCond, operatorLeadScope } from '@/lib/leads/ownership';
+import { changeLeadStatus, LEAD_STATUSES } from '@/lib/leads/owner-lead-status';
 import { bookingsForLead, type LeadBookings } from '@/lib/leads/lead-bookings';
 
 const PatchSchema = z.object({
-  status: z.enum([
-    'new',
-    'ai_processing',
-    'ai_qualified',
-    'proposal_sent',
-    'awaiting_confirm',
-    'contacted',
-    'qualified',
-    'converted',
-    'lost',
-  ]).optional(),
+  status: z.enum(LEAD_STATUSES).optional(),
   notes: z.string().max(2000).optional(),
 });
 
@@ -47,47 +37,25 @@ export async function PATCH(
     return NextResponse.json({ error: 'Нечего обновлять' }, { status: 400 });
   }
 
-  const sets: string[] = ['updated_at = NOW()'];
-  const vals: unknown[] = [];
-  let idx = 1;
+  // Правило смены одно с разделом «Свои туры» гида (lib/leads/owner-lead-status).
+  // Скоуп кабинета оператора: чужой лид не обновляется и неотличим от
+  // несуществующего (404, не 403); первое действие над ничейным делает его
+  // своим (25.09) — иначе два оператора звонили одному туристу и перетирали
+  // заметки друг друга.
+  const outcome = await changeLeadStatus({
+    leadId: id,
+    status,
+    notes,
+    actor: { kind: user.role === 'admin' ? 'admin' : 'partner_user', userId: user.userId },
+    scope: await operatorLeadScope(user),
+    via: 'site',
+  });
 
-  if (status) { sets.push(`status = $${idx++}`); vals.push(status); }
-  if (notes !== undefined) { sets.push(`notes = $${idx++}`); vals.push(notes); }
-  vals.push(id);
-
-  // Чужой лид не обновляется и неотличим от несуществующего (404, не 403).
-  const scope = await leadOwnershipCond(user, idx + 1);
-  // Первое действие оператора над ничейным лидом делает его своим (25.09):
-  // иначе два оператора звонили одному туристу и перетирали заметки друг
-  // друга. Уже чужой лид сюда не попадает — его отсекает scope.
-  const claimVals: unknown[] = [];
-  if (user.role !== 'admin' && scope.vals.length > 0) {
-    sets.push(`operator_id = COALESCE(operator_id, $${idx + 1 + scope.vals.length})`);
-    claimVals.push(scope.vals[0]);
-  }
-  const res = await pool.query<{ id: string; status: string; notes: string | null; prev_status: string | null }>(
-    `WITH prev AS (SELECT status FROM leads WHERE id = $${idx})
-     UPDATE leads SET ${sets.join(', ')} WHERE id = $${idx}${scope.cond}
-     RETURNING id, status, notes, (SELECT status FROM prev) AS prev_status`,
-    [...vals, ...scope.vals, ...claimVals]
-  );
-
-  if (!res.rows.length) {
+  if (outcome.kind === 'not_found') {
     return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
   }
 
-  // Лента клиента (CRM #2325): событие — когда статус сменился, а не когда
-  // его прислали тем же.
-  const { prev_status: prevStatus, ...lead } = res.rows[0];
-  if (status && prevStatus !== status) {
-    await recordSourceEventQuietly({
-      kind: 'status_change', sourceKind: 'lead', sourceId: id,
-      actorKind: user.role === 'admin' ? 'admin' : 'partner_user', actorUserId: user.userId,
-      title: statusChangeTitle('lead', prevStatus, status), payload: { from: prevStatus, to: status },
-    });
-  }
-
-  return NextResponse.json({ success: true, lead });
+  return NextResponse.json({ success: true, lead: outcome.lead, changed: outcome.changed });
 }
 
 export async function GET(

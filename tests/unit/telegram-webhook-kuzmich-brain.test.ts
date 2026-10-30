@@ -507,7 +507,7 @@ describe('турист: клавиатура, порядок ответов, д�
       if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) {
         return { rows: [...m.history].reverse() };
       }
-      if (q.includes('multi_day_count DESC NULLS LAST')) {
+      if (q.includes('FROM operator_tours') && q.includes('AS nearest_free_date') && q.includes('match_text')) {
         return { rows: [{
           id: 7, slug: 'k-vulkanu', title: 'К вулкану',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 1,
@@ -569,7 +569,7 @@ describe('турист: клавиатура, порядок ответов, д�
       if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) {
         return { rows: [...m.history].reverse() };
       }
-      if (q.includes('multi_day_count DESC NULLS LAST')) {
+      if (q.includes('FROM operator_tours') && q.includes('AS nearest_free_date') && q.includes('match_text')) {
         return { rows: [{
           id: 7, slug: 'k-vulkanu', title: 'К вулкану',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 1,
@@ -674,7 +674,7 @@ describe('турист: клавиатура, порядок ответов, д�
     m.pool.mockImplementation(async (sql: unknown) => {
       const q = String(sql);
       if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) return { rows: [] };
-      if (q.includes('multi_day_count DESC NULLS LAST')) {
+      if (q.includes('FROM operator_tours') && q.includes('AS nearest_free_date') && q.includes('match_text')) {
         return { rows: [{
           id: 7, slug: 'pyat-dney', title: 'Пять дней по Камчатке',
           base_price: 180000, price_unit: 'per_person', multi_day_count: 5,
@@ -888,6 +888,22 @@ describe('меню роли на живом вебхуке', () => {
     expect(m.tools).not.toHaveBeenCalled();
     expect(sent()[0]).toMatch(/^Открыть даты словами можно в MAX/);
     expect(lastRow()).toEqual(['rm:op:in', 'rm:op:hp']);
+  });
+
+  it('гид со своими турами (29.10): та же фраза — «это в MAX» со ссылкой в его раздел «Свои туры», помощник не зовётся', async () => {
+    const USER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    m.pool.mockImplementation(async (sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('FROM tg_conversations') && q.includes('SELECT role, content')) return { rows: [] };
+      if (q.includes('FROM partners')) {
+        return { rows: [{ id: PARTNER, slug: 'g-own', name: 'Гид', category: 'guide', user_id: USER, profile_status: null, sells_tours: true }] };
+      }
+      return { rows: [] };
+    });
+    await post('открой субботы июля, 8 мест', { chat: CHAT, from: CHAT });
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(sent()[0]).toMatch(/^Открыть даты словами можно в MAX — там есть кнопка подтверждения\. Или в кабинете: https?:\/\/\S+\/hub\/guide\/own$/);
+    expect(sent().join('\n')).not.toMatch(/\/hub\/operator/);
   });
 
   it('«Входящие» называют непрочитанные чата, если у партнёра есть аккаунт', async () => {

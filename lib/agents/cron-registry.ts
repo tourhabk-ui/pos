@@ -119,6 +119,16 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 360, tier: 'safety', agentId: 'safety-check', triggerable: false,
   },
   {
+    // Второй свидетель цунами (29.10): PTWC видит угрозу точкам края, а в
+    // ленте официальной тревоги нет — дежурный разбужен. tsunami_warning
+    // этот крон не пишет и не снимает; туристу PTWC не показывается.
+    key: 'ptwc-check', label: 'PTWC — сверка цунами',
+    description: 'Последний бюллетень PTWC (tsunami.gov): угроза точкам края без официальной тревоги в ленте → дежурному. Только чтение.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'safety', agentId: 'ptwc-check', triggerable: false,
+    endpoint: 'ptwc-check',
+  },
+  {
     key: 'rescue', label: 'Rescue',
     description: 'Погодные угрозы ближайшим турам + отток операторов. SOS/брони — у Watchdog.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
@@ -135,6 +145,15 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждый час (аренда окна)',
     everyMin: 60, tier: 'safety', agentId: 'emsd-vmon-sync', triggerable: false,
     endpoint: 'emsd-vmon-sync',
+  },
+  {
+    // Суточный прогноз Камчатского УГМС по районам (29.10, владелец: «есть же
+    // камчатский гидромет») — дословно на /weather и у Кузьмича рядом с моделью.
+    key: 'ugms-forecast', label: 'Прогноз Камчатского УГМС',
+    description: 'kammeteo.ru: прогноз на сутки и на 2–3 суток по районам → ugms_forecasts; /weather и Кузьмич показывают его дословно.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждый час (аренда окна)',
+    everyMin: 60, tier: 'ops', agentId: 'ugms-forecast', triggerable: false,
+    endpoint: 'ugms-forecast',
   },
   {
     key: 'volcano-merge-gate', label: 'Volcano OS Merge Gate',
@@ -215,6 +234,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: 'seat-requests-expire', triggerable: false,
     endpoint: 'seat-requests-expire',
+  },
+  {
+    key: 'agent-request-notify', label: 'Agent Request Notify',
+    description: 'Подписки агентов на изменения заявок (notify_url, 1348): сверка вида заявки и подписанный POST с разницей.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'ops', agentId: 'agent-request-notify', triggerable: false,
+    endpoint: 'agent-request-notify',
   },
   {
     key: 'crm-reminders', label: 'CRM Task Reminders',
@@ -333,7 +359,8 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     // Сверено с кодом 24.07: cron-kuzmich-eval.yml дёргает /api/cron/kuzmich-eval,
-    // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live).
+    // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live,
+    // 'kuzmich-eval-commercial' при set=commercial — вопросы о турах, 29.10).
     // До этого здесь стоял agentId 'kuzmich-redteam' — телеметрия ДРУГОЙ джобы
     // (ежемесячный red-team), из-за чего панель могла показывать недельный eval
     // зелёным по чужим прогонам. Реестр сам запрещает врать зелёным — исправлено.
@@ -568,7 +595,13 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ноль записанных — не «спокойно», а «не прочитали». Отказ похода и так
   // пишется 'failed'; сюда попадает пройденный прогон, не записавший ничего.
   'emsd-vmon-sync': 'broken',
+  // Страницы прогноза УГМС непусты всегда: ноль записанных — разметка
+  // изменилась или сайт не дошёл, а не «прогноза нет».
+  'ugms-forecast': 'broken',
   'safety-check': 'unknown',
+  // Счётчик — точки края в таблице прихода волны: ноль значит «угрозы краю
+  // нет», и так почти всегда. Непрочитанный PTWC краснеет сам (502, failed).
+  'ptwc-check': 'normal',
 
   // ── Операции ────────────────────────────────────────────────────────────
   // Пустая очередь ядра — норма: инициативы появляются нерегулярно.
@@ -603,6 +636,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Ноль напоминаний — норма: сроки не подошли или тихие часы. Поломка видна
   // иначе — отказ базы отдаёт 500, ни одной доставки при должниках — 502.
   'crm-reminders': 'normal',
+  // Ноль доставок — норма: подписок нет или ни одна заявка не изменилась.
+  // Поломка видна иначе — отказ базы отдаёт 500, нет ENCRYPTION_KEY при живых
+  // подписках — 502; отказы приёмников — числами в ответе, не провалом.
+  'agent-request-notify': 'normal',
   'support-escalate': 'unknown',
   // Ноль напоминаний — норма: туров на завтра нет или у туристов нет канала.
   // Отказ при непустой выборке пишется 'failed', а не нулём.

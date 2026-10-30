@@ -56,6 +56,8 @@ const m = vi.hoisted(() => ({
   leadProcess: vi.fn(),
   notifyProposal: vi.fn(),
   sendProposal: vi.fn(),
+  ownerPress: vi.fn(),
+  taskPress: vi.fn(),
 }));
 
 vi.mock('@/lib/max/max-fetch', () => ({
@@ -90,6 +92,14 @@ vi.mock('@/lib/leads/status-action', async (importOriginal) => ({
 vi.mock('@/lib/services/operators/lead-processor.service', () => ({ leadProcessor: { process: m.leadProcess } }));
 vi.mock('@/lib/notifications/lead-notify', () => ({ notifyOperatorProposal: m.notifyProposal }));
 vi.mock('@/lib/leads/proposal-delivery', () => ({ sendProposalToClient: m.sendProposal }));
+// Бронь своего тура кнопкой (гид, 29.10): вопрос `bk:` и «Да» / «Не надо» `oc:`.
+vi.mock('@/lib/bookings/chat-owner-action', () => ({
+  handleOwnerPress: m.ownerPress,
+  captureOwnerReason: vi.fn(async () => null),
+  awaitsOwnerReason: vi.fn(async () => false),
+}));
+// «Выполнено» под напоминанием о задаче (29.10): `tk:d:`.
+vi.mock('@/lib/crm/chat-task-action', () => ({ handleTaskPress: m.taskPress }));
 
 const max = await import('@/app/api/max/kuzmich/route');
 // Тесты шлют одни и те же mid: повтор сообщения отсекается (25.10), память — заново на тест.
@@ -140,7 +150,7 @@ const repliesTo = (chatId: number) =>
 
 /** Обработчики действий — ни один не должен быть вызван на незаверенном. */
 const ACTION_HANDLERS = [
-  m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal,
+  m.seatMine, m.seatAnswer, m.applyLead, m.leadProcess, m.notifyProposal, m.sendProposal, m.ownerPress, m.taskPress,
   m.login, m.loginConfirm, m.loginReject,
   m.partnerStart, m.memberStart, m.adminStart, m.findAdmin, m.bindTourist, m.createLead, m.partnerMessage,
 ];
@@ -174,6 +184,8 @@ beforeEach(() => {
   m.findAdmin.mockResolvedValue({ outcome: 'none' });
   m.bindTourist.mockResolvedValue({ ok: true, notified: false });
   m.createLead.mockResolvedValue('lead-id-1');
+  m.ownerPress.mockResolvedValue({ text: 'Подтвердить бронь №7001?', buttons: [] });
+  m.taskPress.mockResolvedValue('Задача «Перезвонить» отмечена выполненной.');
   vi.stubEnv('MAX_BOT_TOKEN', 'test-token');
   vi.stubEnv('MAX_WEBHOOK_SECRET', KEY);
   vi.stubEnv('MAX_OPERATOR_CHAT_ID', String(OPERATOR_CHAT));
@@ -183,7 +195,24 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 // ── Кнопки-действия ─────────────────────────────────────────────────────────
 
-const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login'; applied: () => unknown }> = [
+const OWNER_ACTION = '00000000-0000-4000-8000-000000000001';
+const PRESSES: Array<{ payload: string; kind: 'seat' | 'lead' | 'login' | 'owner' | 'task'; applied: () => unknown }> = [
+  // Бронь своего тура кнопкой: право (личный диалог, карточка, человек
+  // привязки, владение) решает lib/bookings/chat-owner-action; здесь — что
+  // туда доходит только заверенное нажатие, с чатом сообщения и нажавшим.
+  // Заявка своего тура кнопкой (`ld:`, шаг 7) — тот же вид нажатия.
+  ...[`bk:c:7001`, `bk:x:7001`, `ld:k:${LEAD}`, `ld:l:${LEAD}`, `oc:y:${OWNER_ACTION}`, `oc:x:${OWNER_ACTION}`].map((payload) => ({
+    payload, kind: 'owner' as const,
+    applied: () => expect(m.ownerPress).toHaveBeenCalledWith({
+      channel: 'max', chatId: OPERATOR_CHAT, privateChat: false, presserId: OPERATOR_CHAT, payload,
+    }),
+  })),
+  // «Выполнено» под напоминанием о задаче: личный диалог и партнёра чата
+  // проверяет lib/crm/chat-task-action; сюда доходит чат сообщения.
+  {
+    payload: `tk:d:${OWNER_ACTION}`, kind: 'task',
+    applied: () => expect(m.taskPress).toHaveBeenCalledWith({ chatId: OPERATOR_CHAT, privateChat: false, payload: `tk:d:${OWNER_ACTION}` }),
+  },
   { payload: `sr:y:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'yes' }, 'max') },
   { payload: `sr:n:${SEAT}`, kind: 'seat', applied: () => expect(m.seatAnswer).toHaveBeenCalledWith(SEAT, { kind: 'no' }, 'max') },
   ...['lead_contacted', 'lead_qualified', 'lead_converted', 'lead_lost'].map((p) => ({
@@ -337,7 +366,7 @@ describe('ключ задан: запрос без него не обрабат�
 const STARTS: Array<{ payload: string; kind: 'login' | 'link' | 'admin'; applied: () => unknown }> = [
   { payload: 'login-abcdefgh12345678', kind: 'login', applied: () => expect(m.login).toHaveBeenCalledTimes(1) },
   { payload: `sr_${'a'.repeat(32)}`, kind: 'link', applied: () => expect(m.bindTourist).toHaveBeenCalledWith('a'.repeat(32), 'max', 77) },
-  { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function)) },
+  { payload: 'op_signed-token', kind: 'link', applied: () => expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function), 77) },
   { payload: 'om_signed-token', kind: 'link', applied: () => expect(m.memberStart).toHaveBeenCalledWith('om_signed-token', 'max', 77, expect.any(Function)) },
   { payload: `adm_${'b'.repeat(32)}`, kind: 'admin', applied: () => expect(m.adminStart).toHaveBeenCalledWith(`adm_${'b'.repeat(32)}`, 77, expect.any(Function)) },
 ];
@@ -368,7 +397,7 @@ describe('ссылки старта: вход и подключение чата
       m.processMessage.mockClear();
       m.maxSend.mockClear();
       await post(VERIFIED, message(text));
-      expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function));
+      expect(m.partnerStart).toHaveBeenCalledWith('op_signed-token', 'max', 77, expect.any(Function), 77);
       expect(m.processMessage).not.toHaveBeenCalled();
       const reply = m.partnerStart.mock.calls[0]?.[3] as (t: string) => Promise<void>;
       await reply('Вы подключены как туроператор.');

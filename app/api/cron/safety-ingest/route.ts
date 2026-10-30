@@ -6,6 +6,7 @@ import { EMSD_QUAKES_URL } from '@/lib/services/safety/emsd-quakes';
 import { kamgovUnreachable } from '@/lib/services/safety/kamgov-fetch';
 import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { ingestRoadChannelHtml, type RoadChannelResult } from '@/lib/services/safety/road-channel';
+import { ingestVisitkamchatkaChannelHtml, type VisitkamchatkaChannelResult } from '@/lib/services/safety/visitkamchatka-channel';
 import { pendingBasisChecks } from '@/lib/safety/road-basis-queue';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
@@ -684,6 +685,7 @@ function buildResponse(
     firms?: ParseResultSummary;
     meteoalert?: ParseResultSummary;
     road?: ParseResultSummary;
+    visitkamchatka?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -755,6 +757,7 @@ function buildResponse(
     ...(ingestResult.firms?.errors ?? []),
     ...(ingestResult.meteoalert?.errors ?? []),
     ...(ingestResult.road?.errors ?? []),
+    ...(ingestResult.visitkamchatka?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
     ...(pruned && 'error' in pruned ? [pruned.error] : []),
@@ -782,6 +785,7 @@ function buildResponse(
       ['firms', ingestResult.firms, 'FIRMS_MAP_KEY'],
       ['meteoalert', ingestResult.meteoalert, undefined],
       ['pravonarul', ingestResult.road, undefined],
+      ['visitkamchatka', ingestResult.visitkamchatka, undefined],
     ] as const).map(([key, result, requiresEnv]) => [
       key,
       sourceReport({
@@ -832,6 +836,11 @@ function buildResponse(
       events_found: ingestResult.road.events.length,
       inserted: ingestResult.road.inserted,
       skipped: ingestResult.road.skipped,
+    } : undefined,
+    visitkamchatka: ingestResult.visitkamchatka ? {
+      events_found: ingestResult.visitkamchatka.events.length,
+      inserted: ingestResult.visitkamchatka.inserted,
+      skipped: ingestResult.visitkamchatka.skipped,
     } : undefined,
     // Раннер читает это поле и приносит снимки второй ходкой (cron-safety-ingest.yml).
     road_basis_needed: extras?.roadBasisNeeded ?? [],
@@ -1209,6 +1218,13 @@ const HtmlBodySchema = z.object({
    */
   pravonarul_html: z.string().max(2_000_000).optional(),
   /**
+   * Telegram-канал турпортала края (t.me/s/visitkamchatka41): еженедельная
+   * сводка Минтура о доступности туристических объектов слово в слово
+   * (29.10, lib/services/safety/visitkamchatka-channel). Optional: реле и
+   * старый воркфлоу её не шлют.
+   */
+  visitkamchatka_html: z.string().max(2_000_000).optional(),
+  /**
    * RSS kamgov.ru, скачанный раннером: с Timeweb гос-сайт не открывается, и
    * сервер каждый прогон писал «news feed unavailable: kamgov» при живом фиде.
    * Массив — у сайта несколько путей (/rss, /mintur/rss), дубли снимает разбор.
@@ -1285,7 +1301,7 @@ export async function POST(req: Request) {
   // t.me-HTML, kamgov-XML, minec-HTML и посты MAX, принесённые раннером.
   // Двойная работа снята: у VK API лимиты, и лишний поход туда каждые ~час
   // бесплатным не был.
-  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult, roadResult] = await Promise.all([
+  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult, roadResult, visitkamchatkaResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     // kamgov с сервера не тянется НИКОГДА (гео-блок с Timeweb): его приносит
     // раннер XML'ом ниже. Прежнее условие «тянуть, если раннер не принёс»
@@ -1310,6 +1326,11 @@ export async function POST(req: Request) {
     parsed.data.pravonarul_html
       ? ingestRoadChannelHtml(parsed.data.pravonarul_html)
       : Promise.resolve(undefined as RoadChannelResult | undefined),
+    // Сводка Минтура из канала турпортала — тоже только когда раннер принёс
+    // страницу: «не ходили» не равно «сводки не было».
+    parsed.data.visitkamchatka_html
+      ? ingestVisitkamchatkaChannelHtml(parsed.data.visitkamchatka_html)
+      : Promise.resolve(undefined as VisitkamchatkaChannelResult | undefined),
   ]);
   // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
   // это по-прежнему один блок `news`.
@@ -1325,8 +1346,10 @@ export async function POST(req: Request) {
     minec: minecResult,
     max: maxResult,
     road: roadResult,
+    visitkamchatka: visitkamchatkaResult,
     total_inserted: telegramResult.total_inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0) + (roadResult?.inserted ?? 0),
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0) + (roadResult?.inserted ?? 0)
+      + (visitkamchatkaResult?.inserted ?? 0),
   };
   // Какие снимки дорожных постов ещё не проверены на основание — раннер
   // принесёт только их. Отказ чтения называется в ответе, приём не роняет.
@@ -1375,6 +1398,7 @@ export async function POST(req: Request) {
     { label: 'EMSD/EQKam (сейсмо)', errors: telegramResult.eqkam.errors, inserted: telegramResult.eqkam.inserted },
     ...(maxResult ? [{ label: 'MAX — МЧС Камчатки', errors: maxResult.errors, inserted: maxResult.inserted }] : []),
     ...(roadResult ? [{ label: 'Право на Руль — дороги', errors: roadResult.errors, inserted: roadResult.inserted }] : []),
+    ...(visitkamchatkaResult ? [{ label: 'Турпортал края — сводка Минтура', errors: visitkamchatkaResult.errors, inserted: visitkamchatkaResult.inserted }] : []),
   ];
   logHeartbeat(
     startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'workflow_post',
@@ -1394,6 +1418,10 @@ export async function POST(req: Request) {
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
     // «Право на Руль» — только когда раннер принёс страницу (реле её не шлёт).
     ...(parsed.data.pravonarul_html ? [entryFor('pravonarul', 'Право на Руль — дороги (Telegram)', roadResult)] : []),
+    // Турпортал — тем же правилом: запись только когда раннер принёс страницу.
+    ...(parsed.data.visitkamchatka_html
+      ? [entryFor('visitkamchatka', 'Турпортал края — сводка Минтура (t.me/visitkamchatka41)', visitkamchatkaResult)]
+      : []),
     // kamgov — только когда раннер сообщил, что ходил (kamgov_fetch): POST'ы
     // реле Cloudflare его не тянут, и «не ходили» не должно читаться как
     // «молчит» (тот же приём, что с делегированными выше).

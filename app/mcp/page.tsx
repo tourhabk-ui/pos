@@ -15,12 +15,14 @@ import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 // Числа лимитов — из модуля без базы: страница пререндерится на сборке, где
 // DATABASE_URL нет, а write-guard тянет lib/db-pool (no-build-time-db).
 import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from '@/lib/mcp/write-limits';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU, MCP_TRANSPORT_SPELLINGS } from '@/lib/mcp/connect';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { CopyButton } from '@/components/mcp/CopyButton';
 
@@ -204,6 +206,29 @@ export default function McpLandingPage() {
             </div>
           </section>
 
+          {/* Уведомления об изменении заявки (29.10): описание инструментов
+              выше называет поле, здесь — как проверить подпись. Текст один с
+              ответом инструмента и OpenAPI (NOTIFY_HOW_TO_VERIFY). */}
+          <section className="space-y-3" id="notify">
+            <h2 className="ds-h2">Уведомления об изменении заявки</h2>
+            <div className="ds-card p-4 space-y-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <p>
+                Необязательное поле <code>notify_url</code> у {NOTIFY_TOOL_NAMES.map((n, i) => (
+                  <span key={n}>{i > 0 ? ', ' : ''}<code>{n}</code></span>
+                ))}: когда меняются состояние заявки, дата, предложенная оператором дата, тур или число человек, на адрес
+                приходит POST с JSON. Номер подписки (<code>nr_…</code>) и ключ подписи (<code>whsec_…</code>) — в ответе
+                инструмента, один раз. Адрес — только https по имени хоста, порт 443.
+              </p>
+              <p>{NOTIFY_HOW_TO_VERIFY}</p>
+              <p>{NOTIFY_RESPONSE_RULES}</p>
+              <p>
+                Сверка идёт по расписанию примерно раз в 30 минут, срок не гарантирован; <code>get_request_status</code> отвечает
+                сразу, поле <code>notify</code> в нём показывает, жива ли подписка. В теле нет
+                ни ключа статуса, ни имени и телефона. У заявки на жильё уведомлений нет: её состояние после передачи не меняется.
+              </p>
+            </div>
+          </section>
+
           {/* Рычаг номер один — «человек добавил Vedar»: ссылка, команда или
               JSON под каждый клиент, без ручного набора адреса. */}
           <section className="space-y-3">
@@ -358,6 +383,18 @@ export default function McpLandingPage() {
               </pre>
               <pre className="text-xs whitespace-pre-wrap rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
                 {MCP_SYSTEM_PROMPT_LINE_RU}
+              </pre>
+            </div>
+            {/* Правила, которые сервер сам отдаёт в рукопожатии: строку выше
+                вставляет человек, этот текст хост получает без него. Один
+                источник — lib/mcp/server-instructions.ts. */}
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Правила работы с инструментами сервер отдаёт сам — в ответе <code>initialize</code>, поле{' '}
+              <code>instructions</code>; хост может положить их в контекст модели:
+            </p>
+            <div className="ds-card p-4" data-server-instructions>
+              <pre className="text-xs whitespace-pre-wrap rounded-lg p-3" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
+                {SERVER_INSTRUCTIONS}
               </pre>
             </div>
           </section>

@@ -49,6 +49,7 @@ const TEST_DB = 'car_rental_test';
 const MIGRATION = join(process.cwd(), 'migrations', '1317_car_rental_offers.sql');
 const SEED = join(process.cwd(), 'migrations', '1318_laguna_prokat_carrier_and_rental.sql');
 const EXPEDITION_SEED = join(process.cwd(), 'migrations', '1323_laguna_expedition_operator_card.sql');
+const EXPEDITION_TOURS = join(process.cwd(), 'migrations', '1339_laguna_expedition_tours.sql');
 
 withPg('прокат автомобилей на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
@@ -274,11 +275,12 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
          FROM partners WHERE slug = 'laguna-expedition' OR legal_info->>'inn' = '9717173941'`,
     )).rows;
 
-    it('одна видимая карточка туроператора с реквизитами ООО «Экспедиция», без отметки «проверено»', async () => {
+    it('одна видимая карточка туроператора с реквизитами ООО «Экспедиция»; «Проверенный» — с 1339 по слову владельца', async () => {
       const rows = await card();
       expect(rows).toHaveLength(1);
       const c = rows[0]!;
-      expect(c).toMatchObject({ name: 'Лагуна Экспедиция', category: 'operator', is_public: true, is_verified: false });
+      // 1323 завела карточку без отметки; 1339 ставит её — владелец 26.10: «3 ставить».
+      expect(c).toMatchObject({ name: 'Лагуна Экспедиция', category: 'operator', is_public: true, is_verified: true });
       expect(c.legal_info).toEqual({
         companyName: 'ООО «Экспедиция»', inn: '9717173941', ogrn: '1247700802546',
         address: '127521, г. Москва, проезд 12-й Марьиной Рощи, д. 8, стр. 1',
@@ -325,6 +327,38 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
         `SELECT short_description FROM partners WHERE slug = 'laguna-expedition'`,
       );
       expect(r!.short_description).toBe('Правка администратора');
+    });
+
+    it('туры с сайта (1339): 33 на витрине по цене за человека, «Халактырский пляж» — черновик; у каждого адрес страницы', async () => {
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      const all = await pool.query<{ slug: string; pub: boolean; unit: string; src: string | null; photos: number }>(
+        `SELECT t.slug, (${publicTourSql('t')}) AS pub, t.price_unit AS unit, t.source_url AS src,
+                COALESCE(array_length(t.photos, 1), 0) AS photos
+           FROM operator_tours t JOIN partners p ON p.id = t.operator_id
+          WHERE p.slug = 'laguna-expedition' AND t.slug LIKE 'lagexp-%'`,
+      );
+      expect(all.rows).toHaveLength(34);
+      const drafts = all.rows.filter((r) => !r.pub).map((r) => r.slug);
+      expect(drafts).toEqual(['lagexp-khalaktyrskij-plyazh']);
+      expect(all.rows.filter((r) => r.pub).every((r) => r.unit === 'per_person')).toBe(true);
+      expect(all.rows.every((r) => (r.src ?? '').startsWith('https://laguna-expedition.ru/tours/'))).toBe(true);
+      // Шаблон базы несёт все миграции, и снимки туров кладёт уже 1343 (слово
+      // владельца 29.10 «они дали добро на использоваеие»): у каждого тура
+      // галерея есть. Цепочку 1339 → 1343 по одному снимку судит
+      // operators-list.pg.test.ts.
+      expect(all.rows.every((r) => r.photos > 0)).toBe(true);
+      // Трансферы и индивидуальный тур без цены не переносятся.
+      expect(all.rows.map((r) => r.src).filter((u) => /\/(41878|42011|41424)-/.test(u ?? ''))).toEqual([]);
+    });
+
+    it('туры 1339 видны в каталоге и в строке фактов компании; повтор миграции ничего не плодит', async () => {
+      const { queryOperators, OperatorsQuerySchema } = await import('@/lib/operators/list-query');
+      const res = await queryOperators(OperatorsQuerySchema.parse({ search: 'Лагуна', limit: 50 }));
+      const item = res.items.find((i) => i.name === 'Лагуна Экспедиция');
+      expect(item?.tourFacts?.total).toBe(33);
+      await pool.query(readFileSync(EXPEDITION_TOURS, 'utf8'));
+      const { rows: [n] } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM operator_tours WHERE slug LIKE 'lagexp-%'`);
+      expect(n!.n).toBe(34);
     });
 
     // Последним: портит телефон «Лагуны Прокат» в базе этого файла.
@@ -535,5 +569,89 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       `INSERT INTO rental_offer_edits (offer_id, partner_id) VALUES ($1, $2)`,
       [jimny!.id, jimny!.partner_id],
     ))).toBe('23514');
+  });
+
+  // Кабинет проката на сайте (владелец 26.10, прокатчик «Лагуны»): настоящие
+  // роуты /api/hub/carrier/rental*, вход — JWT с живой сессией, владелец
+  // карточки — по partners.user_id. Правило ответа то же, что у кнопки в MAX.
+  it('кабинет на сайте: список, «Беру» отмечает дни, повтор — 409, календарь пишет только своей машине', async () => {
+    const { NextRequest } = await import('next/server');
+    process.env.JWT_SECRET = 'test-jwt-secret-for-car-rental-web-0123456789';
+    const { rows: [user] } = await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role, max_user_id, preferences)
+       VALUES ('max_741001@max.local', 'Лагуна Прокат', '', 'transfer', 741001, '{"roles":["transfer"]}')
+       RETURNING id::text AS id`,
+    );
+    const { rows: [laguna] } = await pool.query<{ id: string }>(
+      `UPDATE partners SET user_id = $1 WHERE slug = 'laguna-prokat' RETURNING id::text AS id`, [user.id],
+    );
+    const { createToken } = await import('@/lib/auth/jwt');
+    const token = await createToken({ userId: user.id, email: 'max_741001@max.local', role: 'transfer' });
+    await pool.query(
+      `INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+      [user.id, token],
+    );
+    const auth = { authorization: `Bearer ${token}` };
+    const { rows: [tank] } = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM car_rental_offers WHERE partner_id = $1 AND title = 'Tank-300'`, [laguna.id],
+    );
+    const { rows: [lead] } = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, created_at)
+       VALUES ('Заказчик сайта', '+79990003344', 'тест', 'new', $1, $2::jsonb, NOW())
+       RETURNING id::text AS id`,
+      [laguna.id, JSON.stringify({
+        kind: 'car_rental', company_id: laguna.id, offer_id: tank.id,
+        offer_title: 'Tank-300', date_from: '2026-12-01', date_to: '2026-12-02',
+      })],
+    );
+
+    const cabinet = await import('@/app/api/hub/carrier/rental/route');
+    const listed = await cabinet.GET(new NextRequest('https://vedarai.ru/api/hub/carrier/rental', { headers: auth }));
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as { data: { canWrite: boolean; cars: Array<{ title: string }>; requests: Array<{ leadId: string; phone: string; answer: string | null }> } };
+    expect(body.data.canWrite).toBe(true);
+    expect(body.data.cars.map((c) => c.title)).toContain('Tank-300');
+    expect(body.data.requests.find((r) => r.leadId === lead.id)).toMatchObject({ phone: '+79990003344', answer: null });
+
+    const answer = await import('@/app/api/hub/carrier/rental/requests/[id]/route');
+    const press = () => answer.POST(
+      new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/requests/${lead.id}`, {
+        method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ answer: 'take' }),
+      }),
+      { params: Promise.resolve({ id: lead.id }) },
+    );
+    const first = await press();
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ success: true, outcome: 'take' });
+    const { rows: busy } = await pool.query<{ day: string; source: string }>(
+      `SELECT day::text AS day, source FROM rental_car_busy WHERE offer_id = $1 AND day BETWEEN '2026-12-01' AND '2026-12-02' ORDER BY day`,
+      [tank.id],
+    );
+    expect(busy).toEqual([{ day: '2026-12-01', source: 'request' }, { day: '2026-12-02', source: 'request' }]);
+    const again = await press();
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ success: false, outcome: 'already' });
+
+    const calendar = await import('@/app/api/hub/carrier/rental/calendar/route');
+    const { kamchatkaDate, shiftDate } = await import('@/lib/analytics/kamchatka-day');
+    const tomorrow = shiftDate(kamchatkaDate(new Date()), 1);
+    const mark = (offerId: string) => calendar.POST(new NextRequest('https://vedarai.ru/api/hub/carrier/rental/calendar', {
+      method: 'POST', headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ offerId, day: tomorrow, busy: false }),
+    }));
+    expect((await mark(tank.id)).status).toBe(200);
+    const read = await calendar.GET(new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/calendar?offer=${tank.id}`, { headers: auth }));
+    const days = ((await read.json()) as { data: { days: Array<{ day: string; busy: boolean | null }> } }).data.days;
+    expect(days).toHaveLength(30);
+    expect(days.find((d) => d.day === tomorrow)?.busy).toBe(false);
+    // Чужая машина («Прокат у залива»): отметка не пишется, календарь не читается.
+    const { rows: [foreign] } = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM car_rental_offers WHERE partner_id = $1 LIMIT 1`, [partner.laguna],
+    );
+    expect((await mark(foreign.id)).status).toBe(404);
+    const { rows: none } = await pool.query(`SELECT 1 FROM rental_car_busy WHERE offer_id = $1 AND day = $2::date`, [foreign.id, tomorrow]);
+    expect(none).toEqual([]);
+    const foreignRead = await calendar.GET(new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/calendar?offer=${foreign.id}`, { headers: auth }));
+    expect(foreignRead.status).toBe(404);
   });
 });

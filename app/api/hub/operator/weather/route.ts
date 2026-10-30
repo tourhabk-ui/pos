@@ -1,7 +1,8 @@
 /**
  * GET /api/hub/operator/weather?tour_id=123
  * Check weather for a specific operator tour
- * - Caches results 1 hour per coordinate to avoid API rate-limit
+ * - Погода — общий прогноз платформы (lib/weather/tour-weather → fetchForecastDays,
+ *   кэш три часа на точку, запас на 429); своего запроса к Open-Meteo нет (#2289)
  * - Compares against tour's threshold settings
  * - Auth: operator only (not public)
  */
@@ -12,100 +13,13 @@ import { notifyWeatherAlert } from '@/lib/notifications/operator-booking';
 import { query } from '@/lib/database';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { reachForTour } from '@/lib/partners/reach';
+import { fetchTourWeather } from '@/lib/weather/tour-weather';
 
 export const dynamic = 'force-dynamic';
-
-// ============================================================
-// In-memory cache: key = "lat,lng", TTL = 1h
-// ============================================================
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-interface CacheEntry {
-  data: OpenMeteoResult;
-  expires_at: number;
-}
-
-const weatherCache = new Map<string, CacheEntry>();
 
 // Per-tour alert cooldown — avoid spamming operator on every API call
 const alertCooldown = new Map<string, number>(); // tourId → last alert timestamp
 const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000;   // 6 hours
-
-interface OpenMeteoResult {
-  wind_speed_kmh: number;   // current wind speed
-  precipitation_mm: number; // next 3h precipitation sum
-  visibility_m: number;     // estimated from cloud cover + weather code
-  temperature_c: number;
-  weather_code: number;
-  fetched_at: string;
-}
-
-async function fetchWeather(lat: number, lng: number): Promise<OpenMeteoResult> {
-  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-  const cached = weatherCache.get(cacheKey);
-
-  if (cached && cached.expires_at > Date.now()) {
-    return cached.data;
-  }
-
-  const url =
-    `https://api.open-meteo.com/v1/forecast?` +
-    `latitude=${lat}&longitude=${lng}` +
-    `&current=temperature_2m,wind_speed_10m,precipitation,weather_code,cloud_cover` +
-    `&hourly=precipitation,visibility` +
-    `&forecast_hours=6` +
-    `&timezone=auto`;
-
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'KamchatourHub-OperatorTools/1.0' },
-    signal: AbortSignal.timeout(8000),
-  });
-
-  if (!response.ok) {
-    throw new Error(`open-meteo ${response.status}`);
-  }
-
-  const raw = await response.json();
-  const current = raw.current;
-
-  // Sum precipitation for next 3 hours
-  const precipNext3h: number = (raw.hourly?.precipitation ?? []).slice(0, 3)
-    .reduce((acc: number, v: number) => acc + (v || 0), 0);
-
-  // Estimate visibility from cloud cover + WMO code
-  const cloudCover: number = current.cloud_cover ?? 50;
-  const wmoCode: number = current.weather_code ?? 0;
-  const estimatedVisibility = estimateVisibilityM(wmoCode, cloudCover);
-
-  const result: OpenMeteoResult = {
-    wind_speed_kmh: Math.round(current.wind_speed_10m * 3.6),
-    precipitation_mm: Math.round(precipNext3h * 10) / 10,
-    visibility_m: estimatedVisibility,
-    temperature_c: Math.round(current.temperature_2m),
-    weather_code: wmoCode,
-    fetched_at: new Date().toISOString(),
-  };
-
-  weatherCache.set(cacheKey, {
-    data: result,
-    expires_at: Date.now() + CACHE_TTL_MS,
-  });
-
-  return result;
-}
-
-/** Rough visibility estimate from WMO weather codes + cloud cover */
-function estimateVisibilityM(wmoCode: number, cloudCover: number): number {
-  if ([45, 48].includes(wmoCode)) return 200;      // fog
-  if (wmoCode >= 95) return 1000;                  // thunderstorm
-  if ([71, 73, 75, 77, 85, 86].includes(wmoCode)) return 2000;  // snow
-  if ([65, 67].includes(wmoCode)) return 3000;     // heavy rain
-  if ([61, 63].includes(wmoCode)) return 5000;     // rain
-  if ([51, 53, 55, 80, 81, 82].includes(wmoCode)) return 7000;  // drizzle/showers
-  if (cloudCover > 90) return 8000;
-  if (cloudCover > 70) return 12000;
-  return 20000;
-}
 
 // ============================================================
 // Main handler
@@ -185,26 +99,38 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Tour has no coordinates' }, { status: 422 });
     }
 
-    // Fetch weather (cached 1h)
-    const weather = await fetchWeather(
+    const weather = await fetchTourWeather(
       parseFloat(tour.latitude),
       parseFloat(tour.longitude)
     );
+    if ('failed' in weather) {
+      // Отказ прогноза fetchForecastDays уже записал в лог с сырой причиной.
+      // Ответ — «не проверено», а не «погода в норме» (§4.0).
+      return NextResponse.json(
+        { error: 'Прогноз не получен', reason: weather.failed, weather_status: 'unknown' },
+        { status: 502 },
+      );
+    }
 
-    // Check thresholds
+    // Check thresholds. Значение, которого прогноз не дал, порог не проходит
+    // молча: оно называется в unchecked, и статус тогда не «ok».
     const issues: string[] = [];
+    const unchecked: string[] = [];
 
-    if (weather.wind_speed_kmh > tour.max_wind_kmh) {
+    if (weather.wind_speed_kmh === null) unchecked.push('ветер');
+    else if (weather.wind_speed_kmh > tour.max_wind_kmh) {
       issues.push(`Ветер ${weather.wind_speed_kmh} км/ч > лимит ${tour.max_wind_kmh} км/ч`);
     }
-    if (weather.precipitation_mm > tour.max_precipitation_mm) {
+    if (weather.precipitation_mm === null) unchecked.push('осадки');
+    else if (weather.precipitation_mm > tour.max_precipitation_mm) {
       issues.push(`Осадки ${weather.precipitation_mm} мм > лимит ${tour.max_precipitation_mm} мм`);
     }
-    if (weather.visibility_m < tour.min_visibility_m) {
+    if (weather.visibility_m === null) unchecked.push('видимость');
+    else if (weather.visibility_m < tour.min_visibility_m) {
       issues.push(`Видимость ~${weather.visibility_m} м < минимум ${tour.min_visibility_m} м`);
     }
 
-    const weather_status = issues.length === 0 ? 'ok' : 'alert';
+    const weather_status = issues.length > 0 ? 'alert' : unchecked.length > 0 ? 'unknown' : 'ok';
 
     // Send Telegram alert once per 6h per tour to avoid spam
     if (weather_status === 'alert') {
@@ -252,13 +178,13 @@ export async function GET(request: NextRequest) {
       tour_title: tour.title,
       weather_status,
       issues,
+      unchecked,
       weather,
       thresholds: {
         max_wind_kmh: tour.max_wind_kmh,
         max_precipitation_mm: tour.max_precipitation_mm,
         min_visibility_m: tour.min_visibility_m,
       },
-      cached: true,
     });
   } catch (error) {
     // Пустой catch превращает поломку в «погоды нет». Наружу — общий отказ,

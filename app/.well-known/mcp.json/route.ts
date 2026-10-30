@@ -16,6 +16,7 @@ import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalo
 import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { getPublicBaseUrl } from '@/lib/config';
 import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH } from '@/lib/a2a/agent-card';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
@@ -45,6 +46,9 @@ export async function GET(request?: Request) {
       // нас внутри набора: агент, читающий манифест, может отдать это host'у.
       connect: Object.fromEntries(MCP_CONNECT_OPTIONS.map((o) => [o.id, o.value])),
       systemPromptHint: MCP_SYSTEM_PROMPT_LINE_EN,
+      // Тот же текст, что сервер отдаёт в рукопожатии (поле instructions):
+      // агент видит правила до подключения, а не только после.
+      instructions: SERVER_INSTRUCTIONS,
       // Streamable HTTP: один URL, JSON-RPC 2.0 поверх POST.
       transport: 'streamable-http',
       endpoint: `${base}/api/mcp`,

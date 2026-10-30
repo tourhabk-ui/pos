@@ -71,6 +71,19 @@ export interface PartnerReachRow {
 }
 
 export interface PartnerReach {
+  /**
+   * Категория карточки — чей кабинет у партнёра (оператор, гид, перевозчик).
+   * Её отдаёт только `reachForPartner`: кнопке личного сообщения нужно знать,
+   * куда вести (lib/partners/cabinet-links). У `reachFrom` её нет.
+   */
+  category?: string | null;
+  /**
+   * Есть ли у карточки свой неудалённый тур — тот же признак, что у
+   * `findPartnerByChat` (lib/partners/tour-seller). Отдаёт только
+   * `reachForPartner`: личному сообщению гиду о заявке нужно знать, ставить ли
+   * кнопки ответа (они включены продавцу своих туров). Нет поля — не продаёт.
+   */
+  sellsTours?: boolean;
   telegramChatId: string | null;
   maxChatId: string | null;
   /** `null` — адреса в Telegram нет ни в одной из двух колонок. */
@@ -114,10 +127,13 @@ export function reachFrom(row: PartnerReachRow): PartnerReach {
  */
 export async function reachForPartner(partnerId: string): Promise<PartnerReach | null> {
   try {
-    const { rows } = await pool.query<PartnerReachRow>(
+    const { rows } = await pool.query<PartnerReachRow & { category: string | null; sells_tours: boolean | null }>(
       `SELECT p.telegram_chat_id,
               u_reach.telegram_id AS user_telegram_id,
-              p.max_chat_id
+              p.max_chat_id,
+              p.category,
+              EXISTS (SELECT 1 FROM operator_tours own
+                       WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours
          FROM partners p
          LEFT JOIN users u_reach ON u_reach.id = p.user_id
         WHERE p.id = $1
@@ -125,7 +141,7 @@ export async function reachForPartner(partnerId: string): Promise<PartnerReach |
       [partnerId],
     );
     const row = rows[0];
-    return row ? reachFrom(row) : null;
+    return row ? { ...reachFrom(row), category: row.category, sellsTours: row.sells_tours === true } : null;
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
     console.error(`[partner-reach] не смог прочитать адреса партнёра ${partnerId}, SQLSTATE ${code}:`, err);

@@ -443,7 +443,9 @@ describe('план говорит то, что знает движок', () => {
     expect(src).toMatch(/w\.severity !== 'info' \|\| w\.type === 'safety'/);
     // С #2223 строка допущений считается из названного состава и бюджета
     // (planAssumptions) и стоит последней — после поправок к словам туриста.
-    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, kids\.note, budget\.note, assumptions,/);
+    // Поправки к возрасту детей нет с 29.10: неразобранный возраст — отказ
+    // без плана (readChildren, tests/unit/mcp-plan-answer), а не заметка.
+    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, budget\.note, assumptions,/);
     expect(parseChatInterestsDetailed('что-нибудь интересное')).toEqual({ interests: ['volcano', 'bears', 'thermal'], defaulted: true });
     expect(parseChatInterestsDetailed('рыбалка').defaulted).toBe(false);
   });

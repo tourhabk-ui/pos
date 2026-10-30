@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/operators/chat.service';
 import { pool } from '@/lib/db-pool';
+import { INBOX_CHAT_CATEGORIES } from '@/lib/crm/inbox-kinds';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,8 +80,8 @@ export async function POST(request: NextRequest) {
     // user_id оператора резолвим на сервере, чтобы не светить его в публичном API
     const operatorPartnerId = parsed.data.operatorPartnerId ?? '';
     if (!participantId && operatorPartnerId) {
-      const { rows } = await pool.query<{ user_id: string | null }>(
-        `SELECT user_id FROM partners WHERE id = $1 LIMIT 1`,
+      const { rows } = await pool.query<{ user_id: string | null; category: string | null }>(
+        `SELECT user_id, category FROM partners WHERE id = $1 LIMIT 1`,
         [operatorPartnerId]
       );
       if (!rows[0]?.user_id) {
@@ -90,7 +91,12 @@ export async function POST(request: NextRequest) {
         );
       }
       participantId = rows[0].user_id;
-      participantRole = 'operator';
+      // Роль собеседника — категория его карточки: тур продаёт и гид (1338).
+      // По роли уведомление о сообщении и лента CRM ищут карточку
+      // (lib/notifications/chat-message, lib/crm/chat-events); гид, записанный
+      // «оператором», оставался без уведомления — карточки оператора у него нет.
+      const category = rows[0].category;
+      participantRole = category && (INBOX_CHAT_CATEGORIES as ReadonlySet<string>).has(category) ? category : 'operator';
     }
 
     if (!participantId) {

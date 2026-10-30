@@ -186,6 +186,7 @@ export async function saveRouteMap(
       zooms: plan.zooms, droppedZooms: plan.dropped,
       coverage: plan.coverage, bufferKm: plan.bufferKm, persisted,
       sampleUrls: evenSample(plan.urls, SAVED_PROBE_SIZE),
+      failedFiles: res.failed.length,
     };
     // Приватный режим отказывает в записи, а карта при этом уже сохранена —
     // пугать этим человека нечем.

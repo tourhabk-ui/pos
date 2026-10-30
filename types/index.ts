@@ -147,12 +147,12 @@ export interface Weather {
   // `number` принуждал писать 60 % и 10 км там, где данных не было, #1774).
   humidity: number | null;
   windSpeed: number;
-  windDirection: number;
+  windDirection: number | null;
   windGust?: number; // Порывы ветра
-  pressure: number;
+  pressure: number | null;
   visibility: number | null; // км; null — провайдер не отдал
-  uvIndex: number;
-  cloudCover: number; // Облачность %
+  uvIndex: number | null;
+  cloudCover: number | null; // Облачность %
   dewPoint?: number; // Точка росы
   sunrise?: string; // Время восхода
   sunset?: string; // Время заката
@@ -176,8 +176,8 @@ export interface WeatherForecast {
   };
   condition: string;
   conditionText: string;
-  precipitation: number;
-  precipitationProbability: number; // Вероятность осадков %
+  precipitation: number | null;
+  precipitationProbability: number | null; // Вероятность осадков %
   windSpeed: number;
   humidity: number | null; // null — у провайдера нет дневной влажности
   sunrise?: string;
@@ -189,9 +189,9 @@ export interface WeatherHourly {
   temperature: number;
   feelsLike: number;
   condition: string;
-  precipitation: number;
+  precipitation: number | null;
   windSpeed: number;
-  humidity: number;
+  humidity: number | null;
 }
 
 export interface WeatherAlert {

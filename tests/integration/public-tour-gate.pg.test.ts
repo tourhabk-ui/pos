@@ -94,12 +94,16 @@ withPg('витрина туров: снятый тур не в плане и н�
     );
     for (const s of STATES) {
       // Удаление — как у softDeleteTour: только deleted_at, флаги остаются true.
+      // Отзывов у всех состояний больше, чем у любого тура из миграций: «тренды»
+      // берут первые 50 по отзывам, и без этого туры миграций (1338, 1339 —
+      // уже за 50 на витрине) вытесняли бы наши из выборки. Решать, кто в
+      // выборке, должен шлюз витрины, а не число туров в базе.
       const { rows } = await pool.query<{ id: string }>(
         `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
                                      min_participants, max_participants, duration_hours, difficulty,
-                                     is_active, is_published, deleted_at)
+                                     is_active, is_published, deleted_at, review_count)
          VALUES ($1, $2, $3, $4, 1000, 'per_person', 1, 10, 8, 'easy',
-                 $5, $6, CASE WHEN $7 THEN NOW() ELSE NULL END)
+                 $5, $6, CASE WHEN $7 THEN NOW() ELSE NULL END, 1000000)
          RETURNING id::text`,
         [OPERATOR.id, `W2PT тур ${s}`, `w2pt-tour-${s}`, activity(s), s !== 'inactive', s !== 'unpublished', s === 'deleted'],
       );
@@ -114,6 +118,10 @@ withPg('витрина туров: снятый тур не в плане и н�
         [OPERATOR.id, id.live, id[s], ++priority],
       );
     }
+    // Первый импорт мозга Кузьмича — секунды работы процессора; под нагрузкой
+    // он один съедал предел теста по умолчанию (5 с, CI на main красный по
+    // таймауту, ревью 29.10). Здесь, под пределом beforeAll, — один раз.
+    await import('@/lib/kuzmich/core');
   }, 300_000);
 
   afterAll(async () => {
@@ -178,8 +186,17 @@ withPg('витрина туров: снятый тур не в плане и н�
     }
     expect((await run('get_tour_details', { tour_id: id.live })).title).toBe('W2PT тур live');
 
+    // Сравнение — общее ядро compare_tours (29.10): снятые названы «не найден
+    // среди активных», а не выброшены молча; одного живого сравнивать не с чем.
     const cmp = await run('compare_tours', { tour_ids: [id.live, id.deleted, id.inactive].join(',') });
-    expect((cmp.comparison as { id: string | number }[]).map((t) => String(t.id))).toEqual([id.live]);
+    const text = String(cmp.comparison);
+    expect(text).toMatch(new RegExp(`^Сравнивать нечего: на витрине из названных остался один тур \\(ID${id.live}\\)`));
+    for (const h of [id.deleted, id.inactive]) expect(text).toContain(`Тур по запросу "${h}" не найден среди активных — в сравнение не взят.`);
+    expect(text).not.toMatch(/W2PT тур (deleted|inactive)/);
+    const two = String((await run('compare_tours', { tour_ids: `${id.live2},${id.unpublished},${id.live}` })).comparison);
+    expect(two).toMatch(new RegExp(`^Сравнение 2 туров[^\\n]*\\n1\\. ID${id.live2} «W2PT тур live2»[^\\n]*\\n2\\. ID${id.live} «W2PT тур live»`));
+    expect(two).toContain(`Тур по запросу "${id.unpublished}" не найден среди активных — в сравнение не взят.`);
+    expect(two).not.toContain('W2PT тур unpublished');
   });
 
   it('каталог и его сводка после снятия второго канона: те же два живых тура', async () => {
@@ -190,6 +207,293 @@ withPg('витрина туров: снятый тур не в плане и н�
     const ours = s.byActivity.filter((b) => b.activity_type.startsWith('w2pt_')).map((b) => b.activity_type).sort();
     expect(ours).toEqual([activity('live'), activity('live2')]);
   });
+
+  it('каталог Кузьмича и MCP (loadTourCatalog): все туры витрины по правилу 1в, а не первые 40 по цене (29.10)', async () => {
+    // До 29.10 запрос резал каталог «LIMIT 40» по цене: MCP get_tours
+    // называл «туров всего 40» при 42 на витрине, самых дорогих не было.
+    // Чтобы предел точно был превышен, доливаются 41 дорогой тур другого
+    // оператора (свой — не трогать: прочие тесты файла считают свои туры).
+    const other = '00000000-0000-4000-8000-0000000c4740';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Каталог без предела', 'operator', '{}'::jsonb, 'w2pt-catalog-all', TRUE, TRUE, 'active')`, [other],
+    );
+    // Одним запросом: 41 вставка по одной не укладывалась в 5 с на раннере.
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, is_active, is_published)
+       SELECT $1, 'W2PT дорогой ' || i, 'w2pt-expensive-' || i, 'helicopter', 900000 + i, 'per_person', 1, 6, 8, TRUE, TRUE
+         FROM generate_series(0, 40) AS i`,
+      [other],
+    );
+    const { publicTourSql } = await import('@/lib/tours/public-visibility');
+    const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    // Один дорогой тур ведёт календарь со свободной датой: по цене он был бы
+    // последним, по правилу 1в (29.10) — первым.
+    const pricey = (await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM operator_tours WHERE slug = 'w2pt-expensive-40'`,
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 3, 6, FALSE)`,
+      [pricey],
+    );
+    const storefront = (await pool.query<{ id: string; d: string | null }>(
+      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d FROM operator_tours ot WHERE ${publicTourSql('ot')}`,
+    )).rows;
+    const expected = storefront.map((r) => r.id).sort();
+    expect(expected.length).toBeGreaterThan(40);
+
+    // Кэш каталога живёт 3 минуты — часы вперёд, чтобы прочитать базу заново.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    // Живой контекст подсказки (погода, лента МЧС, новости) ходит в чужие
+    // сайты с таймаутом 8 с на ленту: сторож базы не должен зависеть от
+    // aif.ru и kamgov.ru. Сеть закрыта — живой контекст честно пуст.
+    const net = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('сеть закрыта в pg-стороже'));
+    const quiet = [vi.spyOn(console, 'warn').mockImplementation(() => {}), vi.spyOn(console, 'error').mockImplementation(() => {})];
+    try {
+      const { loadTourCatalog, buildTourContext } = await import('@/lib/kuzmich/core');
+      const { orderOffersBy, offerOrderDay, OFFER_ORDER_NOTE_AGENT } = await import('@/lib/tours/offer-order');
+      const catalog = await loadTourCatalog();
+      const inOrder = [...(catalog ?? '').matchAll(/^ID(\d+):/gm)].map((m) => m[1]);
+      const ids = [...inOrder].sort();
+      expect(ids).toEqual(expected);
+      // Порядок — правило 1в: тур с датой первым, остальные — жребий дня; не цена.
+      // (Туры миграций со своими календарями тоже стоят впереди — по своим датам.)
+      const undated = new Set(storefront.filter((r) => r.d == null).map((r) => r.id));
+      expect(undated.has(pricey)).toBe(false);
+      expect(inOrder.indexOf(pricey)).toBeLessThan(Math.min(...inOrder.filter((x) => undated.has(x)).map((x) => inOrder.indexOf(x))));
+      expect(inOrder).toEqual(orderOffersBy(storefront, (r) => ({ id: r.id, nearestFreeDate: r.d }), { day: offerOrderDay() }).map((r) => r.id));
+      expect(catalog).toContain(OFFER_ORDER_NOTE_AGENT);
+      // Черновик/удалённый/выключенный не попали.
+      expect(catalog).toContain('"W2PT дорогой 40"');
+      for (const h of hidden()) expect(ids).not.toContain(h);
+
+      const { paginateTourText, TOURS_PAGE_SIZE } = await import('@/lib/kuzmich/tour-filter');
+      const pages = Math.ceil(expected.length / TOURS_PAGE_SIZE);
+      expect(paginateTourText(catalog ?? '', pages)).toContain(`туров всего ${expected.length}. Это последняя.`);
+
+      // Подсказка Кузьмича: 40 туров и названо, сколько всего.
+      const ctx = await buildTourContext();
+      expect(ctx.match(/^ID\d+:/gm)).toHaveLength(40);
+      expect(ctx).toContain(`(Здесь 40 туров из ${expected.length} — первые по порядку витрины (правило в шапке).`);
+      expect(ctx).not.toContain('первые по цене');
+    } finally {
+      vi.useRealTimers();
+      net.mockRestore();
+      for (const q of quiet) q.mockRestore();
+      // Дата — только для этого сценария: дальше файл судит «ближайший выезд» витрины.
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [pricey]);
+    }
+  }, 30_000);
+
+  it('каталог сайта (queryMarketplaceTours): порядок — правило 1в на тех же строках, цена — ничья правилом, ?sort=recent — как по умолчанию (29.10)', async () => {
+    const { queryMarketplaceTours, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
+    const { publicTourSql } = await import('@/lib/tours/public-visibility');
+    const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    const { orderOffersBy, compareTourOffers, offerOrderDay } = await import('@/lib/tours/offer-order');
+    // Одному из туров без даты — свободная дата: по правилу он встаёт впереди.
+    const dated = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM operator_tours WHERE slug = 'w2pt-expensive-7'`)).rows[0].id;
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 2, 6, FALSE)`, [dated],
+    );
+    try {
+      const storefront = (await pool.query<{ id: string; d: string | null; price: string | null }>(
+        `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d, ot.base_price::text AS price
+           FROM operator_tours ot JOIN partners p ON ot.operator_id = p.id
+          WHERE ${publicTourSql('ot')}`,
+      )).rows;
+      const day = offerOrderDay();
+      const listAll = async (sort: string) => {
+        const out: string[] = [];
+        let total = 0;
+        for (let offset = 0; ; offset += 100) {
+          const r = await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ sort, limit: 100, offset }));
+          total = r.total;
+          out.push(...r.tours.map((t) => String(t.id)));
+          if (r.tours.length < 100) break;
+        }
+        return { out, total };
+      };
+
+      const rec = await listAll('recommended');
+      expect(rec.total).toBe(storefront.length);
+      expect(rec.out).toEqual(orderOffersBy(storefront, (r) => ({ id: r.id, nearestFreeDate: r.d }), { day }).map((r) => r.id));
+      expect(rec.out.indexOf(dated)).toBeLessThan(rec.out.indexOf(storefront.find((r) => r.d == null)!.id));
+
+      expect((await listAll('recent')).out).toEqual(rec.out);
+
+      const rule = compareTourOffers(day);
+      const byPrice = [...storefront].sort((a, b) => {
+        const pa = a.price == null ? null : Number(a.price);
+        const pb = b.price == null ? null : Number(b.price);
+        if ((pa === null) !== (pb === null)) return pa === null ? 1 : -1;
+        if (pa !== null && pb !== null && pa !== pb) return pa - pb;
+        return rule({ id: a.id, nearestFreeDate: a.d }, { id: b.id, nearestFreeDate: b.d });
+      }).map((r) => r.id);
+      expect((await listAll('price_asc')).out).toEqual(byPrice);
+    } finally {
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [dated]);
+    }
+  });
+
+  // ── Правило 1в (слово владельца 29.10): ближайшая свободная дата ─────────
+  // Одно условие на все витрины (lib/tours/nearest-free-date). По нему строится
+  // порядок, поэтому каждая граница судится здесь, на схеме прода.
+
+  it('ближайшая свободная дата: вчера по Камчатке, отменённая, удалённая, занятая и за год — не даты', async () => {
+    const other = '00000000-0000-4000-8000-0000000c4741';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Ближайшая дата', 'operator', '{}'::jsonb, 'w2pt-nearest', TRUE, TRUE, 'active')`, [other],
+    );
+    const mk = async (slug: string): Promise<string> => (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, is_active, is_published)
+       VALUES ($1, $2, $3, 'nfd_probe', 1000, 'per_person', 1, 4, 8, TRUE, TRUE) RETURNING id::text`,
+      [other, `W2PT ближайшая ${slug}`, `w2pt-nearest-${slug}`],
+    )).rows[0].id;
+    const slot = (tour: string, offset: number, extra: { cancelled?: boolean; deleted?: boolean; slots?: number } = {}) => pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, deleted_at)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + $2::int, $3, $4, CASE WHEN $5 THEN NOW() ELSE NULL END)`,
+      [tour, offset, extra.slots ?? 10, extra.cancelled ?? false, extra.deleted ?? false],
+    );
+    const day = async (offset: number) => (await pool.query<{ d: string }>(
+      `SELECT ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date + $1::int)::text AS d`, [offset],
+    )).rows[0].d;
+
+    // A: всё мимо, кроме +5. Вместимость — меньшее из слотов (10) и max_participants (4):
+    // бронь на 4 человека занимает +3 целиком, хотя слотов там 10.
+    const a = await mk('a');
+    await slot(a, -1);
+    await slot(a, 1, { cancelled: true });
+    await slot(a, 2, { deleted: true });
+    await slot(a, 3);
+    await pool.query(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, participants, booking_status)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 3, NULL, 4, 'new')`, [a],
+    );
+    await slot(a, 5);
+    // B: единственная дата — через 13 месяцев, за горизонтом года.
+    const b = await mk('b');
+    await slot(b, 400);
+    // C: календаря нет вовсе — «даты по заявке», свободной даты нет.
+    const c = await mk('c');
+    // D: сегодня по Камчатке — уже дата.
+    const d = await mk('d');
+    await slot(d, 0);
+
+    const { nearestFreeDateSql, loadNearestFreeDates } = await import('@/lib/tours/nearest-free-date');
+    const rows = (await pool.query<{ id: string; d: string | null }>(
+      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d FROM operator_tours ot WHERE ot.id = ANY($1::bigint[])`,
+      [[a, b, c, d]],
+    )).rows;
+    const got = Object.fromEntries(rows.map((r) => [r.id, r.d]));
+    expect(got[a]).toBe(await day(5));
+    expect(got[b]).toBeNull();
+    expect(got[c]).toBeNull();
+    expect(got[d]).toBe(await day(0));
+
+    // Каталог сайта судит «даты есть» тем же условием.
+    const { hasAvailabilitySql } = await import('@/lib/search/tour-search');
+    const has = (await pool.query<{ id: string; h: boolean }>(
+      `SELECT ot.id::text AS id, ${hasAvailabilitySql()} AS h FROM operator_tours ot WHERE ot.id = ANY($1::bigint[])`,
+      [[a, b, c, d]],
+    )).rows;
+    expect(Object.fromEntries(has.map((r) => [r.id, r.h]))).toEqual({ [a]: true, [b]: false, [c]: false, [d]: true });
+
+    // Батч — одним запросом; каждому id ответ, неизвестному — null.
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const spy = vi.spyOn(appPool, 'query');
+    try {
+      const r = await loadNearestFreeDates([a, b, c, '999999999']);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(r.state).toBe('ok');
+      if (r.state === 'ok') {
+        expect(r.byId.get(a)).toBe(await day(5));
+        expect(r.byId.get(b)).toBeNull();
+        expect(r.byId.get(c)).toBeNull();
+        expect(r.byId.get('999999999')).toBeNull();
+        // Места на ту же дату — потолком max_participants (4), не слотами (10);
+        // нет даты — нет и мест (ревью 29.10: карточка маршрута).
+        expect(r.seatsById.get(a)).toBe(4);
+        expect(r.seatsById.get(b)).toBeNull();
+        expect(r.seatsById.get(c)).toBeNull();
+      }
+
+      // get_tour_availability на той же сцене (ловушка MCP 29.10,
+      // availability-nearest): пустое окно у тура с расписанием называет
+      // ближайшую свободную дату тем же движком, что гейт брони, — а не
+      // «другой тур», когда «Ближайшая дата» каталога у тура есть.
+      const { getTourAvailabilityForKuzmich, yearAhead } = await import('@/lib/kuzmich/tour-availability-tool');
+      const { parseAvailabilityText } = await import('@/lib/quality/channel-parity');
+      const today = await day(0);
+      // Горизонт JS — тот же день, что INTERVAL '1 year' на сервере.
+      const horizon = (await pool.query<{ h: string }>(
+        `SELECT ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year')::date::text AS h`,
+      )).rows[0].h;
+      expect(yearAhead(today)).toBe(horizon);
+      const fmt = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}${iso.slice(0, 4) === today.slice(0, 4) ? '' : `.${iso.slice(0, 4)}`}`;
+      const d5 = await day(5);
+
+      // A, окно [0, +2] пусто: после окна +3 занята, +5 свободна — 4 места
+      // (потолок max_participants, а не 10 слотов).
+      const nearA = await getTourAvailabilityForKuzmich({ tour: a, days: '3' });
+      expect(nearA).toContain(`свободных мест с ${fmt(today)} по ${fmt(await day(2))} нет`);
+      expect(nearA).toContain(`Ближайшая свободная дата после этого окна — ${fmt(d5)}, свободно 4`);
+      expect(nearA).toContain(`date_from=${d5}`);
+      expect(nearA).not.toContain(`— ${fmt(await day(3))},`);
+      expect(nearA).not.toMatch(/другой тур/);
+      // Сверка каналов читает этот ответ как «мест нет», без дат окна.
+      expect(parseAvailabilityText(nearA)).toMatchObject({ dates: [], none_free: true });
+
+      // A, окно [+6, +8]: +5 раньше окна названа, «другой тур» не советуется.
+      const lateA = await getTourAvailabilityForKuzmich({ tour: a, date_from: await day(6), days: '3' });
+      expect(lateA).toContain(`Раньше этого окна есть свободная дата — ${fmt(d5)}, свободно 4`);
+      expect(lateA).toContain(`После этого окна до ${fmt(horizon)} свободных дат нет`);
+      expect(lateA).not.toMatch(/другой тур/);
+
+      // A на пятерых: на +5 четыре места — не дата для этой группы.
+      const groupA = await getTourAvailabilityForKuzmich({ tour: a, days: '3', people: '5' });
+      expect(groupA).toContain(`После этого окна до ${fmt(horizon)} свободных дат на 5 чел. нет`);
+      expect(groupA).not.toContain(fmt(d5));
+      expect(groupA).toMatch(/предложи другой тур/);
+
+      // B: единственная дата за горизонтом — «до горизонта нет», не «вовсе».
+      const farB = await getTourAvailabilityForKuzmich({ tour: b, days: '3' });
+      expect(farB).toContain(`После этого окна до ${fmt(horizon)} свободных дат нет`);
+      expect(farB).not.toMatch(/вовсе/);
+      expect(farB).not.toContain(fmt(await day(400)));
+
+      // C без календаря — прежний ответ «по заявке», числа мест нет.
+      const onRequest = await getTourAvailabilityForKuzmich({ tour: c });
+      expect(onRequest).toContain('расписания в системе нет');
+      expect(onRequest).toContain('оператор собирает группу под запрос');
+      expect(onRequest).not.toMatch(/свободно \d/);
+    } finally {
+      spy.mockRestore();
+      // Сцена своя и уходит с витрины: следующие сценарии файла считают
+      // ближайший выезд и подборки по всей витрине.
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE operator_id = $1`, [other]);
+    }
+  }, 30_000);
+
+  it('ближайшие даты не прочитались — «не смог», а не «дат нет»; SQLSTATE в логе', async () => {
+    const { loadNearestFreeDates } = await import('@/lib/tours/nearest-free-date');
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const spy = vi.spyOn(appPool, 'query').mockRejectedValueOnce(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }) as never);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await loadNearestFreeDates(['1', '2'])).toEqual({ state: 'failed' });
+      expect(err.mock.calls.flat().join(' ')).toContain('SQLSTATE=57014');
+    } finally {
+      spy.mockRestore();
+      err.mockRestore();
+    }
+    // Первый импорт lib/kuzmich/core и сборка подсказки на раннере — секунды.
+  }, 30_000);
 
   // ── #2642: кабинет оператора говорит, видит ли тур турист ─────────────────
   // Список туров ставил бейдж по одному is_active, экран «Чего не хватает» —
@@ -475,6 +779,264 @@ withPg('витрина туров: снятый тур не в плане и н�
     }
   });
 
+  // ── Полнота поиска туров Кузьмича: три компании к одному месту (29.10) ──
+  // Шаг 1 разбора «мозг Кузьмича при росте каталога»: база «до» без модели.
+  // На «все туры к Толбачику» на проде шесть туров четырёх компаний, и
+  // сравнивать устройство поиска можно, только зная, что каждый путь отдаёт
+  // сегодня. Пути, отдающие не всё, записаны в KNOWN_INCOMPLETE с причиной и
+  // нынешним числом: починит их ветка multi-offer — запись обязана уйти, тест
+  // покраснеет на старом числе (самоустаревает, как KNOWN_UNPRODUCED).
+  it('поиск туров Кузьмича: девять туров трёх компаний к одному месту и десятый по явной связи — что отдаёт каждый путь (29.10)', async () => {
+    const PLACE = 'Пробный';
+    const companies = [
+      { id: 'b1100000-0000-4000-8000-0000000000c1', name: 'W2PT Компания Альфа', slug: 'w2pt-alpha' },
+      { id: 'b1100000-0000-4000-8000-0000000000c2', name: 'W2PT Компания Бета', slug: 'w2pt-beta' },
+      { id: 'b1100000-0000-4000-8000-0000000000c3', name: 'W2PT Компания Гамма', slug: 'w2pt-gamma' },
+    ];
+    const KNOWN_INCOMPLETE = {
+      // resolveTourByQuery: «LIMIT 1» — на слово места один тур одной компании.
+      get_tour_details: { gives: 1, why: 'resolveTourByQuery отдаёт один тур (LIMIT 1); ветка multi-offer' },
+      // toursMentioningPlace: «.slice(0, 3)» — к прайсу машин едут три тура места.
+      search_transfers: { gives: 3, why: 'toursMentioningPlace режет туры места до трёх строк' },
+      // filterTourCatalog сравнивает по основе слова: опечатка в окончании
+      // прощается, внутри основы — нет.
+      get_tours_typo_inside_stem: { starts: 'Туров «прабный» у операторов платформы сейчас нет', why: 'опечатка внутри основы слова: get_tours сравнивает по основе' },
+      // Записи get_tours_main_place_id и search_transfers_main_place_id ушли
+      // 29.10 (ловушка MCP filter-coverage): указатель каталога читает главное
+      // место тура (lib/search/tour-match), и тур без слова места в тексте
+      // находится обоими путями — ниже это проверено как правило, а не пробел.
+    } as const;
+    const PLACE_ID = 'w2pt-probe-place';
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, location_type, is_visible) VALUES ($1, $2, 55.83, 160.33, 'volcano', TRUE)`,
+      [PLACE_ID, `Вулкан ${PLACE}`],
+    );
+    const tourIds: string[] = [];
+    for (const [ci, c] of companies.entries()) {
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, $2, 'operator', '{}'::jsonb, $3, TRUE, TRUE, 'active')`,
+        [c.id, c.name, c.slug],
+      );
+      for (const [ki, kind] of ['jeep_safari', 'helicopter', 'trekking'].entries()) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                       min_participants, max_participants, duration_hours, difficulty,
+                                       is_active, is_published, location_name)
+           VALUES ($1, $2, $3, $4, $5, 'per_person', 1, 8, 8, 'easy', TRUE, TRUE, $6)
+           RETURNING id::text`,
+          [c.id, `W2PT ${PLACE} ${c.slug} ${kind}`, `w2pt-probe-${c.slug}-${ki}`, kind, 2000 + ci * 10 + ki, `Вулкан ${PLACE}`],
+        );
+        tourIds.push(rows[0].id);
+      }
+    }
+    // Десятый тур: место — только явной связью, без слова места в тексте.
+    const { rows: linkedRows } = await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, location_name, main_place_id)
+       VALUES ($1, 'W2PT Лавовые поля и Мёртвый лес', 'w2pt-probe-linked', 'trekking', 2100, 'per_person',
+               1, 8, 8, 'easy', TRUE, TRUE, 'Ключи', $2)
+       RETURNING id::text`,
+      [companies[0].id, PLACE_ID],
+    );
+    const linkedId = linkedRows[0].id;
+    // Одиннадцатый: слово места — только в полном описании (ревью 29.10).
+    // У туров места к прайсу машин он не стоит — там только главное место и
+    // ближние поля; в get_tours он в блоке «не проверено». Дата у него —
+    // самая ранняя: по правилу 1в он первый в каталоге, и если бы туры места
+    // брали и дальнее совпадение, он стоял бы в ответе о машинах вторым.
+    const { rows: farRows } = await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, location_name, description)
+       VALUES ($1, 'W2PT Тундра и ручьи', 'w2pt-probe-far', 'trekking', 2200, 'per_person',
+               1, 8, 8, 'easy', TRUE, TRUE, 'Ключи', $2)
+       RETURNING id::text`,
+      [companies[1].id, `С перевала в ясный день виден вулкан ${PLACE}.`],
+    );
+    const farId = farRows[0].id;
+    // Один тур по тексту — со свободной датой: по правилу 1в он первый в
+    // каталоге после дальнего, и первым в ответе о машинах тур по главному
+    // месту стоит только благодаря порядку «сперва главное место», а не жребию.
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 2, 6, FALSE),
+              ($2, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 1, 6, FALSE)`,
+      [tourIds[4], farId],
+    );
+    const all = [...tourIds].sort();
+    const idsIn = (text: string) => [...text.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => all.includes(x)).sort();
+
+    // Кэш каталога живёт 3 минуты, и прежний тест уже сдвигал часы на 10 —
+    // вперёд дальше, чтобы каталог прочитался с новыми турами.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+    try {
+      const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
+
+      // get_tours в чате: по слову места — все девять, у каждого компания, и
+      // десятый — по записанному главному месту (29.10), без слова в тексте.
+      const chat = await executeKuzmichTool('get_tours', { activity_type: PLACE });
+      expect(idsIn(chat)).toEqual(all);
+      expect(chat).toContain(`ID${linkedId}:`);
+      // Дальний — в чате, но под пояснением «только в полном описании».
+      const { FAR_BLOCK_MARK } = await import('@/lib/kuzmich/tour-filter');
+      expect(chat.indexOf(FAR_BLOCK_MARK)).toBeGreaterThan(-1);
+      expect(chat.indexOf(`ID${farId}:`)).toBeGreaterThan(chat.indexOf(FAR_BLOCK_MARK));
+      // Тур живой и в каталоге есть — по своему слову находится.
+      expect(await executeKuzmichTool('get_tours', { activity_type: 'Лавовые' })).toContain(`ID${linkedId}:`);
+      // Десятый — тур компании Альфа, одиннадцатый (дальний) — Беты.
+      for (const [ci, c] of companies.entries()) expect(chat.match(new RegExp(`Оп: ${c.name}`, 'g'))).toHaveLength(ci === 2 ? 3 : 4);
+
+      // MCP: страницами по семь — первая полная и называет, сколько всего;
+      // две страницы вместе — все десять ближних и дальний на второй.
+      const p1 = await executeKuzmichTool('get_tours', { activity_type: PLACE }, { surface: 'mcp' });
+      const p2 = await executeKuzmichTool('get_tours', { activity_type: PLACE, page: '2' }, { surface: 'mcp' });
+      expect(idsIn(p1).length + (p1.includes(`ID${linkedId}:`) ? 1 : 0)).toBe(7);
+      expect(p1).toContain('Страница 1 из 2, туров всего 11.');
+      expect([...idsIn(p1), ...idsIn(p2)].sort()).toEqual(all);
+      expect(p2.indexOf(`ID${farId}:`)).toBeGreaterThan(p2.indexOf(FAR_BLOCK_MARK));
+
+      // Имя компании — не слово тура (29.10, filter-coverage): на «Компания
+      // Бета» get_tours не отдаёт её туры как найденные и не притворяется,
+      // что искал по продавцам, — отсылает к get_tour_details.
+      const byCompany = await executeKuzmichTool('get_tours', { activity_type: 'Компания Бета' });
+      expect(byCompany).toMatch(/^Туров «компания бета» у операторов платформы сейчас нет/);
+      expect(byCompany).toContain('Имена компаний и гидов get_tours не ищет: туры продавца — get_tour_details.');
+
+      // Опечатка в окончании («пробнай») — основа та же, все девять.
+      expect(idsIn(await executeKuzmichTool('get_tours', { activity_type: 'пробнай' }))).toEqual(all);
+      // Опечатка внутри основы («прабный») — инструмент туров не находит и
+      // честно говорит «туров нет» (каталог следом — замена с оговоркой):
+      // исправлять слово остаётся модели. Записано как пробел, а не спрятано.
+      const typoInside = await executeKuzmichTool('get_tours', { activity_type: 'прабный' });
+      expect(typoInside.startsWith(KNOWN_INCOMPLETE.get_tours_typo_inside_stem.starts), KNOWN_INCOMPLETE.get_tours_typo_inside_stem.why)
+        .toBe(true);
+
+      // Известные пробелы — нынешнее число, не спрятанное «всё хорошо».
+      const details = await executeKuzmichTool('get_tour_details', { name: PLACE });
+      const detailsTours = all.filter((tid) => details.includes(`/tours/${tid}`) || details.includes(`ID${tid}`));
+      const titlesInDetails = companies.flatMap((c) => ['jeep_safari', 'helicopter', 'trekking']
+        .map((k) => `W2PT ${PLACE} ${c.slug} ${k}`)).filter((t) => details.includes(t));
+      expect(titlesInDetails.length, `${KNOWN_INCOMPLETE.get_tour_details.why} (ids ${detailsTours.join(',')})`)
+        .toBe(KNOWN_INCOMPLETE.get_tour_details.gives);
+
+      const transfers = await executeKuzmichTool('search_transfers', { place: PLACE });
+      const transferTours = [...transfers.matchAll(/^ID(\d+):/gm)].map((m) => m[1]);
+      expect(transferTours.length, KNOWN_INCOMPLETE.search_transfers.why).toBe(KNOWN_INCOMPLETE.search_transfers.gives);
+      // Сперва тур, у которого место записано главным (29.10), затем по
+      // ближним полям; слово только в описании сюда не ведёт (ревью 29.10).
+      expect(transferTours[0]).toBe(linkedId);
+      expect(transferTours[1]).toBe(tourIds[4]);
+      expect(transferTours).not.toContain(farId);
+      expect(transferTours.slice(1).every((x) => all.includes(x))).toBe(true);
+      // Каждое слово места, а не любое: «Пробный перевал» — не «Пробный».
+      const twoWords = await executeKuzmichTool('search_transfers', { place: `${PLACE} перевал` });
+      expect([...twoWords.matchAll(/^ID(\d+):/gm)].map((m) => m[1]).filter((x) => x === linkedId || all.includes(x))).toEqual([]);
+
+      // ── compare_tours: 2–4 тура рядом фактами из базы (слово владельца 29.10) ──
+      // Подготовка — после всех проверок выше, чтобы их не задеть. У Альфы
+      // записаны условия отмены текстом и числами, программа и подвоз; у
+      // Беты (tourIds[4], дата +2 на 6 мест) — ступень цены 2–4 чел. по 1500:
+      // без неё подмена итога на base_price × people не отличалась бы от
+      // честного расчёта. У Гаммы цены, условий и программы нет, и компания
+      // без отметки «проверен».
+      await pool.query(
+        `UPDATE operator_tours SET cancellation_policy = 'Бесплатно за 3 дня', cancellation_free_days = 3,
+                cancellation_late_refund_percent = 50, program = $2::jsonb, pickup_type = 'hotel_pickup',
+                pickup_details = 'Из гостиниц Петропавловска'
+          WHERE id::text = $1`,
+        [tourIds[0], JSON.stringify([{ title: 'Дорога к вулкану', text: 'Выезд утром' }, { title: 'Восхождение', text: 'Три часа' }])],
+      );
+      await pool.query(
+        `INSERT INTO tour_price_tiers (operator_tour_id, min_people, max_people, price_per_person) VALUES ($1, 2, 4, 1500)`,
+        [tourIds[4]],
+      );
+      await pool.query(
+        `UPDATE operator_tours SET base_price = NULL, cancellation_policy = NULL, cancellation_free_days = NULL,
+                cancellation_late_refund_percent = NULL, program = NULL
+          WHERE id::text = $1`,
+        [tourIds[6]],
+      );
+      await pool.query(`UPDATE partners SET is_verified = FALSE WHERE id = $1`, [companies[2].id]);
+      const cmp = (args: Record<string, string>, surface?: 'mcp') =>
+        executeKuzmichTool('compare_tours', args, surface ? { surface } : {});
+      const headIds = (text: string) => [...text.matchAll(/^\d\. ID(\d+) /gm)].map((m) => m[1]);
+
+      // Порядок туров — как назвал человек, а не цена, номер или жребий.
+      expect(headIds(await cmp({ tours: `${tourIds[6]}, ${tourIds[0]}` }))).toEqual([tourIds[6], tourIds[0]]);
+      expect(headIds(await cmp({ tours: `${tourIds[0]}, ${tourIds[6]}` }))).toEqual([tourIds[0], tourIds[6]]);
+
+      // Итог за людей — тем же расчётом и на ту же дату, что первая строка
+      // get_tour_availability с people; ступень цены делает его не равным
+      // base_price × 2.
+      const avail = await executeKuzmichTool('get_tour_availability', { tour: tourIds[4], people: '2' });
+      const firstSlot = /^- \d\d\.\d\d \((\d{4}-\d{2}-\d{2})\): [^\n]*итого за 2 чел\.: ([^\n]+ ₽)$/m.exec(avail);
+      expect(firstSlot, avail).not.toBeNull();
+      const { longDay } = await import('@/lib/tours/request-window');
+      const priced = await cmp({ tours: `${tourIds[4]}, ${tourIds[0]}`, criteria: 'цена', people: '2' });
+      expect(priced).toContain(`- ID${tourIds[4]}: итого за 2 чел.: ${firstSlot![2]} — на ${longDay(firstSlot![1])} (первая дата, где мест хватит на 2 чел.)`);
+      const base4 = Number((await pool.query<{ p: string }>(`SELECT base_price::text AS p FROM operator_tours WHERE id::text = $1`, [tourIds[4]])).rows[0].p);
+      expect(firstSlot![2]).not.toBe(`${(base4 * 2).toLocaleString('ru-RU')} ₽`);
+      // Тур без календаря — на первую дату заявки, и это названо.
+      expect(priced).toMatch(new RegExp(`- ID${tourIds[0]}: итого за 2 чел\\.: 4\u00a0000 ₽ — на [^(]+\\(первая дата для заявки; расписания нет\\)`));
+      // Ревью 29.10: дата на группу — первая, где мест хватит на ВСЕХ. У Беты
+      // одна дата на 6 мест: семерым её нет, и итог на неё не считается.
+      const seven = await cmp({ tours: `${tourIds[4]}, ${tourIds[0]}`, criteria: 'ближайшая дата, цена', people: '7' });
+      expect(seven).toContain(`- ID${tourIds[4]}: в пределах года нет даты, где мест хватит на 7 чел.`);
+      expect(seven).toContain(`- ID${tourIds[4]}: итог не посчитан: в пределах года нет даты, где мест хватит на 7 чел.`);
+      expect(seven).not.toMatch(new RegExp(`- ID${tourIds[4]}: [^\\n]*свободно 6`));
+      // Чего итог не включает — без «трансферы не включены»: у части туров он в цене.
+      expect(priced).not.toMatch(/трансфер/i);
+
+      // «Не записано» вместо нуля и выдумки; проверка оператора — из partners.
+      const facts = await cmp({ tours: `${tourIds[0]}, ${tourIds[6]}`, criteria: 'цена, отмена, программа, оператор' });
+      expect(facts).toContain(`- ID${tourIds[6]}: цена не указана`);
+      expect(facts).not.toMatch(/(^|[^\d\u00a0])0 ₽/m);
+      expect(facts).toContain(`- ID${tourIds[6]}: условия отмены не записаны`);
+      expect(facts).not.toMatch(/вернём всю сумму/);
+      expect(facts).toContain(`- ID${tourIds[6]}: программа по дням не записана`);
+      expect(facts).toContain(`- ID${tourIds[0]}: записана: 2 пункта — Дорога к вулкану; Восхождение`);
+      expect(facts).toContain(`- ID${tourIds[0]}: текст тура: «Бесплатно за 3 дня»; числами: Бесплатная отмена не позднее чем за 3 дня до тура, позже возвращается 50%.`);
+      expect(facts).toContain(`- ID${tourIds[0]}: ${companies[0].name} — проверен платформой`);
+      expect(facts).toContain(`- ID${tourIds[6]}: ${companies[2].name} — отметки «проверен платформой» нет`);
+      expect(facts).not.toMatch(/лучш|дешевл|дороже|рекоменд|рейтинг|балл/i);
+
+      // Витрина: черновик и удалённый не сравниваются и названы словами соседей.
+      const gate = await cmp({ tours: `${tourIds[0]}, ${id.unpublished}, ${id.deleted}, ${tourIds[3]}` });
+      expect(headIds(gate)).toEqual([tourIds[0], tourIds[3]]);
+      for (const h of [id.unpublished, id.deleted]) expect(gate).toContain(`Тур по запросу "${h}" не найден среди активных — в сравнение не взят.`);
+      expect(gate).not.toMatch(/W2PT тур (unpublished|deleted)/);
+      expect(await cmp({ tours: `${tourIds[0]}, ${id.inactive}` })).toMatch(/^Сравнивать нечего: на витрине из названных остался один тур/);
+
+      // Неоднозначное имя — сравнения нет, номера туров разных компаний.
+      const amb = await cmp({ tours: `W2PT ${PLACE}; ${tourIds[0]}` });
+      expect(amb).toMatch(/сравнение не собрано/);
+      const listed = [...amb.matchAll(/^- ID(\d+) /gm)].map((m) => m[1]);
+      const ops = (await pool.query<{ op: string }>(
+        `SELECT DISTINCT operator_id::text AS op FROM operator_tours WHERE id::text = ANY($1::text[])`, [listed],
+      )).rows;
+      expect(ops.length).toBeGreaterThanOrEqual(2);
+      expect(amb).not.toMatch(/^Цена/m);
+
+      // Один тур дважды — один раз; двух разных нет — сравнивать нечего.
+      const dup = await cmp({ tours: `${tourIds[0]}; ID${tourIds[0]}` });
+      expect(dup).toContain(`один и тот же тур ID${tourIds[0]}; в сравнении он один раз.`);
+      expect(dup).toMatch(/^Сравнивать нечего/);
+
+      // MCP — тот же исполнитель и тот же текст.
+      const chatText = await cmp({ tours: `${tourIds[6]}, ${tourIds[0]}`, criteria: 'отмена, оператор' });
+      expect(await cmp({ tours: `${tourIds[6]}, ${tourIds[0]}`, criteria: 'отмена, оператор' }, 'mcp')).toBe(chatText);
+    } finally {
+      vi.useRealTimers();
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id::text = ANY($1::text[])`, [[tourIds[4], farId]]);
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [[...tourIds, linkedId, farId]]);
+      await pool.query(`DELETE FROM places WHERE id = $1`, [PLACE_ID]);
+      await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [companies.map((c) => c.id)]);
+    }
+  });
+
   it('чат виджета партнёра (loadPartnerTours): только живые туры этого оператора, закреплённый первым, соседа нет', async () => {
     // Аудит 15.10, WID-safety: чат на сайте партнёра подбирал туры по всей
     // платформе и советовал туры конкурентов. Сосед с живым туром и
@@ -619,7 +1181,7 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(await snapshot()).toEqual(expected);
       await pool.query(migration);
       expect(await snapshot()).toEqual(expected);
-      // Источник — только из двух названных.
+      // Источник — только из четырёх названных (1286 + 1344: verified, admin).
       await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = 'tp-exact'`))
         .rejects.toMatchObject({ code: '23514' });
     });
@@ -645,6 +1207,81 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect(await card(pid), pid).toEqual([]);
       }
     });
+
+    // Ловушка MCP 29.10, filter-coverage: фильтр get_tours ищет в полях тура
+    // (lib/search/tour-match), и главное место — одно из них. Настоящий SQL
+    // каталога: LEFT JOIN places по main_place_id (видимое, не слитое) и текст
+    // программы из jsonb_array_elements — на схеме прода, а не на моке.
+    it('get_tours на MCP: главное место-вулкан — блок (б); описание и программа — блок (в); черновик, удалённый, выключенный и «рядом» — нет', async () => {
+      const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
+      const { FAR_BLOCK_MARK, CATALOG_AS_SUBSTITUTE } = await import('@/lib/kuzmich/tour-filter');
+      const tpIds = new Set(Object.values(tour));
+      const slugOf = new Map(Object.entries(tour).map(([slug, tid]) => [tid, slug]));
+      /** Все страницы ответа MCP одной строкой; каталог-замена после «нет» найденным не считается. */
+      const allPages = async (word: string) => {
+        const first = await executeKuzmichTool('get_tours', { activity_type: word }, { surface: 'mcp' });
+        const pages = Number(first.match(/Страница 1 из (\d+)/)?.[1] ?? '1');
+        const rest = [];
+        for (let n = 2; n <= pages; n++) rest.push(await executeKuzmichTool('get_tours', { activity_type: word, page: String(n) }, { surface: 'mcp' }));
+        return [first, ...rest];
+      };
+      /** slug тура сцены → блок, под чьим пояснением он стоит на своей странице. */
+      const placement = (pages: string[]) => {
+        const out: Record<string, 'type' | 'near' | 'far'> = {};
+        for (const text of pages) {
+          const found = text.includes(CATALOG_AS_SUBSTITUTE) ? text.slice(0, text.indexOf(CATALOG_AS_SUBSTITUTE)) : text;
+          let section: 'type' | 'near' | 'far' = 'type';
+          for (const line of found.split('\n')) {
+            if (line.includes(FAR_BLOCK_MARK)) section = 'far';
+            else if (/упоминают «|упоминается «/.test(line)) section = 'near';
+            const m = line.match(/^ID(\d+):/);
+            if (m && tpIds.has(m[1])) out[slugOf.get(m[1]) as string] = section;
+          }
+        }
+        return out;
+      };
+      // Кэш каталога: прежние тесты сдвигали часы до часа вперёд — дальше.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        // Главное место скрыто или слито — тура не называет (и места вулканы).
+        await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-hidden' WHERE slug = 'tp-twin'`);
+        await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-merged' WHERE slug = 'tp-approx'`);
+        vi.setSystemTime(Date.now() + 3 * 60 * 60 * 1000);
+        // Все места сцены — вулканы; в названиях туров слова «вулкан» нет.
+        expect(placement(await allPages('вулкан'))).toEqual({
+          'tp-exact': 'near', 'tp-vis': 'near', 'tp-both': 'near', 'tp-preset': 'near',
+        });
+        await pool.query(`UPDATE operator_tours SET main_place_id = NULL WHERE slug IN ('tp-twin', 'tp-approx')`);
+
+        // Описание и программа — блок (в). Программа читается так же, как её
+        // показывает get_tour_details (programSteps): пункт без заголовка и
+        // программа не массивом не читаются.
+        await pool.query(`UPDATE operator_tours SET description = 'С перевала видно озеро в соседней кальдере.' WHERE slug = 'tp-exact'`);
+        await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-vis'`,
+          [JSON.stringify([{ title: 'День 1', text: 'Наблюдение за медведями у ручья.' }])]);
+        // Заголовок «пустой» — тем же срезом, что trim() в JS (перевод строки,
+        // табуляция, неразрывный пробел); текст пункта — только строкой
+        // (ревью 29.10): get_tour_details таких пунктов не показывает.
+        await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-preset'`,
+          [JSON.stringify([{ text: 'Медведи без заголовка пункта.' }, { title: 2, text: 'Медведи под числовым заголовком.' },
+            { title: '   ', text: 'Медведи под пустым заголовком.' },
+            { title: '\n', text: 'Медведи под переводом строки.' },
+            { title: '\t\u00a0', text: 'Медведи под табуляцией и неразрывным пробелом.' },
+            { title: 'День 3', text: { ru: 'Медведи объектом вместо текста.' } }])]);
+        await pool.query(`UPDATE operator_tours SET program = $1::jsonb WHERE slug = 'tp-both'`,
+          [JSON.stringify('Медведи в программе-строке.')]);
+        await pool.query(`UPDATE operator_tours SET description = 'Озеро и медведи — но тур снят с витрины.' WHERE slug IN ('tp-draft', 'tp-deleted', 'tp-off')`);
+        vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+        expect(placement(await allPages('озеро'))).toEqual({ 'tp-exact': 'far' });
+        expect(placement(await allPages('медведи'))).toEqual({ 'tp-vis': 'far' });
+        // Имя компании сцены («Тест Главное Место») — не слово тура.
+        expect(placement(await allPages('главное место'))).toEqual({});
+      } finally {
+        vi.useRealTimers();
+        await pool.query(`UPDATE operator_tours SET description = NULL, program = NULL WHERE operator_id = $1`, [TP.id]);
+        await pool.query(`UPDATE operator_tours SET main_place_id = NULL WHERE slug IN ('tp-twin', 'tp-approx')`);
+      }
+    }, 30_000);
 
     it('китайские конспекты: место по главному месту живого тура — да; «рядом», без связи и непубличный тур — нет', async () => {
       const { loadZhPlaceSources } = await import('@/lib/zh/content');
@@ -733,5 +1370,393 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(pl.main_place_by_source.operator).toBeGreaterThanOrEqual(1);
       expect(pl.unlinked).toBe(pl.unlinked_items.length);
     });
+
+    // ── 29.10, «1в 2б 3 да»: все туры места, по правилу 1в ───────────────────
+    it('туры места (loadPlaceTours): все, без LIMIT 5, через шлюз витрины, «рядом» нет, ближайшая дата есть', async () => {
+      await pool.query(
+        `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+         VALUES ('tp-place-many', gen_random_uuid(), 'Место многих туров', 'tp-place-many', 59.9, 164.9, TRUE, 'volcano')`,
+      );
+      const ids: string[] = [];
+      for (let i = 1; i <= 7; i++) {
+        ids.push((await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                       min_participants, max_participants, duration_hours, is_active, is_published,
+                                       main_place_id, main_place_source)
+           VALUES ($1, $2, $3, 'tp_many', 5000, 'per_person', 1, 10, 8, TRUE, TRUE, 'tp-place-many', 'operator')
+           RETURNING id::text`,
+          [TP.id, `TP многих ${i}`, `tp-many-${i}`],
+        )).rows[0].id);
+      }
+      // Черновик к тому же месту — не на витрине.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published,
+                                     main_place_id, main_place_source)
+         VALUES ($1, 'TP многих черновик', 'tp-many-draft', 'tp_many', 5000, 'per_person', 1, 10, 8, TRUE, FALSE, 'tp-place-many', 'operator')`,
+        [TP.id],
+      );
+      // У пятого — свободная дата через 10 дней: он первым по правилу.
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots)
+         VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 10, 5)`, [ids[4]],
+      );
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const r = await loadPlaceTours('tp-place-many');
+      expect(r.state).toBe('ok');
+      if (r.state !== 'ok') return;
+      expect(r.offers.map((o) => o.id).sort()).toEqual([...ids].sort());
+      expect(r.offers[0].id).toBe(ids[4]);
+      expect(r.offers[0].nearestFreeDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(r.offers[0].keepsSchedule).toBe(true);
+      expect(r.offers.slice(1).every((o) => o.nearestFreeDate === null && o.keepsSchedule === false && o.hasDatesByRequest)).toBe(true);
+      expect(r.offers[0]).toMatchObject({ partnerId: TP.id, partnerName: TP.name, partnerVerified: true, basePrice: 5000, priceUnit: 'per_person' });
+      // Порядок — правило 1в на тех же строках и том же дне.
+      const { orderOffers } = await import('@/lib/tours/offer-order');
+      expect(r.offers.map((o) => o.id)).toEqual(orderOffers(r.offers, { day: r.day }).map((o) => o.id));
+
+      // «Рядом» и туров нет — «пусто», не «сбой».
+      expect((await loadPlaceTours('tp-place-nearby')).state).toBe('empty');
+
+      // Карточка места: семь туров, а не пять; день правила — тот же.
+      const { loadPlaceDetail } = await import('@/lib/places/place-detail');
+      const card = (await loadPlaceDetail('tp-place-many', { countView: false })).body.data as { tours: unknown[]; toursState: string; toursDay: string };
+      expect(card.tours).toHaveLength(7);
+      expect(card.toursState).toBe('ok');
+      expect(card.toursDay).toBe(r.day);
+    });
+
+    it('туры места не прочитались — «failed» и SQLSTATE в логе; карточка места отвечает 200', async () => {
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const { pool: appPool } = await import('@/lib/db-pool');
+      const spy = vi.spyOn(appPool, 'query').mockRejectedValueOnce(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }) as never);
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        expect(await loadPlaceTours('tp-place-many')).toEqual({ state: 'failed' });
+        expect(err.mock.calls.find((c) => String(c[0]).includes('[place-tours]'))?.[1]).toMatchObject({ sqlstate: '57014' });
+      } finally {
+        spy.mockRestore();
+        err.mockRestore();
+      }
+    });
+
+    it('1344: связи по сверке названий; выбор человека не тронут; облёт снят; переименованное место — нет; повтор ничего не меняет', async () => {
+      const m1344 = readFileSync(join(process.cwd(), 'migrations', '1344_tour_main_place_verified.sql'), 'utf8');
+      // Места — с id и именами из списка 1344; одно переименовано.
+      const PL: Array<[string, string]> = [
+        ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'Вулкан Горелый'],
+        ['2bf92082-0daf-4770-8031-a51c0f355be8', 'Дачные горячие источники'],
+        ['c4310d06-2b6c-4b6e-af3a-b0c7cd678ebe', 'Вачкажец (переименовано)'],
+        ['tp-place-vilyuchinsky', 'Вулкан Вилючинский'],
+      ];
+      for (const [pid, name] of PL) {
+        await pool.query(
+          `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+           VALUES ($1::text, gen_random_uuid(), $2::text, $1::text, 52.7, 158.3, TRUE, 'volcano')
+           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, is_visible = TRUE, merged_into_id = NULL`,
+          [pid, name],
+        );
+      }
+      const T = {
+        gorelyM: 'mestechko-vulkan-gorelyy',
+        gorelyZ: 'zaporozhets-vulkan-gorelyy',
+        preset: 'lagexp-dachnye-goryachie-istochniki-na-vnedorozhnike-tank-300',
+        oblet: 'mestechko-oblet-vilyuchinskiy-mutnovskiy-gorelyy',
+        renamed: 'mestechko-vachkazhets',
+      };
+      const present = (await pool.query<{ slug: string }>(
+        `SELECT slug FROM operator_tours WHERE slug = ANY($1::text[]) AND deleted_at IS NULL`, [Object.values(T)],
+      )).rows.map((x) => x.slug).sort();
+      // Туры заведены миграциями 1217, 1338, 1339 при постройке схемы — сцена на них.
+      expect(present).toEqual(Object.values(T).sort());
+      await pool.query(
+        `UPDATE operator_tours SET main_place_id = NULL, main_place_source = NULL WHERE slug = ANY($1::text[])`,
+        [[T.gorelyM, T.gorelyZ, T.renamed]],
+      );
+      await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-pick', main_place_source = 'operator' WHERE slug = $1`, [T.preset]);
+      await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-vilyuchinsky', main_place_source = 'coords_equal' WHERE slug = $1`, [T.oblet]);
+
+      await pool.query(m1344);
+      const snap = async () => Object.fromEntries((await pool.query<{ slug: string; main_place_id: string | null; main_place_source: string | null }>(
+        `SELECT slug, main_place_id, main_place_source FROM operator_tours WHERE slug = ANY($1::text[])`, [Object.values(T)],
+      )).rows.map((x) => [x.slug, [x.main_place_id, x.main_place_source]]));
+      const expected = {
+        [T.gorelyM]: ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'verified'],
+        [T.gorelyZ]: ['2886ce3b-0753-41fb-bacc-f80e3f75d1aa', 'verified'],
+        [T.preset]: ['tp-place-pick', 'operator'],
+        [T.oblet]: [null, null],
+        [T.renamed]: [null, null],
+      };
+      expect(await snap()).toEqual(expected);
+      await pool.query(m1344);
+      expect(await snap()).toEqual(expected);
+      // Связь, поставленная человеком на облёт, повтором не снимается.
+      await pool.query(`UPDATE operator_tours SET main_place_id = 'tp-place-vilyuchinsky', main_place_source = 'admin' WHERE slug = $1`, [T.oblet]);
+      await pool.query(m1344);
+      expect((await snap())[T.oblet]).toEqual(['tp-place-vilyuchinsky', 'admin']);
+      await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = $1`, [T.gorelyM]))
+        .rejects.toMatchObject({ code: '23514' });
+
+      // Карточка Горелого: два тура разных компаний.
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const r = await loadPlaceTours('2886ce3b-0753-41fb-bacc-f80e3f75d1aa');
+      expect(r.state).toBe('ok');
+      if (r.state === 'ok') {
+        expect(r.offers.map((o) => o.slug).sort()).toEqual([T.gorelyM, T.gorelyZ].sort());
+        expect(new Set(r.offers.map((o) => o.partnerId)).size).toBe(2);
+      }
+    });
+
+    it('слияние мест (carryTourMainPlace): тур едет к оставшемуся месту, источник сохраняется', async () => {
+      await pool.query(
+        `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+         VALUES ('tp-place-dup', gen_random_uuid(), 'Дубль места', 'tp-place-dup', 60.1, 165.1, TRUE, 'volcano'),
+                ('tp-place-keep', gen_random_uuid(), 'Каноническое место', 'tp-place-keep', 60.1, 165.1, TRUE, 'volcano')`,
+      );
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published,
+                                     main_place_id, main_place_source)
+         VALUES ($1, 'TP тур дубля', 'tp-dup-tour', 'tp_dup', 5000, 'per_person', 1, 10, 8, TRUE, TRUE, 'tp-place-dup', 'verified')`,
+        [TP.id],
+      );
+      const { carryTourMainPlace } = await import('@/lib/places/merge-carry');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        expect(await carryTourMainPlace(client, 'tp-place-keep', 'tp-place-dup')).toBe(1);
+        // merged_into_id — uuid (как в сцене выше, ark_id оставшегося): дубль уходит с витрины.
+        await client.query(`UPDATE places SET merged_into_id = (SELECT ark_id FROM places WHERE id = 'tp-place-keep'), merged_at = NOW() WHERE id = 'tp-place-dup'`);
+        await client.query('COMMIT');
+      } finally {
+        client.release();
+      }
+      expect(await linkOf('tp-dup-tour')).toEqual({ main_place_id: 'tp-place-keep', main_place_source: 'verified' });
+      const { loadPlaceTours } = await import('@/lib/places/place-tours');
+      const keep = await loadPlaceTours('tp-place-keep');
+      expect(keep.state === 'ok' && keep.offers.map((o) => o.slug)).toEqual(['tp-dup-tour']);
+    });
+
+    // ── 29.10, «1в 2б 3 да»: выбор тура по названию и «ещё N» на карточке ───
+    it('резолвер на схеме прода: туры двух компаний — неоднозначно, место у кандидатов, ссылка на туры места', async () => {
+      const B = 'b1100000-0000-4000-8000-0000000000b2';
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, 'Тест Вторая Компания', 'operator', '{}'::jsonb, 'test-tp-second', TRUE, FALSE, 'active')`,
+        [B],
+      );
+      const other = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published,
+                                     main_place_id, main_place_source)
+         VALUES ($1, 'TP многих у второй', 'tp-many-second', 'tp_many', 7000, 'per_group', 1, 10, 8, TRUE, TRUE, 'tp-place-many', 'admin')
+         RETURNING id::text`,
+        [B],
+      )).rows[0].id;
+
+      const { resolveTourChoice } = await import('@/lib/kuzmich/tour-availability-tool');
+      const choice = await resolveTourChoice('TP многих');
+      expect(choice.kind).toBe('ambiguous');
+      if (choice.kind !== 'ambiguous') return;
+      // Восемь туров витрины к месту (семь первой компании и один второй); черновика нет.
+      expect(choice.candidates).toHaveLength(8);
+      expect(choice.candidates.map((c) => c.id)).toContain(Number(other));
+      expect(choice.candidates.map((c) => c.slug)).not.toContain('tp-many-draft');
+      expect(new Set(choice.candidates.map((c) => c.operator_name))).toEqual(new Set([TP.name, 'Тест Вторая Компания']));
+      expect(choice.candidates.every((c) => c.place?.id === 'tp-place-many' && c.place?.slug === 'tp-place-many')).toBe(true);
+      // Первый — тур со свободной датой (правило 1в), а не короче название или дешевле.
+      expect(choice.candidates[0].nearest_free_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+      const { tourChoiceTarget } = await import('@/lib/mcp/handoff-targets');
+      expect(tourChoiceTarget(choice)).toEqual({ targetType: 'place', targetPath: '/places/tp-place-many#tours' });
+
+      // По номеру — один тур той же компании.
+      const one = await resolveTourChoice(other);
+      expect(one.kind === 'one' && one.tour.operator_name).toBe('Тест Вторая Компания');
+
+      // «К месту ещё N предложений»: восемь туров к месту, без самого тура — семь.
+      const { loadPlaceOffersForTour } = await import('@/lib/places/place-tours');
+      const offers = await loadPlaceOffersForTour({ id: other, main_place_id: 'tp-place-many' });
+      expect(offers).toEqual({
+        state: 'ok', others: 7,
+        place: { id: 'tp-place-many', name: 'Место многих туров', slug: 'tp-place-many', ark_id: expect.any(String) },
+      });
+      // Скрытое место и тур без связи — строки нет.
+      expect(await loadPlaceOffersForTour({ id: other, main_place_id: 'tp-place-hidden' })).toEqual({ state: 'none' });
+      expect(await loadPlaceOffersForTour({ id: other, main_place_id: null })).toEqual({ state: 'none' });
+
+      // Карточка тура несёт main_place_id — по нему строится строка.
+      const { getTourForCard } = await import('@/lib/tours/tour-detail-query');
+      expect((await getTourForCard(Number(other)))?.main_place_id).toBe('tp-place-many');
+    });
+
+    // ── 29.10, ловушка MCP name-search: имя продавца и часть слов ───────────
+    // До 29.10 резолвер не знал имён продавцов: фамилия гида давала «тура
+    // нет», имя компании из двух слов — туры ДРУГОЙ компании по общему слову,
+    // а совпадение одной основы из двух у одной компании — «один тур» и
+    // заявку ей. Здесь — на схеме прода, три продавца (гид с авторскими
+    // турами, компания с отличительным именем, компания с именем из общих
+    // слов) и партнёр с одним черновиком. Имена вымышленные.
+    it('резолвер на схеме прода: продавец по имени — его туры; имя из общих слов не прячет чужие; черновик не делает продавцом; часть слов — не «один тур»', async () => {
+      const P = {
+        guide: { id: 'b1100000-0000-4000-8000-0000000000d1', name: 'Савва Кедровец', category: 'guide', slug: 'test-ns-guide' },
+        zaimka: { id: 'b1100000-0000-4000-8000-0000000000d2', name: 'Тихая Заимка', category: 'operator', slug: 'test-ns-zaimka' },
+        north: { id: 'b1100000-0000-4000-8000-0000000000d3', name: 'Северная Рыбалка', category: 'operator', slug: 'test-ns-north' },
+        drafty: { id: 'b1100000-0000-4000-8000-0000000000d4', name: 'Глухой Распадок', category: 'operator', slug: 'test-ns-drafty' },
+        // Имя с «ё», слово которого стоит у ДРУГОЙ компании (ревью 29.10).
+        lake: { id: 'b1100000-0000-4000-8000-0000000000d5', name: 'Озёрная Падь', category: 'operator', slug: 'test-ns-lake' },
+      };
+      for (const x of Object.values(P)) {
+        await pool.query(
+          `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+           VALUES ($1, $2, $3, '{}'::jsonb, $4, TRUE, FALSE, 'active')`,
+          [x.id, x.name, x.category, x.slug],
+        );
+      }
+      const tour = async (
+        owner: string, title: string, slug: string, published: boolean, location: string | null = null, short: string | null = null,
+      ) => (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, is_active, is_published, location_name,
+                                     short_description)
+         VALUES ($1, $2, $3, 'trekking', 9000, 'per_person', 1, 10, 8, TRUE, $4, $5, $6)
+         RETURNING id::text`,
+        [owner, title, slug, published, location, short],
+      )).rows[0].id;
+      const ids = {
+        alder: await tour(P.guide.id, 'NS Перевал Ольховый', 'test-ns-alder', true, 'Ольховый'),
+        crystal: await tour(P.guide.id, 'NS Озеро Хрустальное', 'test-ns-crystal', true, null, 'нерка и медведи у истока'),
+        guideDraft: await tour(P.guide.id, 'NS Черновик гида', 'test-ns-guide-draft', false),
+        seal: await tour(P.zaimka.id, 'NS Бухта Тюленья', 'test-ns-seal', true),
+        channel: await tour(P.zaimka.id, 'NS Рыбалка на северной протоке', 'test-ns-channel', true, null, 'вдоль озёрной протоки'),
+        // Имя продавца в скобках СВОЕГО тура: отличительность судится по чужим турам.
+        cape: await tour(P.zaimka.id, 'NS Мыс Скалистый (Тихая Заимка)', 'test-ns-cape', true),
+        raft: await tour(P.north.id, 'NS Сплав с ночёвкой', 'test-ns-raft', true),
+        cloudberry: await tour(P.drafty.id, 'NS Морошковая падь', 'test-ns-cloudberry', false),
+        spring: await tour(P.lake.id, 'NS Падь у ключа', 'test-ns-spring', true),
+      };
+      const sorted = (xs: Array<number | string>) => xs.map(Number).sort((a, b) => a - b);
+      try {
+        const { resolveTourChoice, resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
+        const { executeKuzmichTool } = await import('@/lib/kuzmich/core');
+
+        // Фамилия гида — и в именительном, и в родительном: его живые туры, черновика нет.
+        for (const q of ['Кедровец', 'Кедровца', 'туры у Саввы Кедровца']) {
+          const c = await resolveTourChoice(q);
+          expect(c.kind, q).toBe('seller');
+          if (c.kind !== 'seller') continue;
+          expect(c.sellers.map((x) => [x.name, x.category]), q).toEqual([[P.guide.name, 'guide']]);
+          expect(sorted(c.tours.map((t) => t.id)), q).toEqual(sorted([ids.alder, ids.crystal]));
+          expect(c.others, q).toBeNull();
+        }
+        const guideText = await executeKuzmichTool('get_tour_details', { name: 'Кедровца' }, { surface: 'mcp' });
+        expect(guideText).toContain(`гид «${P.guide.name}»`);
+        expect(guideText).toContain(`ID${ids.alder}`);
+        expect(guideText).toContain(`ID${ids.crystal}`);
+        expect(guideText).not.toContain(`ID${ids.guideDraft}`);
+        expect(guideText).toContain(`/operators/${P.guide.slug}`);
+        expect(guideText).not.toContain('Тур на платформе не найден');
+
+        // Отличительное имя компании — её туры, а не чужие по общему слову.
+        // Имя стоит и в скобках её же тура: отличительность судится только по
+        // чужим турам, и ответ — её список, а не этот тур (ревью 29.10).
+        const zaimka = await resolveTourChoice('Тихая Заимка');
+        expect(zaimka.kind).toBe('seller');
+        if (zaimka.kind === 'seller') {
+          expect(zaimka.basis).toBe('own');
+          expect(sorted(zaimka.tours.map((t) => t.id))).toEqual(sorted([ids.seal, ids.channel, ids.cape]));
+          expect(zaimka.others).toBeNull();
+        }
+
+        // Компания и слово ЧУЖОГО тура — не «один тур» другого продавца, а «по словам не нашлось».
+        const mixed = await resolveTourChoice('Тихая Заимка Ольховый');
+        expect(mixed.kind).toBe('seller');
+        if (mixed.kind === 'seller') {
+          expect(mixed.rest).toEqual({ text: 'Ольховый', found: false });
+          expect(mixed.tours.map((t) => t.id)).not.toContain(Number(ids.alder));
+        }
+        expect(await resolveTourByQuery('Тихая Заимка Ольховый')).toBeNull();
+
+        // Имя из одних общих слов не поднимает продавца (§0, ревью 29.10): туры
+        // всех компаний по словам запроса одним правилом — тур другой компании
+        // есть, тур продавца без этих слов — нет (он на его странице).
+        const north = await resolveTourChoice('Северная Рыбалка');
+        expect(north.kind).toBe('seller');
+        if (north.kind === 'seller') {
+          expect(north.basis).toBe('words');
+          expect(north.tours.map((t) => t.id)).toEqual([Number(ids.channel)]);
+        }
+        const northText = await executeKuzmichTool('get_tour_details', { name: 'Северная Рыбалка' }, { surface: 'mcp' });
+        expect(northText).toContain(`ID${ids.channel}`);
+        expect(northText).not.toContain(`ID${ids.raft}`);
+        expect(northText).not.toContain('Это имя продавца');
+        expect(northText).toContain(`/operators/${P.north.slug}`);
+        // С другим словом — продавца в ответе нет вовсе: поиск как без него.
+        const northMore = await resolveTourChoice('Северная Рыбалка сплав');
+        expect(northMore.kind).toBe('weak');
+        expect(await resolveTourByQuery('Северная Рыбалка сплав')).toBeNull();
+        // Фраза в названии чужого тура — ответ по названию: общее имя продавца не поднимается.
+        const byTitle = await resolveTourChoice('северной протоке');
+        expect(byTitle.kind === 'one' && byTitle.tour.id).toBe(Number(ids.channel));
+
+        // Партнёр с одним черновиком — не продавец, и черновик не находится;
+        // рядом с живым продавцом он не назван продавцом, а его имя — остаток запроса.
+        expect((await resolveTourChoice('Глухой Распадок')).kind).toBe('none');
+        const withDraft = await resolveTourChoice('Тихая Заимка Глухой Распадок');
+        expect(withDraft.kind === 'seller' && withDraft.sellers.map((x) => x.name)).toEqual([P.zaimka.name]);
+        expect(withDraft.kind === 'seller' && withDraft.rest).toEqual({ text: 'Глухой Распадок', found: false });
+
+        // Совпала одна основа из двух у туров одной компании — не «один тур».
+        const weak = await resolveTourChoice('Ольховый Несуществующий');
+        expect(weak.kind).toBe('weak');
+        if (weak.kind === 'weak') {
+          expect(weak.candidates.map((t) => t.id)).toEqual([Number(ids.alder)]);
+          expect(weak.missing).toEqual(['Несуществующий']);
+        }
+        expect(await resolveTourByQuery('Ольховый Несуществующий')).toBeNull();
+        // Сравнение (ревью 29.10): часть слов и имя продавца — не «один тур»;
+        // сравнение не собирается и не выбирает тур за человека, номера — в ответе.
+        for (const ref of ['Ольховый Несуществующий', 'Тихая Заимка', 'Северная Рыбалка']) {
+          const t = await executeKuzmichTool('compare_tours', { tours: `${ref}; ${ids.crystal}` }, { surface: 'mcp' });
+          expect(t, ref).toMatch(new RegExp(`^По запросу «${ref}» [^\\n]*— сравнение не собрано`));
+          expect(t, ref).not.toMatch(/^Сравнение \d туров/m);
+          expect(t, ref).not.toMatch(/^Цена/m);
+        }
+        const weakCmp = await executeKuzmichTool('compare_tours', { tours: `Ольховый Несуществующий; ${ids.crystal}` });
+        expect(weakCmp).toContain(`- ID${ids.alder} «NS Перевал Ольховый»`);
+        const sellerCmp = await executeKuzmichTool('compare_tours', { tours: `Тихая Заимка; ${ids.crystal}` });
+        for (const x of [ids.seal, ids.channel, ids.cape]) expect(sellerCmp).toContain(`ID${x}`);
+        // Обе основы у одного тура — тур, как раньше.
+        const full = await resolveTourChoice('Ольховый перевал');
+        expect(full.kind === 'one' && full.tour.id).toBe(Number(ids.alder));
+
+        // Ревью 29.10. «ё» и «е» — одна буква в базе: и у фразы, и у основ.
+        for (const q of ['ночевкой сплав', 'ночёвкой сплав', 'ночевкой']) {
+          const c = await resolveTourChoice(q);
+          expect(c.kind === 'one' && c.tour.id, q).toBe(Number(ids.raft));
+        }
+        // Слово из описания тура — совпавшее, а не «не найдено».
+        const described = await resolveTourChoice('Хрустальное озеро медведи');
+        expect(described.kind === 'one' && described.tour.id).toBe(Number(ids.crystal));
+        // Слово, которое есть только в другом туре, — «есть в других турах».
+        const apart = await resolveTourChoice('Хрустальное озеро Ольховый');
+        expect(apart.kind).toBe('weak');
+        if (apart.kind === 'weak') {
+          expect(apart.apart).toEqual(['Ольховый']);
+          expect(apart.missing).toEqual([]);
+        }
+        // Слово имени с «ё» стоит у ДРУГОЙ компании (через «ё») — не отличительное:
+        // часть такого имени продавцом не делает.
+        expect((await resolveTourChoice('Озёрная')).kind).not.toBe('seller');
+        expect((await resolveTourChoice('Озерная')).kind).not.toBe('seller');
+        // Отличительное слово того же имени — продавец.
+        const lake = await resolveTourChoice('Падь');
+        expect(lake.kind === 'seller' && lake.sellers.map((x) => x.name)).toEqual([P.lake.name]);
+      } finally {
+        await pool.query(`DELETE FROM operator_tours WHERE slug LIKE 'test-ns-%'`);
+        await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [Object.values(P).map((x) => x.id)]);
+      }
+    });
   });
 });
+

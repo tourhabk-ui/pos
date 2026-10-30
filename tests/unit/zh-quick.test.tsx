@@ -8,6 +8,11 @@
  * <html lang="ru"> без единого сигнала языка в <head>; обходчик, читающий
  * китайскую страницу, не считался ничем.
  *
+ * С 29.10 порядок — правило 1в (слово владельца «1в 2б 3 да»,
+ * lib/tours/offer-order), одно на все общие витрины туров: со свободной датой
+ * — по ближайшему выезду, остальные — жребий дня. Алфавит компаний (15.10)
+ * ставил одних и тех же впереди навсегда.
+ *
  * Судится тем, что видит человек и обходчик: рендер страницы с данными базы
  * (порядок в документе, подпись правила, число без среза, имя компании
  * ссылкой), запись счётчика по семейству и её отсутствие для человека, рендер
@@ -18,6 +23,8 @@ import { renderToString } from 'react-dom/server';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, screen, within } from '@testing-library/react';
 
+// Курс ЦБ (≈ ¥ у цены) — без сети: страница ждала бы настоящий cbr.ru.
+vi.mock('@/lib/currency/cbr-rate', async (orig) => ({ ...(await orig<typeof import('@/lib/currency/cbr-rate')>()), loadCnyRate: async () => null }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 const reqHeaders = vi.hoisted(() => ({ ua: '' }));
@@ -29,6 +36,8 @@ import ZhLayout from '@/app/zh/layout';
 import { ZhTourList } from '@/components/zh/ZhTourList';
 import { orderZhTours, type ZhTourRow } from '@/lib/zh/entry';
 import { ZH_TOURS_ORDER_NOTE } from '@/lib/operators/order-note';
+import { offerOrderDay, tourLot, OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import { ZH_CONTENT_LANGUAGE } from '@/lib/zh/pages';
 
@@ -49,6 +58,10 @@ function storefront(): ZhTourRow[] {
     rows.push(tour(1000 - i, ops[i % ops.length], `Тур ${String.fromCharCode(1040 + ((i * 7) % 26))} ${i}`));
   }
   rows.push(tour(5, 'Местечко Камчатка', 'Долина гейзеров', { operator_slug: 'mestechko', operator_public: true }));
+  // Три тура со свободной датой — в глубине выдачи базы, у разных компаний.
+  rows[30] = { ...rows[30], nearest_free_date: '2027-07-26' };
+  rows[12] = { ...rows[12], nearest_free_date: '2026-12-05' };
+  rows[41] = { ...rows[41], nearest_free_date: '2027-02-14' };
   return rows;
 }
 
@@ -71,26 +84,28 @@ async function renderTours(): Promise<HTMLElement> {
 }
 
 describe('/zh: один порядок для всех, названный на странице (§0)', () => {
-  it('туры идут по названию компании, внутри — по названию тура; дата правки порядок не меняет', async () => {
+  it('правило 1в: со свободной датой — по ближайшему выезду, остальные — жребий дня; дата правки порядок не меняет', async () => {
     const section = await renderTours();
-    const expected = orderZhTours(tourRows).map((t) => t.id);
-    expect(shownIds(section)).toEqual(expected);
-    // Компании в документе — по алфавиту, каждая одним куском.
-    const opsInOrder = [...section.querySelectorAll('[data-zh-tour]')].map((li) => {
-      const name = within(li as HTMLElement).getByText(/^旅行社：/).textContent ?? '';
-      return name.replace('旅行社：', '');
-    });
-    expect([...new Set(opsInOrder)]).toEqual(['Аэротур', 'Край Вулканов', 'Местечко Камчатка', 'Шатун']);
+    const day = offerOrderDay();
+    const shown = shownIds(section);
+    expect(shown).toEqual(orderZhTours(tourRows, { day }).map((t) => t.id));
+    // Сверху — три тура с датой, раньше дата — выше.
+    expect(shown.slice(0, 3)).toEqual([tourRows[12].id, tourRows[41].id, tourRows[30].id]);
+    // Остальные — по жребию дня (FNV-1a с fmix32 от даты по Камчатке и id), не по алфавиту.
+    const rest = tourRows.filter((t) => !t.nearest_free_date).map((t) => t.id)
+      .sort((a, b) => tourLot(day, a) - tourLot(day, b));
+    expect(shown.slice(3)).toEqual(rest);
     // Свежая правка (первая строка базы) не поднимает тур наверх.
-    expect(shownIds(section)[0]).not.toBe(tourRows[0].id);
+    expect(shown[0]).not.toBe(tourRows[0].id);
   });
 
   it('правило порядка названо по-китайски одной строкой из общего источника, место не продаётся', async () => {
     const section = await renderTours();
     expect(within(section).getByText(ZH_TOURS_ORDER_NOTE)).toBeTruthy();
-    expect(ZH_TOURS_ORDER_NOTE).toMatch(/旅行社名称/);
-    expect(ZH_TOURS_ORDER_NOTE).toMatch(/团队游名称/);
+    expect(ZH_TOURS_ORDER_NOTE).toBe(OFFER_ORDER_NOTE.zh);
+    expect(ZH_TOURS_ORDER_NOTE).toMatch(/最近出发/);
     expect(ZH_TOURS_ORDER_NOTE).toMatch(/不出售/);
+    expect(ZH_TOURS_ORDER_NOTE).not.toMatch(/旅行社名称/);
   });
 
   it('число в заголовке — все туры витрины, без среза на 40; запрос не режет и не сортирует по дате правки', async () => {
@@ -99,7 +114,10 @@ describe('/zh: один порядок для всех, названный на 
     expect(within(section).getByRole('heading', { level: 2 }).textContent).toBe(`当前团队游（${tourRows.length}）`);
     expect(shownIds(section)).toHaveLength(tourRows.length);
     const sql = String(query.mock.calls.find(([s]) => String(s).includes('FROM operator_tours'))?.[0]);
-    expect(sql).not.toMatch(/\bLIMIT\b/i);
+    // LIMIT 1 внутри подзапроса ближайшей даты — это выбор одной даты тура, не срез витрины.
+    expect(sql).toContain(nearestFreeDateSql('ot'));
+    expect(sql.replace(nearestFreeDateSql('ot'), '')).not.toMatch(/\bLIMIT\b/i);
+    expect(sql.replace(nearestFreeDateSql('ot'), '')).not.toMatch(/\bORDER BY\b/i);
     expect(sql).not.toMatch(/updated_at/);
   });
 
@@ -121,10 +139,13 @@ describe('/zh: один порядок для всех, названный на 
     expect(ZH_PAGE.catalogUnavailable).not.toBe(ZH_PAGE.catalogEmpty);
   });
 
-  it('равные имена компаний и туров не прыгают: порядок добивается id', () => {
-    const a = tour(2, 'Шатун', 'Вахтовка'), b = tour(1, 'шатун', 'вахтовка');
-    expect(orderZhTours([a, b]).map((t) => t.id)).toEqual(['1', '2']);
-    expect(orderZhTours([b, a]).map((t) => t.id)).toEqual(['1', '2']);
+  it('порядок не зависит от имён и от порядка строк базы: те же id — то же место', () => {
+    const day = '2026-10-29';
+    const a = tour(2, 'Шатун', 'Вахтовка'), b = tour(1, 'Аэротур', 'Авача');
+    const renamed = [tour(2, 'Аааа', 'Аааа'), tour(1, 'Яяяя', 'Яяяя')];
+    const ids = orderZhTours([a, b], { day }).map((t) => t.id);
+    expect(orderZhTours([b, a], { day }).map((t) => t.id)).toEqual(ids);
+    expect(orderZhTours(renamed, { day }).map((t) => t.id)).toEqual(ids);
   });
 });
 

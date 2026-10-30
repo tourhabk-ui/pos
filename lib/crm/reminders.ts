@@ -23,6 +23,12 @@
  *    `reminder_channel` и видно на экране задач. Отказ доставки не
  *    записывается: следующий прогон пробует снова. «Не смог прочитать адрес»
  *    — тоже повтор, а не «каналов нет».
+ *  - **«Выполнено» кнопкой — только в MAX** (план «гид в чате», шаг 9): под
+ *    каждой показанной задачей кнопка `tk:d:<uuid>` (lib/crm/chat-task-press),
+ *    нажатие отмечает задачу тем же `completeTask`, что кабинет. Заглушка
+ *    Telegram кнопок-действий не несёт — их выбрасывает `sendPdAlert`; копия
+ *    менеджерам — без них: в чате менеджера чат кабинета не найдётся, и
+ *    кнопка была бы мёртвой.
  *  - **Окно — 7 суток.** Пропущенный прогон догонит следующий, но задача,
  *    просроченная неделю назад, — не повод будить сегодня. Задача, заведённая
  *    уже просроченной («перезвонить вчера»), не напоминается: её срок
@@ -36,6 +42,7 @@ import { reachForPartner, type PartnerReach } from '@/lib/partners/reach';
 import { sendPdAlert, type PdAlertParams, type PdAlertResult } from '@/lib/notifications/pd-alert';
 import { notifyTeam, type TeamMessage, type TeamNotifyResult } from '@/lib/operators/team-notify';
 import type { ReminderChannel } from '@/lib/crm/tasks';
+import { taskDoneButton } from '@/lib/crm/chat-task-press';
 
 interface Queryable {
   query: typeof pool.query;
@@ -114,17 +121,24 @@ function tasksWord(n: number): string {
   return 'задач';
 }
 
+/** Напоминание кабинету: ссылка в кабинет и «Выполнено» под каждой показанной задачей. */
+export type ReminderMessage = Required<Pick<PdAlertParams, 'text' | 'stub' | 'buttons'>>;
+
 /**
  * Сообщение партнёру. `text` — с заголовками задач и именами клиентов,
  * уходит только в MAX; `stub` — без них, для Telegram. Всё, что ввёл
- * человек, экранируется: HTML разбирает мессенджер.
+ * человек, экранируется: HTML разбирает мессенджер. Задач несколько — строки
+ * пронумерованы, и кнопка называет номер: два «Перезвонить» различает только
+ * он.
  */
-export function reminderMessage(tasks: readonly DueTaskRow[]): Required<TeamMessage> {
+export function reminderMessage(tasks: readonly DueTaskRow[]): ReminderMessage {
   const n = tasks.length;
   const head = `<b>Подошёл срок: ${n} ${tasksWord(n)}</b>`;
-  const lines = tasks.slice(0, SHOWN_PER_MESSAGE).map((t) => {
+  const shown = tasks.slice(0, SHOWN_PER_MESSAGE);
+  const numbered = shown.length > 1;
+  const lines = shown.map((t, i) => {
     const who = t.contact_name ? ` — ${escapeHtml(t.contact_name)}` : '';
-    return `• ${escapeHtml(t.title)}${who} · срок ${escapeHtml(dueLabel(t.due_at))}`;
+    return `${numbered ? `${i + 1}.` : '•'} ${escapeHtml(t.title)}${who} · срок ${escapeHtml(dueLabel(t.due_at))}`;
   });
   const rest = n - lines.length;
   if (rest > 0) lines.push(`…и ещё ${rest}`);
@@ -132,7 +146,19 @@ export function reminderMessage(tasks: readonly DueTaskRow[]): Required<TeamMess
   return {
     text: [head, ...lines].join('\n'),
     stub: `${head}\nЧто именно — в кабинете: заголовки задач и имена клиентов в Telegram не пересылаются.`,
-    buttons: [{ text: 'Открыть задачи', url }],
+    buttons: [
+      ...shown.map((t, i) => taskDoneButton(t, numbered ? i + 1 : null)),
+      { text: 'Открыть задачи', url },
+    ],
+  };
+}
+
+/** Копия менеджерам команды: тот же текст, только ссылки — «Выполнено» в их чате было бы мёртвой кнопкой. */
+export function teamCopyOf(msg: ReminderMessage): Required<TeamMessage> {
+  return {
+    text: msg.text,
+    stub: msg.stub,
+    buttons: msg.buttons.filter((b): b is { text: string; url: string } => 'url' in b),
   };
 }
 
@@ -209,7 +235,7 @@ export async function runTaskReminders(now: Date, deps: ReminderDeps = {}): Prom
     // где напоминание сейчас будет записано, — см. шапку модуля.
     const copyToTeam = async (): Promise<number> => {
       if (tasks[0]?.category !== 'operator') return 0;
-      const r = await team(partnerId, message, `напоминание о задачах (${tasks.length})`);
+      const r = await team(partnerId, teamCopyOf(message), `напоминание о задачах (${tasks.length})`);
       if (r.state === 'unknown') {
         report.team_unknown += 1;
         return 0;

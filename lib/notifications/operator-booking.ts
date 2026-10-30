@@ -13,6 +13,8 @@
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { getPublicBaseUrl } from '@/lib/config';
+import { ownerBookingsUrl } from '@/lib/partners/cabinet-links';
+import { bookingAnswerButtons, chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 
 async function tgSend(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -57,6 +59,19 @@ export interface BookingNotifyPayload {
    * его команды с подключённым мессенджером (CRM 2г-4, lib/operators/team-notify).
    */
   operator_partner_id?: string;
+  /**
+   * Категория карточки продавца тура. Гид со своими турами (28.10) работает
+   * в кабинете гида, а не оператора: ссылка в его личном сообщении ведёт в
+   * «Свои туры» — кабинет оператора его не пустит.
+   */
+  operator_category?: string | null;
+  /**
+   * Статус брони на момент уведомления. 'new' у гида со своими турами — под
+   * личным сообщением в MAX кнопки «Подтвердить» и «Отклонить» (вопрос, затем
+   * «Да», lib/bookings/chat-owner-action). Нет поля — кнопок нет: бронь могла
+   * быть подтверждена сразу (запрос мест, автоподтверждение).
+   */
+  booking_status?: string | null;
 }
 
 /** Чем кончилась доставка заявки оператору — три исхода, не два (§4.0). */
@@ -138,12 +153,19 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     : null;
   const teamDelivered = team?.state === 'sent' ? team.delivered : 0;
 
-  // Оператор — только если у него есть хоть один адрес.
+  // Оператор — только если у него есть хоть один адрес. Ссылка — в его
+  // кабинет: у гида со своими турами это «Свои туры». Гиду с ждущей бронью —
+  // ещё кнопки ответа (только MAX: из заглушки Telegram sendPdAlert их убирает).
+  // Бронь его тура — значит, свои туры он продаёт.
   if (payload.operator_max_chat_id || payload.operator_telegram_chat_id) {
+    const answer = payload.booking_status === 'new'
+      && chatActionsEnabledFor({ category: payload.operator_category, sellsTours: true })
+      ? bookingAnswerButtons(String(payload.booking_id))
+      : [];
     const opRes = await sendPdAlert({
       text,
       stub,
-      buttons: [link],
+      buttons: [...answer, { text: link.text, url: ownerBookingsUrl(payload.operator_category, payload.booking_id) }],
       to: {
         maxChatId: payload.operator_max_chat_id,
         telegramChatId: payload.operator_telegram_chat_id,

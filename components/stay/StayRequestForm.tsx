@@ -5,7 +5,9 @@
  * владельца 10.10: «для броней нужна удобная форма для приложения MAX»).
  *
  * Гость указывает даты, сколько человек, имя и телефон; хозяин получает это
- * одним сообщением в MAX и перезванивает сам. Это не бронь: даты и цену
+ * одним сообщением в MAX и перезванивает или отвечает в переписке: после
+ * отправки гостю — ссылка на страницу заявки с перепиской и на подключение
+ * MAX (1349). Это не бронь: даты и цену
  * подтверждает хозяин, поэтому итог формы — «заявка передана», и только когда
  * сервер сказал, кому она дошла (хозяину или оператору платформы). Не дошла
  * никому — так и написано, и рядом телефон.
@@ -48,6 +50,9 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Delivered | null>(null);
+  // Страница заявки с перепиской и ссылка подключить MAX (1349). null — ключ
+  // не выдался: заявка принята, но переписки на сайте не будет.
+  const [links, setLinks] = useState<{ page: string | null; max: string | null }>({ page: null, max: null });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -76,11 +81,12 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
         }),
       });
       const body = (await res.json().catch(() => null)) as
-        | { success: true; data: { delivered: Delivered } }
+        | { success: true; data: { delivered: Delivered; page?: string | null; max_link?: string | null } }
         | { success: false; error?: string }
         | null;
       if (body && body.success) {
         // Маяка воронки нет намеренно: каждая заявка — строка stay_requests.
+        setLinks({ page: body.data.page ?? null, max: body.data.max_link ?? null });
         setDone(body.data.delivered);
       } else {
         setError((body && !body.success && body.error) || `Сервер ответил ${res.status}`);
@@ -100,9 +106,26 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
         </p>
         <p className="text-sm text-[var(--text-secondary)]">
           {done === 'owner'
-            ? 'Владелец получил её в MAX и перезвонит вам, чтобы подтвердить даты и цену.'
+            ? 'Владелец получил её в MAX и перезвонит или ответит сообщением, чтобы подтвердить даты и цену.'
             : 'Её получил оператор платформы: он свяжется с владельцем, а владелец перезвонит вам.'}
         </p>
+        {links.page ? (
+          <div className="space-y-2">
+            <a href={links.page} className="ds-btn ds-btn-primary w-full text-center">Переписка с владельцем</a>
+            {links.max && (
+              <a href={links.max} target="_blank" rel="noopener noreferrer" className="ds-btn ds-btn-secondary w-full text-center">
+                Получать ответы в MAX
+              </a>
+            )}
+            <p className="text-xs text-[var(--text-muted)]">
+              Сохраните ссылку на переписку: по ней видны ответы владельца. Никому её не пересылайте.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--text-muted)]">
+            Ссылка на переписку не выдалась — сбой на нашей стороне. Заявка передана, владелец позвонит.
+          </p>
+        )}
       </div>
     );
   }

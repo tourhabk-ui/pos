@@ -17,6 +17,7 @@ import {
 import { PRECIP_DRY_MM } from '@/lib/weather/day-parts';
 import { currentHour, weatherScene, type OkWeather } from '@/lib/weather/scene';
 import { ConditionIcon } from '@/components/weather/ConditionIcon';
+import { UgmsForecast } from '@/components/weather/UgmsForecast';
 
 // Страница погоды отдаёт правила сцены и наружу: их судят тесты страницы.
 export { weatherScene, weatherSky, type WeatherSky } from '@/lib/weather/scene';
@@ -780,6 +781,10 @@ function SourceNote({ w }: { w: PlaceWeather }) {
         В горах погода меняется быстрее прогноза. Перед выходом на маршрут —{' '}
         <Link href="/register" className="text-[var(--ocean)]">регистрация в МЧС</Link>.
       </p>
+      <p>
+        Задержки и отмены рейсов —{' '}
+        <Link href="/flights" className="text-[var(--ocean)]">табло аэропорта Елизово</Link>.
+      </p>
     </section>
   );
 }
@@ -803,6 +808,7 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
           <SceneHeader title={title} />
           <Hero w={selected} today={data.today} />
           <Warnings warnings={data.warnings} scene />
+          {data.ugms ? <UgmsForecast read={data.ugms} today={data.today} scene /> : null}
           <PlaceSwitcher current={place.slug} scene />
           <HourlyCard w={selected} />
           <WeekCard w={selected} today={data.today} />
@@ -818,6 +824,7 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
             </p>
           </header>
           <Warnings warnings={data.warnings} />
+          {data.ugms ? <UgmsForecast read={data.ugms} today={data.today} /> : null}
           <PlaceSwitcher current={place.slug} />
           <SelectedFallback w={selected} />
         </>

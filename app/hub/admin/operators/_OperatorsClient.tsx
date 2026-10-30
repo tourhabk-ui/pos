@@ -87,6 +87,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   hotel:    'Отель',
   rent:     'Аренда',
   fishing:  'Рыбалка',
+  // Роли из lib/partners/categories, которых здесь не было (29.10): у
+  // гостевого дома «Кутха» (category 'stay', миграция 1206) карточка писала
+  // слаг «stay» вместо слова, и владелец прочёл это как «нет роли жильё».
+  stay:     'Жильё',
+  gear:     'Прокат снаряжения',
 };
 
 function RejectModal({
@@ -235,6 +240,7 @@ function AccountPanel({ op, onAccountCreated }: { op: OperatorRow; onAccountCrea
     | { kind: 'loading' }
     | { kind: 'created'; email: string; password: string }
     | { kind: 'link'; message: string; expiresAt: string }
+    | { kind: 'messenger'; message: string }
     | { kind: 'error'; error: string; needEmail?: boolean }
   >({ kind: 'idle' });
   const [copied, setCopied] = useState(false);
@@ -281,6 +287,26 @@ function AccountPanel({ op, onAccountCreated }: { op: OperatorRow; onAccountCrea
     }
   }
 
+  /** Вход на сайт через MAX или Telegram тому, кто открыл ссылку подключения карточки (1336). */
+  async function callMessenger() {
+    setState({ kind: 'loading' });
+    try {
+      const res = await fetch(`/api/admin/operators/${op.id}/messenger-login`, { method: 'POST' });
+      const json = await res.json().catch(() => null) as
+        | { success: true; message?: string }
+        | { success: false; error?: string }
+        | null;
+      if (!res.ok || !json || !json.success) {
+        setState({ kind: 'error', error: (json && !json.success && json.error) || `Сервер ответил ${res.status}` });
+        return;
+      }
+      onAccountCreated(op.id, '');
+      setState({ kind: 'messenger', message: json.message ?? 'Готово.' });
+    } catch {
+      setState({ kind: 'error', error: 'Нет связи с сервером' });
+    }
+  }
+
   const needEmail = state.kind === 'error' && state.needEmail;
 
   return (
@@ -304,7 +330,18 @@ function AccountPanel({ op, onAccountCreated }: { op: OperatorRow; onAccountCrea
           ) : (
             <span className="text-xs text-[var(--text-muted)]">{creatable.why}</span>
           )
-        ) : (
+        ) : null}
+        {!hasAccount && (
+          <button
+            onClick={callMessenger}
+            disabled={state.kind === 'loading'}
+            className="ds-btn ds-btn-secondary text-xs px-2 py-1"
+            title="Для того, кто открыл ссылку подключения карточки в MAX или Telegram"
+          >
+            Вход через MAX / Telegram
+          </button>
+        )}
+        {hasAccount && state.kind !== 'messenger' && (
           <button
             onClick={() => call('reset-link')}
             disabled={state.kind === 'loading'}
@@ -314,6 +351,9 @@ function AccountPanel({ op, onAccountCreated }: { op: OperatorRow; onAccountCrea
           </button>
         )}
       </div>
+      {state.kind === 'messenger' && (
+        <p className="text-xs text-[var(--success)]" role="status">{state.message}</p>
+      )}
       {needEmail && (
         <div className="flex flex-wrap items-center gap-2">
           <input

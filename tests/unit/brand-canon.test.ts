@@ -114,7 +114,9 @@ describe('бренд-канон «Ведар» в публичных повер�
   // четырнадцати (живая проба 29.09). Проверяется ровно то, что уходит наружу.
   it('MCP: карточка сервера и описания инструментов — без старого бренда', async () => {
     const { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } = await import('@/lib/mcp/public-tools');
-    const outward = JSON.stringify({ MCP_SERVER_INFO, PUBLIC_MCP_TOOLS });
+    // Инструкция рукопожатия (29.10) — тоже наружу: её хост кладёт в контекст модели.
+    const { SERVER_INSTRUCTIONS } = await import('@/lib/mcp/server-instructions');
+    const outward = JSON.stringify({ MCP_SERVER_INFO, PUBLIC_MCP_TOOLS, SERVER_INSTRUCTIONS });
     expect(outward.length).toBeGreaterThan(5000);
     expect(outward).not.toMatch(/TourHab|Tourhab|KamchatourHub|КамчатурХаб/);
   });

@@ -25,6 +25,7 @@ import {
 } from '@/lib/mcp/connect';
 import { CANONICAL_BASE_URL } from '@/lib/config';
 import { GET as manifestGet } from '@/app/.well-known/mcp.json/route';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -183,14 +184,26 @@ describe('строка системного промпта', () => {
     expect(MCP_SYSTEM_PROMPT_LINE_RU).toMatch(/Камчатк/);
     expect(MCP_SYSTEM_PROMPT_LINE_RU).toMatch(/подтверждает человек/);
   });
+
+  it('об оплате обе говорят «не мгновенно» — не зависят от выключателя оплаты (29.10)', () => {
+    // Строку хост вставляет один раз; что сейчас с оплатой, говорит
+    // инструкция сервера (lib/mcp/server-instructions.ts) по выключателю.
+    expect(MCP_SYSTEM_PROMPT_LINE_EN).toMatch(/nothing is booked or paid instantly/);
+    expect(MCP_SYSTEM_PROMPT_LINE_RU).toMatch(/ничего не бронируется и не оплачивается мгновенно/);
+    expect(MCP_SYSTEM_PROMPT_LINE_RU).not.toMatch(/оплаты через платформу нет|не принимает|напрямую/);
+    expect(MCP_SYSTEM_PROMPT_LINE_EN).not.toMatch(/no payment|does not accept|directly/i);
+  });
 });
 
 describe('первоисточники читают модуль, а не держат свои адреса', () => {
-  it('манифест отдаёт connect и systemPromptHint', async () => {
+  it('манифест отдаёт connect, systemPromptHint и instructions рукопожатия', async () => {
     const res = await manifestGet();
-    const body = await res.json() as { connect: Record<string, string>; systemPromptHint: string };
+    const body = await res.json() as { connect: Record<string, string>; systemPromptHint: string; instructions: string };
     expect(Object.keys(body.connect).sort()).toEqual(MCP_CONNECT_OPTIONS.map((o) => o.id).sort());
     expect(body.systemPromptHint).toBe(MCP_SYSTEM_PROMPT_LINE_EN);
+    // Тот же текст, что сервер отдаёт в initialize: агент видит правила до
+    // подключения, и второго источника у них нет.
+    expect(body.instructions).toBe(SERVER_INSTRUCTIONS);
   });
 
   it('/mcp и llms.txt импортируют модуль; deeplink-схемы в разметке не захардкожены', () => {

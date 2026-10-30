@@ -74,7 +74,7 @@ describe('sendTouristMail', () => {
 
 describe('двери брони не глушат письмо', () => {
   const code = (p: string) => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  for (const p of ['app/api/hub/bookings/create/route.ts', 'app/api/hub/operator/bookings/[id]/route.ts']) {
+  for (const p of ['app/api/hub/bookings/create/route.ts', 'lib/bookings/owner-status.ts']) {
     it(p, () => {
       const src = code(p);
       expect(src).toMatch(/sendTouristMail\(/);

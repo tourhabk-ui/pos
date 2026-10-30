@@ -116,7 +116,12 @@ describe('get_tour_availability → даты', () => {
     // Расписание у тура есть — значит пусто это именно «мест нет» (29.09).
     q.mockResolvedValueOnce({ rows: [{ has: true }] });
     availability.mockResolvedValueOnce([]);
-    const f = parseAvailabilityText(await getTourAvailabilityForKuzmich({ tour: '27' }));
+    // Пустое окно называет ближайшую дату за ним (ловушка 29.10): строка
+    // соседа не должна читаться разборщиком как дата окна.
+    availability.mockResolvedValueOnce([{ date: '2027-07-19', remaining: 12, priceOverride: null }]);
+    const text = await getTourAvailabilityForKuzmich({ tour: '27' });
+    expect(text).toMatch(/после этого окна — 19\.07\.2027, свободно 12/);
+    const f = parseAvailabilityText(text);
     expect(f).toMatchObject({ dates: [], none_free: true });
   });
 

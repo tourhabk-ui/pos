@@ -52,6 +52,13 @@ export interface SavedMapRecord {
    * честное «проверить нечем», а не «карты нет».
    */
   sampleUrls: string[];
+  /**
+   * Сколько файлов плана не легло при закачке (29.10, #2558). Запись о
+   * неполной карте ставилась и читалась как «готово»; теперь карточка
+   * маршрута зовёт докачать. У записей до 29.10 поля нет — считается 0:
+   * тогда судит проба Cache Storage.
+   */
+  failedFiles: number;
 }
 
 /**
@@ -85,6 +92,7 @@ export function parseSavedMap(raw: string | null): SavedMapRecord | null {
       sampleUrls: Array.isArray(d.sampleUrls)
         ? (d.sampleUrls as unknown[]).filter((u): u is string => typeof u === 'string')
         : [],
+      failedFiles: typeof d.failedFiles === 'number' && d.failedFiles > 0 ? Math.floor(d.failedFiles) : 0,
     };
   } catch {
     return null;
@@ -115,6 +123,7 @@ export function savedMapSummary(rec: SavedMapRecord, now = Date.now()): string {
   } else if (rec.coverage === 'packs') {
     parts.unshift('клетки карты вокруг маршрута целиком');
   }
+  if (rec.failedFiles > 0) parts.push(`не легло файлов: ${rec.failedFiles}`);
   return parts.join(' · ');
 }
 

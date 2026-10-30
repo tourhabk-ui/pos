@@ -12,24 +12,63 @@ import { operatorAccess } from '@/lib/operators/team-access';
  * process) проверяли только РОЛЬ через requireOperator, не владение —
  * оператор А мог по чужому UUID читать/скачивать PD туриста (имя, телефон,
  * email), перезапускать AI-обработку и слать предложение от имени
- * платформы (аудит кабинета оператора). Возвращает SQL-хвост условия
- * (нумерация параметров продолжается с nextIdx).
+ * платформы (аудит кабинета оператора).
+ *
+ * С 29.10 у формулы два входа: кабинет оператора (`operatorLeadScope`) и
+ * раздел «Свои туры» гида — скоуп `{ kind: 'owner', claimUnowned: false }`:
+ * гид отвечает только на заявки, адресованные ему, ничейные не видит и не
+ * занимает (lib/leads/owner-lead-status).
  */
-export async function leadOwnershipCond(
-  user: JWTPayload,
-  nextIdx: number
-): Promise<{ cond: string; vals: unknown[] }> {
-  if (user.role === 'admin') return { cond: '', vals: [] };
-  // Кабинет — свой или команды (CRM 2г, миграция 1223): менеджер видит лиды
-  // своего оператора. operatorAccess ищет партнёра только category='operator'
-  // — у user_id бывает и гид-профиль, LIMIT 1 без фильтра брал произвольный.
+export type LeadScope =
+  /** Администратор: любой лид. */
+  | { kind: 'admin' }
+  /**
+   * Продавец: лиды его карточки. `claimUnowned` — видит и ничейные, и первое
+   * действие над ничейным делает его своим (кабинет оператора, 25.09).
+   */
+  | { kind: 'owner'; partnerId: string; claimUnowned: boolean }
+  /** Оператор без карточки партнёра: только ничейные, занять нечем. */
+  | { kind: 'unowned_only' };
+
+/**
+ * Скоуп кабинета оператора. Кабинет — свой или команды (CRM 2г, миграция
+ * 1223): менеджер видит лиды своего оператора. operatorAccess ищет партнёра
+ * только category='operator' — у user_id бывает и гид-профиль, LIMIT 1 без
+ * фильтра брал произвольный.
+ */
+export async function operatorLeadScope(user: JWTPayload): Promise<LeadScope> {
+  if (user.role === 'admin') return { kind: 'admin' };
   const access = await operatorAccess(user.userId);
   // «Не смогли проверить» — не «партнёра нет»: иначе оператор молча увидел бы
   // только ничейные лиды. Бросаем — роут отвечает ошибкой, как при сбое базы.
   if (access.kind === 'unavailable') throw new Error(`доступ к кабинету не проверен: ${access.reason}`);
-  const operatorId = access.kind === 'none' ? null : access.partnerId;
-  if (!operatorId) return { cond: ' AND operator_id IS NULL', vals: [] };
-  return { cond: ` AND (operator_id = $${nextIdx} OR operator_id IS NULL)`, vals: [operatorId] };
+  if (access.kind === 'none') return { kind: 'unowned_only' };
+  return { kind: 'owner', partnerId: access.partnerId, claimUnowned: true };
+}
+
+/**
+ * SQL-хвост условия по скоупу (нумерация параметров продолжается с nextIdx).
+ * Колонка — `operator_id` таблицы leads без псевдонима.
+ */
+export function leadScopeCond(scope: LeadScope, nextIdx: number): { cond: string; vals: unknown[] } {
+  switch (scope.kind) {
+    case 'admin':
+      return { cond: '', vals: [] };
+    case 'unowned_only':
+      return { cond: ' AND operator_id IS NULL', vals: [] };
+    case 'owner':
+      return scope.claimUnowned
+        ? { cond: ` AND (operator_id = $${nextIdx} OR operator_id IS NULL)`, vals: [scope.partnerId] }
+        : { cond: ` AND operator_id = $${nextIdx}`, vals: [scope.partnerId] };
+  }
+}
+
+/** Условие владения для кабинета оператора — `leadScopeCond(operatorLeadScope(user))`. */
+export async function leadOwnershipCond(
+  user: JWTPayload,
+  nextIdx: number
+): Promise<{ cond: string; vals: unknown[] }> {
+  return leadScopeCond(await operatorLeadScope(user), nextIdx);
 }
 
 /**

@@ -13,8 +13,14 @@
  * Чистый модуль без сети/БД — детектор вызывается из outcomes-грейдера.
  */
 
-/** Имена инструментов Кузьмича, дающие заземление фактам (данные из БД). */
-const DATA_TOOL_PREFIXES = ['search_', 'get_guardian_context', 'get_tour', 'check_'];
+/**
+ * Имена инструментов Кузьмича, дающие заземление фактам (данные из БД).
+ * compare_tours — цены, итог за группу и даты туров из базы (29.10): без него
+ * честный ответ по сравнению судился «незаземлённым». Каждый инструмент
+ * реестра обязан быть здесь или в списке причин сторожа
+ * (tests/unit/grounding.test.ts, NOT_GROUNDING).
+ */
+const DATA_TOOL_PREFIXES = ['search_', 'get_guardian_context', 'get_tour', 'check_', 'compare_tours'];
 
 export type GroundingSignal = 'price' | 'phone' | 'availability';
 

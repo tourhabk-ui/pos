@@ -39,7 +39,7 @@ import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
   dataFreshness, freshnessDot, freshnessShort,
 } from '@/lib/home/data-freshness';
-import { plateFacts } from '@/lib/home/plate-facts';
+import { plateFacts, HOME_PLATES_ORDER_NOTE, HOME_TOURS_PHOTO_NOTE } from '@/lib/home/plate-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
@@ -523,6 +523,9 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
         {tours.length > 0 ? (
           <section className="fp-sec">
             <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
+            {/* Правило отбора — словами на самой витрине (§0): туры без снимка
+                здесь не стоят, в каталоге они есть (lib/home/plate-facts). */}
+            <p className="snote">{HOME_TOURS_PHOTO_NOTE}</p>
             <div className="plates more-tours" ref={platesRef}>
               {(drift.looping ? [...cards, ...cards] : cards).map((p, k) => {
                 // Вторая половина — копия для бесшовной петли дрейфа: экранному
@@ -616,6 +619,8 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                 )}
               </div>
             )}
+            {/* Правило порядка — словами под лентой (правило 1в, 29.10). */}
+            <p className="mt-3 text-xs leading-relaxed text-[var(--text-secondary)]">{HOME_PLATES_ORDER_NOTE}</p>
             {intentChips}
             {feed.length > 0 && (
               <div className="arrivals">
@@ -1179,6 +1184,7 @@ const CSS = `
 .v7 nav.qt-top{position:relative;z-index:2;margin:-16px 0 0}
 .v7 section.fp-sec{margin-top:12px}
 .v7 .fp-sec .shead{margin-bottom:8px}
+.v7 .fp-sec .snote{margin:-2px 0 10px;font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Чипы — ОДИН ряд плиток (владелец 25.09: «занимают 2 строчки, не
    экономно»). Иконка над подписью: в ширину телефона 360px пилюли в строку не
    входят, а столбиком входят — 56px вместо двух рядов по 44. Колонок столько,

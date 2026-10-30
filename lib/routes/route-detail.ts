@@ -33,6 +33,8 @@ import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -150,7 +152,21 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
     pool.query('UPDATE kamchatka_routes SET view_count = view_count + 1 WHERE id = $1', [routeDbId]).catch(() => {});
   }
 
-  // Загружаем предложения операторов из operator_tours (через v_route_marketplace)
+  // Загружаем предложения операторов из operator_tours (через v_route_marketplace).
+  //
+  // Порядок — правило 1в (слово владельца 29.10), а не `marketplace_score`
+  // вьюхи: тот складывал рейтинг тура с КОМИССИЕЙ платформы, то есть
+  // оператор с меньшей ставкой стоял выше — место в списке продавалось.
+  // Вьюха — не наш SQL, поэтому ближайшая свободная дата читается отдельным
+  // батчем (lib/tours/nearest-free-date) и порядок задаётся в TypeScript.
+  // Отказ батча — в лог, туры идут жребием дня (§4.0): «не смог» не роняет
+  // карточку и не выдаётся за «дат нет» — у оффера `datesState: 'failed'`, и
+  // карточка пишет «даты не загрузились».
+  //
+  // Дата и места на экране — из ТОГО ЖЕ батча, что и порядок (ревью 29.10).
+  // Вьюха считает «сегодня» по CURRENT_DATE, а занятость — по booked_slots,
+  // который растёт только при оплате: дата на карточке расходилась с
+  // подписью «по ближайшему выезду» и с кнопкой «Дата».
   let offers: unknown[] = [];
   {
     const offersResult = await query(
@@ -181,21 +197,30 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.operator_verified,
          v.tour_image,
          v.operator_hero_image,
-         v.commission_rate,
-         v.next_departure_date,
-         v.next_departure_slots,
-         v.marketplace_score,
-         p.is_public AS operator_public
+         p.is_public AS operator_public,
+         -- Признака группы во вьюхе нет (1342): читается из самого тура.
+         ot.group_size_unlimited
        FROM v_route_marketplace v
        -- Открыта ли карточка оператора — из partners, а не «по построению»
        -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
        JOIN partners p ON p.id = v.operator_id
-       WHERE v.route_id = $1
-       ORDER BY v.marketplace_score DESC`,
+       JOIN operator_tours ot ON ot.id = v.tour_id
+       WHERE v.route_id = $1`,
       [routeDbId]
     );
 
-    offers = offersResult.rows.map(o => ({
+    const nearest = await loadNearestFreeDates(offersResult.rows.map(o => String(o.tour_id)));
+    const nearestOf = (id: unknown): string | null =>
+      nearest.state === 'ok' ? nearest.byId.get(String(id)) ?? null : null;
+    const seatsOf = (id: unknown): number | null =>
+      nearest.state === 'ok' ? nearest.seatsById.get(String(id)) ?? null : null;
+    const ordered = orderOffersBy(
+      offersResult.rows,
+      o => ({ id: String(o.tour_id), nearestFreeDate: nearestOf(o.tour_id) }),
+      { day: offerOrderDay() },
+    );
+
+    offers = ordered.map(o => ({
       tourId:           Number(o.tour_id),
       tourName:         o.tour_name as string,
       shortDesc:        (o.tour_short_desc as string | null) ?? null,
@@ -209,6 +234,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       difficulty:       (o.tour_difficulty as string | null) ?? null,
       maxGroupSize:     o.max_group_size != null ? Number(o.max_group_size) : null,
       minGroupSize:     o.min_group_size != null ? Number(o.min_group_size) : null,
+      groupSizeUnlimited: o.group_size_unlimited === true,
       rating:           o.tour_rating != null ? Number(o.tour_rating) : null,
       reviewCount:      o.tour_review_count != null ? Number(o.tour_review_count) : null,
       included:         (o.included as unknown[]) ?? [],
@@ -225,8 +251,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       },
       tourImage:        (o.tour_image as string | null) ?? null,
       operatorHeroImage: (o.operator_hero_image as string | null) ?? null,
-      nextDeparture:    (o.next_departure_date as string | null) ?? null,
-      nextSlots:        o.next_departure_slots != null ? Number(o.next_departure_slots) : null,
+      nextDeparture:    nearestOf(o.tour_id),
+      nextSlots:        seatsOf(o.tour_id),
+      datesState:       nearest.state,
     }));
   }
 

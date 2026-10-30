@@ -38,6 +38,11 @@ interface TourPaymentModalProps {
   /** Для «за человека в день»: без неё сумма считалась бы как за один день. */
   duration?: { multi_day_count: number | null; duration_hours: number | null };
   maxGroupSize: number | null;
+  /**
+   * Группа тура не ограничена (1342): форма под счётчиком говорит, как
+   * заявить группу больше. Потолок заявки прежний.
+   */
+  groupSizeUnlimited?: boolean;
   /** Дата, выбранная снаружи (день календаря, ближайший выезд) — стартовое значение формы. */
   nextDeparture: string | null;
 }
@@ -52,6 +57,7 @@ export default function TourPaymentModal({
   priceUnit,
   duration,
   maxGroupSize,
+  groupSizeUnlimited = false,
   nextDeparture,
 }: TourPaymentModalProps) {
   useEffect(() => {
@@ -104,6 +110,7 @@ export default function TourPaymentModal({
               priceUnit={priceUnit}
               duration={duration}
               maxParticipants={maxGroupSize ?? 10}
+              groupSizeUnlimited={groupSizeUnlimited}
               initialDate={nextDeparture ? nextDeparture.slice(0, 10) : null}
             />
           ) : (

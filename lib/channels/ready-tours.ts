@@ -28,7 +28,7 @@ interface FeedRow {
   short_description: string | null; activity_type: string;
   location_name: string | null; latitude: string | number | null;
   longitude: string | number | null; base_price: string;
-  max_participants: number; duration_hours: string | number | null;
+  max_participants: number; group_size_unlimited: boolean | null; duration_hours: string | number | null;
   difficulty: string | null; photos: string[] | null;
   included: unknown; season_start: string | null; season_end: string | null;
   price_unit: string | null; duration_type: string | null; multi_day_count: number | null;
@@ -53,7 +53,7 @@ const SQL = `
   SELECT
     ot.id, ot.slug, ot.title, ot.description, ot.short_description,
     ot.activity_type, ot.location_name, ot.latitude, ot.longitude,
-    ot.base_price, ot.max_participants, ot.duration_hours,
+    ot.base_price, ot.max_participants, ot.group_size_unlimited, ot.duration_hours,
     ot.difficulty, ot.photos, ot.included,
     ot.season_start::text AS season_start, ot.season_end::text AS season_end,
     ot.price_unit, ot.duration_type, ot.multi_day_count,
@@ -93,6 +93,7 @@ function toChannelTour(r: FeedRow): ChannelTour {
     longitude: r.longitude !== null ? Number(r.longitude) : null,
     base_price: Number(r.base_price),
     max_participants: r.max_participants,
+    group_size_unlimited: r.group_size_unlimited === true,
     duration_hours: r.duration_hours !== null ? Number(r.duration_hours) : null,
     difficulty: r.difficulty,
     photos: Array.isArray(r.photos) ? r.photos : [],

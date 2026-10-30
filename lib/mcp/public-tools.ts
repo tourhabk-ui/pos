@@ -14,13 +14,17 @@
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
 import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
+import { NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE } from '@/lib/mcp/request-notify-schema';
 
 /**
  * Не для анонимного публичного входа: жгут внешние квоты и пишут учёт
  * использования (search_kamchatka — платный веб-поиск, search_taaft — внешний
  * каталог с трекингом).
  */
-export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft']);
+// get_flight_board (29.10) — табло Елизово только в чате Кузьмича: внешнему
+// агенту инструмент не открыт, пока у него нет английского и китайского слоя
+// и подсказок хосту (TOOL_ANNOTATIONS), — без них описание было бы половиной.
+export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft', 'get_flight_board']);
 
 /**
  * create_lead — единственный ПИШУЩИЙ инструмент наружу. Бронь и оплату
@@ -29,7 +33,7 @@ export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft']);
  */
 export const CREATE_LEAD_TOOL = {
   name: 'create_lead',
-  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.',
+  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -38,6 +42,7 @@ export const CREATE_LEAD_TOOL = {
       comment: { type: 'string', description: 'Запрос: даты, сколько человек, что интересует' },
       interest: { type: 'string', description: 'Название тура/маршрута, если уже выбран' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — на этот план: менеджер получит план целиком (состав, туры по дням, смету) и не будет переспрашивать.' },
+      notify_url: NOTIFY_URL_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['name', 'phone', 'comment', 'consent'],
@@ -56,17 +61,18 @@ export const CREATE_LEAD_TOOL = {
  */
 export const BOOKING_REQUEST_TOOL = {
   name: 'create_booking_request',
-  description: 'Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.',
+  description: 'Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.' + NOTIFY_TOOL_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
-      tour: { type: 'string', description: 'Название тура или числовой ID (из get_tours / get_tour_availability)' },
+      tour: { type: 'string', description: 'Числовой ID тура или его название (из get_tours / get_tour_availability). Имя компании или гида заявку не создаёт — нужен тур.' },
       date: { type: 'string', description: 'Дата тура, YYYY-MM-DD' },
       participants: { type: 'string', description: 'Сколько человек (1–30). Не сказано — 1.' },
       name: { type: 'string', description: 'Имя туриста' },
       phone: { type: 'string', description: 'Телефон для подтверждения (обязателен)' },
       comment: { type: 'string', description: 'Пожелания, вопросы, состав группы' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если тур — из этого плана: оператор увидит, частью какой поездки он стоит.' },
+      notify_url: NOTIFY_URL_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['tour', 'date', 'name', 'phone', 'consent'],
@@ -114,7 +120,7 @@ export const STAY_REQUEST_TOOL = {
  */
 export const CAR_RENTAL_REQUEST_TOOL = {
   name: 'create_car_rental_request',
-  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Два шага. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код confirmation. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона и их передачу прокатчику и на отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит, шаги те же.',
+  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Два шага. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код confirmation. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона и их передачу прокатчику и на отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит, шаги те же.' + NOTIFY_TOOL_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -128,6 +134,7 @@ export const CAR_RENTAL_REQUEST_TOOL = {
       comment: { type: 'string', description: 'Пожелания: детское кресло, возврат в другом месте и т.п.' },
       test: { type: 'boolean', description: 'true — пробная заявка (проверка, демонстрация): помечается, прокатчику не уходит' },
       confirmation: { type: 'string', description: 'Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик' },
+      notify_url: NOTIFY_URL_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. На шаге 1 — false. true — только когда человек сам ответил «да» на вопрос о согласии; агент не ставит true за человека.' },
     },
     required: ['car', 'date_from', 'date_to', 'name', 'phone', 'consent'],
@@ -147,7 +154,7 @@ export const CAR_RENTAL_REQUEST_TOOL = {
  */
 export const REQUEST_CHARTER_TOOL = {
   name: 'request_charter',
-  description: 'Заявка на машину целиком (вахтовка, микроавтобус) у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу перевозчика: по направлениям или за час и за день работы; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон — персональные данные, и они уходят перевозчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся.',
+  description: 'Заявка на машину целиком (вахтовка, микроавтобус) у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу перевозчика: по направлениям или за час и за день работы; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон — персональные данные, и они уходят перевозчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -159,6 +166,7 @@ export const REQUEST_CHARTER_TOOL = {
       phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
       carrier: { type: 'string', description: 'Перевозчик: название или slug из search_transfers. Когда перевозчиков несколько, без него заявка не создаётся — инструмент попросит назвать, кому её адресовать.' },
       comment: { type: 'string', description: 'Пожелания: сколько дней нужна машина, что везти, откуда забирать' },
+      notify_url: NOTIFY_URL_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу перевозчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['destination', 'date_from', 'passengers', 'name', 'phone', 'consent'],
@@ -201,6 +209,8 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   get_tours:             READ,
   get_tour_details:      READ,
   get_tour_availability: READ,
+  // Сравнение 2–4 туров (29.10): только наша база, ничего не пишет.
+  compare_tours:         READ,
   get_guardian_context:  READ,
   get_place_info:        READ,
   safety_status:         READ,
@@ -256,10 +266,11 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // Пары, которые оценщик путал (Glama TDQS 18.09, Disambiguation 4/5):
   // каждая фраза говорит, когда брать этот инструмент, а когда соседний.
   get_tours:             { title: 'Tour catalogue',        lead: 'Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details.' },
-  get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours.' },
+  get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. A company or guide name returns a tour list and their page instead. To list or search tours use get_tours.' },
   get_tour_availability: { title: 'Tour availability',     lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.' },
+  compare_tours:         { title: 'Compare tours',         lead: 'Side-by-side facts for 2-4 Kamchatka tours on what the user cares about: price or group total, duration, dates, inclusions, cancellation, pickup, operator. No ranking; one tour: get_tour_details.' },
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
-  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context.' },
+  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context.' },
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source and dates, plus elevated volcanoes (KVERT, KB GS RAS).' },
   get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
   get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
@@ -288,6 +299,9 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
  * только по-русски и без примеров. Пример даётся там, где формат однозначен
  * (дата, число, тип); текстовые поля без примера честнее, чем с выдуманным.
  */
+/** notify_url — одна английская фраза на четыре пишущих инструмента (29.10). Слов secret/token здесь нет: их запрещают сторожа OpenAPI и карточки A2A. */
+const NOTIFY_URL_ENGLISH = 'Optional HTTPS URL of your receiver (host name, port 443): a signed POST (Standard Webhooks) arrives when the request state, date, operator-offered date, tour or group size changes; the signing key is in the reply once. Not for stays. Leave empty if you have no receiver; do not invent one.';
+
 export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; example?: string | boolean }>> = {
   // Пара коннекторов ChatGPT (ступень 2, 12.10) — схемы в lib/mcp/connector-schemas.
   search: {
@@ -300,17 +314,22 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     key: { lead: 'Status key from the reply of the writing tool, as is.' },
   },
   get_tours: {
-    activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking.', example: 'вулканы' },
+    activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Matches the activity type and the word in the tour title, place, short description or main place; tours that have the word only in the full description or programme come in a separate unverified block (check them with get_tour_details); company and guide names are not searched.', example: 'вулканы' },
     page: { lead: 'Catalogue page, 7 tours each, starting at 1; the reply ends with the page count and the next page.', example: '2' },
   },
   get_tour_details: {
-    name: { lead: 'Tour title or a keyword from it.', example: 'рыбалка' },
+    name: { lead: 'Tour title, numeric ID, a keyword, or the name of a company or guide selling tours (the reply then lists tours and their page, not one tour).', example: 'рыбалка' },
   },
   get_tour_availability: {
-    tour: { lead: 'Tour title, keyword or numeric ID from get_tours.' },
+    tour: { lead: 'Tour title, keyword or numeric ID from get_tours. A company or guide name returns their tour list without dates — then ask by tour ID.' },
     date_from: { lead: 'Start of the window, YYYY-MM-DD; default today.', example: '2027-07-15' },
     days: { lead: 'Window length in days, 1–31; default 14.', example: '14' },
-    people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses.', example: '2' },
+    people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them.', example: '2' },
+  },
+  compare_tours: {
+    tours: { lead: 'Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable) or titles separated by semicolons.', example: '61, 70' },
+    criteria: { lead: 'What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty means a short default set.', example: 'цена, отмена' },
+    people: { lead: 'Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, and the nearest-date row the first date with seats for all of them. The tool picks the date of the total and names it per tour: the first date with seats for all of them, or the first date open for a request (tours without a schedule); a total on a date the user named comes from get_tour_availability with date_from and people.', example: '2' },
   },
   get_guardian_context: {
     place: { lead: 'Place or route name.', example: 'Авачинский вулкан' },
@@ -354,7 +373,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
-    children: { lead: 'Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → "6, 10"; one child aged 2 → "2"; a baby under one year → "0". Ages decide which activities are allowed. No children — omit the field.', example: '6, 10' },
+    children: { lead: 'Age of each child in years — NOT a count: two children aged 6 and 10 → "6, 10" or "6 years, 10 years"; one child aged 2 → "2 years"; a baby under one → "0 years". A single bare number is ambiguous (one child\'s age or how many children?) and returns a refusal with no plan. The youngest age decides which activities are allowed: if you only know how many children, ask the person for each age. No children — omit the field.', example: '6, 10' },
     budget_tier: { lead: 'Budget level: economy, comfort or premium; default comfort.', example: 'economy' },
   },
   edit_trip_plan: {
@@ -373,16 +392,18 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     comment: { lead: 'The request: dates, group size, interests.' },
     interest: { lead: 'Tour or route name, if already chosen.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request is for that plan: the manager gets the whole plan (group, tours by day, estimate).', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
+    notify_url: { lead: NOTIFY_URL_ENGLISH },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
   create_booking_request: {
-    tour: { lead: 'Tour title or numeric ID from get_tours / get_tour_availability.' },
+    tour: { lead: 'Numeric tour ID or tour title from get_tours / get_tour_availability. A company or guide name, or a partial word match, creates no request: the reply lists tours by ID.' },
     date: { lead: 'Tour date, YYYY-MM-DD.', example: '2027-07-15' },
     participants: { lead: 'Number of people, 1–30; default 1.', example: '2' },
     name: { lead: "Traveller's name." },
     phone: { lead: 'Phone for confirmation, required.' },
     comment: { lead: 'Wishes, questions, group composition.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when this tour is part of that plan: the operator sees the whole trip.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
+    notify_url: { lead: NOTIFY_URL_ENGLISH },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
   create_stay_request: {
@@ -406,6 +427,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     comment: { lead: 'Wishes: child seat, drop-off elsewhere, etc.' },
     test: { lead: 'true for a trial or demo request: marked as test and not sent to the rental company.', example: false },
     confirmation: { lead: 'Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created.' },
+    notify_url: { lead: NOTIFY_URL_ENGLISH },
     consent: { lead: 'false on step 1. true only after the person themselves said yes to passing name and phone to the rental company; never set it on their behalf.', example: false },
   },
   request_charter: {
@@ -417,6 +439,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     phone: { lead: 'Contact phone, required.' },
     carrier: { lead: 'Carrier name or slug from search_transfers; required when there is more than one carrier.', example: 'shatun' },
     comment: { lead: 'Wishes: how many days the vehicle is needed, what to carry, pickup place.' },
+    notify_url: { lead: NOTIFY_URL_ENGLISH },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
 };
@@ -520,6 +543,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.7.0',
+  version: '2.9.1',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
 } as const;

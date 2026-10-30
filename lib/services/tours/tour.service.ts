@@ -13,6 +13,20 @@ import {
   TourAlreadyPublishedError,
 } from '../_helpers';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
+
+/**
+ * Поля, по которым вызывающий может отсортировать сам (кнопка туриста).
+ * Рейтинга и новизны среди них нет — правило 1в (слово владельца 29.10):
+ * они в порядок не входят; запрос с ними идёт порядком платформы, как и без
+ * sortBy вовсе.
+ */
+const CHOSEN_SORT: Record<string, string> = {
+  price: 'base_price',
+  duration: 'duration_hours',
+  name: 'title',
+};
 
 export const tourService = {
   normalize(row: Record<string, unknown> | null) {
@@ -50,7 +64,7 @@ export const tourService = {
     const limit = Math.min(toNumberOrNull(params.limit) ?? 20, 100);
     const offset = toNumberOrNull(params.offset) ?? 0;
     const query = toStringOrNull(params.query)?.trim();
-    const sortBy = toStringOrNull(params.sortBy) ?? 'rating';
+    const sortBy = toStringOrNull(params.sortBy) ?? 'order';
     const sortOrder = (toStringOrNull(params.sortOrder) ?? 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
     const filters = params.filters && typeof params.filters === 'object'
       ? (params.filters as Record<string, unknown>)
@@ -98,36 +112,46 @@ export const tourService = {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const allowedSortFields: Record<string, string> = {
-      rating: 't.rating',
-      price: 't.base_price',
-      created_at: 't.created_at',
-      duration: 't.duration_hours',
-      name: 't.title',
-    };
-    const orderField = allowedSortFields[sortBy] ?? 't.rating';
-
-    const count = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause}`,
-      queryParams
-    );
-    const total = Number(count.rows[0]?.total ?? 0);
-
+    // Порядок — правило 1в в TypeScript после SQL; выбранное вызывающим поле
+    // (цена, длительность, название) — первым ключом, ничья — правилом.
+    // Страница режется после порядка, total — все прошедшие фильтры.
     const result = await pool.query(
       `SELECT
          t.*,
-         p.name AS operator_name
+         p.name AS operator_name,
+         ${nearestFreeDateSql('t')} AS nearest_free_date
        FROM operator_tours t
        LEFT JOIN partners p ON t.operator_id = p.id
-       ${whereClause}
-       ORDER BY ${orderField} ${sortOrder}
-       LIMIT $${queryParams.length + 1}
-       OFFSET $${queryParams.length + 2}`,
-      [...queryParams, limit, offset]
+       ${whereClause}`,
+      queryParams
     );
+    const rule = compareTourOffers(offerOrderDay());
+    const byRule = (a: Record<string, unknown>, b: Record<string, unknown>) => rule(
+      { id: String(a.id), nearestFreeDate: toStringOrNull(a.nearest_free_date) },
+      { id: String(b.id), nearestFreeDate: toStringOrNull(b.nearest_free_date) },
+    );
+    const field = CHOSEN_SORT[sortBy];
+    const dir = sortOrder === 'ASC' ? 1 : -1;
+    const ordered = [...result.rows as Record<string, unknown>[]].sort((a, b) => {
+      if (field) {
+        const va = a[field];
+        const vb = b[field];
+        if ((va == null) !== (vb == null)) return va == null ? 1 : -1;
+        if (va != null && vb != null) {
+          const na = Number(va);
+          const nb = Number(vb);
+          const c = Number.isFinite(na) && Number.isFinite(nb)
+            ? na - nb
+            : String(va).localeCompare(String(vb), 'ru');
+          if (c !== 0) return c * dir;
+        }
+      }
+      return byRule(a, b);
+    });
+    const total = ordered.length;
 
     return {
-      tours: result.rows.map(row => this.normalize(row)),
+      tours: ordered.slice(offset, offset + limit).map(row => this.normalize(row)),
       total,
       hasMore: offset + limit < total,
     };

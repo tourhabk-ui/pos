@@ -9,7 +9,11 @@
  * дат, а не в предупреждении про автоподтверждение и не в вопросе «Открыть?»
  * (ревью 22.10); подсказка года — ближайший будущий, а не «год + 1»;
  * четвёртый ревью: у каждой даты превью — день недели, правило фразы —
- * словами; список дат не режется (не влезает — «разбейте»).
+ * словами; список дат не режется (не влезает — «разбейте»);
+ * гид со своими турами (29.10): каждая ссылка — в его раздел «Свои туры»,
+ * ни одной в кабинет оператора (тот его не пустит); скрытый тур, черновик и
+ * сезон включает менеджер Ведара — без кнопок «Показать» и «Активен», которых
+ * у гида нет.
  */
 import { describe, it, expect } from 'vitest';
 import type { DateOpenResult } from '@/lib/tours/availability-open';
@@ -19,7 +23,8 @@ import {
 } from '@/lib/operators/chat-dates/parse';
 import {
   FLOW_TEXT, MAX_MESSAGE_CHARS, datesByWeekday, datesList, outcomeText, proposalFits, proposalText, readStoredOutcome,
-  refusalText, repeatText, askText, askSeatsText, chooseTourText, historyAsk, nextSameDay, type StoredOutcome,
+  refusalText, repeatText, askText, askSeatsText, chooseTourText, datesSellerOf, historyAsk, historyResult, nextSameDay,
+  telegramDatesText, type StoredOutcome,
 } from '@/lib/operators/chat-dates/texts';
 import { addSlotsReport } from '@/lib/agents/agencies/operator-agency';
 
@@ -43,7 +48,7 @@ const done = (perDate: DateOpenResult[], written: number, title = 'Вулкан 
 
 describe('итог нажатия «Открыть»', () => {
   it('каждый исход назван', () => {
-    const t = outcomeText(done(ALL, 3));
+    const t = outcomeText(done(ALL, 3), 'operator');
     expect(t).toMatch(/^Готово, «Вулкан Горелый», 8 мест на выезд\./);
     expect(t).toMatch(/Открыты \(2\): 3, 24 июля 2027\./);
     expect(t).toMatch(/Открыты снова \(1\): 5 июля 2027\./);
@@ -57,26 +62,26 @@ describe('итог нажатия «Открыть»', () => {
   });
 
   it('ничего не записано — «Ничего не открыто», а не «Готово»', () => {
-    const t = outcomeText(done([{ date: '2027-07-31', result: 'refused_booked', taken: 9 }], 0));
+    const t = outcomeText(done([{ date: '2027-07-31', result: 'refused_booked', taken: 9 }], 0), 'operator');
     expect(t).toMatch(/^Ничего не открыто: «Вулкан Горелый»/);
     expect(t).not.toMatch(/Готово/);
   });
 
   it('название тура с разметкой экранировано', () => {
-    const t = outcomeText(done([{ date: '2027-07-03', result: 'opened' }], 1, 'Тур <b>жирный</b> & «ко»'));
+    const t = outcomeText(done([{ date: '2027-07-03', result: 'opened' }], 1, 'Тур <b>жирный</b> & «ко»'), 'operator');
     expect(t).toContain('Тур &lt;b&gt;жирный&lt;/b&gt; &amp; «ко»');
     expect(t).not.toContain('<b>');
   });
 
   it('тур снят или скрыт — отказ словами', () => {
-    expect(outcomeText({ kind: 'refused', reason: 'tour_not_found' })).toBe('Тур снят с продажи или больше не ваш — даты не открыты.');
-    expect(outcomeText({ kind: 'refused', reason: 'tour_inactive', title: 'Сплав' })).toMatch(/^Тур «Сплав» скрыт.*Ничего не открыто\.$/s);
+    expect(outcomeText({ kind: 'refused', reason: 'tour_not_found' }, 'operator')).toBe('Тур снят с продажи или больше не ваш — даты не открыты.');
+    expect(outcomeText({ kind: 'refused', reason: 'tour_inactive', title: 'Сплав' }, 'operator')).toMatch(/^Тур «Сплав» скрыт.*Ничего не открыто\.$/s);
   });
 
   it('повтор — время по Камчатке и прежний итог; итог не прочитался — так и сказано', () => {
     const at = new Date('2026-10-22T02:32:00Z'); // 14:32 по Камчатке
-    expect(repeatText(at, done(ALL, 3))).toMatch(/^Уже сделано в 14:32 \(по Камчатке\), повтор ничего не меняет:\nГотово/);
-    expect(repeatText(at, null)).toMatch(/^Уже сделано в 14:32 \(по Камчатке\)\. Итог не прочитался/);
+    expect(repeatText(at, done(ALL, 3), 'operator')).toMatch(/^Уже сделано в 14:32 \(по Камчатке\), повтор ничего не меняет:\nГотово/);
+    expect(repeatText(at, null, 'operator')).toMatch(/^Уже сделано в 14:32 \(по Камчатке\)\. Итог не прочитался/);
   });
 
   it('итог из базы проверяется по форме', () => {
@@ -90,7 +95,7 @@ describe('превью', () => {
   const base = {
     tourTitle: 'Вулкан Горелый', seats: 8, dates: ALL.map((r) => r.date).sort(),
     perDate: ALL, facts: { maxParticipants: 6, isPublished: false, days: 8 }, autoConfirm: true,
-    priceMentioned: true, weekdayWords: true,
+    priceMentioned: true, weekdayWords: true, seller: 'operator' as const,
   };
 
   it('пометки — только правда: группа, частые выезды, не опубликован, автоподтверждение, праздники, цена', () => {
@@ -133,7 +138,7 @@ describe('превью', () => {
     // Бесконечное название не вытесняет вопрос: название в голове — коротко.
     expect(long.text).toMatch(/Тур: «Т{199}…»/);
     expect(long.text).toMatch(/Открыть\? Предложение действует 30 минут\.$/);
-    for (const t of [proposalText(base).text, outcomeText(done(ALL, 3))]) {
+    for (const t of [proposalText(base).text, outcomeText(done(ALL, 3), 'operator')]) {
       expect(t).not.toMatch(/\+7\d{10}|\b8\d{10}\b|@\w+\.\w+/);
     }
   });
@@ -146,17 +151,17 @@ describe('превью', () => {
 describe('отказы и вопросы разбора', () => {
   it('каждый отказ называет причину и говорит, что ничего не открыто', () => {
     const texts = [
-      refusalText({ kind: 'refused', reason: 'negated', word: 'не открывай' }, TODAY),
-      refusalText({ kind: 'refused', reason: 'too_many', count: 62, seats: 8, parts: ['весь июль', 'весь август'] }, TODAY),
-      refusalText({ kind: 'refused', reason: 'bad_date', text: '29 февраля 2027' }, TODAY),
-      refusalText({ kind: 'refused', reason: 'two_seat_numbers', values: [8, 6] }, TODAY),
-      refusalText({ kind: 'refused', reason: 'leftover_number', token: '10:00', yearLike: false }, TODAY),
-      refusalText({ kind: 'refused', reason: 'past_only', named: ['2026-10-20'], dropped: [], today: TODAY, seats: 6 }, TODAY),
-      refusalText({ kind: 'refused', reason: 'range_end', from: '3 августа', to: '8' }, TODAY),
-      refusalText({ kind: 'refused', reason: 'weekday_scope', seats: null }, TODAY),
-      refusalText({ kind: 'refused', reason: 'relative_mixed', word: 'сегодня' }, TODAY),
-      refusalText({ kind: 'refused', reason: 'time_like', token: '9.05' }, TODAY),
-      refusalText({ kind: 'refused', reason: 'range_reversed', from: '2027-07-10', to: '2027-07-05', seats: 8, startMonthInherited: false }, TODAY),
+      refusalText({ kind: 'refused', reason: 'negated', word: 'не открывай' }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'too_many', count: 62, seats: 8, parts: ['весь июль', 'весь август'] }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'bad_date', text: '29 февраля 2027' }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'two_seat_numbers', values: [8, 6] }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'leftover_number', token: '10:00', yearLike: false }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'past_only', named: ['2026-10-20'], dropped: [], today: TODAY, seats: 6 }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'range_end', from: '3 августа', to: '8' }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'weekday_scope', seats: null }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'relative_mixed', word: 'сегодня' }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'time_like', token: '9.05' }, TODAY, 'operator'),
+      refusalText({ kind: 'refused', reason: 'range_reversed', from: '2027-07-10', to: '2027-07-05', seats: 8, startMonthInherited: false }, TODAY, 'operator'),
     ];
     expect(texts[1]).toMatch(/^Это 62 даты — за раз открываю до 31\. Разбейте по месяцу: «открой весь июль, 8 мест», потом «открой весь август, 8 мест»\./);
     expect(texts[2]).toMatch(/^Даты «29 февраля 2027» нет в календаре/);
@@ -172,22 +177,22 @@ describe('отказы и вопросы разбора', () => {
   });
 
   it('вопросы: месяц целиком или дни; праздничного календаря нет', () => {
-    expect(askText({ kind: 'ask', what: 'month_scope', month: 7, year: 2027, fromDay: 1, seats: 8 }, TODAY))
+    expect(askText({ kind: 'ask', what: 'month_scope', month: 7, year: 2027, fromDay: 1, seats: 8 }, TODAY, 'operator'))
       .toMatch(/^Весь июль 2027 \(31 день\) или некоторые дни\? Напишите «открой весь июль, 8 мест» или, например, «открой субботы июля, 8 мест»/);
     // Текущий месяц — сколько осталось, а не весь: 22 октября — 10 дней.
-    expect(askText({ kind: 'ask', what: 'month_scope', month: 10, year: 2026, fromDay: 22, seats: null }, TODAY))
+    expect(askText({ kind: 'ask', what: 'month_scope', month: 10, year: 2026, fromDay: 22, seats: null }, TODAY, 'operator'))
       .toMatch(/^Весь октябрь 2026 — с сегодняшнего это 10 дней \(22–31 октября\) — или некоторые дни\? Напишите «открой весь октябрь»/);
     // Год, который разбор сам не выбрал бы, — в подсказке: «октябрь 2027» 22.10.2026.
-    expect(askText({ kind: 'ask', what: 'month_scope', month: 10, year: 2027, fromDay: 1, seats: null }, TODAY))
+    expect(askText({ kind: 'ask', what: 'month_scope', month: 10, year: 2027, fromDay: 1, seats: null }, TODAY, 'operator'))
       .toMatch(/Напишите «открой весь октябрь 2027» или, например, «открой субботы октября 2027»/);
-    expect(askText({ kind: 'ask', what: 'weekday_month', days: [5, 6], seats: 4 }, TODAY)).toBe('Какого месяца? Например: «открой выходные ноября, 4 места».');
-    expect(askText({ kind: 'ask', what: 'vague_period', word: 'майские' }, TODAY)).toMatch(/праздничного календаря/);
+    expect(askText({ kind: 'ask', what: 'weekday_month', days: [5, 6], seats: 4 }, TODAY, 'operator')).toBe('Какого месяца? Например: «открой выходные ноября, 4 места».');
+    expect(askText({ kind: 'ask', what: 'vague_period', word: 'майские' }, TODAY, 'operator')).toMatch(/праздничного календаря/);
   });
 
   it('история помощника — сводка из полей, а не сырая фраза', () => {
-    expect(historyAsk('Вулкан Горелый', ['2027-07-03', '2027-07-10'], 8))
+    expect(historyAsk('Вулкан Горелый', ['2027-07-03', '2027-07-10'], 8, 'operator'))
       .toBe('Оператор попросил в чате открыть 2 даты (3, 10 июля 2027) тура «Вулкан Горелый» по 8 мест.');
-    expect(historyAsk(null, ['2027-07-03'], null)).toBe('Оператор попросил в чате открыть 1 дату (3 июля 2027).');
+    expect(historyAsk(null, ['2027-07-03'], null, 'operator')).toBe('Оператор попросил в чате открыть 1 дату (3 июля 2027).');
   });
 });
 
@@ -196,6 +201,7 @@ describe('ревью 22.10: длинное режется в списках, а 
   const view = (perDate: DateOpenResult[]) => ({
     tourTitle: 'Вулкан Горелый', seats: 8, dates: perDate.map((r) => r.date), perDate,
     facts: { maxParticipants: 6, isPublished: true, days: 1 }, autoConfirm: true, priceMentioned: false, weekdayWords: false,
+    seller: 'operator' as const,
   });
 
   it('31 закрытая дата с причиной в 255 знаков (zod допускает) — автоподтверждение, группа и «Открыть?» на месте', () => {
@@ -236,7 +242,7 @@ describe('ревью 22.10: длинное режется в списках, а 
     expect(text).toMatch(/включено автоподтверждение/);
     expect(text).toMatch(/Открывать нечего — ничего не меняю\.$/);
     expect(text).not.toMatch(/&[a-z]*…/);
-    const big = outcomeText(done(many, 0));
+    const big = outcomeText(done(many, 0), 'operator');
     expect(big.length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS);
     expect(big).toMatch(/Проверить: https?:\/\/\S+\/hub\/operator\/calendar$/);
   });
@@ -267,12 +273,12 @@ describe('ревью 22.10: подсказка года — ближайший �
     expect(nextSameDay('2025-08-03', '2026-10-22')).toBe('2027-08-03');
     expect(nextSameDay('2026-10-20', '2026-10-22')).toBe('2027-10-20');
     expect(nextSameDay('2025-10-25', '2026-10-22')).toBe('2026-10-25');
-    expect(refusalText({ kind: 'refused', reason: 'past_only', named: ['2025-08-03'], dropped: [], today: '2026-10-22', seats: null }, TODAY))
+    expect(refusalText({ kind: 'refused', reason: 'past_only', named: ['2025-08-03'], dropped: [], today: '2026-10-22', seats: null }, TODAY, 'operator'))
       .toMatch(/^3 августа 2025 прошло\. Если про 2027 год — напишите «открой 3 августа 2027»/);
   });
   it('29 февраля в ближайшие годы нет — подсказки нет, а не несуществующая дата', () => {
     expect(nextSameDay('2024-02-29', '2026-10-22')).toBeNull();
-    expect(refusalText({ kind: 'refused', reason: 'past_only', named: ['2024-02-29'], dropped: [], today: '2026-10-22', seats: 8 }, TODAY))
+    expect(refusalText({ kind: 'refused', reason: 'past_only', named: ['2024-02-29'], dropped: [], today: '2026-10-22', seats: 8 }, TODAY, 'operator'))
       .toBe('29 февраля 2024 прошло.\nНичего не открыто.');
   });
 });
@@ -448,7 +454,7 @@ describe('второй ревью 22.10: подсказка — фраза це�
           const phrase = make(c);
           const parsed = parseDatesPhrase(phrase, nowMs, tours);
           expect(kindOf(parsed), `${today}: «${phrase}» → ${JSON.stringify(parsed)}`).toBe(kind);
-          const text = parsed.kind === 'ask' ? askText(parsed, today) : refusalText(parsed as DatesRefusal, today);
+          const text = parsed.kind === 'ask' ? askText(parsed, today, 'operator') : refusalText(parsed as DatesRefusal, today, 'operator');
           const echo = echoes(parsed);
           const hints = quotes(text).filter((q) => !echo.has(q));
           if (NO_HINT.has(kind)) { expect(hints, text).toEqual([]); continue; }
@@ -469,7 +475,7 @@ describe('второй ревью 22.10: подсказка — фраза це�
   it('прошедшая дата в превью — подсказка тоже фраза целиком, с местами', () => {
     const { text } = proposalText({
       tourTitle: 'Вулкан Горелый', seats: 8, dates: ['2026-10-25'], perDate: null, facts: null, autoConfirm: false,
-      priceMentioned: false, weekdayWords: false, pastNamed: ['2026-10-20'], today: TODAY,
+      priceMentioned: false, weekdayWords: false, pastNamed: ['2026-10-20'], today: TODAY, seller: 'operator',
     });
     expect(text).toContain('20 октября 2026 прошло — не открываю. Если про 2027 год — сначала закончите с этим предложением '
       + '(«Открыть» или «Не надо»): новая фраза его заменит. Потом напишите «открой 20 октября 2027, 8 мест».');
@@ -494,33 +500,33 @@ describe('третий ревью 22.10', () => {
     expect(t).not.toMatch(/^2\./m);
   });
   it('фраза назвала только скрытые туры — один или несколько, «Ничего не открыто»', () => {
-    expect(FLOW_TEXT.hiddenTours(['Летний Горелый'])).toBe(FLOW_TEXT.hidden('Летний Горелый'));
-    const many = FLOW_TEXT.hiddenTours(['Летний Горелый', 'Зимний <i>Горелый</i>']);
+    expect(FLOW_TEXT.hiddenTours(['Летний Горелый'], 'operator')).toBe(FLOW_TEXT.hidden('Летний Горелый', 'operator'));
+    const many = FLOW_TEXT.hiddenTours(['Летний Горелый', 'Зимний <i>Горелый</i>'], 'operator');
     expect(many).toMatch(/^Туры «Летний Горелый», «Зимний &lt;i&gt;Горелый&lt;\/i&gt;» скрыты/);
     expect(many).toMatch(/Ничего не открыто\.$/);
   });
   it('периодичность: образец — месяц оператора; в его последнюю неделю — следующий', () => {
     const r = (month: number | null, seats: number | null) =>
-      refusalText({ kind: 'refused', reason: 'periodicity', word: 'раз в неделю', month, seats }, TODAY);
+      refusalText({ kind: 'refused', reason: 'periodicity', word: 'раз в неделю', month, seats }, TODAY, 'operator');
     expect(r(7, 8)).toBe('Периодичность («раз в неделю») не разбираю — открыл бы каждый день подряд. '
       + 'Назовите дни недели, например «открой субботы июля, 8 мест», или перечислите даты числами. Ничего не открыто.');
     expect(r(null, null)).toContain('«открой субботы ноября»');
-    expect(refusalText({ kind: 'refused', reason: 'periodicity', word: 'через день', month: 10, seats: 4 }, '2026-10-28'))
+    expect(refusalText({ kind: 'refused', reason: 'periodicity', word: 'через день', month: 10, seats: 4 }, '2026-10-28', 'operator'))
       .toContain('«открой субботы ноября, 4 места»');
   });
   it('длинный список, который не назвать словами, — без образца на чужие месяцы', () => {
-    const t = refusalText({ kind: 'refused', reason: 'too_many', count: 44, seats: 8, parts: [] }, TODAY);
+    const t = refusalText({ kind: 'refused', reason: 'too_many', count: 44, seats: 8, parts: [] }, TODAY, 'operator');
     expect(t).toBe('Это 44 даты — за раз открываю до 31. Разбейте по месяцам — одна фраза на месяц. '
       + 'Или в кабинете: ' + t.slice(t.indexOf('http'), t.indexOf('/hub/operator/calendar')) + '/hub/operator/calendar. Ничего не открыто.');
     expect(t).not.toMatch(/весь/);
   });
   it('«с 25 по 5 августа»: месяц начала взят у конца — подсказка «с 25 июля», а не 5–25 августа', () => {
-    const t = refusalText({ kind: 'refused', reason: 'range_reversed', from: '2027-08-25', to: '2027-08-05', seats: 8, startMonthInherited: true }, TODAY);
+    const t = refusalText({ kind: 'refused', reason: 'range_reversed', from: '2027-08-25', to: '2027-08-05', seats: 8, startMonthInherited: true }, TODAY, 'operator');
     expect(t).toBe('Конец диапазона раньше начала: 25 … 5 августа 2027. Если с 25 июля 2027 — напишите '
       + '«открой с 25 июля по 5 августа, 8 мест». Иначе назовите месяц у обеих дат. Ничего не открыто.');
     expect(t).not.toContain('с 5 по 25');
     // Тот же день месяцем раньше не существует — без подсказки.
-    expect(refusalText({ kind: 'refused', reason: 'range_reversed', from: '2027-03-31', to: '2027-03-05', seats: null, startMonthInherited: true }, TODAY))
+    expect(refusalText({ kind: 'refused', reason: 'range_reversed', from: '2027-03-31', to: '2027-03-05', seats: null, startMonthInherited: true }, TODAY, 'operator'))
       .toBe('Конец диапазона раньше начала: 31 … 5 марта 2027. Назовите месяц у обеих дат. Ничего не открыто.');
   });
   it('помощник кабинета: числа склоняются — «2 места», «3 человека»', () => {
@@ -547,7 +553,7 @@ describe('четвёртый ревью 22.10: превью показывает
     if (p.kind !== 'proposal') throw new Error(`ждали предложение: ${JSON.stringify(p)}`);
     return proposalText({
       tourTitle: 'Вулкан Горелый', seats: p.seats ?? 8, dates: p.dates, perDate: null, facts: null, autoConfirm: false,
-      priceMentioned: p.priceMentioned, weekdayWords: p.weekdayWords, rule: p.rule, today: TODAY,
+      priceMentioned: p.priceMentioned, weekdayWords: p.weekdayWords, rule: p.rule, today: TODAY, seller: 'operator',
     }).text;
   };
   /** Дни месяца в строке «Даты»: число, перед которым стоит день недели. */
@@ -595,14 +601,14 @@ describe('четвёртый ревью 22.10: превью показывает
 
 describe('четвёртый ревью 22.10: отказы с подсказкой', () => {
   it('непонятые слова названы, тур — словами названия, подсказка с местами оператора', () => {
-    expect(refusalText({ kind: 'refused', reason: 'unknown_words', words: ['утром', '<b>'], tourLike: false, seats: 8 }, TODAY))
+    expect(refusalText({ kind: 'refused', reason: 'unknown_words', words: ['утром', '<b>'], tourLike: false, seats: 8 }, TODAY, 'operator'))
       .toBe('Не понял: «утром», «&lt;b&gt;». Напишите фразу целиком, например «открой 3, 5 и 7 ноября, 8 мест» или '
         + '«открой субботы ноября, 8 мест». Ничего не открыто.');
-    expect(refusalText({ kind: 'refused', reason: 'unknown_words', words: ['сплав'], tourLike: true, seats: null }, TODAY))
+    expect(refusalText({ kind: 'refused', reason: 'unknown_words', words: ['сплав'], tourLike: true, seats: null }, TODAY, 'operator'))
       .toContain('Не понял: «сплав». Тур называйте словами из его названия.');
   });
   it('исключение дня недели — подсказка называет оставшиеся дни и область оператора', () => {
-    expect(refusalText({ kind: 'refused', reason: 'weekday_exclusion', word: 'без выходных', keep: [0, 1, 2, 3, 4], scope: 'июля', seats: 8 }, TODAY))
+    expect(refusalText({ kind: 'refused', reason: 'weekday_exclusion', word: 'без выходных', keep: [0, 1, 2, 3, 4], scope: 'июля', seats: 8 }, TODAY, 'operator'))
       .toBe('Исключения дней недели («без выходных») не разбираю — назовите дни, которые открыть: «открой будни июля, 8 мест». Ничего не открыто.');
   });
 });
@@ -612,7 +618,7 @@ describe('седьмой и восьмой ревью 22.10: год по пор�
   const text = (phrase: string, tours: ChatTour[] | null = null): string => {
     const p = parseDatesPhrase(phrase, nowMs, tours);
     if (p.kind !== 'refused') throw new Error(`ждали отказ, получили ${JSON.stringify(p)}`);
-    return refusalText(p, TODAY);
+    return refusalText(p, TODAY, 'operator');
   };
   it('год даты по порядку и сам по себе разный — оба года словами, образец — вся фраза с годом в окне', () => {
     expect(text('открой 5 ноября и 22 октября, 8 мест')).toBe('22 октября — 2026 или 2027 год? По порядку дат во фразе и само по себе '
@@ -664,5 +670,80 @@ describe('седьмой и восьмой ревью 22.10: год по пор�
     expect(text('открой 3 августа на Занятия на вулкане, 8 мест', tours)).toBe('«занятия» — это исключение дат или тур «Занятия на вулкане»? '
       + 'Не угадываю. Тур с таким словом называйте после слова тур: «открой 3 августа тур Занятия на вулкане, 8 мест» — или '
       + 'напишите даты без названия тура, тур выберете кнопкой. Ничего не открыто.');
+  });
+});
+
+describe('гид со своими турами (29.10): ссылки и слова — его кабинета', () => {
+  const GUIDE_URL = /https?:\/\/\S+\/hub\/guide\/own/;
+  const at = new Date('2026-10-22T02:32:00Z');
+  /** Каждый текст потока со ссылкой или словами «кто включает» — для гида. */
+  const guideTexts = (): string[] => [
+    outcomeText(done(ALL, 3), 'guide'),
+    outcomeText({ kind: 'refused', reason: 'tour_inactive', title: 'Сплав' }, 'guide'),
+    repeatText(at, done(ALL, 3), 'guide'),
+    repeatText(at, null, 'guide'),
+    proposalText({
+      tourTitle: 'Вулкан Горелый', seats: 8, dates: ALL.map((r) => r.date).sort(), perDate: ALL,
+      facts: { maxParticipants: 6, isPublished: false, days: 1 }, autoConfirm: false, priceMentioned: false, weekdayWords: false,
+      seller: 'guide',
+    }).text,
+    FLOW_TEXT.closeIntent('guide'), FLOW_TEXT.switchedOff('guide'), FLOW_TEXT.noAccount('guide'), FLOW_TEXT.noTours('guide'),
+    FLOW_TEXT.hidden('Сплав', 'guide'), FLOW_TEXT.hiddenTours(['Сплав', 'Рыбалка'], 'guide'),
+    telegramDatesText('guide'),
+    ...(['negated', 'exclusion'] as const).map((reason) => refusalText({ kind: 'refused', reason, word: 'кроме' }, TODAY, 'guide')),
+    refusalText({ kind: 'refused', reason: 'mixed_actions' }, TODAY, 'guide'),
+    refusalText({ kind: 'refused', reason: 'question' }, TODAY, 'guide'),
+    refusalText({ kind: 'refused', reason: 'too_many', count: 44, seats: 8, parts: [] }, TODAY, 'guide'),
+    refusalText({ kind: 'refused', reason: 'too_many', count: 62, seats: 8, parts: ['весь июль', 'весь август'] }, TODAY, 'guide'),
+    refusalText({ kind: 'refused', reason: 'seats_delta', word: 'ещё' }, TODAY, 'guide'),
+    askText({ kind: 'ask', what: 'month_scope', month: 7, year: 2027, fromDay: 1, seats: 8 }, TODAY, 'guide'),
+  ];
+
+  it('каждая ссылка — раздел «Свои туры»; кабинета оператора, «Показать» и «Активен» нет ни в одном тексте', () => {
+    const texts = guideTexts();
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\/hub\/operator|«Показать»|«Активен»|карточке тура/);
+    }
+    // Ссылка есть там, где у туроператора она есть: число текстов со ссылкой то же.
+    const withLink = texts.filter((t) => GUIDE_URL.test(t));
+    const opTexts = [
+      outcomeText(done(ALL, 3), 'operator'), repeatText(at, done(ALL, 3), 'operator'), repeatText(at, null, 'operator'),
+      FLOW_TEXT.closeIntent('operator'), FLOW_TEXT.switchedOff('operator'), FLOW_TEXT.noAccount('operator'),
+      FLOW_TEXT.noTours('operator'), telegramDatesText('operator'),
+    ];
+    for (const t of opTexts) expect(t).toMatch(/\/hub\/operator\/(calendar|tours)/);
+    expect(withLink.length).toBeGreaterThanOrEqual(opTexts.length + 6);
+  });
+
+  it('итог и превью: закрытое — в «Своих турах», сезон и черновик — у менеджера Ведара', () => {
+    const t = outcomeText(done(ALL, 3), 'guide');
+    expect(t).toMatch(/закрыты вами \(1\): 17 июля 2027 \(«Шторм &lt;b&gt;»\) — открыть их снова можно в кабинете, в разделе «Свои туры»\./);
+    expect(t).toMatch(/вне сезона тура \(1\): 5 октября 2027 — сезон 1 мая 2027 — 30 сентября 2027; сезон тура меняет менеджер Ведара\./);
+    expect(t).toMatch(/Проверить: https?:\/\/\S+\/hub\/guide\/own$/);
+    const preview = guideTexts()[4]!;
+    expect(preview).toMatch(/Тур — черновик, туристы даты пока не видят: пришлите описание менеджеру Ведара, и тур появится на сайте\./);
+    expect(preview).not.toMatch(/Тур не опубликован/);
+  });
+
+  it('скрытый тур, нет туров, нет кабинета — кто включает и куда идти, словами гида', () => {
+    expect(FLOW_TEXT.hidden('Сплав <b>', 'guide')).toBe('Тур «Сплав &lt;b&gt;» скрыт — туристы его не видят, и даты ему не открыты. '
+      + 'Включает его менеджер Ведара; после включения откройте даты ещё раз — сами они не откроются. Ничего не открыто.');
+    expect(FLOW_TEXT.hiddenTours(['Сплав'], 'guide')).toBe(FLOW_TEXT.hidden('Сплав', 'guide'));
+    expect(FLOW_TEXT.hiddenTours(['Сплав', 'Рыбалка'], 'guide')).toMatch(/скрыты — .*Включает их менеджер Ведара.*Ничего не открыто\.$/);
+    expect(FLOW_TEXT.noTours('guide')).toMatch(/^У вас нет активных туров — открывать даты некуда\. Скрытый тур включает менеджер Ведара\. Ваши туры: https?:\/\/\S+\/hub\/guide\/own$/);
+    expect(FLOW_TEXT.noAccount('guide')).toMatch(/^Открывать даты из чата может только гид с кабинетом на Ведаре.*Ничего не открыто\. Даты открывает менеджер Ведара или вы — после входа: https?:\/\/\S+\/hub\/guide\/own$/);
+    expect(telegramDatesText('guide')).toMatch(/^Открыть даты словами можно в MAX — там есть кнопка подтверждения\. Или в кабинете: https?:\/\/\S+\/hub\/guide\/own$/);
+  });
+
+  it('история помощника называет гида гидом; продавец по карточке — гид или оператор', () => {
+    expect(historyAsk('Вулкан Горелый', ['2027-07-03'], 4, 'guide')).toBe('Гид попросил в чате открыть 1 дату (3 июля 2027) тура «Вулкан Горелый» по 4 места.');
+    expect(historyResult({ kind: 'refused', reason: 'tour_not_found' }, 'guide')).toMatch(/больше не этого гида\.$/);
+    expect(datesSellerOf({ category: 'guide' })).toBe('guide');
+    expect(datesSellerOf({ category: 'operator' })).toBe('operator');
+  });
+
+  it('нажатие, чей чат не проверен, — без ссылки: неизвестно, чей кабинет', () => {
+    expect(FLOW_TEXT.pressUnverifiedPartner).toMatch(/^Не смог проверить нажатие — ничего не изменено\./);
+    expect(FLOW_TEXT.pressUnverifiedPartner).not.toMatch(/https?:/);
   });
 });

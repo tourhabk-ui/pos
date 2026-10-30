@@ -1,18 +1,42 @@
 {
-  "timeout": 60,
-  "run": 995,
-  "note": "23.10. ТОЛЬКО ЧТЕНИЕ. После выката #2741: мобильная главная отдаёт плитку погоды с цветом сцены (.hw.wx-scene{color:var(--wx-fg)}), --wx-warn и строки над грядой.",
-  "ua": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
+  "timeout": 30,
+  "run": 1018,
+  "run1014_result": "kammeteo.ru отвечает раннеру 200 (nginx, UTF-8). На главной — ссылки «Прогноз погоды на ближайшие сутки» prognoz/prognozy1.php, «на 2-3 сутки» prognoz/prognozy2.php, «Обзор погодных условий за прошедшие сутки» prognoz/current.php; новости — декадные обзоры погоды по краю. RSS на главной нет. /forecast — 404, проба остановилась на нём (allowStale не стоял); meteoinfo.ru не дошли.",
+  "note": "29.10. ТОЛЬКО ЧТЕНИЕ. Карт-бланш, сводка Минтуризма: лента прода (что из сводки уже есть), разметка тела статьи 29.10 (article__right … абзацы) для разборщика, пост сводки в t.me/visitkamchatka41.",
   "urls": [
-    "https://vedarai.ru/"
+    "https://vedarai.ru/api/public/safety-status",
+    "https://visitkamchatka.ru/news/ezhenedelnaya-svodka-o-dostupnosti-turisticheskikh-obektov-2910/",
+    "https://t.me/s/visitkamchatka41"
   ],
-  "text": false,
-  "bytes": 300,
+  "ua": "VedarBot/1.0 (+https://vedarai.ru)",
+  "allowStale": true,
+  "retries": 0,
+  "text": true,
+  "bytes": 5000,
   "grep": [
-    ".hw.wx-scene{color:var(--wx-fg)",
-    "var(--wx-warn)",
-    ".v7 .hw-row,.v7 .hw-warn{position:relative;z-index:1}",
-    "hw wx-scene",
-    "Погода · "
-  ]
+    "park_closure",
+    "road_closure",
+    "Налычево",
+    "Ключевской",
+    "Быстринский",
+    "Южно-Камчатский",
+    "Палана",
+    "article__right",
+    "article__title",
+    "ya-share2",
+    "ЕЩЕ НОВОСТИ",
+    "Еженедельн"
+  ],
+  "around": [
+    "article__title",
+    "Транспортная доступность",
+    "Еженедельная сводка о доступности"
+  ],
+  "aroundBefore": 6,
+  "aroundLines": 45,
+  "aroundHits": 2,
+  "run1015_result": "kammeteo.ru: prognozy1.php — прогноз на сутки по трём зонам (город, юг, север) с подписью синоптика; prognozy2.php — на 2–3 сутки; current.php — обзор за сутки; meteoinfo.ru 403. Внедрено: ugms_forecasts, /weather, Кузьмич (#2836).",
+  "run1016_result": "visitkamchatka.ru отвечает раннеру 200 (Bitrix, Apache). RSS нет: /feed/ и /security/feed/ — 404 (HTML), /news/feed/ — 200, но это HTML-страница поиска, не RSS: прод-кандидаты NEWS_FEED_SOURCES мертвы молча. Серия в /news/: «Еженедельная сводка о доступности туристических объектов» 29.10 и 21.10 (slug …-22-10), «Оперативная сводка…» 10.09, 03.09, 13.08, 07.08, 30.07. Telegram портала — t.me/visitkamchatka41. Статья 20.08: природные парки, вулканы, дороги — построчно.",
+  "run1017_result": "Список /news/ (Bitrix): <a href=\"/news/<slug>/\" class=\"news__block active\"> → news__block-title, news__block-date (ДД / ММ / ГГГГ). Сводка 29.10 — slug …-obektov-2910/ (не -29-10); страница статьи: more-news__title/date, article__title, article__subtitle, абзацы <p>. Несуществующий путь Bitrix отдаёт 200 с HTML поиска — «не найдено» судить по article__title. 22.10: все маршруты Налычево закрыты до 24.10, временно закрыты Южно-Камчатский и Быстринский, Ключевской закрыт на зиму. t.me/visitkamchatka41 дублирует сводку (есть «Еженедельн», Налычево, Палана). Вывод обрезан на 64 КБ: safety-status прода и mintur не прочитаны.",
+  "textFrom": 0
 }

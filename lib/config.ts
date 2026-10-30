@@ -156,10 +156,9 @@ export const config = {
 
   // Настройки погоды
   weather: {
-    openMeteo: {
-      baseUrl: 'https://api.open-meteo.com/v1',
-      timeout: 10000,
-    },
+    // Open-Meteo здесь не настраивается: его единственный путь — общий прогноз
+    // `fetchForecastDays` (lib/planner/intelligence.ts, #2289). Прежний блок
+    // `openMeteo.baseUrl` после перевода /api/weather не читал никто.
     openWeatherMap: {
       apiKey: process.env.OPENWEATHERMAP_API_KEY || '',
       baseUrl: 'https://api.openweathermap.org/data/2.5',

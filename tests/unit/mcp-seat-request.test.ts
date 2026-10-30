@@ -30,8 +30,13 @@ vi.mock('@/lib/kuzmich/tool-schemas', () => ({
   validateToolArgs: () => ({ ok: true, args: {} }),
 }));
 vi.mock('@/lib/kuzmich/core', () => ({ executeKuzmichTool: async () => 'ok' }));
+// Резолвер с 29.10 отдаёт исход (один тур / туры разных компаний / нет);
+// здесь тур всегда один — неоднозначность судит tests/unit/tour-choice.test.ts.
 vi.mock('@/lib/kuzmich/tour-availability-tool', () => ({
-  resolveTourByQuery: async () => tourMock.value,
+  resolveTourChoice: async () => ({ kind: 'one', tour: tourMock.value }),
+  candidateLines: () => [],
+  choiceListLines: () => [],
+  choiceListReason: () => '',
 }));
 vi.mock('@/lib/planner', () => ({
   createPlannerCache: () => ({}),

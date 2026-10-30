@@ -33,6 +33,10 @@ import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/ch
 import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug, rentalPilotBoundText } from '@/lib/rental/operator-pilot';
 import { operatorBoundText, operatorDeskButtons } from '@/lib/telegram/operator-desk';
+import { getPublicBaseUrl } from '@/lib/config';
+import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
+import { partnerMenu } from '@/lib/roles/role-menu';
+import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export type PartnerChannel = 'telegram' | 'max';
 
@@ -55,17 +59,32 @@ export type BindResult =
        */
       cabinetOf: string | null;
       others: string[];
+      /** Записанная карточка. */
+      partnerId: string;
+      /**
+       * Есть ли у карточки свои неудалённые туры — тем же запросом, что
+       * запись (EXISTS по operator_tours, черновики считаются). Решает строку
+       * меню гида: «Брони» и «Мои туры» — только продавцу (`sellsOwnTours`).
+       */
+      sellsTours: boolean;
     }
   | { ok: false; reason: 'not_found' | 'db_error' };
 
 const CHANNEL_LABEL: Record<PartnerChannel, string> = { telegram: 'Telegram', max: 'MAX' };
 
+/**
+ * `ownerUserId` — кто открыл ссылку (id пользователя MAX или Telegram), только
+ * из личного диалога и заверенного апдейта; иначе null, и прежний владелец
+ * остаётся. По нему администратор заводит вход на сайт через мессенджер (1336).
+ */
 export async function bindPartnerChannel(
   partnerId: string,
   channel: PartnerChannel,
   chatId: number,
+  ownerUserId: number | null = null,
 ): Promise<BindResult> {
   if (!Number.isSafeInteger(chatId)) return { ok: false, reason: 'db_error' };
+  const owner = ownerUserId !== null && Number.isSafeInteger(ownerUserId) && ownerUserId > 0 ? String(ownerUserId) : null;
 
   // Прежнее значение читается тем же запросом, что пишет, — между чтением и
   // записью нет окна, в котором «прежний чат» успел бы стать другим.
@@ -79,24 +98,34 @@ export async function bindPartnerChannel(
                            ELSE (CASE WHEN jsonb_typeof(p.contacts) = 'object' THEN p.contacts ELSE '{}'::jsonb END)
                                 || jsonb_build_object('telegram_chat_id', $1::text)
                          END,
+              telegram_owner_user_id = COALESCE($3::bigint, p.telegram_owner_user_id),
               updated_at = NOW()
          FROM (SELECT id, telegram_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
         RETURNING p.name,
                   COALESCE(NULLIF(btrim(p.company_name), ''), p.name) AS display_name,
-                  p.category, p.slug, prev.old AS previous`
+                  p.category, p.slug, prev.old AS previous,
+                  EXISTS (SELECT 1 FROM operator_tours own
+                           WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours`
     : `UPDATE partners p
           SET max_chat_id = $1::bigint,
+              max_owner_user_id = COALESCE($3::bigint, p.max_owner_user_id),
               updated_at = NOW()
          FROM (SELECT id, max_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
         RETURNING p.name,
                   COALESCE(NULLIF(btrim(p.company_name), ''), p.name) AS display_name,
-                  p.category, p.slug, prev.old AS previous`;
+                  p.category, p.slug, prev.old AS previous,
+                  EXISTS (SELECT 1 FROM operator_tours own
+                           WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours`;
 
-  let row: { name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null } | undefined;
+  type BoundRow = {
+    name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null;
+    sells_tours: boolean | null;
+  };
+  let row: BoundRow | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ name: string; display_name: string | null; category: string | null; slug: string | null; previous: string | null }>(sql, [String(chatId), partnerId]));
+    ({ rows: [row] } = await pool.query<BoundRow>(sql, [String(chatId), partnerId, owner]));
   } catch (err) {
     const e = err as { message?: string; code?: string };
     console.error(
@@ -111,7 +140,7 @@ export async function bindPartnerChannel(
   const previous = row.previous;
   const rebound = previous !== null && previous !== String(chatId);
   const shared = await sharedChat(channel, chatId, partnerId);
-  await announceBinding(channel, row.name, previous, rebound, shared);
+  await announceBinding(channel, row.name, previous, rebound, shared, row.category);
   const slug = typeof row.slug === 'string' && row.slug.trim() !== '' ? row.slug : null;
   const displayName = typeof row.display_name === 'string' && row.display_name.trim() !== ''
     ? row.display_name
@@ -120,7 +149,25 @@ export async function bindPartnerChannel(
   return {
     ok: true, partnerName: row.name, displayName, category, slug, previousChatId: previous, rebound,
     cabinetOf: shared.cabinetOf, others: shared.others,
+    partnerId, sellsTours: row.sells_tours === true,
   };
+}
+
+/**
+ * Строка меню гида под ответом на привязку: та же, что `partnerMenu` в его
+ * чате (Входящие, Помощь; продавцу своих туров — ещё Брони и Мои туры).
+ * null — не гид, привязка не записана или кабинет в этом чате у другой
+ * карточки (`cabinetOf`): кнопки гида там отказали бы «не этот кабинет».
+ * Туроператор и пилот проката получают свои кнопки отдельно.
+ */
+export function boundMenuRow(result: BindResult): MenuButton[] | null {
+  if (!result.ok || result.category !== 'guide' || result.cabinetOf !== null) return null;
+  return partnerMenu({
+    partnerId: result.partnerId,
+    category: 'guide',
+    slug: result.slug,
+    sellsTours: result.sellsTours === true,
+  });
 }
 
 /**
@@ -178,14 +225,19 @@ async function announceBinding(
   previous: string | null,
   rebound: boolean,
   shared: { cabinetOf: string | null; others: string[] },
+  category: string | null = null,
 ): Promise<void> {
   const label = CHANNEL_LABEL[channel];
+  // Ссылку привязки выдают и гиду (код из кабинета, op_): «оператор» о нём —
+  // неправда администратору и прежнему чату.
+  const guide = category === 'guide';
   const adminChat = process.env.TELEGRAM_CHAT_ID;
   if (adminChat) {
     const name = escapeHtml(partnerName);
+    const who = guide ? 'Гид' : 'Оператор';
     const head = rebound
-      ? `Оператор «${name}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте оператору новую ссылку.`
-      : `Оператор «${name}» подключил ${label}: заявки будут приходить туда.`;
+      ? `${who} «${name}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте ${guide ? 'гиду' : 'оператору'} новую ссылку.`
+      : `${who} «${name}» подключил ${label}: заявки будут приходить туда.`;
     const note = sharedChatNote(partnerName, shared.cabinetOf, shared.others);
     const text = note ? `${head}\n\n${note}` : head;
     const res = await telegramService.sendMessage({ chatId: adminChat, text });
@@ -195,7 +247,7 @@ async function announceBinding(
   }
 
   if (!rebound || previous === null) return;
-  const notice = `Заявки оператора «${escapeHtml(partnerName)}» больше не приходят в этот чат — их перенесли в другой по ссылке привязки. Если это сделали не вы, сообщите администратору платформы.`;
+  const notice = `Заявки ${guide ? 'гида' : 'оператора'} «${escapeHtml(partnerName)}» больше не приходят в этот чат — их перенесли в другой по ссылке привязки. Если это сделали не вы, сообщите администратору платформы.`;
   if (channel === 'telegram') {
     const res = await telegramService.sendMessage({ chatId: previous, text: notice });
     if (!res.success) console.error(`[bind-channel] прежний Telegram-чат не уведомлён: ${res.error ?? 'нет ответа'}`);
@@ -219,15 +271,49 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
 }
 
 /**
+ * Текст гиду после записи чата (29.10). До этого гид слышал «подключён к
+ * оператору». Называет только то, что в чате есть: личные сообщения о бронях,
+ * заявках и запросах мест его собственных туров и о сообщениях туристов,
+ * кнопки строки меню под этим же ответом (`boundMenuRow`: продавцу своих
+ * туров — ещё «Брони» и «Мои туры») и где подтверждают бронь: продавцу —
+ * кнопками под «Бронями» (вопрос, затем «Да», lib/bookings/chat-owner-action)
+ * или в кабинете, остальным — в кабинете; заявку продавец отмечает кнопками
+ * под «Входящими». Строки нет (кабинет чата у другой карточки) — кнопок текст
+ * не обещает.
+ */
+export function guideBoundText(name: string, channel: PartnerChannel, menu: readonly MenuButton[] | null = null): string {
+  const contacts = channel === 'max'
+    ? 'Имя и телефон туриста приходят в этот чат.'
+    : 'Имя и телефон туриста в этот чат не приходят — по закону о персональных данных их принимает MAX.';
+  const lines = [
+    `Вы подключены как гид «${escapeHtml(name)}».`,
+    'Сюда будут приходить брони, заявки и запросы мест на туры, которые вы продаёте сами, и сообщения туристов из чата платформы.',
+    contacts,
+  ];
+  if (menu && menu.length > 0) {
+    lines.push('', `Кнопки под этим сообщением: ${menu.map((b) => `«${b.text}»`).join(', ')}. «Помощь» — что каждая показывает.`);
+  }
+  const buttons = menu?.some((b) => b.payload.endsWith(':bk')) === true;
+  lines.push(buttons
+    ? `Подтвердить или отклонить бронь — кнопками под «Бронями» (бот спросит, бронь меняется после «Да») или в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`
+    : `Подтвердить или отклонить бронь — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
+  if (buttons) lines.push('Заявку отметить — кнопками «Связался», «Договорились», «Отказ» под «Входящими», тоже после «Да».');
+  return lines.join('\n');
+}
+
+/**
  * Текст после записи чата. Туроператор (не пилот проката) узнаёт свою роль
- * словами кабинета. Пилот — своим текстом в MAX. Остальные — прежней фразой.
+ * словами кабинета, гид — своими. Пилот — своим текстом в MAX. Остальные —
+ * прежней фразой.
  */
 export function channelBoundText(channel: PartnerChannel, result: BindResult): string {
   const base = result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)
     ? operatorBoundText(result.displayName || result.partnerName, channel)
-    : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
-      ? rentalPilotBoundText(result.partnerName)
-      : bindReplyText(channel, result);
+    : result.ok && result.category === 'guide'
+      ? guideBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result))
+      : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
+        ? rentalPilotBoundText(result.partnerName)
+        : bindReplyText(channel, result);
   if (!result.ok) return base;
   const note = sharedChatNote(result.displayName || result.partnerName, result.cabinetOf, result.others);
   return note ? `${base}\n\n${note}` : base;
@@ -257,6 +343,8 @@ export async function handlePartnerStart(
     text: string,
     buttons?: ReadonlyArray<ReadonlyArray<{ text: string; payload: string }>>,
   ) => Promise<unknown>,
+  /** Кто открыл ссылку — только из личного диалога (см. bindPartnerChannel). */
+  ownerUserId: number | null = null,
 ): Promise<boolean> {
   const token = partnerTokenFromStart(arg);
   if (token === null) return false;
@@ -266,15 +354,18 @@ export async function handlePartnerStart(
     await reply(badLinkReplyText(check.reason));
     return true;
   }
-  const bound = await bindPartnerChannel(check.partnerId, channel, chatId);
+  const bound = await bindPartnerChannel(check.partnerId, channel, chatId, ownerUserId);
   const pilot = bound.ok && isRentalPilotSlug(bound.slug);
   const desk = bound.ok && bound.category === 'operator' && !pilot;
   const text = channelBoundText(channel, bound);
+  const guideRow = boundMenuRow(bound);
   const buttons = pilot
     ? [rentalCabinetBar()]
     : desk && channel === 'max'
       ? operatorDeskButtons()
-      : undefined;
+      : guideRow
+        ? [guideRow]
+        : undefined;
   await reply(text, buttons);
   return true;
 }

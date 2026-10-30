@@ -187,6 +187,17 @@ export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
            c.status, NULL::int AS people, c.name AS person_name
       FROM agent_clients c
      WHERE c.id = ANY($1::uuid[])`,
+  // Статуса у заявки хозяину нет: «передана» или «хозяин ответил» по переписке (1349).
+  stay_request: `
+    SELECT s.id::text AS id, a.name AS title, s.check_in_date::text AS date_from,
+           s.check_out_date::text AS date_to,
+           CASE WHEN EXISTS (SELECT 1 FROM stay_request_messages m
+                              WHERE m.stay_request_id = s.id AND m.author = 'owner')
+                THEN 'answered' ELSE 'delivered' END AS status,
+           s.guests AS people, s.guest_name AS person_name
+      FROM stay_requests s
+      JOIN accommodations a ON a.id = s.accommodation_id
+     WHERE s.id = ANY($1::uuid[])`,
 };
 
 export async function getContactCard(

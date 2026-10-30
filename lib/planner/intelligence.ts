@@ -132,6 +132,77 @@ const forecastCache = new Map<string, { result: ForecastResult; expiresAt: numbe
  */
 const lastGoodForecast = new Map<string, { result: Extract<ForecastResult, { ok: true }>; at: number }>();
 const LAST_GOOD_MAX_AGE = 24 * 60 * 60 * 1000;
+/** Дальше 16 суток Open-Meteo не считает — длиннее горизонта не бывает. */
+const MAX_HORIZON = 16;
+/**
+ * Загрузки, которые уже в пути, — по ключу кэша (склейка одновременных
+ * запросов). Главная ждёт прогноз 1,5 с (`loadHomeWeatherWithin`) и отпускает
+ * страницу, а начатая загрузка доходит в фоне; следом виджет зовёт
+ * `/api/weather/home` о той же точке и том же горизонте. На холодном кэше после
+ * выката это был второй запрос к Open-Meteo, пока первый ещё в пути (до 12 с).
+ * Запись снимается на исходе загрузки (`.finally`), поэтому дольше одной
+ * загрузки она не живёт и потолка не требует.
+ */
+const forecastInflight = new Map<string, Promise<ForecastResult>>();
+
+type OkForecast = Extract<ForecastResult, { ok: true }>;
+
+/**
+ * Короткий горизонт из длинного прогноза той же точки: первые `horizon` дней и
+ * часы только этих дат. Остальное (now, elevationM, fetchedAt, staleSince) — от
+ * исходной записи: срез не делает прогноз ни свежее, ни старее. Длинное из
+ * короткого не собирается: дни сверх полученных были бы выдуманы.
+ */
+function sliceForecast(result: OkForecast, horizon: number): OkForecast {
+  if (result.days.length <= horizon) return result;
+  const days = result.days.slice(0, horizon);
+  const dates = new Set(days.map((d) => d.date));
+  return {
+    ...result,
+    days,
+    ...(result.hours ? { hours: result.hours.filter((h) => dates.has(h.time.slice(0, 10))) } : {}),
+  };
+}
+
+/**
+ * Свежий прогноз той же точки на горизонт ДЛИННЕЕ запрошенного — срезом.
+ * Сводка берёт 2 дня, get_weather — 3, /weather и главная — 7: без этого одна
+ * точка за три часа уходила к источнику до трёх раз. Запасной прогноз (с
+ * staleSince) сюда не берётся: у короткого ключа может быть свой запас свежее.
+ * Срез в кэш не кладётся — он живёт ровно столько, сколько исходная запись.
+ */
+function freshFromLonger(point: string, horizon: number, now: number): OkForecast | null {
+  let best: { result: OkForecast; expiresAt: number } | null = null;
+  for (let h = horizon + 1; h <= MAX_HORIZON; h++) {
+    const e = forecastCache.get(`${point},${h}`);
+    if (!e || e.expiresAt <= now || !e.result.ok || e.result.staleSince) continue;
+    // Источник отдал дней меньше запрошенного — короткого горизонта в нём нет.
+    if (e.result.days.length < horizon) continue;
+    if (!best || e.expiresAt > best.expiresAt) best = { result: e.result, expiresAt: e.expiresAt };
+  }
+  return best ? sliceForecast(best.result, horizon) : null;
+}
+
+/**
+ * Последний удачный прогноз точки на этот горизонт или длиннее — самый свежий,
+ * не старше суток, срезом. Его момент (`at`) — момент ИСХОДНОЙ записи: от него
+ * staleSince и предел суток.
+ */
+function lastGoodFor(point: string, horizon: number, now: number): { result: OkForecast; at: number } | null {
+  let best: { result: OkForecast; at: number } | null = null;
+  for (let h = horizon; h <= MAX_HORIZON; h++) {
+    const g = lastGoodForecast.get(`${point},${h}`);
+    if (!g || now - g.at >= LAST_GOOD_MAX_AGE) continue;
+    if (!best || g.at > best.at) best = g;
+  }
+  return best ? { result: sliceForecast(best.result, horizon), at: best.at } : null;
+}
+
+/** Запас с отметкой держится в кэше не дольше отказа и не дальше суток от своей удачи. */
+function staleTtl(at: number): number {
+  return Math.min(FORECAST_FAIL_TTL, at + LAST_GOOD_MAX_AGE - Date.now());
+}
+
 /**
  * Потолок кэша. get_weather на публичном MCP принимает любую точку Земли, и
  * без потолка каждый новый квадрат сотых градуса оставался в памяти процесса
@@ -310,29 +381,64 @@ export function parseForecastHours(hourly: ForecastBlock | undefined): ForecastH
   });
 }
 
-/** Блок current Open-Meteo; поля без суффикса модели. */
+/**
+ * Блок current Open-Meteo. Запрос идёт с двумя моделями, и поле может прийти
+ * как без суффикса, так и с суффиксом модели (`temperature_2m_best_match`) —
+ * читаются обе формы, правилом суток: температура, ветер и прочее — из
+ * BASE_MODEL, код погоды об осадках — из PRECIP_MODEL (mergeWeatherCode).
+ * Заведено 29.10 (#2289): «сейчас» стали читать /api/weather,
+ * /api/public/now и погода тура оператора, и форма ответа не должна молча
+ * обнулять им текущий момент.
+ */
 export function parseForecastNow(current: Record<string, unknown> | undefined): ForecastNow | null {
   if (!current || typeof current !== 'object') return null;
-  const code = finite(current.weather_code);
+  const base = (field: string): unknown => current[`${field}_${BASE_MODEL}`] ?? current[field];
+  const gfsCode = current[`weather_code_${PRECIP_MODEL}`];
+  const code = finite(gfsCode === undefined
+    ? base('weather_code')
+    : mergeWeatherCode([gfsCode], [base('weather_code')])?.[0]);
+  const isDay = base('is_day');
   return {
     time: typeof current.time === 'string' ? current.time : null,
-    temp: finite(current.temperature_2m),
-    apparent: finite(current.apparent_temperature),
-    humidity: finite(current.relative_humidity_2m),
+    temp: finite(base('temperature_2m')),
+    apparent: finite(base('apparent_temperature')),
+    humidity: finite(base('relative_humidity_2m')),
     weatherCode: code,
     description: code === null ? null : wmoDescription(code),
-    windKmh: finite(current.wind_speed_10m),
-    windGustKmh: finite(current.wind_gusts_10m),
-    windDirDeg: finite(current.wind_direction_10m),
-    pressureHpa: finite(current.pressure_msl),
-    isDay: typeof current.is_day === 'number' ? current.is_day === 1 : null,
+    windKmh: finite(base('wind_speed_10m')),
+    windGustKmh: finite(base('wind_gusts_10m')),
+    windDirDeg: finite(base('wind_direction_10m')),
+    pressureHpa: finite(base('pressure_msl')),
+    isDay: typeof isDay === 'number' ? isDay === 1 : null,
   };
 }
 
 /**
- * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
- * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
+ * Текущий момент прогноза для тех, кому нужно «сейчас»: блок current, а чего
+ * в нём нет — час ленты, совпадающий с current.time (нет current.time —
+ * первый час не раньше `now` по часам Камчатки). Пропуск остаётся null.
+ * Час — ещё и источник облачности, видимости и УФ: в блоке current их нет.
  */
+export function forecastCurrent(
+  f: Pick<Extract<ForecastResult, { ok: true }>, 'hours' | 'now'>,
+  now: Date = new Date(),
+): { now: ForecastNow | null; hour: ForecastHour | null; hourIndex: number } {
+  const hours = f.hours ?? [];
+  const nowBlock = f.now ?? null;
+  let idx = -1;
+  if (nowBlock?.time) {
+    const prefix = nowBlock.time.slice(0, 13);
+    idx = hours.findIndex((h) => h.time.startsWith(prefix));
+  }
+  if (idx < 0 && hours.length > 0) {
+    const local = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).format(now).replace(' ', 'T').slice(0, 13);
+    idx = hours.findIndex((h) => h.time.slice(0, 13) >= local);
+  }
+  return { now: nowBlock, hour: idx >= 0 ? hours[idx] : null, hourIndex: idx };
+}
+
 /**
  * Причина отказа прогноза для людей. Сырая строка («The operation was aborted
  * due to timeout», «fetch failed») уходит в лог, на страницу — по-русски.
@@ -345,12 +451,37 @@ export function forecastReasonRu(raw: string): string {
   return http ? `источник прогноза ответил ошибкой (HTTP ${http[1]})` : 'источник прогноза ответил ошибкой';
 }
 
+/**
+ * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
+ * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
+ *
+ * Порядок: свежий прогноз этого горизонта → свежий прогноз той же точки на
+ * горизонт длиннее, срезом → свой отказ или запас из кэша → загрузка, уже
+ * идущая по этому ключу → новая загрузка. К источнику идёт только последняя.
+ */
 export async function fetchForecastDays(lat: number, lng: number, days: number): Promise<ForecastResult> {
-  const horizon = Math.max(1, Math.min(16, Math.round(days)));
-  const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)},${horizon}`;
+  const horizon = Math.max(1, Math.min(MAX_HORIZON, Math.round(days)));
+  const point = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+  const cacheKey = `${point},${horizon}`;
+  const now = Date.now();
   const hit = forecastCache.get(cacheKey);
-  if (hit && hit.expiresAt > Date.now()) return hit.result;
+  const live = hit && hit.expiresAt > now ? hit.result : null;
+  if (live && live.ok && !live.staleSince) return live;
+  // Свежий длинный прогноз той же точки лучше своего отказа или запаса.
+  const longer = freshFromLonger(point, horizon, now);
+  if (longer) return longer;
+  if (live) return live;
 
+  const pending = forecastInflight.get(cacheKey);
+  if (pending) return pending;
+  const load = loadForecast(lat, lng, horizon, point, cacheKey).finally(() => {
+    if (forecastInflight.get(cacheKey) === load) forecastInflight.delete(cacheKey);
+  });
+  forecastInflight.set(cacheKey, load);
+  return load;
+}
+
+async function loadForecast(lat: number, lng: number, horizon: number, point: string, cacheKey: string): Promise<ForecastResult> {
   let result: ForecastResult;
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code,precipitation_probability_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m,apparent_temperature,relative_humidity_2m,wind_direction_10m,wind_gusts_10m,weather_code,cloud_cover,visibility,pressure_msl,precipitation_probability,uv_index&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,is_day&forecast_days=${horizon}&timezone=Asia/Kamchatka&models=${BASE_MODEL},${PRECIP_MODEL}`;
@@ -411,18 +542,20 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
     result = { ok: false, reason: forecastReasonRu(result.reason) };
     // Последний удачный прогноз — с отметкой, а не за свежий. Отказ при этом
     // уже записан в лог строкой выше: «отдали старое» не прячет «не ответил».
-    const good = lastGoodForecast.get(cacheKey);
-    if (good && Date.now() - good.at < LAST_GOOD_MAX_AGE) {
+    // Годится и запас длиннее запрошенного — срезом, с его же моментом.
+    const good = lastGoodFor(point, horizon, Date.now());
+    if (good) {
       const stale: ForecastResult = { ...good.result, staleSince: new Date(good.at).toISOString() };
-      rememberForecast(cacheKey, stale, FORECAST_FAIL_TTL);
+      rememberForecast(cacheKey, stale, staleTtl(good.at));
       return stale;
     }
-    // Памяти нет (перезапуск) — запас из базы, тоже с отметкой.
+    // Памяти нет (перезапуск) — запас из базы, тоже с отметкой. Из базы — только
+    // по точному ключу.
     const stored = await loadLastGood<Extract<ForecastResult, { ok: true }>>(cacheKey);
     if (stored && stored.result && Array.isArray(stored.result.days)) {
       const stale: ForecastResult = { ...stored.result, staleSince: new Date(stored.at).toISOString() };
       lastGoodForecast.set(cacheKey, { result: stored.result, at: stored.at });
-      rememberForecast(cacheKey, stale, FORECAST_FAIL_TTL);
+      rememberForecast(cacheKey, stale, staleTtl(stored.at));
       return stale;
     }
   } else {

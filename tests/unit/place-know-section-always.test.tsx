@@ -79,3 +79,19 @@ describe('раздел «Что знать»', () => {
     expect(within(section).queryByText(/не охраняется|не требуется/)).toBeNull();
   });
 });
+
+// Ревью 29.10: загрузчик отдаёт «не загрузились», блок туров рисует строку
+// сбоя, но развилку страницы между ними не держал ни один тест — замена на
+// `tours.length > 0` молча прятала раздел при отказе базы (§4.0).
+describe('туры к месту на карточке — три исхода доходят до страницы', () => {
+  it('отказ базы — блок туров на месте (он скажет «не загрузились»); пусто — блока нет', async () => {
+    const { default: PlaceDetailClient } = await import('@/app/places/[id]/_PlaceDetailClient');
+    const failed = { ...BARE_PLACE, tours: [], toursState: 'failed' } as unknown as PlaceData;
+    const { container, unmount } = render(<PlaceDetailClient id={BARE_PLACE.id} initialPlace={failed} />);
+    expect(container.querySelector('[data-dyn="PlaceTours"]'), 'при отказе блок туров обязан остаться').not.toBeNull();
+    unmount();
+    const empty = { ...BARE_PLACE, tours: [], toursState: 'empty' } as unknown as PlaceData;
+    const second = render(<PlaceDetailClient id={BARE_PLACE.id} initialPlace={empty} />);
+    expect(second.container.querySelector('[data-dyn="PlaceTours"]')).toBeNull();
+  });
+});

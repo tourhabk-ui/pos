@@ -42,8 +42,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { resolveCostUsd } from '@/lib/ai/providers';
-import { inputEquivalentTokens } from '@/lib/ai/cache-pricing';
+import { resolveCostWithCache } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,15 +103,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (total === 0 && (cacheCreation ?? 0) === 0 && (cacheRead ?? 0) === 0) continue;
 
     // Кэш — во входо-эквиваленте: его цена — доля цены входа, и считает её тот
-    // же источник цен, что и вход. null — множителей вендора не знаем, и цена
-    // строки честно неизвестна, а не посчитана без кэша.
-    const promptEquivalent = inputEquivalentTokens(row.model, row.prompt_tokens, {
+    // же источник цен, что и вход. Множителей вендора не знаем — при одном
+    // чтении верхняя граница с пометкой, при записи в кэш цена неизвестна
+    // (одно правило с прямой записью, resolveCostWithCache).
+    const { cost, basis } = await resolveCostWithCache(row.model, row.prompt_tokens, row.completion_tokens, {
       creation: cacheCreation,
       read: cacheRead,
     });
-    const { cost, basis } = promptEquivalent === null
-      ? { cost: null, basis: 'unknown' as const }
-      : await resolveCostUsd(row.model, promptEquivalent, row.completion_tokens);
     if (cost === null) unknownCost += 1;
 
     try {

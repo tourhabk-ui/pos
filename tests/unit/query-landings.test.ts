@@ -1,11 +1,16 @@
 // @vitest-environment node
 /** Посадочные под запросы туристов: уникальность, hreflang взаимен, sitemap, SQL под гейтом, без зашитых цен. */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { QUERY_LANDINGS, landingAlternates, landingByKey } from '@/lib/seo/query-landings';
 import { landingMetadata } from '@/lib/seo/query-landing-meta';
-import { landingToursSql, matchesTopic, type LandingTourRow } from '@/lib/seo/query-landings-data';
+import { landingToursSql, loadLandingTours, matchesTopic, type LandingTourRow } from '@/lib/seo/query-landings-data';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
+
+vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
+import { pool } from '@/lib/db-pool';
 import { landingDates, landingJsonLd, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
 import { ZH_PAGE_PATHS } from '@/lib/zh/pages';
 
@@ -95,6 +100,25 @@ describe('данные', () => {
     expect(sql).toContain('is_published = true');
     expect(sql).toContain('tour_availability');
     expect(sql).toContain('activity_type');
+  });
+  it('ближайшая дата — то самое одно условие (правило 1в, 29.10), без своей копии по CURRENT_DATE', () => {
+    const sql = landingToursSql();
+    expect(sql).toContain(`${nearestFreeDateSql('ot')} AS next_open_date`);
+    expect(sql).not.toMatch(/CURRENT_DATE/);
+    expect(sql.replace(nearestFreeDateSql('ot'), '')).not.toMatch(/\bORDER BY\b|\bLIMIT\b/);
+  });
+  it('порядок — правило 1в: с датой по ближайшему выезду, остальные — жребий дня; не по компании', async () => {
+    const rows: LandingTourRow[] = [
+      row({ id: '11', operator_name: 'Аэротур', next_open_date: null, activity_type: 'bears' }),
+      row({ id: '12', operator_name: 'Шатун', next_open_date: '2027-07-01', activity_type: 'bears' }),
+      row({ id: '13', operator_name: 'Бета', next_open_date: null, activity_type: 'bears' }),
+      row({ id: '14', operator_name: 'Яхонт', next_open_date: '2026-11-20', activity_type: 'bears' }),
+      row({ id: '15', operator_name: 'Гамма', next_open_date: null, activity_type: 'bears' }),
+    ];
+    vi.mocked(pool.query).mockResolvedValueOnce({ rows } as never);
+    const got = await loadLandingTours('bears', false);
+    expect(got?.slice(0, 2).map((t) => t.id)).toEqual(['14', '12']);
+    expect(got?.map((t) => t.id)).toEqual(orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.next_open_date })).map((t) => t.id));
   });
   const t = (title: string, activity_type: string | null = 'jeep_safari', location_name: string | null = null) => ({ title, activity_type, location_name });
   it('медведи: тип и слово целиком; «Медвежья чаша» и сплав — нет', () => {

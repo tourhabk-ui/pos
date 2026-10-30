@@ -9,9 +9,12 @@ import { activityLabel } from '@/lib/tours/labels';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
 import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
+import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -50,18 +53,19 @@ export async function GET(request?: Request) {
   // Живой каталог туров — аудит «как ИИ видят Ведар» (08.08): манифест был
   // силён по местам и слеп по коммерции, модели видели «энциклопедию
   // Камчатки», а не витрину продаж. Витринные флаги — как у sitemap и MCP.
-  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null; operator_verified: boolean | null }[] = [];
+  // Весь каталог и порядок правила 1в (слово владельца 29.10): прежние
+  // «первые 40 по цене» поднимали дешёвое и молча прятали остальное.
+  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null; operator_verified: boolean | null; nearest_free_date: string | null }[] = [];
   try {
     const { rows } = await pool.query<typeof tours[number]>(`
       SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name,
-             p.is_verified AS operator_verified
+             p.is_verified AS operator_verified,
+             ${nearestFreeDateSql('ot')} AS nearest_free_date
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ${publicTourSql('ot')}
-      ORDER BY ot.base_price ASC
-      LIMIT 40
     `);
-    tours = rows;
+    tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null }));
   } catch (e) {
     // Секция туров не печатается, но отказ не глушится (§4.0).
     degraded.push('туры');
@@ -252,6 +256,8 @@ ${tourLines ? `## Актуальные туры операторов (живой
 в строке тура. Цены и свободные даты меняются: для актуальных данных
 используйте страницу тура или MCP.
 
+${OFFER_ORDER_NOTE.ru}
+
 ${tourLines}` : ''}
 
 ${stayLines ? `## Жильё на витрине (живые данные, цены из БД)
@@ -304,7 +310,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   каталог домена (AI Catalog, application/ai-catalog+json): ${BASE}/.well-known/ai-catalog.json
 - Страница о сервере (HTML): ${BASE}/mcp
 - Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
-  занятость по датам (get_tour_availability), обстановка и безопасность
+  занятость по датам (get_tour_availability), сравнение 2–4 туров (compare_tours —
+  факты из базы рядом, без оценок), обстановка и безопасность
   (safety_status, get_guardian_context), погода, жильё, снаряжение,
   трансферы (search_transfers — прайс машины целиком, не места), прокат машин
   без водителя (search_car_rental — цена за сутки за машину, залог), план поездки (make_trip_plan) и его правка по ID (edit_trip_plan)
@@ -317,6 +324,14 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   create_stay_request (заявка владельцу жилья на даты; даты и цену подтверждает он) и
   create_car_rental_request (заявка прокатчику на машину без водителя на даты;
   занятость не проверяется — подтверждает менеджер с прокатчиком)
+- Состояние заявки — get_request_status по ключу из ответа; date — действующая
+  дата брони (оператор мог перенести), requested_date — дата из заявки
+- Уведомление об изменении заявки — необязательный notify_url у create_lead,
+  create_booking_request, request_charter и create_car_rental_request:
+  подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,
+  webhook-signature), ключ подписи — в ответе один раз; сверка примерно раз
+  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — её
+  состояние после передачи не меняется. ${NOTIFY_RESPONSE_RULES}
 - Мгновенного подтверждения и оплаты через MCP нет by design. Rate-limit по IP.
 - Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
   турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы
@@ -339,8 +354,11 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 - REST: ${BASE}/api/a2a/v1 (POST /message:send, GET /tasks/{id}, POST /tasks/{id}:cancel)
 - Текстом (TextPart) — отвечает Кузьмич с теми же инструментами; точный вызов —
   DataPart {"tool": "<имя>", "arguments": {...}} по схемам MCP
-- Заявки — те же четыре, подтверждает человек, нужен consent: true; потока и
-  push-уведомлений нет, задача завершается в ответе и хранится час
+- Заявки — те же пять, подтверждает человек, нужен consent: true; потока и
+  push-уведомлений задач нет, задача завершается в ответе и хранится час
+- Об изменении заявки — необязательный notify_url в аргументах пишущего
+  инструмента (кроме заявки на жильё): подписанный POST по Standard Webhooks,
+  ключ подписи — в ответе один раз; состояние без уведомлений — get_request_status
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
 - Реестр A2A: ${A2A_CATALOGS.map((c) => `${c.catalog} — заявка подана ${c.registered_at.split('-').reverse().join('.')}, id ${c.id}`).join('; ')};
@@ -352,8 +370,9 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 фреймворков) — описание OpenAPI 3.1: ${BASE}${OPENAPI_PATH}. В нём REST-биндинг
 A2A (любой инструмент одним POST), публичные читающие эндпоинты (каталог мест,
 маршрутов и туров, туры и их занятость, карточка места, статус дня, сейсмика,
-вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же четыре
-заявки через DataPart с consent: true. Каталог API по RFC 9727 (linkset):
+вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же пять
+заявок через DataPart с consent: true; тело уведомления об изменении заявки
+(notify_url) описано в разделе webhooks. Каталог API по RFC 9727 (linkset):
 ${BASE}${API_CATALOG_PATH} — на него же указывает заголовок Link rel="api-catalog"
 главной страницы.
 - English: OpenAPI 3.1 for agents without MCP or A2A clients (GPT Actions,

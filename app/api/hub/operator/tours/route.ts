@@ -15,6 +15,7 @@ import {
 } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { requireTeamPermission } from '@/lib/operators/team-access';
+import { MainPlaceRejected } from '@/lib/tours/main-place';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export async function GET(request: NextRequest) {
@@ -81,6 +82,11 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    // Главное место выбрано, но его нет, оно скрыто или слито — отказ, тур
+    // не создан (проверка и запись в одной транзакции, lib/tours/main-place).
+    if (error instanceof MainPlaceRejected) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Не удалось прочитать запрос: тело не является корректным JSON' }, { status: 400 });
     }

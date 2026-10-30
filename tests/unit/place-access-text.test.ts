@@ -128,8 +128,10 @@ describe('«рядом» не выдаётся за маршрут через м
   it('род связи доходит до карточки, список делится, туры «рядом» не берут', () => {
     const detail = readFileSync(`${process.cwd()}/lib/places/place-detail.ts`, 'utf8');
     expect(detail).toMatch(/linkKind: \(rt\.link_kind as/);
-    const toursAt = detail.indexOf('const toursResult = await query(');
-    expect(detail.slice(toursAt, toursAt + 1200)).toContain("COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'");
+    // Туры места — свой загрузчик с 29.10 (lib/places/place-tours), карточка зовёт его.
+    expect(detail).toContain('loadPlaceTours(');
+    const tours = readFileSync(`${process.cwd()}/lib/places/place-tours.ts`, 'utf8');
+    expect(tours).toContain("COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'");
     const list = readFileSync(`${process.cwd()}/components/places/PlaceRoutes.tsx`, 'utf8');
     expect(list).toContain("routes.filter(r => r.linkKind !== 'nearby')");
     expect(list).toContain('Через само место они не проходят');

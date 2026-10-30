@@ -129,4 +129,15 @@ describe('Telegram: фраза про даты в чате туроперато�
     await route.POST(update('открой субботы июля, 8 мест'));
     expect(m.processPartner).toHaveBeenCalledTimes(2);
   });
+
+  it('гид со своими турами (29.10) — «это в MAX» со ссылкой в его раздел «Свои туры»; гид команды — помощнику', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...operator, category: 'guide', crmCategory: 'guide', sellsTours: true } });
+    await route.POST(update('открой субботы июля, 8 мест'));
+    expect(sentTexts()).toHaveLength(1);
+    expect(sentTexts()[0]).toMatch(/^Открыть даты словами можно в MAX — там есть кнопка подтверждения\. Или в кабинете: \S+\/hub\/guide\/own$/);
+    expect(m.processPartner).not.toHaveBeenCalled();
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...operator, category: 'guide', crmCategory: 'guide', sellsTours: false } });
+    await route.POST(update('открой субботы июля, 8 мест'));
+    expect(m.processPartner).toHaveBeenCalledTimes(1);
+  });
 });

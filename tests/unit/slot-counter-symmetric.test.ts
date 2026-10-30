@@ -59,8 +59,9 @@ describe('вычитание мест — одно на всю платформ�
 });
 
 describe('оба рабочих пути отмены возвращают места', () => {
-  it('оператор: PATCH брони — только на переходе, внутри транзакции', () => {
-    const CODE = strip(read('app/api/hub/operator/bookings/[id]/route.ts'));
+  it('продавец тура (кабинет оператора и гида): только на переходе, внутри транзакции', () => {
+    // PATCH кабинета оператора и гида зовут одно правило — lib/bookings/owner-status.
+    const CODE = strip(read('lib/bookings/owner-status.ts'));
     expect(CODE).toMatch(/releaseSlotsForCancelledBooking\(client, BigInt\(id\)\)/);
     // Переход, а не факт вызова: повторная отмена не вычтет дважды.
     expect(CODE).toMatch(/input\.booking_status === 'cancelled' && prevStatus !== 'cancelled'/);

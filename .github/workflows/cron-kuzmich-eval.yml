@@ -7,7 +7,7 @@ name: Cron — Kuzmich Faithfulness Eval
 #
 # Прогон 07.09: живой шаг отработал 10 вопросов за 145 с (14,5 с на вопрос —
 # агент-цикл Кузьмича плюс судья), а фикстурный шаг из 20 вопросов упёрся в
-# curl --max-time 280 и упал с кодом 28. Так было КАЖДЫЙ раз: все десять
+# потолок curl в 280 с и упал с кодом 28. Так было КАЖДЫЙ раз: все десять
 # прогонов workflow красные, успешных в истории нет. Watchdog читал это как
 # регрессию ответов, хотя это была арифметика.
 #
@@ -38,9 +38,9 @@ jobs:
   kuzmich-eval:
     runs-on: ubuntu-latest
     # Потолок задачи больше суммы окон внутри: ожидание сборки до 70 минут плюс
-    # два шага по 9. Потолок вровень с суммой и есть настоящее окно, а цифры
-    # внутри — украшение (урок deploy.yml).
-    timeout-minutes: 95
+    # три шага по 9 (базовая фикстура, вопросы о турах, живые). Потолок вровень
+    # с суммой и есть настоящее окно, а цифры внутри — украшение (урок deploy.yml).
+    timeout-minutes: 105
     steps:
       - uses: actions/checkout@v7
 
@@ -48,6 +48,7 @@ jobs:
       # мерить нечего, и прогон обязан покраснеть на своей причине, а не на
       # чужом результате (сторож tests/unit/marker-waits-for-deploy.test.ts).
       - name: Wait for fresh deploy
+        id: wait
         if: github.event_name == 'push'
         env:
           BASE: https://vedarai.ru
@@ -67,6 +68,25 @@ jobs:
             "https://vedarai.ru/api/cron/kuzmich-eval" \
             -H "Authorization: Bearer $CRON_SECRET")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # Вопросы о турах (29.10, шаг 1 разбора «мозг Кузьмича»): назвал ли все
+      # предложения к месту, компанию у каждого тура, цены только из данных,
+      # честное «нет на платформе». Отдельным прогоном: pass_rate базовых
+      # двадцати остаётся сравним со своей историей. Это база «до» для
+      # сравнения моделей и устройства памяти, а не порог выката.
+      # Не дождались сборки — на старом коде этот шаг прогнал бы базовый набор
+      # под чужим именем; от провала базового шага он не зависит.
+      - name: Kuzmich Eval — вопросы о турах (критерии)
+        if: always() && steps.wait.outcome != 'failure'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
+          HTTP=$(curl -s -o /tmp/commercial.json -w "%{http_code}" --max-time 540 \
+            "https://vedarai.ru/api/cron/kuzmich-eval?set=commercial" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP" && cat /tmp/commercial.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # Живой сэмпл: реальные вопросы туристов из chat_sessions за 7 дней

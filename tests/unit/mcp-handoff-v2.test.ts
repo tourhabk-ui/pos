@@ -4,16 +4,21 @@
  *
  * Сторож держит два правила v2:
  *  1. Сущность для ссылки резолвится ТЕМИ ЖЕ функциями, какими её находит
- *     сам инструмент (resolveTourByQuery, resolvePlaceForLink) — свой ILIKE
+ *     сам инструмент (resolveTourChoice, resolvePlaceForLink) — свой ILIKE
  *     в handoff-targets запрещён: второй, чуть другой поиск ведёт ссылку
  *     не на то, о чём инструмент ответил.
  *  2. Каждое серверное действие исполнения после перехода фиксируется
  *     attachMcpAttribution с честным именем; идентификатор — только из
  *     проверенной cookie, никогда из body.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
+
+import { tourChoiceTarget } from '@/lib/mcp/handoff-targets';
+import type { TourCandidate } from '@/lib/kuzmich/tour-availability-tool';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const TARGETS = read('lib/mcp/handoff-targets.ts');
@@ -26,11 +31,47 @@ const SHARE = read('app/api/trips/[id]/share/route.ts');
 const GPX = read('app/api/trips/share/[token]/gpx/route.ts');
 
 describe('цели v2: резолв — той же функцией, что у инструмента', () => {
-  it('туры — через resolveTourByQuery, своего ILIKE в targets нет', () => {
-    expect(TARGETS).toMatch(/resolveTourByQuery/);
-    expect(TARGETS).toMatch(/tourPath\(tour\)/);
+  it('туры — через resolveTourChoice, своего ILIKE в targets нет', () => {
+    expect(TARGETS).toMatch(/resolveTourChoice/);
     expect(TARGETS).not.toMatch(/ILIKE/);
     expect(TARGETS).not.toMatch(/pool\.query/);
+  });
+
+  // Слово владельца 29.10 («1в 2б 3 да»): ссылка на ОДИН тур при турах
+  // нескольких компаний выбрала бы продавца за человека.
+  const cand = (id: number, operator: string, place: TourCandidate['place']): TourCandidate => ({
+    id, title: `Тур ${id}`, operator_id: operator, operator_name: `Компания ${operator}`, slug: `tur-${id}`,
+    base_price: 10000, price_unit: 'per_person', main_place_id: place?.id ?? null, place, nearest_free_date: null,
+  });
+  const GORELY = { id: 'p-gorely', name: 'Вулкан Горелый', slug: 'vulkan-gorelyy', ark_id: null };
+
+  it('один тур — его карточка; туров нет — ссылки нет', () => {
+    expect(tourChoiceTarget({ kind: 'one', tour: cand(61, 'a', GORELY) })).toEqual({ targetType: 'tour', targetPath: '/catalog/tours/tur-61' });
+    expect(tourChoiceTarget({ kind: 'none' })).toBeNull();
+  });
+
+  it('туры разных компаний к одному месту — «Туры к этому месту» на карточке места', () => {
+    expect(tourChoiceTarget({ kind: 'ambiguous', candidates: [cand(61, 'a', GORELY), cand(72, 'b', GORELY)] }))
+      .toEqual({ targetType: 'place', targetPath: '/places/vulkan-gorelyy#tours' });
+  });
+
+  it('туры разных компаний без общего места — ссылки нет, на один тур не ведём', () => {
+    const other = { id: 'p-dachnye', name: 'Дачные горячие источники', slug: 'dachnye', ark_id: null };
+    expect(tourChoiceTarget({ kind: 'ambiguous', candidates: [cand(61, 'a', GORELY), cand(72, 'b', other)] })).toBeNull();
+    expect(tourChoiceTarget({ kind: 'ambiguous', candidates: [cand(61, 'a', null), cand(72, 'b', null)] })).toBeNull();
+  });
+
+  // Ловушка 29.10, name-search: продавец и частичное совпадение слов — тур не
+  // выбран, ссылки нет даже при общем месте (страница продавца — в тексте ответа).
+  it('продавец по имени или часть слов — ссылки нет, хотя все туры к одному месту', () => {
+    const seller = { id: 'a', name: 'Тихая Заимка', category: 'operator', slug: 'tikhaya-zaimka', is_public: true };
+    const tours = [cand(61, 'a', GORELY), cand(62, 'a', GORELY)];
+    for (const basis of ['own', 'words'] as const) {
+      expect(tourChoiceTarget({ kind: 'seller', sellers: [seller], basis, tours, partialName: false, rest: null, others: null, words: null }))
+        .toBeNull();
+    }
+    expect(tourChoiceTarget({ kind: 'weak', candidates: [cand(61, 'a', GORELY)], matched: ['Горелый'], apart: [], missing: ['Тюленья'] }))
+      .toBeNull();
   });
 
   it('места — через resolvePlaceForLink guardian-context', () => {
@@ -47,12 +88,12 @@ describe('цели v2: резолв — той же функцией, что у 
     expect(fn).toMatch(/is_visible = true/);
   });
 
-  it('get_tour_details резолвит тур той же resolveTourByQuery (одна мера)', () => {
+  it('get_tour_details резолвит тур той же resolveTourChoice (одна мера)', () => {
     const fn = CORE.slice(
       CORE.indexOf('export async function getTourDetails'),
       CORE.indexOf('export async function getTourDetails') + 1500,
     );
-    expect(fn).toMatch(/resolveTourByQuery\(q\)/);
+    expect(fn).toMatch(/resolveTourChoice\(q\)/);
     expect(fn).not.toMatch(/ILIKE/);
   });
 

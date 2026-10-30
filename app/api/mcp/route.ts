@@ -14,23 +14,26 @@
  * требует личности пользователя, здесь нет by construction — у Кузьмича
  * такие поверхности живут вне tool-реестра.
  *
- * Записи четыре: create_lead (заявка на подбор тура), create_booking_request
- * (заявка на бронь тура на дату) и request_charter (заявка на вахтовку целой
- * машиной у перевозчика «под заказ»): не бронь и не оплата, идут в общий
- * createLead() со скорингом и дедупом; create_stay_request (заявка хозяину
- * жилья на даты) — тем же путём, что форма на карточке объекта
- * (lib/stay/stay-request-service). Бронирование анонимному внешнему
+ * Записей пять: create_lead (заявка на подбор тура), create_booking_request
+ * (заявка на бронь тура на дату), request_charter (заявка на вахтовку целой
+ * машиной у перевозчика «под заказ») и create_car_rental_request (заявка
+ * прокатчику): не бронь и не оплата, идут в общий createLead() со скорингом и
+ * дедупом; create_stay_request (заявка хозяину жилья на даты) — тем же путём,
+ * что форма на карточке объекта (lib/stay/stay-request-service). У первых
+ * четырёх — необязательный notify_url: подписка на уведомление об изменении
+ * заявки (lib/mcp/request-notify, 29.10). Бронирование анонимному внешнему
  * агенту не отдаём сознательно. Единственное исключение по форме — тур без
  * расписания: вместо ложного «нет мест» уходит запрос мест оператору
  * (lib/seat-requests). Бронь и там заводит не агент, а оператор своим
  * нажатием «Есть места» в мессенджере.
  */
 
-import { localizeToolArgs, langNote } from '@/lib/mcp/query-lang';
+import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
@@ -55,6 +58,8 @@ import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
 import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine } from '@/lib/mcp/request-status';
+import { issueKeyWithNotify, STAY_NOTIFY_REFUSAL } from '@/lib/mcp/request-notify';
+import { notifyUrlField } from '@/lib/mcp/request-notify-schema';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
@@ -188,6 +193,10 @@ const createLeadArgsSchema = z.object({
   interest: z.string().trim().max(200, 'Интерес длиннее 200 символов').optional(),
   // ID плана из make_trip_plan (#2304, шаг 2): заявка уходит с планом целиком.
   plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
+  // Адрес приёмника уведомлений (29.10): неверный по форме — заявка не
+  // создаётся, отказ называет поле (повторить заявку агент не сможет: 1 в
+  // сутки на телефон). Проверка формы — до записи, DNS — при каждой отправке.
+  notify_url: notifyUrlField,
   // Обязателен и здесь, а не только в JSON Schema инструмента. Два источника
   // правды путают ОСНОВАНИЕ отказа: агент, смотрящий схему, видит поле
   // обязательным, а парсер роута пропускал бы его отсутствие дальше — и
@@ -215,6 +224,7 @@ const bookingRequestArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
   plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
+  notify_url: notifyUrlField,
   // См. пояснение у createLeadArgsSchema: обязателен в обоих источниках.
   consent: consentField,
 });
@@ -229,7 +239,7 @@ const bookingRequestArgsSchema = z.object({
  */
 async function requestSeatsFromOperator(a: {
   ctx: McpCallContext; tourId: number; tourTitle: string; date: string; participants: number;
-  name: string; phone: string; hasComment: boolean; consent: boolean | undefined;
+  name: string; phone: string; hasComment: boolean; consent: boolean | undefined; notifyUrl: string | undefined;
 }): Promise<string> {
   const pd_consent = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent);
   if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
@@ -260,13 +270,13 @@ async function requestSeatsFromOperator(a: {
     return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
-  const statusKey = await issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name);
+  const keyTail = await issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl);
   return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
     + `Места этим запросом НЕ закреплены, и это не оплата: если оператор ответит «Есть места», заявка подтвердится, ${seatRequestPaymentNote()}. `
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
     + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
     + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.'
-    + keyLine(statusKey);
+    + keyTail;
 }
 
 /**
@@ -315,15 +325,38 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
 
-  const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
+  const { resolveTourChoice, candidateLines, choiceListLines, choiceListReason } = await import('@/lib/kuzmich/tour-availability-tool');
   // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
   // это сбой, а не отсутствие тура (проверка MCP 29.09).
-  const tour = await resolveTourByQuery(tourQuery).catch(() => {
+  const choice = await resolveTourChoice(tourQuery).catch(() => {
     throw new McpUserError('Не удалось проверить тур — заявка не создана, повторите позже.', 'tour_lookup_failed');
   });
-  if (!tour) {
+  if (choice.kind === 'none') {
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
   }
+  // Туры нескольких компаний (слово владельца 29.10, «1в 2б 3 да»): пишущий
+  // инструмент продавца не выбирает. До 29.10 заявка уходила той компании,
+  // чьё название короче, — телефон человека получал продавец, которого он не
+  // называл. Теперь заявки нет, пока агент не передаст номер тура.
+  if (choice.kind === 'ambiguous') {
+    return [
+      `По запросу «${tourQuery}» подходят туры разных компаний — заявка не создана. Повторите create_booking_request с номером тура (поле tour):`,
+      ...candidateLines(choice.candidates),
+      'Порядок списка — правило платформы, а не рекомендация. Спросите человека, какой тур и какая компания ему нужны.',
+    ].join('\n');
+  }
+  // Имя продавца вместо тура или совпала только часть слов (ловушка MCP
+  // 29.10, name-search): заявки нет ни при каком числе компаний. До 29.10
+  // имя компании из двух слов находило по одному общему слову туры ДРУГОЙ
+  // компании, и будь она одна — заявка с телефоном человека уходила ей.
+  if (choice.kind === 'seller' || choice.kind === 'weak') {
+    return [
+      `По запросу «${tourQuery}» ${choiceListReason(choice)} — заявка не создана. Повторите create_booking_request с номером тура (поле tour).`,
+      ...choiceListLines(tourQuery, choice),
+      'Спросите человека, какой тур ему нужен; не выбирайте тур и компанию за него.',
+    ].join('\n');
+  }
+  const tour = choice.tour;
 
   // Несуществующая дата (2027-02-30) проходила регулярку и падала в базе
   // с 22008 — общим «внутренняя ошибка» вместо внятного отказа (29.09).
@@ -361,7 +394,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       if (window.kind === 'season' && !dateInWindow(window, date)) {
         return `${outOfSeasonText(window, date)} Заявка не создана — предложите дату внутри сезона.`;
       }
-      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent });
+      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url });
     }
     // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
     const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
@@ -436,7 +469,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       routeTitle: tour.title,
     });
   }
-  return accepted + keyLine(await issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name));
+  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url);
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
@@ -457,6 +490,7 @@ const charterRequestArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   carrier: z.string().trim().max(120, 'Название перевозчика длиннее 120 символов').optional(),
   comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
+  notify_url: notifyUrlField,
   consent: consentField,
 });
 
@@ -535,7 +569,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
-  return accepted + keyLine(await issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name));
+  return accepted + await issueKeyWithNotify({ leadId }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url);
 }
 
 // ── create_car_rental_request (владелец 23.10) ─────────────────
@@ -555,6 +589,9 @@ const carRentalRequestArgsSchema = z.object({
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
   test: z.boolean().optional(),
   confirmation: z.string().trim().max(64, 'Код подтверждения длиннее 64 символов').optional(),
+  // Проверяется уже на шаге 1 (черновик): ошибка видна сразу. Подписка — только
+  // на шаге 2, вместе с ключом. В код подтверждения адрес не входит.
+  notify_url: notifyUrlField,
   consent: consentField,
 });
 
@@ -682,7 +719,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
   const accepted = `${isTest ? 'Пробная заявка принята (помечена как тест, прокатчику не передаётся)' : 'Заявка принята'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}`
     + `${offer.depositRub !== null ? `, залог ${offer.depositRub} руб` : ''}. Это заявка, не бронь: менеджер Ведара свяжется по телефону ${phone} и подтвердит с прокатчиком; оплаты через платформу нет, расчёт напрямую с прокатчиком. Страница прокатчика: ${getPublicBaseUrl()}${rentalPagePath(company.slug)}`;
-  return accepted + keyLine(await issueRequestKey({ leadId }, CAR_RENTAL_REQUEST_TOOL.name));
+  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url);
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
@@ -720,7 +757,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
   // такой телефон с таким текстом уже писал (проверка MCP 29.09).
   return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach)
-    + keyLine(await issueRequestKey({ leadId }, CREATE_LEAD_TOOL.name));
+    + await issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url);
 }
 
 /**
@@ -836,7 +873,10 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
   return `Заявка передана ${who}: "${r.accommodationName}", заезд ${check_in}, выезд ${check_out} (ночей: ${dates.nights}), гостей ${guests}. `
     + 'Владелец перезвонит по указанному телефону и подтвердит даты и цену. Это заявка, не бронь и не оплата: расчёт — напрямую с владельцем. '
     + `Карточка объекта: ${base}/accommodations/${found.id}.`
-    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay');
+    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name), 'stay')
+    // Подписки у заявки на жильё нет (её состояние после передачи не
+    // меняется); агент, передавший адрес, слышит это, а не тишину.
+    + (typeof rawArgs.notify_url === 'string' && rawArgs.notify_url.trim() !== '' ? STAY_NOTIFY_REFUSAL : '');
 }
 
 // Имя проверено вызывающим (неизвестный инструмент — ошибка протокола
@@ -884,7 +924,7 @@ async function executeTool(
   const text = await executeKuzmichTool(name, validation.args, { surface: 'mcp' });
   // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
   if (text === TOOL_EXECUTION_FAILED) return text;
-  return text + langNote(localized.lang, localized.mapped);
+  return text + toolLangNote(name, localized);
 }
 
 /**
@@ -983,13 +1023,6 @@ export async function OPTIONS() {
 }
 
 // ── MCP Protocol: POST = JSON-RPC 2.0 ───────────────────────
-
-/**
- * Инструкция хосту в ответ на initialize (поле появилось в 2025-03-26):
- * хост кладёт её в контекст модели. Готовый текст уже был — описание сервера
- * для каталогов, — но в рукопожатие не доходил (проверка MCP 29.09).
- */
-const SERVER_INSTRUCTIONS = `${MCP_SERVER_INFO.description} Данные — из базы платформы; чего в базе нет, инструменты так и говорят, и дополнять это догадкой не нужно. Аренда машины без водителя (аренда авто, внедорожника, 4x4, прокат, rent a car, car rental) — сначала search_car_rental: прокатчики платформы, цена за сутки, залог и ссылка на страницу прокатчика. Экстренный вызов на Камчатке — 112.`;
 
 /** Пустая строка перед «Продолжить в Ведаре» — см. handleToolsCall. */
 const HANDOFF_SEPARATOR = '\n\n';
@@ -1225,6 +1258,7 @@ async function handleMessage(
           title: MCP_SERVER_INFO.title,
           version: MCP_SERVER_INFO.version,
         },
+        // Сквозные правила для модели хоста — lib/mcp/server-instructions.ts.
         instructions: SERVER_INSTRUCTIONS,
       });
 

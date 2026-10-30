@@ -20,6 +20,8 @@ import { tourDays } from '@/lib/tours/catalog-availability';
 import { groundIntentNumbers } from '@/lib/leads/intent-grounding';
 import { isVehicleOrder, LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -120,6 +122,8 @@ interface TourRow {
   duration_hours: number | string | null;
   activity_type: string | null;
   description: string | null;
+  /** Ближайшая дата со свободными местами; читается только подбором (правило 1в). */
+  nearest_free_date?: string | null;
 }
 
 /** Колонки длительности тура — для tourDays(), правила каталога и брони. */
@@ -418,6 +422,11 @@ export class LeadProcessorService {
    * Предложение уходит клиенту — туристу, — поэтому тур берётся шлюзом
    * витрины (#2642). Без is_published в PDF попадал черновик, карточка
    * которого туристу отвечает 404, а кабинет говорил «туристы не видят».
+   *
+   * Окна «последние 30 по номеру» больше нет (правило 1в, слово владельца
+   * 29.10): `ORDER BY id DESC LIMIT 30` оценивал только новые туры, и старый
+   * подходящий тур не доходил до оценки вовсе. Оцениваются все кандидаты,
+   * баллы совпадения — как были, ничью решает правило 1в.
    */
   private async matchTours(
     intent: LeadIntent,
@@ -446,14 +455,13 @@ export class LeadProcessorService {
     }
 
     const { rows } = await pool.query<TourRow>(
-      `SELECT id::text, title, ROUND(base_price)::int AS price,
+      `SELECT ot.id::text AS id, title, ROUND(base_price)::int AS price,
               ${TOUR_DURATION_COLUMNS},
-              activity_type, description
-       FROM operator_tours
-       WHERE ${publicTourSql('')}
-         ${filters.join('\n         ')}
-       ORDER BY id DESC
-       LIMIT 30`,
+              activity_type, description,
+              ${nearestFreeDateSql('ot')} AS nearest_free_date
+       FROM operator_tours ot
+       WHERE ${publicTourSql('ot')}
+         ${filters.join('\n         ')}`,
       params
     );
 
@@ -461,6 +469,7 @@ export class LeadProcessorService {
   }
 
   private rankTours(tours: TourRow[], intent: LeadIntent): MatchedTour[] {
+    const tie = compareTourOffers(offerOrderDay());
     return tours
       .map(t => {
         const days = rowTourDays(t);
@@ -474,7 +483,12 @@ export class LeadProcessorService {
         }
         return { ...t, days, score };
       })
-      .sort((a, b) => b.score - a.score)
+      // Балл совпадения — релевантность заявке; ничья — правило 1в, а не
+      // номер тура (новый тур не выигрывает ничью только потому, что новый).
+      .sort((a, b) => b.score - a.score || tie(
+        { id: a.id, nearestFreeDate: a.nearest_free_date ?? null },
+        { id: b.id, nearestFreeDate: b.nearest_free_date ?? null },
+      ))
       .map(t => ({
         id:            t.id,
         title:         t.title,

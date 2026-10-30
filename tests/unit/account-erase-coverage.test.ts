@@ -177,6 +177,21 @@ describe('удаление аккаунта: каждая таблица с ПД
     }
   });
 
+  it('копия причины отклонения его брони в журнале действия кнопкой из чата гида стирается шагом по его броням (ревью 29.10)', () => {
+    // partner_chat_actions ссылается на бронь текстом (subject_id) без
+    // внешнего ключа, и перепись по связи её не видит — а «Отклонить» в чате
+    // кладёт туда причину для туриста дословно. Шаг по чатам самого
+    // удаляемого (DELETE) этой копии не касается: чат — гида. Что шаг пишет
+    // в строки, проверяет pg-тест (tourist-cabinet, «причина отклонения его
+    // брони кнопкой в чате гида»).
+    expect(ERASE_KEEP['partner_chat_actions.reason']).toBeUndefined();
+    const own = steps.filter((st) => st.table === 'partner_chat_actions');
+    expect(own.some((st) => st.kind === 'update' && st.set.has('reason')), 'partner_chat_actions.reason стирается шагом').toBe(true);
+    // Брони находит та же дорога, что шаг operator_bookings, — и после него.
+    const order = steps.map((st) => `${st.table}:${st.kind}`);
+    expect(order.indexOf('operator_bookings:update')).toBeLessThan(order.indexOf('partner_chat_actions:update'));
+  });
+
   it('журнал смены статуса его броней: комментарий (там и причина отмены словами туриста) стирается шагом, а не хранится «заметкой оператора» (#2327, пятый круг)', () => {
     // Ревью: cancelBooking писал причину туриста («у меня ковид») в
     // booking_logs.comment, а ERASE_KEEP называл её «рабочей заметкой
@@ -307,7 +322,9 @@ describe('удаление аккаунта: каждая таблица с ПД
     const order = steps.map((st) => st.table);
     const p = steps.find((st) => st.table === 'partners');
     expect(p?.kind).toBe('update');
-    expect([...p!.set].sort()).toEqual(['contacts', 'max_chat_id', 'telegram_chat_id', 'updated_at']);
+    expect([...p!.set].sort()).toEqual([
+      'contacts', 'max_chat_id', 'max_owner_user_id', 'telegram_chat_id', 'telegram_owner_user_id', 'updated_at',
+    ]);
     // Ключи — его id в users и диалог MAX в tg_conversations.
     expect(order.indexOf('partners')).toBeLessThan(order.indexOf('tg_conversations'));
     expect(order.indexOf('partners')).toBeLessThan(order.indexOf('users'));

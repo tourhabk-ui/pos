@@ -132,8 +132,11 @@ describe('публичные чтения знают про слияние', () 
 
   it('маршруты на карточке места — тоже без слитых', () => {
     // Слитый маршрут в блоке «Маршруты» — такая же мёртвая ссылка.
-    const api = strip(read('lib/places/place-detail.ts'));
-    expect(api).toMatch(/kr\.merged_into_id IS NULL/);
+    // Отбор маршрутов карточки — lib/places/place-routes (общий с Кузьмичом);
+    // туры места по маршрутам — lib/places/place-tours (29.10).
+    expect(strip(read('lib/places/place-detail.ts'))).toContain('PLACE_ROUTES_SQL');
+    expect(strip(read('lib/places/place-routes.ts'))).toMatch(/kr\.merged_into_id IS NULL/);
+    expect(strip(read('lib/places/place-tours.ts'))).toMatch(/kr\.merged_into_id IS NULL/);
   });
 });
 

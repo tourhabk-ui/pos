@@ -10,7 +10,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import RoutesPageClient from '../_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
-import { findToursForQuery } from '@/lib/search/tour-query-match';
+import { findToursForQueryCounted } from '@/lib/search/tour-query-match';
 import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
@@ -135,9 +135,10 @@ export default async function RoutesPage({ searchParams }: PageProps) {
    * список: «туров нет» и «туры не искались» — разные ответы (§4.0).
    */
   const toursPromise: Promise<ToursForQueryState | null> = q.trim()
-    ? findToursForQuery(q, TOURS_LIMIT).then(
-        (tours): ToursForQueryState => ({
+    ? findToursForQueryCounted(q, TOURS_LIMIT).then(
+        ({ tours, total }): ToursForQueryState => ({
           status: 'ok',
+          total,
           tours: tours.map(t => ({
             id: t.id,
             slug: t.slug,

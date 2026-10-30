@@ -25,6 +25,7 @@ import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
 import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { KURIL_NORTH_NOTE, inKurilNorthBox } from '@/lib/safety/kuril-north';
+import { loadUgmsForecast, ugmsLinesForKuzmich } from '@/lib/weather/ugms-forecast';
 
 export const DEFAULT_WEATHER_PLACE = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 } as const;
 export const WEATHER_DAYS_DEFAULT = 3;
@@ -274,11 +275,19 @@ export async function weatherForKuzmich(args: { place?: string; lat?: string; ln
       + `${elevationNote(forecast.elevationM)}, дней: ${forecast.days.length}.${note}`
       + `${forecast.staleSince ? ` ВНИМАНИЕ: источник сейчас не отвечает — это последний полученный прогноз, от ${kamchatkaTime(forecast.staleSince)} по Камчатке; так и скажи.` : ''}`;
     const warnings = await officialWarningLines(point.lat, point.lng);
+    // Прогноз синоптиков Камчатского УГМС по району точки — дословно, рядом с
+    // моделью (29.10, владелец: «есть же камчатский гидромет»). Это второй
+    // источник, и Кузьмич обязан называть, чей прогноз он пересказывает.
+    // Прогноз написан для Камчатского края: точке вне края и Северным Курилам
+    // (Сахалинская область, своя записка в officialWarningLines) он не
+    // подставляется — иначе «южные районы края» выдавались бы за Парамушир.
+    const ugmsApplies = insideKrai(point.lat, point.lng) === true && !inKurilNorthBox(point.lat, point.lng);
+    const ugms = ugmsApplies ? ugmsLinesForKuzmich(await loadUgmsForecast(point.lat, point.lng)) : [];
     // Экзамен 22.10: для Мутновского (−13…−10 °C, снег) Кузьмич назвал «+1…+4, дождь»
     // и «прогноз на 7 дней» при 3 днях в ответе. Правило едет вместе с цифрами.
     const honesty = `Погоду для «${point.name}» называй ТОЛЬКО по строкам выше, с их датами; `
       + `прогноза дальше ${forecast.days.length} дн. нет — так и скажи. Цифры других мест и блоков сюда не подставляй.`;
-    return [head, ...forecast.days.map(forecastLine), honesty, ...warnings].join('\n');
+    return [head, ...forecast.days.map(forecastLine), ...ugms, honesty, ...warnings].join('\n');
   } catch (err) {
     logSwallowedFailure('kuzmich', 'прогноз погоды по месту', err);
     return 'ПОГОДА НЕДОСТУПНА: свериться с прогнозом не удалось — не называй погоду по памяти.';

@@ -6,21 +6,43 @@
  *  - Пути строит ТОЛЬКО этот серверный код по белому списку isSafeTarget —
  *    URL из аргументов внешнего агента не берётся никогда.
  *  - Сущность (тур, место) резолвится ТЕМИ ЖЕ функциями, какими её находит
- *    сам инструмент (resolveTourByQuery, resolvePlaceForLink) — одна мера в
+ *    сам инструмент (resolveTourChoice, resolvePlaceForLink) — одна мера в
  *    одном месте: ссылка ведёт на то, о чём инструмент ответил, а не на
  *    результат второго, чуть другого поиска.
  *  - Не нашли сущность — нет ссылки. Ссылка «на каталог вообще» после
  *    вопроса о конкретном туре хуже отсутствия ссылки.
+ *  - Запрос подошёл турам нескольких компаний (слово владельца 29.10) —
+ *    ссылки на ОДИН тур нет: она выбрала бы продавца за человека. Все
+ *    кандидаты идут к одному записанному месту — ссылка на «Туры к этому
+ *    месту» его карточки, где они все по правилу 1в; иначе ссылки нет.
+ *  - Запрос назвал продавца или совпал лишь частью слов (ловушка 29.10,
+ *    name-search) — ссылки нет: тур не выбран.
  */
 
 import type { HandoffTarget } from '@/lib/mcp/handoff';
-import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
+import { resolveTourChoice, type TourChoice } from '@/lib/kuzmich/tour-availability-tool';
+import { ruPlacePath } from '@/lib/zh/pages';
 import { tourPath } from '@/lib/tours/tour-url';
 import { parsePlanStart, planIdFromAnswer } from '@/lib/kuzmich/trip-plan-tool';
 import { resolvePlaceForLink } from '@/lib/kuzmich/guardian-context';
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+/**
+ * Куда вести после ответа о туре: один тур — его карточка; несколько компаний
+ * — общее место или никуда. Продавец и частичное совпадение слов — никуда:
+ * тур не выбран, а ссылка на один тур выбрала бы его за человека. Страница
+ * продавца стоит полным адресом в тексте ответа (цели «продавец» у handoff нет).
+ */
+export function tourChoiceTarget(choice: TourChoice): HandoffTarget | null {
+  if (choice.kind === 'one') return { targetType: 'tour', targetPath: tourPath(choice.tour) };
+  if (choice.kind !== 'ambiguous') return null;
+  const first = choice.candidates[0]?.place ?? null;
+  if (!first) return null;
+  const samePlace = choice.candidates.every((c) => c.place?.id === first.id);
+  return samePlace ? { targetType: 'place', targetPath: `${ruPlacePath(first)}#tours` } : null;
 }
 
 export async function handoffTargetForTool(
@@ -57,15 +79,13 @@ export async function handoffTargetForTool(
     case 'get_tour_details': {
       const q = str(args.name) || str(args.query);
       if (!q) return null;
-      const tour = await resolveTourByQuery(q);
-      return tour ? { targetType: 'tour', targetPath: tourPath(tour) } : null;
+      return tourChoiceTarget(await resolveTourChoice(q));
     }
 
     case 'get_tour_availability': {
       const q = str(args.tour);
       if (!q) return null;
-      const tour = await resolveTourByQuery(q);
-      return tour ? { targetType: 'tour', targetPath: tourPath(tour) } : null;
+      return tourChoiceTarget(await resolveTourChoice(q));
     }
 
     case 'get_guardian_context':

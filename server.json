@@ -3,7 +3,7 @@
   "name": "ru.vedarai/mcp",
   "title": "Vedar — Kamchatka travel",
   "description": "Kamchatka, Russia travel: tours, hotels, transfers, volcano status, safety, booking requests",
-  "version": "2.7.0",
+  "version": "2.9.1",
   "websiteUrl": "https://vedarai.ru/mcp",
   "repository": {
     "url": "https://github.com/tourhabk-ui/pos",

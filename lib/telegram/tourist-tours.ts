@@ -14,6 +14,8 @@ import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy, OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { tourPath } from '@/lib/tours/tour-url';
 
 /** Сколько туров называем вместе с карточкой. Остальные — числом, без имён и цен. */
@@ -67,6 +69,12 @@ export interface CatalogTour {
   /** partners.slug. Пауза проката прячет этого партнёра из источников ответа. */
   operator_slug?: string | null;
   operator_name?: string | null;
+  /** Ближайшая свободная дата (lib/tours/nearest-free-date) — ключ правила 1в. */
+  nearest_free_date?: string | null;
+  /** operator_tours.main_place_id — записанное главное место тура. */
+  main_place_id?: string | null;
+  /** Адрес карточки главного места (slug, ark_id или id), если оно видимо. */
+  main_place_ref?: string | null;
 }
 
 export interface CatalogFacts {
@@ -240,8 +248,6 @@ function touristPrice(tour: CatalogTour): string {
   );
 }
 
-const SHOWCASE_LIMIT = 40;
-
 /**
  * Чем сужать каталог.
  *
@@ -392,7 +398,7 @@ export function pickToursForAnswer(
   const today = calendarDay(now);
   const lookup = showcaseLookup(question);
   const matched = selectTours(question, loaded.tours).filter((tour) => onSite(tour, now));
-  const sawAll = loaded.complete !== false && (lookup.kind !== 'general' || loaded.tours.length < SHOWCASE_LIMIT);
+  const sawAll = loaded.complete !== false;
   if (lookup.kind !== 'general' && matched.length === 0 && loaded.tours.length > 0) {
     if (!sawAll) return empty;
     const line = lookup.kind === 'volcano'
@@ -467,7 +473,7 @@ export function catalogFacts(
     : 'Месяц в вопросе не назван. Называю только туры, чей сезон идёт сегодня.';
   const rows = show.map((tour) => {
     const windowNote = modelWindow(missedMonths(tour, months, window));
-    return `«${tour.title}»: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
+    return `«${tour.title}»${tour.operator_name ? ` (${tour.operator_name})` : ''}: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
   });
   const more = picked.unnamedMore > 0
     ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю.`
@@ -481,9 +487,13 @@ export function catalogFacts(
 
   const htmlRows = show.map((tour) => {
     const aside = humanWindow(missedMonths(tour, months, window));
-    return `<a href="${tourUrl(tour)}">${escapeHtml(tour.title)}</a> — ${escapeHtml(daysPhrase(tour))}, ${escapeHtml(seasonPhrase(tour))}, ${escapeHtml(endSentence(touristPrice(tour)))}${aside ? ` ${escapeHtml(aside)}` : ''}`;
+    // Компания — у каждого тура: туры к одному месту продают разные компании (29.10).
+    const company = tour.operator_name ? ` — ${escapeHtml(tour.operator_name)}` : '';
+    return `<a href="${tourUrl(tour)}">${escapeHtml(tour.title)}</a>${company} — ${escapeHtml(daysPhrase(tour))}, ${escapeHtml(seasonPhrase(tour))}, ${escapeHtml(endSentence(touristPrice(tour)))}${aside ? ` ${escapeHtml(aside)}` : ''}`;
   });
-  const html = [`<b>Из каталога Ведара</b>`, ...htmlRows].join('\n');
+  // Правило порядка названо и в кнопке «Туры» (§0, ревью 29.10).
+  const order = show.length > 1 || picked.unnamedMore > 0 ? [`<i>${escapeHtml(OFFER_ORDER_NOTE_SHORT_RU)}</i>`] : [];
+  const html = [`<b>Из каталога Ведара</b>`, ...htmlRows, ...order].join('\n');
   const inline = {
     inline_keyboard: show.map((tour) => [{ text: buttonLabel(tour), url: tourUrl(tour) }]),
   };
@@ -494,46 +504,48 @@ const SHOWCASE_SELECT = `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.pric
               ot.activity_type, ot.location_name, LEFT(ot.description, 400) AS description,
               concat_ws(' ', ot.title, ot.location_name, coalesce(ot.description, '')) AS match_text,
               ot.season_start::text AS season_start, ot.season_end::text AS season_end,
-              p.slug AS operator_slug, p.name AS operator_name
+              p.slug AS operator_slug, p.name AS operator_name,
+              ${nearestFreeDateSql('ot')} AS nearest_free_date,
+              ot.main_place_id,
+              (SELECT COALESCE(NULLIF(pl.slug, ''), pl.ark_id::text, pl.id)
+                 FROM places pl
+                WHERE pl.id = ot.main_place_id AND pl.is_visible = TRUE AND pl.merged_into_id IS NULL) AS main_place_ref
          FROM operator_tours ot
          JOIN partners p ON p.id = ot.operator_id
         WHERE ${publicTourSql('ot')}`;
 
-/** Запрос витрины: место и вид ищутся по всему каталогу, не по 40 самым длинным. */
+/**
+ * Запрос витрины: место и вид ищутся по всему каталогу. Порядка и среза в
+ * SQL нет (слово владельца 29.10, «1в»): до 29.10 здесь стояли «многодневные
+ * первыми, затем дешёвые» и срез 40 — порядок, которого турист не видел и
+ * проверить не мог. Порядок задаёт правило 1в в loadShowcaseTours.
+ */
 export function showcaseQuery(question: string): { sql: string; params: unknown[] } {
-  const order = 'ORDER BY ot.multi_day_count DESC NULLS LAST, ot.base_price ASC NULLS LAST';
   const lookup = showcaseLookup(question);
   if (lookup.kind === 'volcano') {
     return {
       sql: `${SHOWCASE_SELECT}
-          AND translate(concat_ws(' ', ot.title, ot.location_name, coalesce(ot.description, '')), 'Ёё', 'Ее') ILIKE ANY($1::text[])
-        ${order}
-        LIMIT ${SHOWCASE_LIMIT}`,
+          AND translate(concat_ws(' ', ot.title, ot.location_name, coalesce(ot.description, '')), 'Ёё', 'Ее') ILIKE ANY($1::text[])`,
       params: [lookup.patterns],
     };
   }
   if (lookup.kind === 'activity') {
     return {
       sql: `${SHOWCASE_SELECT}
-          AND (ot.activity_type = $1 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $2)
-        ${order}
-        LIMIT ${SHOWCASE_LIMIT}`,
+          AND (ot.activity_type = $1 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $2)`,
       params: [lookup.type, `%${lookup.word}%`],
     };
   }
-  return {
-    sql: `${SHOWCASE_SELECT}
-        ${order}
-        LIMIT ${SHOWCASE_LIMIT}`,
-    params: [],
-  };
+  return { sql: SHOWCASE_SELECT, params: [] };
 }
 
 export async function loadShowcaseTours(question = ''): Promise<{ ok: true; tours: CatalogTour[]; complete: boolean } | { ok: false }> {
   try {
     const { sql, params } = showcaseQuery(question);
     const { rows } = await pool.query<CatalogTour>(sql, params);
-    return { ok: true, tours: rows, complete: rows.length < SHOWCASE_LIMIT };
+    // Среза нет — список полный всегда; порядок — правило 1в.
+    const tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null }));
+    return { ok: true, tours, complete: true };
   } catch (err) {
     const code = (err as { code?: string } | null)?.code;
     console.error('[tourist-tours] каталог не прочитан', code ? `SQLSTATE ${code}` : (err instanceof Error ? err.message.slice(0, 200) : 'нет SQLSTATE'));

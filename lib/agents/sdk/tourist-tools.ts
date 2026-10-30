@@ -18,7 +18,22 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
 import { priceFromUnit } from '@/lib/tours/price-label';
+import { unlimitedGroupSentence } from '@/lib/tours/group-size';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { OFFER_ORDER_NOTE_AGENT, orderOffersBy } from '@/lib/tours/offer-order';
+
+/**
+ * Группа тура для агента (1342): у тура без предела — «не ограничена» и
+ * потолок одной заявки, иначе — прежний диапазон «мин-макс».
+ */
+function groupField(r: Record<string, unknown>): string {
+  if (r.group_size_unlimited === true) {
+    const max = typeof r.max_participants === 'number' || typeof r.max_participants === 'string' ? r.max_participants : null;
+    return unlimitedGroupSentence(max).replace(/\.$/, '');
+  }
+  return `${r.min_participants}-${r.max_participants} чел.`;
+}
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -112,13 +127,12 @@ const searchTours: SDKTool = {
     }
 
     const limit = Math.min(Number(args.limit) || 5, 10);
-    params.push(limit);
 
     const sql = `
       SELECT t.id, t.title, t.base_price, t.activity_type,
              ${DURATION_EXPR} AS duration_days,
              t.difficulty, t.location_name,
-             t.min_participants, t.max_participants,
+             t.min_participants, t.max_participants, t.group_size_unlimited,
              t.available_slots, t.next_available_date,
              COALESCE(p.company_name, p.name) AS operator_name,
              -- Рейтинг — денормализованные колонки тура: их пересчитывает
@@ -127,12 +141,11 @@ const searchTours: SDKTool = {
              -- reviews сравнивал uuid с bigint (42883) и ронял ВЕСЬ запрос:
              -- поиск туров у Кузьмича не работал никогда.
              t.rating AS avg_rating,
-             t.review_count AS review_count
+             t.review_count AS review_count,
+             ${nearestFreeDateSql('t')} AS nearest_free_date
       FROM operator_tours t
       JOIN partners p ON p.id = t.operator_id
       WHERE ${conditions.join(' AND ')}
-      ORDER BY t.base_price ASC
-      LIMIT $${idx}
     `;
 
     try {
@@ -140,9 +153,17 @@ const searchTours: SDKTool = {
       if (result.rows.length === 0) {
         return JSON.stringify({ found: 0, message: 'Туров по таким критериям не найдено. Попробуй расширить параметры поиска.' });
       }
+      // Порядок — правило 1в (слово владельца 29.10), а не «дешевле выше»;
+      // потолок — после порядка, и число всех найденных называется.
+      const ordered = orderOffersBy(result.rows as Record<string, unknown>[], (r) => ({
+        id: String(r.id),
+        nearestFreeDate: typeof r.nearest_free_date === 'string' ? r.nearest_free_date : null,
+      }));
       return JSON.stringify({
-        found: result.rows.length,
-        tours: result.rows.map((r: Record<string, unknown>) => ({
+        found: ordered.length,
+        shown: Math.min(limit, ordered.length),
+        order: OFFER_ORDER_NOTE_AGENT,
+        tours: ordered.slice(0, limit).map((r: Record<string, unknown>) => ({
           id: r.id,
           title: r.title,
           price: `${r.base_price} руб.`,
@@ -150,14 +171,17 @@ const searchTours: SDKTool = {
           duration: `${r.duration_days} дн.`,
           difficulty: r.difficulty,
           location: r.location_name,
-          group: `${r.min_participants}-${r.max_participants} чел.`,
+          group: groupField(r),
           // НЕ «свободно»: available_slots — денормализованная вместимость
           // тура, с бронями её никто не сверяет. Занятость даёт только
           // check_availability (расчёт планера). Обещать места отсюда —
           // ровно то, за что находка аудита 08.09 поймала соседний инструмент.
           capacity_hint: r.available_slots ? `вместимость ${r.available_slots}` : 'уточняйте',
           free_places: 'не проверено — спроси check_availability',
-          next_date: r.next_available_date ?? 'уточняйте',
+          // Ближайшая дата со свободными местами — то же условие, что у
+          // порядка (lib/tours/nearest-free-date); денормализованная
+          // next_available_date могла устареть.
+          next_date: r.nearest_free_date ?? 'свободной даты в календаре нет — уточняйте',
           operator: r.operator_name,
           rating: r.avg_rating ? `${r.avg_rating}/5 (${r.review_count} отзывов)` : 'нет отзывов',
         })),
@@ -187,7 +211,7 @@ const getTourDetails: SDKTool = {
                ${DURATION_EXPR} AS duration_days,
                t.difficulty, t.location_name,
                t.included, t.not_included, t.what_to_bring,
-               t.min_participants, t.max_participants,
+               t.min_participants, t.max_participants, t.group_size_unlimited,
                t.available_slots, t.next_available_date,
                t.season_start, t.season_end,
                t.tour_image,
@@ -213,7 +237,7 @@ const getTourDetails: SDKTool = {
         included: t.included,
         not_included: t.not_included,
         what_to_bring: t.what_to_bring,
-        group: `${t.min_participants}-${t.max_participants} чел.`,
+        group: groupField(t),
         capacity_hint: t.available_slots ? `вместимость ${t.available_slots}` : 'уточните у оператора',
         free_places: 'не проверено — спроси check_availability',
         next_date: t.next_available_date ?? 'уточните у оператора',
@@ -307,56 +331,48 @@ const checkAvailability: SDKTool = {
 
 // ── Compare Tours ─────────────────────────────────────────────────
 
+/**
+ * Сравнение — то же ядро, что у Кузьмича и MCP (lib/kuzmich/tour-compare-tool),
+ * а не своя копия. Прежняя копия здесь печатала «null руб.» у тура без цены,
+ * выдумывала «1 дн.» длительности (COALESCE(..., 1)), брала устаревшую
+ * available_slots, рейтинг, порядок из SQL и молча выбрасывала снятый тур —
+ * второе правило сравнения тех же туров на том же сайте (29.10).
+ */
+/**
+ * Ядро сравнения называет инструменты общих каналов (Кузьмич, MCP). В этом
+ * наборе их часть зовётся иначе, а части нет вовсе — агент чата получает
+ * карту рядом с ответом, а не идёт по имени, которого здесь нет (ревью 29.10).
+ */
+export const SDK_COMPARE_TOOLS_HERE =
+  'Имена инструментов в тексте сравнения — из общих каналов Ведара. В этом чате: номера туров — search_tours, '
+  + 'даты и итог на другую дату — check_availability, детали тура — get_tour_details; '
+  + 'get_tours, get_place_info, get_tour_availability, create_booking_request и get_guardian_context здесь нет.';
+
 const compareTours: SDKTool = {
   name: 'compare_tours',
-  description: 'Сравнить 2-3 тура по цене, продолжительности, сложности, рейтингу.',
+  description: 'Сравнить 2–4 тура фактами из базы рядом: цена (с числом людей — итог тем же расчётом, что заявка), длительность, даты, что входит, условия отмены, как попасть на тур, оператор. Без оценок и рейтинга: порядок — как назвал турист, выбирает он.',
   parameters: {
     type: 'object',
     properties: {
-      tour_ids: { type: 'string', description: 'ID туров через запятую (например "12,34,56")' },
+      tour_ids: { type: 'string', description: 'ID туров через запятую в порядке, как назвал турист (например "12,34")' },
+      criteria: { type: 'string', description: 'Что важно туристу, через запятую: цена, длительность, группа, сложность, сезон, программа, что входит, что не входит, отмена, подвоз, оператор, ближайшая дата' },
+      people: { type: 'string', description: 'Сколько человек (1–30) — для итога за всех' },
     },
     required: ['tour_ids'],
   },
   execute: async (args) => {
-    const ids = String(args.tour_ids).split(',').map(s => Number(s.trim())).filter(n => n > 0).slice(0, 3);
-    if (ids.length < 2) return JSON.stringify({ error: 'Нужно минимум 2 ID тура для сравнения' });
-
     try {
-      const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-      const result = await pool.query(`
-        SELECT t.id, t.title, t.base_price,
-               ${DURATION_EXPR} AS duration_days,
-               t.difficulty, t.activity_type, t.location_name,
-               t.included, t.available_slots,
-               COALESCE(p.company_name, p.name) AS operator_name,
-               -- Та же замена, что в search_tours выше: подзапрос к старой
-               -- reviews (uuid против bigint, 42883) ронял всё сравнение.
-               t.rating AS avg_rating,
-               t.review_count AS review_count
-        FROM operator_tours t
-        JOIN partners p ON p.id = t.operator_id
-        WHERE t.id IN (${placeholders}) AND ${ON_SHOWCASE}
-      `, ids);
-
-      return JSON.stringify({
-        comparison: result.rows.map((t: Record<string, unknown>) => ({
-          id: t.id,
-          title: t.title,
-          price: `${t.base_price} руб.`,
-          duration: `${t.duration_days} дн.`,
-          difficulty: t.difficulty,
-          activity: t.activity_type,
-          location: t.location_name,
-          operator: t.operator_name,
-          capacity_hint: t.available_slots ?? 'уточните',
-          free_places: 'не проверено — спроси check_availability',
-          rating: t.avg_rating ? `${t.avg_rating}/5 (${t.review_count})` : 'нет отзывов',
-          included: t.included,
-        })),
+      const { compareToursForKuzmich } = await import('@/lib/kuzmich/tour-compare-tool');
+      // Ядро в отказе просит «поле tours» — оно принимается и здесь (ревью 29.10).
+      const comparison = await compareToursForKuzmich({
+        tours: String(args.tour_ids ?? args.tours ?? ''),
+        ...(args.criteria != null ? { criteria: String(args.criteria) } : {}),
+        ...(args.people != null ? { people: String(args.people) } : {}),
       });
+      return JSON.stringify({ comparison, tools_here: SDK_COMPARE_TOOLS_HERE });
     } catch (err) {
       logSwallowedFailure('tourist-tools', 'сравнение туров', err);
-      return JSON.stringify({ error: 'Ошибка сравнения' });
+      return JSON.stringify({ error: 'Сравнение не собрано: туры не прочитались. Не сравнивай по памяти — скажи, что проверить не смог.' });
     }
   },
 };

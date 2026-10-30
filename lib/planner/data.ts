@@ -9,6 +9,8 @@ import type { ZoneId } from '@/lib/planner/engine';
 import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { orderOffersBy } from '@/lib/tours/offer-order';
 import type { SelfSafetyRow } from '@/lib/planner/travel-style';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -107,7 +109,12 @@ export interface ReviewSignal {
 // ── Queries ──────────────────────────────────────────────────────────────────
 
 /**
- * Fetch real operator tours for a zone+activity, sorted by rating (not random).
+ * Туры зоны и вида — порядком правила 1в (слово владельца 29.10, lib/tours/
+ * offer-order): сначала со свободной датой по ближайшему выезду, остальные —
+ * жребием дня. До 29.10 здесь стояли рейтинги и `RANDOM()`: план на одних и
+ * тех же данных менялся от запроса к запросу, а рейтинг поднимал туры по
+ * оценкам, которых у большинства нет. Порядок считается в TypeScript после
+ * SQL, потолок `limit` отрезается после порядка.
  *
  * ── `null` — это «не смогли спросить», и оно НЕ равно пустому списку ─────
  *
@@ -135,6 +142,7 @@ export async function fetchRealToursForZone(
         tour_id: string;
         title: string;
         short_description: string | null;
+        nearest_free_date: string | null;
         base_price: string;
         price_unit: string;
         max_participants: number;
@@ -173,24 +181,22 @@ export async function fetchRealToursForZone(
           p.name AS operator_name, p.slug AS operator_slug,
           COALESCE(p.rating, 0) AS operator_rating,
           COALESCE(p.review_count, 0) AS operator_review_count,
-          COALESCE(p.is_verified, false) AS operator_verified
+          COALESCE(p.is_verified, false) AS operator_verified,
+          ${nearestFreeDateSql('ot')} AS nearest_free_date
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         WHERE (ark.zone = $1 OR $1 = 'avachinsky')
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
-          AND p.is_public = TRUE
-        ORDER BY
-          COALESCE(ot.rating, 0) DESC,
-          COALESCE(p.rating, 0) DESC,
-          ot.review_count DESC NULLS LAST,
-          RANDOM()
-        LIMIT $3`,
-        [zone, rawTypesFor(activityType), limit]
+          AND p.is_public = TRUE`,
+        [zone, rawTypesFor(activityType)]
       );
 
-      return rows.map(r => ({
+      const ordered = orderOffersBy(rows, r => ({ id: String(r.tour_id), nearestFreeDate: r.nearest_free_date ?? null }))
+        .slice(0, Math.max(0, limit));
+
+      return ordered.map(r => ({
         tourId: r.tour_id,
         title: r.title,
         shortDescription: r.short_description,

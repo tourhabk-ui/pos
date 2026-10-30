@@ -36,10 +36,9 @@ describe('роут погоды', () => {
     expect(route).not.toMatch(/temperature:\s*15\b/);
   });
 
-  it('видимость и дневная влажность Open-Meteo берутся из почасовых рядов', () => {
-    expect(route).toMatch(/hourlyVisibilityKm\(hourly\.time, hourly\.visibility, current\.time\)/);
-    expect(route).toMatch(/meanHourlyForDate\(hourly\.time, hourly\.relative_humidity_2m/);
-  });
+  // Видимость текущего часа и дневная влажность из почасовых рядов Open-Meteo
+  // с 29.10 (#2289, путь через общий прогноз) судятся вызовом роута —
+  // open-meteo-one-path.test.ts, а не строкой исходника.
 
   it('пороги видимости не срабатывают при неизвестной видимости', () => {
     expect(route).toMatch(/visibility: number \| null/);

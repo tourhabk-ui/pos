@@ -44,7 +44,7 @@ const req = (qs = '', auth = true) => new NextRequest(
 );
 
 /** Ответы БД по признаку в SQL — порядок Promise.all не важен. */
-function mockDb(overrides: Partial<Record<'tg' | 'tgDaily' | 'web' | 'llm' | 'llmModels' | 'answerTime', unknown[] | Error>> = {}) {
+function mockDb(overrides: Partial<Record<'tg' | 'tgDaily' | 'web' | 'llm' | 'llmModels' | 'kuzmichUsage' | 'answerTime', unknown[] | Error>> = {}) {
   const pick = (key: keyof typeof overrides, def: unknown[]) => {
     const v = overrides[key];
     if (v instanceof Error) return Promise.reject(v);
@@ -55,6 +55,7 @@ function mockDb(overrides: Partial<Record<'tg' | 'tgDaily' | 'web' | 'llm' | 'll
     if (sql.includes('FROM tg_conversations')) return pick('tg', []);
     if (sql.includes('FROM chat_sessions')) return pick('web', []);
     if (sql.includes('FROM llm_usage_log') && sql.includes('GROUP BY route')) return pick('llmModels', []);
+    if (sql.includes('FROM llm_usage_log') && sql.includes('ROLLUP')) return pick('kuzmichUsage', []);
     if (sql.includes('FROM llm_usage_log')) return pick('llm', []);
     if (sql.includes('FROM ai_actions_log')) return pick('answerTime', []);
     return Promise.reject(new Error(`непредусмотренный запрос: ${sql.slice(0, 60)}`));
@@ -132,8 +133,9 @@ describe('три исхода, а не два', () => {
         { platform: null, mode: 'max', user_messages: 3, assistant_messages: 3, chats: 1, short_user_messages: 0, first: 'a', last: 'b' },
       ],
       llm: [
-        { untracked: true, calls: 120, tokens: 90000, known_cost_usd: 0.42, calls_unknown_price: 7 },
-        { untracked: false, calls: 30, tokens: 400000, known_cost_usd: 3.1, calls_unknown_price: 0 },
+        { bucket: 'no_agent', calls: 120, tokens: 90000, known_cost_usd: 0.42, calls_unknown_price: 7 },
+        { bucket: 'other_agent', calls: 30, tokens: 400000, known_cost_usd: 3.1, calls_unknown_price: 0 },
+        { bucket: 'kuzmich', calls: 55, tokens: 1200000, known_cost_usd: null, calls_unknown_price: 55 },
       ],
     });
     const res = await GET(req('?days=7'));
@@ -142,21 +144,23 @@ describe('три исхода, а не два', () => {
     expect(body.success).toBe(true);
     expect(body.window_days).toBe(7);
     expect(body.telegram_max.data[1].platform).toBe('(platform не записан)');
-    expect(body.llm.data.untracked_upper_bound_for_kuzmich).toEqual({ calls: 120, tokens: 90000, known_cost_usd: 0.42, calls_unknown_price: 7 });
-    expect(body.llm.data.attributed_to_agents.calls).toBe(30);
+    expect(body.llm.data.without_agent).toEqual({ calls: 120, tokens: 90000, known_cost_usd: 0.42, calls_unknown_price: 7 });
+    expect(body.llm.data.attributed_to_other_agents.calls).toBe(30);
+    expect(body.llm.data.kuzmich_tools_loop).toEqual({ calls: 55, tokens: 1200000, known_cost_usd: null, calls_unknown_price: 55 });
   });
 
   it('вызовов не было — потрачен известный ноль, а не «цена неизвестна»', async () => {
     mockDb();
     const body = await (await GET(req())).json();
-    expect(body.llm.data.untracked_upper_bound_for_kuzmich).toEqual({ calls: 0, tokens: 0, known_cost_usd: 0, calls_unknown_price: 0 });
+    expect(body.llm.data.without_agent).toEqual({ calls: 0, tokens: 0, known_cost_usd: 0, calls_unknown_price: 0 });
+    expect(body.llm.data.kuzmich_tools_loop).toEqual({ calls: 0, tokens: 0, known_cost_usd: 0, calls_unknown_price: 0 });
   });
 
   it('цены у всех строк нет — null остаётся null, не превращается в ноль', async () => {
-    mockDb({ llm: [{ untracked: true, calls: 4, tokens: 100, known_cost_usd: null, calls_unknown_price: 4 }] });
+    mockDb({ llm: [{ bucket: 'no_agent', calls: 4, tokens: 100, known_cost_usd: null, calls_unknown_price: 4 }] });
     const body = await (await GET(req())).json();
-    expect(body.llm.data.untracked_upper_bound_for_kuzmich.known_cost_usd).toBeNull();
-    expect(body.llm.data.untracked_upper_bound_for_kuzmich.calls_unknown_price).toBe(4);
+    expect(body.llm.data.without_agent.known_cost_usd).toBeNull();
+    expect(body.llm.data.without_agent.calls_unknown_price).toBe(4);
   });
 
   it('отказ одного раздела — 502 и имя раздела, остальные на месте', async () => {
@@ -209,5 +213,71 @@ describe('род роута объявлен', () => {
     expect(decl.kind).toBe('manual');
     expect(decl.writes).toBe(false);
     expect(DECLARED['kuzmich-load-census']).toBeTruthy();
+  });
+});
+
+describe('расход цикла Кузьмича (шаг 0 разбора 29.10)', () => {
+  const row = (over: Record<string, unknown>) => ({
+    provider: null, is_total: false, calls: 0, p50_input_tokens: null, p95_input_tokens: null, max_input_tokens: null,
+    input_tokens: 0, cache_read_tokens: null, cache_reported_calls: 0, input_tokens_where_cache_reported: null,
+    completion_tokens: 0, ...over,
+  });
+
+  it('«верхней границы» больше нет: строки без agent_id не выдаются за расход Кузьмича', async () => {
+    mockDb();
+    const body = await (await GET(req())).json();
+    expect(body.llm.data).not.toHaveProperty('untracked_upper_bound_for_kuzmich');
+    expect(JSON.stringify(body.caveats)).not.toMatch(/ВЕРХНЯЯ граница/);
+    // Корзина Кузьмича выбирается по его agent_id, параметром.
+    const call = query.mock.calls.find((c) => String(c[0]).includes('FROM llm_usage_log') && String(c[0]).includes('CASE WHEN agent_id'));
+    expect(call![1]).toEqual([30, 'kuzmich']);
+  });
+
+  it('строк kuzmich нет — «учёт ещё пуст», а не нули', async () => {
+    mockDb({ kuzmichUsage: [] });
+    const body = await (await GET(req())).json();
+    expect(body.kuzmich_usage.refused).toBe(false);
+    expect(body.kuzmich_usage.data.empty).toBe(true);
+    expect(body.kuzmich_usage.data.note).toMatch(/учёт ещё пуст/);
+    expect(body.kuzmich_usage.data).not.toHaveProperty('total');
+  });
+
+  it('вход p50/p95, доля кэша только по назвавшим кэш, доли провайдеров', async () => {
+    mockDb({
+      kuzmichUsage: [
+        row({ is_total: true, calls: 4, p50_input_tokens: 10000, p95_input_tokens: 11700, max_input_tokens: 12000,
+          input_tokens: 37000, cache_read_tokens: 17000, cache_reported_calls: 3, input_tokens_where_cache_reported: 25000, completion_tokens: 260 }),
+        row({ provider: 'deepseek', calls: 2, p50_input_tokens: 10000, p95_input_tokens: 10000, input_tokens: 20000,
+          cache_read_tokens: 17000, cache_reported_calls: 2, input_tokens_where_cache_reported: 20000, completion_tokens: 200 }),
+        row({ provider: 'qwen', calls: 1, p50_input_tokens: 12000, p95_input_tokens: 12000, input_tokens: 12000, completion_tokens: 50 }),
+        row({ provider: 'openrouter', calls: 1, input_tokens: 5000, cache_read_tokens: 0, cache_reported_calls: 1,
+          input_tokens_where_cache_reported: 5000, completion_tokens: 10 }),
+      ],
+    });
+    const body = await (await GET(req('?days=7'))).json();
+    const d = body.kuzmich_usage.data;
+    expect(d.empty).toBe(false);
+    expect(d.total).toMatchObject({ calls: 4, p50_input_tokens: 10000, p95_input_tokens: 11700, cache_read_share: 0.68, calls_cache_unknown: 1 });
+    expect(d.by_provider.map((p: { provider: string; share_of_calls: number }) => [p.provider, p.share_of_calls]))
+      .toEqual([['deepseek', 0.5], ['qwen', 0.25], ['openrouter', 0.25]]);
+    // Qwen кэш не назвал — доля «не знаю», а не ноль; OpenRouter назвал ноль — ноль.
+    expect(d.by_provider[1].cache_read_share).toBeNull();
+    expect(d.by_provider[2].cache_read_share).toBe(0);
+  });
+
+  it('по поверхностям — вход ответа из замера kuzmich_answer, неполные суммы отдельно', async () => {
+    mockDb({
+      answerTime: [{ surface: 'telegram', path: 'tools', answers: 10, p50_ms: 1, p95_ms: 2, max_ms: 3, avg_turns: 1.2, ceiling_hits: 0,
+        answers_with_tokens: 8, answers_tokens_partial: 1, p50_input_tokens: 24000, p95_input_tokens: 47000, p95_max_call_input_tokens: 26000 }],
+    });
+    const body = await (await GET(req())).json();
+    expect(body.answer_time.data[0]).toMatchObject({ surface: 'telegram', p50_input_tokens: 24000, p95_input_tokens: 47000, answers_tokens_partial: 1 });
+  });
+
+  it('расход не прочитался — 502 и имя раздела', async () => {
+    mockDb({ kuzmichUsage: new Error('column "cache_read_tokens" does not exist') });
+    const res = await GET(req());
+    expect(res.status).toBe(502);
+    expect((await res.json()).refused_sections).toEqual(['kuzmich_usage']);
   });
 });

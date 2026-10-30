@@ -198,7 +198,7 @@ describe('каждый публичный роут туров спрашивае
 // Проверка MCP 29.09: публичный MCP и Кузьмич — тоже витрина. Резолвер тура
 // смотрел только is_active и deleted_at: черновик находился картой и заявкой.
 describe('туры на пути Кузьмича и MCP — через тот же шлюз', () => {
-  const FILES = ['lib/kuzmich/tour-availability-tool.ts', 'lib/kuzmich/core.ts'];
+  const FILES = ['lib/kuzmich/tour-availability-tool.ts', 'lib/kuzmich/core.ts', 'lib/kuzmich/tour-compare-tool.ts'];
   it('каждый FROM operator_tours в них зовёт publicTourSql', () => {
     for (const f of FILES) {
       const src = readFileSync(join(process.cwd(), f), 'utf-8');
@@ -410,7 +410,8 @@ const MOVED_TO_GATE = [
   'lib/agents/sdk/tourist-tools.ts',
   'app/_home/data.ts',
   'lib/operators/list-query.ts',
-  'lib/places/place-detail.ts',
+  // 29.10: «Туры сюда» переехали из карточки места в свой загрузчик.
+  'lib/places/place-tours.ts',
   // Ревью #2642: подпись кабинета «Черновик — туристы не видят» правдива,
   // только если черновик не уходит туристу ни одним отбором.
   'app/api/ai/knowledge-base/route.ts',
@@ -543,7 +544,10 @@ describe('переведённые читатели — поведением: в
       return { rows: [] };
     });
     await getRecommendations('00000000-0000-4000-8000-000000000001', 6);
-    const candidates = sentQuery().filter((s) => /\bLIMIT\s+\$\d/.test(s) && !/FROM operator_bookings\s+WHERE user_id/.test(s));
+    // С 29.10 (правило 1в) у кандидатов нет LIMIT — потолок после порядка в
+    // TypeScript; кандидат — чтение тура, кроме профиля и видов туриста.
+    const candidates = sentQuery().filter((s) => /\b(?:FROM|JOIN)\s+operator_tours\b/.test(s)
+      && !/AVG\(base_price\)/.test(s) && !/SELECT DISTINCT activity_type AS category/.test(s));
     // похожие, по содержимому, эко и запасной список
     expect(candidates).toHaveLength(4);
     expect(candidates[0]).toContain(publicTourSql('t'));
@@ -568,10 +572,19 @@ describe('переведённые читатели — поведением: в
     await run('search_tours', {});
     await run('get_tour_details', { tour_id: '1' });
     await run('check_availability', { tour_id: '1' });
-    await run('compare_tours', { tour_ids: '1,2' });
     const sent = sentPool();
-    expect(sent).toHaveLength(4);
+    expect(sent).toHaveLength(3);
     for (const s of sent) expect(s).toContain(publicTourSql('t'));
+    // Сравнение — общее ядро compare_tours (29.10): каждый тур ищет резолвер
+    // Кузьмича со шлюзом витрины, и тур, которого витрина не отдала, назван
+    // «не найден среди активных», а не выброшен молча.
+    poolQueryMock.mockClear();
+    const cmp = JSON.parse(await run('compare_tours', { tour_ids: '1,2' })) as { comparison?: string };
+    const cmpSent = sentPool();
+    expect(cmpSent.length).toBeGreaterThan(0);
+    for (const s of cmpSent.filter((q) => /\b(?:FROM|JOIN)\s+operator_tours\b/.test(q))) expect(s).toContain(publicTourSql('ot'));
+    expect(cmp.comparison).toContain('Тур по запросу "1" не найден среди активных — в сравнение не взят.');
+    expect(cmp.comparison).toContain('Тур по запросу "2" не найден среди активных — в сравнение не взят.');
   });
 });
 
@@ -620,8 +633,9 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'app/fish/[id]/page.tsx': 'туры на странице вида рыбы',
   'app/hub/fishing/page.tsx': 'витрина рыбалки',
   'app/operators/[slug]/page.tsx': 'страница оператора',
+  'app/guides/[id]/page.tsx': 'страница гида: счёт его собственных туров (1338)',
   'lib/operators/list-query.ts': 'список компаний /operators, факты из живых туров',
-  'lib/places/place-detail.ts': '«Туры сюда» на карточке места',
+  'lib/places/place-tours.ts': '«Туры сюда» на карточке места (все предложения, правило 1в)',
   // Поиск /api/discovery/search
   'app/api/discovery/search/route.ts': 'поиск туров по AI-тегам',
   'lib/services/tours/tour.service.ts': 'поиск туров по словам и фильтрам',
@@ -638,6 +652,7 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'lib/kuzmich/core.ts': 'общий мозг Кузьмича',
   'lib/kuzmich/tour-availability-tool.ts': 'инструмент дат Кузьмича',
   'lib/agents/sdk/tourist-tools.ts': 'инструменты туриста: поиск, подробности, даты, сравнение',
+  'lib/kuzmich/tour-compare-tool.ts': 'сравнение 2–4 туров для Кузьмича, MCP и A2A (compare_tours)',
   'lib/ai/booking-intent.ts': 'туры в чате по намерению',
   'lib/telegram/tourist-tours.ts': 'кнопки туров в Telegram-боте туриста',
   'lib/kuzmich/engagement.ts': 'напоминание туристу о туре в Telegram',
@@ -804,7 +819,9 @@ describe('отборы ревью #2642 — поведением: в отпра�
     expect((await GET(new NextRequest('http://localhost/api/discovery/search?landscape=volcano'))).status).toBe(200);
     expectGated(sentQuery(), 'ai_tags');
     expect((await GET(new NextRequest('http://localhost/api/discovery/search?q=%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD'))).status).toBe(200);
-    expect(sentPool()).toHaveLength(2); // счёт и выдача
+    // Выдача одним запросом: число — длина отобранного списка, страница режется
+    // после порядка правила 1в (29.10), отдельного счёта нет.
+    expect(sentPool()).toHaveLength(1);
     expectGated(sentPool(), 'поиск по словам');
   });
 
@@ -954,16 +971,17 @@ describe('отборы ревью #2642 — поведением: в отпра�
       poolQueryMock.mockResolvedValue({ rows: [{ total: 0 }], rowCount: 1 });
       const res = await search('q=x&page=10000&limit=100&minPrice=0&maxPrice=1500.5&rating=4.5');
       expect(res.status).toBe(200);
-      // [счёт, выдача]; у выдачи последние два — LIMIT и OFFSET.
-      expect(poolQueryMock.mock.calls[1][1]).toEqual(['%x%', 0, 1500.5, 4.5, 100, 999_900]);
+      // Одна выдача; страница (LIMIT/OFFSET) режется после порядка правила 1в
+      // в TypeScript (29.10), до базы доходят только фильтры — числами.
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['%x%', 0, 1500.5, 4.5]);
 
       poolQueryMock.mockClear();
       expect((await search('q=x&page=&limit=&minPrice=')).status).toBe(200);
-      expect(poolQueryMock.mock.calls[1][1]).toEqual(['%x%', 20, 0]);
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['%x%']);
 
       queryMock.mockResolvedValue(empty);
       expect((await search('landscape=volcano&page=3&limit=5')).status).toBe(200);
-      expect(queryMock.mock.calls[0][1]).toEqual(['volcano', 5, 10]);
+      expect(queryMock.mock.calls[0][1]).toEqual(['volcano']);
 
       poolQueryMock.mockClear();
       expect((await day('date=2099-02-28&activity=fishing')).status).toBe(200);

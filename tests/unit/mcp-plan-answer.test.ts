@@ -15,8 +15,15 @@
  *     числа, даты, занятия и причины.
  *  4. Строка «Изменить — edit_trip_plan …» не называла задержку рейса.
  *
- * Ревью той же правки: одиночный children «0» (и массив [0]) у агента —
- * младенец до года, а не «детей нет» молча; в чате туриста — как прежде.
+ * Ревью той же правки: одиночный children «0» у агента читался младенцем.
+ *
+ * Ловушка MCP 29.10 (безопасность): голое «12» в значении «12 детей»
+ * читалось как ребёнок 12 лет и ставило в план восхождения; «двое детей»,
+ * «6-10» и «12, малыш» давали «считаю без детей» или теряли младшего — план
+ * для взрослых. Теперь неразобранный возраст детей — отказ без плана и без
+ * черновика на всех поверхностях (MCP, A2A, чат); голое число — вопрос
+ * «возраст или число детей?», в том числе «0» у агента. Массив однозначен:
+ * [0] — младенец, [] — детей нет. «0» в чате — по-прежнему «детей нет».
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -128,9 +135,10 @@ describe('ссылка «Продолжить в Ведаре» не прили�
 });
 
 describe('make_trip_plan: поле children — возрасты, и агент это видит', () => {
-  it('MCP: children "2" — один ребёнок двух лет, всего 3 человека, прочтение поля названо', async () => {
-    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '2', budget_tier: 'эконом' });
+  it('MCP: children "2 года" — один ребёнок двух лет, всего 3 человека, прочтение поля названо', async () => {
+    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '2 года', budget_tier: 'эконом' });
     const text = r.content[0].text;
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ adults: 2, children: [2] });
     expect(text).toContain('Группа: 2 взр. и 1 ребёнок, всего 3 чел.; возраст ребёнка: 2 года (поле children — возрасты в годах через запятую, не число детей)');
     expect(text).toContain('уровень размещения «эконом»');
   });
@@ -140,9 +148,15 @@ describe('make_trip_plan: поле children — возрасты, и агент 
     expect(r.content[0].text).toContain('Группа: 2 взр. и 2 ребёнка, всего 4 чел.; возрасты детей: 6 лет, 10 лет (поле children');
   });
 
+  it('MCP: children массивом JSON [6, 10] — те же двое детей', async () => {
+    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: [6, 10] });
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ adults: 2, children: [6, 10] });
+    expect(r.content[0].text).toContain('всего 4 чел.');
+  });
+
   it('A2A — тот же исполнитель и та же строка', async () => {
     const out = await runPublicTool({
-      toolName: 'make_trip_plan', rawArguments: { days: '3', interests: 'термальные', when: '2027-07-10', children: '1' },
+      toolName: 'make_trip_plan', rawArguments: { days: '3', interests: 'термальные', when: '2027-07-10', children: '1 год' },
       ip: '10.22.1.1', userAgent: 'a2a-test', self: false,
     });
     expect(out.kind).toBe('ok');
@@ -152,38 +166,27 @@ describe('make_trip_plan: поле children — возрасты, и агент 
   });
 
   it('чат туриста: прежняя строка группы, без «поле children»', async () => {
-    const text = await executeKuzmichTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '2' });
+    const text = await executeKuzmichTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '2 года' });
     expect(text).toContain('Группа: 2 взр., ребёнок 2 лет, средняя подготовка');
     expect(text).not.toMatch(/поле children/);
   });
 
-  // Ревью 22.10: одиночный «0» читался как «детей нет» молча. Агент, следуя
-  // описанию «возрасты, не число», так передаёт младенца — и семья с ним
-  // получала план без единого возрастного допуска (медведи — с 6 лет).
-  // Массив [0] строковое поле приводит к тому же «0».
-  it.each([
-    ['строкой "0"', '0'],
-    ['массивом [0]', [0]],
-  ])('MCP: children %s — один ребёнок до года, допуски применяются, прочтение названо', async (_label, children) => {
-    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children });
+  // Массив [0] — однозначный список: младенец до года, допуски применяются.
+  // Прежде строковое поле приводило его к «0», и [0] был неотличим от голого
+  // числа (agesString сохраняет «[0]»).
+  it('MCP: children массивом [0] — один ребёнок до года, допуски применяются', async () => {
+    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: [0] });
     expect(r.isError).toBeUndefined();
-    // Движок получил младенца — от его возраста зависят допуски активностей.
     expect(recommendMock).toHaveBeenCalledTimes(1);
     expect(recommendMock.mock.calls[0][0]).toMatchObject({ adults: 2, children: [0] });
-    const text = r.content[0].text;
-    expect(text).toContain('Поле children «0» прочитал как одного ребёнка до года: поле — возрасты в годах, а не число детей. Детей нет — не передавай поле.');
-    expect(text).toContain('Группа: 2 взр. и 1 ребёнок, всего 3 чел.; возраст ребёнка: до года (поле children');
+    expect(r.content[0].text).toContain('Группа: 2 взр. и 1 ребёнок, всего 3 чел.; возраст ребёнка: до года (поле children');
   });
 
-  it('A2A: children "0" — тот же младенец и та же заметка', async () => {
-    const out = await runPublicTool({
-      toolName: 'make_trip_plan', rawArguments: { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '0' },
-      ip: '10.22.1.2', userAgent: 'a2a-test', self: false,
-    });
-    expect(out.kind).toBe('ok');
-    if (out.kind !== 'ok') return;
-    expect(recommendMock.mock.calls[0][0]).toMatchObject({ children: [0] });
-    expect(out.text).toContain('Поле children «0» прочитал как одного ребёнка до года');
+  it('MCP: children пустым массивом [] — детей нет, а не отказ схемы', async () => {
+    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: [] });
+    expect(r.isError).toBeUndefined();
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ adults: 2, children: [] });
+    expect(r.content[0].text).toContain('Группа: 2 взр., средняя подготовка');
   });
 
   it('чат туриста: «0» по-прежнему «детей нет» — Кузьмичу сказано не передавать поле без детей', async () => {
@@ -197,6 +200,71 @@ describe('make_trip_plan: поле children — возрасты, и агент 
     const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '2027-07-10', adults: '3' });
     expect(r.content[0].text).toContain('Группа: 3 взр., средняя подготовка');
     expect(r.content[0].text).not.toMatch(/поле children/);
+  });
+});
+
+describe('make_trip_plan: возраст детей не разобран — плана нет (ловушка 29.10)', () => {
+  // Живой ответ 29.10: «вулканы и медведи», июль, children "12" — день 2
+  // «Восхождение на вулкан Горелый», день 3 — Авачинский, группа «3 чел.»;
+  // «двое детей», «6-10», «12, малыш» — полный взрослый план с теми же
+  // восхождениями. Движок не должен получить ни взрослого состава, ни
+  // неполного списка.
+  it.each([
+    ['голое число «12» (возраст или 12 детей?)', '12'],
+    ['голое число строкой «2»', '2'],
+    ['голое число JSON 12', 12],
+    ['«0» у агента (младенец или детей нет?)', '0'],
+    ['«двое детей»', 'двое детей'],
+    ['диапазон «6-10»', '6-10'],
+    ['«12, малыш» — младший не разобран', '12, малыш'],
+  ])('MCP: children %s — отказ, движок не вызван, черновика нет', async (_label, children) => {
+    const r = await callTool('make_trip_plan', { days: '5', interests: 'вулканы и медведи', when: '2027-07-10', adults: '2', children });
+    expect(recommendMock).not.toHaveBeenCalled();
+    const text = r.content[0].text;
+    expect(text).toMatch(/^План не собран: /);
+    expect(text).toContain('спроси у человека возраст каждого');
+    expect(text).toMatch(/children: "12 лет" или \[12\]/);
+    expect(text).not.toMatch(/ID плана|считаю без детей|День \d/);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO trip_plan_drafts'))).toBe(false);
+  });
+
+  it('MCP: «12, малыш» называет того, кого не разобрал', async () => {
+    const r = await callTool('make_trip_plan', { days: '5', interests: 'вулканы', when: '2027-07-10', children: '12, малыш' });
+    expect(r.content[0].text).toContain('не разобрал «малыш»');
+  });
+
+  it('A2A: «двое детей» — тот же отказ', async () => {
+    const out = await runPublicTool({
+      toolName: 'make_trip_plan', rawArguments: { days: '5', interests: 'вулканы и медведи', when: '2027-07-10', children: 'двое детей' },
+      ip: '10.22.1.3', userAgent: 'a2a-test', self: false,
+    });
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
+    expect(recommendMock).not.toHaveBeenCalled();
+    expect(out.text).toMatch(/^План не собран: в children «двое детей» не разобрал «двое», «детей»/);
+  });
+
+  it('A2A: «0» — вопрос «до года или детей нет?», а не младенец молча', async () => {
+    const out = await runPublicTool({
+      toolName: 'make_trip_plan', rawArguments: { days: '3', interests: 'термальные', when: '2027-07-10', adults: '2', children: '0' },
+      ip: '10.22.1.2', userAgent: 'a2a-test', self: false,
+    });
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok') return;
+    expect(recommendMock).not.toHaveBeenCalled();
+    expect(out.text).toContain('это ребёнок до года или «детей нет»?');
+  });
+
+  it.each([
+    ['«12, малыш»', '12, малыш', '«малыш»'],
+    ['голое «12»', '12', '«12» — одно число без «лет»'],
+  ])('чат туриста: %s — тоже отказ, без имён полей', async (_label, children, named) => {
+    const text = await executeKuzmichTool('make_trip_plan', { days: '5', interests: 'вулканы и медведи', when: '2027-07-10', adults: '2', children });
+    expect(recommendMock).not.toHaveBeenCalled();
+    expect(text).toMatch(/^План не собран: /);
+    expect(text).toContain(named);
+    expect(text).toContain('Спроси у человека возраст каждого ребёнка');
+    expect(text).not.toMatch(/children|ID плана/);
   });
 });
 

@@ -9,9 +9,19 @@ import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { wmoDescriptionRu } from '@/lib/weather/wmo-hazard';
+import { fetchForecastDays, forecastCurrent } from '@/lib/planner/intelligence';
+import { DEFAULT_WEATHER_PLACE } from '@/lib/kuzmich/weather-tool';
+import { WEATHER_PAGE_DAYS } from '@/lib/weather/weather-page';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Чем край занят в этом месяце. Северного сияния здесь нет (29.10): на
+ * Камчатке оно видно только в сильную магнитную бурю, редко и в любой
+ * месяц — у ноября и декабря его не больше, чем у прочих, и строка «сезон
+ * сияния» обещала то, чего календарь не даёт.
+ */
 const MONTH_SEASONS: Record<number, string> = {
   1: 'Снегоходы, подлёдная рыбалка, ски-туринг',
   2: 'Снегоходы, подлёдная рыбалка',
@@ -23,42 +33,45 @@ const MONTH_SEASONS: Record<number, string> = {
   8: 'Вулканы, медведи, нерка, вертолётные туры',
   9: 'Осенние краски, рыбалка, термальные источники',
   10: 'Термальные источники, поздняя рыбалка',
-  11: 'Начало зимнего сезона, северное сияние',
-  12: 'Снегоходы, собачьи упряжки, северное сияние',
+  11: 'Начало зимнего сезона',
+  12: 'Снегоходы, собачьи упряжки',
 };
 
 export async function GET() {
   const month = new Date().getMonth() + 1;
   const seasonNote = MONTH_SEASONS[month] ?? '';
 
-  // Погода — OpenMeteo (бесплатно, без ключа)
+  // Погода — общий прогноз платформы (#2289, 29.10): та же точка и тот же
+  // горизонт, что у /weather и виджета главной, значит та же запись кэша, и
+  // своего запроса к Open-Meteo роут больше не делает (адрес исходящий общий,
+  // его суточный лимит уже кончался). «Сейчас» — блок current, а чего в нём
+  // нет — час прогноза (forecastCurrent). Описание — общим словарём кодов WMO
+  // (29.10): своя лестница «код ≤ 3 — ясно» называла ясным и сплошную
+  // облачность (код 3), а туман — «облачно». Незнакомый код — null (§4.0).
   let temperature: number | null = null;
-  let weatherDesc = '';
+  let weatherDesc: string | null = null;
+  let weatherStaleSince: string | null = null;
   try {
-    const wRes = await fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=53.04&longitude=158.65&current_weather=true',
-      { signal: AbortSignal.timeout(5000) },
-    );
-    if (wRes.ok) {
-      const wData = await wRes.json() as { current_weather?: { temperature?: number; weathercode?: number } };
-      temperature = wData.current_weather?.temperature ?? null;
-      const code = wData.current_weather?.weathercode;
-      if (code != null) {
-        if (code <= 3) weatherDesc = 'ясно';
-        else if (code <= 48) weatherDesc = 'облачно';
-        else if (code <= 67) weatherDesc = 'дождь';
-        else if (code <= 77) weatherDesc = 'снег';
-        else weatherDesc = 'осадки';
-      }
+    const f = await fetchForecastDays(DEFAULT_WEATHER_PLACE.lat, DEFAULT_WEATHER_PLACE.lng, WEATHER_PAGE_DAYS);
+    if (f.ok) {
+      const { now, hour } = forecastCurrent(f);
+      temperature = now?.temp ?? hour?.temp ?? null;
+      weatherDesc = wmoDescriptionRu(now?.weatherCode ?? hour?.weatherCode ?? null);
+      // Источник не ответил, отдан последний удачный прогноз — это видно.
+      weatherStaleSince = f.staleSince ?? null;
+    } else {
+      logSwallowedFailure('public-now', 'погода', new Error(f.reason));
     }
-  } catch {
-    // погода недоступна — пропускаем
+  } catch (err) {
+    // Нет погоды — поля null, а причина в логе: «не смог» не равно «ясно».
+    logSwallowedFailure('public-now', 'погода', err);
   }
 
   // Ближайший выезд — из живого календаря tour_availability (свободные места
   // из реальных броней), а не из полу-мёртвой tour_departures, где счётчик
   // занятости никогда не заполнялся. Тур — с витрины (#2642): без
-  // is_published публичная плашка звала на выезд черновика.
+  // is_published публичная плашка звала на выезд черновика. В одну дату —
+  // меньший id: без дожима тур выбирался порядком строк, то есть случайно.
   let nextDeparture: { date: string; tourName: string; operatorName: string; slots: number } | null = null;
   try {
     const dRes = await pool.query(
@@ -74,7 +87,7 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
          AND ta.is_cancelled = FALSE
          AND ta.deleted_at IS NULL
          AND GREATEST(0, LEAST(ta.available_slots, COALESCE(t.max_participants, ta.available_slots)) - occ.taken) > 0
-       ORDER BY ta.date ASC
+       ORDER BY ta.date ASC, t.id ASC
        LIMIT 1`,
     );
     if (dRes.rows[0]) {
@@ -96,6 +109,7 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
     data: {
       temperature,
       weatherDesc,
+      weatherStaleSince,
       seasonNote,
       month,
       nextDeparture,

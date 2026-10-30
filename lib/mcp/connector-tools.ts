@@ -47,6 +47,9 @@
 
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
+import { loadPlaceTours, offerLinesForAgent } from '@/lib/places/place-tours';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { NOT_MERGED } from '@/lib/places/aliases';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -60,6 +63,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
+import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -118,6 +122,8 @@ interface HitRow {
   score: number | null;
   /** Сколько слов запроса нашлось в записи (название или описание). */
   hits: number | string | null;
+  /** Только у туров: ближайшая свободная дата (правило 1в). */
+  nearest_free_date?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -164,12 +170,17 @@ export function searchSql(terms: number): Record<DocKind, string> {
   const stay = termSql(['a.name', "COALESCE(a.description, '')", "COALESCE(a.location_zone, '')"], terms);
   const route = termSql(['r.title', "COALESCE(r.description, '')"], terms);
   return {
-    tour: `SELECT ot.id::text AS key, ot.title, similarity(ot.title, $1) AS score, ${tour.hits} AS hits
+    // Туры: ORDER BY только по hits — это релевантность запросу, а не порядок
+    // витрины. Внутри одинакового числа совпавших слов порядок задаёт правило
+    // 1в (orderTourHits, слово владельца 29.10): похожесть и длина названия
+    // между турами разных компаний не решают, кто выше. LIMIT нет — срез
+    // по неизвестному порядку отрезал бы туры до правила.
+    tour: `SELECT ot.id::text AS key, ot.title, similarity(ot.title, $1) AS score, ${tour.hits} AS hits,
+              ${nearestFreeDateSql('ot')} AS nearest_free_date
        FROM operator_tours ot
       WHERE ${publicTourSql('ot')}
         AND (${tour.where})
-      ORDER BY hits DESC, similarity(ot.title, $1) DESC, char_length(ot.title) ASC, ot.id ASC
-      LIMIT ${SEARCH_RESULTS_MAX}`,
+      ORDER BY hits DESC`,
     place: `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name AS title, similarity(p.name, $1) AS score, ${place.hits} AS hits
        FROM places p
       WHERE p.is_visible = TRUE AND ${NOT_MERGED('p')}
@@ -197,9 +208,43 @@ export function searchParams(query: string): string[] {
 }
 
 /**
+ * Туры поиска: больше совпавших слов — выше (релевантность), внутри равного
+ * числа — правило 1в (lib/tours/offer-order). Похожесть названия у тура в
+ * слиянии с другими родами — лучшая в его группе: группа идёт в общий список
+ * целиком, и порядок внутри неё правило не теряет.
+ */
+export function orderTourHits<T extends HitRow>(rows: readonly T[], day: string): T[] {
+  const groups = new Map<number, T[]>();
+  for (const r of rows) {
+    const h = Number(r.hits ?? 0);
+    const g = groups.get(h);
+    if (g) g.push(r);
+    else groups.set(h, [r]);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .flatMap(([, g]) => {
+      const best = Math.max(...g.map((r) => Number(r.score ?? 0)));
+      return orderOffersBy(g, (r) => ({ id: r.key, nearestFreeDate: r.nearest_free_date ?? null }), { day })
+        .map((r) => ({ ...r, score: best }));
+    });
+}
+
+type KindHit = HitRow & { kind: DocKind };
+
+/** Порядок слияния родов — как до 29.10: совпавшие слова, похожесть, короче имя. */
+function compareKindHits(a: KindHit, b: KindHit): number {
+  return (Number(b.hits ?? 0) - Number(a.hits ?? 0))
+    || (Number(b.score ?? 0) - Number(a.score ?? 0))
+    || a.title.length - b.title.length
+    || a.title.localeCompare(b.title, 'ru');
+}
+
+/**
  * Поиск по четырём источникам разом. Каждый источник — свой запрос под своим
  * гейтом; слияние — по числу совпавших слов, затем по similarity названия,
- * при равенстве — короткое имя первым.
+ * при равенстве — короткое имя первым. Туры входят в слияние уже в порядке
+ * orderTourHits, и слияние его не переставляет.
  */
 export async function searchDocuments(rawQuery: unknown, base: string = getPublicBaseUrl()): Promise<SearchResult> {
   const q = readQuery(rawQuery);
@@ -212,17 +257,22 @@ export async function searchDocuments(rawQuery: unknown, base: string = getPubli
   const routes = pool.query<HitRow>(sql.route, params).catch((err: unknown) => { throw sqlFailure('routes', err); });
 
   const [t, p, s, r] = await Promise.all([tours, places, stays, routes]);
-  const hits: Array<HitRow & { kind: DocKind }> = [
-    ...t.rows.map((x) => ({ ...x, kind: 'tour' as const })),
+  const tourHits: KindHit[] = orderTourHits(t.rows, offerOrderDay()).map((x) => ({ ...x, kind: 'tour' as const }));
+  const others: KindHit[] = [
     ...p.rows.map((x) => ({ ...x, kind: 'place' as const })),
     ...s.rows.map((x) => ({ ...x, kind: 'stay' as const })),
     ...r.rows.map((x) => ({ ...x, kind: 'route' as const })),
-  ];
-  hits.sort((a, b) =>
-    (Number(b.hits ?? 0) - Number(a.hits ?? 0))
-    || (Number(b.score ?? 0) - Number(a.score ?? 0))
-    || a.title.length - b.title.length
-    || a.title.localeCompare(b.title, 'ru'));
+  ].sort(compareKindHits);
+  // Слияние двух упорядоченных списков: сравниваются только головы, поэтому
+  // туры остаются в порядке правила, а место каждого тура среди мест, жилья и
+  // маршрутов — как раньше.
+  const hits: KindHit[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < tourHits.length || j < others.length) {
+    if (j >= others.length || (i < tourHits.length && compareKindHits(tourHits[i], others[j]) <= 0)) hits.push(tourHits[i++]);
+    else hits.push(others[j++]);
+  }
   return {
     results: hits.slice(0, SEARCH_RESULTS_MAX).map((h) => ({
       id: docId(h.kind, h.key),
@@ -262,6 +312,7 @@ interface TourRow {
   season_start: string | null; season_end: string | null; location_name: string | null;
   included: string[] | null; not_included: string[] | null; what_to_bring: string[] | null; safety_notes: string[] | null;
   program: Array<{ title?: string; text?: string }> | null; price_note: string | null; cancellation_policy: string | null;
+  max_participants: number | null; group_size_unlimited: boolean | null;
   operator_name: string | null;
 }
 
@@ -274,7 +325,7 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
             ot.duration_type, ot.multi_day_count, ot.difficulty,
             ot.season_start::text AS season_start, ot.season_end::text AS season_end, ot.location_name,
             ot.included, ot.not_included, ot.what_to_bring, ot.safety_notes, ot.program, ot.price_note,
-            ot.cancellation_policy, p.name AS operator_name
+            ot.cancellation_policy, ot.max_participants, ot.group_size_unlimited, p.name AS operator_name
        FROM operator_tours ot
        LEFT JOIN partners p ON p.id::text = ot.operator_id::text
       WHERE ot.id = $1::bigint AND ${publicTourSql('ot')}
@@ -293,6 +344,9 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
     line('Цена', price),
     line('Длительность', duration),
     line('Сложность', t.difficulty),
+    // Группа — только у тура без предела (1342): прочим fetch, как и прежде,
+    // числа не называет — max_participants бывает заглушкой (1176), §4.0.
+    groupSentenceIfUnlimited(t),
     t.season_start && t.season_end ? `Сезон: ${t.season_start} — ${t.season_end}` : null,
     t.short_description,
     t.description,
@@ -315,7 +369,7 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
 }
 
 interface PlaceRow {
-  key: string; name: string; description: string | null; essence: string | null; location_type: string | null;
+  key: string; id?: string | null; name: string; description: string | null; essence: string | null; location_type: string | null;
   category: string | null; district: string | null; lat: string | null; lng: string | null; best_season: string | null;
   access_info: string | null; eco_permit_required: boolean | null;
   hazard_types: string[] | null; profile_source: string | null; nearest_medical_km: string | null;
@@ -341,7 +395,7 @@ const FETCH_DESCRIPTION_MAX = 20_000;
 async function fetchPlace(key: string, base: string): Promise<FetchResult> {
   const id = docId('place', key);
   const { rows: [p] } = await pool.query<PlaceRow>(
-    `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name, p.description, p.essence, p.location_type, p.category,
+    `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.id::text AS id, p.name, p.description, p.essence, p.location_type, p.category,
             p.district, p.lat::text AS lat, p.lng::text AS lng, p.best_season, p.access_info, p.eco_permit_required,
             lsp.hazard_types, lsp.profile_source, lsp.nearest_medical_km::text AS nearest_medical_km
        FROM places p
@@ -354,6 +408,10 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
   );
   if (!p) throw notFound(id);
   const hazards = honestHazards(p);
+  // Все предложения туров к месту, с компанией у каждого, в порядке правила
+  // 1в (слово владельца 29.10). Ставятся после безопасности: срез длины
+  // текста не должен съесть 112. Отказ чтения — строка «не загрузились».
+  const offers = p.id ? offerLinesForAgent(p.name, await loadPlaceTours(p.id), base.replace(/\/$/, '')) : [];
   const text = joinLines([
     `${p.name}${p.location_type ? ` (${p.location_type})` : ''}${p.district ? `, ${p.district}` : ''}.`,
     p.lat && p.lng ? `Координаты: ${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : null,
@@ -370,6 +428,7 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
     line('Опасности', hazards),
     p.nearest_medical_km ? `До медпомощи: ${Number(p.nearest_medical_km)} км` : null,
     'Экстренный вызов на Камчатке — 112. Обстановка сейчас: инструмент get_guardian_context.',
+    ...offers,
   ]);
   return {
     id: docId('place', p.key),

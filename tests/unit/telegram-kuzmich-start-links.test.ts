@@ -102,7 +102,9 @@ describe('Кузьмич в Telegram ведёт ссылки подключен�
     const upd = m.query.mock.calls.find(([sql]) => /UPDATE partners/.test(sql as string));
     expect(upd, 'привязка должна дойти до записи адреса').toBeTruthy();
     expect(upd![0]).toMatch(/SET telegram_chat_id = \$1::bigint/);
-    expect(upd![1]).toEqual([String(CHAT), PARTNER_ID]);
+    // Третий параметр — кто открыл ссылку (личный чат): по нему администратор
+    // заводит вход на сайт через Telegram (1336).
+    expect(upd![1]).toEqual([String(CHAT), PARTNER_ID, String(CHAT)]);
 
     expect(sentTexts().join('\n')).toMatch(/Telegram подключён к оператору «Местечко Камчатка»/);
     expect(m.processMessage, 'в туристский поток ссылка не уходит').not.toHaveBeenCalled();
@@ -177,7 +179,7 @@ describe('Кузьмич в Telegram ведёт ссылки подключен�
     const res = await route.POST(update(`${PARTNER_LINK_PREFIX}${t.token}`));
     expect(res.status).toBe(200);
     const upd = m.query.mock.calls.find(([sql]) => /UPDATE partners/.test(sql as string));
-    expect(upd?.[1]).toEqual([String(CHAT), PARTNER_ID]);
+    expect(upd?.[1]).toEqual([String(CHAT), PARTNER_ID, String(CHAT)]);
     expect(sentTexts().join('\n')).toMatch(/Telegram подключён к оператору «Местечко Камчатка»/);
     expect(m.processMessage).not.toHaveBeenCalled();
   });

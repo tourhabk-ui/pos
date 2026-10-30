@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 
 describe('KUZMICH_TOOLS (generated from the registry)', () => {
-  it('exposes exactly the 15 known tools with their JSON-schema definitions intact', () => {
+  it('exposes exactly the 17 known tools with their JSON-schema definitions intact', () => {
     const names = KUZMICH_TOOLS.map(t => t.function.name).sort();
     expect(names).toEqual([
+      // compare_tours — 2–4 тура рядом фактами из базы, без оценок (слово
+      // владельца 29.10): порядок туров — как назвал человек.
+      'compare_tours',
       // edit_trip_plan — правка плана по ID черновика (#2224, решение владельца 08.10).
       'edit_trip_plan',
+      // get_flight_board — табло аэропорта Елизово по pkc.aero (29.10, #2788):
+      // задержки и отмены словами табло, причину не придумывает.
+      'get_flight_board',
       'get_guardian_context', 'get_place_info',
       // get_tour_availability — свободные даты/места тура из реальной
       // занятости (Эволюция 3.0, п.4, 08.08): даты не называются по памяти.

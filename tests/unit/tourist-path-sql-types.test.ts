@@ -63,8 +63,10 @@ describe('рекомендации туристу (#1772)', () => {
   });
   it('id туров сравниваются как bigint[], text[] остаётся только у категорий', () => {
     // Единственное законное употребление text[] — фильтр activity_type.
-    expect(src.match(/\$\d+::text\[\]/g) ?? []).toEqual(['$4::text[]']);
-    expect(src).toMatch(/activity_type = ANY\(\$4::text\[\]\)/);
+    // С 29.10 потолок стратегии — после порядка правила 1в, и параметр LIMIT
+    // ушёл из SQL: фильтр видов стал третьим параметром.
+    expect(src.match(/\$\d+::text\[\]/g) ?? []).toEqual(['$3::text[]']);
+    expect(src).toMatch(/activity_type = ANY\(\$3::text\[\]\)/);
     expect(src).toMatch(/id != ALL\(\$1::bigint\[\]\)/);
     expect(src).toMatch(/id = ANY\(\$1::bigint\[\]\)/);
     expect(src).toMatch(/t\.id != ALL\(\$2::bigint\[\]\)/);

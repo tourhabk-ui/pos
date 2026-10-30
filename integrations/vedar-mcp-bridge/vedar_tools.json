@@ -3,13 +3,13 @@
     "type": "function",
     "function": {
       "name": "get_tours",
-      "description": "Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details. Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.",
+      "description": "Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details. Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах. У каждого тура — компания; порядок — правило платформы, названное в ответе (сначала со свободными местами по ближайшей дате, остальные раз в сутки по жребию), а не рекомендация.",
       "parameters": {
         "type": "object",
         "properties": {
           "activity_type": {
             "type": "string",
-            "description": "Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д.",
+            "description": "Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Matches the activity type and the word in the tour title, place, short description or main place; tours that have the word only in the full description or programme come in a separate unverified block (check them with get_tour_details); company and guide names are not searched. Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д. Ищет вид отдыха и слово в названии, месте, кратком описании и главном месте тура, а отдельным блоком «не проверено» даёт туры, где слово есть только в полном описании или программе (что это за упоминание, уточни через get_tour_details); имена компаний и гидов не ищет.",
             "examples": [
               "вулканы"
             ]
@@ -30,13 +30,13 @@
     "type": "function",
     "function": {
       "name": "get_tour_details",
-      "description": "One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours. Полные детали КОНКРЕТНОГО тура: описание, программа, точка сбора и логистика (старт/забор), что входит и не входит, что взять с собой. Используй ВСЕГДА, когда турист спрашивает про конкретный тур — что там по программе, откуда стартуют, где сбор, что взять. Не выдумывай эти детали сам — бери отсюда.",
+      "description": "One Kamchatka tour in depth: program, what is included, what to bring, safety notes. A company or guide name returns a tour list and their page instead. To list or search tours use get_tours. Полные детали КОНКРЕТНОГО тура: описание, программа, точка сбора и логистика (старт/забор), что входит и не входит, что взять с собой. Используй ВСЕГДА, когда турист спрашивает про конкретный тур — что там по программе, откуда стартуют, где сбор, что взять. Не выдумывай эти детали сам — бери отсюда. Назвал компанию или гида, продающих туры, — ответ: список туров и адрес их страницы, а не один тур (имя из общих слов или только часть имени — в списке и туры других компаний по тем же словам). Совпала только часть слов запроса — ответ так и говорит и даёт список: не называй эти туры подходящими.",
       "parameters": {
         "type": "object",
         "properties": {
           "name": {
             "type": "string",
-            "description": "Tour title or a keyword from it. Название тура или ключевое слово так, как их назвал человек",
+            "description": "Tour title, numeric ID, a keyword, or the name of a company or guide selling tours (the reply then lists tours and their page, not one tour). Название тура, номер, ключевое слово или имя компании либо гида — так, как назвал человек",
             "examples": [
               "рыбалка"
             ]
@@ -74,7 +74,7 @@
     "type": "function",
     "function": {
       "name": "get_place_info",
-      "description": "Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Для полного контекста с безопасностью и алертами — get_guardian_context.",
+      "description": "Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Для полного контекста с безопасностью и алертами — get_guardian_context.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -350,7 +350,7 @@
           },
           "children": {
             "type": "string",
-            "description": "Ages of children in years, comma-separated — NOT a count: two children aged 6 and 10 → \"6, 10\"; one child aged 2 → \"2\"; a baby under one year → \"0\". Ages decide which activities are allowed. No children — omit the field. Возрасты детей в годах через запятую — не число детей: двое детей 6 и 10 лет → «6, 10», один ребёнок 2 лет → «2». От возраста зависят допуски активностей. Детей нет — не передавай.",
+            "description": "Age of each child in years — NOT a count: two children aged 6 and 10 → \"6, 10\" or \"6 years, 10 years\"; one child aged 2 → \"2 years\"; a baby under one → \"0 years\". A single bare number is ambiguous (one child's age or how many children?) and returns a refusal with no plan. The youngest age decides which activities are allowed: if you only know how many children, ask the person for each age. No children — omit the field. Возраст каждого ребёнка в годах — не число детей: двое детей 6 и 10 лет → «6, 10» или «6 лет, 10 лет»; один ребёнок 2 лет → «2 года»; ребёнок до года → «до года». Одно число без «лет» неоднозначно (возраст одного ребёнка или число детей?) — план не собирается, придёт вопрос. От возраста младшего зависят допуски активностей: знаешь только, сколько детей, — спроси возраст каждого. Детей нет — не передавай.",
             "examples": [
               "6, 10"
             ]
@@ -440,13 +440,13 @@
     "type": "function",
     "function": {
       "name": "get_tour_availability",
-      "description": "Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request. Свободные даты и места КОНКРЕТНОГО тура из реальной занятости мест. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда.",
+      "description": "Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request. Свободные даты и места КОНКРЕТНОГО тура из реальной занятости мест. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда. Если в окне мест нет, ответ называет ближайшую свободную дату после окна (в пределах года) и, если окно начинается не с сегодня, — раньше окна.",
       "parameters": {
         "type": "object",
         "properties": {
           "tour": {
             "type": "string",
-            "description": "Tour title, keyword or numeric ID from get_tours. Название тура, ключевое слово или числовой ID"
+            "description": "Tour title, keyword or numeric ID from get_tours. A company or guide name returns their tour list without dates — then ask by tour ID. Название тура, ключевое слово или числовой ID. Имя компании или гида — ответ список их туров без дат: даты смотри по номеру тура."
           },
           "date_from": {
             "type": "string",
@@ -464,7 +464,7 @@
           },
           "people": {
             "type": "string",
-            "description": "Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses. Сколько человек (1–30). Дано — к каждой дате итоговая сумма поездки, тем же расчётом, что при оформлении заявки.",
+            "description": "Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them. Сколько человек (1–30). Дано — к каждой дате итоговая сумма поездки, тем же расчётом, что при оформлении заявки; если в окне мест нет — ближайшая дата, где мест хватит на всех.",
             "examples": [
               "2"
             ]
@@ -472,6 +472,42 @@
         },
         "required": [
           "tour"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "compare_tours",
+      "description": "Side-by-side facts for 2-4 Kamchatka tours on what the user cares about: price or group total, duration, dates, inclusions, cancellation, pickup, operator. No ranking; one tour: get_tour_details. Разложить рядом 2–4 КОНКРЕТНЫХ тура по тому, что важно человеку, — фактами из базы, строкой на каждый тур: цена (с числом людей — итог тем же расчётом, что у get_tour_availability), длительность, группа, сложность, сезон, программа, что входит и не входит, условия отмены, как попасть на тур, оператор и его проверка, ближайшая свободная дата. Туры — номерами через запятую (надёжнее) или названиями через «;»; порядок туров в ответе — как их назвал человек. Оценок нет: у строки только «одинаково», «отличается» или «не сравнить» (у кого-то не записано); лучший тур не называй — выбирает человек. Название подходит турам разных компаний или это имя продавца — сравнения нет, в ответе номера: спроси человека. Тур не с витрины в сравнение не берётся.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tours": {
+            "type": "string",
+            "description": "Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable) or titles separated by semicolons. Два–четыре тура в том порядке, как назвал человек: номера через запятую («61, 70») — надёжнее; названия — через «;». Номера — из get_tours, get_place_info, get_tour_details.",
+            "examples": [
+              "61, 70"
+            ]
+          },
+          "criteria": {
+            "type": "string",
+            "description": "What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty means a short default set. Что важно человеку, через запятую: цена, длительность, группа, сложность, сезон, программа, что входит, что не входит, отмена, подвоз, оператор, ближайшая дата. Не сказано — короткий набор: цена, длительность, ближайшая дата, сложность, подвоз, отмена, оператор.",
+            "examples": [
+              "цена, отмена"
+            ]
+          },
+          "people": {
+            "type": "string",
+            "description": "Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, and the nearest-date row the first date with seats for all of them. The tool picks the date of the total and names it per tour: the first date with seats for all of them, or the first date open for a request (tours without a schedule); a total on a date the user named comes from get_tour_availability with date_from and people. Сколько человек (1–30). Дано — в строке «цена» итог за всех тем же расчётом, что у get_tour_availability, а в строке «ближайшая дата» — первая дата, где мест хватит на всех. Дату итога выбирает инструмент и называет её у каждого тура: первая, где мест хватит на всех, или первая дата для заявки (у тура без расписания); итог на дату, которую назвал человек, — get_tour_availability с date_from и people.",
+            "examples": [
+              "2"
+            ]
+          }
+        },
+        "required": [
+          "tours"
         ]
       }
     }
@@ -502,7 +538,7 @@
     "type": "function",
     "function": {
       "name": "fetch",
-      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
+      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. У места отдаёт все предложения туров к нему с компанией у каждого; порядок — правило платформы, названное в ответе. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -524,7 +560,7 @@
     "type": "function",
     "function": {
       "name": "get_request_status",
-      "description": "Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request, request_charter or create_car_rental_request: operator answer or who got it. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered): владелец отвечает человеку звонком, и его ответа платформа не видит. Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора.",
+      "description": "Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request, request_charter or create_car_rental_request: operator answer or who got it. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered); владелец отвечает звонком или в переписке, owner_replies — сколько он написал (без текста). Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора. date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -591,13 +627,13 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
       "parameters": {
         "type": "object",
         "properties": {
           "tour": {
             "type": "string",
-            "description": "Tour title or numeric ID from get_tours / get_tour_availability. Название тура или числовой ID (из get_tours / get_tour_availability)"
+            "description": "Numeric tour ID or tour title from get_tours / get_tour_availability. A company or guide name, or a partial word match, creates no request: the reply lists tours by ID. Числовой ID тура или его название (из get_tours / get_tour_availability). Имя компании или гида заявку не создаёт — нужен тур."
           },
           "date": {
             "type": "string",

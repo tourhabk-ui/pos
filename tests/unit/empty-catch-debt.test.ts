@@ -91,7 +91,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/cron/tour-reminder/route.ts': 2,
   'app/api/cron/trip-reminders/route.ts': 1,
   'app/api/cron/voice-probe/route.ts': 1,
-  'app/api/hub/operator/bookings/[id]/route.ts': 4,
   'app/api/leads/route.ts': 1,
   'app/api/mcp/route.ts': 1,
   'app/api/mesh/sos-relay/route.ts': 1,
@@ -102,7 +101,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/planner/chat/route.ts': 1,
   'app/api/planner/recommend/route.ts': 3,
   'app/api/preparation/share/route.ts': 1,
-  'app/api/public/now/route.ts': 1,
   'app/api/reviews/tour/[tourId]/route.ts': 1,
   'app/api/roles/route.ts': 1,
   'app/api/safety/reports/route.ts': 1,
@@ -269,7 +267,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/telegram/admin-notify.ts': 2,
   'lib/telegram/booking-notify.ts': 3,
   'lib/telegram/group-monitor.ts': 4,
-  'lib/telegram/welcome.ts': 2,
   'lib/wishlist/client.ts': 2,
 };
 
