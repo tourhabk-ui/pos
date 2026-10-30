@@ -28,6 +28,8 @@ const m = vi.hoisted(() => ({
   card: vi.fn(),
   touch: vi.fn(),
   query: vi.fn(),
+  member: vi.fn(),
+  count: vi.fn(),
   tx: [] as string[],
 }));
 
@@ -53,9 +55,12 @@ vi.mock('@/lib/crm/contact-queries', () => ({
   getContactCard: (...a: unknown[]) => m.card(...a),
 }));
 vi.mock('@/lib/crm/events', () => ({ addContactTouch: (...a: unknown[]) => m.touch(...a) }));
+vi.mock('@/lib/operators/member-chat', () => ({ findMemberByChat: (...a: unknown[]) => m.member(...a) }));
+// Счёт пользования судится здесь вызовом (что и с каким исходом), запрос — в pg-тесте.
+vi.mock('@/lib/chat-cabinet/usage', () => ({ countCabinetUse: (...a: unknown[]) => m.count(...a) }));
 
 const svc = await import('@/lib/chat-cabinet/service');
-const { CABINET_TEXT, CLIENT_NOT_FOUND, SEARCH_TELEGRAM, TELEGRAM_NO_NAMES, ITEM_GONE } = await import('@/lib/chat-cabinet/screens');
+const { CABINET_TEXT, CLIENT_NOT_FOUND, SEARCH_TELEGRAM, TELEGRAM_NO_NAMES, ITEM_GONE, DIGEST_MEMBER } = await import('@/lib/chat-cabinet/screens');
 const { cabinetPayload } = await import('@/lib/chat-cabinet/payload');
 
 const PID = '11111111-1111-4111-8111-111111111111';
@@ -94,6 +99,8 @@ beforeEach(() => {
   m.listTasks.mockResolvedValue([taskItem()]);
   m.listContacts.mockResolvedValue({ items: [], total: 0 });
   m.query.mockResolvedValue({ rows: [], rowCount: 0 });
+  m.member.mockResolvedValue({ outcome: 'none' });
+  m.count.mockResolvedValue(undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
@@ -365,10 +372,15 @@ describe('поиск клиента', () => {
     expect(m.listContacts).not.toHaveBeenCalled();
   });
 
-  it('отказ базы при проверке ожидания — сообщение идёт дальше, в лог — SQLSTATE', async () => {
+  it('отказ базы при проверке ожидания — «не смог», сообщение дальше не уходит (оно могло быть запросом); беда — своим путём', async () => {
     m.query.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '08006' }));
-    expect(await capture('Петрова')).toBeNull();
+    const s = await capture('Петрова');
+    expect(s?.text).toBe(CABINET_TEXT.searchUnchecked);
+    expect(s?.failed).toBe(true);
     expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('08006');
+    expect(m.listContacts).not.toHaveBeenCalled();
+    m.query.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '08006' }));
+    expect(await capture('помогите, человек упал со скалы')).toBeNull();
   });
 
   it('awaitsCabinetSearch (чат администратора): ждёт — true; нет — false; база не ответила — false и SQLSTATE', async () => {
@@ -415,5 +427,151 @@ describe('разделы без нажатия', () => {
     const c = await press(cabinetPayload.searchCancel());
     expect(c.text).toContain('Поиск отменён.');
     expect(c.text).toContain(CABINET_TEXT.listFailed);
+  });
+});
+
+describe('менеджер команды (30.10)', () => {
+  const MEMBER_USER = '66666666-6666-4666-8666-666666666666';
+  const asMember = () => {
+    m.find.mockResolvedValue({ outcome: 'none' });
+    m.member.mockResolvedValue({ outcome: 'found', member: { memberId: 'm1', label: null, partner: { ...OPERATOR, userId: MEMBER_USER } } });
+  };
+
+  it('чат не карточки — спрашивается чат менеджера; не он — «не подключён»; не прочитался — «не смог проверить»', async () => {
+    m.find.mockResolvedValue({ outcome: 'none' });
+    expect((await press(cabinetPayload.tasks())).text).toBe(CABINET_TEXT.notBound);
+    expect(m.member).toHaveBeenCalledWith('max', CHAT);
+    m.member.mockResolvedValueOnce({ outcome: 'unavailable' });
+    expect((await press(cabinetPayload.tasks())).text).toBe(CABINET_TEXT.unchecked);
+    // Карточка не прочиталась — до менеджера не доходим (§4.0: «не смог» не равно «не карточка»).
+    m.member.mockClear();
+    m.find.mockResolvedValueOnce({ outcome: 'unavailable' });
+    expect((await press(cabinetPayload.tasks())).text).toBe(CABINET_TEXT.unchecked);
+    expect(m.member).not.toHaveBeenCalled();
+  });
+
+  it('чат карточки главнее: менеджер не спрашивается', async () => {
+    await press(cabinetPayload.tasks());
+    expect(m.member).not.toHaveBeenCalled();
+  });
+
+  it('пишет своим аккаунтом: «Готово», звонок, напоминание — от менеджера, не от владельца', async () => {
+    asMember();
+    m.completeTask.mockResolvedValue({ outcome: 'done', task: taskItem() });
+    await press(cabinetPayload.taskDone(TASK));
+    expect(m.completeTask).toHaveBeenCalledWith(PID, TASK, MEMBER_USER, expect.anything(), 'partner_user');
+    answers({ rows: [{ display_name: 'Анна Петрова', repeated: false }] });
+    m.touch.mockResolvedValue({ outcome: 'recorded', id: '1' });
+    await press(cabinetPayload.touch('reached', CONTACT));
+    expect(m.touch.mock.calls[0]![2]).toMatchObject({ actorUserId: MEMBER_USER, actorKind: 'partner_user' });
+    answers({ rows: [{ display_name: 'Анна Петрова', repeated: false }] });
+    m.createTask.mockResolvedValue({ outcome: 'created', task: taskItem() });
+    await press(cabinetPayload.remind('hour', CONTACT));
+    expect(m.createTask.mock.calls[0]![1]).toMatchObject({ createdBy: MEMBER_USER });
+  });
+
+  it('карточка брони у менеджера — без кнопок ответа; «Ещё» — без кнопок оператора; сводку не настраивает', async () => {
+    asMember();
+    m.inbox.mockResolvedValue({
+      ...EMPTY_INBOX,
+      items: [{ kind: 'operator_booking', id: '501', created_at: '2026-10-29T00:00:00.000Z', title: 'Горелый', date: '2026-11-05', people: 2, contact_id: null, contact_name: null, waiting_minutes: 30 }],
+    });
+    const card = await press(cabinetPayload.item('operator_booking', '501'));
+    const pays = card.rows.flat().flatMap((b) => ('payload' in b ? [b.payload] : []));
+    expect(pays.some((p) => /^(?:bk|ia|oc|lq):/.test(p))).toBe(false);
+    const more = await press(cabinetPayload.more());
+    expect(more.rows.flat().some((b) => 'payload' in b && /^(?:opd|sup|rm|cb:g)/.test(b.payload))).toBe(false);
+    for (const p of [cabinetPayload.digest(), cabinetPayload.digestSet('off')]) {
+      m.query.mockClear();
+      expect((await press(p)).text).toBe(DIGEST_MEMBER);
+      expect(m.query.mock.calls.some((c) => /chat_cabinet_settings/.test(String(c[0])))).toBe(false);
+    }
+  });
+
+  it('разделы по тексту менеджера: слово меню и команда — раздел; туры, места, /start — «Ещё»; прочее — не кабинет', () => {
+    expect(svc.memberCabinetSectionOf('Входящие')).toBe('inbox');
+    expect(svc.memberCabinetSectionOf('/tasks')).toBe('tasks');
+    expect(svc.memberCabinetSectionOf('мои клиенты')).toBe('clients');
+    for (const t of ['/start', '/help', 'Помощь', 'Мои туры и цены', 'Обновить места']) expect(svc.memberCabinetSectionOf(t), t).toBe('more');
+    for (const t of ['/bookings', '/weather', 'какая погода', 'Иванов', '']) expect(svc.memberCabinetSectionOf(t), t).toBeNull();
+  });
+});
+
+describe('ежедневная сводка — время (1354)', () => {
+  it('экран: строки нет — «утром»; есть — её время; не прочиталось — отказ, а не «утром»', async () => {
+    answers({ rows: [] });
+    expect((await press(cabinetPayload.digest())).text).toContain('утром, с 08:00');
+    answers({ rows: [{ digest: 'evening' }] });
+    expect((await press(cabinetPayload.digest())).text).toContain('вечером, с 18:00');
+    m.query.mockImplementation(async (sql: unknown) => {
+      if (isDrop(sql)) return { rows: [], rowCount: 0 };
+      throw Object.assign(new Error('x'), { code: '42P01' });
+    });
+    const failed = await press(cabinetPayload.digest());
+    expect(failed.text).toBe(CABINET_TEXT.dbFailed);
+    expect(failed.failed).toBe(true);
+  });
+
+  it('выбор пишется карточке этого чата её аккаунтом; «не присылать» — так и сказано', async () => {
+    answers({ rows: [], rowCount: 1 }, { rows: [] });
+    const s = await press(cabinetPayload.digestSet('day'));
+    const set = sqlCalls().find((c) => c[0] === svc.DIGEST_SET_SQL);
+    expect(set?.[1]).toEqual([PID, 'day', USER]);
+    // Сегодняшняя «ждать нечего» снимается по камчатской дате — новое окно посмотрит заново.
+    const today = sqlCalls().find((c) => c[0] === svc.DIGEST_TODAY_AFTER_SET_SQL);
+    expect(today?.[1]).toEqual([PID, '2026-10-30']);
+    expect(s.text).toContain('Готово: сводка будет приходить днём, с 13:00 по Камчатке');
+    answers({ rows: [], rowCount: 1 }, { rows: [] });
+    expect((await press(cabinetPayload.digestSet('off'))).text).toContain('Сводка выключена');
+  });
+
+  it('сегодняшняя сводка уже ушла — «по новому времени с завтра»; не прочиталось — время записано, так и сказано', async () => {
+    answers({ rows: [], rowCount: 1 }, { rows: [{ channel: 'max' }] });
+    expect((await press(cabinetPayload.digestSet('evening'))).text).toContain('Сегодняшняя уже была — по новому времени с завтра.');
+    let n = 0;
+    m.query.mockImplementation(async (sql: unknown) => {
+      if (isDrop(sql)) return { rows: [], rowCount: 0 };
+      n += 1;
+      if (n === 1) return { rows: [], rowCount: 1 };
+      throw Object.assign(new Error('x'), { code: '57P01' });
+    });
+    const s = await press(cabinetPayload.digestSet('evening'));
+    expect(s.text).toContain('Время записано. Была ли сегодня сводка, не прочиталось');
+  });
+
+  it('«Ещё» называет время сводки', async () => {
+    answers({ rows: [{ digest: 'off' }] });
+    const more = await press(cabinetPayload.more());
+    expect(more.rows.flat().map((b) => b.text)).toContain('Ежедневная сводка: не присылать');
+  });
+});
+
+describe('счёт пользования (1354)', () => {
+  it('нажатие считается с местом, каналом, действием и экраном; отказ базы — тем же экраном', async () => {
+    await press(cabinetPayload.tasks());
+    expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ partnerId: PID, seat: 'owner', channel: 'max', action: 'tasks' }), NOW);
+    m.count.mockClear();
+    m.listTasks.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57P01' }));
+    await press(cabinetPayload.tasks(), { channel: 'telegram' });
+    const arg = m.count.mock.calls[0]![0] as { channel: string; screen: { failed?: boolean } };
+    expect(arg.channel).toBe('telegram');
+    expect(arg.screen.failed).toBe(true);
+  });
+
+  it('раздел словом или кнопкой меню — open_<раздел>; менеджер — своим местом; отказ проверки чата не считается', async () => {
+    await svc.cabinetSectionFor(OPERATOR, 'max', 'clients', NOW);
+    expect(m.count).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'open_clients', seat: 'owner' }), NOW);
+    await svc.cabinetSectionFor(OPERATOR, 'max', 'inbox', NOW, 'member');
+    expect(m.count).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'open_inbox', seat: 'member' }), NOW);
+    m.count.mockClear();
+    m.find.mockResolvedValueOnce({ outcome: 'unavailable' });
+    await press(cabinetPayload.tasks());
+    expect(m.count).not.toHaveBeenCalled();
+  });
+
+  it('запрос поиска считается как search_query (что записывается — только исход экрана: chat-cabinet-usage)', async () => {
+    m.query.mockResolvedValueOnce({ rows: [{ id: WAIT, partner_id: PID, newer: false }], rowCount: 1 }).mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    await svc.captureCabinetSearch({ chatId: CHAT, partner: OPERATOR, text: 'Петрова', nowMs: NOW });
+    expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ action: 'search_query', channel: 'max', seat: 'owner' }), NOW);
   });
 });

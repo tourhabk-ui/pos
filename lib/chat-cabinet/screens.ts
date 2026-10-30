@@ -36,7 +36,7 @@ import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
-import { cabinetPayload, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
+import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
 
 export type CabinetChannel = 'max' | 'telegram';
 
@@ -54,12 +54,26 @@ export interface CabinetScreen {
   rows: CabinetButton[][];
   /** В тексте или кнопках имя или телефон клиента: экран только для MAX. */
   pd: boolean;
+  /** База не ответила — экран говорит об отказе (счёт пользования, 1354). */
+  failed?: boolean;
 }
+
+/**
+ * Чей чат: карточки партнёра (`owner` — тот, кто привязал чат кабинета) или
+ * менеджера его команды (`member`, чат из operator_members, 1230).
+ */
+export type CabinetSeat = 'owner' | 'member';
 
 /** Что карточке чата включено — решает сервис по карточке партнёра. */
 export interface CabinetPartner {
   partnerId: string;
   role: CabinetRole;
+  /**
+   * Менеджер видит то же и пишет в CRM своим аккаунтом, но кнопок ответа на
+   * бронь и заявку у него нет: их вправе нажимать только чат карточки
+   * (слово владельца 30.10 «брони подтверждает только владелец»).
+   */
+  seat: CabinetSeat;
   /** «Подтвердить» / «Отклонить» под бронью (lib/bookings/chat-owner-press). */
   bookingActions: boolean;
   /** «Связался» / «Договорились» / «Отказ» под заявкой — гид со своими турами. */
@@ -214,7 +228,9 @@ export function itemCardScreen(args: {
 
   const rows: CabinetButton[][] = [];
   const action = inboxActionFor(partner.role, item.kind);
-  if (item.kind === 'operator_booking' && partner.bookingActions) {
+  if (partner.seat === 'member') {
+    lines.push(MEMBER_ANSWER_LINE);
+  } else if (item.kind === 'operator_booking' && partner.bookingActions) {
     rows.push(bookingAnswerButtons(item.id));
     lines.push('«Подтвердить» и «Отклонить»: бот спросит, и бронь меняется только после «Да». Отклонение — с причиной, её получит турист.');
   } else if (item.kind === 'lead' && partner.leadActions) {
@@ -238,11 +254,13 @@ export function itemCardScreen(args: {
   } else {
     lines.push(`Где ответить: ${escapeHtml(action.hint)}.`);
   }
-  // Переписка с клиентом по заявке — только MAX (1349, 1350).
-  if (channel === 'max' && item.kind === 'stay_request' && isChatTargetId(item.id)) {
+  // Переписка с клиентом по заявке — только MAX (1349, 1350) и только из
+  // чата карточки: её кнопку вправе нажимать он один.
+  const replies = channel === 'max' && partner.seat === 'owner';
+  if (replies && item.kind === 'stay_request' && isChatTargetId(item.id)) {
     rows.push([ownerReplyButton({ kind: 'stay', id: item.id })]);
   }
-  if (channel === 'max' && (item.kind === 'lead' || item.kind === 'charter_request' || item.kind === 'charter_ride') && isChatTargetId(item.id)) {
+  if (replies && (item.kind === 'lead' || item.kind === 'charter_request' || item.kind === 'charter_ride') && isChatTargetId(item.id)) {
     rows.push([ownerReplyButton({ kind: 'lead', id: item.id })]);
   }
   if (item.contact_id) {
@@ -257,6 +275,10 @@ export function itemCardScreen(args: {
 }
 
 export const ITEM_GONE = 'Этого во «Входящих» уже нет: на него ответили, или срок ответа прошёл.';
+
+/** Карточка предмета у менеджера команды: где отвечают на бронь и заявку. */
+export const MEMBER_ANSWER_LINE =
+  'Ответить на бронь и заявку можно в кабинете на сайте; кнопками в чате отвечает владелец кабинета в своём чате. Звонок клиенту и задачу отметьте здесь — они запишутся от вас.';
 
 export function itemGoneScreen(inbox: Inbox): CabinetScreen {
   return inboxScreen(inbox, 0, { notice: ITEM_GONE });
@@ -500,7 +522,8 @@ export function contactResultScreen(args: {
 
 const ROLE_CODE: Readonly<Record<CabinetRole, string>> = { operator: 'op', transfer: 'tf', stay: 'st', guide: 'gd' };
 
-export function moreScreen(partner: CabinetPartner, base: string): CabinetScreen {
+export function moreScreen(partner: CabinetPartner, base: string, digest: DigestMode | null = null): CabinetScreen {
+  if (partner.seat === 'member') return memberMoreScreen(partner, base);
   const code = ROLE_CODE[partner.role];
   const lines: string[] = ['<b>Ещё</b>'];
   const rows: CabinetButton[][] = [];
@@ -515,6 +538,10 @@ export function moreScreen(partner: CabinetPartner, base: string): CabinetScreen
     rows.push([{ text: 'Сводка', payload: `rm:${code}:sm` }]);
     lines.push('Сводка — числа по запросам мест, без имён.');
   }
+  rows.push([{ text: digest === null ? 'Ежедневная сводка' : `Ежедневная сводка: ${DIGEST_WORDS[digest].short}`, payload: cabinetPayload.digest() }]);
+  lines.push('Ежедневная сводка — что ждёт ответа и задачи на день: когда приходит или не приходит вовсе.');
+  // Время не прочиталось — так и сказано, а не молчаливое «утром» (§4.0).
+  if (digest === null) lines.push('Время сводки сейчас не прочиталось.');
   const help: CabinetButton[] = [{ text: 'Помощь', payload: `rm:${code}:hp` }];
   if (partner.role === 'operator') help.push({ text: 'Написать в поддержку', payload: 'sup:new' });
   rows.push(help);
@@ -523,6 +550,58 @@ export function moreScreen(partner: CabinetPartner, base: string): CabinetScreen
   lines.push('Оплата через платформу не принимается.');
   return screen(lines, rows);
 }
+
+/** «Ещё» менеджера: кнопок кабинета оператора (`opd:`, `sup:`, `rm:`) у него нет — их вправе нажимать чат карточки. */
+function memberMoreScreen(partner: CabinetPartner, base: string): CabinetScreen {
+  return screen([
+    '<b>Ещё</b>',
+    'Вы в кабинете как менеджер команды: видите «Входящие», задачи и клиентов, звонок и задача записываются от вас.',
+    'Брони подтверждает и отклоняет владелец кабинета — в своём чате кнопками или на сайте; вам — на сайте, если он дал право.',
+    'Ежедневная сводка приходит владельцу кабинета; туры, места и поддержка — у него или на сайте.',
+  ], [[{ text: 'Кабинет на сайте', url: siteUrl(base, partner.role) }]]);
+}
+
+// ── Ежедневная сводка: когда приходит (1354) ───────────────────────────────
+
+/** Окно сводки по Камчатке: [с, до). Крон идёт каждые 30 минут — сводка уходит первым прогоном окна. */
+export const DIGEST_WINDOWS: Readonly<Record<Exclude<DigestMode, 'off'>, { from: number; until: number }>> = {
+  morning: { from: 8, until: 12 },
+  day: { from: 13, until: 17 },
+  evening: { from: 18, until: 22 },
+};
+
+export const DIGEST_WORDS: Readonly<Record<DigestMode, { short: string; long: string }>> = {
+  morning: { short: 'утром', long: 'утром, с 08:00 по Камчатке' },
+  day: { short: 'днём', long: 'днём, с 13:00 по Камчатке' },
+  evening: { short: 'вечером', long: 'вечером, с 18:00 по Камчатке' },
+  off: { short: 'не присылать', long: 'не приходит' },
+};
+
+/** Какое окно сводки идёт в этот камчатский час; null — ни одно. */
+export function digestSlotOfHour(hour: number): Exclude<DigestMode, 'off'> | null {
+  for (const [mode, w] of Object.entries(DIGEST_WINDOWS) as Array<[Exclude<DigestMode, 'off'>, { from: number; until: number }]>) {
+    if (hour >= w.from && hour < w.until) return mode;
+  }
+  return null;
+}
+
+export function digestScreen(mode: DigestMode, notice?: string | null): CabinetScreen {
+  const pick = (m: DigestMode, text: string): CabinetButton => ({
+    text: m === mode ? `• ${text}` : text, payload: cabinetPayload.digestSet(m),
+  });
+  return screen([
+    '<b>Ежедневная сводка</b>',
+    noticeLine(notice),
+    mode === 'off' ? 'Сейчас сводка не приходит.' : `Сейчас приходит ${DIGEST_WORDS[mode].long}.`,
+    'В сводке — что ждёт ответа и задачи на день. Ждать нечего — сводки нет, в любой настройке.',
+  ], [
+    [pick('morning', 'Утром, 08:00'), pick('day', 'Днём, 13:00'), pick('evening', 'Вечером, 18:00')],
+    [pick('off', 'Не присылать')],
+  ]);
+}
+
+/** Сводку настраивает только чат карточки: она приходит туда. */
+export const DIGEST_MEMBER = 'Ежедневная сводка приходит владельцу кабинета — время меняет он в своём чате.';
 
 // ── Отказы ──────────────────────────────────────────────────────────────────
 
@@ -536,6 +615,12 @@ export const CABINET_TEXT = {
   /** После записи, которая прошла: не прочитался только список. */
   listFailed: 'Список не прочитался — откройте раздел ещё раз. Это не «ничего нет».',
   inboxFailed: 'Входящие не прочитались — карточку не открыл. Это не «ничего нет».',
+  /** Чат менеджера записан у двух команд: повтор не поможет, поможет отключение лишнего. */
+  memberTwoTeams: 'Этот чат подключён к кабинетам двух команд — какой открыть, не угадываю. Отключите лишнее подключение в кабинете на сайте.',
+  /** Не прочиталось, ждёт ли чат запрос поиска: сообщение могло быть запросом — дальше его не отдаём. */
+  searchUnchecked: 'Не удалось проверить, ждёт ли чат запрос поиска клиента. Сообщение никуда не отправил — повторите через минуту.',
+  /** Поиск ждал, а чат больше не чат кабинета (менеджера сняли). */
+  searchGone: 'Поиск клиента снят: этот чат больше не подключён к кабинету. Сообщение никуда не отправил.',
   /** Сообщение после поиска, когда позже нажата кнопка брони или заявки. */
   searchYielded: 'Поиск клиента снят: после него вы нажали кнопку брони или заявки. Сообщение никуда не отправил. Если это был запрос — нажмите «Найти клиента» ещё раз.',
   telegramPd: 'Этот экран с именами и телефонами клиентов — только в MAX. Здесь его не показываю.',
@@ -544,4 +629,9 @@ export const CABINET_TEXT = {
 /** Короткий ответ без экрана данных: текст и строка кабинета. */
 export function noticeScreen(text: string, withNav = true): CabinetScreen {
   return { text, rows: withNav ? [cabinetNavRow()] : [], pd: false };
+}
+
+/** Отказ базы: тот же короткий ответ, помеченный для счёта пользования. */
+export function failedScreen(text: string): CabinetScreen {
+  return { ...noticeScreen(text), failed: true };
 }

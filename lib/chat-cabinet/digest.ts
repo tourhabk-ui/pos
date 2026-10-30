@@ -1,9 +1,15 @@
 /**
- * Утренняя сводка кабинета в чате (решение владельца 30.10, «всё сразу +
- * Telegram»): раз в камчатские сутки, с 08:00 до 12:00 по Камчатке, партнёру,
- * у которого что-то ждёт ответа или подошёл срок задачи. Зовёт крон
- * напоминаний (`GET /api/cron/crm-reminders`, каждые 30 минут) третьим
- * прогоном после задач и входящих.
+ * Ежедневная сводка кабинета в чате (решение владельца 30.10, «всё сразу +
+ * Telegram»): раз в камчатские сутки партнёру, у которого что-то ждёт ответа
+ * или подошёл срок задачи. Зовёт крон напоминаний
+ * (`GET /api/cron/crm-reminders`, каждые 30 минут) третьим прогоном после
+ * задач и входящих.
+ *
+ * Когда — выбирает партнёр (слово владельца 30.10 «сводка: время и
+ * выключить», 1354): утром с 08:00, днём с 13:00, вечером с 18:00 по Камчатке
+ * или никогда — кнопкой «Ежедневная сводка» в «Ещё» (`chat_cabinet_settings`).
+ * Строки нет — утром, как было до настройки. Окна — `DIGEST_WINDOWS`
+ * (lib/chat-cabinet/screens), по четыре часа.
  *
  * Правила:
  *  - **Кому.** Карточкам, у которых кабинет в чате есть (`menuRoleOf`:
@@ -49,20 +55,21 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { menuRoleOf } from '@/lib/roles/role-menu';
 import { waitingAge } from '@/lib/roles/inbox-text';
 import { cabinetPayload } from '@/lib/chat-cabinet/payload';
-import { dueWords, siteUrl, type CabinetRole } from '@/lib/chat-cabinet/screens';
+import { digestSlotOfHour, dueWords, siteUrl, type CabinetRole } from '@/lib/chat-cabinet/screens';
+import type { DigestMode } from '@/lib/chat-cabinet/payload';
 import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
 
 interface Queryable {
   query: typeof pool.query;
 }
 
-/** Окно сводки по Камчатке: с конца тихих часов до полудня. */
-export const DIGEST_FROM_HOUR = 8;
-export const DIGEST_UNTIL_HOUR = 12;
 export const DIGEST_TASKS_SHOWN = 5;
 export const DIGEST_BATCH = 300;
 
-/** Кабинеты в чате, которым сегодня сводки ещё не было. `$1` — камчатская дата. */
+/**
+ * Кабинеты в чате, которым сегодня сводки ещё не было и чьё окно идёт сейчас.
+ * `$1` — камчатская дата, `$3` — окно этого часа (`digestSlotOfHour`).
+ */
 export const DIGEST_CANDIDATES_SQL = `
   SELECT p.id::text AS partner_id, p.category, NULLIF(btrim(p.slug), '') AS slug, p.user_id::text AS user_id,
          p.profile_status, p.max_chat_id::text AS max_chat_id, p.telegram_chat_id::text AS telegram_chat_id,
@@ -78,6 +85,7 @@ export const DIGEST_CANDIDATES_SQL = `
    WHERE (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL)
      AND p.category IN ('operator', 'transfer', 'stay', 'guide')
      AND NOT EXISTS (SELECT 1 FROM crm_chat_digests d WHERE d.partner_id = p.id AND d.digest_date = $1::date)
+     AND COALESCE((SELECT s.digest FROM chat_cabinet_settings s WHERE s.partner_id = p.id), 'morning') = $3
    ORDER BY p.id
    LIMIT $2`;
 
@@ -135,8 +143,19 @@ export function digestHasNews(f: DigestFacts): boolean {
  * Текст сводки. `max` — с заголовками задач и подписью клиента (только MAX);
  * иначе — числа без ПД, для Telegram. Всё, что ввели люди, экранируется.
  */
-export function digestText(f: DigestFacts, channel: 'max' | 'telegram', nowMs: number): string {
-  const lines = ['<b>Доброе утро. Кабинет на сегодня</b>'];
+const DIGEST_TITLE: Readonly<Record<Exclude<DigestMode, 'off'>, string>> = {
+  morning: 'Доброе утро. Кабинет на сегодня',
+  day: 'Кабинет: что ждёт сейчас',
+  evening: 'Кабинет: итог дня',
+};
+
+export function digestText(
+  f: DigestFacts,
+  channel: 'max' | 'telegram',
+  nowMs: number,
+  slot: Exclude<DigestMode, 'off'> = 'morning',
+): string {
+  const lines = [`<b>${DIGEST_TITLE[slot]}</b>`];
   const n = f.inbox.items.length;
   if (n > 0) {
     lines.push(`Ждут ответа: ${n} — ${kindCounts(f.inbox)}.`);
@@ -160,13 +179,15 @@ export function digestText(f: DigestFacts, channel: 'max' | 'telegram', nowMs: n
       lines.push('Заголовки задач и имена клиентов в Telegram не пересылаются — они в MAX и в кабинете.');
     }
   }
-  lines.push('Кнопки ниже открывают кабинет прямо в этом чате. Сводка — раз в день, когда что-то ждёт.');
+  lines.push('Кнопки ниже открывают кабинет прямо в этом чате. Сводка — раз в день, когда что-то ждёт; время или «не присылать» — кнопкой «Время сводки».');
   return lines.join('\n');
 }
 
 export interface DigestReport {
   /** Прогон пришёлся на окно сводки. Вне окна остальные числа — нули. */
   window: boolean;
+  /** Окно этого прогона (`DIGEST_WINDOWS`); вне окон — null. */
+  slot: Exclude<DigestMode, 'off'> | null;
   candidates: number;
   sent_max: number;
   sent_tg: number;
@@ -225,24 +246,25 @@ async function sendTelegramDigest(
   return r.success;
 }
 
-export async function runMorningDigest(now: Date, deps: DigestDeps = {}): Promise<DigestReport> {
+export async function runChatDigest(now: Date, deps: DigestDeps = {}): Promise<DigestReport> {
   const db = deps.db ?? pool;
   const read = deps.read ?? readFacts;
   const sendPd = deps.sendPd ?? sendPdAlert;
   const sendTg = deps.sendTelegram ?? sendTelegramDigest;
   const report: DigestReport = {
-    window: false, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
+    window: false, slot: null, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
     failed: 0, read_failed: 0, query_failed: false, truncated: false, done_today: null,
   };
-  const hour = kamchatkaHour(now);
-  if (hour < DIGEST_FROM_HOUR || hour >= DIGEST_UNTIL_HOUR) return report;
+  const slot = digestSlotOfHour(kamchatkaHour(now));
+  if (slot === null) return report;
   report.window = true;
+  report.slot = slot;
   const day = kamchatkaDate(now);
   const nowMs = now.getTime();
 
   let rows: DigestCandidate[];
   try {
-    ({ rows } = await db.query<DigestCandidate>(DIGEST_CANDIDATES_SQL, [day, DIGEST_BATCH]));
+    ({ rows } = await db.query<DigestCandidate>(DIGEST_CANDIDATES_SQL, [day, DIGEST_BATCH, slot]));
   } catch (err) {
     console.error(`[chat-digest] кабинеты для сводки не прочитаны — отказ, SQLSTATE ${sqlstate(err)}`);
     return { ...report, query_failed: true };
@@ -274,15 +296,16 @@ export async function runMorningDigest(now: Date, deps: DigestDeps = {}): Promis
     if (!(await claim(c.partner_id, 'sending'))) return; // сводку уже взял соседний прогон
     const base = getPublicBaseUrl();
     const cabinet = { text: 'Кабинет на сайте', url: siteUrl(base, role as CabinetRole) };
-    const tgText = digestText(facts, 'telegram', nowMs);
+    const tgText = digestText(facts, 'telegram', nowMs, slot);
     const deliver = async (): Promise<'max' | 'telegram' | null> => {
       if (c.max_cabinet && c.max_chat_id) {
         const res = await sendPd({
-          text: digestText(facts, 'max', nowMs),
+          text: digestText(facts, 'max', nowMs, slot),
           stub: tgText,
           buttons: [
             { text: 'Входящие', payload: cabinetPayload.openInbox() },
             { text: 'Задачи', payload: cabinetPayload.openTasks() },
+            { text: 'Время сводки', payload: cabinetPayload.openDigest() },
             cabinet,
           ],
           // Заглушка — только в Telegram-кабинет этой же карточки.
@@ -302,6 +325,7 @@ export async function runMorningDigest(now: Date, deps: DigestDeps = {}): Promis
       if (c.telegram_cabinet && c.telegram_chat_id) {
         const ok = await sendTg(c.telegram_chat_id, tgText, telegramCabinetKeyboard([
           [{ text: 'Входящие', payload: cabinetPayload.openInbox() }, { text: 'Задачи', payload: cabinetPayload.openTasks() }],
+          [{ text: 'Время сводки', payload: cabinetPayload.openDigest() }],
           [cabinet],
         ]));
         if (ok) {

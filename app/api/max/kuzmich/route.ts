@@ -82,6 +82,7 @@ import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
 import { operatorDeskButtons, operatorHelpText, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
 import { cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, type CabinetSection } from '@/lib/chat-cabinet/service';
+import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
 import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
@@ -340,6 +341,18 @@ function cabinetSectionOfText(asked: ReturnType<typeof roleMenuAsk>, slashHead: 
 }
 
 const CABINET_IN_DIALOG = 'Кабинет в чате открывается в личном диалоге с ботом: в группе кнопки нажал бы любой участник.';
+
+/**
+ * Личный диалог, который не чат карточки: может быть чатом менеджера команды
+ * (lib/chat-cabinet/member-entry). true — ответ дан; false — текст идёт
+ * дальше своим путём.
+ */
+function memberCabinetMax(chatId: number, text: string): Promise<boolean> {
+  return memberCabinetText({ channel: 'max', chatId, text }, {
+    show: (screen, userText) => showCabinetMax(chatId, screen, null, userText),
+    say: (body) => maxReply(chatId, body),
+  });
+}
 
 /** Ответ потока дат в чат кабинета: кнопки — callback с payload `od:`. */
 function datesSend(chatId: number, menu: MenuButton[] | null): DatesSend {
@@ -1286,6 +1299,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // «открой субботы июля» по-своему, а «не смог проверить» не равно
       // «это турист» (§4.0).
       const lookup = await findPartnerByChat('max', chatId);
+      // Чат менеджера команды оператора (30.10): его кабинет в чате — слово
+      // меню, команда, запрос поиска клиента. Прочий текст — как раньше.
+      if (lookup.outcome === 'none' && dialog && opts?.verifiedOrigin === true && await memberCabinetMax(chatId, text)) {
+        return;
+      }
       const pilot = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
       // В группе кнопку кабинета нажал бы любой участник. Меню — только в личном диалоге.
       const menu = lookup.outcome === 'found' && dialog

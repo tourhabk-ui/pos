@@ -10,6 +10,7 @@
 
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { cabinetSectionFor, type CabinetSection } from '@/lib/chat-cabinet/service';
+import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { findPartnerByChat, processPartnerMessage } from '@/lib/kuzmich/operator-chat';
 import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
@@ -39,6 +40,23 @@ const NOT_THIS = 'Эта кнопка — меню кабинета. В этом
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
 export const CABINET_IN_DIALOG = 'Кабинет в чате открывается в личном диалоге с ботом: в группе кнопки нажал бы любой участник.';
 
+/**
+ * Чат менеджера команды оператора: слово меню или команда открывают его
+ * кабинет в чате (lib/chat-cabinet/member-entry) — без имён и телефонов, как
+ * всё в Telegram. Прочий текст идёт дальше своим путём, как раньше. Только
+ * личный чат: вызывающий это уже проверил.
+ */
+function tryMemberCabinetTelegram(opts: { chatId: number; text: string; send: RoleSend; sendCabinet: CabinetSend }): Promise<boolean> {
+  return memberCabinetText({ channel: 'telegram', chatId: opts.chatId, text: opts.text }, {
+    show: async (screen, userText) => {
+      const sos = withSosBlock('', userText);
+      if (sos.emergency) await opts.send(sos.text.trim(), []);
+      await opts.sendCabinet(screen);
+    },
+    say: (body) => opts.send(body, []),
+  });
+}
+
 export async function tryRoleMenuTelegramMessage(opts: {
   chatId: number;
   text: string;
@@ -55,8 +73,9 @@ export async function tryRoleMenuTelegramMessage(opts: {
   sendCabinet: CabinetSend;
 }): Promise<boolean> {
   const lookup = await findPartnerByChat('telegram', opts.chatId);
-  if (lookup.outcome !== 'found') return false;
   const privateChat = opts.chatType === 'private';
+  if (lookup.outcome === 'none' && privateChat) return tryMemberCabinetTelegram(opts);
+  if (lookup.outcome !== 'found') return false;
   // Причина отклонения брони (гид, 29.10): после «Отклонить» следующее
   // сообщение личного чата — причина для туриста. Раньше полосы: «турист
   // заболел» иначе ушло бы Кузьмичу туриста. Беда в тексте — блок 112.

@@ -40,6 +40,26 @@ function partnerCabinetCommand(text: string, partnerId: string): boolean {
 }
 
 /**
+ * Администратор, который ещё и менеджер команды оператора (владелец Ведара в
+ * пилоте с «Местечком»): консоль уступает его кабинету в чате слова разделов
+ * и запрос поиска клиента — иначе «Бронникова» после «Найти клиента» ушла бы
+ * консоли по «брон». Прочее остаётся консоли, как раньше. Не прочиталось —
+ * консоль работает как раньше.
+ */
+async function yieldsToMember(channel: 'telegram' | 'max', chatId: number, text: string): Promise<boolean> {
+  const ask = roleMenuAsk(text);
+  const sectionWord = ask === 'inbox' || ask === 'tasks' || ask === 'clients';
+  let searching = false;
+  if (!sectionWord && channel === 'max') {
+    const { awaitsCabinetSearch } = await import('@/lib/chat-cabinet/service');
+    searching = await awaitsCabinetSearch(chatId);
+  }
+  if (!sectionWord && !searching) return false;
+  const { findMemberByChat } = await import('@/lib/operators/member-chat');
+  return (await findMemberByChat(channel, chatId)).outcome === 'found';
+}
+
+/**
  * true — текст в этом чате отдаётся кабинету партнёра, а не консоли
  * администратора. Чат не привязан к карточке или база не ответила — false:
  * консоль работает как раньше.
@@ -50,6 +70,7 @@ export async function adminChatYieldsToPartner(
   text: string,
 ): Promise<boolean> {
   const lookup = await findPartnerByChat(channel, chatId);
+  if (lookup.outcome === 'none') return yieldsToMember(channel, chatId, text);
   if (lookup.outcome !== 'found') return false;
   if (chatActionsEnabledFor(lookup.partner)) {
     const { awaitsOwnerReason } = await import('@/lib/bookings/chat-owner-action');

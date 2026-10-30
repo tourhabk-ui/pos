@@ -4,7 +4,8 @@
  *  - о сроке задачи (1в-2, `lib/crm/reminders.ts`) — поля в корне ответа;
  *  - о входящем без ответа 2 часа (1г-2, `lib/crm/inbox-reminders.ts`) —
  *    поле `inbox`;
- *  - утренняя сводка кабинета в чате, 08–12 по Камчатке, раз в сутки
+ *  - ежедневная сводка кабинета в чате, раз в сутки, в окно, выбранное партнёром
+ *    (утром 08–12, днём 13–17, вечером 18–22 по Камчатке или никогда)
  *    (30.10, `lib/chat-cabinet/digest.ts`) — поле `digest`.
  * Общие правила: тихие часы 22–08 по Камчатке, канал из `reachForPartner`,
  * ПД только в MAX, исходы записываются. Напоминание о задаче уходит копией и
@@ -22,7 +23,7 @@ import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runTaskReminders } from '@/lib/crm/reminders';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
-import { runMorningDigest } from '@/lib/chat-cabinet/digest';
+import { runChatDigest } from '@/lib/chat-cabinet/digest';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export async function GET(req: Request) {
     const now = new Date();
     const r = await runTaskReminders(now);
     const inbox = await runInboxReminders(now);
-    const digest = await runMorningDigest(now);
+    const digest = await runChatDigest(now);
     // team_only — напоминание записано: дошло до менеджеров команды (CRM 2г).
     const stalled = (x: { sent_max: number; sent_stub: number; unreachable: number; failed: number; reach_unknown: number; team_only?: number }) =>
       x.failed + x.reach_unknown > 0 && x.sent_max + x.sent_stub + x.unreachable + (x.team_only ?? 0) === 0;

@@ -77,20 +77,42 @@ describe('окно', () => {
   it('до 08:00 и с 12:00 по Камчатке — база не спрашивается; 11:59 — ещё окно', async () => {
     for (const at of [new Date(Date.UTC(2026, 9, 29, 19, 59)), new Date(Date.UTC(2026, 9, 30, 0, 0))]) {
       const { db, calls } = fakeDb([cand()]);
-      const r = await D.runMorningDigest(at, { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+      const r = await D.runChatDigest(at, { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
       expect(r.window).toBe(false);
       expect(calls).toEqual([]);
     }
     const { db } = fakeDb([]);
-    const late = await D.runMorningDigest(new Date(Date.UTC(2026, 9, 29, 23, 59)), { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+    const late = await D.runChatDigest(new Date(Date.UTC(2026, 9, 29, 23, 59)), { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
     expect(late.window).toBe(true);
   });
 
   it('в окне — кандидаты по камчатской дате (30.10, а не 29.10 сервера)', async () => {
     const { db, calls } = fakeDb([]);
-    const r = await D.runMorningDigest(AT, { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+    const r = await D.runChatDigest(AT, { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
     expect(r.window).toBe(true);
-    expect(calls[0]!.params).toEqual(['2026-10-30', D.DIGEST_BATCH]);
+    expect(calls[0]!.params).toEqual(['2026-10-30', D.DIGEST_BATCH, 'morning']);
+  });
+
+  it('окно этого часа — время, выбранное партнёром (1354): днём 13–17, вечером 18–22; в 12 и после 22 — ни одного', async () => {
+    const at = (hour: number) => new Date(Date.UTC(2026, 9, 29, hour - 12 + (hour < 12 ? 24 : 0), 5));
+    for (const [hour, slot] of [[13, 'day'], [16, 'day'], [18, 'evening'], [21, 'evening']] as const) {
+      const { db, calls } = fakeDb([]);
+      const r = await D.runChatDigest(at(hour), { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+      expect(r, String(hour)).toMatchObject({ window: true, slot });
+      expect(calls[0]!.params[2]).toBe(slot);
+    }
+    for (const hour of [12, 17, 22, 23]) {
+      const { db, calls } = fakeDb([]);
+      const r = await D.runChatDigest(at(hour), { db, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+      expect(r, String(hour)).toMatchObject({ window: false, slot: null });
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('заголовок — по окну: утром «Доброе утро», днём и вечером без него', () => {
+    expect(D.digestText(facts(), 'telegram', AT.getTime())).toMatch(/^<b>Доброе утро\. Кабинет на сегодня<\/b>/);
+    expect(D.digestText(facts(), 'telegram', AT.getTime(), 'day')).toMatch(/^<b>Кабинет: что ждёт сейчас<\/b>/);
+    expect(D.digestText(facts(), 'telegram', AT.getTime(), 'evening')).toMatch(/^<b>Кабинет: итог дня<\/b>/);
   });
 });
 
@@ -98,7 +120,7 @@ describe('MAX', () => {
   it('ПД — только в MAX через sendPdAlert, с кнопками кабинета; заглушка — без заголовков задач и имён; итог записан', async () => {
     const { db, calls } = fakeDb([cand()]);
     const sendPd = vi.fn(async () => ({ channel: 'max' as const, delivered: true, reason: '' }));
-    const r = await D.runMorningDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: vi.fn() });
+    const r = await D.runChatDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: vi.fn() });
     expect(r).toMatchObject({ candidates: 1, sent_max: 1, failed: 0 });
     expect(claimed(calls)).toEqual(['sending']);
     expect(finished(calls)).toEqual(['max']);
@@ -110,19 +132,19 @@ describe('MAX', () => {
     expect(p.text).not.toContain('Петрова');
     expect(p.stub).not.toMatch(/Перезвонить|Анна/);
     expect(p.stub).toContain('Задачи на сегодня: 1, из них просрочено: 0.');
-    expect(p.buttons.map((b) => b.payload ?? b.url)).toEqual(['cb:n:i', 'cb:n:t', 'https://vedarai.ru/hub/guide']);
+    expect(p.buttons.map((b) => b.payload ?? b.url)).toEqual(['cb:n:i', 'cb:n:t', 'cb:n:g', 'https://vedarai.ru/hub/guide']);
   });
 
   it('MAX не принял, ушла заглушка — итог «telegram»; не ушло никуда — замок снят, повтор в следующем прогоне', async () => {
     let { db, calls } = fakeDb([cand()]);
-    let r = await D.runMorningDigest(AT, {
+    let r = await D.runChatDigest(AT, {
       db, read: async () => facts(), sendTelegram: vi.fn(),
       sendPd: async () => ({ channel: 'telegram-stub' as const, delivered: false, reason: '' }),
     });
     expect(r.sent_stub).toBe(1);
     expect(finished(calls)).toEqual(['telegram']);
     ({ db, calls } = fakeDb([cand()]));
-    r = await D.runMorningDigest(AT, {
+    r = await D.runChatDigest(AT, {
       db, read: async () => facts(), sendTelegram: vi.fn(),
       sendPd: async () => ({ channel: 'none' as const, delivered: false, reason: 'MAX отказал' }),
     });
@@ -134,7 +156,7 @@ describe('MAX', () => {
   it('заглушка — только в Telegram-кабинет этой карточки: чужой Telegram-чат не получает ничего', async () => {
     const { db } = fakeDb([cand({ telegram_cabinet: false })]);
     const sendPd = vi.fn(async () => ({ channel: 'max' as const, delivered: true, reason: '' }));
-    await D.runMorningDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: vi.fn() });
+    await D.runChatDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: vi.fn() });
     expect((sendPd.mock.calls[0] as unknown as [{ to: unknown }])[0].to).toEqual({ maxChatId: '9001', telegramChatId: null });
   });
 });
@@ -144,16 +166,16 @@ describe('Telegram и молчание', () => {
     let { db, calls } = fakeDb([cand({ max_chat_id: null, max_cabinet: false })]);
     const sendTelegram = vi.fn(async () => true);
     const sendPd = vi.fn();
-    const r = await D.runMorningDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram });
+    const r = await D.runChatDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram });
     expect(r.sent_tg).toBe(1);
     expect(sendPd).not.toHaveBeenCalled();
     const [chatId, text, kb] = sendTelegram.mock.calls[0] as unknown as [string, string, { inline_keyboard: Array<Array<{ callback_data?: string; url?: string }>> }];
     expect(chatId).toBe('7001');
     expect(text).not.toMatch(/Перезвонить|Анна|Петрова/);
-    expect(kb.inline_keyboard.flat().map((b) => b.callback_data ?? b.url)).toEqual(['cb:n:i', 'cb:n:t', 'https://vedarai.ru/hub/guide']);
+    expect(kb.inline_keyboard.flat().map((b) => b.callback_data ?? b.url)).toEqual(['cb:n:i', 'cb:n:t', 'cb:n:g', 'https://vedarai.ru/hub/guide']);
     expect(finished(calls)).toEqual(['telegram']);
     ({ db, calls } = fakeDb([cand({ max_chat_id: null, max_cabinet: false })]));
-    await D.runMorningDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: async () => false });
+    await D.runChatDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: async () => false });
     expect(released(calls)).toBe(1);
   });
 
@@ -166,7 +188,7 @@ describe('Telegram и молчание', () => {
     ]);
     const sendPd = vi.fn();
     const read = vi.fn(async () => quiet);
-    const r = await D.runMorningDigest(AT, { db, read, sendPd, sendTelegram: vi.fn() });
+    const r = await D.runChatDigest(AT, { db, read, sendPd, sendTelegram: vi.fn() });
     expect(r).toMatchObject({ empty: 1, unreachable: 2, sent_max: 0 });
     expect(claimed(calls)).toEqual(['empty', 'unreachable', 'unreachable']);
     expect(sendPd).not.toHaveBeenCalled();
@@ -187,18 +209,18 @@ describe('отказы', () => {
   it('чтение не удалось — без замка и без сообщения; соседний прогон уже взял — не шлём', async () => {
     let { db, calls } = fakeDb([cand()]);
     const sendPd = vi.fn();
-    let r = await D.runMorningDigest(AT, { db, read: async () => null, sendPd, sendTelegram: vi.fn() });
+    let r = await D.runChatDigest(AT, { db, read: async () => null, sendPd, sendTelegram: vi.fn() });
     expect(r.read_failed).toBe(1);
     expect(claimed(calls)).toEqual([]);
     ({ db, calls } = fakeDb([cand()], 0));
-    r = await D.runMorningDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: vi.fn() });
+    r = await D.runChatDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: vi.fn() });
     expect(sendPd).not.toHaveBeenCalled();
     expect(r.sent_max).toBe(0);
   });
 
   it('список кабинетов не прочитался — query_failed; отказ одного кабинета не останавливает остальных', async () => {
     const broken = { query: vi.fn(async () => { throw Object.assign(new Error('x'), { code: '57P01' }); }) } as never;
-    const r1 = await D.runMorningDigest(AT, { db: broken, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
+    const r1 = await D.runChatDigest(AT, { db: broken, read: vi.fn(), sendPd: vi.fn(), sendTelegram: vi.fn() });
     expect(r1.query_failed).toBe(true);
 
     const two = [cand(), cand({ partner_id: '22222222-2222-4222-8222-222222222222' })];
@@ -210,7 +232,7 @@ describe('отказы', () => {
         return { rows: [], rowCount: 1 };
       }),
     } as never;
-    const r2 = await D.runMorningDigest(AT, {
+    const r2 = await D.runChatDigest(AT, {
       db, read: async () => facts(), sendTelegram: vi.fn(),
       sendPd: async () => ({ channel: 'max' as const, delivered: true, reason: '' }),
     });
@@ -223,7 +245,7 @@ describe('отказы', () => {
 
   it('отправка бросила — замок снят, повтор в следующем прогоне', async () => {
     const { db, calls } = fakeDb([cand()]);
-    const r = await D.runMorningDigest(AT, {
+    const r = await D.runChatDigest(AT, {
       db, read: async () => facts(), sendTelegram: vi.fn(),
       sendPd: async () => { throw new TypeError('сеть'); },
     });
@@ -250,16 +272,16 @@ describe('отказы', () => {
     };
     const none = async () => ({ channel: 'none' as const, delivered: false, reason: 'бот заблокирован' });
     let x = counted(3);
-    let r = await D.runMorningDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
+    let r = await D.runChatDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
     expect(r).toMatchObject({ failed: 1, done_today: 3 });
     x = counted(0);
-    r = await D.runMorningDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
+    r = await D.runChatDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
     expect(r.done_today).toBe(0);
     x = counted('throw');
-    r = await D.runMorningDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
+    r = await D.runChatDigest(AT, { db: x.db, read: async () => facts(), sendTelegram: vi.fn(), sendPd: none });
     expect(r.done_today).toBeNull();
     x = counted(5);
-    r = await D.runMorningDigest(AT, {
+    r = await D.runChatDigest(AT, {
       db: x.db, read: async () => facts(), sendTelegram: vi.fn(),
       sendPd: async () => ({ channel: 'max' as const, delivered: true, reason: '' }),
     });

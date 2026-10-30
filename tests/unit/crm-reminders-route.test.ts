@@ -11,7 +11,7 @@ const runDigest = vi.fn();
 const recordCronRun = vi.fn();
 vi.mock('@/lib/crm/reminders', () => ({ runTaskReminders: (...a: unknown[]) => run(...a) }));
 vi.mock('@/lib/crm/inbox-reminders', () => ({ runInboxReminders: (...a: unknown[]) => runInbox(...a) }));
-vi.mock('@/lib/chat-cabinet/digest', () => ({ runMorningDigest: (...a: unknown[]) => runDigest(...a) }));
+vi.mock('@/lib/chat-cabinet/digest', () => ({ runChatDigest: (...a: unknown[]) => runDigest(...a) }));
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun: (...a: unknown[]) => recordCronRun(...a) }));
 
 const { GET } = await import('@/app/api/cron/crm-reminders/route');
@@ -25,7 +25,7 @@ describe('GET /api/cron/crm-reminders', () => {
   };
   const inboxBase = { quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0, failed_kinds: [] };
   const digestBase = {
-    window: false, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
+    window: false, slot: null, candidates: 0, sent_max: 0, sent_tg: 0, sent_stub: 0, empty: 0, unreachable: 0,
     failed: 0, read_failed: 0, query_failed: false, truncated: false, done_today: null,
   };
 

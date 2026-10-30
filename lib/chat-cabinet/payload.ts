@@ -16,8 +16,10 @@
  *   cb:x                — не искать
  *   cb:k:<d|n|a>:<uuid> — звонок клиенту: дозвонился / не дозвонился / договорились
  *   cb:r:<h|t|w>:<uuid> — напомнить о клиенте: через час / завтра 10:00 / через 3 дня
- *   cb:n:<i|t>          — «Входящие» / «Задачи» НОВЫМ сообщением: кнопка под
- *                         напоминанием и утренней сводкой не стирает их правкой
+ *   cb:n:<i|t|g>        — «Входящие» / «Задачи» / «Сводка» НОВЫМ сообщением:
+ *                         кнопка под напоминанием и сводкой не стирает их правкой
+ *   cb:g                — «Сводка»: когда приходит (1354)
+ *   cb:g:<m|d|e|o>      — сводка утром / днём / вечером / не присылать
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -55,11 +57,15 @@ const CODE_KIND = new Map(Object.entries(INBOX_KIND_CODE).map(([kind, code]) => 
 
 export type TouchOutcome = 'reached' | 'missed' | 'agreed';
 export type RemindWhen = 'hour' | 'tomorrow' | 'days3';
+/** Когда приходит сводка кабинета (chat_cabinet_settings.digest, 1354). */
+export type DigestMode = 'morning' | 'day' | 'evening' | 'off';
 
 const TOUCH_CODE: Readonly<Record<TouchOutcome, string>> = { reached: 'd', missed: 'n', agreed: 'a' };
 const CODE_TOUCH = new Map(Object.entries(TOUCH_CODE).map(([o, c]) => [c, o as TouchOutcome]));
 const REMIND_CODE: Readonly<Record<RemindWhen, string>> = { hour: 'h', tomorrow: 't', days3: 'w' };
 const CODE_REMIND = new Map(Object.entries(REMIND_CODE).map(([w, c]) => [c, w as RemindWhen]));
+const DIGEST_CODE: Readonly<Record<DigestMode, string>> = { morning: 'm', day: 'd', evening: 'e', off: 'o' };
+const CODE_DIGEST = new Map(Object.entries(DIGEST_CODE).map(([d, c]) => [c, d as DigestMode]));
 
 export type CabinetPress =
   | { kind: 'more' }
@@ -73,7 +79,9 @@ export type CabinetPress =
   | { kind: 'search' }
   | { kind: 'search_cancel' }
   | { kind: 'touch'; outcome: TouchOutcome; contactId: string }
-  | { kind: 'remind'; when: RemindWhen; contactId: string };
+  | { kind: 'remind'; when: RemindWhen; contactId: string }
+  | { kind: 'digest' }
+  | { kind: 'digest_set'; mode: DigestMode };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -85,6 +93,12 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [/^cb:m$/, () => ({ kind: 'more' })],
   [/^cb:n:i$/, () => ({ kind: 'inbox', page: 0 })],
   [/^cb:n:t$/, () => ({ kind: 'tasks', page: 0 })],
+  [/^cb:n:g$/, () => ({ kind: 'digest' })],
+  [/^cb:g$/, () => ({ kind: 'digest' })],
+  [/^cb:g:([mdeo])$/, (m) => {
+    const mode = CODE_DIGEST.get(m[1] ?? '');
+    return mode ? { kind: 'digest_set', mode } : null;
+  }],
   [new RegExp(`^cb:i(?::(${PAGE}))?$`), (m) => ({ kind: 'inbox', page: Number(m[1] ?? 0) })],
   [new RegExp(`^cb:o:([a-z]{2}):(${ITEM_ID})$`), (m) => {
     const item = CODE_KIND.get(m[1] ?? '');
@@ -139,6 +153,10 @@ export const cabinetPayload = {
   openInbox: (): string => 'cb:n:i',
   /** «Задачи» новым сообщением — под напоминанием и сводкой. */
   openTasks: (): string => 'cb:n:t',
+  /** «Сводка» новым сообщением — под самой сводкой. */
+  openDigest: (): string => 'cb:n:g',
+  digest: (): string => 'cb:g',
+  digestSet: (mode: DigestMode): string => `cb:g:${DIGEST_CODE[mode]}`,
   item: (kind: InboxKind, id: string): string => `cb:o:${INBOX_KIND_CODE[kind]}:${id.toLowerCase()}`,
   tasks: (page = 0): string => (page > 0 ? `cb:t:${page}` : 'cb:t'),
   taskDone: (taskId: string): string => `cb:d:${taskId.toLowerCase()}`,
