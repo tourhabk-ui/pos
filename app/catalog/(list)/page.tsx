@@ -21,6 +21,7 @@ import {
 import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/tours/marketplace-page';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogHreflang } from '@/lib/zh/pages';
+import { plural } from '@/lib/home/data-freshness';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,7 +95,7 @@ export default async function CatalogPage() {
   const faq = [
     {
       question: 'Где купить тур на Камчатку?',
-      answer: `В этом каталоге — ${total > 0 ? `${total} туров` : 'туры'} местных операторов Камчатки с программой, ценой и датами. Выберите тур и отправьте заявку: оператор подтверждает её сам.`,
+      answer: `В этом каталоге — ${total > 0 ? `${total} ${plural(total, 'тур', 'тура', 'туров')}` : 'туры'} местных операторов Камчатки с программой, ценой и датами. Выберите тур и отправьте заявку: оператор подтверждает её сам.`,
     },
     {
       question: 'Ведар Камчатка — турагентство?',
@@ -129,12 +130,12 @@ export default async function CatalogPage() {
         summary={summary}
       />
       <section aria-labelledby="catalog-faq" className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 pb-6">
-        <h2 id="catalog-faq" className="text-lg font-semibold mb-3">Частые вопросы о турах на Камчатку</h2>
+        <h2 id="catalog-faq" className="ds-h2 mb-3">Частые вопросы о турах на Камчатку</h2>
         <dl className="space-y-3">
           {faq.map((f) => (
             <div key={f.question}>
-              <dt className="font-medium">{f.question}</dt>
-              <dd className="text-sm opacity-80">{f.answer}</dd>
+              <dt className="font-medium text-[var(--text-primary)]">{f.question}</dt>
+              <dd className="text-sm text-[var(--text-secondary)]">{f.answer}</dd>
             </div>
           ))}
         </dl>
