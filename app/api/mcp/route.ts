@@ -1273,6 +1273,10 @@ async function handleMessage(
           name: MCP_SERVER_INFO.name,
           title: MCP_SERVER_INFO.title,
           version: MCP_SERVER_INFO.version,
+          // Ревизия 2025-11-25 (lib/mcp/protocol-version.ts).
+          description: MCP_SERVER_INFO.description,
+          websiteUrl: MCP_SERVER_INFO.websiteUrl,
+          icons: MCP_SERVER_INFO.icons,
         },
         // Сквозные правила для модели хоста — lib/mcp/server-instructions.ts.
         instructions: SERVER_INSTRUCTIONS,

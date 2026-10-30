@@ -122,7 +122,7 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     // (подробно: lib/mcp/protocol-version.ts и mcp-registry-publish.test.ts).
     const res = await rpc('initialize');
     const json = await res.json();
-    expect(json.result.protocolVersion).toBe('2025-06-18');
+    expect(json.result.protocolVersion).toBe('2025-11-25');
 
     const asked = await rpc('initialize', { protocolVersion: '2024-11-05' });
     expect((await asked.json()).result.protocolVersion).toBe('2024-11-05');
