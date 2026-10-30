@@ -113,7 +113,9 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   if (payload.startsWith('lead_')) return 'lead';
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
   if (payload.startsWith('od:')) return 'dates';
-  if (payload.startsWith('rb:') || payload.startsWith('rr:')) return 'rental';
+  // `rc:` — «Поездка состоялась» / «Не состоялась» перевозчика (lib/transfers/ride-outcome, #2862 этап B):
+  // та же полоса, что ответ на заявку — чат партнёра, личный диалог.
+  if (payload.startsWith('rb:') || payload.startsWith('rr:') || payload.startsWith('rc:')) return 'rental';
   return null;
 }
 

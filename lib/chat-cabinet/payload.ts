@@ -46,6 +46,7 @@ export const INBOX_KIND_CODE: Readonly<Record<InboxKind, string>> = {
   stay_request: 'sq',
   gear_rental: 'gr',
   charter_request: 'cr',
+  charter_ride: 'rd',
   guide_invite: 'gi',
   guide_review: 'gv',
   tour_review: 'tv',

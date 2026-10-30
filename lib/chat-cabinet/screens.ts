@@ -33,6 +33,7 @@ import { inboxItemField, inboxItemLine, waitingAge } from '@/lib/roles/inbox-tex
 import { bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
 import { chatAnswerButtons } from '@/lib/requests/chat-answer';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
+import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
@@ -245,6 +246,11 @@ export function itemCardScreen(args: {
     // закрепляется, суммы нет (§14).
     rows.push(rentalAnswerButtons(item.id)!);
     lines.push('«Беру» — вы готовы выполнить и свяжетесь с заказчиком сами; «Не могу» — заявка остаётся у менеджера Ведара. Ответ записывается сразу и один раз; машина заявкой не закрепляется.');
+  } else if (item.kind === 'charter_ride' && partner.role === 'transfer' && rideOutcomeButtons(item.id)) {
+    // Исход поездки (#2862 этап B): слово перевозчика о факте, один раз.
+    // «Состоялась» — заказчику уходит ссылка на отзыв о перевозчике.
+    rows.push(rideOutcomeButtons(item.id)!);
+    lines.push('«Поездка состоялась» — заказчик получит ссылку на отзыв о вас, под отзывом будет сказано, что поездку подтвердили вы. «Не состоялась» — заявка закрывается. Записывается один раз.');
   } else {
     lines.push(`Где ответить: ${escapeHtml(action.hint)}.`);
   }
@@ -254,7 +260,7 @@ export function itemCardScreen(args: {
   if (replies && item.kind === 'stay_request' && isChatTargetId(item.id)) {
     rows.push([ownerReplyButton({ kind: 'stay', id: item.id })]);
   }
-  if (replies && (item.kind === 'lead' || item.kind === 'charter_request') && isChatTargetId(item.id)) {
+  if (replies && (item.kind === 'lead' || item.kind === 'charter_request' || item.kind === 'charter_ride') && isChatTargetId(item.id)) {
     rows.push([ownerReplyButton({ kind: 'lead', id: item.id })]);
   }
   if (item.contact_id) {

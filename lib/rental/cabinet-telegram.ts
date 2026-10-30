@@ -18,6 +18,8 @@ import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { handleRentalCalendarText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug, rentalPilotTelegramGreeting } from '@/lib/rental/operator-pilot';
 import { handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
+import { handleRideOutcomePress } from '@/lib/transfers/ride-outcome-flow';
+import { isRideOutcomePayload } from '@/lib/transfers/ride-outcome';
 
 export type CabinetSend = (text: string, buttons: CabinetButton[][]) => Promise<void>;
 
@@ -94,26 +96,33 @@ export async function tryRentalCabinetTelegramPress(opts: {
 }): Promise<boolean> {
   const action = parseRentalCabinetPress(opts.payload);
   const request = opts.payload.startsWith('rr:');
-  if (!action && !request) return false;
+  const ride = isRideOutcomePayload(opts.payload);
+  if (!action && !request && !ride) return false;
 
   const lookup = await findPartnerByChat('telegram', opts.chatId);
   if (lookup.outcome === 'unavailable') {
     await opts.send(UNREAD, []);
     return true;
   }
-  if (request) {
+  if (request || ride) {
     const pilot = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
     const bare = opts.sendBare;
+    const send = async (text: string) => {
+      if (!pilot && bare) await bare(text);
+      else await opts.send(text, []);
+    };
+    // Исход поездки перевозчика (#2862 этап B) — своей же полосой, без строки проката.
+    if (ride) {
+      await handleRideOutcomePress({ lookup, payload: opts.payload, editMid: null, originalText: null, via: 'telegram', send });
+      return true;
+    }
     await handleRentalRequestAnswer({
       lookup,
       payload: opts.payload,
       editMid: null,
       originalText: null,
       via: 'telegram',
-      send: async (text) => {
-        if (!pilot && bare) await bare(text);
-        else await opts.send(text, []);
-      },
+      send,
     });
     return true;
   }

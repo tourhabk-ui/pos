@@ -46,3 +46,10 @@ export const CRM_SEAT_ANSWER_API = '/api/hub/crm/seat-requests';
  * «Беру» / «Не могу» под заявкой в MAX и в карточке кабинета в чате.
  */
 export const CRM_CHARTER_ANSWER_API = '/api/hub/crm/charter-requests';
+
+/**
+ * Исход поездки по заявке на машину (#2862 этап B):
+ * `${CRM_RIDE_OUTCOME_API}/<leadId>/outcome`. Та же функция, что кнопки
+ * «Поездка состоялась» / «Не состоялась» в карточке кабинета в чате.
+ */
+export const CRM_RIDE_OUTCOME_API = '/api/hub/crm/charter-rides';
