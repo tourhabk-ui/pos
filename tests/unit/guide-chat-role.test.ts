@@ -122,7 +122,23 @@ function fake(sql: string, params: unknown[]): { rows: unknown[]; rowCount: numb
   }
   if (/FROM partners WHERE id = \$1::uuid AND category = 'guide'/.test(sql)) return res(db.profile ? [db.profile] : []);
   if (/^\s*UPDATE partners/.test(sql)) return res([], 1);
-  if (/INSERT INTO guide_chat_drafts/.test(sql)) return res([{ id: DRAFT }]);
+  // Черновик живёт в поддельной базе по-настоящему: кнопка, нажатая кодом
+  // без гида, нашла бы его и записала — сторож «без кнопки» это и ловит.
+  if (/INSERT INTO guide_chat_drafts/.test(sql)) {
+    const json = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : v ?? null);
+    db.draft = {
+      id: DRAFT, kind: params[3], review_id: params[4], field: params[5], new_value: json(params[6]),
+      live_value: json(params[7]), status: params[8], expired: false,
+    };
+    return res([{ id: DRAFT }]);
+  }
+  if (/SET new_value = \$2::jsonb, status = 'pending'/.test(sql)) {
+    if (db.draft && db.draft.status === 'awaiting_text') {
+      db.draft = { ...db.draft, new_value: JSON.parse(String(params[1])), status: 'pending' };
+      return res([], 1);
+    }
+    return res([], 0);
+  }
   if (/UPDATE guide_chat_drafts/.test(sql)) return res([], 1);
   return res([]);
 }
@@ -205,6 +221,8 @@ describe('кнопки этапа 2: форма', () => {
 describe('без кнопки не пишется ничего', () => {
   it('текст после «Ответить» — только черновик: «было → станет», отзыв не тронут', async () => {
     db.awaiting = { id: DRAFT, partner_id: GUIDE, review_id: REVIEW, live_value: null, newer: false };
+    db.draft = { id: DRAFT, kind: 'reply', review_id: REVIEW, field: null, new_value: null, live_value: null, status: 'awaiting_text', expired: false };
+    db.review = { guide_reply: null };
     const s = await captureGuideRoleText({ channel: 'max', chatId: CHAT, partner: GUIDE_CARD, text: 'Спасибо <за> отзыв!' });
     expect(s?.text).toContain('<b>Станет:</b>\nСпасибо &lt;за&gt; отзыв!');
     expect(s?.rows.flat().map((b) => b.text)).toEqual(expect.arrayContaining(['Опубликовать', 'Отмена']));
@@ -308,6 +326,18 @@ describe('сайт и чат пишут одной функцией', () => {
       expect(s.text).toMatch(/раздел кабинета гида/);
     }
     expect(h.invite).not.toHaveBeenCalled();
+    expect(db.writes).toEqual([]);
+  });
+
+  it('карточка без кабинета на сайте: кнопки записи — отказ, ни черновика, ни ответа', async () => {
+    const noAccount = who({ partner: { ...GUIDE_CARD, userId: null } });
+    for (const press of [
+      { kind: 'review_reply', reviewId: REVIEW }, { kind: 'invite_accept', inviteId: INVITE }, { kind: 'team_leave_yes' },
+    ] as const) {
+      expect((await guideRolePress(press, noAccount)).text, press.kind).toMatch(/кабинетом на сайте/);
+    }
+    expect(h.invite).not.toHaveBeenCalled();
+    expect(h.leave).not.toHaveBeenCalled();
     expect(db.writes).toEqual([]);
   });
 });
