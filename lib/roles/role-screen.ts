@@ -18,7 +18,7 @@
  * любой участник.
  */
 
-import { guideBookingsScreen, guideToursScreen } from '@/lib/guides/chat-screens';
+import { guideBookingsScreen, guideToursMenuScreen } from '@/lib/guides/chat-screens';
 import {
   adminMenuHelp, guideSellsOwnTours, partnerMenuHelp, type MenuAction, type MenuPartner, type MenuRole,
 } from '@/lib/roles/role-menu';
@@ -72,7 +72,7 @@ export async function roleMenuScreen(opts: {
   }
   if (role === 'guide' && (opts.action === 'bookings' || opts.action === 'tours')) {
     if (!guideSellsOwnTours(opts.partner)) return { text: GUIDE_NO_OWN_TOURS, pd: false };
-    if (opts.action === 'tours') return { text: await guideToursScreen(opts.partner.partnerId), pd: false };
+    if (opts.action === 'tours') return { ...(await guideToursMenuScreen(opts.partner.partnerId)), pd: false };
     const screen = await guideBookingsScreen(opts.partner.partnerId, opts.channel, opts.nowMs ?? Date.now());
     // Второй замок поверх канала экрана: контакт туриста вне MAX не отдаём
     // ни при какой правке chat-screens — как у экрана администратора.

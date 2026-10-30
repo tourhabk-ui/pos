@@ -34,6 +34,7 @@ import { CHAT_BOOKINGS_WINDOW_DAYS } from '@/lib/roles/role-menu';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { STOREFRONT_LABELS, storefrontState } from '@/lib/tours/public-visibility';
 import type { MenuButton } from '@/lib/roles/chat-menu';
+import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 
 /** Бронь без полей ПД — только из неё строится Telegram-экран. */
 export type OwnBookingNoPd = Omit<OwnBooking, 'tourist_name' | 'tourist_phone' | 'tourist_email' | 'special_requests'>;
@@ -192,15 +193,35 @@ export function guideToursText(tours: readonly OwnTour[]): string {
   if (tours.some((t) => storefrontState(t) === 'draft')) {
     lines.push('Туры без описания — черновики: пришлите описание менеджеру Ведара, и тур появится на сайте.');
   }
+  // Правка текста и цены — в чате (30.10, lib/guides/tour-edit): «было → станет», пишет кнопка «Сохранить».
+  lines.push('Нажмите тур ниже: даты кнопками, текст и цена. Или одним сообщением: «Горелый: описание: …», «Горелый: цена 16000» — покажу, что было и что станет, сохранит кнопка «Сохранить».');
   lines.push(`Открыть даты, брони и заявки — в разделе «Свои туры»: ${ownUrl()}`);
   return lines.join('\n');
 }
 
-export async function guideToursScreen(partnerId: string): Promise<string> {
+/**
+ * Кнопка каждого тура под «Моими турами» — в экран тура кабинета в чате
+ * (`cb:u:<тур>`, lib/guides/tour-edit, 30.10): даты кнопками, правка текста
+ * и цены, страница на сайте. В payload — только номер тура.
+ */
+export function guideTourButtons(tours: readonly OwnTour[]): MenuButton[][] {
+  return tours.slice(0, SHOWN).map((t) => [{
+    text: t.title.length > 40 ? `${t.title.slice(0, 39).trimEnd()}…` : t.title,
+    payload: cabinetPayload.tour(t.id),
+  }]);
+}
+
+/** «Мои туры» с кнопками туров. Отказ базы — словами, без кнопок. */
+export async function guideToursMenuScreen(partnerId: string): Promise<{ text: string; buttons: MenuButton[][] }> {
   try {
-    return guideToursText(await loadOwnTours(partnerId));
+    const tours = await loadOwnTours(partnerId);
+    return { text: guideToursText(tours), buttons: guideTourButtons(tours) };
   } catch (err) {
     logSwallowedFailure('guide-chat', 'туры гида для чата', err);
-    return `${GUIDE_TOURS_UNREAD}${ownUrl()}`;
+    return { text: `${GUIDE_TOURS_UNREAD}${ownUrl()}`, buttons: [] };
   }
+}
+
+export async function guideToursScreen(partnerId: string): Promise<string> {
+  return (await guideToursMenuScreen(partnerId)).text;
 }

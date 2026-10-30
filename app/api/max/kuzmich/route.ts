@@ -1349,6 +1349,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           return;
         }
       }
+      // Правка своего тура гидом (30.10): «Горелый: описание: …» — черновик
+      // и «было → станет» с кнопками «Сохранить» / «Отмена»; в тур пишет
+      // только кнопка (lib/guides/tour-edit). Раньше полосы и потока дат:
+      // «описание: выезд 5 августа» — текст тура, а не открытие даты.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
+        const edit = await captureGuideTourEdit({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (edit) {
+          await showCabinetMax(chatId, edit, null, text);
+          return;
+        }
+      }
       // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
       // отвечает про клиентов и свои туры и отказывает в аренде. Кабинет
       // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному

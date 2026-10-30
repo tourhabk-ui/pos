@@ -170,6 +170,19 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
   if (/SELECT 1 FROM partner_chat_actions/.test(sql)) {
     return res(db.rows.some((x) => x.channel === p[0] && x.chat_id === p[1] && x.status === 'awaiting_reason') ? [{}] : []);
   }
+  // «Мои туры» гида (lib/guides/tour-edit, 30.10): свои туры и черновик правки.
+  if (/FROM operator_tours t\s+WHERE t\.operator_id = \$1::uuid/.test(sql)) {
+    return res([{
+      id: '77', title: 'Восхождение на Горелый', slug: 'desk-gorely', is_active: true, is_published: true,
+      base_price: '15000.00', price_unit: 'per_person', max_participants: 8, short_description: null, description: 'Было.',
+      program: null, included: null, not_included: null, what_to_bring: null, safety_notes: null,
+    }]);
+  }
+  if (/INSERT INTO tour_chat_edits/.test(sql)) {
+    db.writes.push(sql);
+    return res([{ id: `eeeeeeee-0000-4000-8000-${String(++db.seq).padStart(12, '0')}` }]);
+  }
+  if (/UPDATE operator_tours/.test(sql)) db.writes.push(sql);
   return res([]);
 }
 
@@ -950,4 +963,24 @@ describe('экран «Брони»: Telegram-ветка без полей ПД'
       expect(body, head).not.toMatch(/tourist_(?:name|phone|email)|special_requests/);
     }
   });
+});
+
+// ── Правка своего тура фразой (30.10) ───────────────────────────────────────
+
+describe('правка своего тура фразой: «было → станет», в тур пишет только кнопка', () => {
+  for (const ch of CHANNELS) {
+    it(`${ch}: «Горелый: цена 16000» — предпросмотр с «Сохранить» и «Отмена»; помощник фразу не получает, тур не тронут`, async () => {
+      const s = one(await DRIVERS[ch].say('Горелый: цена 16000'), `правка тура (${ch})`);
+      expect(s.text).toMatch(/^<b>Восхождение на Горелый<\/b> — Цена/);
+      const words = s.text.replace(/\u00a0/g, ' ');
+      expect(words).toContain('Было: 15 000 ₽ за человека');
+      expect(words).toContain('Станет: <b>16 000 ₽ за человека</b>');
+      expect(buttonNamed(s, 'Сохранить').payload).toMatch(/^cb:e:s:[0-9a-f-]{36}$/);
+      expect(buttonNamed(s, 'Отмена').payload).toMatch(/^cb:e:x:[0-9a-f-]{36}$/);
+      expect(m.processPartner).not.toHaveBeenCalled();
+      expect(db.writes.filter((w) => /UPDATE operator_tours/.test(w))).toEqual([]);
+      expect(db.writes.filter((w) => /INSERT INTO tour_chat_edits/.test(w))).toHaveLength(1);
+      expectPdBoundaries();
+    });
+  }
 });

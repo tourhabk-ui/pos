@@ -771,6 +771,23 @@ export async function handleCabinetPress(input: {
     case 'fleet': out = await fleetView(g); break;
     case 'vehicle_active': out = await vehicleActive(g, press); break;
     case 'carrier_summary': out = await carrierSummaryView(g); break;
+    // «Мои туры» гида (30.10): даты, правка текста и цены — lib/guides/tour-edit.
+    // Роль, кабинет карточки и владение туром проверяет поток.
+    case 'my_tours':
+    case 'tour':
+    case 'tour_dates':
+    case 'date_open':
+    case 'date_close':
+    case 'tour_hint':
+    case 'edit_save':
+    case 'edit_cancel':
+    case 'edit_tour': {
+      const { guideTourPress } = await import('@/lib/guides/tour-edit/flow');
+      out = await guideTourPress(press, {
+        partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId, nowMs,
+      });
+      break;
+    }
   }
   const shown = lockForChannel(out, ch);
   await count(g, ch, press.kind, shown, nowMs);

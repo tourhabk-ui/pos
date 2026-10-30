@@ -538,8 +538,9 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     rows.push([{ text: 'Мои туры и цены', payload: 'opd:tours' }, { text: 'Обновить места', payload: 'opd:seats' }]);
     lines.push('Мои туры и цены — живые туры и цена из каталога. Обновить места — где отметить занятость.');
   } else if (partner.role === 'guide' && partner.sellsTours) {
+    // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
-    lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик и открытые даты.');
+    lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик, открытые даты; нажмите тур — даты кнопками, текст и цена.');
   }
   if (partner.role === 'transfer') {
     // Парк и прайс перевозчика (#2862 этап C): кнопка снять машину с линии,

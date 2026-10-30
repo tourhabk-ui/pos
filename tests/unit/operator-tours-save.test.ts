@@ -145,7 +145,8 @@ describe('расписание', () => {
 
 describe('прочее', () => {
   it('главное фото каталога — первое фото галереи', () => {
-    expect(read('app/api/hub/operator/tours/[id]/route.ts')).toMatch(/fields\.push\(`tour_image = \$\$\{idx\+\+\}`\)/);
+    // Запись тура вынесена в общую функцию сайта и чата гида (30.10).
+    expect(read('lib/tours/tour-write.ts')).toMatch(/fields\.push\(`tour_image = \$\$\{idx\+\+\}`\)/);
   });
 
   it('публикация ставит is_published', () => {
