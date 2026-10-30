@@ -35,8 +35,12 @@ const loader = (() => {
 })();
 
 const plan = (() => {
-  const at = LIB.indexOf('export async function planRouteMap(');
-  const end = LIB.indexOf('\n}\n', at);
+  // Запрос плана и его исходы с 30.10 (#2808) живут в planRouteMapFiles —
+  // общей половине, которую читает и planRouteMap, и проверка свежести
+  // карты; срез — от неё до конца planRouteMap.
+  const at = LIB.indexOf('export async function planRouteMapFiles(');
+  const planAt = LIB.indexOf('export async function planRouteMap(', at);
+  const end = LIB.indexOf('\n}\n', planAt);
   return LIB.slice(at, end);
 })();
 

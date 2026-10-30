@@ -33,6 +33,7 @@ import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline
 import { parseSavedMap, savedMapKey } from '@/lib/offline/saved-map';
 import { probeCoverage } from '@/lib/offline/coverage';
 import { routeMapReadiness } from '@/lib/offline/route-map-readiness';
+import { checkRouteMapFreshness } from '@/lib/offline/map-freshness';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { trackLine } from '@/lib/map/line-standard';
 // Сложность — из ЕДИНОГО словаря (lib/tours/labels). Здесь лежали свои
@@ -554,9 +555,18 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
       setDlNote(r.note);
     };
     show(null);
-    void probeCoverage(saved.sampleUrls).then(show, () => show(null));
+    void probeCoverage(saved.sampleUrls).then(show, () => show(null)).then(async () => {
+      // Проба записи говорит, на месте ли СКАЧАННОЕ. Отстаёт ли оно от того,
+      // что карта запросит сегодня (сменилась версия слоя мест, добавилась
+      // клетка), видно только со связью — по сегодняшнему плану (#2808,
+      // lib/offline/map-freshness). Без связи строка выше остаётся как есть.
+      const fresh = await checkRouteMapFreshness(id, regionPacks).catch(() => null);
+      if (!alive || !fresh || fresh.state !== 'behind') return;
+      setDlState('error');
+      setDlNote(fresh.note);
+    });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, regionPacks]);
 
   /**
    * «Скачать для похода» — свои пакеты карты тем же правилом, что полевой

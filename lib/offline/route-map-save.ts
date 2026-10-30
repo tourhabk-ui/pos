@@ -23,7 +23,7 @@ import { planPackFiles, type PackFile } from '@/lib/offline/pack-files';
 import { measurePackFiles, downloadPackFiles, totalMb, type PackDownloadResult } from '@/lib/offline/pack-download';
 import { savedMapKey, requestPersistentStorage, SAVED_PROBE_SIZE, type SavedMapRecord } from '@/lib/offline/saved-map';
 import { evenSample } from '@/lib/offline/coverage';
-import type { RegionPack } from '@/lib/map/field-base-map';
+import type { RegionPack, ViewBounds } from '@/lib/map/field-base-map';
 
 /** Что будет лежать в телефоне и сколько это весит — до нажатия. */
 export interface RouteMapPlan {
@@ -66,23 +66,43 @@ export type RouteMapSaveResult =
  * Сервер отдаёт рамку маршрута; клетки по ней выбираются здесь, из того же
  * реестра пакетов, которым карта рисует поле.
  */
-export async function planRouteMap(routeId: string, regionPacks: readonly RegionPack[]): Promise<RouteMapPlanResult> {
+/** Рамка маршрута из ответа /offline-bundle; null — рамки в ответе нет. */
+export function boundsOfBundle(data: OfflineBundle): ViewBounds | null {
+  const b = (data.route_bounds ?? data.bbox) as Record<string, unknown> | undefined;
+  return b && [b.south, b.west, b.north, b.east].every(x => typeof x === 'number' && Number.isFinite(x))
+    ? { south: b.south as number, west: b.west as number, north: b.north as number, east: b.east as number }
+    : null;
+}
+
+export type RouteMapFilesResult =
+  | { ok: true; files: PackFile[]; bundle: OfflineBundle }
+  | { ok: false; error: string };
+
+/**
+ * Файлы карты маршрута по СЕГОДНЯШНЕМУ реестру пакетов — без замера веса.
+ *
+ * Общая половина плана: рамка с сервера → клетки из реестра → файлы. Её же
+ * читает проверка свежести сохранённой карты (lib/offline/map-freshness):
+ * ей нужны адреса, которые карта запросит сейчас, а не их вес.
+ */
+export async function planRouteMapFiles(
+  routeId: string,
+  regionPacks: readonly RegionPack[],
+  fetchFn: typeof fetch = fetch,
+): Promise<RouteMapFilesResult> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     // Связи нет — план посчитать нечем, и это НЕ «сохранять нечего».
     return { ok: false, error: 'Нет связи — размер пакета не посчитать. Подключитесь, пока не ушли в поле' };
   }
   try {
-    const res = await fetch(`/api/routes/${routeId}/offline-bundle`);
+    const res = await fetchFn(`/api/routes/${routeId}/offline-bundle`);
     const data = await res.json() as OfflineBundle;
     if (!res.ok) {
       const why = typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`;
       console.error('[offline-bundle] план не посчитан:', why);
       return { ok: false, error: `Сервер не отдал план карты (${why})` };
     }
-    const b = (data.route_bounds ?? data.bbox) as Record<string, unknown> | undefined;
-    const bounds = b && [b.south, b.west, b.north, b.east].every(x => typeof x === 'number' && Number.isFinite(x))
-      ? { south: b.south as number, west: b.west as number, north: b.north as number, east: b.east as number }
-      : null;
+    const bounds = boundsOfBundle(data);
     const plan = planPackFiles(bounds, regionPacks);
     if (!plan || plan.files.length === 0) {
       // Ноль файлов при живом ответе — не «карта не нужна»: либо у
@@ -95,7 +115,21 @@ export async function planRouteMap(routeId: string, regionPacks: readonly Region
           : 'Для этого маршрута карту выбрать не из чего: нет линии или координат',
       };
     }
-    const measured = await measurePackFiles(plan.files);
+    return { ok: true, files: plan.files, bundle: data };
+  } catch (err) {
+    // Молчать нельзя: без плана нет и кнопки сохранения.
+    const why = err instanceof Error ? err.message : String(err);
+    console.error('[offline-bundle] запрос плана не выполнен:', why);
+    return { ok: false, error: 'Не смогли спросить сервер о карте — проверьте связь и повторите' };
+  }
+}
+
+export async function planRouteMap(routeId: string, regionPacks: readonly RegionPack[]): Promise<RouteMapPlanResult> {
+  const planned = await planRouteMapFiles(routeId, regionPacks);
+  if (!planned.ok) return planned;
+  const data = planned.bundle;
+  try {
+    const measured = await measurePackFiles(planned.files);
     // Диапазона глифов, которого в хранилище нет, нет и в плане: качать
     // нечего, а «не лёг» у него делало бы карту вечно неполной. Хранилище
     // на отсутствующий ключ отвечает 403, а не 404 (offline-pack-check,
