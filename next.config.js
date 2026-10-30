@@ -255,6 +255,11 @@ const nextConfig = {
       // marketplace-вариант — до общего :path*-правила, чтобы редирект был одним хопом.
       { source: '/marketplace/operators', destination: '/operators',                    permanent: true },
       { source: '/catalog/operators',  destination: '/operators',                      permanent: true },
+      // Список туров живёт на /catalog; /catalog/tours без id — 404. Ссылка
+      // vedarai.ru/marketplace/tours ушла в соцсети 30.10 — один хоп сразу в каталог.
+      { source: '/marketplace/tours',  destination: '/catalog',                        permanent: true },
+      { source: '/catalog/tours',      destination: '/catalog',                        permanent: true },
+      { source: '/tury-na-kamchatku',  destination: '/catalog',                        permanent: true },
       { source: '/marketplace/:path*', destination: '/catalog/:path*',                 permanent: true },
       { source: '/marketplace',        destination: '/catalog',                        permanent: true },
       { source: '/tours',              destination: '/catalog',                        permanent: true },
