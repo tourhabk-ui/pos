@@ -19,7 +19,7 @@ import { redactPII } from '@/lib/security/pii-redact';
 import type { InboxItem } from '@/lib/crm/inbox';
 
 /** Виды, у которых название и дата — свободный текст туриста (lib/crm/inbox-sql): заявка на подбор, направление заявки на машину. */
-const TOURIST_TEXT_KINDS: ReadonlySet<InboxKind> = new Set<InboxKind>(['lead', 'charter_request']);
+const TOURIST_TEXT_KINDS: ReadonlySet<InboxKind> = new Set<InboxKind>(['lead', 'charter_request', 'charter_ride']);
 
 function age(min: number): string {
   if (min < 60) return `${min} мин`;

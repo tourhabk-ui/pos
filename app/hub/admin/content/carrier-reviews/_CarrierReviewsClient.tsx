@@ -31,6 +31,7 @@ interface Charter {
   created_at: string;
   is_self: boolean;
   ride_confirmed_at: string | null;
+  confirmed_by_kind?: string | null;
   link_issued_at: string | null;
   link_expires_at: string | null;
   review_id: string | null;
@@ -203,7 +204,7 @@ export default function CarrierReviewsClient() {
                     </p>
                     <p className="text-xs mt-1 text-[var(--text-secondary)]">
                       {c.review_id ? 'Отзыв получен'
-                        : c.link_issued_at ? `Поездка подтверждена ${fmt(c.ride_confirmed_at)}; ссылка выдана ${fmt(c.link_issued_at)}, действует до ${fmt(c.link_expires_at)}`
+                        : c.link_issued_at ? `Поездку подтвердил ${c.confirmed_by_kind === 'carrier' ? 'перевозчик' : 'менеджер'} ${fmt(c.ride_confirmed_at)}; ссылка выдана ${fmt(c.link_issued_at)}, действует до ${fmt(c.link_expires_at)}`
                           : 'Поездка не подтверждена'}
                     </p>
                   </div>

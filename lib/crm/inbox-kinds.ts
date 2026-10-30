@@ -20,6 +20,7 @@ export const INBOX_KINDS = [
   'stay_request',
   'gear_rental',
   'charter_request',
+  'charter_ride',
   'guide_invite',
   'guide_review',
   'tour_review',
@@ -39,7 +40,10 @@ export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxK
   // заявкой в MAX, в карточке кабинета в чате и во «Входящих» на сайте.
   // Снятый товар «места в машине» (схема 926) из ящика убран: витрины мест
   // нет, новых запросов не будет; оставшиеся кабинет показывает под парком.
-  transfer: ['charter_request'],
+  // «Поездка состоялась?» (этап B, 1353) — вопрос на следующий день после
+  // поездки по заявке с ответом «Беру»: «состоялась» даёт заказчику ссылку на
+  // отзыв, под которым сказано, что подтвердил перевозчик.
+  transfer: ['charter_request', 'charter_ride'],
   // Гид продаёт и свои туры (28.10, миграция 1338): брони, запросы мест и
   // заявки на них ждут его ответа так же, как у оператора, и запросы читают
   // по `operator_id` — карточке гида. На бронь и заявку он отвечает в разделе
@@ -81,6 +85,7 @@ export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   stay_request: 'Заявка на жильё',
   gear_rental: 'Заказ снаряжения',
   charter_request: 'Заявка на машину',
+  charter_ride: 'Поездка состоялась?',
   guide_invite: 'Приглашение в команду',
   guide_review: 'Отзыв без ответа',
   tour_review: 'Отзыв о туре без ответа',
@@ -123,6 +128,12 @@ const ACTION_BY_KIND: Readonly<Record<InboxKind, InboxAction>> = {
     href: null,
     hint: 'Ответить «Беру» или «Не могу» во «Входящих», под заявкой в MAX или в карточке кабинета в чате; «Беру» — вы свяжетесь с заказчиком сами',
   },
+  // Исход поездки — слово перевозчика о факте (components/crm/CharterRideActions,
+  // карточка кабинета в чате). «Состоялась» — заказчику уходит ссылка на отзыв.
+  charter_ride: {
+    href: null,
+    hint: 'Ответить «Поездка состоялась» или «Не состоялась» во «Входящих» или в карточке кабинета в чате; после «состоялась» заказчик получит ссылку на отзыв о вас',
+  },
   guide_invite: { href: '/hub/guide', hint: 'Принять или отклонить в «Обзоре»' },
   guide_review: { href: '/hub/guide/reviews', hint: 'Ответить в «Отзывах»' },
   tour_review: { href: '/hub/operator/reviews', hint: 'Ответить в «Отзывах»' },
@@ -150,7 +161,8 @@ export function inboxActionFor(category: PartnerCategory, kind: InboxKind): Inbo
 /**
  * Время первого ответа считается по просьбам клиента, где ответ ждут: брони,
  * заявки, приглашение. Отзыв без ответа во «Входящих» есть, но в медиану не
- * идёт: на отзыв отвечают не «быстро», а по делу.
+ * идёт: на отзыв отвечают не «быстро», а по делу. Вопрос «Поездка
+ * состоялась?» — тоже не просьба клиента, в медиану не идёт.
  */
 export const RESPONSE_METRIC_KINDS: ReadonlySet<InboxKind> = new Set<InboxKind>([
   'operator_booking', 'seat_request', 'lead', 'accommodation_booking', 'stay_request',

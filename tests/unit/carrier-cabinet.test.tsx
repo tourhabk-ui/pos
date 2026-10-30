@@ -81,7 +81,7 @@ describe('кабинет перевозчика — машина целиком'
 
 describe('«Входящие» перевозчика', () => {
   it('ждёт ответа заявка на машину, отвечают прямо во «Входящих»; строки «ведёт менеджер» больше нет (#2862)', () => {
-    expect(INBOX_BY_CATEGORY.transfer).toEqual(['charter_request']);
+    expect(INBOX_BY_CATEGORY.transfer).toEqual(['charter_request', 'charter_ride']);
     expect(INBOX_NOT_HERE.transfer.join(' ')).not.toMatch(/менеджер/);
     const action = inboxActionFor('transfer', 'charter_request');
     expect(action.href).toBeNull();

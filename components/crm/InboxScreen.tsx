@@ -19,6 +19,7 @@ import { formatSourceDate } from './labels';
 import { ContactPanel } from './ContactPanel';
 import { SeatRequestActions } from './SeatRequestActions';
 import { CharterRequestActions, type AnswerNotice } from './CharterRequestActions';
+import { CharterRideActions } from './CharterRideActions';
 
 type LoadState =
   | { kind: 'loading' }
@@ -114,6 +115,7 @@ function ItemRow({ item, category, onOpenContact, onAnswered }: {
       )}
       {item.kind === 'seat_request' && <SeatRequestActions requestId={item.id} onAnswered={() => onAnswered()} />}
       {item.kind === 'charter_request' && category === 'transfer' && <CharterRequestActions leadId={item.id} onAnswered={onAnswered} />}
+      {item.kind === 'charter_ride' && category === 'transfer' && <CharterRideActions leadId={item.id} onAnswered={onAnswered} />}
     </li>
   );
 }

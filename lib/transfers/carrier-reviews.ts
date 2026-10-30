@@ -21,8 +21,10 @@ import {
   inviteIssueVerdict,
   inviteKeyVerdict,
   isoDateOrNull,
+  proofOfConfirmation,
   roundedAverage,
   type CarrierReviewProof,
+  type RideConfirmedBy,
 } from '@/lib/transfers/carrier-review-rules';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -148,6 +150,8 @@ interface InviteRow {
   lead_id: string;
   expires_at: string;
   used_at: string | null;
+  /** Кто подтвердил поездку (1353); у строк до неё — 'manager' по умолчанию. */
+  confirmed_by_kind: string | null;
   destination: string | null;
   date_from: string | null;
   date_to: string | null;
@@ -155,6 +159,7 @@ interface InviteRow {
 
 const INVITE_SQL = `
   SELECT i.lead_id::text, i.expires_at::text AS expires_at, i.used_at::text AS used_at,
+         i.confirmed_by_kind,
          l.source_data->>'destination' AS destination,
          l.source_data->>'date_from' AS date_from,
          l.source_data->>'date_to' AS date_to
@@ -194,13 +199,16 @@ export async function writeInviteReview(p: {
     const v = inviteKeyVerdict({ expiresAt: row.expires_at, usedAt: row.used_at }, p.now ?? Date.now());
     if (!v.ok) return { ok: false, reason: v.reason } as const;
 
+    // Род доказательства — по тому, кто подтвердил поездку (1353): менеджер
+    // или сам перевозчик. Под отзывом это будет названо вслух.
+    const proof = proofOfConfirmation(row.confirmed_by_kind === 'carrier' ? 'carrier' : 'manager');
     const ins = await client.query<{ id: string }>(
       `INSERT INTO carrier_reviews
          (partner_id, proof, lead_id, author_name, rating, comment, ride_date, ride_to)
-       VALUES ($1, 'charter', $2, $3, $4, $5, $6::date, $7)
+       VALUES ($1, $8, $2, $3, $4, $5, $6::date, $7)
        ON CONFLICT (lead_id) DO NOTHING
        RETURNING id::text`,
-      [p.partnerId, row.lead_id, p.authorName, p.rating, p.comment, isoDateOrNull(row.date_from), row.destination],
+      [p.partnerId, row.lead_id, p.authorName, p.rating, p.comment, isoDateOrNull(row.date_from), row.destination, proof],
     );
     await client.query(`UPDATE carrier_review_invites SET used_at = NOW() WHERE lead_id = $1`, [row.lead_id]);
     return ins.rows[0] ? ({ ok: true, id: ins.rows[0].id } as const) : ({ ok: false, reason: 'used' } as const);
@@ -212,16 +220,21 @@ export type IssueInviteResult =
   | { ok: false; reason: 'not_found' | 'no_date' | 'not_yet' | 'already_reviewed' };
 
 /**
- * Менеджер подтверждает, что поездка по заявке состоялась, и получает ссылку
- * для заказчика. Ключ показывается один раз; в базе — хэш. Повторная выдача
- * по той же заявке заменяет ключ: прежняя ссылка перестаёт работать, а
- * первое подтверждение (кто и когда) остаётся.
+ * Поездка по заявке состоялась — ссылка на отзыв для заказчика. Подтверждает
+ * менеджер (по умолчанию, 1235) или сам перевозчик (`confirmedByKind:
+ * 'carrier'`, 1353): род доказательства отзыва потом берётся отсюда. Ключ
+ * показывается один раз; в базе — хэш. Повторная выдача по той же заявке
+ * заменяет ключ и того, кто подтвердил: прежняя ссылка перестаёт работать,
+ * а первое подтверждение (когда) остаётся.
  */
 export async function issueCharterInvite(p: {
   leadId: string;
   confirmedBy: string | null;
   today: string;
   now?: number;
+  confirmedByKind?: RideConfirmedBy;
+  /** Карточка перевозчика, если подтвердил он. */
+  confirmedPartnerId?: string | null;
 }): Promise<IssueInviteResult> {
   if (!UUID_RE.test(p.leadId)) return { ok: false, reason: 'not_found' };
   const { rows } = await query<{ partner_id: string; slug: string; date_from: string | null; reviewed: boolean }>(
@@ -240,14 +253,18 @@ export async function issueCharterInvite(p: {
   const key = randomBytes(24).toString('base64url');
   const expiresAt = new Date((p.now ?? Date.now()) + CARRIER_REVIEW_INVITE_DAYS * 86_400_000).toISOString();
   const confirmedBy = p.confirmedBy && UUID_RE.test(p.confirmedBy) ? p.confirmedBy : null;
+  const byKind: RideConfirmedBy = p.confirmedByKind ?? 'manager';
+  const confirmedPartner = byKind === 'carrier' && p.confirmedPartnerId && UUID_RE.test(p.confirmedPartnerId) ? p.confirmedPartnerId : null;
   const up = await query<{ lead_id: string }>(
-    `INSERT INTO carrier_review_invites (lead_id, partner_id, key_hash, ride_confirmed_by, expires_at)
-     VALUES ($1, $2, $3, $4, $5::timestamptz)
+    `INSERT INTO carrier_review_invites
+       (lead_id, partner_id, key_hash, ride_confirmed_by, expires_at, confirmed_by_kind, confirmed_partner_id)
+     VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7)
      ON CONFLICT (lead_id) DO UPDATE
-        SET key_hash = EXCLUDED.key_hash, expires_at = EXCLUDED.expires_at, issued_at = NOW()
+        SET key_hash = EXCLUDED.key_hash, expires_at = EXCLUDED.expires_at, issued_at = NOW(),
+            confirmed_by_kind = EXCLUDED.confirmed_by_kind, confirmed_partner_id = EXCLUDED.confirmed_partner_id
       WHERE carrier_review_invites.used_at IS NULL
      RETURNING lead_id::text`,
-    [p.leadId, lead.partner_id, hashInviteKey(key), confirmedBy, expiresAt],
+    [p.leadId, lead.partner_id, hashInviteKey(key), confirmedBy, expiresAt, byKind, confirmedPartner],
   );
   if (!up.rows[0]) return { ok: false, reason: 'already_reviewed' };
   return { ok: true, key, slug: lead.slug, expiresAt };
@@ -299,6 +316,8 @@ export interface AdminCharterLead {
   created_at: string;
   is_self: boolean;
   ride_confirmed_at: string | null;
+  /** Кто подтвердил: 'manager' | 'carrier' (1353); null — поездка не подтверждена. */
+  confirmed_by_kind: string | null;
   link_issued_at: string | null;
   link_expires_at: string | null;
   review_id: string | null;
@@ -319,6 +338,7 @@ export async function listCharterLeadsForAdmin(): Promise<AdminCharterLead[]> {
             l.created_at::text AS created_at,
             COALESCE(l.is_self, FALSE) AS is_self,
             i.ride_confirmed_at::text AS ride_confirmed_at,
+            i.confirmed_by_kind,
             i.issued_at::text AS link_issued_at,
             i.expires_at::text AS link_expires_at,
             cr.id::text AS review_id

@@ -506,7 +506,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const cq = update.callback_query;
       const chatId = cq.message?.chat.id ?? cq.from.id;
 
-      if (parseRentalCabinetPress(cq.data) || cq.data.startsWith('rr:')) {
+      if (parseRentalCabinetPress(cq.data) || cq.data.startsWith('rr:') || cq.data.startsWith('rc:')) {
         await tgAnswerCallback(cq.id);
         const { tryRentalCabinetTelegramPress } = await import('@/lib/rental/cabinet-telegram');
         await tryRentalCabinetTelegramPress({
