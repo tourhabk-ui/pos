@@ -3,8 +3,24 @@
   "name": "ru.vedarai/mcp",
   "title": "Vedar — Kamchatka travel",
   "description": "Kamchatka, Russia travel: tours, hotels, transfers, volcano status, safety, booking requests",
-  "version": "2.10.0",
+  "version": "2.10.1",
   "websiteUrl": "https://vedarai.ru/mcp",
+  "icons": [
+    {
+      "src": "https://vedarai.ru/icons/icon-512.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    },
+    {
+      "src": "https://vedarai.ru/apple-touch-icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "180x180"
+      ]
+    }
+  ],
   "repository": {
     "url": "https://github.com/tourhabk-ui/pos",
     "source": "github"
