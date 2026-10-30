@@ -98,9 +98,11 @@ describe('дедуп и гонка деплоя', () => {
   it('workflow публикует только когда прод на коммите триггера', () => {
     // Проверка «эндпоинт отвечает 401» пропускала старый контейнер: формат
     // триггера и код эндпоинта едут одним коммитом, значит и гейт — по нему.
+    // С #2875 гейт — общее ожидание по записи выката (scripts/wait-for-deploy.sh)
+    // с sha своего коммита: version.json на проде отвечает commit=unknown.
     const yml = readFileSync(join(ROOT, '.github/workflows/channel-post.yml'), 'utf-8');
-    expect(yml).toMatch(/version\.json/);
-    expect(yml).toMatch(/GITHUB_SHA/);
+    expect(yml).toMatch(/run: bash scripts\/wait-for-deploy\.sh/);
+    expect(yml).toMatch(/WANT_SHA: \$\{\{ github\.sha \}\}/);
     expect(yml).not.toMatch(/if \[ "\$CODE" = "401" \]; then READY=1/);
   });
 });
