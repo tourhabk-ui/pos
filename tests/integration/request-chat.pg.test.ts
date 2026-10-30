@@ -302,6 +302,58 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(u.rows).toEqual([]);
     });
 
+    it('кнопка хозяина «Свободно, беру» (30.10): ответ записан один раз, своим, гостю ушёл словами хозяина, заявка не ждёт', async () => {
+      const { answerStayRequest } = await import('@/lib/stay/owner-answer-flow');
+      const manager: string[] = [];
+      const notify = async (t: string) => { manager.push(t); };
+      // Чужой партнёр — не его заявка, ничего не записано.
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_public, is_verified) VALUES ('Другой дом', 'stay', '{}', FALSE, FALSE) RETURNING id`,
+      );
+      const alien = await answerStayRequest({
+        partner: { partnerId: other.rows[0].id, partnerName: 'Другой дом' }, requestId, answer: 'free', via: 'max', db: pool, notifyManager: notify,
+      });
+      expect(alien.tell).toEqual({ kind: 'not_yours' });
+      expect(manager).toEqual([]);
+
+      const first = await answerStayRequest({
+        partner: { partnerId, partnerName: 'Кутха' }, requestId, answer: 'free', via: 'max', db: pool, notifyManager: notify,
+      });
+      expect(first.tell.kind).toBe('answered');
+      expect(first.facts).toEqual({ accommodationName: 'Кутха', checkIn: '2099-07-10', checkOut: '2099-07-12', guests: 6 });
+      const row = await pool.query<{ owner_answer: string; via: string; at: string | null }>(
+        `SELECT owner_answer, owner_answer_via AS via, owner_answered_at::text AS at FROM stay_requests WHERE id = $1`, [requestId],
+      );
+      expect(row.rows[0]).toMatchObject({ owner_answer: 'free', via: 'max' });
+      expect(row.rows[0].at).not.toBeNull();
+      // Гостю — словами хозяина, в переписку (видно на странице заявки).
+      const last = await pool.query<{ author: string; body: string }>(
+        `SELECT author, body FROM request_messages WHERE stay_request_id = $1 ORDER BY created_at DESC LIMIT 1`, [requestId],
+      );
+      expect(last.rows[0].author).toBe('owner');
+      expect(last.rows[0].body).toContain('«Кутха»: свободно, ждём вас с 10.07.2099 по 12.07.2099');
+      expect(last.rows[0].body).not.toMatch(/Анна|79990001122/);
+      // Менеджеру — факт без имени и телефона гостя.
+      expect(manager).toHaveLength(1);
+      expect(manager[0]).toContain('ответил «свободно, беру»');
+      expect(manager[0]).not.toMatch(/Анна|79990001122/);
+
+      // Второе нажатие первое не переписывает.
+      const again = await answerStayRequest({
+        partner: { partnerId, partnerName: 'Кутха' }, requestId, answer: 'busy', via: 'telegram', db: pool, notifyManager: notify,
+      });
+      expect(again.tell).toEqual({ kind: 'already', answer: 'free' });
+      expect(manager).toHaveLength(1);
+
+      // «Входящие» и напоминание: заявка больше не ждёт.
+      const { INBOX_SQL } = await import('@/lib/crm/inbox-sql');
+      const inbox = await pool.query(INBOX_SQL.stay_request, [partnerId, new Date(Date.now() - 7 * 86400_000)]);
+      expect(inbox.rows[0].waiting).toBe(false);
+      const { INBOX_REMIND_SQL } = await import('@/lib/crm/inbox-reminders');
+      const due = await pool.query(INBOX_REMIND_SQL.stay_request, [new Date(Date.now() + 3 * 3600_000).toISOString(), 120, 24]);
+      expect(due.rows).toEqual([]);
+    });
+
     it('удалили заявку — переписка и ожидания ушли с ней', async () => {
       await pool.query(`DELETE FROM stay_requests WHERE id = $1`, [requestId]);
       const m = await pool.query(`SELECT count(*)::int AS n FROM request_messages WHERE stay_request_id = $1`, [requestId]);

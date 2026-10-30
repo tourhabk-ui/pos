@@ -33,13 +33,14 @@ import { INBOX_KIND_LABELS } from '@/lib/crm/inbox-kinds';
 import type { SourceKind } from '@/lib/crm/contacts';
 import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 import { cabinetPayload } from '@/lib/chat-cabinet/payload';
+import { STAY_ANSWER_HINT, stayAnswerButtons } from '@/lib/stay/owner-answer';
 
 interface Queryable {
   query: typeof pool.query;
 }
 
 export const INBOX_REMIND_KINDS = [
-  'operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'charter_ride', 'guide_invite',
+  'operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'charter_ride', 'guide_invite', 'stay_request',
 ] as const;
 export type InboxRemindKind = (typeof INBOX_REMIND_KINDS)[number];
 
@@ -160,6 +161,22 @@ export const INBOX_REMIND_SQL: Readonly<Record<InboxRemindKind, string>> = {
      WHERE i.status = 'pending'
        AND ${waitedWindow('i.created_at')}
        AND ${notReminded('i.guide_partner_id', 'guide_invite', 'i.id::text')}`,
+
+  // Заявка хозяину жилья (1206, 30.10): ждёт, пока хозяин не ответил кнопкой
+  // (owner_answer, 1359) и не написал гостю в переписке (1349) — то же «ждёт»,
+  // что у вида stay_request в lib/crm/inbox-sql, и пока не наступил заезд.
+  stay_request: `
+    SELECT a.partner_id, p.category, s.id::text AS item_id, s.created_at,
+           a.name AS title, s.check_in_date::text AS item_date, cc.display_name AS contact_name
+      FROM stay_requests s
+      JOIN accommodations a ON a.id = s.accommodation_id
+      JOIN partners p ON p.id = a.partner_id
+      ${contactJoin('stay_request', 'a.partner_id', 's.id::text')}
+     WHERE s.owner_answer IS NULL
+       AND s.check_in_date >= ($1::timestamptz AT TIME ZONE 'Asia/Kamchatka')::date
+       AND NOT EXISTS (SELECT 1 FROM request_messages m WHERE m.stay_request_id = s.id AND m.author = 'owner')
+       AND ${waitedWindow('s.created_at')}
+       AND ${notReminded('a.partner_id', 'stay_request', 's.id::text')}`,
 };
 
 /** Исход — одной строкой на предмет; повтор и гонка двух прогонов безвредны. */
@@ -208,13 +225,19 @@ export function inboxReminderMessage(items: readonly Item[]): Pick<PdAlertParams
   });
   const rest = n - lines.length;
   if (rest > 0) lines.push(`…и ещё ${rest}`);
+  // Одна заявка на жильё — ответить можно прямо здесь, теми же тремя кнопками,
+  // что под самой заявкой (lib/stay/owner-answer, 30.10): хозяину «Кутхи»
+  // кабинет не нужен. Несколько предметов — кнопки в карточках «Входящих».
+  const only = n === 1 ? items[0] : undefined;
+  const direct = only?.kind === 'stay_request' ? (stayAnswerButtons(only.item_id) ?? []) : [];
   return {
-    text: [head, ...lines].join('\n'),
+    text: [head, ...lines, ...(direct.length ? ['', STAY_ANSWER_HINT] : [])].join('\n'),
     stub: `${head}\nЧто именно — в кабинете, во «Входящих»: имена клиентов в Telegram не пересылаются.`,
     // «Входящие в чате» — кабинет в чате (lib/chat-cabinet), карточки с
     // кнопками ответа. Кнопка-действие — только в MAX: из заглушки Telegram
     // sendPdAlert её убирает, там остаётся ссылка.
     buttons: [
+      ...direct,
       { text: 'Входящие в чате', payload: cabinetPayload.openInbox() },
       { text: 'Открыть входящие', url: inboxUrl(items[0]?.category ?? '') },
     ],

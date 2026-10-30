@@ -1795,6 +1795,21 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
+    // Ответ хозяина жилья на заявку одной кнопкой (`sa:`, lib/stay/owner-answer,
+    // 30.10) из карточки кабинета в чате: тот же разбор, что в MAX; чат
+    // партнёра — из привязки. Без ПД: в ответе ни имени, ни телефона гостя.
+    if (data.startsWith('sa:')) {
+      await telegramService.answerCallback(cq.id);
+      const { handleStayAnswerPress } = await import('@/lib/stay/owner-answer-flow');
+      const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');
+      const lookup = await findPartnerByChat('telegram', cq.message?.chat?.id ?? senderChatId);
+      await handleStayAnswerPress({
+        lookup, payload: data, editMid: null, originalText: null, via: 'telegram',
+        send: async (body) => { await sendHTML(callbackChatId, body); },
+      });
+      return;
+    }
+
     if (parseRentalCabinetPress(data) || data.startsWith('rr:') || data.startsWith('rc:')) {
       await telegramService.answerCallback(cq.id);
       await tryRentalCabinetTelegramPress({

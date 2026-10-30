@@ -34,6 +34,7 @@ import { bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-own
 import { chatAnswerButtons } from '@/lib/requests/chat-answer';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
+import { STAY_ANSWER_HINT, stayAnswerButtons } from '@/lib/stay/owner-answer';
 import { formatRub, vehicleKindWord, type CharterVehicleKind } from '@/lib/transfers/charter-format';
 import { priceRowLabel, type CharterPriceRow } from '@/lib/transfers/price-edit';
 import { carrierSummaryText, type CarrierSummary } from '@/lib/transfers/carrier-summary';
@@ -253,6 +254,12 @@ export function itemCardScreen(args: {
     // закрепляется, суммы нет (§14).
     rows.push(rentalAnswerButtons(item.id)!);
     lines.push('«Беру» — вы готовы выполнить и свяжетесь с заказчиком сами; «Не могу» — заявка остаётся у менеджера Ведара. Ответ записывается сразу и один раз; машина заявкой не закрепляется.');
+  } else if (item.kind === 'stay_request' && partner.role === 'stay' && stayAnswerButtons(item.id)) {
+    // Заявка на жильё (30.10): те же три кнопки, что под заявкой в MAX (`sa:`),
+    // в обоих каналах — гость получает ответ словами хозяина, заявка перестаёт
+    // ждать. Это не бронь: даты и цену подтверждает хозяин (1206).
+    rows.push(stayAnswerButtons(item.id)!);
+    lines.push(STAY_ANSWER_HINT);
   } else if (item.kind === 'charter_ride' && partner.role === 'transfer' && rideOutcomeButtons(item.id)) {
     // Исход поездки (#2862 этап B): слово перевозчика о факте, один раз.
     // «Состоялась» — заказчику уходит ссылка на отзыв о перевозчике.
