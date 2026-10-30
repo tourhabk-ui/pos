@@ -143,6 +143,27 @@ export async function readEditTours(partnerId: string, db: Pick<PoolClient, 'que
   }
 }
 
+/**
+ * Свой тур под блокировкой — в транзакции записи (документ гида, 1359):
+ * строка для `writeTourPatch` и тур для сверки «было». null — тура нет или не
+ * её. Отказ базы — исключение (транзакция вызывающего откатится).
+ */
+export async function lockEditTour(
+  c: Pick<PoolClient, 'query'>,
+  partnerId: string,
+  tourId: string,
+): Promise<{ tour: ChatTour; row: Record<string, unknown> } | null> {
+  const { rows } = await c.query<TourRowDb & { main_place_id: string | null }>(
+    `SELECT ${TOUR_COLUMNS}, t.main_place_id
+       FROM operator_tours t
+      WHERE t.id = $2::bigint AND t.operator_id = $1::uuid AND t.deleted_at IS NULL
+      FOR UPDATE`,
+    [partnerId, tourId],
+  );
+  const row = rows[0];
+  return row ? { tour: toTour(row), row: row as unknown as Record<string, unknown> } : null;
+}
+
 export type OwnTour = { outcome: 'ok'; tour: ChatTour } | { outcome: 'not_found' } | { outcome: 'db_error' };
 
 export async function readEditTour(partnerId: string, tourId: string, db: Pick<PoolClient, 'query'> = pool): Promise<OwnTour> {
@@ -178,6 +199,9 @@ const SUPERSEDE_SQL = `UPDATE tour_chat_edits SET status = 'superseded', decided
 /** Открытый черновик роли гида в этом чате (1358: ответ на отзыв, профиль) — тоже: последнее действие главное. */
 const SUPERSEDE_ROLE_SQL = `UPDATE guide_chat_drafts SET status = 'superseded', decided_at = NOW()
   WHERE channel = $1 AND chat_id = $2::bigint AND status IN ('awaiting_text', 'pending')`;
+/** И документ гида (1359), ждущий кнопки. */
+const SUPERSEDE_DOC_SQL = `UPDATE tour_doc_drafts SET status = 'superseded', decided_at = NOW()
+  WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
 
 export const CREATE_DRAFT_SQL = `INSERT INTO tour_chat_edits
     (partner_id, channel, chat_id, tour_id, candidate_ids, field, new_value, live_value, expires_at)
@@ -213,6 +237,7 @@ export async function createDraft(input: {
     await client.query('BEGIN');
     await client.query(SUPERSEDE_SQL, [input.channel, String(input.chatId)]);
     await client.query(SUPERSEDE_ROLE_SQL, [input.channel, String(input.chatId)]);
+    await client.query(SUPERSEDE_DOC_SQL, [input.channel, String(input.chatId)]);
     const { rows } = await client.query<{ id: string }>(CREATE_DRAFT_SQL, [
       input.partnerId, input.channel, String(input.chatId), input.tourId, input.candidateIds, input.field,
       JSON.stringify(input.newValue), input.tourId === null ? null : JSON.stringify(input.liveValue ?? null), DRAFT_TTL_HOURS,

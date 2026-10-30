@@ -92,7 +92,7 @@
  *     ответе (ERASE_STEP_LEAVES); предложения «открыть даты» из его диалога
  *     MAX (operator_chat_date_proposals), действия кнопкой из его чата
  *     кабинета (partner_chat_actions), ожидания поиска клиента кабинета в чате
- *     (chat_cabinet_waits), черновики правки тура из чата (tour_chat_edits), черновики ответа на отзыв и профиля гида (guide_chat_drafts) и коды привязки мессенджера, которыми этот канал
+ *     (chat_cabinet_waits), черновики правки тура из чата (tour_chat_edits), черновики ответа на отзыв и профиля гида (guide_chat_drafts), документы тура гида (tour_doc_drafts) и коды привязки мессенджера, которыми этот канал
  *     заводили (messenger_bind_codes), удаляются тем же ключом;
  *   - спутники, описание маршрута и последняя точка в его прошедших
  *     регистрациях маршрута, адресат в журнале доставки тревог по ним
@@ -1217,6 +1217,12 @@ export async function eraseUser(
     // lib/guides/chat-role): та же форма — карточка, его диалог; несохранённый
     // текст ответа — его слова, сохранённый живёт в guide_reviews.
     ['guide_chat_drafts', `DELETE FROM guide_chat_drafts d
+      USING (${HIS_MESSENGER_IDS}) his
+      WHERE (d.channel = 'max' AND d.chat_id = ANY(his.mx))
+         OR (d.channel = 'telegram' AND d.chat_id = ANY(his.tg))`],
+    // Документ тура гида из MAX (миграция 1359): та же форма; файл не
+    // хранится, в строке — разобранный текст тура, не ПД.
+    ['tour_doc_drafts', `DELETE FROM tour_doc_drafts d
       USING (${HIS_MESSENGER_IDS}) his
       WHERE (d.channel = 'max' AND d.chat_id = ANY(his.mx))
          OR (d.channel = 'telegram' AND d.chat_id = ANY(his.tg))`],

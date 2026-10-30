@@ -158,6 +158,15 @@ export function parseTourEdit(raw: string): EditParse | null {
   return { ok: true, edit: { tourWords, field, value: value.value } };
 }
 
+/**
+ * Значение поля из готового текста — тем же правилом и пределами, что у фразы.
+ * Зовёт разбор документа гида (lib/guides/tour-edit/doc-sections): поле из
+ * .docx проходит ровно ту проверку, что поле из сообщения.
+ */
+export function parseFieldValue(field: EditField, body: string): { value: EditValue } | EditReject {
+  return parseValue(field, body);
+}
+
 function parseValue(field: EditField, after: string): { value: EditValue } | EditReject {
   const body = after.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!body) return { reason: 'empty' };

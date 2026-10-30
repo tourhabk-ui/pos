@@ -201,6 +201,8 @@ const SUPERSEDE_DRAFTS_SQL = `UPDATE guide_chat_drafts SET status = 'superseded'
   WHERE channel = $1 AND chat_id = $2::bigint AND status IN ('awaiting_text', 'pending')`;
 const SUPERSEDE_TOUR_EDITS_SQL = `UPDATE tour_chat_edits SET status = 'superseded', decided_at = NOW()
   WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
+const SUPERSEDE_TOUR_DOCS_SQL = `UPDATE tour_doc_drafts SET status = 'superseded', decided_at = NOW()
+  WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
 
 /**
  * Ожидания текста этого чата, которые «Ответить» снимает: последняя кнопка
@@ -266,6 +268,7 @@ export async function createRoleDraft(input: {
     const chat = [input.channel, String(input.chatId)];
     await c.query(SUPERSEDE_DRAFTS_SQL, chat);
     await c.query(SUPERSEDE_TOUR_EDITS_SQL, chat);
+    await c.query(SUPERSEDE_TOUR_DOCS_SQL, chat);
     if (input.awaiting) for (const sql of SUPERSEDE_WAITS_SQL) await c.query(sql, chat);
     const { rows } = await c.query<{ id: string }>(CREATE_ROLE_DRAFT_SQL, [
       input.partnerId, input.channel, String(input.chatId), input.kind, input.reviewId, input.field,

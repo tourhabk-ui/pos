@@ -617,6 +617,52 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((await gpress(`cb:w:o:${gorely}:20261103`)).text).toMatch(/^03\.11: открыта снова/);
       expect(await row()).toMatchObject({ available_slots: 8, is_cancelled: false });
     });
+
+    it('документ гида (.docx, 1359): по полю и «Сохранить всё» — общей функцией сайта; правка на сайте после предпросмотра не затирается', async () => {
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1359_tour_doc_drafts.sql'), 'utf8'));
+      // Название, анонс и цену документ не пишет — база не примет и такой черновик.
+      await expect(pool.query(
+        `INSERT INTO tour_doc_drafts (partner_id, channel, chat_id, doc_values, expires_at)
+         VALUES ($1, 'max', 1, '{"base_price": 1}', NOW())`, [guideId],
+      )).rejects.toMatchObject({ code: '23514' });
+      const { docx, GUIDE_DOC } = await import('../helpers/docx');
+      const doc = await import('@/lib/guides/tour-edit/doc-flow');
+      const full = async () => (await pool.query<{
+        description: string | null; what_to_bring: string[] | null; included: string[] | null; program: unknown; safety_notes: string[] | null;
+      }>(`SELECT description, what_to_bring, included, program, safety_notes FROM operator_tours WHERE id = $1`, [gorely])).rows[0]!;
+      const before = await full();
+      const shown = await doc.captureGuideTourDoc({
+        channel: 'max', chatId: GUIDE_CHAT, partner, fileName: 'Горелый.docx', caption: 'Горелый', bytes: docx(GUIDE_DOC),
+      });
+      expect(shown?.text).toMatch(/^<b>Документ → тур «Восхождение на вулкан Горелый»<\/b>/);
+      expect(await full()).toEqual(before);
+      // Чужой чат той же кнопкой не пишет.
+      const one = draftOf(shown!, 'Сохранить: Что взять с собой');
+      expect(one).toMatch(/^cb:q:f:/);
+      expect((await gpress(one, STRANGER_CHAT)).text).not.toMatch(/Сохранено/);
+      expect(await full()).toEqual(before);
+      const saved = await gpress(one);
+      expect(saved.text).toMatch(/Сохранено: что взять с собой/);
+      expect((await full()).what_to_bring).toEqual(['треккинговые ботинки;', 'ветрозащитная куртка & шапка <тёплая>;']);
+      expect((await full()).included).toEqual(before.included);
+      // Описание правят на сайте после предпросмотра — «Сохранить всё» его не трогает.
+      await pool.query(`UPDATE operator_tours SET description = 'Правка на сайте поверх документа.' WHERE id = $1`, [gorely]);
+      const all = await gpress(draftOf(saved, 'Сохранить всё (4)'));
+      expect(all.text).toMatch(/Не записал: описание/);
+      const after = await full();
+      expect(after.description).toBe('Правка на сайте поверх документа.');
+      expect(after.included).toEqual(['Трансфер на внедорожнике.']);
+      expect(after.safety_notes).toEqual(['Сколько длится: Около 12 часов.', 'К активной воронке близко не подходить.']);
+      expect(after.program).toEqual([
+        { title: 'Дорога на перевал', text: 'Выезд в 7:00, дорога около 2,5 часов.' },
+        { title: 'Восхождение', text: '2–3 часа по лавовым полям.' },
+      ]);
+      // Описание осталось — гид видит новое «было» и решает сам.
+      const last = await gpress(draftOf(all, 'Сохранить: Описание'));
+      expect(last.text).toMatch(/Всё из документа записано/);
+      expect((await full()).description).toBe('Вулкан Горелый (1829 м) — действующий вулкан на юге Камчатки.');
+      expect((await pool.query(`SELECT status FROM tour_doc_drafts WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1`, [GUIDE_CHAT])).rows[0]).toEqual({ status: 'saved' });
+    });
   });
 
   describe('роль гида, этап 2: отзыв, профиль, команда, расписание, заработок (1358)', () => {

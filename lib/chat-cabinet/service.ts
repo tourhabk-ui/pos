@@ -824,6 +824,14 @@ export async function handleCabinetPress(input: {
       });
       break;
     }
+    // Документ гида (.docx → поля тура, 1359): «Сохранить всё», по полю, выбор тура.
+    case 'doc_save':
+    case 'doc_cancel':
+    case 'doc_tour': {
+      const { guideDocPress } = await import('@/lib/guides/tour-edit/doc-flow');
+      out = await guideDocPress(press, { partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId });
+      break;
+    }
   }
   const shown = lockForChannel(out, ch);
   await count(g, ch, press.kind, shown, nowMs);

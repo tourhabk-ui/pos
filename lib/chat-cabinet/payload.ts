@@ -43,6 +43,10 @@
  *   cb:p                — «Профиль и команда» гида
  *   cb:p:<a|n>:<uuid>   — приглашение в команду: принять / отклонить
  *   cb:p:l | cb:p:y     — «Выйти из команды»: вопрос / подтверждение
+ *   cb:q:a:<uuid>       — документ гида (.docx, 1359): «Сохранить всё»
+ *   cb:q:f:<uuid>:<i>   — документ гида: сохранить одно поле (номер в DOC_FIELDS)
+ *   cb:q:t:<uuid>:<i>   — документ гида: выбрать тур из кандидатов
+ *   cb:q:x:<uuid>       — документ гида: отмена
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -123,7 +127,11 @@ export type CabinetPress =
   | { kind: 'profile' }
   | { kind: 'invite_accept' | 'invite_decline'; inviteId: string }
   | { kind: 'team_leave' }
-  | { kind: 'team_leave_yes' };
+  | { kind: 'team_leave_yes' }
+  /** `field` — номер поля в DOC_FIELDS (lib/guides/tour-edit/doc-sections); null — все. */
+  | { kind: 'doc_save'; draftId: string; field: number | null }
+  | { kind: 'doc_cancel'; draftId: string }
+  | { kind: 'doc_tour'; draftId: string; index: number };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -201,6 +209,10 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [new RegExp(`^cb:p:([an]):(${UUID})$`), (m) => ({ kind: m[1] === 'a' ? 'invite_accept' : 'invite_decline', inviteId: m[2]! })],
   [/^cb:p:l$/, () => ({ kind: 'team_leave' })],
   [/^cb:p:y$/, () => ({ kind: 'team_leave_yes' })],
+  [new RegExp(`^cb:q:a:(${UUID})$`), (m) => ({ kind: 'doc_save', draftId: m[1]!, field: null })],
+  [new RegExp(`^cb:q:f:(${UUID}):([0-5])$`), (m) => ({ kind: 'doc_save', draftId: m[1]!, field: Number(m[2]) })],
+  [new RegExp(`^cb:q:x:(${UUID})$`), (m) => ({ kind: 'doc_cancel', draftId: m[1]! })],
+  [new RegExp(`^cb:q:t:(${UUID}):([0-7])$`), (m) => ({ kind: 'doc_tour', draftId: m[1]!, index: Number(m[2]) })],
 ];
 
 export function isCabinetPayload(payload: string): boolean {
@@ -277,6 +289,11 @@ export const cabinetPayload = {
   inviteDecline: (inviteId: string): string => `cb:p:n:${inviteId.toLowerCase()}`,
   teamLeave: (): string => 'cb:p:l',
   teamLeaveYes: (): string => 'cb:p:y',
+  /** Документ гида (.docx → поля тура, 1359). */
+  docSaveAll: (draftId: string): string => `cb:q:a:${draftId.toLowerCase()}`,
+  docSaveField: (draftId: string, field: number): string => `cb:q:f:${draftId.toLowerCase()}:${field}`,
+  docCancel: (draftId: string): string => `cb:q:x:${draftId.toLowerCase()}`,
+  docTour: (draftId: string, index: number): string => `cb:q:t:${draftId.toLowerCase()}:${index}`,
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */

@@ -118,7 +118,10 @@ export function tourScreen(t: ChatTour, siteBase: string, notice?: string | null
 
 export function hintScreen(t: ChatTour): CabinetScreen {
   return screen(
-    [`<b>${escapeHtml(t.title)}</b> — правка текста`, ...FORMAT_LINES(shortTourName(t.title))],
+    [
+      `<b>${escapeHtml(t.title)}</b> — правка текста`, ...FORMAT_LINES(shortTourName(t.title)),
+      'Весь текст тура сразу — документом Word (.docx) в диалог с ботом в MAX: разложу по полям и покажу, что было и что станет.',
+    ],
     [[{ text: '‹ Тур', payload: cabinetPayload.tour(t.id) }]],
   );
 }
