@@ -6,7 +6,7 @@ import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
-  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Trash2,
+  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home,
 } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 import { LOCATION_TYPE_LABELS } from '@/components/places/types';
@@ -116,51 +116,13 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
 
   const [popped, setPopped] = useState(false);
 
-  // Админ-удаление места прямо с витрины. isAdmin определяем из localStorage
-  // (user_roles пишет AuthContext) — без зависимости от AuthProvider, чтобы
-  // публичная карточка не падала вне контекста.
-  const [isAdmin,  setIsAdmin]  = useState(false);
-  const [removed,  setRemoved]  = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    try {
-      const roles = JSON.parse(localStorage.getItem('user_roles') || '[]');
-      setIsAdmin(Array.isArray(roles) && roles.includes('admin'));
-    } catch { /* гость — кнопки нет */ }
-  }, []);
-
-  const handleDelete = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (deleting) return;
-    if (!window.confirm(`Удалить место «${route.title}»? Действие необратимо.`)) return;
-    setDeleting(true);
-    try {
-      let token: string | undefined;
-      try { token = JSON.parse(localStorage.getItem('user') || 'null')?.token; } catch { /* cookie-сессия */ }
-      const res = await fetch(`/api/admin/places/${route.id}?force=true`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.ok) { setRemoved(true); return; }
-      const data = await res.json().catch(() => ({}));
-      window.alert(data?.error || `Не удалось удалить (HTTP ${res.status})`);
-    } catch {
-      window.alert('Сеть недоступна, попробуйте ещё раз');
-    } finally {
-      setDeleting(false);
-    }
-  }, [deleting, route.id, route.title]);
-
+  // Удаление мест — только в /hub/admin/places, не на туристской витрине.
 
   const handleInstTap = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     requestGeo();
   }, [requestGeo]);
-
-  if (removed) return null;
 
   return (
     <article
@@ -174,21 +136,6 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
         ['--el' as string]: elColor,
       }}
     >
-      {/* ── Админ: удалить место с витрины (поверх .sky) ──── */}
-      {isAdmin && (
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          aria-label="Удалить место"
-          title="Удалить место"
-          className="pc-hit absolute top-2 left-2 z-20 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 opacity-45 hover:opacity-100 disabled:opacity-30 backdrop-blur-md"
-          style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)' }}
-        >
-          <Trash2 className="w-3.5 h-3.5" style={{ color: 'var(--danger)' }} />
-        </button>
-      )}
-
       {/* ── Небо: фото/градиент + вырубка-горизонт ──────── */}
       <Link href={route.href ?? catalogHref(route, '/places')} className="block">
         <div className="pc-sky relative overflow-hidden" style={{ height: 132 }}>

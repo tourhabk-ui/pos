@@ -201,11 +201,11 @@ describe('/routes — блок «Туры по запросу»', () => {
     const BLOCK = read('components/search/ToursForQuery.tsx');
     expect(BLOCK).toMatch(/<li key=\{String\(t\.id\)\} className="min-w-0">/);
   });
-  it('клиент рисует слот над вкладками', () => {
+  it('клиент рисует слот под строкой поиска (вкладки — выше, 30.10)', () => {
     const CLIENT = read('app/routes/_RoutesPageClient.tsx');
     const slot = CLIENT.indexOf('{toursSlot}');
-    const tabs = CLIENT.indexOf('Kind tabs');
+    const search = CLIENT.indexOf('placeholder={searchPlaceholder}');
     expect(slot).toBeGreaterThan(0);
-    expect(slot).toBeLessThan(tabs);
+    expect(search).toBeLessThan(slot);
   });
 });
