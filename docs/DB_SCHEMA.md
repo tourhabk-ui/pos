@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-30 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1352_charter_request_inbox_reminder.sql`.
+> Снято 2026-10-30 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1353_charter_ride_outcome.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 303 |
 | Представлений (VIEW) | 12 |
-| Колонок | 3989 |
-| Внешних ключей | 356 |
+| Колонок | 3991 |
+| Внешних ключей | 357 |
 | Таблиц без единого FK в обе стороны | 86 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -1009,7 +1009,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=` `is_self boolean!=`
 
-**lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 4
+**lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 5
 
 `id bigint!=` `lead_id uuid!` `actor varchar!=` `action varchar!` `details jsonb=` `created_at timestamp=`
 
@@ -1449,9 +1449,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `partner_id uuid!` `items text[]!` `source_url text` `seen_on date` `updated_at timestamptz!=`
 
-**carrier_review_invites** · 8 кол. · PK lead_id · lead_id → leads.id, partner_id → partners.id, ride_confirmed_by → users.id · индексов 2
+**carrier_review_invites** · 10 кол. · PK lead_id · confirmed_partner_id → partners.id, lead_id → leads.id, partner_id → partners.id, ride_confirmed_by → users.id · индексов 2
 
-`lead_id uuid!` `partner_id uuid!` `key_hash text!` `ride_confirmed_by uuid` `ride_confirmed_at timestamptz!=` `issued_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
+`lead_id uuid!` `partner_id uuid!` `key_hash text!` `ride_confirmed_by uuid` `ride_confirmed_at timestamptz!=` `issued_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz` `confirmed_by_kind text!=` `confirmed_partner_id uuid`
 
 **carrier_reviews** · 17 кол. · PK id · lead_id → leads.id, partner_id → partners.id, seat_booking_id → transfer_seat_bookings.id, user_id → users.id · индексов 4
 
