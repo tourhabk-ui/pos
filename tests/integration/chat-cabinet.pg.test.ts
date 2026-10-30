@@ -326,6 +326,18 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       const all = await pool.query(`SELECT 1 FROM chat_cabinet_settings WHERE partner_id = $1`, [otherId]);
       expect(all.rowCount).toBe(1);
       for (const slot of ['morning', 'day', 'evening']) expect(await ids(slot)).not.toContain(otherId);
+      // Утро записало «ждать нечего», карточка выбрала вечер — строка дня снята,
+      // вечернее окно сегодня посмотрит заново; ушедшая сводка остаётся.
+      await pool.query(`DELETE FROM crm_chat_digests WHERE partner_id = $1 AND digest_date = '2026-10-30'`, [otherId]);
+      await pool.query(`INSERT INTO crm_chat_digests (partner_id, digest_date, channel) VALUES ($1, '2026-10-30', 'empty')`, [otherId]);
+      await svc.handleCabinetPress({ channel: 'max', chatId: OTHER_CHAT, privateChat: true, payload: pay.digestSet('evening'), nowMs: NOW });
+      const left = await pool.query(`SELECT channel FROM crm_chat_digests WHERE partner_id = $1 AND digest_date = '2026-10-30'`, [otherId]);
+      expect(left.rowCount).toBe(0);
+      await pool.query(`INSERT INTO crm_chat_digests (partner_id, digest_date, channel) VALUES ($1, '2026-10-30', 'max')`, [otherId]);
+      const after = await svc.handleCabinetPress({ channel: 'max', chatId: OTHER_CHAT, privateChat: true, payload: pay.digestSet('day'), nowMs: NOW });
+      expect(after.text).toContain('Сегодняшняя уже была — по новому времени с завтра.');
+      const kept = await pool.query(`SELECT channel FROM crm_chat_digests WHERE partner_id = $1 AND digest_date = '2026-10-30'`, [otherId]);
+      expect(kept.rows).toEqual([{ channel: 'max' }]);
       await expect(pool.query(
         `INSERT INTO chat_cabinet_settings (partner_id, digest) VALUES ($1, 'night')`, [partnerId],
       )).rejects.toMatchObject({ code: '23514' });
@@ -357,7 +369,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       await pool.query(`UPDATE operator_members SET status = 'active', revoked_at = NULL WHERE id = $1`, [memberRow]);
     });
 
-    it('один чат у менеджеров двух команд — «не смог проверить», а не чей-то кабинет', async () => {
+    it('один чат у менеджеров двух команд — свой исход «ambiguous», а не чей-то кабинет; считаются все строки, не две первые', async () => {
       const { findMemberByChat } = await import('@/lib/operators/member-chat');
       const otherUser = (await pool.query<{ id: string }>(
         `INSERT INTO users (email, name, password_hash, role) VALUES ('cab-mgr2@example.com', 'Второй', 'x', 'operator') RETURNING id`,
@@ -366,8 +378,20 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         `INSERT INTO operator_members (partner_id, user_id, status, accepted_at, max_chat_id, channel_bound_at)
          VALUES ($1, $2, 'active', NOW(), $3, NOW()) RETURNING id`, [otherId, otherUser, MEMBER_CHAT],
       )).rows[0]!.id;
-      expect(await findMemberByChat('max', MEMBER_CHAT)).toEqual({ outcome: 'unavailable' });
-      await pool.query(`DELETE FROM operator_members WHERE id = $1`, [twin]);
+      expect(await findMemberByChat('max', MEMBER_CHAT)).toEqual({ outcome: 'ambiguous' });
+      // Две строки свежее — одной команды, третья — другой: всё равно две команды.
+      const thirdUser = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('cab-mgr3@example.com', 'Третий', 'x', 'operator') RETURNING id`,
+      )).rows[0]!.id;
+      const third = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_members (partner_id, user_id, status, accepted_at, max_chat_id, channel_bound_at)
+         VALUES ($1, $2, 'active', NOW(), $3, NOW() + INTERVAL '1 minute') RETURNING id`, [partnerId, thirdUser, MEMBER_CHAT],
+      )).rows[0]!.id;
+      await pool.query(`UPDATE operator_members SET channel_bound_at = NOW() - INTERVAL '1 day' WHERE id = $1`, [twin]);
+      expect(await findMemberByChat('max', MEMBER_CHAT)).toEqual({ outcome: 'ambiguous' });
+      await pool.query(`DELETE FROM operator_members WHERE id = ANY($1::uuid[])`, [[twin, third]]);
+      const gate = await svc.handleCabinetPress({ channel: 'max', chatId: MEMBER_CHAT, privateChat: true, payload: pay.tasks(), nowMs: NOW });
+      expect(gate.text).toContain('Задачи');
     });
 
     it('кнопка из чата менеджера: «Готово» пишет менеджер; сводку он не настраивает; счёт — с местом member', async () => {
@@ -388,6 +412,8 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(usage.rows).toEqual([
         { seat: 'member', action: 'digest_set', outcome: 'ok', n: 1 },
         { seat: 'member', action: 'task_done', outcome: 'ok', n: 1 },
+        // «Задачи» из проверки двух команд выше — тоже менеджером.
+        { seat: 'member', action: 'tasks', outcome: 'ok', n: 1 },
       ]);
     });
 
@@ -421,6 +447,14 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       }
       expect(body.totals?.ok).toBeGreaterThan(0);
       expect(body.reachable_members?.data).toBe(1);
+      // Знаменатель: младшая карточка на чате старшей — не отдельный кабинет.
+      expect(body.reachable_partners?.data).toEqual({ partners: 2, with_max: 2, with_telegram: 0 });
+      const { CABINET_PARTNERS_SQL } = await import('@/app/api/cron/chat-cabinet-census/route');
+      // Пилот проката со своей строкой — не кабинет в чате.
+      await pool.query(`UPDATE partners SET slug = 'cab-pilot-test' WHERE id = $1`, [otherId]);
+      const withoutPilot = (await pool.query<{ partners: number }>(CABINET_PARTNERS_SQL, [['cab-pilot-test']])).rows[0];
+      expect(withoutPilot?.partners).toBe(1);
+      await pool.query(`UPDATE partners SET slug = NULL WHERE id = $1`, [otherId]);
       const text = JSON.stringify(body);
       for (const leak of [String(CHAT), String(MEMBER_CHAT), 'Анна', 'Петрова', '+79140001122']) expect(text, leak).not.toContain(leak);
       const unauth = await GET(new NextRequest('http://localhost/api/cron/chat-cabinet-census'));

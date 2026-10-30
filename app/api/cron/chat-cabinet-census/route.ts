@@ -17,8 +17,9 @@
  *  - по дням: нажатия и сколько карточек нажимали;
  *  - по карточкам: витринное имя (оно и так на сайте), категория, нажатия,
  *    последний день — для пилота («пользуется ли оператор»);
- *  - знаменатель: сколько карточек вообще могут нажимать (чат привязан,
- *    категория с кабинетом) и сколько менеджеров с привязанным чатом;
+ *  - знаменатель: сколько карточек вообще могут нажимать (чат привязан и это
+ *    их кабинет, категория с кабинетом, не пилот проката) и сколько
+ *    менеджеров с привязанным чатом;
  *  - ежедневная сводка: по дням и исходам (`crm_chat_digests`, 1351) и
  *    выбранное время (`chat_cabinet_settings`; карточка без строки — «утром»).
  *
@@ -32,6 +33,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { rentalPilotSlugs } from '@/lib/rental/operator-pilot';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -55,14 +57,30 @@ async function section<T>(name: string, run: () => Promise<T>): Promise<Section<
   }
 }
 
-/** Карточки, у которых кабинет в чате может быть: чат привязан, категория с кабинетом. */
+/**
+ * Карточки, которые могут нажимать кабинет: чат привязан, категория с
+ * кабинетом, и этот чат — их кабинет (старшая карточка чата, как у
+ * `findPartnerByChat`), а не пилот проката со своей строкой (ревью 30.10:
+ * иначе знаменатель завышен). `$1` — slug пилотов проката.
+ */
 export const CABINET_PARTNERS_SQL = `
-  SELECT COUNT(*)::int AS partners,
-         COUNT(*) FILTER (WHERE max_chat_id IS NOT NULL)::int AS with_max,
-         COUNT(*) FILTER (WHERE telegram_chat_id IS NOT NULL)::int AS with_telegram
-    FROM partners
-   WHERE (max_chat_id IS NOT NULL OR telegram_chat_id IS NOT NULL)
-     AND category IN ('operator', 'transfer', 'stay', 'guide')`;
+  WITH c AS (
+    SELECT p.id,
+           (p.max_chat_id IS NOT NULL AND (
+             SELECT o.id FROM partners o WHERE o.max_chat_id = p.max_chat_id
+              ORDER BY o.created_at ASC NULLS LAST, o.id ASC LIMIT 1) = p.id) AS max_cabinet,
+           (p.telegram_chat_id IS NOT NULL AND (
+             SELECT o.id FROM partners o WHERE o.telegram_chat_id = p.telegram_chat_id
+              ORDER BY o.created_at ASC NULLS LAST, o.id ASC LIMIT 1) = p.id) AS telegram_cabinet
+      FROM partners p
+     WHERE (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL)
+       AND p.category IN ('operator', 'transfer', 'stay', 'guide')
+       AND NOT (lower(btrim(COALESCE(p.slug, ''))) = ANY($1::text[]))
+  )
+  SELECT COUNT(*) FILTER (WHERE max_cabinet OR telegram_cabinet)::int AS partners,
+         COUNT(*) FILTER (WHERE max_cabinet)::int AS with_max,
+         COUNT(*) FILTER (WHERE telegram_cabinet)::int AS with_telegram
+    FROM c`;
 
 export const CABINET_MEMBERS_SQL = `
   SELECT COUNT(*)::int AS members
@@ -118,7 +136,7 @@ export async function GET(request: NextRequest) {
     )).rows),
     section('карточки с привязанным чатом', async () => (await pool.query<{
       partners: number; with_max: number; with_telegram: number;
-    }>(CABINET_PARTNERS_SQL)).rows[0] ?? { partners: 0, with_max: 0, with_telegram: 0 }),
+    }>(CABINET_PARTNERS_SQL, [[...rentalPilotSlugs()]])).rows[0] ?? { partners: 0, with_max: 0, with_telegram: 0 }),
     section('менеджеры с привязанным чатом', async () => (await pool.query<{ members: number }>(CABINET_MEMBERS_SQL)).rows[0]?.members ?? 0),
     section('сводки по дням', async () => (await pool.query<{ day: string; channel: string; n: number }>(
       `SELECT digest_date::text AS day, channel, COUNT(*)::int AS n

@@ -4,24 +4,29 @@
  * «менеджеры оператора»). Общий вход MAX и Telegram: вебхук только доставляет.
  *
  *  - слово меню или команда («Входящие», /tasks, /start…) — раздел его
- *    кабинета в чате (`memberCabinetSectionOf`);
+ *    кабинета в чате (`memberCabinetSectionOf`). Не прочиталось, менеджер ли
+ *    это, — сообщение идёт своим путём, как раньше: «/start» туриста не должен
+ *    получать «не смог проверить», а в «Входящие» менеджера ПД нет;
  *  - в MAX после «Найти клиента» следующее сообщение — запрос поиска.
- *    Ожидание спрашивается у базы, только когда текст не команда: без этого
- *    запрос менеджера ушёл бы Кузьмичу туриста, а подсказка поиска обещала,
- *    что текст поиска уходит только в CRM. В Telegram поиска нет вовсе;
- *  - прочий текст и чат не менеджера — false: сообщение идёт своим путём,
- *    как раньше;
- *  - «не смог проверить, чей чат» — ответ словами, а не Кузьмич туриста (§4.0).
+ *    Ожидание спрашивается у базы, только когда текст не команда. Здесь
+ *    отказ проверки — не «не ждёт» (ревью 30.10): сообщение менеджера могло
+ *    быть запросом с фамилией, а подсказка обещала, что текст поиска уходит
+ *    только в CRM. Поэтому не прочиталось ожидание или менеджер — ответ
+ *    словами, а не Кузьмич туриста; поиск ждал, а менеджера уже сняли —
+ *    поиск гасится, сообщение тоже никуда не уходит. Беда и контроль выхода
+ *    идут своим путём при любом исходе. В Telegram поиска нет вовсе;
+ *  - прочий текст и чат не менеджера — false: сообщение идёт своим путём.
  *
  * Беда в тексте — блок 112 отдельным сообщением перед экраном (его правкой
  * стёрла бы первая кнопка); вызывающий отдаёт `userText` своей доставке.
  */
 
 import { findMemberByChat } from '@/lib/operators/member-chat';
-import { withSosBlock } from '@/lib/safety/sos-detector';
-import type { CabinetChannel, CabinetScreen } from '@/lib/chat-cabinet/screens';
+import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
+import { isWatchTrigger } from '@/lib/kuzmich/watch-flow';
+import { CABINET_TEXT, type CabinetChannel, type CabinetScreen } from '@/lib/chat-cabinet/screens';
 import {
-  awaitsCabinetSearch, cabinetSectionFor, captureCabinetSearch, memberCabinetSectionOf,
+  cabinetSearchWaiting, cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, memberCabinetSectionOf,
 } from '@/lib/chat-cabinet/service';
 
 export const MEMBER_UNCHECKED = 'Не удалось проверить, чей это чат. Ничего не открыл — попробуйте ещё раз.';
@@ -36,19 +41,47 @@ export async function memberCabinetText(
   },
 ): Promise<boolean> {
   const section = memberCabinetSectionOf(input.text);
-  const trimmed = input.text.trim();
-  const searching = section === null && input.channel === 'max' && trimmed !== '' && !trimmed.startsWith('/')
-    && await awaitsCabinetSearch(input.chatId);
-  if (section === null && !searching) return false;
-  const member = await findMemberByChat(input.channel, input.chatId);
-  if (member.outcome === 'none') return false;
-  if (member.outcome === 'unavailable') {
-    await deliver.say(withSosBlock(MEMBER_UNCHECKED, input.text).text);
-    return true;
-  }
   const nowMs = input.nowMs ?? Date.now();
   if (section !== null) {
+    const member = await findMemberByChat(input.channel, input.chatId);
+    if (member.outcome === 'none' || member.outcome === 'unavailable') return false;
+    if (member.outcome === 'ambiguous') {
+      await deliver.say(withSosBlock(CABINET_TEXT.memberTwoTeams, input.text).text);
+      return true;
+    }
     await deliver.show(await cabinetSectionFor(member.member.partner, input.channel, section, nowMs, 'member'), input.text);
+    return true;
+  }
+
+  const trimmed = input.text.trim();
+  if (input.channel !== 'max' || trimmed === '' || trimmed.startsWith('/')) return false;
+  const waiting = await cabinetSearchWaiting(input.chatId);
+  if (waiting === false) return false;
+  // Беда и контроль выхода — своим путём при любом исходе ниже.
+  const urgent = detectEmergency(input.text).detected || isWatchTrigger(input.text);
+  const member = await findMemberByChat(input.channel, input.chatId);
+  if (member.outcome === 'none') {
+    if (waiting === null || urgent) return false; // не менеджер — турист или незнакомый чат
+    // Поиск ждал, а чат больше не чат менеджера (сняли): запрос никуда не уходит.
+    await dropCabinetSearch(input.chatId);
+    await deliver.say(CABINET_TEXT.searchGone);
+    return true;
+  }
+  if (urgent) return false;
+  if (member.outcome === 'unavailable') {
+    // Не известно ни ожидание, ни чей чат — база лежит: туристу его
+    // сообщение не задерживаем. Ожидание точно есть — чат кабинетный, и
+    // запрос дальше не отдаём.
+    if (waiting === null) return false;
+    await deliver.say(MEMBER_UNCHECKED);
+    return true;
+  }
+  if (member.outcome === 'ambiguous') {
+    await deliver.say(CABINET_TEXT.memberTwoTeams);
+    return true;
+  }
+  if (waiting === null) {
+    await deliver.say(CABINET_TEXT.searchUnchecked);
     return true;
   }
   const found = await captureCabinetSearch({

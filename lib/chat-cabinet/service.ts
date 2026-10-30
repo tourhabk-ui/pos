@@ -48,6 +48,7 @@ import { bookingChatActionsEnabledFor, leadChatActionsEnabledFor } from '@/lib/b
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { isWatchTrigger } from '@/lib/kuzmich/watch-flow';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { parseCabinetPress, type CabinetPress, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
 import { countCabinetUse, type CabinetUsageAction } from '@/lib/chat-cabinet/usage';
 import { findMemberByChat } from '@/lib/operators/member-chat';
@@ -113,6 +114,7 @@ async function gate(channel: CabinetChannel, chatId: number, privateChat: boolea
   if (lookup.outcome === 'found') return withPartner(lookup.partner);
   const member = await findMemberByChat(channel, chatId);
   if (member.outcome === 'unavailable') return { ok: false, screen: noticeScreen(CABINET_TEXT.unchecked, false) };
+  if (member.outcome === 'ambiguous') return { ok: false, screen: noticeScreen(CABINET_TEXT.memberTwoTeams, false) };
   if (member.outcome === 'none') return { ok: false, screen: noticeScreen(CABINET_TEXT.notBound, false) };
   return withPartner(member.member.partner, 'member');
 }
@@ -302,16 +304,41 @@ async function digestView(c: Ctx): Promise<CabinetScreen> {
   return mode === null ? failedScreen(CABINET_TEXT.dbFailed) : digestScreen(mode);
 }
 
-async function setDigest(c: Ctx, mode: DigestMode): Promise<CabinetScreen> {
+/**
+ * Сегодняшняя строка сводки после смены времени (ревью 30.10): `empty` —
+ * прогон утра решил «ждать нечего», сообщения не было, и строка снимается,
+ * чтобы новое окно сегодня посмотрело заново (второй сводки так не бывает —
+ * первой не было). Ушедшая или уходящая — остаётся, и экран говорит
+ * «по новому времени — с завтра».
+ */
+export const DIGEST_TODAY_AFTER_SET_SQL = `
+  WITH cleared AS (
+    DELETE FROM crm_chat_digests
+     WHERE partner_id = $1::uuid AND digest_date = $2::date AND channel = 'empty'
+  )
+  SELECT channel FROM crm_chat_digests
+   WHERE partner_id = $1::uuid AND digest_date = $2::date AND channel <> 'empty'`;
+
+async function setDigest(c: Ctx, mode: DigestMode, nowMs: number): Promise<CabinetScreen> {
   if (c.partner.seat === 'member') return noticeScreen(DIGEST_MEMBER);
+  let sentToday = false;
   try {
     await pool.query(DIGEST_SET_SQL, [c.partner.partnerId, mode, c.ctx.userId]);
   } catch (err) {
     logFail('время сводки — запись', err);
     return failedScreen(CABINET_TEXT.dbFailed);
   }
-  return digestScreen(mode, mode === 'off'
-    ? 'Сводка выключена. Включить — здесь же.'
+  try {
+    const { rows } = await pool.query<{ channel: string }>(DIGEST_TODAY_AFTER_SET_SQL, [c.partner.partnerId, kamchatkaDate(new Date(nowMs))]);
+    sentToday = rows.some((r) => r.channel === 'max' || r.channel === 'telegram' || r.channel === 'sending');
+  } catch (err) {
+    // Время записано; не прочиталось только «была ли сегодня» — так и сказано.
+    logFail('сводка сегодня — после смены времени', err);
+    return digestScreen(mode, 'Время записано. Была ли сегодня сводка, не прочиталось: если уже была, по новому времени придёт с завтра.');
+  }
+  if (mode === 'off') return digestScreen(mode, 'Сводка выключена. Включить — здесь же.');
+  return digestScreen(mode, sentToday
+    ? `Готово: сводка будет приходить ${DIGEST_WORDS[mode].long}. Сегодняшняя уже была — по новому времени с завтра.`
     : `Готово: сводка будет приходить ${DIGEST_WORDS[mode].long}, когда что-то ждёт.`);
 }
 
@@ -583,7 +610,11 @@ export async function captureCabinetSearch(input: {
     ));
   } catch (err) {
     logFail('ждёт ли чат поиск', err);
-    return null;
+    // «Не смог проверить» — не «не ждёт» (§4.0): сообщение могло быть
+    // запросом, а подсказка поиска обещала, что он уходит только в CRM.
+    // Беда и контроль выхода — своим путём при любом отказе.
+    if (detectEmergency(text).detected || isWatchTrigger(text)) return null;
+    return failedScreen(CABINET_TEXT.searchUnchecked);
   }
   if (!wait) return null;
   const g = withPartner(input.partner, input.seat ?? 'owner');
@@ -640,12 +671,21 @@ export async function captureCabinetSearch(input: {
  * работает как раньше (так же устроено ожидание причины отказа брони).
  */
 export async function awaitsCabinetSearch(chatId: number): Promise<boolean> {
+  return (await cabinetSearchWaiting(chatId)) === true;
+}
+
+/**
+ * Ждёт ли чат MAX запрос поиска — три исхода: да, нет, null — база не
+ * ответила (§4.0). Вход менеджера (lib/chat-cabinet/member-entry) на null
+ * сообщение дальше не отдаёт, если это чат менеджера: оно могло быть запросом.
+ */
+export async function cabinetSearchWaiting(chatId: number): Promise<boolean | null> {
   try {
     const { rows } = await pool.query<{ newer: boolean }>(SEARCH_WAIT_SQL, [String(chatId)]);
     return rows.length > 0;
   } catch (err) {
-    logFail('ждёт ли чат поиск (чат администратора)', err);
-    return false;
+    logFail('ждёт ли чат поиск', err);
+    return null;
   }
 }
 
@@ -677,7 +717,7 @@ export async function handleCabinetPress(input: {
   switch (press.kind) {
     case 'more': out = await moreView(g); break;
     case 'digest': out = await digestView(g); break;
-    case 'digest_set': out = await setDigest(g, press.mode); break;
+    case 'digest_set': out = await setDigest(g, press.mode, nowMs); break;
     case 'inbox': out = await inboxView(g, press.page, nowMs); break;
     case 'item': out = await itemView(g, ch, press, nowMs); break;
     case 'tasks': out = await tasksView(g, ch, press.page, nowMs); break;

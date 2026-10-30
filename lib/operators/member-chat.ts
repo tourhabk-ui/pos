@@ -16,8 +16,10 @@
  *    сообщении и нажатии, адреса стирает и само снятие (lib/operators/team);
  *  - чат партнёра главнее: вызывающий спрашивает сначала `findPartnerByChat`,
  *    сюда — только когда чат не чат карточки;
- *  - один чат у двух команд — не угадываем, чей он: «не смог проверить»
- *    (§4.0), в лог — без чата и людей;
+ *  - один чат у двух команд — не угадываем, чей он: свой исход `ambiguous`
+ *    (не «не смог проверить»: повтор его не исправит, исправит отключение
+ *    лишнего чата на сайте), в лог — без чата и людей. Команды считаются по
+ *    всем строкам чата, а не по двум первым;
  *  - аккаунт для записи — менеджера (`userId`): «Готово» по задаче и звонок
  *    клиенту записываются им, а не владельцем.
  */
@@ -37,6 +39,8 @@ export interface MemberChatContext {
 export type MemberChatLookup =
   | { outcome: 'found'; member: MemberChatContext }
   | { outcome: 'none' }
+  /** Чат записан у менеджеров двух и более команд — чей кабинет, не угадываем. */
+  | { outcome: 'ambiguous' }
   | { outcome: 'unavailable' };
 
 const CHAT_COLUMN = { telegram: 'telegram_chat_id', max: 'max_chat_id' } as const;
@@ -47,17 +51,22 @@ export const MEMBER_BY_CHAT_SQL = {
 } as const;
 
 function memberSql(column: (typeof CHAT_COLUMN)[keyof typeof CHAT_COLUMN]): string {
+  const live = `m.${column} = $1 AND m.status = 'active' AND m.user_id IS NOT NULL`;
   return `
   SELECT m.id::text AS member_id, m.user_id::text AS user_id, NULLIF(btrim(m.label), '') AS label,
          p.id::text AS partner_id, NULLIF(btrim(p.slug), '') AS slug, COALESCE(p.company_name, p.name) AS name,
          p.category, p.profile_status,
          EXISTS (SELECT 1 FROM operator_tours own
-                  WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours
+                  WHERE own.operator_id = p.id AND own.deleted_at IS NULL) AS sells_tours,
+         (SELECT COUNT(DISTINCT m2.partner_id)::int
+            FROM operator_members m2
+            JOIN partners p2 ON p2.id = m2.partner_id AND p2.category = 'operator'
+           WHERE ${live.replace(/\bm\./g, 'm2.')}) AS teams
     FROM operator_members m
     JOIN partners p ON p.id = m.partner_id AND p.category = 'operator'
-   WHERE m.${column} = $1 AND m.status = 'active' AND m.user_id IS NOT NULL
+   WHERE ${live}
    ORDER BY m.channel_bound_at DESC NULLS LAST, m.id ASC
-   LIMIT 2`;
+   LIMIT 1`;
 }
 
 interface Row {
@@ -70,6 +79,7 @@ interface Row {
   category: string;
   profile_status: string | null;
   sells_tours: boolean | null;
+  teams: number;
 }
 
 export async function findMemberByChat(
@@ -85,11 +95,11 @@ export async function findMemberByChat(
     console.error(`[member-chat] менеджер по чату ${channel} не прочитан, SQLSTATE`, code);
     return { outcome: 'unavailable' };
   }
-  const [row, second] = rows;
+  const [row] = rows;
   if (!row) return { outcome: 'none' };
-  if (second && second.partner_id !== row.partner_id) {
-    console.error(`[member-chat] один чат ${channel} у менеджеров двух команд — кабинет не открыт`);
-    return { outcome: 'unavailable' };
+  if (row.teams > 1) {
+    console.error(`[member-chat] один чат ${channel} у менеджеров нескольких команд (${row.teams}) — кабинет не открыт`);
+    return { outcome: 'ambiguous' };
   }
   return {
     outcome: 'found',

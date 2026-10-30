@@ -9,8 +9,12 @@
  *    только «ждёт ли чат поиск», в Telegram — ничего;
  *  - после «Найти клиента» (MAX) текст менеджера — запрос поиска, а не
  *    Кузьмичу туриста;
- *  - чат не менеджера — текст идёт своим путём; «не смог проверить» — ответ
- *    словами, с блоком 112 при беде;
+ *  - чат не менеджера — текст идёт своим путём; слово меню при «не смог
+ *    проверить» — тоже своим путём (туристу не «не смог»);
+ *  - поиск: не прочиталось ожидание у менеджера — «не смог», запрос дальше не
+ *    уходит; поиск ждал, а менеджера сняли — поиск гасится, текст не уходит;
+ *    оба неизвестны — туристский путь; беда — своим путём при любом исходе;
+ *  - один чат у двух команд — своими словами, а не «попробуйте ещё раз»;
  *  - экран уходит с текстом человека: блок 112 доставка ставит отдельно.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,17 +24,20 @@ const m = vi.hoisted(() => ({
   section: vi.fn(),
   awaits: vi.fn(),
   capture: vi.fn(),
+  drop: vi.fn(),
 }));
 
 vi.mock('@/lib/operators/member-chat', () => ({ findMemberByChat: (...a: unknown[]) => m.member(...a) }));
 vi.mock('@/lib/chat-cabinet/service', async (orig) => ({
   ...(await orig<typeof import('@/lib/chat-cabinet/service')>()),
   cabinetSectionFor: (...a: unknown[]) => m.section(...a),
-  awaitsCabinetSearch: (...a: unknown[]) => m.awaits(...a),
+  cabinetSearchWaiting: (...a: unknown[]) => m.awaits(...a),
   captureCabinetSearch: (...a: unknown[]) => m.capture(...a),
+  dropCabinetSearch: (...a: unknown[]) => m.drop(...a),
 }));
 
 const { memberCabinetText, MEMBER_UNCHECKED } = await import('@/lib/chat-cabinet/member-entry');
+const { CABINET_TEXT } = await import('@/lib/chat-cabinet/screens');
 
 const PARTNER = { partnerId: 'p1', partnerName: 'Местечко', category: 'operator', crmCategory: 'operator', userId: 'u-member' };
 const SCREEN = { text: '<b>Задачи</b>', rows: [], pd: false };
@@ -94,17 +101,65 @@ describe('чат менеджера команды', () => {
     expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'помогите, упал' }, deliver().d)).toBe(false);
   });
 
-  it('чат не менеджера — своим путём; «не смог проверить» — словами, с блоком 112 при беде', async () => {
+  it('слово меню: чат не менеджера или «не смог проверить» — своим путём (туристу «/start» не «не смог»)', async () => {
     m.member.mockResolvedValue({ outcome: 'none' });
     expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Входящие' }, deliver().d)).toBe(false);
     m.member.mockResolvedValue({ outcome: 'unavailable' });
     const a = deliver();
-    expect(await memberCabinetText({ channel: 'telegram', chatId: CHAT, text: '/requests' }, a.d)).toBe(true);
-    expect(a.said).toEqual([MEMBER_UNCHECKED]);
+    expect(await memberCabinetText({ channel: 'telegram', chatId: CHAT, text: '/start' }, a.d)).toBe(false);
+    expect(a.said).toEqual([]);
     expect(m.section).not.toHaveBeenCalled();
+  });
+
+  it('один чат у двух команд — своими словами (с блоком 112 при беде), а не «попробуйте ещё раз»', async () => {
+    m.member.mockResolvedValue({ outcome: 'ambiguous' });
+    const a = deliver();
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: '/start человек упал со скалы, помогите' }, a.d)).toBe(true);
+    expect(a.said[0]).toContain('112');
+    expect(a.said[0]).toContain(CABINET_TEXT.memberTwoTeams);
+    m.awaits.mockResolvedValue(true);
     const b = deliver();
-    await memberCabinetText({ channel: 'max', chatId: CHAT, text: '/start человек упал со скалы, помогите' }, b.d);
-    expect(b.said[0]).toContain('112');
-    expect(b.said[0]).toContain(MEMBER_UNCHECKED);
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Петрова' }, b.d)).toBe(true);
+    expect(b.said).toEqual([CABINET_TEXT.memberTwoTeams]);
+    expect(m.capture).not.toHaveBeenCalled();
+  });
+
+  it('поиск (ревью 30.10): ожидание не прочиталось у менеджера — «не смог», запрос дальше не уходит', async () => {
+    m.awaits.mockResolvedValue(null);
+    const a = deliver();
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Петрова' }, a.d)).toBe(true);
+    expect(a.said).toEqual([CABINET_TEXT.searchUnchecked]);
+    expect(m.capture).not.toHaveBeenCalled();
+    // Не менеджер — туристский путь, как раньше.
+    m.member.mockResolvedValue({ outcome: 'none' });
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Петрова' }, deliver().d)).toBe(false);
+    // Не известно ни то, ни другое — база лежит: туриста не задерживаем.
+    m.member.mockResolvedValue({ outcome: 'unavailable' });
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Петрова' }, deliver().d)).toBe(false);
+  });
+
+  it('поиск ждал, а менеджера сняли — поиск гасится, текст никуда не уходит; ждал, менеджер не прочитался — «не смог»', async () => {
+    m.awaits.mockResolvedValue(true);
+    m.member.mockResolvedValue({ outcome: 'none' });
+    const a = deliver();
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Петрова' }, a.d)).toBe(true);
+    expect(m.drop).toHaveBeenCalledWith(CHAT);
+    expect(a.said).toEqual([CABINET_TEXT.searchGone]);
+    m.member.mockResolvedValue({ outcome: 'unavailable' });
+    const b = deliver();
+    expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'Петрова' }, b.d)).toBe(true);
+    expect(b.said).toEqual([MEMBER_UNCHECKED]);
+  });
+
+  it('беда и контроль выхода — своим путём при любом исходе проверки', async () => {
+    for (const [waiting, outcome] of [[null, 'found'], [true, 'none'], [true, 'unavailable'], [null, 'ambiguous']] as const) {
+      m.awaits.mockResolvedValue(waiting);
+      m.member.mockResolvedValue(outcome === 'found'
+        ? { outcome, member: { memberId: 'm1', label: null, partner: PARTNER } }
+        : { outcome });
+      const d = deliver();
+      expect(await memberCabinetText({ channel: 'max', chatId: CHAT, text: 'человек упал со скалы, помогите' }, d.d), `${waiting}/${outcome}`).toBe(false);
+      expect(d.said).toEqual([]);
+    }
   });
 });

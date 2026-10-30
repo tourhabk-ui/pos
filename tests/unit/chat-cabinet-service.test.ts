@@ -372,10 +372,15 @@ describe('поиск клиента', () => {
     expect(m.listContacts).not.toHaveBeenCalled();
   });
 
-  it('отказ базы при проверке ожидания — сообщение идёт дальше, в лог — SQLSTATE', async () => {
+  it('отказ базы при проверке ожидания — «не смог», сообщение дальше не уходит (оно могло быть запросом); беда — своим путём', async () => {
     m.query.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '08006' }));
-    expect(await capture('Петрова')).toBeNull();
+    const s = await capture('Петрова');
+    expect(s?.text).toBe(CABINET_TEXT.searchUnchecked);
+    expect(s?.failed).toBe(true);
     expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toContain('08006');
+    expect(m.listContacts).not.toHaveBeenCalled();
+    m.query.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '08006' }));
+    expect(await capture('помогите, человек упал со скалы')).toBeNull();
   });
 
   it('awaitsCabinetSearch (чат администратора): ждёт — true; нет — false; база не ответила — false и SQLSTATE', async () => {
@@ -508,13 +513,30 @@ describe('ежедневная сводка — время (1353)', () => {
   });
 
   it('выбор пишется карточке этого чата её аккаунтом; «не присылать» — так и сказано', async () => {
-    answers({ rows: [], rowCount: 1 });
+    answers({ rows: [], rowCount: 1 }, { rows: [] });
     const s = await press(cabinetPayload.digestSet('day'));
     const set = sqlCalls().find((c) => c[0] === svc.DIGEST_SET_SQL);
     expect(set?.[1]).toEqual([PID, 'day', USER]);
+    // Сегодняшняя «ждать нечего» снимается по камчатской дате — новое окно посмотрит заново.
+    const today = sqlCalls().find((c) => c[0] === svc.DIGEST_TODAY_AFTER_SET_SQL);
+    expect(today?.[1]).toEqual([PID, '2026-10-30']);
     expect(s.text).toContain('Готово: сводка будет приходить днём, с 13:00 по Камчатке');
-    answers({ rows: [], rowCount: 1 });
+    answers({ rows: [], rowCount: 1 }, { rows: [] });
     expect((await press(cabinetPayload.digestSet('off'))).text).toContain('Сводка выключена');
+  });
+
+  it('сегодняшняя сводка уже ушла — «по новому времени с завтра»; не прочиталось — время записано, так и сказано', async () => {
+    answers({ rows: [], rowCount: 1 }, { rows: [{ channel: 'max' }] });
+    expect((await press(cabinetPayload.digestSet('evening'))).text).toContain('Сегодняшняя уже была — по новому времени с завтра.');
+    let n = 0;
+    m.query.mockImplementation(async (sql: unknown) => {
+      if (isDrop(sql)) return { rows: [], rowCount: 0 };
+      n += 1;
+      if (n === 1) return { rows: [], rowCount: 1 };
+      throw Object.assign(new Error('x'), { code: '57P01' });
+    });
+    const s = await press(cabinetPayload.digestSet('evening'));
+    expect(s.text).toContain('Время записано. Была ли сегодня сводка, не прочиталось');
   });
 
   it('«Ещё» называет время сводки', async () => {
