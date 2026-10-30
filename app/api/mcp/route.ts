@@ -67,6 +67,7 @@ import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNot
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
+import { busyWithin, guestBusyText } from '@/lib/stay/busy-dates';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { charterAcceptedText, pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
 import { buildCharterLead, checkCharterDates, saveCharterLeadDetailed } from '@/lib/transfers/charter-request-service';
@@ -872,6 +873,10 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
     if (r.reason === 'not_accepting') {
       // Объект сняли или завели номера между поиском и записью.
       return `"${found.name}" сейчас заявку владельцу не принимает — заявка не создана. Карточка: ${base}/accommodations/${found.id}.`;
+    }
+    if (r.reason === 'busy') {
+      // Хозяин отметил даты занятыми (30.10): заявка не создана, даты названы.
+      return `"${found.name}": ${guestBusyText(busyWithin(r.busyDates, check_in, check_out))} Заявка не создана. Карточка: ${base}/accommodations/${found.id}.`;
     }
     throw new McpUserError(`Не удалось сохранить заявку — попробуйте позже или позвоните владельцу: телефон на карточке ${base}/accommodations/${found.id}.`, 'save_failed');
   }

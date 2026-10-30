@@ -29,6 +29,8 @@ interface Accommodation {
   rating: number | null;
   reviewCount: number;
   isVerified: boolean;
+  /** Номеров у объекта нет: при поиске по датам он остаётся, если хозяин их не закрыл, с подписью «Даты уточняет хозяин». */
+  datesByOwner?: boolean;
   images: Array<{ url: string; alt?: string }>;
 }
 
@@ -386,6 +388,7 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
                     images={acc.images}
                     starRating={acc.starRating ?? undefined}
                     isVerified={acc.isVerified}
+                    datesByOwner={acc.datesByOwner === true && filters.checkIn !== '' && filters.checkOut !== ''}
                     isFavorite={favMap.has(acc.id)}
                     onFavoriteToggle={toggleFavorite}
                   />

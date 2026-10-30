@@ -17,12 +17,20 @@
  * без неё не проходит (tests/unit/pd-consent-registry.test.ts).
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Send, CheckCircle2 } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
+import { BUSY_HORIZON_DAYS, busyWithin, groupRanges, guestBusyText, rangeWords, shiftYmd } from '@/lib/stay/busy-dates';
 
 type Delivered = 'owner' | 'platform' | 'none';
+
+/**
+ * Занятые даты словом хозяина («занято с 5 по 9 ноября» в MAX, 30.10) —
+ * три исхода (§4.0): список (пустой — всё открыто), null — не загрузились,
+ * и это сказано; undefined — ещё грузятся.
+ */
+type BusyState = string[] | null | undefined;
 
 function kamchatkaToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kamchatka' }).format(new Date());
@@ -54,6 +62,24 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
   // Страница заявки с перепиской и ссылка подключить MAX (1349). null — ключ
   // не выдался: заявка принята, но переписки на сайте не будет.
   const [links, setLinks] = useState<{ page: string | null; max: string | null }>({ page: null, max: null });
+  const [busy, setBusy] = useState<BusyState>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    const endDate = shiftYmd(today, BUSY_HORIZON_DAYS);
+    fetch(`/api/accommodations/${accommodationId}/blocked-dates?startDate=${today}&endDate=${endDate}`)
+      .then(async (res) => {
+        const body = (await res.json().catch(() => null)) as { success?: boolean; data?: { blockedDates?: unknown } } | null;
+        const dates = body?.success ? body.data?.blockedDates : null;
+        if (!alive) return;
+        setBusy(Array.isArray(dates) ? dates.filter((d): d is string => typeof d === 'string') : null);
+      })
+      .catch(() => { if (alive) setBusy(null); });
+    return () => { alive = false; };
+  }, [accommodationId, today]);
+
+  const busyRanges = busy ? groupRanges(busy) : [];
+  const chosenBusy = busy && checkOut > checkIn ? busyWithin(busy, checkIn, checkOut) : [];
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,6 +89,10 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
     }
     if (checkOut <= checkIn) {
       setError('Дата выезда должна быть позже даты заезда');
+      return;
+    }
+    if (chosenBusy.length > 0) {
+      setError(guestBusyText(chosenBusy));
       return;
     }
     setSending(true);
@@ -83,13 +113,16 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
       });
       const body = (await res.json().catch(() => null)) as
         | { success: true; data: { delivered: Delivered; page?: string | null; max_link?: string | null } }
-        | { success: false; error?: string }
+        | { success: false; error?: string; data?: { busyDates?: unknown } }
         | null;
       if (body && body.success) {
         // Маяка воронки нет намеренно: каждая заявка — строка stay_requests.
         setLinks({ page: body.data.page ?? null, max: body.data.max_link ?? null });
         setDone(body.data.delivered);
       } else {
+        // 409: хозяин закрыл даты после загрузки формы — список обновляется его словом.
+        const fresh = body && !body.success ? body.data?.busyDates : undefined;
+        if (Array.isArray(fresh)) setBusy([...(busy ?? []), ...fresh.filter((d): d is string => typeof d === 'string')]);
         setError((body && !body.success && body.error) || `Сервер ответил ${res.status}`);
       }
     } catch {
@@ -128,6 +161,15 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
           </p>
         )}
       </div>
+      {/* Слово хозяина о занятости — до выбора дат, а не после отказа сервера. */}
+      {busy === null && (
+        <p className="text-xs text-[var(--text-muted)]">Занятые даты не загрузились: свободны ли ваши даты, скажет хозяин по заявке.</p>
+      )}
+      {busyRanges.length > 0 && (
+        <p className="text-xs text-[var(--text-secondary)]" data-testid="stay-busy-dates">
+          Хозяин отметил занятыми: {busyRanges.map(rangeWords).join('; ')}.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className="ds-label">Заезд</span>
@@ -163,12 +205,15 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
                   onChange={e => setComment(e.target.value)} className="ds-input w-full" />
       </label>
       <PdConsentCheckbox id="stay-request-consent" purpose="stay" checked={pdConsent} onChange={setPdConsent} />
+      {!error && chosenBusy.length > 0 && (
+        <p className="text-xs text-[var(--warning)]" role="status">{guestBusyText(chosenBusy)}</p>
+      )}
       {error && (
         <p className="text-xs text-[var(--danger)]" role="alert">
           {error}{phoneLabel ? ` Телефон владельца: ${phoneLabel}.` : ''}
         </p>
       )}
-      <button type="submit" disabled={sending || !pdConsent}
+      <button type="submit" disabled={sending || !pdConsent || chosenBusy.length > 0}
               className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2 disabled:opacity-50">
         <Send className="w-4 h-4" />
         {sending ? 'Отправляем…' : 'Отправить заявку'}

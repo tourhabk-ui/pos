@@ -337,6 +337,7 @@ function cabinetSectionOfText(asked: ReturnType<typeof roleMenuAsk>, slashHead: 
   if (asked === 'inbox' || slashHead === '/requests') return 'inbox';
   if (asked === 'tasks' || slashHead === '/tasks') return 'tasks';
   if (asked === 'clients' || slashHead === '/clients') return 'clients';
+  if (asked === 'busy') return 'busy';
   return null;
 }
 

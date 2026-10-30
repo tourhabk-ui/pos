@@ -366,7 +366,8 @@ describe('«Ещё»', () => {
     expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:gd:hp', ...NAV]);
     // Перевозчик: «Машины и прайс» (#2862 этап C) — парк и черновики прайса, затем сводка.
     expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:y', 'cb:g', 'rm:tf:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:st:hp', ...NAV]);
+    // Хозяин жилья: «Занято» — занятые даты объекта без номеров и кнопка открыть (30.10).
+    expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:b', 'cb:g', 'rm:st:hp', ...NAV]);
     const site = moreScreen(partner({ role: 'transfer' }), BASE).rows.flat().find((b) => 'url' in b);
     expect(site).toEqual({ text: 'Кабинет на сайте', url: `${BASE}/hub/carrier` });
     // Кнопка сводки называет нынешнее время; не прочиталось — без слова о времени.

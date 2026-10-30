@@ -117,6 +117,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
       text: opts.text,
       fromName: opts.fromName,
       partner: p,
+      channel: 'telegram',
       reply: async (_id, text) => { await opts.send(withSosBlock(text, opts.text).text, []); },
     });
     return true;
@@ -185,7 +186,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
     await open('bookings');
     return true;
   }
-  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients') {
+  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients' || asked === 'busy') {
     await openCabinet(asked);
     return true;
   }
@@ -222,6 +223,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
     text: opts.text,
     fromName: opts.fromName,
     partner,
+    channel: 'telegram',
     reply: async (_id, text) => { await send(text, []); },
   });
   return true;

@@ -27,7 +27,9 @@ export type MenuRole = 'admin' | 'operator' | 'transfer' | 'stay' | 'guide';
 
 export type MenuAction =
   | 'inbox' | 'summary' | 'dates' | 'bookings' | 'leads' | 'tours' | 'health' | 'help'
-  | 'tasks' | 'clients' | 'more';
+  | 'tasks' | 'clients' | 'more'
+  /** «Занято» хозяина жилья (30.10): раздел кабинета в чате, lib/chat-cabinet. */
+  | 'busy';
 
 const ROLE_CODE: Record<MenuRole, string> = {
   admin: 'ad',
@@ -51,6 +53,7 @@ const ACTION_CODE: Record<MenuAction, string> = {
   tasks: 'tk',
   clients: 'cl',
   more: 'mn',
+  busy: 'bz',
 };
 
 const CODE_ACTION = new Map(Object.entries(ACTION_CODE).map(([action, code]) => [code, action as MenuAction]));
@@ -119,7 +122,8 @@ export function partnerMenu(partner: MenuPartner): MenuButton[] | null {
   // Хозяину жилья — две кнопки простыми словами (слово владельца 30.10:
   // хозяин «Кутхи» с мессенджером на «вы», «Входящие», «Задачи» и «Клиенты»
   // для него чужие слова). «Заявки» — те же «Входящие» кабинета в чате.
-  if (role === 'stay') return [button(role, 'inbox', 'Заявки'), button(role, 'help', 'Помощь')];
+  // «Занято» — свои закрытые даты и кнопка открыть обратно; закрыть — фразой.
+  if (role === 'stay') return [button(role, 'inbox', 'Заявки'), button(role, 'busy', 'Занято'), button(role, 'help', 'Помощь')];
   return [
     button(role, 'inbox', 'Входящие'),
     button(role, 'tasks', 'Задачи'),
@@ -162,6 +166,8 @@ export function parseRoleMenuPress(payload: string): { role: MenuRole; action: M
   // «Брони» и «Мои туры» — только у гида. Продаёт ли он свои туры, решает
   // экран по карточке чата, а не payload.
   if (role === 'guide' && (action === 'bookings' || action === 'tours')) return { role, action };
+  // «Занято» — только у хозяина жилья: у остальных занятость считается иначе.
+  if (role === 'stay' && action === 'busy') return { role, action };
   return null;
 }
 
@@ -169,11 +175,18 @@ function norm(text: string): string {
   return text.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ');
 }
 
-export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats' | 'tasks' | 'clients';
+export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats' | 'tasks' | 'clients' | 'busy';
 
 /** Точная фраза кнопки. «покажи входящие» и голое «заявки» сюда не входят. */
 export function roleMenuAsk(text: string): RoleAsk | null {
   switch (norm(text)) {
+    // Раздел «Занято» хозяина жилья; «занято с 5 по 9 ноября» — не сюда, а запись (lib/stay/busy-flow).
+    case 'занято':
+    case 'что занято':
+    case 'когда занято':
+    case 'занятость':
+    case 'занятые даты':
+      return 'busy';
     case 'входящие':
     case 'мои входящие':
     case 'новые заявки':
@@ -228,7 +241,8 @@ export function stayMenuHelp(): string {
     '1. Гость оставляет заявку на сайте — вам приходит сообщение: даты, сколько человек, имя и телефон.',
     '2. Под сообщением три кнопки: «Свободно, беру», «Занято», «Позвоню сам». Нажмите одну — гость сразу получит ваш ответ. Больше ничего делать не нужно.',
     '3. Если за два часа ответа нет, бот напомнит одним сообщением с теми же кнопками.',
-    'Кнопки под ответами бота: «Заявки» — гости, которые ждут ответа; «Помощь» — этот текст.',
+    '4. Когда у вас занято, напишите сюда одним сообщением: «занято с 5 по 9 ноября». Гости этих дат на сайте не выберут. Открыть обратно — «свободно с 5 по 9 ноября» или кнопка «Освободить» в разделе «Занято».',
+    'Кнопки под ответами бота: «Заявки» — гости, которые ждут ответа; «Занято» — какие даты вы закрыли; «Помощь» — этот текст.',
     'Написать гостю своими словами — кнопка «Ответить гостю» под заявкой. Позвонить — телефон в заявке.',
     'Даты и цену вы подтверждаете сами, по телефону. Через Ведар оплаты нет.',
   ].join('\n');

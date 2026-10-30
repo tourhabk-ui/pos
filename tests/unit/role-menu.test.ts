@@ -48,9 +48,9 @@ describe('меню роли', () => {
     expect(partnerMenuExtras({ partnerId: OTHER, category: 'transfer', slug: 'laguna-prokat' })).toEqual([]);
     expect(partnerMenu({ partnerId: OTHER, category: 'transfer', slug: 'carrier-1' })?.map((b) => b.payload))
       .toEqual(tabs('tf'));
-    // Хозяину жилья — две кнопки простыми словами (30.10): «Заявки» = «Входящие» кабинета, «Помощь».
+    // Хозяину жилья — три кнопки простыми словами (30.10): «Заявки» = «Входящие» кабинета, «Занято» — свои закрытые даты, «Помощь».
     expect(partnerMenu({ partnerId: OTHER, category: 'stay', slug: 'turbaza' })?.map((b) => [b.text, b.payload]))
-      .toEqual([['Заявки', 'rm:st:in'], ['Помощь', 'rm:st:hp']]);
+      .toEqual([['Заявки', 'rm:st:in'], ['Занято', 'rm:st:bz'], ['Помощь', 'rm:st:hp']]);
     expect(partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'guide-1' })?.map((b) => b.payload))
       .toEqual(tabs('gd'));
   });

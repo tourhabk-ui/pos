@@ -26,6 +26,11 @@ interface AccommodationCardProps {
   starRating?: number;
   /** false — объект создан владельцем и ещё не проверен платформой */
   isVerified?: boolean;
+  /**
+   * Поиск по датам, а номеров у объекта нет: свободное место карточка не
+   * обещает — хозяин не отметил эти даты занятыми, и только (30.10).
+   */
+  datesByOwner?: boolean;
   onFavoriteToggle?: (id: string) => void;
   isFavorite?: boolean;
 }
@@ -74,6 +79,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
   images,
   starRating,
   isVerified,
+  datesByOwner,
   onFavoriteToggle,
   isFavorite = false,
 }) => {
@@ -161,6 +167,11 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
             {isVerified === false && (
               <span className="px-3 py-1 bg-black/70 rounded-full text-xs text-[var(--warning)] font-medium">
                 Новый объект
+              </span>
+            )}
+            {datesByOwner === true && (
+              <span className="px-3 py-1 bg-black/70 rounded-full text-xs text-[var(--text-secondary)] font-medium">
+                Даты уточняет хозяин
               </span>
             )}
             {starRating && (
