@@ -181,6 +181,26 @@ describe('инструменты по ключу', () => {
     const unknown = await (await POST(req({ jsonrpc: '2.0', id: 2, method: 'resources/list' }))).json();
     expect(unknown.error.code).toBe(-32601);
   });
+
+  it('ревизии 2026-07-28 партнёрский сервер не обслуживает: отказ 400 по версии, legacy — как раньше', async () => {
+    db(keyRow());
+    const modernReq = req({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} } } });
+    modernReq.headers.set('mcp-protocol-version', '2026-07-28');
+    modernReq.headers.set('mcp-method', 'tools/list');
+    const res = await POST(modernReq);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe(-32600);
+    // Отказ называет только то, что этот сервер умеет, — эпоху initialize.
+    const supported = String(json.error.message).split('Supported:')[1] ?? '';
+    expect(supported).toMatch(/2025-11-25/);
+    expect(supported).not.toMatch(/2026-07-28/);
+    expect(executeCrmTool).not.toHaveBeenCalled();
+    db(keyRow());
+    const legacyReq = req({ jsonrpc: '2.0', id: 4, method: 'tools/list' });
+    legacyReq.headers.set('mcp-protocol-version', '2025-11-25');
+    expect((await POST(legacyReq)).status).toBe(200);
+  });
 });
 
 describe('отдельно от публичного MCP', () => {
