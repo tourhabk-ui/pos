@@ -12,7 +12,10 @@
  *   - одобрение новой строки вставляет её в прайс; дубль направления на
  *     тот же вид машины отвергает уникальный индекс 1185 — duplicate, черновик
  *     остаётся pending;
- *   - отказ живую строку не трогает; перевозчик видит причину (loadOwnDrafts).
+ *   - отказ живую строку не трогает; перевозчик видит причину (loadOwnDrafts);
+ *   - сводка перевозчика (#2862 этап D): заявки с ответом и без, медиана
+ *     первого ответа, поездка без исхода «ждёт», исход «состоялась», видимый
+ *     отзыв в среднюю идёт, скрытый — нет; чужой перевозчик ничего не видит.
  *
  * Своя база — копия шаблона схемы со ВСЕМИ миграциями каталога. Без
  * KERNEL_PG_TEST_URL файл честно пропускается — «не прогнано», а не «прошло».
@@ -163,6 +166,67 @@ withPg('черновики прайса перевозчика на настоя
     expect(drafts.outcome === 'ok' && drafts.drafts.find((d) => d.id === dupEdit.id)).toMatchObject({ status: 'rejected', reason: 'такое направление уже есть' });
     const live = await pool.query('SELECT count(*)::int AS n FROM transfer_charter_prices WHERE partner_id = $1', [partnerId]);
     expect(live.rows[0].n).toBe(2);
+  });
+
+  it('сводка перевозчика (этап D): заявка с ответом, поездка «состоялась», видимый отзыв — числа из настоящих строк', async () => {
+    const { loadCarrierSummary } = await import('@/lib/transfers/carrier-summary-store');
+    const before = await loadCarrierSummary(partnerId);
+    expect(before).toEqual({
+      windowDays: 30,
+      requests: { total: 0, answered: 0, waiting: 0, medianMinutes: null },
+      rides: { held: 0, notHeld: 0, awaiting: 0 },
+      reviews: { visible: 0, average: null },
+    });
+
+    const lead = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, status, operator_id, source_data, created_at)
+       VALUES ('Тест Заказчик', '+79990000001', 'contacted', $1,
+               '{"kind":"charter","destination":"Авачинский","date_from":"2026-10-20","passengers":"6"}'::jsonb,
+               NOW() - INTERVAL '2 hours') RETURNING id`,
+      [partnerId],
+    );
+    const leadId = lead.rows[0].id;
+    const answeredAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1, 'partner', 'partner_answered', $2::jsonb)`,
+      [leadId, JSON.stringify({ answer: 'take', kind: 'charter', at: answeredAt })],
+    );
+    // Вторая заявка — без ответа, выезд впереди: ждёт сейчас.
+    await pool.query(
+      `INSERT INTO leads (name, phone, status, operator_id, source_data)
+       VALUES ('Тест Второй', '+79990000002', 'new', $1,
+               '{"kind":"charter","destination":"Горелый","date_from":"2099-01-10"}'::jsonb)`,
+      [partnerId],
+    );
+    const mid = await loadCarrierSummary(partnerId);
+    expect(mid.requests).toEqual({ total: 2, answered: 1, waiting: 1, medianMinutes: 60 });
+    // Поездка кончилась, исхода нет — ждёт вопроса «Поездка состоялась?».
+    expect(mid.rides).toEqual({ held: 0, notHeld: 0, awaiting: 1 });
+
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1, 'partner', 'ride_outcome', '{"outcome":"held"}'::jsonb)`,
+      [leadId],
+    );
+    await pool.query(
+      `INSERT INTO carrier_reviews (partner_id, proof, lead_id, author_name, rating, comment)
+       VALUES ($1, 'charter_carrier', $2, 'Тест З.', 4, 'довезли')`,
+      [partnerId, leadId],
+    );
+    // Скрытый отзыв в среднюю не идёт (причина — CHECK ≥ 8 знаков).
+    await pool.query(
+      `INSERT INTO carrier_reviews (partner_id, proof, author_name, rating, comment, is_hidden, hidden_reason, hidden_at)
+       VALUES ($1, 'charter', 'Тест С.', 1, 'не ехал', TRUE, 'отзыв не о поездке', NOW())`,
+      [partnerId],
+    );
+    const after = await loadCarrierSummary(partnerId);
+    expect(after.rides).toEqual({ held: 1, notHeld: 0, awaiting: 0 });
+    expect(after.reviews).toEqual({ visible: 1, average: 4 });
+    // Чужому перевозчику ничего из этого не видно.
+    const other = await loadCarrierSummary(otherId);
+    expect(other.requests?.total).toBe(0);
+    expect(other.reviews).toEqual({ visible: 0, average: null });
   });
 
   it('updateVehicle: снять с линии и места «не записано» — своя машина; чужая — not_your_vehicle', async () => {

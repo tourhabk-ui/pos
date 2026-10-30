@@ -24,6 +24,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Bus, Inbox, Plus, Check, X, AlertCircle, Tag, Pencil } from 'lucide-react';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { CARRIER_PRICES_API, CharterPriceBoard, type BoardLoad } from '@/components/carrier/CharterPriceBoard';
+import { CARRIER_SUMMARY_API, CarrierSummaryCard, type SummaryLoad } from '@/components/carrier/CarrierSummaryCard';
+import type { CarrierSummary } from '@/lib/transfers/carrier-summary';
 import type { CharterPriceRow } from '@/lib/transfers/price-edit';
 import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 
@@ -55,6 +57,20 @@ export default function CarrierClient() {
   const [prices, setPrices] = useState<BoardLoad<CharterPriceRow>>({ state: 'loading' });
   const [drafts, setDrafts] = useState<BoardLoad<OwnDraft>>({ state: 'loading' });
   const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [summary, setSummary] = useState<SummaryLoad>({ state: 'loading' });
+
+  // Сводка за 30 дней (#2862 этап D): блоки внутри могут не прочитаться отдельно — это говорит сам текст.
+  const loadSummary = useCallback(async () => {
+    setSummary({ state: 'loading' });
+    try {
+      const r = await readJson<CarrierSummary>(await fetch(CARRIER_SUMMARY_API, { credentials: 'include' }));
+      // Ответ без формы сводки — «не прочитали», а не экран с пустыми числами.
+      const shaped = r.ok && r.data && typeof r.data.windowDays === 'number' && 'requests' in r.data && 'rides' in r.data && 'reviews' in r.data;
+      setSummary(shaped && r.data ? { state: 'ok', summary: r.data } : { state: 'failed', message: r.error ?? 'ответ без сводки' });
+    } catch {
+      setSummary({ state: 'failed', message: 'нет связи с сервером' });
+    }
+  }, []);
 
   // Прайс и черновики — одним ответом, но каждый список может не прочитаться отдельно (null).
   const loadPrices = useCallback(async () => {
@@ -89,7 +105,8 @@ export default function CarrierClient() {
     void load<Vehicle>('/api/hub/carrier/vehicles', setVehicles);
     void load<SeatRequest>('/api/hub/carrier/requests?status=requested', setRequests);
     void loadPrices();
-  }, [load, loadPrices]);
+    void loadSummary();
+  }, [load, loadPrices, loadSummary]);
 
   useEffect(() => { reloadAll(); }, [reloadAll]);
 
@@ -109,6 +126,10 @@ export default function CarrierClient() {
       {flash && (
         <p className={`text-sm mb-4 ${flash.kind === 'ok' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{flash.text}</p>
       )}
+
+      <div className="mb-8">
+        <CarrierSummaryCard load={summary} />
+      </div>
 
       <h2 className="ds-h2 mb-3 flex items-center gap-2"><Bus size={16} /> Парк</h2>
       <Fleet vehicles={vehicles} onChanged={reloadAll} say={say} />
