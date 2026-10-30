@@ -218,11 +218,15 @@ describe('карточка предмета', () => {
     expect(link && 'url' in link ? link.url : '').toBe(`${BASE}/hub/guide/own`);
   });
 
-  it('жильё: «Ответить гостю» в MAX; в Telegram — нет; ссылка на «Входящие», если раздела нет', () => {
+  it('жильё: три кнопки ответа в обоих каналах (30.10), «Ответить гостю» в MAX; в Telegram — нет; ссылка на «Входящие», если раздела нет', () => {
     const stay = partner({ role: 'stay', bookingActions: false, operatorAnswers: false, sellsTours: false });
     const req = item({ kind: 'stay_request', id: UUID, title: 'Кутха' });
-    expect(payloads(itemCardScreen({ item: req, partner: stay, channel: 'max', base: BASE }))).toContain(`sq:o:${UUID}`);
+    const mx = itemCardScreen({ item: req, partner: stay, channel: 'max', base: BASE });
+    expect(payloads(mx)).toContain(`sq:o:${UUID}`);
+    expect(payloads(mx)).toEqual(expect.arrayContaining([`sa:f:${UUID}`, `sa:b:${UUID}`, `sa:c:${UUID}`]));
+    expect(mx.text).toContain('Нажмите одну кнопку');
     const tg = itemCardScreen({ item: req, partner: stay, channel: 'telegram', base: BASE });
+    expect(payloads(tg)).toEqual(expect.arrayContaining([`sa:f:${UUID}`, `sa:b:${UUID}`, `sa:c:${UUID}`]));
     expect(payloads(tg).some((p) => p.startsWith('sq:'))).toBe(false);
     const link = tg.rows.flat().find((x) => 'url' in x);
     expect(link && 'url' in link ? link.url : '').toBe(`${BASE}/hub/stay/inbox`);

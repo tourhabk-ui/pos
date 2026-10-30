@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const { pool, statusMock, postMock, tgMock, lookupMock, requirePartnerMock, issueMock, dbQuery, txClient } = vi.hoisted(() => ({
@@ -362,7 +362,18 @@ describe('словарь «Входящих», напоминания, мигр�
     expect(sql).toMatch(/confirmed_by_kind TEXT NOT NULL DEFAULT 'manager'/);
     expect(sql).toMatch(/CHECK \(confirmed_by_kind IN \('manager', 'carrier'\)\)/);
     expect(sql).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS lead_activity_log_ride_outcome_uidx[\s\S]*WHERE action = 'ride_outcome'/);
-    const check = /ADD CONSTRAINT crm_inbox_reminders_kind_check CHECK \(item_kind IN \(([\s\S]*?)\)\)/.exec(sql);
-    for (const kind of INBOX_REMIND_KINDS) expect(check![1], kind).toContain(`'${kind}'`);
+    // 1353 добавила свой вид в CHECK напоминаний; полный список держит ПОСЛЕДНЯЯ
+    // миграция, переписавшая CHECK (новый вид — новая миграция, 1359 для жилья):
+    // сторож ищет её сам, а не держит номер, который устаревает с каждым видом.
+    const CHECK_RE = /ADD CONSTRAINT crm_inbox_reminders_kind_check CHECK \(item_kind IN \(([\s\S]*?)\)\)/;
+    expect(CHECK_RE.exec(sql)![1]).toContain("'charter_ride'");
+    const dir = join(process.cwd(), 'migrations');
+    const latest = readdirSync(dir)
+      .filter((f) => /^\d+_.*\.sql$/.test(f) && CHECK_RE.test(readFileSync(join(dir, f), 'utf8')))
+      .sort((a, b) => Number(a.split('_')[0]) - Number(b.split('_')[0]))
+      .at(-1);
+    expect(latest).toBeDefined();
+    const check = CHECK_RE.exec(readFileSync(join(dir, latest!), 'utf8'));
+    for (const kind of INBOX_REMIND_KINDS) expect(check![1], `${kind} в ${latest}`).toContain(`'${kind}'`);
   });
 });
