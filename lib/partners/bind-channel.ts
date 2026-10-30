@@ -161,13 +161,38 @@ export async function bindPartnerChannel(
  * Туроператор и пилот проката получают свои кнопки отдельно.
  */
 export function boundMenuRow(result: BindResult): MenuButton[] | null {
-  if (!result.ok || result.category !== 'guide' || result.cabinetOf !== null) return null;
+  if (!result.ok || result.cabinetOf !== null) return null;
+  // Гид — его вкладки; хозяин жилья — две кнопки простыми словами (30.10).
+  if (result.category !== 'guide' && result.category !== 'stay') return null;
   return partnerMenu({
     partnerId: result.partnerId,
-    category: 'guide',
+    category: result.category,
     slug: result.slug,
     sellsTours: result.sellsTours === true,
   });
+}
+
+/**
+ * Текст хозяину жилья после записи чата (слово владельца 30.10: хозяин
+ * «Кутхи» далёк от всего нового). До этого дня он слышал «подключён к
+ * оператору» без единой кнопки. Говорится только то, что у него есть: заявка
+ * одним сообщением, три кнопки ответа, две кнопки строки, напоминание.
+ * Кабинет на сайте не упоминается — он ему не нужен.
+ */
+export function stayBoundText(name: string, channel: PartnerChannel, menu: readonly MenuButton[] | null = null): string {
+  const lines = [
+    `Вы подключены как хозяин жилья «${escapeHtml(name)}».`,
+    channel === 'max'
+      ? 'Сюда будут приходить заявки гостей: даты, сколько человек, имя и телефон.'
+      : 'Сюда будут приходить заявки гостей: даты и сколько человек. Имя и телефон гостя по закону о персональных данных приходят только в MAX — подключите и его, если ещё нет.',
+    'Под каждой заявкой три кнопки: «Свободно, беру», «Занято», «Позвоню сам». Нажмите одну — гость сразу получит ваш ответ. Больше ничего нажимать не нужно.',
+    'Если за два часа ответа нет, бот напомнит одним сообщением с теми же кнопками.',
+  ];
+  if (menu && menu.length > 0) {
+    lines.push(`Кнопки под этим сообщением: ${menu.map((b) => `«${b.text}»`).join(' и ')}. «Заявки» — гости, которые ждут ответа; «Помощь» — как это работает.`);
+  }
+  lines.push('Даты и цену вы подтверждаете сами, по телефону. Через Ведар оплаты нет.');
+  return lines.join('\n');
 }
 
 /**
@@ -332,6 +357,8 @@ export function channelBoundText(channel: PartnerChannel, result: BindResult): s
     ? operatorBoundText(result.displayName || result.partnerName, channel)
     : result.ok && result.category === 'guide'
       ? guideBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result), result.ok && result.sellsTours === true)
+      : result.ok && result.category === 'stay'
+        ? stayBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result))
       : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'
         ? rentalPilotBoundText(result.partnerName)
         : bindReplyText(channel, result);

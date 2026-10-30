@@ -788,6 +788,29 @@ async function handleActionPress(
     return;
   }
 
+  // Ответ хозяина жилья на заявку одной кнопкой (`sa:`, 30.10): «Свободно,
+  // беру» / «Занято» / «Позвоню сам». Только личный диалог и чат привязанной
+  // карточки; заявка обязана быть его (lib/stay/owner-answer-flow). Под
+  // ответом остаётся «Ответить гостю».
+  if (action === 'stay_answer') {
+    if (chatType !== 'dialog') {
+      console.error(`[max/kuzmich] нажатие (stay_answer) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      await maxReply(chatId, 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.');
+      return;
+    }
+    const lookup = await findPartnerByChat('max', chatId);
+    const { handleStayAnswerPress } = await import('@/lib/stay/owner-answer-flow');
+    await handleStayAnswerPress({
+      lookup,
+      payload,
+      editMid: pressed?.mid ?? null,
+      originalText: pressed?.text ?? null,
+      via: 'max',
+      send: rentalAnswerSend(chatId, false),
+    });
+    return;
+  }
+
   // Переписка по заявке (1349, 1350): «Ответить гостю/клиенту» у адресата,
   // «Написать …» у клиента. Только личный диалог; право чата на заявку (чат
   // партнёра-адресата или подключённый чат клиента) и ожидание следующего

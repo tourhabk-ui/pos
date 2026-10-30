@@ -29,8 +29,29 @@ const row = (over: Partial<Record<string, unknown>> = {}) => ({
 beforeEach(() => vi.spyOn(console, 'error').mockImplementation(() => undefined));
 
 describe('SQL', () => {
-  it('виды — только те, где напоминание наше: без заявок на подбор, запросов мест и отзывов; заявка на машину — наша (#2862)', () => {
-    expect([...R.INBOX_REMIND_KINDS]).toEqual(['operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'charter_ride', 'guide_invite']);
+  it('виды — только те, где напоминание наше: без заявок на подбор, запросов мест и отзывов; заявка на машину — наша (#2862), заявка на жильё — наша (30.10)', () => {
+    expect([...R.INBOX_REMIND_KINDS]).toEqual(['operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'charter_ride', 'guide_invite', 'stay_request']);
+    // Заявка на жильё ждёт, пока хозяин не ответил кнопкой и не написал гостю, и пока не наступил заезд.
+    expect(R.INBOX_REMIND_SQL.stay_request).toMatch(/s\.owner_answer IS NULL/);
+    expect(R.INBOX_REMIND_SQL.stay_request).toMatch(/m\.stay_request_id = s\.id AND m\.author = 'owner'/);
+    expect(R.INBOX_REMIND_SQL.stay_request).toMatch(/check_in_date >= \(\$1::timestamptz AT TIME ZONE 'Asia\/Kamchatka'\)::date/);
+  });
+
+  it('одна заявка на жильё — три кнопки ответа прямо в напоминании (30.10); несколько предметов — только «Входящие»', () => {
+    const id = '3f2a1b4c-5d6e-4f70-8a91-b2c3d4e5f607';
+    const one = R.inboxReminderMessage([{ ...row({ item_id: id, title: 'Кутха' }), kind: 'stay_request' } as never]);
+    expect(one.buttons?.slice(0, 3)).toEqual([
+      { text: 'Свободно, беру', payload: `sa:f:${id}` },
+      { text: 'Занято', payload: `sa:b:${id}` },
+      { text: 'Позвоню сам', payload: `sa:c:${id}` },
+    ]);
+    expect(one.text).toContain('Нажмите одну кнопку');
+    expect(one.stub).not.toMatch(/Анна|Кутха/);
+    const two = R.inboxReminderMessage([
+      { ...row({ item_id: id }), kind: 'stay_request' } as never,
+      { ...row({ item_id: 'b2' }), kind: 'accommodation_booking' } as never,
+    ]);
+    expect(two.buttons?.some((b) => 'payload' in b && b.payload.startsWith('sa:'))).toBe(false);
   });
 
   it('у каждого вида: ждёт статус «новый», ступень и окно — параметрами, напоминание одно', () => {

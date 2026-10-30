@@ -21,6 +21,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { containsPattern } from '@/lib/db/like';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { ownerReplyButton } from '@/lib/requests/request-chat';
+import { stayAnswerButtons } from '@/lib/stay/owner-answer';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import {
   MAX_REQUEST_NIGHTS,
@@ -143,10 +144,14 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   let ownerReason = 'у хозяина нет подключённого MAX или Telegram';
   let ownerDelivered = false;
   if (obj.max_chat_id || obj.telegram_chat_id) {
-    // «Ответить гостю» — переписка в этом же чате (1349). Действие работает
-    // только в MAX: в Telegram-заглушку кнопка-действие не уходит (pd-alert).
+    // Три кнопки ответа одним нажатием — «Свободно, беру», «Занято», «Позвоню
+    // сам» (lib/stay/owner-answer, 30.10): гость получает ответ словами
+    // хозяина, заявка перестаёт ждать. «Ответить гостю» — переписка в этом же
+    // чате (1349). Действия работают только в MAX: в Telegram-заглушку
+    // кнопка-действие не уходит (pd-alert).
+    const answers = stayAnswerButtons(requestId) ?? [];
     const reply = ownerReplyButton({ kind: 'stay', id: requestId });
-    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [reply, card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
+    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [...answers, reply, card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
     ownerChannel = r.channel;
     ownerReason = r.reason;
     ownerDelivered = r.delivered;
