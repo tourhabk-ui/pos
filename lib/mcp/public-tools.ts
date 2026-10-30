@@ -545,4 +545,9 @@ export const MCP_SERVER_INFO = {
   title: 'Ведар — Камчатка',
   version: '2.9.1',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
+  // Ревизия 2025-11-25: ссылка на страницу подключения (та же, что
+  // websiteUrl в server.json) и значок — тот же файл, что apple-touch-icon
+  // сайта, на постоянном адресе домена.
+  websiteUrl: 'https://vedarai.ru/mcp',
+  icons: [{ src: 'https://vedarai.ru/apple-touch-icon.png', mimeType: 'image/png', sizes: ['180x180'] }],
 } as const;

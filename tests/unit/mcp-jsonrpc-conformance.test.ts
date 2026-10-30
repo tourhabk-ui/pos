@@ -14,6 +14,8 @@
  *     успехом, а чужое исключение — анониму текстом как есть;
  *   - рукопожатие не передавало instructions и serverInfo.title.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -152,6 +154,28 @@ describe('рукопожатие', () => {
     // Сквозные правила — один источник (lib/mcp/server-instructions.ts);
     // их связку с выводом инструментов держит mcp-server-instructions.test.ts.
     expect(json.result.instructions).toBe(SERVER_INSTRUCTIONS);
+  });
+
+  it('ревизия 2025-11-25: называется по умолчанию; serverInfo с описанием, сайтом и значком', async () => {
+    const json = await (await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })).json();
+    expect(json.result.protocolVersion).toBe('2025-11-25');
+    const info = json.result.serverInfo;
+    expect(info.description).toMatch(/Камчатки/);
+    expect(info.websiteUrl).toBe('https://vedarai.ru/mcp');
+    expect(info.icons).toHaveLength(1);
+    const icon = info.icons[0];
+    expect(icon.src.startsWith('https://vedarai.ru/')).toBe(true);
+    // Значок — файл сайта, а не адрес в никуда: лежит в public и он PNG
+    // заявленного размера.
+    const file = readFileSync(join(process.cwd(), 'public', new URL(icon.src).pathname));
+    expect(file.subarray(1, 4).toString('ascii')).toBe('PNG');
+    expect(icon.mimeType).toBe('image/png');
+    const [w, h] = [file.readUInt32BE(16), file.readUInt32BE(20)];
+    expect(icon.sizes).toEqual([`${w}x${h}`]);
+    // Клиент прежней ревизии получает свою версию.
+    const old = await (await post({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '2025-06-18' } })).json();
+    expect(old.result.protocolVersion).toBe('2025-06-18');
+    expect((await post({ jsonrpc: '2.0', id: 3, method: 'ping' }, { 'mcp-protocol-version': '2025-11-25' })).status).toBe(200);
   });
 });
 
