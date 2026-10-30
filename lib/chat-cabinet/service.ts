@@ -824,7 +824,7 @@ export async function handleCabinetPress(input: {
       });
       break;
     }
-    // Документ гида (.docx → поля тура, 1359): «Сохранить всё», по полю, выбор тура.
+    // Документ гида (.docx → поля тура, 1360): «Сохранить всё», по полю, выбор тура.
     case 'doc_save':
     case 'doc_cancel':
     case 'doc_tour': {

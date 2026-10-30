@@ -618,8 +618,8 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(await row()).toMatchObject({ available_slots: 8, is_cancelled: false });
     });
 
-    it('документ гида (.docx, 1359): по полю и «Сохранить всё» — общей функцией сайта; правка на сайте после предпросмотра не затирается', async () => {
-      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1359_tour_doc_drafts.sql'), 'utf8'));
+    it('документ гида (.docx, 1360): по полю и «Сохранить всё» — общей функцией сайта; правка на сайте после предпросмотра не затирается', async () => {
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1360_tour_doc_drafts.sql'), 'utf8'));
       // Название, анонс и цену документ не пишет — база не примет и такой черновик.
       await expect(pool.query(
         `INSERT INTO tour_doc_drafts (partner_id, channel, chat_id, doc_values, expires_at)
@@ -665,7 +665,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
     });
   });
 
-  describe('роль гида, этап 2: отзыв, профиль, команда, расписание, заработок (1358)', () => {
+  describe('роль гида, этап 2: отзыв, профиль, команда, расписание, заработок (1359)', () => {
     const G_CHAT = 8_301;
     const G_STRANGER = 8_302;
     let gid = '';
@@ -720,8 +720,8 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       partner = found.partner;
     });
 
-    it('миграция 1358 повторяется без вреда; черновик без цели и чужой вид база не примет', async () => {
-      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1358_guide_chat_drafts.sql'), 'utf8'));
+    it('миграция 1359 повторяется без вреда; черновик без цели и чужой вид база не примет', async () => {
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1359_guide_chat_drafts.sql'), 'utf8'));
       await expect(pool.query(
         `INSERT INTO guide_chat_drafts (partner_id, channel, chat_id, kind, live_value, status, expires_at)
          VALUES ($1, 'max', 1, 'reply', 'null', 'pending', NOW())`, [gid],

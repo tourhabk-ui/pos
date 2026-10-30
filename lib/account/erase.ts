@@ -1213,14 +1213,14 @@ export async function eraseUser(
       USING (${HIS_MESSENGER_IDS}) his
       WHERE (e.channel = 'max' AND e.chat_id = ANY(his.mx))
          OR (e.channel = 'telegram' AND e.chat_id = ANY(his.tg))`],
-    // Черновики ответа на отзыв и профиля гида из чата (миграция 1358,
+    // Черновики ответа на отзыв и профиля гида из чата (миграция 1359,
     // lib/guides/chat-role): та же форма — карточка, его диалог; несохранённый
     // текст ответа — его слова, сохранённый живёт в guide_reviews.
     ['guide_chat_drafts', `DELETE FROM guide_chat_drafts d
       USING (${HIS_MESSENGER_IDS}) his
       WHERE (d.channel = 'max' AND d.chat_id = ANY(his.mx))
          OR (d.channel = 'telegram' AND d.chat_id = ANY(his.tg))`],
-    // Документ тура гида из MAX (миграция 1359): та же форма; файл не
+    // Документ тура гида из MAX (миграция 1360): та же форма; файл не
     // хранится, в строке — разобранный текст тура, не ПД.
     ['tour_doc_drafts', `DELETE FROM tour_doc_drafts d
       USING (${HIS_MESSENGER_IDS}) his

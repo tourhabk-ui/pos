@@ -43,7 +43,7 @@
  *   cb:p                — «Профиль и команда» гида
  *   cb:p:<a|n>:<uuid>   — приглашение в команду: принять / отклонить
  *   cb:p:l | cb:p:y     — «Выйти из команды»: вопрос / подтверждение
- *   cb:q:a:<uuid>       — документ гида (.docx, 1359): «Сохранить всё»
+ *   cb:q:a:<uuid>       — документ гида (.docx, 1360): «Сохранить всё»
  *   cb:q:f:<uuid>:<i>   — документ гида: сохранить одно поле (номер в DOC_FIELDS)
  *   cb:q:t:<uuid>:<i>   — документ гида: выбрать тур из кандидатов
  *   cb:q:x:<uuid>       — документ гида: отмена
@@ -289,7 +289,7 @@ export const cabinetPayload = {
   inviteDecline: (inviteId: string): string => `cb:p:n:${inviteId.toLowerCase()}`,
   teamLeave: (): string => 'cb:p:l',
   teamLeaveYes: (): string => 'cb:p:y',
-  /** Документ гида (.docx → поля тура, 1359). */
+  /** Документ гида (.docx → поля тура, 1360). */
   docSaveAll: (draftId: string): string => `cb:q:a:${draftId.toLowerCase()}`,
   docSaveField: (draftId: string, field: number): string => `cb:q:f:${draftId.toLowerCase()}:${field}`,
   docCancel: (draftId: string): string => `cb:q:x:${draftId.toLowerCase()}`,

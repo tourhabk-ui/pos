@@ -273,7 +273,7 @@ export function partnerMenuHelp(role: Exclude<MenuRole, 'admin'>, partner: MenuP
       + 'бот покажет, что откроется, и откроет после кнопки «Открыть».');
     lines.push(`Открыть даты и всё о бронях и заявках — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`);
     if (role === 'guide') {
-      // Документ гида (.docx → поля тура, 1359, lib/guides/tour-edit/doc-flow).
+      // Документ гида (.docx → поля тура, 1360, lib/guides/tour-edit/doc-flow).
       lines.push('Тексты тура можно прислать в MAX документом Word (.docx), первая строка — название тура в ёлочках: '
         + 'бот разложит разделы по полям тура, покажет по каждому, что было и что станет, и запишет только после кнопки — всё сразу или по полю.');
     }
