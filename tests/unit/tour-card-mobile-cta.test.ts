@@ -26,7 +26,7 @@ const LAYOUT = readFileSync(join(ROOT, 'app/layout.tsx'), 'utf-8');
 describe('карточка решения на мобильном', () => {
   it('стоит выше секции «О туре» и скрыта на desktop', () => {
     const decision = CARD.indexOf('Узнать свободные даты');
-    const about = CARD.indexOf('<Eyebrow>О туре</Eyebrow>');
+    const about = CARD.indexOf('<SectionTitle>О туре</SectionTitle>');
     expect(decision, 'карточка решения не найдена').toBeGreaterThan(0);
     expect(about, 'секция «О туре» не найдена').toBeGreaterThan(0);
     expect(decision, 'цена и CTA должны идти до длинного описания').toBeLessThan(about);

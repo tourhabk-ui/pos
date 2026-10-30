@@ -91,7 +91,7 @@ describe('липкая колонка брони (десктоп)', () => {
   it('фотолента в колонке 8/12 — колонка брони начинается вровень с ней', () => {
     const col = CARD.indexOf('lg:col-span-8');
     const strip = CARD.indexOf('stripPhotos.slice(0, 6)');
-    const about = CARD.indexOf('<Eyebrow>О туре</Eyebrow>');
+    const about = CARD.indexOf('<SectionTitle>О туре</SectionTitle>');
     expect(col).toBeGreaterThan(0);
     expect(strip, 'фотолента снова над сеткой — цена уходит из первого экрана').toBeGreaterThan(col);
     expect(strip).toBeLessThan(about);

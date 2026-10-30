@@ -58,9 +58,14 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
 import { groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
 
-/* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
+/*
+ * Шрифты платформы: Playfair — дисплей (голос края), подписи — текстовым
+ * шрифтом страницы. Моноширинные метки капсом с разрядкой и надписи над
+ * каждым заголовком сняты 31.10 (карт-бланш владельца): это шаблонная
+ * обвязка сгенерированных страниц по скиллу frontend-design (03.09) —
+ * её видно раньше содержания. Сторож: tests/unit/no-template-chrome.test.tsx.
+ */
 const FD = 'var(--font-playfair)';
-const FM = 'var(--font-jetbrains, ui-monospace, monospace)';
 /**
  * Цифры цены — выровненные по строке. Playfair по умолчанию рисует
  * «старостильные» цифры: «13 000» читалось как «13 ooo» (аудит П6, #109).
@@ -366,19 +371,6 @@ function Stars({ rating }: { rating: number }) {
   );
 }
 
-/* ─── Section eyebrow ─── */
-
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2.5 mb-3">
-      <span className="w-4 h-px bg-[var(--accent)]" />
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]" style={{ fontFamily: FM }}>
-        {children}
-      </span>
-    </div>
-  );
-}
-
 function SectionTitle({ children, icon: Icon, iconColor }: {
   children: React.ReactNode; icon?: React.ElementType; iconColor?: string;
 }) {
@@ -635,8 +627,8 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
           <div className="absolute left-4 right-4 z-[2] flex items-start" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 72px)' }}>
             <Link
               href="/safety"
-              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
-              style={{ fontFamily: FM, minHeight: 44 }}
+              className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[13px] font-semibold text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
+              style={{ minHeight: 44 }}
             >
               <span
                 className="w-2 h-2 rounded-full shrink-0"
@@ -668,7 +660,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             {/* Цвет — на КАЖДОЙ ссылке: цвет, заданный на <nav>, перебивало
                 глобальное a{color:var(--ocean)}, и крошки выходили бирюзой по
                 небу (1.4–2:1). Зона нажатия — 44px (аудит П6, #31/#32/#66). */}
-            <nav aria-label="Хлебные крошки" className="flex items-center gap-1 text-[13px] mb-2 -ml-1" style={{ fontFamily: FM }}>
+            <nav aria-label="Хлебные крошки" className="flex items-center gap-1 text-[13px] mb-2 -ml-1">
               <Link href="/" className={CRUMB}>Главная</Link>
               <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
               <Link href="/catalog" className={CRUMB}>Туры</Link>
@@ -676,10 +668,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <Link href={`/catalog?activity_type=${tour.activity_type}`} className={CRUMB}>{activity}</Link>
             </nav>
 
-            <div className="flex items-center gap-2.5 mb-3">
-              <span className="w-6 h-0.5 bg-[var(--accent)]" />
-              <span className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ fontFamily: FM, color: '#fff' }}>{activity}</span>
-            </div>
+            <p className="mb-3 text-[15px] font-medium" style={{ color: 'rgba(255,255,255,.85)' }}>{activity}</p>
 
             <h1 className="text-white max-w-[16ch]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 'clamp(30px,5vw,56px)', lineHeight: 1.04, letterSpacing: '-0.02em', textShadow: '0 2px 34px rgba(0,0,0,.4)', textWrap: 'balance' }}>
               {tour.title}
@@ -715,7 +704,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               >
                 {instrument.map((c, i) => (
                   <div key={c.k} className="min-w-0 px-2.5 sm:px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
-                    <div className="text-xs uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
+                    <div className="text-[13px] truncate" style={{ color: 'rgba(255,255,255,.75)' }}>{c.k}</div>
                     <div className="text-sm font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
                   </div>
                 ))}
@@ -791,7 +780,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 к экрану, и не играет без связи. Нет клипов — нет блока. */}
             {tour.clips && tour.clips.length > 0 && (
               <section aria-label={`Видео: ${tour.title}`}>
-                <Eyebrow>Как это выглядит</Eyebrow>
+                <SectionTitle>Как это выглядит</SectionTitle>
                 {/* Лента и подпись автора — components/tours/TourClips (13.10):
                     «Видео: <оператор>», имя ведёт на страницу оператора. */}
                 <TourClips
@@ -808,7 +797,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 описание: один и тот же абзац дважды на странице — неопрятность,
                 за которую мы уже платили (§11, сторож дублирования). */}
             <section>
-              <Eyebrow>О туре</Eyebrow>
+              <SectionTitle>О туре</SectionTitle>
               {tour.description && (
                 <DescriptionWithFishLinks
                   paragraphs={tour.description.split('\n').filter(p => p.trim())}
@@ -833,8 +822,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 блок для AI-поиска, продолжение GEO-линии. */}
             {fishSpecies.length > 0 && (
               <section>
-                <Eyebrow>Рыбалка по сезонам</Eyebrow>
-                <SectionTitle>Когда какая рыба клюёт?</SectionTitle>
+                                <SectionTitle>Когда какая рыба клюёт?</SectionTitle>
                 <FishSeasonCalendar species={fishSpecies} />
               </section>
             )}
@@ -842,8 +830,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             {/* Программа дня — только если оператор её прислал */}
             {program.length > 0 && (
               <section>
-                <Eyebrow>Как проходит день</Eyebrow>
-                <SectionTitle>Программа</SectionTitle>
+                                <SectionTitle>Программа</SectionTitle>
                 <div className="ds-card overflow-hidden p-0">
                   {program.map((step, i) => {
                     const open = openStep === i;
@@ -859,7 +846,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                           {open && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-[var(--accent)]" />}
                           <span
                             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm font-bold"
-                            style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', fontFamily: FM }}
+                            style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', ...NUMS }}
                           >
                             {i + 1}
                           </span>
@@ -882,8 +869,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             {/* Что включено / не входит */}
             {(included.length > 0 || notIncluded.length > 0) && (
               <section>
-                <Eyebrow>Снаряжение и сборы</Eyebrow>
-                <SectionTitle>Что включено</SectionTitle>
+                                <SectionTitle>Что включено</SectionTitle>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                   {included.map(item => (
                     <div key={item} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-primary)]">{item}</span></div>
@@ -946,7 +932,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     <span className="grid h-9 w-9 place-items-center rounded-lg shrink-0" style={{ background: 'color-mix(in srgb, var(--danger) 15%, transparent)' }}>
                       <LifeBuoy className="w-5 h-5 text-[var(--danger)]" aria-hidden />
                     </span>
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]" style={{ fontFamily: FM }}>
+                    <h3 className="text-base font-bold text-[var(--text-primary)]">
                       Правила на маршруте
                     </h3>
                   </div>
@@ -1033,7 +1019,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
             {/* Оператор — гибрид: бронь через платформу, прямая связь рядом */}
             <section>
-              <Eyebrow>Кто проводит</Eyebrow>
+              <SectionTitle>Кто проводит</SectionTitle>
               <div className="ds-card p-5">
                 <div className="flex flex-wrap items-center gap-4">
                   {operatorHref ? (
@@ -1130,7 +1116,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             <section id={TOUR_REVIEWS_ANCHOR} className="scroll-mt-24">
               <SectionTitle icon={Star} iconColor="var(--warning)">
                 Отзывы
-                {reviews.length > 0 && <span className="text-sm font-normal text-[var(--text-muted)] ml-1" style={{ fontFamily: FM }}>({reviews.length})</span>}
+                {reviews.length > 0 && <span className="text-sm font-normal text-[var(--text-muted)] ml-1" style={NUMS}>({reviews.length})</span>}
               </SectionTitle>
               {/* Есть отзывы — есть рейтинг (владелец 07.08): сводка над
                   списком из rating/review_count тура, которые пересчитываются

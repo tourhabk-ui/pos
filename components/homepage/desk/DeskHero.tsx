@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, CalendarDays, Compass, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
+import { CalendarDays, Compass, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { clip } from '@/lib/safety/alert-clip';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
@@ -102,7 +102,7 @@ function AlertCard({ brief }: { brief: DeskBrief }) {
   if (!safety || (!hasTop && !brief.safetyTrusted)) {
     return (
       <Link href="/safety" className="fx-glass-dense group block rounded-2xl px-5 py-4 transition-all duration-200 hover:bg-black/75" style={{ color: 'var(--glass-fg)' }}>
-        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--glass-fg-muted)' }}>
+        <span className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: 'var(--glass-fg-muted)' }}>
           <ShieldQuestion size={14} aria-hidden /> Обстановка неизвестна
         </span>
         <span className="mt-2 block text-[17px] font-semibold leading-snug">
@@ -120,7 +120,7 @@ function AlertCard({ brief }: { brief: DeskBrief }) {
   if (!hasTop || !safety.topTitle) {
     return (
       <Link href="/safety" className="fx-glass-dense group block rounded-2xl px-5 py-4 transition-all duration-200 hover:bg-black/75" style={{ color: 'var(--glass-fg)' }}>
-        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--success)' }}>
+        <span className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: 'var(--success)' }}>
           <ShieldCheck size={14} aria-hidden /> Сводка дня
         </span>
         <span className="mt-2 block text-[17px] font-semibold leading-snug">Действующих предупреждений нет</span>
@@ -135,7 +135,7 @@ function AlertCard({ brief }: { brief: DeskBrief }) {
       className="fx-glass-dense group block rounded-2xl border-l-[3px] px-5 py-4 transition-all duration-200 hover:bg-black/75"
       style={{ color: 'var(--glass-fg)', borderLeftColor: 'var(--warning)' }}
     >
-      <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--warning)' }}>
+      <span className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: 'var(--warning)' }}>
         <ShieldAlert size={14} aria-hidden /> Главное сегодня · {alertSeverityWord(safety.maxSeverity)}
       </span>
       {/* Обрезка — общий clip(): та же, что у ленты /safety, чтобы две
@@ -144,7 +144,7 @@ function AlertCard({ brief }: { brief: DeskBrief }) {
       <span className="mt-2 flex items-center justify-between gap-3 text-xs" style={{ color: 'var(--glass-fg-muted)' }}>
         <span className="min-w-0 truncate">{safety.source}</span>
         <span className="flex flex-shrink-0 items-center gap-1 transition-transform duration-200 group-hover:translate-x-0.5" style={{ color: 'var(--glass-fg)' }}>
-          Подробнее <ArrowRight size={13} aria-hidden />
+          <span className="underline-offset-4 group-hover:underline">Подробнее</span>
         </span>
       </span>
     </Link>
@@ -173,7 +173,7 @@ export function DeskHero({ brief }: { brief: DeskBrief }) {
 
       <div className={`${HOME_CONTAINER} grid min-h-[640px] grid-cols-1 items-end gap-10 pb-14 pt-[120px] lg:grid-cols-12 lg:gap-14 xl:min-h-[680px]`}>
         <div className="flex flex-col gap-5 lg:col-span-7">
-          <span className="text-[13px] font-semibold uppercase tracking-[0.18em] text-white/75">
+          <span className="text-[15px] font-medium text-white/80">
             {brief.weekdayLabel} · Сводка дня
           </span>
           {/* Единственный h1 десктопного дерева (#45/#126), формулировка —
@@ -225,7 +225,7 @@ export function DeskHero({ brief }: { brief: DeskBrief }) {
                 className="fx-glass group flex flex-col gap-1 rounded-2xl p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:bg-black/55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                 style={{ color: 'var(--glass-fg)' }}
               >
-                <span className="text-xs uppercase tracking-[0.08em]" style={{ color: 'var(--glass-fg-muted)' }}>{t.label}</span>
+                <span className="text-[13px]" style={{ color: 'var(--glass-fg-muted)' }}>{t.label}</span>
                 <span className="font-playfair text-[32px] font-bold leading-none tabular-nums lining-nums">{t.value}</span>
                 <span className="line-clamp-2 text-[13px] leading-snug" style={{ color: 'var(--glass-fg-muted)' }}>{t.hint}</span>
               </Link>

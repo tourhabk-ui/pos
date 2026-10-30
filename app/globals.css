@@ -483,10 +483,10 @@ a:focus-visible {
   /* Подпись поля — --text-secondary, не --text-muted: muted отведён
      плейсхолдерам (DESIGN_SYSTEM.md) и давал 1.84:1 в тёмной теме и 2.97:1
      в светлой — метки формы брони почти не читались (аудит П1, #71/#85/#95). */
+  /* Подпись поля — обычным регистром (31.10): капс в подписях — примета
+     сгенерированной страницы и читается хуже. tests/unit/no-template-chrome.test.tsx */
   .ds-label {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: 0.8125rem;
     color: var(--text-secondary);
     font-weight: 500;
   }

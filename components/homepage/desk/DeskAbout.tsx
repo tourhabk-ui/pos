@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { PLATFORM_LINKS, type PlatformLink } from '@/lib/navigation/platform-links';
 import { plural } from '@/lib/home/data-freshness';
 import type { PlatformCounts } from '@/lib/stats/platform-counts';
@@ -40,7 +40,7 @@ export function DeskAbout({ counts }: { counts: PlatformCounts | null }) {
   return (
     <section className="grid grid-cols-1 gap-10 border-t border-[var(--border)] pt-16 lg:grid-cols-12 lg:gap-14" aria-labelledby="desk-about-title">
       <div className="flex flex-col gap-5 lg:col-span-5">
-        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">О Ведаре</span>
+        <span className="text-sm font-semibold text-[var(--text-secondary)]">О Ведаре</span>
         <h2 id="desk-about-title" className="font-playfair text-4xl font-bold leading-tight tracking-[-0.01em] text-[var(--text-primary)]">
           Полевой инструмент Камчатки
         </h2>
@@ -60,9 +60,8 @@ export function DeskAbout({ counts }: { counts: PlatformCounts | null }) {
             ))}
           </dl>
         )}
-        <Link href="/about" className="group inline-flex items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+        <Link href="/about" className="inline-flex items-center text-base font-semibold text-[var(--ocean)] no-underline underline-offset-4 hover:underline">
           О платформе
-          <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
         </Link>
       </div>
 
@@ -84,9 +83,8 @@ export function DeskAbout({ counts }: { counts: PlatformCounts | null }) {
             );
           })}
         </ul>
-        <Link href="/menu" className="group inline-flex items-center gap-1.5 self-start text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+        <Link href="/menu" className="inline-flex items-center self-start text-base font-semibold text-[var(--ocean)] no-underline underline-offset-4 hover:underline">
           Все разделы платформы
-          <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
         </Link>
       </nav>
     </section>

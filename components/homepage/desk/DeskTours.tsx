@@ -71,7 +71,7 @@ function Featured({ p }: { p: Plate }) {
       </div>
       <div className="relative z-[2] flex min-w-0 flex-col gap-2.5 p-6 pointer-events-none">
         {(activity || f.duration || f.operator) && (
-          <span className="text-xs uppercase tracking-[0.08em] text-[var(--text-secondary)] line-clamp-1">
+          <span className="text-[13px] text-[var(--text-secondary)] line-clamp-1">
             {[activity, f.duration].filter(Boolean).join(' · ')}
             {(activity || f.duration) && f.operator ? ' · ' : ''}
             {f.operator && <OperatorNameLink name={f.operator} slug={p.operatorSlug} isPublic={p.operatorPublic} className="pointer-events-auto" />}
@@ -91,9 +91,8 @@ function Featured({ p }: { p: Plate }) {
           {f.price
             ? <span className="whitespace-nowrap text-xl font-bold tabular-nums lining-nums text-[var(--text-primary)]">{f.price}</span>
             : <span className="text-base text-[var(--text-secondary)]">Цена по запросу</span>}
-          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--accent)]">
+          <span className="inline-flex items-center text-sm font-semibold text-[var(--accent)] underline-offset-4 group-hover:underline">
             Подробнее
-            <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </span>
         </div>
       </div>
@@ -219,26 +218,22 @@ export function DeskTours({ plates, transfer = null, stay = null, total, rentalD
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
           {/* Трансфер (владелец 09.10: «доп кнопка на главной») — тот же адрес, что у плитки телефона. */}
-          <Link href="/transfers" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+          <Link href="/transfers" className="inline-flex min-h-[44px] items-center text-base font-semibold text-[var(--ocean)] no-underline underline-offset-4 hover:underline">
             Трансфер
-            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </Link>
           {/* Жильё (владелец 10.10: «кнопку на главную жильё») — тот же адрес, что у плитки телефона. */}
-          <Link href="/accommodations" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+          <Link href="/accommodations" className="inline-flex min-h-[44px] items-center text-base font-semibold text-[var(--ocean)] no-underline underline-offset-4 hover:underline">
             Жильё
-            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </Link>
           {/* Прокат (владелец 23.10: «и кнопку на главную прокат добавляем») — тот же адрес, что у плитки телефона.
               Пока прокат на сайте на паузе (lib/rental/site-pause), ссылки нет — как и плитки телефона. */}
           {rentalDoor && (
-            <Link href="/car-rental" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+            <Link href="/car-rental" className="inline-flex min-h-[44px] items-center text-base font-semibold text-[var(--ocean)] no-underline underline-offset-4 hover:underline">
               Прокат
-              <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
             </Link>
           )}
-          <Link href="/catalog" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+          <Link href="/catalog" className="inline-flex min-h-[44px] items-center text-base font-semibold text-[var(--ocean)] no-underline underline-offset-4 hover:underline">
             {total != null && total > 0 ? `Все туры (${total})` : 'Все туры'}
-            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </Link>
         </div>
       </div>
