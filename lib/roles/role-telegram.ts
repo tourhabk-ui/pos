@@ -29,6 +29,7 @@ import {
 } from '@/lib/telegram/operator-desk';
 import { operatorHelpPress } from '@/lib/telegram/operator-desk-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
+import { guideKeyboardAction, guideKeyboardRows, guideStartText } from '@/lib/telegram/guide-desk';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 
@@ -62,8 +63,11 @@ export async function tryRoleMenuTelegramMessage(opts: {
   text: string;
   fromName: string | null;
   send: RoleSend;
-  /** Постоянная клавиатура телефона. Ставится на /start, не на каждое сообщение. */
-  sendPersistent?: (text: string) => Promise<void>;
+  /**
+   * Постоянная клавиатура телефона. Ставится на /start, не на каждое
+   * сообщение. `rows` — ряды подписей; нет — клавиатура туроператора.
+   */
+  sendPersistent?: (text: string, rows?: string[][]) => Promise<void>;
   /**
    * Вид чата Telegram (`message.chat.type`). Кнопки действий брони и ожидание
    * причины отклонения — только в личном (`private`); нет поля — не личный.
@@ -126,6 +130,9 @@ export async function tryRoleMenuTelegramMessage(opts: {
     ?? (head === '/bookings' && role === 'guide' ? 'bookings' : null);
   if (head.startsWith('/') && fromSlash === null) return false;
   const asked = fromSlash ?? roleMenuAsk(opts.text);
+  // Кнопка постоянной клавиатуры гида (lib/telegram/guide-desk) шлёт подпись
+  // текстом — тот же экран, что её кнопка в строке и в «Ещё».
+  const key = role === 'guide' && fromSlash === null ? guideKeyboardAction(opts.text, partner) : null;
   // Кабинет в чате — только в личном: в группе кнопки карточек нажал бы любой.
   const openCabinet = async (section: CabinetSection) => {
     if (!privateChat) {
@@ -147,6 +154,14 @@ export async function tryRoleMenuTelegramMessage(opts: {
     // Кнопки действий брони — только в личном чате: в группе их нажал бы любой.
     await send(screen.text, privateChat ? (screen.buttons ?? []) : []);
   };
+  if (key !== null && isCabinetSection(key)) {
+    await openCabinet(key);
+    return true;
+  }
+  if (key === 'bookings' || key === 'tours') {
+    await open(key);
+    return true;
+  }
   if (asked === 'help') {
     if (role === 'operator') {
       if (head === '/start' && opts.sendPersistent) {
@@ -162,6 +177,12 @@ export async function tryRoleMenuTelegramMessage(opts: {
     // Клиенты, Брони, Мои туры, Помощь), на «Старт», как оператору.
     if (role === 'guide' && head === '/start') {
       void setRoleChatCommands(opts.chatId, roleChatCommands([...menu, ...partnerMenuExtras(partner)]));
+      // В личном чате — клавиатура внизу экрана и короткое приветствие;
+      // полная справка — «Помощь» в «Ещё». В группе клавиатуру видел бы любой.
+      if (privateChat && opts.sendPersistent) {
+        await opts.sendPersistent(guideStartText(partner), guideKeyboardRows(partner));
+        return true;
+      }
     }
     await send(partnerMenuHelp(role, partner), []);
     return true;

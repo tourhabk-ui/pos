@@ -244,6 +244,7 @@ const { buildWelcomeText } = await import('@/lib/telegram/welcome');
 const { INBOX_NOT_HERE } = await import('@/lib/crm/inbox-kinds');
 const { LEAD_STATUS_WORDS } = await import('@/lib/leads/owner-lead-words');
 const { telegramDatesText } = await import('@/lib/operators/chat-dates/texts');
+const { guideKeyboardRows } = await import('@/lib/telegram/guide-desk');
 const { roleChatCommands } = await import('@/lib/telegram/role-commands');
 const max = await import('@/app/api/max/kuzmich/route');
 const telegram = await import('@/app/api/telegram/webhook/route');
@@ -334,7 +335,7 @@ type Outcome =
   | 'task_done' | 'task_tomorrow' | 'max_only';
 
 /** Вкладки строки меню и экраны «Ещё». */
-type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь';
+type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь' | 'Ежедневная сводка';
 
 interface DeskRow {
   /** Как действие называет справка (у кнопки — начало подписи). */
@@ -370,6 +371,8 @@ const DESK: readonly DeskRow[] = [
   { name: 'Брони', namedBy: 'help', max: 'screen_pd', telegram: 'screen', screen: /^<b>Брони<\/b>/ },
   { name: 'Мои туры', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Мои туры<\/b>/ },
   { name: 'Помощь', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^Кабинет гида в чате\./ },
+  // Время сводки (1354): экран кабинета в чате, у продавца и у гида команды.
+  { name: 'Ежедневная сводка', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Ежедневная сводка<\/b>/, cabinet: true },
   // Задачи: «Готово» и «На завтра» — в MAX, где видно, что за задача.
   { name: 'Готово', namedBy: 'help', max: 'task_done', telegram: 'max_only' },
   { name: 'На завтра', namedBy: 'help', max: 'task_tomorrow', telegram: 'max_only' },
@@ -413,10 +416,12 @@ const DESK: readonly DeskRow[] = [
 
 /** Вкладки строки меню — одни у продавца и у гида команды. */
 const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
-/** Что лежит в «Ещё» у продавца своих туров. */
+/** Кнопки меню роли в «Ещё» у продавца своих туров (из них же — команды чата Telegram). */
 const MORE_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Помощь'];
+/** Весь экран «Ещё» продавца по порядку справки: с временем сводки (1354), у неё команды нет. */
+const MORE_SCREEN_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Ежедневная сводка', 'Помощь'];
 /** Что есть у гида команды без своих туров. */
-const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Готово', 'На завтра']);
+const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Ежедневная сводка', 'Помощь', 'Готово', 'На завтра']);
 /** Падежные формы, которыми тексты называют экраны строки. */
 const ALIASES: Readonly<Record<string, string>> = {
   Бронях: 'Брони', Бронями: 'Брони', Входящих: 'Входящие', Входящими: 'Входящие',
@@ -453,7 +458,7 @@ function namesIn(text: string): string[] {
 }
 
 /** Подпись кнопки — это имя (ровно, с номером «1 · », хвостом через пробел, запятую или «·»). */
-const labelIs = (label: string, name: string) => label === name || new RegExp(`^(?:\\d+ · )?${name}(?:$|[ ,·])`).test(label);
+const labelIs = (label: string, name: string) => label === name || new RegExp(`^(?:\\d+ · )?${name}(?:$|[ ,·:])`).test(label);
 
 // ── Каналы ──────────────────────────────────────────────────────────────────
 
@@ -567,7 +572,8 @@ async function openScreen(d: Driver, name: MenuName, partner: typeof SELLER = SE
   const tab = menuOf(partner).find((x) => x.text === name);
   if (tab) return one(await d.press(tab.payload), `экран «${name}» (${d.channel})`);
   const more = await openScreen(d, 'Ещё', partner);
-  const b = more.buttons.find((x) => x.text === name);
+  // «Ежедневная сводка: утром» — подпись с выбранным временем.
+  const b = more.buttons.find((x) => labelIs(x.text, name));
   if (!b) throw new Error(`в «Ещё» нет «${name}»: ${more.buttons.map((x) => x.text).join(', ')}`);
   return one(await d.press(b.payload), `экран «${name}» (${d.channel})`);
 }
@@ -843,6 +849,78 @@ describe('таблица: каждое действие гида-продавц�
   });
 });
 
+// ── Постоянная клавиатура гида в Telegram (30.10) ──────────────────────────
+
+type TgKeyboard = { keyboard?: Array<Array<{ text: string }>>; is_persistent?: boolean; resize_keyboard?: boolean };
+/** Клавиатура внизу экрана — ряды подписей из последних сообщений Telegram этого чата. */
+function keyboardsSince(from: number): string[][][] {
+  return m.tgSend.mock.calls.slice(from).map((c) => c[0] as { chatId: string; replyMarkup?: TgKeyboard })
+    .filter((x) => x.chatId === String(TG_CHAT) && Array.isArray(x.replyMarkup?.keyboard))
+    .map((x) => x.replyMarkup!.keyboard!.map((row) => row.map((b) => b.text)));
+}
+
+describe('telegram: постоянная клавиатура гида — те же кнопки, что строка и «Ещё»', () => {
+  it('продавец: /start ставит клавиатуру внизу и короткое приветствие; каждая кнопка открывает свой экран', async () => {
+    const from = m.tgSend.mock.calls.length;
+    const greet = one(await tgDriver.say('/start'), '/start');
+    const boards = keyboardsSince(from);
+    expect(boards).toEqual([[['Входящие', 'Брони'], ['Задачи', 'Клиенты'], ['Мои туры', 'Ещё']]]);
+    const markup = (m.tgSend.mock.calls.at(-1)![0] as { replyMarkup: TgKeyboard }).replyMarkup;
+    expect(markup).toMatchObject({ is_persistent: true, resize_keyboard: true });
+    // Приветствие называет ровно кнопки клавиатуры — и ничего, чего в чате нет.
+    const keys = boards[0]!.flat();
+    for (const k of keys) expect(greet.text, k).toContain(`«${k}»`);
+    expect(namesIn(greet.text).filter((n) => resolveName(n, 'seller') === null), 'названо, но этого нет').toEqual([]);
+    // Каждая кнопка клавиатуры шлёт подпись текстом — и получает тот же экран, что её кнопка в строке или в «Ещё».
+    for (const k of keys) {
+      const row = DESK.find((r) => r.name === k)!;
+      const shown = one(await tgDriver.say(k), `клавиатура «${k}»`);
+      expect(shown.text, k).toMatch(row.screen!);
+      if (row.cabinet) expectNavUnder(shown);
+      else expectMenuUnder(shown);
+    }
+    expect(m.processPartner).not.toHaveBeenCalled();
+    expectPdBoundaries();
+  });
+
+  it('гид команды: четыре вкладки строки; «Мои туры» словом — не кнопка, уходит помощнику, как раньше', async () => {
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: TEAM });
+    const from = m.tgSend.mock.calls.length;
+    await tgDriver.say('/start');
+    expect(keyboardsSince(from)).toEqual([[['Входящие', 'Задачи'], ['Клиенты', 'Ещё']]]);
+    await tgDriver.say('Мои туры');
+    expect(m.processPartner).toHaveBeenCalledTimes(1);
+    expect(m.tours).not.toHaveBeenCalled();
+    expectPdBoundaries();
+  });
+
+  it('в группе клавиатуру не ставит: её видел бы любой участник', async () => {
+    // Вебхук групповой /start сюда сейчас не ведёт; правило держит сам вход меню роли.
+    const { tryRoleMenuTelegramMessage } = await import('@/lib/roles/role-telegram');
+    const persistent = vi.fn(async () => undefined);
+    const send = vi.fn(async () => undefined);
+    const handled = await tryRoleMenuTelegramMessage({
+      chatId: TG_CHAT, text: '/start', fromName: 'Гид', chatType: 'group',
+      send, sendPersistent: persistent, sendCabinet: vi.fn(async () => undefined),
+    });
+    expect(handled).toBe(true);
+    expect(persistent).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('бот ждёт причину отклонения, а гид нажал «Ещё» внизу: открывается «Ещё», причина ждёт дальше', async () => {
+    const reject = DESK.find((r) => r.name === 'Отклонить')!;
+    const ask = one(await tgDriver.press(buttonNamed(await openScreen(tgDriver, 'Брони'), 'Отклонить').payload), 'вопрос причины');
+    expect(ask.text).toMatch(/Напишите одним сообщением причину/);
+    const more = one(await tgDriver.say('Ещё'), 'клавиатура «Ещё» при ожидании причины');
+    expect(more.text).toMatch(/^<b>Ещё<\/b>/);
+    const withReason = one(await tgDriver.say('Турист перенёс поездку'), 'причина после «Ещё»');
+    expect(withReason.text).toMatch(reject.ask!);
+    expect(m.change).not.toHaveBeenCalled();
+    expectPdBoundaries();
+  });
+});
+
 // ── Справка ↔ таблица ───────────────────────────────────────────────────────
 
 describe('справка называет ровно таблицу', () => {
@@ -858,8 +936,8 @@ describe('справка называет ровно таблицу', () => {
       expect(tabsIn(help)).toEqual(MENU_NAMES);
       expect(tabsIn(help)).toEqual(menuOf(SELLER).map((b) => b.text));
       const more = await openScreen(DRIVERS[ch], 'Ещё');
-      expect(moreIn(help)).toEqual([...MORE_NAMES, 'кабинет на сайте']);
-      for (const name of MORE_NAMES) buttonNamed(more, name);
+      expect(moreIn(help)).toEqual([...MORE_SCREEN_NAMES, 'кабинет на сайте']);
+      for (const name of MORE_SCREEN_NAMES) buttonNamed(more, name);
       expectPdBoundaries();
     });
 
@@ -881,7 +959,7 @@ describe('справка называет ровно таблицу', () => {
       const help = await helpIn(d, TEAM);
       expect(namesIn(help).filter((n) => resolveName(n, 'team') === null), 'названо, но гиду команды этого нет').toEqual([]);
       expect(tabsIn(help)).toEqual(MENU_NAMES);
-      expect(moreIn(help)).toEqual(['Помощь', 'кабинет на сайте']);
+      expect(moreIn(help)).toEqual(['Ежедневная сводка', 'Помощь', 'кабинет на сайте']);
       const more = await openScreen(d, 'Ещё', TEAM);
       for (const name of ['Брони', 'Мои туры']) expect(more.buttons.some((b) => b.text === name), name).toBe(false);
       // Карточка брони во «Входящих» гида команды — без кнопок ответа.
@@ -917,9 +995,15 @@ describe('тексты привязки и приветствия называю
         const text = channelBoundText(ch, bound(sells));
         const names = namesIn(text);
         expect(names.filter((n) => resolveName(n, who, 'Гид Пробный') === null), `${who}: названо, но этого нет`).toEqual([]);
-        // Кнопки, которые текст называет «под этим сообщением», — ровно строка меню.
-        const under = /Кнопки под этим сообщением — кабинет в чате: ([^.]+)\./.exec(text)?.[1];
-        expect(under?.split(', ').map((s) => s.replace(/[«»]/g, ''))).toEqual(menuOf(sells ? SELLER : TEAM).map((b) => b.text));
+        // MAX: кнопки «под этим сообщением» — ровно строка меню. Telegram: ответ
+        // на привязку несёт постоянную клавиатуру (lib/telegram/guide-desk), и
+        // текст называет ровно её.
+        const listed = ch === 'max'
+          ? /Кнопки под этим сообщением — кабинет в чате: ([^.]+)\./.exec(text)?.[1]
+          : /Кнопки внизу экрана — кабинет в чате: ([^.]+)\./.exec(text)?.[1];
+        expect(listed?.split(', ').map((s) => s.replace(/[«»]/g, ''))).toEqual(ch === 'max'
+          ? menuOf(sells ? SELLER : TEAM).map((b) => b.text)
+          : guideKeyboardRows(sells ? SELLER : TEAM).flat());
       }
     });
   }
