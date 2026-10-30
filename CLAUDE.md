@@ -2141,6 +2141,24 @@ NULL — поле не меняется; один pending на строку, в�
 `charter-price-edit-admin.test.tsx`, экран чата — в `chat-cabinet-screens.test.ts`,
 настоящий PostgreSQL — `tests/integration/charter-price-edits.pg.test.ts`.
 
+**Сводка перевозчика и паритет Telegram (#2862 этап D, 30.10).** Числа за 30
+дней по Камчатке: заявки на машину (всего / отвечено / ждут сейчас — тем же
+правилом, что «Входящие»), медиана первого ответа, поездки по слову перевозчика
+(`ride_outcome` held / not_held и ждущие вопроса), отзывы видимые и средняя,
+считанная при чтении (хранимого рейтинга нет, §14). Правило слов одно на чат и
+сайт — `lib/transfers/carrier-summary.ts` (`carrierSummaryLines`), чтение —
+`carrier-summary-store.ts`: три запроса, три исхода, не прочитавшийся блок
+назван «не прочиталось», а не нулём; без ответов — «ответов не было», без
+отзывов — «средней нет» (§4.0). Двери: «Сводка» в «Ещё» кабинета в чате
+(`cb:y`, оба канала — ПД в сводке нет по построению) и карточка «Сводка» в
+`/hub/carrier` (`GET /api/hub/carrier/summary`). Паритет Telegram держится
+рендером: «Беру» / «Не могу», «Поездка состоялась?», «Машины и прайс», «Сводка»
+— одни кнопки в обоих каналах, тексты Telegram без имени и телефона заказчика и
+говорят, где они; фраза «цена …» в Telegram идёт тем же `processPartnerMessage`
+(`lib/roles/role-telegram.ts`). Сторожа: `tests/unit/carrier-summary.test.ts`,
+`tests/unit/carrier-telegram-parity.test.ts`; SQL сводки — в
+`tests/integration/charter-price-edits.pg.test.ts`.
+
 ### Заявка
 
 `POST /api/charter-requests` и MCP `request_charter` — один путь записи

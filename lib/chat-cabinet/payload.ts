@@ -23,6 +23,8 @@
  *   cb:v                — «Машины и прайс» перевозчика: парк и строки прайса
  *                         с черновиками (#2862 этап C)
  *   cb:v:<a|z>:<uuid>   — машину вернуть на линию / снять с линии
+ *   cb:y                — «Сводка» перевозчика: заявки, ответы, поездки,
+ *                         отзывы за 30 дней (#2862 этап D)
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -86,7 +88,8 @@ export type CabinetPress =
   | { kind: 'digest' }
   | { kind: 'digest_set'; mode: DigestMode }
   | { kind: 'fleet' }
-  | { kind: 'vehicle_active'; vehicleId: string; active: boolean };
+  | { kind: 'vehicle_active'; vehicleId: string; active: boolean }
+  | { kind: 'carrier_summary' };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -126,6 +129,7 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
     return when ? { kind: 'remind', when, contactId: m[2]! } : null;
   }],
   [/^cb:v$/, () => ({ kind: 'fleet' })],
+  [/^cb:y$/, () => ({ kind: 'carrier_summary' })],
   [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
 ];
 
@@ -175,6 +179,8 @@ export const cabinetPayload = {
   touch: (outcome: TouchOutcome, contactId: string): string => `cb:k:${TOUCH_CODE[outcome]}:${contactId.toLowerCase()}`,
   remind: (when: RemindWhen, contactId: string): string => `cb:r:${REMIND_CODE[when]}:${contactId.toLowerCase()}`,
   fleet: (): string => 'cb:v',
+  /** «Сводка» перевозчика: заявки, ответы, поездки, отзывы за 30 дней (#2862 этап D). */
+  carrierSummary: (): string => 'cb:y',
   vehicleActive: (vehicleId: string, active: boolean): string => `cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`,
 } as const;
 

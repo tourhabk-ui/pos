@@ -152,7 +152,9 @@ describe('меню роли', () => {
     const help = partnerMenuHelp('transfer', { partnerId: OTHER, category: 'transfer', slug: 'carrier-1' });
     expect(help).toContain('Входящие');
     expect(help).toContain('Помощь');
-    expect(help).not.toContain('Сводка');
+    // Сводка пилота запросов мест у перевозчика не стоит; его «Сводка» (#2862 этап D) — про заявки на машину.
+    expect(help).not.toContain('числа по запросам мест');
+    expect(help).toContain('Сводка — заявки на машину за 30 дней');
     expect(help).not.toContain('Мои машины');
     expect(help).not.toMatch(/<|>/);
     expect(help).not.toMatch(/₽/);

@@ -121,6 +121,7 @@ describe('кнопки кабинета: форма', () => {
       [cabinetPayload.fleet(), { kind: 'fleet' }],
       [cabinetPayload.vehicleActive(UUID, true), { kind: 'vehicle_active', vehicleId: UUID, active: true }],
       [cabinetPayload.vehicleActive(UUID, false), { kind: 'vehicle_active', vehicleId: UUID, active: false }],
+      [cabinetPayload.carrierSummary(), { kind: 'carrier_summary' }],
     ];
     for (const kind of INBOX_KINDS) {
       forms.push([cabinetPayload.item(kind, UUID), { kind: 'item', item: kind, id: UUID }]);
@@ -360,7 +361,7 @@ describe('«Ещё»', () => {
     expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', 'cb:g', 'rm:gd:hp', ...NAV]);
     expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:gd:hp', ...NAV]);
     // Перевозчик: «Машины и прайс» (#2862 этап C) — парк и черновики прайса, затем сводка.
-    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:g', 'rm:tf:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:y', 'cb:g', 'rm:tf:hp', ...NAV]);
     expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:st:hp', ...NAV]);
     const site = moreScreen(partner({ role: 'transfer' }), BASE).rows.flat().find((b) => 'url' in b);
     expect(site).toEqual({ text: 'Кабинет на сайте', url: `${BASE}/hub/carrier` });

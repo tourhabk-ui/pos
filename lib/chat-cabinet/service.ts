@@ -55,13 +55,14 @@ import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
 } from '@/lib/chat-cabinet/screens';
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
+import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
 
 interface Queryable {
   query: typeof pool.query;
@@ -516,6 +517,12 @@ async function vehicleActive(c: Ctx, press: Extract<CabinetPress, { kind: 'vehic
   return fleetView(c, press.active ? `«${title}» снова на линии.` : `«${title}» снята с линии: на витрине её нет.`);
 }
 
+/** Сводка перевозчика (#2862 этап D): блоки читаются отдельно, не прочитавшийся назван. */
+async function carrierSummaryView(c: Ctx): Promise<CabinetScreen> {
+  if (c.partner.role !== 'transfer') return noticeScreen(FLEET_TEXT.notCarrier);
+  return carrierSummaryScreen(await loadCarrierSummary(c.ctx.partnerId), base());
+}
+
 // ── Поиск клиента (только MAX) ──────────────────────────────────────────────
 
 /**
@@ -763,6 +770,7 @@ export async function handleCabinetPress(input: {
     case 'remind': out = await remind(g, ch, press.when, press.contactId, nowMs, db); break;
     case 'fleet': out = await fleetView(g); break;
     case 'vehicle_active': out = await vehicleActive(g, press); break;
+    case 'carrier_summary': out = await carrierSummaryView(g); break;
   }
   const shown = lockForChannel(out, ch);
   await count(g, ch, press.kind, shown, nowMs);

@@ -36,6 +36,7 @@ import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
 import { formatRub, vehicleKindWord, type CharterVehicleKind } from '@/lib/transfers/charter-format';
 import { priceRowLabel, type CharterPriceRow } from '@/lib/transfers/price-edit';
+import { carrierSummaryText, type CarrierSummary } from '@/lib/transfers/carrier-summary';
 import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
@@ -228,6 +229,9 @@ export function itemCardScreen(args: {
   lines.push(`Ждёт ответа: ${waitingAge(item.waiting_minutes)}.`);
   const showName = channel === 'max' && item.contact_id !== null;
   if (showName) lines.push(`Клиент: ${escapeHtml(contactLabel(item.contact_name))}`);
+  // Telegram имён и телефонов не получает (решение 23.08): сказано, где они,
+  // а не молчание, которое читалось бы как «клиента нет» (#2862 этап D).
+  if (channel !== 'max' && item.contact_id !== null) lines.push('Имя и телефон клиента — в MAX или в кабинете на сайте.');
 
   const rows: CabinetButton[][] = [];
   const action = inboxActionFor(partner.role, item.kind);
@@ -540,8 +544,9 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
   if (partner.role === 'transfer') {
     // Парк и прайс перевозчика (#2862 этап C): кнопка снять машину с линии,
     // цена — фразой, на модерацию.
-    rows.push([{ text: 'Машины и прайс', payload: cabinetPayload.fleet() }]);
+    rows.push([{ text: 'Машины и прайс', payload: cabinetPayload.fleet() }, { text: 'Сводка', payload: cabinetPayload.carrierSummary() }]);
     lines.push('Машины и прайс — парк (снять с линии и вернуть кнопкой) и строки прайса с черновиками на модерации.');
+    lines.push('Сводка — заявки на машину, ответы, поездки и отзывы за 30 дней, без имён.');
   }
   if (partner.summary) {
     rows.push([{ text: 'Сводка', payload: `rm:${code}:sm` }]);
@@ -703,6 +708,16 @@ export function fleetScreen(args: {
     + 'Это черновик, на сайт он попадёт после одобрения. Примечание, условия, новая строка и скрытие строки — в кабинете на сайте.');
   rows.push([{ text: 'Прайс на сайте', url: siteUrl(args.base, 'transfer') }]);
   return screen(lines, rows);
+}
+
+// ── Сводка перевозчика (#2862 этап D) ──────────────────────────────────────
+
+/** Числа за 30 дней без имён и телефонов — экран идёт в оба канала; не прочитавшийся блок назван. */
+export function carrierSummaryScreen(summary: CarrierSummary, base: string): CabinetScreen {
+  return screen(
+    [carrierSummaryText(summary)],
+    [[{ text: 'Кабинет на сайте', url: siteUrl(base, 'transfer') }]],
+  );
 }
 
 // ── Отказы ──────────────────────────────────────────────────────────────────
