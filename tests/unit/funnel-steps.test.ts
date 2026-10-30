@@ -9,7 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FUNNEL_STEPS, EXECUTION_STEPS } from '@/lib/funnel/steps';
+import {
+  FUNNEL_STEPS, EXECUTION_STEPS, SERVER_FUNNEL_STEPS, ALL_FUNNEL_STEPS, BOOKING_REJECT_REASONS, BOOKING_REJECT_REASON_RU,
+} from '@/lib/funnel/steps';
 import { PUBLIC_API_ROUTES } from '@/lib/auth/public-api-routes';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -38,6 +40,23 @@ describe('словарь один на всех', () => {
     for (const s of EXECUTION_STEPS) expect(FUNNEL_STEPS).toContain(s);
     expect(EXECUTION_STEPS).not.toContain('planner_result_viewed');
     expect(EXECUTION_STEPS).not.toContain('planner_started');
+  });
+
+  it('шаги сервера (#2882) маяку недоступны: их нет в FUNNEL_STEPS, они в ALL_FUNNEL_STEPS, просмотров среди них нет', () => {
+    expect([...SERVER_FUNNEL_STEPS]).toEqual(['booking_submitted', 'booking_rejected']);
+    for (const s of SERVER_FUNNEL_STEPS) {
+      expect(FUNNEL_STEPS as readonly string[]).not.toContain(s);
+      expect(ALL_FUNNEL_STEPS).toContain(s);
+    }
+    expect(ALL_FUNNEL_STEPS).toHaveLength(FUNNEL_STEPS.length + SERVER_FUNNEL_STEPS.length);
+    expect(ALL_FUNNEL_STEPS as readonly string[]).not.toContain('tour_view');
+    // Срез админки перечисляет все шаги, включая серверные.
+    expect(read('app/api/admin/analytics/funnel/route.ts')).toMatch(/ALL_FUNNEL_STEPS\.map/);
+  });
+
+  it('у каждой причины отказа есть слова, ненужных слов нет', () => {
+    expect(Object.keys(BOOKING_REJECT_REASON_RU).sort()).toEqual([...BOOKING_REJECT_REASONS].sort());
+    for (const r of BOOKING_REJECT_REASONS) expect(BOOKING_REJECT_REASON_RU[r].length).toBeGreaterThan(3);
   });
 });
 

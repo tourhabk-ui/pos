@@ -696,4 +696,64 @@ withPg('общая вставка и гейт брони на настоящем
       expect(r.rows[0]!.n).toBe(1);
     });
   });
+
+  describe('воронка брони и причины невидимости на настоящей базе (#2881, #2882, 30.10)', () => {
+    const base = {
+      touristName: 'Анна', touristPhone: '+79140001122', touristEmail: 'a@example.com',
+      specialRequests: null, createdVia: 'website', userId: null, pdConsent: null, referralCode: null,
+    };
+
+    it('заявка заведена — строка booking_submitted с id тура и каналом; отказ — booking_rejected с кодом', async () => {
+      const { reserveBooking, ReserveError } = await import('@/lib/bookings/reserve');
+      // Больше вместимости (4) — отказ MAX_EXCEEDED из общего модуля.
+      let refused: unknown = null;
+      try {
+        await reserveBooking({ ...base, tourId: Number(tourId), participants: 5, date: '2031-07-01' });
+      } catch (e) { refused = e; }
+      expect(refused).toBeInstanceOf(ReserveError);
+      expect((refused as InstanceType<typeof ReserveError>).code).toBe('MAX_EXCEEDED');
+
+      const ok = await reserveBooking({
+        ...base, tourId: Number(tourId), participants: 1, date: '2031-07-10',
+        visitor: { ip: '198.51.100.3', userAgent: 'Mozilla/5.0 (iPhone)', cookie: null },
+      });
+      expect(ok.bookingId).toBeTruthy();
+
+      const rows = await pool.query<{ step: string; reason: string | null; source: string | null; entity_id: string | null; has_hash: boolean }>(
+        `SELECT step, reason, source, entity_id, visitor_hash IS NOT NULL AS has_hash
+           FROM funnel_events WHERE entity_id = $1 ORDER BY id`,
+        [tourId],
+      );
+      expect(rows.rows).toEqual([
+        { step: 'booking_rejected', reason: 'MAX_EXCEEDED', source: 'website', entity_id: tourId, has_hash: false },
+        { step: 'booking_submitted', reason: null, source: 'website', entity_id: tourId, has_hash: true },
+      ]);
+    });
+
+    it('сводка за 7 дней: вёдра невидимых в сумме равны tours_hidden, воронка считает заявку и отказ с причиной', async () => {
+      // Три невидимых тура разного рода и один с незаписанным флагом — в остаток.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, base_price, is_active, is_published, activity_type, difficulty) VALUES
+           ($1, 'Черновик', 1000, TRUE,  FALSE, 'hiking', 'easy'),
+           ($1, 'Выключен', 1000, FALSE, TRUE,  'hiking', 'easy'),
+           ($1, 'И то и другое', 1000, FALSE, FALSE, 'hiking', 'easy')`,
+        [operatorId],
+      );
+      const { PLATFORM_WEEK_SQL } = await import('@/lib/agents/platform-week-stats');
+      const { rows } = await pool.query<{
+        tours_visible: number; tours_hidden: number; hidden_draft: number; hidden_inactive: number; hidden_both: number;
+        funnel_booking_submitted: number; funnel_booking_rejected: number; funnel_top_reject_reason: string | null; funnel_top_reject_count: number;
+      }>(PLATFORM_WEEK_SQL);
+      const s = rows[0]!;
+      expect(s.tours_visible).toBeGreaterThanOrEqual(1);
+      expect(s.hidden_draft).toBeGreaterThanOrEqual(1);
+      expect(s.hidden_inactive).toBeGreaterThanOrEqual(1);
+      expect(s.hidden_both).toBeGreaterThanOrEqual(1);
+      expect(s.hidden_draft + s.hidden_inactive + s.hidden_both).toBe(s.tours_hidden);
+      expect(s.funnel_booking_submitted).toBeGreaterThanOrEqual(1);
+      expect(s.funnel_booking_rejected).toBeGreaterThanOrEqual(1);
+      expect(s.funnel_top_reject_reason).toBe('MAX_EXCEEDED');
+      expect(s.funnel_top_reject_count).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
