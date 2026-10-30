@@ -735,7 +735,7 @@ async function handleActionPress(
   if (action === 'rental') {
     if (chatType !== 'dialog') {
       console.error(`[max/kuzmich] нажатие (rental) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
-      const line = payload.startsWith('rr:')
+      const line = payload.startsWith('rr:') || payload.startsWith('rc:')
         ? 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.'
         : 'Календарь проката отмечается в личном диалоге с ботом. Отметка не записана.';
       await maxReply(chatId, line);
@@ -743,6 +743,19 @@ async function handleActionPress(
     }
     const lookup = await findPartnerByChat('max', chatId);
     const bar = lookup.outcome === 'found' && isRentalPilotSlug(lookup.partner.slug);
+    // Исход поездки перевозчика (#2862 этап B): тот же способ ответа, что у «Беру» / «Не могу».
+    if (payload.startsWith('rc:')) {
+      const { handleRideOutcomePress } = await import('@/lib/transfers/ride-outcome-flow');
+      await handleRideOutcomePress({
+        lookup,
+        payload,
+        editMid: pressed?.mid ?? null,
+        originalText: pressed?.text ?? null,
+        via: 'max',
+        send: rentalAnswerSend(chatId, bar),
+      });
+      return;
+    }
     if (payload.startsWith('rr:')) {
       const { handleRentalRequestAnswer } = await import('@/lib/rental/request-answer-flow');
       await handleRentalRequestAnswer({

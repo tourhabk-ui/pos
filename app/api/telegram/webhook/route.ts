@@ -1795,7 +1795,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
-    if (parseRentalCabinetPress(data) || data.startsWith('rr:')) {
+    if (parseRentalCabinetPress(data) || data.startsWith('rr:') || data.startsWith('rc:')) {
       await telegramService.answerCallback(cq.id);
       await tryRentalCabinetTelegramPress({
         chatId: cq.message?.chat?.id ?? senderChatId,

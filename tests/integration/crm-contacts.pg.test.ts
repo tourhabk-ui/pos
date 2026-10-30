@@ -866,6 +866,47 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     );
     const tAnswered = await expectKinds(carrier, 'transfer', []);
     expect(tAnswered.response.responded).toBe(1);
+    // «Поездка состоялась?» (#2862 этап B): по заявке с «Беру», когда поездка закончилась
+    // по Камчатке; исход один (индекс 1353) — записан, и вопрос из ящика уходит.
+    const ridden = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, operator_id, status, route_title, source_data)
+       VALUES ('Съездивший', '+79148880003', $1::uuid, 'contacted', 'Вахтовка: Горелый',
+               jsonb_build_object('kind', 'charter', 'destination', 'Горелый', 'date_from', (CURRENT_DATE - 3)::text,
+                                  'date_to', (CURRENT_DATE - 2)::text, 'passengers', 8))
+       RETURNING id::text`,
+      [carrier],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1::uuid, 'partner', 'partner_answered', jsonb_build_object('answer', 'take', 'kind', 'charter', 'at', $2::text))`,
+      [ridden, new Date().toISOString()],
+    );
+    const ride = await expectKinds(carrier, 'transfer', ['charter_ride']);
+    expect(ride.items[0]).toMatchObject({ id: ridden, title: 'Горелый', people: 8 });
+    expect(ride.items[0].waiting_minutes).toBeGreaterThan(60);
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1::uuid, 'partner', 'ride_outcome', jsonb_build_object('outcome', 'held', 'at', $2::text))`,
+      [ridden, new Date().toISOString()],
+    );
+    await expect(pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details) VALUES ($1::uuid, 'partner', 'ride_outcome', '{"outcome":"not_held"}'::jsonb)`,
+      [ridden],
+    )).rejects.toMatchObject({ code: '23505' });
+    const rideDone = await expectKinds(carrier, 'transfer', []);
+    // Вопрос перевозчику — не просьба клиента: в медиану первого ответа не идёт.
+    // Две отвеченные заявки на машину (первая и «съездивший») — два ответа, исход поездки третьим не стал.
+    expect(rideDone.response.responded).toBe(2);
+    // Род доказательства отзыва charter_carrier база принимает (1353), выдуманный — нет.
+    await pool.query(
+      `INSERT INTO carrier_reviews (partner_id, proof, lead_id, author_name, rating, comment, ride_date, ride_to)
+       VALUES ($1, 'charter_carrier', $2::uuid, 'Анна', 5, 'Ок', CURRENT_DATE - 3, 'Горелый')`,
+      [carrier, ridden],
+    );
+    await expect(pool.query(
+      `INSERT INTO carrier_reviews (partner_id, proof, author_name, rating, comment) VALUES ($1, 'word', 'Анна', 5, 'Ок')`,
+      [carrier],
+    )).rejects.toMatchObject({ code: '23514' });
     const g = await expectKinds(guide, 'guide', ['guide_invite', 'guide_review']);
     expect(g.items.find((i) => i.kind === 'guide_invite')).toMatchObject({ title: 'Оператор входящих' });
     expect(g.items.find((i) => i.kind === 'guide_review')).toMatchObject({ title: 'Оценка 4 из 5' });
@@ -910,6 +951,20 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
        RETURNING id::text`,
       [carrierR, now.toISOString()],
     )).rows[0].id;
+    // Поездка вчера по Камчатке (09.10) по заявке с «Беру» — вопрос «состоялась?»
+    // создан в полночь 10.10 по Камчатке, к 10:00 ждёт 10 часов: напоминание.
+    const rideDue = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, operator_id, status, route_title, source_data, created_at)
+       VALUES ('Съездивший', '+79148880004', $1, 'contacted', 'Вахтовка: Горелый',
+               jsonb_build_object('kind', 'charter', 'destination', 'Горелый', 'date_from', '2026-10-09', 'passengers', 6),
+               $2::timestamptz - INTERVAL '3 days')
+       RETURNING id::text`,
+      [carrierR, now.toISOString()],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details) VALUES ($1::uuid, 'partner', 'partner_answered', '{"answer":"take","kind":"charter"}'::jsonb)`,
+      [rideDue],
+    );
 
     const sent: Array<{ text: string; stub: string }> = [];
     const send = async (p: { text: string; stub: string }) => { sent.push(p); return { channel: 'max' as const, delivered: true, reason: 'ok' }; };
@@ -928,10 +983,11 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(mine.rows).toEqual([
       { partner_id: stay, item_kind: 'accommodation_booking', item_id: due, channel: 'max' },
       { partner_id: carrierR, item_kind: 'charter_request', item_id: charterDue, channel: 'max' },
+      { partner_id: carrierR, item_kind: 'charter_ride', item_id: rideDue, channel: 'max' },
       { partner_id: guide, item_kind: 'guide_invite', item_id: expect.any(String), channel: 'unreachable' },
     ]);
     expect(sent.some((m) => m.text.includes('Бронь жилья «Дом напоминаний»') && m.text.includes('Аккаунт Туриста'))).toBe(true);
-    expect(sent.some((m) => m.text.includes('Заявка на машину «Толбачик»') && !m.stub.includes('Толбачик'))).toBe(true);
+    expect(sent.some((m) => m.text.includes('Заявка на машину «Толбачик»') && m.text.includes('Поездка состоялась? «Горелый»') && !m.stub.includes('Толбачик'))).toBe(true);
 
     // Второй прогон — о тех же предметах не напоминает.
     const again: string[] = [];

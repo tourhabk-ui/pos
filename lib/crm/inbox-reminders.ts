@@ -39,7 +39,7 @@ interface Queryable {
 }
 
 export const INBOX_REMIND_KINDS = [
-  'operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'guide_invite',
+  'operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'charter_ride', 'guide_invite',
 ] as const;
 export type InboxRemindKind = (typeof INBOX_REMIND_KINDS)[number];
 
@@ -124,6 +124,32 @@ export const INBOX_REMIND_SQL: Readonly<Record<InboxRemindKind, string>> = {
        AND NOT EXISTS (SELECT 1 FROM request_messages m WHERE m.lead_id = l.id AND m.author = 'owner')
        AND ${waitedWindow('l.created_at')}
        AND ${notReminded('l.operator_id', 'charter_request', 'l.id::text')}`,
+
+  // «Поездка состоялась?» (#2862 этап B): вопрос «создан» в полночь по
+  // Камчатке после последнего дня поездки (то же правило, что у вида
+  // charter_ride в lib/crm/inbox-sql) — напоминание уходит утром следующего
+  // дня, когда кончатся тихие часы. Только по заявке с ответом «Беру» и без
+  // записанного исхода.
+  charter_ride: `
+    SELECT l.operator_id AS partner_id, p.category, l.id::text AS item_id,
+           ((d.last_day + 1)::timestamp AT TIME ZONE 'Asia/Kamchatka') AS created_at,
+           COALESCE(NULLIF(btrim(l.source_data->>'destination'), ''), NULLIF(btrim(l.route_title), '')) AS title,
+           NULLIF(btrim(l.source_data->>'date_from'), '') AS item_date, cc.display_name AS contact_name
+      FROM leads l
+      JOIN partners p ON p.id = l.operator_id
+      CROSS JOIN LATERAL (
+        SELECT COALESCE(
+                 CASE WHEN l.source_data->>'date_to' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (l.source_data->>'date_to')::date END,
+                 CASE WHEN l.source_data->>'date_from' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (l.source_data->>'date_from')::date END
+               ) AS last_day
+      ) d
+      ${contactJoin('lead', 'l.operator_id', 'l.id::text')}
+     WHERE l.is_self = FALSE AND l.source_data->>'kind' = 'charter' AND d.last_day IS NOT NULL
+       AND EXISTS (SELECT 1 FROM lead_activity_log t
+                    WHERE t.lead_id = l.id AND t.action = 'partner_answered' AND t.details->>'answer' = 'take')
+       AND NOT EXISTS (SELECT 1 FROM lead_activity_log a WHERE a.lead_id = l.id AND a.action = 'ride_outcome')
+       AND ${waitedWindow(`((d.last_day + 1)::timestamp AT TIME ZONE 'Asia/Kamchatka')`)}
+       AND ${notReminded('l.operator_id', 'charter_ride', 'l.id::text')}`,
 
   guide_invite: `
     SELECT i.guide_partner_id AS partner_id, p.category, i.id::text AS item_id, i.created_at,

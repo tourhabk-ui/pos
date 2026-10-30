@@ -295,7 +295,7 @@ describe('дверь сайта — POST /api/hub/crm/charter-requests/[id]/answ
 
 describe('словарь «Входящих» и напоминания', () => {
   it('у перевозчика ждёт заявка на машину, снятого товара мест в ящике нет; вид в медиане и в напоминаниях; строки «ведёт менеджер» нет', () => {
-    expect(INBOX_BY_CATEGORY.transfer).toEqual(['charter_request']);
+    expect(INBOX_BY_CATEGORY.transfer).toEqual(['charter_request', 'charter_ride']);
     expect([...INBOX_KINDS]).not.toContain('transfer_seat_booking');
     expect(RESPONSE_METRIC_KINDS.has('charter_request')).toBe(true);
     expect([...INBOX_REMIND_KINDS]).toContain('charter_request');
@@ -306,6 +306,10 @@ describe('словарь «Входящих» и напоминания', () => 
     const sql = readFileSync(join(process.cwd(), 'migrations/1352_charter_request_inbox_reminder.sql'), 'utf8');
     const check = /ADD CONSTRAINT crm_inbox_reminders_kind_check CHECK \(item_kind IN \(([\s\S]*?)\)\)/.exec(sql);
     expect(check).not.toBeNull();
-    for (const kind of [...INBOX_REMIND_KINDS, 'transfer_seat_booking']) expect(check![1], kind).toContain(`'${kind}'`);
+    // Виды на день 1352; charter_ride добавила 1353 (сторож — charter-ride-outcome), текущий список держит она.
+    for (const kind of ['operator_booking', 'accommodation_booking', 'gear_rental', 'guide_invite', 'charter_request', 'transfer_seat_booking']) {
+      expect(check![1], kind).toContain(`'${kind}'`);
+    }
+    expect([...INBOX_REMIND_KINDS]).toContain('charter_request');
   });
 });

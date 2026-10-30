@@ -30,7 +30,7 @@ beforeEach(() => vi.spyOn(console, 'error').mockImplementation(() => undefined))
 
 describe('SQL', () => {
   it('виды — только те, где напоминание наше: без заявок на подбор, запросов мест и отзывов; заявка на машину — наша (#2862)', () => {
-    expect([...R.INBOX_REMIND_KINDS]).toEqual(['operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'guide_invite']);
+    expect([...R.INBOX_REMIND_KINDS]).toEqual(['operator_booking', 'accommodation_booking', 'gear_rental', 'charter_request', 'charter_ride', 'guide_invite']);
   });
 
   it('у каждого вида: ждёт статус «новый», ступень и окно — параметрами, напоминание одно', () => {

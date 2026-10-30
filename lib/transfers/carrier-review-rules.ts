@@ -14,13 +14,27 @@
  * обязан понимать любое значение, которое допускает база, поэтому тип и
  * строка доказательства его знают.
  *
+ * Род 'charter_carrier' (1353, #2862 этап B): поездку подтвердил САМ
+ * перевозчик — кнопкой «Поездка состоялась» на следующий день после
+ * поездки, по заявке, на которую он ответил «Беру». Отдельный род, а не
+ * переиспользование «подтвердил менеджер»: читатель отзыва должен видеть,
+ * чьё это слово.
+ *
  * Анонимного пути нет. Рейтинг — из видимых отзывов при чтении.
  */
 
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { plural } from '@/lib/home/data-freshness';
 
-export type CarrierReviewProof = 'seat' | 'charter';
+export type CarrierReviewProof = 'seat' | 'charter' | 'charter_carrier';
+
+/** Кто подтвердил поездку по заявке (carrier_review_invites.confirmed_by_kind, 1353). */
+export type RideConfirmedBy = 'manager' | 'carrier';
+
+/** Род доказательства отзыва — по тому, кто подтвердил поездку. */
+export function proofOfConfirmation(by: RideConfirmedBy): CarrierReviewProof {
+  return by === 'carrier' ? 'charter_carrier' : 'charter';
+}
 
 /** Сколько живёт ссылка на отзыв по заявке на машину. */
 export const CARRIER_REVIEW_INVITE_DAYS = 30;
@@ -127,7 +141,8 @@ export function reviewProofLine(r: ReviewRideFacts): string {
     return `Место в поездке${way}${when}: заказ через Ведар, перевозчик подтвердил`;
   }
   const where = r.rideTo ? `: ${r.rideTo}` : '';
-  return `Машина под заказ${where}${when}: поездку подтвердил менеджер Ведара`;
+  const who = r.proof === 'charter_carrier' ? 'перевозчик' : 'менеджер Ведара';
+  return `Машина под заказ${where}${when}: поездку подтвердил ${who}`;
 }
 
 /**

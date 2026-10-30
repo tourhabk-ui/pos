@@ -183,6 +183,45 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
     ) x
      WHERE x.waiting OR x.created_at >= $2`,
 
+  // «Поездка состоялась?» (#2862 этап B, 1353): вопрос перевозчику по заявке
+  // на машину, на которую он ответил «Беру», когда поездка закончилась по
+  // Камчатке (последний день — дата возвращения, без неё — выезда). «Создан»
+  // вопрос в полночь по Камчатке после последнего дня: от этого момента
+  // считается, сколько он ждёт, и по нему же идёт напоминание (2 часа после,
+  // то есть утром — тихие часы до 08:00). Ответ — одна запись ride_outcome в
+  // журнале лида; второго вопроса по заявке нет.
+  charter_ride: `
+    SELECT x.* FROM (
+      SELECT l.id::text AS item_id,
+             ((d.last_day + 1)::timestamp AT TIME ZONE 'Asia/Kamchatka') AS created_at,
+             COALESCE(NULLIF(btrim(l.source_data->>'destination'), ''), NULLIF(btrim(l.route_title), ''), 'Машина под заказ') AS title,
+             NULLIF(btrim(l.source_data->>'date_from'), '') AS item_date,
+             CASE WHEN l.source_data->>'passengers' ~ '^[0-9]{1,4}$' THEN (l.source_data->>'passengers')::int END AS people,
+             (ro.n = 0 AND d.last_day < (NOW() AT TIME ZONE 'Asia/Kamchatka')::date) AS waiting,
+             ro.answered_at AS responded_at,
+             ${CONTACT}
+        FROM leads l
+        CROSS JOIN LATERAL (
+          SELECT COALESCE(
+                   CASE WHEN l.source_data->>'date_to' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (l.source_data->>'date_to')::date END,
+                   CASE WHEN l.source_data->>'date_from' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (l.source_data->>'date_from')::date END
+                 ) AS last_day
+        ) d
+        CROSS JOIN LATERAL (
+          SELECT count(*)::int AS n,
+                 min(CASE WHEN a.details->>'at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}' THEN (a.details->>'at')::timestamptz END) AS answered_at
+            FROM lead_activity_log a
+           WHERE a.lead_id = l.id AND a.action = 'ride_outcome'
+        ) ro
+        ${contactJoin('lead', 'l.id::text')}
+       WHERE l.operator_id = $1 AND l.is_self = FALSE
+         AND l.source_data->>'kind' = 'charter'
+         AND d.last_day IS NOT NULL
+         AND EXISTS (SELECT 1 FROM lead_activity_log t
+                      WHERE t.lead_id = l.id AND t.action = 'partner_answered' AND t.details->>'answer' = 'take')
+    ) x
+     WHERE x.waiting OR x.created_at >= $2`,
+
   guide_invite: `
     SELECT i.id::text AS item_id, i.created_at, op.name AS title, NULL::text AS item_date, NULL::int AS people,
            (i.status = 'pending') AS waiting,
