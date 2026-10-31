@@ -86,7 +86,10 @@ describe('меню роли', () => {
   it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — только «Мои туры» для нового тура (31.10)', () => {
     const help = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
     expect(help).toContain('Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
-    expect(help).toContain('Ещё — Брони, Мои туры, Помощь, кабинет на сайте.');
+    expect(help).toContain('Ещё — Брони, Мои туры, Ежедневная сводка, Помощь, кабинет на сайте.');
+    // Время сводки выбирается (1354) — справка не обещает «утром».
+    expect(help).toContain('«Ежедневная сводка» в «Ещё»');
+    expect(help).not.toMatch(/^Утром/m);
     expect(help).toContain('Имя и телефон туриста — только в MAX');
     expect(help).toContain('/hub/guide/own');
     // Кнопки ответа брони (шаг 6) названы — и что бронь меняется только после «Да».
@@ -99,7 +102,7 @@ describe('меню роли', () => {
     const team = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-2' });
     expect(team).not.toMatch(/Брони|Подтвердить|открой субботы/);
     // Гид без своих туров заводит первый в «Моих турах» кабинета.
-    expect(team).toContain('Ещё — Мои туры, Помощь, кабинет на сайте.');
+    expect(team).toContain('Ещё — Мои туры, Ежедневная сводка, Помощь, кабинет на сайте.');
     expect(team).toContain('Мои туры — своих туров пока нет: там заводится новый тур');
   });
 
@@ -107,7 +110,7 @@ describe('меню роли', () => {
     const help = partnerMenuHelp('operator', { partnerId: OTHER, category: 'operator', slug: 'op' });
     expect(help).toContain('«Подтвердить» и «Отклонить»');
     expect(help).toContain('«Принять», «Нет мест», «Уточнить», «Свяжусь сам»');
-    expect(help).toContain('Ещё — Мои туры и цены, Обновить места, Помощь, Написать в поддержку, кабинет на сайте.');
+    expect(help).toContain('Ещё — Мои туры и цены, Обновить места, Ежедневная сводка, Помощь, Написать в поддержку, кабинет на сайте.');
     expect(help).not.toMatch(/«Связался»|Брони —/);
   });
 

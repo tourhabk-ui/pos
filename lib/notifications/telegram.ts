@@ -16,6 +16,8 @@ interface TelegramMessage {
     keyboard?: Array<Array<{ text: string }>>;
     resize_keyboard?: boolean;
     is_persistent?: boolean;
+    /** Подсказка в поле ввода, пока клавиатура стоит (до 64 знаков). */
+    input_field_placeholder?: string;
   };
 }
 

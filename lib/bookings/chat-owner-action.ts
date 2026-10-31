@@ -70,6 +70,7 @@ import { LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText } from '@/l
 import { redactPII } from '@/lib/security/pii-redact';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
+import { guideKeyboardAction } from '@/lib/telegram/guide-desk';
 import { kamchatkaDate, ruShort } from '@/lib/analytics/kamchatka-day';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -710,7 +711,12 @@ export async function captureOwnerReason(input: {
   text: string;
 }): Promise<OwnerReply | null> {
   const text = input.text.trim();
-  if (!text || text.startsWith('/') || roleMenuAsk(text) !== null) return null;
+  // Слово меню и кнопка постоянной клавиатуры гида — не причина: нажал «Ещё»
+  // внизу экрана, пока бот ждал причину, — открывается «Ещё», а не вопрос
+  // «отклонить с причиной «Ещё»?». Ожидание остаётся до своего срока.
+  // Клавиатура есть только в Telegram; в MAX — как было.
+  const keyboardPress = input.channel === 'telegram' && guideKeyboardAction(text, input.partner) !== null;
+  if (!text || text.startsWith('/') || roleMenuAsk(text) !== null || keyboardPress) return null;
   // Строку ожидания заводит только тот, кому кнопки включены: остальным
   // партнёрам — ни лишнего запроса на каждое сообщение, ни перехвата.
   if (!chatActionsEnabledFor(input.partner)) return null;

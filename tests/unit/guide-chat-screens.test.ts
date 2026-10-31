@@ -399,7 +399,7 @@ const tgSay = (text: string) => postTg({
   message: { message_id: 1, from: { id: TG_CHAT, first_name: 'Гид' }, chat: { id: TG_CHAT, type: 'private' }, text },
 });
 
-type TgMessage = { chatId: string; text: string; replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data?: string }>> } };
+type TgMessage = { chatId: string; text: string; replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data?: string }>>; keyboard?: Array<Array<{ text: string }>>; is_persistent?: boolean } };
 const tgSent = () => m.tgSend.mock.calls.map((c) => c[0] as TgMessage).filter((x) => x.chatId === String(TG_CHAT));
 
 describe('Telegram: «Брони» гида', () => {
@@ -430,19 +430,22 @@ describe('Telegram: «Брони» гида', () => {
     expect(tgSent()[0].text).toContain('<b>Мои туры</b>');
   });
 
-  it('«Старт» в уже привязанном чате гида — справка со строкой меню и команды чата из неё', async () => {
+  it('«Старт» в уже привязанном чате гида — клавиатура внизу экрана, короткое приветствие и команды чата (30.10)', async () => {
     await tgSay('/start');
-    const [help] = tgSent();
-    expect(help.text).toContain('Кабинет гида в чате. Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
-    expect(help.text).toContain('Ещё — Брони, Мои туры, Помощь, кабинет на сайте.');
-    expect(help.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    const [hello] = tgSent();
+    // Постоянная клавиатура вместо строки под сообщением: её не уносит вверх (lib/telegram/guide-desk).
+    expect(hello.text).toContain('Кабинет гида в чате.');
+    expect(hello.text).toContain('Кнопки внизу экрана');
+    expect(hello.replyMarkup?.keyboard?.map((r) => r.map((b) => b.text)))
+      .toEqual([['Входящие', 'Брони'], ['Задачи', 'Клиенты'], ['Мои туры', 'Ещё']]);
+    expect(hello.replyMarkup?.is_persistent).toBe(true);
+    noPd(hello.text);
     const commands = vi.mocked(globalThis.fetch).mock.calls.find((c) => String(c[0]).endsWith('/setMyCommands'));
     const body = JSON.parse(String((commands?.[1] as RequestInit | undefined)?.body ?? '{}')) as { commands?: Array<{ command: string }> };
     expect(body.commands?.map((c) => c.command)).toEqual(['requests', 'tasks', 'clients', 'bookings', 'tours', 'help']);
   });
 
-  it('привязка гида по ссылке: строка меню под ответом и команды чата из неё же', async () => {
+  it('привязка гида по ссылке: постоянная клавиатура и команды чата из той же строки и «Ещё»', async () => {
     const token = createPartnerLinkToken(SELLER.partnerId, Date.now());
     if (!token.ok) throw new Error('нет токена');
     m.pool.mockImplementation(async (sql: string) => (
@@ -454,8 +457,10 @@ describe('Telegram: «Брони» гида', () => {
     const bound = tgSent().find((x) => x.text.includes('Вы подключены как гид'));
     expect(bound?.text).toContain('под «Бронями» в «Ещё»');
     noPd(bound?.text ?? '');
-    expect(bound?.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    // Ответ на привязку ставит постоянную клавиатуру гида (30.10) и называет её.
+    expect(bound?.text).toContain('Кнопки внизу экрана — кабинет в чате: «Входящие», «Брони», «Задачи», «Клиенты», «Мои туры», «Ещё».');
+    expect(bound?.replyMarkup?.keyboard?.map((r) => r.map((b) => b.text)))
+      .toEqual([['Входящие', 'Брони'], ['Задачи', 'Клиенты'], ['Мои туры', 'Ещё']]);
     const fetchMock = vi.mocked(globalThis.fetch);
     const commands = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/setMyCommands'));
     expect(commands).toBeTruthy();

@@ -25,13 +25,17 @@ import { findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { adminCommandOf } from '@/lib/max/admin-read';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
-import { roleMenuAsk } from '@/lib/roles/role-menu';
+import { roleMenuAsk, type MenuPartner } from '@/lib/roles/role-menu';
+import { guideKeyboardAction } from '@/lib/telegram/guide-desk';
 import { isNextCommand } from '@/lib/seat-requests/answer-edit';
 import { isSummaryCommand, summaryEnabledFor } from '@/lib/seat-requests/summary';
 
 /** Команда кабинета партнёра своей формой — та, что шлют его кнопки. */
-function partnerCabinetCommand(text: string, partnerId: string): boolean {
-  if (isSummaryCommand(text) && summaryEnabledFor(partnerId)) return true;
+function partnerCabinetCommand(channel: 'telegram' | 'max', text: string, partner: MenuPartner): boolean {
+  if (isSummaryCommand(text) && summaryEnabledFor(partner.partnerId)) return true;
+  // Кнопка постоянной клавиатуры гида (она есть только в Telegram): «Брони»
+  // иначе забрала бы консоль по слову «брон».
+  if (channel === 'telegram' && guideKeyboardAction(text, partner) !== null) return true;
   if (isNextCommand(text)) return true;
   const ask = roleMenuAsk(text);
   // «Помощь» понимают оба; у администратора она своя, кнопка партнёра «Помощь» — его меню.
@@ -82,6 +86,6 @@ export async function adminChatYieldsToPartner(
     const { awaitsCabinetSearch } = await import('@/lib/chat-cabinet/service');
     if (await awaitsCabinetSearch(chatId)) return true;
   }
-  if (partnerCabinetCommand(text, lookup.partner.partnerId)) return true;
+  if (partnerCabinetCommand(channel, text, lookup.partner)) return true;
   return adminCommandOf(text) === null;
 }

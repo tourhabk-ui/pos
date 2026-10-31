@@ -79,6 +79,7 @@ import { cabinetPressEdits, isCabinetPayload } from '@/lib/chat-cabinet/payload'
 import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
+import { GUIDE_INPUT_PLACEHOLDER, guideReplyMarkup, type ReplyKeyboardMarkup } from '@/lib/telegram/guide-desk';
 import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
@@ -269,25 +270,34 @@ async function sendRoleRows(chatId: string, text: string, buttons: MenuButton[][
   await sendHtmlKeyboard(chatId, text, roleKeyboard(buttons), 'ответ меню роли');
 }
 
-/** Постоянные кнопки телефона. Пустой inline их не заменяет. */
-async function sendOperatorKeyboard(chatId: string, text: string): Promise<void> {
+/**
+ * Постоянные кнопки телефона: туроператора (по умолчанию) или гида
+ * (lib/telegram/guide-desk). Пустой inline их не заменяет.
+ */
+async function sendOperatorKeyboard(chatId: string, text: string, markup: ReplyKeyboardMarkup = operatorReplyMarkup()): Promise<void> {
   const clean = sanitizeForTelegram(text);
   const html = await telegramService.sendMessage({
     chatId,
     text: repairTelegramHtml(clean),
     parseMode: 'HTML',
-    replyMarkup: operatorReplyMarkup(),
+    replyMarkup: markup,
   });
   if (html.success) return;
   const plain = await telegramService.sendMessage({
     chatId,
     text: repairTelegramHtml(esc(stripTags(clean))),
     parseMode: 'HTML',
-    replyMarkup: operatorReplyMarkup(),
+    replyMarkup: markup,
   });
   if (!plain.success) {
-    console.error('[telegram/webhook] клавиатура оператора не доставлена', { html: html.error, plain: plain.error });
+    console.error('[telegram/webhook] постоянная клавиатура не доставлена', { html: html.error, plain: plain.error });
   }
+}
+
+/** Ряды подписей → постоянная клавиатура (гид); нет рядов — клавиатура туроператора. */
+function persistentMarkup(rows?: string[][]): ReplyKeyboardMarkup {
+  if (!rows) return operatorReplyMarkup();
+  return { ...operatorReplyMarkup(), keyboard: rows.map((row) => row.map((text) => ({ text }))), input_field_placeholder: GUIDE_INPUT_PLACEHOLDER };
 }
 
 async function sendRenewCode(chatId: string, text: string): Promise<void> {
@@ -314,11 +324,14 @@ async function replyOperatorBound(
     void setOperatorChatCommands(numericChatId);
     return;
   }
-  // Гид — его строка меню под ответом и те же команды чата. Нет строки
-  // (кабинет в этом чате у другой карточки) — без кнопок: они не сработали бы.
+  // Гид — постоянная клавиатура кабинета (lib/telegram/guide-desk) и те же
+  // команды чата. Нет строки (кабинет в этом чате у другой карточки) — без
+  // кнопок: они не сработали бы.
   const row = boundMenuRow(bound);
-  if (row) {
-    await sendRoleRows(chatId, text, [row]);
+  if (row && bound.ok) {
+    await sendOperatorKeyboard(chatId, text, guideReplyMarkup({
+      partnerId: bound.partnerId, category: 'guide', slug: bound.slug, sellsTours: bound.sellsTours === true,
+    }));
     void setRoleChatCommands(numericChatId, roleChatCommands([...row, ...boundMenuExtras(bound)]));
     return;
   }
@@ -1109,7 +1122,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         fromName: update.message.from?.first_name ?? null,
         chatType,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
-        sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
+        sendPersistent: (body, rows) => sendOperatorKeyboard(chatId, body, persistentMarkup(rows)),
         sendCabinet: (screen) => sendCabinetTelegram(chatId, screen),
       })) {
         return;
@@ -1200,7 +1213,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         fromName: update.message.from?.first_name ?? null,
         chatType,
         send: (body, buttons) => sendRoleRows(chatId, body, buttons),
-        sendPersistent: (body) => sendOperatorKeyboard(chatId, body),
+        sendPersistent: (body, rows) => sendOperatorKeyboard(chatId, body, persistentMarkup(rows)),
         sendCabinet: (screen) => sendCabinetTelegram(chatId, screen),
       })) {
         return;
