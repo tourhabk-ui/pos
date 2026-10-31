@@ -133,9 +133,11 @@ async function lockOwn(c: Pick<PoolClient, 'query'>, ownerId: string, tourId: st
 }
 
 /**
- * Опубликовать: гейт на заблокированной строке; пройден — флаги ставит UPDATE
- * с тем же гейтом в WHERE, и ответ шлюза каталога из RETURNING обязан быть
- * «на витрине». Транзакцию даёт вызывающий.
+ * Опубликовать. Строка блокируется (чей тур, на сайте ли он, чего не хватает);
+ * решает же ОДИН UPDATE — гейт стоит в его WHERE, и проверки «до» в коде нет:
+ * гейт не пройден — строка не тронута, и отказ называет перечень, прочитанный
+ * под той же блокировкой. Ответ шлюза каталога из RETURNING обязан быть «на
+ * витрине». Транзакцию даёт вызывающий.
  */
 export async function publishOwnTour(
   c: Pick<PoolClient, 'query'>,
@@ -144,8 +146,6 @@ export async function publishOwnTour(
   const row = await lockOwn(c, opts.ownerId, opts.tourId);
   if (!row) return { outcome: 'not_found' };
   if (row.on_storefront === true) return { outcome: 'already_on', title: row.title, slug: row.slug };
-  const blockers = blockersOf(row.blockers);
-  if (blockers.length > 0) return { outcome: 'blocked', title: row.title, blockers };
   const { rows } = await c.query<{ title: string; slug: string | null; on_storefront: boolean }>(
     `UPDATE operator_tours ot SET is_active = TRUE, is_published = TRUE, updated_at = NOW()
        FROM partners p
@@ -156,9 +156,15 @@ export async function publishOwnTour(
     [opts.ownerId, opts.tourId],
   );
   const done = rows[0];
-  // Строка под блокировкой и гейт пройден строкой выше: сюда не доходит. Но
-  // «опубликовал» без слова шлюза каталога не говорим — откат у вызывающего.
-  if (!done || done.on_storefront !== true) throw new Error('публикация не подтверждена шлюзом каталога');
+  if (!done) {
+    const blockers = blockersOf(row.blockers);
+    // Строка под блокировкой, а UPDATE её не взял: значит, гейт. Пустой
+    // перечень при этом — расхождение, а не «всего хватает»: откат и лог.
+    if (blockers.length === 0) throw new Error('публикация не записана, а гейт пуст');
+    return { outcome: 'blocked', title: row.title, blockers };
+  }
+  // «Опубликовал» без слова шлюза каталога не говорим — откат у вызывающего.
+  if (done.on_storefront !== true) throw new Error('публикация не подтверждена шлюзом каталога');
   return { outcome: 'published', title: done.title, slug: done.slug };
 }
 
