@@ -4,9 +4,9 @@
  *
  * - строка меню — не больше трёх кнопок в ряду: четыре в ряд MAX режет
  *   подписи («Входящ…»), прокат шёл пятью;
- * - «Обновить места» в MAX говорит про MAX: фраза пишется здесь же, у
- *   потока дат есть кнопка «Открыть»; текст Telegram («В MAX можно…»)
- *   в самом MAX был нелеп;
+ * - «Обновить места» в MAX — даты кнопками (судит chat-dates-wizard), а не
+ *   текст Telegram («В MAX можно…» в самом MAX был нелеп); в Telegram —
+ *   текст про кабинет и MAX;
  * - образец фразы — следующий месяц, и разбор его принимает: «весь ноябрь»
  *   в декабре был бы прошедшим;
  * - «Мои туры и цены» без живых туров называет причину и куда идти, а не
@@ -17,6 +17,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const findPartnerByChat = vi.fn();
+const readPartnerTours = vi.fn();
+vi.mock('@/lib/operators/chat-dates/proposals', async (orig) => ({
+  ...(await orig<typeof import('@/lib/operators/chat-dates/proposals')>()),
+  readPartnerTours: (...args: unknown[]) => readPartnerTours(...args),
+}));
+vi.mock('@/lib/operators/chat-dates/switch', () => ({ CHAT_OPEN_DATES_ENABLED: true }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({
   findPartnerByChat: (...args: unknown[]) => findPartnerByChat(...args),
   processPartnerMessage: vi.fn(),
@@ -88,28 +94,20 @@ describe('строка меню в MAX — не больше трёх в ряд�
 });
 
 describe('«Обновить места» говорит про свой канал', () => {
-  it('MAX: фраза здесь же и кнопка «Открыть»; слов «в MAX» в самом MAX нет', () => {
-    const op = operatorSeatsText('operator', 'max', NOV_15);
-    expect(op).toContain('прямо здесь');
-    expect(op).toContain('«Открыть»');
-    expect(op).toContain('«открой весь декабрь, 8 мест»');
-    expect(op).toMatch(/календаре кабинета: https?:\/\/\S+\/hub\/operator\/calendar/);
-    expect(op).not.toMatch(/В MAX|в MAX/);
-    const guide = operatorSeatsText('guide', 'max', NOV_15);
+  it('Telegram: подтверждения нет — кабинет или MAX, без «прямо здесь»', () => {
+    const tg = operatorSeatsText('operator', NOV_15);
+    expect(tg).toContain('В Telegram даты не открываю');
+    expect(tg).toMatch(/календаре кабинета: https?:\/\/\S+\/hub\/operator\/calendar/);
+    expect(tg).toContain('Или в MAX — кнопками «Обновить места» или одной фразой, например «открой весь декабрь, 8 мест»');
+    expect(tg).not.toContain('прямо здесь');
+    const guide = operatorSeatsText('guide', NOV_15);
     expect(guide).toMatch(/разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
     expect(guide).not.toMatch(/\/hub\/operator/);
   });
 
-  it('Telegram: подтверждения нет — кабинет или MAX', () => {
-    const tg = operatorSeatsText('operator', 'telegram', NOV_15);
-    expect(tg).toContain('В Telegram даты не открываю');
-    expect(tg).toContain('в MAX одной фразой');
-    expect(tg).not.toContain('прямо здесь');
-  });
-
   it('образец — следующий месяц, и разбор дат принимает его как предложение', () => {
     for (const now of [NOV_15, Date.parse('2026-12-20T00:00:00+12:00'), Date.parse('2027-07-01T00:00:00+12:00')]) {
-      const text = operatorSeatsText('operator', 'max', now);
+      const text = operatorSeatsText('operator', now);
       const phrase = text.match(/«(открой [^»]+)»/)?.[1];
       expect(phrase).toBeTruthy();
       const parsed = parseDatesPhrase(phrase ?? '', now, [{ id: '1', title: 'Горелый', active: true }]);
@@ -122,16 +120,28 @@ describe('«Обновить места» говорит про свой кан�
     }
   });
 
-  it('нажатие «Обновить места» в MAX отвечает текстом MAX, в Telegram — текстом Telegram', async () => {
+  it('нажатие «Обновить места»: MAX в диалоге — даты кнопками, MAX в группе — «в личном диалоге», Telegram — текст', async () => {
     findPartnerByChat.mockResolvedValue({
       outcome: 'found',
-      partner: { partnerId: OTHER, category: 'operator', slug: 'op', userId: null },
+      partner: { partnerId: OTHER, category: 'operator', slug: 'op', userId: 'u1', sellsTours: true },
     });
-    const max = await operatorDeskPress({ channel: 'max', chatId: 1, payload: 'opd:seats' });
-    expect(max?.text).toContain('прямо здесь');
-    expect(max?.text).not.toMatch(/В MAX|в MAX/);
-    const tg = await operatorDeskPress({ channel: 'telegram', chatId: 1, payload: 'opd:seats' });
+    readPartnerTours.mockResolvedValue([
+      { id: '11', title: 'Вулкан Горелый', active: true },
+      { id: '12', title: 'Рыбалка', active: true },
+      { id: '13', title: 'Скрытый сплав', active: false },
+    ]);
+    const max = await operatorDeskPress({ channel: 'max', chatId: 1, payload: 'opd:seats', dialog: true, nowMs: NOV_15 });
+    expect(max?.text).toContain('Для какого тура?');
+    const payloads = (max?.buttons ?? []).flat().map((b) => b.payload);
+    expect(payloads).toEqual(expect.arrayContaining(['dw:m:11', 'dw:m:12', 'dw:x']));
+    expect(payloads).not.toContain('dw:m:13');
+    for (const row of max?.buttons ?? []) expect(row.length).toBeLessThanOrEqual(MENU_ROW_MAX);
+    const group = await operatorDeskPress({ channel: 'max', chatId: 1, payload: 'opd:seats', dialog: false, nowMs: NOV_15 });
+    expect(group?.text).toContain('только в личном диалоге');
+    expect((group?.buttons ?? []).flat().some((b) => b.payload.startsWith('dw:'))).toBe(false);
+    const tg = await operatorDeskPress({ channel: 'telegram', chatId: 1, payload: 'opd:seats', nowMs: NOV_15 });
     expect(tg?.text).toContain('В Telegram даты не открываю');
+    expect((tg?.buttons ?? []).flat().some((b) => b.payload.startsWith('dw:'))).toBe(false);
   });
 });
 

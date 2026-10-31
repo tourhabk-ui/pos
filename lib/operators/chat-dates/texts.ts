@@ -866,22 +866,14 @@ function calendarWhere(seller: DatesSeller): string {
 }
 
 /**
- * «Обновить места» (31.10, снимок владельца): MAX получал текст для Telegram —
- * «В MAX можно написать…» в самом MAX. В MAX фраза пишется здесь же, и
- * кнопка подтверждения у потока дат есть; в Telegram её нет.
+ * «Обновить места» в Telegram (31.10): кнопки подтверждения у потока дат там
+ * нет — кабинет или MAX. В MAX вместо текста — даты кнопками (`wizard.ts`).
  */
-export function seatsHintText(seller: DatesSeller, channel: 'max' | 'telegram', today: string): string {
-  if (channel === 'max') {
-    return [
-      `Открыть даты можно прямо здесь: напишите одной фразой, например ${wholeMonthHint(today)}.`,
-      'Я покажу, какие даты откроются, и кнопку «Открыть». Пока её не нажмёте, ничего не меняется.',
-      `Или ${calendarWhere(seller)}`,
-    ].join('\n');
-  }
+export function telegramSeatsText(seller: DatesSeller, today: string): string {
   return [
     'В Telegram даты не открываю: здесь нет кнопки подтверждения.',
     `Откройте их ${calendarWhere(seller)}`,
-    `Или в MAX одной фразой, например ${wholeMonthHint(today)}.`,
+    `Или в MAX — кнопками «Обновить места» или одной фразой, например ${wholeMonthHint(today)}.`,
   ].join('\n');
 }
 

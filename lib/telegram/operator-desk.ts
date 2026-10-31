@@ -12,7 +12,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
 import { ownerToursUrl } from '@/lib/partners/cabinet-links';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
-import { seatsHintText } from '@/lib/operators/chat-dates/texts';
+import { telegramSeatsText } from '@/lib/operators/chat-dates/texts';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export const OPERATOR_REPLY_ROWS: ReadonlyArray<ReadonlyArray<string>> = [
@@ -88,8 +88,8 @@ export function operatorHelpText(): string {
     '«Задачи» — открытые задачи по сроку: «Готово» и «На завтра». «Клиенты» — клиенты CRM и поиск. '
       + 'Имена, телефоны и заголовки задач — только в MAX.',
     '«Мои туры и цены» — название и цена из каталога, без оценки.',
-    '«Обновить места» — как открыть даты: в MAX — фразой прямо в чате, даты меняются только после кнопки «Открыть»; '
-      + 'в Telegram — в календаре кабинета.',
+    '«Обновить места» — открыть даты: в MAX — кнопками (тур, месяц, дни, места) или фразой, даты меняются только '
+      + 'после кнопки «Открыть»; в Telegram — в календаре кабинета.',
     'В карточке брони — «Подтвердить» и «Отклонить»: бот спросит, и бронь меняется только после «Да». '
       + 'Нажимает тот, кто подключил этот чат ссылкой из кабинета.',
     'В карточке заявки — «Принять», «Нет мест», «Уточнить», «Свяжусь сам». Бронь кнопкой ответа на заявку не подтверждается.',
@@ -101,18 +101,14 @@ export function operatorHelpText(): string {
 }
 
 /**
- * «Обновить места» — где открыть даты. Туроператору — календарь, гиду со
- * своими турами — раздел «Свои туры» (кабинет оператора его не пустит). В MAX
- * — фраза прямо в этом чате: поток дат с кнопкой подтверждения открыт
- * продавцу своих туров (lib/operators/chat-dates/flow, гиду — с 29.10). В
- * Telegram кнопки подтверждения нет, и текст зовёт в кабинет или в MAX.
+ * «Обновить места» в Telegram — где открыть даты. Туроператору — календарь,
+ * гиду со своими турами — раздел «Свои туры» (кабинет оператора его не
+ * пустит); и MAX, где даты открываются кнопками или фразой с кнопкой
+ * подтверждения (lib/operators/chat-dates). В MAX этого текста нет: там
+ * «Обновить места» начинает даты кнопками (wizard-flow).
  */
-export function operatorSeatsText(
-  category: string | null = 'operator',
-  channel: 'max' | 'telegram' = 'telegram',
-  nowMs: number = Date.now(),
-): string {
-  return seatsHintText(category === 'guide' ? 'guide' : 'operator', channel, kamchatkaDate(new Date(nowMs)));
+export function operatorSeatsText(category: string | null = 'operator', nowMs: number = Date.now()): string {
+  return telegramSeatsText(category === 'guide' ? 'guide' : 'operator', kamchatkaDate(new Date(nowMs)));
 }
 
 /**

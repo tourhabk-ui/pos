@@ -291,6 +291,39 @@ async function onProposal(
   await sendProposal(send, partner, id, tourId!, p.dates, p.seats, title(tourId!), flags, nowMs);
 }
 
+/**
+ * Даты, собранные кнопками (`wizard.ts`, 31.10): то же предложение, что у
+ * фразы, — превью по каждой дате и «Открыть». Тур один и выбран кнопкой, места
+ * названы; запись — только после «Открыть» (`handleOperatorDatesPress`).
+ * Нажатие не сообщение: у него нет ни mid, ни времени, повтор той же кнопки —
+ * то же действующее предложение (`createProposal` → `same_active`).
+ */
+export async function proposeChosenDates(opts: {
+  chatId: number;
+  partner: PartnerChatContext;
+  tours: ChatTour[];
+  tourId: string;
+  dates: string[];
+  seats: number;
+  rule: string;
+  weekdayWords: boolean;
+  send: DatesSend;
+  nowMs: number;
+}): Promise<void> {
+  const p: DatesProposal = {
+    kind: 'proposal',
+    dates: opts.dates,
+    pastDropped: [],
+    pastNamed: [],
+    seats: opts.seats,
+    tour: { kind: 'one', id: opts.tourId },
+    priceMentioned: false,
+    weekdayWords: opts.weekdayWords,
+    rule: opts.rule,
+  };
+  await onProposal(opts.chatId, null, opts.partner, p, opts.tours, opts.send, opts.nowMs, null);
+}
+
 async function sendChoose(
   send: DatesSend, id: string, dates: string[], seats: number | null, titles: string[],
   flags: PastFlags & { priceMentioned: boolean; weekdayWords: boolean; rule: string | null }, hidden?: string[],
