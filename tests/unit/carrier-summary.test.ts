@@ -148,6 +148,6 @@ describe('дверь и экран', () => {
     expect(s.pd).toBe(false);
     expect(s.text).toContain('Сводка перевозчика');
     expect(s.rows.flat().find((b) => 'url' in b)).toEqual({ text: 'Кабинет на сайте', url: 'https://vedarai.ru/hub/carrier' });
-    expect(s.rows.at(-1)?.map((b) => ('payload' in b ? b.payload : ''))).toEqual(['cb:i', 'cb:t', 'cb:c', 'cb:m']);
+    expect(s.rows.slice(-2).map((r) => r.map((b) => ('payload' in b ? b.payload : '')))).toEqual([['cb:i', 'cb:t'], ['cb:c', 'cb:m']]);
   });
 });

@@ -19,7 +19,7 @@ import { boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { adminMenu, adminMenuHelp } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
-import type { MenuButton } from '@/lib/roles/chat-menu';
+import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminCommandOf } from '@/lib/max/admin-read';
 import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import {
@@ -83,7 +83,7 @@ export async function handleTelegramAdminStart(
     return true;
   }
   const body = res.movedFromUserId ? `${ADMIN_TG_TEXT.bound}\n\n${ADMIN_TG_TEXT.moved}` : ADMIN_TG_TEXT.bound;
-  await reply(body, [adminMenu()]);
+  await reply(body, menuRows(adminMenu()));
   return true;
 }
 
@@ -94,7 +94,7 @@ async function answerTelegramAdmin(opts: {
   nowMs?: number;
 }): Promise<void> {
   if (/^\/start\b/i.test(opts.text.trim())) {
-    await opts.reply(telegramAdminHello(opts.name), [adminMenu()]);
+    await opts.reply(telegramAdminHello(opts.name), menuRows(adminMenu()));
     return;
   }
   const cmd = adminCommandOf(opts.text);
@@ -103,7 +103,7 @@ async function answerTelegramAdmin(opts: {
     ? cmd
     : null;
   if (!action) {
-    await opts.reply(`Не понял команду.\n\n${adminMenuHelp()}`, [adminMenu()]);
+    await opts.reply(`Не понял команду.\n\n${adminMenuHelp()}`, menuRows(adminMenu()));
     return;
   }
   const screen = await roleMenuScreen({
@@ -113,7 +113,7 @@ async function answerTelegramAdmin(opts: {
     partner: null,
     nowMs: opts.nowMs,
   });
-  await opts.reply(screen.text, [adminMenu()]);
+  await opts.reply(screen.text, menuRows(adminMenu()));
 }
 
 /**

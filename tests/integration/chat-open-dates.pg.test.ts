@@ -826,4 +826,46 @@ withPg('«открой даты словами» на настоящем Postgre
       expect(n.rows[0].n).toBe(0);
     });
   });
+  it('даты кнопками (31.10): «Обновить места» → тур → месяц → выходные → 6 мест — предложение без записи, «Открыть» пишет ровно их', async () => {
+    const { kamchatkaDate } = await import('@/lib/analytics/kamchatka-day');
+    const { dw, wizardDates, wizardMonths } = await import('@/lib/operators/chat-dates/wizard');
+    const wizardTour = await addTour(partner.a, 'Мутновский кнопками');
+    const today = kamchatkaDate(new Date());
+    const month = wizardMonths(today)[2]!;
+    const expected = wizardDates(month, 'e', today);
+    expect(expected.length).toBeGreaterThanOrEqual(8);
+
+    await press(CHAT_A, 'opd:seats');
+    const start = buttons(lastTo(CHAT_A)).map((b) => b.payload);
+    expect(start).toContain(dw.month(wizardTour));
+    expect(start).toContain(dw.month(tour.gorely));
+    expect(start).not.toContain(dw.month(tour.hidden));
+    expect(start).not.toContain(dw.month(tour.foreign));
+    // Чужой тур кнопкой — «тура нет», предложения нет.
+    await press(CHAT_A, dw.go(tour.foreign, month, 'e', 6));
+    expect(lastTo(CHAT_A)?.text).toContain('Этого тура больше нет среди ваших живых');
+
+    await press(CHAT_A, dw.month(wizardTour));
+    await press(CHAT_A, dw.days(wizardTour, month));
+    expect(buttons(lastTo(CHAT_A)).map((b) => b.payload)).toContain(dw.seats(wizardTour, month, 'e'));
+    await press(CHAT_A, dw.seats(wizardTour, month, 'e'));
+    await press(CHAT_A, dw.go(wizardTour, month, 'e', 6));
+    expect(lastTo(CHAT_A)?.text).toMatch(/Понял так:[\s\S]*Мутновский кнопками[\s\S]*Мест на каждый выезд: 6[\s\S]*Правило: выходные/);
+    expect(await rows(wizardTour)).toEqual([]);
+    const id = proposalId(CHAT_A);
+    const stored = (await pool.query<{ dates: string[]; seats: number; rule_words: string | null; source_mid: string | null }>(
+      `SELECT dates::text[] AS dates, seats, rule_words, source_mid FROM operator_chat_date_proposals WHERE id = $1`, [id],
+    )).rows[0]!;
+    expect(stored).toMatchObject({ dates: expected, seats: 6, source_mid: null });
+    expect(stored.rule_words).toMatch(/^выходные /);
+    // Повтор той же кнопки — то же предложение, второй строки нет.
+    await press(CHAT_A, dw.go(wizardTour, month, 'e', 6));
+    expect(proposalId(CHAT_A)).toBe(id);
+
+    await press(CHAT_A, `od:o:${id}`);
+    const written = await rows(wizardTour);
+    expect(written.map((r) => r.date)).toEqual(expected);
+    expect(written.every((r) => r.slots === 6)).toBe(true);
+    expect((await proposal(id)).status).toBe('done');
+  });
 });

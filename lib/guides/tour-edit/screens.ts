@@ -8,7 +8,7 @@
  */
 
 import { escapeHtml } from '@/lib/text/escape-html';
-import { cabinetNavRow, type CabinetButton, type CabinetScreen } from '@/lib/chat-cabinet/screens';
+import { cabinetNavRows, type CabinetButton, type CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { cabinetPayload, TOUR_DATES_MAX_PAGE } from '@/lib/chat-cabinet/payload';
 import { ruShort } from '@/lib/analytics/kamchatka-day';
 import { formatRub } from '@/lib/transfers/charter-format';
@@ -38,7 +38,7 @@ function buttonText(s: string): string {
 function screen(lines: Array<string | null | undefined>, rows: CabinetButton[][]): CabinetScreen {
   return {
     text: lines.filter((l): l is string => typeof l === 'string').join('\n'),
-    rows: [...rows.filter((r) => r.length > 0), cabinetNavRow()],
+    rows: [...rows.filter((r) => r.length > 0), ...cabinetNavRows()],
     pd: false,
   };
 }

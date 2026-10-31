@@ -16,6 +16,7 @@ import { createTicket } from '@/lib/support/ticket.service';
 import {
   loadOperatorTours, operatorHelpText, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
+import { WIZARD_TEXT } from '@/lib/operators/chat-dates/wizard';
 
 const NOT_THIS = 'Эта кнопка — кабинет туроператора. В этом чате её не выполняю.';
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
@@ -37,6 +38,9 @@ export async function operatorDeskPress(opts: {
   channel: 'telegram' | 'max';
   chatId: number;
   payload: string;
+  /** Личный диалог с ботом. В MAX даты кнопками — только в нём: в группе «Открыть» нажал бы любой участник. */
+  dialog?: boolean;
+  nowMs?: number;
 }): Promise<{ text: string; buttons: MenuButton[][] } | null> {
   if (!isOperatorDeskPayload(opts.payload)) return null;
   const lookup = await findPartnerByChat(opts.channel, opts.chatId);
@@ -59,7 +63,17 @@ export async function operatorDeskPress(opts: {
   if (opts.payload === 'opd:tours') {
     return withMenu(operatorToursReply(await loadOperatorTours(partner.partnerId)));
   }
-  if (opts.payload === 'opd:seats') return withMenu(operatorSeatsText());
+  if (opts.payload === 'opd:seats') {
+    // MAX, личный диалог — даты кнопками (31.10): тур, месяц, дни, места и то
+    // же предложение с «Открыть», что у фразы. Telegram и группа — текстом.
+    if (opts.channel === 'max' && opts.dialog === true) {
+      const { datesWizardStart } = await import('@/lib/operators/chat-dates/wizard-flow');
+      const step = await datesWizardStart(partner, opts.nowMs ?? Date.now());
+      return withMenu(step.text, step.rows);
+    }
+    if (opts.channel === 'max') return withMenu(WIZARD_TEXT.groupChat);
+    return withMenu(operatorSeatsText('operator'));
+  }
   if (opts.payload === 'sup:new') return withMenu(await supportTicketText(partner, opts.channel));
 
   const parsed = parseChatAnswer(opts.payload);

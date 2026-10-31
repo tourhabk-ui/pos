@@ -9,7 +9,7 @@
  */
 
 import { escapeHtml } from '@/lib/text/escape-html';
-import { cabinetNavRow, type CabinetButton, type CabinetScreen } from '@/lib/chat-cabinet/screens';
+import { cabinetNavRows, type CabinetButton, type CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { FIELD_LABEL, type EditReject } from './parse';
@@ -28,7 +28,7 @@ function clip(s: string, max: number): string {
 function screen(lines: Array<string | null | undefined>, rows: CabinetButton[][]): CabinetScreen {
   return {
     text: lines.filter((l): l is string => typeof l === 'string').join('\n'),
-    rows: [...rows.filter((r) => r.length > 0), cabinetNavRow()],
+    rows: [...rows.filter((r) => r.length > 0), ...cabinetNavRows()],
     pd: false,
   };
 }

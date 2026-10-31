@@ -10,7 +10,9 @@ import { priceFromUnit } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
-import { ownerCalendarUrl } from '@/lib/partners/cabinet-links';
+import { ownerToursUrl } from '@/lib/partners/cabinet-links';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { telegramSeatsText } from '@/lib/operators/chat-dates/texts';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export const OPERATOR_REPLY_ROWS: ReadonlyArray<ReadonlyArray<string>> = [
@@ -86,7 +88,8 @@ export function operatorHelpText(): string {
     '«Задачи» — открытые задачи по сроку: «Готово» и «На завтра». «Клиенты» — клиенты CRM и поиск. '
       + 'Имена, телефоны и заголовки задач — только в MAX.',
     '«Мои туры и цены» — название и цена из каталога, без оценки.',
-    '«Обновить места» — где отметить занятость. Само сообщение места не закрывает.',
+    '«Обновить места» — открыть даты: в MAX — кнопками (тур, месяц, дни, места) или фразой, даты меняются только '
+      + 'после кнопки «Открыть»; в Telegram — в календаре кабинета.',
     'В карточке брони — «Подтвердить» и «Отклонить»: бот спросит, и бронь меняется только после «Да». '
       + 'Нажимает тот, кто подключил этот чат ссылкой из кабинета.',
     'В карточке заявки — «Принять», «Нет мест», «Уточнить», «Свяжусь сам». Бронь кнопкой ответа на заявку не подтверждается.',
@@ -98,24 +101,28 @@ export function operatorHelpText(): string {
 }
 
 /**
- * «Обновить места» — где отметить занятость. Туроператору — календарь, гиду
- * со своими турами — раздел «Свои туры» (кабинет оператора его не пустит).
- * Обоим — фраза в MAX: поток дат словами открыт продавцу своих туров
- * (lib/operators/chat-dates/flow, гиду — с 29.10).
+ * «Обновить места» в Telegram — где открыть даты. Туроператору — календарь,
+ * гиду со своими турами — раздел «Свои туры» (кабинет оператора его не
+ * пустит); и MAX, где даты открываются кнопками или фразой с кнопкой
+ * подтверждения (lib/operators/chat-dates). В MAX этого текста нет: там
+ * «Обновить места» начинает даты кнопками (wizard-flow).
  */
-export function operatorSeatsText(category: string | null = 'operator'): string {
-  return [
-    'Места на даты этим сообщением не меняются.',
-    category === 'guide'
-      ? `Откройте даты в разделе «Свои туры»: ${ownerCalendarUrl(category)}`
-      : `Откройте календарь: ${ownerCalendarUrl(category)}`,
-    'В MAX можно написать фразу целиком, например: «открой весь ноябрь, 8 мест» — там есть кнопка подтверждения.',
-  ].join('\n');
+export function operatorSeatsText(category: string | null = 'operator', nowMs: number = Date.now()): string {
+  return telegramSeatsText(category === 'guide' ? 'guide' : 'operator', kamchatkaDate(new Date(nowMs)));
 }
 
+/**
+ * Пустой список — не тупик (снимок владельца 31.10: «В каталоге нет живого
+ * тура этой компании. Цену не называю.» — и дальше ничего): называем, почему
+ * туристы не видят ни одного тура, и куда идти. Видит тур тот, кто включён и
+ * опубликован (`publicTourSql`); черновик и выключенный — нет.
+ */
 export function operatorToursText(tours: ReadonlyArray<{ title: string; price: string | null; url: string }>): string {
   if (tours.length === 0) {
-    return 'В каталоге нет живого тура этой компании. Цену не называю.';
+    return [
+      'Туристы пока не видят ни одного вашего тура: в каталоге только опубликованные и включённые.',
+      `Добавить тур или опубликовать черновик — в кабинете: ${ownerToursUrl('operator')}`,
+    ].join('\n');
   }
   const lines = ['<b>Мои туры и цены</b>', 'Цена — как в каталоге.'];
   for (const tour of tours) {
@@ -172,6 +179,6 @@ export async function loadOperatorTours(partnerId: string): Promise<
 }
 
 export function operatorToursReply(loaded: { ok: true; tours: OperatorTourLine[] } | { ok: false }): string {
-  if (!loaded.ok) return 'Не удалось прочитать туры. Цену не называю.';
+  if (!loaded.ok) return `Не смог прочитать ваши туры — попробуйте через минуту. Список есть и в кабинете: ${ownerToursUrl('operator')}`;
   return operatorToursText(loaded.tours);
 }
