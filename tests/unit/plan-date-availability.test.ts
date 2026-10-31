@@ -24,7 +24,8 @@ const PLANS_PAGE = readFileSync(join(ROOT, 'app/plans/[slug]/page.tsx'), 'utf-8'
 
 describe('B-3: дата дня доезжает до формы брони', () => {
   it('форма читает ?date= на клиенте — ISR карточки тура не тронут', () => {
-    expect(BOOKING).toMatch(/new URLSearchParams\(window\.location\.search\)\.get\('date'\)/);
+    // 01.11: разбор вынесен в lib/booking/request-prefill.ts (?date= + ?guests=).
+    expect(BOOKING).toMatch(/parseRequestPrefill\(window\.location\.search/);
     // Валидация формата: мусор из URL не попадает в состояние формы
     expect(BOOKING).toMatch(/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$/);
     // Введённая руками дата не перетирается предвыбором
