@@ -17,6 +17,8 @@
  */
 import { query } from '@/lib/database';
 import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
 
 export interface OwnTour {
   id: string;
@@ -25,11 +27,24 @@ export interface OwnTour {
   is_published: boolean;
   is_active: boolean;
   base_price: string | null;
+  /** Единица цены (`per_person` / `per_tour` / …) — для правки на сайте. */
+  price_unit: string | null;
   max_participants: number | null;
+  /** Тексты для правки на сайте: анонс и описание как записаны. */
+  short_description: string | null;
+  description: string | null;
   season_start: string | null;
   season_end: string | null;
   /** Открытые будущие даты с местами — как их видит календарь тура. */
   open_dates: number;
+  /** Ответ шлюза каталога (`publicTourSql`) — видит ли тур турист. */
+  on_storefront: boolean;
+  /**
+   * Чего не хватает до сайта — витринный гейт своего тура гида
+   * (lib/guides/own-tour-publish, тот же SQL, что у кнопки «Опубликовать»).
+   * Пусто — опубликовать можно.
+   */
+  blockers: string[];
 }
 
 export interface OwnBooking {
@@ -58,19 +73,22 @@ export interface OwnLead {
   group_size: number | null;
 }
 
-/** Туры гида: опубликованные и черновики, с числом открытых будущих дат. */
+/** Туры гида: опубликованные и черновики, с числом открытых будущих дат и тем, чего не хватает до сайта. */
 export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
   const { rows } = await query<OwnTour>(
-    `SELECT t.id::text AS id, t.title, t.slug, COALESCE(t.is_published, FALSE) AS is_published,
-            COALESCE(t.is_active, FALSE) AS is_active, t.base_price::text AS base_price,
-            t.max_participants, t.season_start::text AS season_start, t.season_end::text AS season_end,
+    `SELECT ot.id::text AS id, ot.title, ot.slug, COALESCE(ot.is_published, FALSE) AS is_published,
+            COALESCE(ot.is_active, FALSE) AS is_active, ot.base_price::text AS base_price, ot.price_unit,
+            ot.max_participants, ot.short_description, ot.description, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
             (SELECT count(*)::int FROM tour_availability a
-              WHERE a.operator_tour_id = t.id AND a.date >= CURRENT_DATE
+              WHERE a.operator_tour_id = ot.id AND a.date >= CURRENT_DATE
                 AND COALESCE(a.is_cancelled, FALSE) = FALSE AND a.deleted_at IS NULL
-                AND a.available_slots > 0) AS open_dates
-       FROM operator_tours t
-      WHERE t.operator_id = $1::uuid AND t.deleted_at IS NULL
-      ORDER BY COALESCE(t.is_published, FALSE) DESC, t.title`,
+                AND a.available_slots > 0) AS open_dates,
+            ${publicTourSql('ot')} AS on_storefront,
+            ${publishBlockersSql()} AS blockers
+       FROM operator_tours ot
+       JOIN partners p ON p.id = ot.operator_id
+      WHERE ot.operator_id = $1::uuid AND ot.deleted_at IS NULL
+      ORDER BY COALESCE(ot.is_published, FALSE) DESC, ot.title`,
     [partnerId],
   );
   return rows;

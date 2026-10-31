@@ -18,6 +18,7 @@ import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { FIELD_LABEL, LIMITS, type EditField, type EditReject, type EditValue } from './parse';
 import { DRAFT_TTL_HOURS, type ChatTour, type TourDay } from './store';
+import { ownTourStateWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
 
 const BUTTON_TEXT_MAX = 40;
 /** Дней на странице дат. */
@@ -78,16 +79,37 @@ export const FORMAT_LINES = (name: string): string[] => [
 
 // ── Мои туры ────────────────────────────────────────────────────────────────
 
+/** Кнопка «Новый тур» — под «Моими турами» и в подсказке. */
+const NEW_TOUR_ROW: CabinetButton[] = [{ text: 'Новый тур', payload: cabinetPayload.tourNew() }];
+
+/** Как создать тур (31.10): фраза или документ; запись — только кнопкой. */
+export const NEW_TOUR_LINES: readonly string[] = [
+  'Новый тур — одним сообщением:',
+  '<code>новый тур: Восхождение на Горелый; цена 15000; группа 4; описание: Подъём на действующий вулкан…</code>',
+  '• цена — в рублях, за человека; если за всю группу — «цена 60000 за группу»;',
+  '• группа — сколько человек вы берёте максимум;',
+  '• описание — последним, можно с абзацами.',
+  'Или документом Word (.docx) в MAX: первая строка — название в «ёлочках», подпись к файлу — «цена 15000; группа 4».',
+  'Я покажу, что получится, — тур создаст только кнопка «Создать черновик». Черновик туристы не видят; на сайт — кнопкой «Опубликовать» у тура.',
+];
+
+export function newTourHintScreen(): CabinetScreen {
+  return screen(['<b>Новый тур</b>', ...NEW_TOUR_LINES], [[{ text: '‹ Мои туры', payload: cabinetPayload.myTours() }]]);
+}
+
 export function myToursScreen(tours: readonly ChatTour[], siteBase: string, notice?: string | null): CabinetScreen {
   if (tours.length === 0) {
-    return screen([notice ?? null, '<b>Мои туры</b>', `Своих туров в кабинете нет. Раздел на сайте: ${base(siteBase)}${GUIDE_OWN_PATH}`], []);
+    return screen(
+      [notice ?? null, '<b>Мои туры</b>', 'Своих туров пока нет — создайте первый.', ...NEW_TOUR_LINES, `Раздел на сайте: ${base(siteBase)}${GUIDE_OWN_PATH}`],
+      [NEW_TOUR_ROW],
+    );
   }
   const lines: string[] = [];
   if (notice) lines.push(notice);
   lines.push('<b>Мои туры</b>');
   for (const t of tours) lines.push(`• ${escapeHtml(t.title)} — ${storefrontWords(t)} · ${priceWords(t.basePrice, t.priceUnit)}`);
-  lines.push('Нажмите тур: даты, правка текста и цены, страница на сайте.');
-  return screen(lines, tours.slice(0, 12).map((t) => [{ text: buttonText(t.title), payload: cabinetPayload.tour(t.id) }]));
+  lines.push('Нажмите тур: даты, правка текста и цены, на сайт или с сайта. «Новый тур» — завести ещё один.');
+  return screen(lines, [...tours.slice(0, 12).map((t) => [{ text: buttonText(t.title), payload: cabinetPayload.tour(t.id) }]), NEW_TOUR_ROW]);
 }
 
 function filled(t: ChatTour, f: EditField): string {
@@ -98,20 +120,39 @@ function filled(t: ChatTour, f: EditField): string {
   return 'есть';
 }
 
-export function tourScreen(t: ChatTour, siteBase: string, notice?: string | null): CabinetScreen {
+/** Витринный гейт тура для экрана: ответ базы или «не проверилось». */
+export type TourGateView = { onStorefront: boolean; blockers: readonly string[] } | 'unknown';
+
+export function tourScreen(t: ChatTour, siteBase: string, notice?: string | null, gate: TourGateView = 'unknown'): CabinetScreen {
   const lines: string[] = [];
   if (notice) lines.push(notice);
+  const onSite = gate === 'unknown' ? t.isActive && t.isPublished : gate.onStorefront;
   lines.push(
     `<b>${escapeHtml(t.title)}</b>`,
-    `Состояние: ${storefrontWords(t)}. Цена: ${priceWords(t.basePrice, t.priceUnit)}.`,
+    `Состояние: ${gate === 'unknown' ? storefrontWords(t) : ownTourStateWords(gate.onStorefront)}. Цена: ${priceWords(t.basePrice, t.priceUnit)}.`,
     `Группа: ${t.maxParticipants === null ? 'не записана' : `до ${t.maxParticipants} чел.`}`,
     `Анонс — ${filled(t, 'short_description')}; описание — ${filled(t, 'description')}; программа — ${filled(t, 'program')}.`,
     `Что включено — ${filled(t, 'included')}; не входит — ${filled(t, 'not_included')}; что взять — ${filled(t, 'what_to_bring')}; безопасность — ${filled(t, 'safety_notes')}.`,
   );
+  // Чего не хватает до сайта — тем же SQL, что проверяет «Опубликовать»
+  // (lib/guides/own-tour-publish); не проверилось — так и сказано (§4.0).
+  const publish: CabinetButton[] = [];
+  if (gate === 'unknown') {
+    lines.push('Чего не хватает до сайта — не проверилось: база не ответила. Кнопка «Опубликовать» проверит сама.');
+    if (!onSite) publish.push({ text: 'Опубликовать', payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
+  } else if (gate.onStorefront) {
+    publish.push({ text: 'Снять с сайта', payload: cabinetPayload.tourUnpublish(t.id), intent: 'negative' });
+  } else if (gate.blockers.length > 0) {
+    lines.push('Чего не хватает до сайта:', ...gate.blockers.map((b) => `• ${escapeHtml(publishBlockerLabel(b))}`));
+  } else {
+    lines.push('До сайта всего хватает: «Опубликовать» — и тур увидят туристы.');
+    publish.push({ text: 'Опубликовать', payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
+  }
   const rows: CabinetButton[][] = [
     [{ text: 'Даты', payload: cabinetPayload.tourDates(t.id) }, { text: 'Править текст', payload: cabinetPayload.tourHint(t.id) }],
+    publish,
   ];
-  if (t.isActive && t.isPublished) rows.push([{ text: 'Страница тура', url: `${base(siteBase)}${tourPath({ id: t.id, slug: t.slug })}` }]);
+  if (onSite) rows.push([{ text: 'Страница тура', url: `${base(siteBase)}${tourPath({ id: t.id, slug: t.slug })}` }]);
   rows.push([{ text: '‹ Мои туры', payload: cabinetPayload.myTours() }]);
   return screen(lines, rows);
 }
