@@ -34,6 +34,7 @@ import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
+import { requestConfirmNote } from '@/lib/mcp/request-confirm-note';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { hasModernMeta, checkModernRequest, META_SERVER_INFO } from '@/lib/mcp/modern-request';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
@@ -437,7 +438,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const accepted = `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
     + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
     + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.'
-    + planAttachNote(planAttach);
+    + planAttachNote(planAttach)
+    + requestConfirmNote();
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   // Повтор (тот же телефон, тур и дата за 24 ч) идёт тем же выходом, что и
@@ -582,7 +584,8 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // Переписку с перевозчиком (1350) открывает только ключ новой заявки; текст
   // ответа у повтора тот же (анти-оракул), как у заявки на бронь.
   const offersChat = !ctx.self;
-  return accepted + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat });
+  return accepted + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
+    + requestConfirmNote();
 }
 
 // ── create_car_rental_request (владелец 23.10) ─────────────────
@@ -736,7 +739,8 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   // Переписку с прокатом (1350) открывает только ключ новой заявки (текст
   // ответа у повтора тот же); пробная — без переписки.
   const offersChat = !ctx.self && !isTest;
-  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat });
+  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
+    + (isTest ? '' : requestConfirmNote());
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
@@ -774,7 +778,8 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
   // такой телефон с таким текстом уже писал (проверка MCP 29.09).
   return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach)
-    + await issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url);
+    + await issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url)
+    + requestConfirmNote();
 }
 
 /**
@@ -898,7 +903,8 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
     + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name, { opensChat: true }), 'stay')
     // Подписки у заявки на жильё нет (её состояние после передачи не
     // меняется); агент, передавший адрес, слышит это, а не тишину.
-    + (typeof rawArgs.notify_url === 'string' && rawArgs.notify_url.trim() !== '' ? STAY_NOTIFY_REFUSAL : '');
+    + (typeof rawArgs.notify_url === 'string' && rawArgs.notify_url.trim() !== '' ? STAY_NOTIFY_REFUSAL : '')
+    + requestConfirmNote();
 }
 
 // Имя проверено вызывающим (неизвестный инструмент — ошибка протокола
