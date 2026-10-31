@@ -1,5 +1,6 @@
 'use client';
 
+import { parseRequestPrefill } from '@/lib/booking/request-prefill';
 import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 import { useEffect, useRef, useState } from 'react';
 import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
@@ -102,13 +103,28 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   // план уже знает. Читаем на клиенте через window.location — серверный
   // searchParams выбил бы карточку тура из ISR-кэша. Мусор отбрасывается,
   // уже введённую руками дату не перетираем.
+  // 01.11: плюс ?guests= (people/participants/adults) — готовая форма для
+  // браузерного ИИ-агента без MCP (lib/booking/request-prefill.ts). Если
+  // адрес что-то предзаполнил, показываем сразу форму заявки (а не шаг
+  // «спросить места») и прокручиваем к ней.
   useEffect(() => {
     try {
-      const d = new URLSearchParams(window.location.search).get('date');
-      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const pre = parseRequestPrefill(window.location.search, Math.min(maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS));
+      if (pre.date) {
+        const d = pre.date;
         setFormData(prev => (prev.booking_date ? prev : { ...prev, booking_date: d }));
       }
+      if (pre.guests) {
+        const g = String(pre.guests);
+        setFormData(prev => (prev.participants_count !== '1' ? prev : { ...prev, participants_count: g }));
+      }
+      if (pre.date || pre.guests) {
+        setPlainBooking(true);
+        const el = document.getElementById('booking');
+        if (el && typeof el.scrollIntoView === 'function') setTimeout(() => el.scrollIntoView({ block: 'start' }), 50);
+      }
     } catch { /* предвыбор необязателен */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Маяк воронки: первое касание формы — событие booking_start, один раз за
