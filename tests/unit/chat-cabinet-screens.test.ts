@@ -121,6 +121,7 @@ describe('кнопки кабинета: форма', () => {
       [cabinetPayload.fleet(), { kind: 'fleet' }],
       [cabinetPayload.vehicleActive(UUID, true), { kind: 'vehicle_active', vehicleId: UUID, active: true }],
       [cabinetPayload.vehicleActive(UUID, false), { kind: 'vehicle_active', vehicleId: UUID, active: false }],
+      [cabinetPayload.carrierSummary(), { kind: 'carrier_summary' }],
     ];
     for (const kind of INBOX_KINDS) {
       forms.push([cabinetPayload.item(kind, UUID), { kind: 'item', item: kind, id: UUID }]);
@@ -217,11 +218,15 @@ describe('карточка предмета', () => {
     expect(link && 'url' in link ? link.url : '').toBe(`${BASE}/hub/guide/own`);
   });
 
-  it('жильё: «Ответить гостю» в MAX; в Telegram — нет; ссылка на «Входящие», если раздела нет', () => {
+  it('жильё: три кнопки ответа в обоих каналах (30.10), «Ответить гостю» в MAX; в Telegram — нет; ссылка на «Входящие», если раздела нет', () => {
     const stay = partner({ role: 'stay', bookingActions: false, operatorAnswers: false, sellsTours: false });
     const req = item({ kind: 'stay_request', id: UUID, title: 'Кутха' });
-    expect(payloads(itemCardScreen({ item: req, partner: stay, channel: 'max', base: BASE }))).toContain(`sq:o:${UUID}`);
+    const mx = itemCardScreen({ item: req, partner: stay, channel: 'max', base: BASE });
+    expect(payloads(mx)).toContain(`sq:o:${UUID}`);
+    expect(payloads(mx)).toEqual(expect.arrayContaining([`sa:f:${UUID}`, `sa:b:${UUID}`, `sa:c:${UUID}`]));
+    expect(mx.text).toContain('Нажмите одну кнопку');
     const tg = itemCardScreen({ item: req, partner: stay, channel: 'telegram', base: BASE });
+    expect(payloads(tg)).toEqual(expect.arrayContaining([`sa:f:${UUID}`, `sa:b:${UUID}`, `sa:c:${UUID}`]));
     expect(payloads(tg).some((p) => p.startsWith('sq:'))).toBe(false);
     const link = tg.rows.flat().find((x) => 'url' in x);
     expect(link && 'url' in link ? link.url : '').toBe(`${BASE}/hub/stay/inbox`);
@@ -357,11 +362,15 @@ describe('«Ещё»', () => {
   it('туроператор — его кабинет; гид со своими турами — «Брони» и «Мои туры»; у всех — сводка, «Помощь» и сайт', () => {
     expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
     expect(payloads(moreScreen(partner({ summary: true }), BASE))).toContain('rm:op:sm');
-    expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', 'cb:g', 'rm:gd:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:gd:hp', ...NAV]);
+    // У любого гида — расписание, заработок, профиль и отзывы (роль гида, этап 2, 30.10).
+    const guideRole = ['cb:s', 'cb:j', 'cb:p', 'cb:a'];
+    expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
+    // Гид без своих туров (31.10) — «Мои туры» кабинета: там «Новый тур».
+    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:u', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
     // Перевозчик: «Машины и прайс» (#2862 этап C) — парк и черновики прайса, затем сводка.
-    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:g', 'rm:tf:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:g', 'rm:st:hp', ...NAV]);
+    expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:y', 'cb:g', 'rm:tf:hp', ...NAV]);
+    // Хозяин жилья: «Занято» — занятые даты объекта без номеров и кнопка открыть (30.10).
+    expect(payloads(moreScreen(partner({ role: 'stay', sellsTours: false }), BASE))).toEqual(['cb:b', 'cb:g', 'rm:st:hp', ...NAV]);
     const site = moreScreen(partner({ role: 'transfer' }), BASE).rows.flat().find((b) => 'url' in b);
     expect(site).toEqual({ text: 'Кабинет на сайте', url: `${BASE}/hub/carrier` });
     // Кнопка сводки называет нынешнее время; не прочиталось — без слова о времени.

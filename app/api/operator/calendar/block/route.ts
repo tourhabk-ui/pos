@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperatorTeam } from '@/lib/operators/team-access';
 import { z } from 'zod';
+import { closeTourDates } from '@/lib/tours/availability-close';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,31 +73,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Диапазон не может превышать 366 дней' }, { status: 400 });
   }
 
-  try {
-    // Одно выражение на весь диапазон (аудит 15.10, 1.15, P3-14). Прежде —
-    // запрос на каждую дату разом (Promise.all, до 366): пул на 20 соединений
-    // делят SOS, брони и кроны, и всё остальное ждало соединения дольше 5 с.
-    // Одно выражение ещё и атомарно: отказ не оставляет полдиапазона закрытым.
-    await pool.query(
-      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
-       SELECT $1::bigint, d, 0, true, $3::text
-         FROM unnest($2::date[]) AS d
-       ON CONFLICT (operator_tour_id, date) DO UPDATE SET
-         is_cancelled        = true,
-         cancellation_reason = EXCLUDED.cancellation_reason,
-         updated_at          = NOW()`,
-      [tourId, dates, reason ?? 'Заблокировано оператором']
-    );
-
-    return NextResponse.json({
-      success: true,
-      data:    { blockedDates: dates.length, dates },
-      message: `Заблокировано ${dates.length} дат`,
-    });
-  } catch (err) {
-    console.error('[operator/calendar/block] POST не выполнен, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
+  // Одно выражение на весь диапазон (аудит 15.10, 1.15, P3-14): атомарно и
+  // одним соединением. Выражение общее с гидом в чате кабинета
+  // (lib/tours/availability-close, 30.10) и само проверяет владение туром.
+  const closed = await closeTourDates(pool, { operatorId, tourId, dates, reason: reason ?? 'Заблокировано оператором' });
+  if (!closed.ok && closed.reason === 'tour_not_found') {
+    return NextResponse.json({ success: false, error: 'Тур не найден или нет прав' }, { status: 404 });
+  }
+  if (!closed.ok) {
     return NextResponse.json({ success: false, error: 'Ошибка при блокировке дат' }, { status: 500 });
   }
+  return NextResponse.json({
+    success: true,
+    data:    { blockedDates: dates.length, dates },
+    message: `Заблокировано ${dates.length} дат`,
+  });
 }
 
 // ─── DELETE /api/operator/calendar/block ──────────────────────────────────────

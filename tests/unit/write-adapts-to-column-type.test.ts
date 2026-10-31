@@ -67,7 +67,8 @@ describe('значение готовится по типу колонки', () 
 describe('все пути записи тура спрашивают схему', () => {
   const WRITERS = [
     'app/api/admin/operator-tours/[id]/route.ts',
-    'app/api/hub/operator/tours/[id]/route.ts',
+    // PATCH кабинета оператора и «Сохранить» гида в чате пишут общей функцией (30.10).
+    'lib/tours/tour-write.ts',
     'lib/api/operator-tours.ts',
   ];
 

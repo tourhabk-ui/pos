@@ -4,6 +4,7 @@ import { ApiResponse } from '@/types';
 import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { logGuideFailure } from '@/lib/guides/db-failure';
+import { listGuideCertifications } from '@/lib/guides/cert-reminders';
 import {
   CertificationInputSchema, GUIDE_CERT_COLUMNS, toGuideCert, type GuideCertRow,
 } from '@/lib/guides/certification-input';
@@ -38,14 +39,9 @@ export async function GET(request: NextRequest) {
   if (resolved instanceof NextResponse) return resolved;
 
   try {
-    const { rows } = await query<GuideCertRow>(
-      `SELECT ${GUIDE_CERT_COLUMNS}
-       FROM guide_certifications
-       WHERE guide_id = $1
-       ORDER BY issue_date DESC NULLS LAST, created_at DESC`,
-      [resolved.guideId],
-    );
-    return NextResponse.json({ success: true, data: { items: rows.map(toGuideCert) } });
+    // То же чтение, что напоминание о сроке в сводке чата (lib/guides/cert-reminders).
+    const items = await listGuideCertifications(resolved.guideId);
+    return NextResponse.json({ success: true, data: { items } });
   } catch (error) {
     logGuideFailure('GET /api/guide/certifications', error);
     return NextResponse.json(

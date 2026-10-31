@@ -211,7 +211,9 @@ describe('экран «Мои туры» гида', () => {
     expect(text).toContain('Черновик гида — Черновик — туристы не видят');
     expect(text).toContain('Выключенный тур — Скрыт');
     expect(text).not.toContain('Выключенный тур — Скрыт · открытых дат');
-    expect(text).toContain('пришлите описание менеджеру Ведара');
+    // С 31.10 черновик гид выводит на сайт сам — менеджеру писать не нужно.
+    expect(text).toContain('там видно, чего не хватает до сайта, и кнопка «Опубликовать»');
+    expect(text).not.toContain('менеджеру');
     expect(text).toContain('/hub/guide/own');
   });
 

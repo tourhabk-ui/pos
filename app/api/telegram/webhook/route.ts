@@ -71,7 +71,7 @@ import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCod
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { tryRentalCabinetTelegramMessage, tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
-import { type MenuButton } from '@/lib/roles/chat-menu';
+import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, parseRoleMenuPress } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
@@ -1239,7 +1239,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         '',
         '<a href="https://vedarai.ru/routes">Все маршруты →</a>',
       ].filter(s => s !== '').join('\n');
-      if (admin) await sendRoleRows(chatId, helpText, [adminMenu()]);
+      if (admin) await sendRoleRows(chatId, helpText, menuRows(adminMenu()));
       else await sendHTML(chatId, helpText);
       return;
     }
@@ -1808,6 +1808,21 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
+    // Ответ хозяина жилья на заявку одной кнопкой (`sa:`, lib/stay/owner-answer,
+    // 30.10) из карточки кабинета в чате: тот же разбор, что в MAX; чат
+    // партнёра — из привязки. Без ПД: в ответе ни имени, ни телефона гостя.
+    if (data.startsWith('sa:')) {
+      await telegramService.answerCallback(cq.id);
+      const { handleStayAnswerPress } = await import('@/lib/stay/owner-answer-flow');
+      const { findPartnerByChat } = await import('@/lib/kuzmich/operator-chat');
+      const lookup = await findPartnerByChat('telegram', cq.message?.chat?.id ?? senderChatId);
+      await handleStayAnswerPress({
+        lookup, payload: data, editMid: null, originalText: null, via: 'telegram',
+        send: async (body) => { await sendHTML(callbackChatId, body); },
+      });
+      return;
+    }
+
     if (parseRentalCabinetPress(data) || data.startsWith('rr:') || data.startsWith('rc:')) {
       await telegramService.answerCallback(cq.id);
       await tryRentalCabinetTelegramPress({
@@ -1841,7 +1856,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         const screen = await roleMenuScreen({
           role: 'admin', action: rolePress.action, channel: 'telegram', partner: null, nowMs: Date.now(),
         });
-        await sendRoleRows(callbackChatId, screen.text, [adminMenu()]);
+        await sendRoleRows(callbackChatId, screen.text, menuRows(adminMenu()));
         return;
       }
       await tryRoleMenuTelegramPress({

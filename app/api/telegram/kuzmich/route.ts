@@ -776,6 +776,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // чем ответить партнёру как туристу один раз.
     const lookup = isPrivate ? await findPartnerByChat('telegram', chatId) : null;
     const partner = lookup?.outcome === 'found' ? lookup.partner : null;
+    // Правка своего тура гидом (30.10): «Горелый: описание: …» — черновик и
+    // «было → станет» с кнопками «Сохранить» / «Отмена» (lib/guides/tour-edit);
+    // в тур пишет только кнопка. Раньше развилки туриста и кабинета: строгая
+    // форма фразы — дело гида, а «описание: выезд 5 августа» — текст тура, не
+    // даты. Текст тура — не ПД, поэтому и в Telegram.
+    // Роль гида, этап 2 (30.10): ответ на отзыв после «Ответить» и «о себе: …»
+    // (lib/guides/chat-role) — черновик, пишет только кнопка. Отзыв в Telegram
+    // без подписи автора, ответ и профиль — не ПД.
+    if (partner && msg.text) {
+      const { captureGuideRoleText } = await import('@/lib/guides/chat-role/flow');
+      const role = await captureGuideRoleText({ channel: 'telegram', chatId, partner, text: msg.text });
+      if (role) {
+        await tgReply(chatId, withSosBlock(role.text, msg.text).text, {
+          reply_markup: telegramCabinetKeyboard(secondEntryCabinetRows(role.rows)),
+        });
+        return NextResponse.json({ ok: true });
+      }
+    }
+    if (partner && msg.text) {
+      const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
+      const edit = await captureGuideTourEdit({ channel: 'telegram', chatId, partner, text: msg.text });
+      if (edit) {
+        await tgReply(chatId, withSosBlock(edit.text, msg.text).text, {
+          reply_markup: telegramCabinetKeyboard(secondEntryCabinetRows(edit.rows)),
+        });
+        return NextResponse.json({ ok: true });
+      }
+    }
     // Та же развилка, что в MAX: просьба туриста (аренда, тур, трансфер,
     // план поездки) идёт Кузьмичу туриста, кабинет — помощнику партнёра.
     // Заявка, начатая здесь у Кузьмича туриста, доводится им же: ответы

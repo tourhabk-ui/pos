@@ -13,9 +13,9 @@ import {
   kindChangeRejected,
   softDeleteTour,
 } from '@/lib/api/operator-tours';
-import { assertLiveMainPlace, MainPlaceRejected } from '@/lib/tours/main-place';
+import { MainPlaceRejected } from '@/lib/tours/main-place';
+import { writeTourPatch } from '@/lib/tours/tour-write';
 import { transaction } from '@/lib/database';
-import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { requireTeamPermission } from '@/lib/operators/team-access';
@@ -116,127 +116,22 @@ export async function PATCH(
       if (denied) return denied;
     }
 
-    // Build SET clause dynamically from provided fields
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    let idx = 1;
-
-    const allowed = [
-      'title', 'short_description', 'description',
-      'location_type', 'activity_type', 'location_name',
-      'latitude', 'longitude',
-      'base_price', 'price_old', 'price_unit',
-      'max_participants', 'min_participants',
-      'duration_hours', 'duration_type', 'multi_day_count',
-      'season_start', 'season_end', 'seasonal_only',
-      'difficulty', 'weather_dependent',
-      'min_visibility_m', 'max_wind_kmh', 'max_precipitation_mm',
-      'is_active', 'is_published',
-      'included', 'not_included', 'what_to_bring',
-      'cancellation_policy',
-      'pickup_type', 'pickup_details',
-      'photos', 'tour_image',
-      'available_slots', 'next_available_date',
-    ] as const;
-
-    // Тип колонки берём из схемы, а не из предположения: состав тура на проде
-    // год был jsonb там, где репозиторий объявлял TEXT[], и сохранение падало.
-    const columnTypes = await getColumnTypes('operator_tours');
-
-    for (const key of allowed) {
-      const rec = input as Record<string, unknown>;
-      if (key in rec && rec[key] !== undefined) {
-        fields.push(`${key} = $${idx++}`);
-        values.push(valueForColumn(rec[key], key, columnTypes));
-      }
-    }
-
-    // Главное фото каталога — первое фото галереи. Редактор пишет только
-    // photos («первое — главное»), а плитка каталога и OG-картинка читают
-    // tour_image: до 25.09 в каталоге оставалась старая картинка.
-    const rec = input as Record<string, unknown>;
-    if (Array.isArray(rec.photos) && rec.tour_image === undefined) {
-      const first = (rec.photos as unknown[]).find((p): p is string => typeof p === 'string' && p.trim().length > 0);
-      fields.push(`tour_image = $${idx++}`);
-      values.push(first ?? null);
-    }
-
-    // Числа условий отмены (1012) выведены из ПРЕЖНЕГО текста. Оператор
-    // переписал текст — числа больше ему не соответствуют, и счёт возврата
-    // разошёлся бы с тем, что турист читает на карточке. Сбрасываем их в NULL
-    // («условия не записаны» → 100%, lib/payments/tour-refund.ts): пробел в
-    // данных безопаснее для туриста, чем число от чужой фразы. RHS в SET
-    // читает старое значение строки, поэтому сравнение — со старым текстом.
-    const policyInput = (input as Record<string, unknown>).cancellation_policy;
-    if (policyInput !== undefined) {
-      const p = `$${idx++}`;
-      values.push(policyInput);
-      fields.push(
-        `cancellation_free_days = CASE WHEN cancellation_policy IS DISTINCT FROM ${p}::text THEN NULL ELSE cancellation_free_days END`,
-        `cancellation_late_refund_percent = CASE WHEN cancellation_policy IS DISTINCT FROM ${p}::text THEN NULL ELSE cancellation_late_refund_percent END`,
-      );
-    }
-
-    // Закрепление наверху страницы оператора (1267). Повторное «закрепить»
-    // не сдвигает момент закрепления: порядок закреплённых — по тому, кого
-    // закрепили раньше, и сохранение формы целиком его не перемешивает.
-    const pinnedInput = (input as Record<string, unknown>).pinned;
-    if (typeof pinnedInput === 'boolean') {
-      fields.push(`pinned_at = CASE WHEN $${idx++}::boolean THEN COALESCE(pinned_at, NOW()) ELSE NULL END`);
-      values.push(pinnedInput);
-    }
-
-    // Главное место тура (1286, аудит 15.10 TOUR-PLACE). Форма шлёт поле
-    // целиком при каждом сохранении, поэтому пишем только ПЕРЕМЕНУ: иначе
-    // связь, поставленная миграцией по координатам, при любой правке цены
-    // выдавала бы себя за выбор оператора, а место, скрытое позже, не давало
-    // бы сохранить тур вовсе. Новое место проверяется в транзакции ниже:
-    // только существующее, видимое и не слитое.
-    const mainPlaceInput = (input as Record<string, unknown>).main_place_id as string | null | undefined;
-    const currentMainPlace = ((tour as Record<string, unknown>).main_place_id as string | null | undefined) ?? null;
-    const mainPlaceChange = mainPlaceInput !== undefined && mainPlaceInput !== currentMainPlace;
-    if (mainPlaceChange) {
-      fields.push(`main_place_id = $${idx++}::text`);
-      values.push(mainPlaceInput);
-      fields.push(`main_place_source = $${idx++}::text`);
-      values.push(mainPlaceInput === null ? null : 'operator');
-    }
-
-    if (fields.length === 0) {
+    // Запись — общая функция (lib/tours/tour-write): тем же путём тур гида
+    // правится из чата кабинета. Владение уже проверено выше; функция
+    // проверяет его ещё раз в самом UPDATE. Теги — в той же транзакции.
+    const written = await transaction((client) => writeTourPatch(client, {
+      tourId,
+      ownerId: isAdmin ? null : operator_id,
+      input,
+      current: tour as Record<string, unknown>,
+    }));
+    if (written.outcome === 'empty') {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
-
-    values.push(tourId);
-
-    // UPDATE и перезапись тегов — в ОДНОЙ транзакции. Раньше это были два
-    // независимых запроса: обрыв соединения между DELETE и циклом INSERT
-    // оставлял теги частично потерянными, а клиенту уходил 500 — оператор
-    // считал, что не сохранилось НИЧЕГО, хотя цена/название уже применились
-    // (аудит кабинета оператора).
-    const updatedRow = await transaction(async (client) => {
-      if (mainPlaceChange && mainPlaceInput !== null) {
-        await assertLiveMainPlace(client, mainPlaceInput);
-      }
-
-      const result = await client.query(
-        `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
-         WHERE id = $${idx} AND deleted_at IS NULL
-         RETURNING id, title, updated_at`,
-        values
-      );
-
-      if (input.tags !== undefined) {
-        await client.query(`DELETE FROM operator_tour_tags WHERE tour_id = $1`, [tourId]);
-        for (const tag of input.tags) {
-          await client.query(
-            `INSERT INTO operator_tour_tags (tour_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-            [tourId, tag.trim().toLowerCase()]
-          );
-        }
-      }
-
-      return result.rows[0];
-    });
+    if (written.outcome === 'not_found') {
+      return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
+    }
+    const updatedRow = written.row;
 
     pingTourChanged(tourId);
 

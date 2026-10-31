@@ -34,12 +34,16 @@ import { bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-own
 import { chatAnswerButtons } from '@/lib/requests/chat-answer';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
+import { STAY_ANSWER_HINT, stayAnswerButtons } from '@/lib/stay/owner-answer';
+import { busyScreenLines, groupRanges, rangeWords, type BusyObjectView } from '@/lib/stay/busy-dates';
 import { formatRub, vehicleKindWord, type CharterVehicleKind } from '@/lib/transfers/charter-format';
 import { priceRowLabel, type CharterPriceRow } from '@/lib/transfers/price-edit';
+import { carrierSummaryText, type CarrierSummary } from '@/lib/transfers/carrier-summary';
 import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
+import { menuRows } from '@/lib/roles/chat-menu';
 
 export type CabinetChannel = 'max' | 'telegram';
 
@@ -120,10 +124,15 @@ export function cabinetNavRow(): CabinetButton[] {
   ];
 }
 
+/** Строка кабинета под экраном — рядами по два: четыре в ряд MAX режет подписи. */
+export function cabinetNavRows(): CabinetButton[][] {
+  return menuRows(cabinetNavRow());
+}
+
 function screen(lines: Array<string | null | undefined>, rows: CabinetButton[][], pd = false): CabinetScreen {
   return {
     text: lines.filter((l): l is string => typeof l === 'string').join('\n'),
-    rows: [...rows.filter((r) => r.length > 0), cabinetNavRow()],
+    rows: [...rows.filter((r) => r.length > 0), ...cabinetNavRows()],
     pd,
   };
 }
@@ -228,6 +237,9 @@ export function itemCardScreen(args: {
   lines.push(`Ждёт ответа: ${waitingAge(item.waiting_minutes)}.`);
   const showName = channel === 'max' && item.contact_id !== null;
   if (showName) lines.push(`Клиент: ${escapeHtml(contactLabel(item.contact_name))}`);
+  // Telegram имён и телефонов не получает (решение 23.08): сказано, где они,
+  // а не молчание, которое читалось бы как «клиента нет» (#2862 этап D).
+  if (channel !== 'max' && item.contact_id !== null) lines.push('Имя и телефон клиента — в MAX или в кабинете на сайте.');
 
   const rows: CabinetButton[][] = [];
   const action = inboxActionFor(partner.role, item.kind);
@@ -249,6 +261,12 @@ export function itemCardScreen(args: {
     // закрепляется, суммы нет (§14).
     rows.push(rentalAnswerButtons(item.id)!);
     lines.push('«Беру» — вы готовы выполнить и свяжетесь с заказчиком сами; «Не могу» — заявка остаётся у менеджера Ведара. Ответ записывается сразу и один раз; машина заявкой не закрепляется.');
+  } else if (item.kind === 'stay_request' && partner.role === 'stay' && stayAnswerButtons(item.id)) {
+    // Заявка на жильё (30.10): те же три кнопки, что под заявкой в MAX (`sa:`),
+    // в обоих каналах — гость получает ответ словами хозяина, заявка перестаёт
+    // ждать. Это не бронь: даты и цену подтверждает хозяин (1206).
+    rows.push(stayAnswerButtons(item.id)!);
+    lines.push(STAY_ANSWER_HINT);
   } else if (item.kind === 'charter_ride' && partner.role === 'transfer' && rideOutcomeButtons(item.id)) {
     // Исход поездки (#2862 этап B): слово перевозчика о факте, один раз.
     // «Состоялась» — заказчику уходит ссылка на отзыв о перевозчике.
@@ -534,14 +552,34 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     rows.push([{ text: 'Мои туры и цены', payload: 'opd:tours' }, { text: 'Обновить места', payload: 'opd:seats' }]);
     lines.push('Мои туры и цены — живые туры и цена из каталога. Обновить места — где отметить занятость.');
   } else if (partner.role === 'guide' && partner.sellsTours) {
+    // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
-    lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик и открытые даты.');
+    lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик, открытые даты; нажмите тур — даты кнопками, текст и цена, «Опубликовать». Там же — «Новый тур».');
+  } else if (partner.role === 'guide') {
+    // Гид без своих туров (31.10): первый тур заводится здесь — «Мои туры»
+    // кабинета (`cb:u`) с кнопкой «Новый тур» (lib/guides/tour-edit).
+    rows.push([{ text: 'Мои туры', payload: cabinetPayload.myTours() }]);
+    lines.push('Мои туры — своих туров пока нет: «Новый тур» заведёт черновик, на сайт — вашей кнопкой «Опубликовать».');
+  }
+  if (partner.role === 'guide') {
+    // Роль гида, этап 2 (30.10, «гид должен полностью управлять своей ролью
+    // из MAX»): lib/guides/chat-role — у любого гида, со своими турами и без.
+    rows.push([{ text: 'Расписание', payload: cabinetPayload.schedule() }, { text: 'Заработок', payload: cabinetPayload.earnings() }]);
+    rows.push([{ text: 'Профиль', payload: cabinetPayload.profile() }, { text: 'Отзывы', payload: cabinetPayload.reviews() }]);
+    lines.push('Расписание — записи календаря и группы на 14 дней. Заработок — начисления за 30 дней.');
+    lines.push('Профиль — «о себе», опыт, языки и команда оператора: приглашения кнопками. Отзывы — ответить, изменить или удалить свой ответ.');
   }
   if (partner.role === 'transfer') {
     // Парк и прайс перевозчика (#2862 этап C): кнопка снять машину с линии,
     // цена — фразой, на модерацию.
-    rows.push([{ text: 'Машины и прайс', payload: cabinetPayload.fleet() }]);
+    rows.push([{ text: 'Машины и прайс', payload: cabinetPayload.fleet() }, { text: 'Сводка', payload: cabinetPayload.carrierSummary() }]);
     lines.push('Машины и прайс — парк (снять с линии и вернуть кнопкой) и строки прайса с черновиками на модерации.');
+    lines.push('Сводка — заявки на машину, ответы, поездки и отзывы за 30 дней, без имён.');
+  }
+  if (partner.role === 'stay') {
+    // Занятость объекта без номеров словами хозяина (30.10): список и «Освободить».
+    rows.push([{ text: 'Занято', payload: cabinetPayload.busy() }]);
+    lines.push('Занято — какие даты вы закрыли для гостей сайта; закрыть — фразой «занято с 5 по 9 ноября», открыть — кнопкой.');
   }
   if (partner.summary) {
     rows.push([{ text: 'Сводка', payload: `rm:${code}:sm` }]);
@@ -705,6 +743,16 @@ export function fleetScreen(args: {
   return screen(lines, rows);
 }
 
+// ── Сводка перевозчика (#2862 этап D) ──────────────────────────────────────
+
+/** Числа за 30 дней без имён и телефонов — экран идёт в оба канала; не прочитавшийся блок назван. */
+export function carrierSummaryScreen(summary: CarrierSummary, base: string): CabinetScreen {
+  return screen(
+    [carrierSummaryText(summary)],
+    [[{ text: 'Кабинет на сайте', url: siteUrl(base, 'transfer') }]],
+  );
+}
+
 // ── Отказы ──────────────────────────────────────────────────────────────────
 
 export const CABINET_TEXT = {
@@ -729,8 +777,37 @@ export const CABINET_TEXT = {
 } as const;
 
 /** Короткий ответ без экрана данных: текст и строка кабинета. */
+// ── Занято (хозяин жилья, 30.10) ────────────────────────────────────────────
+
+/** Сколько отрезков получают кнопку «Освободить»: дальше — фразой «свободно с … по …». */
+export const BUSY_RELEASE_BUTTONS_MAX = 6;
+
+/**
+ * Занятые даты объектов хозяина с кнопкой «Освободить» у каждого отрезка.
+ * ПД нет — идёт в оба канала. null — не прочиталось, и это сказано.
+ */
+export function busyScreen(args: { objects: BusyObjectView[] | null; base: string; notice?: string }): CabinetScreen {
+  const rows: CabinetButton[][] = [];
+  if (args.objects) {
+    const many = args.objects.length > 1;
+    let shown = 0;
+    for (const o of args.objects) {
+      for (const r of groupRanges(o.dates)) {
+        if (shown >= BUSY_RELEASE_BUTTONS_MAX) break;
+        shown += 1;
+        const label = many ? `Освободить ${o.name}: ${rangeWords(r)}` : `Освободить ${rangeWords(r)}`;
+        rows.push([{ text: clip(label), payload: cabinetPayload.busyRelease(o.id, r.from, r.to), intent: 'positive' }]);
+      }
+    }
+  }
+  const lines = busyScreenLines(args.objects, args.notice);
+  if (rows.length >= BUSY_RELEASE_BUTTONS_MAX) lines.push(`Кнопки — у первых ${BUSY_RELEASE_BUTTONS_MAX} отрезков; остальные открываются фразой «свободно с … по …».`);
+  rows.push([{ text: 'Календарь на сайте', url: `${args.base.replace(/\/$/, '')}/hub/stay/calendar` }]);
+  return screen(lines, rows);
+}
+
 export function noticeScreen(text: string, withNav = true): CabinetScreen {
-  return { text, rows: withNav ? [cabinetNavRow()] : [], pd: false };
+  return { text, rows: withNav ? cabinetNavRows() : [], pd: false };
 }
 
 /** Отказ базы: тот же короткий ответ, помеченный для счёта пользования. */

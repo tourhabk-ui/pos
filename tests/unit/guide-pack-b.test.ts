@@ -414,7 +414,8 @@ describe('связка: производители, писатели, ПД', () 
   });
 
   it('у каждого статуса есть производитель в коде', () => {
-    const team = read('app/api/guide/team/route.ts');
+    // Шаги ответа и выхода — общие у сайта и чата кабинета (lib/guides/team-actions).
+    const team = read('lib/guides/team-actions.ts');
     const opGuides = read('app/api/operator/guides/route.ts');
     // pending — значение по умолчанию при INSERT приглашения.
     expect(TEAM_SQL.insertInvite).toMatch(/INSERT INTO guide_operator_invites/);
@@ -466,6 +467,7 @@ describe('сломанный SQL кабинета гида не возвраща
     'app/api/guide/schedule/route.ts',
     'app/api/guide/schedule/[id]/route.ts',
     'app/api/guide/team/route.ts',
+    'lib/guides/team-actions.ts',
     'lib/guides/team-queries.ts',
     'lib/guides/schedule.ts',
   ];

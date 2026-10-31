@@ -58,7 +58,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'request_chat' | 'cabinet';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'request_chat' | 'cabinet' | 'stay_answer';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -92,7 +92,8 @@ export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
  * (`lib/leads/status-action`, `lead_ai`, `lead_send`), `maxlogin_` — ответ на
  * вопрос о входе на сайт (`lib/auth/max-login`), `od:` — «Открыть» / «Не
  * надо» / выбор тура под предложением открыть даты из чата кабинета
- * (`lib/operators/chat-dates`, 22.10), `rb:` — отметка дня в календаре
+ * (`lib/operators/chat-dates`, 22.10), `dw:` — шаги дат кнопками до того же
+ * предложения (`lib/operators/chat-dates/wizard`, 31.10), `rb:` — отметка дня в календаре
  * проката (`lib/rental/car-calendar`), `rr:` — «Беру» / «Не могу» на заявке
  * проката (`lib/rental/request-answer`), `bk:`, `ld:` и `oc:` — бронь и
  * заявка своего тура кнопкой из чата кабинета гида: вопрос и «Да» / «Не надо»
@@ -112,10 +113,15 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   if (payload.startsWith('sr:')) return 'seat';
   if (payload.startsWith('lead_')) return 'lead';
   if (payload.startsWith(LOGIN_CONFIRM_PREFIX) || payload.startsWith(LOGIN_REJECT_PREFIX)) return 'login';
-  if (payload.startsWith('od:')) return 'dates';
+  // `dw:` — даты кнопками (lib/operators/chat-dates/wizard, 31.10): шаги до
+  // того же предложения с «Открыть»; полоса и право — как у `od:`.
+  if (payload.startsWith('od:') || payload.startsWith('dw:')) return 'dates';
   // `rc:` — «Поездка состоялась» / «Не состоялась» перевозчика (lib/transfers/ride-outcome, #2862 этап B):
   // та же полоса, что ответ на заявку — чат партнёра, личный диалог.
   if (payload.startsWith('rb:') || payload.startsWith('rr:') || payload.startsWith('rc:')) return 'rental';
+  // `sa:` — «Свободно, беру» / «Занято» / «Позвоню сам» хозяина жилья под
+  // заявкой (lib/stay/owner-answer, 30.10): чат партнёра, личный диалог.
+  if (payload.startsWith('sa:')) return 'stay_answer';
   return null;
 }
 
@@ -159,6 +165,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Сообщение по заявке отсюда не уйдёт — позвоните по телефону из заявки или напишите на странице заявки.',
   cabinet: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Ничего не открыто и не записано — откройте кабинет на vedarai.ru.',
+  stay_answer: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Ответ гостю не записан — позвоните ему по телефону из заявки.',
 };
 
 /**
@@ -181,6 +189,8 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
     + 'по заявке или позвоните по телефону из заявки.',
   cabinet: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ничего не открыто и не записано — '
     + 'нажмите «Входящие» под любым сообщением бота.',
+  stay_answer: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ответ гостю не записан — '
+    + 'нажмите «Заявки» под любым сообщением бота и ответьте в карточке или позвоните гостю.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */

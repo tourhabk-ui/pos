@@ -48,7 +48,7 @@ import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pi
 import {
   parseRentalCabinetPress, rentalCabinetAsk, rentalCabinetBar, withRentalCabinetBar, type CabinetButton,
 } from '@/lib/rental/cabinet-bar';
-import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
+import { appendMenu, menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
 import { PARTNER_PD_UNDELIVERED, roleMenuScreen, type RoleScreen } from '@/lib/roles/role-screen';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -79,12 +79,13 @@ import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
 import { armChatWait, bindGuestChat, captureChatText, type ChatReply } from '@/lib/requests/request-chat-service';
 import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
-import { operatorDeskButtons, operatorHelpText, operatorSeatsText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
+import { operatorDeskButtons, operatorHelpText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
 import { cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, type CabinetSection } from '@/lib/chat-cabinet/service';
 import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
 import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
+import { noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 
@@ -214,14 +215,24 @@ async function maxReplyToUser(userId: number, text: string): Promise<void> {
 async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxButton[][]): Promise<void> {
   const api = getApi();
   if (!api) return;
+  let res: unknown;
   try {
-    await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
+    res = await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
       format: 'html',
       attachments: [{ type: 'inline_keyboard', payload: { buttons } }],
     });
   } catch (err) {
     logFailure('ответ с кнопками в чат MAX', err);
+    return;
   }
+  // Строка меню — только под последним сообщением (31.10): у прежнего снимаем.
+  await noteMenuMessage(api as unknown as TailApi, chatId, sentMid(res), text, buttons);
+}
+
+/** Правка сообщения с кнопками принята: если на нём строка меню — оно теперь последнее. */
+async function noteEditedMenu(chatId: number, mid: string, text: string, buttons: MaxButton[][]): Promise<void> {
+  const api = getApi();
+  if (api) await noteMenuMessage(api as unknown as TailApi, chatId, mid, text, buttons);
 }
 
 /**
@@ -279,7 +290,10 @@ function rentalAnswerSend(chatId: number, bar: boolean) {
           format: 'html',
           attachments,
         });
-        if (res?.success !== false) return;
+        if (res?.success !== false) {
+          await noteEditedMenu(chatId, editMid, text, buttons);
+          return;
+        }
         console.error('[max/kuzmich] правка ответа на заявку проката не принята MAX — отправляю новым сообщением');
       } catch (err) {
         logFailure('правка ответа на заявку проката', err);
@@ -306,7 +320,10 @@ function rentalCalendarSend(chatId: number, bar: boolean) {
           format: 'html',
           attachments: [{ type: 'inline_keyboard', payload: { buttons: rows } }],
         });
-        if (res?.success !== false) return;
+        if (res?.success !== false) {
+          await noteEditedMenu(chatId, editMid, text, rows);
+          return;
+        }
         console.error('[max/kuzmich] правка календаря проката не принята MAX — отправляю новым сообщением');
       } catch (err) {
         logFailure('правка календаря проката', err);
@@ -337,6 +354,7 @@ function cabinetSectionOfText(asked: ReturnType<typeof roleMenuAsk>, slashHead: 
   if (asked === 'inbox' || slashHead === '/requests') return 'inbox';
   if (asked === 'tasks' || slashHead === '/tasks') return 'tasks';
   if (asked === 'clients' || slashHead === '/clients') return 'clients';
+  if (asked === 'busy') return 'busy';
   return null;
 }
 
@@ -352,6 +370,36 @@ function memberCabinetMax(chatId: number, text: string): Promise<boolean> {
     show: (screen, userText) => showCabinetMax(chatId, screen, null, userText),
     say: (body) => maxReply(chatId, body),
   });
+}
+
+/**
+ * Шаг дат кнопками (`dw:`, 31.10): правим сообщение с кнопкой, не вышло —
+ * новое. Строка меню — под кнопками шага, как у ответа потока дат.
+ */
+function datesEditSend(chatId: number, menu: MenuButton[] | null, editMid: string | null): DatesSend {
+  return async (text, buttons) => {
+    const content = buttons ?? [];
+    const rows = toMaxButtons(menu?.length ? appendMenu(content, menu) : content);
+    const api = getApi();
+    if (editMid && api) {
+      try {
+        const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
+          text,
+          format: 'html',
+          attachments: rows.length ? [{ type: 'inline_keyboard', payload: { buttons: rows } }] : [],
+        });
+        if (res?.success !== false) {
+          await noteEditedMenu(chatId, editMid, text, rows);
+          return;
+        }
+        console.error('[max/kuzmich] правка шага дат не принята MAX — отправляю новым сообщением');
+      } catch (err) {
+        logFailure('правка шага дат', err);
+      }
+    }
+    if (rows.length === 0) await maxReply(chatId, text);
+    else await maxReplyWithButtons(chatId, text, rows);
+  };
 }
 
 /** Ответ потока дат в чат кабинета: кнопки — callback с payload `od:`. */
@@ -601,6 +649,34 @@ async function downloadMedia(url: string): Promise<{ base64: string; mimeType: s
   }
 }
 
+/** Сколько файла принимаем из MAX: документ тура — десятки килобайт. */
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Файл из MAX байтами — тот же SSRF-барьер, что у медиа (только https на
+ * хосты MAX), и предел размера до чтения тела. null — не скачался (причина в
+ * логе); 'too_big' — больше предела, не качали.
+ */
+async function downloadMaxFile(url: string): Promise<Buffer | null | 'too_big'> {
+  if (!isAllowedMediaUrl(url)) {
+    console.error('[max/kuzmich] файл не с хоста MAX — не скачан (хост — MAX_MEDIA_HOSTS)');
+    return null;
+  }
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) {
+      console.error(`[max/kuzmich] файл не скачан: HTTP ${res.status}`);
+      return null;
+    }
+    if (Number(res.headers.get('content-length') ?? '0') > MAX_FILE_BYTES) return 'too_big';
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > MAX_FILE_BYTES ? 'too_big' : buf;
+  } catch (err) {
+    logFailure('скачивание файла', err);
+    return null;
+  }
+}
+
 // ── Типы апдейтов MAX ────────────────────────────────────────────────────────
 
 interface MaxAttachment {
@@ -735,10 +811,16 @@ async function handleActionPress(
       return;
     }
     const lookup = await findPartnerByChat('max', chatId);
-    const { handleOperatorDatesPress } = await import('@/lib/operators/chat-dates/flow');
     const menu = lookup.outcome === 'found'
       ? (isRentalPilotSlug(lookup.partner.slug) ? rentalCabinetBar() : partnerMenu(lookup.partner))
       : null;
+    // Шаги дат кнопками правят то же сообщение: выбор живёт в одном месте.
+    if (payload.startsWith('dw:')) {
+      const { handleDatesWizardPress } = await import('@/lib/operators/chat-dates/wizard-flow');
+      await handleDatesWizardPress({ payload, chatId, lookup, send: datesEditSend(chatId, menu, pressed?.mid ?? null) });
+      return;
+    }
+    const { handleOperatorDatesPress } = await import('@/lib/operators/chat-dates/flow');
     await handleOperatorDatesPress({ payload, chatId, lookup, send: datesSend(chatId, menu) });
     return;
   }
@@ -784,6 +866,29 @@ async function handleActionPress(
     const { handleRentalCalendarPress } = await import('@/lib/rental/car-calendar-flow');
     await handleRentalCalendarPress({
       lookup, payload, nowMs: Date.now(), editMid: pressed?.mid ?? null, send: rentalCalendarSend(chatId, bar),
+    });
+    return;
+  }
+
+  // Ответ хозяина жилья на заявку одной кнопкой (`sa:`, 30.10): «Свободно,
+  // беру» / «Занято» / «Позвоню сам». Только личный диалог и чат привязанной
+  // карточки; заявка обязана быть его (lib/stay/owner-answer-flow). Под
+  // ответом остаётся «Ответить гостю».
+  if (action === 'stay_answer') {
+    if (chatType !== 'dialog') {
+      console.error(`[max/kuzmich] нажатие (stay_answer) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
+      await maxReply(chatId, 'Ответ на заявку принимается в личном диалоге с ботом. Здесь ничего не записал.');
+      return;
+    }
+    const lookup = await findPartnerByChat('max', chatId);
+    const { handleStayAnswerPress } = await import('@/lib/stay/owner-answer-flow');
+    await handleStayAnswerPress({
+      lookup,
+      payload,
+      editMid: pressed?.mid ?? null,
+      originalText: pressed?.text ?? null,
+      via: 'max',
+      send: rentalAnswerSend(chatId, false),
     });
     return;
   }
@@ -996,7 +1101,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       const admin = await findMaxAdmin(update.user.user_id);
       if (admin.outcome === 'admin') {
         const { adminGreeting } = await import('@/lib/max/admin-chat');
-        await maxReplyWithButtons(update.chat_id, adminGreeting(admin.name), toMaxButtons([adminMenu()]));
+        await maxReplyWithButtons(update.chat_id, adminGreeting(admin.name), toMaxButtons(menuRows(adminMenu())));
         return;
       }
     }
@@ -1149,7 +1254,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await handleAdminMessage({
           text, name: admin.name, chatId,
           reply: async (_id, body) => {
-            await maxReplyWithButtons(chatId, body, toMaxButtons([adminMenu()]));
+            await maxReplyWithButtons(chatId, body, toMaxButtons(menuRows(adminMenu())));
           },
         });
         return;
@@ -1159,6 +1264,30 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // «права администратора не проверены» туристу был бы чужим. Обычный
       // путь ПД туристов не показывает, так что администратору он ничего
       // лишнего не откроет — только не узнает его на одно сообщение.
+    }
+
+    // Документ гида (.docx) → поля своего тура (30.10, «гид должен полностью
+    // управлять своей ролью из MAX»): разбор правилами, «было → станет» по
+    // полям, пишет только кнопка (lib/guides/tour-edit/doc-flow). Личный
+    // диалог и заверенный апдейт; прочие файлы и прочие чаты — прежним путём.
+    const fileAtt = attachments.find(a => a.type === 'file');
+    if (fileAtt && msg.recipient.chat_type === 'dialog' && opts?.verifiedOrigin === true) {
+      const doc = await import('@/lib/guides/tour-edit/doc-flow');
+      // Любой гид (31.10): документ, тура из которого нет среди своих,
+      // предлагает новый тур — и гиду без своих туров тоже.
+      const { createsOwnTours } = await import('@/lib/guides/tour-edit/flow');
+      const fileName = fileAtt.filename ?? null;
+      if (doc.isDocxName(fileName)) {
+        const owner = await findPartnerByChat('max', chatId);
+        if (owner.outcome === 'found' && createsOwnTours(owner.partner)) {
+          const bytes = fileAtt.payload?.url ? await downloadMaxFile(fileAtt.payload.url) : null;
+          const shown = await doc.captureGuideTourDoc({ channel: 'max', chatId, partner: owner.partner, fileName, caption: text, bytes });
+          if (shown) {
+            await showCabinetMax(chatId, shown, null, text);
+            return;
+          }
+        }
+      }
     }
 
     // Фото → Gemini Vision
@@ -1349,6 +1478,30 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           return;
         }
       }
+      // Правка своего тура гидом (30.10): «Горелый: описание: …» — черновик
+      // и «было → станет» с кнопками «Сохранить» / «Отмена»; в тур пишет
+      // только кнопка (lib/guides/tour-edit). Раньше полосы и потока дат:
+      // «описание: выезд 5 августа» — текст тура, а не открытие даты.
+      // Роль гида, этап 2 (30.10): текст ответа на отзыв после «Ответить» и
+      // правка профиля «о себе: …» — черновик и «было → станет», пишет только
+      // кнопка (lib/guides/chat-role). Раньше правки тура: ожидание ответа —
+      // последняя кнопка, и «о себе: …» не фраза тура.
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const { captureGuideRoleText } = await import('@/lib/guides/chat-role/flow');
+        const role = await captureGuideRoleText({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (role) {
+          await showCabinetMax(chatId, role, null, text);
+          return;
+        }
+      }
+      if (lookup.outcome === 'found' && dialog && opts?.verifiedOrigin === true) {
+        const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
+        const edit = await captureGuideTourEdit({ channel: 'max', chatId, partner: lookup.partner, text });
+        if (edit) {
+          await showCabinetMax(chatId, edit, null, text);
+          return;
+        }
+      }
       // Просьба туриста в привязанном чате не уходит помощнику CRM: тот
       // отвечает про клиентов и свои туры и отказывает в аренде. Кабинет
       // (CRM, даты, календарь, прайс) — прежняя ветка, только по заверенному
@@ -1437,19 +1590,25 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         if (role && sellsOwnTours(lookup.partner)
           && (askedRole === 'tours' || askedRole === 'seats' || slashHead === '/tours' || slashHead === '/seats')) {
           const which = askedRole === 'seats' || slashHead === '/seats' ? 'seats' : 'tours';
-          if (role === 'guide') {
-            if (which === 'seats') {
-              await say(operatorSeatsText('guide'));
-            } else {
-              const screen = await roleMenuScreen({ role, action: 'tours', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
-              await sendPartnerScreen(chatId, screen, menu ?? [], sos);
+          // Места в личном диалоге — даты кнопками (31.10), и гиду, и
+          // туроператору; в группе кнопку «Открыть» нажал бы любой участник.
+          if (which === 'seats') {
+            if (!dialog) {
+              const { WIZARD_TEXT } = await import('@/lib/operators/chat-dates/wizard');
+              await say(WIZARD_TEXT.groupChat);
+              return;
             }
+            const { datesWizardStart } = await import('@/lib/operators/chat-dates/wizard-flow');
+            const step = await datesWizardStart(lookup.partner, Date.now());
+            await datesSend(chatId, menu)(sos(step.text), step.rows);
             return;
           }
-          const body = which === 'tours'
-            ? operatorToursReply(await loadOperatorTours(lookup.partner.partnerId))
-            : operatorSeatsText();
-          await say(body);
+          if (role === 'guide') {
+            const screen = await roleMenuScreen({ role, action: 'tours', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
+            await sendPartnerScreen(chatId, screen, menu ?? [], sos);
+            return;
+          }
+          await say(operatorToursReply(await loadOperatorTours(lookup.partner.partnerId)));
           return;
         }
         // «/bookings» — «Брони» гида со своими турами. Контакты туриста —
@@ -1561,7 +1720,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         return;
       }
       if (!messageChatId) return;
-      const desk = await operatorDeskPress({ channel: 'max', chatId: messageChatId, payload });
+      const deskChatType = typeof update.message?.recipient.chat_type === 'string' ? update.message.recipient.chat_type : null;
+      const desk = await operatorDeskPress({ channel: 'max', chatId: messageChatId, payload, dialog: deskChatType === 'dialog' });
       if (desk) {
         if (desk.buttons.length) await maxReplyWithButtons(messageChatId, desk.text, toMaxButtons(desk.buttons));
         else await maxReply(messageChatId, desk.text);
@@ -1651,11 +1811,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           });
           if (!sent.delivered) {
             console.error('[max/admin] ответ с ПД по кнопке не доставлен:', sent.reason);
-            await maxReplyWithButtons(messageChatId, 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.', toMaxButtons([adminMenu()]));
+            await maxReplyWithButtons(messageChatId, 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.', toMaxButtons(menuRows(adminMenu())));
           }
           return;
         }
-        await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons([adminMenu()]));
+        await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons(menuRows(adminMenu())));
         return;
       }
       const roleLookup = await findPartnerByChat('max', messageChatId);

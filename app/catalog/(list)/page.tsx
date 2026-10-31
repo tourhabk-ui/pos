@@ -21,6 +21,7 @@ import {
 import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/tours/marketplace-page';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogHreflang } from '@/lib/zh/pages';
+import { plural } from '@/lib/home/data-freshness';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,6 +89,29 @@ export default async function CatalogPage() {
 
   const structuredData = initial ? buildToursItemListJsonLd(initial.tours, SITE, '/catalog') : null;
 
+  // Короткий FAQ под коммерческий запрос «туры на Камчатку» (аудит AI-видимости
+  // 30.10). Число туров — из ответа БД, без него фраза без числа (§4.0).
+  const total = initial?.total ?? 0;
+  const faq = [
+    {
+      question: 'Где купить тур на Камчатку?',
+      answer: `В этом каталоге — ${total > 0 ? `${total} ${plural(total, 'тур', 'тура', 'туров')}` : 'туры'} местных операторов Камчатки с программой, ценой и датами. Выберите тур и отправьте заявку: оператор подтверждает её сам.`,
+    },
+    {
+      question: 'Ведар Камчатка — турагентство?',
+      answer: 'Нет. Ведар — бесплатный для туриста информационный портал. Тур выполняет местный оператор под своим именем.',
+    },
+    {
+      question: 'Как забронировать тур?',
+      answer: `Откройте тур и отправьте заявку на дату; порядок бронирования описан на странице ${SITE}/bronirovanie-turov-kamchatka.`,
+    },
+  ];
+  const faqJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })),
+  };
+
   return (
     <>
       {structuredData && (
@@ -96,6 +120,7 @@ export default async function CatalogPage() {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
       )}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
       <Header />
       <MarketplaceClient
         initialTours={initial?.tours ?? []}
@@ -104,6 +129,17 @@ export default async function CatalogPage() {
         initialKey={initial === null ? null : initialKey}
         summary={summary}
       />
+      <section aria-labelledby="catalog-faq" className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 pb-6">
+        <h2 id="catalog-faq" className="ds-h2 mb-3">Частые вопросы о турах на Камчатку</h2>
+        <dl className="space-y-3">
+          {faq.map((f) => (
+            <div key={f.question}>
+              <dt className="font-medium text-[var(--text-primary)]">{f.question}</dt>
+              <dd className="text-sm text-[var(--text-secondary)]">{f.answer}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
       <div className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 pb-10">
         <KuzmichContacts />
       </div>

@@ -284,8 +284,9 @@ describe('вебхук: кабинет администратора', () => {
     expect(m.pd).not.toHaveBeenCalled();
     expect(m.aiChat).not.toHaveBeenCalled();
     const markup = m.tgSend.mock.calls.at(-1)?.[0] as { replyMarkup?: { inline_keyboard: Array<Array<{ callback_data: string }>> } };
-    expect(markup.replyMarkup?.inline_keyboard[0]?.map((b) => b.callback_data)).toEqual(
-      ['rm:ad:dt', 'rm:ad:bk', 'rm:ad:ld', 'rm:ad:sm', 'rm:ad:hl', 'rm:ad:hp'],
+    // Шесть кнопок — два ряда по три (31.10: больше трёх в ряд подписи режутся).
+    expect(markup.replyMarkup?.inline_keyboard.map((r) => r.map((b) => b.callback_data))).toEqual(
+      [['rm:ad:dt', 'rm:ad:bk', 'rm:ad:ld'], ['rm:ad:sm', 'rm:ad:hl', 'rm:ad:hp']],
     );
   });
 

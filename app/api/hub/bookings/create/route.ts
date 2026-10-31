@@ -17,6 +17,8 @@ import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 import { autoConfirmIfAllowed } from '@/lib/bookings/auto-confirm';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { recordFunnelEvent, visitorFromHeaders } from '@/lib/funnel/record';
+import type { BookingRejectReason } from '@/lib/funnel/steps';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,9 +76,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Невалидный JSON' }, { status: 400 });
   }
 
+  // Воронка брони (#2882): отказы двери сайта до общего модуля — дата в
+  // прошлом, гость без e-mail, форма не прошла проверку — тоже след, иначе
+  // «0 броней» неотличимо от «все, кто дошёл до формы, получили отказ».
+  // Отказы по существу (нет мест, дата закрыта …) и саму заявку пишет
+  // reserveBooking. Без ПД: id тура, код и суточный хэш.
+  const visitor = visitorFromHeaders(req.headers, ip);
+  const rejected = (reason: BookingRejectReason, tourId: unknown) => recordFunnelEvent({
+    step: 'booking_rejected', reason, source: 'website', visitor,
+    entityId: typeof tourId === 'number' || typeof tourId === 'string' ? String(tourId) : null,
+  });
+
   const parsed = BookingSchema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
+    await rejected('INVALID_FORM', (body as { tour_id?: unknown } | null)?.tour_id);
     // Свои сообщения — русские; у ошибок типа Zod пишет по-английски, и
     // турист видел «Invalid input: expected number…» (§4: понятные сообщения).
     const message = first && first.code === 'invalid_type'
@@ -91,6 +105,7 @@ export async function POST(req: NextRequest) {
   const data = parsed.data;
 
   if (new Date(data.booking_date) < new Date(new Date().toISOString().slice(0, 10))) {
+    await rejected('DATE_PAST', data.tour_id);
     return NextResponse.json({ error: DATE_PAST_MESSAGE }, { status: 422 });
   }
 
@@ -103,6 +118,7 @@ export async function POST(req: NextRequest) {
   const userId = authedUser?.userId ?? null;
 
   if (userId === null && !data.tourist_email) {
+    await rejected('GUEST_EMAIL_REQUIRED', data.tour_id);
     return NextResponse.json(
       { error: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email' },
       { status: 400 },
@@ -124,6 +140,7 @@ export async function POST(req: NextRequest) {
       date:            data.booking_date,
       specialRequests: data.special_requests ?? '',
       createdVia:      'website',
+      visitor,
       userId,
       // Обстоятельства согласия, а не булево: время, адрес, канал и версия
       // формулировки. buildConsentRecord вернёт null, когда галочки не было —
@@ -242,6 +259,7 @@ export async function POST(req: NextRequest) {
       String(data.tour_id),
       err instanceof Error ? err.message : err,
     );
+    await rejected('SERVER_ERROR', data.tour_id);
     return NextResponse.json(
       { error: 'Не удалось отправить заявку. Попробуйте позже или свяжитесь с оператором напрямую.' },
       { status: 500 },

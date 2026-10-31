@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
-import { TEAM_SQL } from '@/lib/guides/team-queries';
 import { logGuideFailure } from '@/lib/guides/team';
-import { groupAssignments, type AssignedRow } from '@/lib/guides/groups';
+import { readGuideGroups } from '@/lib/guides/schedule-read';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,16 +33,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const membership = await query<{ operator_id: string | null }>(TEAM_SQL.membership, [guideId]);
-    const inTeam = Boolean(membership.rows[0]?.operator_id);
-    const result = inTeam
-      ? await query<AssignedRow>(TEAM_SQL.assignedUpcoming, [guideId])
-      : { rows: [] as AssignedRow[] };
-
-    return NextResponse.json({
-      success: true,
-      data: { inTeam, groups: groupAssignments(result.rows) },
-    } as ApiResponse<unknown>);
+    // То же чтение, что экран «Расписание» в чате кабинета (lib/guides/schedule-read).
+    const data = await readGuideGroups(guideId);
+    return NextResponse.json({ success: true, data } as ApiResponse<unknown>);
   } catch (error) {
     logGuideFailure('guide.groups', error);
     return NextResponse.json(

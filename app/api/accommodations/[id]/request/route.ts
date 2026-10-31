@@ -26,6 +26,7 @@ import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { checkStayDates, submitStayRequest } from '@/lib/stay/stay-request-service';
+import { busyWithin, guestBusyText } from '@/lib/stay/busy-dates';
 import { issueRequestKey, requestPageLinks, STAY_FORM_KEY_NAME } from '@/lib/mcp/request-status';
 
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     door: 'form',
   });
   if (!r.ok) {
+    if (r.reason === 'busy') {
+      // 409: даты закрыты словом хозяина — форма показывает их и просит другие.
+      return NextResponse.json({
+        success: false,
+        error: guestBusyText(busyWithin(r.busyDates, d.check_in, d.check_out)),
+        field: 'check_in',
+        data: { busyDates: r.busyDates },
+      }, { status: 409 });
+    }
     return r.reason === 'not_accepting'
       ? fail('У этого объекта заявка через форму не принимается', 404)
       : fail('Не удалось принять заявку. Позвоните владельцу по телефону на карточке.', 503);

@@ -48,8 +48,9 @@ describe('меню роли', () => {
     expect(partnerMenuExtras({ partnerId: OTHER, category: 'transfer', slug: 'laguna-prokat' })).toEqual([]);
     expect(partnerMenu({ partnerId: OTHER, category: 'transfer', slug: 'carrier-1' })?.map((b) => b.payload))
       .toEqual(tabs('tf'));
-    expect(partnerMenu({ partnerId: OTHER, category: 'stay', slug: 'turbaza' })?.map((b) => b.payload))
-      .toEqual(tabs('st'));
+    // Хозяину жилья — три кнопки простыми словами (30.10): «Заявки» = «Входящие» кабинета, «Занято» — свои закрытые даты, «Помощь».
+    expect(partnerMenu({ partnerId: OTHER, category: 'stay', slug: 'turbaza' })?.map((b) => [b.text, b.payload]))
+      .toEqual([['Заявки', 'rm:st:in'], ['Занято', 'rm:st:bz'], ['Помощь', 'rm:st:hp']]);
     expect(partnerMenu({ partnerId: OTHER, category: 'guide', slug: 'guide-1' })?.map((b) => b.payload))
       .toEqual(tabs('gd'));
   });
@@ -82,7 +83,7 @@ describe('меню роли', () => {
     for (const p of ['rm:ad:tk', 'rm:ad:cl', 'rm:ad:mn']) expect(parseRoleMenuPress(p), p).toBeNull();
   });
 
-  it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — ни слова о них', () => {
+  it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — только «Мои туры» для нового тура (31.10)', () => {
     const help = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
     expect(help).toContain('Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
     expect(help).toContain('Ещё — Брони, Мои туры, Ежедневная сводка, Помощь, кабинет на сайте.');
@@ -99,7 +100,10 @@ describe('меню роли', () => {
     expect(help).toContain('Даты можно открыть фразой в личном диалоге с ботом в MAX, например «открой субботы июля, 8 мест»');
     expect(help).toContain('откроет после кнопки «Открыть»');
     const team = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-2' });
-    expect(team).not.toMatch(/Брони|Мои туры|Подтвердить|открой субботы/);
+    expect(team).not.toMatch(/Брони|Подтвердить|открой субботы/);
+    // Гид без своих туров заводит первый в «Моих турах» кабинета.
+    expect(team).toContain('Ещё — Мои туры, Ежедневная сводка, Помощь, кабинет на сайте.');
+    expect(team).toContain('Мои туры — своих туров пока нет: там заводится новый тур');
   });
 
   it('справка туроператора: кнопки брони в карточке и ответ на заявку, «Ещё» — его кабинет (30.10)', () => {
@@ -110,14 +114,14 @@ describe('меню роли', () => {
     expect(help).not.toMatch(/«Связался»|Брони —/);
   });
 
-  it('«Обновить места» гида со своими турами: его раздел «Свои туры» и фраза в MAX; кабинета оператора нет (29.10)', () => {
+  it('«Обновить места» гида со своими турами: его раздел «Свои туры»; кабинета оператора нет (29.10)', () => {
     const guide = operatorSeatsText('guide');
-    expect(guide).toMatch(/Откройте даты в разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
-    expect(guide).toContain('В MAX можно написать фразу целиком, например: «открой весь ноябрь, 8 мест» — там есть кнопка подтверждения.');
+    expect(guide).toMatch(/разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
+    expect(guide).toContain('Или в MAX — кнопками «Обновить места» или одной фразой, например «открой весь');
     expect(guide).not.toMatch(/\/hub\/operator/);
-    // Туроператору — прежний текст: календарь кабинета и та же фраза.
-    expect(operatorSeatsText()).toMatch(/Откройте календарь: https?:\/\/\S+\/hub\/operator\/calendar/);
-    expect(operatorSeatsText()).toContain('«открой весь ноябрь, 8 мест»');
+    // Туроператору — календарь кабинета и та же фраза. Текст MAX судит max-chat-ux.
+    expect(operatorSeatsText()).toMatch(/календаре кабинета: https?:\/\/\S+\/hub\/operator\/calendar/);
+    expect(operatorSeatsText()).toContain('«открой весь');
   });
 
   it('админ — шесть чтений, входящих у него нет', () => {
@@ -155,7 +159,9 @@ describe('меню роли', () => {
     const help = partnerMenuHelp('transfer', { partnerId: OTHER, category: 'transfer', slug: 'carrier-1' });
     expect(help).toContain('Входящие');
     expect(help).toContain('Помощь');
-    expect(help).not.toContain('Сводка');
+    // Сводка пилота запросов мест у перевозчика не стоит; его «Сводка» (#2862 этап D) — про заявки на машину.
+    expect(help).not.toContain('числа по запросам мест');
+    expect(help).toContain('Сводка — заявки на машину за 30 дней');
     expect(help).not.toContain('Мои машины');
     expect(help).not.toMatch(/<|>/);
     expect(help).not.toMatch(/₽/);

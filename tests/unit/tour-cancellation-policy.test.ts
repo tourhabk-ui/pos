@@ -52,7 +52,8 @@ describe('оператор может записать', () => {
   });
 
   it('PATCH принимает поле по allow-list', () => {
-    const route = read('app/api/hub/operator/tours/[id]/route.ts');
+    // Белый список — у общей записи тура (lib/tours/tour-write, 30.10).
+    const route = read('lib/tours/tour-write.ts');
     expect(route).toMatch(/'cancellation_policy',/);
   });
 });

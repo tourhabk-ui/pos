@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, transaction } from '@/lib/database';
+import { UpdateGuideProfileSchema, writeGuideProfilePatch } from '@/lib/guides/profile-write';
 import { ApiResponse } from '@/types';
 import { getGuidePartnerByUserId, ensureGuidePartnerExists, getGuideStats, type GuideStats } from '@/lib/auth/guide-helpers';
 import { requireRole } from '@/lib/auth/middleware';
 import { GuideUserRow } from '@/lib/types/db-rows';
 import { logGuideFailure, sqlState } from '@/lib/guides/db-failure';
-import { z } from 'zod';
 
 /**
  * Профиль гида.
@@ -21,21 +21,6 @@ import { z } from 'zod';
  * Администратор может смотреть экран, но запись гида для него НЕ создаётся:
  * прежде админ, открывший профиль гида, получал лишнюю строку partners.
  */
-const UpdateGuideProfileSchema = z.object({
-  name: z.string().trim().min(1, 'Имя не может быть пустым').max(255).optional(),
-  partnerName: z.string().trim().min(1, 'Название не может быть пустым').max(255).optional(),
-  description: z.string().max(5000, 'Текст «О себе» — не длиннее 5000 символов').optional(),
-  /** Телефон: пустая строка — явная очистка (ключ удаляется из contact). */
-  phone: z.string().trim().max(30, 'Телефон — не длиннее 30 символов').optional(),
-  experienceYears: z.number().int().min(0, 'Опыт работы — от 0 до 60 лет').max(60, 'Опыт работы — от 0 до 60 лет').nullable().optional(),
-  languages: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
-  specializations: z.array(z.enum(['volcanoes', 'wildlife', 'fishing', 'history', 'photography', 'extreme', 'hiking', 'cultural', 'rafting', 'skiing'])).optional(),
-  location: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).nullable().optional(),
-  isAvailable: z.boolean().optional(),
-  /** Отправить профиль на проверку платформы (none/rejected → pending). */
-  submitForReview: z.boolean().optional(),
-});
-
 export const dynamic = 'force-dynamic';
 
 /**
@@ -105,10 +90,7 @@ export async function PUT(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
   }
-  const {
-    name, partnerName, description, phone, experienceYears,
-    languages, specializations, location, isAvailable, submitForReview,
-  } = parsed.data;
+  const { submitForReview } = parsed.data;
 
   try {
     let partner = await getGuidePartnerByUserId(userId);
@@ -124,43 +106,9 @@ export async function PUT(request: NextRequest) {
     }
     const partnerId = partner.id;
 
-    const sets: string[] = [];
-    const values: unknown[] = [];
-    const set = (sql: (idx: number) => string, value: unknown) => {
-      values.push(value);
-      sets.push(sql(values.length));
-    };
-
-    if (partnerName !== undefined) set((i) => `name = $${i}`, partnerName);
-    if (description !== undefined) set((i) => `description = $${i}`, description);
-    if (phone !== undefined) {
-      // Пустая строка — очистка: ключ удаляется, а не остаётся старый номер.
-      if (phone === '') sets.push(`contact = COALESCE(contact, '{}'::jsonb) - 'phone'`);
-      else set((i) => `contact = COALESCE(contact, '{}'::jsonb) || jsonb_build_object('phone', $${i}::text)`, phone);
-    }
-    if (experienceYears !== undefined) set((i) => `experience_years = $${i}`, experienceYears);
-    if (languages !== undefined) set((i) => `languages = $${i}::text[]`, languages);
-    if (specializations !== undefined) set((i) => `specializations = $${i}::text[]`, specializations);
-    if (location !== undefined) set((i) => `location = $${i}::jsonb`, location === null ? null : JSON.stringify(location));
-    if (isAvailable !== undefined) set((i) => `is_available = $${i}`, isAvailable);
-    if (submitForReview) {
-      // Заявка подаётся только из «не подана» или «отклонена»; одобренного
-      // гида повторная отправка не откатывает на проверку.
-      sets.push(`applied_at = CASE WHEN profile_status IN ('none', 'rejected') THEN NOW() ELSE applied_at END`);
-      sets.push(`profile_status = CASE WHEN profile_status IN ('none', 'rejected') THEN 'pending' ELSE profile_status END`);
-    }
-
+    // Та же запись, что «Сохранить» в чате кабинета (lib/guides/profile-write).
     await transaction(async (client) => {
-      if (name !== undefined) {
-        await client.query('UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2', [name, userId]);
-      }
-      if (sets.length > 0) {
-        values.push(partnerId);
-        await client.query(
-          `UPDATE partners SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length}`,
-          values
-        );
-      }
+      await writeGuideProfilePatch(client, { partnerId, userId, patch: parsed.data });
     });
 
     const updatedPartner = await getGuidePartnerByUserId(userId);

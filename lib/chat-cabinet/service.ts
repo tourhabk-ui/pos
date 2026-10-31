@@ -55,13 +55,16 @@ import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
 } from '@/lib/chat-cabinet/screens';
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
+import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
+import { loadOwnerBusy, setObjectBusy } from '@/lib/stay/busy-flow';
+import { BUSY_TEXT, busySavedText } from '@/lib/stay/busy-dates';
 
 interface Queryable {
   query: typeof pool.query;
@@ -213,6 +216,13 @@ async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetP
   const inbox = await readInbox(c, nowMs);
   if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
   const item = inbox.items.find((i) => i.kind === press.item && i.id.toLowerCase() === press.id);
+  // Отзыв и приглашение гида — карточка с кнопками ответа (этап 2, 30.10):
+  // «Ответить» и «Принять» / «Отклонить» вместо ссылки на сайт.
+  if (item && c.partner.role === 'guide' && (item.kind === 'guide_review' || item.kind === 'guide_invite')) {
+    const { guideInboxCard } = await import('@/lib/guides/chat-role/flow');
+    const card = await guideInboxCard(item, { partner: c.ctx, owner: c.partner.seat === 'owner', channel });
+    if (card) return card;
+  }
   if (item) return itemCardScreen({ item, partner: c.partner, channel, base: base() });
   // Вид не прочитался — «не знаю», а не «уже ответили» (§4.0).
   if (inbox.failed.includes(press.item)) return { ...inboxScreen(inbox, 0, { notice: CABINET_TEXT.inboxFailed }), failed: true };
@@ -220,12 +230,13 @@ async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetP
 }
 
 /** Экран раздела без нажатия: кнопка строки меню (`rm:`), команда или слово. */
-export type CabinetSection = 'inbox' | 'tasks' | 'clients' | 'more';
+export type CabinetSection = 'inbox' | 'tasks' | 'clients' | 'more' | 'busy';
 
 async function sectionView(c: Ctx, channel: CabinetChannel, section: CabinetSection, nowMs: number): Promise<CabinetScreen> {
   if (section === 'inbox') return inboxView(c, 0, nowMs);
   if (section === 'tasks') return tasksView(c, channel, 0, nowMs);
   if (section === 'clients') return clientsView(c, channel, 0);
+  if (section === 'busy') return busyView(c, nowMs);
   return moreView(c);
 }
 
@@ -516,6 +527,31 @@ async function vehicleActive(c: Ctx, press: Extract<CabinetPress, { kind: 'vehic
   return fleetView(c, press.active ? `«${title}» снова на линии.` : `«${title}» снята с линии: на витрине её нет.`);
 }
 
+// ── Занято (хозяин жилья, 30.10) ────────────────────────────────────────────
+
+async function busyView(c: Ctx, nowMs: number, notice?: string): Promise<CabinetScreen> {
+  if (c.partner.role !== 'stay') return noticeScreen(BUSY_TEXT.notStay);
+  const objects = await loadOwnerBusy(c.ctx.partnerId, kamchatkaDate(new Date(nowMs)));
+  const out = busyScreen({ objects, base: base(), notice });
+  return objects === null ? { ...out, failed: true } : out;
+}
+
+async function busyRelease(c: Ctx, press: Extract<CabinetPress, { kind: 'busy_release' }>, channel: CabinetChannel, nowMs: number): Promise<CabinetScreen> {
+  if (c.partner.role !== 'stay') return noticeScreen(BUSY_TEXT.notStay);
+  const r = await setObjectBusy({
+    partnerId: c.ctx.partnerId, accommodationId: press.accommodationId, from: press.from, to: press.to, action: 'release', via: channel,
+  });
+  if (r.outcome === 'db_error') return busyView(c, nowMs, BUSY_TEXT.saveFailed);
+  if (r.outcome === 'not_yours') return busyView(c, nowMs, BUSY_TEXT.notYours);
+  return busyView(c, nowMs, busySavedText({ name: r.name, from: press.from, to: press.to, action: 'release' }));
+}
+
+/** Сводка перевозчика (#2862 этап D): блоки читаются отдельно, не прочитавшийся назван. */
+async function carrierSummaryView(c: Ctx): Promise<CabinetScreen> {
+  if (c.partner.role !== 'transfer') return noticeScreen(FLEET_TEXT.notCarrier);
+  return carrierSummaryScreen(await loadCarrierSummary(c.ctx.partnerId), base());
+}
+
 // ── Поиск клиента (только MAX) ──────────────────────────────────────────────
 
 /**
@@ -745,6 +781,13 @@ export async function handleCabinetPress(input: {
   // Другая кнопка кабинета снимает поиск: «Задачи» после «Найти клиента»
   // правкой убрали подсказку, и следующее сообщение — уже не запрос.
   if (ch === 'max' && press.kind !== 'search' && press.kind !== 'search_cancel') await dropCabinetSearch(input.chatId);
+  // Так же другая кнопка снимает ожидание ответа на отзыв (этап 2): экран
+  // «Пришлите текст ответа» правкой заменён, и следующее сообщение — не ответ
+  // туристам. Кнопки самого черновика («Отмена», «Опубликовать») — нет.
+  if (g.partner.role === 'guide' && press.kind !== 'draft_cancel' && press.kind !== 'draft_save') {
+    const { dropAwaitingForChat } = await import('@/lib/guides/chat-role/store');
+    await dropAwaitingForChat(ch, input.chatId);
+  }
   let out: CabinetScreen;
   switch (press.kind) {
     case 'more': out = await moreView(g); break;
@@ -763,6 +806,63 @@ export async function handleCabinetPress(input: {
     case 'remind': out = await remind(g, ch, press.when, press.contactId, nowMs, db); break;
     case 'fleet': out = await fleetView(g); break;
     case 'vehicle_active': out = await vehicleActive(g, press); break;
+    case 'carrier_summary': out = await carrierSummaryView(g); break;
+    case 'busy': out = await busyView(g, nowMs); break;
+    case 'busy_release': out = await busyRelease(g, press, ch, nowMs); break;
+    // «Мои туры» гида (30.10): даты, правка текста и цены — lib/guides/tour-edit.
+    // Роль, кабинет карточки и владение туром проверяет поток.
+    case 'my_tours':
+    case 'tour':
+    case 'tour_dates':
+    case 'date_open':
+    case 'date_close':
+    case 'tour_hint':
+    case 'edit_save':
+    case 'edit_cancel':
+    case 'edit_tour':
+    // Новый тур гида и его витрина (31.10): «Новый тур», «Создать черновик»
+    // (1362), «Опубликовать» / «Снять с сайта» — тот же поток.
+    case 'tour_new':
+    case 'create_save':
+    case 'create_cancel':
+    case 'tour_publish':
+    case 'tour_unpublish': {
+      const { guideTourPress } = await import('@/lib/guides/tour-edit/flow');
+      out = await guideTourPress(press, {
+        partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId, nowMs,
+      });
+      break;
+    }
+    // Роль гида, этап 2 (30.10): отзывы и ответ, профиль и команда,
+    // расписание, заработок — lib/guides/chat-role. Роль, кабинет карточки и
+    // чьё (отзыв, приглашение) проверяет поток и SQL общих функций сайта.
+    case 'reviews':
+    case 'review':
+    case 'review_reply':
+    case 'review_delete':
+    case 'draft_save':
+    case 'draft_cancel':
+    case 'schedule':
+    case 'earnings':
+    case 'profile':
+    case 'invite_accept':
+    case 'invite_decline':
+    case 'team_leave':
+    case 'team_leave_yes': {
+      const { guideRolePress } = await import('@/lib/guides/chat-role/flow');
+      out = await guideRolePress(press, {
+        partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId, nowMs,
+      });
+      break;
+    }
+    // Документ гида (.docx → поля тура, 1361): «Сохранить всё», по полю, выбор тура.
+    case 'doc_save':
+    case 'doc_cancel':
+    case 'doc_tour': {
+      const { guideDocPress } = await import('@/lib/guides/tour-edit/doc-flow');
+      out = await guideDocPress(press, { partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId });
+      break;
+    }
   }
   const shown = lockForChannel(out, ch);
   await count(g, ch, press.kind, shown, nowMs);

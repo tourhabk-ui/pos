@@ -170,6 +170,23 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
   if (/SELECT 1 FROM partner_chat_actions/.test(sql)) {
     return res(db.rows.some((x) => x.channel === p[0] && x.chat_id === p[1] && x.status === 'awaiting_reason') ? [{}] : []);
   }
+  // «Мои туры» гида (lib/guides/tour-edit, 30.10): свои туры и черновик правки.
+  if (/FROM operator_tours t\s+WHERE t\.operator_id = \$1::uuid/.test(sql)) {
+    return res([{
+      id: '77', title: 'Восхождение на Горелый', slug: 'desk-gorely', is_active: true, is_published: true,
+      base_price: '15000.00', price_unit: 'per_person', max_participants: 8, short_description: null, description: 'Было.',
+      program: null, included: null, not_included: null, what_to_bring: null, safety_notes: null,
+    }]);
+  }
+  // Профиль гида (lib/guides/chat-role, этап 2): карточка гида чата.
+  if (/FROM partners WHERE id = \$1::uuid AND category = 'guide'/.test(sql)) {
+    return res([{ name: 'Гид-продавец', profile_status: 'approved', description: null, experience_years: null, languages: null }]);
+  }
+  if (/INSERT INTO tour_chat_edits/.test(sql)) {
+    db.writes.push(sql);
+    return res([{ id: `eeeeeeee-0000-4000-8000-${String(++db.seq).padStart(12, '0')}` }]);
+  }
+  if (/UPDATE operator_tours/.test(sql)) db.writes.push(sql);
   return res([]);
 }
 
@@ -335,7 +352,8 @@ type Outcome =
   | 'task_done' | 'task_tomorrow' | 'max_only';
 
 /** Вкладки строки меню и экраны «Ещё». */
-type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь' | 'Ежедневная сводка';
+type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь' | 'Ежедневная сводка'
+  | 'Расписание' | 'Заработок' | 'Профиль' | 'Отзывы';
 
 interface DeskRow {
   /** Как действие называет справка (у кнопки — начало подписи). */
@@ -373,6 +391,11 @@ const DESK: readonly DeskRow[] = [
   { name: 'Помощь', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^Кабинет гида в чате\./ },
   // Время сводки (1354): экран кабинета в чате, у продавца и у гида команды.
   { name: 'Ежедневная сводка', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Ежедневная сводка<\/b>/, cabinet: true },
+  // «Ещё» — роль гида, этап 2 (lib/guides/chat-role): экраны кабинета в чате.
+  { name: 'Расписание', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Расписание<\/b>/, cabinet: true },
+  { name: 'Заработок', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Заработок за 30 дней<\/b>/, cabinet: true },
+  { name: 'Профиль', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Профиль<\/b>/, cabinet: true },
+  { name: 'Отзывы', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Отзывы<\/b>/, cabinet: true },
   // Задачи: «Готово» и «На завтра» — в MAX, где видно, что за задача.
   { name: 'Готово', namedBy: 'help', max: 'task_done', telegram: 'max_only' },
   { name: 'На завтра', namedBy: 'help', max: 'task_tomorrow', telegram: 'max_only' },
@@ -420,11 +443,12 @@ const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Задачи', 'К
 const MORE_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Помощь'];
 /** Весь экран «Ещё» продавца по порядку справки: с временем сводки (1354), у неё команды нет. */
 const MORE_SCREEN_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Ежедневная сводка', 'Помощь'];
-/** Что есть у гида команды без своих туров. */
-const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Ежедневная сводка', 'Помощь', 'Готово', 'На завтра']);
+/** Что есть у гида команды без своих туров («Мои туры» — с 31.10: там он заводит первый тур). */
+const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Ежедневная сводка', 'Помощь', 'Мои туры', 'Готово', 'На завтра', 'Расписание', 'Заработок', 'Профиль', 'Отзывы']);
 /** Падежные формы, которыми тексты называют экраны строки. */
 const ALIASES: Readonly<Record<string, string>> = {
   Бронях: 'Брони', Бронями: 'Брони', Входящих: 'Входящие', Входящими: 'Входящие',
+  Отзывах: 'Отзывы', Профиле: 'Профиль',
 };
 /**
  * Названо в «…», но не кнопка чата: раздел кабинета и отметка заявки, которую
@@ -953,15 +977,17 @@ describe('справка называет ровно таблицу', () => {
       }
     });
 
-    it(`${ch}: гид команды без своих туров — вкладки те же, в «Ещё» только «Помощь»; кнопки продавца — отказ без чтения и записи`, async () => {
+    it(`${ch}: гид команды без своих туров — вкладки те же, в «Ещё» «Мои туры» (новый тур) и «Помощь»; кнопки продавца — отказ без чтения и записи`, async () => {
       m.findPartner.mockResolvedValue({ outcome: 'found', partner: TEAM });
       const d = DRIVERS[ch];
       const help = await helpIn(d, TEAM);
       expect(namesIn(help).filter((n) => resolveName(n, 'team') === null), 'названо, но гиду команды этого нет').toEqual([]);
       expect(tabsIn(help)).toEqual(MENU_NAMES);
-      expect(moreIn(help)).toEqual(['Ежедневная сводка', 'Помощь', 'кабинет на сайте']);
+      expect(moreIn(help)).toEqual(['Мои туры', 'Ежедневная сводка', 'Помощь', 'кабинет на сайте']);
       const more = await openScreen(d, 'Ещё', TEAM);
-      for (const name of ['Брони', 'Мои туры']) expect(more.buttons.some((b) => b.text === name), name).toBe(false);
+      expect(more.buttons.some((b) => b.text === 'Брони')).toBe(false);
+      // «Мои туры» гида без своих туров — экран кабинета с «Новый тур», не список продавца.
+      expect(more.buttons.find((b) => b.text === 'Мои туры')?.payload).toBe('cb:u');
       // Карточка брони во «Входящих» гида команды — без кнопок ответа.
       const card = await inboxCard(d, 'Бронь тура');
       expect(card.buttons.some((b) => /^(?:bk|ld|oc):/.test(b.payload))).toBe(false);
@@ -1034,4 +1060,24 @@ describe('экран «Брони»: Telegram-ветка без полей ПД'
       expect(body, head).not.toMatch(/tourist_(?:name|phone|email)|special_requests/);
     }
   });
+});
+
+// ── Правка своего тура фразой (30.10) ───────────────────────────────────────
+
+describe('правка своего тура фразой: «было → станет», в тур пишет только кнопка', () => {
+  for (const ch of CHANNELS) {
+    it(`${ch}: «Горелый: цена 16000» — предпросмотр с «Сохранить» и «Отмена»; помощник фразу не получает, тур не тронут`, async () => {
+      const s = one(await DRIVERS[ch].say('Горелый: цена 16000'), `правка тура (${ch})`);
+      expect(s.text).toMatch(/^<b>Восхождение на Горелый<\/b> — Цена/);
+      const words = s.text.replace(/\u00a0/g, ' ');
+      expect(words).toContain('Было: 15 000 ₽ за человека');
+      expect(words).toContain('Станет: <b>16 000 ₽ за человека</b>');
+      expect(buttonNamed(s, 'Сохранить').payload).toMatch(/^cb:e:s:[0-9a-f-]{36}$/);
+      expect(buttonNamed(s, 'Отмена').payload).toMatch(/^cb:e:x:[0-9a-f-]{36}$/);
+      expect(m.processPartner).not.toHaveBeenCalled();
+      expect(db.writes.filter((w) => /UPDATE operator_tours/.test(w))).toEqual([]);
+      expect(db.writes.filter((w) => /INSERT INTO tour_chat_edits/.test(w))).toHaveLength(1);
+      expectPdBoundaries();
+    });
+  }
 });

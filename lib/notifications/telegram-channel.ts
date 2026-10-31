@@ -244,6 +244,49 @@ export async function tgPostPhoto(
   return { ...textResult, fellBackToText: true };
 }
 
+/**
+ * Видео-пост (sendVideo) ссылкой: Telegram сам скачивает файл по URL
+ * (лимит для ссылок — 20 МБ). Без фолбэка в текст: видео-пост, ушедший
+ * голым текстом, — это не видео-пост, отказ должен быть виден.
+ */
+export async function tgPostVideo(
+  chatId: string,
+  videoUrl: string,
+  caption: string,
+  botToken?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return { ok: false, error: 'not configured' };
+  const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
+  // Загрузкой (multipart, до 50 МБ): хостинги вроде GitHub Releases отдают
+  // application/octet-stream, а sendVideo ссылкой требует video/mp4.
+  try {
+    const res = await fetch(videoUrl, { redirect: 'follow', signal: AbortSignal.timeout(60_000) });
+    if (res.ok) {
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > 0 && buf.byteLength <= 50 * 1024 * 1024) {
+        const form = new FormData();
+        form.append('chat_id', chatId);
+        form.append('caption', safeCaption);
+        form.append('parse_mode', 'HTML');
+        form.append('supports_streaming', 'true');
+        const name = videoUrl.split('/').pop()?.split('?')[0] || 'video.mp4';
+        form.append('video', new Blob([buf], { type: 'video/mp4' }), name);
+        const up = await tgSendMultipart('sendVideo', token, form);
+        if (up.ok) return { ok: true };
+        console.error('[tgPostVideo] загрузка отклонена:', up.description);
+      }
+    }
+  } catch (e) {
+    console.error('[tgPostVideo] не скачалось, пробуем ссылкой:', e instanceof Error ? e.message : e);
+  }
+  const data = await tgFetchWithRetry(
+    `${tgApiBase()}/bot${token}/sendVideo`,
+    { chat_id: chatId, video: videoUrl, caption: safeCaption, parse_mode: 'HTML', supports_streaming: true },
+  );
+  return { ok: data.ok, error: data.description };
+}
+
 /** Отправка в MAX канал через MAX Platform API.
  * Экспорт — для ручных постов (manual-channel-post.ts), не только для
  * автоматических публикаторов через postToAllChannels. */

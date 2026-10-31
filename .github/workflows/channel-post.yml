@@ -14,12 +14,28 @@ on:
     paths:
       - '.github/triggers/channel-post.json'
 
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   channel-post:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
+
+      # Своя сборка — по записи выката (scripts/wait-for-deploy.sh), а не по
+      # commit в /version.json: маркер на проде отвечает commit=unknown
+      # (no_git_head), и прежняя петля ждала 30 мин и падала (30.10, run 41030725157).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
 
       - name: Publish post to channel via prod
         env:
@@ -32,25 +48,6 @@ jobs:
           jq -e . "$FILE" >/dev/null || { echo "триггер-файл не JSON"; exit 1; }
 
           BASE="https://vedarai.ru/api/cron/channel-post"
-
-          # Ждём, пока прод отдаёт ИМЕННО ЭТОТ коммит, а не «какой-нибудь
-          # рабочий эндпоинт». Живой случай 06.08: проверка «отвечает 401»
-          # прошла мгновенно — эндпоинт существовал и в старом контейнере, —
-          # и пост ушёл через старую схему, которая молча отбросила photos:
-          # в канал уехала AI-обложка вместо альбома настоящих кадров.
-          # Формат триггер-файла и код эндпоинта едут одним коммитом — значит
-          # и публиковать можно только когда прод НА этом коммите.
-          READY=""
-          for i in $(seq 1 30); do
-            SERVED=$(curl -s --max-time 30 "https://vedarai.ru/version.json" \
-              | python3 -c "import json,sys;print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || echo "")
-            if [ "${SERVED:0:7}" = "${GITHUB_SHA:0:7}" ]; then
-              READY=1; echo "прод на ${SERVED:0:7} — коммит триггера задеплоен"; break
-            fi
-            echo "прод отдаёт ${SERVED:0:7}, ждём ${GITHUB_SHA:0:7} ($i/30)"
-            sleep 60
-          done
-          if [ -z "$READY" ]; then echo "прод за 30 мин не перешёл на ${GITHUB_SHA:0:7} — публиковать через старый код нельзя"; exit 1; fi
 
           RESP=$(curl -s --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \

@@ -55,6 +55,62 @@ export const FUNNEL_STEPS = [
 
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 
+/**
+ * Шаги, которые пишет СЕРВЕР, а не маяк (#2882, 30.10). Маяк их не принимает
+ * (`z.enum(FUNNEL_STEPS)` в приёмнике): «заявка отправлена» и «отказ» — факты
+ * сервера, и браузер их не вправе сообщать за него.
+ *
+ *   booking_submitted — бронь тура заведена (lib/bookings/reserve, любая
+ *                       дверь: форма сайта, Кузьмич, агент, запрос мест);
+ *                       entity_id = id тура, source = created_via
+ *   booking_rejected  — попытка брони отклонена; reason — код из
+ *                       BOOKING_REJECT_REASONS, entity_id = id тура (если
+ *                       назван), source = канал
+ *
+ * Просмотр карточки тура сюда по-прежнему не входит: его пишет собственная
+ * метрика (page_views), владелец 08.08.
+ */
+export const SERVER_FUNNEL_STEPS = ['booking_submitted', 'booking_rejected'] as const;
+export type ServerFunnelStep = (typeof SERVER_FUNNEL_STEPS)[number];
+
+/** Все шаги воронки — для срезов и отчётов; маяк знает только FUNNEL_STEPS. */
+export const ALL_FUNNEL_STEPS = [...FUNNEL_STEPS, ...SERVER_FUNNEL_STEPS] as const;
+export type AnyFunnelStep = (typeof ALL_FUNNEL_STEPS)[number];
+
+/**
+ * Причины отказа в брони — коды, не текст. Шесть первых — коды
+ * `ReserveError` (lib/bookings/reserve): новый код отказа там не соберётся,
+ * пока не назван здесь (reason у booking_rejected типизирован этим словарём).
+ * Остальные — отказы двери сайта до общего модуля и сбой сервера.
+ */
+export const BOOKING_REJECT_REASONS = [
+  'NOT_FOUND',            // тура нет, снят с публикации или удалён
+  'DATE_BLOCKED',         // оператор закрыл дату в календаре
+  'MAX_EXCEEDED',         // запрошено больше, чем вмещает тур или дата
+  'NO_SLOTS',             // мест на дату не осталось
+  'OUT_OF_SEASON',        // даты нет в календаре, и она вне сезона тура
+  'PRICE_UNKNOWN',        // размер группы вне ступеней цены
+  'DATE_PAST',            // дата в прошлом (проверка формы сайта)
+  'GUEST_EMAIL_REQUIRED', // гость без e-mail (форма сайта)
+  'INVALID_FORM',         // форма не прошла проверку схемы
+  'SERVER_ERROR',         // сбой сервера при заведении брони
+] as const;
+export type BookingRejectReason = (typeof BOOKING_REJECT_REASONS)[number];
+
+/** Причина словами — для строк сводки и дайджеста. */
+export const BOOKING_REJECT_REASON_RU: Record<BookingRejectReason, string> = {
+  NOT_FOUND: 'тур не найден или снят с витрины',
+  DATE_BLOCKED: 'дата закрыта оператором',
+  MAX_EXCEEDED: 'группа больше вместимости',
+  NO_SLOTS: 'мест на дату нет',
+  OUT_OF_SEASON: 'дата вне сезона',
+  PRICE_UNKNOWN: 'цена для группы не названа',
+  DATE_PAST: 'дата в прошлом',
+  GUEST_EMAIL_REQUIRED: 'гость без e-mail',
+  INVALID_FORM: 'форма не прошла проверку',
+  SERVER_ERROR: 'сбой сервера',
+};
+
 /** Действия исполнения — вторая половина «активированной поездки». */
 export const EXECUTION_STEPS: readonly FunnelStep[] = [
   'plan_saved',

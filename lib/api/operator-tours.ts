@@ -3,6 +3,7 @@
  * Business logic for tour management
  */
 
+import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import { z } from 'zod';
 import { query, transaction } from '@/lib/database';
 import { assertLiveMainPlace } from '@/lib/tours/main-place';
@@ -41,7 +42,7 @@ const KIND_VALUE = z.string().regex(/^[a-z_]{2,40}$/, 'Недопустимое 
 
 const TourFieldsSchema = z.object({
   title: z.string().min(5).max(255),
-  description: z.string().max(2000).nullable().optional(),
+  description: z.string().max(TOUR_DESCRIPTION_MAX).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
   location_type: z.enum(CREATE_LOCATION_TYPES),
   activity_type: z.enum(CREATE_ACTIVITY_TYPES),
@@ -103,7 +104,7 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   // главного места. Перемену вида роут сверяет со списками создания.
   location_type:     KIND_VALUE.optional(),
   activity_type:     KIND_VALUE.optional(),
-  description:       z.string().max(2000).nullable().optional(),
+  description:       z.string().max(TOUR_DESCRIPTION_MAX).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
   price_old:         z.number().positive().nullable().optional(),
   min_participants:  z.number().positive().nullable().optional(),

@@ -220,7 +220,10 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   search_transfers:      READ,
   search_car_rental:     READ,
   search_gear:           READ,
-  make_trip_plan:        { ...READ, openWorldHint: true },
+  // make_trip_plan saves an anonymous 7-day draft (saveDraft → trip_plan_drafts)
+  // when it produces days, so it is not read-only and not idempotent
+  // (dsh-mcp-connector-registry#44 review). No human/operator is reached.
+  make_trip_plan:        { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   // Правка черновика плана (#2224). Черновик — внутреннее состояние самого
   // инструмента, анонимное и на 7 дней; до человека или оператора он не
   // доходит, в отличие от заявки. Поэтому «только чтение» по смыслу хоста и
@@ -543,7 +546,7 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.10.0',
+  version: '2.10.1',
   description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
   // Ревизия 2025-11-25: ссылка на страницу подключения (та же, что
   // websiteUrl в server.json) и значок — тот же файл, что apple-touch-icon

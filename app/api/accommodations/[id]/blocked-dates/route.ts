@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { roomNightsSql } from '@/lib/stay/availability';
+import { objectBusyNightsSql } from '@/lib/stay/busy-flow';
 import { logStayFailure } from '@/lib/notifications/stay-booking';
 
 export const dynamic = 'force-dynamic';
@@ -79,6 +80,10 @@ export async function GET(
 
     // Ночь закрыта, если продать нечего: по каждому номеру либо блок, либо
     // ноль свободных, либо исчерпано число владельца на весь объект.
+    // У объекта БЕЗ номеров строк по номерам нет, и его занятость — только
+    // слово хозяина (accommodation_availability с room_id IS NULL, «занято с
+    // 5 по 9 ноября» в MAX, 30.10): эти ночи добавляются вторым списком,
+    // иначе карточка показывала бы гостю «всё свободно» при закрытых датах.
     const params: unknown[] = [id, startDate, endDate];
     if (roomId) params.push(roomId);
     const blockedResult = await query<{ date: string }>(
@@ -93,7 +98,10 @@ export async function GET(
                 SUM(CASE WHEN rn.blocked THEN 0 ELSE rn.free_units END),
                 MIN(rn.object_free)
               )) < 1
-        ORDER BY rn.night`,
+       UNION
+       SELECT ob.night AS date
+         FROM (${objectBusyNightsSql('$1::uuid', '$2::date', '($3::date + 1)')}) ob
+        ORDER BY date`,
       params
     );
     const blockedDates = blockedResult.rows.map(row => row.date);

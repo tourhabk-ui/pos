@@ -21,6 +21,8 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { containsPattern } from '@/lib/db/like';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { ownerReplyButton } from '@/lib/requests/request-chat';
+import { stayAnswerButtons } from '@/lib/stay/owner-answer';
+import { objectBusyNightsSql } from '@/lib/stay/busy-flow';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import {
   MAX_REQUEST_NIGHTS,
@@ -78,6 +80,8 @@ export type StayRequestResult =
   | { ok: true; delivered: StayRequestDelivery; accommodationName: string; requestId: string }
   /** Объект заявку через форму не принимает (снят, с номерами, с сайтом брони). */
   | { ok: false; reason: 'not_accepting' }
+  /** Хозяин отметил часть этих ночей занятыми («занято с … по …», 30.10): заявка не записывается, даты — гостю. */
+  | { ok: false; reason: 'busy'; busyDates: string[] }
   /** Не записалась: база не ответила. Причина — в логе с SQLSTATE. */
   | { ok: false; reason: 'save_failed' };
 
@@ -102,6 +106,14 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
       [i.accommodationId],
     ));
     if (!obj) return { ok: false, reason: 'not_accepting' };
+
+    // Ночи заявки [заезд, выезд) против слова хозяина «занято»: заявка на
+    // закрытые даты — лишний звонок обоим, гостю сразу называются даты.
+    const busy = await pool.query<{ night: string }>(
+      `${objectBusyNightsSql('$1::uuid', '$2::date', '$3::date')} ORDER BY av.date`,
+      [i.accommodationId, i.checkIn, i.checkOut],
+    );
+    if (busy.rows.length > 0) return { ok: false, reason: 'busy', busyDates: busy.rows.map((r) => r.night) };
 
     // Согласие пишется в той же вставке, что заявка (NOT NULL в 1206).
     const ins = await pool.query<{ id: string }>(
@@ -143,10 +155,14 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   let ownerReason = 'у хозяина нет подключённого MAX или Telegram';
   let ownerDelivered = false;
   if (obj.max_chat_id || obj.telegram_chat_id) {
-    // «Ответить гостю» — переписка в этом же чате (1349). Действие работает
-    // только в MAX: в Telegram-заглушку кнопка-действие не уходит (pd-alert).
+    // Три кнопки ответа одним нажатием — «Свободно, беру», «Занято», «Позвоню
+    // сам» (lib/stay/owner-answer, 30.10): гость получает ответ словами
+    // хозяина, заявка перестаёт ждать. «Ответить гостю» — переписка в этом же
+    // чате (1349). Действия работают только в MAX: в Telegram-заглушку
+    // кнопка-действие не уходит (pd-alert).
+    const answers = stayAnswerButtons(requestId) ?? [];
     const reply = ownerReplyButton({ kind: 'stay', id: requestId });
-    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [reply, card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
+    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [...answers, reply, card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
     ownerChannel = r.channel;
     ownerReason = r.reason;
     ownerDelivered = r.delivered;

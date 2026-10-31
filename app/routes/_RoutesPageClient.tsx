@@ -487,8 +487,29 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
       */}
       <div className="ds-page pt-20 pb-10 px-4 md:px-6">
 
+        {/* ── Вкладки «Места» / «Маршруты» — вверху каталога ── */}
+        <nav aria-label="Раздел каталога" className="flex gap-1 mb-4 border-b border-[var(--border)]">
+          {[...KIND_TABS].sort((x, y) => (x.value === 'place' ? -1 : 0) - (y.value === 'place' ? -1 : 0)).map(tab => {
+            const active = kind === tab.value;
+            const cls = `px-4 py-2.5 text-sm font-semibold transition-all duration-150 border-b-2 -mb-px ${
+              active
+                ? 'border-[var(--accent)] text-[var(--accent)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`;
+            return lockedKind ? (
+              <Link key={tab.value} href={tab.value === 'place' ? '/places' : '/routes'} aria-current={active ? 'page' : undefined} className={cls}>
+                {tab.label}
+              </Link>
+            ) : (
+              <button key={tab.value} type="button" onClick={() => handleKindChange(tab.value)} aria-pressed={active} className={cls}>
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+
         {/* ── Hero ──────────────────────────────────────────── */}
-        <div className="mb-6">
+        <div className="mb-3">
           <h1 className="ds-h1 mb-1">{KIND_TABS.find(t => t.value === kind)?.heading ?? 'Маршруты и места Камчатки'}</h1>
           <p className="text-[var(--text-secondary)] text-sm md:text-base">
             {meta.total.toLocaleString('ru-RU')} {KIND_TABS.find(t => t.value === kind)?.desc}
@@ -496,15 +517,15 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         </div>
 
         {/* ── Search + controls ─────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="relative flex-1">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
             <input
               type="search"
               value={query}
               onChange={e => { setQuery(e.target.value); setPage(1); }}
               placeholder={searchPlaceholder}
-              className="ds-input w-full pl-9 pr-9"
+              className="ds-input w-full h-9 py-1.5 pl-9 pr-9 text-sm"
             />
             {query && (
               <button
@@ -520,7 +541,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             aria-label="Сортировка маршрутов"
             value={sort}
             onChange={e => { setSort(e.target.value as SortValue); setPage(1); }}
-            className="ds-input w-auto pr-8 text-sm"
+            className="ds-input w-auto max-w-[8.5rem] sm:max-w-none h-9 py-1.5 pr-7 text-sm flex-shrink-0"
           >
             {SORT_OPTIONS
               .filter(o => kind === 'place' ? !o.value.startsWith('price') : true)
@@ -529,29 +550,30 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
           <button
             onClick={() => setShowFilters(v => !v)}
-            className={`relative ds-btn ds-btn-secondary flex items-center gap-2 text-sm ${showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
+            aria-label="Фильтры"
+            className={`relative ds-btn ds-btn-secondary h-9 px-2.5 sm:px-3 flex items-center gap-2 text-sm ${showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
           >
             <SlidersHorizontal className="w-4 h-4" />
-            Фильтры
+            <span className="hidden sm:inline">Фильтры</span>
             {activeFiltersCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[10px] flex items-center justify-center font-bold">
                 {activeFiltersCount}
               </span>
             )}
-            <ChevronDown className={`w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`hidden sm:block w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
 
-          <div className="flex border border-[var(--border)] rounded-lg overflow-hidden">
+          <div className="flex h-9 flex-shrink-0 border border-[var(--border)] rounded-lg overflow-hidden">
             <button
               onClick={() => setView('grid')}
-              className={`px-3 py-2 transition-colors duration-150 ${view === 'grid' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
+              className={`px-2.5 transition-colors duration-150 ${view === 'grid' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
               title="Сеткой"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
               onClick={() => setView('map')}
-              className={`px-3 py-2 transition-colors duration-150 ${view === 'map' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
+              className={`px-2.5 transition-colors duration-150 ${view === 'map' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
               title="На карте"
             >
               <Map className="w-4 h-4" />
@@ -639,25 +661,6 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         )}
 
         {toursSlot}
-
-        {/* ── Kind tabs (скрыты в заблокированном разделе /places|/routes) ── */}
-        {!lockedKind && (
-        <div className="flex gap-1 mb-5 border-b border-[var(--border)]">
-          {KIND_TABS.map(tab => (
-            <button
-              key={tab.value}
-              onClick={() => handleKindChange(tab.value)}
-              className={`px-4 py-2.5 text-sm font-semibold transition-all duration-150 border-b-2 -mb-px ${
-                kind === tab.value
-                  ? 'border-[var(--accent)] text-[var(--accent)]'
-                  : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        )}
 
         {/* ── Природные парки и категории — пока не ищут ────── */}
         {!searching && (

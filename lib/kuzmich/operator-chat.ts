@@ -37,6 +37,7 @@ import { rentalCalendarToolText } from '@/lib/rental/car-calendar-flow';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { handleRentalOfferEdit } from '@/lib/rental/offer-edit-flow';
 import { handleCharterPriceEdit } from '@/lib/transfers/price-edit-flow';
+import { handleStayBusyPhrase } from '@/lib/stay/busy-flow';
 import { redactPII } from '@/lib/security/pii-redact';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -287,6 +288,16 @@ export async function buildOperatorContext(
 }
 
 /** Системный промпт: кто партнёр, какой сегодня день и чем помощник знает факты. */
+/**
+ * Новый тур и его витрина (31.10) — поток с кнопками, не модель: фразу
+ * «новый тур: …» она не получает. Без этой строки помощник на непохожую фразу
+ * ответил бы «создал» или «опубликовал», не записав ничего.
+ */
+const GUIDE_CREATE_LINE = 'Туры ты сам не создаёшь и не публикуешь и не говоришь, что создал, опубликовал или снял тур с сайта. '
+  + 'Новый тур гид заводит одним сообщением «новый тур: Название; цена 15000; группа 4; описание: …» — ему придёт предпросмотр '
+  + 'и кнопка «Создать черновик»; создаёт только она. Черновик туристы не видят: на сайт гид выводит тур кнопкой «Опубликовать» '
+  + 'у тура в «Моих турах», снимает — «Снять с сайта».';
+
 export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, tools: boolean): string {
   const lines = [
     `Ты помощник партнёра туристической платформы Ведар (Камчатка). Партнёр: ${partner.partnerName}, роль — ${partnerCategoryLabel(partner.category)}.`,
@@ -309,6 +320,23 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
       'Даты и места своих туров ты сам не меняешь и не говоришь, что открыл или закрыл их. '
       + 'В MAX гид открывает их фразой «открой субботы июля, 8 мест» с кнопкой «Открыть». '
       + `На сайте даты, брони и заявки — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`,
+      // Правка текста и цены своего тура (30.10) — поток с кнопкой «Сохранить»
+      // (lib/guides/tour-edit), а не модель: фразу «Горелый: описание: …» она
+      // не получает. Без этой строки помощник на непохожую фразу ответил бы
+      // «поправил», не записав ничего.
+      'Тексты и цену своих туров ты сам не меняешь и не говоришь, что изменил или сохранил их. '
+      + 'Гид правит тур одним сообщением: название тура, двоеточие, поле, двоеточие, текст — например '
+      + '«Горелый: описание: …», «Горелый: цена 16000», «Толбачик: что взять: ботинки, куртка». '
+      + 'Ему придёт «было → станет» и кнопка «Сохранить»; записывается только она. Поля: название, анонс, описание, '
+      + 'программа, что включено, не входит, что взять, безопасность, цена. Документ Word (.docx) в MAX разбирается тем же путём, с кнопкой.',
+      GUIDE_CREATE_LINE,
+    );
+  } else if (partner.category === 'guide') {
+    // Гид без своих туров (31.10): первый тур он заводит сам — потоком с
+    // кнопкой (lib/guides/tour-edit/create-*), а не моделью.
+    lines.push(
+      'Календарь, даты и свободные места ты не меняешь и не говоришь, что открыл или закрыл их: это делается в кабинете.',
+      GUIDE_CREATE_LINE,
     );
   } else {
     // Гиду, перевозчику, владельцу жилья фраза с «открой» и датой тоже
@@ -395,6 +423,8 @@ export async function processPartnerMessage(opts: {
   partner: PartnerChatContext;
   reply: (chatId: number, text: string) => Promise<void>;
   nowMs?: number;
+  /** Откуда пришло слово партнёра — в запись занятости жилья («хозяин: занято (max)»). Не названо — MAX. */
+  channel?: 'max' | 'telegram';
 }): Promise<void> {
   const { chatId, text, fromName, partner } = opts;
   const nowMs = opts.nowMs ?? Date.now();
@@ -438,6 +468,21 @@ export async function processPartnerMessage(opts: {
   if (charterEdited !== null) {
     await saveAnswer(charterEdited);
     await reply(chatId, charterEdited);
+    return;
+  }
+
+  // Хозяин жилья: «занято с 5 по 9 ноября» / «свободно …» — занятость объекта
+  // без номеров (30.10), без модели: даты записываются из слов хозяина.
+  const busy = await handleStayBusyPhrase({
+    partnerId: partner.partnerId,
+    category: partner.category,
+    text,
+    today: kamchatkaDate(new Date(nowMs)),
+    via: opts.channel ?? 'max',
+  });
+  if (busy !== null) {
+    await saveAnswer(busy);
+    await reply(chatId, busy);
     return;
   }
 

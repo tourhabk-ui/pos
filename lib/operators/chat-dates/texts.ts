@@ -853,6 +853,30 @@ export const FLOW_TEXT = {
   badButton: 'Кнопка не распознана — ничего не изменено. Напишите фразу ещё раз.',
 } as const;
 
+/** «открой весь декабрь, 8 мест» — месяц следующий за сегодняшним: «весь ноябрь» в декабре разбор отверг бы как прошедший. */
+export function wholeMonthHint(today: string): string {
+  return `«открой весь ${sampleMonth(today).nom}, 8 мест»`;
+}
+
+/** Где на сайте: у гида — раздел «Свои туры», у туроператора — календарь кабинета. */
+function calendarWhere(seller: DatesSeller): string {
+  return seller === 'guide'
+    ? `в разделе «Свои туры»: ${calendarLink(seller)}`
+    : `в календаре кабинета: ${calendarLink(seller)}`;
+}
+
+/**
+ * «Обновить места» в Telegram (31.10): кнопки подтверждения у потока дат там
+ * нет — кабинет или MAX. В MAX вместо текста — даты кнопками (`wizard.ts`).
+ */
+export function telegramSeatsText(seller: DatesSeller, today: string): string {
+  return [
+    'В Telegram даты не открываю: здесь нет кнопки подтверждения.',
+    `Откройте их ${calendarWhere(seller)}`,
+    `Или в MAX — кнопками «Обновить места» или одной фразой, например ${wholeMonthHint(today)}.`,
+  ].join('\n');
+}
+
 /** Telegram: кнопки подтверждения там нет — даты словами открываются в MAX. */
 export function telegramDatesText(seller: DatesSeller): string {
   return `Открыть даты словами можно в MAX — там есть кнопка подтверждения. Или в кабинете: ${calendarLink(seller)}`;

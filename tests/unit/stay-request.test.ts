@@ -100,7 +100,8 @@ describe('согласие называет настоящего получат�
     expect(FORM).toMatch(/pd_consent: pdConsent/);
     expect(FORM).not.toMatch(/pd_consent:\s*true/);
     expect(FORM).toMatch(/if \(!pdConsent\)/);
-    expect(FORM).toMatch(/disabled=\{sending \|\| !pdConsent\}/);
+    // Кнопка гаснет без согласия; с 30.10 — и на даты, закрытые хозяином (stay-request-form-busy — рендером).
+    expect(FORM).toMatch(/disabled=\{sending \|\| !pdConsent/);
   });
 
   it('роут записывает согласие варианта «жильё» в той же вставке', () => {
@@ -132,7 +133,9 @@ describe('роут: кто может принять заявку и куда о
 
   it('хозяину — строго в его адрес, оператору платформы — всегда; три исхода', () => {
     // Под заявкой у хозяина — «Ответить гостю» (переписка в этом же чате, 1349).
-    expect(SERVICE).toMatch(/sendPdAlert\(\{ text, stub: ownerStub, buttons: \[reply, card\], to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
+    // 30.10: перед ней — три кнопки ответа одним нажатием (lib/stay/owner-answer).
+    expect(SERVICE).toMatch(/const answers = stayAnswerButtons\(requestId\) \?\? \[\];/);
+    expect(SERVICE).toMatch(/sendPdAlert\(\{ text, stub: ownerStub, buttons: \[\.\.\.answers, reply, card\], to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
     expect(SERVICE).toMatch(/const reply = ownerReplyButton\(\{ kind: 'stay', id: requestId \}\);/);
     expect(SERVICE).toMatch(/const adminRes = await sendPdAlert\(\{\s*text,\s*stub: platformStub,\s*buttons: \[card, \{ text: 'Заявки гостей', url: `\$\{base\}\$\{STAY_REQUESTS_ADMIN_PATH\}` \}\],\s*\}\)/);
     expect(SERVICE).toMatch(/ownerDelivered \? 'owner' : adminRes\.delivered \? 'platform' : 'none'/);
