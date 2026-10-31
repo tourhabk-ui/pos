@@ -85,6 +85,7 @@ import { cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, type Cabine
 import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
 import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
+import { noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 
@@ -214,14 +215,24 @@ async function maxReplyToUser(userId: number, text: string): Promise<void> {
 async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxButton[][]): Promise<void> {
   const api = getApi();
   if (!api) return;
+  let res: unknown;
   try {
-    await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
+    res = await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
       format: 'html',
       attachments: [{ type: 'inline_keyboard', payload: { buttons } }],
     });
   } catch (err) {
     logFailure('ответ с кнопками в чат MAX', err);
+    return;
   }
+  // Строка меню — только под последним сообщением (31.10): у прежнего снимаем.
+  await noteMenuMessage(api as unknown as TailApi, chatId, sentMid(res), text, buttons);
+}
+
+/** Правка сообщения с кнопками принята: если на нём строка меню — оно теперь последнее. */
+async function noteEditedMenu(chatId: number, mid: string, text: string, buttons: MaxButton[][]): Promise<void> {
+  const api = getApi();
+  if (api) await noteMenuMessage(api as unknown as TailApi, chatId, mid, text, buttons);
 }
 
 /**
@@ -279,7 +290,10 @@ function rentalAnswerSend(chatId: number, bar: boolean) {
           format: 'html',
           attachments,
         });
-        if (res?.success !== false) return;
+        if (res?.success !== false) {
+          await noteEditedMenu(chatId, editMid, text, buttons);
+          return;
+        }
         console.error('[max/kuzmich] правка ответа на заявку проката не принята MAX — отправляю новым сообщением');
       } catch (err) {
         logFailure('правка ответа на заявку проката', err);
@@ -306,7 +320,10 @@ function rentalCalendarSend(chatId: number, bar: boolean) {
           format: 'html',
           attachments: [{ type: 'inline_keyboard', payload: { buttons: rows } }],
         });
-        if (res?.success !== false) return;
+        if (res?.success !== false) {
+          await noteEditedMenu(chatId, editMid, text, rows);
+          return;
+        }
         console.error('[max/kuzmich] правка календаря проката не принята MAX — отправляю новым сообщением');
       } catch (err) {
         logFailure('правка календаря проката', err);
@@ -371,7 +388,10 @@ function datesEditSend(chatId: number, menu: MenuButton[] | null, editMid: strin
           format: 'html',
           attachments: rows.length ? [{ type: 'inline_keyboard', payload: { buttons: rows } }] : [],
         });
-        if (res?.success !== false) return;
+        if (res?.success !== false) {
+          await noteEditedMenu(chatId, editMid, text, rows);
+          return;
+        }
         console.error('[max/kuzmich] правка шага дат не принята MAX — отправляю новым сообщением');
       } catch (err) {
         logFailure('правка шага дат', err);
