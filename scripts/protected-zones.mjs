@@ -155,10 +155,10 @@ export const PROTECTED_ZONES = Object.freeze([
   {
     id: 'messenger-login',
     title: 'Вход через мессенджеры',
-    paths: ['lib/max/webhook-url.ts'],
+    paths: ['lib/max/webhook-url.ts', 'lib/miniapp/init-data.ts'],
     reason:
-      'Секрет в адресе подписки MAX — единственное, что отличает настоящий вызов MAX от подделанного bot_started с чужим max_user_id, а по нему выдаётся вход в аккаунт (security-ревью #961). Тот же класс, что lib/auth.ts: ослабленная сверка или подменённый адрес вебхука уводят вход в чужой кабинет. Внесён аудитом 15.10 (ZONES, S-3).',
-    claude: '§7 НЕ ТРОГАТЬ, абзац «Проверка зон»: `lib/max/webhook-url.ts`',
+      'Проверка подписи initData мини-приложения (lib/miniapp/init-data.ts, 31.10, план CHAT_MINIAPPS_PLAN §6.2): по ней выдаётся вход в кабинет из мессенджера, ослабленная сверка или окно уводят вход в чужой кабинет. Секрет в адресе подписки MAX — единственное, что отличает настоящий вызов MAX от подделанного bot_started с чужим max_user_id, а по нему выдаётся вход в аккаунт (security-ревью #961). Тот же класс, что lib/auth.ts: ослабленная сверка или подменённый адрес вебхука уводят вход в чужой кабинет. Внесён аудитом 15.10 (ZONES, S-3).',
+    claude: '§7 НЕ ТРОГАТЬ, абзац «Проверка зон»: `lib/max/webhook-url.ts`, `lib/miniapp/init-data.ts`',
   },
   {
     id: 'pd-route',
