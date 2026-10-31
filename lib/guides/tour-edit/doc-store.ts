@@ -80,6 +80,8 @@ const SUPERSEDE_SQL = [
     WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`,
   `UPDATE guide_chat_drafts SET status = 'superseded', decided_at = NOW()
     WHERE channel = $1 AND chat_id = $2::bigint AND status IN ('awaiting_text', 'pending')`,
+  `UPDATE tour_create_drafts SET status = 'superseded', decided_at = NOW()
+    WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`,
 ];
 
 export const CREATE_DOC_DRAFT_SQL = `INSERT INTO tour_doc_drafts

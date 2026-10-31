@@ -665,6 +665,222 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
     });
   });
 
+  describe('новый тур гида и его витрина (1362, 31.10)', () => {
+    const NEW_CHAT = 8_401;
+    const FRESH_CHAT = 8_402;
+    const STRANGER = 8_403;
+    let guideId = '';
+    let guideUser = '';
+    let freshId = '';
+    let flow: typeof import('@/lib/guides/tour-edit/flow');
+    let pub: typeof import('@/lib/guides/own-tour-publish');
+    let partner: import('@/lib/kuzmich/operator-chat').PartnerChatContext;
+    let fresh: import('@/lib/kuzmich/operator-chat').PartnerChatContext;
+    const press = (payload: string, chatId = NEW_CHAT) =>
+      svc.handleCabinetPress({ channel: 'max', chatId, privateChat: true, payload, nowMs: NOW });
+    const button = (s: { rows: Array<Array<{ text: string } & Partial<{ payload: string }>>> }, text: string) =>
+      s.rows.flat().find((b) => b.text === text && 'payload' in b)?.payload ?? '';
+    const toursOf = async (owner: string) => (await pool.query<{
+      id: string; title: string; is_active: boolean; is_published: boolean; base_price: string; price_unit: string;
+      max_participants: number; description: string | null; weather_dependent: boolean | null; created_by: string | null;
+      program: unknown; what_to_bring: string[] | null; on_storefront: boolean;
+    }>(
+      `SELECT ot.id::text AS id, ot.title, ot.is_active, ot.is_published, ot.base_price, ot.price_unit, ot.max_participants,
+              ot.description, ot.weather_dependent, ot.created_by::text AS created_by, ot.program, ot.what_to_bring,
+              (ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL) AS on_storefront
+         FROM operator_tours ot WHERE ot.operator_id = $1 AND ot.deleted_at IS NULL ORDER BY ot.id`, [owner],
+    )).rows;
+    const findByChat = async (chatId: number) => {
+      const found = await (await import('@/lib/kuzmich/operator-chat')).findPartnerByChat('max', chatId);
+      if (found.outcome !== 'found') throw new Error('карточка гида не найдена по чату');
+      return found.partner;
+    };
+
+    beforeAll(async () => {
+      flow = await import('@/lib/guides/tour-edit/flow');
+      pub = await import('@/lib/guides/own-tour-publish');
+      guideUser = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('new-tour-guide@example.com', 'Гид нового тура', 'x', 'guide') RETURNING id`,
+      )).rows[0]!.id;
+      // Одобренный платформой гид (как 1338) — его туры могут выйти на сайт.
+      guideId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, user_id, max_chat_id, profile_status, is_public, status)
+         VALUES ('Гид одобренный', 'guide', '{}', $1, $2, 'approved', TRUE, 'active') RETURNING id`, [guideUser, NEW_CHAT],
+      )).rows[0]!.id;
+      const freshUser = (await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ('fresh-guide@example.com', 'Новый гид', 'x', 'guide') RETURNING id`,
+      )).rows[0]!.id;
+      // Гид без своих туров и без одобрения анкеты.
+      freshId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, user_id, max_chat_id) VALUES ('Гид без туров', 'guide', '{}', $1, $2) RETURNING id`,
+        [freshUser, FRESH_CHAT],
+      )).rows[0]!.id;
+      partner = await findByChat(NEW_CHAT);
+      fresh = await findByChat(FRESH_CHAT);
+      expect(partner.sellsTours).toBe(false);
+      expect(fresh.sellsTours).toBe(false);
+    });
+
+    it('миграция 1362 повторяется без вреда; черновик без цены и «создан» без тура база не примет', async () => {
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1362_tour_create_drafts.sql'), 'utf8'));
+      await expect(pool.query(
+        `INSERT INTO tour_create_drafts (partner_id, channel, chat_id, source, draft_values, expires_at)
+         VALUES ($1, 'max', 1, 'phrase', '{"title": "Тур", "max_participants": 4, "description": "x"}', NOW())`, [guideId],
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(pool.query(
+        `INSERT INTO tour_create_drafts (partner_id, channel, chat_id, source, draft_values, status, decided_at, expires_at)
+         VALUES ($1, 'max', 1, 'phrase', '{"title": "Тур", "base_price": 1, "max_participants": 4, "description": "x"}', 'created', NOW(), NOW())`,
+        [guideId],
+      )).rejects.toMatchObject({ code: '23514' });
+    });
+
+    it('гид без своих туров: «Ещё» — «Мои туры», там «Новый тур»', async () => {
+      const more = await press('cb:m', FRESH_CHAT);
+      expect(button(more, 'Мои туры')).toBe('cb:u');
+      const mine = await press('cb:u', FRESH_CHAT);
+      expect(mine.text).toMatch(/Своих туров пока нет/);
+      expect(button(mine, 'Новый тур')).toBe('cb:u:n');
+      expect((await press('cb:u:n', FRESH_CHAT)).text).toMatch(/новый тур: Восхождение на Горелый; цена 15000; группа 4; описание:/);
+    });
+
+    it('фраза «новый тур: …» — предпросмотр, в туры без кнопки ничего; «Создать черновик» — тур черновиком общей функцией; повтор второго не заводит', async () => {
+      const phrase = 'новый тур: Восхождение на Горелый; цена 15 000; группа 4; описание: Подъём на действующий вулкан, кратер и кислотное озеро.';
+      const shown = await flow.captureGuideTourEdit({ channel: 'max', chatId: NEW_CHAT, partner, text: phrase });
+      const words = (shown?.text ?? '').replace(/\u00a0/g, ' ');
+      expect(words).toContain('Название: <b>Восхождение на Горелый</b>');
+      expect(words).toContain('Цена: 15 000 ₽ за человека. Группа: до 4 чел.');
+      expect(await toursOf(guideId)).toEqual([]);
+      const create = button(shown!, 'Создать черновик');
+      expect(create).toMatch(/^cb:e:c:/);
+      // Чужой чат той же кнопкой не создаёт.
+      expect((await press(create, STRANGER)).text).not.toMatch(/Создан черновик/);
+      expect(await toursOf(guideId)).toEqual([]);
+      const made = await press(create);
+      expect(made.text).toMatch(/^Создан черновик тура «Восхождение на Горелый»/);
+      const rows = await toursOf(guideId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        title: 'Восхождение на Горелый', is_active: true, is_published: false, on_storefront: false,
+        price_unit: 'per_person', max_participants: 4, weather_dependent: null, created_by: guideUser,
+        description: 'Подъём на действующий вулкан, кратер и кислотное озеро.',
+      });
+      expect(Number(rows[0]!.base_price)).toBe(15000);
+      // Одобренному гиду с описанием и ценой до сайта всего хватает — кнопка есть.
+      expect(button(made, 'Опубликовать')).toBe(`cb:u:p:${rows[0]!.id}`);
+      const again = await press(create);
+      expect(again.text).toMatch(/уже создан — второй не заводил/);
+      expect(await toursOf(guideId)).toHaveLength(1);
+      expect((await pool.query(`SELECT status, tour_id::text AS tour_id FROM tour_create_drafts WHERE chat_id = $1`, [NEW_CHAT])).rows)
+        .toEqual([{ status: 'created', tour_id: rows[0]!.id }]);
+    });
+
+    it('без цены или группы — что не хватает, ничего не заведено; «Отмена» — тур не создан', async () => {
+      const lacking = await flow.captureGuideTourEdit({ channel: 'max', chatId: NEW_CHAT, partner, text: 'новый тур: Вачкажец; описание: Горный массив.' });
+      expect(lacking?.text).toMatch(/Не хватает: цена, размер группы/);
+      expect(await pool.query(`SELECT 1 FROM tour_create_drafts WHERE chat_id = $1 AND status = 'pending'`, [NEW_CHAT])).toMatchObject({ rowCount: 0 });
+      const shown = await flow.captureGuideTourEdit({ channel: 'max', chatId: NEW_CHAT, partner, text: 'новый тур: Вачкажец и озёрки; цена 9000; группа 6; описание: Горный массив.' });
+      expect((await press(button(shown!, 'Отмена'))).text).toBe('Отменено. Тур не создан.');
+      expect((await toursOf(guideId)).map((t) => t.title)).toEqual(['Восхождение на Горелый']);
+    });
+
+    it('«Опубликовать» — общей функцией: тур на витрине по шлюзу каталога; «Снять с сайта» — снова черновик; чужой чат не публикует', async () => {
+      const [t] = await toursOf(guideId);
+      expect((await press(`cb:u:p:${t!.id}`, STRANGER)).text).not.toMatch(/^Опубликовано/);
+      expect((await toursOf(guideId))[0]!.on_storefront).toBe(false);
+      const shown = await press(`cb:u:p:${t!.id}`);
+      expect(shown.text).toMatch(/^Опубликовано: «Восхождение на Горелый» на сайте/);
+      expect((await toursOf(guideId))[0]!.on_storefront).toBe(true);
+      expect(button(shown, 'Снять с сайта')).toBe(`cb:u:s:${t!.id}`);
+      expect((await press(`cb:u:p:${t!.id}`)).text).toMatch(/уже на сайте — ничего не менял/);
+      const off = await press(`cb:u:s:${t!.id}`);
+      expect(off.text).toMatch(/^Снято с сайта: «Восхождение на Горелый» — теперь черновик/);
+      expect((await toursOf(guideId))[0]).toMatchObject({ is_published: false, on_storefront: false });
+    });
+
+    it('гейт — в SQL публикации: без описания и у неодобренного гида тур остаётся черновиком с перечнем; чужой тур — «не найден»', async () => {
+      // Черновик старого образца (1338): цена есть, описания нет.
+      const bare = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price, price_unit, max_participants, is_active, is_published)
+         VALUES ($1, 'Бухта Русская', 19000, 'per_person', 4, TRUE, FALSE) RETURNING id::text`, [guideId],
+      )).rows[0]!.id;
+      partner = await findByChat(NEW_CHAT);
+      const screen = await press(`cb:u:${bare}`);
+      expect(screen.text).toContain('Чего не хватает до сайта:\n• нет описания тура');
+      expect(button(screen, 'Опубликовать')).toBe('');
+      const refused = await press(`cb:u:p:${bare}`);
+      expect(refused.text).toMatch(/Не опубликовал «Бухта Русская»: тур остался черновиком/);
+      expect((await toursOf(guideId)).find((x) => x.id === bare)).toMatchObject({ is_published: false });
+      // Мимо экрана — сама функция в своей транзакции: тот же отказ, ни строки.
+      const c = await pool.connect();
+      try {
+        expect(await pub.publishOwnTour(c, { ownerId: guideId, tourId: bare })).toEqual({
+          outcome: 'blocked', title: 'Бухта Русская', blockers: ['description'],
+        });
+        expect(await pub.publishOwnTour(c, { ownerId: freshId, tourId: bare })).toEqual({ outcome: 'not_found' });
+        expect(await pub.unpublishOwnTour(c, { ownerId: freshId, tourId: bare })).toEqual({ outcome: 'not_found' });
+      } finally {
+        c.release();
+      }
+      // Неодобренный гид создаёт тур, но на сайт он не выходит.
+      const shown = await flow.captureGuideTourEdit({
+        channel: 'max', chatId: FRESH_CHAT, partner: fresh, text: 'новый тур: Авачинский перевал; цена 8000 за группу; группа 5; описание: Прогулка у подножия.',
+      });
+      expect((shown?.text ?? '').replace(/\u00a0/g, ' ')).toContain('Цена: 8 000 ₽ за группу.');
+      const made = await press(button(shown!, 'Создать черновик'), FRESH_CHAT);
+      expect(made.text).toContain('анкету гида ещё не одобрила платформа');
+      expect(button(made, 'Опубликовать')).toBe('');
+      const [own] = await toursOf(freshId);
+      expect(own).toMatchObject({ price_unit: 'per_tour', is_published: false });
+      expect((await press(`cb:u:p:${own!.id}`, FRESH_CHAT)).text).toMatch(/Не опубликовал/);
+      expect((await toursOf(freshId))[0]!.on_storefront).toBe(false);
+      // Чтение раздела «Свои туры» на сайте — тот же гейт тем же SQL.
+      const { loadOwnTours } = await import('@/lib/guides/own-tours');
+      expect((await loadOwnTours(freshId)).map((x) => [x.title, x.on_storefront, x.blockers])).toEqual([
+        ['Авачинский перевал', false, ['guide_not_public']],
+      ]);
+      expect((await loadOwnTours(guideId)).find((x) => x.id === bare)?.blockers).toEqual(['description']);
+    });
+
+    it('документ Word, тура из которого нет среди своих: подпись — цена и группа; «Создать черновик» — тур с программой и списками', async () => {
+      const { docx } = await import('../helpers/docx');
+      const doc = await import('@/lib/guides/tour-edit/doc-flow');
+      const bytes = docx([
+        '«Мутновский вулкан и водопад Опасный»',
+        'Описание маршрута',
+        'Подъём к кратеру Мутновского и спуск к каньону Опасный.',
+        'Программа дня',
+        'Дорога',
+        'Выезд в 7:00.',
+        'Что взять с собой',
+        { text: 'ботинки', list: true },
+        { text: 'дождевик', list: true },
+      ]);
+      const before = (await toursOf(guideId)).length;
+      const lacking = await doc.captureGuideTourDoc({ channel: 'max', chatId: NEW_CHAT, partner, fileName: 'm.docx', caption: '', bytes });
+      expect(lacking?.text).toMatch(/не нашёл среди ваших/);
+      expect(lacking?.text).toMatch(/Не хватает: цена, размер группы/);
+      const shown = await doc.captureGuideTourDoc({ channel: 'max', chatId: NEW_CHAT, partner, fileName: 'm.docx', caption: 'цена 21000; группа 6', bytes });
+      expect(shown?.text).toContain('Название: <b>Мутновский вулкан и водопад Опасный</b>');
+      expect((await toursOf(guideId)).length).toBe(before);
+      const made = await press(button(shown!, 'Создать черновик'));
+      expect(made.text).toMatch(/^Создан черновик тура «Мутновский вулкан и водопад Опасный»/);
+      const t = (await toursOf(guideId)).find((x) => x.title === 'Мутновский вулкан и водопад Опасный');
+      expect(t).toMatchObject({
+        is_published: false, max_participants: 6, description: 'Подъём к кратеру Мутновского и спуск к каньону Опасный.',
+        program: [{ title: 'Дорога', text: 'Выезд в 7:00.' }], what_to_bring: ['ботинки', 'дождевик'],
+      });
+      expect((await pool.query(`SELECT source FROM tour_create_drafts WHERE tour_id = $1`, [t!.id])).rows).toEqual([{ source: 'doc' }]);
+    });
+
+    it('новое действие снимает черновик нового тура: его кнопка больше не создаёт', async () => {
+      const first = await flow.captureGuideTourEdit({ channel: 'max', chatId: NEW_CHAT, partner, text: 'новый тур: Тур на Авачу; цена 9000; группа 6; описание: Восхождение.' });
+      partner = await findByChat(NEW_CHAT);
+      await flow.captureGuideTourEdit({ channel: 'max', chatId: NEW_CHAT, partner, text: 'Горелый: цена 16000' });
+      expect((await press(button(first!, 'Создать черновик'))).text).toMatch(/заменило ваше следующее действие/);
+      expect((await toursOf(guideId)).some((x) => x.title === 'Тур на Авачу')).toBe(false);
+    });
+  });
+
   describe('роль гида, этап 2: отзыв, профиль, команда, расписание, заработок (1360)', () => {
     const G_CHAT = 8_301;
     const G_STRANGER = 8_302;

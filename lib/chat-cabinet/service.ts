@@ -819,7 +819,14 @@ export async function handleCabinetPress(input: {
     case 'tour_hint':
     case 'edit_save':
     case 'edit_cancel':
-    case 'edit_tour': {
+    case 'edit_tour':
+    // Новый тур гида и его витрина (31.10): «Новый тур», «Создать черновик»
+    // (1362), «Опубликовать» / «Снять с сайта» — тот же поток.
+    case 'tour_new':
+    case 'create_save':
+    case 'create_cancel':
+    case 'tour_publish':
+    case 'tour_unpublish': {
       const { guideTourPress } = await import('@/lib/guides/tour-edit/flow');
       out = await guideTourPress(press, {
         partner: g.ctx, owner: g.partner.seat === 'owner', channel: ch, chatId: input.chatId, nowMs,

@@ -1,17 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { Compass, CalendarPlus, Inbox, Loader2, AlertCircle, RefreshCw, Phone, Mail, Users } from 'lucide-react';
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 import type { OwnBooking, OwnLead, OwnTour } from '@/lib/guides/own-tours';
+import { OwnToursManager } from '@/components/guide/OwnToursManager';
 import { OWNER_BOOKING_STATUS_LABEL, alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 import {
   LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText, leadIsWaiting, ownerLeadActionsFor, type OwnerLeadStatus,
 } from '@/lib/leads/owner-lead-words';
 
 /**
- * «Свои туры» гида — туры, которые гид продаёт сам: брони по ним (подтвердить,
+ * «Свои туры» гида — туры, которые гид продаёт сам: сами туры (новый тур
+ * черновиком, «Опубликовать» / «Снять с сайта», правка — components/guide/
+ * OwnToursManager, 31.10), брони по ним (подтвердить,
  * отклонить, отметить итог), заявки (отметить ответ) и открытие дат. Данные —
  * GET /api/guide/own; смена статуса брони — PATCH /api/guide/own/bookings/[id],
  * заявки — PATCH /api/guide/own/leads/[id] (те же правила, что у кабинета
@@ -319,7 +321,7 @@ export default function OwnToursClient() {
         </button>
       </div>
       <p className="text-sm text-[var(--text-secondary)]">
-        Туры, которые вы продаёте сами: брони и заявки туристов, ваши даты. Решение по брони — ваше; турист получит письмо.
+        Туры, которые вы продаёте сами: новые туры и их публикация, брони и заявки туристов, ваши даты. Решение по брони — ваше; турист получит письмо.
       </p>
       {notice && <p role="status" className="ds-card text-sm text-[var(--text-primary)]">{notice}</p>}
 
@@ -329,6 +331,15 @@ export default function OwnToursClient() {
         <p role="alert" className="ds-card text-[var(--danger)] flex items-center gap-2"><AlertCircle size={16} /> {error}</p>
       ) : (
         <>
+          <section className="space-y-3">
+            <h2 className="ds-h2">Мои туры</h2>
+            {tours === null ? (
+              <p role="alert" className="text-sm text-[var(--danger)]">Туры не загрузились — обновите страницу.</p>
+            ) : (
+              <OwnToursManager tours={tours} onDone={done} />
+            )}
+          </section>
+
           <section className="space-y-3">
             <h2 className="ds-h2">Брони</h2>
             {bookings === null ? (
@@ -357,22 +368,10 @@ export default function OwnToursClient() {
               <p role="alert" className="text-sm text-[var(--danger)]">Туры не загрузились — обновите страницу.</p>
             ) : tours.filter((t) => t.is_published && t.is_active).length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">
-                Опубликованных туров нет. Туры без описания — черновики: пришлите описание менеджеру Ведара, и тур появится на сайте.
+                Опубликованных туров нет. Черновик выводится на сайт кнопкой «Опубликовать» в «Моих турах» выше.
               </p>
             ) : (
               <OpenDatesForm tours={tours.filter((t) => t.is_published && t.is_active)} onDone={done} />
-            )}
-            {tours && tours.length > 0 && (
-              <ul className="space-y-1 text-sm text-[var(--text-secondary)]">
-                {tours.map((t) => (
-                  <li key={t.id}>
-                    {t.is_published
-                      ? <Link href={`/catalog/tours/${t.id}`} className="text-[var(--ocean)]">{t.title}</Link>
-                      : <span>{t.title}</span>}
-                    {' — '}{t.is_published ? `открытых дат: ${t.open_dates}` : 'черновик, на сайте не виден'}
-                  </li>
-                ))}
-              </ul>
             )}
           </section>
         </>

@@ -11,7 +11,8 @@
  *    названо; подзаголовок не угадывается анонсом;
  *  - без кнопки не пишется ничего: файл заводит только черновик;
  *  - запись — той же функцией сайта (`writeTourPatch`), по полю или всё;
- *  - не гид со своими турами и не .docx — файл идёт прежним путём.
+ *  - не гид и не .docx — файл идёт прежним путём (гид без своих туров с
+ *    31.10 получает предложение нового тура — tests/unit/guide-tour-create.test.ts).
  * Путь записи на настоящей базе — tests/integration/chat-cabinet.pg.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -172,9 +173,8 @@ describe('файл в чате: без кнопки не пишется; зап�
     expect(h.write).not.toHaveBeenCalled();
   });
 
-  it('не гид со своими турами и не .docx — прежним путём; файл не скачался — так и сказано', async () => {
+  it('не гид и не .docx — прежним путём; файл не скачался — так и сказано', async () => {
     const bytes = docx(GUIDE_DOC);
-    expect(await captureGuideTourDoc({ channel: 'max', chatId: CHAT, partner: { ...GUIDE, sellsTours: false }, fileName: 'g.docx', caption: '', bytes })).toBeNull();
     expect(await captureGuideTourDoc({ channel: 'max', chatId: CHAT, partner: { ...GUIDE, category: 'operator' }, fileName: 'g.docx', caption: '', bytes })).toBeNull();
     expect(await captureGuideTourDoc({ channel: 'max', chatId: CHAT, partner: GUIDE, fileName: 'g.pdf', caption: '', bytes })).toBeNull();
     const failed = await captureGuideTourDoc({ channel: 'max', chatId: CHAT, partner: GUIDE, fileName: 'g.docx', caption: '', bytes: null });

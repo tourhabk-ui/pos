@@ -1220,11 +1220,13 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     const fileAtt = attachments.find(a => a.type === 'file');
     if (fileAtt && msg.recipient.chat_type === 'dialog' && opts?.verifiedOrigin === true) {
       const doc = await import('@/lib/guides/tour-edit/doc-flow');
-      const { editsOwnTours } = await import('@/lib/guides/tour-edit/flow');
+      // Любой гид (31.10): документ, тура из которого нет среди своих,
+      // предлагает новый тур — и гиду без своих туров тоже.
+      const { createsOwnTours } = await import('@/lib/guides/tour-edit/flow');
       const fileName = fileAtt.filename ?? null;
       if (doc.isDocxName(fileName)) {
         const owner = await findPartnerByChat('max', chatId);
-        if (owner.outcome === 'found' && editsOwnTours(owner.partner)) {
+        if (owner.outcome === 'found' && createsOwnTours(owner.partner)) {
           const bytes = fileAtt.payload?.url ? await downloadMaxFile(fileAtt.payload.url) : null;
           const shown = await doc.captureGuideTourDoc({ channel: 'max', chatId, partner: owner.partner, fileName, caption: text, bytes });
           if (shown) {

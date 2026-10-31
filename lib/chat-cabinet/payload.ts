@@ -33,6 +33,11 @@
  *   cb:h:<тур>          — как править текст тура фразой
  *   cb:e:<s|x>:<uuid>   — черновик правки тура: «Сохранить» / «Отмена»
  *   cb:e:t:<uuid>:<i>   — черновик правки: выбрать тур из кандидатов
+ *   cb:u:n              — «Новый тур»: как создать тур фразой или документом (31.10)
+ *   cb:u:p:<тур>        — «Опубликовать» свой тур (витринный гейт, lib/guides/own-tour-publish)
+ *   cb:u:s:<тур>        — «Снять с сайта» — тур становится черновиком
+ *   cb:e:c:<uuid>       — новый тур (1362): «Создать черновик»
+ *   cb:e:n:<uuid>       — новый тур: «Отмена»
  *   cb:a | cb:a:<стр>   — «Отзывы» гида (этап 2, 30.10), страница
  *   cb:a:v:<uuid>       — отзыв: текст, ответ, кнопки
  *   cb:a:r:<uuid>       — «Ответить» / «Изменить ответ»: следующее сообщение — текст
@@ -122,6 +127,10 @@ export type CabinetPress =
   | { kind: 'tour_hint'; tourId: string }
   | { kind: 'edit_save' | 'edit_cancel'; draftId: string }
   | { kind: 'edit_tour'; draftId: string; index: number }
+  /** Новый тур гида (31.10): подсказка, «Создать черновик» / «Отмена» (1362), опубликовать / снять с сайта. */
+  | { kind: 'tour_new' }
+  | { kind: 'create_save' | 'create_cancel'; draftId: string }
+  | { kind: 'tour_publish' | 'tour_unpublish'; tourId: string }
   | { kind: 'reviews'; page: number }
   | { kind: 'review' | 'review_reply' | 'review_delete'; reviewId: string }
   | { kind: 'draft_save' | 'draft_cancel'; draftId: string }
@@ -201,6 +210,8 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
   [/^cb:u$/, () => ({ kind: 'my_tours' })],
   [new RegExp(`^cb:u:(${TOUR})$`), (m) => ({ kind: 'tour', tourId: m[1]! })],
+  [/^cb:u:n$/, () => ({ kind: 'tour_new' })],
+  [new RegExp(`^cb:u:([ps]):(${TOUR})$`), (m) => ({ kind: m[1] === 'p' ? 'tour_publish' : 'tour_unpublish', tourId: m[2]! })],
   [new RegExp(`^cb:w:(${TOUR})(?::(\\d{1,2}))?$`), (m) => {
     const page = Number(m[2] ?? 0);
     return page <= TOUR_DATES_MAX_PAGE ? { kind: 'tour_dates', tourId: m[1]!, page } : null;
@@ -213,6 +224,7 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [new RegExp(`^cb:h:(${TOUR})$`), (m) => ({ kind: 'tour_hint', tourId: m[1]! })],
   [new RegExp(`^cb:e:([sx]):(${UUID})$`), (m) => ({ kind: m[1] === 's' ? 'edit_save' : 'edit_cancel', draftId: m[2]! })],
   [new RegExp(`^cb:e:t:(${UUID}):([0-7])$`), (m) => ({ kind: 'edit_tour', draftId: m[1]!, index: Number(m[2]) })],
+  [new RegExp(`^cb:e:([cn]):(${UUID})$`), (m) => ({ kind: m[1] === 'c' ? 'create_save' : 'create_cancel', draftId: m[2]! })],
   [new RegExp(`^cb:a(?::(${PAGE}))?$`), (m) => ({ kind: 'reviews', page: Number(m[1] ?? 0) })],
   [new RegExp(`^cb:a:([vrd]):(${UUID})$`), (m) => ({ kind: REVIEW_ACTION[m[1]!]!, reviewId: m[2]! })],
   [new RegExp(`^cb:b:([sx]):(${UUID})$`), (m) => ({ kind: m[1] === 's' ? 'draft_save' : 'draft_cancel', draftId: m[2]! })],
@@ -294,6 +306,12 @@ export const cabinetPayload = {
   editSave: (draftId: string): string => `cb:e:s:${draftId.toLowerCase()}`,
   editCancel: (draftId: string): string => `cb:e:x:${draftId.toLowerCase()}`,
   editTour: (draftId: string, index: number): string => `cb:e:t:${draftId.toLowerCase()}:${index}`,
+  /** Новый тур гида (31.10): подсказка формы, «Создать черновик» / «Отмена», опубликовать / снять. */
+  tourNew: (): string => 'cb:u:n',
+  createSave: (draftId: string): string => `cb:e:c:${draftId.toLowerCase()}`,
+  createCancel: (draftId: string): string => `cb:e:n:${draftId.toLowerCase()}`,
+  tourPublish: (tourId: string): string => `cb:u:p:${tourId}`,
+  tourUnpublish: (tourId: string): string => `cb:u:s:${tourId}`,
   /** «Отзывы» гида. */
   reviews: (page = 0): string => (page > 0 ? `cb:a:${page}` : 'cb:a'),
   review: (reviewId: string): string => `cb:a:v:${reviewId.toLowerCase()}`,

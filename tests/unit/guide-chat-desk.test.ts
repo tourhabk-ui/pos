@@ -438,8 +438,8 @@ const DESK: readonly DeskRow[] = [
 const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
 /** Что лежит в «Ещё» у продавца своих туров. */
 const MORE_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Помощь'];
-/** Что есть у гида команды без своих туров. */
-const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Готово', 'На завтра', 'Расписание', 'Заработок', 'Профиль', 'Отзывы']);
+/** Что есть у гида команды без своих туров («Мои туры» — с 31.10: там он заводит первый тур). */
+const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Мои туры', 'Готово', 'На завтра', 'Расписание', 'Заработок', 'Профиль', 'Отзывы']);
 /** Падежные формы, которыми тексты называют экраны строки. */
 const ALIASES: Readonly<Record<string, string>> = {
   Бронях: 'Брони', Бронями: 'Брони', Входящих: 'Входящие', Входящими: 'Входящие',
@@ -899,15 +899,17 @@ describe('справка называет ровно таблицу', () => {
       }
     });
 
-    it(`${ch}: гид команды без своих туров — вкладки те же, в «Ещё» только «Помощь»; кнопки продавца — отказ без чтения и записи`, async () => {
+    it(`${ch}: гид команды без своих туров — вкладки те же, в «Ещё» «Мои туры» (новый тур) и «Помощь»; кнопки продавца — отказ без чтения и записи`, async () => {
       m.findPartner.mockResolvedValue({ outcome: 'found', partner: TEAM });
       const d = DRIVERS[ch];
       const help = await helpIn(d, TEAM);
       expect(namesIn(help).filter((n) => resolveName(n, 'team') === null), 'названо, но гиду команды этого нет').toEqual([]);
       expect(tabsIn(help)).toEqual(MENU_NAMES);
-      expect(moreIn(help)).toEqual(['Помощь', 'кабинет на сайте']);
+      expect(moreIn(help)).toEqual(['Мои туры', 'Помощь', 'кабинет на сайте']);
       const more = await openScreen(d, 'Ещё', TEAM);
-      for (const name of ['Брони', 'Мои туры']) expect(more.buttons.some((b) => b.text === name), name).toBe(false);
+      expect(more.buttons.some((b) => b.text === 'Брони')).toBe(false);
+      // «Мои туры» гида без своих туров — экран кабинета с «Новый тур», не список продавца.
+      expect(more.buttons.find((b) => b.text === 'Мои туры')?.payload).toBe('cb:u');
       // Карточка брони во «Входящих» гида команды — без кнопок ответа.
       const card = await inboxCard(d, 'Бронь тура');
       expect(card.buttons.some((b) => /^(?:bk|ld|oc):/.test(b.payload))).toBe(false);

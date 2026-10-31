@@ -28,9 +28,13 @@ import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 
 const TOUR = {
   id: '101', title: 'Толбачик, 4 дня', slug: 'tolbachik', is_published: true, is_active: true,
-  base_price: '85000', max_participants: 4, season_start: '2027-07-26', season_end: '2027-09-23', open_dates: 5,
+  base_price: '85000', price_unit: 'per_person', max_participants: 4, short_description: null, description: 'Четыре дня.',
+  season_start: '2027-07-26', season_end: '2027-09-23', open_dates: 5, on_storefront: true, blockers: [] as string[],
 };
-const DRAFT = { ...TOUR, id: '102', title: 'Бухта Русская', slug: 'russkaya', is_published: false, open_dates: 0 };
+const DRAFT = {
+  ...TOUR, id: '102', title: 'Бухта Русская', slug: 'russkaya', is_published: false, open_dates: 0,
+  description: null, on_storefront: false, blockers: ['description'],
+};
 const BOOKING = {
   id: '7001', tour_id: '101', tour_title: 'Толбачик, 4 дня', booking_date: '2027-07-26', participants: 2,
   booking_status: 'new', tourist_name: 'Пётр', tourist_phone: '+79990001122', tourist_email: null,
@@ -138,7 +142,9 @@ describe('«Свои туры» гида', () => {
     const select = screen.getByRole('combobox') as HTMLSelectElement;
     expect([...select.options].map((o) => o.textContent)).toEqual(['Толбачик, 4 дня']);
     expect(screen.getByRole('link', { name: 'Толбачик, 4 дня' }).getAttribute('href')).toBe('/catalog/tours/101');
-    expect(screen.getByText(/Бухта Русская/).parentElement?.textContent).toContain('черновик, на сайте не виден');
+    // Черновик назван черновиком — в «Моих турах» (31.10), без ссылки на сайт.
+    expect(screen.getByTestId('own-tour-102').textContent).toContain('черновик — туристы не видят');
+    expect(within(screen.getByTestId('own-tour-102')).queryByRole('link')).toBeNull();
   });
 });
 

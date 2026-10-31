@@ -365,7 +365,8 @@ describe('«Ещё»', () => {
     // У любого гида — расписание, заработок, профиль и отзывы (роль гида, этап 2, 30.10).
     const guideRole = ['cb:s', 'cb:j', 'cb:p', 'cb:a'];
     expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
-    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual([...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
+    // Гид без своих туров (31.10) — «Мои туры» кабинета: там «Новый тур».
+    expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:u', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
     // Перевозчик: «Машины и прайс» (#2862 этап C) — парк и черновики прайса, затем сводка.
     expect(payloads(moreScreen(partner({ role: 'transfer', sellsTours: false }), BASE))).toEqual(['cb:v', 'cb:y', 'cb:g', 'rm:tf:hp', ...NAV]);
     // Хозяин жилья: «Занято» — занятые даты объекта без номеров и кнопка открыть (30.10).
