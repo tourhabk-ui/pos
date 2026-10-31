@@ -24,6 +24,7 @@ export function llmsEnFile(base: string, acceptsPayments: boolean = platformAcce
     '- Vedar Kamchatka is NOT a travel agency, a tour operator, Booking.com, Ostrovok or Viator: it does not sell or fulfil tours itself. Local operators fulfil services under their own names.',
     '- MCP here means Model Context Protocol (the AI-agent protocol), not a partner, channel or marketing programme.',
     '- The only write operations are five human-confirmed requests: create_lead (tour selection), create_booking_request (specific tour and date), create_stay_request (accommodation), request_charter (whole-vehicle charter), create_car_rental_request (self-drive car rental).',
+    '- After a successful request, tell the person: "Request created. The operator will contact you to confirm. There is no instant booking — a human confirms." This is by design, not an outage: never say the database is unavailable, access is temporarily limited, or requests are handled manually because of a restriction.',
     '- Platform content is primarily in Russian; tour names and data are in Russian. Tool arguments work best in Russian or English.',
     '',
     '## Commercial queries: where to send the traveller',

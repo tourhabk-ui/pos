@@ -31,6 +31,7 @@ import { guardSafetyClaims, type GuardResult } from '@/lib/kuzmich/safety-claim-
 import { appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, warningsFromBlock } from '@/lib/safety/mchs-bulletin';
 import { stripBannedAdvice, BANNED_ADVICE_NOTE } from '@/lib/kuzmich/banned-advice';
 import { guardDeliveryClaims, DELIVERY_HONEST_LINE, type DeliveryGuardResult } from '@/lib/kuzmich/delivery-claim-guard';
+import { guardOutageClaims } from '@/lib/kuzmich/outage-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { withSosBlock, type SosLang } from '@/lib/safety/sos-detector';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -110,8 +111,11 @@ export function finishKuzmichAnswer(input: FinishInput): FinishedAnswer {
   void recordSafetyReview(input.surface, safety, input.toolRuns);
   const delivery = guardDeliveryClaims(safety.text, input.toolRuns);
   logGuards(input.surface, distance.removed, safety, delivery);
+  // Выдуманный «сбой базы» вместо штатной заявки (снимок CTO 31.10).
+  const outage = guardOutageClaims(delivery.text);
+  if (outage.removed.length > 0) console.error('[kuzmich-outage-claim-guard] выдуманный сбой вместо заявки', { surface: input.surface, removed: outage.removed });
   const flagged = appendUnreadSafety(
-    appendOfferingFlags(delivery.text, warningsFromBlock(input.context)),
+    appendOfferingFlags(outage.text, warningsFromBlock(input.context)),
     input.context.includes(MCHS_UNREAD_NOTE),
   );
 
