@@ -20,9 +20,14 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { failedScreen, noticeScreen, type CabinetScreen } from '@/lib/chat-cabinet/screens';
 import type { CabinetPress } from '@/lib/chat-cabinet/payload';
 import { docxParagraphs } from '@/lib/docs/docx-text';
-import { editsOwnTours } from './flow';
-import { pickTour } from './parse';
-import { DOC_FIELDS, docSections } from './doc-sections';
+import type { TourProgramStep } from '@/lib/tours/tour-write';
+import type { OwnTourDraftInput } from '@/lib/guides/own-tour-create';
+import { createsOwnTours, editsOwnTours } from './flow';
+import { parseFieldValue, pickTour } from './parse';
+import { DOC_FIELDS, docSections, type DocSections } from './doc-sections';
+import { finishCreate, parseCreateCaption, type CreateSpecs } from './create-parse';
+import { createTourCreateDraft } from './create-store';
+import { CREATE_TEXT, createIncompleteScreen, createPreviewScreen } from './create-screens';
 import {
   cancelDocDraft, chooseDocTour, createDocDraft, docFieldsOf, saveDocDraft, type DocBlocked, type DocValues,
 } from './doc-store';
@@ -50,7 +55,9 @@ export async function captureGuideTourDoc(input: {
   bytes: Buffer | null | 'too_big';
 }): Promise<CabinetScreen | null> {
   const { partner } = input;
-  if (!editsOwnTours(partner) || !isDocxName(input.fileName)) return null;
+  // Любой гид (31.10): документ, тура из которого нет среди своих, заводит
+  // новый тур — и у гида без своих туров тоже.
+  if (!createsOwnTours(partner) || !isDocxName(input.fileName)) return null;
   if (!partner.userId) return noticeScreen(EDIT_TEXT.noAccount);
   if (input.bytes === 'too_big') return noticeScreen(DOC_TEXT.tooBig);
   if (!input.bytes) return failedScreen(DOC_TEXT.downloadFailed);
@@ -64,11 +71,13 @@ export async function captureGuideTourDoc(input: {
 
   const own = await readEditTours(partner.partnerId);
   if (own.outcome === 'db_error') return failedScreen(EDIT_TEXT.toursFailed);
-  const words = input.caption.trim() || sections.tourWords;
+  // Подпись может нести цену и группу нового тура («цена 15000; группа 4») —
+  // тур среди своих ищется по остальным её словам или по первой строке.
+  const caption = parseCreateCaption(input.caption);
+  const words = caption.tourWords ?? sections.tourWords;
   const pick = pickTour(words, own.tours);
   if (pick.kind === 'missing') {
-    const head = words ? `Тур «${words}» не нашёл среди ваших. Ничего не записал. Подпишите файл названием тура.` : EDIT_TEXT.tourNotFound;
-    return noticeWithTours(escapeHtml(head), own.tours);
+    return createFromDoc({ ...input, partner }, sections, caption, words, own.tours.length > 0);
   }
   if (pick.kind === 'choose') {
     const candidates = pick.tours.slice(0, CHOOSE_MAX) as ChatTour[];
@@ -99,6 +108,57 @@ export async function captureGuideTourDoc(input: {
     },
     tour, rejects: sections.rejects, skipped: sections.skipped,
   });
+}
+
+/**
+ * Тура из документа нет среди своих — предложить новый тур из него (31.10).
+ * Название — первая строка «…» (или подпись), цена и группа — подпись к
+ * файлу, описание и остальные поля — разделы документа. Чего нет — сказано,
+ * ничего не заведено; всё есть — предпросмотр и «Создать черновик».
+ */
+async function createFromDoc(
+  input: { channel: EditChannel; chatId: number; partner: PartnerChatContext },
+  sections: DocSections,
+  caption: ReturnType<typeof parseCreateCaption>,
+  words: string | null,
+  hasTours: boolean,
+): Promise<CabinetScreen> {
+  const head = [
+    words
+      ? `Тур «${escapeHtml(words)}» не нашёл среди ваших — в существующих турах ничего не записал. Можно создать из документа новый тур.`
+      : 'Тур в документе не назван и среди ваших не найден — ничего не записал. Можно создать из документа новый тур.',
+    hasTours ? 'Если документ — для вашего тура, подпишите файл его названием и пришлите ещё раз.' : null,
+  ].filter((l): l is string => l !== null).join('\n');
+  const specs: CreateSpecs = { ...caption.specs };
+  const problems = [...caption.problems];
+  if (sections.tourWords) {
+    const t = parseFieldValue('title', sections.tourWords);
+    if ('reason' in t) problems.push(rejectText('title', t).replace(' Ничего не записал.', ''));
+    else specs.title = t.value as string;
+  }
+  const desc = sections.values.description;
+  if (typeof desc === 'string') specs.description = desc;
+  const done = finishCreate(specs, problems);
+  if (done.kind !== 'ok') {
+    const missing = done.kind === 'incomplete' ? done.missing : [];
+    return createIncompleteScreen({
+      head, missing, problems: done.kind === 'incomplete' ? done.problems : [], specs,
+      fix: 'Название — первая строка документа в «ёлочках», описание — текст под ним; цену и группу напишите подписью к файлу: «цена 15000; группа 4» — и пришлите файл ещё раз.',
+    });
+  }
+  const values: OwnTourDraftInput = { ...done.values };
+  const v = sections.values;
+  if (Array.isArray(v.program)) values.program = v.program as TourProgramStep[];
+  for (const f of ['included', 'not_included', 'what_to_bring', 'safety_notes'] as const) {
+    if (Array.isArray(v[f])) values[f] = v[f] as string[];
+  }
+  const d = await createTourCreateDraft({ partnerId: input.partner.partnerId, channel: input.channel, chatId: input.chatId, source: 'doc', values });
+  if (d.outcome !== 'created') return failedScreen(CREATE_TEXT.draftFailed);
+  const skipped = [
+    ...sections.rejects.map((r) => `${escapeHtml(rejectText(r.field, r.reject)).replace('Ничего не записал.', 'Это поле не войдёт — поправьте в документе или допишите фразой.')}`),
+    ...sections.skipped.map((s) => `Подзаголовок «${escapeHtml(s.length > 80 ? `${s.slice(0, 79)}…` : s)}» — не записываю: анонс правится фразой.`),
+  ];
+  return createPreviewScreen({ draftId: d.id, values, notice: head, skipped });
 }
 
 function blockedText(b: DocBlocked): string {

@@ -16,6 +16,7 @@
 
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { maxCabinetRows } from '@/lib/chat-cabinet/render';
+import { noteMenuMessage, sentMid } from '@/lib/max/menu-tail';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 
 /** То, что нужно от клиента MAX: правка своего сообщения и новое сообщение. */
@@ -51,15 +52,22 @@ export async function deliverCabinetMax(
   if (editMid) {
     try {
       const res = await api.editMessage(editMid, { text: screen.text, format: 'html', attachments }) as { success?: boolean } | null | undefined;
-      if (res?.success !== false) return;
+      if (res?.success !== false) {
+        await noteMenuMessage(api, chatId, editMid, screen.text, rows);
+        return;
+      }
       console.error('[chat-cabinet/max] правка экрана кабинета не принята MAX — отправляю новым сообщением');
     } catch (err) {
       failure('правка экрана кабинета', err);
     }
   }
+  let sent: unknown;
   try {
-    await api.sendMessageToChat(chatId, screen.text, { format: 'html', attachments });
+    sent = await api.sendMessageToChat(chatId, screen.text, { format: 'html', attachments });
   } catch (err) {
     failure('экран кабинета в чат MAX', err);
+    return;
   }
+  // Строка кабинета — только под последним сообщением (31.10, lib/max/menu-tail).
+  await noteMenuMessage(api, chatId, sentMid(sent), screen.text, rows);
 }

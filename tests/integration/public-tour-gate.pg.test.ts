@@ -545,6 +545,50 @@ withPg('витрина туров: снятый тур не в плане и н�
     }
   });
 
+  it('свой тур гида (31.10): создан черновиком — не в каталоге; «Опубликовать» — в каталоге; «Снять с сайта» — снова нет; on_storefront раздела равен выдаче', async () => {
+    const { createOwnTourDraft } = await import('@/lib/guides/own-tour-create');
+    const { setOwnTourOnSite } = await import('@/lib/guides/own-tour-publish');
+    const { loadOwnTours } = await import('@/lib/guides/own-tours');
+    const { queryMarketplaceTours, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
+    const user = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('w2pt-guide@example.com', 'W2PT гид', 'x', 'guide') RETURNING id`,
+    )).rows[0]!.id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, user_id, profile_status, is_public, status)
+       VALUES ('W2PT гид', 'guide', '{}', $1, 'approved', TRUE, 'active') RETURNING id`, [user],
+    )).rows[0]!.id;
+    const c = await pool.connect();
+    let tourId = '';
+    try {
+      const made = await createOwnTourDraft(c, {
+        ownerId: guide, userId: user,
+        input: { title: 'W2PT тур гида', base_price: 12000, max_participants: 4, description: 'Тур гида.' },
+      });
+      if (made.outcome !== 'created') throw new Error('тур гида не создан');
+      tourId = made.tour.id;
+      // Карточка оператора — не гид: общая функция ничего не пишет.
+      expect(await createOwnTourDraft(c, {
+        ownerId: OPERATOR.id, userId: user,
+        input: { title: 'Чужая запись', base_price: 12000, max_participants: 4, description: 'x' },
+      })).toEqual({ outcome: 'not_guide' });
+    } finally {
+      c.release();
+    }
+    const inCatalog = async () => (await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ id: tourId, limit: 10 })))
+      .tours.some((t) => String(t.id) === tourId);
+    const section = async () => (await loadOwnTours(guide)).find((t) => t.id === tourId);
+    expect(await inCatalog()).toBe(false);
+    expect(await section()).toMatchObject({ on_storefront: false, blockers: [] });
+    expect(await setOwnTourOnSite({ ownerId: guide, tourId, publish: true })).toMatchObject({ outcome: 'published' });
+    expect(await inCatalog()).toBe(true);
+    expect((await section())?.on_storefront).toBe(true);
+    expect(await setOwnTourOnSite({ ownerId: OPERATOR.id, tourId, publish: false })).toEqual({ outcome: 'not_found' });
+    expect(await inCatalog()).toBe(true);
+    expect(await setOwnTourOnSite({ ownerId: guide, tourId, publish: false })).toMatchObject({ outcome: 'unpublished' });
+    expect(await inCatalog()).toBe(false);
+    expect((await section())?.on_storefront).toBe(false);
+  });
+
   it('кабинет (#2642): «Готов к Авито и Яндексу» — ровно туры из ленты; черновик со всеми полями — нет', async () => {
     // Поля лент заполнены у всех туров оператора: решает только витрина.
     await pool.query(`UPDATE partners SET contacts = '{"phone":"+70000000001"}'::jsonb WHERE id = $1`, [OPERATOR.id]);

@@ -43,6 +43,7 @@ import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
+import { menuRows } from '@/lib/roles/chat-menu';
 
 export type CabinetChannel = 'max' | 'telegram';
 
@@ -123,10 +124,15 @@ export function cabinetNavRow(): CabinetButton[] {
   ];
 }
 
+/** Строка кабинета под экраном — рядами по два: четыре в ряд MAX режет подписи. */
+export function cabinetNavRows(): CabinetButton[][] {
+  return menuRows(cabinetNavRow());
+}
+
 function screen(lines: Array<string | null | undefined>, rows: CabinetButton[][], pd = false): CabinetScreen {
   return {
     text: lines.filter((l): l is string => typeof l === 'string').join('\n'),
-    rows: [...rows.filter((r) => r.length > 0), cabinetNavRow()],
+    rows: [...rows.filter((r) => r.length > 0), ...cabinetNavRows()],
     pd,
   };
 }
@@ -548,7 +554,12 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
   } else if (partner.role === 'guide' && partner.sellsTours) {
     // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
-    lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик, открытые даты; нажмите тур — даты кнопками, текст и цена.');
+    lines.push('Брони — ждут ответа и ближайшие. Мои туры — на сайте или черновик, открытые даты; нажмите тур — даты кнопками, текст и цена, «Опубликовать». Там же — «Новый тур».');
+  } else if (partner.role === 'guide') {
+    // Гид без своих туров (31.10): первый тур заводится здесь — «Мои туры»
+    // кабинета (`cb:u`) с кнопкой «Новый тур» (lib/guides/tour-edit).
+    rows.push([{ text: 'Мои туры', payload: cabinetPayload.myTours() }]);
+    lines.push('Мои туры — своих туров пока нет: «Новый тур» заведёт черновик, на сайт — вашей кнопкой «Опубликовать».');
   }
   if (partner.role === 'guide') {
     // Роль гида, этап 2 (30.10, «гид должен полностью управлять своей ролью
@@ -796,7 +807,7 @@ export function busyScreen(args: { objects: BusyObjectView[] | null; base: strin
 }
 
 export function noticeScreen(text: string, withNav = true): CabinetScreen {
-  return { text, rows: withNav ? [cabinetNavRow()] : [], pd: false };
+  return { text, rows: withNav ? cabinetNavRows() : [], pd: false };
 }
 
 /** Отказ базы: тот же короткий ответ, помеченный для счёта пользования. */

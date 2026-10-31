@@ -777,15 +777,15 @@ describe('кабинет проката на живом вебхуке', () => {
     await post('Помощь', { chat: CHAT, from: CHAT });
     expect(m.tools).not.toHaveBeenCalled();
     expect(sent()).toEqual([expect.stringContaining('Кабинет проката')]);
-    const markup = (m.tgSend.mock.calls[0]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data: string }>> } }).replyMarkup;
-    const last = markup?.inline_keyboard?.[markup.inline_keyboard.length - 1] ?? [];
-    expect(last.map((b) => b.callback_data)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+    expect(cabinetMarkup(0)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
   });
 
   function cabinetMarkup(call: number): string[] {
     const markup = (m.tgSend.mock.calls[call]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data: string }>> } }).replyMarkup;
-    const last = markup?.inline_keyboard?.[markup.inline_keyboard.length - 1] ?? [];
-    return last.map((b) => b.callback_data);
+    // Строка меню — два последних ряда: больше трёх кнопок в ряд MAX режет подписи (31.10).
+    const rows = markup?.inline_keyboard ?? [];
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(3);
+    return rows.slice(-2).flat().map((b) => b.callback_data);
   }
 
   it('ответ модели с голым `<` доходит экранированным, строка кнопок на месте', async () => {
@@ -838,8 +838,10 @@ describe('меню роли на живом вебхуке', () => {
 
   function lastRow(call = 0): string[] {
     const markup = (m.tgSend.mock.calls[call]?.[0] as { replyMarkup?: { inline_keyboard?: Array<Array<{ callback_data: string }>> } }).replyMarkup;
-    const last = markup?.inline_keyboard?.[markup.inline_keyboard.length - 1] ?? [];
-    return last.map((b) => b.callback_data);
+    // Строка меню — два последних ряда: больше трёх кнопок в ряд MAX режет подписи (31.10).
+    const rows = markup?.inline_keyboard ?? [];
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(3);
+    return rows.slice(-2).flat().map((b) => b.callback_data);
   }
 
   beforeEach(() => {

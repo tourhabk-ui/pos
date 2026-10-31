@@ -70,8 +70,9 @@ describe('заявки и правки', () => {
     expect(tg.text).toContain('Jimny');
     expect(tg.buttons[0]?.map((b) => b.payload)).toEqual([`rr:y:${LEAD}:1`, `rr:n:${LEAD}:1`]);
     const markup = telegramCabinetMarkup(tg.buttons);
-    const last = markup.inline_keyboard[markup.inline_keyboard.length - 1] ?? [];
-    expect(last.map((b) => b.callback_data)).toEqual(['rk:fleet', 'rk:cal', 'rk:req', 'rk:edit', 'rk:help']);
+    // Строка проката — два ряда (3+2): пять в ряд MAX режет подписи (31.10).
+    const tail = markup.inline_keyboard.slice(-2);
+    expect(tail.map((row) => row.map((b) => b.callback_data))).toEqual([['rk:fleet', 'rk:cal', 'rk:req'], ['rk:edit', 'rk:help']]);
   });
 
   it('каждая пара кнопок называет номер своей строки, у отвеченной пары нет', () => {

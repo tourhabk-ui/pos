@@ -74,7 +74,7 @@ describe('кнопка входящих туроператора — кабин�
     const list = (sendCabinet.mock.calls[0] as unknown as [{ text: string; rows: Btn[][] }])[0];
     expect(list.text).toContain('Ждут ответа: 2');
     expect(payloads(list).filter((p) => p.startsWith('cb:o:'))).toEqual(['cb:o:ob:501', `cb:o:ld:${LEAD}`]);
-    expect(list.rows.at(-1)?.map((b) => b.payload)).toEqual(['cb:i', 'cb:t', 'cb:c', 'cb:m']);
+    expect(list.rows.slice(-2).map((r) => r.map((b) => b.payload))).toEqual([['cb:i', 'cb:t'], ['cb:c', 'cb:m']]);
 
     const { handleCabinetPress } = await import('@/lib/chat-cabinet/service');
     const lead = await handleCabinetPress({ channel: 'telegram', chatId: 42, privateChat: true, payload: `cb:o:ld:${LEAD}` });

@@ -46,6 +46,21 @@ describe('старые адреса: правило в next.config, папки �
     });
   }
 
+  // Аудит AI-видимости 30.10: /marketplace/tours уходил в /catalog/tours (404),
+  // /tury-na-kamchatku отдавал мягкий 404. Все три — в /catalog одним хопом:
+  // точные правила стоят выше `/marketplace/:path*`, иначе первым сработает он.
+  for (const source of ['/marketplace/tours', '/catalog/tours', '/tury-na-kamchatku']) {
+    it(`${source} → /catalog одним хопом`, () => {
+      const rule = new RegExp(`source:\\s*'${esc(source)}',\\s*destination:\\s*'/catalog',\\s*permanent:\\s*true`);
+      expect(CONFIG).toMatch(rule);
+      expect(CONFIG.search(rule)).toBeLessThan(CONFIG.indexOf("source: '/marketplace/:path*'"));
+    });
+  }
+  it('у /catalog/tours и /tury-na-kamchatku нет страниц-папок', () => {
+    expect(existsSync(join(ROOT, 'app/catalog/tours/page.tsx'))).toBe(false);
+    expect(existsSync(join(ROOT, 'app/tury-na-kamchatku'))).toBe(false);
+  });
+
   it('карточка тура живёт у единственной страницы, которая её рендерит', () => {
     expect(existsSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'))).toBe(true);
     const page = readFileSync(join(ROOT, 'app/catalog/tours/[id]/page.tsx'), 'utf-8');

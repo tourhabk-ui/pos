@@ -202,6 +202,9 @@ const SUPERSEDE_ROLE_SQL = `UPDATE guide_chat_drafts SET status = 'superseded', 
 /** И документ гида (1361), ждущий кнопки. */
 const SUPERSEDE_DOC_SQL = `UPDATE tour_doc_drafts SET status = 'superseded', decided_at = NOW()
   WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
+/** И новый тур (1362), ждущий кнопки «Создать черновик». */
+const SUPERSEDE_CREATE_SQL = `UPDATE tour_create_drafts SET status = 'superseded', decided_at = NOW()
+  WHERE channel = $1 AND chat_id = $2::bigint AND status = 'pending'`;
 
 export const CREATE_DRAFT_SQL = `INSERT INTO tour_chat_edits
     (partner_id, channel, chat_id, tour_id, candidate_ids, field, new_value, live_value, expires_at)
@@ -238,6 +241,7 @@ export async function createDraft(input: {
     await client.query(SUPERSEDE_SQL, [input.channel, String(input.chatId)]);
     await client.query(SUPERSEDE_ROLE_SQL, [input.channel, String(input.chatId)]);
     await client.query(SUPERSEDE_DOC_SQL, [input.channel, String(input.chatId)]);
+    await client.query(SUPERSEDE_CREATE_SQL, [input.channel, String(input.chatId)]);
     const { rows } = await client.query<{ id: string }>(CREATE_DRAFT_SQL, [
       input.partnerId, input.channel, String(input.chatId), input.tourId, input.candidateIds, input.field,
       JSON.stringify(input.newValue), input.tourId === null ? null : JSON.stringify(input.liveValue ?? null), DRAFT_TTL_HOURS,
