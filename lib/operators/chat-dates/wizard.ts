@@ -48,7 +48,6 @@ export type WizardPress =
   | { step: 'seats'; tourId: string; month: string; pattern: WizardPattern }
   | { step: 'go'; tourId: string; month: string; pattern: WizardPattern; seats: number };
 
-export const WIZARD_PREFIX = 'dw:';
 /** Места кнопками; другое число — фразой. */
 export const WIZARD_SEATS: readonly number[] = [2, 4, 6, 8, 10, 12];
 /** Месяцев кнопками: текущий и три следующих. */
@@ -80,10 +79,6 @@ const RE = {
   seats: new RegExp(`^dw:s:${TOUR}:${MONTH}:${PAT}$`),
   go: new RegExp(`^dw:g:${TOUR}:${MONTH}:${PAT}:(\\d{1,3})$`),
 };
-
-export function isWizardPayload(payload: string): boolean {
-  return payload.startsWith(WIZARD_PREFIX);
-}
 
 /** Разбор кнопки; чужая форма или места вне 1–500 — null. */
 export function parseWizardPayload(payload: string): WizardPress | null {

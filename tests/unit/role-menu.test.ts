@@ -111,7 +111,7 @@ describe('меню роли', () => {
   it('«Обновить места» гида со своими турами: его раздел «Свои туры»; кабинета оператора нет (29.10)', () => {
     const guide = operatorSeatsText('guide');
     expect(guide).toMatch(/разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
-    expect(guide).toContain('Или в MAX одной фразой, например «открой весь');
+    expect(guide).toContain('Или в MAX — кнопками «Обновить места» или одной фразой, например «открой весь');
     expect(guide).not.toMatch(/\/hub\/operator/);
     // Туроператору — календарь кабинета и та же фраза. Текст MAX судит max-chat-ux.
     expect(operatorSeatsText()).toMatch(/календаре кабинета: https?:\/\/\S+\/hub\/operator\/calendar/);
