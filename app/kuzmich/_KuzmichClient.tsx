@@ -19,6 +19,7 @@ import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
 import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { ASK_PARAM, sanitizeAsk } from '@/lib/kuzmich/ask-link';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -381,6 +382,28 @@ export default function KuzmichClient() {
   // в очередь (видно, что ждёт) и уходит, когда текущий ответ дописан.
   // Несколько Enter подряд — одним вопросом, по строке на сообщение: прежде
   // очередь держала одно, и второе молча затирало первое.
+  // Deep link /kuzmich?ask=… (и /?ask=… через редирект): вопрос уходит сам,
+  // один раз; параметр убираем из адреса, чтобы обновление страницы не
+  // отправило его повторно. Путь туриста без MCP (31.10).
+  const askSentRef = useRef(false);
+  useEffect(() => {
+    if (!sessionId || askSentRef.current || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const q = sanitizeAsk(url.searchParams.get(ASK_PARAM));
+    if (!q) return;
+    // После коммита рендера: sendRef к этому моменту держит send с новым
+    // sessionId. Флаг и чистка адреса — внутри таймера, чтобы двойной запуск
+    // эффекта (StrictMode) не съел вопрос.
+    const t = setTimeout(() => {
+      if (askSentRef.current) return;
+      askSentRef.current = true;
+      url.searchParams.delete(ASK_PARAM);
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      void sendRef.current(q);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [sessionId]);
+
   const send = useCallback(async (text: string) => {
     if (!text.trim() && !imageFileRef.current) return;
     if (busyRef.current) {
