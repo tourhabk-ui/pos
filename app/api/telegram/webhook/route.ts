@@ -71,7 +71,7 @@ import { bindCodeMissedText, bindCodeRenewUrl, consumeBindCode, normalizeBindCod
 import { parseRentalCabinetPress, telegramCabinetMarkup, type CabinetButton } from '@/lib/rental/cabinet-bar';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { tryRentalCabinetTelegramMessage, tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
-import { type MenuButton } from '@/lib/roles/chat-menu';
+import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, parseRoleMenuPress } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { tryRoleMenuTelegramMessage, tryRoleMenuTelegramPress } from '@/lib/roles/role-telegram';
@@ -1226,7 +1226,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         '',
         '<a href="https://vedarai.ru/routes">Все маршруты →</a>',
       ].filter(s => s !== '').join('\n');
-      if (admin) await sendRoleRows(chatId, helpText, [adminMenu()]);
+      if (admin) await sendRoleRows(chatId, helpText, menuRows(adminMenu()));
       else await sendHTML(chatId, helpText);
       return;
     }
@@ -1843,7 +1843,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         const screen = await roleMenuScreen({
           role: 'admin', action: rolePress.action, channel: 'telegram', partner: null, nowMs: Date.now(),
         });
-        await sendRoleRows(callbackChatId, screen.text, [adminMenu()]);
+        await sendRoleRows(callbackChatId, screen.text, menuRows(adminMenu()));
         return;
       }
       await tryRoleMenuTelegramPress({

@@ -59,7 +59,7 @@ export async function operatorDeskPress(opts: {
   if (opts.payload === 'opd:tours') {
     return withMenu(operatorToursReply(await loadOperatorTours(partner.partnerId)));
   }
-  if (opts.payload === 'opd:seats') return withMenu(operatorSeatsText());
+  if (opts.payload === 'opd:seats') return withMenu(operatorSeatsText('operator', opts.channel));
   if (opts.payload === 'sup:new') return withMenu(await supportTicketText(partner, opts.channel));
 
   const parsed = parseChatAnswer(opts.payload);

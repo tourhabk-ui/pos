@@ -108,14 +108,14 @@ describe('меню роли', () => {
     expect(help).not.toMatch(/«Связался»|Брони —/);
   });
 
-  it('«Обновить места» гида со своими турами: его раздел «Свои туры» и фраза в MAX; кабинета оператора нет (29.10)', () => {
+  it('«Обновить места» гида со своими турами: его раздел «Свои туры»; кабинета оператора нет (29.10)', () => {
     const guide = operatorSeatsText('guide');
-    expect(guide).toMatch(/Откройте даты в разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
-    expect(guide).toContain('В MAX можно написать фразу целиком, например: «открой весь ноябрь, 8 мест» — там есть кнопка подтверждения.');
+    expect(guide).toMatch(/разделе «Свои туры»: https?:\/\/\S+\/hub\/guide\/own/);
+    expect(guide).toContain('Или в MAX одной фразой, например «открой весь');
     expect(guide).not.toMatch(/\/hub\/operator/);
-    // Туроператору — прежний текст: календарь кабинета и та же фраза.
-    expect(operatorSeatsText()).toMatch(/Откройте календарь: https?:\/\/\S+\/hub\/operator\/calendar/);
-    expect(operatorSeatsText()).toContain('«открой весь ноябрь, 8 мест»');
+    // Туроператору — календарь кабинета и та же фраза. Текст MAX судит max-chat-ux.
+    expect(operatorSeatsText()).toMatch(/календаре кабинета: https?:\/\/\S+\/hub\/operator\/calendar/);
+    expect(operatorSeatsText()).toContain('«открой весь');
   });
 
   it('админ — шесть чтений, входящих у него нет', () => {

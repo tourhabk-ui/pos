@@ -48,7 +48,7 @@ import { isRentalPilotSlug, rentalPilotGreeting } from '@/lib/rental/operator-pi
 import {
   parseRentalCabinetPress, rentalCabinetAsk, rentalCabinetBar, withRentalCabinetBar, type CabinetButton,
 } from '@/lib/rental/cabinet-bar';
-import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
+import { appendMenu, menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
 import { PARTNER_PD_UNDELIVERED, roleMenuScreen, type RoleScreen } from '@/lib/roles/role-screen';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -1048,7 +1048,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       const admin = await findMaxAdmin(update.user.user_id);
       if (admin.outcome === 'admin') {
         const { adminGreeting } = await import('@/lib/max/admin-chat');
-        await maxReplyWithButtons(update.chat_id, adminGreeting(admin.name), toMaxButtons([adminMenu()]));
+        await maxReplyWithButtons(update.chat_id, adminGreeting(admin.name), toMaxButtons(menuRows(adminMenu())));
         return;
       }
     }
@@ -1201,7 +1201,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await handleAdminMessage({
           text, name: admin.name, chatId,
           reply: async (_id, body) => {
-            await maxReplyWithButtons(chatId, body, toMaxButtons([adminMenu()]));
+            await maxReplyWithButtons(chatId, body, toMaxButtons(menuRows(adminMenu())));
           },
         });
         return;
@@ -1537,7 +1537,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           const which = askedRole === 'seats' || slashHead === '/seats' ? 'seats' : 'tours';
           if (role === 'guide') {
             if (which === 'seats') {
-              await say(operatorSeatsText('guide'));
+              await say(operatorSeatsText('guide', 'max'));
             } else {
               const screen = await roleMenuScreen({ role, action: 'tours', channel: 'max', partner: lookup.partner, nowMs: Date.now() });
               await sendPartnerScreen(chatId, screen, menu ?? [], sos);
@@ -1546,7 +1546,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           }
           const body = which === 'tours'
             ? operatorToursReply(await loadOperatorTours(lookup.partner.partnerId))
-            : operatorSeatsText();
+            : operatorSeatsText('operator', 'max');
           await say(body);
           return;
         }
@@ -1749,11 +1749,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           });
           if (!sent.delivered) {
             console.error('[max/admin] ответ с ПД по кнопке не доставлен:', sent.reason);
-            await maxReplyWithButtons(messageChatId, 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.', toMaxButtons([adminMenu()]));
+            await maxReplyWithButtons(messageChatId, 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.', toMaxButtons(menuRows(adminMenu())));
           }
           return;
         }
-        await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons([adminMenu()]));
+        await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons(menuRows(adminMenu())));
         return;
       }
       const roleLookup = await findPartnerByChat('max', messageChatId);

@@ -43,6 +43,7 @@ import type { OwnDraft } from '@/lib/transfers/price-edit-store';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
+import { menuRows } from '@/lib/roles/chat-menu';
 
 export type CabinetChannel = 'max' | 'telegram';
 
@@ -123,10 +124,15 @@ export function cabinetNavRow(): CabinetButton[] {
   ];
 }
 
+/** Строка кабинета под экраном — рядами по два: четыре в ряд MAX режет подписи. */
+export function cabinetNavRows(): CabinetButton[][] {
+  return menuRows(cabinetNavRow());
+}
+
 function screen(lines: Array<string | null | undefined>, rows: CabinetButton[][], pd = false): CabinetScreen {
   return {
     text: lines.filter((l): l is string => typeof l === 'string').join('\n'),
-    rows: [...rows.filter((r) => r.length > 0), cabinetNavRow()],
+    rows: [...rows.filter((r) => r.length > 0), ...cabinetNavRows()],
     pd,
   };
 }
@@ -796,7 +802,7 @@ export function busyScreen(args: { objects: BusyObjectView[] | null; base: strin
 }
 
 export function noticeScreen(text: string, withNav = true): CabinetScreen {
-  return { text, rows: withNav ? [cabinetNavRow()] : [], pd: false };
+  return { text, rows: withNav ? cabinetNavRows() : [], pd: false };
 }
 
 /** Отказ базы: тот же короткий ответ, помеченный для счёта пользования. */
