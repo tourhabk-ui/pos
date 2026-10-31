@@ -47,6 +47,7 @@ describe('каталог и карточка тура', () => {
   it('карточка тура: eyebrow, статус и подписи фактов — 12px', () => {
     expect(TOUR).not.toContain('text-[11px]');
     expect(TOUR).not.toContain('text-[9px]');
-    expect(TOUR).toMatch(/text-xs uppercase tracking-\[0\.06em\]/);
+    // Подписи фактов в герое — 13px обычным регистром (31.10, no-template-chrome).
+    expect(TOUR).toMatch(/text-\[13px\] truncate/);
   });
 });

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, WifiOff } from 'lucide-react';
+import { WifiOff } from 'lucide-react';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
 
 /**
@@ -42,9 +42,8 @@ export function DeskHelp() {
             Сохраните карту и маршрут в телефон заранее. Без сети SOS покажет ваши координаты и экстренные номера.
           </span>
         </span>
-        <span className="inline-flex items-center gap-1.5 text-base font-semibold text-[var(--ocean)]">
+        <span className="inline-flex items-center text-base font-semibold text-[var(--ocean)] underline-offset-4 group-hover:underline">
           Подготовить телефон
-          <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
         </span>
       </Link>
     </section>

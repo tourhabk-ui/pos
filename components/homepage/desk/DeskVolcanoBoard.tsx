@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
 import type { Svodka } from '@/lib/svodka/svodka';
 
 /**
@@ -60,7 +59,7 @@ export function DeskVolcanoBoard({ volcanoes }: { volcanoes: Svodka['volcanoes']
         </p>
       ) : (
         <div role="table" aria-label="Вулканы выше фона">
-          <div role="row" className={`${ROW} fx-dark-muted border-b pb-2 text-xs uppercase tracking-[0.1em]`} style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+          <div role="row" className={`${ROW} fx-dark-muted border-b pb-2 text-[13px]`} style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
             <span role="columnheader">Вулкан</span>
             <span role="columnheader">Пепел</span>
             <span role="columnheader">Сейсмика</span>
@@ -86,9 +85,8 @@ export function DeskVolcanoBoard({ volcanoes }: { volcanoes: Svodka['volcanoes']
       <p className="fx-dark-muted mt-4 text-xs leading-relaxed">
         Код — об активности вулкана, а не разрешение на выход. {volcanoes?.sources ?? ''}
       </p>
-      <Link href="/safety#radar" className="fx-dark-ocean group mt-4 inline-flex items-center gap-1.5 text-sm font-semibold no-underline hover:no-underline">
+      <Link href="/safety#radar" className="fx-dark-ocean mt-4 inline-flex items-center text-sm font-semibold no-underline underline-offset-4 hover:underline">
         Радар угроз
-        <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
       </Link>
     </div>
   );

@@ -17,8 +17,9 @@ const playfairDisplay = Playfair_Display({
 
 /*
  * Шрифты — по §2: Playfair Display (заголовки) и Inter под переменной
- * --font-outfit (текст). JetBrains Mono — метки и цифры на главной и в
- * карточке тура (--font-jetbrains).
+ * --font-outfit (текст). JetBrains Mono (--font-jetbrains) — табло радара
+ * угроз на /safety. С главной и карточки тура моноширинные метки сняты 31.10:
+ * шаблонная обвязка (tests/unit/no-template-chrome.test.tsx).
  *
  * Unbounded и Manrope (редизайны v7/v8) сняты 01.10: переменные
  * --font-unbounded и --font-manrope не читал ни один стиль, а preload
@@ -27,7 +28,7 @@ const playfairDisplay = Playfair_Display({
  * tests/unit/fonts-have-consumers.test.ts.
  *
  * Preload только у шрифтов, которые читает каждая страница. JetBrains Mono
- * нужен двум экранам — без preload браузер скачает его там, где он
+ * нужен одному экрану — без preload браузер скачает его там, где он
  * встретился в стилях, и нигде больше (display: swap — текст не ждёт).
  */
 const jetbrainsMono = JetBrains_Mono({

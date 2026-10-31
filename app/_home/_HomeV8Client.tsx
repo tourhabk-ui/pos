@@ -702,8 +702,8 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
               </div>
               <Link className="an-go" href="/safety">
                 {safety.alerts.length > 2
-                  ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
-                  : 'Подробности →'}
+                  ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)})`
+                  : 'Подробности'}
               </Link>
             </div>
           )}
@@ -805,7 +805,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           <div className="dataline">
             {stats.map((s, i) => (
               s.href
-                ? <Link className="dl link" href={s.href} key={i}><div className="n">{s.value}</div><div className="t">{s.label} →</div></Link>
+                ? <Link className="dl link" href={s.href} key={i}><div className="n">{s.value}</div><div className="t">{s.label}</div></Link>
                 : <div className="dl" key={i}><div className="n">{s.value}</div><div className="t">{s.label}</div></div>
             ))}
           </div>
@@ -1064,7 +1064,7 @@ const CSS = `
    снята редизайном 31.07: главная красилась и переключала тему отдельно
    от платформы. Локальным остаётся один шрифтовой стек моно-тегов. */
 .v7{
-  --fm:var(--font-jetbrains),ui-monospace,monospace;
+  --fm:var(--font-outfit),system-ui,sans-serif;
 }
 .v7 *{margin:0;padding:0;box-sizing:border-box}
 .v7{font-family:var(--font-outfit),system-ui,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100dvh;padding-bottom:calc(96px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased}
@@ -1072,7 +1072,7 @@ const CSS = `
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
 .v7 a{color:inherit;text-decoration:none}
-.v7 .ptag{font:400 12px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .ptag{font:400 12px/1 var(--fm);letter-spacing:0;color:var(--text-muted)}
 .v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg-primary) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
 /* Перенос в шапке ЗАПРЕЩЁН (владелец 02.09, скрин «шапка съехала»).
    Страховка #893 (flex-wrap:wrap) на узком экране уносила ЛК на вторую
@@ -1175,9 +1175,9 @@ const CSS = `
    меньше прежнего, чтобы над «Турами сезона» встал ряд «Своя поездка / Радар»
    и цена первого тура осталась в первом экране над таб-баром (П4б, 24.09). */
 .v7 .hero-photo h1.h1-home{font-size:clamp(34px,10.4vw,44px);line-height:1.04}
-.v7 .hero-kick{margin-bottom:10px;font:600 12px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
+.v7 .hero-kick{margin-bottom:10px;font:600 12px/1.4 var(--fm);letter-spacing:0;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
-.v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
+.v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 12px/1 var(--fm);letter-spacing:0;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* Первый блок встаёт на растворяющийся низ фото — место, где раньше лежала
    строка поиска (снята 25.09). */
@@ -1273,7 +1273,7 @@ const CSS = `
    должно. Левая линия цветом опасности: она же отличает эту карточку от
    соседних, когда цвет точки в глаза не бросается. */
 .v7 .alerts-now{margin:-14px 0 26px;padding:12px 14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--danger);border-radius:16px}
-.v7 .alerts-now .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
+.v7 .alerts-now .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--ocean);text-decoration:none}
 /* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
    теряется, а без него человек с клавиатурой или switch-control не понимает,
    где находится. Не снимаем outline без замены. */
@@ -1288,13 +1288,13 @@ const CSS = `
 .v7 .shead .line{flex:1;height:1px;background:color-mix(in srgb,var(--border) 55%,transparent)}
 /* Ссылка заголовка — полноценная цель 44px (аудит 24.09, #127: была 10px в
    высоту шрифтом 9.5px). Видимая строка та же, зона нажатия — по высоте. */
-.v7 .shead .all{display:inline-flex;align-items:center;min-height:44px;margin:-14px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);white-space:nowrap}
+.v7 .shead .all{display:inline-flex;align-items:center;min-height:44px;margin:-14px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--ocean);white-space:nowrap}
 /* радар безопасности */
 /* безопасность */
 .v7 .volc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .v7 .vchip{display:inline-flex;align-items:center;gap:6px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;border:1px solid var(--border);padding:7px 10px;border-radius:999px}
 .v7 .vchip i{width:7px;height:7px;border-radius:50%}
-.v7 .vchip small{font:400 9px/1 var(--fm);color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
+.v7 .vchip small{font:400 12px/1 var(--fm);color:var(--text-muted);letter-spacing:0}
 /* Живая лента предупреждений — компактное окно ~4 строки с вертикальной прокруткой */
 /* Курсор мыши на десктопе ставит бегущую строку на паузу, чтобы успеть прочитать.
    На тач-устройствах :hover не используем — там открытие/закрытие делает тап (см. .ticker-toggle). */
@@ -1324,9 +1324,9 @@ const CSS = `
 .v7 .fp-sec .more-tours{margin-top:14px}
 .v7 .explore-sec{margin-top:32px}
 .v7 .plates.explore .plate{width:62%;max-width:240px;padding-bottom:12px;color:inherit;text-decoration:none}
-.v7 .plate.transfer .kind{display:flex;align-items:center;gap:5px;padding:10px 12px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .plate.transfer .kind{display:flex;align-items:center;gap:5px;padding:10px 12px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--text-muted)}
 .v7 .plate.transfer .row{padding-top:5px}
-.v7 .plate.place .kind{display:block;padding:10px 12px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .plate.place .kind{display:block;padding:10px 12px 0;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--text-muted)}
 .v7 .plate.place .row{padding-top:5px}
 .v7 .plate.place .cap{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .v7 .stools{margin:0}
@@ -1382,7 +1382,7 @@ const CSS = `
 /* CTA — кнопка 44px, 13px (была текст-ссылка 9.5px, 91×14px, #38/#127). */
 .v7 .plate .buy-cta{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
 .v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
-.v7 .arrivals .k{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);flex:none}
+.v7 .arrivals .k{font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--text-muted);flex:none}
 .v7 .arrivals .t{font:500 11.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
@@ -1390,7 +1390,7 @@ const CSS = `
 .v7 .dl{flex:none;padding:2px 20px 2px 0;margin-right:20px;border-right:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
 .v7 .dl:last-child{border-right:0;margin-right:0}
 .v7 .dl .n{font:600 23px/1 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
-.v7 .dl .t{margin-top:6px;font:600 8.5px/1.4 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary);white-space:nowrap}
+.v7 .dl .t{margin-top:6px;font:600 12px/1.4 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--text-secondary);white-space:nowrap}
 .v7 .dl.link .t{color:var(--ocean)}
 /* На телефоне ряд цифр переносится (#128): скрытый горизонтальный скролл
    обрезал третью подпись («МАРШРУТОВ С РЕГИСТ…») без признака прокрутки. */
@@ -1405,7 +1405,7 @@ const CSS = `
 .v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--accent)}
 .v7 .lead p{margin-top:9px;font:400 15px/1.6 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .lead .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
-.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);border:1px solid var(--border);background:none;padding:0 13px;cursor:pointer;transition:.15s}
+.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--text-secondary);border:1px solid var(--border);background:none;padding:0 13px;cursor:pointer;transition:.15s}
 .v7 .lead .chip[aria-pressed="true"]{background:var(--text-primary);color:var(--bg-primary);border-color:var(--text-primary)}
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
 .v7 .lead .lfield{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -1417,7 +1417,7 @@ const CSS = `
    scrollWidth 367). */
 .v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field input::placeholder,.v7 .lead .lfield>input::placeholder{color:var(--text-muted)}
-.v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
+.v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;padding:0 16px;cursor:pointer}
 .v7 .lead .field button:disabled{opacity:.6}
 .v7 .lead .err{margin-top:6px;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
 /* Сноски формы — Outfit 12px --text-secondary (было JetBrains Mono 8.5px
@@ -1429,7 +1429,7 @@ const CSS = `
 .v7 .lead.sent .ok{display:block}
 .v7 .lead.sent .field2,.v7 .lead.sent .chips,.v7 .lead.sent .fine,.v7 .lead.sent .err{display:none}
 /* хабы */
-.v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--border);font:400 9px/1.7 var(--fm);color:var(--text-muted)}
+.v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--border);font:400 12px/1.7 var(--fm);color:var(--text-muted)}
 /* навигация */
    padding кнопок: тач-зона заезжала в полосу системного жеста, и вкладка
    конкурировала со свайпом «домой». Держать в одном месте — иначе двойной
@@ -1444,10 +1444,10 @@ const CSS = `
    попадать в мелкое. */
 .v7 .emg-x{width:44px;height:44px;display:grid;place-items:center;background:none;border:0;color:var(--text-secondary);cursor:pointer}
 .v7 .emg-scroll{flex:1;overflow-y:auto;padding:16px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px}
-.v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 9px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary)}
+.v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--text-secondary)}
 .v7 .emg-coord{display:flex;flex-direction:column;gap:8px}
 .v7 .emg-cval{align-self:flex-start;display:inline-flex;align-items:center;gap:10px;font:600 20px/1 var(--fm);color:var(--text-primary);background:none;border:0;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
-.v7 .emg-cval span{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ocean)}
+.v7 .emg-cval span{font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;color:var(--ocean)}
 .v7 .emg-cwait{font:500 13px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .emg-calls{display:flex;flex-direction:column;gap:9px}
 .v7 .emg-call{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:14px;border:1px solid var(--border);background:var(--bg-hover);color:var(--text-primary);text-decoration:none}
@@ -1457,7 +1457,7 @@ const CSS = `
 .v7 .emg-call-primary{background:var(--danger);border-color:transparent;color:#fff;padding:17px 18px}
 .v7 .emg-call-primary .emg-ct b{font:800 26px/1 var(--font-playfair),Georgia,serif;letter-spacing:.02em}
 .v7 .emg-call-primary .emg-ct span{color:rgba(255,255,255,.85)}
-.v7 .emg-sms{display:block;text-align:center;padding:12px;border-radius:12px;border:1px dashed var(--border);color:var(--ocean);font:600 11px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;text-decoration:none}
+.v7 .emg-sms{display:block;text-align:center;padding:12px;border-radius:12px;border:1px dashed var(--border);color:var(--ocean);font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:0;text-decoration:none}
 .v7 .emg-protos{display:flex;flex-direction:column;gap:8px}
 .v7 .emg-proto{border:1px solid var(--border);border-radius:12px;overflow:hidden}
 .v7 .emg-phead{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:var(--bg-hover);border:0;cursor:pointer;text-align:left;font-family:var(--font-outfit),system-ui,sans-serif}
@@ -1471,7 +1471,7 @@ const CSS = `
 .v7 .emg-photo{margin:0 14px 14px}
 .v7 .emg-photo img{display:block;width:100%;height:auto;border-radius:12px;background:var(--bg-hover)}
 .v7 .emg-photo figcaption{margin-top:5px;font:400 10px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
-.v7 .emg-note{font:400 10.5px/1.4 var(--fm);color:var(--text-muted);text-align:center;margin:2px 0 0}
+.v7 .emg-note{font:400 12px/1.4 var(--fm);color:var(--text-muted);text-align:center;margin:2px 0 0}
 .v7 .sos:active{transform:scale(.94)}
 /* ── ДЕСКТОП (перенос одобренного макета vedar-desktop-home, 02.08). ──────────
    Мобильную вёрстку НЕ трогаем: всё строго внутри брейкпоинтов. Проблема была
