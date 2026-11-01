@@ -142,15 +142,15 @@ export const STALL_GROUPS_SQL = `
    GROUP BY 1, 2`;
 
 export const STALL_TOOLS_SQL = `
-  SELECT t AS tool, COUNT(*)::int AS answers
+  SELECT st.tool, COUNT(*)::int AS answers
     FROM ai_actions_log,
          jsonb_array_elements_text(
            CASE WHEN jsonb_typeof(metadata->'stall_tools') = 'array' THEN metadata->'stall_tools' ELSE '[]'::jsonb END
-         ) AS t
+         ) AS st(tool)
    WHERE action_type = $1
      AND created_at > NOW() - ($2::int * INTERVAL '1 day')
-   GROUP BY t
-   ORDER BY answers DESC, t
+   GROUP BY st.tool
+   ORDER BY answers DESC, st.tool
    LIMIT 5`;
 
 export async function scanKuzmichStall(): Promise<GrowthIssue[]> {
