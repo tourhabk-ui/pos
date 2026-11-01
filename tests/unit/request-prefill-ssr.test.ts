@@ -21,6 +21,10 @@ describe('предзаполнение заявки на сервере (аге�
     expect(twin).toMatch(/force-dynamic/);
     expect(twin).toMatch(/index: false/);
   });
+  it('дата из адреса — в серверном HTML формы (hidden + текст)', () => {
+    const f = read('components/marketplace/BookingFormClient.tsx');
+    expect(f).toMatch(/id="booking-date-value"[^>]*value=\{formData\.booking_date\}/);
+  });
   it('у формы видно «Заявка — не бронь», id/slug тура в HTML, ReserveAction в JSON-LD', () => {
     const card = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(card).toMatch(/Заявка — не бронь/);
