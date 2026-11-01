@@ -204,7 +204,31 @@ export function suggestionOrder<T extends { id: number | string; nearest_free_da
 }
 
 // ── Fetch relevant tours from DB ──────────────────────────────────
+// Кэш подбора (02.11, P0 «скорость»): тот же вопрос — те же туры 5 минут.
+// Ближайшая свободная дата может отстать на минуты — заявку всё равно
+// подтверждает человек. Пустой ответ (в т.ч. ошибка базы) не кэшируется.
+const TOURS_TTL_MS = 5 * 60_000;
+const toursCache = new Map<string, { at: number; rows: TourSuggestion[] }>();
+// В юнит-тестах база подменяется от теста к тесту — там кэш выключен.
+const toursCacheOn = (): boolean => process.env.VITEST !== 'true' || process.env.TOURS_CACHE_TEST === '1';
+
 export async function findRelevantTours(
+  activityType: string | null,
+  rawText: string,
+  limit = 3,
+): Promise<TourSuggestion[]> {
+  const key = `${activityType ?? ''}|${limit}|${rawText.trim().toLowerCase()}`;
+  const hit = toursCacheOn() ? toursCache.get(key) : undefined;
+  if (hit && Date.now() - hit.at < TOURS_TTL_MS) return hit.rows;
+  const rows = await findRelevantToursUncached(activityType, rawText, limit);
+  if (rows.length && toursCacheOn()) {
+    if (toursCache.size > 500) toursCache.clear();
+    toursCache.set(key, { at: Date.now(), rows });
+  }
+  return rows;
+}
+
+async function findRelevantToursUncached(
   activityType: string | null,
   rawText: string,
   limit = 3,
