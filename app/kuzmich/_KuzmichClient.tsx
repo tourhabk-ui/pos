@@ -1,5 +1,6 @@
 'use client';
 
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import ChatText from '@/components/kuzmich/ChatText';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { bookingTotal } from '@/lib/tours/booking-total';
@@ -45,6 +46,9 @@ interface BookingFormData {
   duration?: { multi_day_count: number | null; duration_hours: number | null };
   tourImage: string | null;
   operatorName: string;
+  /** Дата и число людей из реплики (lib/kuzmich/booking-prefill) — переспрашивать не нужно. */
+  prefillDate?: string | null;
+  prefillGuests?: number | null;
 }
 
 interface Message {
@@ -81,8 +85,10 @@ function BookingFormCard({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [date, setDate] = useState('');
-  const [participants, setParticipants] = useState(1);
+  const [date, setDate] = useState(data.prefillDate ?? '');
+  const [participants, setParticipants] = useState(data.prefillGuests && data.prefillGuests > 0 ? data.prefillGuests : 1);
+  // Согласие на ПД — как в форме тура: без галочки заявка не уходит (152-ФЗ).
+  const [pdConsent, setPdConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   /**
@@ -105,6 +111,7 @@ function BookingFormCard({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (!pdConsent) { setError('Отметьте согласие на обработку персональных данных'); return; }
     setSubmitting(true);
     try {
       // 1. Создаём бронирование
@@ -118,6 +125,7 @@ function BookingFormCard({
           tourist_phone: phone.trim(),
           participants_count: participants,
           booking_date: date,
+          pd_consent: pdConsent,
         }),
       });
       const bookJson = await bookRes.json() as { id?: number; error?: string; access_token?: string };
@@ -235,10 +243,12 @@ function BookingFormCard({
           Перед оплатой проверьте даты, состав программы и условия участия. Если что-то не подходит, заявку можно скорректировать.
         </p>
 
+        <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="kuzmich-pd-consent" />
+
         {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
 
         <button
-          type="submit" disabled={submitting}
+          type="submit" disabled={submitting || !pdConsent}
           className="ds-btn ds-btn-primary w-full text-sm py-2.5 disabled:opacity-50"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Оставить заявку'}
