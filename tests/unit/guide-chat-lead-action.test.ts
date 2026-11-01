@@ -525,9 +525,8 @@ describe('кнопки под «Входящими» и уведомлением
     expect(msg.buttons.every((b) => 'url' in b && !('payload' in b))).toBe(true);
   });
 
-  it('туроператору, гиду без своих туров и при непрочитанном адресе — кнопок статуса заявки нет; «Ответить клиенту» — у всех', async () => {
+  it('туроператору, гиду без своих туров и при непрочитанном адресе — кнопок статуса гида нет; «Ответить клиенту» — у всех', async () => {
     for (const reach of [
-      { ...BOUND, category: 'operator', sellsTours: true },
       { ...BOUND, category: 'guide', sellsTours: false },
       { ...BOUND, category: 'guide' },
     ]) {
@@ -538,6 +537,12 @@ describe('кнопки под «Входящими» и уведомлением
       // Переписка с клиентом (1350) — у каждого адресата, кнопки статуса — только у гида-продавца.
       expect(payloads, JSON.stringify(reach)).toEqual([`lq:o:${LEAD}`]);
     }
+    // Туроператору — ответы «Подтвердить / Другая дата / …» (ia:), не статусы гида.
+    m.pdAlert.mockClear();
+    m.reach.mockResolvedValueOnce({ ...BOUND, category: 'operator', sellsTours: true });
+    await notifyPartnerNewLeadPersonally(LEAD_MSG);
+    const op = personal().buttons.flatMap((b) => (b.payload ? [b.payload] : []));
+    expect(op).toEqual([`lq:o:${LEAD}`, ...['a', 'd', 'n', 'c', 'm'].map((c) => `ia:${c}:l:${LEAD}`)]);
     m.pdAlert.mockClear();
     m.reach.mockResolvedValueOnce(null);
     expect(await notifyPartnerNewLeadPersonally(LEAD_MSG)).toEqual({ state: 'unknown' });
