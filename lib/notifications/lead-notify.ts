@@ -17,7 +17,7 @@
  *   кнопки ответа «Связался», «Договорились», «Отказ» (только MAX).
  */
 
-import { chatAnswerButtons } from '@/lib/requests/chat-answer';
+import { chatAnswerButtons } from '@/lib/requests/chat-answer-buttons';
 import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/notifications/pd-alert';

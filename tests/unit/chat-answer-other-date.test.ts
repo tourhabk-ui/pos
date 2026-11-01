@@ -20,7 +20,7 @@ describe('operator Confirm / Other date buttons', () => {
   it('copy never promises a booking or payment', () => {
     for (const a of ['accept', 'other_date'] as const) {
       const t = chatAnswerText(a, false);
-      expect(t).toMatch(/не бронь|бронь не создана/);
+      expect(t).toMatch(/не подтверждена|бронь не создана/);
       expect(t).not.toMatch(/мгновенн|временно недоступн/);
     }
   });
