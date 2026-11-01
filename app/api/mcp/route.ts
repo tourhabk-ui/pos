@@ -196,6 +196,8 @@ const createLeadArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000, 'Комментарий длиннее 2000 символов'),
   interest: z.string().trim().max(200, 'Интерес длиннее 200 символов').optional(),
+  // Число людей (02.11): пишется в source_data, его видит get_request_status до брони.
+  participants: z.coerce.number().int().min(1).max(30).optional().catch(undefined),
   // ID плана из make_trip_plan (#2304, шаг 2): заявка уходит с планом целиком.
   plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
   // Адрес приёмника уведомлений (29.10): неверный по форме — заявка не
@@ -758,7 +760,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
   // План по plan_id (#2304, шаг 2): менеджер получает поездку целиком.
   const planAttach = await planFromDraft(parsed.data.plan_id);
-  const leadSource = { source: 'mcp', ...planSourceFields(planAttach) };
+  const leadSource = { source: 'mcp', ...(parsed.data.participants ? { participants: parsed.data.participants } : {}), ...planSourceFields(planAttach) };
   refuseSilentLead(name, phone, leadComment, leadSource);
   const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({

@@ -283,6 +283,8 @@ export interface StatusRow {
   booking_status: string | null;
   booking_date: string | null;
   booking_participants: number | null;
+  /** Число людей, записанное в заявку при создании (`source_data.participants`) — пока оператор не завёл бронь. */
+  lead_participants?: number | null;
   booking_tour: string | null;
   seat_status: SeatRequestStatus | null;
   deadline_at: Date | string | null;
@@ -485,7 +487,8 @@ function readKey(raw: unknown): string {
  */
 const REQUEST_STATUS_SELECT = `
   SELECT k.id::text AS key_id, k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
-         l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date, lt.title AS lead_tour,
+         l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date,
+         CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,2}$' THEN (l.source_data->>'participants')::int END AS lead_participants, lt.title AS lead_tour,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
@@ -713,7 +716,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     date: row.booking_date,
     requested_date: requested,
     check_out: null,
-    participants: row.booking_participants,
+    participants: row.booking_participants ?? row.lead_participants ?? null,
     alt_date: null,
     deadline: null,
     human: chat && replies > 0

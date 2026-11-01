@@ -36,16 +36,20 @@ export function planChatRequest(
     // Тур по реплике не определён однозначно — заявка всё равно уходит:
     // менеджеру на подбор, с датой и числом людей (ретест 01.11: чат
     // отвечал «оставлю заявку?», а заявки не было).
-    return { tool: 'create_lead', args: { name: c.name, phone: c.phone, consent: true, comment: `[${prefill.date}, ${prefill.guests ?? 1} чел.] ${text}`.slice(0, 1000) } };
+    return { tool: 'create_lead', args: { name: c.name, phone: c.phone, consent: true, participants: prefill.guests ?? 1, comment: `[${prefill.date}, ${prefill.guests ?? 1} чел.] ${text}`.slice(0, 1000) } };
   }
   if (stay || transfer || !tour) {
     const args: Record<string, unknown> = { ...base };
     if (tour) { args.tour = String(tour.id); args.tour_date = prefill.date; }
     // Жильё без названия объекта нельзя адресовать хозяину — пожелание
     // уходит в комментарий поездки (его видят все партнёры), не теряется.
-    if (stay) args.comment = `Нужно жильё. ${String(args.comment)}`.slice(0, 500);
+    if (stay) {
+      args.stay_wanted = true;
+      args.check_in = prefill.date;
+      const nights = /(\d{1,2})\s*(?:ноч|сут)/i.exec(text);
+      if (nights) args.check_out = addDays(prefill.date, Math.min(30, Number(nights[1])));
+    }
     if (transfer) { args.transfer_destination = 'по заявке, см. комментарий'; args.transfer_date = prefill.date; }
-    if (!tour && !transfer) return null;
     return { tool: 'create_trip_request', args };
   }
   return { tool: 'create_booking_request', args: { ...base, tour: String(tour.id), date: prefill.date } };
@@ -57,6 +61,7 @@ export function planChatRequest(
  */
 export function humanChatConfirm(toolText: string): string {
   const trip = /TRIP-[A-Z0-9]+/.exec(toolText)?.[0];
+  const tripUrl = /https:\/\/\S+\/trip-request\/TRIP-[A-Z0-9]+#[\w.-]+/.exec(toolText)?.[0];
   const links = [...new Set(toolText.match(/https:\/\/vedarai\.ru\/request-status#[\w-]+/g) ?? [])];
   const parts: string[] = [];
   if (trip) {
@@ -67,6 +72,14 @@ export function humanChatConfirm(toolText: string): string {
     parts.push(`Заявка на поездку создана, номер ${trip}${legs.length ? ` (${legs.join(', ')})` : ''}.`);
   } else parts.push('Заявка создана.');
   parts.push('Оператор свяжется с вами по указанному телефону для подтверждения. Мгновенного бронирования нет — подтверждает человек, оплата не через платформу.');
-  if (links.length) parts.push(`Статус заявки и согласие на обработку данных: ${links.join(' , ')}`);
+  if (tripUrl) parts.push(`Вся поездка, статус каждой части и согласие на обработку данных: ${tripUrl}`);
+  else if (links.length) parts.push(`Статус заявки и согласие на обработку данных: ${links.join(' , ')}`);
+  parts.push('EN: Request created — the operator will contact you to confirm; no instant booking, no payment through the platform. ZH: 请求已提交，运营方会联系您确认；无即时预订，平台不收款。');
   return parts.join('\n\n');
+}
+
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
