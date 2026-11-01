@@ -443,8 +443,9 @@ function bestCandidates(rows: CandidateRow[], rankOf: (r: CandidateRow) => numbe
 function choose(rows: CandidateRow[], rankOf: (r: CandidateRow) => number): TourChoice {
   const ordered = bestCandidates(rows, rankOf);
   if (ordered.length === 0) return { kind: 'none' };
-  const companies = new Set(ordered.map(companyKey));
-  return companies.size > 1 ? { kind: 'ambiguous', candidates: ordered } : { kind: 'one', tour: ordered[0] };
+  // Несколько туров — выбор за человеком, даже у одной компании: «рыбалка»
+  // при трёх турах базы не должна молча становиться первым (экзамен 01.11).
+  return ordered.length > 1 ? { kind: 'ambiguous', candidates: ordered } : { kind: 'one', tour: ordered[0] };
 }
 
 const phraseRank = (r: CandidateRow) => Number(r.rank ?? 3);

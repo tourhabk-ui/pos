@@ -85,14 +85,25 @@ describe('resolveTourChoice', () => {
     expect(choice.candidates.map((c) => c.id)).toEqual(expected);
   });
 
-  it('два тура одной компании — один исход, тур выбран правилом, а не длиной названия', async () => {
+  it('два тура одной компании — список на выбор, порядок правилом, а не длиной названия (экзамен 01.11)', async () => {
     answer([
       row(61, 'a', { title: 'Горелый' }),
       row(62, 'a', { title: 'Горелый с ночёвкой в палатках', nearest_free_date: '2027-08-01' }),
     ]);
     const choice = await resolveTourChoice('Горелый');
-    expect(choice.kind).toBe('one');
-    if (choice.kind === 'one') expect(choice.tour.id).toBe(62);
+    expect(choice.kind).toBe('ambiguous');
+    if (choice.kind === 'ambiguous') expect(choice.candidates[0].id).toBe(62);
+  });
+
+  it('слово вида отдыха при трёх турах одной компании — список, а не первый тур', async () => {
+    answer([
+      row(4, 'fish', { title: 'Осенняя рыбалка (октябрь-ноябрь)', activity_type: 'fishing' }),
+      row(36, 'fish', { title: 'Зимняя рыбалка: ноябрь — январь', activity_type: 'fishing' }),
+      row(37, 'fish', { title: 'Зимняя рыбалка: январь — март', activity_type: 'fishing' }),
+    ]);
+    const choice = await resolveTourChoice('рыбалка');
+    expect(choice.kind).toBe('ambiguous');
+    if (choice.kind === 'ambiguous') expect(choice.candidates.map((c) => c.id).sort()).toEqual([36, 37, 4]);
   });
 
   it('точное название у одной компании — один исход, вхождение у другой не мешает', async () => {

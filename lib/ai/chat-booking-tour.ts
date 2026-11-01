@@ -6,7 +6,7 @@
  * или подходящих туров несколько. Теперь: один тур — форма на нём; несколько —
  * формы нет, человек выбирает карточку сам; отказ базы — не угадываем.
  */
-import { extractTourKeywords } from '@/lib/kuzmich/core';
+import { bookingWordsQuery, extractTourKeywords } from '@/lib/kuzmich/core';
 import {
   resolveSellerInText,
   resolveTourChoice,
@@ -60,6 +60,12 @@ export async function pickChatBookingTour(
   let choice: TourChoice | null;
   try {
     choice = await resolveSellerInText(rawMessage);
+    if (!choice) {
+      // Слова реплики раньше ключа вида: «зимняя рыбалка ноябрь январь» — тур 36.
+      const words = bookingWordsQuery(rawMessage);
+      const byWords = words ? await resolveTourChoice(words) : null;
+      if (byWords?.kind === 'one') choice = byWords;
+    }
     if (!choice) {
       const keywords = extractTourKeywords(rawMessage);
       choice = keywords.length ? await resolveTourChoice(keywords.join(' ')) : null;
