@@ -50,3 +50,23 @@ export function planChatRequest(
   }
   return { tool: 'create_booking_request', args: { ...base, tour: String(tour.id), date: prefill.date } };
 }
+
+/**
+ * Текст инструмента написан для агента (ключ, «не публикуйте», RU/EN/ZH).
+ * Человеку в чате — его собственная заявка: номер, ссылка статуса, порядок.
+ */
+export function humanChatConfirm(toolText: string): string {
+  const trip = /TRIP-[A-Z0-9]+/.exec(toolText)?.[0];
+  const links = [...new Set(toolText.match(/https:\/\/vedarai\.ru\/request-status#[\w-]+/g) ?? [])];
+  const parts: string[] = [];
+  if (trip) {
+    const legs: string[] = [];
+    if (/— Тур: создано/.test(toolText)) legs.push('тур');
+    if (/— Жильё: создано/.test(toolText)) legs.push('жильё');
+    if (/— Машина: создано/.test(toolText)) legs.push('транспорт');
+    parts.push(`Заявка на поездку создана, номер ${trip}${legs.length ? ` (${legs.join(', ')})` : ''}.`);
+  } else parts.push('Заявка создана.');
+  parts.push('Оператор свяжется с вами по указанному телефону для подтверждения. Мгновенного бронирования нет — подтверждает человек, оплата не через платформу.');
+  if (links.length) parts.push(`Статус заявки и согласие на обработку данных: ${links.join(' , ')}`);
+  return parts.join('\n\n');
+}

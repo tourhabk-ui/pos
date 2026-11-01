@@ -5,6 +5,7 @@
  * Encrypted interest collection from user messages.
  */
 
+import { humanChatConfirm } from '@/lib/kuzmich/chat-request';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { planChatRequest } from '@/lib/kuzmich/chat-request';
 import { runPublicTool } from '@/app/api/mcp/route';
@@ -472,7 +473,7 @@ export async function POST(request: NextRequest) {
       if (plan) {
         try {
           const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false });
-          if (out.kind === 'ok') chatRequestText = out.text;
+          if (out.kind === 'ok') chatRequestText = humanChatConfirm(out.text);
         } catch (e) { console.warn("[kuzmich-chat] заявка из чата не создана, остаётся карточка", safeMsg(e)); }
       }
     }

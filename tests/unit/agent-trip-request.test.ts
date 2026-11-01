@@ -60,3 +60,20 @@ describe('chat contact: имя капсом', () => {
   });
 });
 
+
+describe('chat: человеку — не агентский текст', () => {
+  it('humanChatConfirm убирает ключ и инструкции агенту', async () => {
+    const { humanChatConfirm } = await import('@/lib/kuzmich/chat-request');
+    const t = 'Поездка TRIP-4A343C: создано частей 2 из 2.\n— Тур: создано. Ключ статуса заявки: abc — Ключ и ссылку не публикуйте. https://vedarai.ru/request-status#abc\n— Машина: создано. https://vedarai.ru/request-status#d-e\nСкажи человеку его языком: RU: ... ZH: 申请';
+    const h = humanChatConfirm(t);
+    expect(h).toContain('TRIP-4A343C (тур, транспорт)');
+    expect(h).toContain('https://vedarai.ru/request-status#d-e');
+    expect(h).not.toMatch(/не публикуйте|Скажи человеку|申请|недоступн/);
+  });
+  it('narrowToursByText: «зимнюю рыбалку 15.11» → ноябрь — январь', async () => {
+    const { narrowToursByText } = await import('@/lib/ai/chat-booking-tour');
+    const tours = [{ id: 4, title: 'Осенняя рыбалка (октябрь-ноябрь)' }, { id: 36, title: 'Зимняя рыбалка: ноябрь — январь' }, { id: 37, title: 'Зимняя рыбалка: январь — март' }];
+    expect(narrowToursByText('Хочу забронировать зимнюю рыбалку 15.11, нас 2', tours)?.id).toBe(36);
+    expect(narrowToursByText('рыбалка', tours)).toBeNull();
+  });
+});
