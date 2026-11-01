@@ -798,8 +798,14 @@ export function ambiguityNote(query: string, candidates: readonly TourCandidate[
   const list = candidates.slice(0, CANDIDATES_SHOWN)
     .map((c) => `ID${c.id} — ${c.operator_name ?? 'компания не записана'}`).join('; ');
   const more = candidates.length > CANDIDATES_SHOWN ? `; и ещё ${candidates.length - CANDIDATES_SHOWN}` : '';
-  return `По запросу «${query}» подходят туры ${companies} ${plural(companies, 'компании', 'компаний', 'компаний')}: ${list}${more}. `
-    + 'Ниже — первый по порядку платформы (правило, а не рекомендация). Назови человеку все и уточни номер тура; не выбирай компанию за него.';
+  const n = candidates.length;
+  // Одна компания — «несколько туров компании X», а не «туры 1 компании» (экзамен 01.11).
+  const head = companies === 1
+    ? `По запросу «${query}» подходят ${n} ${plural(n, 'тур', 'тура', 'туров')} ${candidates[0].operator_name ? `компании «${candidates[0].operator_name}»` : 'одной компании'}`
+    : `По запросу «${query}» подходят туры ${companies} ${plural(companies, 'компании', 'компаний', 'компаний')}`;
+  return `${head}: ${list}${more}. `
+    + 'Ниже — первый по порядку платформы (правило, а не рекомендация). Назови человеку все и уточни номер тура; '
+    + (companies === 1 ? 'не выбирай тур за него.' : 'не выбирай компанию за него.');
 }
 
 /** «гид «…»» или «компания «…»» — как продавец назван в ответе. */
