@@ -705,11 +705,11 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     + 'Только после явного «да» самого человека повтори вызов с теми же полями, consent: true и confirmation';
   if (!parsed.data.confirmation) {
     const code = issueRentalConfirmation(confirmFields);
-    if (!code) throw new McpUserError('Подтверждение заявок временно недоступно — заявка не создана, повторите позже.', 'confirm_unavailable');
+    if (!code) throw new McpUserError('Заявку не удалось передать на подтверждение человеку — она не создана. Повторите через несколько минут.', 'confirm_unavailable');
     return `Черновик, заявка ещё НЕ создана. ${draft} ${askHuman}: "${code}" (код действует ${RENTAL_CONFIRM_TTL_MIN} мин). Не ставь consent: true сам и не придумывай имя и телефон.`;
   }
   const check = checkRentalConfirmation(parsed.data.confirmation, confirmFields);
-  if (check === 'unavailable') throw new McpUserError('Подтверждение заявок временно недоступно — заявка не создана, повторите позже.', 'confirm_unavailable');
+  if (check === 'unavailable') throw new McpUserError('Заявку не удалось передать на подтверждение человеку — она не создана. Повторите через несколько минут.', 'confirm_unavailable');
   if (check !== 'ok') {
     const code = issueRentalConfirmation(confirmFields);
     return `Код подтверждения ${check === 'expired' ? 'истёк' : 'не подходит к этим данным (поля изменились)'} — заявка не создана. Новый черновик: ${draft} ${askHuman}: "${code}".`;
