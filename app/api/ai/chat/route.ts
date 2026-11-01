@@ -7,7 +7,7 @@
 
 import { humanChatConfirm } from '@/lib/kuzmich/chat-request';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
-import { planChatRequest } from '@/lib/kuzmich/chat-request';
+import { planChatRequest, parseChatContact } from '@/lib/kuzmich/chat-request';
 import { runPublicTool } from '@/app/api/mcp/route';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
@@ -267,8 +267,30 @@ export async function POST(request: NextRequest) {
     // готового текста — через агента брони, цикл или запасной вызов.
     const answerStartedAt = Date.now();
 
+    // Быстрый путь (02.11, P0 «скорость»): имя, телефон, согласие и дата уже в
+    // реплике — заявку создаём без вызова модели тем же исполнителем, что у MCP.
+    // Подтверждает человек; не создалась — идём обычным путём.
+    let fastRequestText: string | null = null;
+    if (safeRole === 'tourist' && !emergencyNow && !imageBase64) {
+      const contact = parseChatContact(rawMessage);
+      const pre = parseChatBookingPrefill(rawMessage);
+      if (contact.name && contact.phone && contact.consent && pre.date) {
+        try {
+          const intent = detectTourIntent(rawMessage);
+          const found = intent.detected ? await findRelevantTours(intent.activityType, intent.rawWords) : [];
+          const pick = await pickChatBookingTour(rawMessage, found);
+          const plan = planChatRequest(rawMessage, pick.tour, pre);
+          if (plan) {
+            const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false });
+            if (out.kind === 'ok') fastRequestText = humanChatConfirm(out.text);
+          }
+        } catch (e) { console.warn('[kuzmich-chat] быстрый путь не сработал, обычный ответ', safeMsg(e)); }
+      }
+    }
+
     // PlatformAgent intercept: admin/operator с распознанным интентом
     let answer: string | null = null;
+    if (fastRequestText) answer = fastRequestText;
     if (isAuthenticated && user && (safeRole === 'admin' || safeRole === 'operator')) {
       try {
         const agentResult = await PlatformAgent.dispatch({
@@ -468,7 +490,8 @@ export async function POST(request: NextRequest) {
     // Имя, телефон и согласие уже в реплике — заявку создаём здесь же тем
     // исполнителем, что у MCP, а не оставляем карточку (разбор 01.11).
     let chatRequestText: string | null = null;
-    if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || /соглас/i.test(rawMessage))) {
+    if (fastRequestText) chatRequestText = fastRequestText;
+    else if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || /соглас/i.test(rawMessage))) {
       const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage));
       if (plan) {
         try {
