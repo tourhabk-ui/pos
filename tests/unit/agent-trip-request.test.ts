@@ -51,3 +51,12 @@ describe('kuzmich chat: tour not resolved', () => {
     expect(String(p?.args.comment)).toContain('2026-11-15, 2 чел.');
   });
 });
+
+describe('chat contact: имя капсом', () => {
+  it('«Меня зовут ТЕСТ Агент» распознаётся, заявка планируется', () => {
+    const t = 'Хочу забронировать зимнюю рыбалку 15.11, нас 2. Меня зовут ТЕСТ Агент (не звонить), +7 900 000-00-03. Согласен.';
+    expect(parseChatContact(t).name).toBe('ТЕСТ Агент');
+    expect(planChatRequest(t, { id: 36 }, { date: '2026-11-15', guests: 2 })?.tool).toBe('create_booking_request');
+  });
+});
+
