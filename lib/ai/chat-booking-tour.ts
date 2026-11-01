@@ -98,7 +98,6 @@ export async function pickChatBookingTour(
   return { tour: null, candidates: cands };
 }
 
-const MONTH_STEMS = ['янв', 'фев', 'мар', 'апр', 'ма[йя]', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const MONTH_EN = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 /**
@@ -149,6 +148,27 @@ export function monthOfText(text: string): number | null {
 }
 
 /**
+ * Месяцы в названии тура: «ноябрь — январь» — 11, 12, 1 (диапазон через
+ * Новый год); один месяц — он сам. Слово целиком, «маршрут» — не март.
+ */
+export function titleMonths(title: string): Set<number> {
+  const found: number[] = [];
+  const RU = [/^январ/, /^феврал/, /^март/, /^апрел/, /^ма[йяе]$/, /^июн/, /^июл/, /^август/, /^сентябр/, /^октябр/, /^ноябр/, /^декабр/];
+  const EN = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|t|tember|ober|ember)?$/;
+  for (const w of norm(title).match(/[а-яa-z]+/g) ?? []) {
+    const r = RU.findIndex((re) => re.test(w) && !(re.source === '^март' && !/^март[ае]?$/.test(w)));
+    if (r >= 0) { found.push(r + 1); continue; }
+    const e = EN.exec(w);
+    if (e) found.push(MONTH_EN.indexOf(e[1]!) + 1);
+  }
+  const out = new Set<number>();
+  if (found.length === 2) {
+    for (let k = found[0]!, i = 0; i < 12; i++, k = (k % 12) + 1) { out.add(k); if (k === found[1]) break; }
+  } else found.forEach((k) => out.add(k));
+  return out;
+}
+
+/**
  * Один тур, однозначно названный в реплике; иначе null. По порядку:
  * адрес тура (slug) или полное название; затем больше всего общих основ
  * слов (русские, английские, пары иероглифов) без общих слов брони;
@@ -172,9 +192,7 @@ export function narrowToursByText<T extends { title: string; slug?: string | nul
   let pool = scored.filter((s) => s.n === best).map((s) => s.x);
   const m = pool.length > 1 ? monthOfText(text) : null;
   if (m && m >= 1 && m <= 12) {
-    const re = new RegExp(MONTH_STEMS[m - 1]!, 'i');
-    const reEn = new RegExp(MONTH_EN[m - 1]!, 'i');
-    const byMonth = pool.filter((x) => re.test(norm(x.title)) || reEn.test(x.title));
+    const byMonth = pool.filter((x) => titleMonths(x.title).has(m));
     if (byMonth.length) pool = byMonth;
   }
   return pool.length === 1 ? pool[0]! : null;

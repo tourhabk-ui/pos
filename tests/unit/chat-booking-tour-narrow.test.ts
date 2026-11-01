@@ -54,3 +54,11 @@ describe('humanChatConfirm names the tour', () => {
     expect(humanChatConfirm('ok')).not.toContain('Тур в заявке');
   });
 });
+
+import { titleMonths } from '@/lib/ai/chat-booking-tour';
+describe('titleMonths', () => {
+  it('range across New Year', () => {
+    expect([...titleMonths('Зимняя рыбалка ноябрь — январь')]).toEqual([11, 12, 1]);
+    expect([...titleMonths('Маршрут к маяку')]).toEqual([]);
+  });
+});
