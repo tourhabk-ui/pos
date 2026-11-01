@@ -5,6 +5,7 @@
  * Encrypted interest collection from user messages.
  */
 
+import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -443,9 +444,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Booking form: показываем inline-форму когда турист явно хочет забронировать
-    const BOOKING_TRIGGERS_CHAT = ['бронь', 'бронирую', 'бронировать', 'хочу этот', 'хочу забронировать', 'записывай', 'оформи', 'беру', 'берём', 'запишите', 'возьму', 'возьмём', 'оплачу', 'работаем', 'договорились', 'давай бронируем', 'подходит'];
+    const BOOKING_TRIGGERS_CHAT = ['бронь', 'бронирую', 'бронировать', 'хочу этот', 'хочу забронировать', 'записывай', 'оформи', 'беру', 'берём', 'запишите', 'возьму', 'возьмём', 'оплачу', 'работаем', 'договорились', 'давай бронируем', 'подходит', 'заявк', 'хочу поехать', 'хотим поехать', 'запиши', 'оформим'];
     const bookingTriggered = safeRole === 'tourist' && BOOKING_TRIGGERS_CHAT.some(t => rawMessage.toLowerCase().includes(t));
+    // Хочет оформить, а карточек в этом ходе не было — ищем тур по той же
+    // реплике: Кузьмич оформляет заявку в чате сам (01.11), а не отсылает к форме.
+    if (bookingTriggered && tourSuggestions.length === 0 && !emergencyNow) {
+      const intent = detectTourIntent(rawMessage);
+      if (intent.detected) tourSuggestions = await findRelevantTours(intent.activityType, intent.rawWords);
+    }
     const bookingFormTour = bookingTriggered && tourSuggestions.length > 0 ? tourSuggestions[0] : null;
+    const bookingPrefill = bookingFormTour ? parseChatBookingPrefill(rawMessage) : {};
 
     // Фолбэк-ошибки конвейера («Извините, сервис временно недоступен») не
     // сохраняем в историю — они отравляют контекст следующих ответов (модель
@@ -562,7 +570,7 @@ export async function POST(request: NextRequest) {
         ...(tourSuggestions.length > 0 ? { tours: tourSuggestions } : {}),
         ...(finished.emergency ? { emergency: true } : {}),
         ...(visionDescription ? { visionDescription } : {}),
-        ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, priceUnit: bookingFormTour.price_unit, duration: { multi_day_count: bookingFormTour.multi_day_count, duration_hours: bookingFormTour.duration_hours }, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name } } : {}),
+        ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, priceUnit: bookingFormTour.price_unit, duration: { multi_day_count: bookingFormTour.multi_day_count, duration_hours: bookingFormTour.duration_hours }, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name, prefillDate: bookingPrefill.date ?? null, prefillGuests: bookingPrefill.guests ?? null } } : {}),
       },
     });
   } catch (error) {
