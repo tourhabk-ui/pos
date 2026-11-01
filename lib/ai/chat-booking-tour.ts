@@ -99,23 +99,83 @@ export async function pickChatBookingTour(
 }
 
 const MONTH_STEMS = ['янв', 'фев', 'мар', 'апр', 'ма[йя]', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const MONTH_EN = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
-/** Один тур, чьё название совпадает с репликой по основам слов и месяцу даты; иначе null. */
-export function narrowToursByText<T extends { title: string }>(text: string, tours: T[]): T | null {
-  if (tours.length < 2) return null;
-  const stems = (text.toLowerCase().match(/[а-яё]{5,}/g) ?? []).map((w) => w.slice(0, 4));
-  let pool = tours.filter((t) => stems.some((st) => t.title.toLowerCase().includes(st)));
-  const scored = pool.map((t) => ({ t, n: stems.filter((st) => t.title.toLowerCase().includes(st)).length }));
-  const best = Math.max(0, ...scored.map((x) => x.n));
-  pool = scored.filter((x) => x.n === best).map((x) => x.t);
-  const dm = /\b(\d{1,2})\.(\d{1,2})\b/.exec(text);
-  if (pool.length > 1 && dm) {
-    const m = Number(dm[2]);
-    if (m >= 1 && m <= 12) {
-      const re = new RegExp(MONTH_STEMS[m - 1], 'i');
-      const byMonth = pool.filter((t) => re.test(t.title));
-      if (byMonth.length) pool = byMonth;
-    }
+/**
+ * Основы слов, общие для любой брони: по ним тур не различить, а лишняя
+ * общая основа уравнивает счёт и прячет настоящее совпадение.
+ */
+const GENERIC_STEMS = new Set([
+  'хоч', 'хоте', 'брон', 'забр', 'заяв', 'запи', 'офор', 'пожа', 'нужн', 'можн', 'посе', 'пое',
+  'book', 'want', 'trip', 'tour', 'plea', 'requ', 'наше', 'чело', 'взро', 'дете', 'согл', 'теле',
+]);
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/ё/g, 'е');
+}
+
+function stemsOf(text: string): string[] {
+  const t = norm(text);
+  const ru = (t.match(/[а-я]{5,}/g) ?? []).map((w) => w.slice(0, 4));
+  const en = (t.match(/[a-z]{5,}/g) ?? []).map((w) => w.slice(0, 5));
+  return [...new Set([...ru, ...en])].filter((st) => !GENERIC_STEMS.has(st) && !GENERIC_STEMS.has(st.slice(0, 4)));
+}
+
+/** Пары иероглифов реплики: «温泉», «火山» — кусок названия на китайском. */
+function cjkPairs(text: string): string[] {
+  const out: string[] = [];
+  for (const run of text.match(/[\u4e00-\u9fff]{2,}/g) ?? []) {
+    for (let i = 0; i + 2 <= run.length; i++) out.push(run.slice(i, i + 2));
   }
-  return pool.length === 1 ? pool[0] : null;
+  return [...new Set(out)];
+}
+
+/** Месяц даты в реплике: 15.11, 15.11.2026, 2026-11-15, «15 ноября», «in November». */
+export function monthOfText(text: string): number | null {
+  const t = norm(text);
+  const iso = /\b20\d{2}-(\d{2})-\d{2}\b/.exec(t);
+  if (iso) return Number(iso[1]);
+  const dm = /\b\d{1,2}\.(\d{1,2})(?:\.\d{2,4})?\b/.exec(t);
+  if (dm) return Number(dm[1]);
+  const RU_MONTH = [/^январ[ьяе]$/, /^феврал[ьяе]$/, /^март[ае]?$/, /^апрел[ьяе]$/, /^ма[йяе]$/, /^июн[ьяе]$/,
+    /^июл[ьяе]$/, /^август[ае]?$/, /^сентябр[ьяе]$/, /^октябр[ьяе]$/, /^ноябр[ьяе]$/, /^декабр[ьяе]$/];
+  for (const w of t.match(/[а-я]+/g) ?? []) {
+    const i = RU_MONTH.findIndex((re) => re.test(w));
+    if (i >= 0) return i + 1;
+  }
+  const en = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|t|tember|ober|ember)?\b/.exec(t);
+  if (en) return MONTH_EN.indexOf(en[1]!) + 1;
+  return null;
+}
+
+/**
+ * Один тур, однозначно названный в реплике; иначе null. По порядку:
+ * адрес тура (slug) или полное название; затем больше всего общих основ
+ * слов (русские, английские, пары иероглифов) без общих слов брони;
+ * при равенстве — месяц даты в названии. Ничья — null: не угадываем.
+ */
+export function narrowToursByText<T extends { title: string; slug?: string | null }>(text: string, tours: T[]): T | null {
+  if (tours.length < 2) return null;
+  const t = norm(text);
+  const exact = tours.filter((x) =>
+    (x.slug && x.slug.length >= 4 && t.includes(norm(x.slug)))
+    || (norm(x.title).trim().length >= 6 && t.includes(norm(x.title).trim())));
+  if (exact.length === 1) return exact[0]!;
+  const keys = [...stemsOf(text), ...cjkPairs(text)];
+  if (keys.length === 0) return null;
+  const scored = tours.map((x) => {
+    const title = norm(x.title);
+    return { x, n: keys.filter((k) => title.includes(k)).length };
+  });
+  const best = Math.max(0, ...scored.map((s) => s.n));
+  if (best === 0) return null;
+  let pool = scored.filter((s) => s.n === best).map((s) => s.x);
+  const m = pool.length > 1 ? monthOfText(text) : null;
+  if (m && m >= 1 && m <= 12) {
+    const re = new RegExp(MONTH_STEMS[m - 1]!, 'i');
+    const reEn = new RegExp(MONTH_EN[m - 1]!, 'i');
+    const byMonth = pool.filter((x) => re.test(norm(x.title)) || reEn.test(x.title));
+    if (byMonth.length) pool = byMonth;
+  }
+  return pool.length === 1 ? pool[0]! : null;
 }
