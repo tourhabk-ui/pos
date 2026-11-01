@@ -10,7 +10,7 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { partnerMenu } from '@/lib/roles/role-menu';
 import {
-  chatAnswerText, inboxOwns, parseChatAnswer, recordChatAnswer,
+  chatAnswerMarksContacted, chatAnswerText, inboxOwns, parseChatAnswer, recordChatAnswer,
 } from '@/lib/requests/chat-answer';
 import { createTicket } from '@/lib/support/ticket.service';
 import {
@@ -92,7 +92,28 @@ export async function operatorDeskPress(opts: {
     answer: parsed.answer,
   });
   if (!saved.ok) return withMenu('Не удалось записать ответ. Бронь не менял.');
-  return withMenu(chatAnswerText(parsed.answer, saved.already));
+  if (saved.already || !chatAnswerMarksContacted(parsed.kind, parsed.answer)) {
+    return withMenu(chatAnswerText(parsed.answer, saved.already));
+  }
+  // Статус заявки — только своей: скоуп карточки без захвата ничейных,
+  // поверх проверки входящих выше. Ошибка не прячется — оператор её видит.
+  try {
+    const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
+    const res = await changeLeadStatus({
+      leadId: parsed.subjectId,
+      status: 'contacted',
+      actor: { kind: 'partner_user', userId: partner.userId ?? null },
+      scope: { kind: 'owner', partnerId: partner.partnerId, claimUnowned: false },
+      via: opts.channel,
+    });
+    if (res.kind === 'not_found') {
+      return withMenu('Ответ записан, но заявка не ваша по карточке — статус не менял.');
+    }
+  } catch (err) {
+    console.error('[operator-desk] статус заявки не сменён, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
+    return withMenu('Ответ записан, статус заявки сменить не удалось. Отметьте её в кабинете.');
+  }
+  return withMenu(chatAnswerText(parsed.answer, false));
 }
 
 async function supportTicketText(partner: PartnerChatContext, channel: 'telegram' | 'max'): Promise<string> {

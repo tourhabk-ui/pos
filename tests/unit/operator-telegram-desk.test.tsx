@@ -81,7 +81,7 @@ describe('кнопки карточки заявки', () => {
 
   it('четыре ответа и ни один не подтверждает бронь', () => {
     const buttons = chatAnswerButtons(1, 'booking', id);
-    expect(buttons.map((b) => b.text)).toEqual(['1 · Принять', '1 · Нет мест', '1 · Уточнить', '1 · Свяжусь сам']);
+    expect(buttons.map((b) => b.text)).toEqual(['1 · Подтвердить', '1 · Другая дата', '1 · Нет мест', '1 · Уточнить', '1 · Свяжусь сам']);
     expect(parseChatAnswer(buttons[0]!.payload)).toEqual({ answer: 'accept', kind: 'booking', subjectId: id });
     for (const answer of ['accept', 'no_seats', 'clarify', 'self'] as const) {
       const line = chatAnswerText(answer, false);
@@ -94,7 +94,7 @@ describe('кнопки карточки заявки', () => {
 
   it('в карточке одной заявки (кабинет в чате) — те же ответы без номера', () => {
     const buttons = chatAnswerButtons(null, 'lead', id);
-    expect(buttons.map((b) => b.text)).toEqual(['Принять', 'Нет мест', 'Уточнить', 'Свяжусь сам']);
+    expect(buttons.map((b) => b.text)).toEqual(['Подтвердить', 'Другая дата', 'Нет мест', 'Уточнить', 'Свяжусь сам']);
     expect(buttons.map((b) => b.payload)).toEqual(chatAnswerButtons(1, 'lead', id).map((b) => b.payload));
   });
 });
