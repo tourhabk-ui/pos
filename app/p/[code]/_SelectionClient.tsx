@@ -216,7 +216,7 @@ export default function SelectionClient({ code }: { code: string }) {
     try {
       const res = await fetch('/api/hub/bookings/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Vedar-Client': 'selection' },
         body: JSON.stringify({
           tour_id:            bookTour.tour_id,
           tourist_name:       name,

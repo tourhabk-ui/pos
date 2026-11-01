@@ -397,7 +397,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, placeOffers = null }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; placeOffers?: PlaceOffersView | null }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, placeOffers = null, prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; placeOffers?: PlaceOffersView | null }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -1258,8 +1258,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
                 {/* scroll-mt: на якорь ведут карточка решения и нижняя панель —
                     без отступа форма уходит под фиксированную шапку. */}
-                <div id="booking" ref={bookingRef} className="scroll-mt-24">
-                  <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
+                <div id="booking" ref={bookingRef} className="scroll-mt-24" data-tour-id={tour.id} data-tour-slug={(tour as { slug?: string | null }).slug ?? undefined}>
+                  <p className="mb-2 text-sm text-gray-600" data-testid="request-not-booking">Заявка — не бронь: оператор подтвердит даты и места, оплата только после подтверждения.</p>
+                  <BookingFormClient initialGuests={prefill.guests} initialDate={prefill.date} tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
                     groupSizeUnlimited={isGroupSizeUnlimited(tour)}
                     priceUnit={tour.price_unit}
                     askSeatsFirst={askSeatsFirst}

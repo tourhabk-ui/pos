@@ -33,3 +33,11 @@ export function tourRequestHref(tourPathname: string, opts: RequestPrefill = {})
   const q = p.toString();
   return `${tourPathname}${q ? `?${q}` : ''}#booking`;
 }
+
+/** «<id>~<query>» от request/page.tsx → id карточки и предзаполнение. Без «~» — как было. */
+export function splitPrefillId(raw: string, maxGuests = 100): { id: string; prefill: RequestPrefill } {
+  const decoded = decodeURIComponent(raw);
+  const i = decoded.indexOf('~');
+  if (i < 0) return { id: raw, prefill: {} };
+  return { id: decoded.slice(0, i), prefill: parseRequestPrefill(`?${decoded.slice(i + 1)}`, maxGuests) };
+}

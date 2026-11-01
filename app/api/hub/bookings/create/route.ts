@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
+import { loadTourCard } from '@/lib/tours/tour-detail-query';
 import { z } from 'zod';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
@@ -35,7 +36,9 @@ const DATE_PAST_MESSAGE = 'Выбранная дата уже прошла. Ук
 const BookingSchema = z.object({
   // coerce: id тура — bigint, и pg отдаёт его строкой; форма шлёт то, что
   // получила (#1769: 400 «expected number, received string» у всех заявок).
-  tour_id:            z.coerce.number().int().positive({ message: 'Укажите тур' }),
+  tour_id:            z.coerce.number().int().positive({ message: 'Укажите тур' }).optional(),
+  /** Адрес тура (slug из /catalog/tours/<slug>) — внешним агентам числовой id знать не обязательно. */
+  tour_slug:          z.string().regex(/^[a-z0-9][a-z0-9-]{1,120}$/, 'Неверный адрес тура').optional(),
   tourist_name:       z.string().min(2, 'Имя: минимум 2 символа').max(255),
   tourist_email:      z.string().email('Неверный формат email').optional(),
   tourist_phone:      z.string().min(10, 'Телефон слишком короткий').max(20),
@@ -103,9 +106,18 @@ export async function POST(req: NextRequest) {
   }
 
   const data = parsed.data;
+  let tourId = data.tour_id ?? null;
+  if (tourId === null && data.tour_slug) {
+    const card = await loadTourCard(data.tour_slug).catch(() => null);
+    tourId = card ? Number(card.tour.id) : null;
+  }
+  if (tourId === null) {
+    await rejected('INVALID_FORM', data.tour_slug ?? null);
+    return NextResponse.json({ error: 'Укажите тур: tour_id или tour_slug', field: 'tour_id' }, { status: 400 });
+  }
 
   if (new Date(data.booking_date) < new Date(new Date().toISOString().slice(0, 10))) {
-    await rejected('DATE_PAST', data.tour_id);
+    await rejected('DATE_PAST', tourId);
     return NextResponse.json({ error: DATE_PAST_MESSAGE }, { status: 422 });
   }
 
@@ -117,8 +129,19 @@ export async function POST(req: NextRequest) {
   const authedUser = await getUserFromRequest(req);
   const userId = authedUser?.userId ?? null;
 
+  // Внешний вызов API (не наши поверхности, не вошедший юзер) — согласие на
+  // ПД обязательно, как в форме тура (152-ФЗ). Свои поверхности помечены
+  // X-Vedar-Client; у Кузьмича/корзины свой разговор о согласии (см. выше).
+  if (userId === null && !req.headers.get('x-vedar-client') && data.pd_consent !== true) {
+    await rejected('INVALID_FORM', tourId);
+    return NextResponse.json(
+      { error: 'Нужно согласие на обработку персональных данных: pd_consent: true (https://vedarai.ru/legal/privacy).', field: 'pd_consent' },
+      { status: 400 },
+    );
+  }
+
   if (userId === null && !data.tourist_email) {
-    await rejected('GUEST_EMAIL_REQUIRED', data.tour_id);
+    await rejected('GUEST_EMAIL_REQUIRED', tourId);
     return NextResponse.json(
       { error: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email' },
       { status: 400 },
@@ -132,7 +155,7 @@ export async function POST(req: NextRequest) {
     // (миграция 943) отдаётся ОДИН раз — тому, кто бронь создал; номер брони
     // больше не открывает ни подтверждение, ни PDF.
     const result = await reserveBooking({
-      tourId:          data.tour_id,
+      tourId:          tourId,
       touristName:     data.tourist_name,
       touristPhone:    data.tourist_phone,
       touristEmail:    data.tourist_email ?? null,
@@ -153,7 +176,7 @@ export async function POST(req: NextRequest) {
     // из его расписания, места есть, настройка включена — бронь сразу
     // 'confirmed', и оплата открывается на странице брони. Иначе — 'new',
     // как раньше (lib/bookings/auto-confirm).
-    const bookingStatus = await autoConfirmIfAllowed(result.bookingId, data.tour_id, data.booking_date);
+    const bookingStatus = await autoConfirmIfAllowed(result.bookingId, tourId, data.booking_date);
     const autoConfirmed = bookingStatus === 'confirmed';
 
     // Турист узнаёт, что заявка дошла. Раньше уведомление шло только
@@ -256,10 +279,10 @@ export async function POST(req: NextRequest) {
     }
     console.error(
       '[bookings/create] бронь не заведена, тур',
-      String(data.tour_id),
+      String(tourId),
       err instanceof Error ? err.message : err,
     );
-    await rejected('SERVER_ERROR', data.tour_id);
+    await rejected('SERVER_ERROR', tourId);
     return NextResponse.json(
       { error: 'Не удалось отправить заявку. Попробуйте позже или свяжитесь с оператором напрямую.' },
       { status: 500 },

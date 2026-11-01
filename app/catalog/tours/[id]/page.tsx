@@ -13,6 +13,7 @@ import { requestWindow, seasonWindowView } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { zhTourAlternatePath } from '@/lib/zh/content';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
+import { splitPrefillId } from '@/lib/booking/request-prefill';
 
 export const revalidate = 3600;
 
@@ -77,7 +78,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function CatalogTourDetailPage({ params }: Props) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  // Предзаполнение формы из ?date=/?guests= приходит только от динамического
+  // двойника request/page.tsx (rewrite в next.config.js) как «<id>~<query>»:
+  // сам ISR-маршрут адрес не читает и из кэша не выпадает.
+  const { id, prefill } = splitPrefillId(rawId);
   const loaded = await loadTourCard(id);
   if (!loaded) notFound();
   const { tour } = loaded;
@@ -109,6 +114,17 @@ export default async function CatalogTourDetailPage({ params }: Props) {
     activityLabel: activityLabel(tour.activity_type),
     availability: availabilityFromDates(dates),
   });
+  // Заявка как действие для агентов (schema.org ReserveAction): запрос
+  // оператору, не мгновенная бронь.
+  (structuredData as Record<string, unknown>).potentialAction = {
+    '@type': 'ReserveAction',
+    name: 'Оставить заявку на тур (оператор подтвердит)',
+    target: {
+      '@type': 'EntryPoint',
+      urlTemplate: `${SITE}${tourPath(tour)}?date={date}&guests={guests}#booking`,
+      actionPlatform: ['https://schema.org/DesktopWebPlatform', 'https://schema.org/MobileWebPlatform'],
+    },
+  };
 
   return (
     <>
@@ -116,7 +132,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <TourDetailClient tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} placeOffers={placeOffers} />
+      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} placeOffers={placeOffers} />
     </>
   );
 }

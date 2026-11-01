@@ -93,6 +93,7 @@ const VALID_BODY = {
   tour_id: 1,
   tourist_name: 'Иван Иванов',
   tourist_phone: '+79991234567',
+  pd_consent: true,
   tourist_email: 'guest@example.com',
   participants_count: 2,
   booking_date: '2099-01-01',
@@ -141,6 +142,24 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ field: 'tourist_email' });
     expect(clientQueryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
+  });
+
+  it('внешний гость без pd_consent — 400 на поле pd_consent, бронь не создаётся (01.11)', async () => {
+    getUserFromRequestMock.mockResolvedValue(null);
+    const { pd_consent: _drop, ...noConsent } = VALID_BODY;
+    void _drop;
+    const res = await POST(postReq(noConsent));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ field: 'pd_consent' });
+    expect(clientQueryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
+  });
+
+  it('своя поверхность (X-Vedar-Client) без галочки — как раньше, бронь создаётся', async () => {
+    getUserFromRequestMock.mockResolvedValue(null);
+    const { pd_consent: _drop, ...noConsent } = VALID_BODY;
+    void _drop;
+    const res = await POST(postReq(noConsent, { 'X-Vedar-Client': 'kuzmich' }));
+    expect(res.status).toBe(200);
   });
 
   it('вошедший без почты — бронь создаётся: у него есть каналы аккаунта', async () => {
