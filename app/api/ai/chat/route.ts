@@ -472,7 +472,7 @@ export async function POST(request: NextRequest) {
       if (plan) {
         try {
           const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false });
-          if (out.kind === 'ok' || out.kind === 'refused') chatRequestText = out.text;
+          if (out.kind === 'ok') chatRequestText = out.text;
         } catch (e) { console.warn("[kuzmich-chat] заявка из чата не создана, остаётся карточка", safeMsg(e)); }
       }
     }
@@ -499,7 +499,9 @@ export async function POST(request: NextRequest) {
       context: [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
     });
     answer = finished.text;
-    if (chatRequestText) answer = `${answer}\n\n${chatRequestText}`;
+    // Заявка создана — ответом становится её итог: текст модели до заявки
+    // («оставить заявку?», «занятость не прочитана») ему противоречит.
+    if (chatRequestText) answer = chatRequestText;
 
     if (safeRole === 'tourist') {
       // Агент брони ходов не считает — null («не записано»), а не ноль.

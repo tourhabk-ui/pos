@@ -1417,6 +1417,6 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[tour-availability] занятость не прочитана', { tourId: tour.id, sqlstate: e?.code, message: e?.message });
-    return 'Занятость временно недоступна — не называй даты по памяти, предложи страницу тура.';
+    return 'Свободные даты по туру этим запросом не получены — не называй даты по памяти; места и дату подтвердит оператор по заявке, предложи оставить заявку или страницу тура.';
   }
 }

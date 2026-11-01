@@ -126,7 +126,7 @@ describe('get_tour_availability → даты', () => {
   });
 
   it('«занятость недоступна» — не разобрано (null), а не «мест нет»', () => {
-    expect(parseAvailabilityText('Занятость временно недоступна — не называй даты по памяти.')).toBeNull();
+    expect(parseAvailabilityText('Свободные даты по туру этим запросом не получены — не называй даты по памяти.')).toBeNull();
   });
 });
 
