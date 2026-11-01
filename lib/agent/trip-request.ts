@@ -128,7 +128,10 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   }
   if (wantStayMatch) {
     legs.push({ kind: 'stay', ok: true, text: MANAGER_PENDING });
-    manager.push({ kind: 'stay', line: `Жильё на подбор: заезд ${checkIn}${checkOut ? `, выезд ${checkOut}` : ''}${people !== undefined ? `, гостей ${str(people)}` : ''}.` });
+    // Третье состояние (§4.0): даты, которых гость не называл, менеджеру не выдаются за названные.
+    const inLine = raw.stay_dates_assumed === true ? `заезд ориентировочно ${checkIn} (взят из даты запроса, уточнить)` : `заезд ${checkIn}`;
+    const outLine = checkOut ? `выезд ${checkOut}` : 'выезд не назван, уточнить';
+    manager.push({ kind: 'stay', line: `Жильё на подбор: ${inLine}, ${outLine}${people !== undefined ? `, гостей ${str(people)}` : ''}.` });
   }
   if (manager.length) {
     let leadText: string;

@@ -76,4 +76,25 @@ describe('chat: человеку — не агентский текст', () => 
     expect(narrowToursByText('Хочу забронировать зимнюю рыбалку 15.11, нас 2', tours)?.id).toBe(36);
     expect(narrowToursByText('рыбалка', tours)).toBeNull();
   });
+
+  it('жильё на подбор: названные даты — как есть, оценённые и пустой выезд называются вслух', async () => {
+    const base = { stay_wanted: true, check_in: '2026-11-15', name: 'Тест', phone: '+79990000000', consent: true, participants: 2 };
+    const named = deps();
+    await runTripRequest({ ...base, check_out: '2026-11-18' }, named as never);
+    const namedComment = String((named.createLead.mock.calls[0] as unknown[])[0] ? ((named.createLead.mock.calls[0] as unknown[])[0] as { comment: string }).comment : '');
+    expect(namedComment).toContain('заезд 2026-11-15, выезд 2026-11-18');
+    expect(namedComment).not.toMatch(/ориентировочно|не назван/);
+
+    const guessed = deps();
+    await runTripRequest({ ...base, stay_dates_assumed: true }, guessed as never);
+    const guessedComment = ((guessed.createLead.mock.calls[0] as unknown[])[0] as { comment: string }).comment;
+    expect(guessedComment).toContain('заезд ориентировочно 2026-11-15');
+    expect(guessedComment).toContain('выезд не назван, уточнить');
+  });
+
+  it('чат: заезд на подбор помечен оценкой, «3 ночи» даёт выезд', () => {
+    const t = 'Хочу тур и пожить в гостинице 3 ночи. Меня зовут Анна, +7 999 000 00 00, согласна';
+    const plan = planChatRequest(t, { id: 1 }, { date: '2026-11-15', guests: 2 });
+    expect(plan?.args).toMatchObject({ stay_wanted: true, check_in: '2026-11-15', check_out: '2026-11-18', stay_dates_assumed: true });
+  });
 });
