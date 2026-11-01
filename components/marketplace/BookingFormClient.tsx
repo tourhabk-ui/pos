@@ -38,6 +38,8 @@ interface BookingFormProps {
    * значение.
    */
   initialDate?: string | null;
+  /** ?guests= с сервера (динамический двойник карточки) — форма приходит в HTML заполненной. */
+  initialGuests?: number | null;
   /**
    * Условия отмены тура (1012). Не переданы — строки нет: форма стоит и там,
    * где тура с условиями под рукой нет (модалка). Переданы с NULL — это
@@ -83,9 +85,9 @@ interface FormError {
   kind: 'validation' | 'send';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
   const router = useRouter();
-  const [plainBooking, setPlainBooking] = useState(!askSeatsFirst);
+  const [plainBooking, setPlainBooking] = useState(!askSeatsFirst || Boolean(initialDate || initialGuests));
   const [seatsOpen, setSeatsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
@@ -139,7 +141,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     tourist_name: '',
     tourist_email: '',
     tourist_phone: '',
-    participants_count: '1',
+    participants_count: initialGuests && initialGuests > 0 ? String(Math.min(initialGuests, maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS)) : '1',
     booking_date: initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : '',
     special_requests: '',
   });
@@ -283,7 +285,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     try {
       const res = await fetch('/api/hub/bookings/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Vedar-Client': 'tour-form' },
         body: JSON.stringify({
           // id тура приходит из базы строкой (bigint); сервер тоже приводит,
           // но форма обязана слать число сама (issue #1769).

@@ -110,7 +110,7 @@ function BookingFormCard({
       // 1. Создаём бронирование
       const bookRes = await fetch('/api/hub/bookings/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Vedar-Client': 'kuzmich' },
         body: JSON.stringify({
           tour_id: data.tourId,
           tourist_name: name.trim(),

@@ -59,7 +59,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
     try {
       const res = await fetch('/api/hub/bookings/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Vedar-Client': 'kuzmich-widget' },
         body: JSON.stringify({
           tour_id: data.tourId,
           tourist_name: name.trim(),

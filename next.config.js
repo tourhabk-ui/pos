@@ -338,7 +338,17 @@ const nextConfig = {
   // короткий адрес по-прежнему afterFiles.
   async rewrites() {
     return {
-      beforeFiles: partnerSiteRewrites(),
+      // Карточка тура с ?date=/?guests= — на динамический двойник
+      // /catalog/tours/:id/request: форма приходит в HTML уже заполненной
+      // (агент без JS видит значения), а голая карточка остаётся в ISR-кэше.
+      beforeFiles: [
+        ...partnerSiteRewrites(),
+        ...['date', 'guests', 'people', 'participants', 'adults'].map((key) => ({
+          source: '/catalog/tours/:id',
+          has: [{ type: 'query', key }],
+          destination: '/catalog/tours/:id/request',
+        })),
+      ],
       afterFiles: [
         { source: '/:slug([a-z0-9][a-z0-9-]+)', destination: '/operators/:slug' },
       ],

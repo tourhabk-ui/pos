@@ -105,7 +105,7 @@ export default function CheckoutClient() {
       try {
         const res = await fetch('/api/hub/bookings/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Vedar-Client': 'cart' },
           body: JSON.stringify({
             tour_id: item.tourId,
             tourist_name: contacts.tourist_name,
