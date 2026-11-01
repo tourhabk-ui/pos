@@ -1,5 +1,6 @@
 'use client';
 
+import { TripBlock } from '@/components/requests/TripBlock';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Inbox, Loader2, CheckCircle2, XCircle, HelpCircle, Phone, RefreshCw } from 'lucide-react';
@@ -195,6 +196,7 @@ export function StayRequestsSection() {
                     <Sensitive>{r.guestPhone}</Sensitive>
                   </a>
                 </div>
+                <TripBlock comment={r.comment} />
                 {r.comment && (
                   <p className="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-line">
                     <Sensitive>{r.comment}</Sensitive>
