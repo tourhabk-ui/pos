@@ -410,6 +410,13 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           <Calendar className="w-3.5 h-3.5" />
           Дата заезда *
         </label>
+        {/* Дата из ?date= — в серверном HTML. Календарь TourDateField
+            появляется только после JS; агент без JS (curl) видит значение
+            здесь (01.11, PR после #2908). */}
+        <input type="hidden" id="booking-date-value" name="booking_date_value" value={formData.booking_date} data-testid="booking-date-value" />
+        {formData.booking_date && (
+          <p className="mb-1 text-sm text-gray-700" data-booking-date={formData.booking_date}>Выбрана дата: {formData.booking_date}</p>
+        )}
         <TourDateField
           tourId={tourId}
           tourTitle={tourTitle}
