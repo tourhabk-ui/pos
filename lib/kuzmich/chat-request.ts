@@ -46,6 +46,8 @@ export function planChatRequest(
     if (stay) {
       args.stay_wanted = true;
       args.check_in = prefill.date;
+      // Гость назвал одну дату (тура или запроса): заезд из неё — оценка, а не его слово.
+      args.stay_dates_assumed = true;
       const nights = /(\d{1,2})\s*(?:ноч|сут)/i.exec(text);
       if (nights) args.check_out = addDays(prefill.date, Math.min(30, Number(nights[1])));
     }
