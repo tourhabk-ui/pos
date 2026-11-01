@@ -662,7 +662,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(last.text).toMatch(/Всё из документа записано/);
       expect((await full()).description).toBe('Вулкан Горелый (1829 м) — действующий вулкан на юге Камчатки.');
       expect((await pool.query(`SELECT status FROM tour_doc_drafts WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1`, [GUIDE_CHAT])).rows[0]).toEqual({ status: 'saved' });
-    });
+    }, 20_000); // модули документа импортируются в самом тесте: на холодном раннере CI один импорт съел 5 с (PR #2911), локально тест идёт 0,2 с
   });
 
   describe('новый тур гида и его витрина (1362, 31.10)', () => {
