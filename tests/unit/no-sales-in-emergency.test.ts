@@ -40,7 +40,7 @@ describe('при ЧП пути продажи закрыты', () => {
 
   it('карточки туров (и форма брони из них) не показываются при ЧП', () => {
     expect(chat).toMatch(/if \(safeRole === 'tourist' && !emergencyNow\) \{\s*const intentResult = detectTourIntent\(rawMessage\)/);
-    expect(chat).toMatch(/const bookingFormTour = bookingTriggered && tourSuggestions\.length > 0/);
+    expect(chat).toMatch(/if \(bookingTriggered && !emergencyNow\) \{\n\s*const pick = await pickChatBookingTour/);
   });
 
   it('туры не идут в контекст модели при ЧП — во всех трёх входах чата', () => {
