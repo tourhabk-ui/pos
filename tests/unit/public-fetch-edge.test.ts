@@ -70,6 +70,8 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/places/X/reviews',
   'POST /api/places/X/photos',      // фото места: форма сама спрашивает вход (PhotoUpload)
   'GET /api/referral/my-code',      // реферальный код вошедшего
+  'GET /api/request-drafts',        // /request: галочка напоминания — только вошедшему с MAX/Telegram, гостю не показывается
+  'POST /api/request-drafts',       // /request: черновик для одного напоминания — под входом
   'GET /api/tourist/profile',       // регистрация маршрута: экстренный контакт из профиля вошедшего, гостю форма как была
   // Блок «сняли туристы» на карточке места (14.09): кнопка «сделать главным»
   // рисуется ТОЛЬКО при активной роли admin, которую компонент спрашивает у

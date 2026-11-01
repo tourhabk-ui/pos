@@ -137,6 +137,33 @@ export async function maxSendDm(
 }
 
 /**
+ * Личное сообщение пользователю MAX по user_id (users.max_user_id), а не по
+ * chat_id — так пишет напоминание о неотправленной заявке.
+ */
+export async function maxSendToUser(
+  userId: number | string,
+  text: string,
+  opts?: { buttons?: Array<{ text: string; url: string }> },
+): Promise<{ ok: boolean; error?: string }> {
+  const api = getApi();
+  if (!api) return { ok: false, error: 'MAX_BOT_TOKEN not set' };
+  const id = typeof userId === 'string' ? parseInt(userId, 10) : userId;
+  if (isNaN(id)) return { ok: false, error: 'invalid user_id' };
+  try {
+    if (opts?.buttons?.length) {
+      const { Keyboard } = await import('@maxhub/max-bot-api');
+      const keyboard = Keyboard.inlineKeyboard(opts.buttons.map((b) => [Keyboard.button.link(b.text, b.url)]));
+      await api.sendMessageToUser(id, text, { attachments: [keyboard] });
+    } else {
+      await api.sendMessageToUser(id, text);
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'MAX API error' };
+  }
+}
+
+/**
  * Утилита: найти все чаты бота (для определения channel_id).
  * Вызывать вручную из /api/max/setup для поиска канала.
  */

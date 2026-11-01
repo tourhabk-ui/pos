@@ -27,6 +27,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/tours': ['GET'],
   '/api/routes': ['GET'],          // публичный каталог маршрутов + поиск
   '/api/leads': ['POST'],          // форма заявки без регистрации
+  '/api/request-drafts/resume': ['POST'], // ссылка напоминания о неотправленной заявке: прочитать/отозвать по ключу
   '/api/reviews': ['GET'],         // отзывы (LiveFeed на главной)
   '/api/public': 'ALL',            // публичная статистика
   // Поиск и каталог туров — только чтение. POST снят 15.10 (аудит, W2-2):
