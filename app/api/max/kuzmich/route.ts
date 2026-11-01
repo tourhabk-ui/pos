@@ -565,13 +565,6 @@ const BOOKING_BUTTONS: MaxButton[][] = [
   ],
 ];
 
-// ── Кнопка «Перезвоните мне» ─────────────────────────────────────────────────
-
-const CONTACT_REQUEST_BUTTONS: MaxButton[][] = [
-  [{ type: 'request_contact', text: 'Поделиться номером' }],
-  [{ type: 'callback', text: 'Напишу сам', payload: 'skip_contact' }],
-];
-
 // Парсинг телефона из VCF-строки (формат: TEL:+7... или TEL;TYPE=...:+7...)
 function parsePhoneFromVcf(vcf: string): string | null {
   const match = vcf.match(/^TEL[^:]*:(.+)$/m);
@@ -1902,12 +1895,18 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       await maxReply(resolvedChatId, UNVERIFIED_CHAT_REPLY.booking);
       return;
     }
+    // «Оформить заявку» — та же заявка, что в веб-чате (01.11): тур, дата,
+    // люди, имя, телефон и согласие собираются прямо в чате и уходят
+    // оператору бронью (createBooking → reserveBooking), а не безымянным лидом.
     if (payload === 'book_now') {
-      await maxReplyWithButtons(
-        resolvedChatId,
-        'Поделитесь номером телефона — оператор свяжется в течение <b>1-2 часов</b>.',
-        CONTACT_REQUEST_BUTTONS,
-      );
+      await processMessage({
+        chatId: resolvedChatId,
+        text: 'Хочу оформить заявку на тур',
+        userName, userId,
+        mode: 'max', createdVia: 'max', pending, reply: maxReply,
+        platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
+      });
       return;
     }
 
