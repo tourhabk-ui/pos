@@ -4,6 +4,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { FishingPageClient } from './_FishingPageClient';
+import { FishingGuide, fishingFaqJsonLd } from './_FishingGuide';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -13,9 +14,9 @@ import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Рыбалка на Камчатке — туры от профессионалов',
-  description: 'Рыболовные туры на Камчатке: лосось, кижуч, чавыча, нерка. Зимняя и летняя рыбалка на реке Камчатка с туроператорами. Заявка онлайн.',
-  keywords: ['рыбалка Камчатка', 'рыболовные туры Камчатка', 'рыбалка на лосося', 'рыбалка на реке Камчатка', 'рыбалка тур'],
+  title: 'Рыбалка на Камчатке 2026 — туры, цены, сезоны',
+  description: 'Рыболовные туры на Камчатке 2026: цены операторов, сезоны чавычи, нерки, кеты и кижуча, зимняя рыбалка. Заявка оператору напрямую, без комиссии.',
+  keywords: ['рыбалка Камчатка тур', 'рыбалка на Камчатке 2026', 'рыбалка Камчатка', 'рыболовные туры Камчатка', 'рыбалка на лосося', 'рыбалка на реке Камчатка', 'рыбалка тур'],
   // Посадочная «Рыбалка» из шапки сайта и главной. Родительский /hub/layout
   // ставит noindex всему кабинету — и эта публичная страница молча выпадала
   // из поиска, хотя robots.txt её явно открывал (аудит SEO 29.09, Н13).
@@ -25,14 +26,14 @@ export const metadata: Metadata = {
   // SEO 29.09, вечер). Снимок — тот же, что у категории «Рыбалка» в каталоге.
   openGraph: {
     url: '/hub/fishing',
-    title: 'Рыбалка на Камчатке — туры от профессионалов',
+    title: 'Рыбалка на Камчатке 2026 — туры, цены, сезоны',
     description: 'Лосось, кижуч, чавыча — рыбалка на реке Камчатка с профессиональными гидами.',
     type: 'website',
     images: [{ url: '/images/activities/fishing.jpg', width: 1680, height: 1141, alt: 'Рыбалка на Камчатке' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Рыбалка на Камчатке — туры от профессионалов',
+    title: 'Рыбалка на Камчатке 2026 — туры, цены, сезоны',
     images: ['/images/activities/fishing.jpg'],
   },
 };
@@ -175,11 +176,15 @@ export default async function FishingPage() {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
       )}
+      {structuredData && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(fishingFaqJsonLd()) }} />
+      )}
       {/* Шапка (с SOS, §2) и таб-бар: до 29.09 публичная посадочная «Рыбалка»
           была тупиком без навигации и без SOS (аудит UI/UX 29.09, P0). */}
       <Header />
       <div className="px-4 pt-20 pb-24 md:pb-10">
         <FishingPageClient tours={tours} failed={read.kind === 'failed'} />
+        <FishingGuide />
       </div>
       <BottomNav activePath="/hub/fishing" />
     </>
