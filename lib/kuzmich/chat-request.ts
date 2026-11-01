@@ -11,7 +11,7 @@ export function parseChatContact(text: string): ChatContact {
   const out: ChatContact = { consent: false };
   const ph = /(?:\+7|8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/.exec(text);
   if (ph) out.phone = ph[0].replace(/[^\d+]/g, '');
-  const nm = /(?:меня зовут|имя[:\s]+|я\s*[—-]\s*|my name is|name[:\s]+)\s*([A-ZА-ЯЁ][a-zа-яё]+(?:\s+[A-ZА-ЯЁ][a-zа-яё]+)?)/u.exec(text);
+  const nm = /(?:[Мм]еня зовут|[Ии]мя[:\s]+|[Яя]\s*[—-]\s*|[Mm]y name is|[Nn]ame[:\s]+)\s*([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]+(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]+)?)/u.exec(text);
   if (nm) out.name = nm[1];
   out.consent = /(соглас|даю согласие|consent|agree|同意)/i.test(text);
   return out;
