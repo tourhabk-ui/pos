@@ -77,7 +77,9 @@ export async function pickChatBookingTour(
   if (choice?.kind === 'none') choice = null;
   if (!choice) {
     // Резолвер слов не нашёл; одна карточка в ходе — она и есть тур.
-    return { tour: suggestions.length === 1 ? suggestions[0] : null, candidates: [] };
+    if (suggestions.length === 1) return { tour: suggestions[0], candidates: [] };
+    const n = narrowToursByText(rawMessage, suggestions);
+    return { tour: n && n.base_price > 0 ? n : null, candidates: [] };
   }
   const tours = choiceTours(choice);
   if (choice.kind === 'one' || (choice.kind === 'seller' && tours.length === 1)) {
@@ -88,5 +90,32 @@ export async function pickChatBookingTour(
     if (t.base_price == null) return { tour: null, candidates: [candidateToSuggestion(t)] };
     return { tour: candidateToSuggestion(t), candidates: [] };
   }
-  return { tour: null, candidates: tours.map(candidateToSuggestion) };
+  const cands = tours.map(candidateToSuggestion);
+  // Несколько туров — сужаем по словам реплики и месяцу даты (ретест 01.11:
+  // «зимнюю рыбалку 15.11» → 36 «ноябрь — январь», не 37 и не осенняя).
+  const narrowed = narrowToursByText(rawMessage, cands.length ? cands : suggestions);
+  if (narrowed && narrowed.base_price > 0) return { tour: narrowed, candidates: [] };
+  return { tour: null, candidates: cands };
+}
+
+const MONTH_STEMS = ['янв', 'фев', 'мар', 'апр', 'ма[йя]', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+/** Один тур, чьё название совпадает с репликой по основам слов и месяцу даты; иначе null. */
+export function narrowToursByText<T extends { title: string }>(text: string, tours: T[]): T | null {
+  if (tours.length < 2) return null;
+  const stems = (text.toLowerCase().match(/[а-яё]{5,}/g) ?? []).map((w) => w.slice(0, 4));
+  let pool = tours.filter((t) => stems.some((st) => t.title.toLowerCase().includes(st)));
+  const scored = pool.map((t) => ({ t, n: stems.filter((st) => t.title.toLowerCase().includes(st)).length }));
+  const best = Math.max(0, ...scored.map((x) => x.n));
+  pool = scored.filter((x) => x.n === best).map((x) => x.t);
+  const dm = /\b(\d{1,2})\.(\d{1,2})\b/.exec(text);
+  if (pool.length > 1 && dm) {
+    const m = Number(dm[2]);
+    if (m >= 1 && m <= 12) {
+      const re = new RegExp(MONTH_STEMS[m - 1], 'i');
+      const byMonth = pool.filter((t) => re.test(t.title));
+      if (byMonth.length) pool = byMonth;
+    }
+  }
+  return pool.length === 1 ? pool[0] : null;
 }
