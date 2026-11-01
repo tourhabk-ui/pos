@@ -1428,6 +1428,29 @@ async function chooseSellerForBooking(text: string): Promise<TourChoice | null |
   }
 }
 
+/**
+ * Слова тура из реплики брони без слов просьбы и чисел: «хочу забронировать
+ * зимнюю рыбалку ноябрь январь» → «зимнюю рыбалку ноябрь январь». Ключ вида
+ * отдыха («fishing») терял «зимняя … ноябрь январь», и тур 36 не находился
+ * (экзамен 01.11). Меньше двух слов — '' (одно слово — дело ключей вида).
+ */
+const BOOKING_NOISE = /^(хоч|хотим|хотел|забронир|бронир|бронь|оформ|заявк|запиш|записа|записыв|пожалуйст|давай|человек|взросл|ребён|ребен|please|book|reserve)/;
+const BOOKING_NOISE_WORDS = new Set(['мне', 'нам', 'нас', 'на', 'в', 'во', 'и', 'с', 'со', 'по', 'за', 'тур', 'туры', 'тура', 'чел', 'дети', 'детей', 'можно', 'этот', 'эту', 'a', 'the']);
+export function bookingWordsQuery(text: string): string {
+  const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/)
+    .filter((w) => w.length > 1 && !/\d/.test(w) && !BOOKING_NOISE_WORDS.has(w) && !BOOKING_NOISE.test(w));
+  return words.length >= 2 ? words.join(' ') : '';
+}
+
+/** Тур по словам реплики — только однозначный; иначе null (дальше ключи вида). */
+async function chooseTourByWords(text: string): Promise<TourChoice | null | 'failed'> {
+  const q = bookingWordsQuery(text);
+  if (!q) return null;
+  const c = await chooseTourForBooking(q);
+  if (c === 'failed') return c;
+  return c.kind === 'one' ? c : null;
+}
+
 const BOOKING_LIST_SHOWN = 8;
 /** Предел раздела, когда разделов два (туры продавца и туры других компаний). */
 const BOOKING_SECTION_SHOWN = 5;
@@ -2094,7 +2117,12 @@ export async function handleBookingStep(
       await deleteBookingFlow(chatId, mode, pending);
       return false; // → processMessage отдаст в aiChat
     }
-    const choice = bySeller ?? await chooseTourForBooking(keywords.join(' '));
+    const byWords = bySeller ? null : await chooseTourByWords(t);
+    if (byWords === 'failed') {
+      await reply(chatId, BOOKING_LOOKUP_FAILED);
+      return true;
+    }
+    const choice = bySeller ?? byWords ?? await chooseTourForBooking(keywords.join(' '));
     if (choice === 'failed') {
       await reply(chatId, BOOKING_LOOKUP_FAILED);
       return true;
@@ -2279,7 +2307,8 @@ export async function startBooking(
   const lastRealMsg = userMsgs[userMsgs.length - 1]?.content ?? '';
   const bySeller = lastRealMsg.trim() ? await chooseSellerForBooking(lastRealMsg) : null;
   const narrowKeywords = extractTourKeywords(lastRealMsg);
-  let choice: TourChoice | 'failed' = bySeller ?? (narrowKeywords.length
+  const byWords = !bySeller && lastRealMsg.trim() ? await chooseTourByWords(lastRealMsg) : null;
+  let choice: TourChoice | 'failed' = bySeller ?? byWords ?? (narrowKeywords.length
     ? await chooseTourForBooking(narrowKeywords.join(' '))
     : { kind: 'none' });
 

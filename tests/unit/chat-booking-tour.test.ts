@@ -8,7 +8,9 @@ vi.mock('@/lib/kuzmich/tour-availability-tool', () => ({
   resolveSellerInText: (t: string) => seller(t),
   resolveTourChoice: (q: string) => choice(q),
 }));
+const words = vi.fn((_t: string) => '');
 vi.mock('@/lib/kuzmich/core', () => ({
+  bookingWordsQuery: (t: string) => words(t),
   extractTourKeywords: (t: string) => t.split(/\s+/).filter((w) => w.length > 4),
 }));
 
@@ -21,7 +23,7 @@ const cand = (id: number, price: number | null = 5000) => ({
 });
 const sug = (id: number) => ({ id, title: `Карточка ${id}`, base_price: 1000 } as unknown as TourSuggestion);
 
-beforeEach(() => { seller.mockReset(); choice.mockReset(); });
+beforeEach(() => { seller.mockReset(); choice.mockReset(); words.mockReset(); words.mockReturnValue(''); });
 
 describe('тур формы брони в веб-чате — резолвер мессенджеров (01.11)', () => {
   it('продавец назван — его тур, а не первая карточка', async () => {
@@ -52,6 +54,23 @@ describe('тур формы брони в веб-чате — резолвер �
   it('отказ базы — не угадываем', async () => {
     seller.mockRejectedValue(new Error('db'));
     expect(await pickChatBookingTour('бронирую рыбалку', [sug(1)])).toEqual({ tour: null, candidates: [] });
+  });
+  it('слова реплики раньше ключа вида: «зимняя рыбалка ноябрь январь» — тур 36', async () => {
+    seller.mockResolvedValue(null);
+    words.mockReturnValue('зимнюю рыбалку ноябрь январь');
+    choice.mockImplementation(async (q: string) => q === 'зимнюю рыбалку ноябрь январь'
+      ? { kind: 'one', tour: cand(36) }
+      : { kind: 'ambiguous', candidates: [cand(4), cand(36), cand(37)] });
+    const r = await pickChatBookingTour('хочу забронировать зимнюю рыбалку ноябрь январь', []);
+    expect(r.tour?.id).toBe(36);
+  });
+  it('слова неоднозначны — дальше ключ вида, список', async () => {
+    seller.mockResolvedValue(null);
+    words.mockReturnValue('осенняя зимняя');
+    choice.mockResolvedValue({ kind: 'ambiguous', candidates: [cand(4), cand(36)] });
+    const r = await pickChatBookingTour('хочу забронировать осенняя зимняя', []);
+    expect(r.tour).toBeNull();
+    expect(r.candidates.length).toBe(2);
   });
   it('маршрут больше не берёт tourSuggestions[0]', () => {
     const route = readFileSync(join(process.cwd(), 'app/api/ai/chat/route.ts'), 'utf-8');
