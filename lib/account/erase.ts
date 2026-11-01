@@ -1108,6 +1108,7 @@ export async function eraseUser(
     ['operator_signups', `UPDATE operator_signups SET telegram_handle = NULL WHERE user_id = $1`],
     ['audit_logs', `UPDATE audit_logs SET ip_address = NULL, user_agent = NULL WHERE user_id = $1`],
     ['user_ai_memory', `DELETE FROM user_ai_memory WHERE user_id = $1`],
+    ['request_drafts', `DELETE FROM request_drafts WHERE user_id = $1`],
     // Оценка ответа Кузьмича: автор — в metadata.author_user_id, свой
     // комментарий — там же (app/api/tourist/feedback/agent). Оценка остаётся
     // счётом качества, без текста и без ссылки на него. Колонка user_id

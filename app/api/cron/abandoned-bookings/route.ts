@@ -39,6 +39,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { sweepAbandonedDrafts, type SweepResult } from '@/lib/requests/request-drafts';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic     = 'force-dynamic';
@@ -203,6 +204,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ── 3. Неотправленные заявки туристов: одно напоминание по согласию ──
+    // (возврат брошенной заявки, 01.11; lib/requests/request-drafts). Свой
+    // try: сбой здесь не должен ронять напоминания операторам и отмены выше.
+    let drafts: SweepResult | { error: string };
+    try {
+      drafts = await sweepAbandonedDrafts(getPublicBaseUrl(), { dryRun });
+    } catch (e) {
+      drafts = { error: e instanceof Error ? e.message : 'drafts sweep failed' };
+      console.error('[abandoned-bookings] напоминания о заявках:', drafts.error);
+    }
+
     // Сухой прогон отметки НЕ ставит. `recordCronRun` пишет строку в
     // `agent_run_history`, а по ней Watchdog судит, что крон жив. Сухой вызов
     // (`?dry=1`) ничего не отправил и не отменил — значит, работы не было, и
@@ -222,6 +234,7 @@ export async function GET(req: NextRequest) {
       send_failed: sendFailed,
       mark_failed: markFailed,
       cancelled,
+      request_drafts: drafts,
       ts: now.toISOString(),
     });
 

@@ -1,9 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Phone, User, Send, CheckCircle, MessageCircle, ArrowLeft, Bot, Sparkles } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { RecontactConsentCheckbox } from '@/components/legal/RecontactConsentCheckbox';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+
+const RESUME_STORAGE_KEY = 'vedar-request-resume';
 
 const BOT_URL = 'https://t.me/kuzmichai_bot?start=lead';
 
@@ -21,6 +25,40 @@ export default function RequestClient() {
   const [comment, setComment] = useState('');
   const [state, setState] = useState<State>('idle');
   const [pdConsent, setPdConsent] = useState(false);
+  // Возврат брошенной заявки (01.11): отдельная галочка, по умолчанию снята;
+  // видна только вошедшему с MAX или Telegram. Черновик — только текст пожелания.
+  const [recontactEligible, setRecontactEligible] = useState(false);
+  const [recontact, setRecontact] = useState(false);
+  const draftToken = useRef<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(RESUME_STORAGE_KEY);
+      if (raw) {
+        const r = JSON.parse(raw) as { token?: string; comment?: string };
+        if (r.token) draftToken.current = r.token;
+        if (r.comment) setComment(r.comment);
+        sessionStorage.removeItem(RESUME_STORAGE_KEY);
+      }
+    } catch (e) { logSwallowedFailure('request', 'чтение черновика из sessionStorage', e); }
+    fetch('/api/request-drafts', { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => setRecontactEligible(!!j?.eligible))
+      .catch(e => logSwallowedFailure('request', 'GET /api/request-drafts', e));
+  }, []);
+
+  // Сохраняем черновик, только когда галочка стоит (или её сняли — это отзыв).
+  useEffect(() => {
+    if (!recontactEligible || state !== 'idle') return;
+    if (!recontact && !draftToken.current) return;
+    const t = setTimeout(() => {
+      fetch('/api/request-drafts', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', token: draftToken.current, comment: comment.trim(), title: null, recontact_consent: recontact }),
+      }).then(r => (r.ok ? r.json() : null)).then(j => { if (j?.token) draftToken.current = j.token; }).catch(e => logSwallowedFailure('request', 'сохранение черновика', e));
+    }, 800);
+    return () => clearTimeout(t);
+  }, [recontact, comment, recontactEligible, state]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +78,12 @@ export default function RequestClient() {
         }),
       });
       setState(res.ok ? 'done' : 'error');
+      if (res.ok && draftToken.current) {
+        void fetch('/api/request-drafts', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'submitted', token: draftToken.current }),
+        }).catch(e => logSwallowedFailure('request', 'отметка «отправлена»', e));
+      }
     } catch {
       setState('error');
     }
@@ -150,6 +194,9 @@ export default function RequestClient() {
                   <p className="text-xs text-[var(--danger)]">Не удалось отправить. Попробуйте ещё раз.</p>
                 )}
                 <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-request" />
+                {recontactEligible && (
+                  <RecontactConsentCheckbox checked={recontact} onChange={setRecontact} id="recontact-consent-request" />
+                )}
                 <button type="submit" disabled={state === 'sending' || !name.trim() || !phone.trim() || !pdConsent}
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   style={{ background: 'var(--accent)' }}>

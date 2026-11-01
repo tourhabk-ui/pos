@@ -29,7 +29,7 @@ export type TgSendOutcome = { ok: true } | { ok: false; reason: string };
 export async function tgSend(
   scope: string,
   text: string,
-  opts?: { chatId: string | null },
+  opts?: { chatId: string | null; button?: { label: string; url: string } },
 ): Promise<TgSendOutcome> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = opts ? opts.chatId : process.env.TELEGRAM_CHAT_ID;
@@ -53,6 +53,7 @@ export async function tgSend(
           text,
           parse_mode: 'HTML',
           disable_web_page_preview: true,
+          ...(opts?.button ? { reply_markup: { inline_keyboard: [[{ text: opts.button.label, url: opts.button.url }]] } } : {}),
         }),
         signal: AbortSignal.timeout(8_000),
       },

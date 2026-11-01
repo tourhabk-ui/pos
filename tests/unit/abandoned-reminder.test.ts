@@ -34,3 +34,21 @@ describe('abandoned reminder', () => {
     expect(buildReminder(d(), 'https://vedarai.ru').text).toMatch('Мутновский');
   });
 });
+
+describe('recontact consent — утверждённый текст и ссылка на политику', () => {
+  it('версия утверждённая, ссылка на политику та же, что у основного согласия, на трёх языках', async () => {
+    const m = await import('@/lib/legal/recontact-consent');
+    const pd = await import('@/lib/legal/pd-consent');
+    expect(m.RECONTACT_CONSENT_VERSION).not.toMatch(/draft/);
+    expect(m.RECONTACT_POLICY_URL).toBe(pd.PD_CONSENT_POLICY_URL);
+    for (const l of ['ru', 'en', 'zh'] as const) {
+      expect(m.RECONTACT_CONSENT_TEXT[l].length).toBeGreaterThan(40);
+      expect(m.RECONTACT_POLICY_LINK[l].link.length).toBeGreaterThan(1);
+    }
+  });
+  it('ключ ссылки напоминания открыт публично только на POST /api/request-drafts/resume', async () => {
+    const { PUBLIC_API_ROUTES } = await import('@/lib/auth/public-api-routes');
+    expect(PUBLIC_API_ROUTES['/api/request-drafts/resume']).toEqual(['POST']);
+    expect(PUBLIC_API_ROUTES['/api/request-drafts']).toBeUndefined();
+  });
+});
