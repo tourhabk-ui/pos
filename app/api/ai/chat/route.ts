@@ -38,6 +38,7 @@ import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
+import { pickChatBookingTour } from '@/lib/ai/chat-booking-tour';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { bookingAgentOwns, dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
@@ -453,7 +454,13 @@ export async function POST(request: NextRequest) {
       const intent = detectTourIntent(rawMessage);
       if (intent.detected) tourSuggestions = await findRelevantTours(intent.activityType, intent.rawWords);
     }
-    const bookingFormTour = bookingTriggered && tourSuggestions.length > 0 ? tourSuggestions[0] : null;
+    // Тур формы — резолвером мессенджеров (продавец → тур), а не первая карточка.
+    let bookingFormTour: TourSuggestion | null = null;
+    if (bookingTriggered && !emergencyNow) {
+      const pick = await pickChatBookingTour(rawMessage, tourSuggestions);
+      bookingFormTour = pick.tour;
+      if (!pick.tour && tourSuggestions.length === 0) tourSuggestions = pick.candidates.filter((c) => c.base_price > 0);
+    }
     const bookingPrefill = bookingFormTour ? parseChatBookingPrefill(rawMessage) : {};
 
     // Фолбэк-ошибки конвейера («Извините, сервис временно недоступен») не
