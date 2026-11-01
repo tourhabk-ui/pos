@@ -49,6 +49,7 @@ import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/ku
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { redactPII } from '@/lib/security/pii-redact';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
+import { answerStall } from '@/lib/kuzmich/loop-stall';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 
@@ -491,6 +492,9 @@ export async function POST(request: NextRequest) {
         // Расход цикла — и когда ответил запасной путь: ходы уже оплачены. Сам
         // ответивший вызов в цикл не входит — сумма тогда помечена неполной.
         tokens: answerTokens(webTiming, { answeredOutsideLoop: !loopAnswered }),
+        // Застревания цикла — и когда ответил запасной путь: туда и приводит
+        // истраченный без ответа цикл (lib/kuzmich/loop-stall).
+        stall: answerStall(webTiming),
       });
     }
 

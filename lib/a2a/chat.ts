@@ -25,6 +25,7 @@ import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
+import { answerStall } from '@/lib/kuzmich/loop-stall';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { logText } from '@/lib/log/log-text';
@@ -113,6 +114,7 @@ export async function answerAgentMessage(
     provider: provenance.provider ?? null,
     ceilingHit: timing.ceilingHit,
     tokens: answerTokens(timing),
+    stall: answerStall(timing),
   });
   // Ответ внешнему агенту — грейдеру, как с сайта и из мессенджеров: «Кузьмич
   // для агентов» до этого был неизмерим (аудит 15.10, 1.14). Оценивается ответ

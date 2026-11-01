@@ -15,6 +15,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { KUZMICH_ANSWER_ACTION, KUZMICH_ANSWER_CEILING_MS, type LoopTokens } from '@/lib/kuzmich/answer-ceiling';
+import { stallMetadata, type LoopStall } from '@/lib/kuzmich/loop-stall';
 
 /** Где прозвучал ответ. */
 export type AnswerSurface = 'web' | 'web-stream' | 'telegram' | 'max' | 'widget' | 'a2a' | 'other';
@@ -43,6 +44,11 @@ export interface KuzmichAnswerRecord {
    * за ноль.
    */
   tokens?: LoopTokens | null;
+  /**
+   * Признаки застревания цикла (lib/kuzmich/loop-stall). null/нет — цикл не
+   * ходил: ключей в замере нет, линза застреваний такой ответ не считает.
+   */
+  stall?: LoopStall | null;
 }
 
 /** Числа расхода для metadata замера — только числа, без слов реплик (pd-guard). */
@@ -81,6 +87,7 @@ export async function recordKuzmichAnswer(rec: KuzmichAnswerRecord): Promise<voi
         ceiling_hit: rec.ceilingHit,
         ceiling_ms: KUZMICH_ANSWER_CEILING_MS,
         ...tokenMetadata(rec.tokens),
+        ...stallMetadata(rec.stall),
       }),
     ]);
   } catch (err) {
