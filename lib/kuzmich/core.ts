@@ -57,6 +57,8 @@ import {
 } from '@/lib/kuzmich/tour-availability-tool';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
+import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
+import { tourPath } from '@/lib/tours/tour-url';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
@@ -94,6 +96,8 @@ export interface TourRow {
   activity_type?: string | null;
   /** Продавец — называется в заявке: туров к одному месту бывает несколько (29.10). */
   operator_name?: string | null;
+  /** ЧПУ карточки — для ссылки на форму заявки с датой и людьми (Telegram). */
+  slug?: string | null;
 }
 
 export interface PendingBooking {
@@ -1439,6 +1443,7 @@ function bookingTourRow(c: TourCandidate): TourRow {
     price_unit: c.price_unit ?? null,
     multi_day_count: c.multi_day_count ?? null,
     operator_name: c.operator_name ?? null,
+    slug: c.slug ?? null,
   };
 }
 
@@ -2060,9 +2065,7 @@ export async function handleBookingStep(
         return true;
       }
       b.tour = bookingTourRow(picked.tour);
-      b.step = 'name';
-      await saveBookingFlow(chatId, mode, b, pending);
-      await reply(chatId, bookingTourLines(b.tour).join('\n'));
+      await tourChosen(chatId, mode, b, pending, reply, createdVia.includes('max'));
       return true;
     }
     // Вопросы, советы, опасные темы — не бронируем, отдаём в AI. Проверка
@@ -2107,9 +2110,7 @@ export async function handleBookingStep(
       return true;
     }
     b.tour  = bookingTourRow(choice.tour);
-    b.step  = 'name';
-    await saveBookingFlow(chatId, mode, b, pending);
-    await reply(chatId, bookingTourLines(b.tour).join('\n'));
+    await tourChosen(chatId, mode, b, pending, reply, createdVia.includes('max'));
     return true;
   }
 
@@ -2127,9 +2128,13 @@ export async function handleBookingStep(
       return true;
     }
     b.name = t;
-    b.step = 'date';
+    b.step = nextBookingStep(b);
     await saveBookingFlow(chatId, mode, b, pending);
-    await reply(chatId, `Отлично, ${b.name}! На какую дату оставляем заявку?\n\nПример: <b>15 июля</b> или <b>2026-07-15</b>`);
+    if (b.step === 'date') {
+      await reply(chatId, `Отлично, ${b.name}! На какую дату оставляем заявку?\n\nПример: <b>15 июля</b> или <b>2026-07-15</b>`);
+    } else {
+      await reply(chatId, b.step === 'participants' ? `Отлично, ${b.name}! Сколько человек едет?` : `Отлично, ${b.name}! Ваш номер телефона для связи?\n\nПример: <b>+7 900 000-00-00</b>`);
+    }
     return true;
   }
 
@@ -2145,9 +2150,9 @@ export async function handleBookingStep(
       return true;
     }
     b.date = date;
-    b.step = 'participants';
+    b.step = nextBookingStep(b);
     await saveBookingFlow(chatId, mode, b, pending);
-    await reply(chatId, 'Сколько человек едет?');
+    await reply(chatId, b.step === 'participants' ? 'Сколько человек едет?' : 'Ваш номер телефона для связи?\n\nПример: <b>+7 900 000-00-00</b>');
     return true;
   }
 
@@ -2187,6 +2192,8 @@ export async function handleBookingStep(
       bookingSumLine(b.tour!, b.participants!),
       `Имя: <b>${b.name}</b>`,
       `Телефон: <b>${b.phone}</b>`,
+      '',
+      BOOKING_CONSENT_LINE,
       '',
       'Всё верно? Напишите <b>Да</b> для подтверждения или <b>Нет</b> для отмены.',
     ].join('\n'));
@@ -2232,7 +2239,8 @@ export async function handleBookingStep(
     const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}?t=${created.accessToken}`;
     await reply(chatId, [
-      `Заявка отправлена оператору. Номер: <b>#${bookingId}</b>`,
+      `Заявка создана. Номер: <b>#${bookingId}</b>`,
+      'Оператор — живой человек — свяжется с вами и подтвердит дату и места. Это заявка, не мгновенная бронь и не сбой.',
       '',
       `Тур: ${b.tour!.title}`,
       `Дата: ${dateStr}`,
@@ -2259,8 +2267,10 @@ export async function startBooking(
   history: ChatMessage[],
   pending: Map<number, PendingBooking>,
   reply: ReplyFn,
+  platform?: 'tg' | 'max',
 ): Promise<boolean> {
   const userMsgs = history.filter(m => m.role === 'user');
+  const viaMax = platform !== 'tg';
 
   // 1) Narrow: последнее сообщение пользователя (до триггера бронирования).
   // Сначала — назван ли продавец, тем же правилом, что у get_tour_details:
@@ -2286,7 +2296,7 @@ export async function startBooking(
     return true;
   }
   if (choice.kind !== 'one') {
-    const booking: PendingBooking = { step: 'tour', started_at: Date.now() };
+    const booking: PendingBooking = { step: 'tour', started_at: Date.now(), ...chatPrefill(text, lastRealMsg) };
     await saveBookingFlow(chatId, mode, booking, pending);
     await reply(chatId, choice.kind !== 'none'
       ? bookingListText(choice)
@@ -2295,11 +2305,60 @@ export async function startBooking(
   }
 
   const tour = bookingTourRow(choice.tour);
-  const booking: PendingBooking = { tour, step: 'name', started_at: Date.now() };
-  await saveBookingFlow(chatId, mode, booking, pending);
-
-  await reply(chatId, bookingTourLines(tour).join('\n'));
+  const booking: PendingBooking = { tour, step: 'name', started_at: Date.now(), ...chatPrefill(text, lastRealMsg) };
+  await tourChosen(chatId, mode, booking, pending, reply, viaMax);
   return true;
+}
+
+/** Дата и люди из реплик (та же разборка, что у веб-чата) — не переспрашиваем. */
+function chatPrefill(...texts: string[]): Pick<PendingBooking, 'date' | 'participants'> {
+  const p = parseChatBookingPrefill(texts.filter(Boolean).join(' '));
+  return { ...(p.date ? { date: p.date } : {}), ...(p.guests ? { participants: p.guests } : {}) };
+}
+
+/** Следующий незаполненный шаг после имени. */
+export function nextBookingStep(b: PendingBooking): PendingBooking['step'] {
+  if (!b.name) return 'name';
+  if (!b.date) return 'date';
+  if (!b.participants) return 'participants';
+  if (!b.phone) return 'phone';
+  return 'confirm';
+}
+
+export const BOOKING_CONSENT_LINE =
+  `Отвечая «Да», вы соглашаетесь на обработку персональных данных для этой заявки: ${getPublicBaseUrl()}/legal/privacy`;
+
+/**
+ * Ссылка на форму тура с датой и людьми (prefill #2907/#2909). В Telegram
+ * имя и телефон не собираем (политика конфиденциальности) — ведём на сайт
+ * или в MAX; заявка та же, только ПД вводятся там.
+ */
+export function bookingFormUrl(tour: TourRow, date?: string, guests?: number): string {
+  const q = new URLSearchParams();
+  if (date) q.set('date', date);
+  if (guests) q.set('guests', String(guests));
+  const qs = q.toString();
+  return `${getPublicBaseUrl()}${tourPath({ id: tour.id, slug: tour.slug ?? null })}${qs ? `?${qs}` : ''}#booking`;
+}
+
+async function tourChosen(
+  chatId: number, mode: string, b: PendingBooking,
+  pending: Map<number, PendingBooking>, reply: ReplyFn, viaMax: boolean,
+): Promise<void> {
+  if (!viaMax) {
+    await deleteBookingFlow(chatId, mode, pending);
+    const url = bookingFormUrl(b.tour!, b.date, b.participants);
+    await reply(chatId, [
+      `Заявка оператору: <b>${escapeHtml(b.tour!.title)}</b>${b.tour!.operator_name ? ` — <b>${escapeHtml(b.tour!.operator_name)}</b>` : ''}`,
+      'Имя и телефон в Telegram не принимаю — оформите заявку в форме тура, дата и число людей уже подставлены:',
+      `<a href="${url}">${url}</a>`,
+      'Или напишите мне в MAX — оформлю заявку прямо в чате. Подтверждает её оператор, живой человек.',
+    ].join('\n'));
+    return;
+  }
+  b.step = 'name';
+  await saveBookingFlow(chatId, mode, b, pending);
+  await reply(chatId, bookingTourLines(b.tour!).join('\n'));
 }
 
 // ── Web search fallback (Tavily → Brave) ────────────────────────────────────
@@ -3375,7 +3434,7 @@ export async function processMessage(opts: {
   // Booking trigger
   if (!emergencyNow && isBookingTrigger(text)) {
     const history = await getHistory(chatId, mode);
-    await startBooking(chatId, text, mode, history, pendingMap, replyFn);
+    await startBooking(chatId, text, mode, history, pendingMap, replyFn, platform);
     return;
   }
 

@@ -162,7 +162,7 @@ describe('бронь в мессенджере выбирает тур общи�
     answer([row(61, 'a')]);
     const pending = stepTour();
     const reply = vi.fn();
-    expect(await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'telegram_bot')).toBe(true);
+    expect(await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'max_bot')).toBe(true);
     expect(pending.get(CHAT)?.step).toBe('name');
     expect(pending.get(CHAT)?.tour?.id).toBe(61);
     expect(String(reply.mock.calls[0][1])).toContain('Заявка оператору: <b>Вулкан Горелый 61</b> — <b>Компания A</b>');
@@ -188,7 +188,7 @@ describe('бронь в мессенджере выбирает тур общи�
     answer([row(61, 'a', { base_price: null })]);
     const pending = stepTour();
     const reply = vi.fn();
-    await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'telegram_bot');
+    await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'max_bot');
     const text = String(reply.mock.calls[0][1]);
     expect(text).toContain('Цену назовёт оператор.');
     expect(text).not.toMatch(/\b0 р\.|с человека/);
@@ -204,7 +204,7 @@ describe('бронь в мессенджере выбирает тур общи�
     const list = String(reply.mock.calls[0][1]);
     expect(nb(list)).toContain('140 000 ₽ за группу');
     expect(list).not.toContain('не называй');
-    await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'telegram_bot');
+    await handleBookingStep(CHAT, '61', 'tg', pending, reply, 'max_bot');
     const next = String(reply.mock.calls.at(-1)![1]);
     expect(nb(next)).toContain('Стоимость: <b>140 000 ₽ за группу</b>.');
     expect(next).not.toContain('с человека');

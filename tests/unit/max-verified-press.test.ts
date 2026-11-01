@@ -563,8 +563,8 @@ describe('ключа нет: вопросы Кузьмичу и кнопки т�
   });
 });
 
-describe('заверенное — «Оформить заявку» предлагается и ведёт к номеру', () => {
-  it('ответ про тур — кнопка есть; book_now — просьба номера', async () => {
+describe('заверенное — «Оформить заявку» предлагается и ведёт в заявку в чате', () => {
+  it('ответ про тур — кнопка есть; book_now — заявка в чате, как на сайте', async () => {
     m.processMessage.mockImplementation(async (o: { chatId: number; reply: (id: number, t: string) => Promise<void> }) => {
       await o.reply(o.chatId, 'Есть тур на Авачинский вулкан, программа на день.');
     });
@@ -572,7 +572,8 @@ describe('заверенное — «Оформить заявку» предл�
     expect(repliesTo(77)).toContain('Хотите оформить заявку?');
     m.maxSend.mockClear();
     await post(VERIFIED, press('book_now', 77, 77));
-    expect(repliesTo(77).join('\n')).toContain('Поделитесь номером');
+    expect(m.processMessage).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'Хочу оформить заявку на тур', verifiedOrigin: true }));
+    expect(repliesTo(77).join('\n')).not.toContain('Поделитесь номером');
   });
 });
 
