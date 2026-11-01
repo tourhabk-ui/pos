@@ -372,7 +372,7 @@ const nextConfig = {
       // кэш (та же болезнь, что у sitemap 29.09). Личных данных в них нет.
       // Сторож: tests/unit/openapi-agents.test.ts.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|mcp/server-card\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },
@@ -384,7 +384,15 @@ const nextConfig = {
       // разрешается относительно запроса. Сторож: tests/unit/openapi-agents.test.ts.
       {
         source: '/',
-        headers: [{ key: 'Link', value: '</.well-known/api-catalog>; rel="api-catalog"' }],
+        headers: [{
+          key: 'Link',
+          value: [
+            '</.well-known/api-catalog>; rel="api-catalog"',
+            '</llms.txt>; rel="describedby"; type="text/plain"',
+            '</openapi.json>; rel="service-desc"; type="application/json"',
+            '</.well-known/mcp.json>; rel="mcp"; type="application/json"',
+          ].join(', '),
+        }],
       },
       // Китайский раздел (аудит 15.10, CN-quick): корневой <html lang="ru">
       // общий для всех страниц и не трогается (читать язык из запроса в корне

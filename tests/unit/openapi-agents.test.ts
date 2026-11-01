@@ -369,7 +369,11 @@ describe('роуты /openapi.json и /.well-known/api-catalog', () => {
   });
 
   it('главная несёт Link rel="api-catalog" на каталог (RFC 9727)', async () => {
-    expect(await effective('/', 'Link')).toBe(`<${API_CATALOG_PATH}>; rel="api-catalog"`);
+    const link = await effective('/', 'Link');
+    expect(link).toContain(`<${API_CATALOG_PATH}>; rel="api-catalog"`);
+    expect(link).toContain('</llms.txt>; rel="describedby"');
+    expect(link).toContain('</openapi.json>; rel="service-desc"');
+    expect(link).toContain('</.well-known/mcp.json>; rel="mcp"');
     expect(API_CATALOG_PATH).toBe('/.well-known/api-catalog');
   });
 });
@@ -450,5 +454,13 @@ describe('поверхности и зависимости', () => {
     // Роуты зовут счётчик константами пути — не второй строкой.
     expect(read('app/openapi.json/route.ts')).toContain('recordAgentEntryHit(OPENAPI_PATH');
     expect(read('app/.well-known/api-catalog/route.ts')).toContain('recordAgentEntryHit(API_CATALOG_PATH');
+  });
+});
+
+describe('алиас /.well-known/mcp/server-card.json', () => {
+  it('отдаёт ту же карточку, что /api/mcp/server-card', async () => {
+    const alias = await import('@/app/.well-known/mcp/server-card.json/route');
+    const orig = await import('@/app/api/mcp/server-card/route');
+    expect(alias.GET).toBe(orig.GET);
   });
 });
