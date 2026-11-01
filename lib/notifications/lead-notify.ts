@@ -17,6 +17,7 @@
  *   кнопки ответа «Связался», «Договорились», «Отказ» (только MAX).
  */
 
+import { chatAnswerButtons } from '@/lib/requests/chat-answer';
 import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/notifications/pd-alert';
@@ -220,9 +221,14 @@ export async function notifyPartnerNewLeadPersonally(params: {
   // кабинете гида: кабинет оператора его не пустит (lib/partners/cabinet-links).
   const reach = await reachForPartner(params.operatorId);
   const buttons = [{ text: 'Открыть заявку', url: ownerLeadUrl(reach?.category, params.leadId) }];
+  // Гиду со своими турами — «Связался / Договорились / Отказ»; туроператору —
+  // «Подтвердить / Другая дата / …» (lib/requests/chat-answer): нажатие
+  // проверяет, что заявка во входящих этого оператора, и только тогда пишет.
   const answer = reach && leadChatActionsEnabledFor({ category: reach.category, sellsTours: reach.sellsTours })
     ? leadAnswerButtons(params.leadId)
-    : [];
+    : reach?.category === 'operator' && isChatTargetId(params.leadId)
+      ? chatAnswerButtons(null, 'lead', params.leadId)
+      : [];
 
   // Менеджеры команды кабинета (CRM 2г-4) — до проверки адреса кабинета: у
   // команды свои адреса, и заявка доходит до неё, даже если у кабинета канала нет.

@@ -10,7 +10,7 @@ import type { InboxKind } from '@/lib/crm/inbox-kinds';
 
 export const CHAT_ANSWER_KINDS = ['lead', 'stay_request', 'stay_booking', 'gear', 'booking'] as const;
 export type ChatAnswerKind = (typeof CHAT_ANSWER_KINDS)[number];
-export type ChatAnswer = 'accept' | 'no_seats' | 'clarify' | 'self';
+export type ChatAnswer = 'accept' | 'other_date' | 'no_seats' | 'clarify' | 'self';
 
 const KIND_CODE: Record<ChatAnswerKind, string> = {
   lead: 'l',
@@ -23,6 +23,7 @@ const CODE_KIND = new Map(Object.entries(KIND_CODE).map(([kind, code]) => [code,
 
 const ANSWER_CODE: Record<ChatAnswer, string> = {
   accept: 'a',
+  other_date: 'd',
   no_seats: 'n',
   clarify: 'c',
   self: 'm',
@@ -37,7 +38,8 @@ const INBOX_KIND: Partial<Record<InboxKind, ChatAnswerKind>> = {
 };
 
 const ANSWER_LINE: Record<ChatAnswer, string> = {
-  accept: 'Ваш ответ: принимаю заявку. Бронь этим не подтверждена, оплата не открыта.',
+  accept: 'Ваш ответ: подтверждаю заявку. Заявка отмечена «Связался». Это не бронь и не оплата: дату и цену согласуйте с заказчиком сами.',
+  other_date: 'Ваш ответ: предложу другую дату. Заявка отмечена «Связался», бронь не создана. Напишите заказчику, какие даты есть.',
   no_seats: 'Ваш ответ: нет мест. Расписание не закрывал.',
   clarify: 'Ваш ответ: уточню. Заявку не закрывал.',
   self: 'Ваш ответ: свяжусь сам. Контакты заказчика в Telegram не отправляю.',
@@ -50,7 +52,8 @@ export function chatAnswerOfInbox(kind: InboxKind): ChatAnswerKind | null {
 }
 
 /**
- * Четыре кнопки ответа. `n` — номер строки списка, когда под ним кнопки
+ * Пять кнопок ответа («Подтвердить», «Другая дата», «Нет мест», «Уточнить»,
+ * «Свяжусь сам»). `n` — номер строки списка, когда под ним кнопки
  * нескольких заявок; null — кнопки карточки одной заявки (кабинет в чате,
  * lib/chat-cabinet/screens), номер не нужен.
  */
@@ -63,7 +66,8 @@ export function chatAnswerButtons(
   const id = subjectId.toLowerCase();
   const mark = n === null ? '' : `${n} · `;
   return [
-    { text: `${mark}Принять`, payload: `ia:${ANSWER_CODE.accept}:${code}:${id}` },
+    { text: `${mark}Подтвердить`, payload: `ia:${ANSWER_CODE.accept}:${code}:${id}` },
+    { text: `${mark}Другая дата`, payload: `ia:${ANSWER_CODE.other_date}:${code}:${id}` },
     { text: `${mark}Нет мест`, payload: `ia:${ANSWER_CODE.no_seats}:${code}:${id}` },
     { text: `${mark}Уточнить`, payload: `ia:${ANSWER_CODE.clarify}:${code}:${id}` },
     { text: `${mark}Свяжусь сам`, payload: `ia:${ANSWER_CODE.self}:${code}:${id}` },
@@ -71,7 +75,7 @@ export function chatAnswerButtons(
 }
 
 export function parseChatAnswer(payload: string): { answer: ChatAnswer; kind: ChatAnswerKind; subjectId: string } | null {
-  const match = /^ia:([ancm]):([lhsgb]):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{1,18})$/i.exec(payload);
+  const match = /^ia:([adncm]):([lhsgb]):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{1,18})$/i.exec(payload);
   if (!match) return null;
   const answer = CODE_ANSWER.get(match[1]!.toLowerCase());
   const kind = CODE_KIND.get(match[2]!.toLowerCase());
@@ -111,4 +115,13 @@ export async function recordChatAnswer(opts: {
     console.error('[chat-answer] ответ не записан, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
     return { ok: false };
   }
+}
+
+/**
+ * Ответ, после которого заявка (`lead`) отмечается «Связался» — тем же
+ * правилом владельца, что на сайте (lib/leads/owner-lead-status): чужую
+ * заявку скоуп не тронет. Остальные ответы статус не меняют.
+ */
+export function chatAnswerMarksContacted(kind: ChatAnswerKind, answer: ChatAnswer): boolean {
+  return kind === 'lead' && (answer === 'accept' || answer === 'other_date');
 }
