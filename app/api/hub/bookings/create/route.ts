@@ -1,3 +1,4 @@
+import { normalizeToolHeadcount } from '@/lib/agent/headcount';
 /**
  * POST /api/hub/bookings/create
  * Create new booking + уведомление оператору в Telegram
@@ -77,6 +78,15 @@ export async function POST(req: NextRequest) {
   let body: unknown;
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Невалидный JSON' }, { status: 400 });
+  }
+  // Число людей под любым именем (guests, participants, passengers …) —
+  // в participants_count; строка-число — в число (break-map 01.11).
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const nb = normalizeToolHeadcount('rest_booking_create', body as Record<string, unknown>);
+    if (typeof nb.participants_count === 'string' && /^\d+$/.test(nb.participants_count.trim())) {
+      nb.participants_count = Number(nb.participants_count.trim());
+    }
+    body = nb;
   }
 
   // Воронка брони (#2882): отказы двери сайта до общего модуля — дата в

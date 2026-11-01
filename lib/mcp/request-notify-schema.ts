@@ -22,6 +22,7 @@ export { NOTIFY_PUBLIC_REASONS, publicDisabledReason, NOTIFY_STATUS_PROPERTY, ty
  */
 export const NOTIFY_TOOL_NAMES = [
   'create_lead', 'create_booking_request', 'request_charter', 'create_car_rental_request',
+  'create_trip_request',
 ] as const;
 
 /** Что сверка сравнивает — ровно поля отпечатка; `changed` в теле — подмножество этого списка. */

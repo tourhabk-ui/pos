@@ -63,6 +63,19 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
   // не выдался: заявка принята, но переписки на сайте не будет.
   const [links, setLinks] = useState<{ page: string | null; max: string | null }>({ page: null, max: null });
   const [busy, setBusy] = useState<BusyState>(undefined);
+  // Глубокая ссылка агента: ?date= (или check_in) &check_out=&guests=
+  // (или participants/passengers) — форма открывается заполненной (разбор 01.11).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const iso = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && v >= today ? v : null);
+    const ci = iso(q.get('check_in') ?? q.get('date'));
+    if (ci) { setCheckIn(ci); setCheckOut(plusDays(ci, 1)); }
+    const co = iso(q.get('check_out'));
+    if (co && (!ci || co > ci)) setCheckOut(co);
+    const g = q.get('guests') ?? q.get('participants') ?? q.get('passengers') ?? q.get('guest_count');
+    if (g && /^\d{1,2}$/.test(g) && +g >= 1) setGuests(g);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -173,35 +186,35 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className="ds-label">Заезд</span>
-          <input type="date" required min={today} value={checkIn}
+          <input type="date" name="check_in" required min={today} value={checkIn}
                  onChange={e => { setCheckIn(e.target.value); if (checkOut <= e.target.value) setCheckOut(plusDays(e.target.value, 1)); }}
                  className="ds-input w-full" />
         </label>
         <label className="block">
           <span className="ds-label">Выезд</span>
-          <input type="date" required min={plusDays(checkIn, 1)} value={checkOut}
+          <input type="date" name="check_out" required min={plusDays(checkIn, 1)} value={checkOut}
                  onChange={e => setCheckOut(e.target.value)} className="ds-input w-full" />
         </label>
       </div>
       <label className="block">
         <span className="ds-label">Сколько человек</span>
-        <input type="number" inputMode="numeric" required min={1} max={50} value={guests}
+        <input type="number" name="guests" inputMode="numeric" required min={1} max={50} value={guests}
                onChange={e => setGuests(e.target.value)} className="ds-input w-full" />
       </label>
       <label className="block">
         <span className="ds-label">Имя</span>
-        <input type="text" required minLength={2} maxLength={120} autoComplete="name" value={name}
+        <input type="text" name="name" required minLength={2} maxLength={120} autoComplete="name" value={name}
                onChange={e => setName(e.target.value)} className="ds-input w-full" />
       </label>
       <label className="block">
         <span className="ds-label">Телефон</span>
-        <input type="tel" required minLength={10} maxLength={20} autoComplete="tel" inputMode="tel"
+        <input type="tel" name="phone" required minLength={10} maxLength={20} autoComplete="tel" inputMode="tel"
                placeholder="+7 900 000-00-00" value={phone}
                onChange={e => setPhone(e.target.value)} className="ds-input w-full" />
       </label>
       <label className="block">
         <span className="ds-label">Комментарий (необязательно)</span>
-        <textarea maxLength={1000} rows={2} value={comment}
+        <textarea name="comment" maxLength={1000} rows={2} value={comment}
                   onChange={e => setComment(e.target.value)} className="ds-input w-full" />
       </label>
       <PdConsentCheckbox id="stay-request-consent" purpose="stay" checked={pdConsent} onChange={setPdConsent} />

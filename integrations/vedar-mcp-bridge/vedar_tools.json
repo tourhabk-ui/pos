@@ -560,7 +560,7 @@
     "type": "function",
     "function": {
       "name": "get_request_status",
-      "description": "Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request, request_charter or create_car_rental_request: operator answer or who got it. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered). partner_replies — сколько адресат заявки написал в переписке (без текста). Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора. date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату.",
+      "description": "Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request (ключи частей поездки), по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered). partner_replies — сколько адресат заявки написал в переписке (без текста). Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора. date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -902,6 +902,100 @@
           "car",
           "date_from",
           "date_to",
+          "name",
+          "phone",
+          "consent"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_trip_request",
+      "description": "Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Needs consent: true. Одна заявка на поездку целиком: тур на дату и/или жильё на даты и/или машина под заказ (трансфер) — одним вызовом, под общим номером поездки. Передай хотя бы одну часть: tour+tour_date, stay+check_in+check_out, transfer_destination+transfer_date. Каждая часть уходит своему партнёру (оператор тура, владелец жилья, менеджер с перевозчиком), и каждый видит, что ещё заказано в поездке. Перевозчик не назван — машину подберёт менеджер Ведара. Это заявка, не бронь: даты, места и цену подтверждает человек, оплаты через платформу нет. Имя и телефон — персональные данные: спроси согласие и передай consent: true, иначе заявка не создаётся.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "participants": {
+            "type": "string",
+            "description": "Number of people in the trip; aliases guests, passengers, participants_count, guest_count are accepted. Сколько человек в поездке (1–30). Принимаются и guests, passengers, participants_count",
+            "examples": [
+              "5"
+            ]
+          },
+          "tour": {
+            "type": "string",
+            "description": "Tour ID or name from get_tours. Тур: числовой ID или название из get_tours"
+          },
+          "tour_date": {
+            "type": "string",
+            "description": "Tour date, YYYY-MM-DD. Дата тура, YYYY-MM-DD",
+            "examples": [
+              "2026-11-15"
+            ]
+          },
+          "stay": {
+            "type": "string",
+            "description": "Stay name or ID from search_accommodations. Жильё: название или ID из search_accommodations"
+          },
+          "check_in": {
+            "type": "string",
+            "description": "Check-in date, YYYY-MM-DD. Заезд, YYYY-MM-DD",
+            "examples": [
+              "2026-11-15"
+            ]
+          },
+          "check_out": {
+            "type": "string",
+            "description": "Check-out date, YYYY-MM-DD. Выезд, YYYY-MM-DD",
+            "examples": [
+              "2026-11-18"
+            ]
+          },
+          "transfer_destination": {
+            "type": "string",
+            "description": "Transfer route or destination. Машина под заказ: куда/откуда («аэропорт Елизово → база»)",
+            "examples": [
+              "Yelizovo airport - Paratunka"
+            ]
+          },
+          "transfer_date": {
+            "type": "string",
+            "description": "Transfer date, YYYY-MM-DD. Дата поездки на машине, YYYY-MM-DD",
+            "examples": [
+              "2026-11-15"
+            ]
+          },
+          "transfer_date_to": {
+            "type": "string",
+            "description": "Last day of the charter, YYYY-MM-DD, if several days. Дата возвращения машины, YYYY-MM-DD, если нужна"
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Carrier name from search_transfers; omit and a Vedar manager picks one. Перевозчик из search_transfers; можно не указывать — подберёт менеджер"
+          },
+          "name": {
+            "type": "string",
+            "description": "Traveller's name. Имя туриста"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone partners will call back, required. Телефон для связи (обязателен)"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Wishes for all partners of the trip. Пожелания ко всей поездке"
+          },
+          "consent": {
+            "type": "boolean",
+            "description": "Explicit consent to process name and phone and pass them to every partner of the trip; pass true, otherwise refused. Человек согласен на обработку имени и телефона и их передачу партнёрам поездки (оператор, владелец жилья, перевозчик). Спроси прямо и передай true.",
+            "examples": [
+              true
+            ]
+          }
+        },
+        "required": [
           "name",
           "phone",
           "consent"

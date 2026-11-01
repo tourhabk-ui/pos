@@ -32,7 +32,7 @@ import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { requestConfirmNote } from '@/lib/mcp/request-confirm-note';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
@@ -53,6 +53,8 @@ import { buildConsentRecord, type PdConsentPurpose } from '@/lib/legal/pd-consen
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { primaryArg, classifyExecutionError } from '@/lib/mcp/call-reason';
+import { normalizeToolHeadcount } from '@/lib/agent/headcount';
+import { runTripRequest } from '@/lib/agent/trip-request';
 import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
@@ -930,6 +932,17 @@ async function executeTool(
   if (name === CAR_RENTAL_REQUEST_TOOL.name) {
     return executeCarRentalRequest(rawArgs, ctx);
   }
+  if (name === TRIP_REQUEST_TOOL.name) {
+    // Поездка целиком (break-map 01.11): те же исполнители, общий номер.
+    const r = await runTripRequest(rawArgs, {
+      bookTour: (a) => executeCreateBookingRequest(a, ctx),
+      requestStay: (a) => executeCreateStayRequest(a, ctx),
+      requestCharter: (a) => executeRequestCharter(a, ctx),
+      createLead: (a) => executeCreateLead(a, ctx),
+      confirmNote: requestConfirmNote(),
+    });
+    return r.text;
+  }
   // Пара коннекторов ChatGPT (search/fetch, ступень 2): не из реестра
   // Кузьмича, свои схемы и свой исполнитель (lib/mcp/connector-tools).
   // Английский и китайский запрос → русские слова словаря до поиска в базе
@@ -1143,7 +1156,10 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
   const { toolName, ip, userAgent, self } = call;
   // Строка с JSON-объектом читается как объект; прочее не-объектное — как
   // пустота, но с запомненной формой для отказа и журнала (tool-arguments).
-  const read = readToolArguments(call.rawArguments);
+  const read0 = readToolArguments(call.rawArguments);
+  // Число людей под любым именем — в каноническое поле инструмента
+  // (lib/agent/headcount): `guests` у тура больше не теряется молча.
+  const read: ReadArguments = { ...read0, args: normalizeToolHeadcount(toolName, read0.args) };
   const toolArgs = read.args;
 
   // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в

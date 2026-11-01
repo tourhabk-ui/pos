@@ -14,7 +14,7 @@
  * нет. Согласие — текстом «передачу перевозчику»: телефон уходит ему.
  */
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { formatRub, rateOnScreenOf, type CharterRate } from '@/lib/transfers/charter-format';
@@ -88,6 +88,15 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
   const [pdConsent, setPdConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
+  // Глубокая ссылка агента: ?date=&date_to=&guests= (или passengers) —
+  // форма открывается заполненной (разбор 01.11: параметры игнорировались).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const d = q.get('date'); if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDateFrom(d);
+    const d2 = q.get('date_to'); if (d2 && /^\d{4}-\d{2}-\d{2}$/.test(d2)) setDateTo(d2);
+    const g = q.get('guests') ?? q.get('passengers') ?? q.get('participants');
+    if (g && /^\d{1,2}$/.test(g)) setPassengers(g);
+  }, []);
 
   // «Заказать» у другой строки прайса на той же странице: меняется только
   // направление — введённые дата, имя и телефон остаются. После отправленной
@@ -223,12 +232,12 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor="charter-date-from" className="ds-label">Выезд</label>
-          <input id="charter-date-from" type="date" min={today} className="ds-input w-full" value={dateFrom}
+          <input id="charter-date-from" name="date" type="date" min={today} className="ds-input w-full" value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)} required aria-invalid={invalid('date_from') || undefined} />
         </div>
         <div>
           <label htmlFor="charter-date-to" className="ds-label">Возвращение</label>
-          <input id="charter-date-to" type="date" min={dateFrom || today} className="ds-input w-full" value={dateTo}
+          <input id="charter-date-to" name="date_to" type="date" min={dateFrom || today} className="ds-input w-full" value={dateTo}
             onChange={(e) => setDateTo(e.target.value)} aria-invalid={invalid('date_to') || undefined}
             aria-describedby="charter-date-to-hint" />
           <p id="charter-date-to-hint" className="text-xs text-[var(--text-muted)] mt-1">если не в тот же день</p>
@@ -237,7 +246,7 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
 
       <div>
         <label htmlFor="charter-passengers" className="ds-label">Сколько человек</label>
-        <input id="charter-passengers" type="number" inputMode="numeric" min={1} max={60} className="ds-input w-full"
+        <input id="charter-passengers" name="passengers" type="number" inputMode="numeric" min={1} max={60} className="ds-input w-full"
           value={passengers} onChange={(e) => setPassengers(e.target.value)} required
           aria-invalid={invalid('passengers') || undefined} />
       </div>
@@ -245,12 +254,12 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
         <div>
           <label htmlFor="charter-name" className="ds-label">Имя и фамилия</label>
-          <input id="charter-name" type="text" autoComplete="name" className="ds-input w-full" value={name}
+          <input id="charter-name" name="name" type="text" autoComplete="name" className="ds-input w-full" value={name}
             onChange={(e) => setName(e.target.value)} maxLength={120} required aria-invalid={invalid('name') || undefined} />
         </div>
         <div>
           <label htmlFor="charter-phone" className="ds-label">Телефон</label>
-          <input id="charter-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+7" className="ds-input w-full"
+          <input id="charter-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+7" className="ds-input w-full"
             value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={30} required
             aria-invalid={invalid('phone') || undefined} />
         </div>
@@ -258,7 +267,7 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
 
       <div>
         <label htmlFor="charter-comment" className="ds-label">Пожелания</label>
-        <textarea id="charter-comment" className="ds-input w-full min-h-20" value={comment}
+        <textarea id="charter-comment" name="comment" className="ds-input w-full min-h-20" value={comment}
           onChange={(e) => setComment(e.target.value)} maxLength={1000}
           placeholder="Откуда забрать, багаж, дети, сколько дней на месте" />
       </div>

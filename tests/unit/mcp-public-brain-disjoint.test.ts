@@ -100,7 +100,7 @@ describe('запись публичного MCP остаётся заявкой,
   // Четвёртая — заявка прокатчику на машину (решение владельца 23.10).
   it('на запись — только заявки: на подбор, на бронь тура, хозяину жилья, прокатчику', () => {
     const write = toolNames(PUBLIC_SRC).filter((n) => /^create_|^update_|^delete_|^set_/.test(n));
-    expect(write.sort()).toEqual(['create_booking_request', 'create_car_rental_request', 'create_lead', 'create_stay_request']);
+    expect(write.sort()).toEqual(['create_booking_request', 'create_car_rental_request', 'create_lead', 'create_stay_request', 'create_trip_request']);
   });
 
   it('оплаты в публичных инструментах нет', () => {
