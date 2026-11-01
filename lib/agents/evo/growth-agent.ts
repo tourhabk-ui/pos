@@ -20,6 +20,7 @@ import { loadSchemaModel } from '@/lib/agents/evo/schema-model';
 import { scanSourceAgainstSchema, schemaMismatchToIssue } from '@/lib/agents/evo/schema-lens';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths, navModulePaths } from '@/lib/agents/evo/structural-scan';
 import { paymentAvailability } from '@/lib/payments/availability';
+import { scanKuzmichStall } from '@/lib/agents/evo/kuzmich-stall-lens';
 
 export interface GrowthIssue {
   // 'compliance' — требования закона (маркировка рекламы, 152-ФЗ): не баг и не
@@ -1446,6 +1447,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     // чем платить. Переписи operator-reach и payment-config — в петле.
     issues.push(...(await lens(lenses, 'путь денег', scanMoneyPath, [] as GrowthIssue[])));
     issues.push(...(await lens(lenses, 'Кузьмич-евал', scanKuzmichEval, [] as GrowthIssue[])));
+    issues.push(...(await lens(lenses, 'Кузьмич застревает', scanKuzmichStall, [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
     issues.push(...(await lens(lenses, 'структура', scanStructural, [] as GrowthIssue[])));
     // Объектив схемы: запрос против baseline и миграций. Единственный, кто

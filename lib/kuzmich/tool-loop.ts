@@ -20,6 +20,8 @@ export interface ToolRunOutcome {
   args: Record<string, string>;
   content: string;
   executed: boolean; // false = дубль, short-circuit (реальный вызов не делался)
+  /** Почему не исполнен: повтор уже сделанного вызова или отвергнутые аргументы. */
+  skipped?: 'duplicate' | 'invalid_args';
 }
 
 const DUP_NOTICE = 'Этот запрос уже выполнялся выше — используй полученные данные, не повторяй вызов.';
@@ -77,14 +79,14 @@ export async function runTurnTools(
 
       const sig = toolSignature(tc);
       if (seen.has(sig)) {
-        return { id: tc.id, name: tc.function.name, args, content: DUP_NOTICE, executed: false };
+        return { id: tc.id, name: tc.function.name, args, content: DUP_NOTICE, executed: false, skipped: 'duplicate' };
       }
 
       if (validate) {
         const v = validate(tc.function.name, args);
         if (!v.ok) {
           seen.add(sig); // повтор того же невалидного вызова — тоже short-circuit, не долбим exec
-          return { id: tc.id, name: tc.function.name, args, content: v.error || INVALID_ARGS_NOTICE, executed: false };
+          return { id: tc.id, name: tc.function.name, args, content: v.error || INVALID_ARGS_NOTICE, executed: false, skipped: 'invalid_args' };
         }
       }
 

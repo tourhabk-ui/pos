@@ -155,6 +155,8 @@ describe('цикл: после потолка новый ход не начин�
       turns: 1, toolRounds: 0, elapsedMs: CEILING + 1_000, ceilingHit: true,
       // Подложенный ход usage не несёт — «не знаю», а не ноль (шаг 0 разбора 29.10).
       tokens: expect.objectContaining({ reportedCalls: 0, unreportedCalls: 1 }),
+      // Потолок — не застревание: он считается своим полем, ceilingHit.
+      stall: { dupCalls: 0, invalidArgs: 0, toolFailures: 0, turnsExhausted: false, tools: [] },
     });
   });
 
@@ -188,6 +190,7 @@ describe('цикл: после потолка новый ход не начин�
     expect(timing).toEqual({
       turns: 2, toolRounds: 1, elapsedMs: 25_000, ceilingHit: false,
       tokens: expect.objectContaining({ reportedCalls: 0, unreportedCalls: 2 }),
+      stall: { dupCalls: 0, invalidArgs: 0, toolFailures: 0, turnsExhausted: false, tools: [] },
     });
   });
 

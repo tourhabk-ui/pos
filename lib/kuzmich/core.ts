@@ -46,6 +46,7 @@ import {
   type AgentLoopTiming, type CollectedOutput,
 } from '@/lib/kuzmich/answer-ceiling';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
+import { tallyTurnStall, answerStall } from '@/lib/kuzmich/loop-stall';
 import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { guardPlaceArgs } from '@/lib/kuzmich/place-arg-guard';
@@ -2835,6 +2836,7 @@ export async function aiChatAgentLoop(
 
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
     const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, execGuarded, validateToolArgs);
+    if (timing) tallyTurnStall(timing.stall, outcomes);
     for (const o of outcomes) {
       if (o.executed && toolOutputHasData(o.content)) collected.push({ name: o.name, content: o.content });
       // Вывод кладётся ОБРЕЗАННЫМ: журнал живёт в памяти запроса и уходит в
@@ -2861,7 +2863,11 @@ export async function aiChatAgentLoop(
 
   // Ходы кончились. После потолка — собранное, а не null: иначе запасной
   // водопад вызывающего начал бы новый ход модели.
-  return overCeiling() ? atCeiling() : finish(null, false); // max turns exceeded
+  if (overCeiling()) return atCeiling();
+  // Без потолка — это застревание: все ходы ушли на инструменты, ответа нет
+  // (lib/kuzmich/loop-stall). Потолок считается отдельно, ceiling_hit.
+  if (timing) timing.stall.turnsExhausted = true;
+  return finish(null, false); // max turns exceeded
 }
 
 export async function aiChat(opts: {
@@ -3089,6 +3095,7 @@ export async function aiChat(opts: {
     provider: provenance.provider ?? null,
     ceilingHit: loopTiming.ceilingHit,
     tokens: answerTokens(loopTiming, { answeredOutsideLoop: provenance.path !== 'tools' }),
+    stall: answerStall(loopTiming),
   });
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений

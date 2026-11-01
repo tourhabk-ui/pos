@@ -48,6 +48,7 @@ import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
+import { answerStall } from '@/lib/kuzmich/loop-stall';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -427,6 +428,7 @@ export async function POST(request: NextRequest) {
               provider: loopAnswered ? (streamProvenance.provider ?? null) : null,
               ceilingHit: streamTiming.ceilingHit,
               tokens: commercialHit ? null : answerTokens(streamTiming, { answeredOutsideLoop: !loopAnswered }),
+              stall: commercialHit ? null : answerStall(streamTiming),
             });
           }
           if (safeRole === 'tourist' && !commercialHit) {

@@ -21,6 +21,7 @@
  */
 
 import { fullInputTokens, type ParsedUsage } from '@/lib/ai/provider-usage';
+import { newLoopStall, type LoopStall } from '@/lib/kuzmich/loop-stall';
 
 /**
  * Потолок ожидания ответа цикла инструментов, мс (аудит 15.10, A19).
@@ -116,6 +117,8 @@ export interface AgentLoopTiming {
   ceilingHit: boolean;
   /** Расход ходов модели — суммы по вызовам (шаг 0 разбора 29.10). */
   tokens: LoopTokens;
+  /** Признаки застревания цикла (lib/kuzmich/loop-stall, 01.11). */
+  stall: LoopStall;
 }
 
 /**
@@ -143,6 +146,7 @@ export interface LoopTokens {
 export function newLoopTiming(): AgentLoopTiming {
   return {
     turns: 0, toolRounds: 0, elapsedMs: 0, ceilingHit: false,
+    stall: newLoopStall(),
     tokens: {
       reportedCalls: 0, unreportedCalls: 0, inputTokens: 0, maxCallInputTokens: 0,
       completionTokens: 0, cacheReadTokens: 0, cacheReportedCalls: 0,
