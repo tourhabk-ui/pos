@@ -65,7 +65,7 @@ describe('объявление', () => {
       expect(GET_REQUEST_STATUS_TOOL.description).toContain(w);
       expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toContain(w);
     }
-    expect(WRITE_TOOL_NAMES.size).toBe(5);
+    expect(WRITE_TOOL_NAMES.size).toBe(6);
     expect(GET_REQUEST_STATUS_TOOL.description).toContain(`${REQUEST_KEY_TTL_DAYS} дней`);
     expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.kind.enum).toEqual([...REQUEST_KINDS]);
   });

@@ -98,6 +98,7 @@ WRITE_TOOLS = {
     "create_stay_request",
     "request_charter",
     "create_car_rental_request",
+    "create_trip_request",
 }
 
 # Аргументы, которые мост модели не показывает и не передаёт (29.10).
@@ -140,7 +141,7 @@ get_volcano_status, get_weather) вызывай ДО того, как совет
 и всегда упоминай предупреждения, если они есть.
 
 Писательные инструменты (create_lead, create_booking_request,
-create_stay_request, request_charter, create_car_rental_request) вызывай ТОЛЬКО если пользователь
+create_stay_request, request_charter, create_car_rental_request, create_trip_request) вызывай ТОЛЬКО если пользователь
 в этом же диалоге явно сказал, что он согласен на обработку данных,
 и только с теми данными, которые он назвал сам. Никогда не подставляй
 свой телефон, имя или согласие от себя."""

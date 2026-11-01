@@ -258,6 +258,7 @@ Last-Updated: ${new Date().toISOString().slice(0, 10)}
 
 Подключать ничего не нужно. Откройте карточку тура с параметрами — форма заявки откроется заполненной:
 \`${BASE}/catalog/tours/<slug>?date=ГГГГ-ММ-ДД&guests=N#booking\`
+Так же жильё и машина: \`${BASE}/accommodations/<id>?date=ГГГГ-ММ-ДД&check_out=ГГГГ-ММ-ДД&guests=N\` и \`${BASE}/transfers/<slug>?date=ГГГГ-ММ-ДД&guests=N\` (поля формы с атрибутом name).
 Останется ввести имя, телефон и отметить согласие на обработку данных — их вводит или подтверждает сам турист. Капчи нет. Это **заявка, не бронь и не сбой**: оператор подтвердит даты и места, оплата — только после подтверждения.
 Вопрос Кузьмичу одной ссылкой: \`${BASE}/?ask=<вопрос>\`.
 
@@ -358,11 +359,16 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   занятость не проверяется — менеджер согласует поездку с перевозчиком),
   create_stay_request (заявка владельцу жилья на даты; даты и цену подтверждает он) и
   create_car_rental_request (заявка прокатчику на машину без водителя на даты;
-  занятость не проверяется — подтверждает менеджер с прокатчиком)
+  занятость не проверяется — подтверждает менеджер с прокатчиком),
+  create_trip_request (ОДНА заявка на поездку целиком: тур + жильё + машина/трансфер
+  одним вызовом под общим номером TRIP-…; каждый партнёр видит, что ещё
+  заказано в поездке; перевозчик не назван — машину подберёт менеджер)
+- Число людей — под любым из имён: participants_count, participants, guests,
+  passengers, guest_count (MCP, REST /api/hub/bookings/create и чат Кузьмича)
 - Состояние заявки — get_request_status по ключу из ответа; date — действующая
   дата брони (оператор мог перенести), requested_date — дата из заявки
 - Уведомление об изменении заявки — необязательный notify_url у create_lead,
-  create_booking_request, request_charter и create_car_rental_request:
+  create_booking_request, request_charter, create_car_rental_request и create_trip_request:
   подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,
   webhook-signature), ключ подписи — в ответе один раз; сверка примерно раз
   в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — её

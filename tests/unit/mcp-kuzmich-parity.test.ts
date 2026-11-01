@@ -63,6 +63,7 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
       'request_charter',
       'create_car_rental_request',
       'get_request_status',
+      'create_trip_request',
     ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);
     // Реестр не должен схлопнуться до старых 4 инструментов

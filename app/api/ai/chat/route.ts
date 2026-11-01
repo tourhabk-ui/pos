@@ -6,6 +6,8 @@
  */
 
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
+import { planChatRequest } from '@/lib/kuzmich/chat-request';
+import { runPublicTool } from '@/app/api/mcp/route';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -462,6 +464,18 @@ export async function POST(request: NextRequest) {
       if (!pick.tour && tourSuggestions.length === 0) tourSuggestions = pick.candidates.filter((c) => c.base_price > 0);
     }
     const bookingPrefill = bookingFormTour ? parseChatBookingPrefill(rawMessage) : {};
+    // Имя, телефон и согласие уже в реплике — заявку создаём здесь же тем
+    // исполнителем, что у MCP, а не оставляем карточку (разбор 01.11).
+    let chatRequestText: string | null = null;
+    if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || /соглас/i.test(rawMessage))) {
+      const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage));
+      if (plan) {
+        try {
+          const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false });
+          if (out.kind === 'ok' || out.kind === 'refused') chatRequestText = out.text;
+        } catch (e) { console.warn("[kuzmich-chat] заявка из чата не создана, остаётся карточка", safeMsg(e)); }
+      }
+    }
 
     // Фолбэк-ошибки конвейера («Извините, сервис временно недоступен») не
     // сохраняем в историю — они отравляют контекст следующих ответов (модель
@@ -485,6 +499,7 @@ export async function POST(request: NextRequest) {
       context: [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
     });
     answer = finished.text;
+    if (chatRequestText) answer = `${answer}\n\n${chatRequestText}`;
 
     if (safeRole === 'tourist') {
       // Агент брони ходов не считает — null («не записано»), а не ноль.

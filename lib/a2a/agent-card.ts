@@ -53,15 +53,15 @@ export const A2A_DESCRIPTION =
   + 'Live tours from local operators and their availability, safety alerts and conditions, '
   + 'places, weather, volcano status, stays, gear, transfers, self-drive car rental and trip plans. Free-text questions (Russian or English) '
   + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
-  + 'five human-confirmed requests (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
+  + 'six human-confirmed requests (create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
   + 'consent: true required), no instant booking, no payment through the guide, no auth. '
   + 'Change notifications: optional notify_url in the arguments of a request tool (not for stays) gets a signed POST (Standard Webhooks) when the request changes; task push notifications are not used, a task completes in the reply. '
   + 'Русский: информационный портал «Ведар Камчатка» и ИИ-проводник, не турагентство и не туроператор. '
   + 'Туры местных операторов с живой занятостью, безопасность мест и обстановка в крае, '
   + 'жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
   + 'отвечает Кузьмич, хранитель Камчатки, с теми же инструментами, что у MCP-сервера. Точный вызов инструмента — '
-  + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записей пять, и все — '
-  + 'заявки, которые подтверждает человек: create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request '
+  + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Записей шесть, и все — '
+  + 'заявки, которые подтверждает человек: create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request '
   + '(нужен consent: true — согласие человека на обработку имени и телефона). Брони и оплаты через агента нет. '
   + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
   + 'Об изменении самой заявки — необязательный notify_url в аргументах пишущего инструмента (кроме жилья): подписанный POST по Standard Webhooks; push-уведомлений задач нет. '
@@ -94,6 +94,7 @@ export const SKILL_TAGS: Record<string, string[]> = {
   create_booking_request: ['kamchatka', 'request', 'booking', 'human-confirmed', 'consent'],
   create_stay_request:    ['kamchatka', 'request', 'stay', 'human-confirmed', 'consent'],
   request_charter:        ['kamchatka', 'request', 'charter', 'vakhtovka', 'human-confirmed', 'consent'],
+  create_trip_request: ['kamchatka', 'request', 'trip', 'tour', 'stay', 'transfer', 'human-confirmed', 'consent'],
   create_car_rental_request: ['kamchatka', 'request', 'car-rental', 'self-drive', 'human-confirmed', 'consent'],
   get_request_status:     ['kamchatka', 'request', 'status', 'operator-answer'],
 };

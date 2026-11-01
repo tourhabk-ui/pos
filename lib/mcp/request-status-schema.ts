@@ -90,7 +90,7 @@ export interface RequestNotifyStatus {
 export const GET_REQUEST_STATUS_TOOL = {
   name: REQUEST_STATUS_TOOL_NAME,
   description:
-    'Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter или create_car_rental_request, по ключу статуса из ответа того инструмента: '
+    'Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request (ключи частей поездки), по ключу статуса из ответа того инструмента: '
     + 'ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. '
     + 'Заявка на жильё — кому передана (delivered). partner_replies — сколько адресат заявки написал в переписке (без текста). Без имени и телефона. '
     + 'Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. '

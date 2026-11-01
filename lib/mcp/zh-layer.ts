@@ -39,7 +39,7 @@ export const MCP_TITLE_ZH = 'Vedar 堪察加 — 堪察加旅游信息门户';
 const MCP_DESCRIPTION_ZH_HEAD =
   'Vedar 堪察加（vedarai.ru，俄文名 Ведар Камчатка）是俄罗斯堪察加半岛的旅游信息门户，不是旅行社，也不是旅游运营商。向 AI 代理开放 MCP 服务器与 A2A 接口：'
   + '本地运营商的团队游及其真实余位、地点与路线的安全信息和当前状况（火山、地震、天气预警）、住宿、装备租赁、接送、天气、行程规划。'
-  + '写操作只有五种申请（选团 create_lead、指定团和日期的预订申请 create_booking_request、住宿申请 create_stay_request、包车申请 request_charter、租车申请 create_car_rental_request），'
+  + '写操作只有六种申请（整趟行程 create_trip_request、选团 create_lead、指定团和日期的预订申请 create_booking_request、住宿申请 create_stay_request、包车申请 request_charter、租车申请 create_car_rental_request），'
   + '均由人工确认';
 const MCP_DESCRIPTION_ZH_TAIL = '无需认证，按 IP 限流。接口返回的名称与说明为俄文，工具参数以俄文或英文为佳。中文页面另列价格、时长与季节。堪察加紧急电话：112。';
 export const MCP_DESCRIPTION_ZH = `${MCP_DESCRIPTION_ZH_HEAD}，无在线支付，${MCP_DESCRIPTION_ZH_TAIL}`;
@@ -289,7 +289,7 @@ export function llmsSectionZh(base: string, acceptsPayments: boolean = platformA
     `- Vedar 堪察加（${base}，俄文名 Ведар Камчатка）是堪察加旅游信息门户，不是旅行社：地点与路线目录、安全信息（火山活动、地震、天气预警）、本地运营商的团队游及真实余位、住宿、接送、行程规划。`,
     '- 中文页面给出价格、时长、季节与人数，均来自数据库；旅行社介绍仅在已存译文时显示，并标明机器翻译。堪察加：俄罗斯远东半岛，联合国教科文组织世界遗产“堪察加火山群”，300 多座火山（29 座活火山），旅游季 6–9 月，时区 UTC+12。',
     `- AI 代理接口：MCP 服务器 ${base}/api/mcp（JSON-RPC 2.0，Streamable HTTP，无需认证），清单 ${base}/.well-known/mcp.json；A2A 代理卡片 ${base}/.well-known/agent-card.json，JSON-RPC ${base}/api/a2a。`,
-    '- 写操作仅限五种申请（create_lead、create_booking_request、create_stay_request、request_charter、create_car_rental_request），均由人工确认。' + paymentRuleZh(acceptsPayments),
+    '- 写操作仅限六种申请（create_trip_request、create_lead、create_booking_request、create_stay_request、request_charter、create_car_rental_request），均由人工确认。' + paymentRuleZh(acceptsPayments),
     ...llmsClientLines(base),
     '- 紧急情况：堪察加紧急电话 112。',
   ].join('\n');
@@ -303,7 +303,7 @@ export function llmsSectionZh(base: string, acceptsPayments: boolean = platformA
  * Факты — те же, что в разделах выше; ничего, чего нет в коде и llms.txt.
  */
 /** Пять заявок — без слов об оплате: их добавляет поверхность (страница /zh или правило по выключателю). */
-const ZH_BOOKING_REQUESTS = '预订只有五种申请：选团（create_lead）、指定团和日期的预订申请（create_booking_request）、住宿申请（create_stay_request）、包车申请（request_charter）、租车申请（create_car_rental_request）。均由人工确认';
+const ZH_BOOKING_REQUESTS = '预订只有六种申请：整趟行程（create_trip_request）、选团（create_lead）、指定团和日期的预订申请（create_booking_request）、住宿申请（create_stay_request）、包车申请（request_charter）、租车申请（create_car_rental_request）。均由人工确认';
 
 export const ZH_PAGE = {
   /** Заголовок вкладки: латинское имя, иероглифы и что это, в одну строку. */

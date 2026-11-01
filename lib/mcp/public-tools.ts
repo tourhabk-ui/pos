@@ -174,6 +174,41 @@ export const REQUEST_CHARTER_TOOL = {
 } as const;
 
 /**
+ * create_trip_request — ОДНА заявка на поездку: тур + жильё + машина (break-map
+ * 01.11: внешний агент делал три несвязанные заявки трём людям). Части те же,
+ * что у create_booking_request / create_stay_request / request_charter, но
+ * под одним номером поездки: каждый партнёр видит в заявке, что ещё
+ * заказано в этой поездке, менеджер — всю поездку целиком. Машина без
+ * названного перевозчика уходит менеджеру Ведара (он подберёт), а не
+ * отказом. Всё подтверждает человек; оплаты через платформу нет.
+ */
+export const TRIP_REQUEST_TOOL = {
+  name: 'create_trip_request',
+  description: 'Одна заявка на поездку целиком: тур на дату и/или жильё на даты и/или машина под заказ (трансфер) — одним вызовом, под общим номером поездки. Передай хотя бы одну часть: tour+tour_date, stay+check_in+check_out, transfer_destination+transfer_date. Каждая часть уходит своему партнёру (оператор тура, владелец жилья, менеджер с перевозчиком), и каждый видит, что ещё заказано в поездке. Перевозчик не назван — машину подберёт менеджер Ведара. Это заявка, не бронь: даты, места и цену подтверждает человек, оплаты через платформу нет. Имя и телефон — персональные данные: спроси согласие и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      participants: { type: 'string', description: 'Сколько человек в поездке (1–30). Принимаются и guests, passengers, participants_count' },
+      tour: { type: 'string', description: 'Тур: числовой ID или название из get_tours' },
+      tour_date: { type: 'string', description: 'Дата тура, YYYY-MM-DD' },
+      stay: { type: 'string', description: 'Жильё: название или ID из search_accommodations' },
+      check_in: { type: 'string', description: 'Заезд, YYYY-MM-DD' },
+      check_out: { type: 'string', description: 'Выезд, YYYY-MM-DD' },
+      transfer_destination: { type: 'string', description: 'Машина под заказ: куда/откуда («аэропорт Елизово → база»)' },
+      transfer_date: { type: 'string', description: 'Дата поездки на машине, YYYY-MM-DD' },
+      transfer_date_to: { type: 'string', description: 'Дата возвращения машины, YYYY-MM-DD, если нужна' },
+      carrier: { type: 'string', description: 'Перевозчик из search_transfers; можно не указывать — подберёт менеджер' },
+      name: { type: 'string', description: 'Имя туриста' },
+      phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
+      comment: { type: 'string', description: 'Пожелания ко всей поездке' },
+      notify_url: NOTIFY_URL_PROPERTY,
+      consent: { type: 'boolean', description: 'Человек согласен на обработку имени и телефона и их передачу партнёрам поездки (оператор, владелец жилья, перевозчик). Спроси прямо и передай true.' },
+    },
+    required: ['name', 'phone', 'consent'],
+  },
+} as const;
+
+/**
  * Подсказки хосту о природе инструмента (MCP `ToolAnnotations`).
  *
  * Хост по ним решает, спрашивать ли человека перед вызовом, и каталоги
@@ -245,6 +280,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   create_stay_request:   WRITE,
   request_charter:       WRITE,
   create_car_rental_request: WRITE,
+  create_trip_request:   WRITE,
 };
 
 /**
@@ -292,7 +328,8 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // зовёт только их); форма ответа — по документации OpenAI.
   search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
   fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
-  get_request_status:    { title: 'Request status',        lead: 'Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request, request_charter or create_car_rental_request: operator answer or who got it. No personal data.' },
+  create_trip_request:   { title: 'Trip request',          lead: 'Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Needs consent: true.' },
+  get_request_status:    { title: 'Request status',        lead: 'Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No personal data.' },
 };
 
 /**
@@ -409,6 +446,23 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     notify_url: { lead: NOTIFY_URL_ENGLISH },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
+  create_trip_request: {
+    participants: { lead: 'Number of people in the trip; aliases guests, passengers, participants_count, guest_count are accepted.', example: '5' },
+    tour: { lead: 'Tour ID or name from get_tours.' },
+    tour_date: { lead: 'Tour date, YYYY-MM-DD.', example: '2026-11-15' },
+    stay: { lead: 'Stay name or ID from search_accommodations.' },
+    check_in: { lead: 'Check-in date, YYYY-MM-DD.', example: '2026-11-15' },
+    check_out: { lead: 'Check-out date, YYYY-MM-DD.', example: '2026-11-18' },
+    transfer_destination: { lead: 'Transfer route or destination.', example: 'Yelizovo airport - Paratunka' },
+    transfer_date: { lead: 'Transfer date, YYYY-MM-DD.', example: '2026-11-15' },
+    transfer_date_to: { lead: 'Last day of the charter, YYYY-MM-DD, if several days.' },
+    carrier: { lead: 'Carrier name from search_transfers; omit and a Vedar manager picks one.' },
+    name: { lead: "Traveller's name." },
+    phone: { lead: 'Phone partners will call back, required.' },
+    comment: { lead: 'Wishes for all partners of the trip.' },
+    notify_url: { lead: NOTIFY_URL_ENGLISH },
+    consent: { lead: 'Explicit consent to process name and phone and pass them to every partner of the trip; pass true, otherwise refused.', example: true },
+  },
   create_stay_request: {
     accommodation: { lead: 'Stay name or ID from search_accommodations.' },
     check_in: { lead: 'Check-in date, YYYY-MM-DD.', example: '2027-07-15' },
@@ -511,6 +565,7 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   withAnnotations(STAY_REQUEST_TOOL),
   withAnnotations(REQUEST_CHARTER_TOOL),
   withAnnotations(CAR_RENTAL_REQUEST_TOOL),
+  withAnnotations(TRIP_REQUEST_TOOL),
 ];
 
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
@@ -532,6 +587,7 @@ export const WRITE_TOOL_NAMES = new Set([
   'create_stay_request',
   'request_charter',
   'create_car_rental_request',
+  'create_trip_request',
 ]);
 
 /**
@@ -547,7 +603,7 @@ export const MCP_SERVER_INFO = {
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
   version: '2.10.1',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей пять: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на машину целиком (request_charter), заявка владельцу жилья на даты (create_stay_request) и заявка прокатчику на машину без водителя (create_car_rental_request) — все подтверждает человек.',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей шесть: поездка целиком (create_trip_request), подбор (create_lead), тур на дату (create_booking_request), машина целиком (request_charter), жильё на даты (create_stay_request), прокат без водителя (create_car_rental_request) — все подтверждает человек.',
   // Ревизия 2025-11-25: ссылка на страницу подключения (та же, что
   // websiteUrl в server.json) и значок — тот же файл, что apple-touch-icon
   // сайта, на постоянном адресе домена.
