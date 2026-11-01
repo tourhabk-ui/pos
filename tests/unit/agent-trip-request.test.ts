@@ -43,3 +43,11 @@ describe('kuzmich chat request plan', () => {
     expect(planChatRequest('рыбалка 15.11 Иван +79991234567', { id: 36 }, { date: '2026-11-15' })).toBeNull();
   });
 });
+
+describe('kuzmich chat: tour not resolved', () => {
+  it('falls back to create_lead with date and people', () => {
+    const p = planChatRequest('Хочу забронировать рыбалку 15.11, нас 2 человека, меня зовут Тест, +7 900 000-00-03, согласен', null, { date: '2026-11-15', guests: 2 });
+    expect(p?.tool).toBe('create_lead');
+    expect(String(p?.args.comment)).toContain('2026-11-15, 2 чел.');
+  });
+});

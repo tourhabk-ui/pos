@@ -20,7 +20,7 @@ export function parseChatContact(text: string): ChatContact {
 export function chatWantsStay(t: string): boolean { return /(прожив|жиль|гостиниц|гостев|домик|база отдыха|ночл|отел)/i.test(t); }
 export function chatWantsTransfer(t: string): boolean { return /(трансфер|автобус|микроавтобус|довез|подвез|встрет[ья]|из аэропорта|из елизово)/i.test(t); }
 
-export interface ChatRequestPlan { tool: 'create_booking_request' | 'create_trip_request'; args: Record<string, unknown> }
+export interface ChatRequestPlan { tool: 'create_booking_request' | 'create_trip_request' | 'create_lead'; args: Record<string, unknown> }
 
 export function planChatRequest(
   text: string,
@@ -32,6 +32,12 @@ export function planChatRequest(
   const stay = chatWantsStay(text);
   const transfer = chatWantsTransfer(text);
   const base = { name: c.name, phone: c.phone, consent: true, participants: prefill.guests ?? 1, comment: text.slice(0, 500) };
+  if (!tour && !stay && !transfer) {
+    // Тур по реплике не определён однозначно — заявка всё равно уходит:
+    // менеджеру на подбор, с датой и числом людей (ретест 01.11: чат
+    // отвечал «оставлю заявку?», а заявки не было).
+    return { tool: 'create_lead', args: { name: c.name, phone: c.phone, consent: true, comment: `[${prefill.date}, ${prefill.guests ?? 1} чел.] ${text}`.slice(0, 1000) } };
+  }
   if (stay || transfer || !tour) {
     const args: Record<string, unknown> = { ...base };
     if (tour) { args.tour = String(tour.id); args.tour_date = prefill.date; }

@@ -60,7 +60,7 @@ describe('get_tour_availability считает день по Камчатке', 
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchAvailabilityForTour.mockRejectedValue(Object.assign(new Error('down'), { code: '57P01' }));
     const text = await getTourAvailabilityForKuzmich({ tour: '27' });
-    expect(text).toMatch(/Занятость временно недоступна/);
+    expect(text).toMatch(/Свободные даты по туру этим запросом не получены/);
     expect(err).toHaveBeenCalled();
   });
 });
@@ -107,7 +107,7 @@ describe('пустое окно у тура с расписанием назыв
     const text = await getTourAvailabilityForKuzmich({ tour: '27' });
     expect(text).toMatch(/свободных мест с 30\.09 по 13\.10 нет/);
     expect(text).toMatch(/после этого окна проверить не смог — не говори, что дат нет/);
-    expect(text).not.toMatch(/Занятость временно недоступна/);
+    expect(text).not.toMatch(/Свободные даты по туру этим запросом не получены/);
     expect(text).not.toMatch(/свободных дат нет/);
     expect(err.mock.calls.map((c) => String(c[0]))).toContain('[tour-availability] ближайшая дата вне окна не прочитана');
     err.mockRestore();
