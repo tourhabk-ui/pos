@@ -46,6 +46,11 @@ const MENU_RE = /^(?:rm:[a-z]{2}:[a-z]{2}|cb:[itcm]|rk:(?:fleet|cal|req|edit|hel
 export const TAIL_TTL_MS = 24 * 3_600_000;
 const TAILS = new Map<number, Tail>();
 
+/** payload кнопки строки меню (вкладки, кабинет, прокат). */
+export function isMenuPayload(payload: string): boolean {
+  return MENU_RE.test(payload);
+}
+
 export function isMenuRow(row: readonly TailButton[]): boolean {
   return row.length > 0 && row.every((b) => typeof b.payload === 'string' && MENU_RE.test(b.payload));
 }
@@ -76,7 +81,14 @@ export async function noteMenuMessage(
   rows: TailButton[][],
   nowMs: number = Date.now(),
 ): Promise<void> {
-  if (!mid || !hasMenuRow(rows)) return;
+  if (!mid) return;
+  if (!hasMenuRow(rows)) {
+    // Сообщение правлено без строки меню (карточка с ответом): прежний текст
+    // и кнопки забываются, иначе следующее меню вернуло бы старый текст с
+    // живыми кнопками (разбор 02.11).
+    if (TAILS.get(chatId)?.mid === mid) TAILS.delete(chatId);
+    return;
+  }
   prune(nowMs);
   const prev = TAILS.get(chatId);
   TAILS.set(chatId, { mid, html, rows, at: nowMs });
@@ -92,6 +104,16 @@ export async function noteMenuMessage(
   } catch (err) {
     console.error(`[max/menu-tail] строка меню с прежнего сообщения не снята: ${err instanceof Error ? err.name : 'отказ'}`);
   }
+}
+
+/**
+ * Нажата кнопка-действие на сообщении `mid` (не строка меню): обработчик может
+ * переписать сообщение мимо этого модуля («Ваш ответ: …»). Запомненный текст
+ * с живыми кнопками устарел — забыть, чтобы следующее меню его не вернуло
+ * (разбор 02.11). Строка меню на том сообщении тогда просто остаётся.
+ */
+export function forgetMenuMessage(chatId: number, mid: string | null | undefined): void {
+  if (mid && TAILS.get(chatId)?.mid === mid) TAILS.delete(chatId);
 }
 
 /** mid из ответа MAX на отправку: `{ body: { mid } }`; нет — null. */

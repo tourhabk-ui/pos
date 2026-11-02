@@ -40,7 +40,7 @@ export type BusyParse =
    * no_dates — «занято», а дат нет или не разобрались; order — конец раньше
    * начала; past — весь отрезок в прошлом; too_long — длиннее потолка.
    */
-  | { ok: false; reason: 'not_busy' | 'no_dates' | 'order' | 'past' | 'too_long' };
+  | { ok: false; reason: 'not_busy' | 'no_dates' | 'order' | 'past' | 'past_no_year' | 'too_long' };
 
 /** Полгода вперёд: длиннее — не занятость, а снятие объекта с сайта. */
 export const BUSY_MAX_DAYS = 180;
@@ -114,8 +114,19 @@ export function shiftYmd(date: string, days: number): string {
  * Разбор фразы. `today` — сегодня по Камчатке ('YYYY-MM-DD'): от него год
  * без года в фразе (ближайшее будущее) и граница прошлого.
  */
+/**
+ * Вопрос, а не слово хозяина: «Свободно ли 5 ноября?», «когда занято»,
+ * «занято?». Вопрос никогда не пишет занятость (разбор 02.11) — отвечает
+ * помощник, как на любую фразу.
+ */
+export function isBusyQuestion(text: string): boolean {
+  const t = text.toLowerCase().replace(/ё/g, 'е');
+  return t.includes('?') || /(^|[^а-яa-z])(ли|когда)(?![а-яa-z])/.test(t);
+}
+
 export function parseBusyPhrase(text: string, today: string): BusyParse {
   const t = text.trim().replace(/ё/g, 'е');
+  if (isBusyQuestion(t)) return { ok: false, reason: 'not_busy' };
   const kw = KEYWORD.exec(t);
   if (!kw) return { ok: false, reason: 'not_busy' };
   const action: BusyAction = /^занят/i.test(kw[1]!) ? 'block' : 'release';
@@ -139,6 +150,12 @@ export function parseBusyPhrase(text: string, today: string): BusyParse {
   let to = ymd(endYear, endMonth, endTok.day);
   if (!to) return { ok: false, reason: 'no_dates' };
   if (givenYear === null && to < today) {
+    // Без года и уже прошло в этом году: не угадываем следующий год, а
+    // переспрашиваем (разбор 02.11). Исключение — отрезок через Новый год,
+    // чьё начало ещё впереди: «с 28 декабря по 3 января» 20 декабря.
+    const crossYear = b !== null && a.year === null && monthA > endMonth
+      && (ymd(endYear, monthA, a.day) ?? '') >= today;
+    if (!crossYear) return { ok: false, reason: 'past_no_year' };
     endYear += 1;
     to = ymd(endYear, endMonth, endTok.day);
     if (!to) return { ok: false, reason: 'no_dates' };
@@ -219,6 +236,7 @@ export function busyRejectText(reason: Exclude<BusyParse, { ok: true }>['reason'
     case 'no_dates': return `Не разобрал даты. ${busyHintText()}`;
     case 'order': return 'Конец раньше начала — проверьте даты и напишите ещё раз, например «занято с 5 по 9 ноября».';
     case 'past': return 'Эти даты уже прошли — записывать нечего.';
+    case 'past_no_year': return 'Это число в этом году уже прошло — ничего не записал. Если речь о следующем годе, напишите с годом, например «занято с 5 по 9 января 2027».';
     case 'too_long': return `Одним сообщением — не дольше ${BUSY_MAX_DAYS} дней. Если объект закрывается надолго, напишите администратору Ведара: его снимут с сайта на это время.`;
     default: return busyHintText();
   }
@@ -233,6 +251,18 @@ export function busySavedText(args: { name: string; from: string; to: string; ac
   }
   return `Записал: «${name}» свободно ${range}. Гости снова могут оставить заявку на эти даты.`;
 }
+
+/** «Понял так: …» — фраза хозяина записывается только после «Записать» (разбор 02.11). */
+export function busyConfirmText(args: { name: string; from: string; to: string; action: BusyAction }): string {
+  const range = rangeWords({ from: args.from, to: args.to });
+  const name = escapeHtml(args.name);
+  const what = args.action === 'block'
+    ? `«${name}» занято ${range} (${nightsWord(nightsInclusive(args.from, args.to))})`
+    : `«${name}» свободно ${range}`;
+  return `Понял так: ${what}. Записать? Пока не нажмёте «Записать», ничего не меняется.`;
+}
+
+export const BUSY_NOT_THAT_TEXT = 'Ничего не записал. Напишите ещё раз, например «занято с 5 по 9 ноября».';
 
 export function busyManyObjectsText(names: readonly string[], action: BusyAction): string {
   const word = action === 'block' ? 'занято' : 'свободно';

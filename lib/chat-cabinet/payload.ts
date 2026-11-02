@@ -123,6 +123,10 @@ export type CabinetPress =
   /** «Занято» хозяина жилья (30.10): список занятых дат и «Освободить» отрезок [from, to] (YYYY-MM-DD). */
   | { kind: 'busy' }
   | { kind: 'busy_release'; accommodationId: string; from: string; to: string }
+  /** «Записать» под «Понял так: … занято …» (разбор 02.11). */
+  | { kind: 'busy_block'; accommodationId: string; from: string; to: string }
+  /** «Не то» под «Понял так»: ничего не пишется. */
+  | { kind: 'busy_not_that' }
   | { kind: 'my_tours' }
   | { kind: 'tour'; tourId: string }
   | { kind: 'tour_dates'; tourId: string; page: number }
@@ -211,6 +215,12 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
     const to = ymdOf(m[3]!);
     return from && to && from <= to ? { kind: 'busy_release', accommodationId: m[1]!, from, to } : null;
   }],
+  [new RegExp(`^cb:b:w:(${UUID}):(\\d{8}):(\\d{8})$`), (m) => {
+    const from = ymdOf(m[2]!);
+    const to = ymdOf(m[3]!);
+    return from && to && from <= to ? { kind: 'busy_block', accommodationId: m[1]!, from, to } : null;
+  }],
+  [/^cb:b:n$/, () => ({ kind: 'busy_not_that' })],
   [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
   [/^cb:u$/, () => ({ kind: 'my_tours' })],
   [new RegExp(`^cb:u:(${TOUR})$`), (m) => ({ kind: 'tour', tourId: m[1]! })],
@@ -298,6 +308,9 @@ export const cabinetPayload = {
   busy: (): string => 'cb:b',
   busyRelease: (accommodationId: string, from: string, to: string): string =>
     `cb:b:r:${accommodationId.toLowerCase()}:${from.replace(/-/g, '')}:${to.replace(/-/g, '')}`,
+  busyBlock: (accommodationId: string, from: string, to: string): string =>
+    `cb:b:w:${accommodationId.toLowerCase()}:${from.replace(/-/g, '')}:${to.replace(/-/g, '')}`,
+  busyNotThat: (): string => 'cb:b:n',
   /** «Сводка» перевозчика: заявки, ответы, поездки, отзывы за 30 дней (#2862 этап D). */
   carrierSummary: (): string => 'cb:y',
   vehicleActive: (vehicleId: string, active: boolean): string => signPayload(`cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`),

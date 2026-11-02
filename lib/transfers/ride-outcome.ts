@@ -60,6 +60,8 @@ export type RideTell =
   | { kind: 'already'; outcome: RideOutcome }
   /** На заявку не было «Беру» — подтверждать поездку нечем. */
   | { kind: 'not_taken' }
+  /** Своя заявка (is_self): поездку по ней не подтверждают — отзыв был бы о себе. */
+  | { kind: 'self' }
   | { kind: 'not_yet'; lastDay: string | null }
   | { kind: 'not_yours' }
   | { kind: 'missing' }
@@ -86,6 +88,8 @@ export function rideTellText(tell: RideTell): string {
       return tell.outcome === 'held'
         ? 'Исход уже записан: поездка состоялась. Второй раз не пишу.'
         : 'Исход уже записан: поездка не состоялась. Второй раз не пишу.';
+    case 'self':
+      return 'Это ваша собственная заявка — подтверждать по ней поездку нельзя. Ничего не записано.';
     case 'not_taken':
       return 'На эту заявку не было ответа «Беру» — подтверждать поездку нечем. Ничего не записано.';
     case 'not_yet':
@@ -115,6 +119,7 @@ export function rideTellStatus(tell: RideTell): number {
       return 409;
     case 'not_taken':
     case 'not_yet':
+    case 'self':
       return 409;
     case 'missing':
       return 404;

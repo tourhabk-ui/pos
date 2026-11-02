@@ -164,10 +164,13 @@ const message = (text: string, chatType = 'dialog') => ({
 const repliesTo = (chatId: number) => m.maxSend.mock.calls.filter((c) => c[0] === chatId).map((c) => String(c[1]));
 
 /** Ни записи в базу (пулом или клиентом транзакции), ни вызова записи дат. */
+/** Счётчик пользования (chat_cabinet_usage, разбор 02.11) — не запись данных: ни дат, ни заявки. */
+const USAGE = /INSERT INTO chat_cabinet_usage/;
+
 function expectNothingWritten(): void {
   // «FOR UPDATE» — блокировка чтения, не запись.
   const writes = [...m.pool.mock.calls, ...m.client.mock.calls]
-    .filter((c) => /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i.test(String(c[0])));
+    .filter((c) => /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i.test(String(c[0])) && !USAGE.test(String(c[0])));
   expect(writes).toEqual([]);
   expect(m.openTx).not.toHaveBeenCalled();
 }
@@ -180,7 +183,7 @@ function retires(): Array<[string, string]> {
 /** Ни записи дат и предложений; снятие прежнего предложения поправкой — можно, это не запись дат. */
 function expectNoDatesWritten(): void {
   const writes = [...m.pool.mock.calls, ...m.client.mock.calls]
-    .filter((c) => /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i.test(String(c[0])) && !RETIRE.test(String(c[0])));
+    .filter((c) => /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i.test(String(c[0])) && !RETIRE.test(String(c[0])) && !USAGE.test(String(c[0])));
   expect(writes).toEqual([]);
   expect(m.openTx).not.toHaveBeenCalled();
 }
@@ -524,7 +527,7 @@ describe('пятый ревью 22.10: поправка, ушедшая помо
   ];
   /** Ни новой строки предложения, ни записи дат: черновик без мест «4» не заполнил (строк 0), снятие — можно. */
   const expectNoInsertNoOpen = (): void => {
-    const inserts = [...m.pool.mock.calls, ...m.client.mock.calls].filter((c) => /\b(?:INSERT\s+INTO|DELETE\s+FROM)\b/i.test(String(c[0])));
+    const inserts = [...m.pool.mock.calls, ...m.client.mock.calls].filter((c) => /\b(?:INSERT\s+INTO|DELETE\s+FROM)\b/i.test(String(c[0])) && !USAGE.test(String(c[0])));
     expect(inserts).toEqual([]);
     expect(m.openTx).not.toHaveBeenCalled();
   };
@@ -630,7 +633,8 @@ describe('выключатель', () => {
     const said = repliesTo(CHAT);
     expect(said).toHaveLength(2);
     for (const s of said) expect(s).toMatch(/^Открывать даты из чата сейчас нельзя\. В кабинете: https?:\/\/\S+\/hub\/operator\/calendar$/);
-    expect(m.pool).not.toHaveBeenCalled();
+    // Только счётчик пользования (разбор 02.11) — без данных.
+    expect(m.pool.mock.calls.filter((c) => !USAGE.test(String(c[0])))).toEqual([]);
     expect(m.client).not.toHaveBeenCalled();
     expectNothingWritten();
   });
@@ -684,7 +688,7 @@ describe('ревью 22.10: дела помощника кабинета пот�
       // У туроператора фраза с датой или числом снимает действующее
       // предложение (пятый ревью); новых предложений нет ни у кого.
       const proposalSql = [...m.pool.mock.calls, ...m.client.mock.calls]
-        .filter((c) => /operator_chat_date_proposals/.test(String(c[0])) && !RETIRE.test(String(c[0])));
+        .filter((c) => /operator_chat_date_proposals/.test(String(c[0])) && !RETIRE.test(String(c[0])) && !USAGE.test(String(c[0])));
       expect(proposalSql).toEqual([]);
       if (partner.category !== 'operator' && partner.sellsTours !== true) expect(retires()).toEqual([]);
       expectNoDatesWritten();

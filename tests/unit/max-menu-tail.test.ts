@@ -43,7 +43,7 @@ vi.mock('@/lib/max/admin-read', async (orig) => ({
 }));
 
 import {
-  hasMenuRow, isMenuRow, noteMenuMessage, resetMenuTails, sentMid, TAIL_TTL_MS, withoutMenuRows,
+  forgetMenuMessage, hasMenuRow, isMenuPayload, isMenuRow, noteMenuMessage, resetMenuTails, sentMid, TAIL_TTL_MS, withoutMenuRows,
 } from '@/lib/max/menu-tail';
 import { deliverCabinetMax } from '@/lib/chat-cabinet/max-deliver';
 import { noticeScreen } from '@/lib/chat-cabinet/screens';
@@ -109,6 +109,21 @@ describe('память последнего сообщения со строко
     // Правленое сообщение запомнено с новым текстом.
     await noteMenuMessage(api, 7, 'b', 'Второе', OP_MENU, 3000);
     expect(m.maxEdit).toHaveBeenCalledWith('a', { text: 'Первое, страница 2', format: 'html', attachments: [] });
+  });
+
+  it('карточка с ответом не возвращается к старому тексту с живыми кнопками (разбор 02.11)', async () => {
+    await noteMenuMessage(api, 7, 'a', 'Заявка: Беру?', [[cb('rr:y:1:1', 'Беру')], ...OP_MENU], 1000);
+    // Нажато «Беру»: обработчик переписал карточку мимо модуля — забыть.
+    forgetMenuMessage(7, 'a');
+    await noteMenuMessage(api, 7, 'b', 'Входящие', OP_MENU, 2000);
+    expect(m.maxEdit).not.toHaveBeenCalled();
+    // Правка того же сообщения без строки меню — тоже забывает.
+    await noteMenuMessage(api, 7, 'c', 'Заявка 2', [[cb('rr:y:2:2', 'Беру')], ...OP_MENU], 3000);
+    await noteMenuMessage(api, 7, 'c', 'Ваш ответ: беру', [], 3500);
+    await noteMenuMessage(api, 7, 'd', 'Входящие', OP_MENU, 4000);
+    expect(m.maxEdit).not.toHaveBeenCalledWith('c', expect.anything());
+    expect(isMenuPayload('cb:i')).toBe(true);
+    expect(isMenuPayload('rr:y:1:1')).toBe(false);
   });
 
   it('старше суток — забыто: текст не держится, строка остаётся как была', async () => {

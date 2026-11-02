@@ -26,7 +26,7 @@ vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }))
 
 import {
   parseBusyPhrase, groupRanges, rangeWords, busyWithin, guestBusyText, busySavedText, busyScreenLines, isBusyScreenAsk,
-  nightsInclusive, BUSY_MAX_DAYS, BUSY_TEXT,
+  nightsInclusive, BUSY_MAX_DAYS, BUSY_TEXT, busyRejectText, isBusyQuestion,
 } from '@/lib/stay/busy-dates';
 import {
   handleStayBusyPhrase, setObjectBusy, loadOwnerBusy, pickObjectByWords, BLOCK_SQL, RELEASE_SQL, objectBusyNightsSql,
@@ -63,10 +63,21 @@ describe('разбор фразы', () => {
     expect(ok('Занято: домик у реки, 5-9 ноября')).toMatchObject({ objectWords: 'домик у реки', from: '2026-11-05', to: '2026-11-09' });
   });
 
-  it('год без года — ближайшее будущее; через Новый год начало годом раньше; прошедшая часть отрезка — с сегодня', () => {
-    expect(ok('занято с 1 по 10 февраля')).toMatchObject({ from: '2027-02-01', to: '2027-02-10' });
+  it('без года: прошедшее в этом году — переспросить, а не следующий год (разбор 02.11); через Новый год — да; прошедшая часть отрезка — с сегодня', () => {
+    expect(parseBusyPhrase('занято с 1 по 10 февраля', TODAY)).toEqual({ ok: false, reason: 'past_no_year' });
+    expect(parseBusyPhrase('занято 5 октября', TODAY)).toEqual({ ok: false, reason: 'past_no_year' });
+    expect(busyRejectText('past_no_year')).toContain('напишите с годом');
+    expect(ok('занято с 1 по 10 февраля 2027')).toMatchObject({ from: '2027-02-01', to: '2027-02-10' });
     expect(ok('занято с 28 декабря по 3 января')).toMatchObject({ from: '2026-12-28', to: '2027-01-03' });
     expect(ok('занято с 28 октября по 2 ноября')).toMatchObject({ from: TODAY, to: '2026-11-02' });
+  });
+
+  it('вопрос никогда не пишет (разбор 02.11): «ли», «?», «когда»', () => {
+    for (const q of ['Свободно ли 5 ноября?', 'свободно ли 5 ноября', 'занято 7 ноября?', 'когда занято с 5 по 9 ноября', 'занято ли с 5 по 9 ноября']) {
+      expect(parseBusyPhrase(q, TODAY)).toEqual({ ok: false, reason: 'not_busy' });
+    }
+    expect(isBusyQuestion('занято с 5 по 9 ноября')).toBe(false);
+    expect(isBusyQuestion('освободилось 7 ноября')).toBe(false);
   });
 
   it('«свободно» и «освободилось» — снять', () => {
@@ -142,46 +153,61 @@ describe('запись', () => {
       .toEqual({ outcome: 'db_error' });
   });
 
-  it('фраза в чате: один объект — записано и названо; не хозяин — null; без дат — подсказка; база — сказано', async () => {
+  it('фраза в чате: «Понял так» + «Записать» / «Не то», без записи до нажатия (разбор 02.11); не хозяин — null; без дат — подсказка; база — сказано', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
-    pool
-      .mockResolvedValueOnce({ rows: [{ id: ACC, name: 'Кутха' }] })
-      .mockResolvedValueOnce({ rows: [{ name: 'Кутха' }] })
-      .mockResolvedValueOnce({ rows: [], rowCount: 5 });
-    const text = await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято с 5 по 9 ноября', today: TODAY, via: 'max' });
-    expect(text).toContain('«Кутха» занято с 05.11.2026 по 09.11.2026 (5 ночей)');
-    expect(pool.mock.calls[2]![1]).toEqual([ACC, '2026-11-05', '2026-11-09', 'хозяин: занято (max)']);
+    pool.mockResolvedValueOnce({ rows: [{ id: ACC, name: 'Кутха' }] });
+    const r = await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято с 5 по 9 ноября', today: TODAY, via: 'max' });
+    expect(r!.text).toMatch(/^Понял так: «Кутха» занято с 05\.11\.2026 по 09\.11\.2026 \(5 ночей\)\. Записать\?/);
+    expect(pool).toHaveBeenCalledTimes(1); // только список объектов — записи нет
+    const [[write, notThat]] = r!.buttons!;
+    expect(write).toMatchObject({ text: 'Записать', payload: `cb:b:w:${ACC}:20261105:20261109` });
+    expect(notThat).toMatchObject({ text: 'Не то', payload: 'cb:b:n' });
+    expect(write!.payload.length).toBeLessThanOrEqual(64);
+    expect(parseCabinetPress(write!.payload)).toEqual({ kind: 'busy_block', accommodationId: ACC, from: '2026-11-05', to: '2026-11-09' });
+    expect(parseCabinetPress('cb:b:n')).toEqual({ kind: 'busy_not_that' });
+
+    pool.mockReset();
+    pool.mockResolvedValueOnce({ rows: [{ id: ACC, name: 'Кутха' }] });
+    const rel = await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'свободно 7 ноября', today: TODAY, via: 'max' });
+    expect(rel!.buttons![0]![0]!.payload).toBe(`cb:b:r:${ACC}:20261107:20261107`);
+
+    // Вопрос — не пишет и не перехватывается: отвечает помощник.
+    pool.mockReset();
+    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'Свободно ли 5 ноября?', today: TODAY, via: 'max' })).toBeNull();
+    expect(pool).not.toHaveBeenCalled();
 
     expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'transfer', text: 'занято с 5 по 9 ноября', today: TODAY, via: 'max' })).toBeNull();
     expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'спасибо', today: TODAY, via: 'max' })).toBeNull();
-    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято завтра', today: TODAY, via: 'max' })).toContain('Не разобрал даты');
+    expect((await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято завтра', today: TODAY, via: 'max' }))!.text).toContain('Не разобрал даты');
 
     pool.mockReset();
     pool.mockRejectedValueOnce(new Error('down'));
-    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято 7 ноября', today: TODAY, via: 'max' })).toBe(BUSY_TEXT.saveFailed);
+    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято 7 ноября', today: TODAY, via: 'max' })).toEqual({ text: BUSY_TEXT.saveFailed });
     pool.mockReset();
     pool.mockResolvedValueOnce({ rows: [] });
-    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято 7 ноября', today: TODAY, via: 'max' })).toBe(BUSY_TEXT.noObjects);
+    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято 7 ноября', today: TODAY, via: 'max' })).toEqual({ text: BUSY_TEXT.noObjects });
     warn.mockRestore();
   });
 
-  it('несколько объектов: без названия — просят назвать; с названием — записывается названный; неизвестное название — список своих', async () => {
+  it('несколько объектов: без названия — просят назвать; с названием — «Понял так» про названный; неизвестное название — список своих', async () => {
     const two = { rows: [{ id: ACC, name: 'Кутха' }, { id: ACC2, name: 'Домик у реки' }] };
     pool.mockResolvedValueOnce(two);
     const ask = await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято с 5 по 9 ноября', today: TODAY, via: 'max' });
-    expect(ask).toContain('У вас несколько объектов: «Кутха», «Домик у реки»');
-    expect(ask).toContain('«занято Кутха с 5 по 9 ноября»');
+    expect(ask!.text).toContain('У вас несколько объектов: «Кутха», «Домик у реки»');
+    expect(ask!.text).toContain('«занято Кутха с 5 по 9 ноября»');
+    expect(ask!.buttons).toBeUndefined();
     expect(pool).toHaveBeenCalledTimes(1);
 
     pool.mockReset();
-    pool.mockResolvedValueOnce(two).mockResolvedValueOnce({ rows: [{ name: 'Домик у реки' }] }).mockResolvedValueOnce({ rows: [] });
-    const saved = await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято домик с 5 по 9 ноября', today: TODAY, via: 'max' });
-    expect(saved).toContain('«Домик у реки» занято');
-    expect(pool.mock.calls[1]![1]).toEqual([ACC2, PARTNER]);
+    pool.mockResolvedValueOnce(two);
+    const named = await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято домик с 5 по 9 ноября', today: TODAY, via: 'max' });
+    expect(named!.text).toContain('Понял так: «Домик у реки» занято');
+    expect(named!.buttons![0]![0]!.payload).toBe(`cb:b:w:${ACC2}:20261105:20261109`);
+    expect(pool).toHaveBeenCalledTimes(1);
 
     pool.mockReset();
     pool.mockResolvedValueOnce(two);
-    expect(await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято баня с 5 по 9 ноября', today: TODAY, via: 'max' }))
+    expect((await handleStayBusyPhrase({ partnerId: PARTNER, category: 'stay', text: 'занято баня с 5 по 9 ноября', today: TODAY, via: 'max' }))!.text)
       .toContain('Объекта «баня» среди ваших нет. Ваши объекты: «Кутха», «Домик у реки»');
     expect(pickObjectByWords(two.rows, 'у реки')).toEqual({ id: ACC2, name: 'Домик у реки' });
     expect(pickObjectByWords([{ id: ACC, name: 'Дом 1' }, { id: ACC2, name: 'Дом 2' }], 'дом')).toBe('ambiguous');

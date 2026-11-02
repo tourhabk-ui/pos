@@ -86,7 +86,7 @@ import { cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, type Cabine
 import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
 import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
-import { noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
+import { forgetMenuMessage, isMenuPayload, noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 
@@ -1443,8 +1443,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       // дело CRM в той же фразе остаются здесь (проверка качества 24.10).
       const emergency = detectEmergency(text).detected;
       const sos = (body: string): string => withSosBlock(body, text).text;
-      const say = async (body: string) => {
-        if (menu?.length) await maxReplyWithButtons(chatId, sos(body), toMaxButtons([menu]));
+      const say = async (body: string, own: CabinetButton[][] = []) => {
+        const rows = menu?.length ? [...own, menu] : own;
+        if (rows.length) await maxReplyWithButtons(chatId, sos(body), toMaxButtons(rows));
         else await maxReply(chatId, sos(body));
       };
       if (lookup.outcome !== 'none' && datesIntent === 'dates' && !dialog) {
@@ -1676,7 +1677,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
         await processPartnerMessage({
           chatId, text, fromName: userName, partner: lookup.partner,
-          reply: async (_id, body) => { await say(body); },
+          reply: async (_id, body, buttons) => { await say(body, buttons); },
         });
         return;
       }
@@ -1703,6 +1704,17 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // чата: у заверенного апдейта его назвал MAX, и по нему решается право
     // нажатия; user_id нажавшего этого права не даёт.
     const messageChatId: number | null = update.message?.recipient.chat_id ?? null;
+    // Кнопка-действие может переписать своё сообщение мимо menu-tail: его
+    // прежний текст с живыми кнопками больше не возвращается (разбор 02.11).
+    // Ответы на бронь, заявку, машину, жильё, даты — в счёт пользования (разбор 02.11).
+    // Только заверенное нажатие: незаверенное не засчитывается и партнёра не ищет.
+    if (messageChatId && press.ok && opts?.verifiedOrigin === true) {
+      void (await import('@/lib/chat-cabinet/main-action-usage')).countMainPress({ channel: 'max', chatId: messageChatId, payload });
+    }
+    if (messageChatId && press.ok && !isMenuPayload(payload)) {
+      const pressedMid = update.message?.body?.mid;
+      forgetMenuMessage(messageChatId, typeof pressedMid === 'string' ? pressedMid : null);
+    }
 
     // Подтверждаем получение. Без второго аргумента намеренно: раньше сюда
     // передавалось `notification: ''` — пустое всплывающее уведомление, то

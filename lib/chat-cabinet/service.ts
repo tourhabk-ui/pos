@@ -65,7 +65,7 @@ import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
 import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
 import { loadOwnerBusy, setObjectBusy } from '@/lib/stay/busy-flow';
-import { BUSY_TEXT, busySavedText } from '@/lib/stay/busy-dates';
+import { BUSY_NOT_THAT_TEXT, BUSY_TEXT, busySavedText } from '@/lib/stay/busy-dates';
 
 interface Queryable {
   query: typeof pool.query;
@@ -551,14 +551,15 @@ async function busyView(c: Ctx, nowMs: number, notice?: string): Promise<Cabinet
   return objects === null ? { ...out, failed: true } : out;
 }
 
-async function busyRelease(c: Ctx, press: Extract<CabinetPress, { kind: 'busy_release' }>, channel: CabinetChannel, nowMs: number): Promise<CabinetScreen> {
+async function busyRelease(c: Ctx, press: Extract<CabinetPress, { kind: 'busy_release' | 'busy_block' }>, channel: CabinetChannel, nowMs: number): Promise<CabinetScreen> {
   if (c.partner.role !== 'stay') return noticeScreen(BUSY_TEXT.notStay);
+  const action = press.kind === 'busy_block' ? 'block' as const : 'release' as const;
   const r = await setObjectBusy({
-    partnerId: c.ctx.partnerId, accommodationId: press.accommodationId, from: press.from, to: press.to, action: 'release', via: channel,
+    partnerId: c.ctx.partnerId, accommodationId: press.accommodationId, from: press.from, to: press.to, action, via: channel,
   });
   if (r.outcome === 'db_error') return busyView(c, nowMs, BUSY_TEXT.saveFailed);
   if (r.outcome === 'not_yours') return busyView(c, nowMs, BUSY_TEXT.notYours);
-  return busyView(c, nowMs, busySavedText({ name: r.name, from: press.from, to: press.to, action: 'release' }));
+  return busyView(c, nowMs, busySavedText({ name: r.name, from: press.from, to: press.to, action }));
 }
 
 /** Сводка перевозчика (#2862 этап D): блоки читаются отдельно, не прочитавшийся назван. */
@@ -824,7 +825,9 @@ export async function handleCabinetPress(input: {
     case 'vehicle_active': out = await vehicleActive(g, press); break;
     case 'carrier_summary': out = await carrierSummaryView(g); break;
     case 'busy': out = await busyView(g, nowMs); break;
-    case 'busy_release': out = await busyRelease(g, press, ch, nowMs); break;
+    case 'busy_release':
+    case 'busy_block': out = await busyRelease(g, press, ch, nowMs); break;
+    case 'busy_not_that': out = g.partner.role === 'stay' ? noticeScreen(BUSY_NOT_THAT_TEXT) : noticeScreen(BUSY_TEXT.notStay); break;
     // «Мои туры» гида (30.10): даты, правка текста и цены — lib/guides/tour-edit.
     // Роль, кабинет карточки и владение туром проверяет поток.
     case 'my_tours':
