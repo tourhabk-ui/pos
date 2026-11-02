@@ -46,12 +46,12 @@ describe('monthOfText', () => {
 
 describe('humanChatConfirm names the tour', () => {
   it('RU/EN/ZH tour line, still human-confirm', () => {
-    const t = humanChatConfirm('ok https://vedarai.ru/request-status#abc', 'Мутновский вулкан');
+    const t = humanChatConfirm('Заявка оператору принята: "Тур", 2099-11-15. Это заявка, не оплата. Ключ статуса заявки: abc — по нему get_request_status покажет. Человеку дайте ссылку https://vedarai.ru/request-status#abc', 'Мутновский вулкан');
     expect(t).toContain('Тур в заявке: «Мутновский вулкан»');
     expect(t).toContain('EN: Tour in the request');
     expect(t).toContain('ZH:');
     expect(t).toContain('Мгновенного бронирования нет');
-    expect(humanChatConfirm('ok')).not.toContain('Тур в заявке');
+    expect(humanChatConfirm('Заявка оператору принята: "Тур", 2099-11-15. Это заявка, не оплата. Ключ статуса заявки: abc — по нему get_request_status покажет. Человеку дайте ссылку https://vedarai.ru/request-status#abc')).not.toContain('Тур в заявке');
   });
 });
 

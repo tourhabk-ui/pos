@@ -12,6 +12,7 @@
 import { randomBytes } from 'node:crypto';
 import { pickHeadcount } from '@/lib/agent/headcount';
 import { getPublicBaseUrl } from '@/lib/config';
+import { textFailed } from '@/lib/agent/request-outcome';
 
 export type LegKind = 'tour' | 'stay' | 'transfer';
 
@@ -33,9 +34,14 @@ export interface TripDeps {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
 
-/** «Не создана» в тексте исполнителя — часть не прошла (исполнители так и отвечают). */
+/**
+ * «Не создана» в тексте исполнителя — часть не прошла (исполнители так и
+ * отвечают). Правило одно с чатом Кузьмича (`lib/agent/request-outcome`):
+ * признак успеха («Ключ статуса заявки», «заявка принята») перевешивает —
+ * «план не найден — заявка принята без плана» часть не роняет.
+ */
 export function legFailed(text: string): boolean {
-  return /не создан|не отправлен|не найден|не принимает/i.test(text);
+  return textFailed(text);
 }
 
 /** Исполнитель просит выбрать перевозчика — машину берёт менеджер. */

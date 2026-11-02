@@ -58,7 +58,7 @@ import {
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
-import { planFromBookingFlow, planChatRequest, parseChatContact } from '@/lib/kuzmich/chat-request';
+import { planFromBookingFlow, planChatRequest, parseChatContact, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
 import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
 import { type QuickReplies, tourPickButtons, parseTourPick, GUEST_BUTTONS, CONFIRM_BUTTONS, CANCEL_BUTTONS, isCorrection } from '@/lib/kuzmich/quick-replies';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -3494,6 +3494,10 @@ export async function processMessage(opts: {
   if (platform === 'max' && !maxUnverified && !emergencyNow && !isMediaMessage) {
     const contact = parseChatContact(text);
     const pre = parseChatBookingPrefill(text);
+    if (contact.name && contact.phone && contact.consent && !pre.date && pre.pastDate) {
+      await replyFn(chatId, escapeHtml(chatPastDateAsk(pre.pastDate)));
+      return;
+    }
     if (contact.name && contact.phone && contact.consent && pre.date) {
       const { pickChatBookingTour } = await import('@/lib/ai/chat-booking-tour');
       const pick = await pickChatBookingTour(text, []);

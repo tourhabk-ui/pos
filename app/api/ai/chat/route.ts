@@ -5,9 +5,8 @@
  * Encrypted interest collection from user messages.
  */
 
-import { humanChatConfirm } from '@/lib/kuzmich/chat-request';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
-import { planChatRequest, parseChatContact } from '@/lib/kuzmich/chat-request';
+import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
 import { runPublicTool } from '@/app/api/mcp/route';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
@@ -285,17 +284,27 @@ export async function POST(request: NextRequest) {
     if (!fastRequestText && safeRole === 'tourist' && !emergencyNow && !imageBase64) {
       const contact = parseChatContact(rawMessage);
       const pre = parseChatBookingPrefill(rawMessage);
-      if (contact.name && contact.phone && contact.consent && pre.date) {
+      if (contact.name && contact.phone && contact.consent && !pre.date && pre.pastDate) {
+        fastRequestText = chatPastDateAsk(pre.pastDate);
+      } else if (contact.name && contact.phone && contact.consent && pre.date) {
+        // Запись начата — исход называется человеку при любом ответе
+        // исполнителя, и второй путь заявку не повторяет (#2967): отказ
+        // быстрого пути раньше превращался во вторую заявку менеджеру.
+        let writeStarted = false;
         try {
           const intent = detectTourIntent(rawMessage);
           const found = intent.detected ? await findRelevantTours(intent.activityType, intent.rawWords) : [];
           const pick = await pickChatBookingTour(rawMessage, found);
           const plan = planChatRequest(rawMessage, pick.tour, pre);
           if (plan) {
+            writeStarted = true;
             const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false });
-            if (out.kind === 'ok') fastRequestText = humanChatConfirm(out.text, pick.tour?.title);
+            fastRequestText = chatToolReply(out, pick.tour?.title).text;
           }
-        } catch (e) { console.warn('[kuzmich-chat] быстрый путь не сработал, обычный ответ', safeMsg(e)); }
+        } catch (e) {
+          console.warn('[kuzmich-chat] быстрый путь не сработал', writeStarted ? 'после начала записи' : 'до записи, обычный ответ', safeMsg(e));
+          if (writeStarted) fastRequestText = chatRequestUnconfirmed();
+        }
       }
     }
 
@@ -502,13 +511,17 @@ export async function POST(request: NextRequest) {
     // исполнителем, что у MCP, а не оставляем карточку (разбор 01.11).
     let chatRequestText: string | null = null;
     if (fastRequestText) chatRequestText = fastRequestText;
-    else if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || /соглас/i.test(rawMessage))) {
+    else if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || parseChatContact(rawMessage).consent)) {
       const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage));
       if (plan) {
         try {
           const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false });
-          if (out.kind === 'ok') chatRequestText = humanChatConfirm(out.text, bookingFormTour?.title);
-        } catch (e) { console.warn("[kuzmich-chat] заявка из чата не создана, остаётся карточка", safeMsg(e)); }
+          // Отказ текстом — тоже ответ человеку: «Заявка не создана: …» (#2967).
+          chatRequestText = chatToolReply(out, bookingFormTour?.title).text;
+        } catch (e) {
+          console.warn('[kuzmich-chat] заявка из чата: исполнитель упал после начала записи', safeMsg(e));
+          chatRequestText = chatRequestUnconfirmed();
+        }
       }
     }
 
