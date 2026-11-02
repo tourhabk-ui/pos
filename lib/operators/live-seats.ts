@@ -73,21 +73,21 @@ export async function liveSeatsForItem(
   }
 }
 
-export interface Departure { date: string; title: string; people: number; bookings: number }
+export interface Departure { date: string; tourId: number; title: string; people: number; bookings: number }
 
 /** Выезды сегодня и завтра по подтверждённым броням — числа, без имён. */
 export async function loadDepartures(partnerId: string, days: readonly string[]): Promise<Departure[] | 'failed'> {
   try {
-    const { rows } = await pool.query<{ d: string; title: string; people: number | string; n: number | string }>(
-      `SELECT b.booking_date::text AS d, t.title, COALESCE(SUM(b.participants), 0)::int AS people, COUNT(*)::int AS n
+    const { rows } = await pool.query<{ d: string; tour_id: number | string; title: string; people: number | string; n: number | string }>(
+      `SELECT b.booking_date::text AS d, t.id AS tour_id, t.title, COALESCE(SUM(b.participants), 0)::int AS people, COUNT(*)::int AS n
          FROM operator_bookings b JOIN operator_tours t ON t.id = b.operator_tour_id
         WHERE t.operator_id = $1::uuid AND b.deleted_at IS NULL
           AND b.booking_status IN ('confirmed', 'pending_payment')
           AND b.booking_date = ANY($2::date[])
-        GROUP BY b.booking_date, t.title ORDER BY b.booking_date, t.title`,
+        GROUP BY b.booking_date, t.id, t.title ORDER BY b.booking_date, t.title`,
       [partnerId, [...days]],
     );
-    return rows.map((r) => ({ date: r.d.slice(0, 10), title: r.title, people: Number(r.people), bookings: Number(r.n) }));
+    return rows.map((r) => ({ date: r.d.slice(0, 10), tourId: Number(r.tour_id), title: r.title, people: Number(r.people), bookings: Number(r.n) }));
   } catch (err) {
     console.error('[live-seats] выезды не прочитаны, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
     return 'failed';

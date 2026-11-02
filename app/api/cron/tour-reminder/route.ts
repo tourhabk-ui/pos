@@ -26,11 +26,13 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { TOURIST_TG_CHAT_SQL } from '@/lib/notifications/tourist-telegram';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { fetchWeatherForReminder } from '@/lib/weather/tour-reminder-weather';
+import { readStoredSituations } from '@/lib/trips/situation-read';
 
 export const dynamic = 'force-dynamic';
 
 interface BookingRow {
   id: number;
+  tour_id: number;
   tourist_name: string;
   booking_date: string;
   participants: number;
@@ -97,7 +99,7 @@ export async function GET(request: NextRequest) {
   let bookings: BookingRow[];
   try {
     ({ rows: bookings } = await pool.query<BookingRow>(`
-    SELECT ob.id, ob.tourist_name, ob.booking_date::text, ob.participants,
+    SELECT ob.id, ob.operator_tour_id::int AS tour_id, ob.tourist_name, ob.booking_date::text, ob.participants,
            ot.title AS tour_title, ot.activity_type, ot.location_name,
            ot.difficulty,
            COALESCE((ob.metadata->>'tg_chat_id')::bigint, ${TOURIST_TG_CHAT_SQL}) AS tg_chat_id,
@@ -125,6 +127,18 @@ export async function GET(request: NextRequest) {
   }
 
   const [weather, mchs] = await Promise.all([fetchWeatherForReminder(), fetchMchsAlert()]);
+  // Обстановка на день тура — та же строка, что у оператора в «Сегодня»
+  // (#2969, крон trip-reminders час назад): погода по месту тура, официальные
+  // предупреждения по зоне, опасность зоны. Не прочиталась — так и сказано.
+  const stored = await readStoredSituations(
+    [...new Set(bookings.map((b) => Number(b.tour_id)))],
+    [...new Set(bookings.map((b) => String(b.booking_date).slice(0, 10)))],
+  );
+  const situationOf = (b: BookingRow): string => {
+    if (stored === 'failed') return 'проверка Ведара не прочиталась — об опасностях не утверждай ничего';
+    const s = stored.find((x) => x.tourId === Number(b.tour_id) && x.date === String(b.booking_date).slice(0, 10));
+    return s ? s.line : 'Ведар обстановку на этот день не проверял — об опасностях не утверждай ничего';
+  };
 
   const sent: number[] = [];
   const failed: number[] = [];
@@ -147,11 +161,12 @@ export async function GET(request: NextRequest) {
 - Участников: ${b.participants}
 ${weather ? `- Прогноз погоды: ${weather}` : ''}
 ${mchs ? `- Предупреждение МЧС: ${mchs}` : ''}
+- Обстановка на день тура (проверка Ведара): ${situationOf(b)}
 
 Структура ответа (3-4 абзаца):
 1. Напоминание о туре завтра (кратко, без лести)
 2. Что взять с собой / как одеться (конкретно, по погоде)
-3. Если есть МЧС-предупреждение — предупредить
+3. Если есть МЧС-предупреждение или риски в обстановке — назвать их словами из данных; решение о выезде принимает оператор, отменять или переносить не советуй
 4. Короткое пожелание хорошего тура
 
 ВАЖНО: без эмодзи, без markdown, без восклицательных знаков через каждое предложение. Стиль — спокойный, как опытный проводник.`;

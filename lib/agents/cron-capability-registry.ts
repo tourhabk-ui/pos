@@ -383,7 +383,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'tour-tracks-census': ['db_read'],
   'track-attachment-audit': ['db_read', 'db_write'],
   'track-import-queue': ['db_read', 'db_write', 'net_out'],
-  'trip-reminders': ['db_read', 'net_out', 'telegram', 'pd_direct'],
+  'trip-reminders': ['db_read', 'db_write', 'net_out', 'telegram'],
   'verdict-census': ['db_read'],
   'volcano-merge-gate': ['db_read', 'db_write', 'net_out', 'telegram'],
   'watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'money'],
