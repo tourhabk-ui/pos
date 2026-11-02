@@ -212,7 +212,7 @@ function DayCell({
 
       {/* Revenue */}
       {rev > 0 && (
-        <div className="text-[9px] leading-none font-bold mb-0.5"
+        <div className="text-xs leading-none font-semibold mb-0.5"
           style={{ color: 'var(--accent)' }}>
           {rev >= 1_000_000 ? (rev / 1_000_000).toFixed(1) + 'М' : rev >= 1_000 ? Math.round(rev / 1_000) + 'K' : rev}₽
         </div>
@@ -221,13 +221,13 @@ function DayCell({
       {/* Badges */}
       <div className="flex flex-wrap gap-0.5 w-full">
         {newCount > 0 && (
-          <span className="text-[9px] font-bold px-1 py-0.5 rounded"
+          <span className="text-xs font-semibold px-1 py-0.5 rounded"
             style={{ background: 'var(--warning)', color: '#fff' }}>
             {newCount}
           </span>
         )}
         {confCnt > 0 && (
-          <span className="text-[9px] font-bold px-1 py-0.5 rounded"
+          <span className="text-xs font-semibold px-1 py-0.5 rounded"
             style={{ background: 'var(--success)', color: '#fff' }}>
             {confCnt}
           </span>
@@ -236,7 +236,7 @@ function DayCell({
 
       {/* Slot fill */}
       {totalSlots > 0 && (
-        <span className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+        <span className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
           {bookedSlots}/{totalSlots}
         </span>
       )}
@@ -476,7 +476,7 @@ export default function CalendarPageClient() {
       {/* ── Заголовок ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Календарь</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>Календарь</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
             {showMoney || !data ? 'Бронирования · Выручка · Управление датами' : 'Бронирования · Управление датами'}
           </p>
@@ -533,7 +533,7 @@ export default function CalendarPageClient() {
               : []),
           ].map(s => (
             <div key={s.label} className="ds-card p-3 text-center">
-              <div className="font-bold text-base" style={{ color: s.color }}>{s.value}</div>
+              <div className="font-semibold text-base" style={{ color: s.color }}>{s.value}</div>
               <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
             </div>
           ))}
@@ -604,7 +604,7 @@ export default function CalendarPageClient() {
           {/* Дни недели */}
           <div className="grid grid-cols-7 gap-1 mb-1">
             {WEEKDAYS.map(w => (
-              <div key={w} className="text-center text-[10px] font-semibold py-1"
+              <div key={w} className="text-center text-xs font-semibold py-1"
                 style={{ color: 'var(--text-muted)' }}>{w}</div>
             ))}
           </div>
@@ -640,7 +640,7 @@ export default function CalendarPageClient() {
           )}
 
           {/* Легенда */}
-          <div className="flex flex-wrap gap-3 mt-3 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+          <div className="flex flex-wrap gap-3 mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded" style={{ background: 'var(--warning)' }} />
               Новые (ждут подтверждения)
@@ -681,7 +681,7 @@ export default function CalendarPageClient() {
             {selectedDay.revenue > 0 && (
               <div className="ds-card p-3 flex items-center justify-between">
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Выручка дня</span>
-                <span className="font-bold text-base" style={{ color: 'var(--accent)' }}>
+                <span className="font-semibold text-base" style={{ color: 'var(--accent)' }}>
                   {RUB(selectedDay.revenue)}
                 </span>
               </div>
@@ -724,7 +724,7 @@ export default function CalendarPageClient() {
                 <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                   Бронирования ({selectedDay.bookings.length})
                   {selectedDay.newCount > 0 && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-white text-[10px]"
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-white text-xs"
                       style={{ background: 'var(--warning)' }}>
                       {selectedDay.newCount} новых
                     </span>
@@ -752,7 +752,7 @@ export default function CalendarPageClient() {
               {showMoney && summary && (summary.revenue ?? 0) > 0 && (
                 <div className="w-full border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                   <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Выручка месяца</div>
-                  <div className="font-bold text-base mt-1" style={{ color: 'var(--accent)' }}>
+                  <div className="font-semibold text-base mt-1" style={{ color: 'var(--accent)' }}>
                     {RUB(summary.revenue)}
                   </div>
                 </div>

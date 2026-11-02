@@ -417,23 +417,23 @@ export default function CompletenessClient() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">На витрине Ведара</p>
-          <p className="text-3xl font-bold text-[var(--success)]">{onVedar}</p>
+          <p className="text-xs text-[var(--text-secondary)] mb-2">На витрине Ведара</p>
+          <p className="text-3xl font-semibold text-[var(--success)]">{onVedar}</p>
           <p className="text-xs text-[var(--text-secondary)] mt-1">из {tours.length} {plural(tours.length, 'тура', 'туров', 'туров')} — их видят туристы</p>
         </div>
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Готовы к Авито и Яндексу</p>
-          <p className="text-3xl font-bold text-[var(--success)]">{readyTours.length}</p>
+          <p className="text-xs text-[var(--text-secondary)] mb-2">Готовы к Авито и Яндексу</p>
+          <p className="text-3xl font-semibold text-[var(--success)]">{readyTours.length}</p>
           <p className="text-xs text-[var(--text-secondary)] mt-1">на витрине Ведара, поля для лент заполнены</p>
         </div>
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Не хватает данных</p>
-          <p className="text-3xl font-bold text-[var(--warning)]">{lacking}</p>
+          <p className="text-xs text-[var(--text-secondary)] mb-2">Не хватает данных</p>
+          <p className="text-3xl font-semibold text-[var(--warning)]">{lacking}</p>
           <p className="text-xs text-[var(--text-secondary)] mt-1">{lacking === 0 ? 'поля для лент заполнены у всех' : 'для лент — список ниже'}</p>
         </div>
         <div className="ds-card p-4">
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2">Не опубликованы</p>
-          <p className="text-3xl font-bold text-[var(--text-primary)]">{unpublished}</p>
+          <p className="text-xs text-[var(--text-secondary)] mb-2">Не опубликованы</p>
+          <p className="text-3xl font-semibold text-[var(--text-primary)]">{unpublished}</p>
           <p className="text-xs text-[var(--text-secondary)] mt-1">туристы не видят — в редакторе нужна отметка «Опубликован»</p>
         </div>
       </div>
@@ -465,7 +465,7 @@ export default function CompletenessClient() {
         <>
           {notReady.length > 0 && (
             <section className="space-y-2" aria-label="Туры, которые не уйдут на Авито и Яндекс">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Не уйдут на Авито и Яндекс ({notReady.length})</p>
+              <p className="text-xs text-[var(--text-secondary)]">Не уйдут на Авито и Яндекс ({notReady.length})</p>
               {notReady.map((tour) => (
                 <TourCard
                   key={tour.tour_id}
@@ -480,7 +480,7 @@ export default function CompletenessClient() {
           )}
           {readyTours.length > 0 && (
             <section className="space-y-2" aria-label="Готовы к Авито и Яндексу">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Готовы к Авито и Яндексу ({readyTours.length})</p>
+              <p className="text-xs text-[var(--text-secondary)]">Готовы к Авито и Яндексу ({readyTours.length})</p>
               {readyTours.map((tour) => (
                 <TourCard
                   key={tour.tour_id}
@@ -510,7 +510,7 @@ export default function CompletenessClient() {
               </button>
             </div>
             <div className="rounded-lg bg-[var(--bg-hover)] p-3">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-1">Поле</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Поле</p>
               <p className="text-sm font-medium text-[var(--text-primary)]">{FIELD_LABELS[quickFill.field!] || quickFill.field}</p>
             </div>
             <div>

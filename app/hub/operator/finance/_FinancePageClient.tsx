@@ -64,7 +64,7 @@ const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
 
 function Badge({ status }: { status: string }) {
   const s = STATUS_LABELS[status] ?? { label: status, cls: 'bg-[var(--bg-hover)] text-[var(--text-muted)]' };
-  return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${s.cls}`}>{s.label}</span>;
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${s.cls}`}>{s.label}</span>;
 }
 
 function PayoutDetailsForm({ initialMethod }: { initialMethod: string | null }) {
@@ -74,7 +74,7 @@ function PayoutDetailsForm({ initialMethod }: { initialMethod: string | null }) 
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const inputCls = 'w-full px-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors font-mono';
-  const labelCls = 'block text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1';
+  const labelCls = 'block text-xs font-medium text-[var(--text-muted)] mb-1';
 
   async function handleSave() {
     setSaving(true); setMsg(null);
@@ -224,7 +224,7 @@ export default function FinancePageClient() {
       {/* Заголовок */}
       <div>
         <h1 className="text-sm font-semibold text-[var(--text-primary)]">Финансы</h1>
-        <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+        <p className="text-xs text-[var(--text-muted)] mt-0.5">
           {!platformAcceptsPayments()
             ? 'Ведар сейчас платежи не принимает и комиссию не берёт — турист платит вам напрямую'
             : rateKnown ? `Ваша комиссия платформы: ${commissionCurrent}%` : 'Ставка комиссии платформы не указана'}
@@ -247,7 +247,7 @@ export default function FinancePageClient() {
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-3.5 h-3.5 text-[var(--warning)]" />
-            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">К выплате</span>
+            <span className="text-xs text-[var(--text-muted)]">К выплате</span>
           </div>
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.balanceHeld)}</p>
           {/*
@@ -255,7 +255,7 @@ export default function FinancePageClient() {
             не дошли до удержания» — разные состояния, и оператор должен
             понимать, какое из них перед ним (#1804, §4.0).
           */}
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1">
             {summary.heldCount > 0
               ? `${summary.heldCount} бронирований · ожидают 36ч после тура`
               : 'Оплаченных броней в удержании пока нет'}
@@ -265,10 +265,10 @@ export default function FinancePageClient() {
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
             <CheckCircle className="w-3.5 h-3.5 text-[var(--success)]" />
-            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Выплачено</span>
+            <span className="text-xs text-[var(--text-muted)]">Выплачено</span>
           </div>
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.totalReleased)}</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1">
             {summary.releasedCount > 0 ? `${summary.releasedCount} бронирований` : 'Выплат ещё не было'}
           </p>
         </div>
@@ -276,10 +276,10 @@ export default function FinancePageClient() {
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-3.5 h-3.5 text-[var(--ocean)]" />
-            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Комиссия платформы</span>
+            <span className="text-xs text-[var(--text-muted)]">Комиссия платформы</span>
           </div>
           <p className="text-xl font-semibold text-[var(--text-primary)] font-mono">{formatRub(summary.totalCommission)}</p>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1">
             {summary.totalCommission > 0
               // Ставка НЕ снижается с ростом броней: её назначает владелец
               // платформы, и никакой автомат её не меняет (CLAUDE.md §7,
@@ -312,7 +312,7 @@ export default function FinancePageClient() {
           <div className="flex items-center gap-2">
             <Wallet className="w-3.5 h-3.5 text-[var(--text-muted)]" />
             <span className="text-xs font-medium text-[var(--text-primary)]">История платежей</span>
-            <span className="text-[10px] text-[var(--text-muted)]">({payments.length})</span>
+            <span className="text-xs text-[var(--text-muted)]">({payments.length})</span>
           </div>
           {showPayments ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
         </button>
@@ -325,11 +325,11 @@ export default function FinancePageClient() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-t border-[var(--border)] bg-[var(--bg-hover)]">
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-[var(--text-muted)]">Тур / турист</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-[var(--text-muted)]">Дата тура</th>
-                    <th className="px-3 py-2 text-right text-[10px] font-medium text-[var(--text-muted)]">Получите</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-[var(--text-muted)]">Статус</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-[var(--text-muted)]">Выплата после</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-muted)]">Тур / турист</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-muted)]">Дата тура</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-[var(--text-muted)]">Получите</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-muted)]">Статус</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-[var(--text-muted)]">Выплата после</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
@@ -337,12 +337,12 @@ export default function FinancePageClient() {
                     <tr key={p.id} className="hover:bg-[var(--bg-hover)] transition-colors">
                       <td className="px-3 py-2.5">
                         <p className="font-medium text-[var(--text-primary)] truncate max-w-[180px]">{p.tour_title}</p>
-                        <p className="text-[10px] text-[var(--text-muted)]">{p.tourist_name} · {p.participants} чел.</p>
+                        <p className="text-xs text-[var(--text-muted)]">{p.tourist_name} · {p.participants} чел.</p>
                       </td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)]">{formatDate(p.booking_date)}</td>
                       <td className="px-3 py-2.5 text-right">
                         <p className="font-mono font-medium text-[var(--text-primary)]">{formatRub(p.net_amount)}</p>
-                        <p className="text-[10px] text-[var(--text-muted)]">из {formatRub(p.retail_amount)}</p>
+                        <p className="text-xs text-[var(--text-muted)]">из {formatRub(p.retail_amount)}</p>
                       </td>
                       <td className="px-3 py-2.5"><Badge status={p.status} /></td>
                       <td className="px-3 py-2.5 text-[var(--text-secondary)]">
@@ -369,14 +369,14 @@ export default function FinancePageClient() {
               <div key={po.id} className="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors">
                 <div>
                   <p className="text-xs font-medium text-[var(--text-primary)] font-mono">{formatRub(po.total_net)}</p>
-                  <p className="text-[10px] text-[var(--text-muted)]">
+                  <p className="text-xs text-[var(--text-muted)]">
                     {formatDate(po.period_start)} — {formatDate(po.period_end)} · {po.booking_count} броней
                   </p>
                 </div>
                 <div className="text-right">
                   <Badge status={po.status} />
-                  {po.paid_at && <p className="text-[10px] text-[var(--text-muted)] mt-1">{formatDate(po.paid_at)}</p>}
-                  {po.payment_reference && <p className="text-[10px] text-[var(--text-muted)]">{po.payment_reference}</p>}
+                  {po.paid_at && <p className="text-xs text-[var(--text-muted)] mt-1">{formatDate(po.paid_at)}</p>}
+                  {po.payment_reference && <p className="text-xs text-[var(--text-muted)]">{po.payment_reference}</p>}
                 </div>
               </div>
             ))}

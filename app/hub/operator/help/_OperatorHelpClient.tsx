@@ -162,7 +162,7 @@ export default function OperatorHelpClient() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <BookOpen size={22} className="text-[var(--accent)]" />
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
+          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
             Справочник оператора
           </h1>
         </div>
@@ -227,7 +227,7 @@ export default function OperatorHelpClient() {
         <div className="space-y-4">
           {/* Шаг 1 */}
           <div className="flex gap-3">
-            <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
+            <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] text-xs font-medium flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
             <div>
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Откройте бот в Telegram или MAX</p>
               <div className="flex flex-wrap gap-2">
@@ -246,7 +246,7 @@ export default function OperatorHelpClient() {
 
           {/* Шаг 2 */}
           <div className="flex gap-3">
-            <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
+            <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] text-xs font-medium flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
             <div>
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Подключите чат к кабинету</p>
               <p className="text-sm text-[var(--text-secondary)] mb-2">
@@ -264,7 +264,7 @@ export default function OperatorHelpClient() {
 
           {/* Шаг 3 */}
           <div className="flex gap-3">
-            <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+            <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--success)_15%,transparent)] text-[var(--success)] text-xs font-medium flex items-center justify-center flex-shrink-0 mt-0.5">
               <CheckCircle size={14} />
             </div>
             <div>

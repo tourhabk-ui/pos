@@ -221,13 +221,13 @@ export default function FreeDatesPanel() {
               {noDatesTours.slice(0, 3).map(t => (
                 <button key={t.id}
                   onClick={() => { setFormTour(t.id); setOpenForm(true); }}
-                  className="text-[10px] px-1.5 py-0.5 rounded border underline-offset-2 hover:underline"
+                  className="text-xs px-1.5 py-0.5 rounded border underline-offset-2 hover:underline"
                   style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}>
                   {t.title}
                 </button>
               ))}
               {noDatesTours.length > 3 && (
-                <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                   +{noDatesTours.length - 3} ещё
                 </span>
               )}
@@ -292,7 +292,7 @@ export default function FreeDatesPanel() {
                     {t.title}
                   </p>
                   {t.nextDate && (
-                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
                       Ближайшая дата:{' '}
                       {formatDateOnly(t.nextDate, { day: 'numeric', month: 'short' })}
                     </p>
@@ -301,15 +301,15 @@ export default function FreeDatesPanel() {
                 <div className="text-right shrink-0">
                   {t.openDays > 0 ? (
                     <>
-                      <div className="text-xs font-bold" style={{ color: t.openDays >= 10 ? 'var(--success)' : 'var(--warning)' }}>
+                      <div className="text-xs font-medium" style={{ color: t.openDays >= 10 ? 'var(--success)' : 'var(--warning)' }}>
                         {t.openDays} дней
                       </div>
-                      <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         {t.totalSlots} мест
                       </div>
                     </>
                   ) : (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded"
                       style={{ background: 'rgba(220,38,38,0.10)', color: 'var(--danger)' }}>
                       нет дат
                     </span>
@@ -317,7 +317,7 @@ export default function FreeDatesPanel() {
                 </div>
                 <button
                   onClick={() => { setFormTour(t.id); setOpenForm(true); setResult(null); }}
-                  className="text-[10px] px-2.5 py-1.5 rounded-lg border transition-colors hover:bg-[var(--accent)]/10 shrink-0"
+                  className="text-xs px-2.5 py-1.5 rounded-lg border transition-colors hover:bg-[var(--accent)]/10 shrink-0"
                   style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
                   <Zap className="w-3 h-3 inline-block mr-1" />
                   Открыть
@@ -387,7 +387,7 @@ export default function FreeDatesPanel() {
                   {PRESETS.map(p => (
                     <button key={p.label} type="button"
                       onClick={() => applyPreset(p.weekdays)}
-                      className="text-[10px] px-2 py-1 rounded border transition-colors"
+                      className="text-xs px-2 py-1 rounded border transition-colors"
                       style={{
                         borderColor: JSON.stringify(formWeekdays.sort()) === JSON.stringify([...p.weekdays].sort())
                           ? 'var(--accent)' : 'var(--border)',
@@ -402,7 +402,7 @@ export default function FreeDatesPanel() {
                   {WEEKDAY_LABELS.map((label, d) => (
                     <button key={d} type="button"
                       onClick={() => toggleWeekday(d)}
-                      className="flex-1 py-1.5 text-[10px] font-bold rounded transition-colors"
+                      className="flex-1 py-1.5 text-xs font-semibold rounded transition-colors"
                       style={{
                         background: formWeekdays.includes(d) ? 'var(--accent)' : 'var(--bg-hover)',
                         color:      formWeekdays.includes(d) ? '#fff' : 'var(--text-secondary)',
@@ -412,7 +412,7 @@ export default function FreeDatesPanel() {
                   ))}
                 </div>
                 {formWeekdays.length === 0 && (
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
                     Не выбрано — откроются все дни диапазона
                   </p>
                 )}

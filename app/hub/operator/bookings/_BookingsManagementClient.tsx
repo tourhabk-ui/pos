@@ -338,7 +338,7 @@ export default function BookingsManagementClient() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Бронирования</h1>
+          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Бронирования</h1>
           <p className="text-sm text-[var(--text-muted)] mt-0.5">
             Всего: {total}
           </p>
@@ -473,7 +473,7 @@ export default function BookingsManagementClient() {
           ].map(s => (
             <div key={s.label} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-3">
               <p className="text-xs text-[var(--text-muted)]">{s.label}</p>
-              <p className="text-2xl font-bold mt-0.5" style={{ color: `${s.color}` }}>{s.value}</p>
+              <p className="text-2xl font-semibold mt-0.5" style={{ color: `${s.color}` }}>{s.value}</p>
             </div>
           ))}
         </div>
@@ -497,7 +497,7 @@ export default function BookingsManagementClient() {
       ) : (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
           {/* Table header */}
-          <div className="hidden md:grid grid-cols-[1fr_2fr_1.5fr_auto_auto_auto] gap-3 px-4 py-2 text-[10px] uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border)]">
+          <div className="hidden md:grid grid-cols-[1fr_2fr_1.5fr_auto_auto_auto] gap-3 px-4 py-2 text-xs text-[var(--text-muted)] border-b border-[var(--border)]">
             <span>Дата / Тур</span><span>Клиент</span><span>Статус</span><span className="text-right">Сумма</span><span className="text-right">Оплата</span><span></span>
           </div>
 
@@ -515,7 +515,7 @@ export default function BookingsManagementClient() {
                   </p>
                   <p className="text-xs text-[var(--text-muted)] truncate max-w-[160px]">{b.tour_title}</p>
                   {b.weather_alert_triggered && (
-                    <span className="text-[9px] text-[var(--warning)] flex items-center gap-0.5">
+                    <span className="text-xs text-[var(--warning)] flex items-center gap-0.5">
                       <AlertTriangle className="w-2.5 h-2.5" />Погодный алерт
                     </span>
                   )}
@@ -616,7 +616,7 @@ export default function BookingsManagementClient() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-[var(--text-muted)]">Бронь #{detail.id}</p>
-                <h3 className="font-bold text-[var(--text-primary)]">{detail.tour_title}</h3>
+                <h3 className="font-semibold text-[var(--text-primary)]">{detail.tour_title}</h3>
               </div>
               <button onClick={() => setDetail(null)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
                 <X className="w-5 h-5" />
