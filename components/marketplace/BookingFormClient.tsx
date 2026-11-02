@@ -313,7 +313,12 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           : '';
         // Туристу — только русский текст. Служебные сообщения валидатора
         // (английские) заменяем на понятное, а причину оставляем консоли.
-        const msg = /[А-Яа-яЁё]/.test(raw) ? raw : 'Не удалось отправить заявку. Проверьте поля и попробуйте ещё раз.';
+        const said = /[А-Яа-яЁё]/.test(raw) ? raw : 'Не удалось отправить заявку. Проверьте поля и попробуйте ещё раз.';
+        // Сервер прямо сказал «не записана» (`created: false`, #2968) — так и
+        // пишем первым словом: человек и агент-браузер читают исход, а не
+        // гадают по тексту отказа, есть ли заявка.
+        const notCreated = typeof data === 'object' && data !== null && (data as Record<string, unknown>).created === false;
+        const msg = notCreated && !/^Заявка не создана/.test(said) ? `Заявка не создана: ${said}` : said;
         if (!/[А-Яа-яЁё]/.test(raw)) console.error('[BookingForm] отказ сервера', res.status, raw);
         serverField = typeof data === 'object' && data !== null && 'field' in data
           ? asFormField((data as Record<string, unknown>).field)

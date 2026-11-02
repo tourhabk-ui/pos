@@ -70,14 +70,14 @@ export async function POST(req: NextRequest) {
   const ip = getTrustedClientIp(req.headers);
   if (!bookingCreateLimiter.check(ip)) {
     return NextResponse.json(
-      { error: 'Слишком много запросов. Попробуйте через минуту.' },
+      { created: false, error: 'Слишком много запросов. Попробуйте через минуту.' },
       { status: 429 },
     );
   }
 
   let body: unknown;
   try { body = await req.json(); } catch {
-    return NextResponse.json({ error: 'Невалидный JSON' }, { status: 400 });
+    return NextResponse.json({ created: false, error: 'Невалидный JSON' }, { status: 400 });
   }
   // Число людей под любым именем (guests, participants, passengers …) —
   // в participants_count; строка-число — в число (break-map 01.11).
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       ? `Поле «${String(first.path?.[0] ?? '')}» заполнено неверно`
       : first?.message ?? 'Неверные данные формы';
     return NextResponse.json(
-      { error: message, field: first?.path?.[0] },
+      { created: false, error: message, field: first?.path?.[0] },
       { status: 400 },
     );
   }
@@ -123,12 +123,12 @@ export async function POST(req: NextRequest) {
   }
   if (tourId === null) {
     await rejected('INVALID_FORM', data.tour_slug ?? null);
-    return NextResponse.json({ error: 'Укажите тур: tour_id или tour_slug', field: 'tour_id' }, { status: 400 });
+    return NextResponse.json({ created: false, error: 'Укажите тур: tour_id или tour_slug', field: 'tour_id' }, { status: 400 });
   }
 
   if (new Date(data.booking_date) < new Date(new Date().toISOString().slice(0, 10))) {
     await rejected('DATE_PAST', tourId);
-    return NextResponse.json({ error: DATE_PAST_MESSAGE }, { status: 422 });
+    return NextResponse.json({ created: false, error: DATE_PAST_MESSAGE }, { status: 422 });
   }
 
   // Гостевой чек-аут остаётся рабочим — авторизация опциональна (fail-open).
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
   if (userId === null && !req.headers.get('x-vedar-client') && data.pd_consent !== true) {
     await rejected('INVALID_FORM', tourId);
     return NextResponse.json(
-      { error: 'Нужно согласие на обработку персональных данных: pd_consent: true (https://vedarai.ru/legal/privacy).', field: 'pd_consent' },
+      { created: false, error: 'Нужно согласие на обработку персональных данных: pd_consent: true (https://vedarai.ru/legal/privacy).', field: 'pd_consent' },
       { status: 400 },
     );
   }
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
   if (userId === null && !data.tourist_email) {
     await rejected('GUEST_EMAIL_REQUIRED', tourId);
     return NextResponse.json(
-      { error: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email' },
+      { created: false, error: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email' },
       { status: 400 },
     );
   }
@@ -264,6 +264,9 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
+      // Явный признак для агента (#2968): заявка записана. Ответ без него
+      // или с false — заявки нет, что бы ни говорил текст.
+      created:      true,
       id:           result.bookingId,
       booking_id:   result.bookingId,
       access_token: result.accessToken,
@@ -283,7 +286,7 @@ export async function POST(req: NextRequest) {
     // общего модуля — тот же самый, что услышит турист в чате у Кузьмича.
     if (err instanceof ReserveError) {
       return NextResponse.json(
-        { error: err.message },
+        { created: false, error: err.message },
         { status: err.code === 'NOT_FOUND' ? 404 : 422 },
       );
     }
@@ -294,7 +297,7 @@ export async function POST(req: NextRequest) {
     );
     await rejected('SERVER_ERROR', tourId);
     return NextResponse.json(
-      { error: 'Не удалось отправить заявку. Попробуйте позже или свяжитесь с оператором напрямую.' },
+      { created: false, error: 'Не удалось отправить заявку. Попробуйте позже или свяжитесь с оператором напрямую.' },
       { status: 500 },
     );
   }

@@ -1,0 +1,42 @@
+name: Diag — путь агента-браузера на проде (только чтение)
+
+# Проба #2968: карточка тура по ссылке ReserveAction (?date=&guests=#booking)
+# отдаёт без JavaScript заполненную форму заявки, подписанные поля, JSON-LD и
+# «заявка — не бронь». Заявку НЕ отправляет — на проде она легла бы в CRM как
+# настоящая. Правило проверки одно с CI: scripts/agent-path/check-tour-page.mjs
+# (его же судит tests/unit/agent-browser-path.test.tsx на настоящем рендере).
+# Запуск — маркером .github/triggers/agent-path-probe.json или вручную.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/agent-path-probe.json'
+
+concurrency:
+  group: agent-path-probe
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Check agent path (read-only)
+        run: node scripts/agent-path/check-tour-page.mjs https://vedarai.ru

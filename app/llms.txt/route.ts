@@ -14,6 +14,7 @@ import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
 import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { paymentRule, paymentRuleEn } from '@/lib/mcp/payment-rule';
+import { agentRequestRulesRu, agentRequestRulesEn } from '@/lib/mcp/agent-request-rules';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
@@ -257,6 +258,8 @@ Last-Updated: ${new Date().toISOString().slice(0, 10)}
 
 ## Как ИИ-агенту оставить заявку без MCP
 
+${agentRequestRulesRu(acceptsPayments)}
+
 Подключать ничего не нужно. Откройте карточку тура с параметрами — форма заявки откроется заполненной:
 \`${BASE}/catalog/tours/<slug>?date=ГГГГ-ММ-ДД&guests=N#booking\`
 Так же жильё и машина: \`${BASE}/accommodations/<id>?date=ГГГГ-ММ-ДД&check_out=ГГГГ-ММ-ДД&guests=N\` и \`${BASE}/transfers/<slug>?date=ГГГГ-ММ-ДД&guests=N\` (поля формы с атрибутом name).
@@ -275,7 +278,7 @@ Content-Type: application/json
 - \`tourist_email\` обязателен без входа в аккаунт — на него придёт ссылка на заявку и ответ оператора.
 - \`pd_consent: true\` обязателен: турист согласился на обработку персональных данных (${BASE}/legal/privacy).
 - Вместо \`tour_slug\` можно \`tour_id\` (число; есть в HTML карточки: \`data-tour-id\`).
-- Ошибки — 400/422 с полем \`field\`; дата в прошлом — 422. Лимит — 5 запросов в минуту.
+- Ошибки — 400/422 с полем \`field\` и \`created: false\`; дата в прошлом — 422. Лимит — 5 запросов в минуту.
 
 ## Места силы и эзотерические объекты Камчатки
 
@@ -320,6 +323,7 @@ Kamchatka tours, hotels and accommodation, transfers and vehicle charters, self-
 status, weather, safety alerts or booking a trip. Connect the public MCP server (Streamable HTTP,
 no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter requests are confirmed by a
 human (operator, owner or manager), no instant booking. ${paymentRuleEn(acceptsPayments)} Full English file: ${BASE}/llms-en.txt.
+${agentRequestRulesEn(acceptsPayments)}
 
 ## Готовые планы поездок (по дням, с погодой и заявкой оператору)
 
