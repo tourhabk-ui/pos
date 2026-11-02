@@ -51,6 +51,7 @@ import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { bindTouristChat } from '@/lib/seat-requests/service';
+import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 
 export const dynamic = 'force-dynamic';
 
@@ -514,8 +515,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ── callback_query: рейтинги ─────────────────────────────────────
     if (update.callback_query) {
-      const cq = update.callback_query;
-      const chatId = cq.message?.chat.id ?? cq.from.id;
+      const chatId = update.callback_query.message?.chat.id ?? update.callback_query.from.id;
+      // Подпись и срок кнопок-записей (lib/chat-cabinet/signed-payload).
+      const press = unwrapPress(update.callback_query.data ?? '');
+      if (!press.ok) {
+        await tgAnswerCallback(update.callback_query.id);
+        await tgReply(chatId, pressRefusalText(press.reason));
+        return NextResponse.json({ ok: true });
+      }
+      const cq = { ...update.callback_query, data: press.payload };
 
       if (parseRentalCabinetPress(cq.data) || cq.data.startsWith('rr:') || cq.data.startsWith('rc:')) {
         await tgAnswerCallback(cq.id);

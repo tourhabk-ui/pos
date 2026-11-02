@@ -81,6 +81,7 @@ import { armChatWait, bindGuestChat, captureChatText, type ChatReply } from '@/l
 import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
 import { operatorDeskButtons, operatorHelpText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
+import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { cabinetSectionFor, captureCabinetSearch, dropCabinetSearch, type CabinetSection } from '@/lib/chat-cabinet/service';
 import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
@@ -1695,7 +1696,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     const api = getApi();
     if (!api) return;
 
-    const payload = update.callback.payload ?? '';
+    // Подпись и срок кнопок-записей (lib/chat-cabinet/signed-payload).
+    const press = unwrapPress(update.callback.payload ?? '');
+    const payload = press.ok ? press.payload : '';
     // Чат сообщения с кнопкой. Для кнопки-действия — единственный источник
     // чата: у заверенного апдейта его назвал MAX, и по нему решается право
     // нажатия; user_id нажавшего этого права не даёт.
@@ -1710,6 +1713,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // и ничего не показывает — и компилируется в обеих версиях.
     await api.answerOnCallback(update.callback.callback_id)
       .catch((err: unknown) => logFailure('подтверждение нажатия', err));
+
+    if (!press.ok) {
+      if (messageChatId) await maxReply(messageChatId, pressRefusalText(press.reason));
+      return;
+    }
 
     if (isOperatorDeskPayload(payload)) {
       if (opts?.verifiedOrigin !== true) {

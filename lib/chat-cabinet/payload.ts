@@ -66,6 +66,7 @@
  */
 
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
 export const CABINET_PREFIX = 'cb:';
 
@@ -277,17 +278,17 @@ export const cabinetPayload = {
   /** «Сводка» новым сообщением — под самой сводкой. */
   openDigest: (): string => 'cb:n:g',
   digest: (): string => 'cb:g',
-  digestSet: (mode: DigestMode): string => `cb:g:${DIGEST_CODE[mode]}`,
+  digestSet: (mode: DigestMode): string => signPayload(`cb:g:${DIGEST_CODE[mode]}`),
   item: (kind: InboxKind, id: string): string => `cb:o:${INBOX_KIND_CODE[kind]}:${id.toLowerCase()}`,
   tasks: (page = 0): string => (page > 0 ? `cb:t:${page}` : 'cb:t'),
-  taskDone: (taskId: string): string => `cb:d:${taskId.toLowerCase()}`,
-  taskTomorrow: (taskId: string): string => `cb:z:${taskId.toLowerCase()}`,
+  taskDone: (taskId: string): string => signPayload(`cb:d:${taskId.toLowerCase()}`),
+  taskTomorrow: (taskId: string): string => signPayload(`cb:z:${taskId.toLowerCase()}`),
   clients: (page = 0): string => (page > 0 ? `cb:l:${page}` : 'cb:c'),
   client: (contactId: string): string => `cb:c:${contactId.toLowerCase()}`,
   search: (): string => 'cb:f',
   searchCancel: (): string => 'cb:x',
-  touch: (outcome: TouchOutcome, contactId: string): string => `cb:k:${TOUCH_CODE[outcome]}:${contactId.toLowerCase()}`,
-  remind: (when: RemindWhen, contactId: string): string => `cb:r:${REMIND_CODE[when]}:${contactId.toLowerCase()}`,
+  touch: (outcome: TouchOutcome, contactId: string): string => signPayload(`cb:k:${TOUCH_CODE[outcome]}:${contactId.toLowerCase()}`),
+  remind: (when: RemindWhen, contactId: string): string => signPayload(`cb:r:${REMIND_CODE[when]}:${contactId.toLowerCase()}`),
   fleet: (): string => 'cb:v',
   /** «Занято» хозяина жилья и «Освободить» отрезок. */
   busy: (): string => 'cb:b',
@@ -295,43 +296,43 @@ export const cabinetPayload = {
     `cb:b:r:${accommodationId.toLowerCase()}:${from.replace(/-/g, '')}:${to.replace(/-/g, '')}`,
   /** «Сводка» перевозчика: заявки, ответы, поездки, отзывы за 30 дней (#2862 этап D). */
   carrierSummary: (): string => 'cb:y',
-  vehicleActive: (vehicleId: string, active: boolean): string => `cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`,
+  vehicleActive: (vehicleId: string, active: boolean): string => signPayload(`cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`),
   /** «Мои туры» гида со своими турами. */
   myTours: (): string => 'cb:u',
   tour: (tourId: string): string => `cb:u:${tourId}`,
   tourDates: (tourId: string, page = 0): string => (page > 0 ? `cb:w:${tourId}:${page}` : `cb:w:${tourId}`),
-  dateOpen: (tourId: string, date: string): string => `cb:w:o:${tourId}:${date.replace(/-/g, '')}`,
-  dateClose: (tourId: string, date: string): string => `cb:w:c:${tourId}:${date.replace(/-/g, '')}`,
+  dateOpen: (tourId: string, date: string): string => signPayload(`cb:w:o:${tourId}:${date.replace(/-/g, '')}`),
+  dateClose: (tourId: string, date: string): string => signPayload(`cb:w:c:${tourId}:${date.replace(/-/g, '')}`),
   tourHint: (tourId: string): string => `cb:h:${tourId}`,
-  editSave: (draftId: string): string => `cb:e:s:${draftId.toLowerCase()}`,
+  editSave: (draftId: string): string => signPayload(`cb:e:s:${draftId.toLowerCase()}`),
   editCancel: (draftId: string): string => `cb:e:x:${draftId.toLowerCase()}`,
-  editTour: (draftId: string, index: number): string => `cb:e:t:${draftId.toLowerCase()}:${index}`,
+  editTour: (draftId: string, index: number): string => signPayload(`cb:e:t:${draftId.toLowerCase()}:${index}`),
   /** Новый тур гида (31.10): подсказка формы, «Создать черновик» / «Отмена», опубликовать / снять. */
   tourNew: (): string => 'cb:u:n',
-  createSave: (draftId: string): string => `cb:e:c:${draftId.toLowerCase()}`,
+  createSave: (draftId: string): string => signPayload(`cb:e:c:${draftId.toLowerCase()}`),
   createCancel: (draftId: string): string => `cb:e:n:${draftId.toLowerCase()}`,
-  tourPublish: (tourId: string): string => `cb:u:p:${tourId}`,
-  tourUnpublish: (tourId: string): string => `cb:u:s:${tourId}`,
+  tourPublish: (tourId: string): string => signPayload(`cb:u:p:${tourId}`),
+  tourUnpublish: (tourId: string): string => signPayload(`cb:u:s:${tourId}`),
   /** «Отзывы» гида. */
   reviews: (page = 0): string => (page > 0 ? `cb:a:${page}` : 'cb:a'),
   review: (reviewId: string): string => `cb:a:v:${reviewId.toLowerCase()}`,
   reviewReply: (reviewId: string): string => `cb:a:r:${reviewId.toLowerCase()}`,
   reviewDelete: (reviewId: string): string => `cb:a:d:${reviewId.toLowerCase()}`,
-  draftSave: (draftId: string): string => `cb:b:s:${draftId.toLowerCase()}`,
+  draftSave: (draftId: string): string => signPayload(`cb:b:s:${draftId.toLowerCase()}`),
   draftCancel: (draftId: string): string => `cb:b:x:${draftId.toLowerCase()}`,
   /** «Расписание» гида на 14 дней. */
   schedule: (page = 0): string => (page > 0 ? `cb:s:${page}` : 'cb:s'),
   earnings: (): string => 'cb:j',
   profile: (): string => 'cb:p',
-  inviteAccept: (inviteId: string): string => `cb:p:a:${inviteId.toLowerCase()}`,
-  inviteDecline: (inviteId: string): string => `cb:p:n:${inviteId.toLowerCase()}`,
+  inviteAccept: (inviteId: string): string => signPayload(`cb:p:a:${inviteId.toLowerCase()}`),
+  inviteDecline: (inviteId: string): string => signPayload(`cb:p:n:${inviteId.toLowerCase()}`),
   teamLeave: (): string => 'cb:p:l',
-  teamLeaveYes: (): string => 'cb:p:y',
+  teamLeaveYes: (): string => signPayload('cb:p:y'),
   /** Документ гида (.docx → поля тура, 1361). */
-  docSaveAll: (draftId: string): string => `cb:q:a:${draftId.toLowerCase()}`,
-  docSaveField: (draftId: string, field: number): string => `cb:q:f:${draftId.toLowerCase()}:${field}`,
+  docSaveAll: (draftId: string): string => signPayload(`cb:q:a:${draftId.toLowerCase()}`),
+  docSaveField: (draftId: string, field: number): string => signPayload(`cb:q:f:${draftId.toLowerCase()}:${field}`),
   docCancel: (draftId: string): string => `cb:q:x:${draftId.toLowerCase()}`,
-  docTour: (draftId: string, index: number): string => `cb:q:t:${draftId.toLowerCase()}:${index}`,
+  docTour: (draftId: string, index: number): string => signPayload(`cb:q:t:${draftId.toLowerCase()}:${index}`),
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */

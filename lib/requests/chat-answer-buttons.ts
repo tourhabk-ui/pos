@@ -9,6 +9,7 @@
 
 import type { InboxItem } from '@/lib/crm/inbox';
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
 export const CHAT_ANSWER_KINDS = ['lead', 'stay_request', 'stay_booking', 'gear', 'booking'] as const;
 export type ChatAnswerKind = (typeof CHAT_ANSWER_KINDS)[number];
@@ -68,11 +69,11 @@ export function chatAnswerButtons(
   const id = subjectId.toLowerCase();
   const mark = n === null ? '' : `${n} · `;
   return [
-    { text: `${mark}Подтвердить`, payload: `ia:${ANSWER_CODE.accept}:${code}:${id}` },
-    { text: `${mark}Другая дата`, payload: `ia:${ANSWER_CODE.other_date}:${code}:${id}` },
-    { text: `${mark}Нет мест`, payload: `ia:${ANSWER_CODE.no_seats}:${code}:${id}` },
-    { text: `${mark}Уточнить`, payload: `ia:${ANSWER_CODE.clarify}:${code}:${id}` },
-    { text: `${mark}Свяжусь сам`, payload: `ia:${ANSWER_CODE.self}:${code}:${id}` },
+    { text: `${mark}Подтвердить`, payload: signPayload(`ia:${ANSWER_CODE.accept}:${code}:${id}`) },
+    { text: `${mark}Другая дата`, payload: signPayload(`ia:${ANSWER_CODE.other_date}:${code}:${id}`) },
+    { text: `${mark}Нет мест`, payload: signPayload(`ia:${ANSWER_CODE.no_seats}:${code}:${id}`) },
+    { text: `${mark}Уточнить`, payload: signPayload(`ia:${ANSWER_CODE.clarify}:${code}:${id}`) },
+    { text: `${mark}Свяжусь сам`, payload: signPayload(`ia:${ANSWER_CODE.self}:${code}:${id}`) },
   ];
 }
 
