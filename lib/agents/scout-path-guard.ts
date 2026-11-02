@@ -15,6 +15,7 @@
  */
 import { readFile, readdir } from 'fs/promises';
 import { join, relative } from 'path';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export interface ProposalPaths {
   title: string;
@@ -37,8 +38,11 @@ export async function loadRepoFiles(root: string = process.cwd()): Promise<strin
       const files = parsed.files.filter((f): f is string => typeof f === 'string');
       if (files.length > 0) return files;
     }
-  } catch {
-    /* манифеста нет (dev, раннер) — идём обходом ФС ниже */
+  } catch (err) {
+    // Манифеста нет (dev, раннер) — это штатно, идём обходом ФС ниже. Иной
+    // сбой (битый JSON) не глотаем молча.
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code !== 'ENOENT') logSwallowedFailure('scout-path-guard', 'repo-manifest.json', err);
   }
   const files: string[] = [];
   async function walk(dir: string): Promise<void> {
