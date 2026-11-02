@@ -575,6 +575,11 @@ describe('витрина называет правило и показывает
     expect(note.textContent).toMatch(/Место в списке не продаётся\.$/);
     const sortNote = screen.getByText(SORT_CHOICE_NOTE_RU);
     expect(note.compareDocumentPosition(sortNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 02.11: текст свёрнут в одну строку «Как устроен порядок ⓘ», раскрывается одним тапом.
+    const details = screen.getByTestId('catalog-order-note');
+    expect(details.tagName).toBe('DETAILS');
+    expect(details.querySelector('summary')?.textContent).toMatch(/^Как устроен порядок/);
+    expect(details.contains(note) && details.contains(sortNote)).toBe(true);
   });
 
   it('сортировка: «Сначала со свободными местами» и цена; «Рекомендуемые» и «Новые» нет', () => {
