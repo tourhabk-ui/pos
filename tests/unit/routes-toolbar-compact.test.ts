@@ -9,8 +9,9 @@ describe('тулбар Мест/Маршрутов (02.11)', () => {
     expect(src).toContain("'Поиск мест…'");
     expect(src).not.toContain('max-w-[8.5rem]');
   });
-  it('счётчик активных фильтров виден и на телефоне', () => {
-    expect(src).toMatch(/Фильтры\{activeFiltersCount > 0/);
+  it('на телефоне кнопка фильтров — иконка и счётчик, слово для экранного чтеца; сорт помещается', () => {
+    expect(src).toMatch(/sr-only sm:not-sr-only">Фильтры/);
+    expect(src).toMatch(/sm:hidden tabular-nums">\{activeFiltersCount\}/);
   });
   it('Парки и Виды остаются на виду (не в окне фильтров)', () => {
     const panel = src.slice(src.indexOf('{showFilters && ('), src.indexOf('{toursSlot}'));
