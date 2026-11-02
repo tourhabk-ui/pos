@@ -1472,11 +1472,11 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const boundSeller = await bindPartnerChannel(seller, 'max', 929_001, 929_001);
     expect(boundSeller).toMatchObject({ ok: true, partnerId: seller, category: 'guide', sellsTours: true, cabinetOf: null });
     // Кабинет в чате (30.10): вкладки одни у всех; «Брони» и «Мои туры» гида со своими турами — в «Ещё».
-    expect(boundMenuRow(boundSeller)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    expect(boundMenuRow(boundSeller)?.map((x) => x.payload)).toEqual(['rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
     for (const [id, chat] of [[team, 929_002], [gone, 929_003]] as const) {
       const r = await bindPartnerChannel(id, 'telegram', chat, null);
       expect(r).toMatchObject({ ok: true, partnerId: id, sellsTours: false });
-      expect(boundMenuRow(r)?.map((x) => x.payload)).toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+      expect(boundMenuRow(r)?.map((x) => x.payload)).toEqual(['rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
     }
     // Чат записан туда, откуда его читают доставка и findPartnerByChat.
     expect((await pool.query(`SELECT max_chat_id::text AS c FROM partners WHERE id = $1`, [seller])).rows[0].c).toBe('929001');
