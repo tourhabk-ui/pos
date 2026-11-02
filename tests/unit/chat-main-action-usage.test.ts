@@ -9,7 +9,10 @@ describe('счёт главных действий (разбор 02.11)', () => 
   it('ответы на бронь, заявку, машину, жильё, даты — главные действия; навигация — нет', () => {
     expect(mainActionOf(`bk:c:${ID}`)).toBe('booking_answer');
     expect(mainActionOf(`ld:x:${ID}`)).toBe('booking_answer');
-    expect(mainActionOf('ia:a:l:1')).toBe('request_answer');
+    expect(mainActionOf('ia:ya:l:1')).toBe('request_answer');
+    expect(mainActionOf('ia:rs:l:1')).toBe('request_answer');
+    expect(mainActionOf('ia:a:l:1')).toBeNull(); // вопрос «Записать?» не запись
+    expect(mainActionOf('ia:no')).toBeNull();
     expect(mainActionOf(`rr:y:${ID}`)).toBe('car_answer');
     expect(mainActionOf(`rc:y:${ID}`)).toBe('ride_outcome');
     expect(mainActionOf(`sa:f:${ID}`)).toBe('lodging_answer');

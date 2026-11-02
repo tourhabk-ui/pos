@@ -10,7 +10,7 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { partnerMenu } from '@/lib/roles/role-menu';
 import {
-  chatAnswerLeadStatus, chatAnswerText, DECLINE_PICK_TEXT, DECLINE_REASON_LABEL, declineReasonButtons,
+  ASK_CANCELLED, chatAnswerAsk, chatAnswerLeadStatus, chatAnswerText, DECLINE_PICK_TEXT, DECLINE_REASON_LABEL, declineReasonButtons,
   inboxOwns, parseChatAnswer, recordChatAnswer,
 } from '@/lib/requests/chat-answer';
 import { createTicket } from '@/lib/support/ticket.service';
@@ -77,6 +77,7 @@ export async function operatorDeskPress(opts: {
   }
   if (opts.payload === 'sup:new') return withMenu(await supportTicketText(partner, opts.channel));
 
+  if (opts.payload === 'ia:no') return withMenu(ASK_CANCELLED);
   const parsed = parseChatAnswer(opts.payload);
   if (!parsed) return withMenu('Кнопка ответа не разобрана. Ничего не записал.');
   const inbox = await loadInbox(partner.partnerId, 'operator', partner.userId, {});
@@ -88,6 +89,16 @@ export async function operatorDeskPress(opts: {
   }
   // «Отказать»: сначала причина кнопкой, запись — только нажатием причины.
   if (parsed.answer === 'decline_pick') return withMenu(DECLINE_PICK_TEXT, declineReasonButtons(parsed.kind, parsed.subjectId));
+  // Первое нажатие одной из пяти кнопок — только вопрос; пишет второе «Да».
+  if (parsed.answer !== 'decline' && !parsed.confirmed) {
+    const ask = chatAnswerAsk(parsed.answer, parsed.kind, parsed.subjectId);
+    let text = ask.text;
+    if (parsed.answer === 'other_date' && parsed.kind === 'booking') {
+      const { nextOpenDates, openDatesLine } = await import('@/lib/operators/live-seats');
+      text = `${openDatesLine(await nextOpenDates(partner.partnerId, parsed.subjectId))}\n${text}`;
+    }
+    return withMenu(text, ask.rows);
+  }
   const reason = parsed.answer === 'decline' ? parsed.reason : null;
   const doneText = (already: boolean) => (reason && !already
     ? `${chatAnswerText('decline', false)} Причина: ${DECLINE_REASON_LABEL[reason].toLowerCase()}.`
