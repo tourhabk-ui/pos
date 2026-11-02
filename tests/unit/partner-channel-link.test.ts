@@ -471,7 +471,7 @@ describe('админка видит то же, что доставка', () => {
     expect(read('app/api/admin/operators/route.ts')).toMatch(/\(p\.max_chat_id IS NOT NULL\)\s+AS has_max/);
     const ui = read('app/hub/admin/operators/_OperatorsClient.tsx');
     // Панель общая с формой партнёра (02.11) — ссылка выдаётся из неё.
-    expect(ui).toMatch(/<ChannelLinkPanel /);
+    expect(ui).toMatch(/from '@/components/admin/ChannelLinkPanel'/);
     expect(read('components/admin/ChannelLinkPanel.tsx')).toMatch(/channel-link/);
     // Ручное поле, писавшее чат только в JSONB, из карточки убрано.
     expect(ui).not.toMatch(/placeholder="telegram_chat_id/);
