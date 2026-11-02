@@ -73,6 +73,9 @@ ARG VCS_REF
 ARG CI_COMMIT_SHA
 ARG GITHUB_SHA
 RUN node scripts/write-version.js
+# Список файлов репо для Scout-Innovator: в standalone-образе исходников нет
+# (scripts/write-repo-manifest.js, lib/agents/scout-path-guard.ts).
+RUN node scripts/write-repo-manifest.js
 
 # Вызываем локальный бинарь next напрямую, а НЕ через npx: npx при неполном
 # node_modules лезет в реестр за next и виснет по ETIMEDOUT. Локальный путь
@@ -117,6 +120,7 @@ COPY --from=builder --chown=node:node /app/.next/static     ./.next/static
 COPY --from=builder --chown=node:node /app/migrations                       ./migrations
 COPY --from=builder --chown=node:node /app/scripts/migrate-standalone.js    ./scripts/migrate-standalone.js
 COPY --from=builder --chown=node:node /app/start.js                         ./start.js
+COPY --from=builder --chown=node:node /app/repo-manifest.json               ./repo-manifest.json
 
 USER node
 
