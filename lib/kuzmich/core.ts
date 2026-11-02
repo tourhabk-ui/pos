@@ -2771,7 +2771,16 @@ export { executeTool as executeKuzmichTool };
  */
 const TOOL_OUTPUT_KEEP = 2000;
 const PLACE_TOOL_OUTPUT_KEEP = 12_000;
-const LONG_OUTPUT_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info']);
+/**
+ * Каталог туров тоже хранится до потолка места (02.11). Две тысячи ставились,
+ * когда каталог отдавался целиком; теперь get_tours пагинирован по семь туров,
+ * и страница весит 2,2–4,4 тысячи знаков (замер с прода 02.11: «Курильское»
+ * 4 364, «Горелый» 4 209). Обрезок терял 1–3 тура из семи: живая сверка цен
+ * (dropUnsourcedPrices) вырезала из ответа туристу настоящие цены этих туров,
+ * а судья эвала «вопросов о турах» называл их выдумкой — pass_rate 0.691.
+ */
+const CATALOG_TOOLS = ['get_tours', 'get_tour_details', 'get_tour_availability'] as const;
+const LONG_OUTPUT_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info', ...CATALOG_TOOLS]);
 /**
  * Сравнение туров (compare_tours) журнал хранит целиком. Цены и даты стоят по
  * всему ответу, а последний тур — в конце каждой строки: обрезок на любом
