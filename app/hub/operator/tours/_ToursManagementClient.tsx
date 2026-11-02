@@ -218,7 +218,7 @@ export default function ToursManagementClient() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Мои туры</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>Мои туры</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
             Всего: {total}
           </p>
@@ -445,7 +445,7 @@ export default function ToursManagementClient() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="w-full max-w-lg ds-card rounded-xl p-6 space-y-4 max-h-[90dvh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h2 className="font-playfair text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
                 Импорт тура из PDF
               </h2>
               <button onClick={() => setPdfOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">

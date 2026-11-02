@@ -49,7 +49,7 @@ export function BulkOpenResult({ result }: { result: BulkResult }) {
           style={{ background: 'rgba(63,185,80,0.10)', color: 'var(--success)' }}>
           <CheckCircle className="w-3.5 h-3.5 shrink-0" />
           <div className="text-xs">
-            <span className="font-bold">Открыто {result.opened} дат</span>
+            <span className="font-medium">Открыто {result.opened} дат</span>
             {(result.updated ?? 0) > 0 && ` · обновлено ${result.updated}`}
             {result.skipped > 0 && ` · пропущено ${result.skipped}`}
             {' '}из {result.total} в диапазоне
@@ -61,7 +61,7 @@ export function BulkOpenResult({ result }: { result: BulkResult }) {
           style={{ borderLeftColor: 'var(--warning)', color: 'var(--warning)' }}>
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <div className="text-xs">
-            <span className="font-bold">Из них открыто снова {reopened.length} — были закрыты или сняты</span>
+            <span className="font-medium">Из них открыто снова {reopened.length} — были закрыты или сняты</span>
             <span style={{ color: 'var(--text-secondary)' }}>
               {': '}
               {reopened.slice(0, LIST_LIMIT)
@@ -78,7 +78,7 @@ export function BulkOpenResult({ result }: { result: BulkResult }) {
           style={{ borderLeftColor: 'var(--warning)', color: 'var(--warning)' }}>
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <div className="text-xs">
-            <span className="font-bold">Не открыто {refused.length}: уже записано больше мест</span>
+            <span className="font-medium">Не открыто {refused.length}: уже записано больше мест</span>
             <span style={{ color: 'var(--text-secondary)' }}>
               {' — '}
               {refused.slice(0, LIST_LIMIT)

@@ -21,7 +21,7 @@ import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
 
 function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
   return (
-    <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+    <p className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] mb-3">
       <Icon className="w-3.5 h-3.5" />
       {children}
     </p>
@@ -107,7 +107,7 @@ function FirstStepsPanel({
               <p className="text-xs font-medium" style={{ color: s.done ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: s.done ? 'line-through' : 'none' }}>
                 {s.label}
               </p>
-              {!s.done && <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.desc}</p>}
+              {!s.done && <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.desc}</p>}
             </div>
             {!s.done && (
               <Link href={s.href} className="flex items-center gap-1 text-xs font-medium shrink-0 hover:underline"
