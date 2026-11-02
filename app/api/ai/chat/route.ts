@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
           const plan = planChatRequest(rawMessage, pick.tour, pre);
           if (plan) {
             const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false });
-            if (out.kind === 'ok') fastRequestText = humanChatConfirm(out.text);
+            if (out.kind === 'ok') fastRequestText = humanChatConfirm(out.text, pick.tour?.title);
           }
         } catch (e) { console.warn('[kuzmich-chat] быстрый путь не сработал, обычный ответ', safeMsg(e)); }
       }
@@ -496,7 +496,7 @@ export async function POST(request: NextRequest) {
       if (plan) {
         try {
           const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false });
-          if (out.kind === 'ok') chatRequestText = humanChatConfirm(out.text);
+          if (out.kind === 'ok') chatRequestText = humanChatConfirm(out.text, bookingFormTour?.title);
         } catch (e) { console.warn("[kuzmich-chat] заявка из чата не создана, остаётся карточка", safeMsg(e)); }
       }
     }

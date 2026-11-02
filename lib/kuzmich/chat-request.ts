@@ -61,7 +61,7 @@ export function planChatRequest(
  * Текст инструмента написан для агента (ключ, «не публикуйте», RU/EN/ZH).
  * Человеку в чате — его собственная заявка: номер, ссылка статуса, порядок.
  */
-export function humanChatConfirm(toolText: string): string {
+export function humanChatConfirm(toolText: string, tourTitle?: string | null): string {
   const trip = /TRIP-[A-Z0-9]+/.exec(toolText)?.[0];
   const tripUrl = /https:\/\/\S+\/trip-request\/TRIP-[A-Z0-9]+#[\w.-]+/.exec(toolText)?.[0];
   const links = [...new Set(toolText.match(/https:\/\/vedarai\.ru\/request-status#[\w-]+/g) ?? [])];
@@ -73,6 +73,9 @@ export function humanChatConfirm(toolText: string): string {
     if (/— Машина: создано/.test(toolText)) legs.push('транспорт');
     parts.push(`Заявка на поездку создана, номер ${trip}${legs.length ? ` (${legs.join(', ')})` : ''}.`);
   } else parts.push('Заявка создана.');
+  // Какой тур в заявке — словами, чтобы человек сразу увидел ошибку выбора.
+  const tt = tourTitle?.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (tt) parts.push(`Тур в заявке: «${tt}». Если не тот — напишите название тура, поправим. EN: Tour in the request: «${tt}». ZH: 申请中的线路：«${tt}»。`);
   parts.push('Оператор свяжется с вами по указанному телефону для подтверждения. Мгновенного бронирования нет — подтверждает человек, оплата не через платформу.');
   if (tripUrl) parts.push(`Вся поездка, статус каждой части и согласие на обработку данных: ${tripUrl}`);
   else if (links.length) parts.push(`Статус заявки и согласие на обработку данных: ${links.join(' , ')}`);
