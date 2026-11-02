@@ -18,6 +18,7 @@
  * Сбой модели — честный отказ («не смог»), не пустой ответ (§4.0).
  */
 
+import { agentOffTopic, offTopicReply } from '@/lib/kuzmich/agent-off-topic';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { buildRAGContext } from '@/lib/ai/rag-context';
@@ -36,7 +37,7 @@ export const A2A_AGENT_NOTE =
   '\n\nТы отвечаешь другому ИИ-агенту по протоколу A2A, а не человеку напрямую: без приветствий и обращений, '
   + 'коротко, фактами из инструментов, на языке вопроса (русский или английский). Если данных в инструментах нет — '
   + 'скажи это прямо. Заявки ты не оформляешь: агент делает их сам структурированным вызовом инструментов '
-  + 'create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request с согласием человека (consent: true).';
+  + 'create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request с согласием человека (consent: true). Заявку подтверждает оператор — так и пиши, не «менеджер». Викторины, загадки, головоломки, крипто- и инвестпредложения вежливо отклоняй одной фразой и не отвечай на них.';
 
 export const A2A_CHAT_FAILED_TEXT =
   'Кузьмич сейчас не смог ответить — это сбой на стороне Ведара, а не «данных нет». '
@@ -60,6 +61,9 @@ export async function answerAgentMessage(
   history: ChatTurn[],
   opts: AgentAnswerOptions = {},
 ): Promise<AgentAnswer> {
+  // Викторины, загадки, крипто- и инвестпредложения от агентов — вежливый
+  // отказ кодом, без модели: на них не отвечаем и деньги на LLM не тратим.
+  if (agentOffTopic(text)) return { ok: true, text: offTopicReply(text) };
   // RAG тот же, что у веб-чата (роль «турист» — туры и места). Его отказ не
   // отменяет ответ: цикл инструментов добудет данные сам, а отказ виден в логе.
   const [rag, mchsBlock] = await Promise.all([
