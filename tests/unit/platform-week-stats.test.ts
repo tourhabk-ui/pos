@@ -13,13 +13,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { publicTourSql, hiddenTourReasonSql } from '@/lib/tours/public-visibility';
 import {
   PLATFORM_WEEK_SQL, loadPlatformWeekStats, platformWeekLine, platformWeekPromptLines,
-  hiddenBreakdownWords, funnelWords, rejectReasonWords, type PlatformWeekStats,
+  hiddenBreakdownWords, funnelWords, lineBreakdownWords, rejectReasonWords, type PlatformWeekStats,
 } from '@/lib/agents/platform-week-stats';
 
 const STATS: PlatformWeekStats = {
   bookings_week: 0, confirmed_week: 0, operators_new: 5, operators_new_with_visible_tour: 0,
   operators_with_visible_tour: 9, tours_visible: 42, tours_hidden: 17,
   hidden_draft: 11, hidden_inactive: 5, hidden_both: 1,
+  visible_with_line: 30, visible_route_no_line: 4, visible_no_route: 8,
   funnel_booking_start: 6, funnel_booking_submitted: 2, funnel_booking_rejected: 3,
   funnel_top_reject_reason: 'NO_SLOTS', funnel_top_reject_count: 2,
   funnel_booking_abandoned: 1, funnel_booking_start_unmatched: 0,
@@ -44,7 +45,8 @@ describe('запрос', () => {
     expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND ${inactive})::int AS hidden_inactive`);
     expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND NOT ${draft} AND NOT ${inactive})::int AS hidden_both`);
     // Цена, даты и линия маршрута причиной невидимости не называются: шлюз их не знает.
-    expect(PLATFORM_WEEK_SQL).not.toMatch(/base_price|geometry|tour_availability/);
+    const hiddenPart = PLATFORM_WEEK_SQL.split('AS hidden_both')[0].split('AS tours_hidden')[1] ?? '';
+    expect(hiddenPart).not.toMatch(/base_price|geometry|tour_availability/);
   });
 
   it('воронка — funnel_events без своих заходов, за 7 дней, шаги словаря', () => {
@@ -79,6 +81,21 @@ describe('брошенная форма (#2899)', () => {
   });
 });
 
+describe('линия маршрута у туров витрины (#2896, #2903)', () => {
+  it('три ведра по правилу витрины, третье — остаток, сумма = tours_visible по построению', () => {
+    const pub = publicTourSql('ot');
+    expect(PLATFORM_WEEK_SQL).toContain(`JOIN kamchatka_routes kr ON kr.id = ot.route_id\n     WHERE ${pub} AND kr.geometry IS NOT NULL)::int AS visible_with_line`);
+    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${pub} AND kr.geometry IS NULL)::int AS visible_route_no_line`);
+    expect(PLATFORM_WEEK_SQL).toMatch(/NOT EXISTS \(SELECT 1 FROM kamchatka_routes kr WHERE kr\.id = ot\.route_id\)\)::int AS visible_no_route/);
+    expect(PLATFORM_WEEK_SQL).not.toMatch(/SELECT \* FROM kamchatka_routes/);
+  });
+
+  it('словами; витрина пуста — без разбивки', async () => {
+    expect(lineBreakdownWords(STATS)).toBe('из них с линией маршрута 30, маршрут без линии 4, без маршрута 8');
+    expect(lineBreakdownWords({ ...STATS, tours_visible: 0 })).toBe('');
+  });
+});
+
 describe('слова', () => {
   it('разбивка невидимых и воронка — с цифрами и причиной словами', () => {
     expect(hiddenBreakdownWords(STATS)).toBe('не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1');
@@ -106,11 +123,11 @@ describe('три исхода', () => {
     const lines = platformWeekPromptLines(read);
     expect(lines).toContain('- Новых операторов: 5, из них с туром на витрине: 0');
     expect(lines).toContain('- Бронирований за 7 дней: 0, из них подтверждено 0');
-    expect(lines.join('\n')).toContain('туров на витрине 42, не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1');
+    expect(lines.join('\n')).toContain('туров на витрине 42 (из них с линией маршрута 30, маршрут без линии 4, без маршрута 8), не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1');
     expect(lines).toContain('- Воронка брони за 7 дней: касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2), ушли без заявки 1');
     expect(platformWeekLine(read)).toBe(
       '<b>Платформа за 7 дней:</b> 0 бронирований, 0 подтверждено, 5 новых операторов (с туром на витрине: 0), '
-      + 'туров на витрине 42, не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1; '
+      + 'туров на витрине 42 (из них с линией маршрута 30, маршрут без линии 4, без маршрута 8), не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1; '
       + 'воронка: касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2), ушли без заявки 1',
     );
   });
