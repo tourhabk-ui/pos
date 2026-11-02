@@ -4,10 +4,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { Calendar, Loader2, Search, Download, AlertCircle } from 'lucide-react';
 
+import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
 import { BOOKING_STATUSES, type BookingStatus as BStatus } from '@/lib/types/statuses';
 interface Booking {
   id: string; tourName: string; touristName: string; touristEmail: string;
-  date: string; price: number; status: BStatus;
+  touristPhone: string | null; date: string; tourDate: string | null; price: number; status: BStatus;
 }
 
 // Подписи — по единому словарю (аудит 15.10, A11). Значение вне словаря
@@ -48,13 +49,16 @@ export default function AdminBookingsClient() {
       setTotal(json.data?.pagination?.total ?? rows.length);
       setBookings(rows.map((b: {
         id: string; tourName: string; userName: string; userEmail: string;
+        userPhoneMasked?: string | null; date?: string | null;
         createdAt: string; totalPrice: number; status: string;
       }) => ({
         id: b.id,
         tourName: b.tourName,
         touristName: b.userName,
         touristEmail: b.userEmail,
+        touristPhone: b.userPhoneMasked ?? null,
         date: b.createdAt,
+        tourDate: b.date ?? null,
         price: b.totalPrice,
         status: b.status as BStatus,
       })));
@@ -85,9 +89,9 @@ export default function AdminBookingsClient() {
           <button
             className="min-h-[44px] w-full sm:w-auto justify-center px-4 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-secondary)] text-sm inline-flex items-center gap-2 hover:border-[var(--border-strong)]"
             onClick={() => {
-              const csv = ['Тур,Турист,Email,Дата,Цена,Статус',
+              const csv = ['Тур,Турист,Email,Создана (Камчатка),Дата тура,Цена,Статус',
                 ...filtered.map(b =>
-                  `"${b.tourName}","${b.touristName}","${b.touristEmail}","${new Date(b.date).toLocaleDateString('ru-RU')}","${b.price}","${ST_LBL[b.status] ?? b.status}"`
+                  `"${b.tourName}","${b.touristName}","${b.touristEmail}","${formatKamchatkaDate(b.date)}","${formatKamchatkaDate(b.tourDate)}","${b.price}","${ST_LBL[b.status] ?? b.status}"`
                 )].join('\n');
               const a = document.createElement('a');
               a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -149,7 +153,8 @@ export default function AdminBookingsClient() {
                   <th className="p-3">Тур</th>
                   <th className="p-3">Турист</th>
                   <th className="p-3">Email</th>
-                  <th className="p-3">Дата брони</th>
+                  <th className="p-3">Создана</th>
+                  <th className="p-3">Дата тура</th>
                   <th className="p-3">Цена</th>
                   <th className="p-3">Статус</th>
                 </tr>
@@ -158,11 +163,15 @@ export default function AdminBookingsClient() {
                 {filtered.map(b => (
                   <tr key={b.id} className="border-b border-[var(--border)] hover:bg-[var(--bg-hover)]">
                     <td className="p-3 text-[var(--text-primary)]">{b.tourName}</td>
-                    <td className="p-3 text-[var(--text-secondary)]">{b.touristName}</td>
+                    <td className="p-3 text-[var(--text-secondary)]">
+                      {b.touristName}
+                      {b.touristPhone && <div className="text-xs text-[var(--text-muted)]">тел. {b.touristPhone}</div>}
+                    </td>
                     <td className="p-3 text-[var(--text-muted)] text-xs">{b.touristEmail}</td>
                     <td className="p-3 text-[var(--text-secondary)]">
-                      {new Date(b.date).toLocaleDateString('ru-RU')}
+                      {formatKamchatkaDate(b.date)}
                     </td>
+                    <td className="p-3 text-[var(--text-secondary)]">{formatKamchatkaDate(b.tourDate)}</td>
                     <td className="p-3 text-[var(--text-primary)] font-medium">
                       {b.price.toLocaleString('ru-RU')} ₽
                     </td>

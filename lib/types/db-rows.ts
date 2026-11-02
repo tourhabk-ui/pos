@@ -162,8 +162,13 @@ export interface BookingAdminRow {
   created_at: Date;
   updated_at: Date;
   tour_name: string;
-  user_name: string;
-  user_email: string;
+  user_name: string | null;
+  user_email: string | null;
+  booking_day?: string | null;
+  created_at_utc?: string;
+  tourist_name?: string | null;
+  tourist_email?: string | null;
+  tourist_phone?: string | null;
 }
 
 // ──────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { BookingAdminRow, CountRow } from '@/lib/types/db-rows';
+import { bookingContact } from '@/lib/admin/booking-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      conditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR t.title ILIKE $${paramIndex})`);
+      conditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR b.tourist_name ILIKE $${paramIndex} OR b.tourist_email ILIKE $${paramIndex} OR t.title ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
       paramIndex++;
     }
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
       `SELECT COUNT(*) as count
        FROM operator_bookings b
        LEFT JOIN operator_tours t ON t.id = b.operator_tour_id
-       LEFT JOIN users u ON u.id = (b.metadata->>'user_id')::uuid
+       LEFT JOIN users u ON u.id = COALESCE(b.user_id, (b.metadata->>'user_id')::uuid)
        ${whereClause}`,
       params
     );
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     const bookingsResult = await query<BookingAdminRow>(
       `SELECT
          b.id,
-         b.booking_date,
+         to_char(b.booking_date, 'YYYY-MM-DD') AS booking_day,
          b.participants,
          b.base_total_price,
          b.final_price,
@@ -57,14 +58,18 @@ export async function GET(request: NextRequest) {
          b.booking_status,
          b.payment_status,
          b.special_requests,
-         b.created_at,
+         -- created_at — timestamp без пояса в поясе сессии БД; переводим в UTC явно.
+         to_char((b.created_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at_utc,
          b.updated_at,
          COALESCE(t.title, 'Тур удалён') AS tour_name,
-         COALESCE(u.name, 'Гость') AS user_name,
-         COALESCE(u.email, '') AS user_email
+         u.name AS user_name,
+         u.email AS user_email,
+         b.tourist_name,
+         b.tourist_email,
+         b.tourist_phone
        FROM operator_bookings b
        LEFT JOIN operator_tours t ON t.id = b.operator_tour_id
-       LEFT JOIN users u ON u.id = (b.metadata->>'user_id')::uuid
+       LEFT JOIN users u ON u.id = COALESCE(b.user_id, (b.metadata->>'user_id')::uuid)
        ${whereClause}
        ORDER BY b.created_at DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -74,20 +79,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        bookings: bookingsResult.rows.map(b => ({
+        bookings: bookingsResult.rows.map(b => {
+          const c = bookingContact(b);
+          return {
           id: b.id,
-          date: b.booking_date,
+          date: b.booking_day,
           participants: b.participants,
           totalPrice: parseFloat(b.total_price),
           status: b.booking_status,
           paymentStatus: b.payment_status,
           specialRequests: b.special_requests,
-          createdAt: b.created_at,
+          createdAt: b.created_at_utc,
           updatedAt: b.updated_at,
           tourName: b.tour_name,
-          userName: b.user_name,
-          userEmail: b.user_email,
-        })),
+          userName: c.name,
+          userEmail: c.email,
+          userPhoneMasked: c.phoneMasked,
+          hasAccount: c.hasAccount,
+          };
+        }),
         pagination: {
           page,
           limit,

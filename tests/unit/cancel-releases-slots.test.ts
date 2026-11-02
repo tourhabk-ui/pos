@@ -60,6 +60,7 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*
 const ANSWERS: Record<string, 'releases' | string> = {
   // ── Возвращают места ────────────────────────────────────────────────────
   'app/api/bookings/[id]/cancel/route.ts': 'releases',
+  'app/api/cron/test-booking-cancel/route.ts': 'releases',
   // Кабинет оператора и раздел «Свои туры» гида — одно правило продавца тура.
   'lib/bookings/owner-status.ts': 'releases',
   'app/api/operator/bookings/[id]/route.ts': 'releases',
