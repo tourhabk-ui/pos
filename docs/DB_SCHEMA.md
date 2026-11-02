@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-02 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1365_request_handoff_codes.sql`.
+> Снято 2026-11-02 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1367_incoming_answer_decline.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 312 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4095 |
+| Колонок | 4097 |
 | Внешних ключей | 373 |
 | Таблиц без единого FK в обе стороны | 86 |
 
@@ -777,9 +777,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `partner_id uuid!` `key_hash text!` `issued_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
 
-**partner_incoming_answers** · 6 кол. · PK id · partner_id → partners.id · индексов 2
+**partner_incoming_answers** · 8 кол. · PK id · partner_id → partners.id · индексов 2
 
-`id bigint!=` `partner_id uuid!` `subject_kind text!` `subject_id text!` `answer text!` `created_at timestamptz!=`
+`id bigint!=` `partner_id uuid!` `subject_kind text!` `subject_id text!` `answer text!` `created_at timestamptz!=` `decline_reason text` `decline_note text`
 
 **partner_integrations** · 6 кол. · PK id · partner_id → partners.id · индексов 3
 
