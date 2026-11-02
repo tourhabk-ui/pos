@@ -19,7 +19,7 @@
  *  - после привязки гид видит под ответом свою строку меню в обоих каналах, а
  *    в Telegram — команды чата из той же строки.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { OwnBooking, OwnTour } from '@/lib/guides/own-tours';
 
@@ -123,6 +123,15 @@ const TEAM_GUIDE = { ...SELLER, partnerName: 'Гид команды', slug: 'tea
 const noPd = (text: string) => { for (const v of PD) expect(text).not.toContain(v); };
 
 let errorLog: ReturnType<typeof vi.spyOn>;
+
+// Фикстура броней привязана к «сегодня» = 2026-11-02 по Камчатке (бронь №502 —
+// подтверждённая на сегодня). Без закреплённых часов назавтра №502 становится
+// прошедшей и получает кнопки «Состоялась / Не пришёл» — тест краснеет сам собой.
+// Подменяем только Date: таймеры и микрозадачи остаются настоящими.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-02T10:00:00+12:00') });
+});
+afterAll(() => { vi.useRealTimers(); });
 
 beforeEach(() => {
   clearMaxMessageDedup();
