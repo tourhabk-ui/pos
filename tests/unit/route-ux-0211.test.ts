@@ -9,10 +9,10 @@ describe('маршруты без фото и первый экран стран
   });
   it('герой без фото 184px (шапка 64 + 120), вердикт сразу под фактами', () => {
     expect(page).toContain('useGradient ? { height: 184 }');
-    expect(page.indexOf('data-testid="route-facts"')).toBeLessThan(page.indexOf('<RouteVerdict'));
+    expect(page.indexOf('data-testid="route-facts"')).toBeLessThan(page.indexOf('RouteVerdict routeId='));
   });
   it('баннеры безопасности на месте', () => {
     expect(page).toContain('В районе маршрута');
-    expect(page).toContain('<RouteVerdict routeId={route.id} data={verdictData} />');
+    expect(page).toMatch(/RouteVerdict routeId=\{route.id\} data=\{verdictData\}/);
   });
 });

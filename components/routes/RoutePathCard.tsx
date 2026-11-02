@@ -55,12 +55,12 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
             src={photoSrc}
             alt={route.title}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className="w-full h-full object-cover"
           />
         ) : (
           <div
             className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(155deg, color-mix(in srgb, ${diff.color} 26%, var(--bg-hover)) 0%, var(--bg-hover) 100%)` }}
+            style={{ background: 'var(--bg-hover)' }}
           >
           </div>
         )}
