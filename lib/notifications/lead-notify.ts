@@ -195,6 +195,8 @@ export async function notifyPartnerNewLeadPersonally(params: {
    * переписки нет: своя проба (is_self, 1145) — партнёру некому отвечать.
    */
   chat?: boolean;
+  /** Черновик оператору (lib/requests/operator-predraft): строки без ПД. */
+  predraft?: string[];
 }): Promise<PersonalLeadOutcome> {
   // Общая часть — без ПД: её видно в обоих каналах.
   const common = [
@@ -202,7 +204,8 @@ export async function notifyPartnerNewLeadPersonally(params: {
     params.origin ? `Откуда: ${esc(params.origin)}` : '',
     params.sourceUrl ? `Страница: ${esc(params.sourceUrl)}` : '',
     params.routeTitle ? `<b>Интерес:</b> ${esc(params.routeTitle)}` : '',
-  ].filter(Boolean);
+    ...(params.predraft?.length ? ['', ...params.predraft] : []),
+  ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
   const text = [
     ...common,
     '',
