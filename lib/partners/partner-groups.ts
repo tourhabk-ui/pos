@@ -27,10 +27,16 @@ export function isPartnerGroup(v: unknown): v is PartnerGroup {
 }
 
 const HAS_APPLICATION = `EXISTS (SELECT 1 FROM operator_applications oa_g WHERE oa_g.partner_id = p.id)`;
+// Решение владельца 02.11: проверенная карточка или карточка с живыми турами —
+// уже партнёр, даже если заявку не подавала (заведены админом/импортом:
+// «Камчатская рыбалка», «Лагуна Экспедиция» и т.п.). Иначе они прятались в
+// «Потенциальных» с бейджем «Без заявки».
+const HAS_LIVE_TOURS = `EXISTS (SELECT 1 FROM tours t_g WHERE t_g.operator_id = p.id AND t_g.is_active = TRUE AND t_g.deleted_at IS NULL)`;
+const IS_PARTNER = `(p.profile_status <> 'none' OR ${HAS_APPLICATION} OR p.is_verified = TRUE OR ${HAS_LIVE_TOURS})`;
 
 export const PARTNER_GROUP_SQL: Record<PartnerGroup, string> = {
-  partners: `(p.profile_status <> 'none' OR ${HAS_APPLICATION})`,
-  potential: `(p.profile_status = 'none' AND NOT ${HAS_APPLICATION})`,
+  partners: IS_PARTNER,
+  potential: `(NOT ${IS_PARTNER})`,
 };
 
 export const PARTNER_GROUP_LABELS: Record<PartnerGroup, string> = {
@@ -40,6 +46,6 @@ export const PARTNER_GROUP_LABELS: Record<PartnerGroup, string> = {
 
 /** Подпись-пояснение критерия для админских экранов: подпись обязана говорить, что считает. */
 export const PARTNER_GROUP_HINTS: Record<PartnerGroup, string> = {
-  partners: 'Подали заявку или уже в работе: на проверке, одобрены или отклонены.',
-  potential: 'Карточки без заявки: импорт или недозаполненные, заявку не подавали.',
+  partners: 'Подали заявку, проверены или с живыми турами.',
+  potential: 'Без заявки, не проверены и без живых туров.',
 };
