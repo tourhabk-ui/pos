@@ -8,7 +8,7 @@
  * Запускается через /api/cron/scout (08:00 UTC, после Scout Digest в 07:00).
  */
 
-import { readFile, readdir } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { salvageTruncatedArray } from '@/lib/ai/json-salvage';
 import { join } from 'path';
@@ -22,6 +22,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { loadRepoFiles, apiRoutesFromFiles, realFileListForPrompt, validateProposalPaths } from '@/lib/agents/scout-path-guard';
 import { loadPlatformWeekStats, platformWeekLine, platformWeekPromptLines, type PlatformWeekRead } from '@/lib/agents/platform-week-stats';
 
 interface StructuredProposal {
@@ -63,50 +64,6 @@ async function readCodebaseRules(): Promise<string> {
       sections.push(raw.slice(start, nextH2 > 0 ? nextH2 : start + 2000));
     }
     return sections.join('\n\n---\n\n').slice(0, 5000);
-  } catch {
-    return '';
-  }
-}
-
-async function scanApiRoutes(): Promise<string> {
-  try {
-    const apiDir = join(process.cwd(), 'app', 'api');
-    const routes: string[] = [];
-
-    async function walk(dir: string, prefix = '/api'): Promise<void> {
-      const entries = await readdir(dir, { withFileTypes: true });
-      for (const e of entries) {
-        if (e.isDirectory()) {
-          await walk(join(dir, e.name), `${prefix}/${e.name}`);
-        } else if (e.name === 'route.ts') {
-          routes.push(prefix);
-        }
-      }
-    }
-
-    await walk(apiDir);
-    return routes.sort().join('\n');
-  } catch {
-    return '';
-  }
-}
-
-async function scanLibFiles(): Promise<string> {
-  try {
-    const libDir = join(process.cwd(), 'lib');
-    const lines: string[] = [];
-    async function walk(dir: string): Promise<void> {
-      const entries = await readdir(dir, { withFileTypes: true });
-      for (const e of entries) {
-        const full = join(dir, e.name);
-        if (e.isDirectory()) { await walk(full); }
-        else if (e.name.endsWith('.ts') || e.name.endsWith('.tsx')) {
-          lines.push(full.replace(process.cwd() + '/', ''));
-        }
-      }
-    }
-    await walk(libDir);
-    return lines.sort().join('\n');
   } catch {
     return '';
   }
@@ -260,7 +217,7 @@ async function generateStructuredProposals(
 
 КРИТЕРИИ ХОРОШЕГО ПРЕДЛОЖЕНИЯ:
 - Решает наблюдаемую проблему, а не "было бы неплохо". В поле why — назови триггер дословно (цифра/факт из контекста) + измеримый эффект.
-- Реализуемо за 1-4 существующих или новых файла. Пути в files_to_change бери ТОЛЬКО из переданных списков API-роутов и lib/-файлов, либо помечай как новый файл по реальной структуре (app/api/.../route.ts, lib/services/*.ts, migrations/NNN_*.sql). Не выдумывай пути.
+- Реализуемо за 1-4 СУЩЕСТВУЮЩИХ файла. Пути в files_to_change копируй ДОСЛОВНО из переданного списка реальных файлов (lib/ и app/api/.../route.ts). Новые файлы не указывай. Любой /api/... в тексте предложения обязан быть из списка существующих API-роутов. Код сверяет каждый путь и эндпоинт с деревом репозитория: предложение с несуществующим файлом или роутом выбрасывается целиком.
 - acceptance_criteria — проверяемые утверждения (что покажет тест/запрос/экран), не "работает корректно".
 - implementation_steps — конкретные действия по файлам, а не пересказ why.
 
@@ -603,8 +560,7 @@ export async function runScoutInnovator(
     openIssues,
     closedIssues,
     inventoryStr,
-    apiRoutesList,
-    libFilesList,
+    repoFiles,
   ] = await Promise.all([
     knowledgeBase.list({ type: 'intel', limit: 5 }),
     knowledgeBase.search('scout digest дайджест', { limit: 3 }),
@@ -612,9 +568,12 @@ export async function runScoutInnovator(
     readGitHubIssues('open'),
     readGitHubIssues('closed'),
     readPlatformInventory(),
-    scanApiRoutes(),
-    scanLibFiles(),
+    loadRepoFiles(),
   ]);
+  // Реальное дерево файлов (манифест сборки на проде, ФС локально). Без него
+  // сверять предложения не с чем — issue не заводим вовсе (см. ниже).
+  const apiRoutesList = repoFiles ? apiRoutesFromFiles(repoFiles).join('\n') : '';
+  const libFilesList = repoFiles ? realFileListForPrompt(repoFiles) : '';
 
   const allPages = [...intelPages, ...scoutPages].slice(0, 6);
 
@@ -642,7 +601,7 @@ export async function runScoutInnovator(
   const repoContext = [
     codebaseRules ? `=== ПРАВИЛА КОДОВОЙ БАЗЫ (CLAUDE.md) ===\n${codebaseRules}` : '',
     inventoryStr ? `=== ИНВЕНТАРЬ ПЛАТФОРМЫ ===\n${inventoryStr}` : '',
-    libFilesList ? `=== СУЩЕСТВУЮЩИЕ ФАЙЛЫ В lib/ (проверяй перед предложением новой утилиты) ===\n${libFilesList.slice(0, 3000)}\nПравило: если предлагаешь новую утилиту — сначала проверь список выше. Если похожий файл уже есть — предлагай РАСШИРИТЬ его, не создавать новый.` : '',
+    libFilesList ? `=== СУЩЕСТВУЮЩИЕ ФАЙЛЫ В lib/ (проверяй перед предложением новой утилиты) ===\n${libFilesList}\nПравило: если предлагаешь новую утилиту — сначала проверь список выше. Если похожий файл уже есть — предлагай РАСШИРИТЬ его, не создавать новый.` : '',
     selfBriefing.recentRuns ? `=== МОИ ПРЕДЫДУЩИЕ ЗАПУСКИ (не повторять уже созданные предложения) ===\n${selfBriefing.recentRuns}` : '',
     openIssues ? `=== УЖЕ ОТКРЫТЫЕ ЗАДАЧИ (agent-proposal issues, не дублировать) ===\n${openIssues}` : '',
     closedIssues ? `=== УЖЕ РЕАЛИЗОВАННЫЕ ПРЕДЛОЖЕНИЯ (закрытые issues) ===\n${closedIssues}` : '',
@@ -700,15 +659,46 @@ export async function runScoutInnovator(
   // персистентного набора недавно созданных предложений — чтобы то же самое не
   // предлагалось заново после закрытия issue. Детерминированный backstop к critic-gate.
   const locks = await loadProposalLocks();
-  const blockTitles = [...openTitles, ...locks];
+  // Закрытые задачи тоже блокируют: закрытое «не будем делать» не должно
+  // возвращаться новым issue под чуть другим заголовком.
+  const closedTitles = (closedIssues ?? '')
+    .split('\n')
+    .filter((l) => l.startsWith('- '))
+    .map((l) => l.slice(2).trim())
+    .filter(Boolean);
+  const blockTitles = [...openTitles, ...closedTitles, ...locks];
   const deduped = rawProposals.filter((p) => !isDuplicateTitle(p.title, blockTitles));
   const skipped_duplicates = rawProposals.length - deduped.length;
 
+  // Сверка с реальным кодом (#2898/#2904): несуществующий файл или /api/...
+  // — предложение не идёт дальше. Дерева нет — не заводим ничего.
+  if (!repoFiles) {
+    return {
+      proposals_count: 0,
+      skipped_duplicates,
+      sent_to_tg: false,
+      intel_entries: allPages.length,
+      duration_ms: Date.now() - start,
+      issues_created: [],
+      phase1_diag: `${phase1Diag}; список файлов репо НЕДОСТУПЕН — пути не сверить, issue не создавались`,
+    };
+  }
+  const grounded: StructuredProposal[] = [];
+  const pathSkips: string[] = [];
+  for (const p of deduped) {
+    const check = validateProposalPaths(p, repoFiles);
+    if (check.kind === 'ok') grounded.push(check.proposal);
+    else {
+      pathSkips.push(`${p.title}: ${check.reason}`);
+      console.error(`[scout-innovator] пропуск (нереальный код): ${p.title} — ${check.reason}`);
+    }
+  }
+
   // Critic-gate: вторая пара глаз перед созданием Issue (fail-open, параллельно)
   const verdicts = await Promise.all(
-    deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues ?? '', libFilesList)),
+    grounded.map((p) => criticReviewProposal(p, codebaseRules, closedIssues ?? '', libFilesList)),
   );
-  const passing = deduped
+  const passing = grounded
     .map((p, i) => ({ p, v: verdicts[i] }))
     .filter(({ v }) => criticPasses(v));
   const proposals = passing.map(({ p }) => p);
@@ -718,9 +708,9 @@ export async function runScoutInnovator(
   for (const { p, v } of passing) {
     if (v.verdict === 'unknown') uncheckedReason.set(p.title, v.reason);
   }
-  const skipped_by_critic = deduped.length - proposals.length;
+  const skipped_by_critic = grounded.length - proposals.length;
   verdicts.forEach((v, i) => {
-    if (v.verdict === 'rejected') console.error(`[scout-innovator] critic отклонил: ${deduped[i].title} — ${v.reason}`);
+    if (v.verdict === 'rejected') console.error(`[scout-innovator] critic отклонил: ${grounded[i].title} — ${v.reason}`);
   });
 
   if (proposals.length === 0) {
@@ -732,7 +722,7 @@ export async function runScoutInnovator(
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
       issues_created: [],
-      phase1_diag: `${phase1Diag}; после дедупа/критика осталось 0 (dup=${skipped_duplicates}, critic=${skipped_by_critic})`,
+      phase1_diag: `${phase1Diag}; после дедупа/сверки/критика осталось 0 (dup=${skipped_duplicates}, paths=${pathSkips.length}, critic=${skipped_by_critic})`,
     };
   }
 

@@ -225,3 +225,4 @@ __pycache__/
 
 # Отчёты пробы своей модели (scripts/local-brain-probe.ts) — на компьютере владельца
 local-brain-reports/
+/repo-manifest.json
