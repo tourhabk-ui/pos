@@ -154,7 +154,9 @@ const to = (chatId: number) => sent.filter((s) => s.chatId === chatId);
 const lastTo = (chatId: number) => to(chatId).at(-1);
 function buttons(msg: { opts: unknown } | undefined): Button[] {
   const opts = msg?.opts as { attachments?: Array<{ payload?: { buttons?: Button[][] } }> } | undefined;
-  return (opts?.attachments?.[0]?.payload?.buttons ?? []).flat();
+  // Подпись кнопок записи (~срок~подпись) — снимаем: тесты сверяют смысл payload.
+  return (opts?.attachments?.[0]?.payload?.buttons ?? []).flat()
+    .map((b) => (b.payload ? { ...b, payload: b.payload.replace(/~[0-9a-z]+~[A-Za-z0-9_-]{8}$/, '') } : b));
 }
 /** id предложения из кнопок последнего сообщения. */
 function proposalId(chatId: number): string {
