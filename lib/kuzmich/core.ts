@@ -3454,6 +3454,25 @@ export async function processMessage(opts: {
     // handleBookingStep вернул false или flow expired → продолжаем в AI chat
   }
 
+  // Код раньше модели (lib/kuzmich/code-first): статус по ссылке/ключу,
+  // «отмена» без заявки, устаревшая кнопка, точное название тура. Модель —
+  // только если код не решил. Бронь из незаверенного MAX сюда не доходит.
+  if (!emergencyNow && !isMediaMessage && !maxUnverified) {
+    const { classifyCodeFirst, requestStatusReply, exactTourTitleId, CANCEL_IDLE_REPLY, STALE_CONFIRM_REPLY } = await import('@/lib/kuzmich/code-first');
+    const openFlow = liveBooking && (await loadBookingFlow(chatId, mode, pendingMap)) !== null;
+    const cf = classifyCodeFirst(text, openFlow);
+    let tourId: number | null = cf.kind === 'tour' ? cf.tourId : null;
+    if (cf.kind === 'status') { await replyFn(chatId, escapeHtml(await requestStatusReply(cf.key))); return; }
+    if (cf.kind === 'cancel_idle') { await replyFn(chatId, CANCEL_IDLE_REPLY); return; }
+    if (cf.kind === 'stale_confirm') { await replyFn(chatId, STALE_CONFIRM_REPLY); return; }
+    if (cf.kind === 'none' && !openFlow && !isBookingTrigger(text)) tourId = await exactTourTitleId(text);
+    if (tourId != null) {
+      const b: PendingBooking = { step: 'tour', started_at: Date.now() };
+      await saveBookingFlow(chatId, mode, b, pendingMap);
+      if (await handleBookingStep(chatId, String(tourId), mode, pendingMap, replyFn, createdVia)) return;
+    }
+  }
+
   // MAX: тур, дата, имя, телефон и явное согласие в одной реплике — заявка
   // сразу, тем же планом и исполнителем, что быстрый путь веб-чата. Нет
   // даты или согласия — заявки нет, идём шагами (дату и цену не выдумываем).
