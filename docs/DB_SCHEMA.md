@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-02 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1371_conversation_reply_waits.sql`.
+> Снято 2026-11-02 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1371_trip_situations.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 315 |
+| Таблиц | 317 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4132 |
-| Внешних ключей | 378 |
-| Таблиц без единого FK в обе стороны | 86 |
+| Колонок | 4148 |
+| Внешних ключей | 379 |
+| Таблиц без единого FK в обе стороны | 87 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 39 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `ugms_forecasts` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
+| [Прочее](#прочее) | 41 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_watch_flow` `ugms_forecasts` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -625,7 +625,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `tour_id bigint!` `tag varchar!`
 
-**operator_tours** · 73 кол. · PK id · created_by → users.id, main_place_id → places.id, operator_id → partners.id, route_id → kamchatka_routes.id · на неё ссылаются: agent_bookings, agent_referral_links, booking_change_requests, cancellation_policies, channel_orders, contingency_rules, kuzmich_engagement_signals, operator_bookings, operator_chat_date_proposals, operator_tour_reviews, operator_tour_tags, route_description_cache, _route_description_cache_legacy, tour_availability, tour_availability_alternatives, tour_chat_edits, tour_create_drafts, tour_doc_drafts, tour_options, tour_price_tiers, tour_pricing_rules, tour_seat_holds, tour_seat_requests, tour_selection_items, tour_stop_sales, weather_alerts · индексов 16 · триггеры: operator_tours_assign_slug, trigger_operator_tours_timestamp
+**operator_tours** · 73 кол. · PK id · created_by → users.id, main_place_id → places.id, operator_id → partners.id, route_id → kamchatka_routes.id · на неё ссылаются: agent_bookings, agent_referral_links, booking_change_requests, cancellation_policies, channel_orders, contingency_rules, kuzmich_engagement_signals, operator_bookings, operator_chat_date_proposals, operator_tour_reviews, operator_tour_tags, route_description_cache, _route_description_cache_legacy, tour_availability, tour_availability_alternatives, tour_chat_edits, tour_create_drafts, tour_doc_drafts, tour_options, tour_price_tiers, tour_pricing_rules, tour_seat_holds, tour_seat_requests, tour_selection_items, tour_stop_sales, trip_situations, weather_alerts · индексов 16 · триггеры: operator_tours_assign_slug, trigger_operator_tours_timestamp
 
 `id bigint!=` `operator_id uuid!` `title varchar!` `description text` `slug varchar` `location_type varchar` `activity_type varchar` `location_name varchar` `latitude numeric` `longitude numeric` `base_price numeric=` `currency varchar=` `max_participants integer!=` `min_participants integer=` `duration_hours numeric` `duration_type varchar` `multi_day_count integer` `season_start date` `season_end date` `seasonal_only boolean=` `weather_dependent boolean=` `min_visibility_m integer=` `max_wind_kmh integer=` `max_precipitation_mm integer=` `is_active boolean=` `is_published boolean=` `notes text` `created_at timestamp=` `updated_at timestamp=` `created_by uuid` `deleted_at timestamp` `price_old numeric` `price_unit varchar=` `short_description text` `difficulty varchar` `included text[]` `not_included text[]` `what_to_bring text[]` `photos text[]=` `tour_image text` `agent_route_id uuid` `rating numeric=` `review_count integer=` `tripster_experience_id varchar` `avito_listing_id varchar` `sputnik8_product_id varchar` `channel_sync_at timestamp` `available_slots integer` `next_available_date date` `route_id uuid` `group_size_max integer` `price_note text` `includes text` `source_url text` `parsed_at timestamptz` `is_stale boolean=` `ai_tags jsonb=` `meeting_point text` `program jsonb` `safety_notes text[]` `excludes text[]=` `itinerary jsonb=` `cancellation_policy text` `pickup_type varchar` `pickup_details text` `cancellation_free_days integer` `cancellation_late_refund_percent integer` `hazards_hidden text[]!=` `video_clips jsonb!=` `pinned_at timestamptz` `main_place_id text` `main_place_source text` `group_size_unlimited boolean!=`
 
@@ -1584,6 +1584,14 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **trip_plan_drafts** · 9 кол. · PK id · индексов 2
 
 `id uuid!=` `params jsonb!` `days jsonb!` `wishes text` `surface text!` `revision integer!=` `created_at timestamptz!=` `updated_at timestamptz!=` `expires_at timestamptz!=`
+
+**trip_situation_notices** · 10 кол. · PK id · индексов 2
+
+`id bigint!=` `recipient_kind text!` `recipient_ref text!` `tour_id bigint!` `trip_date date!` `fingerprint text!` `outcome text!` `channel text` `reason text` `created_at timestamptz!=`
+
+**trip_situations** · 6 кол. · PK tour_id, trip_date · tour_id → operator_tours.id · индексов 1
+
+`tour_id bigint!` `trip_date date!` `kind text!` `line text!` `fingerprint text!` `checked_at timestamptz!=`
 
 **trip_watch_flow** · 4 кол. · PK channel, chat_id · индексов 1
 
