@@ -85,7 +85,7 @@ describe('меню роли', () => {
 
   it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — только «Мои туры» для нового тура (31.10)', () => {
     const help = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
-    expect(help).toContain('Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
+    expect(help).toContain('Под ответами кнопки: Сегодня, Входящие, Клиенты, Ещё.');
     expect(help).toContain('Ещё — Брони, Мои туры, Помощь, кабинет на сайте.');
     expect(help).toContain('Имя и телефон туриста — только в MAX');
     expect(help).toContain('/hub/guide/own');
