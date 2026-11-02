@@ -10,7 +10,7 @@
  * не придумываются: нет цены в строке — цены нет и в дописке.
  */
 import {
-  mentionsOperator, namedTours, questionNumbers, referenceTours,
+  mentionsOperator, namedTours, parseTourLines, questionNumbers, referenceTours,
   type TourLine,
 } from '@/lib/agents/eval/commercial-checks';
 
@@ -43,23 +43,92 @@ export function budgetOf(question: string): number | null {
   return nums.length > 0 ? Math.max(...nums) : null;
 }
 
-export function completeTourList(answer: string, question: string, calls: readonly ToursCall[]): string {
+const norm = (w: string) => w.toLowerCase().replace(/ё/g, 'е');
+const wordsOf = (s: string) => norm(s).split(/[^a-zа-я]+/).filter(Boolean);
+
+/** Слова вопроса, которые не место и не тип: по ним искать нечего. */
+const STOP = new Set([
+  'какие', 'какой', 'какая', 'какое', 'хочу', 'посмотреть', 'покажи', 'предложения',
+  'предлагают', 'операторы', 'оператор', 'рублей', 'тысяч', 'тысячи', 'человека',
+  'сравни', 'перечисли', 'захватывают', 'туда', 'стоит', 'сколько', 'бюджет',
+  'дешевле', 'дороже', 'пределах', 'варианты', 'предложишь', 'можно', 'выбрать',
+  'камчатка', 'камчатки', 'камчатке', 'камчатку', 'туров', 'турах', 'тур', 'туры', 'есть', 'возит', 'почем', 'двоих', 'троих',
+]);
+
+function lev(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * Запросы к get_tours из слов вопроса (эвал 02.11: модель звала
+ * get_tour_details или весь каталог, дописке не было фильтрованного вызова).
+ * Слово с опечаткой («горелай», «куриское», «халактырскй») заменяется словом
+ * каталога на расстоянии правки ≤ 2 с тем же началом — только слова из БД.
+ */
+export function questionQueries(question: string, catalogText: string, max = 4): string[] {
+  const vocab = [...new Set(wordsOf(catalogText).filter((w) => w.length >= 5))];
+  const out: string[] = [];
+  const stems = new Set<string>();
+  for (const w of wordsOf(question)) {
+    if (w.length < 5 || STOP.has(w)) continue;
+    let q: string | null = vocab.includes(w) ? w : null;
+    if (!q) {
+      let best: [string, number] | null = null;
+      for (const v of vocab) {
+        if (v.slice(0, 2) !== w.slice(0, 2)) continue;
+        const dist = lev(w, v);
+        if (dist <= 2 && (!best || dist < best[1])) best = [v, dist];
+      }
+      if (best) q = best[0];
+      // Падеж длиннее двух правок («курильском» → основа каталога) — само слово.
+      else if (vocab.some((v) => v.slice(0, 5) === w.slice(0, 5))) q = w;
+    }
+    if (!q) continue;
+    const st = q.slice(0, 5);
+    if (stems.has(st)) continue;
+    stems.add(st);
+    out.push(q);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * calls — вызовы get_tours хода (и дозапросы по словам вопроса); catalogText —
+ * весь каталог (БД): по нему компания к турам, названным по заголовку, даже
+ * если модель брала их из get_tour_details или из каталога без фильтра.
+ */
+export function completeTourList(answer: string, question: string, calls: readonly ToursCall[], catalogText = ''): string {
   const byId = new Map<string, TourLine>();
   for (const c of calls) {
     if (!c.query.trim()) continue;
-    for (const t of referenceTours(c.output)) if (!byId.has(t.id)) byId.set(t.id, t);
+    const r = referenceTours(c.output);
+    // Порог — на каждый запрос: «вулкан» даёт полкаталога, «Горелый» — список места.
+    if (r.length > COMPLETE_LIST_MAX) continue;
+    for (const t of r) if (!byId.has(t.id)) byId.set(t.id, t);
   }
   const ref = [...byId.values()];
-  if (ref.length === 0 || ref.length > COMPLETE_LIST_MAX) return answer;
-  const named = namedTours(answer, ref);
+  // Вселенная для «кто проводит»: строки всех вызовов с ценой, каталог — только
+  // по названию (цена без названия в каталоге неоднозначна).
+  const uni = new Map<string, TourLine>();
+  for (const c of calls) for (const t of parseTourLines(c.output)) if (!uni.has(t.id)) uni.set(t.id, t);
+  const catalogNamed = namedTours(answer, parseTourLines(catalogText).filter((t) => !uni.has(t.id)).map((t) => ({ ...t, price: null })));
+  const namedAll = [...namedTours(answer, [...uni.values()]), ...catalogNamed.map((t) => uni.get(t.id) ?? parseTourLines(catalogText).find((x) => x.id === t.id) ?? t)];
   // Ответ не о турах (отказ, безопасность, вопрос) — не трогаем.
-  if (named.length === 0) return answer;
+  if (namedAll.length === 0) return answer;
+  const named = ref.length > 0 ? namedTours(answer, ref) : [];
   const budget = budgetOf(question);
   const fits = (t: TourLine) => budget === null || (t.unit === 'per_person' && t.price !== null && t.price <= budget);
-  const namedIds = new Set(named.map((t) => t.id));
-  const missing = ref.filter((t) => !namedIds.has(t.id) && fits(t));
-  const noCompany = named.filter((t) => t.operator && !mentionsOperator(answer, t.operator));
-  const over = budget === null ? [] : named.filter((t) => t.unit === 'per_person' && t.price !== null && t.price > budget);
+  const namedIds = new Set(namedAll.map((t) => t.id));
+  const missing = named.length > 0 || ref.length > 0 ? ref.filter((t) => !namedIds.has(t.id) && fits(t)) : [];
+  const seen = new Set<string>();
+  const noCompany = namedAll.filter((t) => t.operator && !mentionsOperator(answer, t.operator) && !seen.has(t.id) && seen.add(t.id));
+  const over = budget === null ? [] : namedAll.filter((t) => t.unit === 'per_person' && t.price !== null && t.price > budget);
   const parts: string[] = [];
   if (missing.length > 0) parts.push(`Ещё по запросу на платформе:\n${missing.map(line).join('\n')}`);
   if (noCompany.length > 0) parts.push(`Кто проводит:\n${noCompany.map((t) => `- «${t.title}» — ${t.operator}`).join('\n')}`);

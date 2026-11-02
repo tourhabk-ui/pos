@@ -8,7 +8,7 @@
  *  - Проактивное предложение бронирования после AI-ответа
  */
 
-import { completeTourList, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
+import { completeTourList, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
@@ -2921,9 +2921,22 @@ export async function aiChatAgentLoop(
       // Готовый ответ отдаётся и после потолка: он уже есть, ждать нечего.
       if (!result.content?.trim() && overCeiling()) return atCeiling();
       // Полнота списка туров из get_tours этого хода (эвал критериев 02.11).
-      const final = result.content && toursCalls.length > 0
-        ? completeTourList(result.content, userText, toursCalls)
-        : result.content;
+      // Дозапросы — по словам вопроса (опечатки — к словам каталога), компания —
+      // по всему каталогу: модель брала туры из get_tour_details (эвал 02.11).
+      let final = result.content;
+      if (final) {
+        try {
+          const catalog = await executeTool('get_tours', {}, toolSurface);
+          const extra: ToursCall[] = [];
+          for (const q of questionQueries(userText, catalog)) {
+            if (toursCalls.some((c) => c.query.toLowerCase() === q)) continue;
+            extra.push({ query: q, output: await executeTool('get_tours', { activity_type: q }, toolSurface) });
+          }
+          final = completeTourList(final, userText, [...toursCalls, ...extra], catalog);
+        } catch (e) {
+          console.warn('[kuzmich-complete] дописка не удалась:', e);
+        }
+      }
       return finish(final, false); // final answer
     }
 

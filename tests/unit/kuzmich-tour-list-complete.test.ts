@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { completeTourList, budgetOf } from '@/lib/kuzmich/tour-list-complete';
+import { completeTourList, budgetOf, questionQueries } from '@/lib/kuzmich/tour-list-complete';
 
 const T41 = 'ID41: "Вулкан Плоский Толбачик" — Вулкан Плоский Толбачик  тип:trekking 4 дн. от 60 000 ₽/чел. | Оп: Край Вулканов | Расписания в системе нет';
 const T73 = 'ID73: "Толбачик: по следам извержений, 4 дня" — Вулкан Плоский Толбачик  тип:volcano 4 дн. от 85 000 ₽/чел. | Оп: Андрей Запорожец | Мест: 4';
@@ -28,7 +28,7 @@ describe('completeTourList', () => {
   });
   it('не трогает ответ без туров, весь каталог и уже полный ответ', () => {
     expect(completeTourList('Сейчас на Толбачике опасно.', 'q', [{ query: 'толбачик', output: OUT }])).toBe('Сейчас на Толбачике опасно.');
-    const a = '«Вулкан Плоский Толбачик» от 60 000 ₽';
+    const a = '«Вулкан Плоский Толбачик» (Край Вулканов) от 60 000 ₽';
     expect(completeTourList(a, 'q', [{ query: '', output: OUT }])).toBe(a);
     const full = '- «Вулкан Плоский Толбачик» — Край Вулканов\n- «Толбачик: по следам извержений, 4 дня» — Андрей Запорожец\n- «Вулкан Толбачик (джип-тур, 4 дня)» — Местечко Камчатка';
     expect(completeTourList(full, 'q', [{ query: 'толбачик', output: OUT }])).toBe(full);
@@ -36,5 +36,25 @@ describe('completeTourList', () => {
   it('бюджет — только при «до/бюджет»', () => {
     expect(budgetOf('туры до 50 000 ₽')).toBe(50000);
     expect(budgetOf('на двоих в июле')).toBeNull();
+  });
+  it('опечатка в вопросе → слово каталога (только из БД)', () => {
+    const cat = 'ID12: "Восхождение на вулкан Горелый" — Горелый тип:volcano от 15 000 ₽/чел. | Оп: Андрей Запорожец\nID30: "Курильское озеро" — Курильское озеро тип:bears от 90 000 ₽/чел. | Оп: Лагуна Экспедиция\nID50: "Халактырский пляж" — Халактырский пляж тип:jeep_safari от 7 000 ₽/чел. | Оп: Местечко Камчатка';
+    expect(questionQueries('горелай вулкан тур', cat)).toContain('горелый');
+    expect(questionQueries('куриское озеро туры какие', cat)).toContain('курильское');
+    expect(questionQueries('халактырскй пляж тур', cat)).toContain('халактырский');
+    expect(questionQueries('Есть тур на Луну с Камчатки?', cat)).toEqual([]);
+  });
+  it('компания по каталогу, когда модель брала тур из get_tour_details (бюджет/месяц)', () => {
+    const a = 'В июле: «Вулкан Толбачик (джип-тур, 4 дня)» — от 115 000 ₽.';
+    const r = completeTourList(a, 'Медведи в июле: какие туры есть?', [], OUT);
+    expect(r).toContain('Кто проводит:\n- «Вулкан Толбачик (джип-тур, 4 дня)» — Местечко Камчатка');
+    expect(r).not.toContain('Ещё по запросу');
+  });
+  it('порог 15 — на каждый запрос: широкий запрос не гасит узкий', () => {
+    const wide = Array.from({ length: 20 }, (_, i) => `ID${200 + i}: "Тур ${i}" — x тип:volcano от 1 000 ₽/чел. | Оп: Оп${i}`).join('\n');
+    const a = 'На Толбачик есть «Вулкан Плоский Толбачик» — Край Вулканов, от 60 000 ₽.';
+    const r = completeTourList(a, 'горелай вулкан Толбачик', [{ query: 'вулкан', output: wide }, { query: 'толбачик', output: OUT }]);
+    expect(r).toContain('по следам извержений');
+    expect(r).not.toContain('Тур 3');
   });
 });
