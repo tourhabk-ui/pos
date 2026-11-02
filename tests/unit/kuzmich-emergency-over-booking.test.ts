@@ -200,7 +200,7 @@ describe('без беды шаги брони — как раньше (стор�
   it('имя на шаге «имя» — бот спрашивает дату, черновик жив', async () => {
     const pending = new Map([[CHAT, nameStep()]]);
     await processMessage({ ...base, chatId: CHAT, mode: 'tg', text: 'Анна Петрова', pending, platform: 'tg' });
-    expect(said()).toContain('Отлично, Анна Петрова!');
+    expect(said()).toContain('На какую дату?');
     expect(said()).not.toContain('112');
     expect(pending.get(CHAT)?.step).toBe('date');
     expect(tools).not.toHaveBeenCalled();
@@ -232,7 +232,7 @@ describe('шаг подтверждения: «да» — целым слово�
     expect(bookingCreated()).toBe(false);
     expect(said()).not.toContain('Заявка отправлена');
     // Не «да» — шаг переспрашивает, а не отправляет.
-    expect(said()).toContain('Напишите <b>Да</b> для подтверждения');
+    expect(said()).toContain('Отправить заявку оператору?');
   });
 
   // «да» внутри «беда» — не согласие; с 25.10 фраза ещё и беда: черновик
@@ -258,7 +258,7 @@ describe('шаг подтверждения: «да» — целым слово�
     await settle();
     expect(said()).not.toContain('Заявка отменена');
     // «Да» узнано: шаг не переспрашивает, а пробует отправить заявку.
-    expect(said()).not.toContain('Напишите <b>Да</b> для подтверждения');
+    expect(said()).not.toContain('Отправить заявку оператору?');
     expect(tools).not.toHaveBeenCalled();
   });
 
