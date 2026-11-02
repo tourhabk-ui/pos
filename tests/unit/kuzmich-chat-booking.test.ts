@@ -11,7 +11,7 @@ describe('Кузьмич оформляет заявку в чате (01.11)', (
   it('дата и люди из реплики', () => {
     expect(parseChatBookingPrefill('хочу на Курильское 2027-07-15, нас 3', TODAY)).toEqual({ date: '2027-07-15', guests: 3 });
     expect(parseChatBookingPrefill('оформи на 15 июля, 2 человека', TODAY)).toEqual({ date: '2027-07-15', guests: 2 });
-    expect(parseChatBookingPrefill('запиши 20.08 на четверых', TODAY)).toEqual({ date: '2027-08-20' });
+    expect(parseChatBookingPrefill('запиши 20.08 на четверых', TODAY)).toEqual({ date: '2027-08-20', guests: 4 });
     expect(parseChatBookingPrefill('31.02 5 чел', TODAY)).toEqual({ guests: 5 });
   });
   it('промпт: оформляет сам, один вопрос, без «сам не могу»', () => {

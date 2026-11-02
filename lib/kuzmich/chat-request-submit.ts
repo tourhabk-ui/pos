@@ -4,7 +4,7 @@
  * согласие и уведомление оператора считаются там один раз. Импорт роута
  * ленивый: роут MCP сам импортирует lib/kuzmich/core.
  */
-import { humanChatConfirm, chatRequestNotCreated, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
+import { chatToolReply, chatRequestNotCreated, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
 
 export async function submitChatRequest(
   plan: ChatRequestPlan,
@@ -13,9 +13,10 @@ export async function submitChatRequest(
   try {
     const { runPublicTool } = await import('@/app/api/mcp/route');
     const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip: opts.ip, userAgent: opts.userAgent, self: false });
-    if (out.kind === 'ok') return { ok: true, text: humanChatConfirm(out.text, opts.tourTitle) };
-    if (out.kind === 'refused' || out.kind === 'rate_limited') return { ok: false, text: chatRequestNotCreated(out.text) };
-    return { ok: false, text: chatRequestNotCreated(null) };
+    // ok — только если заявка правда записана: отказ текстом («мест нет —
+    // заявка не создана») тоже приходит kind: 'ok' (#2967).
+    const reply = chatToolReply(out, opts.tourTitle);
+    return { ok: reply.created, text: reply.text };
   } catch (e) {
     console.warn('[kuzmich-chat] заявка не создана', e instanceof Error ? e.message.slice(0, 200) : '');
     return { ok: false, text: chatRequestNotCreated(null) };
