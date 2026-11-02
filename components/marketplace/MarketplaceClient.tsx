@@ -358,7 +358,7 @@ function TourCard({
     // закрывает фото, это не профессионально». Теперь фото свободно (на нём
     // только рейл фич и избранное — стекло), а текст стоит сплошным блоком на
     // --bg-card: на сплошном фоне стекла нет (CLAUDE.md §2).
-    <div className="group relative flex flex-col rounded-2xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border)] shadow-sm hover:shadow-xl transition-all duration-300">
+    <div className="group relative flex flex-col rounded-2xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border)] shadow-sm hover:shadow-md transition-shadow duration-200">
       {/* Навигация по всей карточке (под оверлеями) — сразу на канонический
           адрес: /marketplace/* уходит 308-редиректом и теряет #booking (#129). */}
       <Link href={href} className="absolute inset-0 z-[1]" aria-label={tour.title} />
@@ -371,7 +371,7 @@ function TourCard({
           priority={priority}
           fetchPriority={priority ? 'high' : undefined}
           sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
-          className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
+          className="object-cover"
           style={{ objectPosition: TOUR_PHOTO_POSITION, filter: 'saturate(1.12) contrast(1.04)' }}
         />
         {placeholderCredit && (
@@ -403,14 +403,14 @@ function TourCard({
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleLike(tour.id); }}
           aria-label={isLiked ? 'Убрать из избранного' : 'В избранное'}
           aria-pressed={isLiked}
-          className="absolute top-2 right-2 z-[3] w-11 h-11 rounded-full grid place-items-center backdrop-blur-md bg-black/40 border border-white/15 transition-transform duration-200 hover:scale-105"
+          className="absolute top-2 right-2 z-[3] w-11 h-11 rounded-full grid place-items-center backdrop-blur-md bg-black/40 border border-white/15 transition-colors duration-200 hover:bg-black/55"
         >
           <Heart className={`w-5 h-5 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
         </button>
         {/* Срок тура — НА ФОТО крупно (владелец 02.11). Нет длительности в
             данных — плашки нет, ничего не придумываем. */}
         {duration && (
-          <span data-testid="tour-duration-badge" className="absolute bottom-2 right-2 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[15px] font-bold leading-tight text-white bg-black/60 border border-white/15 backdrop-blur-md pointer-events-none">
+          <span data-testid="tour-duration-badge" className="absolute bottom-2 right-2 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[15px] font-semibold leading-tight text-white bg-black/60 border border-white/15 backdrop-blur-md pointer-events-none">
             <Clock className="w-4 h-4" aria-hidden />{duration}
           </span>
         )}
@@ -437,7 +437,7 @@ function TourCard({
         </div>
 
         <h3
-          className="text-lg sm:text-xl font-bold leading-tight line-clamp-2 mb-1"
+          className="text-lg sm:text-xl font-semibold leading-tight line-clamp-2 mb-1"
           style={{ fontFamily: 'var(--font-playfair)', textWrap: 'balance' }}
         >
           {tour.title}
@@ -493,7 +493,7 @@ function TourCard({
               )}
               {basePrice != null ? (
                 <>
-                  <span data-testid="tour-price" className="text-[24px] font-bold tabular-nums">{rub(basePrice)}</span>{' '}
+                  <span data-testid="tour-price" className="text-[24px] font-semibold tabular-nums">{rub(basePrice)}</span>{' '}
                   <span className="text-xs text-[var(--text-secondary)]">{priceUnitLabel(tour.price_unit, true)}</span>
                 </>
               ) : (

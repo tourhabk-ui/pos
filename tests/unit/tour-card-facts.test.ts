@@ -20,7 +20,7 @@ describe('компактная карточка тура: цена и срок �
     const src = readFileSync('components/marketplace/MarketplaceClient.tsx', 'utf8');
     expect(src).toContain('aspect-[16/10]');
     expect(src).toContain('data-testid="tour-duration-badge"');
-    expect(src).toContain('text-[24px] font-bold');
+    expect(src).toContain('text-[24px] font-semibold');
     expect(src).toContain('Цена по запросу');
     expect(src).toMatch(/line-clamp-1 mb-1\.5">\s*\{tour\.short_description/);
     expect(src).toContain('ds-btn ds-btn-primary w-full justify-center');
