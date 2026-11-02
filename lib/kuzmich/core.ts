@@ -3464,6 +3464,11 @@ export async function processMessage(opts: {
     const cf = classifyCodeFirst(text, openFlow);
     let tourId: number | null = cf.kind === 'tour' ? cf.tourId : null;
     if (cf.kind === 'status') { await replyFn(chatId, escapeHtml(await requestStatusReply(cf.key))); return; }
+    if (cf.kind === 'handoff') {
+      const { handoffReply } = await import('@/lib/requests/handoff');
+      await replyFn(chatId, escapeHtml(await handoffReply(cf.code, platform === 'max' ? 'max' : 'telegram', String(chatId))));
+      return;
+    }
     if (cf.kind === 'cancel_idle') { await replyFn(chatId, CANCEL_IDLE_REPLY); return; }
     if (cf.kind === 'stale_confirm') { await replyFn(chatId, STALE_CONFIRM_REPLY); return; }
     if (cf.kind === 'none' && !openFlow && !isBookingTrigger(text)) tourId = await exactTourTitleId(text);

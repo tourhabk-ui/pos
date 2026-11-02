@@ -276,6 +276,11 @@ export async function POST(request: NextRequest) {
       const { extractRequestKey, requestStatusReply } = await import('@/lib/kuzmich/code-first');
       const statusKey = extractRequestKey(rawMessage);
       if (statusKey) fastRequestText = await requestStatusReply(statusKey);
+      if (!statusKey) {
+        const { extractHandoffCode, handoffReply } = await import('@/lib/requests/handoff');
+        const code = extractHandoffCode(rawMessage);
+        if (code) fastRequestText = await handoffReply(code, 'web', ip);
+      }
     }
     if (!fastRequestText && safeRole === 'tourist' && !emergencyNow && !imageBase64) {
       const contact = parseChatContact(rawMessage);
