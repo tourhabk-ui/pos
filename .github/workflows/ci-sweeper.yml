@@ -167,6 +167,19 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 1
+          persist-credentials: false
+
+      - name: Лог падения и PR — агенту файлами
+        if: steps.branch.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          mkdir -p .agent-out
+          if [ -d .git/info ]; then echo '.agent-out/' >> .git/info/exclude; fi
+          gh run view "$RUN_ID" --log-failed 2>&1 | tail -n 4000 > .agent-out/failed.log || true
+          git rev-parse HEAD > "${RUNNER_TEMP:-/tmp}/sweep-base-sha" 2>/dev/null || true
 
       - name: Read codebase rules
         if: steps.branch.outputs.exists == 'true'
@@ -184,8 +197,14 @@ jobs:
         id: hand
         if: steps.branch.outputs.exists == 'true'
         uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        # Токена GitHub у агента нет (аудит агентов 02.11, разрыв №1): ни
+        # GH_TOKEN в env, ни учётки git в .git/config (persist-credentials:
+        # false), а SUBPROCESS_ENV_SCRUB вычищает из окружения Bash и токен,
+        # который экшен выпускает себе сам. Данные агент получает файлами из
+        # шагов ДО, запись делает шаг ПОСЛЕ по его выводу в .agent-out/.
+        # Сторож: tests/unit/loop-agents-no-token.test.ts.
         env:
-          GH_TOKEN: ${{ github.token }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
         with:
           # Ключ Console из репозиторного секрета — решение владельца 13.10:
           # «я пополню лучше баланс», после того как выпуск токена подписки
@@ -236,8 +255,10 @@ jobs:
             Ран: ${{ github.event.workflow_run.id }}
             Коммит: ${{ github.event.workflow_run.head_sha }}
 
-            ПЕРВЫМ ДЕЛОМ получи лог падения:
-            gh run view ${{ github.event.workflow_run.id }} --log-failed
+            ПЕРВЫМ ДЕЛОМ прочитай лог падения: .agent-out/failed.log
+            (последние 4000 строк `gh run view --log-failed`). Доступа к
+            GitHub у тебя нет — ни gh, ни git push работать не будут, и это
+            нарочно: запись делает следующий шаг по твоему выводу.
 
             Затем прочитай CLAUDE.md и файлы вокруг места падения — не угадывай
             паттерны. Почини корень падения минимальным диффом.
@@ -251,30 +272,76 @@ jobs:
             раз и без расхода на модель. Ты чинишь известное падение по логу, а
             не ищешь неизвестное.
 
-            ══ КУДА КОММИТИТЬ ══
-            ЕСЛИ ветка НЕ main:
-              коммить прямо в текущую ветку (${{ github.event.workflow_run.head_branch }}).
-              Сообщение коммита ОБЯЗАНО содержать маркер [ci-sweep] — это защита
-              от зацикливания. После пуша оставь один короткий комментарий в
-              связанный PR: gh pr comment --body "CI починен: <причина падения одной строкой>"
-
-            ЕСЛИ ветка main:
-              НИКОГДА не пушь в main. Создай ветку:
-              git checkout -b claude/ci-hotfix-${{ github.event.workflow_run.id }}
-              Запушь её и открой draft-PR:
-              gh pr create --draft --title "ГОРЯЧО: CI на main красный — hotfix" --body "<что упало и что починено>"
-              Сообщение коммита также обязано содержать [ci-sweep].
+            ══ ЧЕМ ЗАКОНЧИТЬ ══
+            Ровно один исход, записанный в .agent-out/sweep.json:
+            {"action": "fix" | "rerun" | "diagnose", "summary": "<одна строка>"}
+              fix      — починил: закоммить ЛОКАЛЬНО в текущую ветку (без
+                         push, без новых веток), сообщение коммита ОБЯЗАНО
+                         содержать маркер [ci-sweep]. Шаг после тебя запушит
+                         (в ветку PR, а для main — в новую ветку
+                         claude/ci-hotfix-<ран> с draft-PR) и оставит
+                         комментарий «CI починен: <summary>».
+              rerun    — падение флаки (сеть, таймаут раннера), код не
+                         виноват: ничего не коммить, шаг после перезапустит ран.
+              diagnose — чинить нельзя по границам ниже: ничего не коммить,
+                         в summary — диагноз; он уйдёт комментарием в PR
+                         (или issue для main).
 
             ══ ГРАНИЦЫ (нарушение = остановись и позови человека) ══
             Если для починки нужно менять app/api/payments/, app/api/safety/sos,
-            middleware.ts или lib/auth.ts — НЕ чини. Вместо этого оставь
-            комментарий в PR (или создай issue для main) с диагнозом и стоп.
-            Если падение флаки (сеть, таймаут раннера) и код не виноват —
-            перезапусти ран: gh run rerun ${{ github.event.workflow_run.id }} --failed
-            и больше ничего не делай.
+            middleware.ts, lib/auth.ts или .github/ — НЕ чини, исход diagnose.
+            Шаг после тебя такой коммит всё равно не запушит.
 
             ЗАПРЕЩЕНО В КОДЕ (правила репозитория):
             ${{ steps.ctx.outputs.RULES }}
+
+      # ── Запись — отдельным шагом ПОСЛЕ агента (аудит агентов 02.11) ──────
+      # Токен есть только здесь. Вывод агента — данные, а не команды: исход
+      # из белого списка, summary — строкой, коммиты проверяются (маркер,
+      # запретные пути) до push.
+      - name: Исход свипа — push, PR, комментарий, перезапуск
+        if: steps.hand.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          out=.agent-out/sweep.json
+          if [ ! -f "$out" ]; then echo "::warning::Агент не оставил $out — записывать нечего"; exit 0; fi
+          action=$(jq -r '.action // ""' "$out")
+          summary=$(jq -r '.summary // "" | tostring | .[0:300]' "$out" | tr '\n' ' ')
+          base=$(cat "$RUNNER_TEMP/sweep-base-sha")
+          pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' || true)
+          case "$action" in
+            rerun)
+              gh run rerun "$RUN_ID" --failed ;;
+            diagnose)
+              body="CI Sweeper не стал чинить: $summary"
+              if [ "$BRANCH" = main ]; then gh issue create --title "CI на main красный — нужен человек (ран $RUN_ID)" --body "$body"
+              elif [ -n "$pr" ]; then gh pr comment "$pr" --body "$body"; fi ;;
+            fix)
+              commits=$(git rev-list "$base..HEAD")
+              [ -n "$commits" ] || { echo "::warning::fix без коммитов"; exit 0; }
+              for c in $commits; do
+                git log -1 --format=%B "$c" | grep -qF '[ci-sweep]' || { echo "::error::коммит $c без [ci-sweep]"; exit 1; }
+              done
+              if git diff --name-only "$base" HEAD | grep -E '^(app/api/payments/|app/api/safety/sos|middleware\.ts$|lib/auth\.ts$|\.github/)'; then
+                echo "::error::агент тронул запретный путь — не пушу"; exit 1
+              fi
+              auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+              if [ "$BRANCH" = main ]; then
+                hot="claude/ci-hotfix-$RUN_ID"
+                git -c http.extraheader="$auth" push "https://github.com/$REPO.git" "HEAD:refs/heads/$hot"
+                gh pr create --draft --base main --head "$hot" --title "ГОРЯЧО: CI на main красный — hotfix" --body "CI Sweeper: $summary"
+              else
+                git -c http.extraheader="$auth" push "https://github.com/$REPO.git" "HEAD:refs/heads/$BRANCH"
+                [ -z "$pr" ] || gh pr comment "$pr" --body "CI починен: $summary"
+              fi ;;
+            *)
+              echo "::warning::неизвестный исход «$action» — ничего не делаю" ;;
+          esac
 
       # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
       # К работе учёта usage-books уезжают ОДНИ СЧЁТЧИКИ, а не файл выполнения.
