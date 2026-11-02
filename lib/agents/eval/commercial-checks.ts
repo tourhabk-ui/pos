@@ -225,18 +225,51 @@ export function referenceTours(toolText: string): TourLine[] {
   return parseTourLines(cuts.length > 0 ? toolText.slice(0, Math.min(...cuts)) : toolText);
 }
 
+/** Основа слова для нестрогого узнавания: 5 букв, число — целиком. */
+const stemOf = (w: string) => (/^\d+$/.test(w) ? w : w.slice(0, 5));
+const STOP_WORDS = new Set(['на', 'и', 'в', 'с', 'к', 'по', 'до', 'от', 'за', 'из', 'для', 'дня', 'дней', 'дн']);
+const titleStems = (title: string) => normalizeText(title).split(' ')
+  .filter((w) => /^\d+$/.test(w) || (w.length >= 4 && !STOP_WORDS.has(w))).map(stemOf);
+
+// Итог «на троих», сравнение с бюджетом, «дороже N» — цены не тура, а
+// расчёта или порога: по ним тур не узнаётся (иначе «45 000 ₽ на троих»
+// узнаёт чужой тур за 45 000, ревью критериев 02.11).
+const NOT_TOUR_PRICE_RE = /итого|выходит|на (?:двоих|троих|четверых|пятерых|шестерых|\d+ человек)|за всех|дороже|выше|бюджет|(?:^|[^а-яё])до \d/i;
+
 /**
- * Какие туры из `universe` названы в ответе: по названию либо по цене,
- * которая в `universe` принадлежит одному туру.
+ * Какие туры из `universe` названы в ответе: по названию (дословно либо все
+ * значимые слова названия в одной строке ответа — «Вертолётный тур на
+ * Курильское озеро» = «Курильское озеро (вертолёт)», не меньше 80% и не
+ * меньше двух слов), либо по цене, которая в `universe` у одного тура и
+ * стоит в ответе как цена тура, а не итог или порог. Короткое название
+ * внутри названного длинного («Вулкан Горелый» в «Восхождение на вулкан
+ * Горелый…») тур не называет.
  */
 export function namedTours(answer: string, universe: readonly TourLine[]): TourLine[] {
-  const text = ` ${normalizeText(answer)} `;
-  const answerPrices = new Set(extractPrices(answer));
+  const lines = answer.split('\n');
+  const lineStems = lines.map((l) => new Set(normalizeText(l).split(' ').filter(Boolean).map(stemOf)));
+  const priceClauses = lines.flatMap((l) => l.split(/[.!?;(]+|,(?!\d)/)).filter((c) => !NOT_TOUR_PRICE_RE.test(c));
+  const answerPrices = new Set(priceClauses.flatMap((c) => extractPrices(c)));
   const priceOwners = new Map<number, number>();
   for (const t of universe) if (t.price !== null) priceOwners.set(t.price, (priceOwners.get(t.price) ?? 0) + 1);
-  return universe.filter((t) => {
+  // Длинные названия первыми: найденное вырезается, короткое внутри него не считается.
+  let text = ` ${normalizeText(answer)} `;
+  const byTitle = new Set<string>();
+  for (const t of [...universe].sort((a, b) => b.title.length - a.title.length)) {
     const title = normalizeText(t.title);
-    if (title.length >= 6 && text.includes(` ${title} `)) return true;
+    if (title.length >= 6 && text.includes(` ${title} `)) {
+      byTitle.add(t.id);
+      text = text.split(` ${title} `).join(' \u0000 ');
+    }
+  }
+  return universe.filter((t) => {
+    if (byTitle.has(t.id)) return true;
+    const stems = titleStems(t.title);
+    if (stems.length >= 2 && lineStems.some((ls) => stems.filter((st) => ls.has(st)).length >= Math.max(2, Math.ceil(stems.length * 0.8)))) {
+      // Нестрого — только если в этой строке нет точного названия другого тура.
+      return !lines.some((l, i) => stems.filter((st) => lineStems[i].has(st)).length >= Math.max(2, Math.ceil(stems.length * 0.8))
+        && universe.some((o) => o.id !== t.id && byTitle.has(o.id) && ` ${normalizeText(l)} `.includes(` ${normalizeText(o.title)} `)));
+    }
     return t.price !== null && answerPrices.has(t.price) && priceOwners.get(t.price) === 1;
   });
 }
@@ -247,7 +280,7 @@ export function namedTours(answer: string, universe: readonly TourLine[]): TourL
 const NEGATION_RE = /(?:^|[^а-яё])(?:нет(?![а-яё])|не нашл|не нашёл|не нашел|не найд|не продаё|не продае|отсутству)/i;
 const TOPIC_RE = /(?:^|[^а-яё])(?:тур|платформ|каталог|предложени|у операторов)/i;
 const SEATS_RE = /(?:^|[^а-яё])(?:мест|места|местах|свободн)(?:[^а-яё]|$)/i;
-const STANDALONE_NONE_RE = /ничего (?:не нашл|не нашёл|не нашел|не найден)|(?:^|[^а-яё])(?:такого|таких) (?:у нас )?нет/i;
+const STANDALONE_NONE_RE = /^\s*нет\s*$|(?:^|[^а-яё])на камчатке [^.!?\n]{0,60}(?:^|[^а-яё])нет(?![а-яё])|ничего (?:не нашл|не нашёл|не нашел|не найден)|(?:^|[^а-яё])(?:такого|таких) (?:у нас )?нет/i;
 
 /** Части ответа: фразы, а внутри — куски между запятыми, тире и точками с запятой. */
 function clauses(text: string): string[] {
