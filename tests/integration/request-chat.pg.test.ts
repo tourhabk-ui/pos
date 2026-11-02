@@ -58,6 +58,29 @@ vi.mock('@/lib/notifications/telegram-channel', () => ({
 }));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
+
+/**
+ * Ответ адресата (30.10): текст → предпросмотр с «Отправить» / «Отменить» →
+ * «Отправить». До второго нажатия клиенту ничего не уходит.
+ */
+async function replyViaDraft(chat: number, text: string) {
+  const svc = await import('@/lib/requests/request-chat-service');
+  const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+  const before = sent.dm.length;
+  const preview = await svc.captureChatText(chat, text);
+  expect(preview?.text).toMatch(/Проверьте ответ/);
+  expect(preview?.text).toContain(text.replace(/</g, '&lt;'));
+  expect(preview?.buttons.map((b) => b.text)).toEqual(['Отправить', 'Отменить']);
+  expect(sent.dm.length).toBe(before);
+  const raw = (preview!.buttons[0] as { payload: string }).payload;
+  const press = unwrapPress(raw);
+  if (!press.ok) throw new Error('кнопка «Отправить» не подписана');
+  const r = await svc.pressDraft(press.payload, chat);
+  // Повтор нажатия ничего не шлёт второй раз.
+  const again = await svc.pressDraft(press.payload, chat);
+  expect(again.text).toMatch(/уже отправлен, отменён или устарел/);
+  return r;
+}
 const withPg = PG_URL ? describe : describe.skip;
 if (!PG_URL) {
   console.warn('[request-chat.pg] KERNEL_PG_TEST_URL не задан — интеграционные тесты пропущены (не прогнаны, а не зелёные)');
@@ -212,7 +235,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       sent.dm.length = 0;
       const armed = await svc.armChatWait('owner', stay(), OWNER_CHAT);
       expect(armed.text).toMatch(/Напишите ответ гостю/);
-      const r = await svc.captureChatText(OWNER_CHAT, 'Да, ждём с 12:00');
+      const r = await replyViaDraft(OWNER_CHAT, 'Да, ждём с 12:00');
       expect(r?.text).toMatch(/MAX гость пока не подключил/);
       expect(r?.buttons).toEqual([{ text: 'Ответить гостю', payload: `sq:o:${requestId}` }]);
       expect(sent.dm).toHaveLength(0);
@@ -259,13 +282,57 @@ withPg('переписка по заявке на настоящем PostgreSQL'
     it('ответ хозяина уходит в MAX гостя с кнопкой «Написать владельцу»', async () => {
       sent.dm.length = 0;
       await svc.armChatWait('owner', stay(), OWNER_CHAT);
-      const r = await svc.captureChatText(OWNER_CHAT, 'Баня с 18:00');
+      const r = await replyViaDraft(OWNER_CHAT, 'Баня с 18:00');
       expect(r?.text).toMatch(/Передал гостю в MAX/);
       expect(sent.dm).toHaveLength(1);
       expect(String(sent.dm[0].chatId)).toBe(String(GUEST_CHAT));
       expect(sent.dm[0].text).toContain('Баня с 18:00');
       expect(sent.dm[0].text).not.toContain('Анна');
       expect(sent.dm[0].buttons).toEqual([{ text: 'Написать владельцу', payload: `sq:g:${requestId}` }]);
+    });
+
+    it('Telegram хозяина (30.10): кнопка → текст → предпросмотр с маской ПД → «Отправить»; чужой чат черновик не отправит', async () => {
+      const TG = 9_100_001;
+      await pool.query(`UPDATE partners SET telegram_chat_id = $2 WHERE id = $1`, [partnerId, TG]);
+      try {
+        sent.dm.length = 0;
+        // Из чужого Telegram кнопка не заводит ожидания.
+        const foreign = await svc.armChatWait('owner', stay(), 9_100_002, 'telegram');
+        expect(foreign.text).toMatch(/адресована не вам/);
+        const armed = await svc.armChatWait('owner', stay(), TG, 'telegram');
+        expect(armed.text).toMatch(/Напишите ответ гостю/);
+        // MAX того же хозяина не ждёт: ожидание — канала, где нажали.
+        expect(await svc.captureChatText(OWNER_CHAT, 'не сюда')).toBeNull();
+        const preview = await svc.captureChatText(TG, 'Звоните +7 914 123-45-67, жду', 'telegram');
+        expect(preview?.text).not.toContain('123-45-67');
+        expect(preview?.text).toMatch(/скрыты/);
+        expect(sent.dm).toHaveLength(0);
+        const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+        const press = unwrapPress((preview!.buttons[0] as { payload: string }).payload);
+        if (!press.ok) throw new Error('не подписана');
+        // Чужой чат и чужой канал — черновик не их.
+        expect((await svc.pressDraft(press.payload, 9_100_002, 'telegram')).text).toMatch(/уже отправлен, отменён или устарел/);
+        expect((await svc.pressDraft(press.payload, TG, 'max')).text).toMatch(/уже отправлен, отменён или устарел/);
+        const done = await svc.pressDraft(press.payload, TG, 'telegram');
+        expect(done.text).toMatch(/Передал гостю в MAX/);
+        expect(sent.dm).toHaveLength(1);
+        // Клиенту — текст как написан.
+        expect(sent.dm[0].text).toContain('+7 914 123-45-67');
+        const door = await pool.query(`SELECT door FROM request_messages WHERE body = $1`, ['Звоните +7 914 123-45-67, жду']);
+        expect(door.rows).toEqual([{ door: 'telegram' }]);
+      } finally {
+        await pool.query(`UPDATE partners SET telegram_chat_id = NULL WHERE id = $1`, [partnerId]);
+      }
+    });
+
+    it('«Отменить» под предпросмотром: ничего не уходит, черновик погашен', async () => {
+      sent.dm.length = 0;
+      await svc.armChatWait('owner', stay(), OWNER_CHAT);
+      const preview = await svc.captureChatText(OWNER_CHAT, 'Передумал');
+      const cancel = (preview!.buttons[1] as { payload: string }).payload;
+      expect((await svc.pressDraft(cancel, OWNER_CHAT)).text).toMatch(/Не отправил/);
+      expect(sent.dm).toHaveLength(0);
+      expect((await svc.pressDraft(cancel, OWNER_CHAT)).text).toMatch(/уже отправлен, отменён или устарел/);
     });
 
     it('гость пишет из MAX после кнопки; «отмена» гасит ожидание', async () => {
@@ -541,7 +608,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       sent.dm.length = 0;
       const armed = await svc.armChatWait('owner', lead(), CARRIER_CHAT);
       expect(armed.text).toMatch(/^Напишите ответ клиенту по заявке «Вахтовка: Авачинский перевал»/);
-      const r = await svc.captureChatText(CARRIER_CHAT, 'Подача в 7:00 у гостиницы');
+      const r = await replyViaDraft(CARRIER_CHAT, 'Подача в 7:00 у гостиницы');
       expect(r?.text).toMatch(/MAX клиент пока не подключил/);
       expect(r?.buttons).toEqual([{ text: 'Ответить клиенту', payload: `lq:o:${leadId}` }]);
       expect(sent.dm).toHaveLength(0);

@@ -77,8 +77,8 @@ import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
 import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
-import { armChatWait, bindGuestChat, captureChatText, type ChatReply } from '@/lib/requests/request-chat-service';
-import { guestKeyFromStart, parseChatPress } from '@/lib/requests/request-chat';
+import { armChatWait, bindGuestChat, captureChatText, pressDraft, type ChatReply } from '@/lib/requests/request-chat-service';
+import { guestKeyFromStart, parseChatPress, parseDraftPress } from '@/lib/requests/request-chat';
 import { operatorDeskButtons, operatorHelpText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
 import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
@@ -901,6 +901,10 @@ async function handleActionPress(
     if (chatType !== 'dialog') {
       console.error(`[max/kuzmich] нажатие (request_chat) не из личного диалога (${chatTypeForLog(chatType)}) — не применено`);
       await maxReply(chatId, 'Переписка по заявке идёт в личном диалоге с ботом. Здесь ничего не отправлено.');
+      return;
+    }
+    if (parseDraftPress(payload)) {
+      await sendChatReplies(chatId, [await pressDraft(payload, chatId, 'max')]);
       return;
     }
     const press = parseChatPress(payload);

@@ -53,6 +53,12 @@ export interface PdAlertParams {
    * пара чатов: ПД пойдут в его MAX, заглушка — в его Telegram.
    */
   to?: { maxChatId?: string | number | null; telegramChatId?: string | number | null };
+  /**
+   * Действия, которые можно положить и в заглушку Telegram: только когда
+   * заглушка САМА без ПД и несёт то, на что отвечают (сообщение клиента с
+   * маской, 30.10). Уходят только названному получателю (`to.telegramChatId`).
+   */
+  stubActions?: Array<{ text: string; payload: string }>;
 }
 
 /**
@@ -85,6 +91,7 @@ async function telegramStub(
   buttons: PdAlertButton[] | undefined,
   explicitChatId: string | number | null | undefined,
   strict: boolean,
+  actions: Array<{ text: string; payload: string }> = [],
 ): Promise<boolean> {
   const links = buttons?.filter((b): b is { text: string; url: string } => 'url' in b);
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -105,8 +112,11 @@ async function telegramStub(
           text: stub,
           parse_mode: 'HTML',
           disable_web_page_preview: true,
-          ...(links?.length
-            ? { reply_markup: { inline_keyboard: links.map((l) => [{ text: l.text, url: l.url }]) } }
+          ...((links?.length || (own && actions.length))
+            ? { reply_markup: { inline_keyboard: [
+                ...(links ?? []).map((l) => [{ text: l.text, url: l.url }]),
+                ...(own ? actions.map((a) => [{ text: a.text, callback_data: a.payload }]) : []),
+              ] } }
             : {}),
         }),
       },
@@ -135,7 +145,7 @@ export async function sendPdAlert(params: PdAlertParams): Promise<PdAlertResult>
 
   if ('error' in target) {
     console.error(`[pd-alert] MAX не настроен: ${target.error} — ПД не отправлены`);
-    const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId, strict);
+    const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId, strict, params.stubActions);
     return stubbed
       ? { channel: 'telegram-stub', delivered: false, reason: target.error }
       : { channel: 'none', delivered: false, reason: `${target.error}; заглушка в Telegram тоже не ушла` };
@@ -146,7 +156,7 @@ export async function sendPdAlert(params: PdAlertParams): Promise<PdAlertResult>
 
   const why = res.error ?? 'MAX API error';
   console.error(`[pd-alert] MAX отказал: ${why} — ПД не отправлены, уходит заглушка`);
-  const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId, strict);
+  const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId, strict, params.stubActions);
   return stubbed
     ? { channel: 'telegram-stub', delivered: false, reason: why }
     : { channel: 'none', delivered: false, reason: `${why}; заглушка в Telegram тоже не ушла` };

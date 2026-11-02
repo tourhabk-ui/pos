@@ -36,6 +36,7 @@ import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert, type PdAlertButton } from '@/lib/notifications/pd-alert';
 import { maxSendDm } from '@/lib/notifications/max-channel';
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import { recordSourceEventQuietly } from '@/lib/crm/events';
 import { REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS } from '@/lib/mcp/request-status-schema';
 import { STAY_REQUESTS_ADMIN_PATH } from '@/lib/stay/stay-request';
@@ -47,6 +48,7 @@ import {
   chatButtonText, chatPressPayload, guestBoundText, guestIncomingText, isCancelText, leadDates, noPlaceToReadText,
   normalizeChatText, ownerIncomingStub, ownerIncomingText, ownerReplyButton, platformIncomingStub, platformIncomingText,
   roleOfCategory, sentReplyText, stayDates, waitPrompt,
+  DRAFT_TEXT, draftPayload, draftPreviewText, parseDraftPress,
   type ChatDelivery, type ChatFacts, type ChatSide, type ChatTarget,
 } from '@/lib/requests/request-chat';
 
@@ -280,7 +282,10 @@ export type PostResult =
   | { outcome: 'sent'; delivery: ChatDelivery; relayed?: boolean; pageVisible?: boolean }
   | { outcome: 'not_found' | 'no_counterpart' | 'daily_limit' | 'save_failed' | 'bad_text'; error?: string };
 
-async function insertMessage(target: ChatTarget, author: ChatSide, door: 'max' | 'page', body: string): Promise<string> {
+/** Чат, из которого пишут: MAX — все, Telegram — только адресат (с маской ПД). */
+export type ChatChannel = 'max' | 'telegram';
+
+async function insertMessage(target: ChatTarget, author: ChatSide, door: 'max' | 'page' | 'telegram', body: string): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO request_messages (stay_request_id, lead_id, author, door, body)
      VALUES ($1::uuid, $2::uuid, $3, $4, $5)
@@ -307,7 +312,7 @@ const EVENT_TITLE: Readonly<Record<ChatTarget['kind'], Record<ChatSide, string>>
   lead: { guest: 'Заявка: сообщение клиента', owner: 'Заявка: ответ клиенту в переписке' },
 };
 
-function crmEvent(r: ChatRow, author: ChatSide, door: 'max' | 'page', delivery: ChatDelivery): Promise<void> {
+function crmEvent(r: ChatRow, author: ChatSide, door: 'max' | 'page' | 'telegram', delivery: ChatDelivery): Promise<void> {
   if (!r.partnerId) return Promise.resolve();
   return recordSourceEventQuietly({
     kind: author === 'guest' ? 'message_in' : 'message_out',
@@ -375,8 +380,10 @@ export async function postGuestMessage(target: ChatTarget, rawBody: unknown, doo
   if (r.ownerMaxChatId || r.ownerTelegramChatId) {
     const res = await sendPdAlert({
       text: ownerIncomingText(r.facts, r.guestName, t.text),
-      stub: ownerIncomingStub(r.facts),
+      // Telegram адресата: текст с маской ПД и «Ответить» (30.10).
+      stub: ownerIncomingStub(r.facts, r.ownerTelegramChatId ? t.text : undefined),
       buttons: [ownerReplyButton(target)],
+      stubActions: r.ownerTelegramChatId ? [ownerReplyButton(target)] : undefined,
       to: { maxChatId: r.ownerMaxChatId, telegramChatId: r.ownerTelegramChatId },
     });
     delivery = res.channel === 'max' ? 'max' : r.ownerMaxChatId ? 'failed' : 'no_address';
@@ -400,7 +407,7 @@ export async function postGuestMessage(target: ChatTarget, rawBody: unknown, doo
 }
 
 /** Ответ адресата клиенту: в MAX клиента, если он подключил бота, и всегда — на страницу заявки. */
-export async function postOwnerMessage(target: ChatTarget, rawBody: unknown): Promise<PostResult> {
+export async function postOwnerMessage(target: ChatTarget, rawBody: unknown, door: ChatChannel = 'max'): Promise<PostResult> {
   const t = normalizeChatText(rawBody);
   if (!t.ok) return { outcome: 'bad_text', error: t.error };
   let r: ChatRow | undefined;
@@ -409,7 +416,7 @@ export async function postOwnerMessage(target: ChatTarget, rawBody: unknown): Pr
     r = await readRow(target);
     if (!r) return { outcome: 'not_found' };
     if (!r.partnerId) return { outcome: 'no_counterpart' };
-    messageId = await insertMessage(target, 'owner', 'max', t.text);
+    messageId = await insertMessage(target, 'owner', door, t.text);
   } catch (err) {
     logFail('ответ адресата не записан', err);
     return { outcome: 'save_failed' };
@@ -427,7 +434,7 @@ export async function postOwnerMessage(target: ChatTarget, rawBody: unknown): Pr
   const live = delivery === 'max' ? true : await clientHasLiveKey(target);
   if (live === false) reason = `${reason}; у клиента нет живой ссылки на переписку`;
   await recordDelivery(messageId, delivery, reason);
-  await crmEvent(r, 'owner', 'max', delivery);
+  await crmEvent(r, 'owner', door, delivery);
   return live === false ? { outcome: 'sent', delivery, pageVisible: false } : { outcome: 'sent', delivery };
 }
 
@@ -443,8 +450,12 @@ function againButton(side: ChatSide, r: ChatRow): PdAlertButton[] {
 }
 
 /** Вправе ли этот чат писать по заявке с этой стороны. */
-function chatMayWrite(r: ChatRow, side: ChatSide, chatId: number): boolean {
-  const own = side === 'owner' ? r.ownerMaxChatId : r.guestMaxChatId;
+function chatMayWrite(r: ChatRow, side: ChatSide, chatId: number, channel: ChatChannel = 'max'): boolean {
+  // Клиент пишет только из MAX; адресат — из своего MAX или своего Telegram.
+  if (channel === 'telegram' && side !== 'owner') return false;
+  const own = side === 'owner'
+    ? (channel === 'telegram' ? r.ownerTelegramChatId : r.ownerMaxChatId)
+    : r.guestMaxChatId;
   return own !== null && own === String(chatId);
 }
 
@@ -456,7 +467,7 @@ function notYours(side: ChatSide): ChatReply {
  * Кнопка «Ответить …» / «Написать …»: проверить право чата и завести
  * ожидание. Новое ожидание гасит прежнее этого чата (одно живое — индекс 1349).
  */
-export async function armChatWait(side: ChatSide, target: ChatTarget, chatId: number): Promise<ChatReply> {
+export async function armChatWait(side: ChatSide, target: ChatTarget, chatId: number, channel: ChatChannel = 'max'): Promise<ChatReply> {
   let r: ChatRow | undefined;
   try {
     r = await readRow(target);
@@ -466,7 +477,7 @@ export async function armChatWait(side: ChatSide, target: ChatTarget, chatId: nu
   }
   if (!r) return { text: CHAT_TEXT.notFound, buttons: [] };
   if (!r.partnerId) return { text: CHAT_TEXT.noCounterpart, buttons: [] };
-  if (!chatMayWrite(r, side, chatId)) return notYours(side);
+  if (!chatMayWrite(r, side, chatId, channel)) return notYours(side);
   // Ответ, который клиенту прочитать негде, не обещается: без MAX клиента и
   // без живой ссылки на переписку кнопка говорит «позвоните».
   if (side === 'owner' && !r.guestMaxChatId && await clientHasLiveKey(target) === false) {
@@ -478,22 +489,22 @@ export async function armChatWait(side: ChatSide, target: ChatTarget, chatId: nu
     await client.query('BEGIN');
     await client.query(
       `UPDATE request_chat_waits SET status = 'superseded'
-        WHERE channel = 'max' AND chat_id = $1::bigint AND status = 'waiting'`,
-      [String(chatId)],
+        WHERE channel = $2 AND chat_id = $1::bigint AND status IN ('waiting', 'draft')`,
+      [String(chatId), channel],
     );
     // Последняя кнопка — главная: ожидание причины отказа брони в этом же чате
     // (lib/bookings/chat-owner-action) гаснет, иначе следующий текст после
     // переписки ушёл бы туристу причиной отказа.
     const reason = await client.query(
       `UPDATE partner_chat_actions SET status = 'superseded'
-        WHERE channel = 'max' AND chat_id = $1::bigint AND status = 'awaiting_reason'`,
-      [String(chatId)],
+        WHERE channel = $2 AND chat_id = $1::bigint AND status = 'awaiting_reason'`,
+      [String(chatId), channel],
     );
     reasonSuperseded = (reason.rowCount ?? 0) > 0;
     await client.query(
       `INSERT INTO request_chat_waits (channel, chat_id, stay_request_id, lead_id, side, expires_at)
-       VALUES ('max', $1::bigint, $2::uuid, $3::uuid, $4, NOW() + make_interval(mins => $5::int))`,
-      [String(chatId), ...targetParams(target), side, REQUEST_CHAT_WAIT_MIN],
+       VALUES ($6, $1::bigint, $2::uuid, $3::uuid, $4, NOW() + make_interval(mins => $5::int))`,
+      [String(chatId), ...targetParams(target), side, REQUEST_CHAT_WAIT_MIN, channel],
     );
     await client.query('COMMIT');
   } catch (err) {
@@ -517,7 +528,7 @@ export async function armChatWait(side: ChatSide, target: ChatTarget, chatId: nu
  * отправить вслепую нельзя, а потерять сообщение хуже, чем отдать его
  * обычному пути.
  */
-export async function captureChatText(chatId: number, text: string): Promise<ChatReply | null> {
+export async function captureChatText(chatId: number, text: string, channel: ChatChannel = 'max'): Promise<ChatReply | null> {
   // Команда бота и кнопка меню кабинета («Входящие», «Помощь») — не сообщение
   // клиенту: они идут своим путём, ожидание остаётся. «/cancel» — отмена ниже.
   if ((text.trim().startsWith('/') && !isCancelText(text)) || roleMenuAsk(text) !== null) return null;
@@ -534,16 +545,16 @@ export async function captureChatText(chatId: number, text: string): Promise<Cha
       `SELECT w.id::text AS id, w.stay_request_id::text AS stay_id, w.lead_id::text AS lead_id, w.side,
               EXISTS (
                 SELECT 1 FROM partner_chat_actions a
-                 WHERE a.channel = 'max' AND a.chat_id = w.chat_id AND a.status = 'awaiting_reason'
+                 WHERE a.channel = w.channel AND a.chat_id = w.chat_id AND a.status = 'awaiting_reason'
                    AND a.expires_at > NOW() AND a.created_at > w.created_at
               ) AS reason_newer,
               EXISTS (
                 SELECT 1 FROM route_registrations r
-                 WHERE r.tourist_chat_channel = 'max' AND r.tourist_chat_id = w.chat_id AND r.completed_at IS NULL
+                 WHERE r.tourist_chat_channel = w.channel AND r.tourist_chat_id = w.chat_id AND r.completed_at IS NULL
               ) AS watch_open
          FROM request_chat_waits w
-        WHERE w.channel = 'max' AND w.chat_id = $1::bigint AND w.status = 'waiting' AND w.expires_at > NOW()`,
-      [String(chatId)],
+        WHERE w.channel = $2 AND w.chat_id = $1::bigint AND w.status = 'waiting' AND w.expires_at > NOW()`,
+      [String(chatId), channel],
     ));
   } catch (err) {
     logFail('ждёт ли чат сообщение по заявке', err);
@@ -588,6 +599,10 @@ export async function captureChatText(chatId: number, text: string): Promise<Cha
   const t = normalizeChatText(text);
   if (!t.ok) return { text: `${t.error}. Ничего не отправлено.`, buttons: [] };
 
+  // Адресат: сначала предпросмотр и «Отправить» (30.10) — клиент видит
+  // ответ только после второго нажатия. Клиент пишет адресату сразу, как раньше.
+  if (wait.side === 'owner') return draftOwnerReply(wait.id, target, chatId, t.text, channel);
+
   try {
     const upd = await pool.query(
       `UPDATE request_chat_waits SET status = 'used', used_at = NOW()
@@ -609,9 +624,8 @@ export async function captureChatText(chatId: number, text: string): Promise<Cha
   if (!r) return { text: CHAT_TEXT.notFound, buttons: [] };
   if (!chatMayWrite(r, wait.side, chatId)) return notYours(wait.side);
 
-  const res = wait.side === 'owner'
-    ? await postOwnerMessage(target, t.text)
-    : await postGuestMessage(target, t.text, 'max');
+  // Сюда доходит только клиент (адресат ушёл в черновик выше), и только из MAX.
+  const res = await postGuestMessage(target, t.text, 'max');
   switch (res.outcome) {
     case 'sent': return { text: sentReplyText(wait.side, res.delivery, r.facts, res), buttons: againButton(wait.side, r) };
     case 'daily_limit': return { text: CHAT_TEXT.dailyLimit, buttons: [] };
@@ -619,6 +633,87 @@ export async function captureChatText(chatId: number, text: string): Promise<Cha
     case 'not_found': return { text: CHAT_TEXT.notFound, buttons: [] };
     case 'no_counterpart': return { text: CHAT_TEXT.noCounterpart, buttons: [] };
     default: return { text: CHAT_TEXT.saveFailed, buttons: againButton(wait.side, r) };
+  }
+}
+
+function draftButtons(waitId: string): PdAlertButton[] {
+  return [
+    { text: 'Отправить', payload: signPayload(draftPayload('send', waitId)) },
+    { text: 'Отменить', payload: draftPayload('cancel', waitId) },
+  ];
+}
+
+/** Текст адресата → черновик в том же ожидании и предпросмотр с кнопками. */
+async function draftOwnerReply(
+  waitId: string, target: ChatTarget, chatId: number, body: string, channel: ChatChannel,
+): Promise<ChatReply> {
+  let r: ChatRow | undefined;
+  try {
+    r = await readRow(target);
+  } catch (err) {
+    logFail('заявка для черновика не прочитана', err);
+    return { text: CHAT_TEXT.unchecked, buttons: [] };
+  }
+  if (!r) return { text: CHAT_TEXT.notFound, buttons: [] };
+  if (!chatMayWrite(r, 'owner', chatId, channel)) return notYours('owner');
+  try {
+    const upd = await pool.query(
+      `UPDATE request_chat_waits
+          SET status = 'draft', draft_text = $2, expires_at = NOW() + make_interval(mins => $3::int)
+        WHERE id = $1::uuid AND status = 'waiting' AND expires_at > NOW()`,
+      [waitId, body, REQUEST_CHAT_WAIT_MIN],
+    );
+    if (upd.rowCount !== 1) return { text: CHAT_TEXT.expired, buttons: againButton('owner', r) };
+  } catch (err) {
+    logFail('черновик не записан', err);
+    return { text: CHAT_TEXT.unchecked, buttons: [] };
+  }
+  return { text: draftPreviewText(r.facts, body, channel), buttons: draftButtons(waitId) };
+}
+
+/**
+ * «Отправить» / «Отменить» под предпросмотром. Черновик — только этого чата
+ * и канала; право чата на заявку проверяется заново; отправка — ровно одна
+ * (status draft → used одним UPDATE), повторное нажатие ничего не шлёт.
+ */
+export async function pressDraft(payload: string, chatId: number, channel: ChatChannel = 'max'): Promise<ChatReply> {
+  const press = parseDraftPress(payload);
+  if (!press) return { text: 'Кнопка не распознана — ничего не отправлено.', buttons: [] };
+  type DraftRow = { stay_id: string | null; lead_id: string | null; draft_text: string | null };
+  let row: DraftRow | undefined;
+  try {
+    const sql = press.action === 'send'
+      ? `UPDATE request_chat_waits SET status = 'used', used_at = NOW()
+          WHERE id = $1::uuid AND channel = $2 AND chat_id = $3::bigint AND side = 'owner'
+            AND status = 'draft' AND expires_at > NOW()
+          RETURNING stay_request_id::text AS stay_id, lead_id::text AS lead_id, draft_text`
+      : `UPDATE request_chat_waits SET status = 'cancelled'
+          WHERE id = $1::uuid AND channel = $2 AND chat_id = $3::bigint AND side = 'owner' AND status = 'draft'
+          RETURNING stay_request_id::text AS stay_id, lead_id::text AS lead_id, draft_text`;
+    ({ rows: [row] } = await pool.query<DraftRow>(sql, [press.waitId, channel, String(chatId)]));
+  } catch (err) {
+    logFail('черновик не захвачен', err);
+    return { text: CHAT_TEXT.unchecked, buttons: [] };
+  }
+  if (!row) return { text: DRAFT_TEXT.gone, buttons: [] };
+  const target: ChatTarget = row.stay_id ? { kind: 'stay', id: row.stay_id } : { kind: 'lead', id: row.lead_id ?? '' };
+  let r: ChatRow | undefined;
+  try {
+    r = await readRow(target);
+  } catch (err) {
+    logFail('заявка для отправки черновика не прочитана', err);
+    return { text: CHAT_TEXT.unchecked, buttons: [] };
+  }
+  if (!r) return { text: CHAT_TEXT.notFound, buttons: [] };
+  if (press.action === 'cancel') return { text: DRAFT_TEXT.cancelled, buttons: againButton('owner', r) };
+  if (!chatMayWrite(r, 'owner', chatId, channel)) return notYours('owner');
+  const res = await postOwnerMessage(target, row.draft_text ?? '', channel);
+  switch (res.outcome) {
+    case 'sent': return { text: sentReplyText('owner', res.delivery, r.facts, res), buttons: againButton('owner', r) };
+    case 'bad_text': return { text: `${res.error ?? 'Сообщение не принято'}. Ничего не отправлено.`, buttons: [] };
+    case 'not_found': return { text: CHAT_TEXT.notFound, buttons: [] };
+    case 'no_counterpart': return { text: CHAT_TEXT.noCounterpart, buttons: [] };
+    default: return { text: CHAT_TEXT.saveFailed, buttons: againButton('owner', r) };
   }
 }
 

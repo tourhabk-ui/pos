@@ -81,6 +81,8 @@ import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
 import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
+import { armChatWait, captureChatText, pressDraft, type ChatReply } from '@/lib/requests/request-chat-service';
+import { isChatPressPayload, parseChatPress, parseDraftPress } from '@/lib/requests/request-chat';
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { handleMemberStart } from '@/lib/operators/member-channel';
@@ -188,6 +190,15 @@ function esc(s: string): string {
 function isAdmin(userId: number): boolean {
   const adminId = process.env.TELEGRAM_CHAT_ID;
   return !!adminId && adminId === String(userId);
+}
+
+/** Ответ переписки по заявке: действия — кнопками, ссылки отбрасываются (их тут нет). */
+async function sendChatReplyTg(chatId: string, reply: ChatReply): Promise<void> {
+  const rows = reply.buttons
+    .filter((b): b is { text: string; payload: string } => 'payload' in b)
+    .map((b) => [{ text: b.text, payload: b.payload }]);
+  if (rows.length) await sendRoleRows(chatId, reply.text, rows);
+  else await sendHTML(chatId, reply.text);
 }
 
 async function sendHTML(chatId: string, text: string): Promise<void> {
@@ -924,6 +935,17 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       }
 
       return;
+    }
+
+    // Ответ клиенту по заявке (30.10): чат ждёт текст после «Ответить
+    // клиенту» — текст становится черновиком с предпросмотром. Не ждёт — null,
+    // и сообщение идёт дальше обычным путём.
+    if (chatType === 'private') {
+      const drafted = await captureChatText(update.message.chat.id, text, 'telegram');
+      if (drafted) {
+        await sendChatReplyTg(chatId, drafted);
+        return;
+      }
     }
 
     // Администратор по привязке из админки (adt_, миграция 1330). Личный чат:
@@ -1742,6 +1764,28 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
     const data           = press.payload;
+
+    // Ответ клиенту по заявке из Telegram адресата (30.10, с маской ПД):
+    // «Ответить клиенту» → текст → предпросмотр → «Отправить». Только личный
+    // чат из сообщения с кнопкой; право чата на заявку и черновик проверяет
+    // lib/requests/request-chat-service. Клиентская сторона из Telegram не пишет.
+    if (isChatPressPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat || pressChat.type !== 'private') {
+        await sendHTML(callbackChatId, 'Переписка по заявке идёт в личном диалоге с ботом. Здесь ничего не отправлено.');
+        return;
+      }
+      const reply = parseDraftPress(data)
+        ? await pressDraft(data, pressChat.id, 'telegram')
+        : await (async () => {
+          const p = parseChatPress(data);
+          if (!p || p.side !== 'owner') return { text: 'Кнопка не распознана — ничего не отправлено.', buttons: [] };
+          return armChatWait('owner', p.target, pressChat.id, 'telegram');
+        })();
+      await sendChatReplyTg(String(pressChat.id), reply);
+      return;
+    }
 
     if (isOperatorDeskPayload(data)) {
       await telegramService.answerCallback(cq.id);
