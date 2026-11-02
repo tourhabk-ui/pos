@@ -258,7 +258,7 @@ export function itemCardScreen(args: {
   } else if (item.kind === 'lead' && partner.operatorAnswers) {
     const answers = chatAnswerButtons(null, 'lead', item.id);
     rows.push(answers.slice(0, 2), answers.slice(2), [declineButton('lead', item.id)]);
-    lines.push('Ответ записывается сразу; бронь им не подтверждается. «Отказать» — с причиной кнопкой, заявка закрывается как отказ.');
+    lines.push('Ответ записывается после «Да»; бронь им не подтверждается. «Отказать» — с причиной кнопкой, заявка закрывается как отказ.');
   } else if (item.kind === 'charter_request' && partner.role === 'transfer' && rentalAnswerButtons(item.id)) {
     // Заявка на машину (#2862): те же кнопки, что под заявкой в MAX (`rr:`),
     // в обоих каналах — вид заявки сервер читает из лида. Машина не

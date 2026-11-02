@@ -1754,6 +1754,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         channel: 'telegram',
         chatId: cq.message?.chat?.id ?? senderChatId,
         payload: data,
+        dialog: true, // выше уже отсеяно: только личный диалог
       });
       if (desk) await sendRoleRows(callbackChatId, desk.text, desk.buttons);
       return;
