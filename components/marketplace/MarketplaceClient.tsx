@@ -989,10 +989,18 @@ export default function MarketplaceClient({
               §0, правило 1в). Обе строки видны всегда: при сортировке по цене
               вторая говорит, что её включил сам турист, а без неё порядок —
               как в первой. */}
-          <div className="mb-4 space-y-1 text-xs leading-relaxed text-[var(--text-secondary)]" data-testid="catalog-order-note">
-            <p>{OFFER_ORDER_NOTE.ru}</p>
-            <p>{SORT_CHOICE_NOTE_RU}</p>
-          </div>
+          {/* 02.11: свёрнуто в одну строку «Как устроен порядок ⓘ» — два
+              абзаца над лентой отодвигали первую карточку на ~520px. Текст
+              правила тот же, раскрывается одним тапом; сам порядок не менялся. */}
+          <details className="group mb-3 text-xs leading-relaxed text-[var(--text-secondary)]" data-testid="catalog-order-note">
+            <summary className="inline-flex items-center gap-1 cursor-pointer select-none py-1.5 font-medium list-none [&::-webkit-details-marker]:hidden">
+              Как устроен порядок <span aria-hidden>ⓘ</span>
+            </summary>
+            <div className="mt-1 space-y-1">
+              <p>{OFFER_ORDER_NOTE.ru}</p>
+              <p>{SORT_CHOICE_NOTE_RU}</p>
+            </div>
+          </details>
 
           {/* Expandable Filter Panel */}
           {showFilters && (
