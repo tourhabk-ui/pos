@@ -88,3 +88,56 @@ function addDays(iso: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Та же заявка из мессенджеров (02.11, «го» владельца): шаги брони Кузьмича
+ * в MAX собирают тур, имя, дату, людей и телефон, «Да» на строке согласия —
+ * и заявка уходит тем же исполнителем, что веб-чат и MCP
+ * (create_booking_request), а не отдельной записью брони.
+ */
+export function planFromBookingFlow(f: {
+  tourId: number; name: string; phone: string; date: string; participants: number; comment?: string;
+}): ChatRequestPlan {
+  return {
+    tool: 'create_booking_request',
+    args: {
+      name: f.name, phone: f.phone, consent: true, participants: f.participants,
+      tour: String(f.tourId), date: f.date,
+      comment: (f.comment ?? 'Заявка из чата Кузьмича в MAX').slice(0, 500),
+    },
+  };
+}
+
+/** Телефон в реплике — признак ПД (тот же разбор, что у заявки). */
+export function textHasPhone(text: string): boolean {
+  return Boolean(parseChatContact(text).phone);
+}
+
+/**
+ * Ответ в Telegram, когда человек прислал телефон: ПД в Telegram не
+ * принимаем и не повторяем (pd-guard) — ни имени, ни номера в ответе.
+ * Заявка та же: форма тура на сайте или чат в MAX.
+ */
+export function telegramPdRedirect(siteUrl: string): string {
+  return [
+    'Телефон и имя в Telegram не принимаю и не сохраняю — так обещает политика конфиденциальности.',
+    `Оформите заявку в форме тура на сайте (${siteUrl}) или напишите мне в MAX — там оформлю прямо в чате.`,
+    'Заявку подтверждает оператор, живой человек; мгновенного бронирования и оплаты через платформу нет.',
+  ].join('\n');
+}
+
+/** Заявка не создалась: без «сервис недоступен», с честным следующим шагом. */
+export function chatRequestNotCreated(reason?: string | null): string {
+  const r = reason?.replace(/\s+/g, ' ').trim().slice(0, 300);
+  return [
+    r ? `Заявка не создана: ${r}` : 'Заявка не записалась — ответ базы не пришёл.',
+    'Можно поправить данные и написать ещё раз или оформить заявку в форме тура на сайте.',
+  ].join('\n');
+}
+
+/** Ответ ПД-безопасен для Telegram: ни телефона, ни e-mail в тексте. */
+export function isTelegramPdSafe(text: string): boolean {
+  if (/(?:\+7|8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/.test(text)) return false;
+  if (/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) return false;
+  return true;
+}

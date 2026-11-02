@@ -58,6 +58,8 @@ import {
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
+import { planFromBookingFlow, planChatRequest, parseChatContact, textHasPhone, telegramPdRedirect } from '@/lib/kuzmich/chat-request';
+import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
 import { tourPath } from '@/lib/tours/tour-url';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
@@ -2239,47 +2241,20 @@ export async function handleBookingStep(
       return true;
     }
 
-    let created: CreatedBooking | null = null;
-    try {
-      created = await createBooking(
-        b as Required<Omit<PendingBooking, 'step' | 'started_at'>>,
-        createdVia,
-        chatId,
-        createdVia.includes('max') ? 'max' : 'tg',
-      );
-    } catch (err) {
-      // Capacity conflict or tour gone — surface specific reason to user
-      if (err instanceof BookingError) {
-        await deleteBookingFlow(chatId, mode, pending);
-        await reply(chatId, err.message);
-        return true;
-      }
-      throw err;
-    }
-    await deleteBookingFlow(chatId, mode, pending);
-
-    if (!created) {
-      await reply(chatId, 'Не удалось отправить заявку. Попробуйте позже или позвоните оператору напрямую.');
-      return true;
-    }
-    const bookingId = created.id;
-
-    const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}?t=${created.accessToken}`;
-    await reply(chatId, [
-      `Заявка создана. Номер: <b>#${bookingId}</b>`,
-      'Оператор — живой человек — свяжется с вами и подтвердит дату и места. Это заявка, не мгновенная бронь и не сбой.',
-      '',
-      `Тур: ${b.tour!.title}`,
-      `Дата: ${dateStr}`,
-      `Человек: ${b.participants}`,
-      bookingSumLine(b.tour!, b.participants!),
-      '',
-      platformAcceptsPayments()
-        ? `Для оплаты перейдите по ссылке:`
-        : `Оператор подтвердит дату и сообщит, как оплатить, — платить ему напрямую. Заявка:`,
-      `<a href="${payLink}">${payLink}</a>`,
-    ].join('\n'));
+    // Та же заявка, что у веб-чата и MCP (02.11): create_booking_request
+    // через общий исполнитель — места проверяются там по базе в момент
+    // записи, согласие записывается с версией текста, оператор получает
+    // уведомление. Подтверждает человек; оплаты через платформу нет.
+    const plan = planFromBookingFlow({
+      tourId: b.tour!.id, name: b.name!, phone: b.phone!, date: b.date!, participants: b.participants!,
+    });
+    const sent = await submitChatRequest(plan, {
+      ip: `${createdVia.includes('max') ? 'max' : 'tg'}:${chatId}`,
+      userAgent: `kuzmich-${createdVia}`.slice(0, 64),
+      tourTitle: b.tour!.title,
+    });
+    if (sent.ok) await deleteBookingFlow(chatId, mode, pending);
+    await reply(chatId, escapeHtml(sent.text));
     return true;
   }
 
@@ -3458,6 +3433,31 @@ export async function processMessage(opts: {
       if (handled) return;
     }
     // handleBookingStep вернул false или flow expired → продолжаем в AI chat
+  }
+
+  // Telegram: телефон в реплике — ПД не принимаем и не повторяем (pd-guard);
+  // заявка та же — в форме тура или в MAX.
+  if (platform === 'tg' && !emergencyNow && !isMediaMessage && textHasPhone(text)) {
+    await replyFn(chatId, telegramPdRedirect(`${getPublicBaseUrl()}/catalog`));
+    return;
+  }
+
+  // MAX: тур, дата, имя, телефон и явное согласие в одной реплике — заявка
+  // сразу, тем же планом и исполнителем, что быстрый путь веб-чата. Нет
+  // даты или согласия — заявки нет, идём шагами (дату и цену не выдумываем).
+  if (platform === 'max' && !maxUnverified && !emergencyNow && !isMediaMessage) {
+    const contact = parseChatContact(text);
+    const pre = parseChatBookingPrefill(text);
+    if (contact.name && contact.phone && contact.consent && pre.date) {
+      const { pickChatBookingTour } = await import('@/lib/ai/chat-booking-tour');
+      const pick = await pickChatBookingTour(text, []);
+      const plan = planChatRequest(text, pick.tour, pre);
+      if (plan) {
+        const sent = await submitChatRequest(plan, { ip: `max:${chatId}`, userAgent: 'kuzmich-max-fast', tourTitle: pick.tour?.title });
+        await replyFn(chatId, escapeHtml(sent.text));
+        return;
+      }
+    }
   }
 
   // Booking trigger
