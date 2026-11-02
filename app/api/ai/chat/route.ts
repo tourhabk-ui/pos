@@ -8,6 +8,7 @@
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
 import { runPublicTool } from '@/app/api/mcp/route';
+import { journaledWrite, sessionRefFrom } from '@/lib/kuzmich/write-journal';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -298,7 +299,8 @@ export async function POST(request: NextRequest) {
           const plan = planChatRequest(rawMessage, pick.tour, pre);
           if (plan) {
             writeStarted = true;
-            const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false });
+            const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
+              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false }));
             fastRequestText = chatToolReply(out, pick.tour?.title).text;
           }
         } catch (e) {
@@ -515,7 +517,8 @@ export async function POST(request: NextRequest) {
       const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage));
       if (plan) {
         try {
-          const out = await runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false });
+          const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
+              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false }));
           // Отказ текстом — тоже ответ человеку: «Заявка не создана: …» (#2967).
           chatRequestText = chatToolReply(out, bookingFormTour?.title).text;
         } catch (e) {
