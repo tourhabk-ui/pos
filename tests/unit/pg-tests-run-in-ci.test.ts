@@ -552,7 +552,14 @@ describe('pg-тесты доходят до CI', () => {
     // сервере, общем с другими процессами сессии (alert-place-scope там упёрся в
     // 5 с таймаут, как 23.10 при сорок пятом и сорок шестом, и прошёл отдельно).
     // При таймауте job в 15 минут размен честен.
-    const SEQUENTIAL_BUDGET = 51;
+    // Пятьдесят второй (02.11, стоп-продажи оператора — «stop-sales for
+    // operators only, with audit; Kuzmich must not offer closed dates») —
+    // `stop-sales`: миграция 1370, UPDATE закрытия с охраной operator_id и
+    // свободных мест (occupiedOnDaySql), журнал в той же транзакции, снятие
+    // только своих закрытий и счёт дат витрины open-dates. Мок принял бы любой
+    // SQL. Один тест, своя маленькая база; job kernel-pg на PR #2961 со всеми
+    // файлами — 2 мин 18 с при таймауте 15 минут: размен честен.
+    const SEQUENTIAL_BUDGET = 52;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,
