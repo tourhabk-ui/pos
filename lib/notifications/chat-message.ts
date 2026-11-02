@@ -14,8 +14,9 @@
  * то же, что у заявок: сначала MAX, потом Telegram-заглушка.
  *
  * Текст сообщения: у заявок комментарий туриста уходит оператору обрезанным
- * до 200 символов — здесь тот же предел и то же место (только MAX-текст;
- * в заглушку ни имя автора, ни текст не попадают).
+ * до 200 символов — здесь тот же предел. В Telegram-заглушку имя автора не
+ * попадает, текст — с маской ПД. Кнопка «Ответить» — ответ туристу из
+ * мессенджера с предпросмотром и «Отправить» (lib/chat/conversation-reply).
  *
  * Антиспам без новой схемы: уведомление уходит, только когда это сообщение —
  * ЕДИНСТВЕННОЕ непрочитанное у партнёра в беседе (счёт по
@@ -38,6 +39,7 @@ import { INBOX_CHAT_CATEGORIES } from '@/lib/crm/inbox-kinds';
 import { reachForPartner } from '@/lib/partners/reach';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { convReplyButton, maskConvText } from '@/lib/chat/conversation-reply';
 
 interface Queryable {
   query: typeof pool.query;
@@ -144,15 +146,22 @@ export async function notifyPartnerOfChatMessageQuietly(
       senderName ? `Написал(а): ${esc(senderName)}` : '',
       excerpt ? `Сообщение: ${esc(excerpt)}` : '',
     ].filter(Boolean).join('\n');
+    // Telegram (30.10, владелец: «отвечать из TG можно, с маской ПД»): текст
+    // туриста без имени, телефоны, почта и ссылки скрыты; «Ответить» — только
+    // если Telegram партнёра назван (stubActions уходят лишь ему).
+    const masked = excerpt ? maskConvText(excerpt) : '';
     const stub = [
       ...common,
-      'Имя автора и текст сообщения — в кабинете: в Telegram они не передаются.',
-    ].join('\n');
+      masked ? `Сообщение: ${esc(masked)}` : '',
+      'Имя автора в Telegram не передаётся, телефоны и почта скрыты. Ответить — кнопка ниже.',
+    ].filter(Boolean).join('\n');
 
+    const reply = convReplyButton(conversationId);
     const res = await sendPdAlert({
-      text,
+      text: `${text}\n\nОтветить туристу в этом чате — кнопка «Ответить».`,
       stub,
-      buttons: [{ text: 'Открыть чат', url: `${getPublicBaseUrl()}/hub/${category}` }],
+      buttons: [reply, { text: 'Открыть чат', url: `${getPublicBaseUrl()}/hub/${category}` }],
+      stubActions: reach.telegramChatId ? [reply] : undefined,
       to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
     });
     if (!res.delivered && res.channel === 'none') {

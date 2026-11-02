@@ -20,7 +20,7 @@ vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: (...args: unknown[
 
 import { notifyPartnerOfChatMessageQuietly } from '@/lib/notifications/chat-message';
 
-type PdArgs = { text: string; stub: string; buttons?: Array<{ text: string; url: string }>; to?: { maxChatId: string | null; telegramChatId: string | null } };
+type PdArgs = { text: string; stub: string; buttons?: Array<{ text: string; url?: string; payload?: string }>; stubActions?: Array<{ text: string; payload: string }>; to?: { maxChatId: string | null; telegramChatId: string | null } };
 
 function setupDb(unreadCount: string, opts: { partnerRole?: string; cards?: Record<string, string> } = {}) {
   const partnerRole = opts.partnerRole ?? 'operator';
@@ -64,8 +64,27 @@ describe('notifyPartnerOfChatMessageQuietly', () => {
     expect(arg.text).toContain('Тур на Толбачик');
     expect(arg.text).toContain('Есть ли места');
     expect(arg.stub).not.toContain('Иван Турист');
-    expect(arg.stub).not.toContain('Есть ли места');
-    expect(arg.buttons?.[0].url).toMatch(/\/hub\/operator$/);
+    // Telegram (30.10, с маской ПД): текст есть, имени нет; «Ответить» — кнопкой.
+    expect(arg.stub).toContain('Есть ли места');
+    expect(arg.buttons?.find((b) => b.url)?.url).toMatch(/\/hub\/operator$/);
+    expect(arg.buttons?.[0]).toEqual({ text: 'Ответить', payload: 'cv:r:conv-1' });
+  });
+
+  it('Telegram: телефон и почта туриста скрыты, «Ответить» — только названному Telegram', async () => {
+    setupDb('1');
+    await notifyPartnerOfChatMessageQuietly('conv-1', 'tourist-1', 'Позвоните +7 914 123-45-67 или ivan@mail.ru');
+    const arg = sendPdAlertMock.mock.calls[0][0] as PdArgs;
+    expect(arg.text).toContain('+7 914 123-45-67');
+    expect(arg.stub).not.toContain('123-45-67');
+    expect(arg.stub).not.toContain('ivan@mail.ru');
+    expect(arg.stubActions).toEqual([{ text: 'Ответить', payload: 'cv:r:conv-1' }]);
+  });
+
+  it('без Telegram у партнёра — кнопок для заглушки нет', async () => {
+    setupDb('1');
+    reachMock.mockResolvedValue({ telegramChatId: null, maxChatId: '77', telegramSource: null, reachable: true });
+    await notifyPartnerOfChatMessageQuietly('conv-1', 'tourist-1', 'Привет');
+    expect((sendPdAlertMock.mock.calls[0][0] as PdArgs).stubActions).toBeUndefined();
   });
 
   it('текст сообщения в уведомлении обрезан до 200 символов', async () => {
@@ -108,7 +127,7 @@ describe('notifyPartnerOfChatMessageQuietly', () => {
     expect(reachMock).toHaveBeenCalledWith('guide-card-1');
     expect(sendPdAlertMock).toHaveBeenCalledTimes(1);
     const arg = sendPdAlertMock.mock.calls[0][0] as PdArgs;
-    expect(arg.buttons?.[0].url).toMatch(/\/hub\/guide$/);
+    expect(arg.buttons?.find((b) => b.url)?.url).toMatch(/\/hub\/guide$/);
   });
 
   // Беседа, начатая до 29.10, записала гида «оператором»: карточки оператора

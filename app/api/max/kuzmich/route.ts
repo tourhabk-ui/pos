@@ -79,6 +79,7 @@ import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
 import { armChatWait, bindGuestChat, captureChatText, pressDraft, type ChatReply } from '@/lib/requests/request-chat-service';
 import { guestKeyFromStart, parseChatPress, parseDraftPress } from '@/lib/requests/request-chat';
+import { captureConvText, isConvPayload, pressConv } from '@/lib/chat/conversation-reply';
 import { operatorDeskButtons, operatorHelpText, operatorToursReply, loadOperatorTours } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress, operatorHelpPress } from '@/lib/telegram/operator-desk-press';
 import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
@@ -903,6 +904,10 @@ async function handleActionPress(
       await maxReply(chatId, 'Переписка по заявке идёт в личном диалоге с ботом. Здесь ничего не отправлено.');
       return;
     }
+    if (isConvPayload(payload)) {
+      await sendChatReplies(chatId, [await pressConv(payload, chatId, 'max')]);
+      return;
+    }
     if (parseDraftPress(payload)) {
       await sendChatReplies(chatId, [await pressDraft(payload, chatId, 'max')]);
       return;
@@ -1218,6 +1223,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         // Беда в тексте — блок 112 над ответом: сообщение ушло второй стороне,
         // но помощь сейчас — не адресат заявки, а 112.
         await sendChatReplies(chatId, [{ ...relayed, text: withSosBlock(relayed.text, text).text }]);
+        return;
+      }
+      // Ответ туристу в чате Ведара (lib/chat/conversation-reply): черновик и предпросмотр.
+      const convDraft = await captureConvText(chatId, text, 'max');
+      if (convDraft) {
+        await sendChatReplies(chatId, [convDraft]);
         return;
       }
     }
