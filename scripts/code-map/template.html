@@ -1,0 +1,469 @@
+<title>Карта кабинета в чате</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=Playfair+Display:wght@600;700&display=swap">
+<style>
+/* Схема: рабочий стол — слева живая схема, справа карточка выбранного; на телефоне карточка под схемой.
+   Токены — из дизайн-системы Ведара (CLAUDE.md §2), шрифты Playfair Display и Outfit. */
+:root {
+  --bg: #F5F5F5; --card: #FFFFFF; --hover: #EEF3FB;
+  --fg: #1A1A1A; --fg-2: #595959; --muted: #6B6B6B;
+  --accent: #006CE4; --ocean: #003580; --success: #008234; --warning: #876316; --danger: #B91C1C; --purple: #7C3AED;
+  --site: #4A5D73; --line: rgba(0,0,0,.22); --border: rgba(0,0,0,.09);
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-body: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-code: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0D1117; --card: #21262D; --hover: #30363D;
+  --fg: #F0F6FC; --fg-2: #8B949E; --muted: #838D9A;
+  --accent: #E8734A; --ocean: #00A8CC; --success: #3FB950; --warning: #D29922; --danger: #F85149; --purple: #A855F7;
+  --site: #9FB3C8; --line: rgba(255,255,255,.22); --border: rgba(255,255,255,.08); color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0D1117; --card: #21262D; --hover: #30363D;
+  --fg: #F0F6FC; --fg-2: #8B949E; --muted: #838D9A;
+  --accent: #E8734A; --ocean: #00A8CC; --success: #3FB950; --warning: #D29922; --danger: #F85149; --purple: #A855F7;
+  --site: #9FB3C8; --line: rgba(255,255,255,.22); --border: rgba(255,255,255,.08); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 28px; max-width: 1440px; margin: 0 auto; display: grid; gap: 16px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-variant-numeric: tabular-nums; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--fg-2); max-width: 70ch; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--fg); font-weight: 600; }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+.tabs button { font: inherit; font-size: 14px; border: 0; background: transparent; color: var(--fg-2); padding: 7px 14px; border-radius: 7px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: #fff; }
+.tabs button:focus-visible, .btn:focus-visible, .row:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.search { position: relative; flex: 1 1 240px; max-width: 360px; }
+.search input { width: 100%; font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--fg); }
+.results { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); max-height: 320px; overflow: auto; }
+.results .row { display: block; width: 100%; text-align: left; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.stage { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: grid; grid-template-rows: auto 1fr; min-height: 560px; height: calc(100vh - 230px); }
+.crumbs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--fg-2); }
+.crumbs button { font: inherit; border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; }
+.legend { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+.legend span::before { content: ""; display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--line); vertical-align: middle; margin-right: 5px; }
+.legend .http::before { border-top: 2px dashed var(--accent); }
+.legend .data::before { border-top: 2px dotted var(--fg-2); }
+#cy { width: 100%; height: 100%; min-height: 0; }
+#list { overflow: auto; padding: 14px; display: grid; gap: 18px; align-content: start; }
+aside { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; display: grid; gap: 14px; align-content: start; max-height: calc(100vh - 230px); min-height: 560px; overflow: auto; }
+aside h2 { font-family: var(--font-display); font-weight: 600; font-size: 22px; margin: 0; line-height: 1.2; text-wrap: balance; }
+aside h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+aside p { margin: 0; }
+.path { font-family: var(--font-code); font-size: 12.5px; color: var(--fg-2); word-break: break-all; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg-2); }
+.chip.k { border-color: currentColor; background: transparent; }
+.row { font: inherit; font-size: 14px; border: 0; background: transparent; color: var(--fg); padding: 7px 8px; border-radius: 8px; cursor: pointer; display: grid; gap: 1px; text-align: left; width: 100%; }
+.row:hover { background: var(--hover); }
+.row small { color: var(--fg-2); font-size: 12.5px; }
+.row .path { font-size: 12px; }
+.list-tight { display: grid; gap: 2px; }
+.note { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--bg); border-radius: 0 8px 8px 0; font-size: 14px; display: grid; gap: 2px; }
+.note.high { border-left-color: var(--danger); }
+.note.low { border-left-color: var(--muted); }
+.note .st { font-size: 12px; color: var(--muted); }
+.meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.meta dt { color: var(--fg-2); }
+.meta dd { margin: 0; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+.steps li::before { counter-increment: s; content: counter(s); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.steps .btn-link { font: inherit; border: 0; background: none; padding: 0; color: var(--fg); cursor: pointer; text-align: left; font-weight: 600; }
+.steps small { display: block; color: var(--fg-2); font-size: 12.5px; }
+.flowpick { display: grid; gap: 6px; }
+.flowpick .row[aria-pressed="true"] { background: var(--hover); box-shadow: inset 3px 0 0 var(--accent); }
+.grp { display: grid; gap: 6px; }
+.grp h3 { font-family: var(--font-display); font-size: 18px; margin: 0; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.grp p { margin: 0; color: var(--fg-2); font-size: 14px; max-width: 75ch; }
+.fine { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: 62vh; min-height: 420px; }
+  aside { max-height: none; min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="eyebrow"></div>
+    <h1>Кабинет в чате и CRM</h1>
+    <p class="lede">Как сообщения из MAX и Telegram и экраны сайта сходятся в одном учёте клиентов. Связи найдены по импортам и запросам к API, описания взяты из комментариев в самих файлах. Нажмите на блок, чтобы открыть его.</p>
+    <div class="stats" id="stats"></div>
+  </header>
+  <div class="bar">
+    <div class="tabs" role="tablist">
+      <button role="tab" id="t-map" aria-selected="true" data-view="map">Карта</button>
+      <button role="tab" id="t-flows" aria-selected="false" data-view="flows">Сценарии</button>
+      <button role="tab" id="t-health" aria-selected="false" data-view="health">Здоровье</button>
+      <button role="tab" id="t-list" aria-selected="false" data-view="list">Список</button>
+    </div>
+    <div class="search">
+      <input id="q" type="search" placeholder="Найти файл: busy, menu-tail, клиенты…" autocomplete="off" aria-label="Поиск по файлам">
+      <div class="results" id="results" hidden></div>
+    </div>
+  </div>
+  <div class="layout">
+    <section class="stage" aria-label="Схема">
+      <div class="crumbs" id="crumbs"></div>
+      <div id="cy"></div>
+      <div id="list" hidden></div>
+    </section>
+    <aside id="panel" aria-live="polite"></aside>
+  </div>
+  <p class="fine" id="foot"></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script>
+const G = /*__GRAPH__*/null;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const FILE = new Map(G.files.map((f) => [f.path, f]));
+const GROUP = new Map(G.groups.map((g) => [g.id, g]));
+const CORE = new Map(G.core.map((c) => [c.id, c]));
+const FIND = new Map(G.findings.filter((x) => !x.fixed).map((x) => [x.file, x]));
+const OPEN = G.findings.filter((x) => !x.fixed), FIXED = G.findings.filter((x) => x.fixed);
+const BIG = new Set(G.big.map((b) => b.path));
+const KIND_TOKEN = { entry: '--ocean', site: '--site', chat: '--purple', role: '--success', team: '--warning', crm: '--accent', pd: '--danger' };
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const colorOfGroup = (id) => (GROUP.has(id) ? css(KIND_TOKEN[GROUP.get(id).kind]) : id === 'db' ? css('--fg-2') : css('--muted'));
+const nf = (n) => n.toLocaleString('ru-RU');
+const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
+
+$('#eyebrow').textContent = `Ведар · main ${G.meta.sha || ''} · снято ${G.meta.generated.split('-').reverse().join('.')}`;
+$('#stats').innerHTML = [
+  `<span><b>${G.meta.files}</b> файлов</span>`, `<span><b>${nf(G.meta.loc)}</b> строк</span>`,
+  `<span><b>${G.groups.length}</b> частей</span>`, `<span><b>${G.meta.tables}</b> таблиц базы</span>`,
+  `<span><b>${G.meta.cycles}</b> циклов импорта</span>`, `<span><b>${OPEN.length}</b> открытых находок</span>`,
+].join('');
+$('#foot').textContent = `Своя карта по образцу Floorplan: сканер написан для Ведара, сторонний код не запускался. Охват — кабинет в чате, роли партнёров, CRM и её экраны на сайте; что каждая часть берёт из остального Ведара, написано в её карточке. Файлов без комментария-описания: ${G.meta.noDoc} (это короткие страницы-обёртки).`;
+
+let cy = null;
+let view = 'map';
+let scope = null; // null = обзор, иначе id группы
+let flowId = G.flows[0].id;
+
+function initCy() {
+  cy = cytoscape({ container: $('#cy'), minZoom: 0.15, maxZoom: 3, wheelSensitivity: 0.25, boxSelectionEnabled: false, autoungrabify: false, style: cyStyle() });
+  cy.on('tap', 'node', (e) => onNode(e.target));
+  cy.on('tap', (e) => { if (e.target === cy) { clearFade(); renderPanel(); } });
+}
+function cyStyle() {
+  const fg = css('--fg'), fg2 = css('--fg-2'), card = css('--card');
+  return [
+    { selector: 'node', style: { 'label': 'data(label)', 'text-wrap': 'wrap', 'text-max-width': 'data(tw)', 'font-family': 'Outfit, system-ui, sans-serif', 'font-size': 'data(fs)', 'color': fg, 'text-valign': 'center', 'text-halign': 'center', 'shape': 'round-rectangle', 'width': 'data(w)', 'height': 'data(h)', 'background-color': 'data(color)', 'background-opacity': 0.13, 'border-width': 1.5, 'border-color': 'data(color)', 'line-height': 1.25 } },
+    { selector: 'node.core', style: { 'shape': 'ellipse', 'background-opacity': 0.08, 'border-style': 'dashed', 'color': fg2 } },
+    { selector: 'node.db', style: { 'shape': 'barrel', 'background-opacity': 0.1 } },
+    { selector: 'node.neighbor', style: { 'shape': 'ellipse', 'background-opacity': 0.06, 'color': fg2 } },
+    { selector: 'node.hot', style: { 'border-width': 3, 'border-color': css('--danger') } },
+    { selector: 'node.focus', style: { 'border-width': 3.5, 'background-opacity': 0.28 } },
+    { selector: 'node.step', style: { 'background-opacity': 0.18, 'border-width': 2 } },
+    { selector: 'edge', style: { 'curve-style': 'bezier', 'width': 'data(w)', 'line-color': 'data(color)', 'target-arrow-color': 'data(color)', 'target-arrow-shape': 'triangle', 'arrow-scale': 0.8, 'line-style': 'data(ls)', 'opacity': 'data(op)' } },
+    { selector: '.faded', style: { 'opacity': 0.22 } },
+    { selector: 'node:selected', style: { 'overlay-opacity': 0 } },
+  ];
+}
+function nodeBox(label, fs, minW) {
+  const lines = String(label).split('\n');
+  const longest = Math.max(...lines.map((l) => l.length));
+  const w = Math.max(minW || 0, Math.min(260, longest * fs * 0.58 + 28));
+  return { w, h: lines.length * fs * 1.3 + 22, tw: w - 16 };
+}
+
+// ---------- Обзор ----------
+const POS = {
+  team: [330, 40], site: [0, 220], cabinet: [330, 330], entry: [0, 480], max: [330, 620], pd: [330, 820],
+  operator: [700, 0], guide: [700, 150], carrier: [700, 300], stay: [700, 450], rental: [700, 600], bookings: [700, 750],
+  crm: [1060, 330], db: [1060, 640],
+};
+const POS_NARROW = {
+  site: [0, 0], entry: [0, 130], team: [0, 260], cabinet: [0, 390], max: [0, 520], pd: [0, 650],
+  operator: [330, 0], guide: [330, 130], carrier: [330, 260], stay: [330, 390], rental: [330, 520], bookings: [330, 650],
+  crm: [165, 800], db: [165, 930],
+};
+function overviewEls() {
+  const els = [];
+  const P = $('#cy').clientWidth < 620 ? POS_NARROW : POS;
+  const findCount = (gid) => OPEN.filter((x) => FILE.get(x.file)?.group === gid).length;
+  for (const g of G.groups) {
+    const label = `${g.label}\n${g.files} ${plural(g.files, 'файл', 'файла', 'файлов')} · ${nf(g.loc)} стр.`;
+    const fs = 15 + Math.min(3, Math.sqrt(g.loc) / 40);
+    const b = nodeBox(label, fs, 150);
+    els.push({ group: 'nodes', data: { id: g.id, label, fs, ...b, color: colorOfGroup(g.id), kind: 'group' }, position: { x: P[g.id][0], y: P[g.id][1] }, classes: findCount(g.id) && view === 'health' ? 'hot' : '' });
+  }
+  const dbLabel = `База данных\n${G.meta.tables} таблиц`;
+  els.push({ group: 'nodes', data: { id: 'db', label: dbLabel, fs: 14, ...nodeBox(dbLabel, 14, 140), color: colorOfGroup('db'), kind: 'db' }, position: { x: P.db[0], y: P.db[1] }, classes: 'db' });
+  for (const e of G.groupEdges) {
+    if (e.kind === 'core' || (e.kind === 'uses' && e.n < 2)) continue;
+    const col = e.kind === 'http' ? css('--accent') : e.kind === 'data' ? css('--fg-2') : css('--line');
+    els.push({ group: 'edges', data: { id: `${e.a}>${e.b}>${e.kind}`, source: e.a, target: e.b, w: Math.min(7, 0.8 + Math.log2(e.n) * 1.2), color: col, ls: e.kind === 'http' ? 'dashed' : e.kind === 'data' ? 'dotted' : 'solid', op: 0.7 } });
+  }
+  return els;
+}
+
+// ---------- Часть (группа) ----------
+function groupEls(gid) {
+  const els = [];
+  const inG = G.files.filter((f) => f.group === gid).sort((a, b) => b.loc - a.loc);
+  const neighbors = new Map();
+  const bump = (k) => neighbors.set(k, (neighbors.get(k) || 0) + 1);
+  for (const f of inG) {
+    const label = f.name;
+    const fs = 12 + Math.min(3, Math.sqrt(f.loc) / 18);
+    const i = inG.indexOf(f), cols = Math.max(2, Math.ceil(Math.sqrt(inG.length * 1.4)));
+    els.push({ group: 'nodes', data: { id: 'f:' + f.path, label, fs, ...nodeBox(label, fs, 80), color: colorOfGroup(gid), kind: 'file', path: f.path }, position: { x: (i % cols) * 200, y: Math.floor(i / cols) * 80 }, classes: FIND.has(f.path) ? 'hot' : '' });
+  }
+  const fileEdge = new Set();
+  for (const f of inG) {
+    for (const t of f.imports) {
+      const tf = FILE.get(t);
+      if (tf.group === gid) { els.push({ group: 'edges', data: { id: `e:${f.path}>${t}`, source: 'f:' + f.path, target: 'f:' + t, w: 1.2, color: css('--line'), ls: 'solid', op: 0.9 } }); }
+      else { const k = `${f.path}|${tf.group}`; if (!fileEdge.has(k)) { fileEdge.add(k); bump(tf.group); } }
+    }
+    for (const t of f.http) { const tg = FILE.get(t)?.group; if (tg && tg !== gid) { const k = `${f.path}|${tg}|h`; if (!fileEdge.has(k)) { fileEdge.add(k); bump(tg); } } }
+    for (const p of f.usedBy) { const sg = FILE.get(p).group; if (sg !== gid) { const k = `${sg}|${f.path}|in`; if (!fileEdge.has(k)) { fileEdge.add(k); bump(sg); } } }
+  }
+  const cols = Math.max(2, Math.ceil(Math.sqrt(inG.length * 1.4)));
+  const rows = Math.ceil(inG.length / cols);
+  [...neighbors.keys()].forEach((ng, j, arr) => {
+    const g = GROUP.get(ng);
+    const label = g.label;
+    const step = Math.max(64, (Math.max(rows - 1, 1) * 80) / Math.max(arr.length - 1, 1));
+    const y = (Math.max(rows - 1, 0) * 80) / 2 + (j - (arr.length - 1) / 2) * step;
+    els.push({ group: 'nodes', data: { id: 'g:' + ng, label, fs: 13, ...nodeBox(label, 13, 120), color: colorOfGroup(ng), kind: 'neighbor', gid: ng }, position: { x: cols * 200 + 140, y }, classes: 'neighbor' });
+  });
+  for (const k of fileEdge) {
+    const parts = k.split('|');
+    if (parts[2] === 'in') els.push({ group: 'edges', data: { id: 'n:' + k, source: 'g:' + parts[0], target: 'f:' + parts[1], w: 1, color: css('--line'), ls: 'solid', op: 0.45 } });
+    else els.push({ group: 'edges', data: { id: 'n:' + k, source: 'f:' + parts[0], target: 'g:' + parts[1], w: 1, color: parts[2] === 'h' ? css('--accent') : css('--line'), ls: parts[2] === 'h' ? 'dashed' : 'solid', op: 0.45 } });
+  }
+  return els;
+}
+
+// ---------- Сценарий ----------
+function flowEls(fl) {
+  const els = [];
+  const narrow = $('#cy').clientWidth < 620;
+  fl.steps.forEach(([p], i) => {
+    const f = FILE.get(p);
+    const label = `${i + 1}. ${f.name}`;
+    const b = nodeBox(label, 14, 150);
+    const pos = narrow ? { x: (i % 2) * 40, y: i * 110 } : { x: i * 230, y: (i % 2) * 70 };
+    els.push({ group: 'nodes', data: { id: 'f:' + p, label, fs: 14, ...b, color: colorOfGroup(f.group), kind: 'file', path: p }, position: pos, classes: 'step' + (FIND.has(p) ? ' hot' : '') });
+    const c = fl.callers[i];
+    if (c !== null && c !== undefined) els.push({ group: 'edges', data: { id: `fe${i}`, source: 'f:' + fl.steps[c][0], target: 'f:' + p, w: 2, color: css('--accent'), ls: 'solid', op: 0.9 } });
+  });
+  if (fl.tableAt >= 0) {
+    const at = fl.steps[fl.tableAt][0];
+    const label = `таблица\n${fl.table}`;
+    const base = els.find((e) => e.data.id === 'f:' + at).position;
+    els.push({ group: 'nodes', data: { id: 't:' + fl.table, label, fs: 13, ...nodeBox(label, 13, 140), color: colorOfGroup('db'), kind: 'table' }, position: narrow ? { x: base.x + 230, y: base.y } : { x: base.x, y: base.y + 170 }, classes: 'db' });
+    els.push({ group: 'edges', data: { id: 'ft', source: 'f:' + at, target: 't:' + fl.table, w: 1.6, color: css('--fg-2'), ls: 'dotted', op: 0.9 } });
+  }
+  return els;
+}
+
+function draw(els, layout) {
+  cy.elements().remove();
+  cy.add(els);
+  const l = cy.layout(layout || { name: 'preset', fit: true, padding: 30 });
+  l.run();
+  cy.fit(undefined, 30);
+}
+
+// ---------- Панель ----------
+function fileLink(p, extra) {
+  const f = FILE.get(p);
+  return `<button class="row" data-open="${esc(p)}"><span>${esc(f.name)}${extra ? ` <small>${extra}</small>` : ''}</span><span class="path">${esc(p)}</span></button>`;
+}
+function groupChip(gid) {
+  const g = GROUP.get(gid);
+  return `<span class="chip k" style="color:${colorOfGroup(gid)}">${esc(g.label)}</span>`;
+}
+function filePanel(p) {
+  const f = FILE.get(p);
+  const fnd = FIND.get(p);
+  const usedOutside = f.usedByCode - f.usedBy.length;
+  return `
+    <div class="chips">${groupChip(f.group)}${BIG.has(p) ? '<span class="chip">большой файл</span>' : ''}</div>
+    <h2>${esc(f.name)}</h2>
+    <div class="path">${esc(p)}</div>
+    ${fnd ? `<div class="note ${fnd.sev}"><span>${esc(fnd.text)}</span><span class="st">Находка: ${esc(fnd.status)}</span></div>` : ''}
+    <div><h3>Что это</h3><p>${f.doc ? esc(f.doc) : '<span class="fine">В файле нет комментария-описания.</span>'}</p></div>
+    <dl class="meta">
+      <dt>Строк</dt><dd>${nf(f.loc)}</dd>
+      <dt>Его используют</dt><dd>${f.usedByCode} ${plural(f.usedByCode, 'файл', 'файла', 'файлов')} кода${usedOutside > 0 ? `, из них ${usedOutside} вне карты` : ''}; ${f.usedByTests} ${plural(f.usedByTests, 'тест', 'теста', 'тестов')}</dd>
+    </dl>
+    ${f.tables.length ? `<div><h3>Таблицы базы</h3><div class="chips">${f.tables.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div></div>` : ''}
+    ${f.http.length ? `<div><h3>Запросы к API</h3><div class="list-tight">${f.http.map((t) => (FILE.has(t) ? fileLink(t) : `<span class="path">${esc(t)}</span>`)).join('')}</div></div>` : ''}
+    ${f.imports.length ? `<div><h3>Использует (${f.imports.length})</h3><div class="list-tight">${f.imports.map((t) => fileLink(t)).join('')}</div></div>` : ''}
+    ${f.outside.length ? `<div><h3>Ядро Ведара</h3><div class="chips">${f.outside.map((c) => `<span class="chip">${esc(CORE.get(c).label)}</span>`).join('')}</div></div>` : ''}
+    ${f.usedBy.length ? `<div><h3>Используется в (${f.usedBy.length})</h3><div class="list-tight">${f.usedBy.map((t) => fileLink(t)).join('')}</div></div>` : ''}`;
+}
+function groupPanel(gid) {
+  const g = GROUP.get(gid);
+  const files = G.files.filter((f) => f.group === gid).sort((a, b) => b.loc - a.loc);
+  const out = G.groupEdges.filter((e) => e.a === gid && GROUP.has(e.b) && e.kind !== 'core').sort((a, b) => b.n - a.n);
+  const inn = G.groupEdges.filter((e) => e.b === gid && GROUP.has(e.a)).sort((a, b) => b.n - a.n);
+  const tbls = [...new Set(files.flatMap((f) => f.tables))];
+  return `
+    <div class="chips">${groupChip(gid)}</div>
+    <h2>${esc(g.label)}</h2>
+    <p>${esc(g.summary)}</p>
+    <dl class="meta"><dt>Файлов</dt><dd>${g.files}</dd><dt>Строк</dt><dd>${nf(g.loc)}</dd></dl>
+    ${out.length ? `<div><h3>Обращается к</h3><div class="chips">${out.map((e) => `<button class="chip" data-group="${e.b}" style="cursor:pointer">${esc(GROUP.get(e.b).label)} · ${e.n}</button>`).join('')}</div></div>` : ''}
+    ${inn.length ? `<div><h3>К ней обращаются</h3><div class="chips">${inn.map((e) => `<button class="chip" data-group="${e.a}" style="cursor:pointer">${esc(GROUP.get(e.a).label)} · ${e.n}</button>`).join('')}</div></div>` : ''}
+    ${(() => { const c = [...new Set(files.flatMap((f) => f.outside))]; return c.length ? `<div><h3>Берёт из остального Ведара</h3><div class="chips">${c.map((x) => `<span class="chip">${esc(CORE.get(x).label)}</span>`).join('')}</div></div>` : ''; })()}
+    ${tbls.length ? `<div><h3>Таблицы</h3><div class="chips">${tbls.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div></div>` : ''}
+    <div><h3>Файлы, крупные сверху</h3><div class="list-tight">${files.map((f) => fileLink(f.path, `${nf(f.loc)} стр.`)).join('')}</div></div>`;
+}
+function overviewPanel() {
+  return `
+    <h2>Как это устроено</h2>
+    <p>Два входа — <b>вебхуки MAX и Telegram</b> и <b>экраны сайта</b> — сходятся в одном ядре: <b>CRM</b> (клиенты, задачи, лента). Между ними — кабинет в чате и пять ролей партнёров.</p>
+    <p>Толщина линии — сколько файлов связано; одиночные связи на обзоре скрыты, они видны внутри частей. Пунктир — запрос сайта к API, точки — работа с базой. Что каждая часть берёт из остального Ведара, написано в её карточке.</p>
+    <div><h3>Что видно сразу</h3>
+      <div class="list-tight">
+        ${fileLink(G.hubs[0].path, `зовёт ${G.hubs[0].n} модулей карты`)}
+        ${fileLink(G.shared[0].path, `нужен ${G.shared[0].n} файлам`)}
+        ${fileLink(G.big.find((b) => !/route\.ts$/.test(b.path)).path, `${nf(G.big.find((b) => !/route\.ts$/.test(b.path)).loc)} строк`)}
+      </div>
+    </div>
+    <p class="fine">Нажмите на часть, чтобы раскрыть её файлы. Двойное касание не нужно.</p>`;
+}
+function flowsPanel() {
+  const fl = G.flows.find((x) => x.id === flowId);
+  return `
+    <h2>Сценарии</h2>
+    <div class="flowpick">${G.flows.map((x) => `<button class="row" data-flow="${x.id}" aria-pressed="${x.id === flowId}"><span>${esc(x.title)}</span></button>`).join('')}</div>
+    <p>${esc(fl.lede)}</p>
+    <ol class="steps">${fl.steps.map(([p, note], i) => {
+      const c = fl.callers[i];
+      const by = c === null || c === undefined ? '' : ` Вызывает шаг ${c + 1}.`;
+      return `<li><div><button class="btn-link" data-open="${esc(p)}">${esc(FILE.get(p).name)}</button><small>${esc(note)}${by}${fl.tableAt === i ? ` Пишет в таблицу ${esc(fl.table)}.` : ''}</small></div></li>`;
+    }).join('')}</ol>
+    <p class="fine">Кто кого вызывает — по настоящим импортам файлов, а не по рисунку.</p>`;
+}
+function healthPanel() {
+  return `
+    <h2>Здоровье</h2>
+    <p>Проверки написаны под Ведар: находки разбора 02.11 и что из них уже исправлено, слишком большие файлы и узлы, через которые идёт почти всё. Красная рамка на схеме — часть с открытой находкой.</p>
+    <div><h3>Открытые находки</h3><div class="list-tight" style="gap:8px">${OPEN.map((x) => `<div class="note ${x.sev}"><button class="btn-link row" data-open="${esc(x.file)}" style="padding:0"><span>${esc(FILE.get(x.file).name)}</span><span class="path">${esc(x.file)}</span></button><span>${esc(x.text)}</span><span class="st">${esc(x.status)}</span></div>`).join('')}</div></div>
+    ${FIXED.length ? `<div><h3>Исправлено после разбора 02.11</h3><div class="list-tight">${FIXED.map((x) => fileLink(x.file, esc(x.status))).join('')}</div></div>` : ''}
+    <div><h3>Большие файлы (от 800 строк)</h3><div class="list-tight">${G.big.map((b) => fileLink(b.path, `${nf(b.loc)} стр.`)).join('')}</div></div>
+    <div><h3>Зовут больше всех</h3><div class="list-tight">${G.hubs.map((b) => fileLink(b.path, `${b.n} модулей`)).join('')}</div></div>
+    <div><h3>Нужны больше всех</h3><div class="list-tight">${G.shared.map((b) => fileLink(b.path, `${b.n} файлам`)).join('')}</div></div>
+    <p class="fine">Циклов импорта: ${G.meta.cycles}. Файлов без единого пользователя в коде: 0. Это быстрая проверка, не аудит безопасности.</p>`;
+}
+let selected = null;
+function renderPanel() {
+  const el = $('#panel');
+  if (view === 'flows') el.innerHTML = flowsPanel();
+  else if (view === 'health' && !selected) el.innerHTML = healthPanel();
+  else if (selected?.type === 'file') el.innerHTML = filePanel(selected.id);
+  else if (selected?.type === 'group') el.innerHTML = groupPanel(selected.id);
+  else if (scope) el.innerHTML = groupPanel(scope);
+  else el.innerHTML = view === 'health' ? healthPanel() : overviewPanel();
+}
+function clearFade() { cy.elements().removeClass('faded focus'); selected = null; }
+function focusNode(n) {
+  cy.elements().addClass('faded');
+  n.closedNeighborhood().removeClass('faded');
+  n.addClass('focus');
+}
+function onNode(n) {
+  const k = n.data('kind');
+  if (view === 'flows') { if (n.data('path')) { selected = { type: 'file', id: n.data('path') }; $('#panel').innerHTML = filePanel(n.data('path')) + `<button class="row" data-back="1"><span>← К сценарию</span></button>`; } return; }
+  if (k === 'group') { openGroup(n.id()); return; }
+  if (k === 'neighbor') { openGroup(n.data('gid')); return; }
+  if (k === 'file') { selected = { type: 'file', id: n.data('path') }; focusNode(n); renderPanel(); return; }
+  if (k === 'db') { selected = null; $('#panel').innerHTML = `<h2>База данных</h2><p>Таблицы, к которым эти файлы обращаются прямым SQL. Названия сверены с миграциями.</p><div class="list-tight">${G.tables.map((t) => `<div class="row"><span>${esc(t.n)}</span><small>${t.users.length} ${plural(t.users.length, 'файл', 'файла', 'файлов')}</small></div>`).join('')}</div>`; focusNode(n); return; }
+  if (k === 'core') { selected = null; focusNode(n); $('#panel').innerHTML = `<h2>${esc(n.data('label'))}</h2><p>Часть Ведара вне этой карты. Линия показывает, какие части кабинета её используют.</p>`; }
+}
+
+// ---------- Виды ----------
+function setCrumbs() {
+  const legend = `<span class="legend"><span>использует</span><span class="http">запрос к API</span><span class="data">база</span></span>`;
+  if (view === 'flows') { $('#crumbs').innerHTML = `<span>Сценарий: ${esc(G.flows.find((x) => x.id === flowId).title)}</span>${legend}`; return; }
+  if (view === 'list') { $('#crumbs').innerHTML = `<span>Все части и файлы</span>`; return; }
+  $('#crumbs').innerHTML = scope ? `<button data-home="1">Вся карта</button><span>›</span><span>${esc(GROUP.get(scope).label)}</span>${legend}` : `<span>Вся карта</span>${legend}`;
+}
+function showOverview() { scope = null; selected = null; draw(overviewEls()); setCrumbs(); renderPanel(); }
+function openGroup(gid, focusPath) {
+  if (view !== 'map' && view !== 'health') setView('map', true);
+  scope = gid; selected = focusPath ? { type: 'file', id: focusPath } : { type: 'group', id: gid };
+  draw(groupEls(gid));
+  setCrumbs();
+  if (focusPath) { const n = cy.getElementById('f:' + focusPath); if (n.nonempty()) focusNode(n); }
+  renderPanel();
+}
+function openFile(p) { const f = FILE.get(p); if (f) openGroup(f.group, p); }
+function showFlow(id) { flowId = id; selected = null; draw(flowEls(G.flows.find((x) => x.id === id))); setCrumbs(); renderPanel(); }
+function renderList() {
+  $('#list').innerHTML = G.groups.map((g) => `
+    <section class="grp"><h3 style="color:${colorOfGroup(g.id)}">${esc(g.label)}</h3><p>${esc(g.summary)}</p>
+    <div class="list-tight">${G.files.filter((f) => f.group === g.id).sort((a, b) => b.loc - a.loc).map((f) => `<button class="row" data-open="${esc(f.path)}"><span>${esc(f.name)} <small>${nf(f.loc)} стр.</small></span><small>${esc(f.doc || 'нет описания в файле')}</small><span class="path">${esc(f.path)}</span></button>`).join('')}</div></section>`).join('');
+}
+function setView(v, silent) {
+  view = v;
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === v)));
+  const isList = v === 'list';
+  $('#cy').hidden = isList; $('#list').hidden = !isList;
+  if (!silent) { try { history.replaceState(null, '', '#' + v); } catch (e) { /* кадр без истории */ } }
+  if (isList) { renderList(); setCrumbs(); $('#panel').innerHTML = overviewPanel(); return; }
+  if (silent) return;
+  cy.resize();
+  if (v === 'flows') showFlow(flowId); else showOverview();
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-open],[data-group],[data-flow],[data-home],[data-back],[data-view]');
+  if (!t) return;
+  if (t.dataset.view) { setView(t.dataset.view); return; }
+  if (t.dataset.open) { $('#results').hidden = true; if (view === 'list' || view === 'flows') setView('map', true), $('#cy').hidden = false, $('#list').hidden = true, cy.resize(); openFile(t.dataset.open); return; }
+  if (t.dataset.group) { openGroup(t.dataset.group); return; }
+  if (t.dataset.flow) { showFlow(t.dataset.flow); return; }
+  if (t.dataset.home) { showOverview(); return; }
+  if (t.dataset.back) { selected = null; renderPanel(); }
+});
+$('#q').addEventListener('input', () => {
+  const q = $('#q').value.trim().toLowerCase();
+  const box = $('#results');
+  if (q.length < 2) { box.hidden = true; return; }
+  const hits = G.files.filter((f) => f.path.toLowerCase().includes(q) || (f.doc || '').toLowerCase().includes(q)).slice(0, 10);
+  box.innerHTML = hits.length ? hits.map((f) => fileLink(f.path)).join('') : '<div class="row"><small>Ничего не нашлось</small></div>';
+  box.hidden = false;
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#results').hidden = true; } });
+
+function rebuildForTheme() {
+  if (!cy) return;
+  cy.style(cyStyle());
+  if (view === 'flows') showFlow(flowId); else if (view === 'list') renderList(); else if (scope) openGroup(scope, selected?.type === 'file' ? selected.id : undefined); else showOverview();
+}
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rebuildForTheme); } catch (e) { /* старый браузер */ }
+new MutationObserver(rebuildForTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+function start() {
+  if (typeof cytoscape === 'undefined') {
+    $('#cy').innerHTML = '<p style="padding:16px">Схема не загрузилась (нет библиотеки). Откройте вкладку «Список».</p>';
+    setView('list'); return;
+  }
+  initCy();
+  const h = (location.hash || '').slice(1);
+  setView(['map', 'flows', 'health', 'list'].includes(h) ? h : 'map');
+}
+let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (cy && !$('#cy').hidden) { cy.resize(); if (view === 'flows') showFlow(flowId); else cy.fit(undefined, 30); } }, 200); });
+start();
+</script>
