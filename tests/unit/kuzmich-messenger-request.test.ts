@@ -1,11 +1,11 @@
 /**
  * Заявка Кузьмича из MAX/Telegram (02.11, «го» владельца): тот же план, что
- * у веб-чата, согласие обязательно, дата не выдумывается, Telegram без ПД.
+ * у веб-чата, согласие обязательно, дата не выдумывается.
  */
 import { describe, it, expect } from 'vitest';
 import {
   planFromBookingFlow, planChatRequest, humanChatConfirm,
-  telegramPdRedirect, isTelegramPdSafe, chatRequestNotCreated, textHasPhone,
+  chatRequestNotCreated,
 } from '@/lib/kuzmich/chat-request';
 
 describe('planFromBookingFlow', () => {
@@ -43,22 +43,5 @@ describe('подтверждение', () => {
   it('отказ — без «временно недоступен»', () => {
     expect(chatRequestNotCreated(null)).not.toMatch(/недоступ|временно/i);
     expect(chatRequestNotCreated('мест нет на эту дату')).toContain('мест нет');
-  });
-});
-
-describe('Telegram pd-guard', () => {
-  it('телефон в реплике распознан', () => {
-    expect(textHasPhone('мой номер +7 999 123-45-67')).toBe(true);
-    expect(textHasPhone('хочу на вулкан 15 ноября')).toBe(false);
-  });
-  it('ответ Telegram не несёт ПД и ведёт на сайт/MAX', () => {
-    const r = telegramPdRedirect('https://vedarai.ru/catalog');
-    expect(isTelegramPdSafe(r)).toBe(true);
-    expect(r).toMatch(/MAX/);
-    expect(r).not.toMatch(/недоступ|временно/i);
-  });
-  it('isTelegramPdSafe ловит телефон и почту', () => {
-    expect(isTelegramPdSafe('позвоним на +79991234567')).toBe(false);
-    expect(isTelegramPdSafe('a@b.ru')).toBe(false);
   });
 });

@@ -19,8 +19,9 @@ describe('заявка Кузьмича в MAX/Telegram (01.11)', () => {
   it('согласие на ПД и штатная формулировка успеха', () => {
     expect(BOOKING_CONSENT_LINE).toMatch(/обработку персональных данных/);
     const core = read('lib/kuzmich/core.ts');
-    expect(core).toMatch(/`Заявка создана\. Номер/);
-    expect(core).toMatch(/не мгновенная бронь и не сбой/);
+    expect(core).toMatch(/submitChatRequest\(plan/);
+    expect(read('lib/kuzmich/chat-request.ts')).toMatch(/Заявка создана\./);
+    expect(read('lib/kuzmich/chat-request.ts')).toMatch(/Мгновенного бронирования нет/);
     expect(core).not.toMatch(/Заявка отправлена оператору\. Номер/);
   });
   it('MAX «Оформить заявку» запускает заявку в чате, а не голый лид', () => {

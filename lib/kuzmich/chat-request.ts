@@ -108,24 +108,6 @@ export function planFromBookingFlow(f: {
   };
 }
 
-/** Телефон в реплике — признак ПД (тот же разбор, что у заявки). */
-export function textHasPhone(text: string): boolean {
-  return Boolean(parseChatContact(text).phone);
-}
-
-/**
- * Ответ в Telegram, когда человек прислал телефон: ПД в Telegram не
- * принимаем и не повторяем (pd-guard) — ни имени, ни номера в ответе.
- * Заявка та же: форма тура на сайте или чат в MAX.
- */
-export function telegramPdRedirect(siteUrl: string): string {
-  return [
-    'Телефон и имя в Telegram не принимаю и не сохраняю — так обещает политика конфиденциальности.',
-    `Оформите заявку в форме тура на сайте (${siteUrl}) или напишите мне в MAX — там оформлю прямо в чате.`,
-    'Заявку подтверждает оператор, живой человек; мгновенного бронирования и оплаты через платформу нет.',
-  ].join('\n');
-}
-
 /** Заявка не создалась: без «сервис недоступен», с честным следующим шагом. */
 export function chatRequestNotCreated(reason?: string | null): string {
   const r = reason?.replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -133,11 +115,4 @@ export function chatRequestNotCreated(reason?: string | null): string {
     r ? `Заявка не создана: ${r}` : 'Заявка не записалась — ответ базы не пришёл.',
     'Можно поправить данные и написать ещё раз или оформить заявку в форме тура на сайте.',
   ].join('\n');
-}
-
-/** Ответ ПД-безопасен для Telegram: ни телефона, ни e-mail в тексте. */
-export function isTelegramPdSafe(text: string): boolean {
-  if (/(?:\+7|8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/.test(text)) return false;
-  if (/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) return false;
-  return true;
 }

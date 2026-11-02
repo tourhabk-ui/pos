@@ -58,7 +58,7 @@ import {
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
-import { planFromBookingFlow, planChatRequest, parseChatContact, textHasPhone, telegramPdRedirect } from '@/lib/kuzmich/chat-request';
+import { planFromBookingFlow, planChatRequest, parseChatContact } from '@/lib/kuzmich/chat-request';
 import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
 import { tourPath } from '@/lib/tours/tour-url';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
@@ -3433,13 +3433,6 @@ export async function processMessage(opts: {
       if (handled) return;
     }
     // handleBookingStep вернул false или flow expired → продолжаем в AI chat
-  }
-
-  // Telegram: телефон в реплике — ПД не принимаем и не повторяем (pd-guard);
-  // заявка та же — в форме тура или в MAX.
-  if (platform === 'tg' && !emergencyNow && !isMediaMessage && textHasPhone(text)) {
-    await replyFn(chatId, telegramPdRedirect(`${getPublicBaseUrl()}/catalog`));
-    return;
   }
 
   // MAX: тур, дата, имя, телефон и явное согласие в одной реплике — заявка
