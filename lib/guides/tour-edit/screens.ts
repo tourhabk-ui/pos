@@ -308,7 +308,27 @@ function weekday(date: string): string {
   return WEEKDAY[new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay()]!;
 }
 
-export function datesScreen(args: { tour: ChatTour; days: readonly TourDay[]; page: number; notice?: string | null }): CabinetScreen {
+/** Куда ведёт «назад» из дат: к карточке тура гида или к календарю оператора. */
+export type DatesBack = 'tour' | 'calendar';
+
+/**
+ * «Календарь» оператора (02.11): свои туры, кнопка каждого — его даты на 14
+ * дней с «Открыть» / «Закрыть». Туры — только этой карточки (operator_id).
+ */
+export function calendarScreen(tours: readonly ChatTour[]): CabinetScreen {
+  const lines: string[] = ['<b>Календарь</b>'];
+  const live = tours.filter((t) => t.isActive);
+  if (live.length === 0) {
+    lines.push('Своих действующих туров нет — открывать даты нечему.');
+    return screen(lines, []);
+  }
+  lines.push('Нажмите тур — его даты на 14 дней: открыть на всю группу или закрыть для продажи. Брони при закрытии не отменяются.');
+  const rows: CabinetButton[][] = live.slice(0, 20).map((t) => [{ text: t.title.slice(0, 40), payload: cabinetPayload.tourDates(t.id) }]);
+  if (live.length > 20) lines.push(`Показаны первые 20 туров из ${live.length}.`);
+  return screen(lines, rows);
+}
+
+export function datesScreen(args: { tour: ChatTour; days: readonly TourDay[]; page: number; notice?: string | null; back?: DatesBack }): CabinetScreen {
   const { tour, days, page } = args;
   const lines: string[] = [];
   if (args.notice) lines.push(args.notice);
@@ -339,6 +359,8 @@ export function datesScreen(args: { tour: ChatTour; days: readonly TourDay[]; pa
   if (page > 0) nav.push({ text: '‹ Раньше', payload: cabinetPayload.tourDates(tour.id, page - 1) });
   if (page < TOUR_DATES_MAX_PAGE) nav.push({ text: 'Позже ›', payload: cabinetPayload.tourDates(tour.id, page + 1) });
   rows.push(nav);
-  rows.push([{ text: '‹ Тур', payload: cabinetPayload.tour(tour.id) }]);
+  rows.push([args.back === 'calendar'
+    ? { text: '‹ Календарь', payload: cabinetPayload.calendar() }
+    : { text: '‹ Тур', payload: cabinetPayload.tour(tour.id) }]);
   return screen(lines, rows);
 }

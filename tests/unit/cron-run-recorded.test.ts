@@ -80,7 +80,6 @@ const KNOWN_NO_RUN_RECORD: Record<string, string> = {
   'client-errors-census': `суточная перепись ошибок браузера и дайджест серверных: ${NOT_YET}`,
   'booking-auto-complete': `завершение подтверждённых броней после тура: ${NOT_YET}`,
   'tour-review-request': `просьба об отзыве по завершённым броням: ${NOT_YET}`,
-  'trip-reminders': `напоминание туристу о поездке за 2 дня: ${NOT_YET}`,
   'ssr-sentinel': `недельный сторож SSR публичных листингов: ${NOT_YET}`,
   'kb-gap': `суточный разбор пробелов в знаниях Кузьмича: ${NOT_YET}`,
   'engagement': `напоминания туристам, смотревшим тур и не забронировавшим: ${NOT_YET}`,

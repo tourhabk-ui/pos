@@ -33,7 +33,7 @@ describe('быстрый путь MAX — тот же planChatRequest', () => {
 
 describe('подтверждение', () => {
   it('штатная фраза, тур назван, предложена правка, без «недоступен»', () => {
-    const t = humanChatConfirm('ok https://vedarai.ru/request-status#abc', 'Зимняя рыбалка');
+    const t = humanChatConfirm('Заявка оператору принята: "Тур", 2099-11-15. Это заявка, не оплата. Ключ статуса заявки: abc — по нему get_request_status покажет. Человеку дайте ссылку https://vedarai.ru/request-status#abc', 'Зимняя рыбалка');
     expect(t).toContain('Заявка создана.');
     expect(t).toContain('Оператор свяжется с вами');
     expect(t).toContain('«Зимняя рыбалка»');

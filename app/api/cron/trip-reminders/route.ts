@@ -1,63 +1,69 @@
 /**
- * GET /api/cron/trip-reminders
+ * GET /api/cron/trip-reminders — обстановка на день выезда, за двое суток (#2969).
  *
- * Напоминания туристам о предстоящих поездках за 2 дня.
- * Отправляет персональное Telegram-сообщение с погодой на дату тура.
+ * Запускает `cron-trip-reminders.yml` ежедневно в 05:00 UTC (17:00 по
+ * Камчатке), до напоминания за сутки (06:00 UTC), которое читает ту же
+ * записанную обстановку.
  *
- * Запускать: ежедневно в 19:00 UTC (07:00 KMT)
- *
- * Защита: ?secret=CRON_SECRET
- *
- * cron-job.org:
- *   https://vedarai.ru/api/cron/trip-reminders?secret=SECRET
- *   → каждый день в 19:00 UTC
+ * До 03.11 этот крон слал туристу «послезавтра твой тур» с ТЕКУЩЕЙ погодой
+ * Петропавловска (wttr.in) под словом «Прогноз», выбирал туристов по почте
+ * брони вместо аккаунта, считал «послезавтра» по UTC и глушил отказ доставки
+ * пустым catch. Теперь:
+ *  1. на завтра и послезавтра (по Камчатке) для каждого тура с бронями или
+ *     заявками считается обстановка (`lib/trips/situation`) — погода по
+ *     координатам тура, официальные предупреждения по зоне, опасность зоны —
+ *     и записывается в `trip_situations`: её видит оператор в «Сегодня»;
+ *  2. туристу на послезавтра — ТОЛЬКО при риске (решение по #2969):
+ *     «спокойно» и «не смог проверить» туристу не шлются; повтор — только
+ *     при изменении обстановки;
+ *  3. оператору — при риске, по выезду, без ПД; решение за ним;
+ *  4. всё, что ушло или не ушло, — в `trip_situation_notices` с причиной.
+ * Ведар ничего не отменяет и не переносит.
  */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
-import { telegramService } from '@/lib/notifications/telegram';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { tgSend } from '@/lib/notifications/tg-send';
+import { maxSendDm } from '@/lib/notifications/max-channel';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { reachForPartner } from '@/lib/partners/reach';
+import { escapeHtml } from '@/lib/text/escape-html';
+import {
+  operatorSituationText, situationFingerprint, touristSituationText, type Situation,
+} from '@/lib/trips/situation';
+import {
+  lastSentFingerprint, liveSources, loadDepartingTours, loadTouristRecipients, logNotice,
+  saveSituation, situationFor, type DepartingTour, type SituationSources, type TouristRecipient,
+} from '@/lib/trips/situation-store';
 
 export const dynamic = 'force-dynamic';
 
-interface ReminderRow {
-  booking_id: string;
-  user_id:    string;
-  telegram_id: string;
-  user_name:  string;
-  tour_title: string;
-  tour_date:  string;
-  participants: number;
-  meeting_point: string | null;
+const AGENT_ID = 'trip-reminders';
+const sqlState = (err: unknown) => (err as { code?: string })?.code ?? 'нет SQLSTATE';
+
+async function sendTourist(r: TouristRecipient, text: string): Promise<{ ok: boolean; channel: string; reason?: string }> {
+  if (!r.chatId || !r.channel) return { ok: false, channel: 'none', reason: 'нет канала' };
+  if (r.channel === 'max') {
+    const res = await maxSendDm(r.chatId, escapeHtml(text));
+    return res.ok ? { ok: true, channel: 'max' } : { ok: false, channel: 'max', reason: res.error ?? 'MAX не принял' };
+  }
+  const res = await tgSend('trip-situation', escapeHtml(text), { chatId: r.chatId });
+  return res.ok ? { ok: true, channel: 'telegram' } : { ok: false, channel: 'telegram', reason: res.reason };
 }
 
-interface WttrCurrent {
-  temp_C: string;
-  FeelsLikeC: string;
-  windspeedKmph: string;
-  lang_ru?: Array<{ value: string }>;
-  weatherDesc: Array<{ value: string }>;
-}
-
-async function getWeatherOnDate(): Promise<string> {
-  try {
-    const res = await fetch(
-      'https://wttr.in/Petropavlovsk-Kamchatsky?format=j1&lang=ru',
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (!res.ok) return '';
-    const data = await res.json() as { current_condition: WttrCurrent[] };
-    const c = data.current_condition[0];
-    const t = parseInt(c.temp_C);
-    const desc = c.lang_ru?.[0]?.value ?? c.weatherDesc[0]?.value ?? '';
-    const sign = (n: number) => n > 0 ? `+${n}` : String(n);
-    return `Прогноз: ${sign(t)}°C${desc ? `, ${desc.toLowerCase()}` : ''}`;
-  } catch { return ''; }
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+async function sendOperator(operatorId: string, text: string): Promise<{ ok: boolean; channel: string; reason?: string }> {
+  const reach = await reachForPartner(operatorId);
+  if (reach === null) return { ok: false, channel: 'none', reason: 'адрес оператора не прочитался' };
+  if (!reach.reachable) return { ok: false, channel: 'none', reason: 'нет канала' };
+  const html = escapeHtml(text);
+  // ПД в строке нет — текст для MAX и Telegram один; адресат строгий, без
+  // отката на рабочий чат платформы.
+  const res = await sendPdAlert({ text: html, stub: html, to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId } });
+  if (res.channel === 'max' && res.delivered) return { ok: true, channel: 'max' };
+  if (res.channel === 'telegram-stub') return { ok: true, channel: 'telegram' };
+  return { ok: false, channel: res.channel, reason: res.reason };
 }
 
 export async function GET(request: NextRequest) {
@@ -65,75 +71,120 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const t0 = Date.now();
+  const today = kamchatkaDate(new Date());
+  const tomorrow = shiftDate(today, 1);
+  const target = shiftDate(today, 2);
 
-  // Бронирования через 2 дня (подтверждённые, турист с Telegram)
-  const targetDate = new Date();
-  targetDate.setDate(targetDate.getDate() + 2);
-  const dateStr = targetDate.toISOString().slice(0, 10);
-
-  const res = await query<ReminderRow>(`
-    SELECT
-      b.id                                    AS booking_id,
-      u.id                                    AS user_id,
-      u.telegram_id::text                     AS telegram_id,
-      COALESCE(b.tourist_name, u.name)        AS user_name,
-      t.title                                 AS tour_title,
-      b.booking_date::text                    AS tour_date,
-      b.participants,
-      NULL::text                              AS meeting_point
-    FROM operator_bookings b
-    JOIN operator_tours t ON t.id = b.operator_tour_id
-    LEFT JOIN users u ON u.email = b.tourist_email
-    WHERE b.booking_date = $1
-      AND b.booking_status = 'confirmed'
-      AND u.telegram_id IS NOT NULL
-  `, [dateStr]);
-
-  if (res.rows.length === 0) {
-    return NextResponse.json({ ok: true, sent: 0, message: 'No reminders for this date' });
+  let tours: DepartingTour[];
+  try {
+    tours = await loadDepartingTours([tomorrow, target]);
+  } catch (err) {
+    console.error('[trip-situation] выезды не прочитались, SQLSTATE', sqlState(err));
+    recordCronRun(AGENT_ID, t0, 'failed', { error: `выезды: ${sqlState(err)}` });
+    return NextResponse.json({ success: false, error: 'Выезды на завтра и послезавтра не прочитались' }, { status: 500 });
   }
 
-  const weather = await getWeatherOnDate();
-  let sent = 0;
-
-  for (const row of res.rows) {
+  const src: SituationSources = liveSources();
+  const situations = new Map<string, Situation>();
+  const saveFailed: string[] = [];
+  for (const tour of tours) {
+    const s = await situationFor(tour, src);
+    situations.set(`${tour.tourId}|${tour.date}`, s);
     try {
-      const firstName = row.user_name.split(' ')[0];
-      const dateFormatted = new Date(row.tour_date + 'T00:00:00').toLocaleDateString('ru-RU', {
-        weekday: 'long', day: 'numeric', month: 'long',
-      });
-
-      const lines = [
-        `<b>${firstName}, послезавтра твой тур!</b>`,
-        '',
-        `<b>${esc(row.tour_title)}</b>`,
-        `Дата: <b>${dateFormatted}</b>`,
-        `Участников: ${row.participants}`,
-      ];
-
-      if (row.meeting_point) {
-        lines.push(`Место встречи: ${esc(row.meeting_point)}`);
-      }
-
-      if (weather) {
-        lines.push('', weather);
-      }
-
-      lines.push(
-        '',
-        'Приготовь тёплую одежду и хорошее настроение.',
-        '',
-        `<a href="https://vedarai.ru/hub/tourist/bookings">Детали брони →</a>`,
-      );
-
-      await telegramService.sendMessage({
-        chatId:    row.telegram_id,
-        text:      lines.join('\n'),
-        parseMode: 'HTML',
-      });
-      sent++;
-    } catch {}
+      await saveSituation(tour.tourId, tour.date, s);
+    } catch (err) {
+      console.error('[trip-situation] обстановка не записалась, тур', tour.tourId, tour.date, sqlState(err));
+      saveFailed.push(`${tour.tourId}/${tour.date}`);
+    }
   }
 
-  return NextResponse.json({ ok: true, sent, total: res.rows.length });
+  const counts = { tourists_sent: 0, tourists_failed: 0, no_channel: 0, not_risk: 0, unchanged: 0, operators_sent: 0, operators_failed: 0 };
+  let recipients: TouristRecipient[] = [];
+  let recipientsFailed = false;
+  try {
+    recipients = await loadTouristRecipients(target);
+  } catch (err) {
+    recipientsFailed = true;
+    console.error('[trip-situation] туристы на послезавтра не прочитались, SQLSTATE', sqlState(err));
+  }
+
+  const byTour = new Map(tours.filter((t) => t.date === target).map((t) => [t.tourId, t]));
+  const informed = new Map<number, number>();
+  for (const r of recipients) {
+    const tour = byTour.get(r.tourId);
+    const s = situations.get(`${r.tourId}|${target}`);
+    if (!tour || !s) continue;
+    const fp = situationFingerprint(s);
+    try {
+      if (s.kind !== 'risk') {
+        counts.not_risk++;
+        await logNotice({ kind: r.kind, ref: r.ref, tourId: r.tourId, date: target, fingerprint: fp, outcome: 'not_risk' });
+        continue;
+      }
+      if (!r.channel) {
+        counts.no_channel++;
+        await logNotice({ kind: r.kind, ref: r.ref, tourId: r.tourId, date: target, fingerprint: fp, outcome: 'no_channel', reason: 'нет канала туриста' });
+        continue;
+      }
+      if (await lastSentFingerprint(r.kind, r.ref, target) === fp) {
+        counts.unchanged++;
+        await logNotice({ kind: r.kind, ref: r.ref, tourId: r.tourId, date: target, fingerprint: fp, outcome: 'unchanged', channel: r.channel });
+        continue;
+      }
+      const sent = await sendTourist(r, touristSituationText({ tourTitle: tour.title, date: target, situation: s }));
+      if (sent.ok) { counts.tourists_sent++; informed.set(r.tourId, (informed.get(r.tourId) ?? 0) + 1); } else counts.tourists_failed++;
+      if (!sent.ok) console.error('[trip-situation] туристу не доставлено:', r.kind, r.ref, sent.reason);
+      await logNotice({ kind: r.kind, ref: r.ref, tourId: r.tourId, date: target, fingerprint: fp, outcome: sent.ok ? 'sent' : 'failed', channel: sent.channel, reason: sent.reason });
+    } catch (err) {
+      counts.tourists_failed++;
+      console.error('[trip-situation] отправка туристу упала:', r.kind, r.ref, err instanceof Error ? err.message : err);
+    }
+  }
+
+  for (const tour of byTour.values()) {
+    const s = situations.get(`${tour.tourId}|${target}`);
+    if (!s || s.kind !== 'risk') continue;
+    const fp = situationFingerprint(s);
+    const ref = `${tour.operatorId}:${tour.tourId}`;
+    try {
+      if (await lastSentFingerprint('operator', ref, target) === fp) {
+        await logNotice({ kind: 'operator', ref, tourId: tour.tourId, date: target, fingerprint: fp, outcome: 'unchanged' });
+        continue;
+      }
+      const sent = await sendOperator(tour.operatorId, operatorSituationText({
+        tourTitle: tour.title, date: target, situation: s, travellers: tour.travellers, touristsInformed: informed.get(tour.tourId) ?? 0,
+      }));
+      if (sent.ok) counts.operators_sent++; else counts.operators_failed++;
+      if (!sent.ok) console.error('[trip-situation] оператору не доставлено:', tour.operatorId, tour.tourId, sent.reason);
+      await logNotice({
+        kind: 'operator', ref, tourId: tour.tourId, date: target, fingerprint: fp,
+        outcome: sent.ok ? 'sent' : sent.reason === 'нет канала' ? 'no_channel' : 'failed', channel: sent.channel, reason: sent.reason,
+      });
+    } catch (err) {
+      counts.operators_failed++;
+      console.error('[trip-situation] отправка оператору упала:', tour.tourId, err instanceof Error ? err.message : err);
+    }
+  }
+
+  const kinds = { calm: 0, risk: 0, unknown: 0 };
+  for (const s of situations.values()) kinds[s.kind]++;
+  const problems = [
+    saveFailed.length ? `не записано обстановок: ${saveFailed.length}` : null,
+    recipientsFailed ? 'туристы не прочитались' : null,
+    counts.tourists_failed ? `туристам не доставлено: ${counts.tourists_failed}` : null,
+    counts.operators_failed ? `операторам не доставлено: ${counts.operators_failed}` : null,
+  ].filter((x): x is string => x !== null);
+  // Выезды были, а ни одной обстановки не записалось — отказ, а не успех (§4.0).
+  const status = tours.length > 0 && saveFailed.length === tours.length ? 'failed' : problems.length ? 'partial' : 'success';
+  recordCronRun(AGENT_ID, t0, status, { items: tours.length, error: problems.join('; ') || undefined, metadata: { kinds, ...counts } });
+
+  return NextResponse.json({
+    success: status !== 'failed',
+    dates: { tomorrow, target },
+    tours: tours.length,
+    situations: kinds,
+    ...counts,
+    problems,
+  }, { status: status === 'failed' ? 500 : 200 });
 }

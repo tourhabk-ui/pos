@@ -60,7 +60,9 @@ import {
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
+  type TodayDeparture,
 } from '@/lib/chat-cabinet/screens';
+import { readStoredSituations } from '@/lib/trips/situation-read';
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
 import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
@@ -165,7 +167,21 @@ async function todayView(c: Ctx, nowMs: number): Promise<CabinetScreen> {
   if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
   const today = kamchatkaDate(new Date(nowMs));
   const tomorrow = shiftDate(today, 1);
-  const departures = c.partner.role === 'operator' ? await loadDepartures(c.ctx.partnerId, [today, tomorrow]) : null;
+  const loaded = c.partner.role === 'operator' ? await loadDepartures(c.ctx.partnerId, [today, tomorrow]) : null;
+  // Обстановка на выезды (#2969): записанная кроном строка на тур и день.
+  let situationsFailed = false;
+  let departures: TodayDeparture[] | 'failed' | null = loaded;
+  if (Array.isArray(loaded) && loaded.length > 0) {
+    const stored = await readStoredSituations([...new Set(loaded.map((d) => d.tourId))], [today, tomorrow]);
+    if (stored === 'failed') situationsFailed = true;
+    else {
+      const by = new Map(stored.map((s) => [`${s.tourId}|${s.date}`, s]));
+      departures = loaded.map((d) => {
+        const s = by.get(`${d.tourId}|${d.date}`);
+        return { ...d, situation: s ? { kind: s.kind, line: s.line, checkedAt: s.checkedAt } : null };
+      });
+    }
+  }
   let tasks: { overdue: number; today: number; total: number } | null;
   try {
     const open = await listTasks(c.ctx.partnerId, { status: 'open' });
@@ -174,7 +190,7 @@ async function todayView(c: Ctx, nowMs: number): Promise<CabinetScreen> {
     logFail('задачи', err);
     tasks = null;
   }
-  return todayScreen({ inbox, departures, today, tomorrow, nowMs, tasks });
+  return todayScreen({ inbox, departures, today, tomorrow, nowMs, tasks, situationsFailed });
 }
 
 async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
@@ -840,6 +856,7 @@ export async function handleCabinetPress(input: {
     // «Мои туры» гида (30.10): даты, правка текста и цены — lib/guides/tour-edit.
     // Роль, кабинет карточки и владение туром проверяет поток.
     case 'my_tours':
+    case 'calendar':
     case 'tour':
     case 'tour_dates':
     case 'date_open':

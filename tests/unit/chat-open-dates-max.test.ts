@@ -69,6 +69,12 @@ vi.mock('@/lib/requests/request-chat-service', () => ({
   armChatWait: async () => ({ text: '', buttons: [] }),
   bindGuestChat: async () => [],
 }));
+// Ответ туристу в чате Ведара (lib/chat/conversation-reply) — так же: чат ничего не ждёт.
+vi.mock('@/lib/chat/conversation-reply', () => ({
+  captureConvText: async () => null,
+  isConvPayload: (p: string) => p.startsWith('cv:'),
+  pressConv: async () => ({ text: '', buttons: [] }),
+}));
 // Поиск клиента кабинета в чате (30.10) тоже смотрит базу на каждый текст
 // личного диалога партнёра — по той же причине подменён: чат поиск не ждёт.
 // Его путь — tests/unit/chat-cabinet-service.test.ts и chat-cabinet.pg.test.ts.

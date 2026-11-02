@@ -236,6 +236,18 @@ const titleStems = (title: string) => normalizeText(title).split(' ')
 // узнаёт чужой тур за 45 000, ревью критериев 02.11).
 const NOT_TOUR_PRICE_RE = /итого|выходит|на (?:двоих|троих|четверых|пятерых|шестерых|\d+ человек)|за всех|дороже|выше|бюджет|(?:^|[^а-яё])до \d/i;
 
+const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Короткое название («Вулкан Горелый») — тур, только если стоит отдельно:
+ * в кавычках, в начале пункта или строки, перед тире/скобкой. Внутри фразы
+ * «восхождение на вулкан Горелый» это место, а не тур.
+ */
+function standalonePhrase(answer: string, title: string): boolean {
+  const lo = (x: string) => x.toLowerCase().replace(/ё/g, 'е');
+  const words = normalizeText(title).split(' ').map(escapeRe).join('[^a-zа-я0-9]+');
+  return new RegExp(`(?:^|[«"„“]|^[\\s\\-–—•*\\d.)]+)\\s*${words}[^a-zа-я0-9]*?(?:[»"“”]|\\s*[(—–\\-:]|\\s*$)`, 'm').test(lo(answer));
+}
+
 /**
  * Какие туры из `universe` названы в ответе: по названию (дословно либо все
  * значимые слова названия в одной строке ответа — «Вертолётный тур на
@@ -257,19 +269,31 @@ export function namedTours(answer: string, universe: readonly TourLine[]): TourL
   const byTitle = new Set<string>();
   for (const t of [...universe].sort((a, b) => b.title.length - a.title.length)) {
     const title = normalizeText(t.title);
-    if (title.length >= 6 && text.includes(` ${title} `)) {
+    if (title.length >= 6 && text.includes(` ${title} `) && (titleStems(t.title).length >= 3 || standalonePhrase(answer, t.title))) {
       byTitle.add(t.id);
       text = text.split(` ${title} `).join(' \u0000 ');
     }
   }
-  return universe.filter((t) => {
-    if (byTitle.has(t.id)) return true;
-    const stems = titleStems(t.title);
-    if (stems.length >= 2 && lineStems.some((ls) => stems.filter((st) => ls.has(st)).length >= Math.max(2, Math.ceil(stems.length * 0.8)))) {
-      // Нестрого — только если в этой строке нет точного названия другого тура.
-      return !lines.some((l, i) => stems.filter((st) => lineStems[i].has(st)).length >= Math.max(2, Math.ceil(stems.length * 0.8))
-        && universe.some((o) => o.id !== t.id && byTitle.has(o.id) && ` ${normalizeText(l)} `.includes(` ${normalizeText(o.title)} `)));
+  // Нестрого: в строке без точного названия — один лучший тур (доля слов
+  // названия, при равенстве — длиннее), от трёх слов и больше 80%. Иначе пересказ
+  // «Облёт Мутновский и Горелый + Ходуткинские» узнаёт и соседний облёт, и
+  // «Вулкан Горелый» (ревью прогона 41465158762).
+  const fuzzy = new Set<string>();
+  lines.forEach((l, i) => {
+    const nl = ` ${normalizeText(l)} `;
+    if (universe.some((o) => byTitle.has(o.id) && nl.includes(` ${normalizeText(o.title)} `))) return;
+    let best: { id: string; cov: number; n: number } | null = null;
+    for (const t of universe) {
+      const stems = titleStems(t.title);
+      if (stems.length < 3) continue;
+      const cov = stems.filter((st) => lineStems[i].has(st)).length / stems.length;
+      if (cov <= 0.8) continue;
+      if (!best || cov > best.cov || (cov === best.cov && stems.length > best.n)) best = { id: t.id, cov, n: stems.length };
     }
+    if (best) fuzzy.add(best.id);
+  });
+  return universe.filter((t) => {
+    if (byTitle.has(t.id) || fuzzy.has(t.id)) return true;
     return t.price !== null && answerPrices.has(t.price) && priceOwners.get(t.price) === 1;
   });
 }
