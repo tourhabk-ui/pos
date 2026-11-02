@@ -47,10 +47,10 @@ describe('get_place_info', () => {
     expect(placeInfoSql()).toContain('merged_into_id IS NULL');
   });
 
-  it('при нескольких совпадениях первой идёт запись с кратчайшим именем', () => {
+  it('при нескольких совпадениях первым — вулкан, затем кратчайшее имя (#2888)', () => {
     // То же правило, что у стража: «Шивелуч» вперёд «Каньона на Шивелуче».
     // Без ORDER BY порядок задаёт план запроса, то есть случай.
-    expect(placeInfoSql()).toMatch(/ORDER BY char_length\((p\.)?name\) ASC/);
+    expect(placeInfoSql()).toMatch(/ORDER BY \(p\.location_type = 'volcano'\) DESC, char_length\((p\.)?name\) ASC/);
   });
 });
 

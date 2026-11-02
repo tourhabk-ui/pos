@@ -495,7 +495,9 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
           LIMIT 1
        ) kb ON TRUE
        WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
-       ORDER BY char_length(p.name) ASC
+       -- Вулкан — первым (issue #2888): «Ключевской» — и парк, и вулкан
+       -- (алиас «Ключевской вулкан»); стражу нужен статус вулкана.
+       ORDER BY (p.location_type = 'volcano') DESC, char_length(p.name) ASC
        LIMIT 3`,
       placeMatch.params,
     ),

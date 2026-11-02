@@ -182,7 +182,9 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
          FROM places p
          LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
         WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
-        ORDER BY char_length(p.name) ASC
+        -- Вулкан — первым (issue #2888): «Ключевской» — и парк, и вулкан
+        -- (алиас «Ключевской вулкан»); стражу нужен статус вулкана.
+        ORDER BY (p.location_type = 'volcano') DESC, char_length(p.name) ASC
         LIMIT 3`,
       placeMatch.params,
     ),
