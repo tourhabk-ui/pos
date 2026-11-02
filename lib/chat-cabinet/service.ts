@@ -840,6 +840,7 @@ export async function handleCabinetPress(input: {
     // «Мои туры» гида (30.10): даты, правка текста и цены — lib/guides/tour-edit.
     // Роль, кабинет карточки и владение туром проверяет поток.
     case 'my_tours':
+    case 'calendar':
     case 'tour':
     case 'tour_dates':
     case 'date_open':

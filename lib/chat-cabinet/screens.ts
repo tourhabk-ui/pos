@@ -637,7 +637,9 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
   const rows: CabinetButton[][] = [];
   if (partner.role === 'operator') {
     rows.push([{ text: 'Мои туры и цены', payload: 'opd:tours' }, { text: 'Обновить места', payload: 'opd:seats' }]);
+    rows.push([{ text: 'Календарь', payload: cabinetPayload.calendar() }]);
     lines.push('Мои туры и цены — живые туры и цена из каталога. Обновить места — где отметить занятость.');
+    lines.push('Календарь — даты своих туров на 14 дней: открыть или закрыть кнопкой.');
   } else if (partner.role === 'guide' && partner.sellsTours) {
     // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
