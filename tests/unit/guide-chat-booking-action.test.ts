@@ -228,13 +228,13 @@ const said = (text: string) => ({
 const maxReplies = () => m.maxSend.mock.calls.filter((c) => c[0] === GUIDE_CHAT).map((c) => ({
   text: String(c[1]),
   payloads: ((c[2] as { attachments?: Array<{ payload: { buttons: Array<Array<{ payload?: string }>> } }> } | undefined)
-    ?.attachments?.[0]?.payload.buttons ?? []).flat().map((b) => b.payload ?? ''),
+    ?.attachments?.[0]?.payload.buttons ?? []).flat().map((b) => (b.payload ?? '').split('~')[0]!),
 }));
 const lastMax = () => maxReplies().at(-1) ?? { text: '', payloads: [] };
 const idFrom = (payloads: string[], prefix: string) => {
   const p = payloads.find((x) => x.startsWith(prefix));
   if (!p) throw new Error(`нет кнопки ${prefix} среди ${payloads.join(', ')}`);
-  return p.slice(prefix.length);
+  return p.split('~')[0]!.slice(prefix.length);
 };
 
 let updateId = 61_000;
@@ -285,9 +285,9 @@ describe('форма кнопок брони', () => {
   it('каждая кнопка, которую ставят экраны и уведомление, — действие MAX «owner» (только по заверенному апдейту) и разбирается обратно', () => {
     const payloads = [
       ...press.bookingAnswerButtons('7001'), ...press.bookingOutcomeButtons('7001'),
-    ].map((b) => b.payload);
-    payloads.push(press.answerPressPayload(true, '00000000-0000-4000-8000-000000000001'));
-    payloads.push(press.answerPressPayload(false, '00000000-0000-4000-8000-000000000001'));
+    ].map((b) => b.payload.split('~')[0]!);
+    payloads.push(press.answerPressPayload(true, '00000000-0000-4000-8000-000000000001').split('~')[0]!);
+    payloads.push(press.answerPressPayload(false, '00000000-0000-4000-8000-000000000001').split('~')[0]!);
     expect(payloads).toEqual([
       'bk:c:7001', 'bk:x:7001', 'bk:d:7001', 'bk:n:7001',
       'oc:y:00000000-0000-4000-8000-000000000001', 'oc:x:00000000-0000-4000-8000-000000000001',

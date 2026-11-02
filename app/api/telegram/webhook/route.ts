@@ -80,6 +80,7 @@ import { telegramCabinetKeyboard } from '@/lib/chat-cabinet/render';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { operatorReplyMarkup } from '@/lib/telegram/operator-desk';
 import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operator-desk-press';
+import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { handleMemberStart } from '@/lib/operators/member-channel';
@@ -1732,7 +1733,15 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     const cq             = update.callback_query;
     const senderChatId   = cq.from.id;
     const callbackChatId = String(cq.message?.chat?.id ?? senderChatId);
-    const data           = cq.data ?? '';
+    // Подпись и срок кнопок-записей (lib/chat-cabinet/signed-payload): хвост
+    // снимается до разбора, устаревшая или подделанная кнопка ничего не пишет.
+    const press          = unwrapPress(cq.data ?? '');
+    if (!press.ok) {
+      await telegramService.answerCallback(cq.id);
+      await sendHTML(callbackChatId, pressRefusalText(press.reason));
+      return;
+    }
+    const data           = press.payload;
 
     if (isOperatorDeskPayload(data)) {
       await telegramService.answerCallback(cq.id);

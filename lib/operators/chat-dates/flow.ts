@@ -53,6 +53,7 @@
  * tests/integration/chat-open-dates.pg.test.ts (путь записи).
  */
 
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import type { PartnerChatContext, PartnerChatLookup } from '@/lib/kuzmich/operator-chat';
 import { saveMsg } from '@/lib/kuzmich/core';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -83,7 +84,7 @@ const OD_RE = new RegExp(`^od:(o|x):(${UUID})$`);
 const OD_TOUR_RE = new RegExp(`^od:t:(${UUID}):([0-7])$`);
 
 /** Кнопки предложения. payload — только id строки (и индекс тура): ни ПД, ни id тура. */
-export const odOpen = (id: string): string => `od:o:${id}`;
+export const odOpen = (id: string): string => signPayload(`od:o:${id}`);
 export const odCancel = (id: string): string => `od:x:${id}`;
 export const odTour = (id: string, index: number): string => `od:t:${id}:${index}`;
 

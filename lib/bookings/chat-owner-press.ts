@@ -23,6 +23,8 @@
  *    «Уточнить», «Свяжусь сам» (lib/requests/chat-answer), и вторую пару
  *    кнопок с другим правилом ему не ставим.
  */
+
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 import { sellsOwnTours, type TourSellerFacts } from '@/lib/partners/tour-seller';
 import { OWNER_LEAD_ACTION_LABEL } from '@/lib/leads/owner-lead-words';
@@ -85,7 +87,7 @@ export function leadPressPayload(action: LeadChatAction, leadId: string): string
 }
 
 export function answerPressPayload(yes: boolean, actionId: string): string {
-  return `oc:${yes ? 'y' : 'x'}:${actionId}`;
+  return signPayload(`oc:${yes ? 'y' : 'x'}:${actionId}`);
 }
 
 export type OwnerPress =

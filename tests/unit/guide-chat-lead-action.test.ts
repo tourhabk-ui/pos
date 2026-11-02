@@ -202,13 +202,13 @@ const tap = (payload: string, chatType = 'dialog') => ({
 const maxReplies = () => m.maxSend.mock.calls.filter((c) => c[0] === GUIDE_CHAT).map((c) => ({
   text: String(c[1]),
   payloads: ((c[2] as { attachments?: Array<{ payload: { buttons: Array<Array<{ payload?: string }>> } }> } | undefined)
-    ?.attachments?.[0]?.payload.buttons ?? []).flat().map((b) => b.payload ?? ''),
+    ?.attachments?.[0]?.payload.buttons ?? []).flat().map((b) => (b.payload ?? '').split('~')[0]!),
 }));
 const lastMax = () => maxReplies().at(-1) ?? { text: '', payloads: [] };
 const idFrom = (payloads: string[], prefix: string) => {
   const p = payloads.find((x) => x.startsWith(prefix));
   if (!p) throw new Error(`нет кнопки ${prefix} среди ${payloads.join(', ')}`);
-  return p.slice(prefix.length);
+  return p.split('~')[0]!.slice(prefix.length);
 };
 
 let updateId = 62_000;
@@ -541,7 +541,7 @@ describe('кнопки под «Входящими» и уведомлением
     m.pdAlert.mockClear();
     m.reach.mockResolvedValueOnce({ ...BOUND, category: 'operator', sellsTours: true });
     await notifyPartnerNewLeadPersonally(LEAD_MSG);
-    const op = personal().buttons.flatMap((b) => (b.payload ? [b.payload] : []));
+    const op = personal().buttons.flatMap((b) => (b.payload ? [b.payload.split('~')[0]!] : []));
     expect(op).toEqual([`lq:o:${LEAD}`, ...['a', 'd', 'n', 'c', 'm'].map((c) => `ia:${c}:l:${LEAD}`)]);
     m.pdAlert.mockClear();
     m.reach.mockResolvedValueOnce(null);

@@ -988,7 +988,7 @@ describe('правка своего тура фразой: «было → ста
       const words = s.text.replace(/\u00a0/g, ' ');
       expect(words).toContain('Было: 15 000 ₽ за человека');
       expect(words).toContain('Станет: <b>16 000 ₽ за человека</b>');
-      expect(buttonNamed(s, 'Сохранить').payload).toMatch(/^cb:e:s:[0-9a-f-]{36}$/);
+      expect(buttonNamed(s, 'Сохранить').payload).toMatch(/^cb:e:s:[0-9a-f-]{36}(~[0-9a-z]+~[\w-]{8})?$/);
       expect(buttonNamed(s, 'Отмена').payload).toMatch(/^cb:e:x:[0-9a-f-]{36}$/);
       expect(m.processPartner).not.toHaveBeenCalled();
       expect(db.writes.filter((w) => /UPDATE operator_tours/.test(w))).toEqual([]);
