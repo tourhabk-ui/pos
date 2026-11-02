@@ -82,6 +82,7 @@ const KNOWN_NO_RUN_RECORD: Record<string, string> = {
   'tour-review-request': `просьба об отзыве по завершённым броням: ${NOT_YET}`,
   'ssr-sentinel': `недельный сторож SSR публичных листингов: ${NOT_YET}`,
   'kb-gap': `суточный разбор пробелов в знаниях Кузьмича: ${NOT_YET}`,
+  'kuzmich-bad-outcomes': 'еженедельный свод плохих оценок Кузьмича в Issue: только чтение, след прогона — само Issue и прогон Actions',
   'engagement': `напоминания туристам, смотревшим тур и не забронировавшим: ${NOT_YET}`,
   'smart-notify': `сопоставление новых туров с предпочтениями: ${NOT_YET}`,
   'enrich-routes': `писатель описаний мест партией 20: ${NOT_YET}`,

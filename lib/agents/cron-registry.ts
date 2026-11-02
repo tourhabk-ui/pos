@@ -371,6 +371,15 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: WEEK, tier: 'quality', agentId: 'kuzmich-eval', triggerable: false,
   },
   {
+    // Аудит агентов 02.11, пробел #5: плохие оценки грейдера — в одно Issue
+    // раз в неделю. Эндпоинт только читает, телеметрии прогона не пишет.
+    key: 'kuzmich-bad-outcomes', label: 'Кузьмич: плохие оценки (свод)',
+    description: 'Еженедельный свод плохих оценок Кузьмича по типам в Issue, без ПД.',
+    workflow: 'kuzmich-bad-outcomes-digest.yml', cron: '0 6 * * 1', schedule: 'пн · 06:00 UTC',
+    everyMin: WEEK, tier: 'quality', agentId: null, triggerable: false,
+    endpoint: 'kuzmich-bad-outcomes',
+  },
+  {
     // Отдельная джоба: redteam-kuzmich.yml → /api/cron/kuzmich-redteam
     // (пишет agent_id 'kuzmich-redteam'). В реестр не попадала, потому что имя
     // файла не по шаблону cron-*.yml — значит в liveness-панели её не было вовсе.
@@ -666,6 +675,7 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // что очередь не набралась (запрос, колонка сайта) — обрыв, не тишина.
   'partner-site-watch': 'broken',
   'kuzmich-eval': 'unknown',
+  'kuzmich-bad-outcomes': 'unknown',
   'kuzmich-redteam': 'unknown',
   // Ноль разобранных находок означает, что сканеру нечего было предъявить —
   // это штатно и желательно. Отказ самого разбора нулём не выглядит: скрипт
