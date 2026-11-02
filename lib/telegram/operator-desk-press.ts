@@ -32,7 +32,7 @@ export function operatorHelpPress(menu: MenuButton[]): { text: string; buttons: 
 }
 
 export function isOperatorDeskPayload(payload: string): boolean {
-  return payload === 'sup:new' || payload === 'opd:tours' || payload === 'opd:seats' || payload.startsWith('ia:');
+  return payload === 'sup:new' || payload === 'opd:tours' || payload === 'opd:seats' || payload.startsWith('ia:') || payload.startsWith('sh:');
 }
 
 export async function operatorDeskPress(opts: {
@@ -77,6 +77,14 @@ export async function operatorDeskPress(opts: {
   }
   if (opts.payload === 'sup:new') return withMenu(await supportTicketText(partner, opts.channel));
 
+  if (opts.payload.startsWith('sh:')) {
+    const { holdPress } = await import('@/lib/operators/seat-holds');
+    const r = await holdPress({
+      partnerId: partner.partnerId, userId: partner.userId ?? null, payload: opts.payload,
+      via: opts.channel, dialog: opts.dialog === true,
+    });
+    return r ? withMenu(r.text, r.rows) : withMenu('Кнопка не разобрана. Ничего не записал.');
+  }
   if (opts.payload === 'ia:no') return withMenu(ASK_CANCELLED);
   const parsed = parseChatAnswer(opts.payload);
   if (!parsed) return withMenu('Кнопка ответа не разобрана. Ничего не записал.');

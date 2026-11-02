@@ -22,6 +22,7 @@
  * мессенджер.
  */
 
+import { holdButtons } from '@/lib/operators/seat-hold-buttons';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
 import { INBOX_KIND_LABELS, inboxActionFor, type InboxKind } from '@/lib/crm/inbox-kinds';
@@ -258,7 +259,7 @@ export function itemCardScreen(args: {
   } else if (item.kind === 'lead' && partner.operatorAnswers) {
     const answers = chatAnswerButtons(null, 'lead', item.id);
     rows.push(answers.slice(0, 2), answers.slice(2), [declineButton('lead', item.id)]);
-    lines.push('Ответ записывается сразу; бронь им не подтверждается. «Отказать» — с причиной кнопкой, заявка закрывается как отказ.');
+    lines.push('Ответ записывается после «Да»; бронь им не подтверждается. «Отказать» — с причиной кнопкой, заявка закрывается как отказ.');
   } else if (item.kind === 'charter_request' && partner.role === 'transfer' && rentalAnswerButtons(item.id)) {
     // Заявка на машину (#2862): те же кнопки, что под заявкой в MAX (`rr:`),
     // в обоих каналах — вид заявки сервер читает из лида. Машина не
@@ -278,6 +279,11 @@ export function itemCardScreen(args: {
     lines.push('«Поездка состоялась» — заказчик получит ссылку на отзыв о вас, под отзывом будет сказано, что поездку подтвердили вы. «Не состоялась» — заявка закрывается. Записывается один раз.');
   } else {
     lines.push(`Где ответить: ${escapeHtml(action.hint)}.`);
+  }
+  // «Занять места» (PR4): только владелец-оператор, только запрос мест.
+  if (item.kind === 'seat_request' && partner.role === 'operator' && partner.seat === 'owner' && /^[0-9a-f-]{36}$/i.test(item.id)) {
+    rows.push(holdButtons(item.id, false));
+    lines.push('«Занять места» держит места на дату запроса, пока вы их не освободите. Это не бронь; спросит «Да».');
   }
   // Переписка с клиентом по заявке — только MAX (1349, 1350) и только из
   // чата карточки: её кнопку вправе нажимать он один.
