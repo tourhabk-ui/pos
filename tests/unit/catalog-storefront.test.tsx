@@ -181,14 +181,14 @@ describe('карточка говорит только то, что знает (
     expect(container.querySelectorAll('a a')).toHaveLength(0);
   });
 
-  it('описание — краткое, если есть, иначе полное; состав — не больше трёх позиций', () => {
+  it('описание — краткое, если есть, иначе полное; состав — один чип и «+N» (компакт 02.11)', () => {
     storefront();
     const a = card('Тур с датами');
     expect(a).toHaveTextContent('Коротко о туре');
     expect(a).not.toHaveTextContent('Полное описание тура');
     expect(card('Тур по запросу')).toHaveTextContent('Полное описание тура');
     const included = within(a).getByRole('list', { name: 'Входит в цену' });
-    expect(within(included).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Трансфер', 'Обед', 'Снасти']);
+    expect(within(included).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Трансфер', '+3']);
     expect(within(card('Тур по запросу')).queryByRole('list', { name: 'Входит в цену' })).toBeNull();
   });
 

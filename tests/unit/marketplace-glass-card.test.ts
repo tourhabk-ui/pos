@@ -17,12 +17,12 @@ import { join } from 'node:path';
 
 const src = readFileSync(join(process.cwd(), 'components/marketplace/MarketplaceClient.tsx'), 'utf-8');
 const card = src.slice(src.indexOf('function TourCard('), src.indexOf('/* ─── Planner Banner'));
-const photo = card.slice(card.indexOf('aspect-[4/3]'), card.indexOf('Текст — сплошным блоком под фото'));
+const photo = card.slice(card.indexOf('aspect-[16/10]'), card.indexOf('Текст — сплошным блоком под фото'));
 const body = card.slice(card.indexOf('Текст — сплошным блоком под фото'));
 
 describe('каталожная карточка тура — фото сверху, текст под ним', () => {
-  it('фото — отдельный блок 4:3 сверху, не на всю карточку', () => {
-    expect(card).toContain('aspect-[4/3]');
+  it('фото — отдельный блок 16:10 сверху (компакт 02.11), не на всю карточку', () => {
+    expect(card).toContain('aspect-[16/10]');
     expect(card).not.toMatch(/aspect-\[17\/25\]|aspect-\[5\/6\]/);
   });
 
@@ -30,8 +30,10 @@ describe('каталожная карточка тура — фото сверх
     // Третье стекло — подпись автора чужого кадра-заглушки («Фото: Сладченко
     // В. Л.», решение владельца 09.10): это подпись снимка, а не текст тура,
     // и она есть только у заглушки — свой снимок тура подписи не получает.
+    // Четвёртое — плашка срока тура на фото (владелец 02.11: «срок — на фото»).
     const credit = photo.includes('{placeholderCredit && (') ? 1 : 0;
-    expect(photo.match(/backdrop-blur/g)?.length).toBe(2 + credit);
+    const duration = photo.includes('tour-duration-badge') ? 1 : 0;
+    expect(photo.match(/backdrop-blur/g)?.length).toBe(2 + credit + duration);
     if (credit) expect(photo).toMatch(/Фото: \{shortCredit\(placeholderCredit\)\}/);
     expect(photo).not.toContain('<h3');
     expect(photo).not.toContain('tour.short_description');
