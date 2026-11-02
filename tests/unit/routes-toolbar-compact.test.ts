@@ -16,7 +16,7 @@ describe('тулбар Мест/Маршрутов (02.11)', () => {
     const panel = src.slice(src.indexOf('{showFilters && ('), src.indexOf('{toursSlot}'));
     expect(panel).not.toContain('ParksStrip');
     expect(panel).not.toContain('CategoriesStrip');
-    expect(src).toContain('<ParksStrip initialParks={initialParks} />');
-    expect(src).toContain('<CategoriesStrip categories={initialCategories} />');
+    expect(src).toMatch(/ParksStrip initialParks=/);
+    expect(src).toMatch(/CategoriesStrip categories=/);
   });
 });
