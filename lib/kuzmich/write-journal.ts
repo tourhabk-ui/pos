@@ -91,7 +91,9 @@ async function priorState(key: string): Promise<{ created: string | null | undef
     const last = rows[0];
     const inFlight = !!last && last.phase === 'started' && Date.now() - new Date(last.created_at).getTime() < IN_FLIGHT_MS;
     return { created: undefined, inFlight };
-  } catch {
+  } catch (e) {
+    // Журнал не прочитан — идемпотентность не гарантирована; заявку не держим (fail-open), но громко.
+    console.warn('[kuzmich-journal] не прочитан, дубль не исключён', e instanceof Error ? e.message.slice(0, 160) : '');
     return { created: undefined, inFlight: false };
   }
 }
