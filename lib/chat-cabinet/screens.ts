@@ -22,6 +22,7 @@
  * мессенджер.
  */
 
+import { holdButtons } from '@/lib/operators/seat-hold-buttons';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
 import { INBOX_KIND_LABELS, inboxActionFor, type InboxKind } from '@/lib/crm/inbox-kinds';
@@ -278,6 +279,11 @@ export function itemCardScreen(args: {
     lines.push('«Поездка состоялась» — заказчик получит ссылку на отзыв о вас, под отзывом будет сказано, что поездку подтвердили вы. «Не состоялась» — заявка закрывается. Записывается один раз.');
   } else {
     lines.push(`Где ответить: ${escapeHtml(action.hint)}.`);
+  }
+  // «Занять места» (PR4): только владелец-оператор, только запрос мест.
+  if (item.kind === 'seat_request' && partner.role === 'operator' && partner.seat === 'owner' && /^[0-9a-f-]{36}$/i.test(item.id)) {
+    rows.push(holdButtons(item.id, false));
+    lines.push('«Занять места» держит места на дату запроса, пока вы их не освободите. Это не бронь; спросит «Да».');
   }
   // Переписка с клиентом по заявке — только MAX (1349, 1350) и только из
   // чата карточки: её кнопку вправе нажимать он один.

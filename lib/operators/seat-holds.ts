@@ -11,6 +11,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
+import { holdButtons } from '@/lib/operators/seat-hold-buttons';
 import { forgetLiveSeats, liveFreeSeats } from '@/lib/operators/live-seats';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -24,13 +25,6 @@ export function parseHoldPress(payload: string): HoldPress | 'no' | null {
   if (!m) return null;
   const step = ({ h: 'ask_hold', y: 'hold', r: 'ask_release', z: 'release' } as const)[m[1]!.toLowerCase() as 'h' | 'y' | 'r' | 'z'];
   return { step, requestId: m[2]!.toLowerCase() };
-}
-
-export function holdButtons(requestId: string, held: boolean): Array<{ text: string; payload: string }> {
-  const id = requestId.toLowerCase();
-  return held
-    ? [{ text: 'Освободить места', payload: signPayload(`sh:r:${id}`) }]
-    : [{ text: 'Занять места', payload: signPayload(`sh:h:${id}`) }];
 }
 
 function confirmRow(step: 'y' | 'z', id: string) {
@@ -114,3 +108,5 @@ export async function holdPress(opts: {
     return { text: 'Не удалось записать. Места не менял.', rows: [] };
   }
 }
+
+export { holdButtons };
