@@ -56,7 +56,7 @@ import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, todayScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, todayScreen, todayTaskCounts, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
@@ -159,15 +159,22 @@ async function readInbox(c: Ctx, nowMs: number): Promise<Inbox | null> {
   }
 }
 
-/** «Сегодня» оператора (план CRM, PR2): новое за сутки и выезды, по дате. */
+/** «Сегодня» (план CRM): новое за сутки по дате, задачи; у оператора — и выезды. Все роли. */
 async function todayView(c: Ctx, nowMs: number): Promise<CabinetScreen> {
-  if (c.partner.role !== 'operator') return inboxView(c, 0, nowMs);
   const inbox = await readInbox(c, nowMs);
   if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
   const today = kamchatkaDate(new Date(nowMs));
   const tomorrow = shiftDate(today, 1);
-  const departures = await loadDepartures(c.ctx.partnerId, [today, tomorrow]);
-  return todayScreen({ inbox, departures, today, tomorrow, nowMs });
+  const departures = c.partner.role === 'operator' ? await loadDepartures(c.ctx.partnerId, [today, tomorrow]) : null;
+  let tasks: { overdue: number; today: number; total: number } | null;
+  try {
+    const open = await listTasks(c.ctx.partnerId, { status: 'open' });
+    tasks = { ...todayTaskCounts(open, nowMs), total: open.length };
+  } catch (err) {
+    logFail('задачи', err);
+    tasks = null;
+  }
+  return todayScreen({ inbox, departures, today, tomorrow, nowMs, tasks });
 }
 
 async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
@@ -245,10 +252,11 @@ async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetP
 }
 
 /** Экран раздела без нажатия: кнопка строки меню (`rm:`), команда или слово. */
-export type CabinetSection = 'inbox' | 'tasks' | 'clients' | 'more' | 'busy';
+export type CabinetSection = 'inbox' | 'tasks' | 'clients' | 'more' | 'busy' | 'today';
 
 async function sectionView(c: Ctx, channel: CabinetChannel, section: CabinetSection, nowMs: number): Promise<CabinetScreen> {
   if (section === 'inbox') return inboxView(c, 0, nowMs);
+  if (section === 'today') return todayView(c, nowMs);
   if (section === 'tasks') return tasksView(c, channel, 0, nowMs);
   if (section === 'clients') return clientsView(c, channel, 0);
   if (section === 'busy') return busyView(c, nowMs);
@@ -286,11 +294,12 @@ export function memberCabinetSectionOf(text: string): CabinetSection | null {
   const head = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   if (head === '/requests') return 'inbox';
   if (head === '/tasks') return 'tasks';
+  if (head === '/today') return 'today';
   if (head === '/clients') return 'clients';
   if (head === '/start' || head === '/help') return 'more';
   if (head.startsWith('/')) return null;
   const asked = roleMenuAsk(text);
-  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients') return asked;
+  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients' || asked === 'today') return asked;
   if (asked === 'help' || asked === 'tours' || asked === 'seats') return 'more';
   return null;
 }

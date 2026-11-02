@@ -330,8 +330,8 @@ export async function runChatDigest(now: Date, deps: DigestDeps = {}): Promise<D
           text: digestText(facts, 'max', nowMs, slot),
           stub: tgText,
           buttons: [
+            { text: 'Сегодня', payload: cabinetPayload.openToday() },
             { text: 'Входящие', payload: cabinetPayload.openInbox() },
-            { text: 'Задачи', payload: cabinetPayload.openTasks() },
             { text: 'Время сводки', payload: cabinetPayload.openDigest() },
             cabinet,
           ],
@@ -351,7 +351,7 @@ export async function runChatDigest(now: Date, deps: DigestDeps = {}): Promise<D
       }
       if (c.telegram_cabinet && c.telegram_chat_id) {
         const ok = await sendTg(c.telegram_chat_id, tgText, telegramCabinetKeyboard([
-          [{ text: 'Входящие', payload: cabinetPayload.openInbox() }, { text: 'Задачи', payload: cabinetPayload.openTasks() }],
+          [{ text: 'Сегодня', payload: cabinetPayload.openToday() }, { text: 'Входящие', payload: cabinetPayload.openInbox() }],
           [{ text: 'Время сводки', payload: cabinetPayload.openDigest() }],
           [cabinet],
         ]));

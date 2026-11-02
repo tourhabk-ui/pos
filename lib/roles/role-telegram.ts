@@ -146,7 +146,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
   // «/bookings» — команда строки гида («Брони»). У остальных ролей её нет,
   // и она уходит дальше, как любая чужая команда.
   const SLASH: Readonly<Partial<Record<string, RoleAsk>>> = {
-    '/start': 'help', '/help': 'help', '/requests': 'inbox', '/tasks': 'tasks', '/clients': 'clients',
+    '/start': 'help', '/help': 'help', '/requests': 'inbox', '/tasks': 'tasks', '/today': 'today', '/clients': 'clients',
     '/tours': 'tours', '/seats': 'seats',
   };
   const fromSlash: RoleAsk | 'bookings' | null = SLASH[head]
@@ -198,7 +198,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
     await open('bookings');
     return true;
   }
-  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients' || asked === 'busy') {
+  if (asked === 'inbox' || asked === 'tasks' || asked === 'clients' || asked === 'busy' || asked === 'today') {
     await openCabinet(asked);
     return true;
   }

@@ -28,6 +28,8 @@ export type MenuRole = 'admin' | 'operator' | 'transfer' | 'stay' | 'guide';
 export type MenuAction =
   | 'inbox' | 'summary' | 'dates' | 'bookings' | 'leads' | 'tours' | 'health' | 'help'
   | 'tasks' | 'clients' | 'more'
+  /** «Сегодня» (план CRM): заменил «Задачи» в строке меню всех ролей. */
+  | 'today'
   /** «Занято» хозяина жилья (30.10): раздел кабинета в чате, lib/chat-cabinet. */
   | 'busy';
 
@@ -54,6 +56,7 @@ const ACTION_CODE: Record<MenuAction, string> = {
   clients: 'cl',
   more: 'mn',
   busy: 'bz',
+  today: 'td',
 };
 
 const CODE_ACTION = new Map(Object.entries(ACTION_CODE).map(([action, code]) => [code, action as MenuAction]));
@@ -125,8 +128,8 @@ export function partnerMenu(partner: MenuPartner): MenuButton[] | null {
   // «Занято» — свои закрытые даты и кнопка открыть обратно; закрыть — фразой.
   if (role === 'stay') return [button(role, 'inbox', 'Заявки'), button(role, 'busy', 'Занято'), button(role, 'help', 'Помощь')];
   return [
+    button(role, 'today', 'Сегодня'),
     button(role, 'inbox', 'Входящие'),
-    button(role, 'tasks', 'Задачи'),
     button(role, 'clients', 'Клиенты'),
     button(role, 'more', 'Ещё'),
   ];
@@ -156,12 +159,12 @@ export function parseRoleMenuPress(payload: string): { role: MenuRole; action: M
   if (!role || !action) return null;
   if (role === 'admin') {
     // У администратора нет «Входящих», «Моих туров» и кабинета в чате — только его шесть чтений.
-    if (action === 'inbox' || action === 'tours' || action === 'tasks' || action === 'clients' || action === 'more') return null;
+    if (action === 'inbox' || action === 'tours' || action === 'tasks' || action === 'clients' || action === 'more' || action === 'today') return null;
     return { role, action };
   }
   if (
     action === 'inbox' || action === 'summary' || action === 'help'
-    || action === 'tasks' || action === 'clients' || action === 'more'
+    || action === 'tasks' || action === 'clients' || action === 'more' || action === 'today'
   ) return { role, action };
   // «Брони» и «Мои туры» — только у гида. Продаёт ли он свои туры, решает
   // экран по карточке чата, а не payload.
@@ -175,7 +178,7 @@ function norm(text: string): string {
   return text.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ');
 }
 
-export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats' | 'tasks' | 'clients' | 'busy';
+export type RoleAsk = 'inbox' | 'help' | 'tours' | 'seats' | 'tasks' | 'clients' | 'busy' | 'today';
 
 /** Точная фраза кнопки. «покажи входящие» и голое «заявки» сюда не входят. */
 export function roleMenuAsk(text: string): RoleAsk | null {
@@ -192,6 +195,10 @@ export function roleMenuAsk(text: string): RoleAsk | null {
     case 'новые заявки':
     case 'мои заявки':
       return 'inbox';
+    case 'сегодня':
+    case 'что сегодня':
+    case 'на сегодня':
+      return 'today';
     case 'задачи':
     case 'мои задачи':
       return 'tasks';

@@ -17,12 +17,13 @@ import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export const OPERATOR_REPLY_ROWS: ReadonlyArray<ReadonlyArray<string>> = [
   ['Новые заявки', 'Мои туры и цены'],
-  ['Задачи', 'Клиенты'],
+  ['Сегодня', 'Клиенты'],
   ['Обновить места', 'Помощь'],
 ];
 
 export const OPERATOR_COMMANDS: ReadonlyArray<{ command: string; description: string }> = [
   { command: 'requests', description: 'Новые заявки' },
+  { command: 'today', description: 'Сегодня' },
   { command: 'tasks', description: 'Задачи' },
   { command: 'clients', description: 'Клиенты' },
   { command: 'tours', description: 'Мои туры и цены' },
@@ -70,7 +71,7 @@ export function operatorDeskButtons(): MenuButton[][] {
       { text: 'Мои туры и цены', payload: 'opd:tours' },
     ],
     [
-      { text: 'Задачи', payload: 'rm:op:tk' },
+      { text: 'Сегодня', payload: 'rm:op:td' },
       { text: 'Клиенты', payload: 'rm:op:cl' },
     ],
     [
