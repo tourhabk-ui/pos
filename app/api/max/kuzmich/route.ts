@@ -190,7 +190,12 @@ function requestOrigin(request: NextRequest): string {
 
 // ── Reply via MAX API ─────────────────────────────────────────────────────────
 
-async function maxReply(chatId: number, text: string): Promise<void> {
+async function maxReply(chatId: number, text: string, quick?: string[][]): Promise<void> {
+  // Кнопки шагов заявки (lib/kuzmich/quick-replies): нажатие шлёт их текст.
+  if (quick?.length) {
+    await maxReplyWithButtons(chatId, text, quick.map((row) => row.map((label): MaxButton => ({ type: 'message', text: label }))));
+    return;
+  }
   const api = getApi();
   if (!api) return;
   try {

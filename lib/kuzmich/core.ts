@@ -60,6 +60,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { planFromBookingFlow, planChatRequest, parseChatContact } from '@/lib/kuzmich/chat-request';
 import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
+import { type QuickReplies, tourPickButtons, parseTourPick, GUEST_BUTTONS, CONFIRM_BUTTONS, CANCEL_BUTTONS, isCorrection } from '@/lib/kuzmich/quick-replies';
 import { tourPath } from '@/lib/tours/tour-url';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
@@ -82,7 +83,8 @@ import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
-export type ReplyFn = (chatId: number, text: string) => Promise<void>;
+/** quick — кнопки быстрого ответа (lib/kuzmich/quick-replies): нажатие шлёт их текст. */
+export type ReplyFn = (chatId: number, text: string, quick?: QuickReplies) => Promise<void>;
 
 export interface TourRow {
   id: number;
@@ -1592,7 +1594,7 @@ function bookingTourLines(tour: TourRow): string[] {
     `Заявка оператору: <b>${escapeHtml(tour.title)}</b>${tour.operator_name ? ` — <b>${escapeHtml(tour.operator_name)}</b>` : ''}`,
     bookingPriceWords(tour) ? `Стоимость: <b>${escapeHtml(bookingPriceWords(tour)!)}</b>.` : 'Цену назовёт оператор.',
     '',
-    'Как вас зовут? (полное имя для заявки)',
+    'Как вас зовут?',
   ];
 }
 
@@ -2079,8 +2081,9 @@ export async function handleBookingStep(
   if (b.step === 'tour') {
     // Номер тура из списка («61», «ID61») — тот самый тур, а не поиск по
     // словам: после списка компаний человек отвечает именно номером.
-    if (/^(?:id\s*)?\d+$/i.test(t)) {
-      const picked = await chooseTourForBooking(t);
+    const pickedId = parseTourPick(t);
+    if (pickedId != null) {
+      const picked = await chooseTourForBooking(String(pickedId));
       if (picked === 'failed') {
         await reply(chatId, BOOKING_LOOKUP_FAILED);
         return true;
@@ -2136,7 +2139,7 @@ export async function handleBookingStep(
     if (choice.kind !== 'one') {
       // Шаг остаётся «тур»: следующий ответ — номер из списка.
       await saveBookingFlow(chatId, mode, b, pending);
-      await reply(chatId, bookingListText(choice));
+      await reply(chatId, bookingListText(choice), tourPickButtons(choiceToursForButtons(choice)));
       return true;
     }
     b.tour  = bookingTourRow(choice.tour);
@@ -2160,11 +2163,7 @@ export async function handleBookingStep(
     b.name = t;
     b.step = nextBookingStep(b);
     await saveBookingFlow(chatId, mode, b, pending);
-    if (b.step === 'date') {
-      await reply(chatId, `Отлично, ${b.name}! На какую дату оставляем заявку?\n\nПример: <b>15 июля</b> или <b>2026-07-15</b>`);
-    } else {
-      await reply(chatId, b.step === 'participants' ? `Отлично, ${b.name}! Сколько человек едет?` : `Отлично, ${b.name}! Ваш номер телефона для связи?\n\nПример: <b>+7 900 000-00-00</b>`);
-    }
+    await askNextBookingStep(chatId, b, reply);
     return true;
   }
 
@@ -2182,20 +2181,20 @@ export async function handleBookingStep(
     b.date = date;
     b.step = nextBookingStep(b);
     await saveBookingFlow(chatId, mode, b, pending);
-    await reply(chatId, b.step === 'participants' ? 'Сколько человек едет?' : 'Ваш номер телефона для связи?\n\nПример: <b>+7 900 000-00-00</b>');
+    await askNextBookingStep(chatId, b, reply);
     return true;
   }
 
   if (b.step === 'participants') {
     const n = parseInt(t.replace(/[^\d]/g, ''), 10);
     if (!n || n < 1 || n > 50) {
-      await reply(chatId, 'Укажите количество человек (от 1 до 50).');
+      await reply(chatId, 'Сколько человек? Нажмите кнопку или напишите число до 50.', GUEST_BUTTONS);
       return true;
     }
     b.participants = n;
-    b.step = 'phone';
+    b.step = nextBookingStep(b);
     await saveBookingFlow(chatId, mode, b, pending);
-    await reply(chatId, 'Ваш номер телефона для связи?\n\nПример: <b>+7 900 000-00-00</b>');
+    await askNextBookingStep(chatId, b, reply);
     return true;
   }
 
@@ -2208,25 +2207,9 @@ export async function handleBookingStep(
       return true;
     }
     b.phone = phone;
-    b.step = 'confirm';
+    b.step = nextBookingStep(b);
     await saveBookingFlow(chatId, mode, b, pending);
-
-    const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-
-    await reply(chatId, [
-      '<b>Проверьте данные заявки:</b>',
-      '',
-      `Тур: <b>${b.tour!.title}</b>`,
-      `Дата: <b>${dateStr}</b>`,
-      `Человек: <b>${b.participants}</b>`,
-      bookingSumLine(b.tour!, b.participants!),
-      `Имя: <b>${b.name}</b>`,
-      `Телефон: <b>${b.phone}</b>`,
-      '',
-      BOOKING_CONSENT_LINE,
-      '',
-      'Всё верно? Напишите <b>Да</b> для подтверждения или <b>Нет</b> для отмены.',
-    ].join('\n'));
+    await askNextBookingStep(chatId, b, reply);
     return true;
   }
 
@@ -2236,8 +2219,16 @@ export async function handleBookingStep(
       await reply(chatId, 'Заявка отменена. Если что — пиши, помогу.');
       return true;
     }
+    if (isCorrection(t)) {
+      // Тур остаётся; имя, дату, людей и телефон спрашиваем заново.
+      b.name = undefined; b.date = undefined; b.participants = undefined; b.phone = undefined;
+      b.step = 'name';
+      await saveBookingFlow(chatId, mode, b, pending);
+      await reply(chatId, `Тур тот же: <b>${escapeHtml(b.tour!.title)}</b>. Если нужен другой — нажмите «Отмена» и напишите название.\n\nКак вас зовут?`, CANCEL_BUTTONS);
+      return true;
+    }
     if (!isYes(t)) {
-      await reply(chatId, 'Напишите <b>Да</b> для подтверждения или <b>Нет</b> для отмены.');
+      await reply(chatId, 'Отправить заявку оператору?', CONFIRM_BUTTONS);
       return true;
     }
 
@@ -2302,9 +2293,8 @@ export async function startBooking(
   if (choice.kind !== 'one') {
     const booking: PendingBooking = { step: 'tour', started_at: Date.now(), ...chatPrefill(text, lastRealMsg) };
     await saveBookingFlow(chatId, mode, booking, pending);
-    await reply(chatId, choice.kind !== 'none'
-      ? bookingListText(choice)
-      : 'Какой тур интересует?\n\nНапиши: рыбалка, вулканы, медведи, термальные источники, вертолёт...');
+    if (choice.kind !== 'none') await reply(chatId, bookingListText(choice), tourPickButtons(choiceToursForButtons(choice)));
+    else await reply(chatId, 'Какой тур интересует? Напишите: рыбалка, вулканы, медведи, источники, вертолёт…', CANCEL_BUTTONS);
     return true;
   }
 
@@ -2362,7 +2352,36 @@ async function tourChosen(
   }
   b.step = 'name';
   await saveBookingFlow(chatId, mode, b, pending);
-  await reply(chatId, bookingTourLines(b.tour!).join('\n'));
+  await reply(chatId, bookingTourLines(b.tour!).join('\n'), CANCEL_BUTTONS);
+}
+
+/** Туры списка выбора — для кнопок (те же, что в тексте). */
+function choiceToursForButtons(choice: Exclude<TourChoice, { kind: 'one' } | { kind: 'none' }>): { id: number; title: string }[] {
+  if (choice.kind === 'ambiguous' || choice.kind === 'weak') return choice.candidates;
+  return [...choice.tours, ...(choice.others?.tours ?? [])];
+}
+
+/**
+ * Вопрос следующего шага — коротко, с кнопками, где выбор конечен. Дату
+ * кнопками не предлагаем: дат, которых нет в расписании, не выдумываем.
+ * Проверка — тур, дата, люди, сумма из базы, контакт и строка согласия
+ * со ссылкой на политику; отправка только после «Да».
+ */
+async function askNextBookingStep(chatId: number, b: PendingBooking, reply: ReplyFn): Promise<void> {
+  if (b.step === 'name') { await reply(chatId, 'Как вас зовут?', CANCEL_BUTTONS); return; }
+  if (b.step === 'date') { await reply(chatId, 'На какую дату? Например: <b>15 июля</b>', CANCEL_BUTTONS); return; }
+  if (b.step === 'participants') { await reply(chatId, 'Сколько человек едет?', GUEST_BUTTONS); return; }
+  if (b.step === 'phone') { await reply(chatId, 'Телефон для связи с оператором? Например: <b>+7 900 000-00-00</b>', CANCEL_BUTTONS); return; }
+  const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  await reply(chatId, [
+    '<b>Проверьте заявку:</b>',
+    `Тур: <b>${escapeHtml(b.tour!.title)}</b>`,
+    `Дата: <b>${dateStr}</b> · Человек: <b>${b.participants}</b>`,
+    bookingSumLine(b.tour!, b.participants!),
+    `Контакт: <b>${escapeHtml(b.name!)}</b>, <b>${escapeHtml(b.phone!)}</b>`,
+    '',
+    BOOKING_CONSENT_LINE,
+  ].join('\n'), CONFIRM_BUTTONS);
 }
 
 // ── Web search fallback (Tavily → Brave) ────────────────────────────────────

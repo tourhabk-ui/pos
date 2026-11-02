@@ -90,6 +90,17 @@ function secondEntryCabinetRows(rows: readonly CabinetScreenButton[][]): Cabinet
   return rows.map((row) => row.filter((b) => !('payload' in b) || handledHere(b.payload)));
 }
 
+/**
+ * Ответ Кузьмича с кнопками шагов заявки (lib/kuzmich/quick-replies): та же
+ * подпись, что в MAX; нажатие отправляет текст кнопки обычным сообщением.
+ */
+async function tgReplyQuick(chatId: number, text: string, quick?: string[][]): Promise<void> {
+  if (!quick?.length) return tgReply(chatId, text);
+  return tgReply(chatId, text, {
+    reply_markup: { keyboard: quick.map((row) => row.map((label) => ({ text: label }))), resize_keyboard: true, one_time_keyboard: true },
+  });
+}
+
 async function tgReply(chatId: number, text: string, extra?: Record<string, unknown>): Promise<void> {
   const token = await botToken();
   if (!token) return;
@@ -589,7 +600,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           chatId, text: 'Хочу забронировать тур',
           userName: null, userId: cq.from.id,
           mode: 'tourist', createdVia: 'telegram_inline',
-          pending, reply: tgReply, platform: 'tg',
+          pending, reply: tgReplyQuick, platform: 'tg',
         });
       } else if (cq.data.startsWith('lead_send:') || cq.data.startsWith('lead_ai:')) {
         // Действия по лиду (#65). Право нажатия — принадлежность сообщения
@@ -763,7 +774,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await processMessage({
           chatId, text: msg.text.trim(), userName: fromName,
           userId: fromId, mode: 'tourist', createdVia: 'telegram',
-          pending, reply: tgReply, platform: 'tg', afterReply: afterAiReply,
+          pending, reply: tgReplyQuick, platform: 'tg', afterReply: afterAiReply,
         });
         return NextResponse.json({ ok: true });
       }
@@ -922,7 +933,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await processMessage({
         chatId, text: transcription, userName: fromName,
         userId: fromId, mode: 'tourist', createdVia: 'telegram_voice',
-        pending, reply: tgReply,
+        pending, reply: tgReplyQuick,
         platform: 'tg', afterReply: afterAiReply,
       });
       return NextResponse.json({ ok: true });
@@ -949,7 +960,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await processMessage({
         chatId, text: msg.caption?.trim() ?? 'Что это за место?',
         userName: fromName, userId: fromId, mode: 'tourist',
-        createdVia: 'telegram', pending, reply: tgReply, visionDescription,
+        createdVia: 'telegram', pending, reply: tgReplyQuick, visionDescription,
         platform: 'tg', afterReply: afterAiReply,
       });
       return NextResponse.json({ ok: true });
@@ -960,7 +971,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await processMessage({
         chatId, text: msg.text.trim(), userName: fromName,
         userId: fromId, mode: 'tourist', createdVia: 'telegram',
-        pending, reply: tgReply,
+        pending, reply: tgReplyQuick,
         platform: 'tg', afterReply: afterAiReply,
       });
     }

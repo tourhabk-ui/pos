@@ -45,3 +45,30 @@ describe('подтверждение', () => {
     expect(chatRequestNotCreated('мест нет на эту дату')).toContain('мест нет');
   });
 });
+
+import { tourPickLabel, parseTourPick, tourPickButtons, GUEST_BUTTONS, CONFIRM_BUTTONS, CONFIRM_YES, isCorrection } from '@/lib/kuzmich/quick-replies';
+import { isYes, isNo } from '@/lib/kuzmich/core';
+
+describe('кнопки шагов заявки', () => {
+  it('кнопка тура читается шагом «тур» как номер', () => {
+    const label = tourPickLabel(36, 'Зимняя рыбалка на Авачинской губе ноябрь — январь');
+    expect(label.startsWith('36 · ')).toBe(true);
+    expect(label.length).toBeLessThanOrEqual(36);
+    expect(parseTourPick(label)).toBe(36);
+    expect(parseTourPick('ID61')).toBe(61);
+    expect(parseTourPick('15 июля')).toBeNull();
+  });
+  it('не больше шести туров, без повторов, плюс «Отмена»', () => {
+    const rows = tourPickButtons(Array.from({ length: 9 }, (_, i) => ({ id: i % 8, title: `Тур ${i}` })));
+    expect(rows).toHaveLength(7);
+    expect(rows.at(-1)).toEqual(['Отмена']);
+  });
+  it('люди — числа, подтверждение — да/исправить/отмена', () => {
+    expect(GUEST_BUTTONS.flat().filter((l) => /^\d+$/.test(l))).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(isYes(CONFIRM_YES)).toBe(true);
+    expect(isNo(CONFIRM_YES)).toBe(false);
+    expect(isCorrection('Исправить')).toBe(true);
+    expect(CONFIRM_BUTTONS.flat()).toContain('Отмена');
+    expect(isNo('Отмена')).toBe(true);
+  });
+});
