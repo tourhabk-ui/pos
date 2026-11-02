@@ -38,7 +38,7 @@ describe('GET /api/admin/operators — группы партнёров', () => {
     expect(res.status).toBe(200);
     const listSql = sqls.find(s => /FROM partners p/.test(s) && /LIMIT/.test(s)) ?? '';
     expect(listSql).toMatch(/\(NOT \(p\.profile_status <> 'none' OR EXISTS \(SELECT 1 FROM operator_applications/);
-    expect(listSql).toMatch(/p\.is_verified = TRUE OR EXISTS \(SELECT 1 FROM tours t_g/);
+    expect(listSql).toMatch(/p\.is_verified = TRUE OR EXISTS \(SELECT 1 FROM operator_tours t_g/);
   });
 
   it('partners: вошли в поток — статус не none или есть заявка', async () => {

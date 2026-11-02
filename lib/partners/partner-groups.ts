@@ -31,7 +31,7 @@ const HAS_APPLICATION = `EXISTS (SELECT 1 FROM operator_applications oa_g WHERE 
 // уже партнёр, даже если заявку не подавала (заведены админом/импортом:
 // «Камчатская рыбалка», «Лагуна Экспедиция» и т.п.). Иначе они прятались в
 // «Потенциальных» с бейджем «Без заявки».
-const HAS_LIVE_TOURS = `EXISTS (SELECT 1 FROM tours t_g WHERE t_g.operator_id = p.id AND t_g.is_active = TRUE AND t_g.deleted_at IS NULL)`;
+const HAS_LIVE_TOURS = `EXISTS (SELECT 1 FROM operator_tours t_g WHERE t_g.operator_id = p.id AND t_g.is_active = TRUE AND t_g.deleted_at IS NULL)`;
 const IS_PARTNER = `(p.profile_status <> 'none' OR ${HAS_APPLICATION} OR p.is_verified = TRUE OR ${HAS_LIVE_TOURS})`;
 
 export const PARTNER_GROUP_SQL: Record<PartnerGroup, string> = {
