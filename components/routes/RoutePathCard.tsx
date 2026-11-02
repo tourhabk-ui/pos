@@ -66,7 +66,7 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
         )}
 
         {/* Подложка снизу — читаемость бейджа поверх любого фото */}
-        <div className="absolute inset-x-0 bottom-0 h-14 pointer-events-none bg-gradient-to-t from-black/45 to-transparent" />
+        {photoSrc && <div className="absolute inset-x-0 bottom-0 h-14 pointer-events-none bg-gradient-to-t from-black/45 to-transparent" />}
 
         {/* Тип активности — glass поверх фото */}
         <span className="absolute bottom-2 left-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full backdrop-blur-md bg-black/40 border border-white/15 text-white">
