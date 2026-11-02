@@ -238,7 +238,7 @@ describe('меню роли оператора в MAX', () => {
     expect(m.processMessage).not.toHaveBeenCalled();
     const call = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Кабинет туроператора'));
     expect(call).toBeTruthy();
-    expect(barPayloads(call!)).toEqual(['rm:op:in', 'opd:tours', 'rm:op:tk', 'rm:op:cl', 'opd:seats', 'rm:op:hp', 'sup:new']);
+    expect(barPayloads(call!)).toEqual(['rm:op:in', 'opd:tours', 'rm:op:td', 'rm:op:cl', 'opd:seats', 'rm:op:hp', 'sup:new']);
     expect(String(call?.[1])).not.toMatch(/₽/);
   });
 
@@ -248,6 +248,6 @@ describe('меню роли оператора в MAX', () => {
     expect(m.processMessage).not.toHaveBeenCalled();
     const call = m.maxSend.mock.calls.at(-1);
     expect(String(call?.[1])).toContain('Входящие');
-    expect(barPayloads(call!)).toEqual(['cb:i', 'cb:t', 'cb:c', 'cb:m']);
+    expect(barPayloads(call!)).toEqual(['cb:td', 'cb:i', 'cb:c', 'cb:m']);
   });
 });

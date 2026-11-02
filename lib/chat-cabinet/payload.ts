@@ -180,6 +180,7 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [/^cb:td$/, () => ({ kind: 'today' })],
   [/^cb:n:i$/, () => ({ kind: 'inbox', page: 0 })],
   [/^cb:n:t$/, () => ({ kind: 'tasks', page: 0 })],
+  [/^cb:n:d$/, () => ({ kind: 'today' })],
   [/^cb:n:g$/, () => ({ kind: 'digest' })],
   [/^cb:g$/, () => ({ kind: 'digest' })],
   [/^cb:g:([mdeo])$/, (m) => {
@@ -289,6 +290,8 @@ export const cabinetPayload = {
   openInbox: (): string => 'cb:n:i',
   /** «Задачи» новым сообщением — под напоминанием и сводкой. */
   openTasks: (): string => 'cb:n:t',
+  /** «Сегодня» новым сообщением (из сводки). */
+  openToday: (): string => 'cb:n:d',
   /** «Сводка» новым сообщением — под самой сводкой. */
   openDigest: (): string => 'cb:n:g',
   digest: (): string => 'cb:g',

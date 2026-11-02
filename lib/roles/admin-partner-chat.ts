@@ -48,7 +48,7 @@ function partnerCabinetCommand(text: string, partnerId: string): boolean {
  */
 async function yieldsToMember(channel: 'telegram' | 'max', chatId: number, text: string): Promise<boolean> {
   const ask = roleMenuAsk(text);
-  const sectionWord = ask === 'inbox' || ask === 'tasks' || ask === 'clients';
+  const sectionWord = ask === 'inbox' || ask === 'tasks' || ask === 'clients' || ask === 'today';
   let searching = false;
   if (!sectionWord && channel === 'max') {
     const { awaitsCabinetSearch } = await import('@/lib/chat-cabinet/service');

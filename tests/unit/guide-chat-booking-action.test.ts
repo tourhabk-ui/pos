@@ -357,7 +357,7 @@ describe('MAX: кто вправе нажать', () => {
     noPd(q.text);
     const id = idFrom(q.payloads, 'oc:y:');
     // Под вопросом — «Да», «Не надо» и вкладки кабинета туроператора.
-    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn']);
+    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:op:td', 'rm:op:in', 'rm:op:cl', 'rm:op:mn']);
     expect(m.change).not.toHaveBeenCalled();
     await postMax(VERIFIED, tap(`oc:y:${id}`));
     expect(m.change).toHaveBeenCalledWith({
@@ -400,7 +400,7 @@ describe('MAX: вопрос, затем «Да»', () => {
     noPd(q.text);
     expect(m.change).not.toHaveBeenCalled();
     const id = idFrom(q.payloads, 'oc:y:');
-    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
 
     await postMax(VERIFIED, tap(`oc:y:${id}`));
     expect(m.change).toHaveBeenCalledTimes(1);
@@ -519,10 +519,10 @@ describe('Telegram: те же два шага', () => {
     const viaButton = tgSent().at(-1)!;
     noPd(viaButton.text);
     expect(viaButton.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
     await tgSay('/bookings');
     expect(tgSent().at(-1)!.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+      .toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
   });
 
   it('группа — отказ без записи; кнопка без сообщения — не применена', async () => {
@@ -558,7 +558,7 @@ describe('кнопки под экранами и уведомлением', () 
     await postMax(VERIFIED, tap('rm:gd:bk'));
     const alert = m.pdAlert.mock.calls[0]![0] as { to: unknown; buttons: Array<{ payload?: string }> };
     expect(alert.to).toEqual({ maxChatId: GUIDE_CHAT, telegramChatId: null });
-    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    expect(alert.buttons.map((b) => b.payload)).toEqual(['bk:c:501', 'bk:x:501', 'rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
   });
 
   it('«Входящие» гида-продавца: в карточке брони — кнопки ответа, в карточке заявки — кнопки заявки (шаг 7); гиду команды — нет', () => {

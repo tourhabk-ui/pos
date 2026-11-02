@@ -17,6 +17,7 @@ export type ChatCommand = { command: string; description: string };
 
 /** Код действия кнопки меню (`rm:<роль>:<действие>`) → команда чата. Сводки командой нет: она словом «/сводка» и только в MAX. */
 const COMMAND_OF_ACTION: Readonly<Record<string, string>> = {
+  td: 'today',
   in: 'requests',
   tk: 'tasks',
   cl: 'clients',

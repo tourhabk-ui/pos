@@ -73,7 +73,7 @@ describe('строка меню в MAX — не больше трёх в ряд�
     }
     // Четыре вкладки — два ряда по два: «Входящие» больше не режется.
     const op = partnerMenu({ partnerId: OTHER, category: 'operator', slug: 'op' }) ?? [];
-    expect(appendMenu([], op).map((r) => r.map((x) => x.text))).toEqual([['Входящие', 'Задачи'], ['Клиенты', 'Ещё']]);
+    expect(appendMenu([], op).map((r) => r.map((x) => x.text))).toEqual([['Сегодня', 'Входящие'], ['Клиенты', 'Ещё']]);
     expect(shape(withRentalCabinetBar([]))).toEqual([3, 2]);
   });
 
@@ -88,7 +88,7 @@ describe('строка меню в MAX — не больше трёх в ряд�
 
   it('строка кабинета под экраном — два ряда по два', () => {
     const rows = noticeScreen('Готово', true).rows;
-    expect(rows.map((r) => r.map((x) => x.payload))).toEqual([['cb:i', 'cb:t'], ['cb:c', 'cb:m']]);
+    expect(rows.map((r) => r.map((x) => x.payload))).toEqual([['cb:td', 'cb:i'], ['cb:c', 'cb:m']]);
     expect(rows.flat().map((x) => x.text)).toEqual(cabinetNavRow().map((x) => x.text));
   });
 });

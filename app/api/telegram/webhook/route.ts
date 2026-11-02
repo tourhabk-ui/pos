@@ -1194,7 +1194,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     // Команды кабинета туроператора и гида (/bookings) — раньше туристской справки.
     const deskHead = text.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
     if (!admin && (deskHead === '/help' || deskHead === '/requests' || deskHead === '/tours' || deskHead === '/seats'
-      || deskHead === '/bookings' || deskHead === '/tasks' || deskHead === '/clients')) {
+      || deskHead === '/bookings' || deskHead === '/tasks' || deskHead === '/today' || deskHead === '/clients')) {
       if (await tryRoleMenuTelegramMessage({
         chatId: update.message.chat.id,
         text,

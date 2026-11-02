@@ -16,8 +16,8 @@ import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { SUMMARY_PARTNER_IDS } from '@/lib/seat-requests/summary';
 
 const OTHER = '11111111-1111-4111-8111-111111111111';
-const TABS = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
-const tabs = (code: string) => ['in', 'tk', 'cl', 'mn'].map((a) => `rm:${code}:${a}`);
+const TABS = ['Сегодня', 'Входящие', 'Клиенты', 'Ещё'];
+const tabs = (code: string) => ['td', 'in', 'cl', 'mn'].map((a) => `rm:${code}:${a}`);
 
 describe('меню роли', () => {
   it('строка проката не сменилась и второй раз не клеится', () => {
@@ -85,7 +85,7 @@ describe('меню роли', () => {
 
   it('справка гида-продавца называет «Брони» и «Мои туры» и где их нет; у гида команды — только «Мои туры» для нового тура (31.10)', () => {
     const help = partnerMenuHelp('guide', { partnerId: OTHER, category: 'guide', slug: 'g-1', sellsTours: true });
-    expect(help).toContain('Под ответами кнопки: Входящие, Задачи, Клиенты, Ещё.');
+    expect(help).toContain('Под ответами кнопки: Сегодня, Входящие, Клиенты, Ещё.');
     expect(help).toContain('Ещё — Брони, Мои туры, Помощь, кабинет на сайте.');
     expect(help).toContain('Имя и телефон туриста — только в MAX');
     expect(help).toContain('/hub/guide/own');

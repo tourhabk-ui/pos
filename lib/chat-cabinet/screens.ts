@@ -118,8 +118,8 @@ export function siteUrl(base: string, role: CabinetRole, section: 'inbox' | 'tas
 /** Строка кабинета: правит это же сообщение. */
 export function cabinetNavRow(): CabinetButton[] {
   return [
+    { text: 'Сегодня', payload: cabinetPayload.today() },
     { text: 'Входящие', payload: cabinetPayload.inbox() },
-    { text: 'Задачи', payload: cabinetPayload.tasks() },
     { text: 'Клиенты', payload: cabinetPayload.clients() },
     { text: 'Ещё', payload: cabinetPayload.more() },
   ];
@@ -339,7 +339,9 @@ export function todaySelect(items: readonly InboxItem[], today: string, tomorrow
 }
 
 export function todayScreen(args: {
-  inbox: Inbox; departures: TodayDeparture[] | 'failed'; today: string; tomorrow: string; nowMs: number;
+  inbox: Inbox; departures: TodayDeparture[] | 'failed' | null; today: string; tomorrow: string; nowMs: number;
+  /** Открытые задачи: просрочено и на сегодня; null — не прочитались. */
+  tasks?: { overdue: number; today: number; total: number } | null;
 }): CabinetScreen {
   const shown = todaySelect(args.inbox.items, args.today, args.tomorrow, args.nowMs).slice(0, INBOX_PAGE_SIZE);
   const lines: Array<string | null> = ['<b>Сегодня</b>'];
@@ -348,7 +350,9 @@ export function todayScreen(args: {
   }
   lines.push(shown.length === 0 ? 'Новых и на ближайшие два дня заявок нет.' : 'Заявки — по дате поездки:');
   shown.forEach((item, i) => lines.push(`${i + 1}. ${inboxItemLine(item)}`));
-  if (args.departures === 'failed') {
+  if (args.departures === null) {
+    // Выезды — только у оператора.
+  } else if (args.departures === 'failed') {
     lines.push('Выезды не прочитались — проверьте календарь.');
   } else {
     for (const [day, label] of [[args.today, 'Сегодня'], [args.tomorrow, 'Завтра']] as const) {
@@ -362,7 +366,14 @@ export function todayScreen(args: {
     const date = isoShort(item.date);
     return [{ text: clip(`${i + 1}. ${INBOX_KIND_LABELS[item.kind]}${date ? ` · ${date}` : ''}`), payload: cabinetPayload.item(item.kind, item.id) }];
   });
-  rows.push([{ text: 'Входящие', payload: cabinetPayload.inbox() }, { text: 'Ещё', payload: cabinetPayload.more() }]);
+  if (args.tasks === null) {
+    lines.push('Задачи не прочитались — откройте их кнопкой ниже.');
+  } else if (args.tasks) {
+    const t = args.tasks;
+    lines.push(t.total === 0 ? 'Открытых задач нет.'
+      : `Задачи: просрочено ${t.overdue}, на сегодня ${t.today}, всего открытых ${t.total}.`);
+  }
+  rows.push([{ text: args.tasks && args.tasks.total > 0 ? `Задачи (${args.tasks.total})` : 'Задачи', payload: 'cb:t:0' }]); // не 'cb:t': строку из одной кнопки меню снял бы хвост MAX
   return screen(lines, rows);
 }
 
@@ -393,6 +404,11 @@ export function canMoveToTomorrow(task: Pick<TaskItem, 'due_at'>, nowMs: number)
 export function kamchatkaMorning(nowMs: number, days: number): Date {
   const [y, m, d] = shiftDate(kamchatkaDate(new Date(nowMs)), days).split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d, 10) - KAMCHATKA_OFFSET_MS);
+}
+
+/** Счёт задач для «Сегодня». */
+export function todayTaskCounts(tasks: readonly TaskItem[], nowMs: number): { overdue: number; today: number } {
+  return taskCounts(tasks, nowMs);
 }
 
 function taskCounts(tasks: readonly TaskItem[], nowMs: number): { overdue: number; today: number } {
@@ -604,7 +620,7 @@ export function contactResultScreen(args: {
     ]);
   }
   if (args.channel === 'max') rows.push([{ text: 'Карточка клиента', payload: cabinetPayload.client(args.contactId) }]);
-  rows.push([{ text: 'Задачи', payload: cabinetPayload.tasks() }, { text: '‹ Входящие', payload: cabinetPayload.inbox() }]);
+  rows.push([{ text: 'Задачи', payload: cabinetPayload.tasks() }, { text: '‹ Сегодня', payload: cabinetPayload.today() }]);
   const lines = [`${args.text}${who}`];
   if (args.offerRemind) lines.push('Напомнить себе связаться ещё раз — кнопкой ниже.');
   return screen(lines, rows, who !== '');
@@ -620,9 +636,7 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
   const lines: string[] = ['<b>Ещё</b>'];
   const rows: CabinetButton[][] = [];
   if (partner.role === 'operator') {
-    rows.push([{ text: 'Сегодня', payload: cabinetPayload.today() }]);
     rows.push([{ text: 'Мои туры и цены', payload: 'opd:tours' }, { text: 'Обновить места', payload: 'opd:seats' }]);
-    lines.push('Сегодня — новое за сутки и выезды сегодня и завтра, по дате.');
     lines.push('Мои туры и цены — живые туры и цена из каталога. Обновить места — где отметить занятость.');
   } else if (partner.role === 'guide' && partner.sellsTours) {
     // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
