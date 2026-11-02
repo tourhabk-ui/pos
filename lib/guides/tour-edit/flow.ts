@@ -31,7 +31,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { failedScreen, noticeScreen, type CabinetScreen } from '@/lib/chat-cabinet/screens';
 import type { CabinetPress } from '@/lib/chat-cabinet/payload';
-import { openGuideTourDates, closeGuideTourDates } from '@/lib/guides/own-dates';
+import { openGuideTourDates, closeGuideTourDates, OPERATOR_CLOSE_REASON } from '@/lib/guides/own-dates';
 import { tourHiddenText } from '@/lib/tours/availability-open';
 import { tourPath } from '@/lib/tours/tour-url';
 import { readPublishGate, setOwnTourOnSite } from '@/lib/guides/own-tour-publish';
@@ -46,7 +46,7 @@ import {
   type ChatTour, type DraftBlocked, type EditChannel,
 } from './store';
 import {
-  CHOOSE_MAX, DAYS_PER_PAGE, EDIT_TEXT, chooseTourScreen, datesScreen, hintScreen, myToursScreen, newTourHintScreen,
+  CHOOSE_MAX, DAYS_PER_PAGE, EDIT_TEXT, calendarScreen, chooseTourScreen, datesScreen, type DatesBack, hintScreen, myToursScreen, newTourHintScreen,
   noticeWithTours, previewScreen, rejectText, savedScreen, tourScreen,
 } from './screens';
 
@@ -148,14 +148,22 @@ function blockedText(b: DraftBlocked): string {
 }
 
 type TourPress = Extract<CabinetPress, {
-  kind: 'my_tours' | 'tour' | 'tour_dates' | 'date_open' | 'date_close' | 'tour_hint' | 'edit_save' | 'edit_cancel' | 'edit_tour'
+  kind: 'my_tours' | 'calendar' | 'tour' | 'tour_dates' | 'date_open' | 'date_close' | 'tour_hint' | 'edit_save' | 'edit_cancel' | 'edit_tour'
     | 'tour_new' | 'create_save' | 'create_cancel' | 'tour_publish' | 'tour_unpublish';
 }>;
 
 export const GUIDE_TOUR_PRESS_KINDS: ReadonlySet<CabinetPress['kind']> = new Set([
-  'my_tours', 'tour', 'tour_dates', 'date_open', 'date_close', 'tour_hint', 'edit_save', 'edit_cancel', 'edit_tour',
+  'my_tours', 'calendar', 'tour', 'tour_dates', 'date_open', 'date_close', 'tour_hint', 'edit_save', 'edit_cancel', 'edit_tour',
   'tour_new', 'create_save', 'create_cancel', 'tour_publish', 'tour_unpublish',
 ]);
+
+/** Кнопки календаря оператора: туры и их даты, больше ничего. */
+const OPERATOR_PRESS_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['calendar', 'tour_dates', 'date_open', 'date_close']);
+
+export const CALENDAR_TEXT = {
+  ownerOnly: 'Календарь открывает и закрывает даты — это может только владелец карточки.',
+  failed: 'Туры не прочитались — база не ответила. Это не «туров нет».',
+} as const;
 
 /** Кнопки, которые нужны и гиду без своих туров: список, «Новый тур» и его черновик. */
 const CREATE_PRESS_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['my_tours', 'tour_new', 'create_save', 'create_cancel']);
@@ -177,8 +185,17 @@ export async function guideTourPress(press: TourPress, who: {
   nowMs: number;
 }): Promise<CabinetScreen> {
   const { partner } = who;
-  const allowed = CREATE_PRESS_KINDS.has(press.kind) ? createsOwnTours(partner) : editsOwnTours(partner);
-  if (!who.owner || !allowed) return noticeScreen(EDIT_TEXT.notGuide);
+  // Оператор (14-дневный календарь, 02.11): только список туров и даты —
+  // открыть и закрыть дату своего тура. Правка, публикация и новый тур — у гида.
+  const operator = partner.category === 'operator';
+  if (operator) {
+    if (!who.owner) return noticeScreen(CALENDAR_TEXT.ownerOnly);
+    if (!OPERATOR_PRESS_KINDS.has(press.kind)) return noticeScreen(EDIT_TEXT.notGuide);
+  } else {
+    const allowed = CREATE_PRESS_KINDS.has(press.kind) ? createsOwnTours(partner) : editsOwnTours(partner);
+    if (!who.owner || !allowed || press.kind === 'calendar') return noticeScreen(EDIT_TEXT.notGuide);
+  }
+  const back: DatesBack = operator ? 'calendar' : 'tour';
   if (!partner.userId) return noticeScreen(EDIT_TEXT.noAccount);
   const site = getPublicBaseUrl();
   const today = kamchatkaDate(new Date(who.nowMs));
@@ -187,6 +204,10 @@ export async function guideTourPress(press: TourPress, who: {
     case 'my_tours': {
       const own = await readEditTours(partner.partnerId);
       return own.outcome === 'ok' ? myToursScreen(own.tours, site) : failedScreen(EDIT_TEXT.toursFailed);
+    }
+    case 'calendar': {
+      const own = await readEditTours(partner.partnerId);
+      return own.outcome === 'ok' ? calendarScreen(own.tours) : failedScreen(CALENDAR_TEXT.failed);
     }
     case 'tour_new':
       return newTourHintScreen();
@@ -223,10 +244,10 @@ export async function guideTourPress(press: TourPress, who: {
       return noticeScreen(createBlockedText(r));
     }
     case 'tour_dates':
-      return datesPage(partner.partnerId, press.tourId, press.page, today);
+      return datesPage(partner.partnerId, press.tourId, press.page, today, undefined, back);
     case 'date_open':
     case 'date_close':
-      return dateToggle(partner.partnerId, press, today);
+      return dateToggle(partner.partnerId, press, today, back);
     case 'edit_cancel': {
       const r = await cancelDraft({ partnerId: partner.partnerId, channel: who.channel, chatId: who.chatId, draftId: press.draftId });
       return noticeScreen(r.kind === 'cancelled' ? EDIT_TEXT.cancelled : blockedText(r));
@@ -313,13 +334,13 @@ async function toursWithNotice(partnerId: string, notice: string): Promise<Cabin
   return own.outcome === 'ok' ? myToursScreen(own.tours, getPublicBaseUrl(), notice) : failedScreen(EDIT_TEXT.toursFailed);
 }
 
-async function datesPage(partnerId: string, tourId: string, page: number, today: string, notice?: string): Promise<CabinetScreen> {
+async function datesPage(partnerId: string, tourId: string, page: number, today: string, notice?: string, back: DatesBack = 'tour'): Promise<CabinetScreen> {
   const from = shiftDate(today, page * DAYS_PER_PAGE);
   const to = shiftDate(from, DAYS_PER_PAGE - 1);
   const r = await readTourDays(partnerId, tourId, from, to);
   if (r.outcome === 'db_error') return failedScreen(notice ? `${notice}\nДаты не прочитались — база не ответила.` : 'Даты не прочитались — база не ответила. Это не «дат нет».');
-  if (r.outcome === 'not_found') return toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
-  return datesScreen({ tour: r.tour, days: r.days, page, notice });
+  if (r.outcome === 'not_found') return back === 'calendar' ? noticeScreen(EDIT_TEXT.tourNotFound) : toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
+  return datesScreen({ tour: r.tour, days: r.days, page, notice, back });
 }
 
 function pageOf(date: string, today: string): number {
@@ -343,29 +364,42 @@ async function dateToggle(
   partnerId: string,
   press: Extract<CabinetPress, { kind: 'date_open' | 'date_close' }>,
   today: string,
+  back: DatesBack = 'tour',
 ): Promise<CabinetScreen> {
   const day = `${press.date.slice(8, 10)}.${press.date.slice(5, 7)}`;
   const page = Math.min(pageOf(press.date, today), 12);
-  if (press.date < today) return datesPage(partnerId, press.tourId, 0, today, `${day}: дата прошла — ничего не изменил.`);
+  if (press.date < today) return datesPage(partnerId, press.tourId, 0, today, `${day}: дата прошла — ничего не изменил.`, back);
+  if (press.kind === 'date_close' && back === 'calendar') {
+    // Оператор (план, п.3): дату с бронями кнопкой не закрываем — отказ с причиной.
+    const d = await readTourDays(partnerId, press.tourId, press.date, press.date);
+    if (d.outcome === 'db_error') return failedScreen(`${day}: не закрылась — база не ответила. Ничего не изменено.`);
+    if (d.outcome === 'not_found') return noticeScreen(EDIT_TEXT.tourNotFound);
+    const taken = d.days[0]?.taken ?? 0;
+    if (taken > 0) {
+      return datesPage(partnerId, press.tourId, page, today, `${day}: не закрыта — на неё записано ${taken}. Сначала решите с этими бронями.`, back);
+    }
+  }
   if (press.kind === 'date_close') {
-    const r = await closeGuideTourDates({ partnerId, tourId: press.tourId, dates: [press.date] });
-    if (!r.ok && r.reason === 'tour_not_found') return toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
+    const r = await closeGuideTourDates({
+      partnerId, tourId: press.tourId, dates: [press.date], reason: back === 'calendar' ? OPERATOR_CLOSE_REASON : undefined,
+    });
+    if (!r.ok && r.reason === 'tour_not_found') return back === 'calendar' ? noticeScreen(EDIT_TEXT.tourNotFound) : toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
     if (!r.ok) return failedScreen(`${day}: не закрылась — база не ответила. Ничего не изменено.`);
-    return datesPage(partnerId, press.tourId, page, today, `${day}: закрыта для продажи. Брони на неё не отменены.`);
+    return datesPage(partnerId, press.tourId, page, today, `${day}: закрыта для продажи. Брони на неё не отменены.`, back);
   }
   const t = await readEditTour(partnerId, press.tourId);
   if (t.outcome === 'db_error') return failedScreen(EDIT_TEXT.toursFailed);
-  if (t.outcome === 'not_found') return toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
+  if (t.outcome === 'not_found') return back === 'calendar' ? noticeScreen(EDIT_TEXT.tourNotFound) : toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
   const seats = t.tour.maxParticipants;
   if (seats === null || seats <= 0) {
-    return datesPage(partnerId, press.tourId, page, today, `${day}: размер группы у тура не записан — открыть кнопкой нечем.`);
+    return datesPage(partnerId, press.tourId, page, today, `${day}: размер группы у тура не записан — открыть кнопкой нечем.`, back);
   }
   const r = await openGuideTourDates({ partnerId, tourId: press.tourId, dates: [press.date], slots: seats, today });
   if (!r.ok) {
-    if (r.reason === 'tour_not_found') return toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
-    if (r.reason === 'tour_inactive') return datesPage(partnerId, press.tourId, page, today, escapeHtml(tourHiddenText(r.title)));
+    if (r.reason === 'tour_not_found') return back === 'calendar' ? noticeScreen(EDIT_TEXT.tourNotFound) : toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
+    if (r.reason === 'tour_inactive') return datesPage(partnerId, press.tourId, page, today, escapeHtml(tourHiddenText(r.title)), back);
     return failedScreen(`${day}: не открылась — база не ответила. Ничего не изменено.`);
   }
   const result = r.perDate[0]?.result ?? 'refused_past';
-  return datesPage(partnerId, press.tourId, page, today, `${day}: ${OPEN_WORDS[result] ?? result}${result === 'opened' || result === 'reopened' ? `, ${seats} мест` : ''}.`);
+  return datesPage(partnerId, press.tourId, page, today, `${day}: ${OPEN_WORDS[result] ?? result}${result === 'opened' || result === 'reopened' ? `, ${seats} мест` : ''}.`, back);
 }

@@ -137,6 +137,13 @@ export interface DigestFacts {
    * null — аттестаты не прочитались; нет поля — карточка не гид.
    */
   certs?: string[] | null;
+  /**
+   * Туроператор (план, PR5): выезды завтра по подтверждённым броням — числа и
+   * названия туров, без имён; null — не прочитались; нет поля — не оператор.
+   */
+  tomorrow?: Array<{ title: string; people: number; bookings: number }> | null;
+  /** Дат своих туров под стоп-продажей с сегодняшней; null — не прочиталось. */
+  stops?: number | null;
 }
 
 function kindCounts(inbox: Inbox): string {
@@ -147,7 +154,8 @@ function kindCounts(inbox: Inbox): string {
 
 /** Есть что сказать: кто-то ждёт ответа, подошёл срок задачи или что-то не прочиталось. */
 export function digestHasNews(f: DigestFacts): boolean {
-  return f.inbox.items.length > 0 || f.due.length > 0 || f.inbox.failed.length > 0 || (f.certs?.length ?? 0) > 0;
+  return f.inbox.items.length > 0 || f.due.length > 0 || f.inbox.failed.length > 0 || (f.certs?.length ?? 0) > 0
+    || (f.tomorrow?.length ?? 0) > 0;
 }
 
 /**
@@ -190,6 +198,15 @@ export function digestText(
       lines.push('Заголовки задач и имена клиентов в Telegram не пересылаются — они в MAX и в кабинете.');
     }
   }
+  // Оператор: выезды завтра и стоп-продажи — числа без ПД, в оба канала.
+  if (f.tomorrow && f.tomorrow.length > 0) {
+    const people = f.tomorrow.reduce((s, d) => s + d.people, 0);
+    lines.push(`Выезды завтра: ${f.tomorrow.map((d) => `${escapeHtml(d.title)} — ${d.people} чел.`).join('; ')} (всего ${people}).`);
+  } else if (f.tomorrow === null) {
+    lines.push('Выезды завтра не прочитались — это не «выездов нет».');
+  }
+  if (typeof f.stops === 'number' && f.stops > 0) lines.push(`Стоп-продажи активны: закрыто ${f.stops} дат — «Ещё» → «Стоп-продажи».`);
+  else if (f.stops === null) lines.push('Стоп-продажи не прочитались — проверьте в «Ещё».');
   // Срок аттестата — без ПД, в оба канала.
   if (f.certs) lines.push(...f.certs);
   else if (f.certs === null) lines.push('Сроки аттестатов не прочитались — проверьте в кабинете на сайте.');
@@ -246,11 +263,27 @@ async function readFacts(c: DigestCandidate, nowMs: number): Promise<DigestFacts
     const due = open.filter((t) => Date.parse(t.due_at) < end);
     const facts: DigestFacts = { inbox, due, overdue: due.filter((t) => Date.parse(t.due_at) < nowMs).length };
     if (c.category === 'guide') facts.certs = await readCertLines(c.partner_id, today);
+    if (c.category === 'operator') Object.assign(facts, await readOperatorLines(c.partner_id, today));
     return facts;
   } catch (err) {
     console.error(`[chat-digest] данные сводки не прочитаны — отказ, SQLSTATE ${sqlstate(err)}`);
     return null;
   }
+}
+
+/** Выезды завтра и стоп-продажи оператора; отказ — null в поле, сводку не роняет. */
+async function readOperatorLines(partnerId: string, today: string): Promise<Pick<DigestFacts, 'tomorrow' | 'stops'>> {
+  const { loadDepartures } = await import('@/lib/operators/live-seats');
+  const { activeStopDays } = await import('@/lib/operators/stop-sales');
+  const deps = await loadDepartures(partnerId, [shiftDate(today, 1)]);
+  let stops: number | null;
+  try {
+    stops = await activeStopDays(partnerId, today);
+  } catch (err) {
+    console.error(`[chat-digest] стоп-продажи не прочитаны — отказ, SQLSTATE ${sqlstate(err)}`);
+    stops = null;
+  }
+  return { tomorrow: deps === 'failed' ? null : deps, stops };
 }
 
 /** Строки о сроке аттестата; null — не прочитались (отказ в лог, сводку не роняет). */

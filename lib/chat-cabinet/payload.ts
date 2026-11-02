@@ -29,6 +29,7 @@
  *   cb:u                — «Мои туры» гида со своими турами (30.10, «гид
  *                         должен полностью управлять своей ролью из MAX»)
  *   cb:u:<тур>          — карточка своего тура: даты, правка текста, страница
+ *   cb:wc               — «Календарь» оператора: свои туры, у каждого — даты на 14 дней
  *   cb:w:<тур>[:<стр>]  — даты тура, по 14 дней на странице
  *   cb:w:<o|c>:<тур>:<ггггммдд> — открыть / закрыть дату (lib/guides/own-dates)
  *   cb:h:<тур>          — как править текст тура фразой
@@ -128,6 +129,7 @@ export type CabinetPress =
   /** «Не то» под «Понял так»: ничего не пишется. */
   | { kind: 'busy_not_that' }
   | { kind: 'my_tours' }
+  | { kind: 'calendar' }
   | { kind: 'tour'; tourId: string }
   | { kind: 'tour_dates'; tourId: string; page: number }
   | { kind: 'date_open' | 'date_close'; tourId: string; date: string }
@@ -224,6 +226,7 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [/^cb:b:n$/, () => ({ kind: 'busy_not_that' })],
   [new RegExp(`^cb:v:([az]):(${UUID})$`), (m) => ({ kind: 'vehicle_active', vehicleId: m[2]!, active: m[1] === 'a' })],
   [/^cb:u$/, () => ({ kind: 'my_tours' })],
+  [/^cb:wc$/, () => ({ kind: 'calendar' })],
   [new RegExp(`^cb:u:(${TOUR})$`), (m) => ({ kind: 'tour', tourId: m[1]! })],
   [/^cb:u:n$/, () => ({ kind: 'tour_new' })],
   [new RegExp(`^cb:u:([ps]):(${TOUR})$`), (m) => ({ kind: m[1] === 'p' ? 'tour_publish' : 'tour_unpublish', tourId: m[2]! })],
@@ -319,6 +322,7 @@ export const cabinetPayload = {
   vehicleActive: (vehicleId: string, active: boolean): string => signPayload(`cb:v:${active ? 'a' : 'z'}:${vehicleId.toLowerCase()}`),
   /** «Мои туры» гида со своими турами. */
   myTours: (): string => 'cb:u',
+  calendar: (): string => 'cb:wc',
   tour: (tourId: string): string => `cb:u:${tourId}`,
   tourDates: (tourId: string, page = 0): string => (page > 0 ? `cb:w:${tourId}:${page}` : `cb:w:${tourId}`),
   dateOpen: (tourId: string, date: string): string => signPayload(`cb:w:o:${tourId}:${date.replace(/-/g, '')}`),

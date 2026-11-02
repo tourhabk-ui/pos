@@ -356,3 +356,46 @@ describe('раздел «Свои туры»: «Мои туры» рендеро
     expect(done.mock.calls[0]![0]).toMatch(/Создан черновик «Тур на Авачу»/);
   });
 });
+
+describe('«Календарь» оператора (02.11)', () => {
+  const OP = { ...WHO, partner: { ...GUIDE, category: 'operator', sellsTours: true } };
+  const ROW = {
+    id: '77', title: 'Бухта Русская', slug: null, is_active: true, is_published: true, base_price: '19000', price_unit: 'per_person',
+    max_participants: 8, description: null, short_description: null, included: null, excluded: null, what_to_bring: null,
+  };
+
+  it('кнопка разбирается и помещается; в «Ещё» оператора — «Календарь»', () => {
+    expect(parseCabinetPress(cabinetPayload.calendar())).toEqual({ kind: 'calendar' });
+    expect(Buffer.byteLength(cabinetPayload.calendar())).toBeLessThanOrEqual(CABINET_PAYLOAD_MAX_BYTES);
+  });
+
+  it('список — только свои туры (operator_id), кнопка тура ведёт к датам', async () => {
+    h.query.mockResolvedValue({ rows: [ROW], rowCount: 1 });
+    const out = await guideTourPress({ kind: 'calendar' }, OP);
+    expect(out.text).toMatch(/Календарь/);
+    expect(JSON.stringify(out.rows)).toContain('cb:w:77');
+    const sql = h.query.mock.calls.map((c) => [c[0], c[1]] as [string, unknown[]]);
+    expect(sql.some(([s, p]) => /operator_id = \$1::uuid/.test(s) && p[0] === GUIDE.partnerId)).toBe(true);
+  });
+
+  it('даты оператора: «назад» — к календарю; правка и публикация ему не открыты; менеджер не пишет', async () => {
+    h.query.mockImplementation(async (sql: string) => (/FROM operator_tours/.test(sql) ? { rows: [ROW], rowCount: 1 } : { rows: [], rowCount: 0 }));
+    const dates = await guideTourPress({ kind: 'tour_dates', tourId: '77', page: 0 }, OP);
+    expect(JSON.stringify(dates.rows)).toContain('cb:wc');
+    expect(JSON.stringify(dates.rows)).not.toContain('"cb:u:77"');
+    expect((await guideTourPress({ kind: 'tour_publish', tourId: '77' }, OP)).text).toMatch(/Ничего не записал/);
+    expect((await guideTourPress({ kind: 'calendar' }, { ...OP, owner: false })).text).toMatch(/только владелец/);
+    expect((await guideTourPress({ kind: 'calendar' }, WHO)).text).toMatch(/Ничего не записал/);
+  });
+
+  it('дату с бронями оператор кнопкой не закрывает — отказ с причиной, записи нет', async () => {
+    h.query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [ROW], rowCount: 1 };
+      if (/generate_series/.test(sql)) return { rows: [{ date: '2026-11-05', slots: 8, closed: false, taken: 2 }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const out = await guideTourPress({ kind: 'date_close', tourId: '77', date: '2026-11-05' }, OP);
+    expect(out.text).toMatch(/05\.11: не закрыта — на неё записано 2/);
+    expect(h.query.mock.calls.some((c) => /UPDATE tour_availability|INSERT INTO tour_availability/.test(String(c[0])))).toBe(false);
+  });
+});

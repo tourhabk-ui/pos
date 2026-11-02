@@ -39,11 +39,14 @@ export async function openGuideTourDates(input: {
 
 /** Причина закрытия, которую видит календарь: кто закрыл. */
 export const GUIDE_CLOSE_REASON = 'Закрыто гидом';
+/** То же — когда дату закрыл оператор из чата («Календарь», 02.11). */
+export const OPERATOR_CLOSE_REASON = 'Закрыто оператором';
 
 export async function closeGuideTourDates(input: {
   partnerId: string;
   tourId: string;
   dates: string[];
+  reason?: string;
 }): Promise<CloseDatesResult> {
-  return closeTourDates(pool, { operatorId: input.partnerId, tourId: input.tourId, dates: input.dates, reason: GUIDE_CLOSE_REASON });
+  return closeTourDates(pool, { operatorId: input.partnerId, tourId: input.tourId, dates: input.dates, reason: input.reason ?? GUIDE_CLOSE_REASON });
 }
