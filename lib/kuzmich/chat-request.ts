@@ -88,3 +88,31 @@ function addDays(iso: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Та же заявка из мессенджеров (02.11, «го» владельца): шаги брони Кузьмича
+ * в MAX собирают тур, имя, дату, людей и телефон, «Да» на строке согласия —
+ * и заявка уходит тем же исполнителем, что веб-чат и MCP
+ * (create_booking_request), а не отдельной записью брони.
+ */
+export function planFromBookingFlow(f: {
+  tourId: number; name: string; phone: string; date: string; participants: number; comment?: string;
+}): ChatRequestPlan {
+  return {
+    tool: 'create_booking_request',
+    args: {
+      name: f.name, phone: f.phone, consent: true, participants: f.participants,
+      tour: String(f.tourId), date: f.date,
+      comment: (f.comment ?? 'Заявка из чата Кузьмича в MAX').slice(0, 500),
+    },
+  };
+}
+
+/** Заявка не создалась: без «сервис недоступен», с честным следующим шагом. */
+export function chatRequestNotCreated(reason?: string | null): string {
+  const r = reason?.replace(/\s+/g, ' ').trim().slice(0, 300);
+  return [
+    r ? `Заявка не создана: ${r}` : 'Заявка не записалась — ответ базы не пришёл.',
+    'Можно поправить данные и написать ещё раз или оформить заявку в форме тура на сайте.',
+  ].join('\n');
+}

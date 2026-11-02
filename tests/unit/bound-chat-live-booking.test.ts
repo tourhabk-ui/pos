@@ -129,7 +129,7 @@ const { isRepeatedMaxMessage, clearMaxMessageDedup } = await import('@/lib/max/u
 const CABINET_ANSWER = 'ОТВЕТ ПОМОЩНИКА КАБИНЕТА';
 const TOURIST_ANSWER = 'ОТВЕТ МОЗГА КУЗЬМИЧА';
 /** Шаг «имя» принят — бот спрашивает дату (lib/kuzmich/core, шаг name). */
-const NAME_TAKEN = 'Отлично, Иван Петров! На какую дату оставляем заявку?';
+const NAME_TAKEN = 'На какую дату?';
 const NOT_UNDERSTOOD = 'Не понял команду';
 /** callback_data кнопки «Хочу оставить заявку» (sendBookingInlineButton). */
 const BOOKING_BUTTON = 'book_now';
