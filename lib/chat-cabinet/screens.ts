@@ -31,7 +31,7 @@ import type { ContactCard, ContactListItem } from '@/lib/crm/contact-queries';
 import { contactLabel } from '@/lib/crm/tools';
 import { inboxItemField, inboxItemLine, waitingAge } from '@/lib/roles/inbox-text';
 import { bookingAnswerButtons, leadAnswerButtons } from '@/lib/bookings/chat-owner-press';
-import { chatAnswerButtons } from '@/lib/requests/chat-answer';
+import { chatAnswerButtons, declineButton } from '@/lib/requests/chat-answer';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { rideOutcomeButtons } from '@/lib/transfers/ride-outcome';
 import { STAY_ANSWER_HINT, stayAnswerButtons } from '@/lib/stay/owner-answer';
@@ -226,6 +226,8 @@ export function itemCardScreen(args: {
   channel: CabinetChannel;
   base: string;
   notice?: string | null;
+  /** Живые места на дату предмета (lib/operators/live-seats). */
+  seats?: { date: string; free: number | null | 'failed' } | null | 'failed';
 }): CabinetScreen {
   const { item, partner, channel } = args;
   const lines: Array<string | null> = [`<b>${INBOX_KIND_LABELS[item.kind]}</b>`, noticeLine(args.notice)];
@@ -235,6 +237,8 @@ export function itemCardScreen(args: {
   if (item.people !== null) facts.push(`${item.people} чел`);
   if (facts.length) lines.push(facts.join(' · '));
   lines.push(`Ждёт ответа: ${waitingAge(item.waiting_minutes)}.`);
+  const seatsLine = liveSeatsLine(args.seats ?? null);
+  if (seatsLine) lines.push(seatsLine);
   const showName = channel === 'max' && item.contact_id !== null;
   if (showName) lines.push(`Клиент: ${escapeHtml(contactLabel(item.contact_name))}`);
   // Telegram имён и телефонов не получает (решение 23.08): сказано, где они,
@@ -253,8 +257,8 @@ export function itemCardScreen(args: {
     lines.push('Отметка заявки — после «Да»; туристу ничего не уходит.');
   } else if (item.kind === 'lead' && partner.operatorAnswers) {
     const answers = chatAnswerButtons(null, 'lead', item.id);
-    rows.push(answers.slice(0, 2), answers.slice(2));
-    lines.push('Ответ записывается сразу; бронь им не подтверждается.');
+    rows.push(answers.slice(0, 2), answers.slice(2), [declineButton('lead', item.id)]);
+    lines.push('Ответ записывается сразу; бронь им не подтверждается. «Отказать» — с причиной кнопкой, заявка закрывается как отказ.');
   } else if (item.kind === 'charter_request' && partner.role === 'transfer' && rentalAnswerButtons(item.id)) {
     // Заявка на машину (#2862): те же кнопки, что под заявкой в MAX (`rr:`),
     // в обоих каналах — вид заявки сервер читает из лида. Машина не
@@ -293,6 +297,67 @@ export function itemCardScreen(args: {
   rows.push([{ text: 'Открыть в кабинете', url: href }]);
   rows.push([{ text: '‹ Входящие', payload: cabinetPayload.inbox() }]);
   return screen(lines, rows, showName);
+}
+
+/** Строка живых мест карточки: число из базы или честное «не прочиталось». */
+export function liveSeatsLine(seats: { date: string; free: number | null | 'failed' } | null | 'failed'): string | null {
+  if (seats === null) return null;
+  if (seats === 'failed' || seats.free === 'failed') return 'Свободные места не прочитались — проверьте календарь.';
+  const d = ruShort(seats.date);
+  if (seats.free === null) return `На ${d} даты в календаре нет.`;
+  return `Свободно на ${d}: ${seats.free} (сейчас, из календаря).`;
+}
+
+// ── Сегодня ─────────────────────────────────────────────────────────────────
+
+export interface TodayDeparture { date: string; title: string; people: number; bookings: number }
+
+/**
+ * «Сегодня» оператора: новое за 24 часа и заявки с датой сегодня/завтра,
+ * плюс выезды сегодня/завтра. Порядок — по дате поездки, затем по времени
+ * прихода; не по скорости ответа. Имён и телефонов нет.
+ */
+export function todaySelect(items: readonly InboxItem[], today: string, tomorrow: string, nowMs: number): InboxItem[] {
+  const dayAgo = nowMs - 24 * 3_600_000;
+  const iso = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null);
+  const picked = items.filter((it) => {
+    const d = iso(it.date);
+    return Date.parse(it.created_at) >= dayAgo || d === today || d === tomorrow;
+  });
+  return picked.sort((a, b) => {
+    const da = iso(a.date) ?? '9999-12-31';
+    const db = iso(b.date) ?? '9999-12-31';
+    if (da !== db) return da < db ? -1 : 1;
+    return Date.parse(a.created_at) - Date.parse(b.created_at);
+  });
+}
+
+export function todayScreen(args: {
+  inbox: Inbox; departures: TodayDeparture[] | 'failed'; today: string; tomorrow: string; nowMs: number;
+}): CabinetScreen {
+  const shown = todaySelect(args.inbox.items, args.today, args.tomorrow, args.nowMs).slice(0, INBOX_PAGE_SIZE);
+  const lines: Array<string | null> = ['<b>Сегодня</b>'];
+  if (args.inbox.failed.length > 0) {
+    lines.push(`Не прочиталось: ${args.inbox.failed.map((k) => INBOX_KIND_LABELS[k]).join(', ')}. Это не «таких нет».`);
+  }
+  lines.push(shown.length === 0 ? 'Новых и на ближайшие два дня заявок нет.' : 'Заявки — по дате поездки:');
+  shown.forEach((item, i) => lines.push(`${i + 1}. ${inboxItemLine(item)}`));
+  if (args.departures === 'failed') {
+    lines.push('Выезды не прочитались — проверьте календарь.');
+  } else {
+    for (const [day, label] of [[args.today, 'Сегодня'], [args.tomorrow, 'Завтра']] as const) {
+      const deps = args.departures.filter((d) => d.date === day);
+      lines.push(deps.length === 0
+        ? `${label} (${ruShort(day)}): подтверждённых выездов нет.`
+        : `${label} (${ruShort(day)}): ${deps.map((d) => `«${escapeHtml(d.title)}» — ${d.people} чел`).join('; ')}.`);
+    }
+  }
+  const rows: CabinetButton[][] = shown.map((item, i) => {
+    const date = isoShort(item.date);
+    return [{ text: clip(`${i + 1}. ${INBOX_KIND_LABELS[item.kind]}${date ? ` · ${date}` : ''}`), payload: cabinetPayload.item(item.kind, item.id) }];
+  });
+  rows.push([{ text: 'Входящие', payload: cabinetPayload.inbox() }, { text: 'Ещё', payload: cabinetPayload.more() }]);
+  return screen(lines, rows);
 }
 
 export const ITEM_GONE = 'Этого во «Входящих» уже нет: на него ответили, или срок ответа прошёл.';
@@ -549,7 +614,9 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
   const lines: string[] = ['<b>Ещё</b>'];
   const rows: CabinetButton[][] = [];
   if (partner.role === 'operator') {
+    rows.push([{ text: 'Сегодня', payload: cabinetPayload.today() }]);
     rows.push([{ text: 'Мои туры и цены', payload: 'opd:tours' }, { text: 'Обновить места', payload: 'opd:seats' }]);
+    lines.push('Сегодня — новое за сутки и выезды сегодня и завтра, по дате.');
     lines.push('Мои туры и цены — живые туры и цена из каталога. Обновить места — где отметить занятость.');
   } else if (partner.role === 'guide' && partner.sellsTours) {
     // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.

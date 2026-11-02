@@ -48,14 +48,15 @@ import { bookingChatActionsEnabledFor, leadChatActionsEnabledFor } from '@/lib/b
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { isWatchTrigger } from '@/lib/kuzmich/watch-flow';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { liveSeatsForItem, loadDepartures } from '@/lib/operators/live-seats';
 import { parseCabinetPress, type CabinetPress, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
 import { countCabinetUse, type CabinetUsageAction } from '@/lib/chat-cabinet/usage';
 import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, todayScreen, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
@@ -158,6 +159,17 @@ async function readInbox(c: Ctx, nowMs: number): Promise<Inbox | null> {
   }
 }
 
+/** «Сегодня» оператора (план CRM, PR2): новое за сутки и выезды, по дате. */
+async function todayView(c: Ctx, nowMs: number): Promise<CabinetScreen> {
+  if (c.partner.role !== 'operator') return inboxView(c, 0, nowMs);
+  const inbox = await readInbox(c, nowMs);
+  if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
+  const today = kamchatkaDate(new Date(nowMs));
+  const tomorrow = shiftDate(today, 1);
+  const departures = await loadDepartures(c.ctx.partnerId, [today, tomorrow]);
+  return todayScreen({ inbox, departures, today, tomorrow, nowMs });
+}
+
 async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
   const inbox = await readInbox(c, nowMs);
   if (!inbox) return failedScreen(CABINET_TEXT.inboxFailed);
@@ -223,7 +235,10 @@ async function itemView(c: Ctx, channel: CabinetChannel, press: Extract<CabinetP
     const card = await guideInboxCard(item, { partner: c.ctx, owner: c.partner.seat === 'owner', channel });
     if (card) return card;
   }
-  if (item) return itemCardScreen({ item, partner: c.partner, channel, base: base() });
+  if (item) {
+    const seats = c.partner.role === 'operator' ? await liveSeatsForItem(c.ctx.partnerId, item.kind, item.id, nowMs) : null;
+    return itemCardScreen({ item, partner: c.partner, channel, base: base(), seats });
+  }
   // Вид не прочитался — «не знаю», а не «уже ответили» (§4.0).
   if (inbox.failed.includes(press.item)) return { ...inboxScreen(inbox, 0, { notice: CABINET_TEXT.inboxFailed }), failed: true };
   return itemGoneScreen(inbox);
@@ -791,6 +806,7 @@ export async function handleCabinetPress(input: {
   let out: CabinetScreen;
   switch (press.kind) {
     case 'more': out = await moreView(g); break;
+    case 'today': out = await todayView(g, nowMs); break;
     case 'digest': out = await digestView(g); break;
     case 'digest_set': out = await setDigest(g, press.mode, nowMs); break;
     case 'inbox': out = await inboxView(g, press.page, nowMs); break;
