@@ -316,7 +316,17 @@ export function liveSeatsLine(seats: { date: string; free: number | null | 'fail
 
 // ── Сегодня ─────────────────────────────────────────────────────────────────
 
-export interface TodayDeparture { date: string; title: string; people: number; bookings: number }
+/**
+ * Обстановка на день выезда (#2969) — записанная кроном `trip-reminders`
+ * строка; null — для этого выезда не считалась.
+ */
+export interface DepartureSituation { kind: 'calm' | 'risk' | 'unknown'; line: string; checkedAt: string }
+
+export interface TodayDeparture {
+  date: string; title: string; people: number; bookings: number;
+  tourId?: number;
+  situation?: DepartureSituation | null;
+}
 
 /**
  * «Сегодня» оператора: новое за 24 часа и заявки с датой сегодня/завтра,
@@ -338,10 +348,28 @@ export function todaySelect(items: readonly InboxItem[], today: string, tomorrow
   });
 }
 
+function checkedWhen(iso: string): string {
+  // timestamptz::text отдаёт «2026-11-03 05:00:00.123+00» — к ISO: «T» и «+00:00».
+  const t = new Date(iso.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'));
+  if (Number.isNaN(t.getTime())) return '';
+  const f = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Asia/Kamchatka', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(t);
+  return ` (проверено ${f.replace(',', '')} по Камчатке)`;
+}
+
+/** Строка обстановки выезда для «Сегодня»: факты Ведара, без решения за оператора. */
+export function departureSituationLine(d: TodayDeparture, failed: boolean): string {
+  const who = `— обстановка «${escapeHtml(d.title)}»: `;
+  if (failed) return `${who}не прочиталась, это не «спокойно».`;
+  if (!d.situation) return `${who}не проверялась.`;
+  return `${who}${escapeHtml(d.situation.line)}${checkedWhen(d.situation.checkedAt)}`;
+}
+
 export function todayScreen(args: {
   inbox: Inbox; departures: TodayDeparture[] | 'failed' | null; today: string; tomorrow: string; nowMs: number;
   /** Открытые задачи: просрочено и на сегодня; null — не прочитались. */
   tasks?: { overdue: number; today: number; total: number } | null;
+  /** Обстановка на выезды не прочиталась (#2969): так и сказано, а не «спокойно». */
+  situationsFailed?: boolean;
 }): CabinetScreen {
   const shown = todaySelect(args.inbox.items, args.today, args.tomorrow, args.nowMs).slice(0, INBOX_PAGE_SIZE);
   const lines: Array<string | null> = ['<b>Сегодня</b>'];
@@ -360,6 +388,9 @@ export function todayScreen(args: {
       lines.push(deps.length === 0
         ? `${label} (${ruShort(day)}): подтверждённых выездов нет.`
         : `${label} (${ruShort(day)}): ${deps.map((d) => `«${escapeHtml(d.title)}» — ${d.people} чел`).join('; ')}.`);
+      // Строка обстановки на каждый выезд — всегда, и «спокойно», и «не смог
+      // проверить» (#2969). Решение о выезде — за оператором.
+      for (const d of deps) lines.push(departureSituationLine(d, args.situationsFailed === true));
     }
   }
   const rows: CabinetButton[][] = shown.map((item, i) => {

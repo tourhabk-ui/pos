@@ -284,10 +284,11 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
   },
   {
-    key: 'trip-reminders', label: 'Trip Reminders',
-    description: 'Напоминание туристам за 2 дня.',
+    key: 'trip-reminders', label: 'Trip Situation',
+    description: 'Обстановка на день выезда (завтра и послезавтра): запись для «Сегодня» оператора, туристу и оператору — только при риске (#2969).',
     workflow: 'cron-trip-reminders.yml', cron: '0 5 * * *', schedule: 'ежедневно · 05:00 UTC',
-    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+    // agentId с 03.11 (#2969): роут пишет recordCronRun под этим ключом.
+    everyMin: DAY, tier: 'ops', agentId: 'trip-reminders', triggerable: false,
   },
   {
     key: 'booking-stall', label: 'Booking Stall Alert',
@@ -647,7 +648,8 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'tour-review-request': 'unknown',
   // Ноль подходящих броней — норма: туров с прошедшей датой может не быть.
   'booking-auto-complete': 'unknown',
-  'trip-reminders': 'unknown',
+  // Ноль выездов на завтра и послезавтра — норма; отказ чтения отдаёт 500 и 'failed'.
+  'trip-reminders': 'normal',
   'booking-stall': 'unknown',
   'ssr-sentinel': 'unknown',
 
