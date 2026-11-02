@@ -41,7 +41,7 @@ export interface TailApi {
   editMessage(mid: string, extra: unknown): Promise<unknown>;
 }
 
-const MENU_RE = /^(?:rm:[a-z]{2}:[a-z]{2}|cb:[itcm]|rk:(?:fleet|cal|req|edit|help))$/;
+const MENU_RE = /^(?:rm:[a-z]{2}:[a-z]{2}|cb:(?:[itcm]|td)|rk:(?:fleet|cal|req|edit|help))$/;
 /** Сутки: дольше текст чужого экрана в памяти не держим. */
 export const TAIL_TTL_MS = 24 * 3_600_000;
 const TAILS = new Map<number, Tail>();

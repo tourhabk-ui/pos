@@ -359,6 +359,7 @@ async function showCabinetMax(
 function cabinetSectionOfText(asked: ReturnType<typeof roleMenuAsk>, slashHead: string): CabinetSection | null {
   if (asked === 'inbox' || slashHead === '/requests') return 'inbox';
   if (asked === 'tasks' || slashHead === '/tasks') return 'tasks';
+  if (asked === 'today' || slashHead === '/today') return 'today';
   if (asked === 'clients' || slashHead === '/clients') return 'clients';
   if (asked === 'busy') return 'busy';
   return null;

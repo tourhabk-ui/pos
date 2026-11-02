@@ -97,7 +97,7 @@ describe('второй вход Telegram: только кнопки, котор�
     const cbs = callbacks(card);
     expect(cbs.length).toBeGreaterThan(0);
     expect(cbs.every((p) => p.startsWith('cb:') || p.startsWith('rm:'))).toBe(true);
-    expect(cbs).toEqual(expect.arrayContaining(['cb:i', 'cb:t', 'cb:c', 'cb:m']));
+    expect(cbs).toEqual(expect.arrayContaining(['cb:td', 'cb:i', 'cb:c', 'cb:m']));
   });
 
   it('вкладка «Входящие» строки меню — список со строками карточек и кабинета', async () => {

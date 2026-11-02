@@ -351,7 +351,7 @@ type Outcome =
   | 'task_done' | 'task_tomorrow' | 'max_only';
 
 /** Вкладки строки меню и экраны «Ещё». */
-type MenuName = 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь'
+type MenuName = 'Сегодня' | 'Входящие' | 'Задачи' | 'Клиенты' | 'Ещё' | 'Брони' | 'Мои туры' | 'Помощь'
   | 'Расписание' | 'Заработок' | 'Профиль' | 'Отзывы';
 
 interface DeskRow {
@@ -380,6 +380,7 @@ interface DeskRow {
 
 const DESK: readonly DeskRow[] = [
   // Строка меню — вкладки кабинета в чате.
+  { name: 'Сегодня', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Сегодня<\/b>/, cabinet: true },
   { name: 'Входящие', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Входящие<\/b>/, cabinet: true },
   { name: 'Задачи', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Задачи<\/b>/, cabinet: true },
   { name: 'Клиенты', namedBy: 'help', max: 'screen', telegram: 'screen', screen: /^<b>Клиенты<\/b>/, cabinet: true },
@@ -435,11 +436,11 @@ const DESK: readonly DeskRow[] = [
 ];
 
 /** Вкладки строки меню — одни у продавца и у гида команды. */
-const MENU_NAMES: readonly MenuName[] = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
+const MENU_NAMES: readonly MenuName[] = ['Сегодня', 'Входящие', 'Клиенты', 'Ещё'];
 /** Что лежит в «Ещё» у продавца своих туров. */
 const MORE_NAMES: readonly MenuName[] = ['Брони', 'Мои туры', 'Помощь'];
 /** Что есть у гида команды без своих туров («Мои туры» — с 31.10: там он заводит первый тур). */
-const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Помощь', 'Мои туры', 'Готово', 'На завтра', 'Расписание', 'Заработок', 'Профиль', 'Отзывы']);
+const TEAM_NAMES: ReadonlySet<string> = new Set([...MENU_NAMES, 'Задачи', 'Помощь', 'Мои туры', 'Готово', 'На завтра', 'Расписание', 'Заработок', 'Профиль', 'Отзывы']);
 /** Падежные формы, которыми тексты называют экраны строки. */
 const ALIASES: Readonly<Record<string, string>> = {
   Бронях: 'Брони', Бронями: 'Брони', Входящих: 'Входящие', Входящими: 'Входящие',
@@ -590,6 +591,13 @@ const menuOf = (partner: typeof SELLER): MenuButton[] => partnerMenu(partner) ??
 async function openScreen(d: Driver, name: MenuName, partner: typeof SELLER = SELLER): Promise<Said> {
   const tab = menuOf(partner).find((x) => x.text === name);
   if (tab) return one(await d.press(tab.payload), `экран «${name}» (${d.channel})`);
+  if (name === 'Задачи') {
+    // «Задачи» — кнопкой экрана «Сегодня» (план CRM: «Сегодня» заменил «Задачи» в строке меню).
+    const today = await openScreen(d, 'Сегодня', partner);
+    const t = today.buttons.find((x) => x.text.startsWith('Задачи'));
+    if (!t) throw new Error(`в «Сегодня» нет «Задачи»: ${today.buttons.map((x) => x.text).join(', ')}`);
+    return one(await d.press(t.payload), `экран «Задачи» (${d.channel})`);
+  }
   const more = await openScreen(d, 'Ещё', partner);
   const b = more.buttons.find((x) => x.text === name);
   if (!b) throw new Error(`в «Ещё» нет «${name}»: ${more.buttons.map((x) => x.text).join(', ')}`);
@@ -617,7 +625,7 @@ function expectMenuUnder(s: Said, partner: typeof SELLER = SELLER): void {
 }
 
 /** Строка кабинета в чате — последней под его экраном: листает это же сообщение. */
-const CABINET_NAV = ['cb:i', 'cb:t', 'cb:c', 'cb:m'];
+const CABINET_NAV = ['cb:td', 'cb:i', 'cb:c', 'cb:m'];
 function expectNavUnder(s: Said): void {
   expect(s.buttons.slice(-CABINET_NAV.length).map((b) => b.payload)).toEqual(CABINET_NAV);
 }

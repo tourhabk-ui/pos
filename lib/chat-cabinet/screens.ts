@@ -373,7 +373,7 @@ export function todayScreen(args: {
     lines.push(t.total === 0 ? 'Открытых задач нет.'
       : `Задачи: просрочено ${t.overdue}, на сегодня ${t.today}, всего открытых ${t.total}.`);
   }
-  rows.push([{ text: args.tasks && args.tasks.total > 0 ? `Задачи (${args.tasks.total})` : 'Задачи', payload: cabinetPayload.tasks() }]);
+  rows.push([{ text: args.tasks && args.tasks.total > 0 ? `Задачи (${args.tasks.total})` : 'Задачи', payload: 'cb:t:0' }]); // не 'cb:t': строку из одной кнопки меню снял бы хвост MAX
   return screen(lines, rows);
 }
 

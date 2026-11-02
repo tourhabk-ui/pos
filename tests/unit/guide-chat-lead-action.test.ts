@@ -346,7 +346,7 @@ describe('MAX: вопрос, затем «Да»', () => {
       + 'Туристу ничего не уйдёт — отметка для вашего кабинета и ленты клиента.');
     expect(m.changeLead).not.toHaveBeenCalled();
     const id = idFrom(q.payloads, 'oc:y:');
-    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    expect(q.payloads).toEqual([`oc:y:${id}`, `oc:x:${id}`, 'rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
     expect(db.rows).toMatchObject([{ subject_kind: 'lead', subject_id: LEAD, action: 'contacted', status: 'ready' }]);
 
     await postMax(VERIFIED, tap(`oc:y:${id}`));
@@ -490,12 +490,12 @@ describe('кнопки под «Входящими» и уведомлением
     m.inbox.mockResolvedValue(inboxWith([{ kind: 'lead', id: LEAD, title: 'Толбачик' }]));
     await tgTap('rm:gd:in');
     expect(tgSent().at(-1)!.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data))
-      .toEqual([`cb:o:ld:${LEAD}`, 'cb:i', 'cb:t', 'cb:c', 'cb:m']);
+      .toEqual([`cb:o:ld:${LEAD}`, 'cb:td', 'cb:i', 'cb:c', 'cb:m']);
     await tgTap(`cb:o:ld:${LEAD}`);
     const card = tgSent().at(-1)!;
     expect(card.text).toContain('Заявка на подбор');
     expect(card.replyMarkup?.inline_keyboard?.flat().map((b) => b.callback_data).filter(Boolean))
-      .toEqual([`ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`, 'cb:i', 'cb:i', 'cb:t', 'cb:c', 'cb:m']);
+      .toEqual([`ld:k:${LEAD}`, `ld:w:${LEAD}`, `ld:l:${LEAD}`, 'cb:i', 'cb:td', 'cb:i', 'cb:c', 'cb:m']);
   });
 
   it('справка меню продавца называет кнопки заявки и кто их нажимает', () => {

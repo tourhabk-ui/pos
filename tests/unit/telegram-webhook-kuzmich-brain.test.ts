@@ -861,7 +861,7 @@ describe('меню роли на живом вебхуке', () => {
     expect(sent()[0]).toContain('Входящие');
     expect(sent().join('\n')).not.toMatch(/\+7|телефон/i);
     // Строка кабинета (30.10) листает его в том же сообщении.
-    expect(lastRow()).toEqual(['cb:i', 'cb:t', 'cb:c', 'cb:m']);
+    expect(lastRow()).toEqual(['cb:td', 'cb:i', 'cb:c', 'cb:m']);
     expect(lastRow().join(' ')).not.toContain('rk:');
   });
 
@@ -883,14 +883,14 @@ describe('меню роли на живом вебхуке', () => {
     await post('как дела', { chat: CHAT, from: CHAT });
     expect(m.tools).toHaveBeenCalled();
     expect(sent()).toEqual(['Дела в порядке']);
-    expect(lastRow()).toEqual(['rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn']);
+    expect(lastRow()).toEqual(['rm:op:td', 'rm:op:in', 'rm:op:cl', 'rm:op:mn']);
   });
 
   it('«открой субботы июля, 8 мест» — это в MAX, помощник даты не открывает', async () => {
     await post('открой субботы июля, 8 мест', { chat: CHAT, from: CHAT });
     expect(m.tools).not.toHaveBeenCalled();
     expect(sent()[0]).toMatch(/^Открыть даты словами можно в MAX/);
-    expect(lastRow()).toEqual(['rm:op:in', 'rm:op:tk', 'rm:op:cl', 'rm:op:mn']);
+    expect(lastRow()).toEqual(['rm:op:td', 'rm:op:in', 'rm:op:cl', 'rm:op:mn']);
   });
 
   it('гид со своими турами (29.10): та же фраза — «это в MAX» со ссылкой в его раздел «Свои туры», помощник не зовётся', async () => {

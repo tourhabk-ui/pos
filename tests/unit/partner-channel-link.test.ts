@@ -288,7 +288,7 @@ describe('гид в мессенджере: тексты обещают толь
     const { boundMenuRow } = await import('@/lib/partners/bind-channel');
     const seller = { ...guideBound, partnerId: PID, sellsTours: true };
     const row = boundMenuRow(seller);
-    expect(row?.map((b) => b.payload)).toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+    expect(row?.map((b) => b.payload)).toEqual(['rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
     for (const channel of ['max', 'telegram'] as const) {
       const text = channelBoundText(channel, seller);
       for (const b of row ?? []) expect(text, channel).toContain(`«${b.text}»`);
@@ -299,7 +299,7 @@ describe('гид в мессенджере: тексты обещают толь
     const team = channelBoundText('max', { ...guideBound, partnerId: PID, sellsTours: false });
     expect(team).not.toMatch(/«Брони»|«Мои туры»|«Связался»/);
     expect(boundMenuRow({ ...guideBound, partnerId: PID, sellsTours: false })?.map((b) => b.payload))
-      .toEqual(['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']);
+      .toEqual(['rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']);
   });
 
   it('кабинет в чате у другой карточки — строки гида нет, и текст кнопок не обещает', async () => {
@@ -321,8 +321,8 @@ describe('гид в мессенджере: тексты обещают толь
     for (const channel of ['max', 'telegram'] as const) {
       // Вкладки кабинета в чате (30.10) — одни у продавца и у гида команды.
       for (const [sells, payloads] of [
-        [true, ['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']],
-        [false, ['rm:gd:in', 'rm:gd:tk', 'rm:gd:cl', 'rm:gd:mn']],
+        [true, ['rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']],
+        [false, ['rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn']],
       ] as const) {
         poolQueryMock.mockReset();
         poolQueryMock.mockResolvedValueOnce({ rows: [{ name: 'Гид А', category: 'guide', slug: 'g', previous: null, sells_tours: sells }] });

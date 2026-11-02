@@ -469,7 +469,7 @@ describe('кнопки меню роли в MAX (rm:)', () => {
     expect(String(call?.[1])).toContain('Входящие');
     const buttons = JSON.stringify(call?.[2] ?? {});
     // Строка кабинета в чате листает его на месте (cb:), не консоль администратора.
-    for (const p of ['cb:i', 'cb:t', 'cb:c', 'cb:m']) expect(buttons).toContain(`"payload":"${p}"`);
+    for (const p of ['cb:td', 'cb:i', 'cb:c', 'cb:m']) expect(buttons).toContain(`"payload":"${p}"`);
     expect(buttons).not.toContain('rm:ad:');
   });
 });

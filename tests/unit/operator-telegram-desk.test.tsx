@@ -50,7 +50,7 @@ describe('подтверждение туроператора', () => {
     expect(bound).toContain('приходят в этот чат');
     expect(bound).not.toContain('не приходят');
     expect(operatorReplyMarkup().keyboard.flat().map((b) => b.text)).toEqual([
-      'Новые заявки', 'Мои туры и цены', 'Задачи', 'Клиенты', 'Обновить места', 'Помощь',
+      'Новые заявки', 'Мои туры и цены', 'Сегодня', 'Клиенты', 'Обновить места', 'Помощь',
     ]);
     // Каждая кнопка клавиатуры — фраза, которую понимает меню роли (кабинет в чате, 30.10).
     for (const text of operatorReplyMarkup().keyboard.flat().map((b) => b.text)) {

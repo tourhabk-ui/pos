@@ -16,8 +16,8 @@ import { rentalCabinetBar } from '@/lib/rental/cabinet-bar';
 import { SUMMARY_PARTNER_IDS } from '@/lib/seat-requests/summary';
 
 const OTHER = '11111111-1111-4111-8111-111111111111';
-const TABS = ['Входящие', 'Задачи', 'Клиенты', 'Ещё'];
-const tabs = (code: string) => ['in', 'tk', 'cl', 'mn'].map((a) => `rm:${code}:${a}`);
+const TABS = ['Сегодня', 'Входящие', 'Клиенты', 'Ещё'];
+const tabs = (code: string) => ['td', 'in', 'cl', 'mn'].map((a) => `rm:${code}:${a}`);
 
 describe('меню роли', () => {
   it('строка проката не сменилась и второй раз не клеится', () => {

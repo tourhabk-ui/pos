@@ -82,7 +82,7 @@ function contact(over: Partial<ContactListItem> = {}): ContactListItem {
 
 const payloads = (s: CabinetScreen) => s.rows.flat().flatMap((b) => ('payload' in b ? [b.payload] : []));
 const texts = (s: CabinetScreen) => s.rows.flat().map((b) => b.text);
-const NAV = ['cb:i', 'cb:t', 'cb:c', 'cb:m'];
+const NAV = ['cb:td', 'cb:i', 'cb:c', 'cb:m'];
 
 function noPd(where: string, value: unknown): void {
   const json = JSON.stringify(value);
@@ -360,7 +360,7 @@ describe('«Клиенты» и карточка клиента', () => {
 
 describe('«Ещё»', () => {
   it('туроператор — его кабинет; гид со своими турами — «Брони» и «Мои туры»; у всех — сводка, «Помощь» и сайт', () => {
-    expect(payloads(moreScreen(partner(), BASE))).toEqual(['cb:td', 'opd:tours', 'opd:seats', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
+    expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
     expect(payloads(moreScreen(partner({ summary: true }), BASE))).toContain('rm:op:sm');
     // У любого гида — расписание, заработок, профиль и отзывы (роль гида, этап 2, 30.10).
     const guideRole = ['cb:s', 'cb:j', 'cb:p', 'cb:a'];

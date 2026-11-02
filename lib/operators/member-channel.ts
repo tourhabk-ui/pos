@@ -212,7 +212,7 @@ export function memberBindReplyText(channel: MemberChannel, result: MemberBindRe
  * ответа на бронь и заявку — они у чата карточки.
  */
 export const MEMBER_CABINET_HINT =
-  'Напишите «Входящие», «Задачи» или «Клиенты» — откроется кабинет в чате; звонок клиенту и задача запишутся от вас. Брони подтверждает владелец кабинета.';
+  'Напишите «Сегодня», «Входящие», «Задачи» или «Клиенты» — откроется кабинет в чате; звонок клиенту и задача запишутся от вас. Брони подтверждает владелец кабинета.';
 
 export function memberBadLinkReplyText(reason: 'malformed' | 'bad_signature' | 'expired' | 'no_secret'): string {
   if (reason === 'expired') return 'Ссылка для подключения устарела (действует сутки). Возьмите новую в своём кабинете.';

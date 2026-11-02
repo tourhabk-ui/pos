@@ -132,7 +132,7 @@ describe('MAX', () => {
     expect(p.text).not.toContain('Петрова');
     expect(p.stub).not.toMatch(/Перезвонить|Анна/);
     expect(p.stub).toContain('Задачи на сегодня: 1, из них просрочено: 0.');
-    expect(p.buttons.map((b) => b.payload ?? b.url)).toEqual(['cb:n:i', 'cb:n:t', 'cb:n:g', 'https://vedarai.ru/hub/guide']);
+    expect(p.buttons.map((b) => b.payload ?? b.url)).toEqual(['cb:n:d', 'cb:n:i', 'cb:n:g', 'https://vedarai.ru/hub/guide']);
   });
 
   it('MAX не принял, ушла заглушка — итог «telegram»; не ушло никуда — замок снят, повтор в следующем прогоне', async () => {
@@ -172,7 +172,7 @@ describe('Telegram и молчание', () => {
     const [chatId, text, kb] = sendTelegram.mock.calls[0] as unknown as [string, string, { inline_keyboard: Array<Array<{ callback_data?: string; url?: string }>> }];
     expect(chatId).toBe('7001');
     expect(text).not.toMatch(/Перезвонить|Анна|Петрова/);
-    expect(kb.inline_keyboard.flat().map((b) => b.callback_data ?? b.url)).toEqual(['cb:n:i', 'cb:n:t', 'cb:n:g', 'https://vedarai.ru/hub/guide']);
+    expect(kb.inline_keyboard.flat().map((b) => b.callback_data ?? b.url)).toEqual(['cb:n:d', 'cb:n:i', 'cb:n:g', 'https://vedarai.ru/hub/guide']);
     expect(finished(calls)).toEqual(['telegram']);
     ({ db, calls } = fakeDb([cand({ max_chat_id: null, max_cabinet: false })]));
     await D.runChatDigest(AT, { db, read: async () => facts(), sendPd, sendTelegram: async () => false });
