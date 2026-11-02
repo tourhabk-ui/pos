@@ -79,7 +79,7 @@ export function chatPressPayload(side: ChatSide, target: ChatTarget): string {
 }
 
 export function isChatPressPayload(payload: string): boolean {
-  return payload.startsWith(PREFIX.stay) || payload.startsWith(PREFIX.lead);
+  return payload.startsWith(PREFIX.stay) || payload.startsWith(PREFIX.lead) || payload.startsWith('rd:');
 }
 
 export function parseChatPress(payload: string): { side: ChatSide; target: ChatTarget } | null {
@@ -251,14 +251,69 @@ export function ownerIncomingText(f: ChatFacts, guestName: string, body: string)
 }
 
 /** Адресату в Telegram, если MAX не сработал: без имени и текста. */
-export function ownerIncomingStub(f: ChatFacts): string {
+export function ownerIncomingStub(f: ChatFacts, body?: string): string {
   const c = client(f);
+  if (body !== undefined) {
+    // Telegram адресата (30.10, владелец: «отвечать из TG можно, с маской ПД»):
+    // текст клиента без имени, телефоны, почта и ссылки скрыты.
+    return [
+      `<b>Сообщение ${c.gen} по заявке: ${stubTitle(f)}</b>`,
+      factsLine(f, true) || null,
+      '',
+      escapeHtml(maskChatText(body)),
+      '',
+      `Имя ${c.gen} в Telegram не передаётся, телефоны и почта скрыты. Ответить — кнопка ниже.`,
+    ].filter((l) => l !== null).join('\n');
+  }
   return [
     `<b>Сообщение ${c.gen} по заявке: ${stubTitle(f)}</b>`,
     factsLine(f, true) || null,
     `Текст и имя ${c.gen} в Telegram не передаются. Чтобы переписываться, подключите MAX: ссылку на бота пришлёт администратор Ведара.`,
   ].filter((l) => l !== null).join('\n');
 }
+
+/** Текст для Telegram: ПД (телефоны, почта, ссылки, документы) скрыты. */
+export function maskChatText(body: string): string {
+  return redactPII(body);
+}
+
+// ── Черновик ответа: предпросмотр и «Отправить» ─────────────────────────────
+
+/** `rd:s:<id>` — отправить черновик, `rd:x:<id>` — отменить. id — ожидание (request_chat_waits). */
+const DRAFT_RE = new RegExp(`^rd:([sx]):(${UUID})$`, 'i');
+
+export function draftPayload(action: 'send' | 'cancel', waitId: string): string {
+  return `rd:${action === 'send' ? 's' : 'x'}:${waitId.toLowerCase()}`;
+}
+
+export function parseDraftPress(payload: string): { action: 'send' | 'cancel'; waitId: string } | null {
+  const m = DRAFT_RE.exec(payload);
+  if (!m) return null;
+  return { action: m[1].toLowerCase() === 's' ? 'send' : 'cancel', waitId: m[2].toLowerCase() };
+}
+
+/**
+ * Предпросмотр ответа адресата: что увидит клиент, и две кнопки. В Telegram
+ * текст показывается с маской ПД (уйдёт клиенту как написан).
+ */
+export function draftPreviewText(f: ChatFacts, body: string, channel: 'max' | 'telegram'): string {
+  const c = client(f);
+  const shown = channel === 'telegram' ? maskChatText(body) : body;
+  return [
+    `<b>Проверьте ответ ${c.dat}</b> по заявке: ${channel === 'telegram' ? stubTitle(f) : escapeHtml(f.title)}`,
+    '',
+    escapeHtml(shown),
+    '',
+    channel === 'telegram' && shown !== body
+      ? 'Телефоны и почта здесь скрыты, клиент получит текст как вы его написали. Отправить?'
+      : 'Отправить?',
+  ].join('\n');
+}
+
+export const DRAFT_TEXT = {
+  cancelled: 'Не отправил. Чтобы ответить, нажмите кнопку под сообщением ещё раз.',
+  gone: 'Этот черновик уже отправлен, отменён или устарел. Ничего не отправил — нажмите «Ответить» ещё раз.',
+} as const;
 
 /** Оператору платформы, если адресату сообщение не дошло: передать вручную. */
 export function platformIncomingText(f: ChatFacts, guestName: string, body: string, why: string): string {

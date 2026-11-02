@@ -24,7 +24,9 @@ import {
   guestIncomingText, guestKeyFromStart, isCancelText, isChatPressPayload, leadDates, normalizeChatText,
   noPlaceToReadText, ownerIncomingStub, ownerIncomingText, ownerReplyButton, parseChatPress, platformIncomingStub, platformIncomingText, roleOfCategory,
   sentReplyText, stayDates, waitPrompt, type ChatFacts,
+  draftPayload, draftPreviewText, parseDraftPress,
 } from '@/lib/requests/request-chat';
+import { isWritePayload } from '@/lib/chat-cabinet/signed-payload';
 import { pressActionOf, startActionOf, UNVERIFIED_PRESS_REPLY, PRESS_WITHOUT_MESSAGE_REPLY } from '@/lib/max/verified-press';
 import { RequestChat } from '@/components/requests/RequestChat';
 import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
@@ -134,6 +136,30 @@ describe('ПД и экранирование', () => {
     const stub = ownerIncomingStub(STAY);
     expect(stub).not.toContain('Анна');
     expect(stub).not.toContain('Заезд');
+  });
+
+  it('Telegram адресата (30.10): текст клиента с маской ПД, без имени', () => {
+    const stub = ownerIncomingStub(STAY, 'Мой номер +7 914 123-45-67, почта anna@mail.ru <b>');
+    expect(stub).not.toContain('123-45-67');
+    expect(stub).not.toContain('anna@mail.ru');
+    expect(stub).toContain('Мой номер');
+    expect(stub).toContain('&lt;b&gt;');
+    expect(stub).toMatch(/Имя гостя в Telegram не передаётся/);
+  });
+
+  it('черновик ответа: кнопки rd:, «Отправить» — запись под подписью, предпросмотр в Telegram с маской', () => {
+    const id = '11111111-2222-4333-8444-555555555555';
+    expect(parseDraftPress(draftPayload('send', id))).toEqual({ action: 'send', waitId: id });
+    expect(parseDraftPress(draftPayload('cancel', id.toUpperCase()))).toEqual({ action: 'cancel', waitId: id });
+    expect(parseDraftPress('rd:s:не-uuid')).toBeNull();
+    expect(isChatPressPayload(draftPayload('send', id))).toBe(true);
+    expect(isWritePayload(draftPayload('send', id))).toBe(true);
+    expect(isWritePayload(draftPayload('cancel', id))).toBe(false);
+    expect(pressActionOf(draftPayload('send', id))).toBe('request_chat');
+    const tg = draftPreviewText(STAY, 'Звоните +7 914 123-45-67', 'telegram');
+    expect(tg).not.toContain('123-45-67');
+    expect(tg).toMatch(/скрыты/);
+    expect(draftPreviewText(STAY, 'Звоните +7 914 123-45-67', 'max')).toContain('+7 914 123-45-67');
   });
 
   it('перевозчику: «клиент», число людей, даты клиента экранированы', () => {
