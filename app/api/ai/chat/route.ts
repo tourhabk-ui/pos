@@ -272,6 +272,12 @@ export async function POST(request: NextRequest) {
     // Подтверждает человек; не создалась — идём обычным путём.
     let fastRequestText: string | null = null;
     if (safeRole === 'tourist' && !emergencyNow && !imageBase64) {
+      // Код раньше модели: ссылка или ключ заявки — статус из базы, без модели.
+      const { extractRequestKey, requestStatusReply } = await import('@/lib/kuzmich/code-first');
+      const statusKey = extractRequestKey(rawMessage);
+      if (statusKey) fastRequestText = await requestStatusReply(statusKey);
+    }
+    if (!fastRequestText && safeRole === 'tourist' && !emergencyNow && !imageBase64) {
       const contact = parseChatContact(rawMessage);
       const pre = parseChatBookingPrefill(rawMessage);
       if (contact.name && contact.phone && contact.consent && pre.date) {
