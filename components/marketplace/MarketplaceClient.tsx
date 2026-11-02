@@ -80,6 +80,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { cardDuration, cardPrice } from '@/lib/tours/card-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { sessionState } from '@/lib/auth/session-state';
 
@@ -152,21 +153,7 @@ const CHIP_OFF = 'border-[var(--border)] text-[var(--text-secondary)] hover:text
 
 /* ─── Helpers ─── */
 
-function formatDuration(tour: Tour): string | null {
-  if (tour.duration_type === 'multi_day' && tour.multi_day_count) {
-    const d = tour.multi_day_count;
-    return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
-  }
-  if (tour.duration_type === 'half_day') return 'Полдня';
-  if (tour.duration_type === 'day') return '1 день';
-  if (tour.duration_hours) {
-    const h = Number(tour.duration_hours);
-    if (h < 24) return `${h} ч`;
-    const d = Math.round(h / 24);
-    return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
-  }
-  return null;
-}
+const formatDuration = (tour: Tour): string | null => cardDuration(tour);
 
 const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 
@@ -175,7 +162,7 @@ const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 function TourCardSkeleton() {
   return (
     <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl overflow-hidden">
-      <div className="ds-skeleton aspect-[4/3] w-full" />
+      <div className="ds-skeleton aspect-[16/10] w-full" />
       <div className="p-4 space-y-3">
         <div className="ds-skeleton h-3 w-1/3 rounded" />
         <div className="ds-skeleton h-5 w-4/5 rounded" />
@@ -352,9 +339,12 @@ function TourCard({
   // чего нет (тур 7 без дат и тур 5 с сезоном до 15.08 несли её, #51).
   const showSeason = availability === 'dates' && isInSeason(tour);
   const priceOld = tour.price_old ? Number(tour.price_old) : null;
-  const basePrice = Number(tour.base_price);
+  const basePrice = cardPrice(tour);
   const features = deriveFeatures(tour);
-  const included = (tour.included ?? []).filter(s => typeof s === 'string' && s.trim()).slice(0, 3);
+  const includedAll = (tour.included ?? []).filter(s => typeof s === 'string' && s.trim());
+  // Компакт (02.11): один чип «что входит» + «+N», а не ряд из трёх.
+  const included = includedAll.slice(0, 1);
+  const includedMore = includedAll.length - included.length;
   const href = tourPath(tour);
   const chipStyle: React.CSSProperties = {
     background: 'color-mix(in srgb, currentColor 12%, transparent)',
@@ -373,7 +363,7 @@ function TourCard({
           адрес: /marketplace/* уходит 308-редиректом и теряет #booking (#129). */}
       <Link href={href} className="absolute inset-0 z-[1]" aria-label={tour.title} />
 
-      <div className="relative aspect-[4/3] overflow-hidden bg-[var(--bg-hover)]">
+      <div className="relative aspect-[16/10] overflow-hidden bg-[var(--bg-hover)]">
         <Image
           src={imageSrc}
           alt={tour.title}
@@ -417,14 +407,21 @@ function TourCard({
         >
           <Heart className={`w-5 h-5 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
         </button>
+        {/* Срок тура — НА ФОТО крупно (владелец 02.11). Нет длительности в
+            данных — плашки нет, ничего не придумываем. */}
+        {duration && (
+          <span data-testid="tour-duration-badge" className="absolute bottom-2 right-2 z-[2] inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[15px] font-bold leading-tight text-white bg-black/60 border border-white/15 backdrop-blur-md pointer-events-none">
+            <Clock className="w-4 h-4" aria-hidden />{duration}
+          </span>
+        )}
       </div>
 
       {/* Текст — сплошным блоком под фото; кнопка непрозрачная */}
       <div
-        className="relative z-[2] flex flex-col flex-1 p-4 text-[var(--text-primary)] pointer-events-none"
+        className="relative z-[2] flex flex-col flex-1 p-3.5 sm:p-4 text-[var(--text-primary)] pointer-events-none"
         style={{ fontFamily: 'var(--font-outfit)' }}
       >
-        <div className="flex flex-wrap items-center gap-1.5 mb-2 text-xs font-semibold text-[var(--text-secondary)]">
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5 text-xs font-semibold text-[var(--text-secondary)]">
           <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{activity}</span>
           {diffBadge && <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{diffBadge.label}</span>}
           <span className="inline-flex items-center gap-1">
@@ -440,14 +437,14 @@ function TourCard({
         </div>
 
         <h3
-          className="text-xl font-bold leading-tight line-clamp-2 mb-1"
+          className="text-lg sm:text-xl font-bold leading-tight line-clamp-2 mb-1"
           style={{ fontFamily: 'var(--font-playfair)', textWrap: 'balance' }}
         >
           {tour.title}
         </h3>
 
         {(tour.short_description || tour.description) && (
-          <p className="text-[15px] leading-snug text-[var(--text-secondary)] line-clamp-2 mb-1.5">
+          <p className="text-[15px] leading-snug text-[var(--text-secondary)] line-clamp-1 mb-1.5">
             {tour.short_description ?? tour.description}
           </p>
         )}
@@ -455,10 +452,13 @@ function TourCard({
         {included.length > 0 && (
           <ul className="flex flex-nowrap sm:flex-wrap overflow-hidden gap-1 mb-2 text-xs text-[var(--text-secondary)]" aria-label="Входит в цену">
             {included.map(item => (
-              <li key={item} className="shrink-0 max-w-[11rem] truncate px-2 py-0.5 rounded-full border" style={chipStyle} title={item}>
+              <li key={item} className="shrink-0 max-w-[14rem] truncate px-2 py-0.5 rounded-full border" style={chipStyle} title={item}>
                 {item}
               </li>
             ))}
+            {includedMore > 0 && (
+              <li className="shrink-0 px-2 py-0.5 rounded-full border" style={chipStyle} title={includedAll.slice(1).join(', ')}>+{includedMore}</li>
+            )}
           </ul>
         )}
 
@@ -477,7 +477,6 @@ function TourCard({
               </span>
             )}
           </span>
-          {duration && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" aria-hidden />{duration}</span>}
           {(tour.location_name ?? location) && (
             <span className="hidden sm:inline-flex items-center gap-1 min-w-0"><MapPin className="w-3.5 h-3.5 shrink-0" aria-hidden /><span className="truncate">{tour.location_name ?? location}</span></span>
           )}
@@ -486,20 +485,26 @@ function TourCard({
         {/* Цена строкой выше, кнопка — слева и по своей ширине. Плавающей
             кнопки на каталоге больше нет (владелец 19.10) — правый нижний угол
             свободен сам по себе. mt-auto — низ карточек в ряду выровнен. */}
-        <div className="mt-auto flex flex-col items-start gap-1.5 pointer-events-auto">
-          <div className="flex flex-col min-w-0">
-            {priceOld && priceOld > basePrice && (
-              <span className="text-xs text-[var(--text-secondary)] line-through tabular-nums">{rub(priceOld)}</span>
-            )}
+        <div className="mt-auto flex flex-col items-stretch gap-2 pointer-events-auto">
+          <div className="flex items-baseline justify-between gap-2 min-w-0">
             <span className="whitespace-nowrap leading-tight">
-              <span className="text-lg font-bold tabular-nums">{rub(basePrice)}</span>{' '}
-              <span className="text-xs text-[var(--text-secondary)]">{priceUnitLabel(tour.price_unit, true)}</span>
+              {basePrice != null && priceOld && priceOld > basePrice && (
+                <span className="mr-1.5 text-xs text-[var(--text-secondary)] line-through tabular-nums">{rub(priceOld)}</span>
+              )}
+              {basePrice != null ? (
+                <>
+                  <span data-testid="tour-price" className="text-[24px] font-bold tabular-nums">{rub(basePrice)}</span>{' '}
+                  <span className="text-xs text-[var(--text-secondary)]">{priceUnitLabel(tour.price_unit, true)}</span>
+                </>
+              ) : (
+                <span data-testid="tour-price" className="text-lg font-semibold text-[var(--text-secondary)]">Цена по запросу</span>
+              )}
             </span>
           </div>
           <Link
             href={`${href}#booking`}
             onClick={(e) => e.stopPropagation()}
-            className="ds-btn ds-btn-primary px-4 whitespace-nowrap"
+            className="ds-btn ds-btn-primary w-full justify-center px-4 whitespace-nowrap"
           >
             {availability === 'dates' ? 'Отправить заявку' : 'Оставить заявку'}
           </Link>
