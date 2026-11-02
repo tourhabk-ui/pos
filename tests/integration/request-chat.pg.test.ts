@@ -362,7 +362,8 @@ withPg('переписка по заявке на настоящем PostgreSQL'
         [requestId],
       );
       expect(ev.rows.map((e) => `${e.kind}/${e.actor_kind}`)).toEqual([
-        'message_in/tourist', 'message_out/partner_user', 'message_out/partner_user', 'message_in/tourist',
+        'message_in/tourist', 'message_out/partner_user', 'message_out/partner_user', 'message_out/partner_user',
+        'message_in/tourist',
       ]);
       const { UNLINKED_PAGE_SQL } = await import('@/lib/crm/source-specs');
       const u = await pool.query(UNLINKED_PAGE_SQL.stay_request, ['00000000-0000-0000-0000-000000000000', 10]);
@@ -662,7 +663,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(sent.pd).toHaveLength(1);
       expect(String(sent.pd[0].to?.maxChatId)).toBe(String(CARRIER_CHAT));
       await svc.armChatWait('owner', lead(), CARRIER_CHAT);
-      const back = await svc.captureChatText(CARRIER_CHAT, 'Возьмём вторую машину');
+      const back = await replyViaDraft(CARRIER_CHAT, 'Возьмём вторую машину');
       expect(back?.text).toMatch(/Передал клиенту в MAX/);
       expect(sent.dm).toHaveLength(1);
       expect(String(sent.dm[0].chatId)).toBe(String(CLIENT_CHAT));
