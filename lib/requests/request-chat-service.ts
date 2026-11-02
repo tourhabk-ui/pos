@@ -492,6 +492,12 @@ export async function armChatWait(side: ChatSide, target: ChatTarget, chatId: nu
         WHERE channel = $2 AND chat_id = $1::bigint AND status IN ('waiting', 'draft')`,
       [String(chatId), channel],
     );
+    // Ответ туристу в чате Ведара (lib/chat/conversation-reply) этого чата тоже гаснет.
+    await client.query(
+      `UPDATE conversation_reply_waits SET status = 'superseded'
+        WHERE channel = $2 AND chat_id = $1::bigint AND status IN ('waiting', 'draft')`,
+      [String(chatId), channel],
+    );
     // Последняя кнопка — главная: ожидание причины отказа брони в этом же чате
     // (lib/bookings/chat-owner-action) гаснет, иначе следующий текст после
     // переписки ушёл бы туристу причиной отказа.

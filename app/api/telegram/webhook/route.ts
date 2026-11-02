@@ -83,6 +83,7 @@ import { isOperatorDeskPayload, operatorDeskPress } from '@/lib/telegram/operato
 import { pressRefusalText, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { armChatWait, captureChatText, pressDraft, type ChatReply } from '@/lib/requests/request-chat-service';
 import { isChatPressPayload, parseChatPress, parseDraftPress } from '@/lib/requests/request-chat';
+import { captureConvText, isConvPayload, pressConv } from '@/lib/chat/conversation-reply';
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { roleChatCommands, setOperatorChatCommands, setRoleChatCommands } from '@/lib/telegram/role-commands';
 import { handleMemberStart } from '@/lib/operators/member-channel';
@@ -946,6 +947,12 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         await sendChatReplyTg(chatId, drafted);
         return;
       }
+      // Ответ туристу в чате Ведара — тот же черновик с маской ПД.
+      const convDraft = await captureConvText(update.message.chat.id, text, 'telegram');
+      if (convDraft) {
+        await sendChatReplyTg(chatId, convDraft);
+        return;
+      }
     }
 
     // Администратор по привязке из админки (adt_, миграция 1330). Личный чат:
@@ -1769,6 +1776,17 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     // «Ответить клиенту» → текст → предпросмотр → «Отправить». Только личный
     // чат из сообщения с кнопкой; право чата на заявку и черновик проверяет
     // lib/requests/request-chat-service. Клиентская сторона из Telegram не пишет.
+    if (isConvPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat || pressChat.type !== 'private') {
+        await sendHTML(callbackChatId, 'Ответ туристу идёт в личном диалоге с ботом. Здесь ничего не отправлено.');
+        return;
+      }
+      await sendChatReplyTg(String(pressChat.id), await pressConv(data, pressChat.id, 'telegram'));
+      return;
+    }
+
     if (isChatPressPayload(data)) {
       await telegramService.answerCallback(cq.id);
       const pressChat = cq.message?.chat;

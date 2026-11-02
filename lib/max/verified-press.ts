@@ -47,6 +47,7 @@
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { isTaskPressPayload } from '@/lib/crm/chat-task-press';
 import { isChatPressPayload } from '@/lib/requests/request-chat';
+import { isConvPayload } from '@/lib/chat/conversation-reply';
 import { isCabinetPayload } from '@/lib/chat-cabinet/payload';
 
 /**
@@ -107,6 +108,8 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   if (isOwnerPressPayload(payload)) return 'owner';
   if (isTaskPressPayload(payload)) return 'task';
   if (isChatPressPayload(payload)) return 'request_chat';
+  // `cv:` — ответ туристу в чате Ведара (lib/chat/conversation-reply): та же полоса.
+  if (isConvPayload(payload)) return 'request_chat';
   // Кабинет в чате (lib/chat-cabinet): экраны с именами клиентов, звонок и
   // задача по клиенту — только по заверенному апдейту.
   if (isCabinetPayload(payload)) return 'cabinet';
