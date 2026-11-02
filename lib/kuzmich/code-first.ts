@@ -12,10 +12,12 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { REQUEST_KEY_MAX_CHARS, REQUEST_KEY_MIN_CHARS } from '@/lib/mcp/request-status-schema';
+import { extractHandoffCode } from '@/lib/requests/handoff';
 import { parseTourPick, CONFIRM_YES, isCorrection } from '@/lib/kuzmich/quick-replies';
 
 export type CodeFirst =
   | { kind: 'status'; key: string }
+  | { kind: 'handoff'; code: string }
   | { kind: 'cancel_idle' }
   | { kind: 'stale_confirm' }
   | { kind: 'tour'; tourId: number }
@@ -44,6 +46,8 @@ export function classifyCodeFirst(text: string, hasOpenFlow: boolean): CodeFirst
   if (!t) return { kind: 'none' };
   const key = extractRequestKey(t);
   if (key) return { kind: 'status', key };
+  const code = extractHandoffCode(t);
+  if (code) return { kind: 'handoff', code };
   if (hasOpenFlow) return { kind: 'none' }; // кнопки и «отмену» внутри заявки ведут её шаги
   if (CANCEL_ONLY.test(t)) return { kind: 'cancel_idle' };
   if (t === CONFIRM_YES || isCorrection(t) && t.length <= 12) return { kind: 'stale_confirm' };
@@ -94,10 +98,15 @@ export function statusReplyText(v: { tour: string | null; accommodation: string 
   ].filter(Boolean).join('\n');
 }
 
-export async function requestStatusReply(key: string): Promise<string> {
+export async function requestStatusReply(key: string, opts: { withHandoff?: boolean } = {}): Promise<string> {
   const { readRequestStatus } = await import('@/lib/mcp/request-status');
   try {
-    return statusReplyText(await readRequestStatus(key));
+    const text = statusReplyText(await readRequestStatus(key));
+    if (opts.withHandoff === false) return text;
+    // Ключ предъявлен — владение доказано: одноразовый код для другого канала.
+    const { issueHandoffCode, handoffLine } = await import('@/lib/requests/handoff');
+    const line = handoffLine(await issueHandoffCode(key));
+    return line ? `${text}\n${line}` : text;
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     if (code === 'key_not_found') return 'Заявка по этой ссылке не найдена или ссылка истекла (живёт 90 дней). Проверьте, что ссылка скопирована целиком.';
