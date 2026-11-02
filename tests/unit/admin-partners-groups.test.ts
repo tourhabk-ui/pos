@@ -47,7 +47,7 @@ describe('GET /api/admin/operators — группы партнёров', () => {
     const listSql = sqls.find(s => /FROM partners p/.test(s) && /LIMIT/.test(s)) ?? '';
     expect(listSql).toMatch(/p\.profile_status <> 'none' OR EXISTS \(SELECT 1 FROM operator_applications/);
     expect(listSql).toMatch(/p\.is_verified = TRUE/);
-    expect(listSql).toMatch(/t_g\.is_active = TRUE/);
+    expect(listSql).toMatch(/t_g\.is_active = true/);
   });
 
   it('без group прежнее поведение: группового условия в списке нет', async () => {
