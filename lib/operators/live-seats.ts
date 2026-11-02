@@ -93,3 +93,40 @@ export async function loadDepartures(partnerId: string, days: readonly string[])
     return 'failed';
   }
 }
+
+/**
+ * «Другая дата» (план PR3): ближайшие открытые даты тура брони с живыми
+ * свободными местами — только из БД, только своего тура. Пусто — так и
+ * говорим, дату не выдумываем. Кэш не нужен: читается по нажатию.
+ */
+export async function nextOpenDates(
+  partnerId: string, bookingId: string, limit = 5,
+): Promise<Array<{ date: string; free: number }> | null | 'failed'> {
+  try {
+    const { rows } = await pool.query<{ d: string; free: number | string | null }>(
+      `SELECT ta.date::text AS d, MAX(${freeSlotsSql('ta', 'ot', 'occ.taken')})::int AS free
+         FROM operator_bookings b
+         JOIN operator_tours ot ON ot.id = b.operator_tour_id AND ot.operator_id = $1::uuid
+         JOIN tour_availability ta ON ta.operator_tour_id = ot.id
+         CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}) occ
+        WHERE b.id::text = $2 AND b.deleted_at IS NULL
+          AND ta.date >= CURRENT_DATE AND ta.date <> b.booking_date
+          AND COALESCE(ta.is_cancelled, false) = false AND ta.deleted_at IS NULL
+        GROUP BY ta.date
+       HAVING MAX(${freeSlotsSql('ta', 'ot', 'occ.taken')}) > 0
+        ORDER BY ta.date LIMIT $3`,
+      [partnerId, bookingId, limit],
+    );
+    return rows.map((r) => ({ date: r.d.slice(0, 10), free: Number(r.free) }));
+  } catch (err) {
+    console.error('[live-seats] другие даты не прочитаны, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
+    return 'failed';
+  }
+}
+
+export function openDatesLine(dates: Array<{ date: string; free: number }> | null | 'failed'): string {
+  if (dates === 'failed') return 'Открытые даты сейчас не прочитались — посмотрите календарь на сайте.';
+  if (!dates || dates.length === 0) return 'Других открытых дат с местами в календаре нет.';
+  const fmt = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
+  return `Открыто в календаре: ${dates.map((x) => `${fmt(x.date)} (свободно ${x.free})`).join('; ')}.`;
+}

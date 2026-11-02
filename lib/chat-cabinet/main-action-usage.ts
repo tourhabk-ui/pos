@@ -17,7 +17,7 @@ export type MainAction =
 
 const PREFIXES: ReadonlyArray<[RegExp, MainAction]> = [
   [/^(?:bk|ld|oc):/, 'booking_answer'],
-  [/^ia:/, 'request_answer'],
+  [/^ia:(?:y[adncm]|r[swdgo]):/, 'request_answer'], // только запись: вопрос «Записать?» и «Нет» не считаются
   [/^rr:/, 'car_answer'],
   [/^rc:/, 'ride_outcome'],
   [/^sa:/, 'lodging_answer'],

@@ -95,6 +95,30 @@ export function chatAnswerButtons(
   ];
 }
 
+const ASK_LINE: Record<Exclude<ChatAnswer, 'decline'>, string> = {
+  accept: 'Записать ответ «Подтверждаю заявку»? Бронь этим не подтверждается, оплата не открывается.',
+  other_date: 'Записать ответ «Предложу другую дату»? Заявка будет отмечена «Связался».',
+  no_seats: 'Записать ответ «Нет мест»? Расписание не закрывается.',
+  clarify: 'Записать ответ «Уточню»?',
+  self: 'Записать ответ «Свяжусь сам»?',
+};
+
+/** Второе нажатие (решение владельца 02.11): «Да» пишет ответ, «Нет» ничего не меняет. */
+export function chatAnswerAsk(
+  answer: Exclude<ChatAnswer, 'decline'>, kind: ChatAnswerKind, subjectId: string,
+): { text: string; rows: Array<Array<{ text: string; payload: string }>> } {
+  const id = subjectId.toLowerCase();
+  return {
+    text: ASK_LINE[answer],
+    rows: [[
+      { text: 'Да', payload: signPayload(`ia:y${ANSWER_CODE[answer]}:${KIND_CODE[kind]}:${id}`) },
+      { text: 'Нет', payload: signPayload('ia:no') },
+    ]],
+  };
+}
+
+export const ASK_CANCELLED = 'Хорошо, ответ не записан. Карточка заявки без изменений.';
+
 /**
  * «Отказать» — кнопка, открывающая выбор причины (`ia:x:…`, ничего не
  * пишет), и кнопки причин (`ia:r<код>:…`, пишут отказ один раз).
@@ -112,7 +136,8 @@ export function declineReasonButtons(kind: ChatAnswerKind, subjectId: string): A
 export const DECLINE_PICK_TEXT = 'Почему отказ? Выберите причину — она запишется к заявке. Туристу из чата ничего не уйдёт, бронь и оплата не меняются.';
 
 export type ParsedChatAnswer =
-  | { answer: Exclude<ChatAnswer, 'decline'>; kind: ChatAnswerKind; subjectId: string }
+  /** confirmed=false — первое нажатие: только вопрос «Записать?» (решение владельца 02.11: второе «Да»). */
+  | { answer: Exclude<ChatAnswer, 'decline'>; kind: ChatAnswerKind; subjectId: string; confirmed: boolean }
   | { answer: 'decline'; reason: DeclineReason; kind: ChatAnswerKind; subjectId: string }
   | { answer: 'decline_pick'; kind: ChatAnswerKind; subjectId: string };
 
@@ -130,12 +155,12 @@ export function parseChatAnswer(payload: string): ParsedChatAnswer | null {
     const kind = CODE_KIND.get(decline[2]!.toLowerCase());
     return reason && kind ? { answer: 'decline', reason, kind, subjectId: decline[3]!.toLowerCase() } : null;
   }
-  const match = new RegExp(`^ia:([adncm]):([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
+  const match = new RegExp(`^ia:(y?)([adncm]):([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
   if (!match) return null;
-  const answer = CODE_ANSWER.get(match[1]!.toLowerCase());
-  const kind = CODE_KIND.get(match[2]!.toLowerCase());
+  const answer = CODE_ANSWER.get(match[2]!.toLowerCase());
+  const kind = CODE_KIND.get(match[3]!.toLowerCase());
   if (!answer || answer === 'decline' || !kind) return null;
-  return { answer, kind, subjectId: match[3]!.toLowerCase() };
+  return { answer, kind, subjectId: match[4]!.toLowerCase(), confirmed: match[1]!.toLowerCase() === 'y' };
 }
 
 export function chatAnswerText(answer: ChatAnswer, already: boolean): string {

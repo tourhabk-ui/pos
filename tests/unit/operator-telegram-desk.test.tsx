@@ -82,7 +82,7 @@ describe('кнопки карточки заявки', () => {
   it('четыре ответа и ни один не подтверждает бронь', () => {
     const buttons = chatAnswerButtons(1, 'booking', id);
     expect(buttons.map((b) => b.text)).toEqual(['1 · Подтвердить', '1 · Другая дата', '1 · Нет мест', '1 · Уточнить', '1 · Свяжусь сам']);
-    expect(parseChatAnswer(buttons[0]!.payload)).toEqual({ answer: 'accept', kind: 'booking', subjectId: id });
+    expect(parseChatAnswer(buttons[0]!.payload)).toEqual({ answer: 'accept', kind: 'booking', subjectId: id, confirmed: false });
     for (const answer of ['accept', 'no_seats', 'clarify', 'self'] as const) {
       const line = chatAnswerText(answer, false);
       expect(line).not.toMatch(/бронь подтверждена/i);
