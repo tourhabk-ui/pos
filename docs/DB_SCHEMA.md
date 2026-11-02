@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-02 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1368_tour_seat_holds.sql`.
+> Снято 2026-11-02 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1369_request_chat_drafts.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 313 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4109 |
+| Колонок | 4110 |
 | Внешних ключей | 374 |
 | Таблиц без единого FK в обе стороны | 86 |
 
@@ -1537,9 +1537,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `offer_id uuid!` `partner_id uuid!` `price_rub_per_day integer` `conditions text` `moderation_status varchar!=` `moderation_reason text` `moderated_at timestamptz` `moderated_by uuid` `created_at timestamptz!=` `updated_at timestamptz!=`
 
-**request_chat_waits** · 10 кол. · PK id · lead_id → leads.id, stay_request_id → stay_requests.id · индексов 2
+**request_chat_waits** · 11 кол. · PK id · lead_id → leads.id, stay_request_id → stay_requests.id · индексов 2
 
-`id uuid!=` `channel text!=` `chat_id bigint!` `stay_request_id uuid` `side text!` `status text!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz` `lead_id uuid`
+`id uuid!=` `channel text!=` `chat_id bigint!` `stay_request_id uuid` `side text!` `status text!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz` `lead_id uuid` `draft_text text`
 
 **request_drafts** · 13 кол. · PK id · user_id → users.id · индексов 3
 
