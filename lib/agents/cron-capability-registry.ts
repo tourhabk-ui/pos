@@ -64,6 +64,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'bookings-origin-census': ['db_read'],
   // 15.10 (аудит, A11): перепись статусов броней перед CHECK — только чтение.
   'booking-status-census': ['db_read'],
+  // 02.11: отмена НАШЕЙ тестовой брони (имя «ТЕСТ…»), без уведомлений.
+  'test-booking-cancel': ['db_read', 'db_write', 'pd_direct'],
   'booking-stall-alert': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // net_out — удаление в хранилище и проверка HEAD по публичному адресу.
   's3-object-delete': ['db_read', 'net_out'],

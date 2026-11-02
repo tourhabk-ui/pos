@@ -55,6 +55,9 @@ const KNOWN_WITHOUT_EVENT: Readonly<Record<string, Known>> = {
   'lib/account/erase.ts': {
     reason: 'удаление аккаунта по 152-ФЗ: состояние источника не меняется, стираются только ПД человека (контакты, заметки, пожелания)',
   },
+  'app/api/cron/test-booking-cancel/route.ts': {
+    reason: 'отмена НАШЕЙ тестовой брони («ТЕСТ…», 02.11): в ленту CRM оператора тест не пишется намеренно',
+  },
   'app/api/cron/sql-shape-check/route.ts': {
     reason: 'только PREPARE: вывод типов на разборе, ни одна строка не меняется',
   },
