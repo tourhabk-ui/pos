@@ -59,6 +59,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 1
 
       - name: Collect merged PRs of the week
@@ -82,8 +83,14 @@ jobs:
         id: hand
         if: steps.merged.outputs.count != '0'
         uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        # Токена GitHub у агента нет (аудит агентов 02.11, разрыв №1): ни
+        # GH_TOKEN в env, ни учётки git в .git/config (persist-credentials:
+        # false), а SUBPROCESS_ENV_SCRUB вычищает из окружения Bash и токен,
+        # который экшен выпускает себе сам. Данные агент получает файлами из
+        # шагов ДО, запись делает шаг ПОСЛЕ по его выводу в .agent-out/.
+        # Сторож: tests/unit/loop-agents-no-token.test.ts.
         env:
-          GH_TOKEN: ${{ github.token }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
         with:
           # Ключ Console из репозиторного секрета — решение владельца 13.10:
           # «я пополню лучше баланс», после того как выпуск токена подписки
@@ -106,7 +113,7 @@ jobs:
           allowed_bots: github-actions
           claude_args: |
             --model claude-opus-5
-            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+            --allowedTools "Read,Write,Edit,Glob,Grep"
             --max-turns 40
           show_full_output: true
           prompt: |
@@ -127,11 +134,33 @@ jobs:
                Ссылки на PR — формой #N. Никаких эмодзи.
             3. Старые недели не переписывай. Если хроника длиннее ~10 недель —
                сожми самые старые недели до одной строки каждая.
-            4. Ветка + draft-PR:
-               git checkout -b claude/chronicle-$(date -u +%Y%m%d)
-               git push и gh pr create --draft --title "Хроника недели в MEMORY.md" --body "<1-2 предложения>"
+            4. Только правка файла: ветку, коммит и draft-PR сделает следующий
+               шаг (доступа к GitHub у тебя нет).
 
-            НИКОГДА не пушь в main. Меняй ТОЛЬКО .claude/MEMORY.md.
+            Меняй ТОЛЬКО .claude/MEMORY.md — иначе шаг после тебя PR не откроет.
+
+      # ── Запись — отдельным шагом ПОСЛЕ агента (аудит агентов 02.11) ──────
+      # Токен только здесь. В PR уходит лишь .claude/MEMORY.md; правка любого
+      # другого файла — отказ.
+      - name: Хроника — ветка и draft-PR
+        if: steps.hand.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          changed=$(git status --porcelain --untracked-files=all | awk '{print $2}')
+          [ -n "$changed" ] || { echo "Хроника не изменилась"; exit 0; }
+          if [ "$changed" != ".claude/MEMORY.md" ]; then echo "::error::агент менял не только MEMORY.md: $changed"; exit 1; fi
+          br="claude/chronicle-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$br"
+          git add .claude/MEMORY.md
+          git commit -m "docs(memory): хроника недели"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" push "https://github.com/$REPO.git" "HEAD:refs/heads/$br"
+          gh pr create --draft --base main --head "$br" --title "Хроника недели в MEMORY.md" --body "Еженедельная хроника: что уехало за неделю."
 
       # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
       # К работе учёта usage-books уезжают ОДНИ СЧЁТЧИКИ, а не файл выполнения.

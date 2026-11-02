@@ -65,6 +65,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 1
 
       - name: Ensure labels exist
@@ -90,7 +91,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          COUNT=$(gh issue list --state open --search '-label:triaged' --limit 100 --json number --jq 'length')
+          mkdir -p .agent-out
+          if [ -d .git/info ]; then echo '.agent-out/' >> .git/info/exclude; fi
+          gh issue list --state open --search '-label:triaged' --limit 100 --json number,title,body,author > .agent-out/issues.json
+          COUNT=$(jq 'length' .agent-out/issues.json)
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Непроразмеченных issues: $COUNT"
 
@@ -98,8 +102,14 @@ jobs:
         id: hand
         if: steps.pending.outputs.count != '0'
         uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        # Токена GitHub у агента нет (аудит агентов 02.11, разрыв №1): ни
+        # GH_TOKEN в env, ни учётки git в .git/config (persist-credentials:
+        # false), а SUBPROCESS_ENV_SCRUB вычищает из окружения Bash и токен,
+        # который экшен выпускает себе сам. Данные агент получает файлами из
+        # шагов ДО, запись делает шаг ПОСЛЕ по его выводу в .agent-out/.
+        # Сторож: tests/unit/loop-agents-no-token.test.ts.
         env:
-          GH_TOKEN: ${{ github.token }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
         with:
           # Ключ Console из репозиторного секрета — решение владельца 13.10:
           # «я пополню лучше баланс», после того как выпуск токена подписки
@@ -125,7 +135,7 @@ jobs:
           allowed_bots: github-actions
           claude_args: |
             --model claude-opus-5
-            --allowedTools "Bash,Read,Glob,Grep"
+            --allowedTools "Read,Write,Glob,Grep"
             --max-turns 60
           show_full_output: true
           prompt: |
@@ -136,8 +146,9 @@ jobs:
             Прочитай CLAUDE.md (корень репозитория) — особенно §7 «НЕ ТРОГАТЬ»,
             чтобы понимать, что относится к safety и деньгам.
 
-            Получи список неразмеченных тикетов:
-            gh issue list --state open --search '-label:triaged' --limit 100 --json number,title,body,author
+            Список неразмеченных тикетов уже лежит в .agent-out/issues.json
+            (number, title, body, author). Доступа к GitHub у тебя нет —
+            разметку применяет следующий шаг по твоему выводу.
 
             Для КАЖДОГО тикета:
             1. Тип — один лейбл: type-bug / type-feature / type-content /
@@ -158,11 +169,39 @@ jobs:
                решения владельца.
             5. ВСЕГДА в конце добавь лейбл triaged — идемпотентность петли.
 
-            Команды: gh issue edit N --add-label "...", gh issue comment N --body "..."
+            Итог запиши в .agent-out/triage.json — массив:
+            [{"number": N, "labels": ["type-…", "size-…", "needs-owner"|"agent-proposal", "triaged"], "comment": "…"}]
+            Лейблы вне перечисленных выше шаг после тебя отбросит.
 
             Если тикет непонятен настолько, что тип не определить — лейблы
             triaged + needs-owner и комментарий с уточняющим вопросом.
             Не закрывай тикеты и не меняй их заголовки/тексты.
+
+      # ── Запись — отдельным шагом ПОСЛЕ агента (аудит агентов 02.11) ──────
+      # Токен только здесь. Номер — из собранного списка, лейблы — из белого
+      # списка, triaged ставится всегда; комментарий — строкой, до 1500 знаков.
+      - name: Разметка — применить вывод триажа
+        if: steps.hand.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out=.agent-out/triage.json
+          if [ ! -f "$out" ]; then echo "::warning::Агент не оставил $out"; exit 0; fi
+          allowed='["type-bug","type-feature","type-content","type-infra","type-safety","type-money","size-S","size-M","size-L","needs-owner","agent-proposal","triaged"]'
+          jq -c --argjson ok "$allowed" --slurpfile known .agent-out/issues.json '
+            ($known[0] | map(.number)) as $nums
+            | if type == "array" then .[] else empty end
+            | select((.number | type) == "number" and (.number as $n | $nums | index($n)))
+            | {number, labels: ((.labels // []) | map(select(type == "string" and ($ok | index(.)))) + ["triaged"] | unique),
+               comment: ((.comment // "") | tostring | .[0:1500])}' "$out" |
+          while read -r row; do
+            n=$(jq -r .number <<<"$row")
+            labels=$(jq -r '.labels | join(",")' <<<"$row")
+            comment=$(jq -r .comment <<<"$row")
+            gh issue edit "$n" --add-label "$labels"
+            [ -z "$comment" ] || gh issue comment "$n" --body "$comment"
+          done
 
       # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
       # К работе учёта usage-books уезжают ОДНИ СЧЁТЧИКИ, а не файл выполнения.
