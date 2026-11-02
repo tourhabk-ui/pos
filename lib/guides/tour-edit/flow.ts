@@ -369,6 +369,16 @@ async function dateToggle(
   const day = `${press.date.slice(8, 10)}.${press.date.slice(5, 7)}`;
   const page = Math.min(pageOf(press.date, today), 12);
   if (press.date < today) return datesPage(partnerId, press.tourId, 0, today, `${day}: дата прошла — ничего не изменил.`, back);
+  if (press.kind === 'date_close' && back === 'calendar') {
+    // Оператор (план, п.3): дату с бронями кнопкой не закрываем — отказ с причиной.
+    const d = await readTourDays(partnerId, press.tourId, press.date, press.date);
+    if (d.outcome === 'db_error') return failedScreen(`${day}: не закрылась — база не ответила. Ничего не изменено.`);
+    if (d.outcome === 'not_found') return noticeScreen(EDIT_TEXT.tourNotFound);
+    const taken = d.days[0]?.taken ?? 0;
+    if (taken > 0) {
+      return datesPage(partnerId, press.tourId, page, today, `${day}: не закрыта — на неё записано ${taken}. Сначала решите с этими бронями.`, back);
+    }
+  }
   if (press.kind === 'date_close') {
     const r = await closeGuideTourDates({
       partnerId, tourId: press.tourId, dates: [press.date], reason: back === 'calendar' ? OPERATOR_CLOSE_REASON : undefined,

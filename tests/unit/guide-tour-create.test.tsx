@@ -387,4 +387,15 @@ describe('«Календарь» оператора (02.11)', () => {
     expect((await guideTourPress({ kind: 'calendar' }, { ...OP, owner: false })).text).toMatch(/только владелец/);
     expect((await guideTourPress({ kind: 'calendar' }, WHO)).text).toMatch(/Ничего не записал/);
   });
+
+  it('дату с бронями оператор кнопкой не закрывает — отказ с причиной, записи нет', async () => {
+    h.query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [ROW], rowCount: 1 };
+      if (/generate_series/.test(sql)) return { rows: [{ date: '2026-11-05', slots: 8, closed: false, taken: 2 }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const out = await guideTourPress({ kind: 'date_close', tourId: '77', date: '2026-11-05' }, OP);
+    expect(out.text).toMatch(/05\.11: не закрыта — на неё записано 2/);
+    expect(h.query.mock.calls.some((c) => /UPDATE tour_availability|INSERT INTO tour_availability/.test(String(c[0])))).toBe(false);
+  });
 });
