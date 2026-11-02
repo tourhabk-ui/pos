@@ -21,10 +21,36 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { buildPartnerChannelLinks } from '@/lib/partners/channel-link';
 import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
+import { partnerChannelStatus } from '@/lib/partners/channel-status';
 
 export const dynamic = 'force-dynamic';
 
 const IdSchema = z.string().uuid();
+
+/**
+ * GET — только состояние: MAX/Telegram подключён или нет и названия других
+ * карточек на том же чате. Без chat id и телефонов (форма партнёра, 02.11).
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireAdmin(request);
+  if (auth instanceof NextResponse) return auth;
+  const parsedId = IdSchema.safeParse((await params).id);
+  if (!parsedId.success) {
+    return NextResponse.json({ success: false, error: 'Неверный идентификатор партнёра' }, { status: 400 });
+  }
+  try {
+    const status = await partnerChannelStatus(parsedId.data);
+    if (!status) return NextResponse.json({ success: false, error: 'Партнёр не найден' }, { status: 404 });
+    return NextResponse.json({ success: true, data: status });
+  } catch (err) {
+    const e = err as { code?: string };
+    console.error(`[channel-link] состояние каналов не прочитано, SQLSTATE=${e?.code ?? 'нет'}`);
+    return NextResponse.json({ success: false, error: 'База не ответила, попробуйте позже' }, { status: 500 });
+  }
+}
 
 export async function POST(
   request: NextRequest,

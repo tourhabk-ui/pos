@@ -15,6 +15,7 @@ import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { LeadDeliveryLine, type LeadDeliveryView } from '@/components/admin/LeadDeliveryLine';
+import ChannelLinkPanel from '@/components/admin/ChannelLinkPanel';
 import { WidgetEmbedCodes } from '@/components/widget/WidgetEmbedCodes';
 import { AdminWidgetReport } from '@/components/admin/AdminWidgetReport';
 
@@ -124,102 +125,6 @@ function RejectModal({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ChannelLinkPanel({ op }: { op: OperatorRow }) {
-  const [state, setState] = useState<
-    | { kind: 'idle' }
-    | { kind: 'loading' }
-    | { kind: 'ready'; message: string; expiresAt: string; bound: { telegram: boolean; max: boolean } }
-    | { kind: 'error'; error: string }
-  >({ kind: 'idle' });
-  const [copied, setCopied] = useState(false);
-  // Отдельно от state: сбой буфера обмена не должен стирать выданную ссылку
-  // ровно тогда, когда просят выделить её вручную (обзор 29.09).
-  const [copyError, setCopyError] = useState<string | null>(null);
-
-  const bound = state.kind === 'ready' ? state.bound : { telegram: op.has_telegram, max: op.has_max };
-
-  async function issue() {
-    setState({ kind: 'loading' });
-    try {
-      const res = await fetch(`/api/admin/operators/${op.id}/channel-link`, { method: 'POST' });
-      const body = await res.json().catch(() => null) as
-        | { success: true; data: { message: string; expires_at: string; bound: { telegram: boolean; max: boolean } } }
-        | { success: false; error?: string }
-        | null;
-      if (!res.ok || !body || !body.success) {
-        setState({ kind: 'error', error: (body && !body.success && body.error) || `Сервер ответил ${res.status}` });
-        return;
-      }
-      setState({ kind: 'ready', message: body.data.message, expiresAt: body.data.expires_at, bound: body.data.bound });
-    } catch {
-      setState({ kind: 'error', error: 'Нет связи с сервером' });
-    }
-  }
-
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyError(null);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopyError('Не удалось скопировать — выделите текст в поле выше вручную.');
-    }
-  }
-
-  const badge = (on: boolean, label: string) => (
-    <span className={`text-xs px-2 py-0.5 rounded ${on
-      ? 'bg-[var(--success)]/15 text-[var(--success)]'
-      : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'}`}>
-      {label}: {on ? 'подключён' : 'нет'}
-    </span>
-  );
-
-  return (
-    <div className="mt-3 space-y-2 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <Send className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
-        {badge(bound.max, 'MAX')}
-        {badge(bound.telegram, 'Telegram')}
-        <button
-          onClick={issue}
-          disabled={state.kind === 'loading'}
-          className="ds-btn ds-btn-secondary text-xs px-2 py-1"
-        >
-          {state.kind === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Ссылка для подключения'}
-        </button>
-      </div>
-      <LeadDeliveryLine delivery={op.last_delivery} />
-      {!bound.max && !bound.telegram && state.kind === 'idle' && (
-        <p className="text-xs text-[var(--warning)]">
-          Заявки этому оператору сейчас не доходят: ни MAX, ни Telegram не подключены.
-        </p>
-      )}
-      {state.kind === 'error' && <p className="text-xs text-[var(--danger)]">{state.error}</p>}
-      {state.kind === 'ready' && (
-        <div className="space-y-1.5">
-          <p className="text-xs text-[var(--text-secondary)]">
-            Перешлите оператору любым способом (WhatsApp, почта, SMS). Действует до{' '}
-            {new Date(state.expiresAt).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' })} по Камчатке.
-          </p>
-          <textarea
-            readOnly
-            value={state.message}
-            rows={6}
-            className="ds-input w-full text-xs font-mono"
-            onFocus={e => e.currentTarget.select()}
-          />
-          <button onClick={() => copy(state.message)} className="ds-btn ds-btn-secondary text-xs px-2 py-1 inline-flex items-center gap-1">
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Скопировано' : 'Скопировать текст'}
-          </button>
-          {copyError && <p className="text-xs text-[var(--danger)]" role="alert">{copyError}</p>}
-        </div>
-      )}
     </div>
   );
 }
@@ -563,7 +468,7 @@ export function OperatorCard({
               показывается один раз. Ссылка сброса — когда письмо не вариант. */}
           <AccountPanel op={op} onAccountCreated={onAccountCreated} />
 
-          <ChannelLinkPanel op={op} />
+          <ChannelLinkPanel partnerId={op.id} initialBound={{ telegram: op.has_telegram, max: op.has_max }} lastDelivery={op.last_delivery} />
 
           {/* Widget management */}
           {op.slug && (

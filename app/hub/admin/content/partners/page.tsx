@@ -17,6 +17,7 @@ import {
   AlertCircle, CheckCircle, Upload, ImageIcon,
 } from 'lucide-react';
 import TildaPanel from '@/components/admin/TildaPanel';
+import ChannelLinkPanel from '@/components/admin/ChannelLinkPanel';
 import { PartnerMaterialsConsentPanel } from '@/components/admin/PartnerMaterialsConsentPanel';
 import { PARTNER_GROUP_LABELS } from '@/lib/partners/partner-groups';
 import type { PartnerGroup } from '@/lib/partners/partner-groups';
@@ -770,6 +771,13 @@ export default function PartnersManagement() {
 
                 {/* Ключи Tilda API партнёра — общий блок с экраном «Операторы» */}
                 <TildaPanel operatorId={editId} />
+
+                {/* Мессенджеры для заявок (02.11): подключён ли MAX/Telegram — по правилу доставки, и ссылка для подключения. */}
+                {editId !== NEW_PARTNER && (
+                  <div className="border-t border-[var(--border)] pt-3">
+                    <ChannelLinkPanel key={editId} partnerId={editId} title="Мессенджеры для заявок" />
+                  </div>
+                )}
 
                 {/* Согласие партнёра на материалы его сайта (1321, владелец 23.10). У нового партнёра id ещё нет. */}
                 {editId !== NEW_PARTNER && <PartnerMaterialsConsentPanel partnerId={editId} />}
