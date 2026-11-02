@@ -558,7 +558,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             className={`relative ds-btn ds-btn-secondary h-9 px-2.5 sm:px-3 flex flex-shrink-0 items-center gap-1.5 text-sm ${showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
           >
             <SlidersHorizontal className="w-4 h-4" />
-            <span>Фильтры{activeFiltersCount > 0 ? <span className="sm:hidden"> ({activeFiltersCount})</span> : null}</span>
+            <span className="sr-only sm:not-sr-only">Фильтры</span>{activeFiltersCount > 0 ? <span className="sm:hidden tabular-nums">{activeFiltersCount}</span> : null}
             {activeFiltersCount > 0 && (
               <span className="hidden sm:flex absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[10px] items-center justify-center font-bold">
                 {activeFiltersCount}
