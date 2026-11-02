@@ -8,6 +8,7 @@
  *  - Проактивное предложение бронирования после AI-ответа
  */
 
+import { completeTourList, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
@@ -2869,6 +2870,8 @@ export async function aiChatAgentLoop(
   }
 
   const seenToolSigs = new Set<string>(); // дедуп повторных вызовов между ходами
+  // Вызовы get_tours хода — для дописки полноты списка (lib/kuzmich/tour-list-complete).
+  const toursCalls: ToursCall[] = [];
 
   // Вулкан в аргументе — тот, о котором говорит человек (lib/kuzmich/
   // place-arg-guard, пробы 764/765): запасная модель в пик DeepSeek
@@ -2917,7 +2920,11 @@ export async function aiChatAgentLoop(
     if (!result.tool_calls?.length) {
       // Готовый ответ отдаётся и после потолка: он уже есть, ждать нечего.
       if (!result.content?.trim() && overCeiling()) return atCeiling();
-      return finish(result.content, false); // final answer
+      // Полнота списка туров из get_tours этого хода (эвал критериев 02.11).
+      const final = result.content && toursCalls.length > 0
+        ? completeTourList(result.content, userText, toursCalls)
+        : result.content;
+      return finish(final, false); // final answer
     }
 
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
@@ -2931,6 +2938,9 @@ export async function aiChatAgentLoop(
     if (timing) tallyTurnStall(timing.stall, outcomes);
     for (const o of outcomes) {
       if (o.executed && toolOutputHasData(o.content)) collected.push({ name: o.name, content: o.content });
+      if (o.executed && o.name === 'get_tours' && toolOutputHasData(o.content)) {
+        toursCalls.push({ query: o.args.activity_type ?? '', output: o.content });
+      }
       // Вывод кладётся ОБРЕЗАННЫМ: журнал живёт в памяти запроса и уходит в
       // контекст судьи, а не в диалог. Целиком инструмент может вернуть
       // десятки килобайт (каталог туров), и это вытеснило бы остальное.
