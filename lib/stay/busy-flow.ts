@@ -10,11 +10,19 @@
  */
 import { pool } from '@/lib/db-pool';
 import {
-  BUSY_HORIZON_DAYS, BUSY_TEXT, busyManyObjectsText, busyObjectUnknownText, busyRejectText, busySavedText,
+  BUSY_HORIZON_DAYS, BUSY_TEXT, busyConfirmText, busyManyObjectsText, busyObjectUnknownText, busyRejectText,
   parseBusyPhrase, type BusyAction, type BusyObjectView,
 } from '@/lib/stay/busy-dates';
 
+import { cabinetPayload } from '@/lib/chat-cabinet/payload';
+
 interface Db { query: typeof pool.query }
+
+/** Ответ на фразу хозяина: текст и, для «Понял так», кнопки «Записать» / «Не то». */
+export interface BusyReply {
+  text: string;
+  buttons?: Array<Array<{ text: string; payload: string; intent?: 'positive' | 'negative' }>>;
+}
 
 export interface OwnerObject { id: string; name: string }
 
@@ -142,37 +150,43 @@ export async function handleStayBusyPhrase(opts: {
   today: string;
   via: 'max' | 'telegram';
   db?: Db;
-}): Promise<string | null> {
+}): Promise<BusyReply | null> {
   if (opts.category !== 'stay') return null;
   const parsed = parseBusyPhrase(opts.text, opts.today);
-  if (!parsed.ok) return parsed.reason === 'not_busy' ? null : busyRejectText(parsed.reason);
+  if (!parsed.ok) return parsed.reason === 'not_busy' ? null : { text: busyRejectText(parsed.reason) };
   const { command } = parsed;
 
   const listed = await listOwnerObjects(opts.partnerId, opts.db);
-  if (listed.outcome === 'db_error') return BUSY_TEXT.saveFailed;
-  if (listed.objects.length === 0) return BUSY_TEXT.noObjects;
+  if (listed.outcome === 'db_error') return { text: BUSY_TEXT.saveFailed };
+  if (listed.objects.length === 0) return { text: BUSY_TEXT.noObjects };
   let target: OwnerObject;
   if (command.objectWords) {
     const picked = pickObjectByWords(listed.objects, command.objectWords);
     if (picked === null) {
       // Единственный объект — слова перед датами не название, а речь («занято у нас с …»).
       if (listed.objects.length === 1) target = listed.objects[0]!;
-      else return busyObjectUnknownText(command.objectWords, listed.objects.map((o) => o.name));
+      else return { text: busyObjectUnknownText(command.objectWords, listed.objects.map((o) => o.name)) };
     } else if (picked === 'ambiguous') {
-      return busyManyObjectsText(listed.objects.map((o) => o.name), command.action);
+      return { text: busyManyObjectsText(listed.objects.map((o) => o.name), command.action) };
     } else {
       target = picked;
     }
   } else if (listed.objects.length === 1) {
     target = listed.objects[0]!;
   } else {
-    return busyManyObjectsText(listed.objects.map((o) => o.name), command.action);
+    return { text: busyManyObjectsText(listed.objects.map((o) => o.name), command.action) };
   }
 
-  const saved = await setObjectBusy({
-    partnerId: opts.partnerId, accommodationId: target.id, from: command.from, to: command.to, action: command.action, via: opts.via, db: opts.db,
-  });
-  if (saved.outcome === 'db_error') return BUSY_TEXT.saveFailed;
-  if (saved.outcome === 'not_yours') return BUSY_TEXT.notYours;
-  return busySavedText({ name: saved.name, from: command.from, to: command.to, action: command.action });
+  // Свободный текст пишется только после «Записать» (разбор 02.11: «Понял так»).
+  // Кнопка несёт объект и даты; запись проверяет, что объект этого хозяина.
+  const write = command.action === 'block'
+    ? cabinetPayload.busyBlock(target.id, command.from, command.to)
+    : cabinetPayload.busyRelease(target.id, command.from, command.to);
+  return {
+    text: busyConfirmText({ name: target.name, from: command.from, to: command.to, action: command.action }),
+    buttons: [[
+      { text: 'Записать', payload: write, intent: 'positive' },
+      { text: 'Не то', payload: cabinetPayload.busyNotThat(), intent: 'negative' },
+    ]],
+  };
 }

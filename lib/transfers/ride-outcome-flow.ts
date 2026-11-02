@@ -136,6 +136,7 @@ export async function recordRideOutcome(opts: {
   }
   const request = loaded.request;
   if (request.kind !== 'charter') return { tell: { kind: 'not_yours' }, request: null };
+  if (request.isSelf === true) return { tell: { kind: 'self' }, request };
 
   const answer = await readPartnerAnswer(request.leadId);
   if (answer === 'db_error') return { tell: { kind: 'unread' }, request };

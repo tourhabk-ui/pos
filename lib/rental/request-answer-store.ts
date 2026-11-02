@@ -27,6 +27,8 @@ export interface OwnedRentalRequest {
   title: string | null;
   dateFrom: string | null;
   dateTo: string | null;
+  /** Своя заявка (leads.is_self — заход владельца сайта): подтверждать по ней поездку нельзя (разбор 02.11). */
+  isSelf?: boolean;
 }
 
 export type LoadRequest =
@@ -46,8 +48,8 @@ function asText(value: unknown): string | null {
 export async function loadOwnedRentalRequest(partnerId: string, leadId: string): Promise<LoadRequest> {
   if (!isLeadId(leadId) || !isLeadId(partnerId)) return { outcome: 'missing' };
   try {
-    const { rows } = await pool.query<{ id: string; operator_id: string | null; source_data: unknown }>(
-      `SELECT id::text AS id, operator_id::text AS operator_id, source_data
+    const { rows } = await pool.query<{ id: string; operator_id: string | null; source_data: unknown; is_self?: boolean | null }>(
+      `SELECT id::text AS id, operator_id::text AS operator_id, source_data, COALESCE(is_self, FALSE) AS is_self
          FROM leads
         WHERE id = $1::uuid`,
       [leadId],
@@ -71,6 +73,7 @@ export async function loadOwnedRentalRequest(partnerId: string, leadId: string):
           title: asText(data.destination),
           dateFrom: asText(data.date_from),
           dateTo: asText(data.date_to),
+          isSelf: row.is_self === true,
         },
       };
     }

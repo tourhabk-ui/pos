@@ -377,3 +377,16 @@ describe('словарь «Входящих», напоминания, мигр�
     for (const kind of INBOX_REMIND_KINDS) expect(check![1], `${kind} в ${latest}`).toContain(`'${kind}'`);
   });
 });
+
+describe('своя заявка (is_self, разбор 02.11)', () => {
+  it('перевозчик не подтверждает поездку по своей заявке: ничего не пишется, ссылки нет', async () => {
+    arm({ lead: { ...charterLead(), is_self: true } });
+    const managers: string[] = [];
+    const r = await recordRideOutcome({ partner: SHATUN, leadId: LEAD, outcome: 'held', via: 'max', now: NOW, notifyManager: async (t) => { managers.push(t); } });
+    expect(r.tell).toEqual({ kind: 'self' });
+    expect(journal).toHaveLength(0);
+    expect(issueMock).not.toHaveBeenCalled();
+    expect(statusMock).not.toHaveBeenCalled();
+    expect(managers).toHaveLength(0);
+  });
+});

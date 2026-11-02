@@ -366,9 +366,16 @@ withPg('переписка по заявке на настоящем PostgreSQL'
         .toEqual({ outcome: 'not_yours' });
       expect((await pool.query(`SELECT 1 FROM accommodation_availability WHERE accommodation_id = $1`, [accId])).rows).toEqual([]);
 
-      // Хозяин фразой: записано на уровне объекта (room_id IS NULL), повтор того же — не дубль (ON CONFLICT по 721).
+      // Хозяин фразой (разбор 02.11): только «Понял так» + «Записать» — до нажатия ни строки.
       const said = await handleStayBusyPhrase({ partnerId, category: 'stay', text: 'занято с 10 по 12 июля 2099', today: '2099-07-01', via: 'max', db: pool });
-      expect(said).toContain('«Кутха» занято с 10.07.2099 по 12.07.2099 (3 ночи)');
+      expect(said!.text).toContain('Понял так: «Кутха» занято с 10.07.2099 по 12.07.2099 (3 ночи)');
+      expect(said!.buttons![0]![0]!.payload).toBe(`cb:b:w:${accId}:20990710:20990712`);
+      expect((await pool.query(`SELECT 1 FROM accommodation_availability WHERE accommodation_id = $1`, [accId])).rows).toEqual([]);
+      // Вопрос не пишет и не перехватывается.
+      expect(await handleStayBusyPhrase({ partnerId, category: 'stay', text: 'Свободно ли 10 июля 2099?', today: '2099-07-01', via: 'max', db: pool })).toBeNull();
+      // «Записать»: уровень объекта (room_id IS NULL), повтор того же — не дубль (ON CONFLICT по 721).
+      expect(await setObjectBusy({ partnerId, accommodationId: accId, from: '2099-07-10', to: '2099-07-12', action: 'block', via: 'max', db: pool }))
+        .toMatchObject({ outcome: 'saved', name: 'Кутха' });
       await setObjectBusy({ partnerId, accommodationId: accId, from: '2099-07-11', to: '2099-07-13', action: 'block', via: 'telegram', db: pool });
       const rows = await pool.query<{ date: string; room_id: string | null; is_blocked: boolean; block_reason: string }>(
         `SELECT date::text, room_id, is_blocked, block_reason FROM accommodation_availability WHERE accommodation_id = $1 ORDER BY date`, [accId],
@@ -396,8 +403,10 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(after).toBe(before);
 
       // «Свободно» снимает только блоки объекта в отрезке.
-      expect(await handleStayBusyPhrase({ partnerId, category: 'stay', text: 'свободно с 12 по 13 июля 2099', today: '2099-07-01', via: 'max', db: pool }))
-        .toContain('«Кутха» свободно с 12.07.2099 по 13.07.2099');
+      const freeAsk = await handleStayBusyPhrase({ partnerId, category: 'stay', text: 'свободно с 12 по 13 июля 2099', today: '2099-07-01', via: 'max', db: pool });
+      expect(freeAsk!.text).toContain('Понял так: «Кутха» свободно с 12.07.2099 по 13.07.2099');
+      expect(freeAsk!.buttons![0]![0]!.payload).toBe(`cb:b:r:${accId}:20990712:20990713`);
+      await setObjectBusy({ partnerId, accommodationId: accId, from: '2099-07-12', to: '2099-07-13', action: 'release', via: 'max', db: pool });
       const left = await pool.query<{ date: string }>(
         `SELECT date::text FROM accommodation_availability WHERE accommodation_id = $1 AND is_blocked ORDER BY date`, [accId],
       );

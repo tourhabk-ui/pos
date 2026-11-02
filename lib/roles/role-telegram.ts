@@ -130,7 +130,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
       fromName: opts.fromName,
       partner: p,
       channel: 'telegram',
-      reply: async (_id, text) => { await opts.send(withSosBlock(text, opts.text).text, []); },
+      reply: async (_id, text, buttons) => { await opts.send(withSosBlock(text, opts.text).text, buttons ?? []); },
     });
     return true;
   }
@@ -236,7 +236,7 @@ export async function tryRoleMenuTelegramMessage(opts: {
     fromName: opts.fromName,
     partner,
     channel: 'telegram',
-    reply: async (_id, text) => { await send(text, []); },
+    reply: async (_id, text, buttons) => { await send(text, buttons ?? []); },
   });
   return true;
 }

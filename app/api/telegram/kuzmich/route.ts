@@ -524,6 +524,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ ok: true });
       }
       const cq = { ...update.callback_query, data: press.payload };
+      // Ответы на бронь, заявку, машину, жильё, даты — в счёт пользования (разбор 02.11).
+      void (await import('@/lib/chat-cabinet/main-action-usage')).countMainPress({ channel: 'telegram', chatId, payload: cq.data });
 
       if (parseRentalCabinetPress(cq.data) || cq.data.startsWith('rr:') || cq.data.startsWith('rc:')) {
         await tgAnswerCallback(cq.id);
@@ -837,6 +839,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const body = withSosBlock(raw, text).text;
         if (pilot) await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
         else if (menu) await tgReply(chatId, body, { reply_markup: menuMarkup(menu, buttons) });
+        else if (buttons.length) await tgReply(chatId, body, { reply_markup: telegramCabinetMarkup(buttons) });
         else await tgReply(chatId, body);
       };
       const role = menuRoleOf(partner);
@@ -879,7 +882,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       } else {
         await processPartnerMessage({
           chatId, text, fromName, partner,
-          reply: async (id, body) => { await say(body); void id; },
+          reply: async (id, body, buttons) => { await say(body, buttons); void id; },
         });
       }
       return NextResponse.json({ ok: true });

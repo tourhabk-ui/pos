@@ -421,7 +421,8 @@ export async function processPartnerMessage(opts: {
   text: string;
   fromName: string | null;
   partner: PartnerChatContext;
-  reply: (chatId: number, text: string) => Promise<void>;
+  /** `buttons` — кнопки под ответом («Записать» / «Не то» у «Понял так»); канал без кнопок их не теряет молча — текст говорит, что нажать. */
+  reply: (chatId: number, text: string, buttons?: Array<Array<{ text: string; payload: string; intent?: 'positive' | 'negative' }>>) => Promise<void>;
   nowMs?: number;
   /** Откуда пришло слово партнёра — в запись занятости жилья («хозяин: занято (max)»). Не названо — MAX. */
   channel?: 'max' | 'telegram';
@@ -431,7 +432,7 @@ export async function processPartnerMessage(opts: {
   // Беда в тексте — блок 112 поверх любого ответа кабинета. Кузьмичу туриста
   // её отдаёт boundChatLane; сюда она доходит, когда в ней есть дело CRM
   // («запиши: у клиента сломана нога») или вход не спрашивает классификатор.
-  const reply = (id: number, body: string) => opts.reply(id, withSosBlock(body, text).text);
+  const reply = (id: number, body: string, buttons?: Parameters<typeof opts.reply>[2]) => (buttons ? opts.reply(id, withSosBlock(body, text).text, buttons) : opts.reply(id, withSosBlock(body, text).text));
 
   // Телефон и почта из текста партнёра (чаще — туриста: «запиши звонок Анне
   // +7 …») в зарубежную модель не уходят: та же граница, что у Кузьмича
@@ -481,8 +482,8 @@ export async function processPartnerMessage(opts: {
     via: opts.channel ?? 'max',
   });
   if (busy !== null) {
-    await saveAnswer(busy);
-    await reply(chatId, busy);
+    await saveAnswer(busy.text);
+    await reply(chatId, busy.text, busy.buttons);
     return;
   }
 
