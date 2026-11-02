@@ -517,8 +517,11 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         </div>
 
         {/* ── Search + controls ─────────────────────────────── */}
-        <div className="flex items-center gap-2 mb-3">
-          <div className="relative flex-1 min-w-0">
+        {/* 02.11: на телефоне поиск — своей строкой во всю ширину (плейсхолдер
+            виден), под ним сорт без обрезки «Рекоменд…», фильтры и вид.
+            Парки и Виды остаются на виду ниже (решение владельца 02.11). */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 mb-3" data-testid="routes-toolbar">
+          <div className="relative basis-full sm:basis-auto flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
             <input
               type="search"
@@ -541,7 +544,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             aria-label="Сортировка маршрутов"
             value={sort}
             onChange={e => { setSort(e.target.value as SortValue); setPage(1); }}
-            className="ds-input w-auto max-w-[8.5rem] sm:max-w-none h-9 py-1.5 pr-7 text-sm flex-shrink-0"
+            className="ds-input flex-1 sm:flex-none w-auto min-w-0 sm:min-w-[12rem] h-9 py-1.5 pr-7 text-sm"
           >
             {SORT_OPTIONS
               .filter(o => kind === 'place' ? !o.value.startsWith('price') : true)
@@ -551,12 +554,13 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           <button
             onClick={() => setShowFilters(v => !v)}
             aria-label="Фильтры"
-            className={`relative ds-btn ds-btn-secondary h-9 px-2.5 sm:px-3 flex items-center gap-2 text-sm ${showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
+            aria-expanded={showFilters}
+            className={`relative ds-btn ds-btn-secondary h-9 px-2.5 sm:px-3 flex flex-shrink-0 items-center gap-1.5 text-sm ${showFilters ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
           >
             <SlidersHorizontal className="w-4 h-4" />
-            <span className="hidden sm:inline">Фильтры</span>
+            <span>Фильтры{activeFiltersCount > 0 ? <span className="sm:hidden"> ({activeFiltersCount})</span> : null}</span>
             {activeFiltersCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[10px] flex items-center justify-center font-bold">
+              <span className="hidden sm:flex absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[10px] items-center justify-center font-bold">
                 {activeFiltersCount}
               </span>
             )}
