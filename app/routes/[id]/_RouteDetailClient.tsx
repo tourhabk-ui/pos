@@ -1,5 +1,6 @@
 'use client';
 
+import { seasonLabel } from '@/lib/routes/season-label';
 import { createElement, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -1003,10 +1004,10 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
                 <p className="text-sm font-semibold text-[var(--text-primary)]">до {route.groupSizeMax} чел.</p>
               </div>
             )}
-            {route.season && (
+            {seasonLabel(route.season) && (
               <div className="flex-shrink-0 px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сезон</p>
-                <p className="text-sm font-semibold text-[var(--text-primary)]">{route.season}</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{seasonLabel(route.season)}</p>
               </div>
             )}
             {offers.length > 0 && (
