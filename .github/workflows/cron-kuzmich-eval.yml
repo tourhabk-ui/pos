@@ -87,6 +87,10 @@ jobs:
             "https://vedarai.ru/api/cron/kuzmich-eval?set=commercial" \
             -H "Authorization: Bearer $CRON_SECRET")
           echo "HTTP: $HTTP" && cat /tmp/commercial.json 2>/dev/null || true
+          # Сводка отдельной строкой (02.11): полный ответ прогона 02.11 в лог
+          # не попал, и провалы пришлось искать вслепую.
+          echo; jq -c '{pass_rate, wilson_low, asked, judged, judge_unavailable_ratio, commercial: (.commercial | if . then {pass_rate} else null end)}' /tmp/commercial.json 2>/dev/null || true
+          jq -c '.cases[]? | select((.score // 5) < 4) | {id, score, context_len, reason: (.reason // "" | .[0:300])}' /tmp/commercial.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # Живой сэмпл: реальные вопросы туристов из chat_sessions за 7 дней
