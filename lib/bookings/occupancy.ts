@@ -80,7 +80,12 @@ export function occupiedOnDaySql(opts: {
   tourId: string;
 }): string {
   const { booking: b, day, tourId } = opts;
-  return `SELECT COALESCE(SUM(${b}.participants), 0)::int AS taken
+  // + места, занятые оператором вручную («Занять места», миграция 1368):
+  // держатся до «Освободить», это не бронь.
+  return `SELECT (COALESCE(SUM(${b}.participants), 0)
+                 + (SELECT COALESCE(SUM(${b}_h.seats), 0) FROM tour_seat_holds ${b}_h
+                     WHERE ${b}_h.tour_id = ${tourId} AND ${b}_h.hold_date = (${day})::date
+                       AND ${b}_h.released_at IS NULL))::int AS taken
             FROM operator_bookings ${b}
            WHERE ${b}.operator_tour_id = ${tourId}
              AND ${b}.booking_status NOT IN ('cancelled', 'rejected')
