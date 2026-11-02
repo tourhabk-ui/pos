@@ -306,10 +306,21 @@ function notifyPartnerPersonallyAboutMcpLead(params: {
   phone: string;
   comment?: string;
   routeTitle?: string;
+  /** Тур, дата, люди — для черновика оператору (живые места из базы). */
+  draft?: { tourId: number; date: string; participants: number };
 }): void {
   void (async () => {
+    const { draft, ...rest } = params;
+    let predraft: string[] = [];
+    if (draft) {
+      try {
+        const { operatorPredraft } = await import('@/lib/requests/operator-predraft');
+        predraft = await operatorPredraft(draft.tourId, draft.date, draft.participants);
+      } catch (e) { console.error('[mcp] черновик оператору не собран', e instanceof Error ? e.message : e); }
+    }
     const outcome = await notifyPartnerNewLeadPersonally({
-      ...params,
+      ...rest,
+      predraft,
       origin: 'заявка через ИИ-ассистента (MCP)',
     });
     await recordPartnerDelivery(params.leadId, params.operatorId, outcome);
@@ -478,6 +489,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       phone,
       comment: leadComment,
       routeTitle: tour.title,
+      draft: { tourId: Number(tour.id), date, participants },
     });
   }
   // Переписку с оператором (1350) открывает только ключ новой заявки: ключ

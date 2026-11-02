@@ -22,7 +22,7 @@ describe('MCP create_booking_request — личная доставка опер�
   it('переиспользует механику веб-формы, а не свою отправку', () => {
     expect(ROUTE).toMatch(/import \{ notifyPartnerNewLeadPersonally \} from '@\/lib\/notifications\/lead-notify'/);
     expect(ROUTE).toMatch(/import \{ recordPartnerDelivery \} from '@\/lib\/leads\/delivery-outcome'/);
-    expect(ROUTE).toMatch(/notifyPartnerNewLeadPersonally\(\{\s*\.\.\.params,\s*origin: 'заявка через ИИ-ассистента \(MCP\)'/);
+    expect(ROUTE).toMatch(/notifyPartnerNewLeadPersonally\(\{\s*\.\.\.rest,\s*predraft,\s*origin: 'заявка через ИИ-ассистента \(MCP\)'/);
     expect(ROUTE).toMatch(/recordPartnerDelivery\(params\.leadId, params\.operatorId, outcome\)/);
   });
 
