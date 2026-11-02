@@ -37,6 +37,8 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   // (lib/routes/catalog-query.ts). Раньше карточка его просто не рисовала —
   // отсюда пустые тёмные прямоугольники в каталоге.
   const photoSrc = route.imageUrl ?? null;
+  // Без фото (02.11) — не 148px «следов», а узкая полоса 56px цвета
+  // сложности с бейджем вида: карточка короче, заголовок до 3 строк.
 
 
 
@@ -46,21 +48,20 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   return (
     <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden transition-all duration-200 hover:border-[var(--accent)]/40 hover:shadow-sm">
       {/* ── Фото маршрута ─────────────────────────────────── */}
-      <Link href={route.href ?? catalogHref(route, '/routes')} className="block relative" style={{ height: 148 }}>
+      <Link href={route.href ?? catalogHref(route, '/routes')} className="block relative" style={{ height: photoSrc ? 148 : 56 }} data-testid={photoSrc ? undefined : 'route-card-nophoto'}>
         {photoSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={photoSrc}
             alt={route.title}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className="w-full h-full object-cover"
           />
         ) : (
           <div
             className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(155deg, color-mix(in srgb, ${diff.color} 26%, var(--bg-hover)) 0%, var(--bg-hover) 100%)` }}
+            style={{ background: 'var(--bg-hover)' }}
           >
-            <Footprints className="w-8 h-8 opacity-30" style={{ color: diff.color }} />
           </div>
         )}
 
@@ -92,7 +93,7 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
       {/* ── Тело ──────────────────────────────────────────── */}
       <Link href={route.href ?? catalogHref(route, '/routes')} className="block p-3 space-y-1.5">
         <h3
-          className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
+          className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-3 group-hover:text-[var(--accent)] transition-colors"
           style={{ fontFamily: 'var(--font-playfair)', fontSize: '1rem' }}
         >
           {route.title}

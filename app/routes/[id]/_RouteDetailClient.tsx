@@ -883,7 +883,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
       <Header />
 
       {/* ── HERO ─────────────────────────────────────────────────────────────── */}
-      <div className="relative w-full overflow-hidden" style={{ height: '52vh', minHeight: 320, maxHeight: 520 }}>
+      {/* Без фото (02.11) — герой 120px цвета вида под шапкой, а не 320px+
+          заглушки: вердикт «Идти / Предупреждения» встаёт в первый экран. */}
+      <div className="relative w-full overflow-hidden" data-testid="route-hero" style={useGradient ? { height: 184 } : { height: '52vh', minHeight: 320, maxHeight: 520 }}>
         <div className="absolute inset-0 pt-16">
           {useGradient ? (
             <RouteGradientPlaceholder
@@ -965,9 +967,10 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
       </div>
 
       {/* ── БЫСТРЫЕ ФАКТЫ ────────────────────────────────────────────────────── */}
-      <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-16 z-20">
+      <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sm:sticky top-16 z-20">
         <div className="max-w-6xl mx-auto px-4 md:px-8 overflow-x-auto">
-          <div className="flex items-stretch gap-0 divide-x divide-[var(--border)]">
+          {/* flex-wrap на телефоне (02.11): «Сезон» уходил за край ленты обрезанным. */}
+          <div className="flex flex-wrap sm:flex-nowrap items-stretch gap-0 sm:divide-x divide-[var(--border)]" data-testid="route-facts">
             {minPrice > 0 && (
               <div className="flex-shrink-0 px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Цена</p>
