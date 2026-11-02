@@ -48,6 +48,15 @@ export interface PlatformWeekStats {
   hidden_inactive: number;
   /** Из невидимых: остальные — выключен и не опубликован, либо флаг не записан. */
   hidden_both: number;
+  /**
+   * Туры на витрине по линии маршрута (#2896, #2903): привязанный маршрут
+   * (operator_tours.route_id -> kamchatka_routes) с линией, маршрут без линии
+   * (турист откроет тур в поле и карты пути не получит), маршрута нет вовсе.
+   * Сумма трёх равна tours_visible по построению: третье ведро — остаток.
+   */
+  visible_with_line: number;
+  visible_route_no_line: number;
+  visible_no_route: number;
   /** Воронка брони за 7 дней без своих заходов: касаний формы (маяк). */
   funnel_booking_start: number;
   /** Заявок заведено (сервер, все двери). */
@@ -103,6 +112,13 @@ SELECT
   (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND ${DRAFT})::int AS hidden_draft,
   (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND ${INACTIVE})::int AS hidden_inactive,
   (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND NOT ${DRAFT} AND NOT ${INACTIVE})::int AS hidden_both,
+  (SELECT COUNT(*) FROM operator_tours ot JOIN kamchatka_routes kr ON kr.id = ot.route_id
+     WHERE ${publicTourSql('ot')} AND kr.geometry IS NOT NULL)::int AS visible_with_line,
+  (SELECT COUNT(*) FROM operator_tours ot JOIN kamchatka_routes kr ON kr.id = ot.route_id
+     WHERE ${publicTourSql('ot')} AND kr.geometry IS NULL)::int AS visible_route_no_line,
+  (SELECT COUNT(*) FROM operator_tours ot
+     WHERE ${publicTourSql('ot')}
+       AND NOT EXISTS (SELECT 1 FROM kamchatka_routes kr WHERE kr.id = ot.route_id))::int AS visible_no_route,
   (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_start')::int AS funnel_booking_start,
   (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_submitted')::int AS funnel_booking_submitted,
   (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_rejected')::int AS funnel_booking_rejected,
@@ -146,6 +162,17 @@ export function hiddenBreakdownWords(s: PlatformWeekStats): string {
   return `не видны туристу ${s.tours_hidden}: черновики ${s.hidden_draft}, выключены оператором ${s.hidden_inactive}, и то и другое ${s.hidden_both}`;
 }
 
+/** «из них с линией маршрута 50, маршрут без линии 8, без маршрута 20». */
+export function lineBreakdownWords(s: PlatformWeekStats): string {
+  if (s.tours_visible === 0) return '';
+  return `из них с линией маршрута ${s.visible_with_line}, маршрут без линии ${s.visible_route_no_line}, без маршрута ${s.visible_no_route}`;
+}
+
+function withLine(s: PlatformWeekStats): string {
+  const w = lineBreakdownWords(s);
+  return w ? ` (${w})` : '';
+}
+
 /** Воронка брони одной строкой; без отказов — без «чаще всего». */
 export function funnelWords(s: PlatformWeekStats): string {
   const top = s.funnel_top_reject_reason !== null && s.funnel_top_reject_count > 0
@@ -169,7 +196,7 @@ export function platformWeekPromptLines(read: PlatformWeekRead): string[] {
   return [
     `- Бронирований за 7 дней: ${s.bookings_week}, из них подтверждено ${s.confirmed_week}`,
     `- Новых операторов: ${s.operators_new}, из них с туром на витрине: ${s.operators_new_with_visible_tour}`,
-    `- Операторов с туром на витрине всего: ${s.operators_with_visible_tour}; туров на витрине ${s.tours_visible}, ${hiddenBreakdownWords(s)}`,
+    `- Операторов с туром на витрине всего: ${s.operators_with_visible_tour}; туров на витрине ${s.tours_visible}${withLine(s)}, ${hiddenBreakdownWords(s)}`,
     `- Воронка брони за 7 дней: ${funnelWords(s)}`,
   ];
 }
@@ -180,5 +207,5 @@ export function platformWeekLine(read: PlatformWeekRead): string {
   const s = read.stats;
   return `<b>Платформа за 7 дней:</b> ${s.bookings_week} бронирований, ${s.confirmed_week} подтверждено, `
     + `${s.operators_new} новых операторов (с туром на витрине: ${s.operators_new_with_visible_tour}), `
-    + `туров на витрине ${s.tours_visible}, ${hiddenBreakdownWords(s)}; воронка: ${funnelWords(s)}`;
+    + `туров на витрине ${s.tours_visible}${withLine(s)}, ${hiddenBreakdownWords(s)}; воронка: ${funnelWords(s)}`;
 }
