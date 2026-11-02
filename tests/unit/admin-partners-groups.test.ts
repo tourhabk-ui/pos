@@ -37,7 +37,8 @@ describe('GET /api/admin/operators — группы партнёров', () => {
     const res = await GET(req('status=all&group=potential'));
     expect(res.status).toBe(200);
     const listSql = sqls.find(s => /FROM partners p/.test(s) && /LIMIT/.test(s)) ?? '';
-    expect(listSql).toMatch(/p\.profile_status = 'none' AND NOT EXISTS \(SELECT 1 FROM operator_applications/);
+    expect(listSql).toMatch(/\(NOT \(p\.profile_status <> 'none' OR EXISTS \(SELECT 1 FROM operator_applications/);
+    expect(listSql).toMatch(/p\.is_verified = TRUE OR EXISTS \(SELECT 1 FROM operator_tours t_g/);
   });
 
   it('partners: вошли в поток — статус не none или есть заявка', async () => {
@@ -45,6 +46,8 @@ describe('GET /api/admin/operators — группы партнёров', () => {
     expect(res.status).toBe(200);
     const listSql = sqls.find(s => /FROM partners p/.test(s) && /LIMIT/.test(s)) ?? '';
     expect(listSql).toMatch(/p\.profile_status <> 'none' OR EXISTS \(SELECT 1 FROM operator_applications/);
+    expect(listSql).toMatch(/p\.is_verified = TRUE/);
+    expect(listSql).toMatch(/t_g\.is_active = true/);
   });
 
   it('без group прежнее поведение: группового условия в списке нет', async () => {
@@ -59,7 +62,7 @@ describe('GET /api/admin/operators — группы партнёров', () => {
     const body = await res.json() as { meta: { group_counts: { partners: number; potential: number } } };
     expect(body.meta.group_counts).toEqual({ partners: 3, potential: 129 });
     const countsSql = sqls.find(s => /AS partners/.test(s)) ?? '';
-    expect(countsSql).toMatch(/profile_status = 'none' AND NOT EXISTS/);
+    expect(countsSql).toMatch(/NOT \(p\.profile_status <> 'none'/);
     expect(countsSql).toMatch(/profile_status <> 'none' OR EXISTS/);
   });
 });
