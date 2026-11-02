@@ -398,4 +398,14 @@ describe('«Календарь» оператора (02.11)', () => {
     expect(out.text).toMatch(/05\.11: не закрыта — на неё записано 2/);
     expect(h.query.mock.calls.some((c) => /UPDATE tour_availability|INSERT INTO tour_availability/.test(String(c[0])))).toBe(false);
   });
+  it('гид тоже не закрывает дату с бронями — то же правило и тот же текст', async () => {
+    h.query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [ROW], rowCount: 1 };
+      if (/generate_series/.test(sql)) return { rows: [{ date: '2026-11-05', slots: 8, closed: false, taken: 3 }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const out = await guideTourPress({ kind: 'date_close', tourId: '77', date: '2026-11-05' }, { ...WHO, partner: { ...GUIDE, sellsTours: true } });
+    expect(out.text).toMatch(/05\.11: не закрыта — на неё записано 3\. Сначала решите с этими бронями/);
+    expect(h.query.mock.calls.some((c) => /UPDATE tour_availability|INSERT INTO tour_availability/.test(String(c[0])))).toBe(false);
+  });
 });
