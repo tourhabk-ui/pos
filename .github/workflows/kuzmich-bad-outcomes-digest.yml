@@ -1,0 +1,68 @@
+name: Кузьмич — плохие оценки за неделю (Issue)
+
+# Аудит агентов 02.11, пробел #5: низкие баллы грейдера копились без обзора.
+# Раз в неделю раннер читает GET /api/cron/kuzmich-bad-outcomes (только
+# чтение, без ПД) и обновляет одно Issue с меткой kuzmich-bad-outcomes.
+# Промпт сам не правится: это список на ревью человеку.
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # понедельник 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Окно в днях'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Снять свод с прода
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DAYS: ${{ github.event.inputs.days || '7' }}
+        run: |
+          [ -n "$CRON_SECRET" ] || { echo "::error::CRON_SECRET не задан"; exit 1; }
+          HTTP=$(curl -s -o /tmp/bad.json -w "%{http_code}" --max-time 60 \
+            "https://vedarai.ru/api/cron/kuzmich-bad-outcomes?days=${DAYS}" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP"
+          [ "$HTTP" = "200" ] || { echo "::error::kuzmich-bad-outcomes ответил $HTTP"; cat /tmp/bad.json; exit 1; }
+          cat /tmp/bad.json
+
+      - name: Собрать отчёт и обновить Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY' > /tmp/body.md
+          import json, datetime
+          d = json.load(open('/tmp/bad.json'))
+          now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+          print(f"## Плохие оценки Кузьмича за {d['days']} дн. (снято {now})\n")
+          print(f"Плохих: **{d['bad_total']}** из {d['outcomes_total']} сохранённых оценок.\n")
+          if d.get('empty_reason'): print(f"> {d['empty_reason']}\n")
+          print("| Тип | Кол-во | Поверхности | Примеры (формулировка судьи, без ПД) |")
+          print("|---|---:|---|---|")
+          for c in d.get('clusters', []):
+              surf = ', '.join(f"{k} {v}" for k, v in c['by_surface'].items())
+              ex = ' / '.join(e.replace('|', '\\|') for e in c['examples']) or '—'
+              print(f"| {c['label']} | {c['count']} | {surf} | {ex} |")
+          for key, title in (('by_provider','Провайдер'),('by_path','Путь'),('by_score','Балл')):
+              print(f"\n**{title}:** " + ', '.join(f"{k} {v}" for k, v in sorted(d.get(key, {}).items(), key=lambda x: -x[1])))
+          print("\n_Промпт сам не правится. Повторяющийся тип — в задачу на починку._")
+          for c in d.get('caveats', []): print(f"\n- {c}")
+          PY
+          gh label create kuzmich-bad-outcomes -R "$REPO" --color D93F0B --description "Еженедельный свод плохих оценок Кузьмича" 2>/dev/null || true
+          NUM=$(gh issue list -R "$REPO" --label kuzmich-bad-outcomes --state open --json number -q '.[0].number')
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" -R "$REPO" --body-file /tmp/body.md
+          else
+            gh issue create -R "$REPO" --title "Кузьмич: плохие оценки — еженедельный свод" --label kuzmich-bad-outcomes --body-file /tmp/body.md
+          fi
