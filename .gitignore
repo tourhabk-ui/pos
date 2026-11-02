@@ -7,6 +7,8 @@
 
 # Dependencies  
 /node_modules/
+# Без слэша — ловит и симлинк node_modules (его закоммитили в #2956)
+/node_modules
 /bower_components/
 
 # Logs
