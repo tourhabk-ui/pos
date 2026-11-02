@@ -10,7 +10,8 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { partnerMenu } from '@/lib/roles/role-menu';
 import {
-  chatAnswerMarksContacted, chatAnswerText, inboxOwns, parseChatAnswer, recordChatAnswer,
+  chatAnswerLeadStatus, chatAnswerText, DECLINE_PICK_TEXT, DECLINE_REASON_LABEL, declineReasonButtons,
+  inboxOwns, parseChatAnswer, recordChatAnswer,
 } from '@/lib/requests/chat-answer';
 import { createTicket } from '@/lib/support/ticket.service';
 import {
@@ -85,23 +86,29 @@ export async function operatorDeskPress(opts: {
       : 'Этой заявки во входящих нет. Ответ не записал.';
     return withMenu(missed);
   }
+  // «Отказать»: сначала причина кнопкой, запись — только нажатием причины.
+  if (parsed.answer === 'decline_pick') return withMenu(DECLINE_PICK_TEXT, declineReasonButtons(parsed.kind, parsed.subjectId));
+  const reason = parsed.answer === 'decline' ? parsed.reason : null;
+  const doneText = (already: boolean) => (reason && !already
+    ? `${chatAnswerText('decline', false)} Причина: ${DECLINE_REASON_LABEL[reason].toLowerCase()}.`
+    : chatAnswerText(parsed.answer as Exclude<typeof parsed.answer, 'decline_pick'>, already));
   const saved = await recordChatAnswer({
     partnerId: partner.partnerId,
     kind: parsed.kind,
     subjectId: parsed.subjectId,
     answer: parsed.answer,
+    reason,
   });
   if (!saved.ok) return withMenu('Не удалось записать ответ. Бронь не менял.');
-  if (saved.already || !chatAnswerMarksContacted(parsed.kind, parsed.answer)) {
-    return withMenu(chatAnswerText(parsed.answer, saved.already));
-  }
+  const leadStatus = chatAnswerLeadStatus(parsed.kind, parsed.answer);
+  if (saved.already || !leadStatus) return withMenu(doneText(saved.already));
   // Статус заявки — только своей: скоуп карточки без захвата ничейных,
   // поверх проверки входящих выше. Ошибка не прячется — оператор её видит.
   try {
     const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
     const res = await changeLeadStatus({
       leadId: parsed.subjectId,
-      status: 'contacted',
+      status: leadStatus,
       actor: { kind: 'partner_user', userId: partner.userId ?? null },
       scope: { kind: 'owner', partnerId: partner.partnerId, claimUnowned: false },
       via: opts.channel,
@@ -113,7 +120,7 @@ export async function operatorDeskPress(opts: {
     console.error('[operator-desk] статус заявки не сменён, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
     return withMenu('Ответ записан, статус заявки сменить не удалось. Отметьте её в кабинете.');
   }
-  return withMenu(chatAnswerText(parsed.answer, false));
+  return withMenu(doneText(false));
 }
 
 async function supportTicketText(partner: PartnerChatContext, channel: 'telegram' | 'max'): Promise<string> {

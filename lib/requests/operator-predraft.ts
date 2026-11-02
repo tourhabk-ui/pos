@@ -5,8 +5,7 @@
  * ничего не уходит, решает оператор кнопками заявки (#2931). Без ПД — строки
  * видны и в Telegram. Не прочиталось — так и сказано, цифр не выдумываем.
  */
-import { pool } from '@/lib/db-pool';
-import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { liveFreeSeats } from '@/lib/operators/live-seats';
 import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
 
 export interface PredraftFacts {
@@ -31,23 +30,7 @@ export function predraftLines(date: string, participants: number | null, f: Pred
 }
 
 export async function loadPredraftFacts(tourId: number, date: string): Promise<PredraftFacts> {
-  let seatsOnDate: PredraftFacts['seatsOnDate'];
-  try {
-    const { rows } = await pool.query<{ free: number | string | null }>(
-      `SELECT MAX(${freeSlotsSql('ta', 'ot', 'occ.taken')})::int AS free
-         FROM tour_availability ta
-         JOIN operator_tours ot ON ot.id = ta.operator_tour_id
-         CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}) occ
-        WHERE ta.operator_tour_id = $1 AND ta.date = $2::date
-          AND COALESCE(ta.is_cancelled, false) = false AND ta.deleted_at IS NULL`,
-      [tourId, date],
-    );
-    const v = rows[0]?.free;
-    seatsOnDate = v == null ? null : Number(v);
-  } catch (err) {
-    console.error('[predraft] места на дату не прочитаны', err instanceof Error ? err.message : err);
-    seatsOnDate = 'failed';
-  }
+  const seatsOnDate: PredraftFacts['seatsOnDate'] = await liveFreeSeats(tourId, date);
   const nd = await loadNearestFreeDates([tourId]);
   const nearest: PredraftFacts['nearest'] = nd.state === 'failed' ? 'failed'
     : nd.byId.get(String(tourId)) ? { date: nd.byId.get(String(tourId))!, seats: nd.seatsById.get(String(tourId)) ?? null } : null;

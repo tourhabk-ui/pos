@@ -13,7 +13,23 @@ import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
 export const CHAT_ANSWER_KINDS = ['lead', 'stay_request', 'stay_booking', 'gear', 'booking'] as const;
 export type ChatAnswerKind = (typeof CHAT_ANSWER_KINDS)[number];
-export type ChatAnswer = 'accept' | 'other_date' | 'no_seats' | 'clarify' | 'self';
+export type ChatAnswer = 'accept' | 'other_date' | 'no_seats' | 'clarify' | 'self' | 'decline';
+
+/**
+ * Причина отказа (решение владельца 02.11: отказ — отдельный статус с
+ * причиной). Код — одна буква в payload `ia:r<код>:…`.
+ */
+export const DECLINE_REASONS = ['seats', 'weather', 'dates', 'group', 'other'] as const;
+export type DeclineReason = (typeof DECLINE_REASONS)[number];
+const REASON_CODE: Record<DeclineReason, string> = { seats: 's', weather: 'w', dates: 'd', group: 'g', other: 'o' };
+const CODE_REASON = new Map(Object.entries(REASON_CODE).map(([r, c]) => [c, r as DeclineReason]));
+export const DECLINE_REASON_LABEL: Record<DeclineReason, string> = {
+  seats: 'Нет мест',
+  weather: 'Погода, безопасность',
+  dates: 'Даты не подходят',
+  group: 'Не подходит группа',
+  other: 'Другое',
+};
 
 const KIND_CODE: Record<ChatAnswerKind, string> = {
   lead: 'l',
@@ -30,6 +46,7 @@ const ANSWER_CODE: Record<ChatAnswer, string> = {
   no_seats: 'n',
   clarify: 'c',
   self: 'm',
+  decline: 'r',
 };
 const CODE_ANSWER = new Map(Object.entries(ANSWER_CODE).map(([answer, code]) => [code, answer as ChatAnswer]));
 
@@ -46,6 +63,7 @@ const ANSWER_LINE: Record<ChatAnswer, string> = {
   no_seats: 'Ваш ответ: нет мест. Расписание не закрывал.',
   clarify: 'Ваш ответ: уточню. Заявку не закрывал.',
   self: 'Ваш ответ: свяжусь сам. Контакты заказчика в Telegram не отправляю.',
+  decline: 'Ваш ответ: отказ, записан к заявке. Туристу из чата ничего не ушло, бронь и оплата не менялись.',
 };
 
 const ALREADY = 'Ответ по этой заявке уже записан. Повторно ничего не меняю.';
@@ -77,12 +95,46 @@ export function chatAnswerButtons(
   ];
 }
 
-export function parseChatAnswer(payload: string): { answer: ChatAnswer; kind: ChatAnswerKind; subjectId: string } | null {
-  const match = /^ia:([adncm]):([lhsgb]):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{1,18})$/i.exec(payload);
+/**
+ * «Отказать» — кнопка, открывающая выбор причины (`ia:x:…`, ничего не
+ * пишет), и кнопки причин (`ia:r<код>:…`, пишут отказ один раз).
+ */
+export function declineButton(kind: ChatAnswerKind, subjectId: string): { text: string; payload: string } {
+  return { text: 'Отказать', payload: signPayload(`ia:x:${KIND_CODE[kind]}:${subjectId.toLowerCase()}`) };
+}
+
+export function declineReasonButtons(kind: ChatAnswerKind, subjectId: string): Array<Array<{ text: string; payload: string }>> {
+  const id = subjectId.toLowerCase();
+  const b = (r: DeclineReason) => ({ text: DECLINE_REASON_LABEL[r], payload: signPayload(`ia:r${REASON_CODE[r]}:${KIND_CODE[kind]}:${id}`) });
+  return [[b('seats'), b('weather')], [b('dates'), b('group')], [b('other')]];
+}
+
+export const DECLINE_PICK_TEXT = 'Почему отказ? Выберите причину — она запишется к заявке. Туристу из чата ничего не уйдёт, бронь и оплата не меняются.';
+
+export type ParsedChatAnswer =
+  | { answer: Exclude<ChatAnswer, 'decline'>; kind: ChatAnswerKind; subjectId: string }
+  | { answer: 'decline'; reason: DeclineReason; kind: ChatAnswerKind; subjectId: string }
+  | { answer: 'decline_pick'; kind: ChatAnswerKind; subjectId: string };
+
+const SUBJECT = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{1,18})';
+
+export function parseChatAnswer(payload: string): ParsedChatAnswer | null {
+  const pick = new RegExp(`^ia:x:([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
+  if (pick) {
+    const kind = CODE_KIND.get(pick[1]!.toLowerCase());
+    return kind ? { answer: 'decline_pick', kind, subjectId: pick[2]!.toLowerCase() } : null;
+  }
+  const decline = new RegExp(`^ia:r([swdgo]):([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
+  if (decline) {
+    const reason = CODE_REASON.get(decline[1]!.toLowerCase());
+    const kind = CODE_KIND.get(decline[2]!.toLowerCase());
+    return reason && kind ? { answer: 'decline', reason, kind, subjectId: decline[3]!.toLowerCase() } : null;
+  }
+  const match = new RegExp(`^ia:([adncm]):([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
   if (!match) return null;
   const answer = CODE_ANSWER.get(match[1]!.toLowerCase());
   const kind = CODE_KIND.get(match[2]!.toLowerCase());
-  if (!answer || !kind) return null;
+  if (!answer || answer === 'decline' || !kind) return null;
   return { answer, kind, subjectId: match[3]!.toLowerCase() };
 }
 
@@ -104,6 +156,12 @@ export function inboxOwns(
  * правилом владельца, что на сайте (lib/leads/owner-lead-status): чужую
  * заявку скоуп не тронет. Остальные ответы статус не меняют.
  */
+export function chatAnswerLeadStatus(kind: ChatAnswerKind, answer: ChatAnswer): 'contacted' | 'lost' | null {
+  if (kind !== 'lead') return null;
+  if (answer === 'decline') return 'lost';
+  return answer === 'accept' || answer === 'other_date' ? 'contacted' : null;
+}
+
 export function chatAnswerMarksContacted(kind: ChatAnswerKind, answer: ChatAnswer): boolean {
   return kind === 'lead' && (answer === 'accept' || answer === 'other_date');
 }
