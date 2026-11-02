@@ -289,3 +289,15 @@ describe('отказы', () => {
     expect(x.calls).not.toContain(D.DIGEST_DONE_TODAY_SQL);
   });
 });
+
+describe('сводка оператора: выезды завтра и стоп-продажи (PR5)', () => {
+  it('числа и названия туров без имён; стоп-продажи — строкой; отказ назван', () => {
+    const t = D.digestText({ ...facts(), tomorrow: [{ title: 'Бухта', people: 5, bookings: 2 }], stops: 3 }, 'telegram', AT.getTime());
+    expect(t).toMatch(/Выезды завтра: Бухта — 5 чел\. \(всего 5\)\./);
+    expect(t).toMatch(/Стоп-продажи активны: закрыто 3 дат/);
+    const bad = D.digestText({ ...facts(), tomorrow: null, stops: null }, 'telegram', AT.getTime());
+    expect(bad).toMatch(/Выезды завтра не прочитались/);
+    expect(bad).toMatch(/Стоп-продажи не прочитались/);
+    expect(D.digestHasNews({ ...facts(), tomorrow: [{ title: 'Бухта', people: 5, bookings: 2 }] })).toBe(true);
+  });
+});
