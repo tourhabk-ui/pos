@@ -54,6 +54,15 @@ export interface PlatformWeekStats {
   funnel_booking_submitted: number;
   /** Попыток отклонено (сервер). */
   funnel_booking_rejected: number;
+  /**
+   * Касаний формы, после которых тот же посетитель (суточный хэш) по тому же
+   * туру не отправил заявку и не получил отказа — ушёл молча (#2899). Только
+   * касания с хэшем: без него сопоставить касание с заявкой нечем, и считать
+   * такое касание брошенным было бы выдумкой.
+   */
+  funnel_booking_abandoned: number;
+  /** Касаний без хэша посетителя — их судьба неизвестна, в «брошенные» не идут. */
+  funnel_booking_start_unmatched: number;
   /** Самая частая причина отказа — код словаря или null, если отказов не было. */
   funnel_top_reject_reason: string | null;
   /** Сколько раз встретилась самая частая причина. */
@@ -97,6 +106,17 @@ SELECT
   (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_start')::int AS funnel_booking_start,
   (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_submitted')::int AS funnel_booking_submitted,
   (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_rejected')::int AS funnel_booking_rejected,
+  (SELECT COUNT(*) FROM funnel_events bs
+     WHERE bs.is_self = FALSE AND bs.created_at > ${WEEK} AND bs.step = 'booking_start'
+       AND bs.visitor_hash IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM funnel_events fe
+          WHERE fe.step IN ('booking_submitted', 'booking_rejected')
+            AND fe.visitor_hash = bs.visitor_hash
+            AND fe.entity_id IS NOT DISTINCT FROM bs.entity_id
+            AND fe.created_at >= bs.created_at
+       ))::int AS funnel_booking_abandoned,
+  (SELECT COUNT(*) ${FUNNEL_WEEK} AND step = 'booking_start' AND visitor_hash IS NULL)::int AS funnel_booking_start_unmatched,
   (SELECT reason FROM top_reject) AS funnel_top_reject_reason,
   COALESCE((SELECT n FROM top_reject), 0)::int AS funnel_top_reject_count
 `;
@@ -131,7 +151,13 @@ export function funnelWords(s: PlatformWeekStats): string {
   const top = s.funnel_top_reject_reason !== null && s.funnel_top_reject_count > 0
     ? ` (чаще всего: ${rejectReasonWords(s.funnel_top_reject_reason)} ×${s.funnel_top_reject_count})`
     : '';
-  return `касаний формы ${s.funnel_booking_start}, заявок отправлено ${s.funnel_booking_submitted}, отказов ${s.funnel_booking_rejected}${top}`;
+  const unmatched = s.funnel_booking_start_unmatched > 0
+    ? ` (ещё ${s.funnel_booking_start_unmatched} касаний без метки посетителя — исход неизвестен)`
+    : '';
+  const abandoned = s.funnel_booking_start > 0
+    ? `, ушли без заявки ${s.funnel_booking_abandoned}${unmatched}`
+    : '';
+  return `касаний формы ${s.funnel_booking_start}, заявок отправлено ${s.funnel_booking_submitted}, отказов ${s.funnel_booking_rejected}${top}${abandoned}`;
 }
 
 /** Строки для промпта агента: цифры — или честное «не прочиталась». */

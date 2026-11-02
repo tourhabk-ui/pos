@@ -22,6 +22,7 @@ const STATS: PlatformWeekStats = {
   hidden_draft: 11, hidden_inactive: 5, hidden_both: 1,
   funnel_booking_start: 6, funnel_booking_submitted: 2, funnel_booking_rejected: 3,
   funnel_top_reject_reason: 'NO_SLOTS', funnel_top_reject_count: 2,
+  funnel_booking_abandoned: 1, funnel_booking_start_unmatched: 0,
 };
 
 describe('запрос', () => {
@@ -54,10 +55,34 @@ describe('запрос', () => {
   });
 });
 
+describe('брошенная форма (#2899)', () => {
+  it('касание без заявки и отказа того же посетителя по тому же туру — брошено; без хэша — не судится', () => {
+    expect(PLATFORM_WEEK_SQL).toMatch(/bs\.visitor_hash IS NOT NULL/);
+    expect(PLATFORM_WEEK_SQL).toMatch(/fe\.step IN \('booking_submitted', 'booking_rejected'\)/);
+    expect(PLATFORM_WEEK_SQL).toMatch(/fe\.visitor_hash = bs\.visitor_hash/);
+    expect(PLATFORM_WEEK_SQL).toMatch(/fe\.entity_id IS NOT DISTINCT FROM bs\.entity_id/);
+    expect(PLATFORM_WEEK_SQL).toMatch(/bs\.is_self = FALSE/);
+    expect(PLATFORM_WEEK_SQL).toMatch(/AS funnel_booking_abandoned/);
+    expect(PLATFORM_WEEK_SQL).toMatch(/visitor_hash IS NULL\)::int AS funnel_booking_start_unmatched/);
+  });
+
+  it('4 касания, 0 заявок — «ушли без заявки 4»; касания без метки названы отдельно; нет касаний — строки нет', () => {
+    const lost: PlatformWeekStats = {
+      ...STATS, funnel_booking_start: 4, funnel_booking_submitted: 0, funnel_booking_rejected: 0,
+      funnel_top_reject_reason: null, funnel_top_reject_count: 0, funnel_booking_abandoned: 4,
+    };
+    expect(funnelWords(lost)).toBe('касаний формы 4, заявок отправлено 0, отказов 0, ушли без заявки 4');
+    expect(funnelWords({ ...lost, funnel_booking_abandoned: 3, funnel_booking_start_unmatched: 1 }))
+      .toBe('касаний формы 4, заявок отправлено 0, отказов 0, ушли без заявки 3 (ещё 1 касаний без метки посетителя — исход неизвестен)');
+    expect(funnelWords({ ...lost, funnel_booking_start: 0, funnel_booking_abandoned: 0 }))
+      .toBe('касаний формы 0, заявок отправлено 0, отказов 0');
+  });
+});
+
 describe('слова', () => {
   it('разбивка невидимых и воронка — с цифрами и причиной словами', () => {
     expect(hiddenBreakdownWords(STATS)).toBe('не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1');
-    expect(funnelWords(STATS)).toBe('касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2)');
+    expect(funnelWords(STATS)).toBe('касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2), ушли без заявки 1');
   });
 
   it('нет невидимых — без разбивки; нет отказов — без «чаще всего»; незнакомый код — как есть', () => {
@@ -66,7 +91,7 @@ describe('слова', () => {
       funnel_booking_rejected: 0, funnel_top_reject_reason: null, funnel_top_reject_count: 0,
     };
     expect(hiddenBreakdownWords(quiet)).toBe('не видны туристу 0');
-    expect(funnelWords(quiet)).toBe('касаний формы 6, заявок отправлено 2, отказов 0');
+    expect(funnelWords(quiet)).toBe('касаний формы 6, заявок отправлено 2, отказов 0, ушли без заявки 1');
     expect(rejectReasonWords('NEW_CODE')).toBe('NEW_CODE');
     expect(rejectReasonWords(null)).toBeNull();
   });
@@ -82,11 +107,11 @@ describe('три исхода', () => {
     expect(lines).toContain('- Новых операторов: 5, из них с туром на витрине: 0');
     expect(lines).toContain('- Бронирований за 7 дней: 0, из них подтверждено 0');
     expect(lines.join('\n')).toContain('туров на витрине 42, не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1');
-    expect(lines).toContain('- Воронка брони за 7 дней: касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2)');
+    expect(lines).toContain('- Воронка брони за 7 дней: касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2), ушли без заявки 1');
     expect(platformWeekLine(read)).toBe(
       '<b>Платформа за 7 дней:</b> 0 бронирований, 0 подтверждено, 5 новых операторов (с туром на витрине: 0), '
       + 'туров на витрине 42, не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1; '
-      + 'воронка: касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2)',
+      + 'воронка: касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2), ушли без заявки 1',
     );
   });
 
