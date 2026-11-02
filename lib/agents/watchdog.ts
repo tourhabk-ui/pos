@@ -59,7 +59,7 @@ import { join } from 'path';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead' | 'seat_request_failed';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead' | 'seat_request_failed' | 'lead_delivery_failed';
   count: number;
   details: string;
   /**
@@ -1799,6 +1799,37 @@ export function mcpSilenceIssue(input: {
   };
 }
 
+/**
+ * Заявка не дошла до оператора: личная доставка (MAX/Telegram) записана
+ * исходом 'failed' (lib/leads/delivery-outcome) за последние сутки.
+ * Только внутренняя тревога админу — ничего не переотправляет, операторов
+ * не ранжирует (правило 1в). ПД нет: лишь число и id заявок для дебаунса.
+ */
+async function checkFailedLeadDeliveries(): Promise<CheckResult> {
+  try {
+    const { rows } = await pool.query<{ count: string; ids: string | null; channels: string | null }>(`
+      SELECT COUNT(DISTINCT lead_id)::text AS count,
+             string_agg(DISTINCT lead_id::text, ',') AS ids,
+             string_agg(DISTINCT COALESCE(details->>'channel', '?'), ', ') AS channels
+        FROM lead_activity_log
+       WHERE action = 'partner_notified'
+         AND details->>'state' = 'failed'
+         AND (details->>'at')::timestamptz > NOW() - INTERVAL '24 hours'
+    `);
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+    return {
+      type: 'lead_delivery_failed',
+      count,
+      details: `${count} заявок за сутки не доставлены оператору лично (каналы: ${rows[0]?.channels ?? '?'}). Проверить связь вручную.`,
+      debounceOn: `lead_delivery_failed:${rows[0]?.ids ?? ''}`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkFailedLeadDeliveries:', err instanceof Error ? err.message : err);
+    return checkFailure('checkFailedLeadDeliveries', err);
+  }
+}
+
 async function checkMcpSilent(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ calls: string; callers: string }>(
@@ -1928,6 +1959,8 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     // Рост, не безопасность: молчание MCP-канала в окне после публикации в
     // каталогах (18.09). Один сигнал, панель /hub/admin/mcp — полный срез.
     checkMcpSilent,
+    // Недоставленные оператору заявки (MAX/TG) — только тревога админу.
+    checkFailedLeadDeliveries,
   ];
 
   const results = await Promise.all(CHECKS.map(run => run()));
