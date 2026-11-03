@@ -43,8 +43,12 @@ describe('security-review: ключ', () => {
   it('ревью идёт на основном ключе ANTHROPIC_API_KEY, отдельного CLAUDE_API_KEY нет', () => {
     expect(review.uses).toMatch(/^anthropics\/claude-code-security-review@[0-9a-f]{40}$/);
     const inputs = (review as { with?: Record<string, string> }).with ?? {};
-    expect(inputs['claude-api-key']).toBe('${{ secrets.ANTHROPIC_API_KEY }}');
-    expect((job as { env?: Record<string, string> }).env?.ANTHROPIC_API_KEY).toBe('${{ secrets.ANTHROPIC_API_KEY }}');
+    // С 03.11 провайдер переключаемый: AGENTS_PROVIDER=anthropic — Console,
+    // иначе OpenRouter (Anthropic отвечал 403 verification_required).
+    expect(inputs['claude-api-key']).toBe('${{ env.ANTHROPIC_API_KEY }}');
+    const env = (job as { env?: Record<string, string> }).env ?? {};
+    expect(env.ANTHROPIC_API_KEY).toBe("${{ vars.AGENTS_PROVIDER == 'anthropic' && secrets.ANTHROPIC_API_KEY || secrets.OPENROUTER_API_KEY }}");
+    expect(env.ANTHROPIC_BASE_URL).toBe("${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}");
     expect(JSON.stringify(wf)).not.toContain('CLAUDE_API_KEY');
   });
 

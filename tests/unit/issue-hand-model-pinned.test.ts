@@ -83,11 +83,24 @@ describe('модель руки задана явно', () => {
     const src = readFileSync(join(process.cwd(), wf), 'utf-8');
 
     it(`${wf} — модель в claude_args, а не по умолчанию action`, () => {
-      expect(src).toContain(`--model ${PINNED}`);
+      // С 03.11 модель выбирается переключателем провайдера (AGENTS_PROVIDER):
+      // Anthropic — `claude-opus-5`, OpenRouter (по умолчанию) — та же голова
+      // `anthropic/claude-opus-5`. Строка замороженная целиком.
+      expect(src).toContain(
+        `--model \${{ vars.AGENTS_PROVIDER == 'anthropic' && '${PINNED}' || 'anthropic/${PINNED}' }}`,
+      );
     });
 
     it(`${wf} — считает ключом Console из секрета раннера, не переменной прода`, () => {
-      expect(src).toMatch(/^\s*anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/m);
+      // Ключ — секрет раннера: Console при AGENTS_PROVIDER=anthropic, иначе
+      // OPENROUTER_API_KEY (решение владельца 03.11, Anthropic отвечал 403
+      // verification_required). Адрес API переключается тем же условием.
+      expect(src).toContain(
+        "anthropic_api_key: ${{ vars.AGENTS_PROVIDER == 'anthropic' && secrets.ANTHROPIC_API_KEY || secrets.OPENROUTER_API_KEY }}",
+      );
+      expect(src).toContain(
+        "ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}",
+      );
     });
 
     it(`${wf} — токен подписки рядом с ключом не задан`, () => {
