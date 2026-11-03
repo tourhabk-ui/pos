@@ -1,5 +1,5 @@
 /**
- * Вход через MAX/Telegram находит кабинет партнёра (03.11, миграция 1378).
+ * Вход через MAX/Telegram находит кабинет партнёра (03.11, миграция 1386).
  * Оператор подключил бота (MAX/Telegram записан в partners), а вход на сайт
  * создавал пустого туриста max_<id>@max.local. Против базы со схемой прода:
  *   - id свободен, владелец один → вход в аккаунт владельца;
@@ -18,7 +18,7 @@ const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
 const TEST_DB = 'messenger_login_link_test';
 
-withPg('вход через мессенджер → кабинет партнёра (1378)', () => {
+withPg('вход через мессенджер → кабинет партнёра (1386)', () => {
   let pool: import('pg').Pool;
   let n = 0;
 
@@ -105,11 +105,11 @@ withPg('вход через мессенджер → кабинет партнё
     expect((await row(a)).max_user_id).toBeNull();
   });
 
-  it('разовый перенос 1378 переносит пустой дубль и идемпотентен', async () => {
+  it('разовый перенос 1386 переносит пустой дубль и идемпотентен', async () => {
     const op = await user('op-e@example.test', 'operator');
     await partner(op, { max_owner_user_id: 820_005 });
     const dup = await user('max_820005@max.local', 'tourist', { max_user_id: 820_005 });
-    const sql = readFileSync(join(process.cwd(), 'migrations', '1378_messenger_login_link_partner.sql'), 'utf-8');
+    const sql = readFileSync(join(process.cwd(), 'migrations', '1386_messenger_login_link_partner.sql'), 'utf-8');
     const client = await pool.connect();
     try {
       await client.query(sql);

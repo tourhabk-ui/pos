@@ -1,4 +1,4 @@
--- Migration 1378: вход через MAX/Telegram находит кабинет партнёра (03.11)
+-- Migration 1386: вход через MAX/Telegram находит кабинет партнёра (03.11)
 --
 -- Причина (жалоба оператора 03.11): вход искал только users.max_user_id /
 -- users.telegram_id, а подключение бота пишет MAX/Telegram в partners
@@ -89,24 +89,24 @@ BEGIN
     owner := vedar_messenger_owner(ch, ext);
     CONTINUE WHEN owner IS NULL;
     IF NOT vedar_messenger_placeholder_empty(d.id) THEN
-      RAISE NOTICE '1378: дубль % (%) с данными — пропущен, владелец %', d.id, ch, owner;
+      RAISE NOTICE '1386: дубль % (%) с данными — пропущен, владелец %', d.id, ch, owner;
       CONTINUE;
     END IF;
     IF ch = 'max' THEN
       IF EXISTS (SELECT 1 FROM users WHERE id = owner AND max_user_id IS NOT NULL) THEN
-        RAISE NOTICE '1378: у владельца % уже другой MAX — пропущен дубль %', owner, d.id; CONTINUE;
+        RAISE NOTICE '1386: у владельца % уже другой MAX — пропущен дубль %', owner, d.id; CONTINUE;
       END IF;
       UPDATE users SET max_user_id = NULL, is_active = FALSE WHERE id::text = d.id::text;
       UPDATE users SET max_user_id = ext WHERE id = owner;
     ELSE
       IF EXISTS (SELECT 1 FROM users WHERE id = owner AND telegram_id IS NOT NULL) THEN
-        RAISE NOTICE '1378: у владельца % уже другой Telegram — пропущен дубль %', owner, d.id; CONTINUE;
+        RAISE NOTICE '1386: у владельца % уже другой Telegram — пропущен дубль %', owner, d.id; CONTINUE;
       END IF;
       UPDATE users SET telegram_id = NULL, is_active = FALSE WHERE id::text = d.id::text;
       UPDATE users SET telegram_id = ext WHERE id = owner;
     END IF;
     DELETE FROM user_sessions WHERE user_id::text = d.id::text;
-    RAISE NOTICE '1378: % перенесён с дубля % на %', ch, d.id, owner;
+    RAISE NOTICE '1386: % перенесён с дубля % на %', ch, d.id, owner;
   END LOOP;
 END
 $mig$;

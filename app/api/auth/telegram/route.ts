@@ -83,7 +83,7 @@ async function findOrCreateTelegramUser(tgData: TelegramAuthData): Promise<TgUse
     `SELECT id, email, name, role FROM users WHERE telegram_id = $1 LIMIT 1`,
     [tgData.id],
   );
-  // Кабинет партнёра по Telegram из кабинета или команды (миграция 1378),
+  // Кабинет партнёра по Telegram из кабинета или команды (миграция 1386),
   // если id свободен или его держит пустой дубль-заглушка.
   const linked = await linkMessengerLoginToPartner('telegram', tgData.id, existing.rows[0] ?? null);
   if (linked) return linked;
