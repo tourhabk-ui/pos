@@ -111,7 +111,9 @@ jobs:
       - name: bubblewrap для изоляции подпроцессов
         if: steps.pending.outputs.count != '0'
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # Вне раннера GitHub (симуляция шагов в tests/unit) — не ставим ничего.
+          [ "${GITHUB_ACTIONS:-}" = "true" ] || exit 0
+          command -v bwrap >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat; }
           if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
