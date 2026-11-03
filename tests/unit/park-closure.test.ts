@@ -119,3 +119,9 @@ describe('связка рода: производитель, привязка, �
     expect(src).toMatch(/magnitude, lat, lng, volcano_name, affected_parks/);
   });
 });
+
+describe('«все … природного парка X» — один парк, не все', () => {
+  it('единственное число не закрывает все парки', () => {
+    expect(detectParkClosure('Закрыты все маршруты природного парка «Налычево».')).toEqual({ parks: ['nalychevo'] });
+  });
+});

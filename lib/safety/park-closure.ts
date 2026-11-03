@@ -100,7 +100,7 @@ const NOT_WHOLE_PARK_RE = new RegExp(
 export const NATURAL_PARK_SLUGS: readonly string[] = [
   'nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy', 'klyuchevskoy', 'vilyuchinsky',
 ];
-const ALL_NATURAL_PARKS_RE = /(?:на\s+)?(?:всех|все|всем)\s+(?:[а-яё]+\s+){0,2}?природн[а-яё]*\s+парк/;
+const ALL_NATURAL_PARKS_RE = /(?:всех|все|всем)\s+(?:территори[а-яё]*\s+|маршрут[а-яё]*\s+)?природн(?:ых|ые|ым)\s+парк/;
 
 export interface ParkClosure {
   /** Слаги парков, названных в тексте; не пусто. */
