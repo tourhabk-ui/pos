@@ -4,7 +4,8 @@
 -- аккаунта у неё нет (partners.user_id NULL), MAX/Telegram подключены к
 -- карточке. Человек зарегистрировался заново (zap.andy@gmail.com) и получил
 -- пустую карточку гида. Здесь, одной транзакцией:
---   1) бэкап затронутых строк в _backup_1388_* (и RAISE NOTICE);
+--   1) бэкап затронутых строк — полные строки JSON в лог миграции (RAISE NOTICE
+--      '1388 BACKUP …'), без новых таблиц с ПД;
 --   2) карточка получает владельца — аккаунт zap.andy@gmail.com;
 --   3) MAX/Telegram id владельца карточки переносятся на этот аккаунт;
 --      если id держит пустой турист-дубль — у дубля id снимается, дубль
@@ -16,9 +17,6 @@
 -- выходит без изменений (идемпотентно).
 
 BEGIN;
-
-CREATE TABLE IF NOT EXISTS _backup_1388_users AS SELECT * FROM users WITH NO DATA;
-CREATE TABLE IF NOT EXISTS _backup_1388_partners AS SELECT * FROM partners WITH NO DATA;
 
 DO $mig$
 DECLARE
@@ -70,10 +68,10 @@ BEGIN
   END IF;
 
   -- Бэкап до изменений.
-  INSERT INTO _backup_1388_users SELECT * FROM users WHERE id::text = v_user.id::text;
-  INSERT INTO _backup_1388_partners SELECT * FROM partners WHERE id::text = v_card.id::text;
+  RAISE NOTICE '1388 BACKUP users %', (SELECT row_to_json(u) FROM users u WHERE u.id::text = v_user.id::text);
+  RAISE NOTICE '1388 BACKUP partners %', (SELECT row_to_json(p) FROM partners p WHERE p.id::text = v_card.id::text);
   IF v_new.id IS NOT NULL THEN
-    INSERT INTO _backup_1388_partners SELECT * FROM partners WHERE id::text = v_new.id::text;
+    RAISE NOTICE '1388 BACKUP partners %', (SELECT row_to_json(p) FROM partners p WHERE p.id::text = v_new.id::text);
   END IF;
 
   mx := v_card.max_owner_user_id;
@@ -89,7 +87,7 @@ BEGIN
     IF NOT vedar_messenger_placeholder_empty(holder.id) THEN
       RAISE EXCEPTION '1388: id MAX/TG держит аккаунт % с данными — стоп', holder.id;
     END IF;
-    INSERT INTO _backup_1388_users SELECT * FROM users WHERE id = holder.id;
+    RAISE NOTICE '1388 BACKUP users %', (SELECT row_to_json(u) FROM users u WHERE u.id = holder.id);
     UPDATE users SET
       max_user_id = CASE WHEN max_user_id = mx THEN NULL ELSE max_user_id END,
       telegram_id = CASE WHEN telegram_id = tg THEN NULL ELSE telegram_id END,

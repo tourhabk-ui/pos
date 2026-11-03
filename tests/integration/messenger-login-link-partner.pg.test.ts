@@ -48,6 +48,8 @@ withPg('вход через мессенджер → кабинет партнё
     const { Pool } = await import('pg');
     const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
+    // Функции 1387 (владелец-заглушка с кабинетом) — поверх 1386 из схемы.
+    await pool.query(readFileSync(join(process.cwd(), 'migrations', '1387_messenger_owner_placeholder_cabinet.sql'), 'utf-8'));
     process.env.DATABASE_URL = dbUrl;
     process.env.DATABASE_SSL = 'false';
   }, 300_000);
