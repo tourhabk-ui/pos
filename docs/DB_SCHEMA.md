@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-03 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1386_messenger_login_link_partner.sql`.
+> Снято 2026-11-03 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1388_andrey_zaporozhets_account.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 318 |
+| Таблиц | 319 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4158 |
+| Колонок | 4167 |
 | Внешних ключей | 379 |
-| Таблиц без единого FK в обе стороны | 88 |
+| Таблиц без единого FK в обе стороны | 89 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 41 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_watch_flow` `ugms_forecasts` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
+| [Прочее](#прочее) | 42 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `operator_price_changes` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_watch_flow` `ugms_forecasts` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -1536,6 +1536,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **operator_notification_reads** · 3 кол. · PK partner_id, notification_id · partner_id → partners.id · индексов 2
 
 `partner_id uuid!` `notification_id text!` `read_at timestamptz!=`
+
+**operator_price_changes** · 9 кол. · PK id · индексов 2
+
+`id uuid!=` `operator_id uuid!` `change jsonb!` `preview jsonb!` `source varchar!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz` `confirmed_by uuid`
 
 **password_reset_tokens** · 7 кол. · PK id · issued_by → users.id, user_id → users.id · индексов 3
 
