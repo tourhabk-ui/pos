@@ -28,4 +28,21 @@ describe('safety-ingest GET: потолок прогона', () => {
       expect(ROUTE).toContain(`tracked(pending, '${n}`);
     }
   });
+
+  it('шаги после сбора тоже отмечены трекером', () => {
+    for (const n of ['prune', 'dated-cap', 'road-anchor', 'volcano-anchor', 'статусы точек', 'push']) {
+      expect(ROUTE).toContain(`tracked(pending, '${n}'`);
+    }
+  });
+
+  it('пересчёт статусов точек — с потолком запроса в своей транзакции, меньше потолка прогона', () => {
+    const deadline = Number(ROUTE.match(/const GET_DEADLINE_MS = ([\d_]+)/)![1].replace(/_/g, ''));
+    const st = Number(ROUTE.match(/RT_STATUS_STATEMENT_TIMEOUT_MS = ([\d_]+)/)![1].replace(/_/g, ''));
+    const lk = Number(ROUTE.match(/RT_STATUS_LOCK_TIMEOUT_MS = ([\d_]+)/)![1].replace(/_/g, ''));
+    expect(st + lk).toBeLessThan(deadline);
+    expect(ROUTE).toMatch(/SET LOCAL statement_timeout = \$\{RT_STATUS_STATEMENT_TIMEOUT_MS\}/);
+    expect(ROUTE).toMatch(/SET LOCAL lock_timeout = \$\{RT_STATUS_LOCK_TIMEOUT_MS\}/);
+    const fn = ROUTE.slice(ROUTE.indexOf('async function updateRealTimeStatus'));
+    expect(fn.slice(0, 400)).toContain('transaction(async (client)');
+  });
 });
