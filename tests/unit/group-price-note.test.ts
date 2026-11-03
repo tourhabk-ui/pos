@@ -16,3 +16,18 @@ describe('groupPriceNote', () => {
     expect(groupPriceNote(13000, 'per_person', 14)).toBeNull();
   });
 });
+
+import { groupSizeNote } from '@/lib/tours/price-label';
+
+describe('groupSizeNote', () => {
+  it('цена с человека: группа до N чел. отдельно, цена не делится', () => {
+    expect(groupSizeNote('per_person', 14)).toBe('группа до 14 чел.');
+    expect(groupSizeNote('per_day_per_person', 10)).toBe('группа до 10 чел.');
+    expect(groupPriceNote(45000, 'per_person', 14)).toBeNull();
+  });
+  it('за группу, без мест, без предела — ничего', () => {
+    expect(groupSizeNote('per_tour', 14)).toBeNull();
+    expect(groupSizeNote('per_person', null)).toBeNull();
+    expect(groupSizeNote('per_person', 14, true)).toBeNull();
+  });
+});

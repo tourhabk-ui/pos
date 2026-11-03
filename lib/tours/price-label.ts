@@ -155,3 +155,19 @@ export function groupPriceNote(
     : '';
   return `за группу до ${n} чел.${each}`;
 }
+
+/**
+ * Размер группы у цены с человека (слово владельца 03.11: «цена за 1
+ * человека», группа — до числа мест тура). Только из `max_participants`
+ * живой строки; без числа или без предела — `null`. Цену НЕ делит: делить
+ * имеет смысл только цену за группу (`groupPriceNote`).
+ */
+export function groupSizeNote(
+  priceUnit: string | null | undefined,
+  maxParticipants: string | number | null | undefined,
+  groupSizeUnlimited?: boolean | null,
+): string | null {
+  if (priceUnit === 'per_tour' || groupSizeUnlimited === true || maxParticipants == null) return null;
+  const n = Number(maxParticipants);
+  return Number.isInteger(n) && n >= 1 ? `группа до ${n} чел.` : null;
+}
