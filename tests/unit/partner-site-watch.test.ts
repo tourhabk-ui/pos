@@ -175,3 +175,21 @@ describe('сообщение владельцу', () => {
     expect(baselineMessage([])).toBeNull();
   });
 });
+
+describe('скользящие даты (03.11, laguna-expedition.ru)', () => {
+  it('сдвиг ближайшей даты на день вперёд — не изменение', () => {
+    expect(meaningfulDiff('Тур\nБлижайший выезд: 4 ноября\nЦена 5 000 ₽', 'Тур\nБлижайший выезд: 5 ноября\nЦена 5 000 ₽')).toBeNull();
+    expect(meaningfulDiff('Ближайшая дата 03.11.2026', 'Ближайшая дата 04.11.2026')).toBeNull();
+    expect(meaningfulDiff('Старт 31 декабря', 'Старт 2 января')).toBeNull();
+  });
+  it('дата назад, дальний перенос или другой текст — изменение', () => {
+    expect(meaningfulDiff('Выезд: 5 ноября', 'Выезд: 4 ноября')).not.toBeNull();
+    expect(meaningfulDiff('Выезд: 4 ноября', 'Выезд: 4 декабря')).not.toBeNull();
+    expect(meaningfulDiff('Выезд 4 ноября, 5 000 ₽', 'Выезд 5 ноября, 6 000 ₽')).not.toBeNull();
+    expect(meaningfulDiff('Цена 5 000 ₽', 'Цена 6 000 ₽')).not.toBeNull();
+  });
+  it('настоящая смена рядом со сдвигом остаётся в разнице', () => {
+    const d = meaningfulDiff('Ближайший 4 ноября\nЦена 5 000 ₽', 'Ближайший 5 ноября\nЦена 6 000 ₽');
+    expect(d).toEqual({ removed: ['Цена 5 000 ₽'], added: ['Цена 6 000 ₽'] });
+  });
+});

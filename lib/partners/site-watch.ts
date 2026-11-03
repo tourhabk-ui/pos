@@ -108,8 +108,72 @@ export function diffLines(prev: string, next: string): TextDiff {
  * текстов разный, а сказано на странице то же.
  */
 export function meaningfulDiff(prevText: string, nextText: string): TextDiff | null {
-  const d = diffLines(withoutVolatileLines(prevText), withoutVolatileLines(nextText));
+  const d = withoutRollingShifts(diffLines(withoutVolatileLines(prevText), withoutVolatileLines(nextText)));
   return d.removed.length === 0 && d.added.length === 0 ? null : d;
+}
+
+/**
+ * «Скользящая» дата: строка вроде «Ближайший выезд: 4 ноября» на
+ * laguna-expedition.ru сама сдвигается каждый день — партнёр ничего не
+ * менял, а отчёт звал это изменением (слово владельца 03.11). Пара
+ * «пропала / появилась» гасится, только если строки совпадают целиком,
+ * кроме дат, и каждая дата сдвинулась ВПЕРЁД не больше чем на
+ * ROLLING_MAX_DAYS. Сдвиг назад, дальний перенос, новая цена или другой
+ * текст рядом с датой — по-прежнему изменение.
+ */
+export const ROLLING_MAX_DAYS = 14;
+
+const MONTHS = ['январ', 'феврал', 'март', 'апрел', 'ма', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'];
+const DATE_RE = new RegExp(
+  String.raw`(?<![\d.])(\d{1,2})\.(\d{1,2})(?:\.(\d{2}|\d{4}))?(?![\d.])` +
+  String.raw`|(?<!\d)(\d{1,2})\s+(январ[ья]|феврал[ья]|марта?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|августа?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])(?:\s+(20\d\d))?(?![а-яё])`,
+  'gi',
+);
+
+/** Дни от условной эпохи; год, если не указан, — один и тот же условный. */
+function dayNumber(day: number, month: number, year: number | null): number | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return Date.UTC(year ?? 2000, month - 1, day) / 86_400_000;
+}
+
+function rollingKey(line: string): { mask: string; days: (number | null)[] } {
+  const days: (number | null)[] = [];
+  const mask = line.replace(DATE_RE, (_m, d1, m1, y1, d2, mon) => {
+    if (d1) {
+      const y = y1 ? Number(y1.length === 2 ? `20${y1}` : y1) : null;
+      days.push(dayNumber(Number(d1), Number(m1), y));
+    } else {
+      const lower = String(mon).toLowerCase();
+      const idx = MONTHS.findIndex((m) => lower.startsWith(m));
+      days.push(dayNumber(Number(d2), idx + 1, null));
+    }
+    return '\u0000';
+  });
+  return { mask, days };
+}
+
+function isRollingShift(prev: string, next: string): boolean {
+  const a = rollingKey(prev);
+  const b = rollingKey(next);
+  if (a.days.length === 0 || a.mask !== b.mask || a.days.length !== b.days.length) return false;
+  return a.days.every((x, i) => {
+    const y = b.days[i];
+    if (x === null || y === null) return false;
+    let delta = y - x;
+    if (delta < 0) delta += 365; // декабрь → январь без года в строке
+    return delta > 0 && delta <= ROLLING_MAX_DAYS;
+  });
+}
+
+/** Убирает из разницы пары строк, где сдвинулась только скользящая дата. */
+export function withoutRollingShifts(d: TextDiff): TextDiff {
+  const added = [...d.added];
+  const removed: string[] = [];
+  for (const r of d.removed) {
+    const i = added.findIndex((a) => isRollingShift(r, a));
+    if (i >= 0) added.splice(i, 1); else removed.push(r);
+  }
+  return { removed, added };
 }
 
 /**
