@@ -92,3 +92,19 @@ describe('completeTourList: группа из мест тура', () => {
     expect(r).toContain('цена за группу до 14 чел., при полной группе ≈ 3 214 ₽/чел.');
   });
 });
+
+describe('completionSources — источник дописки идёт в журнал судьи', () => {
+  it('возвращает только строки дописанных туров', async () => {
+    const { completionSources } = await import('@/lib/kuzmich/tour-list-complete');
+    const a = 'На Толбачик есть «Вулкан Плоский Толбачик» — Край Вулканов, от 60 000 ₽.';
+    const r = completeTourList(a, 'какие туры на Толбачик?', [{ query: 'толбачик', output: OUT }]);
+    const src = completionSources(a, r, [OUT]);
+    expect(src).toContain('ID73');
+    expect(src).toContain('ID65');
+    expect(src).not.toContain('ID41');
+  });
+  it('без дописки — пусто', async () => {
+    const { completionSources } = await import('@/lib/kuzmich/tour-list-complete');
+    expect(completionSources('x', 'x', [OUT])).toBe('');
+  });
+});

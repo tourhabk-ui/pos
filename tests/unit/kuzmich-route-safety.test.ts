@@ -87,3 +87,11 @@ describe('finishKuzmichAnswer', () => {
     expect(fin.text).toBe('One day hike.');
   });
 });
+
+describe('isRouteQuestion — места и звери', () => {
+  it('ловит вопрос про медведей у Курильского озера', async () => {
+    const { isRouteQuestion } = await import('@/lib/kuzmich/route-safety');
+    expect(isRouteQuestion('Опасно ли из-за медведей у Курильского озера?')).toBe(true);
+    expect(isRouteQuestion('Сколько стоит тур на Курильское озеро?')).toBe(false);
+  });
+});

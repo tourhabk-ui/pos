@@ -161,3 +161,15 @@ describe('эвал можно перезапустить, не дожидаяс�
     expect(WF).toMatch(/- cron: '0 5 \* \* 1'/);
   });
 });
+
+describe('судья видит хвост ответа и источник дописки туров', () => {
+  it('ответ судье — до 4000 символов, дописка туров пишется в журнал', async () => {
+    const fs = await import('node:fs');
+    const f = fs.readFileSync('lib/agents/eval/kuzmich-faithfulness.ts', 'utf8');
+    expect(f).toMatch(/JUDGE_ANSWER_LIMIT = 4_000/);
+    expect(f).toContain('answer.slice(0, JUDGE_ANSWER_LIMIT)');
+    const c = fs.readFileSync('lib/kuzmich/core.ts', 'utf8');
+    expect(c).toMatch(/completionSources\(before, final/);
+    expect(c).toMatch(/if \(src\) toolRuns\?\.push\(\{ name: 'get_tours', producedData: true, output: src \}\)/);
+  });
+});
