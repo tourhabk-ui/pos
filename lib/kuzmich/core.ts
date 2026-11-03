@@ -8,7 +8,7 @@
  *  - Проактивное предложение бронирования после AI-ответа
  */
 
-import { completeTourList, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
+import { completeTourList, completionSources, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
@@ -2945,7 +2945,12 @@ export async function aiChatAgentLoop(
             if (toursCalls.some((c) => c.query.toLowerCase() === q)) continue;
             extra.push({ query: q, output: await executeTool('get_tours', { activity_type: q }, toolSurface) });
           }
+          const before = final;
           final = completeTourList(final, userText, [...toursCalls, ...extra], catalog);
+          // Дописанные туры — в журнал хода: судья эвала должен видеть их
+          // источник, иначе честные строки из БД он считает выдумкой.
+          const src = completionSources(before, final, [...extra.map((c) => c.output), catalog]);
+          if (src) toolRuns?.push({ name: 'get_tours', producedData: true, output: src });
         } catch (e) {
           console.warn('[kuzmich-complete] дописка не удалась:', e);
         }

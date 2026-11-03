@@ -170,3 +170,28 @@ export function completeTourList(answer: string, question: string, calls: readon
   if (parts.length === 0) return answer;
   return `${answer.trimEnd()}\n\n${parts.join('\n\n')}\nЦены — ориентир из каталога, места и даты подтверждает оператор.`;
 }
+
+/**
+ * Строки инструмента get_tours, на которых стоит дописка completeTourList.
+ * Дописка берёт туры прямыми вызовами get_tours мимо журнала хода, и судья
+ * faithfulness их не видел: «туров нет в контексте» (эвал 03.11, route-1/5).
+ * Возвращаем только строки названных в дописке туров — не весь каталог,
+ * чтобы не вытеснить остальной контекст судьи.
+ */
+export function completionSources(before: string, after: string, outputs: readonly string[]): string {
+  if (after === before || !after.startsWith(before.trimEnd())) return '';
+  const tail = after.slice(before.trimEnd().length);
+  const titles = [...tail.matchAll(/«([^»]+)»/g)].map((m) => m[1]);
+  if (!titles.length) return '';
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const out of outputs) {
+    for (const l of out.split('\n')) {
+      const t = l.trim();
+      if (!t || seen.has(t) || !titles.some((x) => t.includes(`"${x}"`))) continue;
+      seen.add(t);
+      lines.push(t);
+    }
+  }
+  return lines.join('\n');
+}
