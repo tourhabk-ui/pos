@@ -57,6 +57,7 @@ export const GATES: Record<string, Gate> = {
   'app/api/hub/operator/bookings/[id]/route.ts': { seat: 'team', perms: ['can_cancel_bookings'] },
   'app/api/hub/operator/bookings/[id]/guide/route.ts': { seat: 'team' },
   'app/api/hub/operator/pricing-rules/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
+  'app/api/hub/operator/weekend-markup/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/[id]/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/[id]/availability/route.ts': { seat: 'team', perms: ['can_edit_prices'] },

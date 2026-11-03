@@ -69,3 +69,28 @@ export const OPERATOR_RULE_LABEL: Record<OperatorRuleType, { title: string; hint
     hint: 'Действует, когда бронируют не меньше указанного числа человек',
   },
 };
+
+// ── Наценка оператора (K.ai B1; решение владельца 03.11: «наценки до 30%»,
+// «выходные = сб+вс», новым родом — прежний `weekend` (пт–вс) у админа не
+// трогаем) ──────────────────────────────────────────────────────────────────
+
+/** Рода наценок, доступные оператору. Отдельно от скидок: другой знак, другой предел. */
+export const OPERATOR_MARKUP_TYPES = ['weekend_sat_sun'] as const;
+export type OperatorMarkupType = (typeof OPERATOR_MARKUP_TYPES)[number];
+
+/** Максимальная наценка, которую оператор назначает сам (владелец 03.11). */
+export const MAX_OPERATOR_MARKUP = 30;
+
+
+/** «+10%» → 1.1. Вне 1..30 — null: молча обрезать наценку нельзя, это деньги туриста. */
+export function markupToMultiplier(percent: number): number | null {
+  if (!Number.isInteger(percent) || percent < 1 || percent > MAX_OPERATOR_MARKUP) return null;
+  return (100 + percent) / 100;
+}
+
+/** 1.1 → 10. Не наценка (≤ 1) — null. */
+export function multiplierToMarkup(multiplier: number | string): number | null {
+  const m = typeof multiplier === 'number' ? multiplier : parseFloat(multiplier);
+  if (!Number.isFinite(m) || m <= 1) return null;
+  return Math.round((m - 1) * 100);
+}

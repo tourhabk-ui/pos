@@ -83,6 +83,11 @@ export function isWeekendDate(tourDate: string): boolean {
   return [5, 6, 0].includes(new Date(tourDate).getDay());
 }
 
+/** Суббота или воскресенье — те же выражения, что у `isWeekendDate` (процесс в UTC). */
+export function isSatSunDate(tourDate: string): boolean {
+  return [6, 0].includes(new Date(tourDate).getDay());
+}
+
 function monthDay(d: Date): number {
   return d.getMonth() * 100 + d.getDate();
 }
@@ -121,6 +126,9 @@ export function ruleApplies(rule: PricingRule, ctx: RuleContext): boolean {
       return rule.guests_min !== null && ctx.guests >= rule.guests_min;
     case 'weekend':
       return isWeekendDate(ctx.tourDate);
+    case 'weekend_sat_sun':
+      // Наценка оператора (K.ai B1): только сб и вс — не путать с `weekend` (пт–вс) админа.
+      return isSatSunDate(ctx.tourDate);
     default:
       // Незнакомый род НЕ применяется и цену не меняет. Молча применить его
       // как «ничего» и молча применить как «скидку» — разные вещи; первое

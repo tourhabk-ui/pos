@@ -13,6 +13,7 @@
  * администратора — там цена растёт, и такие решения не отдаются.
  */
 
+import WeekendMarkup from './_WeekendMarkup';
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Percent, Trash2, Users, Clock, AlertCircle, Check } from 'lucide-react';
 import {
@@ -327,6 +328,7 @@ export default function PricingClient() {
           })}
         </section>
       ))}
+      <WeekendMarkup />
     </div>
   );
 }
