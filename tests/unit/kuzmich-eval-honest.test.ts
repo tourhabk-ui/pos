@@ -91,7 +91,10 @@ describe('судья видит то, чем обоснован ответ', () 
     // придуманный километраж) ПЕРЕД возвратом — но context, которым судья
     // меряет заземление, остаётся тем же полным составом, не урезанным.
     expect(body).toMatch(/stripUngroundedDistanceClaims\(cleanedAnswer, context\)/);
-    expect(body).toMatch(/return \{ answer: distanceGuard\.cleaned, context \}/);
+    // Строка безопасности маршрута (route-safety) — то, что видит турист; её
+    // источник и блок МЧС идут судье впереди полного контекста.
+    expect(body).toMatch(/appendRouteSafety\(distanceGuard\.cleaned, question, mchsBlock\)/);
+    expect(body).toMatch(/return \{ answer: routed, context: \[mchsBlock, routeSource, context\]/);
   });
 
   it('при обрезке первым страдает каталог туров, а не выводы инструментов', () => {

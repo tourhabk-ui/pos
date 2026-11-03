@@ -32,6 +32,7 @@ import { appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, warningsFrom
 import { stripBannedAdvice, BANNED_ADVICE_NOTE } from '@/lib/kuzmich/banned-advice';
 import { guardDeliveryClaims, DELIVERY_HONEST_LINE, type DeliveryGuardResult } from '@/lib/kuzmich/delivery-claim-guard';
 import { guardOutageClaims } from '@/lib/kuzmich/outage-claim-guard';
+import { appendRouteSafety } from '@/lib/kuzmich/route-safety';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { withSosBlock, type SosLang } from '@/lib/safety/sos-detector';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -114,10 +115,14 @@ export function finishKuzmichAnswer(input: FinishInput): FinishedAnswer {
   // Выдуманный «сбой базы» вместо штатной заявки (снимок CTO 31.10).
   const outage = guardOutageClaims(delivery.text);
   if (outage.removed.length > 0) console.error('[kuzmich-outage-claim-guard] выдуманный сбой вместо заявки', { surface: input.surface, removed: outage.removed });
-  const flagged = appendUnreadSafety(
+  const offered = appendUnreadSafety(
     appendOfferingFlags(outage.text, warningsFromBlock(input.context)),
     input.context.includes(MCHS_UNREAD_NOTE),
   );
+  // Строка безопасности под ответом о маршруте (lib/kuzmich/route-safety) — по-русски.
+  const flagged = (input.lang ?? 'ru') === 'ru'
+    ? appendRouteSafety(offered, input.question, input.context)
+    : offered;
 
   if (input.sos === false) {
     return { text: flagged, emergency: false, distanceRemoved: distance.removed, safety, delivery };
@@ -169,6 +174,8 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
     input.context.includes(MCHS_UNREAD_NOTE),
   );
   if (flagged !== input.answer) notes.push(flagged.slice(input.answer.length).trim());
+  const routed = appendRouteSafety(flagged, input.question, input.context);
+  if (routed !== flagged) notes.push(routed.slice(flagged.trim().length).trim());
   return {
     tail: notes.length > 0 ? `\n\n${notes.join('\n\n')}` : '',
     distanceRemoved: distance.removed,
