@@ -198,75 +198,79 @@ withPg('вход через мессенджер → кабинет партнё
 
 });
 
-// ── Миграция 1389 (03.11): аккаунт zap.andy → карточка andrey-zaporozhets ──
+// ── Миграция 1390 (04.11): аккаунт Андрея Запорожца по явным id (1389 — пустая) ──
 const SQL_1389 = readFileSync(join(process.cwd(), 'migrations', '1389_andrey_zaporozhets_account_by_slug.sql'), 'utf-8');
+const SQL_1390 = readFileSync(join(process.cwd(), 'migrations', '1390_andrey_zaporozhets_explicit_ids.sql'), 'utf-8');
+const PH = '259dd12b-7025-430e-9baa-254a08a37f39';
+const UID = '4e2ae003-d54e-4a5d-9604-30d4e948ff09';
 
-withPg('1389: карточка Андрея Запорожца получает аккаунт', () => {
+withPg('1390: карточка Андрея Запорожца получает аккаунт', () => {
   let pool: import('pg').Pool;
-  let uid = '';
   let real = '';
   let empty = '';
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    pool = new Pool({ connectionString: await createTestDatabase(PG_URL, 'andrey_1389_test'), max: 2 });
+    pool = new Pool({ connectionString: await createTestDatabase(PG_URL, 'andrey_1390_test'), max: 2 });
   }, 300_000);
   afterAll(async () => { await pool?.end().catch(() => undefined); });
 
   beforeEach(async () => {
-    // Карточку andrey-zaporozhets в схеме заводит 1338 (с турами) — берём её, а не вставляем вторую.
     await pool.query(`UPDATE partners SET user_id = NULL WHERE slug = 'andrey-zaporozhets'`);
     await pool.query(`DELETE FROM partners WHERE name = 'Андрей Запорожец' AND slug IS DISTINCT FROM 'andrey-zaporozhets'`);
-    await pool.query(`DELETE FROM users WHERE email IN ('zap.andy@gmail.com', 'max_777001@max.local')`);
-    uid = (await pool.query<{ id: string }>(
-      `INSERT INTO users (email, name, role, password_hash) VALUES ('zap.andy@gmail.com', 'Андрей', 'guide', '') RETURNING id::text`)).rows[0].id;
+    await pool.query(`DELETE FROM user_sessions WHERE user_id::text IN ($1, $2)`, [PH, UID]);
+    await pool.query(`DELETE FROM users WHERE id::text IN ($1, $2)`, [PH, UID]);
+    await pool.query(
+      `INSERT INTO users (id, email, name, role, password_hash) VALUES ($1, 'zap.andy@gmail.com', 'Андрей', 'guide', '')`, [UID]);
+    await pool.query(
+      `INSERT INTO users (id, email, name, role, password_hash, max_user_id, telegram_id)
+       VALUES ($1, 'tg_221997120@telegram.local', 'Андрей', 'tourist', '', 777001, 221997120)`, [PH]);
     const ex = await pool.query<{ id: string }>(`SELECT id::text FROM partners WHERE slug = 'andrey-zaporozhets'`);
     real = ex.rows[0]?.id ?? (await pool.query<{ id: string }>(
       `INSERT INTO partners (name, category, contact, slug) VALUES ('Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets') RETURNING id::text`)).rows[0].id;
     await pool.query(
       `UPDATE partners SET category = 'guide', profile_status = 'approved', status = 'active', is_public = TRUE,
-              max_owner_user_id = 777001, telegram_owner_user_id = 888001 WHERE id::text = $1`, [real]);
+              max_owner_user_id = 777001, telegram_owner_user_id = 221997120 WHERE id::text = $1`, [real]);
     empty = (await pool.query<{ id: string }>(
       `INSERT INTO partners (name, category, contact, user_id, profile_status, is_public, max_owner_user_id)
-       VALUES ('Андрей Запорожец', 'guide', '{}', $1, 'pending', FALSE, 777001) RETURNING id::text`, [uid])).rows[0].id;
+       VALUES ('Андрей Запорожец', 'guide', '{}', $1, 'pending', FALSE, 777001) RETURNING id::text`, [UID])).rows[0].id;
   });
 
-  async function run(): Promise<void> {
+  async function run(sql = SQL_1390): Promise<void> {
     const c = await pool.connect();
-    try { await c.query(SQL_1389); } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
+    try { await c.query(sql); } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
   }
   const card = async (id: string) => (await pool.query<{ user_id: string | null; status: string | null; is_public: boolean }>(
     `SELECT user_id::text, status, is_public FROM partners WHERE id::text = $1`, [id])).rows[0];
+  const user = async (id: string) => (await pool.query(
+    `SELECT max_user_id::text AS mx, telegram_id::text AS tg, role, is_active FROM users WHERE id::text = $1`, [id])).rows[0];
 
-  it('привязывает, переносит id, пустую — suspended; повтор без изменений', async () => {
-    await run();
-    expect((await card(real)).user_id).toBe(uid);
-    expect(await card(empty)).toMatchObject({ user_id: null, status: 'suspended', is_public: false });
-    const u = (await pool.query(`SELECT max_user_id::text AS mx, telegram_id::text AS tg, role FROM users WHERE id::text = $1`, [uid])).rows[0];
-    expect(u).toEqual({ mx: '777001', tg: '888001', role: 'guide' });
-    await run();
-    expect((await card(real)).user_id).toBe(uid);
-  });
-
-  it('пустой турист-дубль с MAX id выключается', async () => {
-    const dup = (await pool.query<{ id: string }>(
-      `INSERT INTO users (email, name, role, password_hash, max_user_id) VALUES ('max_777001@max.local', 'MAX', 'tourist', '', 777001) RETURNING id::text`)).rows[0].id;
-    await run();
-    const d = (await pool.query(`SELECT max_user_id, is_active FROM users WHERE id::text = $1`, [dup])).rows[0];
-    expect(d).toEqual({ max_user_id: null, is_active: false });
-  });
-
-  it('у карточки по слагу чужой аккаунт — стоп, ничего не тронуто', async () => {
-    const other = (await pool.query<{ id: string }>(
-      `INSERT INTO users (email, name, role, password_hash) VALUES ('max_777001@max.local', 'X', 'guide', '') RETURNING id::text`)).rows[0].id;
-    await pool.query(`UPDATE partners SET user_id = $1 WHERE id::text = $2`, [other, real]);
-    await expect(run()).rejects.toThrow(/другой аккаунт/);
-    expect((await card(empty)).status).not.toBe('suspended');
-  });
-
-  it('у пустой карточки описание — стоп', async () => {
-    await pool.query(`UPDATE partners SET description = 'текст' WHERE id::text = $1`, [empty]);
-    await expect(run()).rejects.toThrow(/не пустая/);
+  it('1389 теперь пустая и ничего не меняет', async () => {
+    await run(SQL_1389);
     expect((await card(real)).user_id).toBeNull();
+    expect((await user(PH)).mx).toBe('777001');
+  });
+
+  it('переносит id с заглушки, выключает её, привязывает, пустую — suspended; повтор без изменений', async () => {
+    await run();
+    expect((await card(real)).user_id).toBe(UID);
+    expect(await card(empty)).toMatchObject({ user_id: null, status: 'suspended', is_public: false });
+    expect(await user(UID)).toMatchObject({ mx: '777001', tg: '221997120', role: 'guide' });
+    expect(await user(PH)).toMatchObject({ mx: null, tg: null, is_active: false });
+    await run();
+    expect((await card(real)).user_id).toBe(UID);
+  });
+
+  it('у заглушки есть карточка — стоп, ничего не тронуто', async () => {
+    await pool.query(`INSERT INTO partners (name, category, contact, user_id) VALUES ('X', 'guide', '{}', $1)`, [PH]);
+    await expect(run()).rejects.toThrow(/есть карточки/);
+    expect((await user(PH)).mx).toBe('777001');
+    await pool.query(`DELETE FROM partners WHERE user_id::text = $1`, [PH]);
+  });
+
+  it('у карточки по слагу чужой владелец — стоп', async () => {
+    await pool.query(`UPDATE partners SET user_id = $1 WHERE id::text = $2`, [PH, real]);
+    await expect(run()).rejects.toThrow(/другой владелец/);
+    expect((await card(empty)).status).not.toBe('suspended');
   });
 });
