@@ -252,7 +252,18 @@ export async function gradeKuzmichResponse(
   // Журнал вызовов не передан — исход `unknown`, и он НЕ равен «заземлено»
   // (§4.0). Прежде здесь стояло `{ ungrounded: false }`: грейдер отвечал
   // «заземлено» на вопрос, которого не проверял (находка аудита 08.09).
-  const grounding = assessGrounding(botResponse, opts?.toolRuns);
+  let grounding = assessGrounding(botResponse, opts?.toolRuns);
+  // Цены без инструмента — сверить с каталогом из базы, который уже лежит в
+  // промпте (свод плохих оценок 03.11). Импорт ленивый: core импортирует нас.
+  if (grounding.verdict === 'ungrounded' && grounding.signals.every((s) => s === 'price')) {
+    try {
+      const { loadTourCatalog } = await import('@/lib/kuzmich/core');
+      const catalogText = (await loadTourCatalog()) ?? '';
+      if (catalogText) grounding = assessGrounding(botResponse, opts?.toolRuns, { catalogText });
+    } catch (err) {
+      logSwallowedFailure('kuzmich-outcomes', 'сверка цен с каталогом', err);
+    }
+  }
 
   // Потолок — последним перед вызовом модели: отказы, обрывы и короткие
   // ответы модели не зовут и места не занимают. Исчерпан или не посчитан —
