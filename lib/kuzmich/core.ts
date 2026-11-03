@@ -25,7 +25,7 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { reachForTour } from '@/lib/partners/reach';
 import { notifyTeamOfTour } from '@/lib/operators/team-notify';
-import { priceFromUnit, priceFromUnitOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
+import { groupPriceNote, priceFromUnit, priceFromUnitOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -250,6 +250,9 @@ interface TourContextRow {
   base_price: number;
   /** За что назначена цена: за человека / за группу / за человека в день. */
   price_unit: string | null;
+  /** Мест в туре; у цены «за группу» это и есть размер группы (03.11). */
+  max_participants?: number | null;
+  group_size_unlimited?: boolean | null;
   multi_day_count: number | null;
   activity_type: string | null;
   location_name: string | null;
@@ -558,6 +561,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
   try {
     const toursResult = await pool.query<TourContextRow>(`
         SELECT ot.id, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count, ot.activity_type,
+               ot.max_participants, ot.group_size_unlimited,
                ot.location_name, ot.duration_type, ot.duration_hours,
                ot.season_start::text AS season_start, ot.season_end::text AS season_end,
                -- ЖИВАЯ занятость, не статические колонки тура: аудит пилота
@@ -642,7 +646,8 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
       // 0, и каталог печатал «от 0 р/чел», то есть «бесплатно» (18.09,
       // тур 34). Правило одно на все поверхности — lib/tours/price-label.
-      const price = priceFromUnitOrSay(r.base_price, r.price_unit);
+      const groupNote = groupPriceNote(r.base_price, r.price_unit, r.max_participants, r.group_size_unlimited);
+      const price = priceFromUnitOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
@@ -1676,7 +1681,8 @@ export async function getTourDetails(query: string): Promise<string> {
     // Здесь проверка на null уже была, но формат теперь общий с каталогом:
     // два написания одной цены разъезжаются так же, как два предиката.
     const priceLine = priceFromUnit(t.base_price, t.price_unit);
-    if (priceLine) parts.push(`Цена: ${priceLine}`);
+    const groupNote = groupPriceNote(t.base_price, t.price_unit, t.max_participants, t.group_size_unlimited);
+    if (priceLine) parts.push(`Цена: ${priceLine}${groupNote ? ` (${groupNote})` : ''}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     // Группа — общим правилом с карточкой (lib/tours/group-size, 1342): у тура
     // без предела агент слышит «не ограничена» и потолок ОДНОЙ заявки, а не
