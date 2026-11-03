@@ -178,6 +178,18 @@ describe('цены из каталога базы в промпте (свод п
     expect(pricesMatchCatalog('на двоих 90 000 ₽', catalog)).toBe(false);
     expect(assessG('Озеро — 45 000 ₽, а вертолёт 99 000 ₽', [], { catalogText: catalog }).verdict).toBe('ungrounded');
   });
+  it('цена другого тура каталога — незаземлена (разбор 03.11, п.5)', () => {
+    expect(pricesMatchCatalog('Курильское озеро — 12 000 ₽', catalog)).toBe(false);
+    expect(pricesMatchCatalog('Есть тур за 45 000 ₽', catalog)).toBe(false);
+    expect(pricesMatchCatalog('Курильское озеро — 45 000 ₽', catalog)).toBe(true);
+  });
+  it('строка настоящего каталога: ID, название в кавычках, «р/чел»', () => {
+    const real = 'ID7: "Восхождение на Авачинский вулкан" — Авачинский  тип:trekking 1 дн. от 12 000 р/чел | Оп: Шатун | Мест: 6\nID9: "Халактырский пляж" тип:walk от 3 500 р/чел';
+    expect(pricesMatchCatalog('Восхождение на Авачинский — 12 000 ₽ с человека.', real)).toBe(true);
+    expect(pricesMatchCatalog('Халактырский пляж — 12 000 ₽.', real)).toBe(false);
+    // «Мест: 6» после «|» — не цена.
+    expect(pricesMatchCatalog('Авачинский — 6 ₽', real)).toBe(false);
+  });
   it('наличие мест каталогом не заземляется', () => {
     expect(assessG('45 000 ₽, есть места на завтра', [], { catalogText: catalog }).verdict).toBe('ungrounded');
   });

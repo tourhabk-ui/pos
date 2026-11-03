@@ -129,20 +129,68 @@ export function pricesIn(answer: string): number[] {
   return out;
 }
 
+/** Служебные слова названий: по ним тур не узнаётся («тур», «вулкан»). */
+const TITLE_GENERIC = new Set(['тур', 'туры', 'тура', 'вулкан', 'вулкана', 'вулканы', 'озеро', 'озера', 'поездка', 'экскурсия',
+  'восхождение', 'путешествие', 'программа', 'камчатка', 'камчатки', 'камчатке', 'однодневный', 'дневный', 'группа',
+  'индивидуальный', 'групповой', 'день', 'дней', 'дня', 'ночь', 'ночей']);
+
+function stemsOf(title: string): string[] {
+  return [...new Set(title.toLowerCase().replace(/ё/g, 'е').match(/[\p{L}]+/gu) ?? [])]
+    .filter((w) => w.length >= 5 && !TITLE_GENERIC.has(w))
+    .map((w) => w.slice(0, Math.max(5, w.length - 2)));
+}
+
+interface CatalogPrice { stems: string[]; prices: Set<number> }
+
+/** Строки каталога «ID12: "Название" … от 45 000 р/чел …» — название и числа строки после него. */
+function catalogTours(catalogText: string): CatalogPrice[] {
+  const out: CatalogPrice[] = [];
+  for (const line of catalogText.split('\n')) {
+    const m = line.match(/^\s*(?:[•\-*]\s*)?(?:ID\d+:\s*)?"([^"]+)"(.*)$/) ?? line.match(/^\s*[•\-*]\s*([^—–:]+?)\s*[—–:]\s*(.*)$/);
+    if (!m) continue;
+    const stems = stemsOf(m[1]!);
+    // Цена — до первого «|»: дальше оператор, места и даты.
+    if (stems.length) out.push({ stems, prices: numbersOf(m[2]!.split('|')[0]!) });
+  }
+  return out;
+}
+
+/** Фраза ответа, где стоит цена: до точки, перевода строки или «;». */
+function clauseAround(answer: string, at: number): string {
+  const before = answer.slice(0, at);
+  const from = Math.max(before.lastIndexOf('\n'), before.search(/[.!?;][^.!?;]*$/)) + 1;
+  const rest = answer.slice(at);
+  const to = rest.search(/[\n;!?]|\.(?!\d)\s/);
+  return answer.slice(from, to < 0 ? answer.length : at + to).toLowerCase().replace(/ё/g, 'е');
+}
+
 /**
- * Каждая цена ответа есть в каталоге из базы (подсказка промпта Кузьмича).
+ * Каждая цена ответа — цена НАЗВАННОГО рядом тура из каталога базы.
  *
  * Свод плохих оценок 03.11: 20 из 24 «незаземлённых» — цена без вызова
- * инструмента, хотя каталог туров С ЦЕНАМИ из базы уже лежит в промпте
- * (buildTourContext). Совпадение числа с каталогом — проверка, а не вера:
- * пересчитанная сумма, скидка или выдуманная цена в каталоге не найдутся и
- * останутся незаземлёнными.
+ * инструмента, хотя каталог туров С ЦЕНАМИ уже лежит в промпте. Разбор
+ * 03.11 (п.5): совпадения числа с каким-нибудь числом каталога мало —
+ * «Курильское — 12 000 ₽», когда 12 000 стоит Авачинский, тоже совпало бы.
+ * Теперь цена заземлена, только если в той же фразе назван тур и это его
+ * цена. Тур не назван — не заземлено.
  */
 export function pricesMatchCatalog(answer: string, catalogText: string): boolean {
-  const prices = pricesIn(answer);
-  if (prices.length === 0 || !catalogText) return false;
-  const known = numbersOf(catalogText);
-  return prices.every((p) => known.has(p));
+  if (!catalogText) return false;
+  const tours = catalogTours(catalogText);
+  const re = /(\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)\s*(тыс\.?|тысяч\w*|к\b)?\s*(₽|руб|р\.)/gi;
+  let any = false;
+  for (const m of answer.matchAll(re)) {
+    any = true;
+    const n = Number(m[1]!.replace(/[ \u00a0\u202f]/g, ''));
+    const price = m[2] ? n * 1000 : n;
+    const clause = clauseAround(answer, m.index!);
+    const named = tours.filter((t) => {
+      const hit = t.stems.filter((st) => clause.includes(st)).length;
+      return hit > 0 && hit * 2 >= t.stems.length;
+    });
+    if (!named.some((t) => t.prices.has(price))) return false;
+  }
+  return any;
 }
 
 export function assessGrounding(
