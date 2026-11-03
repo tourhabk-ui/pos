@@ -2004,7 +2004,7 @@ export async function callDeepSeek(
   if (!apiKey) { recordAiLegFailure('deepseek', 'no_key'); return null; }
 
   try {
-    const model = await resolveDeepSeekModel();
+    const model = opts?.deepseekModel ?? await resolveDeepSeekModel();
     const payload = messages.map(({ role, content }) => ({ role, content }));
     const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -2633,6 +2633,38 @@ async function resolveBestModel(
   const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
   PURPOSE_MODEL_CACHE.set(cacheKey, { id: picked, at: Date.now() });
   return picked;
+}
+
+/**
+ * Лёгкая модель DeepSeek (flash-класс) — для судьи эвала (03.11).
+ * Судья — структурная задача (JSON с баллом), а v4-pro стоит в разы дороже:
+ * 03.11 эвалы на v4-pro дали $69 за день. Id не хардкодим (§8):
+ * DEEPSEEK_FAST_MODEL → /models, первая с flash/lite/mini в имени → null
+ * (тогда вызывающий идёт прежним путём).
+ */
+export async function resolveDeepSeekFastModel(): Promise<string | null> {
+  const override = process.env.DEEPSEEK_FAST_MODEL?.trim();
+  if (override) return override;
+  const cached = PURPOSE_MODEL_CACHE.get('fast:deepseek');
+  if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS && !isMarkedExhausted(cached.id)) return cached.id;
+  const ids = (await getProviderModelIds('deepseek')).filter((id) => !isMarkedExhausted(id));
+  const picked = ids.find((id) => /flash|lite|mini/i.test(id)) ?? null;
+  if (picked) PURPOSE_MODEL_CACHE.set('fast:deepseek', { id: picked, at: Date.now() });
+  return picked;
+}
+
+/**
+ * Один дешёвый вызов лёгкой модели DeepSeek — для судьи эвала (03.11).
+ * Не гонка: одна нога, одна оплата. null — лёгкой нет в каталоге, ключа нет
+ * или ответа нет; вызывающий идёт своим прежним путём (callAIFast/водопад).
+ */
+export async function callAICheap(
+  messages: ChatMessage[],
+  opts?: Omit<FastCallOptions, 'deepseekModel'>,
+): Promise<string | null> {
+  const model = await resolveDeepSeekFastModel();
+  if (!model) return null;
+  return callDeepSeek(messages, { ...opts, deepseekModel: model });
 }
 
 export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promise<string> {
@@ -5525,6 +5557,11 @@ export interface FastCallOptions {
    * вернул «не ответил никто». Разница между ними — только предел ожидания.
    */
   timeoutMs?: number;
+  /**
+   * Явная модель DeepSeek для callDeepSeek (03.11, судья эвала на flash).
+   * Не задана — прежний резолв сильнейшей (resolveDeepSeekModel).
+   */
+  deepseekModel?: string;
 }
 
 /**

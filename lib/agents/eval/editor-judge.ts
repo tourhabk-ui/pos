@@ -14,7 +14,7 @@
  * Eval-only: используется регрессионным харнессом, в живой Editor не вмешивается.
  */
 
-import { callAIFast, callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callAIFast, callAIWaterfall, callAICheap, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { RouteRow } from '@/lib/agents/editor';
 
 export interface JudgeVerdict {
@@ -66,6 +66,21 @@ export async function judgeWithFallback(system: string, user: string): Promise<J
     { role: 'system' as const, content: system },
     { role: 'user' as const, content: user },
   ];
+
+  // Попытка 0 — один дешёвый вызов DeepSeek flash (03.11). Раньше первой
+  // шла гонка callAIFast: DeepSeek (сильнейшая, v4-pro) + Gemini + Kimi +
+  // OpenRouter ОДНОВРЕМЕННО — платили за каждую ногу, а судьёй брали одну.
+  // Flash без размышления даёт тот же JSON с баллом; не ответил или ответ
+  // без балла — прежний путь ниже, качество не теряется.
+  try {
+    const raw = await callAICheap(messages, { maxTokens: 1000, timeoutMs: 45_000 });
+    if (raw && !isWaterfallErrorResponse(raw)) {
+      const score = parseJudgeScore(raw);
+      if (score !== null) return { score, reason: raw.slice(0, 200) };
+    }
+  } catch (err) {
+    console.warn('[editor-judge] дешёвый судья упал, идём гонкой:', err instanceof Error ? err.message : err);
+  }
 
   // Попытка 1 — быстрый набор.
   try {
