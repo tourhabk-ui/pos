@@ -41,6 +41,7 @@ import { handleStayBusyPhrase } from '@/lib/stay/busy-flow';
 import { redactPII } from '@/lib/security/pii-redact';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
+import { handlePriceChangePhrase } from '@/lib/kuzmich/price-change-phrase';
 import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -484,6 +485,15 @@ export async function processPartnerMessage(opts: {
   if (busy !== null) {
     await saveAnswer(busy.text);
     await reply(chatId, busy.text, busy.buttons);
+    return;
+  }
+
+  // «Подними всё на 10%» / «наценка на выходные 15%» (K.ai B4): без модели,
+  // цены не пишутся — предпросмотр и ссылка на подтверждение на сайте.
+  const priced = await handlePriceChangePhrase({ partnerId: partner.partnerId, sellsTours: sellsOwnTours(partner), text, nowMs });
+  if (priced !== null) {
+    await saveAnswer(priced);
+    await reply(chatId, priced);
     return;
   }
 
