@@ -138,7 +138,8 @@ export function redactChatPD(text: string | null | undefined, names: ReadonlyArr
     if (!t || t.length < 2) continue;
     for (const part of [t, ...t.split(/\s+/).filter((w) => w.length >= 3)]) {
       const esc = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      out = out.replace(new RegExp(`(?<![\\p{L}])${esc}(?![\\p{L}])`, 'giu'), '[имя]');
+      // Без lookbehind: модуль идёт в клиентский бандл (Safari < 16.4).
+      out = out.replace(new RegExp(`(^|[^\\p{L}])${esc}(?![\\p{L}])`, 'giu'), '$1[имя]');
     }
   }
   return redactPII(out);
