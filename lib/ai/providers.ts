@@ -79,6 +79,19 @@ interface ProviderUsage { prompt_tokens?: number; completion_tokens?: number }
 const COST_PER_1K: Record<string, number> = {
   'deepseek-chat':                             0.00050,
   'deepseek/deepseek-chat-v3-0324':            0.00050,
+  // DeepSeek V4 (03.11.2026), цены ТОЛЬКО с официальной страницы
+  // https://api-docs.deepseek.com/quick_start/pricing — за 1М токенов, ПИКОВЫЕ
+  // (01-04 и 06-10 UTC пн-пт; вне пика вдвое дешевле). Пик берём сознательно:
+  // запас — оценка сверху для бюджета, а не занижение.
+  //   deepseek-v4-pro: вход cache miss $1.32, cache hit $0.044, выход $3.96;
+  //   deepseek-flash (он же deepseek-v4-flash): miss $0.30, hit $0.006, выход $1.20.
+  // Таблица блендовая, как выше: 0.875·вход(miss) + 0.125·выход.
+  // Pro: 0.875·1.32 + 0.125·3.96 = 1.65 за млн; Flash: 0.875·0.30 + 0.125·1.20 = 0.4125.
+  'deepseek-v4-pro':                           0.00165,
+  'deepseek/deepseek-v4-pro':                  0.00165,
+  'deepseek-flash':                            0.0004125,
+  'deepseek-v4-flash':                         0.0004125,
+  'deepseek/deepseek-v4-flash':                0.0004125,
   'anthropic/claude-fable-5':                  0.01500,
   // Opus 5 — ВДВОЕ дешевле Fable 5: $5/$25 за млн против $10/$50
   // (анонс Anthropic 25.07.2026). До анонса цена стояла как у Opus 4.8, то
