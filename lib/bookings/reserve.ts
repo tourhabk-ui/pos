@@ -275,7 +275,7 @@ export async function readTourDays(
   if (exclude != null) params.push(exclude);
   const days = await exec.query<TourDay>(
     `SELECT d.day::date AS date,
-            COALESCE(occ.occupied, 0) AS occupied,
+            (COALESCE(occ.occupied, 0) + COALESCE(hold.held, 0)) AS occupied,
             ta.available_slots,
             ta.is_cancelled
        FROM generate_series($2::date, $3::date, '1 day') AS d(day)
@@ -292,6 +292,14 @@ export async function readTourDays(
             AND d.day::date BETWEEN b.booking_date
                                 AND COALESCE(b.end_date, b.booking_date)
        ) occ ON true
+       -- Места, занятые оператором («Занять места», миграция 1368), держатся
+       -- до «Освободить» — как на витрине (occupiedOnDaySql, разбор 03.11).
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(h.seats), 0) AS held
+           FROM tour_seat_holds h
+          WHERE h.tour_id = $1 AND h.hold_date = d.day::date
+            AND h.released_at IS NULL
+       ) hold ON true
       ORDER BY d.day`,
     params,
   );
