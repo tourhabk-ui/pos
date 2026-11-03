@@ -25,14 +25,18 @@ withPg('1389: карточка Андрея Запорожца получает 
   afterAll(async () => { await pool?.end().catch(() => undefined); });
 
   beforeEach(async () => {
-    await pool.query(`DELETE FROM operator_applications WHERE partner_id IN (SELECT id FROM partners WHERE name = 'Андрей Запорожец')`);
-    await pool.query(`DELETE FROM partners WHERE name = 'Андрей Запорожец'`);
+    // Карточку andrey-zaporozhets в схеме заводит 1338 (с турами) — берём её, а не вставляем вторую.
+    await pool.query(`UPDATE partners SET user_id = NULL WHERE slug = 'andrey-zaporozhets'`);
+    await pool.query(`DELETE FROM partners WHERE name = 'Андрей Запорожец' AND slug IS DISTINCT FROM 'andrey-zaporozhets'`);
     await pool.query(`DELETE FROM users WHERE email IN ('zap.andy@gmail.com', 'max_777001@max.local')`);
     uid = (await pool.query<{ id: string }>(
       `INSERT INTO users (email, name, role, password_hash) VALUES ('zap.andy@gmail.com', 'Андрей', 'guide', '') RETURNING id::text`)).rows[0].id;
-    real = (await pool.query<{ id: string }>(
-      `INSERT INTO partners (name, category, contact, slug, profile_status, status, is_public, max_owner_user_id, telegram_owner_user_id)
-       VALUES ('Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets', 'approved', 'active', TRUE, 777001, 888001) RETURNING id::text`)).rows[0].id;
+    const ex = await pool.query<{ id: string }>(`SELECT id::text FROM partners WHERE slug = 'andrey-zaporozhets'`);
+    real = ex.rows[0]?.id ?? (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, slug) VALUES ('Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets') RETURNING id::text`)).rows[0].id;
+    await pool.query(
+      `UPDATE partners SET category = 'guide', profile_status = 'approved', status = 'active', is_public = TRUE,
+              max_owner_user_id = 777001, telegram_owner_user_id = 888001 WHERE id::text = $1`, [real]);
     empty = (await pool.query<{ id: string }>(
       `INSERT INTO partners (name, category, contact, user_id, profile_status, is_public, max_owner_user_id)
        VALUES ('Андрей Запорожец', 'guide', '{}', $1, 'pending', FALSE, 777001) RETURNING id::text`, [uid])).rows[0].id;

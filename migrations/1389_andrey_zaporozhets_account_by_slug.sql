@@ -29,15 +29,52 @@ DECLARE
   tg BIGINT;
   holder RECORD;
 BEGIN
-  SELECT count(*) INTO n FROM users WHERE lower(btrim(email)) = 'zap.andy@gmail.com';
-  IF n <> 1 THEN RAISE EXCEPTION '1389: аккаунтов zap.andy@gmail.com: % (нужен один)', n; END IF;
-  SELECT * INTO v_user FROM users WHERE lower(btrim(email)) = 'zap.andy@gmail.com' FOR UPDATE;
-
   SELECT count(*) INTO n FROM partners WHERE slug = 'andrey-zaporozhets';
-  IF n <> 1 THEN RAISE EXCEPTION '1389: карточек со слагом andrey-zaporozhets: %', n; END IF;
+  IF n = 0 THEN RAISE NOTICE '1389: карточки andrey-zaporozhets нет — пропуск'; RETURN; END IF;
+  IF n > 1 THEN RAISE EXCEPTION '1389: карточек со слагом andrey-zaporozhets: %', n; END IF;
   SELECT * INTO v_real FROM partners WHERE slug = 'andrey-zaporozhets' FOR UPDATE;
   IF v_real.category IS DISTINCT FROM 'guide' THEN
     RAISE EXCEPTION '1389: andrey-zaporozhets — не гид (%)', v_real.category; END IF;
+
+  -- Пустая карточка из регистрации: почта zap.andy@gmail.com — у аккаунта
+  -- карточки или в заявке (админка показывает любую из двух), «Ожидает».
+  SELECT count(*) INTO n FROM partners p
+   WHERE p.id::text <> v_real.id::text AND p.category = 'guide'
+     AND (p.profile_status = 'pending' OR p.status = 'pending')
+     AND (EXISTS (SELECT 1 FROM users u WHERE u.id::text = p.user_id::text
+                   AND lower(btrim(u.email)) = 'zap.andy@gmail.com')
+          OR EXISTS (SELECT 1 FROM operator_applications oa
+                      WHERE oa.partner_id::text = p.id::text
+                        AND lower(btrim(oa.contact_email)) = 'zap.andy@gmail.com'));
+  IF n > 1 THEN RAISE EXCEPTION '1389: пустых карточек zap.andy@gmail.com: %', n; END IF;
+  IF n = 1 THEN
+    SELECT p.* INTO v_new FROM partners p
+     WHERE p.id::text <> v_real.id::text AND p.category = 'guide'
+       AND (p.profile_status = 'pending' OR p.status = 'pending')
+       AND (EXISTS (SELECT 1 FROM users u WHERE u.id::text = p.user_id::text
+                     AND lower(btrim(u.email)) = 'zap.andy@gmail.com')
+            OR EXISTS (SELECT 1 FROM operator_applications oa
+                        WHERE oa.partner_id::text = p.id::text
+                          AND lower(btrim(oa.contact_email)) = 'zap.andy@gmail.com'))
+     FOR UPDATE OF p;
+  END IF;
+
+  -- Аккаунт: users.email = zap.andy@gmail.com и/или аккаунт пустой карточки.
+  -- Должен получиться ровно один.
+  SELECT count(DISTINCT id) INTO n FROM users
+   WHERE lower(btrim(email)) = 'zap.andy@gmail.com'
+      OR (v_new.user_id IS NOT NULL AND id::text = v_new.user_id::text);
+  IF n = 0 THEN
+    IF v_real.user_id IS NULL THEN
+      RAISE WARNING '1389: аккаунта zap.andy@gmail.com нет (ни по почте, ни у пустой карточки) — ничего не тронуто';
+    END IF;
+    RETURN;
+  END IF;
+  IF n > 1 THEN RAISE EXCEPTION '1389: кандидатов в аккаунт: % (почта и аккаунт пустой карточки расходятся)', n; END IF;
+  SELECT * INTO v_user FROM users
+   WHERE lower(btrim(email)) = 'zap.andy@gmail.com'
+      OR (v_new.user_id IS NOT NULL AND id::text = v_new.user_id::text)
+   FOR UPDATE;
 
   IF v_real.user_id IS NOT NULL THEN
     IF v_real.user_id::text = v_user.id::text THEN
@@ -46,22 +83,7 @@ BEGIN
     RAISE EXCEPTION '1389: у карточки andrey-zaporozhets другой аккаунт %', v_real.user_id;
   END IF;
 
-  -- Пустая карточка из регистрации: почта zap.andy (аккаунт или заявка), pending.
-  SELECT count(*) INTO n FROM partners p
-   WHERE p.id::text <> v_real.id::text AND (p.profile_status = 'pending' OR p.status = 'pending')
-     AND (p.user_id::text = v_user.id::text
-          OR EXISTS (SELECT 1 FROM operator_applications oa
-                      WHERE oa.partner_id::text = p.id::text
-                        AND lower(btrim(oa.contact_email)) = 'zap.andy@gmail.com'));
-  IF n > 1 THEN RAISE EXCEPTION '1389: пустых карточек zap.andy@gmail.com: %', n; END IF;
-  IF n = 1 THEN
-    SELECT p.* INTO v_new FROM partners p
-     WHERE p.id::text <> v_real.id::text AND (p.profile_status = 'pending' OR p.status = 'pending')
-       AND (p.user_id::text = v_user.id::text
-            OR EXISTS (SELECT 1 FROM operator_applications oa
-                        WHERE oa.partner_id::text = p.id::text
-                          AND lower(btrim(oa.contact_email)) = 'zap.andy@gmail.com'))
-     FOR UPDATE OF p;
+  IF v_new.id IS NOT NULL THEN
     IF v_new.user_id IS NOT NULL AND v_new.user_id::text <> v_user.id::text THEN
       RAISE EXCEPTION '1389: пустая карточка % принадлежит другому аккаунту %', v_new.id, v_new.user_id; END IF;
     IF COALESCE(btrim(v_new.description), '') <> '' THEN
