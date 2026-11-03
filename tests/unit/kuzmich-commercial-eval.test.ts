@@ -23,6 +23,7 @@ vi.mock('@/lib/kuzmich/core', () => ({
 }));
 vi.mock('@/lib/notifications/tg-send', () => ({ tgSend: h.tgSend }));
 vi.mock('@/lib/agents/run-logger', () => ({ logAgentRun: h.logAgentRun }));
+vi.mock('@/lib/agents/cron-lease', () => ({ claimCronWindow: async () => 'claimed' }));
 // Судья faithfulness роута — подложен: здесь судятся критерии, а не модель.
 vi.mock('@/lib/agents/eval/editor-judge', () => ({ judgeWithFallback: async () => ({ score: 5, reason: 'ok' }) }));
 

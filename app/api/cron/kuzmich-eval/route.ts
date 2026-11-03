@@ -22,6 +22,20 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { runWithUsageTracking } from '@/lib/ai/usage-context';
+import { claimCronWindow } from '@/lib/agents/cron-lease';
+
+/**
+ * Предохранитель расхода (03.11). За сутки workflow запустили вручную 10 раз
+ * (каждый — три набора: 20 + 68 + 10 вопросов на deepseek-v4-pro плюс судья),
+ * и дневной расход дошёл до $69 при лимите $5. Еженедельный прогон остаётся,
+ * но один и тот же набор не идёт чаще раза в EVAL_MIN_GAP_HOURS: окно
+ * занимается арендой ДО работы, поэтому второй вызов в том же окне (в том
+ * числе пока первый ещё идёт) уходит с 429 и не тратит ни цента.
+ * `?force=1` — осознанный обход, только когда владелец сказал «да».
+ * Отказ БД при захвате — тоже отказ: лишний прогон стоит денег, пропущенный —
+ * недели ожидания, и здесь дешевле второе.
+ */
+const EVAL_MIN_GAP_HOURS = 20;
 
 export const dynamic = 'force-dynamic';
 // Потолок поднят вместе с потолком curl в workflow (замер 11.09): двадцать
@@ -51,6 +65,19 @@ export async function GET(request: NextRequest) {
   const commercialSet = source === 'fixture' && request.nextUrl.searchParams.get('set') === 'commercial';
   const limitRaw = parseInt(request.nextUrl.searchParams.get('limit') ?? '10', 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 15) : 10;
+
+  const force = request.nextUrl.searchParams.get('force') === '1';
+  const leaseAgent = source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval');
+  if (!force) {
+    const lease = await claimCronWindow(`${leaseAgent}-cost-guard`, EVAL_MIN_GAP_HOURS * 60, 'workflow');
+    if (lease !== 'claimed') {
+      return NextResponse.json({
+        ok: false,
+        skipped: lease === 'held' ? 'cost_guard_recent_run' : 'cost_guard_db_unknown',
+        note: `Этот набор уже запускался в текущем окне ${EVAL_MIN_GAP_HOURS} ч — повтор не запущен, деньги не потрачены. Обход: ?force=1 (только с «да» владельца).`,
+      }, { status: 429 });
+    }
+  }
 
   const started_at = new Date();
   // Имя прогона — и в журнале, и в книгах расхода. Без учёта агента ноги
