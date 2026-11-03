@@ -128,10 +128,10 @@ BEGIN
   RAISE NOTICE '1390: у 4e2ae003 пароль задан: %', COALESCE(u.password_hash, '') <> '';
   RAISE NOTICE '1390: MAX id %, Telegram id %', mx, tg;
 
-  RAISE NOTICE '1390 BACKUP users %', (SELECT row_to_json(x) FROM users x WHERE x.id::text = c_uid);
-  RAISE NOTICE '1390 BACKUP users %', (SELECT row_to_json(x) FROM users x WHERE x.id::text = c_ph);
-  RAISE NOTICE '1390 BACKUP partners %', (SELECT row_to_json(x) FROM partners x WHERE x.id::text = c_a);
-  RAISE NOTICE '1390 BACKUP partners %', (SELECT row_to_json(x) FROM partners x WHERE x.id::text = c_b);
+  RAISE NOTICE '1390 BACKUP users %', row_to_json(u);
+  RAISE NOTICE '1390 BACKUP users %', CASE WHEN has_ph THEN row_to_json(ph) END;
+  RAISE NOTICE '1390 BACKUP partners %', CASE WHEN has_a THEN row_to_json(a) END;
+  RAISE NOTICE '1390 BACKUP partners %', row_to_json(b);
 
   IF has_ph THEN
     UPDATE users SET max_user_id = NULL, telegram_id = NULL, is_active = FALSE, updated_at = NOW()
@@ -152,7 +152,7 @@ BEGIN
      WHERE id::text = c_a;
   END IF;
 
-  UPDATE partners SET user_id = c_uid::uuid, updated_at = NOW() WHERE id::text = c_b;
+  UPDATE partners SET user_id = u.id, updated_at = NOW() WHERE id::text = c_b;
 
   RAISE NOTICE '1390: готово — B владелец 4e2ae003, MAX %, TG %, A suspended, заглушка выключена', mx, tg;
 END
