@@ -341,6 +341,11 @@ GitHub Deployment `vedarai.ru`, которую `deploy.yml` пишет посл�
   и чьим ключом — CLAUDE.md §8 «Два ключа».
 - Решатель эволюции (судья находок) — `callAIDecision`, флагман через
   OpenRouter (вендор задаётся в workflow, не id).
+- Судья эвала Кузьмича (`judgeWithFallback`, `lib/agents/eval/editor-judge.ts`)
+  с 03.11 идёт так: один вызов лёгкой DeepSeek (`callAICheap`: `DEEPSEEK_FAST_MODEL`
+  или первая flash/lite/mini из `/models`, без размышления) → при отказе или
+  ответе без балла — прежняя гонка `callAIFast` → водопад. Раньше первой шла
+  гонка четырёх провайдеров с DeepSeek v4-pro: каждый балл оплачивался 3–4 раза.
 
 ### 4.7 Деплой
 
