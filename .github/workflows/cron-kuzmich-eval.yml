@@ -19,6 +19,13 @@ on:
   schedule:
     - cron: '0 5 * * 1'  # каждый понедельник 05:00 UTC
   workflow_dispatch:
+    inputs:
+      sets:
+        description: 'Что гонять вручную: base (20 вопросов, ~$1) или all (base + 68 о турах + живые, ~$5+). all — только с «да» владельца'
+        required: true
+        default: base
+        type: choice
+        options: [base, all]
   # Запуск маркером (11.09): workflow_dispatch через интеграцию отвечает 403,
   # а перемерять эвал надо после КАЖДОЙ правки промпта, поиска или набора
   # вопросов. До этого дня проверить починку можно было только дождавшись
@@ -29,6 +36,13 @@ on:
     branches: [main]
     paths:
       - '.github/triggers/kuzmich-eval.json'
+
+# Предохранитель расхода (03.11, $69 за день от ручных прогонов): два прогона
+# сразу не идут — новый отменяет ещё ждущий/идущий. Сервер дополнительно
+# отказывает (429) повтору набора чаще раза в 20 ч — см. route.ts.
+concurrency:
+  group: kuzmich-eval
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -78,7 +92,9 @@ jobs:
       # Не дождались сборки — на старом коде этот шаг прогнал бы базовый набор
       # под чужим именем; от провала базового шага он не зависит.
       - name: Kuzmich Eval — вопросы о турах (критерии)
-        if: always() && steps.wait.outcome != 'failure'
+        # Ручной/маркерный запуск гоняет только base: 68 вопросов о турах и
+        # живые — по расписанию или явным sets=all.
+        if: always() && steps.wait.outcome != 'failure' && (github.event_name == 'schedule' || inputs.sets == 'all')
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -99,7 +115,7 @@ jobs:
       # контекст (J-Lens) — фикстурный прогон может быть систематически
       # оптимистичнее реального трафика.
       - name: Kuzmich Eval — живые вопросы из chat_sessions
-        if: always()
+        if: always() && (github.event_name == 'schedule' || inputs.sets == 'all')
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
