@@ -14,7 +14,7 @@ import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/ale
 import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { ingestMeteoalert } from '@/lib/services/safety/meteoalert';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { pool } from '@/lib/db-pool';
@@ -340,9 +340,22 @@ async function anchorVolcanoAlerts(): Promise<VolcanoAnchorResult> {
   }
 }
 
+/**
+ * Потолок пересчёта статусов точек (03.11). Сейсмо молчало с 07:19Z: с 12:10Z
+ * каждый GET упирался в 100 с и называл «висит: после сбора источников» —
+ * источники собраны, стоит раскладка по точкам. Запрос без потолка держал
+ * соединение общего пула (max 20) и heartbeat не писался вовсе.
+ * SET LOCAL — только в этой транзакции: пул и SOS не затронуты (db-pool.ts).
+ */
+export const RT_STATUS_STATEMENT_TIMEOUT_MS = 45_000;
+export const RT_STATUS_LOCK_TIMEOUT_MS = 10_000;
+
 async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
-    const r = await query(`
+    const r = await transaction(async (client) => {
+    await client.query(`SET LOCAL statement_timeout = ${RT_STATUS_STATEMENT_TIMEOUT_MS}`);
+    await client.query(`SET LOCAL lock_timeout = ${RT_STATUS_LOCK_TIMEOUT_MS}`);
+    return client.query(`
       WITH matched AS (
         -- LEFT JOIN external_alerts: каждая точка обязана попасть в агрегат
         -- ровно один раз, даже без единого совпадения — иначе точка без
@@ -478,6 +491,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
       JOIN volc ON volc.lrs_id = agg.lrs_id
       WHERE agg.lrs_id = lrs.id
     `, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1]);
+    });
     // Safety Decision Ledger (925): одно событие на прогон, не на алерт — сам
     // SQL агрегатный (array_agg/MAX(severity) по CTE), per-alert разбивка
     // здесь не восстановима без переписывания запроса на построчный проход
@@ -1126,18 +1140,21 @@ async function runGet(t0: number, startedAt: Date, pending: Set<string>): Promis
   // Уборка не имеет права убивать приём. Сейсмика — безопасность людей,
   // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
   // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
-  const pruned = await safely('prune', () => pruneRejectedGenres(query));
+  const pruned = await tracked(pending, 'prune', safely('prune', () => pruneRejectedGenres(query)));
   // ДО пересчёта статуса: предупреждение «на 3 октября» после конца дня не
   // должно красить места ещё один прогон.
-  const datedCaps = await safely('dated-cap', () => capDatedWarnings(query));
+  const datedCaps = await tracked(pending, 'dated-cap', safely('dated-cap', () => capDatedWarnings(query)));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
-  const roadAnchors = await safely('road-anchor', () => anchorRoadAlerts());
+  const roadAnchors = await tracked(pending, 'road-anchor', safely('road-anchor', () => anchorRoadAlerts()));
   // Тем же порядком и по той же причине: без привязки вулканическое
   // предупреждение не попадёт в свою ветку и уйдёт зоной ещё на прогон.
-  const volcanoAnchors = await safely('volcano-anchor', () => anchorVolcanoAlerts());
-  const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  const volcanoAnchors = await tracked(pending, 'volcano-anchor', safely('volcano-anchor', () => anchorVolcanoAlerts()));
+  const [rtStatus, pushResult] = await Promise.all([
+    tracked(pending, 'статусы точек', updateRealTimeStatus()),
+    tracked(pending, 'push', dispatchPushAlerts()),
+  ]);
   const durationMs = Date.now() - t0;
   // Статус — по источникам, которыми владеет heartbeat (см. записи здоровья
   // ниже): kbgsras/eqkam сюда НЕ входят, t.me с хостинга гео-закрыт, и по ним
