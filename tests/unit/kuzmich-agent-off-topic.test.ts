@@ -22,6 +22,21 @@ describe('agentOffTopic', () => {
   ])('по теме: %s', (q) => expect(agentOffTopic(q)).toBe(false));
 });
 
+describe('agentOffTopic: ЧП не уходит в отказ (разбор 03.11)', () => {
+  it.each([
+    'Rescuers are investigating, we are lost near Gorely',
+    'Is the Avacha trail definitely safe today? A tourist fell',
+    'Examining options: bear attack near the camp, what to do?',
+    'Это инвестиционный тур? нет — мы заблудились у Горелого',
+  ])('не отказ: %s', (q) => expect(agentOffTopic(q)).toBe(false));
+
+  it.each(['investigating the trail', 'definitely', 'examining options for the tour'])(
+    'нет ложного крипто-совпадения: %s', (q) => expect(agentOffTopic(q)).toBe(false));
+
+  it.each(['Invest in DeFi now', 'Bitcoin mining partnership', 'investment offer for you'])(
+    'крипто по-прежнему отказ: %s', (q) => expect(agentOffTopic(q)).toBe(true));
+});
+
 describe('offTopicReply', () => {
   it('язык вопроса и «оператор подтверждает», без «менеджер»', () => {
     expect(offTopicReply('Solve this puzzle')).toBe(OFF_TOPIC_EN);
