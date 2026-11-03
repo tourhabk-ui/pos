@@ -233,6 +233,8 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
   beforeEach(async () => {
     await pool.query(`DELETE FROM bookings WHERE user_id::text = $1`, [PH]);
     await pool.query(`DELETE FROM partners WHERE id::text IN ($1, $2) OR user_id::text IN ($3, $4)`, [CARD_A, CARD_B, UID, PH]);
+    await pool.query(`DELETE FROM user_sessions WHERE user_id::text IN ($1, $2)`, [UID, PH]);
+    await pool.query(`DELETE FROM user_ai_memory WHERE user_id::text IN ($1, $2)`, [UID, PH]);
     await pool.query(`DELETE FROM users WHERE id::text IN ($1, $2)`, [UID, PH]);
     // Аккаунт zap.andy — с паролем, без мессенджеров.
     await pool.query(`INSERT INTO users (id, email, name, role, password_hash) VALUES ($1, 'zap.andy@gmail.com', 'Андрей', 'guide', 'hash')`, [UID]);
