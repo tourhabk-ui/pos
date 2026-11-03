@@ -34,6 +34,7 @@
  * ни в лог.
  */
 
+import { loadPeriodReport, type ReportPeriod } from '@/lib/crm/report-period';
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { findPartnerByChat, type PartnerChatContext } from '@/lib/kuzmich/operator-chat';
@@ -56,7 +57,7 @@ import { findMemberByChat } from '@/lib/operators/member-chat';
 import {
   CABINET_TEXT, CLIENTS_PAGE_SIZE, CLIENT_NOT_FOUND, FLEET_TEXT, REMIND_TITLE, REMIND_WORDS, SEARCH_QUERY_MAX, SEARCH_TELEGRAM,
   SEARCH_WAIT_MIN, TELEGRAM_NO_NAMES, TOUCH_TITLE, canMoveToTomorrow, clientCardScreen, clientsScreen,
-  busyScreen, carrierSummaryScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, todayScreen, todayTaskCounts, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
+  busyScreen, carrierSummaryScreen, reportScreen, contactResultScreen, fleetScreen, inboxScreen, itemCardScreen, todayScreen, todayTaskCounts, itemGoneScreen, kamchatkaMorning, moreScreen, noticeScreen,
   failedScreen, digestScreen, DIGEST_MEMBER, DIGEST_WORDS,
   searchPromptScreen, searchResultsScreen, tasksScreen,
   type CabinetChannel, type CabinetPartner, type CabinetScreen, type CabinetSeat,
@@ -344,6 +345,13 @@ async function readDigestMode(partnerId: string): Promise<DigestMode | null> {
     logFail('время сводки', err);
     return null;
   }
+}
+
+/** Отчёт за период — только владелец кабинета оператора (деньги менеджеру не показываем без решения владельца). */
+async function reportView(c: Ctx, period: ReportPeriod, nowMs: number): Promise<CabinetScreen> {
+  if (c.partner.role !== 'operator') return noticeScreen('Отчёт по броням — в кабинете туроператора.');
+  if (c.partner.seat === 'member') return noticeScreen('Отчёт по броням и деньгам видит владелец кабинета.');
+  return reportScreen(await loadPeriodReport(c.ctx.partnerId, period, nowMs), period);
 }
 
 async function moreView(c: Ctx): Promise<CabinetScreen> {
@@ -833,6 +841,7 @@ export async function handleCabinetPress(input: {
   switch (press.kind) {
     case 'more': out = await moreView(g); break;
     case 'today': out = await todayView(g, nowMs); break;
+    case 'report': out = await reportView(g, press.period, nowMs); break;
     case 'digest': out = await digestView(g); break;
     case 'digest_set': out = await setDigest(g, press.mode, nowMs); break;
     case 'inbox': out = await inboxView(g, press.page, nowMs); break;

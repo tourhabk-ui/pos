@@ -31,6 +31,7 @@ const REST_TWIN: Readonly<Record<string, { route: string; fn: string; module: st
   crm_add_touch: { route: 'app/api/hub/crm/contacts/[id]/events/route.ts', fn: 'addContactTouch', module: '@/lib/crm/events' },
   crm_add_task: { route: 'app/api/hub/crm/tasks/route.ts', fn: 'createTask', module: '@/lib/crm/tasks' },
   crm_complete_task: { route: 'app/api/hub/crm/tasks/[id]/route.ts', fn: 'completeTask', module: '@/lib/crm/tasks' },
+  crm_report: { route: 'app/api/hub/crm/report/route.ts', fn: 'loadPeriodReport', module: '@/lib/crm/report-period' },
 };
 
 function importsFrom(src: string, fn: string, module: string): boolean {

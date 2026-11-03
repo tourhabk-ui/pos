@@ -34,6 +34,7 @@
  * по умолчанию) пишущих инструментов не видит, а на их вызов отвечает
  * отказом словами и в базу не ходит.
  */
+import { REPORT_PERIODS, loadPeriodReport, type ReportPeriod } from '@/lib/crm/report-period';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import type { PartnerCategory } from '@/lib/crm/partner-context';
@@ -450,8 +451,24 @@ const crmCompleteTask = tool(
   },
 );
 
+const crmReport = tool(
+  'crm_report',
+  'Отчёт туроператора по броням за период: сколько броней по дате оформления и по дате поездки, по статусам и турам, '
+    + 'сколько оплачено (только оплаченные), сколько новых заявок. Только чтение, без имён. Зови на «как мои брони за неделю/месяц». '
+    + 'Числа повторяй как есть, не округляй и не досчитывай.',
+  { type: 'object', properties: { period: { type: 'string', enum: [...REPORT_PERIODS], description: 'this_week | last_week | this_month | last_month (неделя пн–вс, Камчатка)' } }, required: ['period'] },
+  z.object({ period: z.enum(REPORT_PERIODS as unknown as [ReportPeriod, ...ReportPeriod[]]) }),
+  false,
+  async (args, ctx, db) => {
+    if (ctx.category !== 'operator') return { ok: false, error: 'Отчёт по броням есть только у туроператора' };
+    const r = await loadPeriodReport(ctx.partnerId, args.period, ctx.nowMs ?? Date.now(), db);
+    if (!r) return { ok: false, error: 'Брони не прочитались — не называй цифры' };
+    return { ok: true, data: { from: r.from, to: r.to, new_requests: r.leads, by_booking_created: r.byCreated, by_trip_date: r.byTrip, money_note: 'paidRub — только оплаченные, рубли без округления' } };
+  },
+);
+
 const SPECS: Readonly<Record<string, CrmToolSpec<z.ZodTypeAny>>> = Object.fromEntries(
-  [crmInbox, crmFindContact, crmContactCard, crmTasks, crmAddTouch, crmAddTask, crmCompleteTask]
+  [crmInbox, crmFindContact, crmContactCard, crmTasks, crmAddTouch, crmAddTask, crmCompleteTask, crmReport]
     .map((s) => [s.definition.function.name, s]),
 );
 

@@ -93,6 +93,8 @@ export const GATES: Record<string, Gate> = {
   // Исход поездки от перевозчика (#2862 этап B): requirePartner, категория transfer.
   'app/api/hub/crm/charter-rides/[id]/outcome/route.ts': { seat: 'team' },
   'app/api/hub/crm/tasks/route.ts': { seat: 'team' },
+  // Отчёт за период (K.ai A2): брони и оплачено — только владельцу.
+  'app/api/hub/crm/report/route.ts': { seat: 'team', ownerOnly: 'отчёт с деньгами' },
   'app/api/hub/crm/tasks/[id]/route.ts': { seat: 'team' },
 
   // ── Данные самого аккаунта: кабинет не ищется ──
