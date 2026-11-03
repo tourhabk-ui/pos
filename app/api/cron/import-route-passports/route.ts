@@ -134,7 +134,10 @@ export async function GET(request: NextRequest) {
          duration_hours        = COALESCE($5::numeric,  duration_hours),
          duration_days         = COALESCE($6::int,      duration_days),
          difficulty            = COALESCE(NULLIF($7,''), difficulty),
-         season                = COALESCE(NULLIF($8,''), season),
+         -- Сезон, сверенный по источнику миграцией (русский текст, не enum),
+         -- извлечение из PDF не перетирает (миграция 1378+, Долина гейзеров).
+         season                = CASE WHEN season IS NULL OR season IN ('summer','winter','all')
+                                      THEN COALESCE(NULLIF($8,''), season) ELSE season END,
          route_type            = COALESCE(NULLIF($9,''), route_type),
          hazards               = CASE WHEN $10::text[] IS NOT NULL AND array_length($10::text[],1)>0
                                       THEN $10::text[] ELSE hazards END,
