@@ -188,6 +188,41 @@ withPg('общая вставка и гейт брони на настоящем
     }
   });
 
+  it('«Занять места» держит места и при брони: тур на 10, занято 8 — бронь на 10 отклонена (разбор 03.11)', async () => {
+    const { readTourDays, assertDaysOpen, ReserveError } = await import('@/lib/bookings/reserve');
+    const t = await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, multi_day_count,
+                                   is_active, is_published, activity_type, difficulty)
+       VALUES ($1, 'Тур на 10 (холд)', 5000, 10, 1, TRUE, TRUE, 'hiking', 'easy') RETURNING id::text AS id`,
+      [operatorId],
+    );
+    const tid = t.rows[0]!.id;
+    await pool.query(
+      `INSERT INTO tour_seat_holds (operator_id, tour_id, hold_date, seats, subject_kind, subject_id, via)
+       VALUES ($1, $2, '2026-09-10', 8, 'manual', 'test', 'site')`,
+      [operatorId, tid],
+    );
+    // Снятый холд мест не держит.
+    await pool.query(
+      `INSERT INTO tour_seat_holds (operator_id, tour_id, hold_date, seats, subject_kind, subject_id, via, released_at)
+       VALUES ($1, $2, '2026-09-10', 2, 'manual', 'test-released', 'site', NOW())`,
+      [operatorId, tid],
+    );
+    const client = await pool.connect();
+    try {
+      const days = await readTourDays(client, tid, '2026-09-10', '2026-09-10');
+      expect(days.map((d) => Number(d.occupied))).toEqual([8]);
+      expect(() => assertDaysOpen(days, { participants: 10, maxParticipants: 10, durationDays: 1 }))
+        .toThrow(ReserveError);
+      expect(() => assertDaysOpen(days, { participants: 3, maxParticipants: 10, durationDays: 1 }))
+        .toThrow(ReserveError);
+      expect(() => assertDaysOpen(days, { participants: 2, maxParticipants: 10, durationDays: 1 }))
+        .not.toThrow();
+    } finally {
+      client.release();
+    }
+  });
+
   it('бронь туриста: jsonb-метка и согласие — одной вставкой', async () => {
     const { insertBookingRow } = await import('@/lib/bookings/reserve');
     const at = new Date('2026-10-15T08:00:00Z');
