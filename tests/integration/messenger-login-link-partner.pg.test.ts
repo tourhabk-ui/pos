@@ -34,7 +34,7 @@ withPg('вход через мессенджер → кабинет партнё
   async function partner(userId: string, set: Record<string, unknown>): Promise<void> {
     n += 1;
     const cols = ['name', 'category', 'contact', 'user_id', ...Object.keys(set)];
-    const vals = [`Оператор ${n}`, 'operator', `op${n}@example.test`, userId, ...Object.values(set)];
+    const vals = [`Оператор ${n}`, 'operator', JSON.stringify({ email: `op${n}@example.test` }), userId, ...Object.values(set)];
     await pool.query(
       `INSERT INTO partners (${cols.join(', ')}) VALUES (${vals.map((_, i) => `$${i + 1}`).join(', ')})`,
       vals,
