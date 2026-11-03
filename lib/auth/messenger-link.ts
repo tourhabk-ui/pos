@@ -45,6 +45,14 @@ export async function linkMessengerLoginToPartner(
     const owner = own.rows[0]?.owner ?? null;
     if (!owner || owner === holder?.id) return null;
 
+    // У владельца уже другой id этого мессенджера — не связываем и дубль не
+    // выключаем (иначе человек остался бы без входа вовсе).
+    const busy = await query<{ ok: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1::uuid AND ${col} IS NOT NULL AND ${col} <> $2::bigint) AS ok`,
+      [owner, extId],
+    );
+    if (busy.rows[0]?.ok) return null;
+
     if (holder) {
       const empty = await query<{ ok: boolean }>(
         `SELECT vedar_messenger_placeholder_empty($1::uuid) AS ok`,
