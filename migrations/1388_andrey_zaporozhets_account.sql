@@ -87,13 +87,13 @@ BEGIN
     IF NOT vedar_messenger_placeholder_empty(holder.id) THEN
       RAISE EXCEPTION '1388: id MAX/TG держит аккаунт % с данными — стоп', holder.id;
     END IF;
-    RAISE NOTICE '1388 BACKUP users %', (SELECT row_to_json(u) FROM users u WHERE u.id = holder.id);
+    RAISE NOTICE '1388 BACKUP users %', (SELECT row_to_json(u) FROM users u WHERE u.id::text = holder.id::text);
     UPDATE users SET
       max_user_id = CASE WHEN max_user_id = mx THEN NULL ELSE max_user_id END,
       telegram_id = CASE WHEN telegram_id = tg THEN NULL ELSE telegram_id END,
       is_active = FALSE
-     WHERE id = holder.id;
-    DELETE FROM user_sessions WHERE user_id = holder.id;
+     WHERE id::text = holder.id::text;
+    DELETE FROM user_sessions WHERE user_id::text = holder.id::text;
     RAISE NOTICE '1388: пустой дубль % выключен', holder.id;
   END LOOP;
 
@@ -103,15 +103,15 @@ BEGIN
     RAISE EXCEPTION '1388: у аккаунта уже другой Telegram id'; END IF;
 
   IF v_new.id IS NOT NULL THEN
-    UPDATE partners SET status = 'suspended', user_id = NULL, updated_at = NOW() WHERE id = v_new.id;
+    UPDATE partners SET status = 'suspended', user_id = NULL, updated_at = NOW() WHERE id::text = v_new.id::text;
   END IF;
-  UPDATE partners SET user_id = v_user.id, updated_at = NOW() WHERE id = v_card.id;
+  UPDATE partners SET user_id = v_user.id, updated_at = NOW() WHERE id::text = v_card.id::text;
   UPDATE users SET
     max_user_id = COALESCE(mx, max_user_id),
     telegram_id = COALESCE(tg, telegram_id),
     role = CASE WHEN role IN ('tourist', 'guide') THEN 'guide' ELSE role END,
     updated_at = NOW()
-   WHERE id = v_user.id;
+   WHERE id::text = v_user.id::text;
 
   RAISE NOTICE '1388: карточка % → аккаунт %; MAX % TG %; пустая карточка % suspended',
     v_card.id, v_user.id, mx, tg, v_new.id;

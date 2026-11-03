@@ -411,8 +411,9 @@ describe('экран согласия и возврат после входа', 
     // Экран согласия OAuth или страница приглашения в команду (CRM 2г) — и только они.
     expect(src).toMatch(/const next = search\.get\('next'\);\s*setReturnTo\(safePartnerOAuthReturn\(next\) \?\? safeTeamJoinReturn\(next\)\)/);
     expect(src.match(/setReturnTo\(/g)?.length).toBe(1);
-    // Пароль, MFA, Telegram, MAX.
-    expect(src.match(/router\.push\(returnTo \?\? /g)?.length).toBe(4);
+    // Пароль, MFA — router.push; Telegram, MAX — полной загрузкой через goToCabinet (04.11).
+    expect(src.match(/router\.push\(returnTo \?\? /g)?.length).toBe(2);
+    expect(src).toMatch(/window\.location\.assign\(returnTo \?\? /);
     // После регистрации — только на приглашение в команду, экран согласия OAuth не трогается.
     // Полной загрузкой: router.push оставлял AuthContext гостем и страж кабинета уводил на вход (20.10).
     expect(src).toMatch(/window\.location\.assign\(safeTeamJoinReturn\(returnTo\) \?\? ROLE_HUB\[primaryRole\]/);
