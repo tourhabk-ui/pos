@@ -131,3 +131,27 @@ export function priceWithUnitWords(
   const words = priceUnit ? PRICE_UNIT_LABELS[priceUnit] : undefined;
   return words ? `${sum} ${words}` : `${sum} — за что назначена цена, не записано`;
 }
+
+/**
+ * Цена «за группу» с размером группы (слово владельца 03.11: у «Камчатской
+ * рыбалки» группа — это число мест тура, до 14). Размер — только из
+ * `max_participants` тура (живая строка базы), не выдумка: нет числа или
+ * группа без предела — `null`, и цена остаётся «за группу, уточните».
+ * Оценка с человека — цена / N и подписана «при полной группе»: меньше
+ * людей — дороже на каждого.
+ */
+export function groupPriceNote(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+  maxParticipants: string | number | null | undefined,
+  groupSizeUnlimited?: boolean | null,
+): string | null {
+  if (priceUnit !== 'per_tour' || groupSizeUnlimited === true) return null;
+  const n = Number(maxParticipants);
+  if (maxParticipants == null || !Number.isInteger(n) || n < 1) return null;
+  const price = Number(basePrice);
+  const each = Number.isFinite(price) && price > 0 && n > 1
+    ? `; при полной группе ≈ ${Math.round(price / n).toLocaleString('ru-RU')} ₽/чел.`
+    : '';
+  return `за группу до ${n} чел.${each}`;
+}

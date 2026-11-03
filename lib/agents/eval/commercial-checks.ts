@@ -133,6 +133,8 @@ export interface TourLine {
   price: number | null;
   /** null — цены нет вовсе. */
   unit: PriceUnit | null;
+  /** «за группу до N чел.» из строки каталога (03.11); нет — null. */
+  groupMax?: number | null;
 }
 
 function unitOf(after: string): PriceUnit {
@@ -199,12 +201,14 @@ export function parseTourLines(text: string): TourLine[] {
     const rest = m[3];
     const op = rest.match(/\| Оп: ([^|]+?)\s*(?:\||$)/);
     const price = rest.match(new RegExp(`от (${NUM}) ₽(\\S*(?: в день)?)`));
+    const group = rest.match(/за группу до (\d+) чел/);
     out.push({
       id: m[1],
       title: m[2],
       operator: op ? op[1].trim() : null,
       price: price ? toNumber(price[1], undefined, false) : null,
       unit: price ? unitOf(price[2]) : null,
+      ...(group ? { groupMax: Number(group[1]) } : {}),
     });
   }
   return out;

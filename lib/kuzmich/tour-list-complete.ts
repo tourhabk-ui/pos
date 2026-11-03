@@ -33,9 +33,16 @@ function priceWords(t: TourLine): string {
   return `, от ${fmt(t.price)}${unit}`;
 }
 
-/** Что значит цена не за человека — без пересчёта (группы в данных нет). */
+/** Что значит цена не за человека. Размер группы — только из строки каталога
+ *  (мест в туре, слово владельца 03.11); нет его — без пересчёта. */
 export function unitCaveat(t: TourLine, budget: number): string {
-  if (t.unit === 'per_tour') return 'цена за группу, уточните у оператора';
+  if (t.unit === 'per_tour') {
+    if (t.groupMax && t.groupMax > 0 && t.price !== null) {
+      const each = t.groupMax > 1 ? `, при полной группе ≈ ${fmt(Math.round(t.price / t.groupMax))} ₽/чел.` : '';
+      return `цена за группу до ${t.groupMax} чел.${each}`;
+    }
+    return 'цена за группу, уточните у оператора';
+  }
   if (t.unit === 'per_day_per_person') {
     return t.price !== null && t.price > budget
       ? 'цена с человека за день, дороже бюджета уже за один день'
@@ -150,8 +157,8 @@ export function completeTourList(answer: string, question: string, calls: readon
     parts.push(`Дороже бюджета ${fmt(budget as number)} ₽:\n${over.map(line).join('\n')}`);
   }
   // Цена не за человека (02.11, эвал budget-fish-20k): у рыбалки «₽/группа»
-  // и «₽/чел. в день». Состава группы в строке get_tours нет — делить цену
-  // не на что, поэтому не считаем «на человека», а говорим, за что цена.
+  // и «₽/чел. в день». Размер группы — из строки get_tours («за группу до N чел.»,
+  // мест в туре, 03.11); нет его — не делим, а говорим, за что цена.
   if (budget !== null && !UNIT_CAVEAT_RE.test(answer)) {
     const ids = new Set<string>();
     const nonComparable = [...ref, ...namedAll].filter((t) =>
