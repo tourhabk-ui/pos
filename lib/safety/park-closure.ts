@@ -92,6 +92,16 @@ const NOT_WHOLE_PARK_RE = new RegExp(
   ].join('|'),
 );
 
+/**
+ * Природные парки края (не заповедники): «на всех территориях природных
+ * парков» (сводка 02.11) закрывает каждый из них. Кроноцкий и Командорский —
+ * заповедники, Вачкажец — памятник природы: такая фраза их не называет.
+ */
+export const NATURAL_PARK_SLUGS: readonly string[] = [
+  'nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy', 'klyuchevskoy', 'vilyuchinsky',
+];
+const ALL_NATURAL_PARKS_RE = /(?:всех|все|всем)\s+(?:территори[а-яё]*\s+|маршрут[а-яё]*\s+)?природн(?:ых|ые|ым)\s+парк/;
+
 export interface ParkClosure {
   /** Слаги парков, названных в тексте; не пусто. */
   parks: string[];
@@ -104,6 +114,9 @@ export function detectParkClosure(text: string): ParkClosure | null {
   if (NOT_WHOLE_PARK_RE.test(lower)) return null;
   if (!CLOSURE_RE.test(lower)) return null;
   const parks = PARK_NAME_PATTERNS.filter((p) => p.re.test(lower)).map((p) => p.slug);
+  if (ALL_NATURAL_PARKS_RE.test(lower)) {
+    for (const slug of NATURAL_PARK_SLUGS) if (!parks.includes(slug)) parks.push(slug);
+  }
   return parks.length > 0 ? { parks } : null;
 }
 

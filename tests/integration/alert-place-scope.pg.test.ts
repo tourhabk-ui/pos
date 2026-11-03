@@ -736,6 +736,38 @@ withPg('кого накрывает предупреждение', () => {
     expect(covered).not.toContain(SHIVELUCH.id);
   });
 
+  it('закрытие Южно-Камчатского доходит до Мутновского через маршрут с записанной территорией (разбор 03.11)', async () => {
+    const MUT = { id: 'Вулкан Мутновский (тест)', ark: 'c0000000-0000-4000-8000-000000000011' };
+    const GOR = { id: 'Вулкан Горелый (тест)', ark: 'c0000000-0000-4000-8000-000000000012' };
+    for (const p of [MUT, GOR]) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $1, 52.45, 158.19, $2, 'volcano', 'southern', TRUE)`,
+        [p.id, p.ark],
+      );
+      await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+    }
+    // Путевых точек нет — только территория и имя места в названии.
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible)
+       VALUES ('d0000000-0000-4000-8000-000000000011', 'trekking', 'К подножию вулкана Мутновский (тест)', 'Южно-Камчатский', 'southern', TRUE)`,
+    );
+    const id = await insertAlert({
+      type: 'park_closure',
+      title: 'Приостановлено посещение маршрутов в природном парке «Южно-Камчатский»',
+      zones: [],
+      parks: ['yuzhno-kamchatsky'],
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(MUT.id);
+    // Маршрута с его именем нет — парк его не красит.
+    expect(covered).not.toContain(GOR.id);
+    expect(covered).not.toContain(CITY.id);
+    // Закрытие Налычево Мутновский не трогает.
+    const other = await insertAlert({ type: 'park_closure', title: 'Налычево закрыт', zones: [], parks: ['nalychevo'] });
+    expect(await coveredBy(other)).not.toContain(MUT.id);
+  });
+
   it('закрытие без названного парка не красит никого — «не установлено» ≠ «везде»', async () => {
     const id = await insertAlert({ type: 'park_closure', title: 'Маршруты закрыты', zones: ['avachinsky'], parks: null });
     expect(await coveredBy(id)).toEqual([]);
