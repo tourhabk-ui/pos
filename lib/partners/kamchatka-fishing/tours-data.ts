@@ -73,7 +73,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '01-15', end: '03-20' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Размещение на базе',
@@ -110,7 +110,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '02-20', end: '04-18' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Размещение на базе',
@@ -146,7 +146,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Чавыча', 'Нерка', 'Микижа', 'Хариус', 'Кунжа', 'Голец'],
     season: { start: '06-18', end: '07-20' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Размещение на базе',
@@ -181,7 +181,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Кижуч', 'Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '08-25', end: '10-30' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Размещение на базе',
@@ -215,7 +215,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Кижуч', 'Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '10-30', end: '11-15' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Размещение на базе',
@@ -249,7 +249,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Кижуч', 'Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '11-15', end: '01-15' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Размещение на базе',
@@ -288,7 +288,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '01-15', end: '04-18' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Проживание на базе 3 ночи',
@@ -324,7 +324,7 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Чавыча', 'Нерка', 'Кижуч', 'Микижа', 'Хариус', 'Кунжа', 'Голец'],
     season: { start: '06-18', end: '10-30' },
-    maxParticipants: 10,
+    maxParticipants: 14,
     minParticipants: 5,
     includes: [
       'Проживание на базе 5 ночей',
@@ -359,8 +359,8 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Чавыча', 'Нерка', 'Кижуч', 'Микижа', 'Хариус', 'Кунжа', 'Голец', 'Голец-Каменец'],
     season: { start: '06-18', end: '10-30' },
-    maxParticipants: 8,
-    minParticipants: 4,
+    maxParticipants: 14,
+    minParticipants: 5,
     includes: [
       'Проживание на базе 7 ночей',
       'Полный комплект снаряжения',
@@ -396,8 +396,8 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Микижа', 'Хариус', 'Голец'],
     season: { start: '06-01', end: '09-30' },
-    maxParticipants: 6,
-    minParticipants: 3,
+    maxParticipants: 14,
+    minParticipants: 5,
     includes: [
       'Проживание на базе 2 ночи',
       'Снаряжение для всей семьи',
@@ -429,8 +429,8 @@ export const FISHING_TOURS: FishingTourData[] = [
     location: 'Камчатский край, рыболовная база',
     fishTypes: ['Микижа', 'Хариус', 'Кунжа', 'Голец'],
     season: { start: '06-15', end: '09-15' },
-    maxParticipants: 8,
-    minParticipants: 4,
+    maxParticipants: 14,
+    minParticipants: 5,
     includes: [
       'Проживание на базе 7 ночей',
       'Снаряжение для всей семьи',

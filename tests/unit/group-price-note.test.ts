@@ -31,3 +31,10 @@ describe('groupSizeNote', () => {
     expect(groupSizeNote('per_person', 14, true)).toBeNull();
   });
 });
+
+describe('groupSizeNote: минимум и максимум', () => {
+  it('«группа 5–14 чел.», цена не делится', () => {
+    expect(groupSizeNote('per_person', 14, false, 5)).toBe('группа 5–14 чел.');
+    expect(groupSizeNote('per_day_per_person', 14, null, 1)).toBe('группа до 14 чел.');
+  });
+});

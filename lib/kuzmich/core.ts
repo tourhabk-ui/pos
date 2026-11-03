@@ -252,6 +252,7 @@ interface TourContextRow {
   price_unit: string | null;
   /** Мест в туре; у цены «за группу» это и есть размер группы (03.11). */
   max_participants?: number | null;
+  min_participants?: number | null;
   group_size_unlimited?: boolean | null;
   multi_day_count: number | null;
   activity_type: string | null;
@@ -561,7 +562,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
   try {
     const toursResult = await pool.query<TourContextRow>(`
         SELECT ot.id, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count, ot.activity_type,
-               ot.max_participants, ot.group_size_unlimited,
+               ot.max_participants, ot.min_participants, ot.group_size_unlimited,
                ot.location_name, ot.duration_type, ot.duration_hours,
                ot.season_start::text AS season_start, ot.season_end::text AS season_end,
                -- ЖИВАЯ занятость, не статические колонки тура: аудит пилота
@@ -647,7 +648,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       // 0, и каталог печатал «от 0 р/чел», то есть «бесплатно» (18.09,
       // тур 34). Правило одно на все поверхности — lib/tours/price-label.
       const groupNote = groupPriceNote(r.base_price, r.price_unit, r.max_participants, r.group_size_unlimited)
-        ?? groupSizeNote(r.price_unit, r.max_participants, r.group_size_unlimited);
+        ?? groupSizeNote(r.price_unit, r.max_participants, r.group_size_unlimited, r.min_participants);
       const price = priceFromUnitOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
@@ -1652,6 +1653,7 @@ export async function getTourDetails(query: string): Promise<string> {
       pickup_type: string | null;
       pickup_details: string | null;
       max_participants: number | null;
+      min_participants: number | null;
       group_size_unlimited: boolean | null;
       operator_name: string | null;
       operator_legal_name: string | null;
@@ -1662,7 +1664,7 @@ export async function getTourDetails(query: string): Promise<string> {
       // без алиаса, и JOIN с partners сделал бы их неоднозначными.
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
-              program, safety_notes, pickup_type, pickup_details, max_participants, group_size_unlimited,
+              program, safety_notes, pickup_type, pickup_details, max_participants, min_participants, group_size_unlimited,
               (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
               (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
               (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
@@ -1683,7 +1685,7 @@ export async function getTourDetails(query: string): Promise<string> {
     // два написания одной цены разъезжаются так же, как два предиката.
     const priceLine = priceFromUnit(t.base_price, t.price_unit);
     const groupNote = groupPriceNote(t.base_price, t.price_unit, t.max_participants, t.group_size_unlimited)
-      ?? groupSizeNote(t.price_unit, t.max_participants, t.group_size_unlimited);
+      ?? groupSizeNote(t.price_unit, t.max_participants, t.group_size_unlimited, t.min_participants);
     if (priceLine) parts.push(`Цена: ${priceLine}${groupNote ? ` (${groupNote})` : ''}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     // Группа — общим правилом с карточкой (lib/tours/group-size, 1342): у тура
