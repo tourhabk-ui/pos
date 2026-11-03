@@ -47,6 +47,7 @@ export const RULE_LABEL: Record<string, string> = {
   season_low: 'низкий сезон',
   season_peak: 'высокий сезон',
   weekend: 'выходной день',
+  weekend_sat_sun: 'выходные (сб, вс)',
   group_discount: 'групповая скидка',
   occupancy_high: 'дата почти заполнена',
 };
