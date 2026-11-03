@@ -224,11 +224,13 @@ describe('submitChatRequest (MAX, Telegram) — ok только при созд�
     expect(r.ok).toBe(true);
     expect(r.text).toMatch(/^Заявка создана\./);
   });
-  it('исполнитель упал — не создана', async () => {
+  it('исполнитель упал — «не могу подтвердить», не «не записалась» (разбор 03.11, п.8)', async () => {
     const { submitChatRequest } = await import('@/lib/kuzmich/chat-request-submit');
     runPublicToolMock.mockImplementation(async () => { throw new Error('boom'); });
     const r = await submitChatRequest(plan, { ip: 'max:1', userAgent: 'kuzmich-max' });
     expect(r.ok).toBe(false);
     expect(r.text).not.toMatch(/Заявка создана/);
+    expect(r.text).toMatch(/^Не могу подтвердить/);
+    expect(r.text).not.toMatch(/не записалась/);
   });
 });

@@ -4,7 +4,7 @@
  * согласие и уведомление оператора считаются там один раз. Импорт роута
  * ленивый: роут MCP сам импортирует lib/kuzmich/core.
  */
-import { chatToolReply, chatRequestNotCreated, chatRequestUnconfirmed, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
+import { chatToolReply, chatRequestUnconfirmed, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
 import { journaledWrite, WriteInFlightError, type WriteChannel } from '@/lib/kuzmich/write-journal';
 
 export async function submitChatRequest(
@@ -23,7 +23,9 @@ export async function submitChatRequest(
     return { ok: reply.created, text: reply.text };
   } catch (e) {
     if (e instanceof WriteInFlightError) return { ok: false, text: chatRequestUnconfirmed() };
-    console.warn('[kuzmich-chat] заявка не создана', e instanceof Error ? e.message.slice(0, 200) : '');
-    return { ok: false, text: chatRequestNotCreated(null) };
+    // Исключение могло прийти и после записи (обрыв ответа): «не записалась»
+    // было бы неправдой — честно «не могу подтвердить» (разбор 03.11, п.8).
+    console.warn('[kuzmich-chat] исход заявки неизвестен', e instanceof Error ? e.message.slice(0, 200) : '');
+    return { ok: false, text: chatRequestUnconfirmed() };
   }
 }
