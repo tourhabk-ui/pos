@@ -58,6 +58,13 @@ concurrency:
   group: security-review-${{ github.ref }}
   cancel-in-progress: true
 
+# Провайдер рук (решение владельца 03.11 «агентов переключи пока на
+# оупенррут»): Anthropic отвечает 403 verification_required (проверка
+# организации). По умолчанию руки идут через OpenRouter (его
+# Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
+# anthropic/claude-opus-5 — та же голова). Вернуть Anthropic без правки кода:
+# переменная репозитория AGENTS_PROVIDER=anthropic.
+# Сторож: tests/unit/issue-hand-model-pinned.test.ts.
 jobs:
   review:
     # `labeled` приходит на ЛЮБУЮ метку — без этого условия каждый ярлык
@@ -69,7 +76,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ vars.AGENTS_PROVIDER == 'anthropic' && secrets.ANTHROPIC_API_KEY || secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
     steps:
       - name: Checkout (с базой для диффа)
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
@@ -81,7 +89,8 @@ jobs:
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
         uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
         with:
-          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude-api-key: ${{ env.ANTHROPIC_API_KEY }}
+          claude-model: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
           comment-pr: true
           claudecode-timeout: '15'
           # Шум вне нашего кода — не гоняем ревью по зависимостям и билд-артефактам.
