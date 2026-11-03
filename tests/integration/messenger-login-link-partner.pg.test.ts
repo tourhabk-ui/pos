@@ -48,6 +48,8 @@ withPg('вход через мессенджер → кабинет партнё
     const { Pool } = await import('pg');
     const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
+    // Функции 1387 (владелец-заглушка с кабинетом) — поверх 1386 из схемы.
+    await pool.query(readFileSync(join(process.cwd(), 'migrations', '1387_messenger_owner_placeholder_cabinet.sql'), 'utf-8'));
     process.env.DATABASE_URL = dbUrl;
     process.env.DATABASE_SSL = 'false';
   }, 300_000);
@@ -121,4 +123,77 @@ withPg('вход через мессенджер → кабинет партнё
       client.release();
     }
   });
+  // 1387: кабинет на аккаунте-заглушке (гид без почты, подключён через бота).
+  it('1387: MAX-id на пустом туристе, кабинет на TG-заглушке гида → вход в кабинет', async () => {
+    // Тест разового переноса 1386 выше переопределяет функции версией 1386.
+    await pool.query(readFileSync(join(process.cwd(), 'migrations', '1387_messenger_owner_placeholder_cabinet.sql'), 'utf-8'));
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    const guide = await user('tg_830001@telegram.local', 'guide', { telegram_id: 830_001 });
+    await partner(guide, { max_owner_user_id: 830_101, telegram_chat_id: 830_001 });
+    const dup = await user('max_830101@max.local', 'tourist', { max_user_id: 830_101 });
+    const linked = await linkMessengerLoginToPartner('max', 830_101, { id: dup });
+    expect(linked?.id).toBe(guide);
+    expect((await row(guide))).toMatchObject({ max_user_id: '830101', telegram_id: '830001', is_active: true });
+    expect(await row(dup)).toMatchObject({ max_user_id: null, is_active: false });
+  });
+
+  it('1387: пустой турист-заглушка владельцем не считается', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    const op = await user('max_830002@max.local', 'tourist', { max_user_id: 830_002 });
+    expect(await linkMessengerLoginToPartner('max', 830_002, { id: op })).toBeNull();
+    expect((await row(op))).toMatchObject({ max_user_id: '830002', is_active: true });
+  });
+
+  it('1387: у владельца уже другой MAX → дубль не выключаем', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    const guide = await user('tg_830003@telegram.local', 'guide', { max_user_id: 830_999 });
+    await partner(guide, { max_owner_user_id: 830_103 });
+    const dup = await user('max_830103@max.local', 'tourist', { max_user_id: 830_103 });
+    expect(await linkMessengerLoginToPartner('max', 830_103, { id: dup })).toBeNull();
+    expect(await row(dup)).toMatchObject({ max_user_id: '830103', is_active: true });
+  });
+
+  it('1387: разовый перенос на заглушку-гида, идемпотентен, гида не выключает', async () => {
+    const guide = await user('tg_830004@telegram.local', 'guide', { telegram_id: 830_004 });
+    await partner(guide, { max_owner_user_id: 830_104 });
+    const dup = await user('max_830104@max.local', 'tourist', { max_user_id: 830_104 });
+    const sql = readFileSync(join(process.cwd(), 'migrations', '1387_messenger_owner_placeholder_cabinet.sql'), 'utf-8');
+    const client = await pool.connect();
+    try {
+      await client.query(sql);
+      expect(await row(guide)).toMatchObject({ max_user_id: '830104', is_active: true });
+      expect(await row(dup)).toMatchObject({ max_user_id: null, is_active: false });
+      await client.query(sql);
+      expect(await row(guide)).toMatchObject({ max_user_id: '830104', is_active: true });
+    } finally {
+      client.release();
+    }
+  });
+  it('04.11: карточка без аккаунта, MAX подключён владельцем → вход заводит кабинет', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    await partner(null as unknown as string, { max_owner_user_id: 830_201 });
+    const linked = await linkMessengerLoginToPartner('max', 830_201, null);
+    expect(linked?.role).toBe('operator');
+    expect((await row(linked!.id)).max_user_id).toBe('830201');
+    const owner = await pool.query(`SELECT user_id::text FROM partners WHERE max_owner_user_id = 830201`);
+    expect(owner.rows[0].user_id).toBe(linked!.id);
+  });
+
+  it('04.11: пустой турист держит MAX, карточка без аккаунта → тот же аккаунт получает роль, никто не выключен', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    const t = await user('max_830202@max.local', 'tourist', { max_user_id: 830_202 });
+    await partner(null as unknown as string, { max_owner_user_id: 830_202 });
+    const linked = await linkMessengerLoginToPartner('max', 830_202, { id: t });
+    expect(linked?.id).toBe(t);
+    expect(linked?.role).toBe('operator');
+    expect(await row(t)).toMatchObject({ max_user_id: '830202', is_active: true });
+  });
+
+  it('04.11: две карточки без аккаунта на один MAX → не связываем', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    await partner(null as unknown as string, { max_owner_user_id: 830_203 });
+    await partner(null as unknown as string, { max_owner_user_id: 830_203 });
+    expect(await linkMessengerLoginToPartner('max', 830_203, null)).toBeNull();
+  });
+
 });

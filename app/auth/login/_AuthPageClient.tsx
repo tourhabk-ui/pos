@@ -265,6 +265,15 @@ export default function AuthPageClient() {
     resetForm();
   };
 
+  // Вход через MAX/Telegram (03.11): полная загрузка, а не router.push —
+  // AuthContext держит user=null и закэшированное «гость», и страж кабинета
+  // (HubLayout) тут же возвращал на /auth/login: вход «не происходил», хотя
+  // сессия уже выдана. Тот же приём, что у регистрации (#2622). И в кабинет
+  // своей роли, а не всегда туриста.
+  const goToCabinet = (role: string | undefined) => {
+    window.location.assign(returnTo ?? (role ? ROLE_HUB[role] : undefined) ?? '/hub/tourist');
+  };
+
   const handleTelegramAuth = async (tgUser: TelegramUser) => {
     setLoading(true);
     setError('');
@@ -279,7 +288,7 @@ export default function AuthPageClient() {
 
       const userData = { ...result.data, preferences: {}, createdAt: new Date(), updatedAt: new Date() };
       localStorage.setItem('user', JSON.stringify(userData));
-      router.push(returnTo ?? '/hub/tourist');
+      goToCabinet(result.data?.role);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка входа через Telegram');
     } finally {
@@ -291,7 +300,7 @@ export default function AuthPageClient() {
     // Статус-эндпоинт уже выдал JWT + куку — осталось сохранить профиль и увести в ЛК.
     const userData = { ...maxUser, preferences: {}, createdAt: new Date(), updatedAt: new Date() };
     localStorage.setItem('user', JSON.stringify(userData));
-    router.push(returnTo ?? '/hub/tourist');
+    goToCabinet(maxUser.role);
   };
 
   return (
