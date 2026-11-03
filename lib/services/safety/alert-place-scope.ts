@@ -190,6 +190,14 @@ export const VOLCANO_SCOPED_SQL = `
  * тревогой не назван — она не красит никого (род в PLACE_SCOPED_TYPES).
  * `parks.is_active` не смотрится: закрытый парк закрыт и без своей страницы.
  */
+/** Родовые слова имени места: по ним маршрут с местом не связывается. */
+const PLACE_GENERIC_WORDS = [
+  'вулкан', 'вулкана', 'сопка', 'озеро', 'река', 'бухта', 'источники', 'источник',
+  'горячие', 'термальные', 'долина', 'природный', 'парк', 'перевал', 'водопад',
+  'кратер', 'плато', 'хребет', 'гейзеры', 'гейзер', 'остров', 'мыс', 'лагуна',
+];
+const PLACE_GENERIC_WORDS_SQL = PLACE_GENERIC_WORDS.map((w) => `'${w}'`).join(', ');
+
 export const PARK_SCOPED_SQL = `
   ea.alert_type = 'park_closure'
   AND ea.affected_parks IS NOT NULL
@@ -212,6 +220,29 @@ export const PARK_SCOPED_SQL = `
             WHERE pl.ark_id = ark.id
               AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
               AND kr.park_name ILIKE '%' || pk.search_term || '%'
+         )
+         -- 4. Маршрут парка называет место по имени (разбор 03.11): «К подножию
+         --    вулкана Мутновский» записан территорией «Южно-Камчатский», но
+         --    путевых точек у него нет — Кузьмич связывает его с местом по
+         --    названию (routesByName), и закрытие парка должно идти тем же путём.
+         --    Каждое значимое слово имени места (≥5 букв, не родовое) — корнем
+         --    без двух последних букв (не короче 5) — должно стоять в названии маршрута.
+         OR EXISTS (
+           SELECT 1
+             FROM places pl
+             JOIN kamchatka_routes kr
+               ON kr.park_name ILIKE '%' || pk.search_term || '%'
+              AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
+            WHERE pl.ark_id = ark.id
+              AND EXISTS (
+                SELECT 1 FROM regexp_split_to_table(lower(pl.name), '[^а-яёa-z]+') w
+                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM regexp_split_to_table(lower(pl.name), '[^а-яёa-z]+') w
+                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+                   AND lower(kr.title) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
+              )
          )
        )
   )

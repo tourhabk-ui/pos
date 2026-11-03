@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { detectParkClosure, parkClosureHours, PARK_CLOSURE_DEFAULT_HOURS } from '@/lib/safety/park-closure';
+import { detectParkClosure, NATURAL_PARK_SLUGS, parkClosureHours, PARK_CLOSURE_DEFAULT_HOURS } from '@/lib/safety/park-closure';
 import { classifyMchsItem } from '@/lib/services/safety/seismic-parser';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { pushCopy, PUSH_TYPES_WITH_INSTRUCTION } from '@/lib/services/safety/push-copy';
@@ -55,6 +55,16 @@ describe('распознавание закрытия парка', () => {
     expect(detectParkClosure('В парке «Налычево» летние маршруты открыты. Из-за сохраняющейся паводковой ситуации закрыты автомобильный маршрут «Радыгино — Центральный» и транзитный пеший маршрут.')).toBeNull();
     // Сопка, а не парк: «Ключевская сопка» без слова «парк» парком не считается.
     expect(detectParkClosure('Маршруты на Ключевскую сопку закрыты, парк культуры работает')).toBeNull();
+  });
+
+  it('«на всех территориях природных парков» (сводка 02.11) закрывает все природные парки', () => {
+    const r = detectParkClosure('Со 2 ноября приостановлено посещение туристических маршрутов на всех территориях природных парков Камчатки');
+    expect(r).not.toBeNull();
+    expect([...r!.parks].sort()).toEqual([...NATURAL_PARK_SLUGS].sort());
+    expect(r!.parks).toContain('yuzhno-kamchatsky');
+    // Заповедники такая фраза не называет.
+    expect(r!.parks).not.toContain('kronotsky');
+    expect(r!.parks).not.toContain('komandorskiy');
   });
 
   it('«Вилючинский» — природный парк, а не город Вилючинск и не перевал', () => {
