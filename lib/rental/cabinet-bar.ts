@@ -15,6 +15,8 @@ export interface CabinetButton {
   text: string;
   payload: string;
   intent?: 'positive' | 'negative';
+  /** Кнопка-ссылка (Telegram `url`, MAX `link`); `payload` тогда не нажимается. */
+  url?: string;
 }
 
 export type RentalCabinetAction = 'fleet' | 'calendar' | 'requests' | 'edits' | 'help';
@@ -73,13 +75,12 @@ export function rentalCabinetAsk(text: string): RentalCabinetAction | null {
 }
 
 export function telegramCabinetMarkup(content: CabinetButton[][] = []): {
-  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+  inline_keyboard: Array<Array<{ text: string; callback_data: string } | { text: string; url: string }>>;
 } {
   return {
-    inline_keyboard: withRentalCabinetBar(content).map((row) => row.map((b) => ({
-      text: b.text,
-      callback_data: b.payload,
-    }))),
+    inline_keyboard: withRentalCabinetBar(content).map((row) => row.map((b) => (
+      b.url ? { text: b.text, url: b.url } : { text: b.text, callback_data: b.payload }
+    ))),
   };
 }
 

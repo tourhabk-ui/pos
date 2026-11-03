@@ -229,7 +229,7 @@ async function sendTourist(chatId: string, text: string): Promise<void> {
 async function sendHtmlKeyboard(
   chatId: string,
   text: string,
-  replyMarkup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> },
+  replyMarkup: { inline_keyboard: Array<Array<{ text: string; callback_data: string } | { text: string; url: string }>> },
   logLabel: string,
 ): Promise<void> {
   const clean = sanitizeForTelegram(text);
@@ -274,8 +274,8 @@ async function sendCabinetTelegram(chatId: string, screen: CabinetScreen, editMe
   }
 }
 
-function roleKeyboard(buttons: MenuButton[][]): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
-  return { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.payload }))) };
+function roleKeyboard(buttons: MenuButton[][]): { inline_keyboard: Array<Array<{ text: string; callback_data: string } | { text: string; url: string }>> } {
+  return { inline_keyboard: buttons.map((row) => row.map((b) => (b.url ? { text: b.text, url: b.url } : { text: b.text, callback_data: b.payload }))) };
 }
 
 async function sendRoleRows(chatId: string, text: string, buttons: MenuButton[][]): Promise<void> {

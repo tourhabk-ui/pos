@@ -76,9 +76,10 @@ describe('множитель 1 не трогает цену', () => {
     expect(finalUnitPrice(12950, m.multiplier)).toBe(12950);
   });
 
-  it('сработавшее правило округляет до сотни, как было и раньше', () => {
-    expect(roundedPrice(12950, 0.85)).toBe(11000);
-    expect(finalUnitPrice(12950, 0.85)).toBe(11000);
+  it('сработавшее правило — без округления до сотни, точно до рубля (владелец 03.11)', () => {
+    expect(roundedPrice(12950, 0.85)).toBe(11008); // 11007.5 → до рубля
+    expect(finalUnitPrice(12950, 0.85)).toBe(11008);
+    expect(finalUnitPrice(12950, 1.1)).toBe(14245); // было 14 200
   });
 });
 

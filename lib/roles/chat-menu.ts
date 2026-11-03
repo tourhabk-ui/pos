@@ -10,6 +10,8 @@ export interface MenuButton {
   text: string;
   payload: string;
   intent?: 'positive' | 'negative';
+  /** Кнопка-ссылка (Telegram `url`, MAX `link`); `payload` тогда не нажимается. */
+  url?: string;
 }
 
 /**
@@ -49,12 +51,11 @@ export function appendMenu<T extends { payload: string }>(rows: T[][], bar: T[])
 }
 
 export function menuMarkup(menu: MenuButton[], content: MenuButton[][] = []): {
-  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+  inline_keyboard: Array<Array<{ text: string; callback_data: string } | { text: string; url: string }>>;
 } {
   return {
-    inline_keyboard: appendMenu(content, menu).map((row) => row.map((b) => ({
-      text: b.text,
-      callback_data: b.payload,
-    }))),
+    inline_keyboard: appendMenu(content, menu).map((row) => row.map((b) => (
+      b.url ? { text: b.text, url: b.url } : { text: b.text, callback_data: b.payload }
+    ))),
   };
 }
