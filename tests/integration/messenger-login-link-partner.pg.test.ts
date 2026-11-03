@@ -165,4 +165,31 @@ withPg('вход через мессенджер → кабинет партнё
       client.release();
     }
   });
+  it('04.11: карточка без аккаунта, MAX подключён владельцем → вход заводит кабинет', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    await partner(null as unknown as string, { max_owner_user_id: 830_201 });
+    const linked = await linkMessengerLoginToPartner('max', 830_201, null);
+    expect(linked?.role).toBe('operator');
+    expect((await row(linked!.id)).max_user_id).toBe('830201');
+    const owner = await pool.query(`SELECT user_id::text FROM partners WHERE max_owner_user_id = 830201`);
+    expect(owner.rows[0].user_id).toBe(linked!.id);
+  });
+
+  it('04.11: пустой турист держит MAX, карточка без аккаунта → тот же аккаунт получает роль, никто не выключен', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    const t = await user('max_830202@max.local', 'tourist', { max_user_id: 830_202 });
+    await partner(null as unknown as string, { max_owner_user_id: 830_202 });
+    const linked = await linkMessengerLoginToPartner('max', 830_202, { id: t });
+    expect(linked?.id).toBe(t);
+    expect(linked?.role).toBe('operator');
+    expect(await row(t)).toMatchObject({ max_user_id: '830202', is_active: true });
+  });
+
+  it('04.11: две карточки без аккаунта на один MAX → не связываем', async () => {
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    await partner(null as unknown as string, { max_owner_user_id: 830_203 });
+    await partner(null as unknown as string, { max_owner_user_id: 830_203 });
+    expect(await linkMessengerLoginToPartner('max', 830_203, null)).toBeNull();
+  });
+
 });
