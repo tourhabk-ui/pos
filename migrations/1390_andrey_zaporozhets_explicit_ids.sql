@@ -65,7 +65,7 @@ BEGIN
       RAISE EXCEPTION '1390: у карточки % есть описание — не пустая', v_new.id; END IF;
     IF EXISTS (SELECT 1 FROM tours t WHERE t.operator_id::text = v_new.id::text) THEN
       RAISE EXCEPTION '1390: у пустой карточки % есть туры', v_new.id; END IF;
-    IF EXISTS (SELECT 1 FROM bookings b WHERE b.partner_id::text = v_new.id::text) THEN
+    IF EXISTS (SELECT 1 FROM bookings b JOIN tours t ON t.id::text = b.tour_id::text WHERE t.operator_id::text = v_new.id::text) THEN
       RAISE EXCEPTION '1390: у пустой карточки % есть брони', v_new.id; END IF;
   END IF;
 
