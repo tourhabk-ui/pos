@@ -24,7 +24,7 @@ DECLARE
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM users u
-     WHERE u.id = uid AND u.role = 'tourist'
+     WHERE u.id::text = uid::text AND u.role = 'tourist'
        AND (u.email LIKE 'max\_%@max.local' OR u.email LIKE 'tg\_%@telegram.local')
   ) THEN
     RETURN FALSE;
@@ -64,7 +64,7 @@ RETURNS UUID LANGUAGE sql STABLE AS $fn$
      WHERE m.user_id IS NOT NULL AND m.status = 'active'
        AND channel = 'telegram' AND m.telegram_chat_id = ext_id
   ), real AS (
-    SELECT DISTINCT c.uid FROM c JOIN users u ON u.id = c.uid
+    SELECT DISTINCT c.uid FROM c JOIN users u ON u.id::text = c.uid::text
      WHERE u.is_active IS NOT FALSE
        AND NOT (u.email LIKE 'max\_%@max.local' OR u.email LIKE 'tg\_%@telegram.local')
   )
@@ -96,16 +96,16 @@ BEGIN
       IF EXISTS (SELECT 1 FROM users WHERE id = owner AND max_user_id IS NOT NULL) THEN
         RAISE NOTICE '1378: у владельца % уже другой MAX — пропущен дубль %', owner, d.id; CONTINUE;
       END IF;
-      UPDATE users SET max_user_id = NULL, is_active = FALSE WHERE id = d.id;
+      UPDATE users SET max_user_id = NULL, is_active = FALSE WHERE id::text = d.id::text;
       UPDATE users SET max_user_id = ext WHERE id = owner;
     ELSE
       IF EXISTS (SELECT 1 FROM users WHERE id = owner AND telegram_id IS NOT NULL) THEN
         RAISE NOTICE '1378: у владельца % уже другой Telegram — пропущен дубль %', owner, d.id; CONTINUE;
       END IF;
-      UPDATE users SET telegram_id = NULL, is_active = FALSE WHERE id = d.id;
+      UPDATE users SET telegram_id = NULL, is_active = FALSE WHERE id::text = d.id::text;
       UPDATE users SET telegram_id = ext WHERE id = owner;
     END IF;
-    DELETE FROM user_sessions WHERE user_id = d.id;
+    DELETE FROM user_sessions WHERE user_id::text = d.id::text;
     RAISE NOTICE '1378: % перенесён с дубля % на %', ch, d.id, owner;
   END LOOP;
 END

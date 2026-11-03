@@ -565,7 +565,12 @@ describe('pg-тесты доходят до CI', () => {
     // отправок; мок принял бы любой SQL. Шесть тестов, своя маленькая база;
     // job kernel-pg на PR #2971 со всеми 52 файлами — 2 мин 9 с при таймауте
     // 15 минут, локально новый файл — секунды: размен честен.
-    const SEQUENTIAL_BUDGET = 53;
+    // Пятьдесят четвёртый (03.11, #3015) — `messenger-login-link-partner`:
+    // миграция 1378, вход через MAX/Telegram находит кабинет партнёра; функции
+    // pg_constraint и перенос дублей мок не проверил бы. Пять тестов, своя
+    // маленькая база; job kernel-pg на #3015 зелёный в пределах прежнего
+    // времени: размен честен.
+    const SEQUENTIAL_BUDGET = 54;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,
