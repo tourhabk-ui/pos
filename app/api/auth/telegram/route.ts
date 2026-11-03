@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, createHash, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { linkMessengerLoginToPartner } from '@/lib/auth/messenger-link';
 import { createToken } from '@/lib/auth/jwt';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
@@ -82,6 +83,10 @@ async function findOrCreateTelegramUser(tgData: TelegramAuthData): Promise<TgUse
     `SELECT id, email, name, role FROM users WHERE telegram_id = $1 LIMIT 1`,
     [tgData.id],
   );
+  // Кабинет партнёра по Telegram из partners/operator_members (миграция 1378),
+  // если id свободен или его держит пустой дубль-заглушка.
+  const linked = await linkMessengerLoginToPartner('telegram', tgData.id, existing.rows[0] ?? null);
+  if (linked) return linked;
   if (existing.rows[0]) return existing.rows[0];
 
   // Create new user

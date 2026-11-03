@@ -11,6 +11,7 @@ import { query } from '@/lib/database';
 import { createToken } from '@/lib/auth/jwt';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { getMaxLoginSession, consumeMaxLoginSession } from '@/lib/auth/max-login';
+import { linkMessengerLoginToPartner } from '@/lib/auth/messenger-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,10 @@ async function findOrCreateMaxUser(
     `SELECT id, email, name, role FROM users WHERE max_user_id = $1 LIMIT 1`,
     [maxUserId],
   );
+  // Кабинет партнёра по MAX из partners (миграция 1378), если id свободен
+  // или его держит пустой дубль-заглушка.
+  const linked = await linkMessengerLoginToPartner('max', maxUserId, existing.rows[0] ?? null);
+  if (linked) return linked;
   if (existing.rows[0]) return existing.rows[0];
 
   const email = `max_${maxUserId}@max.local`;
