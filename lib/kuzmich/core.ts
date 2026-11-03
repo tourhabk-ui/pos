@@ -9,6 +9,7 @@
  */
 
 import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
+import { seasonFactsBlock } from '@/lib/kuzmich/season-facts';
 import { completeTourList, completionSources, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
@@ -216,7 +217,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 - Сентябрь: лучший месяц для фотографии — осенние цвета + нерест нерки. Температура +8..+15°C
 - Октябрь: конец сезона. Закрываются перевалы. Первый снег
 - Рыбалка: горбуша июль–август, нерка июль–сентябрь, чавыча июнь–июль, кижуч август–октябрь, форель круглый год
-- Вертолётные туры: июнь–сентябрь. Долина гейзеров закрыта зимой (снег)
+- Сезон конкретного места (Долина гейзеров, заповедники, вертолётные экскурсии) — только из данных: блок «СЕЗОН ПОСЕЩЕНИЯ», сезон маршрута, даты туров. Нет в данных — скажи, что сезон подтвердит оператор; месяцы по памяти не называй
 - Медведи на реках: пик июль–сентябрь (нерест). Весной медведи голодные — осторожно на тропах
 
 СМЕЖНЫЕ АКТИВНОСТИ — ПРОАКТИВНОСТЬ:
@@ -3122,7 +3123,7 @@ export async function aiChat(opts: {
   // Pre-flight: бюджетируем динамический контекст, чтобы он не выдавил остальное
   // из окна модели (Silent Truncation). Важные блоки (place/route) идут первыми.
   const dynamic = fitTextToTokenBudget(
-    [contextNote || '', placeCtx || '', travelFactsBlock(text), routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
+    [contextNote || '', placeCtx || '', travelFactsBlock(text), seasonFactsBlock(text), routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
   );
   const belowCache = [mchsBlock, dynamic].filter(Boolean).join('\n\n');
   const systemContent = belowCache
@@ -3294,7 +3295,7 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
 
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
   const dynamic = fitTextToTokenBudget(
-    [placeCtx || '', travelFactsBlock(question), routeCtx || '', legalCtx || ''].filter(Boolean).join('\n\n'),
+    [placeCtx || '', travelFactsBlock(question), seasonFactsBlock(question), routeCtx || '', legalCtx || ''].filter(Boolean).join('\n\n'),
   );
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`

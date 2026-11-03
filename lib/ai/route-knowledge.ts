@@ -126,6 +126,22 @@ const ROUTES_BLOCK_CHARS = 3800;
  * Корякский»: сложность extreme, лёд, кошки и ледоруб. Утверждением здесь
  * считается только true.
  */
+/**
+ * Сезон маршрута по-русски (эвал season-2/route-2, 03.11): enum импорта
+ * печатался как «сезон all», модель его не понимала и брала сезон из памяти.
+ * 'all' — не проверено: импорт паспортов ставил его и Долине гейзеров, где
+ * официально сезон конец мая – конец сентября (kronoki.ru). Поэтому строки
+ * нет вовсе — «нет данных — нет строки». Свободный текст (сверенный
+ * миграцией) печатается как есть.
+ */
+export function seasonLabel(season: string | null | undefined): string | null {
+  const s = (season ?? '').trim();
+  if (!s || s.toLowerCase() === 'all') return null;
+  if (s.toLowerCase() === 'summer') return 'летний';
+  if (s.toLowerCase() === 'winter') return 'зимний';
+  return s;
+}
+
 export function routeFacts(r: {
   difficulty: string | null;
   distance_km: string | null;
@@ -150,7 +166,7 @@ export function routeFacts(r: {
     r.elevation_gain_m != null ? `набор высоты ${r.elevation_gain_m} м` : null,
     r.duration_hours   != null ? `длительность ${r.duration_hours} ч`   : null,
     r.difficulty       ? `сложность ${r.difficulty}`                    : null,
-    r.season           ? `сезон ${r.season}`                            : null,
+    seasonLabel(r.season) ? `сезон ${seasonLabel(r.season)}`             : null,
   ].filter(Boolean);
   if (stats.length) out.push(stats.join(' · '));
 

@@ -40,7 +40,7 @@ const avacha = {
 /** Четыре маршрута с длинными описаниями: ответ инструмента выходит за 2000 знаков. */
 const routes = [1, 2, 3, 4].map((i) => ({
   id: `r${i}`, title: `Маршрут к Авачинскому ${i}`, difficulty: 'medium', distance_km: '14.00',
-  elevation_gain_m: 1859, duration_hours: '12.50', season: 'all',
+  elevation_gain_m: 1859, duration_hours: '12.50', season: 'summer',
   hazards: i === 4 ? ['лавины на склоне'] : ['крутизна склона 30°'],
   equipment: ['фальшфейеры'], mchs_registration_required: i === 4, mchs_phone: i === 4 ? PHONE : null,
   park_name: null,
