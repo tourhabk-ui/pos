@@ -145,3 +145,12 @@ describe('роут переписи', () => {
     expect(src).toMatch(/\{ error: 'Unauthorized', \.\.\.diagnoseCronAuth\(request\) \}/);
   });
 });
+
+describe('перепись отдаёт последние прогоны с причиной (03.11)', () => {
+  it('last_runs несёт metadata — туда потолок GET пишет висящий шаг', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/api/cron/seismic-latency-census/route.ts', 'utf8');
+    expect(src).toMatch(/last_runs: last\.rows\.map/);
+    expect(src).toMatch(/SELECT status, started_at, duration_ms, metadata/);
+  });
+});
