@@ -1004,6 +1004,23 @@ async function telegramSeismicAgeMin(): Promise<number | null> {
   }
 }
 
+/**
+ * Потолок прогона GET (03.11). Супервизор start.js ждёт 120 с и рвёт запрос;
+ * до этой правки heartbeat писался только В КОНЦЕ, и зависший шаг (03.11 с
+ * 07:19 UTC — ни одной записи четыре часа при живом супервизоре) стирал
+ * свидетельство целиком: монитор видел «сейсмо молчит», а какой шаг висит —
+ * не видел никто. Теперь в 100 с прогон пишет heartbeat «failed» с именами
+ * незавершённых шагов и отвечает 504; сами шаги идемпотентны и дорабатывают
+ * в фоне.
+ */
+const GET_DEADLINE_MS = 100_000;
+
+/** Отмечает шаг незавершённым, пока его промис не осел. */
+function tracked<T>(pending: Set<string>, name: string, p: Promise<T>): Promise<T> {
+  pending.add(name);
+  return p.finally(() => pending.delete(name));
+}
+
 // GET — сервер сам тянет t.me (fallback если хостинг разблокирован)
 export async function GET(req: Request) {
   const err = authError(req);
@@ -1011,6 +1028,27 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
+  const pending = new Set<string>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'deadline'>((resolve) => {
+    timer = setTimeout(() => resolve('deadline'), GET_DEADLINE_MS);
+  });
+  const run = runGet(t0, startedAt, pending);
+  try {
+    const outcome = await Promise.race([run, deadline]);
+    if (outcome !== 'deadline') return outcome;
+  } finally {
+    clearTimeout(timer);
+  }
+  const stuck = pending.size > 0 ? [...pending] : ['после сбора источников'];
+  const detail = [`прогон не уложился в ${GET_DEADLINE_MS / 1000} с; висит: ${stuck.join(', ')}`];
+  console.error('[safety-ingest]', detail[0]);
+  logHeartbeat(startedAt, Date.now() - t0, 0, 0, 'heartbeat_get', 'failed', detail);
+  run.catch((e) => console.error('[safety-ingest] фоновый хвост прогона упал:', e instanceof Error ? e.message : e));
+  return Response.json({ ok: false, error: 'deadline', stuck }, { status: 504 });
+}
+
+async function runGet(t0: number, startedAt: Date, pending: Set<string>): Promise<Response> {
   // ── Сейсмика больше не ждёт планировщика GitHub (21.09) ─────────────────
   //
   // EQKam приходит страницей t.me, и до сегодня её приносил ТОЛЬКО воркфлоу.
@@ -1034,16 +1072,16 @@ export async function GET(req: Request) {
   // того как USGS уже записал своё: одновременная запись двух источников не
   // увидела бы друг друга, и один толчок стал бы двумя предупреждениями.
   const [ingestAllResult, firmsResult, meteoalertResult, kbgsrasPage, eqkamPage, emsdPage] = await Promise.all([
-    ingestAll(),
-    ingestFirmsWildfires(),
+    tracked(pending, 'ingestAll (USGS/МЧС/VK/новости)', ingestAll()),
+    tracked(pending, 'FIRMS', ingestFirmsWildfires()),
     // Предупреждения Росгидромета структурой: уровень, район, срок (08.10).
-    ingestMeteoalert(),
-    fetchTelegramPreview('kbgsras'),
-    fetchTelegramPreview('eqkam'),
-    fetchEmsdPage(EMSD_QUAKES_URL),
+    tracked(pending, 'meteoalert', ingestMeteoalert()),
+    tracked(pending, 't.me/kbgsras', fetchTelegramPreview('kbgsras')),
+    tracked(pending, 't.me/eqkam', fetchTelegramPreview('eqkam')),
+    tracked(pending, 'emsd.ru', fetchEmsdPage(EMSD_QUAKES_URL)),
   ]);
   const emsdResult: EmsdIngestResult | { error: string } | null = emsdPage.html !== null
-    ? await safely('emsd-ingest', () => ingestEmsdQuakes(emsdPage.html as string))
+    ? await tracked(pending, 'emsd-запись', safely('emsd-ingest', () => ingestEmsdQuakes(emsdPage.html as string)))
     : null;
   const emsdOk = emsdResult !== null && !('error' in emsdResult);
   // Разбор — только когда есть ОБЕ страницы: ingestFromHtml принимает их
@@ -1054,7 +1092,7 @@ export async function GET(req: Request) {
     ? { kbgsras: kbgsrasPage.html, eqkam: eqkamPage.html }
     : null;
   const telegramResult = telegramPages
-    ? await safely('telegram-ingest', () => ingestFromHtml(telegramPages.kbgsras, telegramPages.eqkam))
+    ? await tracked(pending, 'telegram-запись', safely('telegram-ingest', () => ingestFromHtml(telegramPages.kbgsras, telegramPages.eqkam)))
     : null;
   const telegramOk = telegramResult !== null && !('error' in telegramResult);
   const ingestResult = {
