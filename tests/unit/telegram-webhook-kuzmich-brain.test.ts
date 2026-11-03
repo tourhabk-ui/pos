@@ -95,6 +95,8 @@ const ADMIN = 777;
 // Свой update_id на каждый апдейт: вебхук пропускает повтор того же id.
 let nextUpdateId = 9001;
 
+import { ROUTE_SAFETY_LINE } from '@/lib/kuzmich/route-safety';
+
 function post(text: string, opts: { chat?: number; type?: string; from?: number; updateId?: number } = {}): Promise<Response> {
   const chat = opts.chat ?? TOURIST;
   return telegram.POST(new NextRequest('http://localhost/api/telegram/webhook', {
@@ -229,7 +231,10 @@ describe('личка: свободный текст идёт в мозг Куз�
 
     expect(modelInput()).toContain('Когда лучше идти на Авачинский вулкан?');
     const out = sent();
-    expect(out).toEqual(['Ответ Кузьмича по делу.']);
+    // Вопрос о маршруте: под ответом строка безопасности (lib/kuzmich/route-safety),
+    // а не SOS-блок «ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ».
+    expect(out).toEqual([`Ответ Кузьмича по делу.\n\n${ROUTE_SAFETY_LINE}`]);
+    expect(out[0]).not.toContain('ЧРЕЗВЫЧАЙНАЯ');
 
     const timing = m.pool.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO ai_actions_log'));
     expect(timing).toHaveLength(1);
@@ -239,7 +244,7 @@ describe('личка: свободный текст идёт в мозг Куз�
   it('повтор того же апдейта (Bot API не дождался ответа) — второго ответа и второй записи нет', async () => {
     await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
     await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
-    expect(sent()).toEqual(['Ответ Кузьмича по делу.']);
+    expect(sent()).toEqual([`Ответ Кузьмича по делу.\n\n${ROUTE_SAFETY_LINE}`]);
     const timing = m.pool.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO ai_actions_log'));
     expect(timing).toHaveLength(1);
   });

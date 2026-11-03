@@ -15,6 +15,7 @@ import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { appendRouteSafety, ROUTE_SAFETY_SOURCE } from '@/lib/kuzmich/route-safety';
 import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
@@ -3274,11 +3275,12 @@ export async function aiChat(opts: {
 // иначе регрессия проверяла бы не тот пайплайн, который видит турист.
 // Сигнатура/поведение aiChat не меняются — это отдельная функция.
 export async function askKuzmichForEval(question: string): Promise<{ answer: string; context: string } | null> {
-  const [tourContext, placeCtx, routeCtx, legalCtx] = await Promise.all([
+  const [tourContext, placeCtx, routeCtx, legalCtx, mchsBlock] = await Promise.all([
     buildTourContext(),
     searchPlaceKnowledge(question),
     searchRoutes(question),
     searchLegislation(question),
+    mchsPromptBlock(),
   ]);
   // Журнал вызовов инструментов — вторая половина контекста, и без неё оценка
   // судила против пустоты (см. ниже).
@@ -3329,7 +3331,14 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
   const cleanedAnswer = cleanAIResponse(raw.trim());
   const distanceGuard = stripUngroundedDistanceClaims(cleanedAnswer, context);
 
-  return { answer: distanceGuard.cleaned, context };
+  // Строка безопасности под ответом о маршруте — турист её видит, значит и
+  // эвал меряет ответ с ней. Предупреждения — из того же живого блока МЧС.
+  const routed = appendRouteSafety(distanceGuard.cleaned, question, mchsBlock);
+
+  // Источник строки идёт судье вместе с ней: срок подачи — факт модуля
+  // mchs-registration, а не выдумка ответа.
+  const routeSource = routed !== distanceGuard.cleaned ? ROUTE_SAFETY_SOURCE : '';
+  return { answer: routed, context: [mchsBlock, routeSource, context].filter(Boolean).join('\n\n') };
 }
 
 // ── Full Message Processor ────────────────────────────────────────────────────
