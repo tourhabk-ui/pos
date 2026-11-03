@@ -22,6 +22,7 @@
  * мессенджер.
  */
 
+import { PERIOD_LABEL, REPORT_PERIODS, periodReportText, type PeriodReport, type ReportPeriod } from '@/lib/crm/report-period';
 import { holdButtons } from '@/lib/operators/seat-hold-buttons';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
@@ -669,8 +670,10 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
   if (partner.role === 'operator') {
     rows.push([{ text: 'Мои туры и цены', payload: 'opd:tours' }, { text: 'Обновить места', payload: 'opd:seats' }]);
     rows.push([{ text: 'Календарь', payload: cabinetPayload.calendar() }, { text: 'Стоп-продажи', payload: 'ss:l' }]);
+    rows.push([{ text: 'Отчёт за неделю', payload: cabinetPayload.report('last_week') }]);
     lines.push('Мои туры и цены — живые туры и цена из каталога. Обновить места — где отметить занятость.');
     lines.push('Календарь — даты своих туров на 14 дней: открыть или закрыть кнопкой.');
+    lines.push('Отчёт — брони за неделю или месяц: по дате оформления и по дате поездки, оплаченное. Спросить можно и словами: «как мои брони за прошлую неделю?»');
     lines.push('Стоп-продажи — закрыть тур на неделю, 2 недели или месяц одной кнопкой (после «Да»); даты с бронями остаются.');
   } else if (partner.role === 'guide' && partner.sellsTours) {
     // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
@@ -934,4 +937,10 @@ export function noticeScreen(text: string, withNav = true): CabinetScreen {
 /** Отказ базы: тот же короткий ответ, помеченный для счёта пользования. */
 export function failedScreen(text: string): CabinetScreen {
   return { ...noticeScreen(text), failed: true };
+}
+
+/** Отчёт за период (K.ai A2): только числа, pd:false — можно и в Telegram. */
+export function reportScreen(report: PeriodReport | null, period: ReportPeriod): CabinetScreen {
+  const pick = REPORT_PERIODS.filter((p) => p !== period).map((p) => ({ text: PERIOD_LABEL[p], payload: cabinetPayload.report(p) }));
+  return screen([periodReportText(report)], [pick.slice(0, 2), pick.slice(2)]);
 }

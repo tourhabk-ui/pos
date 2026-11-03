@@ -4,6 +4,7 @@
  * payload кнопок кабинета, разбор и сборка. Без базы и сети: модуль читают
  * экраны, вебхуки MAX и Telegram и классификатор нажатий MAX.
  *
+ *   cb:rp:<w|lw|m|lm>   — отчёт оператора за период (только чтение, без ПД)
  *   cb:td               — «Сегодня» оператора: новое за сутки и выезды сегодня/завтра (по дате)
  *   cb:m                — «Ещё»: туры, места, сводка, помощь, кабинет на сайте
  *   cb:i | cb:i:<стр>   — «Входящие», страница
@@ -67,6 +68,7 @@
  * (lib/chat-cabinet/service) по чату сообщения с кнопкой.
  */
 
+import { periodCode, periodFromCode, type ReportPeriod } from '@/lib/crm/report-period';
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
@@ -105,6 +107,7 @@ const CODE_DIGEST = new Map(Object.entries(DIGEST_CODE).map(([d, c]) => [c, d as
 export type CabinetPress =
   | { kind: 'more' }
   | { kind: 'today' }
+  | { kind: 'report'; period: ReportPeriod }
   | { kind: 'inbox'; page: number }
   | { kind: 'item'; item: InboxKind; id: string }
   | { kind: 'tasks'; page: number }
@@ -180,6 +183,7 @@ function ymdOf(d: string): string | null {
 const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]> = [
   [/^cb:m$/, () => ({ kind: 'more' })],
   [/^cb:td$/, () => ({ kind: 'today' })],
+  [/^cb:rp:(w|lw|m|lm)$/, (m) => { const period = periodFromCode(m[1] ?? ''); return period ? { kind: 'report', period } : null; }],
   [/^cb:n:i$/, () => ({ kind: 'inbox', page: 0 })],
   [/^cb:n:t$/, () => ({ kind: 'tasks', page: 0 })],
   [/^cb:n:d$/, () => ({ kind: 'today' })],
@@ -288,6 +292,7 @@ export function parseCabinetPress(payload: string): CabinetPress | null {
 export const cabinetPayload = {
   more: (): string => 'cb:m',
   today: (): string => 'cb:td',
+  report: (p: ReportPeriod): string => `cb:rp:${periodCode(p)}`,
   inbox: (page = 0): string => (page > 0 ? `cb:i:${page}` : 'cb:i'),
   /** «Входящие» новым сообщением — под напоминанием и сводкой. */
   openInbox: (): string => 'cb:n:i',

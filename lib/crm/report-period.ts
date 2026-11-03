@@ -70,13 +70,13 @@ export function foldRows(rows: readonly Row[], basis: Row['basis']): BookingCoun
 }
 
 /** null — не прочиталось (цифры не выдумываем). */
-export async function loadPeriodReport(partnerId: string, period: ReportPeriod, nowMs: number = Date.now()): Promise<PeriodReport | null> {
+export async function loadPeriodReport(partnerId: string, period: ReportPeriod, nowMs: number = Date.now(), db: { query: typeof pool.query } = pool): Promise<PeriodReport | null> {
   const { from, to } = periodRange(period, nowMs);
   const [cs, ce] = createdBounds(from, to);
   try {
     const [b, l] = await Promise.all([
-      pool.query<Row>(REPORT_SQL, [partnerId, cs, ce, from, to]),
-      pool.query<{ n: number | string }>(LEADS_SQL, [partnerId, cs, ce]),
+      db.query<Row>(REPORT_SQL, [partnerId, cs, ce, from, to]),
+      db.query<{ n: number | string }>(LEADS_SQL, [partnerId, cs, ce]),
     ]);
     return { period, from, to, byCreated: foldRows(b.rows, 'created'), byTrip: foldRows(b.rows, 'trip'), leads: Number(l.rows[0]?.n ?? 0) };
   } catch (err) {
@@ -128,3 +128,9 @@ export function periodReportText(r: PeriodReport | null): string {
     'Оплачено — только брони со статусом оплаты «оплачено». Время — камчатское.',
   ].join('\n');
 }
+
+const PERIOD_CODE: Record<ReportPeriod, string> = { this_week: 'w', last_week: 'lw', this_month: 'm', last_month: 'lm' };
+export function periodFromCode(code: string): ReportPeriod | null {
+  return (Object.keys(PERIOD_CODE) as ReportPeriod[]).find((p) => PERIOD_CODE[p] === code) ?? null;
+}
+export function periodCode(p: ReportPeriod): string { return PERIOD_CODE[p]; }
