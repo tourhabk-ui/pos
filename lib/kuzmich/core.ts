@@ -2923,8 +2923,10 @@ export async function aiChatAgentLoop(
       // Полнота списка туров из get_tours этого хода (эвал критериев 02.11).
       // Дозапросы — по словам вопроса (опечатки — к словам каталога), компания —
       // по всему каталогу: модель брала туры из get_tour_details (эвал 02.11).
+      // Экстренный вопрос (SOS, 112) — без дописки: к ответу «звоните 112» туры
+      // не приклеиваются, и лишних get_tours нет (разбор 03.11, п.6).
       let final = result.content;
-      if (final) {
+      if (final && !detectEmergency(userText).detected) {
         try {
           const catalog = await executeTool('get_tours', {}, toolSurface);
           const extra: ToursCall[] = [];

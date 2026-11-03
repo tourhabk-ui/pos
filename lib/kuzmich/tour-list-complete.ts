@@ -9,6 +9,7 @@
  * компания к названным турам без неё и пометка «дороже бюджета». Цены и даты
  * не придумываются: нет цены в строке — цены нет и в дописке.
  */
+import { detectEmergency } from '@/lib/safety/sos-detector';
 import {
   mentionsOperator, namedTours, parseTourLines, questionNumbers, referenceTours,
   UNIT_CAVEAT_RE, type TourLine,
@@ -115,6 +116,8 @@ export function questionQueries(question: string, catalogText: string, max = 4):
  * если модель брала их из get_tour_details или из каталога без фильтра.
  */
 export function completeTourList(answer: string, question: string, calls: readonly ToursCall[], catalogText = ''): string {
+  // SOS (разбор 03.11, п.6): к экстренному ответу список туров не дописывается.
+  if (detectEmergency(question).detected) return answer;
   const byId = new Map<string, TourLine>();
   for (const c of calls) {
     if (!c.query.trim()) continue;
