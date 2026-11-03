@@ -304,7 +304,7 @@ describe('сверка — во ВСЕХ путях записи землетр�
     const route = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
     const fetchAt = route.indexOf('fetchEmsdPage(EMSD_QUAKES_URL)');
     const ingestAt = route.indexOf('ingestEmsdQuakes(');
-    const allAt = route.indexOf('ingestAll(),');
+    const allAt = route.indexOf('ingestAll()),'); // обёрнут в tracked() (03.11)
     expect(fetchAt).toBeGreaterThan(0);
     expect(allAt).toBeGreaterThan(0);
     expect(ingestAt, 'запись emsd стоит внутри того же Promise.all, что и USGS').toBeGreaterThan(fetchAt);
