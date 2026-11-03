@@ -8,6 +8,7 @@
  *  - Проактивное предложение бронирования после AI-ответа
  */
 
+import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
 import { completeTourList, completionSources, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
@@ -206,7 +207,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 
 КООРДИНАТЫ: если есть в блоке "МЕСТА ПО ЗАПРОСУ" — называй точные. Если нет — не придумывай. Скажи что точные координаты лучше проверить в Google Maps или 2GIS.
 
-РАССТОЯНИЯ: от Петропавловска-Камчатского: Паратунка 60 км, Малкинские источники 200 км, Налычево 70 км, Мутновский вулкан 80 км, Авачинский вулкан 30 км от города, Толбачик 450 км, Курильское озеро 400 км. Не придумывай расстояния для мест которых нет в этом списке.
+РАССТОЯНИЯ И ВРЕМЯ В ПУТИ: называй только из блока «ДОРОГА ИЗ ПЕТРОПАВЛОВСКА-КАМЧАТСКОГО» и других данных контекста (там же источник). Ориентиры: Паратунка 60 км по автодороге, Малкинские источники около 130 км по трассе, Мутновский вулкан 70 км, Авачинский вулкан 30 км от города. Не придумывай расстояния и время дороги: часы езды/лёта и дни пути — только если число есть в данных; иначе скажи «время дороги подтвердит оператор/перевозчик». Длительность тура из каталога — это не время дороги.
 
 СЕЗОННЫЙ КАЛЕНДАРЬ КАМЧАТКИ:
 - Январь–апрель: горные лыжи, снегоходы, сноуборд, зимняя рыбалка подо льдом
@@ -3121,7 +3122,7 @@ export async function aiChat(opts: {
   // Pre-flight: бюджетируем динамический контекст, чтобы он не выдавил остальное
   // из окна модели (Silent Truncation). Важные блоки (place/route) идут первыми.
   const dynamic = fitTextToTokenBudget(
-    [contextNote || '', placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
+    [contextNote || '', placeCtx || '', travelFactsBlock(text), routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
   );
   const belowCache = [mchsBlock, dynamic].filter(Boolean).join('\n\n');
   const systemContent = belowCache
@@ -3293,7 +3294,7 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
 
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
   const dynamic = fitTextToTokenBudget(
-    [placeCtx || '', routeCtx || '', legalCtx || ''].filter(Boolean).join('\n\n'),
+    [placeCtx || '', travelFactsBlock(question), routeCtx || '', legalCtx || ''].filter(Boolean).join('\n\n'),
   );
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`

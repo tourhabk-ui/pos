@@ -84,6 +84,12 @@ export interface DistanceGuardResult {
  * многоабзацный ответ схлопнулся бы в одну простыню.
  */
 export function stripUngroundedDistanceClaims(answer: string, context: string): DistanceGuardResult {
+  const km = stripUngroundedKmClaims(answer, context);
+  const time = stripUngroundedTravelTimeClaims(km.cleaned, context);
+  return { cleaned: time.cleaned, removed: [...km.removed, ...time.removed] };
+}
+
+function stripUngroundedKmClaims(answer: string, context: string): DistanceGuardResult {
   const paragraphs = answer.split(/\n\s*\n/);
   const removed: string[] = [];
 
@@ -132,4 +138,71 @@ export function stripUngroundedDistanceClaims(answer: string, context: string): 
 
   if (removed.length === 0) return { cleaned: answer, removed: [] };
   return { cleaned: outParagraphs.join('\n\n'), removed };
+}
+
+// ── Время в пути (решение владельца 03.11, эвал logistics-2/3) ────────────
+//
+// «около 1–1,5 часа лёта из Елизово», «2–3 дня пути на внедорожнике»,
+// «3–3,5 часа на машине» — модель называла по памяти, в контексте этих чисел
+// не было. Ловится утверждение «число + час/мин/день» рядом со словом дороги
+// (лёт, езда, путь, дорога, на машине/вертолёте/внедорожнике…), число
+// которого не стоит в контексте при единице времени. Длительность тура
+// («тур на 4 дня», строка каталога «- «…» — …₽») и время на маршруте
+// пешком (подъём 12,5 ч — из БД) не трогаются: у них нет слова дороги или
+// они заземлены.
+
+/** Вместо вырезанного времени в пути. */
+export const TRAVEL_TIME_HONEST_LINE =
+  'Точного времени дороги в моих данных нет — время в пути подтвердит оператор или перевозчик.';
+
+const NUM = String.raw`\d{1,3}(?:[.,]\d+)?`;
+const UNIT = String.raw`(?:час[а-яё]*|ч(?![а-яё])|минут[а-яё]*|мин(?![а-яё])|дн(?:я|ей|\.)?(?![а-яё])|день(?![а-яё])|сут(?:ок|ки)?(?![а-яё]))`;
+const TIME_CLAIM_RE = new RegExp(`(${NUM})(?:\\s*[–—-]\\s*(${NUM}))?\\s*${UNIT}`, 'gi');
+const TRAVEL_CUE_RE = /л[её]т[аау]?(?![а-яё])|пол[её]т|перел[её]т|езд[ыаеу]|ехать|едут|доезд|в пути|пути(?![а-яё])|дорог[аиуеой]|на машине|на автомобил|на внедорожник|на вездеход|на автобус|вертол[её]т|трансфер/i;
+const HIKE_RE = /подъ[её]м|восхожд|спуск|пешк|пеш[иа]|треккинг|трек(?![а-яё])|радиальн|сплав/i;
+const TOUR_DURATION_RE = /тур[а-яё]*\s+(?:на\s+)?\d|продолжительн|программ[а-яё]*\s+на/i;
+
+function timeGrounded(n: string, context: string): boolean {
+  const esc = escapeForRegex(n);
+  const re = new RegExp(`(?<![\\d.,])${esc}(?![\\d]|[.,]\\d)(?:\\s*[–—-]\\s*${NUM})?\\s*${UNIT}|${NUM}\\s*[–—-]\\s*${esc}(?![\\d]|[.,]\\d)\\s*${UNIT}`, 'i');
+  return re.test(context);
+}
+
+function isUngroundedTravelTime(sentence: string, context: string): boolean {
+  if (!TRAVEL_CUE_RE.test(sentence)) return false;
+  for (const m of sentence.matchAll(TIME_CLAIM_RE)) {
+    const around = sentence.slice(Math.max(0, m.index! - 25), m.index! + m[0].length + 30);
+    if (!TRAVEL_CUE_RE.test(around) || HIKE_RE.test(around)) continue;
+    if (TOUR_DURATION_RE.test(sentence.slice(Math.max(0, m.index! - 20), m.index! + m[0].length))) continue;
+    const nums = [m[1]!, m[2]].filter(Boolean) as string[];
+    if (nums.some((n) => !timeGrounded(n, context))) return true;
+  }
+  return false;
+}
+
+/** Вырезает предложения/пункты с незаземлённым временем в пути. Строки
+ *  каталога туров («- «Тур» — Оператор, от N ₽») не трогаются. */
+export function stripUngroundedTravelTimeClaims(answer: string, context: string): DistanceGuardResult {
+  const removed: string[] = [];
+  const paragraphs = answer.split(/\n\s*\n/).map((para) => {
+    let inserted = false;
+    const lines = para.split('\n').map((line) => {
+      if (/^\s*[-•]\s*«/.test(line) || /₽/.test(line)) return line;
+      const bullet = line.match(/^\s*(?:[-•*]|\d+[.)])\s+/)?.[0] ?? '';
+      const sentences = splitSentences(line.slice(bullet.length));
+      const kept = sentences.filter((s) => {
+        if (!isUngroundedTravelTime(s, context)) return true;
+        removed.push(s);
+        return false;
+      });
+      if (kept.length === sentences.length) return line;
+      const honest = inserted ? '' : TRAVEL_TIME_HONEST_LINE;
+      inserted = true;
+      const body = [...kept, honest].filter(Boolean).join(' ');
+      return body ? `${bullet}${body}` : null;
+    });
+    return lines.filter((l): l is string => l !== null).join('\n');
+  });
+  if (removed.length === 0) return { cleaned: answer, removed: [] };
+  return { cleaned: paragraphs.join('\n\n'), removed };
 }
