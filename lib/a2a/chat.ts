@@ -61,6 +61,8 @@ export async function answerAgentMessage(
   history: ChatTurn[],
   opts: AgentAnswerOptions = {},
 ): Promise<AgentAnswer> {
+  // ЧП проверяется раньше отказа (agentOffTopic сам пропускает признаки ЧП,
+  // разбор 03.11): вопрос про беду всегда получает обычный ответ с блоком 112.
   // Викторины, загадки, крипто- и инвестпредложения от агентов — вежливый
   // отказ кодом, без модели: на них не отвечаем и деньги на LLM не тратим.
   if (agentOffTopic(text)) return { ok: true, text: offTopicReply(text) };
