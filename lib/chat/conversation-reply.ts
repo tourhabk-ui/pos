@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { ROLE_TO_CATEGORY } from '@/lib/crm/partner-context';
 import { INBOX_CHAT_CATEGORIES } from '@/lib/crm/inbox-kinds';
 import { reachForPartner } from '@/lib/partners/reach';
-import { redactPII } from '@/lib/security/pii-redact';
+import { redactPII, redactChatPD } from '@/lib/security/pii-redact';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
@@ -63,9 +63,9 @@ export function convReplyButton(conversationId: string): { text: string; payload
   return { text: 'Ответить', payload: convPayload('reply', conversationId) };
 }
 
-/** Текст для Telegram: телефоны, почта, ссылки и документы скрыты. */
-export function maskConvText(body: string): string {
-  return redactPII(body);
+/** Текст для Telegram: телефоны, почта, ссылки, @ники и имена (где узнаются) скрыты. */
+export function maskConvText(body: string, names: ReadonlyArray<string | null | undefined> = []): string {
+  return redactChatPD(body, names);
 }
 
 export function convPreviewText(body: string, channel: ConvChannel): string {

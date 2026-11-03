@@ -48,11 +48,11 @@ jobs:
           print(f"## Плохие оценки Кузьмича за {d['days']} дн. (снято {now})\n")
           print(f"Плохих: **{d['bad_total']}** из {d['outcomes_total']} сохранённых оценок.\n")
           if d.get('empty_reason'): print(f"> {d['empty_reason']}\n")
-          print("| Тип | Кол-во | Поверхности | Примеры (формулировка судьи, без ПД) |")
+          print("| Тип | Кол-во | Поверхности | Случаи (agent_knowledge.id) |")
           print("|---|---:|---|---|")
           for c in d.get('clusters', []):
               surf = ', '.join(f"{k} {v}" for k, v in c['by_surface'].items())
-              ex = ' / '.join(e.replace('|', '\\|') for e in c['examples']) or '—'
+              ex = ', '.join(f"#{int(i)}" for i in c.get('case_ids', [])) or '—'
               print(f"| {c['label']} | {c['count']} | {surf} | {ex} |")
           for key, title in (('by_provider','Провайдер'),('by_path','Путь'),('by_score','Балл')):
               print(f"\n**{title}:** " + ', '.join(f"{k} {v}" for k, v in sorted(d.get(key, {}).items(), key=lambda x: -x[1])))

@@ -12,9 +12,9 @@ const req = (auth = true) => new NextRequest('https://vedarai.ru/api/cron/kuzmic
   { headers: auth ? { authorization: `Bearer ${SECRET}` } : {} });
 
 const ROWS = [
-  { compiled_truth: 'Вопрос: позвоните +7 999 123-45-67\nОтвет: x\n\nОценка 4/10. Проблемы: Не упомянута безопасность; Выдуманная цена тура', surface: 'telegram', provider: 'deepseek', answer_path: 'tools', outcome_kind: null, score: 4 },
-  { compiled_truth: 'Оценка 5/10. Проблемы: НЕЗАЗЕМЛЁННЫЕ ФАКТЫ (price): цена без инструмента, пишите на a@b.ru', surface: 'web', provider: 'qwen', answer_path: 'waterfall', outcome_kind: null, score: 5 },
-  { compiled_truth: 'ОТКАЗ МОДЕЛИ', surface: 'max', provider: 'groq', answer_path: 'tools', outcome_kind: 'refusal', score: null },
+  { id: 11, compiled_truth: 'Вопрос: позвоните +7 999 123-45-67\nОтвет: x\n\nОценка 4/10. Проблемы: Не упомянута безопасность; Выдуманная цена тура', surface: 'telegram', provider: 'deepseek', answer_path: 'tools', outcome_kind: null, score: 4 },
+  { id: 12, compiled_truth: 'Оценка 5/10. Проблемы: НЕЗАЗЕМЛЁННЫЕ ФАКТЫ (price): цена без инструмента, пишите на a@b.ru', surface: 'web', provider: 'qwen', answer_path: 'waterfall', outcome_kind: null, score: 5 },
+  { id: 13, compiled_truth: 'ОТКАЗ МОДЕЛИ', surface: 'max', provider: 'groq', answer_path: 'tools', outcome_kind: 'refusal', score: null },
 ];
 
 beforeEach(() => {
@@ -37,14 +37,17 @@ describe('kuzmich-bad-outcomes', () => {
     expect(ids).toEqual(expect.arrayContaining(['safety_missing', 'invented', 'ungrounded', 'refusal']));
     const text = JSON.stringify(json);
     expect(text).not.toMatch(/123-45-67|a@b\.ru|Вопрос:/);
+    // Публичный репо: ни слова судьи — только числа и id.
+    expect(text).not.toMatch(/Выдуманная цена тура|цена без инструмента/);
+    expect(json.clusters.find((c: { id: string }) => c.id === 'ungrounded').case_ids).toEqual([12]);
     for (const c of query.mock.calls) expect(c[1]).toEqual([7]);
   });
 
-  it('примеров не больше двух на тип', () => {
-    const many = Array.from({ length: 5 }, (_, i) => ({ ...ROWS[0]!, compiled_truth: `Оценка 3/10. Проблемы: Не упомянута безопасность ${i}` }));
+  it('id случаев не больше пяти на тип', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ ...ROWS[0]!, id: 100 + i, compiled_truth: `Оценка 3/10. Проблемы: Не упомянута безопасность ${i}` }));
     const c = clusterOutcomes(many).find((x) => x.id === 'safety_missing')!;
-    expect(c.count).toBe(5);
-    expect(c.examples.length).toBe(2);
+    expect(c.count).toBe(7);
+    expect(c.case_ids).toEqual([100, 101, 102, 103, 104]);
   });
 
   it('отказ базы — 502', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { redactPII, hasPII } from '@/lib/security/pii-redact';
+import { redactPII, hasPII, redactChatPD } from '@/lib/security/pii-redact';
 
 describe('redactPII — режет телефоны и email перед зарубежным LLM', () => {
   it('российский телефон в разных форматах → [телефон]', () => {
@@ -81,5 +81,23 @@ describe('redactPII — режет телефоны и email перед зару
     expect(redactPII(null)).toBe('');
     expect(redactPII(undefined)).toBe('');
     expect(redactPII('')).toBe('');
+  });
+});
+
+describe('redactChatPD — маска Telegram (разбор 03.11)', () => {
+  it('имя, ник, vk и телефон', () => {
+    const out = redactChatPD('Здравствуйте, меня зовут Анна Петрова, пишите vk.com/anna_p или @anna_kam, тел +7 999 123-45-67');
+    expect(out).not.toMatch(/Анна|Петрова|anna|123-45-67/);
+    expect(out).toContain('[ник]');
+    expect(out).toContain('[ссылка]');
+  });
+  it('«Это Иван.», подпись и известное имя', () => {
+    expect(redactChatPD('Это Иван. Хотим на Авачинский')).toBe('Это [имя]. Хотим на Авачинский');
+    expect(redactChatPD('Добрый день!\n— Ольга')).not.toMatch(/Ольга/);
+    expect(redactChatPD('Сергей будет с женой', ['Сергей Иванов'])).toBe('[имя] будет с женой');
+  });
+  it('места и почту не путает с ником', () => {
+    expect(redactChatPD('Едем к Мутновскому 5 ноября')).toBe('Едем к Мутновскому 5 ноября');
+    expect(redactChatPD('почта a.b@mail.ru')).toBe('почта [email]');
   });
 });

@@ -107,3 +107,40 @@ export function hasPII(text: string | null | undefined): boolean {
   if (!text) return false;
   return redactPII(text) !== text;
 }
+
+/**
+ * Маска ПД для текста, уходящего в Telegram партнёру (разбор 03.11, п.6):
+ * сверх телефона и почты — ссылки на профили (vk, t.me, instagram и любые
+ * адреса), @ники, имя, которым человек представился («меня зовут Анна»,
+ * «это Иван», подпись «— Мария»), и известные имена отправителя (`names`).
+ * Имя вне этих оборотов не угадывается: любое слово с большой буквы — это и
+ * «Камчатка», и «Авачинский».
+ */
+export function redactChatPD(text: string | null | undefined, names: ReadonlyArray<string | null | undefined> = []): string {
+  if (!text) return '';
+  let out = text;
+  // Ссылки: со схемой и голые домены соцсетей.
+  out = out.replace(/\bhttps?:\/\/\S+/gi, '[ссылка]');
+  out = out.replace(/\b(?:www\.)?(?:vk\.com|vk\.ru|m\.vk\.com|t\.me|telegram\.me|instagram\.com|ok\.ru|wa\.me|max\.ru)\/\S+/gi, '[ссылка]');
+  // Почта — раньше ников: «a@b.ru» не должен стать «a[ник]».
+  out = out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]');
+  out = out.replace(/(^|[^\w@])@[A-Za-z0-9_]{3,32}\b/g, '$1[ник]');
+  // Представился: «меня зовут Анна», «я — Иван Петров», «это Мария», «my name is John».
+  const NAME = '[А-ЯЁA-Z][а-яёa-z]+(?:[ -][А-ЯЁA-Z][а-яёa-z]+){0,2}';
+  out = out.replace(new RegExp(`([Мм]еня\\s+зовут|[Мм]о[её]\\s+имя|[Mm]y\\s+name\\s+is)(\\s*[—–-]?\\s*)(${NAME})`, 'gu'), '$1$2[имя]');
+  // «Это Иван.», «Я — Мария,»: только если за именем конец фразы — иначе «это Авачинский вулкан».
+  out = out.replace(new RegExp(`((?:^|[\\s,.!])(?:[Ээ]то|[Яя]|I'm|I\\s+am))(\\s*[—–-]?\\s*)(${NAME})(?=\\s*(?:[.,!;\\n)]|$))`, 'gu'), '$1$2[имя]');
+  // Подпись в конце: «— Мария», «С уважением, Иван».
+  out = out.replace(new RegExp(`(с\\s+уважением,?\\s*|спасибо,?\\s*|^|\\n)([—–-]\\s*)?(${NAME})\\s*$`, 'iu'), (m, pre: string, dash: string | undefined, name: string) =>
+    (pre && /уважением|спасибо/i.test(pre)) || dash ? `${pre}${dash ?? ''}[имя]` : m);
+  for (const n of names) {
+    const t = n?.trim();
+    if (!t || t.length < 2) continue;
+    for (const part of [t, ...t.split(/\s+/).filter((w) => w.length >= 3)]) {
+      const esc = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Без lookbehind: модуль идёт в клиентский бандл (Safari < 16.4).
+      out = out.replace(new RegExp(`(^|[^\\p{L}])${esc}(?![\\p{L}])`, 'giu'), '$1[имя]');
+    }
+  }
+  return redactPII(out);
+}

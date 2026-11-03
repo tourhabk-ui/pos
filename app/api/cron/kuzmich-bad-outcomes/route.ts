@@ -3,9 +3,9 @@
  * типам. Bearer CRON_SECRET. Только читает.
  *
  * Аудит агентов 02.11, пробел #5: низкие баллы грейдера копились в
- * agent_knowledge без обзора. Здесь — кластеры с числами и 1–2 примерами
- * формулировки судьи (redactPII, обрезка). Вопрос туриста, ответ бота и
- * ключ разговора наружу не отдаются. Потребитель — еженедельный дайджест
+ * agent_knowledge без обзора. Здесь — кластеры: числа и id случаев
+ * (agent_knowledge.id). Текст судьи, вопрос туриста, ответ бота и ключ
+ * разговора наружу не отдаются: свод уходит в issue публичного репо. Потребитель — еженедельный дайджест
  * .github/workflows/kuzmich-bad-outcomes-digest.yml.
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,7 +20,7 @@ export const maxDuration = 30;
 
 /** Плохое: балл ниже 7, незаземлённый ответ или отказ модели. */
 const SQL = `
-  SELECT compiled_truth,
+  SELECT id, compiled_truth,
          metadata->>'surface'      AS surface,
          metadata->>'provider'     AS provider,
          metadata->>'answer_path'  AS answer_path,
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       caveats: [
         'Сохраняется не всё: оценка ниже 7, незаземлённый ответ или каждый десятый хороший; потолок оценок 300 в сутки.',
         'Одна запись может попасть в несколько типов: у судьи бывает несколько проблем.',
-        'Примеры — формулировки судьи без ПД; вопросы и ответы не отдаются.',
+        'Случаи — только id в agent_knowledge; текст судьи, вопросы и ответы сюда не выводятся (репозиторий публичный).',
       ],
     });
   } catch (err) {
