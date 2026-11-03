@@ -166,8 +166,12 @@ export function groupSizeNote(
   priceUnit: string | null | undefined,
   maxParticipants: string | number | null | undefined,
   groupSizeUnlimited?: boolean | null,
+  minParticipants?: string | number | null,
 ): string | null {
   if (priceUnit === 'per_tour' || groupSizeUnlimited === true || maxParticipants == null) return null;
   const n = Number(maxParticipants);
-  return Number.isInteger(n) && n >= 1 ? `группа до ${n} чел.` : null;
+  if (!Number.isInteger(n) || n < 1) return null;
+  // Минимум — тоже из живой строки (слово владельца 03.11: «минимум 5, до 14»).
+  const m = minParticipants == null ? NaN : Number(minParticipants);
+  return Number.isInteger(m) && m > 1 && m < n ? `группа ${m}–${n} чел.` : `группа до ${n} чел.`;
 }
