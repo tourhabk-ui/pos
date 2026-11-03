@@ -67,7 +67,7 @@ describe('resolveCostUsd: каталог первичен, запас — тол
 
   it('модели нет нигде — cost: null, не умолчание $0.0005', async () => {
     queryMock.mockResolvedValueOnce({ rows: [] });
-    const { cost, basis } = await resolveCostUsd('deepseek-v4-pro', 1000, 200);
+    const { cost, basis } = await resolveCostUsd('vendorx-unknown-9', 1000, 200);
     expect(cost).toBeNull();
     expect(basis).toBe('unknown');
   });
@@ -233,4 +233,27 @@ describe('logLLMUsage пишет cost_basis рядом с ценой', () => {
     expect(body).not.toMatch(/\.catch\(\(\) => \{\s*\/\* silent \*\/\s*\}\)/);
     expect(body).toMatch(/console\.error\(.*llm-usage.*строка не записана/);
   });
+});
+
+// 03.11.2026: $33 за день на deepseek-v4-pro, а бюджет молчал — строки шли с
+// cost NULL. Цены с https://api-docs.deepseek.com/quick_start/pricing (пик).
+describe('DeepSeek V4 в запасной таблице', () => {
+  beforeEach(() => { queryMock.mockReset(); });
+  const cases: Array<[string, number]> = [
+    ['deepseek-v4-pro', 0.00165],
+    ['deepseek:deepseek-v4-pro', 0.00165],
+    ['deepseek/deepseek-v4-pro', 0.00165],
+    ['deepseek-flash', 0.0004125],
+    ['deepseek-v4-flash', 0.0004125],
+    ['deepseek:deepseek-flash', 0.0004125],
+  ];
+  for (const [model, per1k] of cases) {
+    it(`${model} — не null`, async () => {
+      queryMock.mockResolvedValue({ rows: [] });
+      const { cost, basis } = await resolveCostUsd(model, 1000, 200);
+      expect(cost).not.toBeNull();
+      expect(cost).toBeCloseTo((per1k * 1200) / 1000, 10);
+      expect(basis).toBe('cost_table_fallback');
+    });
+  }
 });
