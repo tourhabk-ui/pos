@@ -9,7 +9,7 @@
  *   - разовый перенос миграции идемпотентен.
  * Без KERNEL_PG_TEST_URL файл честно пропускается.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestDatabase } from '../helpers/pg-schema';
@@ -204,5 +204,125 @@ withPg('1389: пустая миграция', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations', '1389_andrey_zaporozhets_account_by_slug.sql'), 'utf-8');
     const body = sql.split('\n').filter((l) => !l.trim().startsWith('--') && l.trim()).join(' ').trim();
     expect(body).toBe('SELECT 1;');
+  });
+});
+
+// ── Миграция 1390 (04.11): Андрей Запорожец по явным id — точное состояние прода ──
+const SQL_1390 = readFileSync(join(process.cwd(), 'migrations', '1390_andrey_zaporozhets_explicit_ids.sql'), 'utf-8');
+const UID = '4e2ae003-d54e-4a5d-9604-30d4e948ff09';
+const PH = '259dd12b-7025-430e-9baa-254a08a37f39';
+const CARD_A = 'd9d1d230-4f18-4917-84f1-59b8fafb11c2';
+const CARD_B = '95fe571f-9e99-400e-bdc3-a1682bf3175e';
+const MAX_ID = 777_001;
+const TG_ID = 221_997_120;
+
+withPg('1390: аккаунт Андрея Запорожца по явным id', () => {
+  let pool: import('pg').Pool;
+  let dbUrl = '';
+
+  beforeAll(async () => {
+    const { Pool } = await import('pg');
+    dbUrl = await createTestDatabase(PG_URL, 'andrey_1390_test');
+    pool = new Pool({ connectionString: dbUrl, max: 2 });
+    await pool.query(readFileSync(join(process.cwd(), 'migrations', '1387_messenger_owner_placeholder_cabinet.sql'), 'utf-8'));
+    // Карточку andrey-zaporozhets из 1338 уводим со слага: B ставим с прод-id.
+    await pool.query(`UPDATE partners SET slug = 'andrey-zaporozhets-1338' WHERE slug = 'andrey-zaporozhets' AND id::text <> $1`, [CARD_B]);
+  }, 300_000);
+  afterAll(async () => { await pool?.end().catch(() => undefined); });
+
+  beforeEach(async () => {
+    await pool.query(`DELETE FROM bookings WHERE user_id::text = $1`, [PH]);
+    await pool.query(`DELETE FROM partners WHERE id::text IN ($1, $2) OR user_id::text IN ($3, $4)`, [CARD_A, CARD_B, UID, PH]);
+    await pool.query(`DELETE FROM users WHERE id::text IN ($1, $2)`, [UID, PH]);
+    // Аккаунт zap.andy — с паролем, без мессенджеров.
+    await pool.query(`INSERT INTO users (id, email, name, role, password_hash) VALUES ($1, 'zap.andy@gmail.com', 'Андрей', 'guide', 'hash')`, [UID]);
+    // Заглушка Telegram-входа: держит TG и MAX, есть память Кузьмича и сессия.
+    await pool.query(
+      `INSERT INTO users (id, email, name, role, password_hash, telegram_id, max_user_id, preferences)
+       VALUES ($1, 'tg_221997120@telegram.local', 'Андрей', 'tourist', '', $2, $3, '{}')`, [PH, TG_ID, MAX_ID]);
+    await pool.query(`INSERT INTO user_ai_memory (user_id) VALUES ($1)`, [PH]);
+    await pool.query(`INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1, 'ph-token-1390', NOW() + interval '1 day')`, [PH]);
+    // A: пустая из регистрации, аккаунт 4e2ae003, MAX есть, TG нет, скрыта.
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, user_id, is_public, max_owner_user_id)
+       VALUES ($1, 'Андрей Запорожец', 'guide', '{}', $2, FALSE, $3)`, [CARD_A, UID, MAX_ID]);
+    // B: настоящая, без аккаунта, MAX+TG, публичная.
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, profile_status, status, is_public,
+                             max_owner_user_id, telegram_owner_user_id, telegram_chat_id)
+       VALUES ($1, 'Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets', 'approved', 'active', TRUE, $2, $3, $3)`,
+      [CARD_B, MAX_ID, TG_ID]);
+  });
+
+  async function run(): Promise<void> {
+    const c = await pool.connect();
+    try { await c.query(SQL_1390); } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
+  }
+  const card = async (id: string) => (await pool.query(
+    `SELECT user_id::text, status, is_public, max_owner_user_id::text AS mx FROM partners WHERE id::text = $1`, [id])).rows[0];
+  const user = async (id: string) => (await pool.query(
+    `SELECT max_user_id::text AS mx, telegram_id::text AS tg, role, is_active FROM users WHERE id::text = $1`, [id])).rows[0];
+
+  it('(1) заглушка с памятью Кузьмича не «пустая» — поэтому 1389 и остановилась', async () => {
+    const r = await pool.query(`SELECT vedar_messenger_placeholder_empty($1::uuid) AS ok`, [PH]);
+    expect(r.rows[0].ok).toBe(false);
+  });
+
+  it('(3) переносит id, выключает заглушку, A — suspended без MAX, B — владелец; повтор без изменений', async () => {
+    await run();
+    expect(await card(CARD_B)).toMatchObject({ user_id: UID, status: 'active', is_public: true });
+    expect(await card(CARD_A)).toMatchObject({ user_id: null, status: 'suspended', is_public: false, mx: null });
+    expect(await user(UID)).toEqual({ mx: String(MAX_ID), tg: String(TG_ID), role: 'guide', is_active: true });
+    expect(await user(PH)).toEqual({ mx: null, tg: null, role: 'tourist', is_active: false });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM user_sessions WHERE user_id::text = $1`, [PH])).rows[0].n).toBe(0);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM user_ai_memory WHERE user_id::text = $1`, [PH])).rows[0].n).toBe(1);
+    await run();
+    expect((await card(CARD_B)).user_id).toBe(UID);
+  });
+
+  it('(4) после 1390 вход через MAX и Telegram — в аккаунт 4e2ae003', async () => {
+    await run();
+    const prev = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = dbUrl;
+    process.env.DATABASE_SSL = 'false';
+    vi.resetModules();
+    const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
+    try {
+      for (const [ch, col, id] of [['max', 'max_user_id', MAX_ID], ['telegram', 'telegram_id', TG_ID]] as const) {
+        const h = (await pool.query(`SELECT id::text AS id, email, name, role FROM users WHERE ${col} = $1 LIMIT 1`, [id])).rows[0] ?? null;
+        const got = (await linkMessengerLoginToPartner(ch, id, h)) ?? h;
+        expect(got?.id).toBe(UID);
+      }
+    } finally {
+      const { pool: appPool } = await import('@/lib/db-pool');
+      await (appPool as unknown as { end?: () => Promise<void> }).end?.();
+      process.env.DATABASE_URL = prev;
+    }
+  });
+
+  it('(5) MAX id на карточках расходятся — стоп с обоими значениями', async () => {
+    await pool.query(`UPDATE partners SET max_owner_user_id = 777002 WHERE id::text = $1`, [CARD_A]);
+    await expect(run()).rejects.toThrow(/MAX id расходятся.*777002.*777001|MAX id расходятся.*777001.*777002/);
+    expect((await card(CARD_B)).user_id).toBeNull();
+  });
+
+  it('(5) у заглушки бронь — стоп', async () => {
+    await pool.query(`INSERT INTO bookings (user_id, date, participants, total_price) VALUES ($1, CURRENT_DATE, 1, 100)`, [PH]);
+    await expect(run()).rejects.toThrow(/есть брони/);
+    expect((await user(PH)).tg).toBe(String(TG_ID));
+  });
+
+  it('(5) у заглушки карточка — стоп', async () => {
+    await pool.query(`INSERT INTO partners (name, category, contact, user_id) VALUES ('X', 'operator', '{}', $1)`, [PH]);
+    await expect(run()).rejects.toThrow(/есть карточки/);
+  });
+
+  it('(5) у карточки B чужой владелец — стоп', async () => {
+    const other = (await pool.query(`INSERT INTO users (email, name, role, password_hash) VALUES ('other-1390@example.test', 'X', 'guide', '') ON CONFLICT DO NOTHING RETURNING id::text`)).rows[0]?.id
+      ?? (await pool.query(`SELECT id::text FROM users WHERE email = 'other-1390@example.test'`)).rows[0].id;
+    await pool.query(`UPDATE partners SET user_id = $1 WHERE id::text = $2`, [other, CARD_B]);
+    await expect(run()).rejects.toThrow(/другой владелец/);
+    expect((await card(CARD_A)).status).not.toBe('suspended');
+    await pool.query(`UPDATE partners SET user_id = NULL WHERE id::text = $1`, [CARD_B]);
   });
 });
