@@ -143,7 +143,7 @@ describe('инструменты по ключу', () => {
     db(keyRow({ can_write: false }));
     const list = await (await POST(req({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))).json();
     const names = (list.result.tools as Array<{ name: string; annotations: { readOnlyHint: boolean } }>).map((t) => t.name);
-    expect(names).toEqual(['crm_inbox', 'crm_find_contact', 'crm_contact_card', 'crm_tasks']);
+    expect(names).toEqual(['crm_inbox', 'crm_find_contact', 'crm_contact_card', 'crm_tasks', 'crm_report']);
     for (const t of list.result.tools as Array<{ annotations: { readOnlyHint: boolean } }>) expect(t.annotations.readOnlyHint).toBe(true);
 
     const res = await (await POST(req(call('crm_add_task', { title: 'x', due: '2030-01-01' })))).json();
