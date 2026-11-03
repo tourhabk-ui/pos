@@ -87,8 +87,8 @@ withPg('вход через мессенджер → кабинет партнё
     const other = await user('op-c2@example.test', 'operator');
     await partner(other, {});
     await pool.query(
-      `INSERT INTO operator_members (partner_id, user_id, status)
-       SELECT id, $1, 'revoked' FROM partners WHERE user_id = $2`, [dup, other]);
+      `INSERT INTO operator_members (partner_id, user_id, status, revoked_at)
+       SELECT id, $1, 'revoked', NOW() FROM partners WHERE user_id = $2`, [dup, other]);
     const linked = await linkMessengerLoginToPartner('telegram', 820_003, { id: dup });
     expect(linked).toBeNull();
     expect((await row(dup)).telegram_id).toBe('820003');
