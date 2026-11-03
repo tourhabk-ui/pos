@@ -152,7 +152,24 @@ export async function GET(request: NextRequest) {
         LIMIT 20`,
       [hours, SEISMIC_DELIVERY_NORM_MIN],
     );
+    // Последние прогоны С ПРИЧИНОЙ (03.11): сводка по триггерам говорит «0 из
+    // 1 успешных», но не говорит почему, а потолок GET пишет висящий шаг
+    // именно в metadata.empty_reasons. Без этого среза причину видел бы только
+    // тот, у кого есть доступ к базе.
+    const last = await pool.query<{ status: string; started_at: Date; duration_ms: number | null; metadata: unknown }>(
+      `SELECT status, started_at, duration_ms, metadata
+         FROM agent_run_history
+        WHERE agent_id = 'safety-ingest'
+        ORDER BY started_at DESC
+        LIMIT 10`,
+    );
     return {
+      last_runs: last.rows.map((r) => ({
+        status: r.status,
+        started_at: new Date(r.started_at).toISOString(),
+        duration_ms: r.duration_ms,
+        metadata: r.metadata,
+      })),
       by_trigger: byTrigger.rows.map((r) => ({
         ...r,
         last_at: r.last_at ? new Date(r.last_at).toISOString() : null,
