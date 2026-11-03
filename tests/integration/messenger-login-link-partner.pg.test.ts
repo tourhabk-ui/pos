@@ -125,6 +125,8 @@ withPg('вход через мессенджер → кабинет партнё
   });
   // 1387: кабинет на аккаунте-заглушке (гид без почты, подключён через бота).
   it('1387: MAX-id на пустом туристе, кабинет на TG-заглушке гида → вход в кабинет', async () => {
+    // Тест разового переноса 1386 выше переопределяет функции версией 1386.
+    await pool.query(readFileSync(join(process.cwd(), 'migrations', '1387_messenger_owner_placeholder_cabinet.sql'), 'utf-8'));
     const { linkMessengerLoginToPartner } = await import('@/lib/auth/messenger-link');
     const guide = await user('tg_830001@telegram.local', 'guide', { telegram_id: 830_001 });
     await partner(guide, { max_owner_user_id: 830_101, telegram_chat_id: 830_001 });
