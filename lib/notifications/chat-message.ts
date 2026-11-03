@@ -149,7 +149,10 @@ export async function notifyPartnerOfChatMessageQuietly(
     // Telegram (30.10, владелец: «отвечать из TG можно, с маской ПД»): текст
     // туриста без имени, телефоны, почта и ссылки скрыты; «Ответить» — только
     // если Telegram партнёра назван (stubActions уходят лишь ему).
-    const masked = excerpt ? maskConvText(excerpt) : '';
+    // Маска — до обрезки (разбор 03.11): иначе телефон, разрезанный на 200-м
+    // символе, уже не узнаётся и уходит хвостом.
+    const flat = content.trim().replace(/\s+/g, ' ');
+    const masked = flat ? maskConvText(flat, [senderName]).slice(0, 200) : '';
     const stub = [
       ...common,
       masked ? `Сообщение: ${esc(masked)}` : '',

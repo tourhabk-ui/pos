@@ -35,7 +35,7 @@
  * факт сообщения: свободный текст может нести что угодно.
  */
 import { escapeHtml } from '@/lib/text/escape-html';
-import { redactPII } from '@/lib/security/pii-redact';
+import { redactChatPD } from '@/lib/security/pii-redact';
 import { ruDate } from '@/lib/stay/stay-request';
 
 /** Предел длины одного сообщения — тот же, что CHECK в 1349. */
@@ -178,16 +178,21 @@ export function stayDates(checkIn: string, checkOut: string): string {
 export function leadDates(raw: string | null | undefined): string | null {
   const t = (raw ?? '').replace(/\s+/g, ' ').trim();
   if (!t) return null;
-  return t.length > 80 ? `${t.slice(0, 79)}…` : t;
+  if (t.length <= 80) return t;
+  // Не резать посреди телефона/почты/ссылки: обрезок «+7 999 12…» маска
+  // Telegram уже не узнает (разбор 03.11). Отступаем до границы слова.
+  const cut = t.slice(0, 79);
+  const sp = cut.lastIndexOf(' ');
+  return `${(sp > 40 ? cut.slice(0, sp) : cut.replace(/[\w@.+()\-]+$/u, '')).trimEnd()}…`;
 }
 
 /**
  * Даты и люди одной строкой. В заглушку Telegram (`redact`) свободный текст
- * клиента — название направления, желаемые даты — идёт через `redactPII`:
+ * клиента — название направления, желаемые даты — идёт через `redactChatPD`:
  * туда ПД не уходят, а в поле «куда ехать» человек мог вписать и телефон.
  */
 function factsLine(f: ChatFacts, redact = false): string {
-  const clean = (v: string) => escapeHtml(redact ? redactPII(v) : v);
+  const clean = (v: string) => escapeHtml(redact ? redactChatPD(v) : v);
   const parts = [
     f.dates ? clean(f.dates) : null,
     f.people != null ? `${f.target === 'stay' ? 'гостей' : 'человек'}: ${f.people}` : null,
@@ -197,7 +202,7 @@ function factsLine(f: ChatFacts, redact = false): string {
 
 /** Название заявки для заглушки Telegram — без ПД. */
 function stubTitle(f: ChatFacts): string {
-  return escapeHtml(redactPII(f.title));
+  return escapeHtml(redactChatPD(f.title));
 }
 
 /** Кто клиент для адресата: у жилья — гость, у остальных — клиент. */
@@ -272,9 +277,9 @@ export function ownerIncomingStub(f: ChatFacts, body?: string): string {
   ].filter((l) => l !== null).join('\n');
 }
 
-/** Текст для Telegram: ПД (телефоны, почта, ссылки, документы) скрыты. */
+/** Текст для Telegram: ПД (телефоны, почта, ссылки, @ники, представившееся имя) скрыты. */
 export function maskChatText(body: string): string {
-  return redactPII(body);
+  return redactChatPD(body);
 }
 
 // ── Черновик ответа: предпросмотр и «Отправить» ─────────────────────────────
