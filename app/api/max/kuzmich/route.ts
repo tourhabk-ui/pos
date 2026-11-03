@@ -94,8 +94,9 @@ import { isCabinetSection } from '@/lib/roles/role-screen';
 type ButtonIntent = 'default' | 'positive' | 'negative';
 
 function toMaxButtons(rows: CabinetButton[][]): MaxButton[][] {
-  return rows.map((row) => row.map((b) => (
-    b.intent
+  return rows.map((row) => row.map((b): MaxButton => (
+    b.url ? { type: 'link' as const, text: b.text, url: b.url }
+    : b.intent
       ? { type: 'callback' as const, text: b.text, payload: b.payload, intent: b.intent }
       : { type: 'callback' as const, text: b.text, payload: b.payload }
   )));

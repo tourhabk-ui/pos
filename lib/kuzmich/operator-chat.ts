@@ -423,7 +423,7 @@ export async function processPartnerMessage(opts: {
   fromName: string | null;
   partner: PartnerChatContext;
   /** `buttons` — кнопки под ответом («Записать» / «Не то» у «Понял так»); канал без кнопок их не теряет молча — текст говорит, что нажать. */
-  reply: (chatId: number, text: string, buttons?: Array<Array<{ text: string; payload: string; intent?: 'positive' | 'negative' }>>) => Promise<void>;
+  reply: (chatId: number, text: string, buttons?: Array<Array<{ text: string; payload: string; intent?: 'positive' | 'negative'; url?: string }>>) => Promise<void>;
   nowMs?: number;
   /** Откуда пришло слово партнёра — в запись занятости жилья («хозяин: занято (max)»). Не названо — MAX. */
   channel?: 'max' | 'telegram';
@@ -492,8 +492,10 @@ export async function processPartnerMessage(opts: {
   // цены не пишутся — предпросмотр и ссылка на подтверждение на сайте.
   const priced = await handlePriceChangePhrase({ partnerId: partner.partnerId, sellsTours: sellsOwnTours(partner), text, nowMs });
   if (priced !== null) {
-    await saveAnswer(priced);
-    await reply(chatId, priced);
+    await saveAnswer(priced.text);
+    // Ссылка подтверждения — кнопкой; в тексте она остаётся (канал без кнопок).
+    if (priced.button) await reply(chatId, priced.text, [[{ text: priced.button.text, payload: 'url', url: priced.button.url }]]);
+    else await reply(chatId, priced.text);
     return;
   }
 
