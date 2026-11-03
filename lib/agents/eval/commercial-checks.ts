@@ -123,6 +123,9 @@ export interface CommercialVerdict {
 export type PriceUnit = 'per_person' | 'per_day_per_person' | 'per_tour' | 'unknown';
 
 /** Строка тура в выводе get_tours и в каталоге подсказки (loadTourCatalog). */
+/** Ответ сказал, что цена не за человека (группа / за день / уточнить). */
+export const UNIT_CAVEAT_RE = /за группу|₽\/группа|за лодку|за день|в день|не за человека|уточните у оператора/i;
+
 export interface TourLine {
   id: string;
   title: string;
@@ -448,7 +451,10 @@ export function judgeCommercial(input: CommercialInput): CommercialVerdict {
         const comparable = max === undefined ? all : all.filter((t) => t.price !== null && t.unit === 'per_person');
         const want = max === undefined ? all : comparable.filter((t) => t.price !== null && t.price <= max);
         if (want.length === 0 && max !== undefined && comparable.length === 0) {
-          return { kind: c.kind, outcome: 'unknown', reason: `у туров «${c.query}» цена не за человека — с бюджетом ${max} не сравнима` };
+          // Сравнить нельзя — честный ответ говорит, за что цена (02.11).
+          return UNIT_CAVEAT_RE.test(answer)
+            ? { kind: c.kind, outcome: 'pass', reason: `у туров «${c.query}» цена не за человека, и ответ это говорит` }
+            : { kind: c.kind, outcome: 'fail', reason: `у туров «${c.query}» цена не за человека, а ответ не говорит, за что она` };
         }
         if (want.length === 0) {
           // По слову туры есть, в бюджет — ни одного: честный ответ — «в бюджет нет».
