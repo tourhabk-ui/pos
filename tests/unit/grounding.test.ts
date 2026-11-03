@@ -161,3 +161,24 @@ describe('каждый инструмент реестра Кузьмича на
     expect(grounds('compare_tours')).toBe(true);
   });
 });
+
+import { pricesIn, pricesMatchCatalog, assessGrounding as assessG } from '@/lib/agents/eval/grounding';
+
+describe('цены из каталога базы в промпте (свод плохих оценок 03.11)', () => {
+  const catalog = '• Курильское озеро — 45 000 ₽ за человека\n• Вулкан Авачинский — 12000 руб.';
+  it('читает цены ответа, «тыс.» как тысячи', () => {
+    expect(pricesIn('от 45 000 ₽ и 12 тыс. руб')).toEqual([45000, 12000]);
+  });
+  it('все цены в каталоге — заземлено каталогом', () => {
+    const g = assessG('Курильское озеро — 45 000 ₽, Авачинский — 12 000 ₽.', [], { catalogText: catalog });
+    expect(g.verdict).toBe('grounded');
+    expect(g.reason).toMatch(/каталогом/);
+  });
+  it('пересчитанная или выдуманная цена — по-прежнему незаземлена', () => {
+    expect(pricesMatchCatalog('на двоих 90 000 ₽', catalog)).toBe(false);
+    expect(assessG('Озеро — 45 000 ₽, а вертолёт 99 000 ₽', [], { catalogText: catalog }).verdict).toBe('ungrounded');
+  });
+  it('наличие мест каталогом не заземляется', () => {
+    expect(assessG('45 000 ₽, есть места на завтра', [], { catalogText: catalog }).verdict).toBe('ungrounded');
+  });
+});

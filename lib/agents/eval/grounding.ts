@@ -106,9 +106,49 @@ export function ranDataTool(runs: readonly ToolRun[]): boolean {
  * `runs === undefined` — телеметрии нет. Тогда исход `unknown`: судить не о
  * чем, и молча записывать «заземлено» нельзя.
  */
+/** Все числа текста, «15 000» и «15\u00a0000» — как 15000. */
+function numbersOf(text: string): Set<number> {
+  const out = new Set<number>();
+  for (const m of text.matchAll(/\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+/g)) {
+    out.add(Number(m[0].replace(/[ \u00a0\u202f]/g, '')));
+  }
+  return out;
+}
+
+/**
+ * Цены ответа — суммы рядом с «₽/руб/тыс». «15 тыс.» читается как 15000.
+ * Экспортирован для тестов.
+ */
+export function pricesIn(answer: string): number[] {
+  const out: number[] = [];
+  const re = /(\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)\s*(тыс\.?|тысяч\w*|к\b)?\s*(₽|руб|р\.)/gi;
+  for (const m of answer.matchAll(re)) {
+    const n = Number(m[1]!.replace(/[ \u00a0\u202f]/g, ''));
+    out.push(m[2] ? n * 1000 : n);
+  }
+  return out;
+}
+
+/**
+ * Каждая цена ответа есть в каталоге из базы (подсказка промпта Кузьмича).
+ *
+ * Свод плохих оценок 03.11: 20 из 24 «незаземлённых» — цена без вызова
+ * инструмента, хотя каталог туров С ЦЕНАМИ из базы уже лежит в промпте
+ * (buildTourContext). Совпадение числа с каталогом — проверка, а не вера:
+ * пересчитанная сумма, скидка или выдуманная цена в каталоге не найдутся и
+ * останутся незаземлёнными.
+ */
+export function pricesMatchCatalog(answer: string, catalogText: string): boolean {
+  const prices = pricesIn(answer);
+  if (prices.length === 0 || !catalogText) return false;
+  const known = numbersOf(catalogText);
+  return prices.every((p) => known.has(p));
+}
+
 export function assessGrounding(
   answer: string,
   runs: readonly ToolRun[] | undefined,
+  opts: { catalogText?: string } = {},
 ): GroundingAssessment {
   const signals = detectFactSignals(answer);
   if (signals.length === 0) {
@@ -123,6 +163,11 @@ export function assessGrounding(
   }
   if (ranDataTool(runs)) {
     return { verdict: 'grounded', signals, reason: 'инструмент данных отработал и вернул результат' };
+  }
+  // Только цены и все — из каталога базы в промпте: заземлено каталогом.
+  // Телефоны и наличие мест каталогом не заземляются — им нужен инструмент.
+  if (opts.catalogText && signals.every((s) => s === 'price') && pricesMatchCatalog(answer, opts.catalogText)) {
+    return { verdict: 'grounded', signals, reason: 'цены совпадают с каталогом туров из базы (подсказка промпта)' };
   }
   const tried = runs.length === 0
     ? 'инструменты не вызывались'
