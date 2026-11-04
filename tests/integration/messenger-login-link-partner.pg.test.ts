@@ -449,6 +449,27 @@ withPg('1391: аккаунт Андрея Запорожца — заглушк�
     await expect(run()).rejects.toThrow(/есть карточки/);
   });
 
+  it('1392: у выключенной карточки A снимается привязка чатов бота, у B — остаётся; до 1391 и повторно — пропуск', async () => {
+    const SQL_1392 = readFileSync(join(process.cwd(), 'migrations', '1392_andrey_zaporozhets_card_a_chat_unbind.sql'), 'utf-8');
+    // Чат бота у обеих карточек один (как на проде); у B telegram_chat_id — её Telegram id (его читает 1391).
+    await pool.query(`UPDATE partners SET max_chat_id = $2 WHERE id::text IN ($1, $3)`, [CARD_A, 9_001, CARD_B]);
+    await pool.query(`UPDATE partners SET telegram_chat_id = $2 WHERE id::text = $1`, [CARD_A, 9_002]);
+    const chats = async (id: string) => (await pool.query(`SELECT max_chat_id::text AS mx, telegram_chat_id::text AS tg FROM partners WHERE id::text = $1`, [id])).rows[0];
+    // До 1391 карточка A ещё с аккаунтом — 1392 ничего не трогает.
+    await pool.query(SQL_1392);
+    expect(await chats(CARD_A)).toEqual({ mx: '9001', tg: '9002' });
+    await run();
+    const c = await pool.connect();
+    const notices: string[] = [];
+    c.on('notice', (m) => { notices.push(String(m.message)); });
+    try { await c.query(SQL_1392); await c.query(SQL_1392); } finally { c.release(); }
+    expect(await chats(CARD_A)).toEqual({ mx: null, tg: null });
+    expect(await chats(CARD_B)).toEqual({ mx: '9001', tg: String(TG_ID) });
+    expect(notices.some((m) => m.includes('снята привязка чатов: MAX снят, Telegram снят'))).toBe(true);
+    expect(notices.some((m) => m.includes('1392: уже сделано'))).toBe(true);
+    expect(notices.some((m) => /900[12]/.test(m))).toBe(false);
+  });
+
   it('(5) у карточки B чужой владелец — стоп', async () => {
     const other = (await pool.query(`INSERT INTO users (email, name, role, password_hash) VALUES ('other-1391@example.test', 'X', 'guide', '') ON CONFLICT DO NOTHING RETURNING id::text`)).rows[0]?.id
       ?? (await pool.query(`SELECT id::text FROM users WHERE email = 'other-1391@example.test'`)).rows[0].id;
