@@ -94,9 +94,12 @@ BEGIN
   IF has_ph THEN
     IF ph.role IS DISTINCT FROM 'tourist' THEN
       RAISE EXCEPTION '1390: у 259dd12b роль %, ждали tourist', ph.role; END IF;
-    IF EXISTS (SELECT 1 FROM bookings WHERE user_id::text = c_ph) THEN
+    -- Живые брони туристов — operator_bookings.user_id, живые туры —
+    -- operator_tours (bookings/tours — устаревшие таблицы, CLAUDE.md §4):
+    -- проверка по устаревшей ответила бы «броней нет» при настоящей брони.
+    IF EXISTS (SELECT 1 FROM operator_bookings WHERE user_id::text = c_ph) THEN
       RAISE EXCEPTION '1390: у 259dd12b есть брони — стоп'; END IF;
-    IF EXISTS (SELECT 1 FROM tours WHERE operator_id::text = c_ph OR guide_id::text = c_ph) THEN
+    IF EXISTS (SELECT 1 FROM operator_tours WHERE created_by::text = c_ph) THEN
       RAISE EXCEPTION '1390: у 259dd12b есть туры — стоп'; END IF;
     IF EXISTS (SELECT 1 FROM partners WHERE user_id::text = c_ph) THEN
       RAISE EXCEPTION '1390: у 259dd12b есть карточки — стоп'; END IF;

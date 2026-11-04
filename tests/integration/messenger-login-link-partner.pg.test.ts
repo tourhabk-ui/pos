@@ -231,8 +231,8 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
   afterAll(async () => { await pool?.end().catch(() => undefined); });
 
   beforeEach(async () => {
-    await pool.query(`DELETE FROM bookings WHERE user_id::text = $1 OR tour_id IN (SELECT id FROM tours WHERE operator_id::text IN ($2, $3))`, [PH, CARD_A, CARD_B]);
-    await pool.query(`DELETE FROM tours WHERE operator_id::text IN ($1, $2)`, [CARD_A, CARD_B]);
+    await pool.query(`DELETE FROM operator_bookings WHERE user_id::text = $1 OR operator_tour_id IN (SELECT id FROM operator_tours WHERE operator_id::text IN ($2, $3))`, [PH, CARD_A, CARD_B]);
+    await pool.query(`DELETE FROM operator_tours WHERE operator_id::text IN ($1, $2)`, [CARD_A, CARD_B]);
     await pool.query(`DELETE FROM partners WHERE id::text IN ($1, $2) OR user_id::text IN ($3, $4)`, [CARD_A, CARD_B, UID, PH]);
     await pool.query(`DELETE FROM user_sessions WHERE user_id::text IN ($1, $2)`, [UID, PH]);
     await pool.query(`DELETE FROM user_ai_memory WHERE user_id::text IN ($1, $2)`, [UID, PH]);
@@ -358,16 +358,17 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
   });
 
   it('(доп.4) тур-черновик и бронь карточки A переезжают на B до suspend', async () => {
+    // Живые таблицы: operator_tours и operator_bookings (не устаревшие tours/bookings).
     const t = (await pool.query(
-      `INSERT INTO tours (name, description, difficulty, duration, price, operator_id) VALUES ('Черновик', '-', 'easy', 1, 100, $1) RETURNING id`, [CARD_A])).rows[0].id;
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Черновик', 100) RETURNING id`, [CARD_A])).rows[0].id;
     const other = (await pool.query(`INSERT INTO users (email, name, role, password_hash) VALUES ('tourist-1390@example.test', 'T', 'tourist', '') ON CONFLICT DO NOTHING RETURNING id::text`)).rows[0]?.id
       ?? (await pool.query(`SELECT id::text FROM users WHERE email = 'tourist-1390@example.test'`)).rows[0].id;
-    await pool.query(`INSERT INTO bookings (user_id, tour_id, date, participants, total_price) VALUES ($1, $2, CURRENT_DATE, 1, 100)`, [other, t]);
+    await pool.query(`INSERT INTO operator_bookings (operator_tour_id, user_id, booking_date, participants) VALUES ($1, $2, CURRENT_DATE, 1)`, [t, other]);
     await run();
-    expect((await pool.query(`SELECT operator_id::text AS op FROM tours WHERE id = $1`, [t])).rows[0].op).toBe(CARD_B);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM tours WHERE operator_id::text = $1`, [CARD_A])).rows[0].n).toBe(0);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM bookings WHERE tour_id = $1`, [t])).rows[0].n).toBe(1);
-    expect(printed.some((m) => /перенесено 1 строк в tours\.operator_id/.test(m))).toBe(true);
+    expect((await pool.query(`SELECT operator_id::text AS op FROM operator_tours WHERE id = $1`, [t])).rows[0].op).toBe(CARD_B);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM operator_tours WHERE operator_id::text = $1`, [CARD_A])).rows[0].n).toBe(0);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM operator_bookings WHERE operator_tour_id = $1`, [t])).rows[0].n).toBe(1);
+    expect(printed.some((m) => /перенесено 1 строк в operator_tours\.operator_id/.test(m))).toBe(true);
     expect((await card(CARD_A)).status).toBe('suspended');
   });
 
@@ -390,8 +391,9 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
     expect((await user(PH)).tg).toBe(String(TG_ID));
   });
 
-  it('(5) у заглушки бронь — стоп', async () => {
-    await pool.query(`INSERT INTO bookings (user_id, date, participants, total_price) VALUES ($1, CURRENT_DATE, 1, 100)`, [PH]);
+  it('(5) у заглушки бронь — стоп (живая таблица operator_bookings)', async () => {
+    const t = (await pool.query(`INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур B', 100) RETURNING id`, [CARD_B])).rows[0].id;
+    await pool.query(`INSERT INTO operator_bookings (operator_tour_id, user_id, booking_date, participants) VALUES ($1, $2, CURRENT_DATE, 1)`, [t, PH]);
     await expect(run()).rejects.toThrow(/есть брони/);
     expect((await user(PH)).tg).toBe(String(TG_ID));
   });
