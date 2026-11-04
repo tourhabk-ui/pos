@@ -282,7 +282,7 @@ export default function ToursManagementClient() {
               <article
                 key={tour.id}
                 aria-label={tour.title}
-                className="ds-card p-4 flex gap-4 items-start"
+                className="ds-card p-4 flex flex-wrap sm:flex-nowrap gap-4 items-start"
                 style={state === 'hidden' ? { opacity: 0.65 } : {}}
               >
                 {/* Thumbnail */}
@@ -372,13 +372,16 @@ export default function ToursManagementClient() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center justify-end gap-1.5 shrink-0 w-full sm:w-auto">
+                  {/* Подпись, а не голый карандаш (04.11): оператор не находил,
+                      где править программу и фото — подсказка title на телефоне не видна. */}
                   <Link
                     href={`/hub/operator/tours/${tour.id}`}
-                    className="p-2 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
-                    title="Редактировать"
+                    className="inline-flex items-center gap-1.5 min-h-[40px] px-3 py-2 rounded-lg text-sm font-medium border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors whitespace-nowrap"
+                    style={{ color: 'var(--text-primary)' }}
                   >
-                    <Edit2 className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                    <Edit2 className="w-4 h-4" />
+                    Изменить тур
                   </Link>
                   <button
                     onClick={() => handleToggleActive(tour.id, tour.is_active)}

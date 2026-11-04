@@ -295,12 +295,30 @@ describe('сайт: двери раздела «Свои туры» — те ж�
     expect(sneaky.status).toBe(400);
     expect(h.write).toHaveBeenCalledTimes(1);
   });
+
+  it('PATCH правки пропускает программу и фото; битая программа — 400 без записи', async () => {
+    h.write.mockResolvedValue({ outcome: 'written', row: { id: '77', title: 'Т', updated_at: 'now' } });
+    const program = [{ title: 'День 1', text: 'Выезд' }];
+    const ok = await editRoute(
+      new NextRequest('https://vedarai.ru/api/guide/own/tours/77', { method: 'PATCH', body: JSON.stringify({ program, photos: ['/a.jpg'] }) }),
+      { params: Promise.resolve({ id: '77' }) },
+    );
+    expect(ok.status).toBe(200);
+    expect(h.write.mock.calls.at(-1)![1]).toMatchObject({ input: { program, photos: ['/a.jpg'] } });
+    const n = h.write.mock.calls.length;
+    const bad = await editRoute(
+      new NextRequest('https://vedarai.ru/api/guide/own/tours/77', { method: 'PATCH', body: JSON.stringify({ program: [{ title: '', text: 'x' }] }) }),
+      { params: Promise.resolve({ id: '77' }) },
+    );
+    expect(bad.status).toBe(400);
+    expect(h.write.mock.calls.length).toBe(n);
+  });
 });
 
 describe('раздел «Свои туры»: «Мои туры» рендером', () => {
   const base = {
     slug: null, is_active: true, base_price: '15000', price_unit: 'per_person', max_participants: 4, short_description: null,
-    season_start: null, season_end: null, open_dates: 0,
+    season_start: null, season_end: null, open_dates: 0, program: null as unknown, photos: [] as string[],
   };
   const ON = { ...base, id: '11', title: 'Горелый', is_published: true, description: 'Есть.', on_storefront: true, blockers: [] as string[] };
   const READY = { ...base, id: '12', title: 'Авача', is_published: false, description: 'Есть.', on_storefront: false, blockers: [] as string[] };
@@ -331,6 +349,27 @@ describe('раздел «Свои туры»: «Мои туры» рендеро
     fireEvent.click(within(screen.getByTestId('own-tour-12')).getByRole('button', { name: /Опубликовать/ }));
     await waitFor(() => expect(calls.at(-1)?.body).toEqual({ publish: true }));
     expect(calls.at(-1)?.url).toBe('/api/guide/own/tours/12/publish');
+  });
+
+  it('«Изменить тур»: программа по дням и фото уходят в PATCH (04.11, гид не находил, где их править)', async () => {
+    const done = vi.fn();
+    const withPhoto = { ...ON, photos: ['/a.jpg', '/b.jpg'], program: [{ title: 'День 1', text: 'Выезд' }] };
+    render(<OwnToursManager tours={[withPhoto]} onDone={done} />);
+    fireEvent.click(within(screen.getByTestId('own-tour-11')).getByRole('button', { name: /Изменить тур/ }));
+    const form = within(screen.getByRole('form', { name: 'Правка тура «Горелый»' }));
+    const program = form.getByLabelText(/Программа по дням/) as HTMLTextAreaElement;
+    expect(program.value).toBe('1. День 1: Выезд');
+    fireEvent.change(program, { target: { value: '1. День 1: Выезд\n2. День 2: Озёрки, купание' } });
+    fireEvent.click(form.getByRole('button', { name: 'Сделать фото 2 главным' }));
+    fireEvent.click(form.getByRole('button', { name: /^\s*Сохранить/ }));
+    await waitFor(() => expect(done).toHaveBeenCalled());
+    const last = calls.at(-1)!;
+    expect(last.url).toBe('/api/guide/own/tours/11');
+    expect(last.method).toBe('PATCH');
+    expect(last.body).toMatchObject({
+      program: [{ title: 'День 1', text: 'Выезд' }, { title: 'День 2', text: 'Озёрки, купание' }],
+      photos: ['/b.jpg', '/a.jpg'],
+    });
   });
 
   it('«Новый тур»: неполное не уходит и названо; заполненное — POST с четырьмя полями', async () => {

@@ -11,6 +11,7 @@ import {
 import { readApiResponse } from '@/lib/http/api-response';
 import MainPlacePicker, { asMainPlaceSource, type MainPlaceValue } from '@/components/operator/Tours/MainPlacePicker';
 import TourDateAdd from '@/components/operator/Tours/TourDateAdd';
+import { programFromText, programToText } from '@/lib/tours/program-text';
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ interface TourData {
   pickup_type: string | null;
   pickup_details: string | null;
   photos: string[] | null;
+  /** Программа по дням (809): [{ title, text }]. */
+  program?: unknown;
   tour_image: string | null;
   /** Закреплён наверху страницы оператора (1267); NULL — нет. */
   pinned_at?: string | null;
@@ -117,6 +120,7 @@ export default function EditTourClient() {
     cancellation_policy: '',
     pickup_type: '',
     pickup_details: '',
+    program: '',
   });
   // Главное место тура — выбор из справочника (аудит 15.10, TOUR-PLACE).
   const [mainPlace, setMainPlace] = useState<MainPlaceValue | null>(null);
@@ -207,6 +211,7 @@ export default function EditTourClient() {
           cancellation_policy: t.cancellation_policy ?? '',
           pickup_type: t.pickup_type ?? '',
           pickup_details: t.pickup_details ?? '',
+          program: programToText(t.program),
         });
       } catch {
         setError('Ошибка загрузки');
@@ -241,7 +246,12 @@ export default function EditTourClient() {
     setError(null);
     setSuccess(false);
     try {
+      // Программа — тем же разбором, что у правки гида (parseProgram): не
+      // разобрали — не сохраняем ничего и говорим, какой шаг поправить.
+      const program = programFromText(form.program);
+      if (!program.ok) throw new Error(program.error);
       const payload: Record<string, unknown> = {
+        program: program.value,
         title: form.title,
         short_description: form.short_description || null,
         description: form.description || null,
@@ -377,48 +387,6 @@ export default function EditTourClient() {
         </div>
       )}
 
-      {/* Статус и публикация */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
-        <p className={heading}>Статус</p>
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_active} onChange={e => setF('is_active', e.target.checked)}
-              className="w-4 h-4 accent-[var(--accent)]" />
-            <span className="text-sm text-[var(--text-primary)]">Активен</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_published} onChange={e => setF('is_published', e.target.checked)}
-              className="w-4 h-4 accent-[var(--accent)]" />
-            <span className="text-sm text-[var(--text-primary)]">Опубликован</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.pinned} onChange={e => setF('pinned', e.target.checked)}
-              className="w-4 h-4 accent-[var(--accent)]" />
-            <span className="text-sm text-[var(--text-primary)]">Закрепить наверху моей страницы</span>
-          </label>
-        </div>
-        <p className="text-xs text-[var(--text-muted)]">
-          Закреплённые туры идут первыми на вашей странице на Ведаре, в порядке закрепления. Остальные — по началу сезона.
-        </p>
-      </section>
-
-      {/* Основное */}
-      <section id="basics" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
-        <p className={heading}>Основная информация</p>
-        <div>
-          <label className={lbl}>Название тура</label>
-          <input className={inp} value={form.title} onChange={e => setF('title', e.target.value)} />
-        </div>
-        <div>
-          <label className={lbl}>Короткое описание (до 500 символов)</label>
-          <input className={inp} value={form.short_description} onChange={e => setF('short_description', e.target.value)} placeholder="Захватывающий тур на вулкан..." />
-        </div>
-        <div>
-          <label className={lbl}>Полное описание</label>
-          <textarea className={inp + ' min-h-[120px] resize-y'} value={form.description} onChange={e => setF('description', e.target.value)} />
-        </div>
-      </section>
-
       {/* Фотографии */}
       <section id="photos" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
         <p className={heading}>Фотографии ({photos.length})</p>
@@ -507,7 +475,60 @@ export default function EditTourClient() {
             <Plus className="w-4 h-4" /> По URL
           </button>
         </div>
-        <p className="text-[10px] text-[var(--text-muted)]">Первое фото — главное на карточке. Hover → удалить или поменять порядок.</p>
+        <p className="text-[10px] text-[var(--text-muted)]">Первое фото — главное на карточке. Кнопки на фото — поменять порядок или удалить.</p>
+      </section>
+
+      {/* Статус и публикация */}
+      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+        <p className={heading}>Статус</p>
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_active} onChange={e => setF('is_active', e.target.checked)}
+              className="w-4 h-4 accent-[var(--accent)]" />
+            <span className="text-sm text-[var(--text-primary)]">Активен</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_published} onChange={e => setF('is_published', e.target.checked)}
+              className="w-4 h-4 accent-[var(--accent)]" />
+            <span className="text-sm text-[var(--text-primary)]">Опубликован</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.pinned} onChange={e => setF('pinned', e.target.checked)}
+              className="w-4 h-4 accent-[var(--accent)]" />
+            <span className="text-sm text-[var(--text-primary)]">Закрепить наверху моей страницы</span>
+          </label>
+        </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          Закреплённые туры идут первыми на вашей странице на Ведаре, в порядке закрепления. Остальные — по началу сезона.
+        </p>
+      </section>
+
+      {/* Основное */}
+      <section id="basics" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+        <p className={heading}>Основная информация</p>
+        <div>
+          <label className={lbl}>Название тура</label>
+          <input className={inp} value={form.title} onChange={e => setF('title', e.target.value)} />
+        </div>
+        <div>
+          <label className={lbl}>Короткое описание (до 500 символов)</label>
+          <input className={inp} value={form.short_description} onChange={e => setF('short_description', e.target.value)} placeholder="Захватывающий тур на вулкан..." />
+        </div>
+        <div>
+          <label className={lbl}>Полное описание</label>
+          <textarea className={inp + ' min-h-[120px] resize-y'} value={form.description} onChange={e => setF('description', e.target.value)} />
+        </div>
+      </section>
+
+      {/* Программа по дням */}
+      <section id="program" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+        <p className={heading}>Программа по дням</p>
+        <p className="text-xs text-[var(--text-muted)]">
+          Каждый шаг — с новой строки и с номера: «1. День 1: Выезд, подъём к перевалу». Подробности шага можно писать следующими строками без номера.
+        </p>
+        <textarea className={inp + ' min-h-[160px] resize-y text-base sm:text-sm'} value={form.program}
+          onChange={e => setF('program', e.target.value)}
+          placeholder={'1. День 1: Выезд из Петропавловска в 8:00, переезд к подножию\n2. День 2: Восхождение, спуск, баня'} />
       </section>
 
       {/* Категории */}

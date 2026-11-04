@@ -65,6 +65,7 @@ const KNOWN_PERSONAL_CALLS = new Set([
   // аккаунту» была неправдой — хендлер аккаунта не требовал с 02.08, а Edge
   // резал гостя молча. Это и был ноль подписчиков.
   'POST /api/chat/conversations',   // чат с оператором — под входом
+  'POST /api/upload/tour-photo',    // «Свои туры» гида: фото тура — кабинет под входом гида (04.11)
   'POST /api/reviews/photo',        // отзыв пишет вошедший
   'POST /api/reviews/tour/X',
   'POST /api/places/X/reviews',
