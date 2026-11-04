@@ -2244,6 +2244,20 @@ function wordInTitle(w: string, titleWords: string[]): boolean {
     || (w.length >= 4 && titleWords.some((t) => t.length >= 4 && sameStem(w, t) && !surnameLike(w, t)));
 }
 
+/**
+ * Название тура подходит под запрос свободными словами (04.11): «Вачкажец +
+ * озёрки», «вачкажец озерки» — ё → е, знаки прочь, каждое слово запроса от
+ * двух букв обязано быть в названии (те же правила окончаний, что у
+ * matchTours). Союзы «и», «с», «на» не мешают.
+ */
+const QUERY_STOP_WORDS = new Set(['и', 'с', 'со', 'на', 'в', 'во', 'по', 'тур', 'туры', 'тура']);
+export function tourTitleMatchesQuery(query: string, title: string): boolean {
+  const words = titleWordsOf(query).filter((w) => w.length >= 2 && !QUERY_STOP_WORDS.has(w));
+  if (words.length === 0) return false;
+  const tw = titleWordsOf(title);
+  return words.every((w) => wordInTitle(w, tw));
+}
+
 export type TourMatch =
   | { kind: 'pick'; pick: TourPick; candidates: ChatTour[] }
   | { kind: 'unknown'; words: Array<{ w: string; i: number }> }

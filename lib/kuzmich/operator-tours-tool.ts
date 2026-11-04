@@ -18,7 +18,9 @@
 
 import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
-import { containsPattern } from '@/lib/db/like';
+import { tourTitleMatchesQuery } from '@/lib/operators/chat-dates/parse';
+import { tourPath } from '@/lib/tours/tour-url';
+import { getPublicBaseUrl } from '@/lib/config';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
@@ -41,7 +43,11 @@ export const MY_TOURS_TOOL = {
   },
 };
 
-const TOURS_LIMIT = 10;
+// Все свои туры (04.11): прежний LIMIT 10 по created_at DESC отрезал часть —
+// у гида 13 туров одной миграцией, и «Вачкажец + озёрки» помощник не нашёл.
+// Читаем до 100, отбираем словами в JS; даты — только по первым 10 найденным.
+const TOURS_READ_LIMIT = 100;
+const TOURS_DATES_LIMIT = 10;
 const DATES_LIMIT = 20;
 
 interface OwnTour {
@@ -49,6 +55,7 @@ interface OwnTour {
   title: string;
   is_active: boolean;
   is_published: boolean;
+  slug: string | null;
   max_participants: number | null;
   season_start: string | null;
   season_end: string | null;
@@ -69,36 +76,48 @@ export async function runMyToursSchedule(
   const q = typeof args.tour === 'string' ? args.tour.trim().slice(0, 100) : '';
   const days = parseDays(args.days);
 
-  let tours: OwnTour[];
+  let all: OwnTour[];
   try {
     const { rows } = await pool.query<OwnTour>(
-      `SELECT id, title, is_active, is_published, max_participants,
+      `SELECT id, title, is_active, is_published, slug, max_participants,
               season_start::text, season_end::text
          FROM operator_tours
         WHERE operator_id = $1::uuid
           AND deleted_at IS NULL
-          AND ($2::text = '' OR id::text = $2::text OR title ILIKE $3::text)
-        ORDER BY is_active DESC, created_at DESC
-        LIMIT ${TOURS_LIMIT}`,
-      [partnerId, q, containsPattern(q)],
+        ORDER BY is_active DESC, created_at DESC, id DESC
+        LIMIT ${TOURS_READ_LIMIT}`,
+      [partnerId],
     );
-    tours = rows;
+    all = rows;
   } catch (err) {
     console.error('[my-tours] свои туры партнёра не прочитаны, SQLSTATE', (err as { code?: string })?.code ?? 'нет');
     return 'НЕ УДАЛОСЬ ПРОЧИТАТЬ свои туры — не утверждай, что туров или дат нет; предложи спросить позже.';
   }
+  if (all.length === 0) return 'Своих туров нет ни одного (удалённые не считаются).';
+  const qId = q.replace(/^id\s*/i, '');
+  const tours = q
+    ? all.filter((t) => String(t.id) === qId || tourTitleMatchesQuery(q, t.title))
+    : all;
   if (tours.length === 0) {
-    return q ? `Среди своих туров нет подходящего под «${q}».` : 'Своих туров нет ни одного (удалённые не считаются).';
+    return `Среди своих туров нет подходящего под «${q}». Все свои туры (${all.length}): `
+      + all.map((t) => `ID${t.id} «${t.title}»`).join('; ')
+      + '. Уточни у партнёра, какой из них он имел в виду.';
   }
 
   const from = kamchatkaToday(nowMs);
   const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
   const cache = createPlannerCache();
-  const lines = [`Свои туры и открытые даты с ${from} по ${to} (свободные места — с учётом броней):`];
-  for (const t of tours) {
+  const base = getPublicBaseUrl();
+  const lines = [`Свои туры (${tours.length}${q ? ` из ${all.length}` : ''}) и открытые даты с ${from} по ${to} (свободные места — с учётом броней):`];
+  for (const [i, t] of tours.entries()) {
     const flags = [t.is_active ? 'активен' : 'неактивен', t.is_published ? 'на витрине' : 'скрыт с витрины'];
     const season = t.season_start || t.season_end ? ` | сезон ${t.season_start ?? '…'} — ${t.season_end ?? '…'}` : '';
-    lines.push(`- ID${t.id} «${t.title}» | ${flags.join(', ')}${t.max_participants ? ` | до ${t.max_participants} чел` : ''}${season}`);
+    const link = t.is_published ? ` | ссылка ${base}${tourPath(t)}` : '';
+    lines.push(`- ID${t.id} «${t.title}» | ${flags.join(', ')}${t.max_participants ? ` | до ${t.max_participants} чел` : ''}${season}${link}`);
+    if (i >= TOURS_DATES_LIMIT) {
+      lines.push('  Даты не смотрел — назови тур, и проверю его даты.');
+      continue;
+    }
     try {
       const slots = await fetchAvailabilityForTour(String(t.id), from, to, cache);
       if (slots.length === 0) {
