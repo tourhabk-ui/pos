@@ -5,6 +5,7 @@
 
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import { z } from 'zod';
+import { ProgramStepsSchema } from '@/lib/tours/program-text';
 import { query, transaction } from '@/lib/database';
 import { assertLiveMainPlace } from '@/lib/tours/main-place';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
@@ -44,6 +45,9 @@ const TourFieldsSchema = z.object({
   title: z.string().min(5).max(255),
   description: z.string().max(TOUR_DESCRIPTION_MAX).nullable().optional(),
   short_description: z.string().max(500).nullable().optional(),
+  // Программа по дням (809) — формат правки гида (parseProgram): шаги с
+  // заголовком и текстом. До 04.11 формы для неё у оператора не было вовсе.
+  program: ProgramStepsSchema.optional(),
   location_type: z.enum(CREATE_LOCATION_TYPES),
   activity_type: z.enum(CREATE_ACTIVITY_TYPES),
   location_name: z.string().min(3).max(255),

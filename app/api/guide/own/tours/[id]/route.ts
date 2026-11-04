@@ -17,6 +17,7 @@ import { writeTourPatch } from '@/lib/tours/tour-write';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { OwnTourDraftSchema } from '@/lib/guides/own-tour-create';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
+import { ProgramStepsSchema } from '@/lib/tours/program-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,10 @@ const BodySchema = OwnTourDraftSchema.pick({
 }).extend({
   price_unit: z.enum(['per_person', 'per_tour']),
   short_description: z.string().trim().max(500).nullable(),
+  // Программа по дням и фото — формой на сайте (04.11): гид не находил, где
+  // их править; раньше только фразой в чате или документом Word.
+  program: ProgramStepsSchema,
+  photos: z.array(z.string().trim().min(1).max(500)).max(20),
 }).partial().strict();
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

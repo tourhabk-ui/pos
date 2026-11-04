@@ -9,16 +9,17 @@
  * «Снять с сайта» (`POST …/publish`) и «Править» — те же поля формой
  * (`PATCH /api/guide/own/tours/[id]`, общая запись тура `writeTourPatch`).
  *
- * Программу, что включено, что взять и правила безопасности форма не правит:
- * их гид пишет фразой в чате кабинета или документом Word в MAX — так и
- * сказано под формой. Форма оператора (components/operator/Tours/TourForm)
+ * Программу по дням и фото тура форма правит (04.11: гид не находил, где их
+ * менять). Что включено, что взять и правила безопасности гид пишет фразой в
+ * чате кабинета или документом Word в MAX — так и сказано под формой. Форма оператора (components/operator/Tours/TourForm)
  * сюда не взята: она требует вид места, активность и маршрут, загружает фото
  * в хранилище оператора и шлёт в его кабинет, куда гида не пускают.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus, Globe, EyeOff, Pencil } from 'lucide-react';
+import { Loader2, Plus, Globe, EyeOff, Pencil, Upload, X, ArrowLeft } from 'lucide-react';
+import { programFromText, programToText } from '@/lib/tours/program-text';
 import type { OwnTour } from '@/lib/guides/own-tours';
 import { ownTourStateWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
@@ -30,9 +31,10 @@ interface FormValues {
   max_participants: string;
   short_description: string;
   description: string;
+  program: string;
 }
 
-const EMPTY: FormValues = { title: '', base_price: '', price_unit: 'per_person', max_participants: '', short_description: '', description: '' };
+const EMPTY: FormValues = { title: '', base_price: '', price_unit: 'per_person', max_participants: '', short_description: '', description: '', program: '' };
 
 function valuesOf(t: OwnTour): FormValues {
   return {
@@ -42,6 +44,7 @@ function valuesOf(t: OwnTour): FormValues {
     max_participants: t.max_participants === null ? '' : String(t.max_participants),
     short_description: t.short_description ?? '',
     description: t.description ?? '',
+    program: programToText(t.program),
   };
 }
 
@@ -74,6 +77,9 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
   onCancel: () => void;
 }) {
   const [v, setV] = useState<FormValues>(tour ? valuesOf(tour) : EMPTY);
+  const [photos, setPhotos] = useState<string[]>(tour?.photos ?? []);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const gaps = formGaps(v);
@@ -91,6 +97,12 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
       max_participants: Number(v.max_participants),
       description: v.description.trim(),
     };
+    if (tour) {
+      const program = programFromText(v.program);
+      if (!program.ok) { setBusy(false); setError(program.error); return; }
+      body.program = program.value;
+      body.photos = photos;
+    }
     if (tour) body.short_description = v.short_description.trim() || null;
     else if (v.short_description.trim()) body.short_description = v.short_description.trim();
     const r = tour
@@ -102,6 +114,25 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
       return;
     }
     onDone(tour ? `«${v.title.trim()}»: сохранено.` : `Создан черновик «${v.title.trim()}». Туристы его пока не видят — опубликуйте, когда будете готовы.`);
+  };
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload/tour-photo', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => null) as { ok?: boolean; url?: string; error?: string } | null;
+      if (!res.ok || !data?.ok || !data.url) throw new Error(data?.error ?? 'Фото не загрузилось');
+      setPhotos((p) => [...p, data.url!].slice(0, 20));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Фото не загрузилось');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
   };
 
   const id = tour ? `own-tour-${tour.id}` : 'own-tour-new';
@@ -137,8 +168,45 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
         <span className="text-[var(--text-secondary)]">Описание — что за поездка; программу дня пишите отдельно</span>
         <textarea id={`${id}-desc`} className="ds-input mt-1 w-full min-h-32" value={v.description} onChange={set('description')} maxLength={4000} />
       </label>
+      {tour && (
+        <>
+          <div className="space-y-2" aria-label="Фото тура">
+            <span className="block text-sm text-[var(--text-secondary)]">Фото ({photos.length}) — первое главное на карточке</span>
+            {photos.length > 0 && (
+              <ul className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {photos.map((src, i) => (
+                  <li key={src + i} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Фото ${i + 1}`} className="w-full aspect-square object-cover rounded-lg" />
+                    <div className="absolute inset-x-0 bottom-0 flex justify-between p-1 gap-1">
+                      {i > 0 ? (
+                        <button type="button" className="ds-btn ds-btn-secondary !p-1.5" aria-label={`Сделать фото ${i + 1} главным`}
+                          onClick={() => setPhotos((p) => [p[i]!, ...p.filter((_, k) => k !== i)])}><ArrowLeft size={14} /></button>
+                      ) : <span />}
+                      <button type="button" className="ds-btn ds-btn-secondary !p-1.5" aria-label={`Убрать фото ${i + 1}`}
+                        onClick={() => setPhotos((p) => p.filter((_, k) => k !== i))}><X size={14} /></button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={(e) => void upload(e.target.files?.[0])} />
+            <button type="button" className="ds-btn ds-btn-secondary" disabled={uploading || photos.length >= 20} onClick={() => fileRef.current?.click()}>
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Добавить фото
+            </button>
+          </div>
+          <label className="block text-sm" htmlFor={`${id}-program`}>
+            <span className="text-[var(--text-secondary)]">Программа по дням — каждый шаг с номера: «1. День 1: Выезд, подъём к перевалу»</span>
+            <textarea id={`${id}-program`} className="ds-input mt-1 w-full min-h-32" value={v.program} onChange={set('program')}
+              placeholder={'1. День 1: Выезд из Петропавловска в 8:00\n2. День 2: Восхождение, спуск, баня'} />
+          </label>
+        </>
+      )}
       <p className="text-sm text-[var(--text-muted)]">
-        Программу, что включено, что взять и правила безопасности пишите фразой в чате кабинета («Горелый: программа: …») или документом Word в MAX.
+        {tour
+          ? 'Что включено, что взять и правила безопасности пишите фразой в чате кабинета («Горелый: что взять: …») или документом Word в MAX. Фото и программа сохраняются кнопкой «Сохранить».'
+          : 'Фото и программу по дням добавите кнопкой «Изменить тур» после создания черновика.'}
       </p>
       {gaps.length > 0 && (
         <p className="text-sm text-[var(--text-secondary)]" data-testid="own-tour-gaps">Чтобы сохранить, не хватает: {gaps.join(', ')}.</p>
@@ -215,7 +283,7 @@ export function OwnTourCard({ tour, onDone }: { tour: OwnTour; onDone: (msg: str
           </button>
         )}
         <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => setEditing(true)}>
-          <Pencil size={14} /> Править
+          <Pencil size={14} /> Изменить тур
         </button>
       </div>
       {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}

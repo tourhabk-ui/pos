@@ -33,6 +33,9 @@ export interface OwnTour {
   /** Тексты для правки на сайте: анонс и описание как записаны. */
   short_description: string | null;
   description: string | null;
+  /** Программа по дням (jsonb, шаги { title, text }) и фото — для правки на сайте. */
+  program: unknown;
+  photos: string[];
   season_start: string | null;
   season_end: string | null;
   /** Открытые будущие даты с местами — как их видит календарь тура. */
@@ -78,7 +81,7 @@ export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
   const { rows } = await query<OwnTour>(
     `SELECT ot.id::text AS id, ot.title, ot.slug, COALESCE(ot.is_published, FALSE) AS is_published,
             COALESCE(ot.is_active, FALSE) AS is_active, ot.base_price::text AS base_price, ot.price_unit,
-            ot.max_participants, ot.short_description, ot.description, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+            ot.max_participants, ot.short_description, ot.description, ot.program, COALESCE(ot.photos, ARRAY[]::text[]) AS photos, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
             (SELECT count(*)::int FROM tour_availability a
               WHERE a.operator_tour_id = ot.id AND a.date >= CURRENT_DATE
                 AND COALESCE(a.is_cancelled, FALSE) = FALSE AND a.deleted_at IS NULL
