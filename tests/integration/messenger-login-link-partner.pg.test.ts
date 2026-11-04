@@ -385,7 +385,7 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
   });
 
   it('(доп.5) стоп внутри транзакции — заглушка по-прежнему держит TG, ничего не изменено', async () => {
-    await pool.query(`INSERT INTO partners (name, category, contact, user_id) VALUES ('Y', 'guide', '{}', $1)`, [UID]);
+    await pool.query(`INSERT INTO partners (name, category, contact, user_id) VALUES ('Y', 'operator', '{}', $1)`, [UID]);
     await expect(run()).rejects.toThrow(/ещё карточек/);
     expect((await user(PH)).tg).toBe(String(TG_ID));
   });

@@ -131,7 +131,7 @@ BEGIN
               AND ((mx IS NOT NULL AND max_user_id = mx) OR (tg IS NOT NULL AND telegram_id = tg))) THEN
     RAISE EXCEPTION '1390: MAX или Telegram id держит ещё какой-то аккаунт — стоп'; END IF;
 
-  RAISE NOTICE '1390: has_password %', COALESCE(u.password_hash, '') <> '';
+  RAISE NOTICE '1390: has_password %', CASE WHEN COALESCE(u.password_hash, '') <> '' THEN 'true' ELSE 'false' END;
 
   RAISE NOTICE '1390 BACKUP users %', row_to_json(u)::jsonb - 'max_user_id' - 'password_hash' - 'mfa_secret';
   RAISE NOTICE '1390 BACKUP users %', CASE WHEN has_ph THEN row_to_json(ph)::jsonb - 'max_user_id' - 'password_hash' - 'mfa_secret' END;
