@@ -49,7 +49,7 @@ export function GlobalSearchModal() {
    */
   const [status, setStatus] = useState<'idle' | 'ok' | 'failed'>('idle');
   /** Какой источник не ответил, хотя остальные ответили (поле `unavailable`). */
-  const [partial, setPartial] = useState<Array<'tours' | 'geo'>>([]);
+  const [partial, setPartial] = useState<Array<'tours' | 'geo' | 'places' | 'routes'>>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,7 +101,7 @@ export function GlobalSearchModal() {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}&limit=10`);
         const json = await res.json().catch(() => null) as
-          | { success: boolean; data?: SearchResult[]; unavailable?: Array<'tours' | 'geo'>; error?: string }
+          | { success: boolean; data?: SearchResult[]; unavailable?: Array<'tours' | 'geo' | 'places' | 'routes'>; error?: string }
           | null;
         if (!res.ok || !json || !json.success || !Array.isArray(json.data)) {
           throw new Error(`HTTP ${res.status}${json?.error ? `: ${json.error}` : ''}`);
@@ -252,7 +252,11 @@ export function GlobalSearchModal() {
               <p className="px-4 pt-3 text-xs text-[var(--text-secondary)]">
                 {partial.includes('tours')
                   ? 'Туры сейчас не ищутся — это сбой, а не пустой каталог. '
-                  : 'Места и маршруты сейчас не ищутся — показаны только туры.'}
+                  : partial.includes('geo')
+                    ? 'Места и маршруты сейчас не ищутся — показаны только туры.'
+                    : partial.includes('routes')
+                      ? 'Маршруты сейчас не ищутся — показано остальное.'
+                      : 'Места сейчас не ищутся — показано остальное.'}
                 {partial.includes('tours') && (
                   <Link href="/catalog" onClick={closeModal} className="font-semibold text-[var(--accent)]">Каталог туров</Link>
                 )}

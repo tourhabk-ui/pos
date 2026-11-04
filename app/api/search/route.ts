@@ -58,6 +58,9 @@ const STATIC_PAGES = [
   { id: 'catalog', title: 'Туры', subtitle: 'Все туры в продаже', href: '/catalog' },
 ];
 
+/** Общая причина для клиента; подробность отказа модели пишется только в лог. */
+const SEMANTIC_UNAVAILABLE_REASON = 'поиск по смыслу временно недоступен — маршруты найдены по совпадению слов';
+
 export async function GET(request: NextRequest) {
   const parsed = QuerySchema.safeParse(
     Object.fromEntries(new URL(request.url).searchParams)
@@ -88,7 +91,7 @@ export async function GET(request: NextRequest) {
         const hits = await semanticSearch(q, perType * 3);
         if (hits.length > 0) {
           const { rows } = await query(
-            `SELECT id, title, category, location_type, kind
+            `SELECT id, title, category, kind
              FROM agent_route_knowledge
              WHERE id = ANY($1::uuid[]) AND is_visible = TRUE`,
             [hits.map(h => h.id)]
@@ -114,8 +117,13 @@ export async function GET(request: NextRequest) {
     // ark_id там не находился — 404 из глобального поиска (Ctrl+K). Тот же
     // разбор и та же формула уже стоят в /api/routes/search/route.ts —
     // здесь просто не были применены.
+    // У kamchatka_routes НЕТ колонки location_type (её не заводит ни одна
+    // миграция; VIEW agent_route_knowledge отдаёт NULL::varchar). До 04.11 она
+    // стояла здесь в SELECT, и каждый ILIKE-запрос падал
+    // `column "location_type" does not exist`, а вместе с ним — места.
+    // Подпись маршрута берётся из category, иначе «Маршрут».
     const { rows } = await query(
-      `SELECT COALESCE(ark_id, id) AS id, title, category, location_type
+      `SELECT COALESCE(ark_id, id) AS id, title, category
        FROM kamchatka_routes
        WHERE is_visible = TRUE AND merged_into_id IS NULL AND title ILIKE $1
        ORDER BY
@@ -144,8 +152,12 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Места, маршруты и парки падают НЕЗАВИСИМО (04.11): раньше Promise.all
+  // ронял всю географию из-за одного запроса маршрутов, и места пропадали
+  // из выдачи, хотя их запрос отвечал. Отказ одной части называется в
+  // `unavailable` ('places' | 'routes'), отказ обеих — прежним 'geo'.
   async function findGeo() {
-    return Promise.all([
+    const [placesSettled, routesSettled, parksResult] = await Promise.allSettled([
       query(
         // Ищем по имени И по псевдонимам: «Авачинский вулкан» обязан находить
         // «Вулкан Авачинский» — это один вулкан, просто разные источники
@@ -176,10 +188,29 @@ export async function GET(request: NextRequest) {
         return { rows: [] as Array<Record<string, unknown>> };
       }),
     ]);
+    if (placesSettled.status === 'rejected' && routesSettled.status === 'rejected') {
+      throw placesSettled.reason;
+    }
+    const failed: Array<'places' | 'routes'> = [];
+    if (placesSettled.status === 'rejected') {
+      failed.push('places');
+      console.error('[search] места недоступны:', placesSettled.reason instanceof Error ? placesSettled.reason.message : String(placesSettled.reason));
+    }
+    if (routesSettled.status === 'rejected') {
+      failed.push('routes');
+      console.error('[search] маршруты недоступны:', routesSettled.reason instanceof Error ? routesSettled.reason.message : String(routesSettled.reason));
+    }
+    return {
+      placesResult: placesSettled.status === 'fulfilled' ? placesSettled.value : { rows: [] as Array<Record<string, unknown>> },
+      routeRows: routesSettled.status === 'fulfilled' ? routesSettled.value : [] as Array<Record<string, unknown>>,
+      // Парки ловят свою ошибку сами — rejected здесь не бывает.
+      parksResult: parksResult.status === 'fulfilled' ? parksResult.value : { rows: [] as Array<Record<string, unknown>> },
+      failed,
+    };
   }
 
   const [toursSettled, geoSettled] = await Promise.allSettled([findTours(), findGeo()]);
-  const unavailable: Array<'tours' | 'geo'> = [];
+  const unavailable: Array<'tours' | 'geo' | 'places' | 'routes'> = [];
   if (toursSettled.status === 'rejected') {
     unavailable.push('tours');
     console.error('[search] туры недоступны:', toursSettled.reason instanceof Error ? toursSettled.reason.message : String(toursSettled.reason));
@@ -194,9 +225,10 @@ export async function GET(request: NextRequest) {
       throw toursSettled.reason;
     }
     const tourItems = toursSettled.status === 'fulfilled' ? toursSettled.value : [];
-    const [placesResult, routeRows, parksResult] = geoSettled.status === 'fulfilled'
+    const { placesResult, routeRows, parksResult } = geoSettled.status === 'fulfilled'
       ? geoSettled.value
-      : [{ rows: [] as Array<Record<string, unknown>> }, [] as Array<Record<string, unknown>>, { rows: [] as Array<Record<string, unknown>> }];
+      : { placesResult: { rows: [] as Array<Record<string, unknown>> }, routeRows: [] as Array<Record<string, unknown>>, parksResult: { rows: [] as Array<Record<string, unknown>> } };
+    if (geoSettled.status === 'fulfilled') unavailable.push(...geoSettled.value.failed);
 
     const lq = q.toLowerCase();
     const matchingTools = STATIC_TOOLS.filter(t =>
@@ -212,7 +244,7 @@ export async function GET(request: NextRequest) {
         id: `route-${r.id as string}`,
         type: 'route' as const,
         title: r.title as string,
-        subtitle: CATEGORY_LABELS[r.category as string] ?? LOCATION_LABELS[r.location_type as string] ?? 'Маршрут',
+        subtitle: CATEGORY_LABELS[r.category as string] ?? 'Маршрут',
         href: `/routes/${r.id as string}`,
       })),
       ...placesResult.rows.map(r => ({
@@ -243,12 +275,15 @@ export async function GET(request: NextRequest) {
       // показать ли «поиск по смыслу временно недоступен».
       // 'disabled' — не сбой, а флаг SEMANTIC_SEARCH (A21): кэшируется как
       // обычный ответ, флаг за жизнь процесса не меняется.
+      // Причина отказа — только в лог: внутренний текст ошибки (пути файлов,
+      // имена библиотек) наружу не отдаётся, клиенту — общая формулировка.
       ...(semanticDown
-        ? { degraded: { semantic: 'unavailable' as const, reason: semanticDown } }
+        ? { degraded: { semantic: 'unavailable' as const, reason: SEMANTIC_UNAVAILABLE_REASON } }
         : !semanticOn
           ? { degraded: { semantic: 'disabled' as const, reason: 'поиск по смыслу выключен флагом SEMANTIC_SEARCH — маршруты найдены по совпадению слов' } }
           : {}),
-      // Какой источник не ответил: 'tours' | 'geo'. Клиент обязан сказать
+      // Какой источник не ответил: 'tours' | 'geo' (места и маршруты разом) |
+      // 'places' | 'routes' (одна часть географии). Клиент обязан сказать
       // это словами, а не показать пустоту как «ничего не найдено».
       ...(unavailable.length > 0 ? { unavailable } : {}),
     });
