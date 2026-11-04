@@ -44,6 +44,7 @@ import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { handlePriceChangePhrase } from '@/lib/kuzmich/price-change-phrase';
 import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 import { getPublicBaseUrl } from '@/lib/config';
+import { tourPath } from '@/lib/tours/tour-url';
 
 type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
 
@@ -196,14 +197,17 @@ export async function buildOperatorContext(
   // в JS (now − getDay()): в воскресенье окно было пустым, и помощник уверенно
   // говорил «броней нет» при свежих бронях (проверка каналов 25.10).
   const [toursResult, bookingsResult, pendingResult] = await Promise.allSettled([
-    db.query<{ id: number; title: string; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null }>(
-      `SELECT id, title, base_price, is_active, is_published,
+    // Все свои туры, до 100 (04.11): LIMIT 10 отрезал часть — у гида 13
+    // туров одной миграцией (created_at один), и тура «Вачкажец + озёрки»
+    // помощник «не видел».
+    db.query<{ id: number; title: string; slug: string | null; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null }>(
+      `SELECT id, title, slug, base_price, is_active, is_published,
               available_slots, next_available_date::text
        FROM operator_tours
        WHERE operator_id = $1
          AND deleted_at IS NULL
-       ORDER BY is_active DESC, created_at DESC
-       LIMIT 10`,
+       ORDER BY is_active DESC, created_at DESC, id DESC
+       LIMIT 100`,
       [partnerId],
     ),
     db.query<{ id: string; booking_date: string; participants: number; final_price: number; booking_status: string }>(
@@ -257,7 +261,7 @@ export async function buildOperatorContext(
     ? tours
         .map(
           t =>
-            `- "${t.title}" | ${Number(t.base_price).toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.is_published ? '' : ', скрыт с витрины'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
+            `- "${t.title}" | ${Number(t.base_price).toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.is_published ? '' : ', скрыт с витрины'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}${t.is_published ? ` | ${getPublicBaseUrl()}${tourPath(t)}` : ''}`,
         )
         .join('\n')
     : toursFailed
@@ -294,6 +298,14 @@ export async function buildOperatorContext(
  * «новый тур: …» она не получает. Без этой строки помощник на непохожую фразу
  * ответил бы «создал» или «опубликовал», не записав ничего.
  */
+/**
+ * Выгрузки тура в Word нет (04.11: гид попросил «Вачкажец + озёрки в ворд»).
+ * Строка — только продавцам туров: у них есть «МОИ ТУРЫ» и my_tours_schedule.
+ */
+const noFilesLine = (tools: boolean): string => 'Файлы (Word, PDF) ты пока не создаёшь и не обещаешь прислать. Просят тур документом — дай ссылку на страницу тура '
+  + `из списка «МОИ ТУРЫ»${tools ? ' или из my_tours_schedule' : ''}; у тура, скрытого с витрины, ссылки нет — так и скажи. `
+  + 'Название тура ищи по словам: «вачкажец озерки» — это «Вачкажец + Озёрки».';
+
 const GUIDE_CREATE_LINE = 'Туры ты сам не создаёшь и не публикуешь и не говоришь, что создал, опубликовал или снял тур с сайта. '
   + 'Новый тур гид заводит одним сообщением «новый тур: Название; цена 15000; группа 4; описание: …» — ему придёт предпросмотр '
   + 'и кнопка «Создать черновик»; создаёт только она. Черновик туристы не видят: на сайт гид выводит тур кнопкой «Опубликовать» '
@@ -312,6 +324,7 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
     lines.push(
       'Даты и места туров ты сам не меняешь и не говоришь, что открыл или закрыл их. '
       + 'В MAX их открывают фразой «открой субботы июля, 8 мест» с кнопкой «Открыть», в остальных случаях — в кабинете.',
+      noFilesLine(tools),
     );
   } else if (sellsOwnTours(partner)) {
     // Гид со своими турами (29.10): даты словами в MAX открывает тот же поток
@@ -330,6 +343,7 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
       + '«Горелый: описание: …», «Горелый: цена 16000», «Толбачик: что взять: ботинки, куртка». '
       + 'Ему придёт «было → станет» и кнопка «Сохранить»; записывается только она. Поля: название, анонс, описание, '
       + 'программа, что включено, не входит, что взять, безопасность, цена. Документ Word (.docx) в MAX разбирается тем же путём, с кнопкой.',
+      noFilesLine(tools),
       GUIDE_CREATE_LINE,
     );
   } else if (partner.category === 'guide') {

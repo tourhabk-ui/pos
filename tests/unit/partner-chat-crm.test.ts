@@ -238,14 +238,17 @@ describe('гид со своими турами (29.10): помощник зна
   /** Сводка туров и броней: брони без имён, как у туроператора. */
   function bizRows(): void {
     query.mockImplementation(async (sql: string) => {
-      if (/FROM operator_tours\s+WHERE operator_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY is_active DESC, created_at DESC\s+LIMIT 10/.test(sql)) {
+      if (/FROM operator_tours\s+WHERE operator_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY is_active DESC, created_at DESC, id DESC\s+LIMIT 100/.test(sql)) {
         return { rows: [{ id: 7, title: 'Авторский тур', base_price: 15000, is_active: true, is_published: false, available_slots: null }] };
       }
       if (/COUNT\(\*\)/.test(sql)) return { rows: [{ cnt: '1', awaiting: '1' }] };
       if (/ob\.participants/.test(sql)) {
         return { rows: [{ id: '501', booking_date: '2026-11-05', participants: 2, final_price: 30000, booking_status: 'new' }] };
       }
-      // my_tours_schedule: туров по запросу нет — до дат дело не доходит.
+      // my_tours_schedule: свои туры есть, но не тот, что спрошен, — до дат дело не доходит.
+      if (/operator_id = \$1::uuid/.test(sql)) {
+        return { rows: [{ id: 8, title: 'Авача', is_active: true, is_published: true, slug: 'avacha', max_participants: 4, season_start: null, season_end: null }] };
+      }
       return { rows: [] };
     });
   }
@@ -284,7 +287,8 @@ describe('гид со своими турами (29.10): помощник зна
 
     const schedule = query.mock.calls.find((c) => /operator_id = \$1::uuid/.test(String(c[0])));
     expect(schedule?.[1]?.[0]).toBe('p-1');
-    expect(schedule?.[1]?.[1]).toBe('Горелый');
+    // 04.11: название ищется словами в JS по всем своим турам, не ILIKE в SQL.
+    expect(schedule?.[1]).toEqual(['p-1']);
     expect(executeCrmTool).not.toHaveBeenCalled();
     const second = callToolsWaterfall.mock.calls[1][0] as Array<{ role: string; content: string }>;
     expect(second.find((m) => m.role === 'tool')?.content).toMatch(/Среди своих туров нет подходящего под «Горелый»/);
