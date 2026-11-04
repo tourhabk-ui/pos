@@ -9,15 +9,19 @@
 --     (аккаунт 4e2ae003, MAX есть, TG нет, скрыта, слага нет).
 --   B 95fe571f-9e99-400e-bdc3-a1682bf3175e — настоящая andrey-zaporozhets
 --     (аккаунта нет, MAX+TG, telegram_chat_id 221997120, публичная).
+--
 -- Одной транзакцией:
---   1) проверки (любая неоднозначность — EXCEPTION, откат всего);
---   2) NOTICE: есть ли пароль у 4e2ae003 (только да/нет), в каких таблицах
---      строки заглушки; бэкап всех четырёх строк (row_to_json);
---   3) MAX/TG id: заглушка → NULL и выключена (is_active=false, сессии
---      удалены, строка остаётся); 4e2ae003 — получает id;
---   4) A: suspended, скрыта, без аккаунта, max_owner_user_id = NULL;
+--   1) проверки; любая неоднозначность — EXCEPTION, откат всего;
+--      почта 4e2ae003 должна быть подтверждена, если в схеме есть признак;
+--   2) NOTICE: есть ли пароль у 4e2ae003 (да/нет, на ход не влияет), в каких
+--      таблицах строки заглушки; бэкап четырёх строк без MAX id;
+--   3) Telegram/MAX id: сначала снимаются с заглушки 259dd12b (она
+--      выключается, сессии удаляются, строка остаётся), затем ставятся
+--      4e2ae003 — уникальные индексы не мешают;
+--   4) заявки, туры (с их бронями) и прочие ссылки карточки A переносятся
+--      на B; A — suspended, скрыта, без аккаунта и без MAX;
 --   5) B: владелец 4e2ae003.
--- Повторный запуск — без изменений.
+-- MAX id нигде не печатаются. Повторный запуск — без изменений.
 
 BEGIN;
 
@@ -33,8 +37,7 @@ DECLARE
   b  partners%ROWTYPE;
   has_ph BOOLEAN;
   has_a BOOLEAN;
-  mx_vals TEXT;
-  tg_vals TEXT;
+  verified BOOLEAN;
   mx BIGINT;
   tg BIGINT;
   n INT;
@@ -51,6 +54,24 @@ BEGIN
 
   IF lower(btrim(COALESCE(u.email, ''))) <> 'zap.andy@gmail.com' THEN
     RAISE EXCEPTION '1390: у % почта «%», ждали zap.andy@gmail.com', c_uid, u.email; END IF;
+
+  -- Почта подтверждена? Признак — колонка users (если есть) или metadata.
+  verified := NULL;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'email_verified') THEN
+    EXECUTE 'SELECT email_verified IS TRUE FROM users WHERE id::text = $1' INTO verified USING c_uid;
+  ELSIF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'email_verified_at') THEN
+    EXECUTE 'SELECT email_verified_at IS NOT NULL FROM users WHERE id::text = $1' INTO verified USING c_uid;
+  ELSIF u.metadata ? 'email_verified' THEN
+    verified := COALESCE(u.metadata->>'email_verified', '') IN ('true', 't', '1');
+  END IF;
+  IF verified IS FALSE THEN
+    RAISE EXCEPTION '1390: почта zap.andy@gmail.com у % не подтверждена — стоп', c_uid; END IF;
+  IF verified IS NULL THEN
+    RAISE NOTICE '1390: в схеме нет признака подтверждения почты (email_verified / email_verified_at / metadata) — проверка не применима';
+  END IF;
+
   IF b.slug IS DISTINCT FROM 'andrey-zaporozhets' THEN
     RAISE EXCEPTION '1390: у карточки B слаг «%»', b.slug; END IF;
   IF b.user_id IS NOT NULL AND b.user_id::text <> c_uid THEN
@@ -64,17 +85,10 @@ BEGIN
     RAISE NOTICE '1390: уже сделано — без изменений'; RETURN;
   END IF;
 
-  -- Других карточек у 4e2ae003 нет.
   SELECT count(*) INTO n FROM partners WHERE user_id::text = c_uid AND id::text NOT IN (c_a, c_b);
   IF n > 0 THEN RAISE EXCEPTION '1390: у % ещё карточек: %', c_uid, n; END IF;
-
-  -- Карточка A пустая: без описания, туров и броней.
-  IF has_a THEN
-    IF COALESCE(btrim(a.description), '') <> '' THEN
-      RAISE EXCEPTION '1390: у карточки A есть описание — не пустая'; END IF;
-    IF EXISTS (SELECT 1 FROM tours WHERE operator_id::text = c_a) THEN
-      RAISE EXCEPTION '1390: у карточки A есть туры'; END IF;
-  END IF;
+  IF has_a AND COALESCE(btrim(a.description), '') <> '' THEN
+    RAISE EXCEPTION '1390: у карточки A есть описание — не пустая, стоп'; END IF;
 
   -- Заглушка: брони, туры, карточки — стоп; прочие строки — в лог.
   IF has_ph THEN
@@ -99,20 +113,12 @@ BEGIN
     RAISE NOTICE '1390: строки 259dd12b в таблицах: %', COALESCE(NULLIF(btrim(tbls), ''), 'нет');
   END IF;
 
-  -- MAX: все известные значения должны совпасть.
-  SELECT string_agg(DISTINCT v::text, ', '), min(v) INTO mx_vals, mx FROM (VALUES
+  -- MAX: все известные значения совпадают; сами id не печатаются.
+  SELECT count(DISTINCT v), min(v) INTO n, mx FROM (VALUES
     (CASE WHEN has_a THEN a.max_owner_user_id END), (b.max_owner_user_id),
     (u.max_user_id), (CASE WHEN has_ph THEN ph.max_user_id END)) s(v) WHERE v IS NOT NULL;
-  SELECT count(DISTINCT v) INTO n FROM (VALUES
-    (CASE WHEN has_a THEN a.max_owner_user_id END), (b.max_owner_user_id),
-    (u.max_user_id), (CASE WHEN has_ph THEN ph.max_user_id END)) s(v) WHERE v IS NOT NULL;
-  IF n > 1 THEN
-    RAISE EXCEPTION '1390: MAX id расходятся: карточка A %, карточка B %, 4e2ae003 %, 259dd12b % — стоп',
-      CASE WHEN has_a THEN a.max_owner_user_id END, b.max_owner_user_id, u.max_user_id,
-      CASE WHEN has_ph THEN ph.max_user_id END;
-  END IF;
+  IF n > 1 THEN RAISE EXCEPTION '1390: MAX ids differ — стоп'; END IF;
 
-  -- Telegram: то же.
   SELECT count(DISTINCT v), min(v) INTO n, tg FROM (VALUES
     (b.telegram_owner_user_id), (CASE WHEN b.telegram_chat_id > 0 THEN b.telegram_chat_id END),
     (u.telegram_id), (CASE WHEN has_ph THEN ph.telegram_id END)) s(v) WHERE v IS NOT NULL;
@@ -123,22 +129,21 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM users WHERE id::text NOT IN (c_uid, c_ph)
               AND ((mx IS NOT NULL AND max_user_id = mx) OR (tg IS NOT NULL AND telegram_id = tg))) THEN
-    RAISE EXCEPTION '1390: MAX % / TG % держит ещё какой-то аккаунт — стоп', mx, tg; END IF;
+    RAISE EXCEPTION '1390: MAX или Telegram id держит ещё какой-то аккаунт — стоп'; END IF;
 
-  RAISE NOTICE '1390: у 4e2ae003 пароль задан: %', COALESCE(u.password_hash, '') <> '';
-  RAISE NOTICE '1390: MAX id %, Telegram id %', mx, tg;
+  RAISE NOTICE '1390: has_password %', COALESCE(u.password_hash, '') <> '';
 
-  RAISE NOTICE '1390 BACKUP users %', row_to_json(u);
-  RAISE NOTICE '1390 BACKUP users %', CASE WHEN has_ph THEN row_to_json(ph) END;
-  RAISE NOTICE '1390 BACKUP partners %', CASE WHEN has_a THEN row_to_json(a) END;
-  RAISE NOTICE '1390 BACKUP partners %', row_to_json(b);
+  RAISE NOTICE '1390 BACKUP users %', row_to_json(u)::jsonb - 'max_user_id' - 'password_hash' - 'mfa_secret';
+  RAISE NOTICE '1390 BACKUP users %', CASE WHEN has_ph THEN row_to_json(ph)::jsonb - 'max_user_id' - 'password_hash' - 'mfa_secret' END;
+  RAISE NOTICE '1390 BACKUP partners %', CASE WHEN has_a THEN row_to_json(a)::jsonb - 'max_owner_user_id' END;
+  RAISE NOTICE '1390 BACKUP partners %', row_to_json(b)::jsonb - 'max_owner_user_id';
 
+  -- Сначала заглушка отдаёт id, затем их получает 4e2ae003 (уникальные индексы).
   IF has_ph THEN
     UPDATE users SET max_user_id = NULL, telegram_id = NULL, is_active = FALSE, updated_at = NOW()
      WHERE id::text = c_ph;
     DELETE FROM user_sessions WHERE user_id::text = c_ph;
   END IF;
-
   UPDATE users SET
     max_user_id = COALESCE(mx, max_user_id),
     telegram_id = COALESCE(tg, telegram_id),
@@ -146,7 +151,23 @@ BEGIN
     updated_at = NOW()
    WHERE id::text = c_uid;
 
+  -- Всё, что ссылается на A (заявки, туры с бронями, черновики), — на B.
+  -- Служебные строки регистрации остаются у A.
   IF has_a THEN
+    FOR r IN
+      SELECT c.conrelid::regclass::text AS tbl, a2.attname AS col
+        FROM pg_constraint c
+        JOIN pg_attribute a2 ON a2.attrelid = c.conrelid AND a2.attnum = c.conkey[1]
+       WHERE c.contype = 'f' AND c.confrelid = 'partners'::regclass AND array_length(c.conkey, 1) = 1
+         AND c.conrelid::regclass::text NOT IN
+             ('partners', 'operator_applications', 'operator_settings', 'operator_stats_cache', 'operator_ai_config')
+       ORDER BY 1, 2
+    LOOP
+      EXECUTE format('UPDATE %s SET %I = $2 WHERE %I::text = $1', r.tbl, r.col, r.col) USING c_a, b.id;
+      GET DIAGNOSTICS n = ROW_COUNT;
+      IF n > 0 THEN RAISE NOTICE '1390: с карточки A на B перенесено % строк в %.%', n, r.tbl, r.col; END IF;
+    END LOOP;
+
     UPDATE partners SET status = 'suspended', is_public = FALSE, user_id = NULL,
                         max_owner_user_id = NULL, updated_at = NOW()
      WHERE id::text = c_a;
@@ -154,7 +175,7 @@ BEGIN
 
   UPDATE partners SET user_id = u.id, updated_at = NOW() WHERE id::text = c_b;
 
-  RAISE NOTICE '1390: готово — B владелец 4e2ae003, MAX %, TG %, A suspended, заглушка выключена', mx, tg;
+  RAISE NOTICE '1390: готово — B владелец 4e2ae003, A suspended, заглушка выключена';
 END
 $mig$;
 

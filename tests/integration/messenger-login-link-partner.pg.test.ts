@@ -231,7 +231,8 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
   afterAll(async () => { await pool?.end().catch(() => undefined); });
 
   beforeEach(async () => {
-    await pool.query(`DELETE FROM bookings WHERE user_id::text = $1`, [PH]);
+    await pool.query(`DELETE FROM bookings WHERE user_id::text = $1 OR tour_id IN (SELECT id FROM tours WHERE operator_id::text IN ($2, $3))`, [PH, CARD_A, CARD_B]);
+    await pool.query(`DELETE FROM tours WHERE operator_id::text IN ($1, $2)`, [CARD_A, CARD_B]);
     await pool.query(`DELETE FROM partners WHERE id::text IN ($1, $2) OR user_id::text IN ($3, $4)`, [CARD_A, CARD_B, UID, PH]);
     await pool.query(`DELETE FROM user_sessions WHERE user_id::text IN ($1, $2)`, [UID, PH]);
     await pool.query(`DELETE FROM user_ai_memory WHERE user_id::text IN ($1, $2)`, [UID, PH]);
@@ -256,10 +257,19 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
       [CARD_B, MAX_ID, TG_ID]);
   });
 
+  // Все NOTICE и текст ошибки последнего прогона — для проверки «MAX id нигде не печатаются».
+  let printed: string[] = [];
   async function run(): Promise<void> {
     const c = await pool.connect();
-    try { await c.query(SQL_1390); } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
+    printed = [];
+    const onNotice = (m: { message?: string }) => { printed.push(String(m.message)); };
+    c.on('notice', onNotice);
+    try { await c.query(SQL_1390); } catch (e) {
+      printed.push(String((e as Error).message));
+      await c.query('ROLLBACK').catch(() => undefined); throw e;
+    } finally { c.off('notice', onNotice); c.release(); }
   }
+  const noMaxPrinted = () => { for (const m of printed) expect(m).not.toMatch(/77700\d/); };
   const card = async (id: string) => (await pool.query(
     `SELECT user_id::text, status, is_public, max_owner_user_id::text AS mx FROM partners WHERE id::text = $1`, [id])).rows[0];
   const user = async (id: string) => (await pool.query(
@@ -302,10 +312,82 @@ withPg('1390: аккаунт Андрея Запорожца по явным id'
     }
   });
 
-  it('(5) MAX id на карточках расходятся — стоп с обоими значениями', async () => {
+  it('(5) MAX id на карточках расходятся — стоп с общим текстом, без самих id', async () => {
     await pool.query(`UPDATE partners SET max_owner_user_id = 777002 WHERE id::text = $1`, [CARD_A]);
-    await expect(run()).rejects.toThrow(/MAX id расходятся.*777002.*777001|MAX id расходятся.*777001.*777002/);
+    await expect(run()).rejects.toThrow(/MAX ids differ/);
+    noMaxPrinted();
     expect((await card(CARD_B)).user_id).toBeNull();
+  });
+
+  it('(доп.2) успешный прогон: MAX id нет ни в одном NOTICE и бэкапе', async () => {
+    await run();
+    expect(printed.some((m) => m.includes('BACKUP'))).toBe(true);
+    noMaxPrinted();
+  });
+
+  it('(доп.1) почта не подтверждена (metadata) — стоп', async () => {
+    await pool.query(`UPDATE users SET metadata = '{"email_verified": false}' WHERE id::text = $1`, [UID]);
+    await expect(run()).rejects.toThrow(/не подтверждена/);
+    expect((await card(CARD_B)).user_id).toBeNull();
+  });
+
+  it('(доп.1) почта не подтверждена (колонка email_verified) — стоп; подтверждена — проходит', async () => {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified boolean DEFAULT false`);
+    try {
+      await expect(run()).rejects.toThrow(/не подтверждена/);
+      await pool.query(`UPDATE users SET email_verified = TRUE WHERE id::text = $1`, [UID]);
+      await run();
+      expect((await card(CARD_B)).user_id).toBe(UID);
+    } finally {
+      await pool.query(`ALTER TABLE users DROP COLUMN IF EXISTS email_verified`);
+    }
+  });
+
+  it('(доп.3) пароль не ставится: без пароля — NOTICE has_password false и не стоп', async () => {
+    await pool.query(`UPDATE users SET password_hash = '' WHERE id::text = $1`, [UID]);
+    await run();
+    expect(printed).toContain('1390: has_password false');
+    expect((await pool.query(`SELECT password_hash FROM users WHERE id::text = $1`, [UID])).rows[0].password_hash).toBe('');
+    expect((await card(CARD_B)).user_id).toBe(UID);
+  });
+
+  it('(доп.3) с паролем — NOTICE has_password true, хэш не тронут', async () => {
+    await run();
+    expect(printed).toContain('1390: has_password true');
+    expect((await pool.query(`SELECT password_hash FROM users WHERE id::text = $1`, [UID])).rows[0].password_hash).toBe('hash');
+  });
+
+  it('(доп.4) тур-черновик и бронь карточки A переезжают на B до suspend', async () => {
+    const t = (await pool.query(
+      `INSERT INTO tours (name, description, difficulty, duration, price, operator_id) VALUES ('Черновик', '-', 'easy', 1, 100, $1) RETURNING id`, [CARD_A])).rows[0].id;
+    const other = (await pool.query(`INSERT INTO users (email, name, role, password_hash) VALUES ('tourist-1390@example.test', 'T', 'tourist', '') ON CONFLICT DO NOTHING RETURNING id::text`)).rows[0]?.id
+      ?? (await pool.query(`SELECT id::text FROM users WHERE email = 'tourist-1390@example.test'`)).rows[0].id;
+    await pool.query(`INSERT INTO bookings (user_id, tour_id, date, participants, total_price) VALUES ($1, $2, CURRENT_DATE, 1, 100)`, [other, t]);
+    await run();
+    expect((await pool.query(`SELECT operator_id::text AS op FROM tours WHERE id = $1`, [t])).rows[0].op).toBe(CARD_B);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM tours WHERE operator_id::text = $1`, [CARD_A])).rows[0].n).toBe(0);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM bookings WHERE tour_id = $1`, [t])).rows[0].n).toBe(1);
+    expect(printed.some((m) => /перенесено 1 строк в tours\.operator_id/.test(m))).toBe(true);
+    expect((await card(CARD_A)).status).toBe('suspended');
+  });
+
+  it('(доп.5) Telegram id: уникальный индекс есть, снятие с заглушки до установки — одной транзакцией', async () => {
+    const idx = await pool.query(`SELECT 1 FROM pg_indexes WHERE tablename = 'users' AND indexdef ILIKE '%UNIQUE%(telegram_id)%'`);
+    expect(idx.rowCount).toBeGreaterThan(0);
+    const clear = SQL_1390.indexOf('max_user_id = NULL, telegram_id = NULL');
+    const set = SQL_1390.indexOf('telegram_id = COALESCE(tg, telegram_id)');
+    expect(clear).toBeGreaterThan(0);
+    expect(set).toBeGreaterThan(clear);
+    expect(SQL_1390.match(/^BEGIN;$/gm)?.length).toBe(1);
+    await run();
+    expect((await user(UID)).tg).toBe(String(TG_ID));
+    expect((await user(PH)).tg).toBeNull();
+  });
+
+  it('(доп.5) стоп внутри транзакции — заглушка по-прежнему держит TG, ничего не изменено', async () => {
+    await pool.query(`INSERT INTO partners (name, category, contact, user_id) VALUES ('Y', 'guide', '{}', $1)`, [UID]);
+    await expect(run()).rejects.toThrow(/ещё карточек/);
+    expect((await user(PH)).tg).toBe(String(TG_ID));
   });
 
   it('(5) у заглушки бронь — стоп', async () => {
