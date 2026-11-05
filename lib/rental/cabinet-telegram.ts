@@ -74,6 +74,7 @@ export async function tryRentalCabinetTelegramMessage(opts: {
     fromName: opts.fromName,
     partner,
     reply: async (_id, text) => { await send(text, []); },
+    channel: 'telegram',
   });
   return true;
 }

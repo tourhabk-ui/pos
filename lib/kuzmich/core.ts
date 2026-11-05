@@ -1385,12 +1385,18 @@ async function getHistoryWithCompactionSummary(
 export async function saveMsg(
   chatId: number, mode: string, role: 'user' | 'assistant', content: string,
   userId?: number | null, userName?: string | null,
+  /**
+   * Канал, когда род разговора его не называет (05.11): чат партнёра пишется
+   * родом `operator_tg` и из MAX, и из Telegram, и без этого MAX-чат гида в
+   * админке стоял под меткой «TG».
+   */
+  platform?: 'max' | 'telegram' | 'whatsapp',
 ) {
   try {
     await pool.query(
       `INSERT INTO tg_conversations (chat_id, mode, role, content, user_id, user_name, platform)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [chatId, mode, role, content, userId ?? null, userName ?? null, platformOfMode(mode)],
+      [chatId, mode, role, content, userId ?? null, userName ?? null, platform ?? platformOfMode(mode)],
     );
   } catch (err) {
     // Ответ человеку отказ записи не блокирует, но и не глушится: до 1314 так

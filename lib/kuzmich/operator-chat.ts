@@ -465,8 +465,10 @@ export async function processPartnerMessage(opts: {
   // исходный текст: модели там нет, а число цены очистка не трогает.
   // Хвост номера (4 цифры) остаётся: по нему инструмент CRM находит клиента.
   const clean = (body: string) => redactPII(body, { keepPhoneTail: true });
-  await saveMsg(chatId, 'operator_tg', 'user', clean(text), null, fromName);
-  const saveAnswer = (body: string) => saveMsg(chatId, 'operator_tg', 'assistant', clean(body), null, null);
+  // Канал — в запись (05.11): род `operator_tg` один на MAX и Telegram.
+  const platform = opts.channel ?? 'max';
+  await saveMsg(chatId, 'operator_tg', 'user', clean(text), null, fromName, platform);
+  const saveAnswer = (body: string) => saveMsg(chatId, 'operator_tg', 'assistant', clean(body), null, null, platform);
 
   // Цена и описание — черновик на модерацию, без модели: число из фразы
   // прокатчика, на сайт не попадает, пока его не одобрят.

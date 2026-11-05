@@ -55,7 +55,7 @@ import { sellsOwnTours } from '@/lib/partners/tour-seller';
 import { openRentalCabinetScreen } from '@/lib/rental/cabinet-screen';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
-import { claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession } from '@/lib/auth/max-login';
+import { answerMaxLoginByText, claimMaxLoginSession, confirmMaxLoginSession, rejectMaxLoginSession, type TypedLoginOutcome } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { bindPartnerChannel, boundMenuRow, channelBoundText, handlePartnerStart } from '@/lib/partners/bind-channel';
@@ -68,7 +68,7 @@ import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/l
 import {
   type MaxPressAction, LOGIN_CONFIRM_PREFIX, LOGIN_REJECT_PREFIX, MAX_LOGIN_TEXT,
   PRESS_WITHOUT_MESSAGE_REPLY, UNVERIFIED_CHAT_REPLY, UNVERIFIED_PRESS_REPLY,
-  UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf,
+  UNVERIFIED_START_REPLY, maxWebhookKeyConfigured, pressActionOf, startActionOf, typedLoginAnswer,
 } from '@/lib/max/verified-press';
 import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -1206,6 +1206,35 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       }
     }
 
+    // ── ВХОД НА САЙТ СЛОВАМИ (05.11) ─────────────────────────────────────
+    // Гид Андрей набрал «Да, это я» вместо кнопки под вопросом о входе —
+    // ответ ушёл помощнику партнёра («Понял, Андрей. Чем помочь?»), вход не
+    // прошёл. Право — то же, что у кнопки: пользователь MAX из заверенного
+    // апдейта, за которым сессия закреплена «Стартом» (lib/auth/max-login).
+    // Раньше переписки по заявке: эта фраза — ответ боту, не сообщение гостю.
+    const typedLogin = opts?.verifiedOrigin === true && msg.recipient.chat_type === 'dialog'
+      && attachments.length === 0 && typeof userId === 'number'
+      ? typedLoginAnswer(text)
+      : null;
+    if (typedLogin !== null && typeof userId === 'number') {
+      let outcome: TypedLoginOutcome | 'failed';
+      try {
+        outcome = await answerMaxLoginByText(userId, typedLogin);
+      } catch (err) {
+        logFailure('вход на сайт словами', err);
+        outcome = 'failed';
+      }
+      const TYPED_LOGIN_REPLY: Record<TypedLoginOutcome | 'failed', string> = {
+        confirmed: MAX_LOGIN_TEXT.confirmed,
+        rejected: MAX_LOGIN_TEXT.rejected,
+        none: MAX_LOGIN_TEXT.typedNone,
+        ambiguous: MAX_LOGIN_TEXT.typedAmbiguous,
+        failed: MAX_LOGIN_TEXT.typedFailed,
+      };
+      await maxReply(chatId, TYPED_LOGIN_REPLY[outcome]);
+      return;
+    }
+
     // ── ПЕРЕПИСКА ПО ЗАЯВКЕ (1349, 1350) ─────────────────────────────────
     // Раньше всех веток, но только в личном диалоге, только текстом и только
     // по заверенному апдейту. Ссылка клиента, набранная текстом (web.max.ru не
@@ -1695,6 +1724,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await processPartnerMessage({
           chatId, text, fromName: userName, partner: lookup.partner,
           reply: async (_id, body, buttons) => { await say(body, buttons); },
+          channel: 'max',
         });
         return;
       }

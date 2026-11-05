@@ -144,6 +144,18 @@ describe('ответ партнёру', () => {
     expect(callAIWaterfallOrNull).not.toHaveBeenCalled();
   });
 
+  it('канал чата — в запись переписки (05.11): MAX-чат гида не значится «TG»', async () => {
+    callToolsWaterfall.mockResolvedValue({ content: 'Готово.', toolCalls: [] });
+    query.mockResolvedValue({ rows: [] });
+    for (const [channel, expected] of [['max', 'max'], ['telegram', 'telegram'], [undefined, 'max']] as const) {
+      saveMsg.mockReset();
+      await chat.processPartnerMessage({ chatId: 9, text: 'привет', fromName: null, partner: guide, reply: vi.fn(), nowMs: NOW, channel });
+      const platforms = (saveMsg.mock.calls as unknown as unknown[][]).map((c) => c[6]);
+      expect(platforms.length).toBeGreaterThan(0);
+      expect(new Set(platforms)).toEqual(new Set([expected]));
+    }
+  });
+
   it('инструменты не ответили, записей нет — ответ без них, и о CRM он ничего не утверждает', async () => {
     callToolsWaterfall.mockResolvedValueOnce(null);
     callAIWaterfallOrNull.mockResolvedValueOnce('Сейчас не вижу данных CRM.');
