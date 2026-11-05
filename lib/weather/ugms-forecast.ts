@@ -112,7 +112,14 @@ export function parseUgmsPage(html: string, kind: UgmsKind, readDate: string): U
   if (headIdx < 0) return { blocks: [], heading: null, problems: ['заголовок «ПРОГНОЗ НА …» не найден'] };
   const heading = lines[headIdx];
   const problems: string[] = [];
-  const dateTokens = heading.replace(/^ПРОГНОЗ НА /i, '').split(/\s*[-–—]\s*/).map((s) => s.trim());
+  const rawTokens = heading.replace(/^ПРОГНОЗ НА /i, '').split(/\s*[-–—]\s*/).map((s) => s.trim());
+  // «06-07 ноября» (05.11): у пары дат одного месяца он назван один раз — в
+  // последней. День без месяца берёт месяц ближайшей следующей даты.
+  const dateTokens = rawTokens.map((t, i) => {
+    if (!/^\d{1,2}$/.test(t)) return t;
+    const month = rawTokens.slice(i + 1).map((x) => /^\d{1,2}\s+([а-яё]+)$/i.exec(x)?.[1]).find(Boolean);
+    return month ? `${t} ${month}` : t;
+  });
   const dates = dateTokens.map((t) => ugmsDate(t, readDate));
   if (dates.some((d) => !d)) problems.push(`дата в заголовке не разобрана: «${heading}»`);
 

@@ -80,6 +80,17 @@ describe('разбор страниц', () => {
     expect(p.blocks[2].notes).toEqual([]);
   });
 
+  it('заголовок «06-07 ноября»: месяц один на пару, разбор без жалобы (05.11)', () => {
+    const html = DAY23_HTML.replace('31 октября-01 ноября', '06-07 ноября')
+      .replace(/31 октября/g, '06 ноября').replace(/01 ноября/g, '07 ноября');
+    const p = parseUgmsPage(html, 'day23', '2026-11-05');
+    expect(p.problems).toEqual([]);
+    expect(p.blocks.map((b) => b.date)).toEqual(['2026-11-06', '2026-11-07', '2026-11-06', '2026-11-07']);
+    const day1 = parseUgmsPage(DAY1_HTML.replace('30 октября', '06-07 ноября'), 'day1', '2026-11-05');
+    expect(day1.problems).toEqual([]);
+    expect(day1.blocks[0].date).toBe('2026-11-06');
+  });
+
   it('не страница прогноза — ноль блоков и названная причина, не пустой успех', () => {
     const p = parseUgmsPage('<html><body>404 - Файл или каталог не найден.</body></html>', 'day1', '2026-10-29');
     expect(p.blocks).toEqual([]);
