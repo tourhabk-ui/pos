@@ -36,9 +36,14 @@ interface FormValues {
   max_participants: string;
   short_description: string;
   description: string;
+  season_start: string;
+  season_end: string;
 }
 
-const EMPTY: FormValues = { title: '', base_price: '', price_unit: 'per_person', max_participants: '', short_description: '', description: '' };
+const EMPTY: FormValues = {
+  title: '', base_price: '', price_unit: 'per_person', max_participants: '', short_description: '', description: '',
+  season_start: '', season_end: '',
+};
 
 function valuesOf(t: OwnTour): FormValues {
   return {
@@ -48,6 +53,8 @@ function valuesOf(t: OwnTour): FormValues {
     max_participants: t.max_participants === null ? '' : String(t.max_participants),
     short_description: t.short_description ?? '',
     description: t.description ?? '',
+    season_start: t.season_start?.slice(0, 10) ?? '',
+    season_end: t.season_end?.slice(0, 10) ?? '',
   };
 }
 
@@ -72,6 +79,7 @@ export function formGaps(v: FormValues): string[] {
   const group = Number(v.max_participants);
   if (!Number.isInteger(group) || group < 1) gaps.push('размер группы — сколько человек максимум');
   if (v.description.trim().length === 0) gaps.push('описание');
+  if (v.season_start && v.season_end && v.season_start > v.season_end) gaps.push('сезон кончается раньше, чем начинается');
   return gaps;
 }
 
@@ -113,6 +121,10 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
     if (tour) body.short_description = v.short_description.trim() || null;
     else if (v.short_description.trim()) body.short_description = v.short_description.trim();
     if (tour && x) Object.assign(body, extrasBody(x));
+    if (tour) {
+      body.season_start = v.season_start || null;
+      body.season_end = v.season_end || null;
+    }
     const r = tour
       ? await send(`/api/guide/own/tours/${tour.id}`, 'PATCH', body)
       : await send('/api/guide/own/tours', 'POST', body);
@@ -149,6 +161,19 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
           <input id={`${id}-group`} type="number" inputMode="numeric" min={1} className="ds-input mt-1 w-full" value={v.max_participants} onChange={set('max_participants')} />
         </label>
       </div>
+      {tour && (
+        <fieldset className="grid gap-3 sm:grid-cols-2">
+          <legend className="text-sm text-[var(--text-secondary)]">Сезон — в какие даты тур идёт; даты вне сезона не откроются</legend>
+          <label className="block text-sm" htmlFor={`${id}-season-start`}>
+            <span className="text-[var(--text-secondary)]">С</span>
+            <input id={`${id}-season-start`} type="date" className="ds-input mt-1 w-full" value={v.season_start} onChange={set('season_start')} />
+          </label>
+          <label className="block text-sm" htmlFor={`${id}-season-end`}>
+            <span className="text-[var(--text-secondary)]">По</span>
+            <input id={`${id}-season-end`} type="date" className="ds-input mt-1 w-full" value={v.season_end} onChange={set('season_end')} />
+          </label>
+        </fieldset>
+      )}
       <label className="block text-sm" htmlFor={`${id}-short`}>
         <span className="text-[var(--text-secondary)]">Анонс — строка под названием (можно пусто)</span>
         <input id={`${id}-short`} className="ds-input mt-1 w-full" value={v.short_description} onChange={set('short_description')} maxLength={500} />

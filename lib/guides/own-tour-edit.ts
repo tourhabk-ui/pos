@@ -42,6 +42,13 @@ export const OwnTourEditSchema = OwnTourDraftSchema.pick({
   safety_notes: draft.safety_notes.unwrap().nullable(),
   photos: z.array(z.string().trim().max(500).refine(isOwnTourPhotoUrl, 'Фото — только загруженное здесь же'))
     .max(OWN_TOUR_PHOTOS_MAX, `Не больше ${OWN_TOUR_PHOTOS_MAX} фото`),
-}).partial().strict();
+  // Сезон (05.11): даты вне сезона открытие отклоняет, а поменять сезон гиду
+  // было негде — Андрей открыл Горелый 15.07–15.10 и не смог добавить 1–14.07.
+  season_start: z.string().date('Начало сезона — дата').nullable(),
+  season_end: z.string().date('Конец сезона — дата').nullable(),
+}).partial().strict().refine(
+  (v) => !v.season_start || !v.season_end || v.season_start <= v.season_end,
+  { message: 'Сезон кончается раньше, чем начинается', path: ['season_end'] },
+);
 
 export type OwnTourEditInput = z.input<typeof OwnTourEditSchema>;

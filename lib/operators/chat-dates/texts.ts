@@ -312,7 +312,7 @@ export function perDateLines(perDate: DateOpenResult[], seats: number, mode: 'pr
     const label = windowLabel({ kind: 'season', from: w.from, to: w.to, seasonStart: w.seasonStart, seasonEnd: w.seasonEnd });
     lines.push(`${p ? 'Вне сезона тура, не открою' : 'Не открыты — вне сезона тура'} (${season.length}): ` +
       `${datesList(season.map((r) => r.date))} — ${label}; ` +
-      (seller === 'guide' ? 'сезон тура меняет менеджер Ведара.' : 'сезон меняется в карточке тура.'));
+      (seller === 'guide' ? 'сезон меняется кнопкой «Править» у тура в кабинете, раздел «Свои туры».' : 'сезон меняется в карточке тура.'));
   }
   const past = only(perDate, 'refused_past');
   if (past.length) lines.push(`${p ? 'Прошли, не открою' : 'Не открыты — прошли'} (${past.length}): ${datesList(past.map((r) => r.date))}.`);

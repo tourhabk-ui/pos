@@ -15,6 +15,12 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export const dynamic = 'force-dynamic';
 
+/** 2027-07-15 → 15.07.2027. */
+function ruDay(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}.${m}.${y}`;
+}
+
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const BodySchema = z.object({
   tourId: z.string().regex(/^\d{1,18}$/),
@@ -64,8 +70,14 @@ export async function POST(request: NextRequest) {
   if (n.updated > 0) parts.push(`обновлено: ${n.updated}`);
   if (n.already_open > 0) parts.push(`уже были открыты: ${n.already_open}`);
   if (refused > 0) parts.push(`не открыто ${refused}: записано больше мест`);
-  const outOfSeason = outcome.perDate.filter((r) => r.result === 'refused_season').length;
-  if (outOfSeason > 0) parts.push(`вне сезона тура: ${outOfSeason}`);
+  const outOfSeason = outcome.perDate.filter((r) => r.result === 'refused_season');
+  if (outOfSeason.length > 0) {
+    // 05.11: «вне сезона тура: 14» гид прочитал как «не открывает» — сезон
+    // называется и сказано, где его поменять.
+    const s = outOfSeason[0] as { seasonStart: string; seasonEnd: string };
+    parts.push(`не открыто ${outOfSeason.length} вне сезона тура (${ruDay(s.seasonStart)} — ${ruDay(s.seasonEnd)}): `
+      + 'расширьте сезон кнопкой «Править» у тура и откройте эти даты снова');
+  }
   const pastOrFar = outcome.perDate.filter((r) => r.result === 'refused_past' || r.result === 'refused_horizon').length;
   if (pastOrFar > 0) parts.push(`прошедшие или дальше года: ${pastOrFar}`);
   return NextResponse.json({ success: true, message: parts.join(', ') });

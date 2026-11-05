@@ -104,6 +104,25 @@ describe('форма правки своего тура: программа, с�
     expect(screen.queryByAltText('Фото тура 2')).toBeNull();
   });
 
+  it('сезон правится формой: 1–14.07 перестанут быть «вне сезона»', async () => {
+    const onDone = vi.fn();
+    render(<OwnTourForm tour={{ ...TOUR, season_start: '2027-07-15', season_end: '2027-10-15' }} onDone={onDone} onCancel={vi.fn()} />);
+    expect((screen.getByLabelText('С') as HTMLInputElement).value).toBe('2027-07-15');
+    fireEvent.change(screen.getByLabelText('С'), { target: { value: '2027-07-01' } });
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const body = patchBody();
+    expect(body).toMatchObject({ season_start: '2027-07-01', season_end: '2027-10-15' });
+    expect(OwnTourEditSchema.safeParse(body).success).toBe(true);
+  });
+
+  it('сезон наоборот — сказано словами, сервер тоже не примет', () => {
+    render(<OwnTourForm tour={{ ...TOUR, season_start: '2027-07-15', season_end: '2027-10-15' }} onDone={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('С'), { target: { value: '2027-11-01' } });
+    expect(screen.getByTestId('own-tour-gaps').textContent).toMatch(/сезон кончается раньше, чем начинается/);
+    expect(OwnTourEditSchema.safeParse({ season_start: '2027-11-01', season_end: '2027-10-15' }).success).toBe(false);
+  });
+
   it('новый тур — без этих полей, с подсказкой «Править» после создания', () => {
     render(<OwnTourForm onDone={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByLabelText('Добавить фото')).toBeNull();
