@@ -114,11 +114,13 @@ export function parseUgmsPage(html: string, kind: UgmsKind, readDate: string): U
   const problems: string[] = [];
   const rawTokens = heading.replace(/^ПРОГНОЗ НА /i, '').split(/\s*[-–—]\s*/).map((s) => s.trim());
   // «06-07 ноября» (05.11): у пары дат одного месяца он назван один раз — в
-  // последней. День без месяца берёт месяц ближайшей следующей даты.
+  // последней. День без месяца берёт месяц ближайшей следующей даты, но
+  // только если он раньше её в том же месяце: «30-01 декабря» — стык месяцев,
+  // и перенос дал бы ложное 30 декабря; такой заголовок остаётся жалобой.
   const dateTokens = rawTokens.map((t, i) => {
     if (!/^\d{1,2}$/.test(t)) return t;
-    const month = rawTokens.slice(i + 1).map((x) => /^\d{1,2}\s+([а-яё]+)$/i.exec(x)?.[1]).find(Boolean);
-    return month ? `${t} ${month}` : t;
+    const next = rawTokens.slice(i + 1).map((x) => /^(\d{1,2})\s+([а-яё]+)$/i.exec(x)).find(Boolean);
+    return next && Number(t) < Number(next[1]) ? `${t} ${next[2]}` : t;
   });
   const dates = dateTokens.map((t) => ugmsDate(t, readDate));
   if (dates.some((d) => !d)) problems.push(`дата в заголовке не разобрана: «${heading}»`);

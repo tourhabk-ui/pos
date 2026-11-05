@@ -91,6 +91,12 @@ describe('разбор страниц', () => {
     expect(day1.blocks[0].date).toBe('2026-11-06');
   });
 
+  it('«30-01 декабря» — стык месяцев: месяц не переносится, дата не выдумывается, жалоба названа', () => {
+    const p = parseUgmsPage(DAY1_HTML.replace('30 октября', '30-01 декабря'), 'day1', '2026-11-05');
+    expect(p.problems.join(' ')).toMatch(/дата в заголовке не разобрана/);
+    expect(p.blocks.map((b) => b.date)).not.toContain('2026-12-30');
+  });
+
   it('не страница прогноза — ноль блоков и названная причина, не пустой успех', () => {
     const p = parseUgmsPage('<html><body>404 - Файл или каталог не найден.</body></html>', 'day1', '2026-10-29');
     expect(p.blocks).toEqual([]);
