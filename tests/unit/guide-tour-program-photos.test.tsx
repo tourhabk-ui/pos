@@ -146,7 +146,7 @@ describe('сервер: какие фото и поля принимает пр�
   });
 
   it('пустые списки и программа уходят null', () => {
-    const body = extrasBody({ program: [{ title: '  ', text: '' }], included: '\n', not_included: '', what_to_bring: '', safety_notes: '', photos: [] });
+    const body = extrasBody({ program: [{ title: '  ', text: '' }], included: '\n', not_included: '', what_to_bring: '', safety_notes: '', photos: [], video_clips: [], photo_credit: '' });
     expect(body).toMatchObject({ program: null, included: null, not_included: null, what_to_bring: null, safety_notes: null, photos: [] });
     expect(OwnTourEditSchema.safeParse(body).success).toBe(true);
   });

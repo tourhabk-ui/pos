@@ -25,7 +25,7 @@ import type { OwnTour } from '@/lib/guides/own-tours';
 import { ownTourStateWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
 import {
-  ProgramEditor, ListField, PhotosField, extrasGaps, extrasBody, LIST_LABELS,
+  ProgramEditor, ListField, PhotosField, VideosField, MaterialsConsent, extrasGaps, extrasBody, LIST_LABELS,
   type ExtrasValues, type ListKey,
 } from '@/components/guide/OwnTourExtras';
 
@@ -67,6 +67,8 @@ function extrasOf(t: OwnTour): ExtrasValues {
     what_to_bring: lines(t.what_to_bring),
     safety_notes: lines(t.safety_notes),
     photos: t.photos ?? [],
+    video_clips: t.video_clips ?? [],
+    photo_credit: t.partner_name ?? '',
   };
 }
 
@@ -188,7 +190,10 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
           {(Object.keys(LIST_LABELS) as ListKey[]).map((k) => (
             <ListField key={k} idBase={id} field={k} value={x[k]} onChange={(text) => setX({ ...x, [k]: text })} />
           ))}
-          <PhotosField idBase={id} photos={x.photos} onChange={(photos) => setX({ ...x, photos })} />
+          <PhotosField idBase={id} photos={x.photos} onChange={(photos) => setX({ ...x, photos })}
+            credits={tour?.photo_credits ?? {}} credit={x.photo_credit} onCredit={(photo_credit) => setX({ ...x, photo_credit })} />
+          <VideosField idBase={id} clips={x.video_clips} onChange={(video_clips) => setX({ ...x, video_clips })} />
+          <MaterialsConsent />
         </>
       ) : (
         <p className="text-sm text-[var(--text-muted)]">

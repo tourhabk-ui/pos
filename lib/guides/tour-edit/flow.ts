@@ -36,6 +36,8 @@ import { tourHiddenText } from '@/lib/tours/availability-open';
 import { tourPath } from '@/lib/tours/tour-url';
 import { readPublishGate, setOwnTourOnSite } from '@/lib/guides/own-tour-publish';
 import { parseTourEdit, pickTour } from './parse';
+import { parseTourTextAsk, type TextAsk } from './text-ask';
+import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 import { parseTourCreate, type CreateParse } from './create-parse';
 import {
   cancelTourCreateDraft, createTourCreateDraft, saveTourCreateDraft, type CancelCreate, type SaveCreate,
@@ -47,7 +49,7 @@ import {
 } from './store';
 import {
   CHOOSE_MAX, DAYS_PER_PAGE, EDIT_TEXT, calendarScreen, chooseTourScreen, datesScreen, type DatesBack, hintScreen, myToursScreen, newTourHintScreen,
-  noticeWithTours, previewScreen, rejectText, savedScreen, tourScreen,
+  noticeWithTours, previewScreen, rejectText, savedScreen, tourScreen, tourTextScreen,
 } from './screens';
 
 /** Правит ли эта карточка свои туры из чата: гид со своими турами. */
@@ -102,6 +104,9 @@ export async function captureGuideTourEdit(input: {
   const create = createsOwnTours(partner) ? parseTourCreate(input.text) : null;
   if (create) return captureCreate({ channel: input.channel, chatId: input.chatId, partner, parsed: create });
   if (!editsOwnTours(partner)) return null;
+  // «Дай текст тура» (05.11) — до правки: поля из базы, без модели.
+  const ask = parseTourTextAsk(input.text);
+  if (ask) return tourTextAnswer(partner, ask);
   const parsed = parseTourEdit(input.text);
   if (parsed === null) return null;
   if (!partner.userId) return noticeScreen(EDIT_TEXT.noAccount);
@@ -134,6 +139,27 @@ export async function captureGuideTourEdit(input: {
   });
   if (draft.outcome !== 'created') return failedScreen(EDIT_TEXT.draftFailed);
   return previewScreen({ draftId: draft.id, tour, field: edit.field, newValue: edit.value, liveValue: live });
+}
+
+async function tourTextAnswer(partner: PartnerChatContext, ask: TextAsk): Promise<CabinetScreen> {
+  const own = await readEditTours(partner.partnerId);
+  if (own.outcome === 'db_error') return failedScreen(EDIT_TEXT.toursFailed);
+  const site = `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`;
+  if (ask.tourId !== null) {
+    const t = own.tours.find((x) => x.id === ask.tourId);
+    return t
+      ? tourTextScreen(t, site)
+      : noticeWithTours(`Тура №${escapeHtml(ask.tourId)} среди ваших нет.`, own.tours);
+  }
+  const pick = pickTour(ask.tourWords, own.tours);
+  if (pick.kind === 'one') return tourTextScreen(pick.tour as ChatTour, site);
+  const named = pick.kind === 'choose' ? (pick.tours as ChatTour[]) : own.tours;
+  const head = ask.tourWords === null
+    ? 'Какой тур? Напишите «текст тура» и название, например «текст тура Горелый».'
+    : pick.kind === 'missing'
+      ? `Тур «${escapeHtml(ask.tourWords)}» не нашёл среди ваших. Напишите «текст тура» и название из списка.`
+      : `Под «${escapeHtml(ask.tourWords)}» подходит несколько туров — уточните название.`;
+  return noticeWithTours(head, named);
 }
 
 function blockedText(b: DraftBlocked): string {

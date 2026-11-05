@@ -7,6 +7,7 @@
  * разбирает мессенджер.
  */
 
+import { tourTextLines } from './text-ask';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { cabinetNavRows, type CabinetButton, type CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { cabinetPayload, TOUR_DATES_MAX_PAGE } from '@/lib/chat-cabinet/payload';
@@ -290,10 +291,15 @@ export function rejectText(field: EditField, r: EditReject): string {
   }
 }
 
+/** Текст тура из базы (05.11): поля в форме фразы правки. */
+export function tourTextScreen(t: ChatTour, siteOwnUrl: string): CabinetScreen {
+  return screen(tourTextLines(t, shortTourName(t.title), siteOwnUrl), [[{ text: '‹ Тур', payload: cabinetPayload.tour(t.id) }]]);
+}
+
 export function noticeWithTours(text: string, tours: readonly ChatTour[] | null): CabinetScreen {
   const lines = [text];
   if (tours && tours.length) {
-    lines.push('Ваши туры:', ...tours.slice(0, 12).map((t) => `• ${escapeHtml(t.title)}`));
+    lines.push('Ваши туры:', ...tours.slice(0, 30).map((t) => `• ${escapeHtml(t.title)}`));
     lines.push(...FORMAT_LINES(shortTourName(tours[0]!.title)));
   }
   return screen(lines, [[{ text: 'Мои туры', payload: cabinetPayload.myTours() }]]);

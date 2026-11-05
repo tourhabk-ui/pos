@@ -37,6 +37,8 @@ export interface TourProgramStep {
 export type TourPatchInput = z.infer<typeof UpdateTourSchema> & {
   program?: TourProgramStep[] | null;
   safety_notes?: string[] | null;
+  /** Клипы тура (1194): ключи хранилища; правит гид формой на сайте (05.11). */
+  video_clips?: Array<{ key: string; poster: string; label: string }>;
 };
 
 /** Белый список колонок, которые правка тура вправе писать. */
@@ -55,7 +57,7 @@ export const TOUR_PATCH_COLUMNS = [
   'program', 'safety_notes',
   'cancellation_policy',
   'pickup_type', 'pickup_details',
-  'photos', 'tour_image',
+  'photos', 'tour_image', 'video_clips',
   'available_slots', 'next_available_date',
 ] as const;
 
@@ -99,7 +101,10 @@ export async function writeTourPatch(
     if (key in rec && rec[key] !== undefined) {
       fields.push(`${key} = $${idx++}`);
       // Программа — jsonb всегда: массив объектов в TEXT[] не ляжет.
-      values.push(key === 'program' && rec[key] !== null ? JSON.stringify(rec[key]) : valueForColumn(rec[key], key, columnTypes));
+      // Программа и клипы — jsonb всегда: массив объектов в TEXT[] не ляжет.
+      values.push((key === 'program' || key === 'video_clips') && rec[key] !== null
+        ? JSON.stringify(rec[key])
+        : valueForColumn(rec[key], key, columnTypes));
     }
   }
 

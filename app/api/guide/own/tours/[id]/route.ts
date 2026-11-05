@@ -41,12 +41,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // «Снять список» — null от формы; колонки состава пишутся массивом, и
   // пустой массив карточка тура читает как «не записано», как и null.
   const emptied = (v: string[] | null | undefined) => (v === null ? [] : v);
+  // Подпись снимков — не колонка тура: она уходит в карту авторов партнёра.
+  const { photo_credit: photoCredit, ...fields } = body.data;
   const input = {
-    ...body.data,
-    short_description: body.data.short_description === '' ? null : body.data.short_description,
-    included: emptied(body.data.included),
-    not_included: emptied(body.data.not_included),
-    what_to_bring: emptied(body.data.what_to_bring),
+    ...fields,
+    short_description: fields.short_description === '' ? null : fields.short_description,
+    included: emptied(fields.included),
+    not_included: emptied(fields.not_included),
+    what_to_bring: emptied(fields.what_to_bring),
   };
 
   const partnerId = await getGuidePartnerId(auth.userId);
@@ -55,7 +57,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   try {
-    const written = await transaction((c) => writeTourPatch(c, { tourId: id, ownerId: partnerId, input, current: {} }));
+    const written = await transaction(async (c) => {
+      const w = await writeTourPatch(c, { tourId: id, ownerId: partnerId, input, current: {} });
+      // «Фото: <автор>» (05.11, слово владельца): снимкам тура без подписи —
+      // автор из формы, в карту партнёра (partners.gallery_credits, её читает
+      // карточка тура). Уже подписанное не переписывается.
+      if (w.outcome === 'written' && photoCredit && fields.photos?.length) {
+        await c.query(
+          `UPDATE partners
+              SET gallery_credits = COALESCE(gallery_credits, '{}'::jsonb)
+                  || (SELECT COALESCE(jsonb_object_agg(u, $2::text), '{}'::jsonb)
+                        FROM unnest($3::text[]) AS u
+                       WHERE NOT (COALESCE(gallery_credits, '{}'::jsonb) ? u))
+            WHERE id = $1::uuid`,
+          [partnerId, photoCredit, fields.photos],
+        );
+      }
+      return w;
+    });
     if (written.outcome === 'empty') {
       return NextResponse.json({ success: false, error: 'Нечего сохранять' }, { status: 400 });
     }

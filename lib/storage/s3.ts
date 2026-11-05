@@ -6,7 +6,9 @@
  * Если S3 не настроен — fallback на локальную файловую систему (/tmp).
  */
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, CopyObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { MEDIA_CACHE_CONTROL } from '@/lib/storage/media-cache';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -129,6 +131,38 @@ export async function uploadToS3(
     key,
     size: body.length,
   };
+}
+
+
+/**
+ * Подписанная ссылка на запись одного объекта прямо из браузера (05.11):
+ * видео тура идёт в хранилище, минуя контейнер приложения (4 ГБ на всё и
+ * прокси перед ним). Подписаны тип, размер и Cache-Control — браузер обязан
+ * прислать ровно их; размер больше заявленного хранилище не примет. ACL
+ * подписчик переносит в адрес. Браузеру нужен CORS на PUT у бакета
+ * (.github/triggers/bucket-cors.json).
+ */
+export async function presignPutUrl(key: string, contentType: string, contentLength: number, expiresIn = 900): Promise<string> {
+  return getSignedUrl(
+    getClient(),
+    new PutObjectCommand({
+      Bucket: S3_BUCKET, Key: key, ContentType: contentType, ContentLength: contentLength,
+      ACL: 'public-read', CacheControl: MEDIA_CACHE_CONTROL,
+    }),
+    { expiresIn },
+  );
+}
+
+/** Есть ли объект и какой он: размер и тип; нет объекта — null. */
+export async function headObjectInfo(key: string): Promise<{ size: number; contentType: string | null } | null> {
+  try {
+    const r = await getClient().send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+    return { size: Number(r.ContentLength ?? 0), contentType: r.ContentType ?? null };
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    if (status === 404) return null;
+    throw err;
+  }
 }
 
 /**
