@@ -82,6 +82,8 @@ export async function GET(request: NextRequest) {
     void logAgentRun({
       agent_id: 'routes-census', status: 'success', started_at,
       duration_ms: Date.now() - started_at.getTime(),
+      // Мера (перепись пользы агентов, 05.11): маршрутов сверено переписью.
+      items_processed: audit.routes_counted,
       metadata: { v: AUDIT_SHAPE_VERSION, limit: limit ?? null },
     });
     return NextResponse.json({ success: true, v: AUDIT_SHAPE_VERSION, ...audit });

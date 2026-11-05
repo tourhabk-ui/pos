@@ -50,6 +50,9 @@ export async function GET(request: NextRequest) {
       status: 'success',
       started_at: started,
       duration_ms: result.duration_ms,
+      // Мера (перепись пользы агентов, 05.11): проверено и записано высот.
+      items_processed: result.checked,
+      items_created: result.written,
       metadata: { checked: result.checked, written: result.written, skipped: result.skipped_no_data },
     });
     return NextResponse.json({ success: true, ...result });

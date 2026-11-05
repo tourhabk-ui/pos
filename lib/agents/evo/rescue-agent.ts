@@ -65,6 +65,8 @@ export interface RescueScanResult {
    * чистый.
    */
   failed_checks: string[];
+  /** Сколько проверок скан запускал (05.11, мера для журнала прогонов). */
+  checks_total: number;
   scan_duration_ms: number;
 }
 
@@ -102,8 +104,10 @@ export async function runRescueScan(): Promise<RescueScanResult> {
   const start = Date.now();
   const alerts: RescueAlert[] = [];
   const failed_checks: string[] = [];
+  let checks_total = 0;
 
   const take = (name: string, r: CheckResult): void => {
+    checks_total += 1;
     alerts.push(...r.alerts);
     if (r.failure !== null) failed_checks.push(`${name}: ${r.failure}`);
   };
@@ -141,7 +145,7 @@ export async function runRescueScan(): Promise<RescueScanResult> {
     void sendCriticalAlerts(alerts.filter(a => a.severity === 'critical'));
   }
 
-  return { alerts, failed_checks, scan_duration_ms: Date.now() - start };
+  return { alerts, failed_checks, checks_total, scan_duration_ms: Date.now() - start };
 }
 
 // ── Weather Threat Check ──────────────────────────────────────────────────

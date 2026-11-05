@@ -227,6 +227,13 @@ async function runAndRecord(
       status: success ? 'success' : 'partial',
       started_at: startedAt,
       duration_ms: result.duration_ms,
+      // Мера работы (перепись пользы агентов, 05.11): разобрано находок и
+      // создано из них исправлений и предложений. Цикл упал — мер нет
+      // (не ноль): «не мерили» и «ноль» в переписи разные исходы.
+      items_processed: result.evolution?.processed,
+      items_created: result.evolution
+        ? result.evolution.auto_fixes + result.evolution.suggestions
+        : undefined,
       metadata: { status, ...result } as unknown as Record<string, unknown>,
     });
 

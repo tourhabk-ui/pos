@@ -32,7 +32,7 @@
  */
 
 import { runGrowthScan } from '@/lib/agents/evo/growth-agent';
-import { runEvolutionLoop } from '@/lib/agents/evo/evolution-loop';
+import { runEvolutionLoop, type EvolutionResult } from '@/lib/agents/evo/evolution-loop';
 import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { bridgeScoutIntel } from '@/lib/agents/evo/intel-bridge';
 import { runModelWatcher } from '@/lib/agents/evo/model-watcher';
@@ -41,7 +41,9 @@ import { runMemoryReflector } from '@/lib/agents/memory-reflector';
 
 export interface OrchestratorResult {
   scan: unknown;
-  evolution: unknown;
+  /** Цикл эволюции; null — упал (причина в errors). Тип назван 05.11: из
+   *  него журнал прогонов берёт меру работы. */
+  evolution: EvolutionResult | null;
   rescue: unknown;
   evolver: unknown;
   intel: unknown;
@@ -85,7 +87,7 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
   ]);
 
   // Phase 2: Evolution Loop — последовательно (применяет фиксы, пишет в БД)
-  let evoResult: unknown = null;
+  let evoResult: EvolutionResult | null = null;
   try {
     const evolution = await runEvolutionLoop();
     evoResult = evolution;

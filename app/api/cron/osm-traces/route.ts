@@ -31,6 +31,10 @@ export async function GET(request: NextRequest) {
       status: result.errors === 0 ? 'success' : 'partial',
       started_at: startedAt,
       duration_ms: result.duration_ms,
+      // Мера (перепись пользы агентов, 05.11): треков просмотрено в рамке
+      // края и новых записано.
+      items_processed: result.in_bbox,
+      items_created: result.written,
       metadata: result as unknown as Record<string, unknown>,
     });
 
