@@ -71,6 +71,13 @@ vi.mock('@/lib/operators/team-access', () => ({
   })),
 }));
 
+// Личное сообщение гиду в MAX/TG (05.11): здесь проверяется, кому и что роут
+// просит отправить; сама отправка — tests/unit/guide-assignment-notify.test.ts.
+const guideNotice = vi.fn();
+vi.mock('@/lib/notifications/guide-assignment-notify', () => ({
+  notifyGuideAssignmentQuietly: (...a: unknown[]) => guideNotice(...a),
+}));
+
 const sqlCalls = (sql: string) => calls.filter((c) => c.sql === sql);
 
 function jsonReq(url: string, method: string, body?: unknown): NextRequest {
@@ -85,6 +92,7 @@ let errSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   handlers = new Map();
   calls.length = 0;
+  guideNotice.mockReset();
   errSpy?.mockRestore();
   errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -136,6 +144,25 @@ describe('PUT /api/hub/operator/bookings/[id]/guide — назначение', (
     const note = sqlCalls(TEAM_SQL.notify)[0].params;
     expect(note[0]).toBe('guide-user');
     expect(JSON.stringify(note)).not.toMatch(/tourist|\+7\d/);
+    // И лично в чат: тур и дата, без ПД туриста.
+    expect(guideNotice.mock.calls).toEqual([[{ tourTitle: 'Тур', date: '2026-10-01', guidePartnerId: GUIDE, change: 'assigned' }]]);
+  });
+
+  it('переназначение: прежнему гиду — «сняли», новому — «назначили»; без правки — ни одного сообщения', async () => {
+    handlers.set(TEAM_SQL.lockOperatorBooking, () => ({ rows: [{ id: '42', guide_partner_id: OTHER_GUIDE, booking_status: 'confirmed', booking_date: '2026-10-01', tour_title: 'Тур' }] }));
+    team();
+    handlers.set(TEAM_SQL.setBookingGuide, () => ({ rows: [{ id: '42', guide_partner_id: GUIDE }] }));
+    handlers.set(TEAM_SQL.notify, () => ({ rows: [] }));
+    expect((await put('42', { guidePartnerId: GUIDE })).status).toBe(200);
+    expect(guideNotice.mock.calls.map((c) => [c[0].guidePartnerId, c[0].change])).toEqual([[OTHER_GUIDE, 'removed'], [GUIDE, 'assigned']]);
+
+    guideNotice.mockReset();
+    handlers.set(TEAM_SQL.lockOperatorBooking, () => ({ rows: [{ id: '42', guide_partner_id: GUIDE, booking_status: 'confirmed', booking_date: '2026-10-01', tour_title: 'Тур' }] }));
+    expect((await put('42', { guidePartnerId: GUIDE })).status).toBe(200);
+    expect(guideNotice).not.toHaveBeenCalled();
+
+    expect((await put('42', { guidePartnerId: null })).status).toBe(200);
+    expect(guideNotice.mock.calls.map((c) => [c[0].guidePartnerId, c[0].change])).toEqual([[GUIDE, 'removed']]);
   });
 
   it('снять гида можно без проверки команды', async () => {

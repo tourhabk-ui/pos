@@ -14,7 +14,9 @@
  * был или не будет, и правка истории задним числом — не назначение.
  *
  * Назначенный гид получает уведомление в кабинет — без ПД туриста (тур и дата);
- * имя и телефон туриста он видит на своей странице «Группы».
+ * имя и телефон туриста он видит на своей странице «Группы». С 05.11 — ещё и
+ * лично в MAX или Telegram (lib/notifications/guide-assignment-notify), и
+ * снятый гид тоже: «Вас сняли с тура».
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -26,6 +28,7 @@ import type { ApiResponse } from '@/types';
 import { TEAM_SQL } from '@/lib/guides/team-queries';
 import { BIGINT_RE, logGuideFailure, notifyUser } from '@/lib/guides/team';
 import { recordSourceEventQuietly } from '@/lib/crm/events';
+import { notifyGuideAssignmentQuietly } from '@/lib/notifications/guide-assignment-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +42,11 @@ type Outcome =
   | { kind: 'not_found' }
   | { kind: 'closed' }
   | { kind: 'not_member' }
-  | { kind: 'ok'; guideUserId: string | null; guideName: string | null; tourTitle: string; date: string; changed: boolean };
+  | {
+    kind: 'ok'; guideUserId: string | null; guideName: string | null; tourTitle: string; date: string; changed: boolean;
+    /** Гид, стоявший на брони до правки; null — не было. */
+    previousGuideId: string | null;
+  };
 
 export async function PUT(
   request: NextRequest,
@@ -95,7 +102,10 @@ export async function PUT(
 
       const changed = b.guide_partner_id !== guideId;
       if (changed) await client.query(TEAM_SQL.setBookingGuide, [id, guideId]);
-      return { kind: 'ok', guideUserId, guideName, tourTitle: b.tour_title, date: b.booking_date, changed };
+      return {
+        kind: 'ok', guideUserId, guideName, tourTitle: b.tour_title, date: b.booking_date, changed,
+        previousGuideId: b.guide_partner_id,
+      };
     });
 
     if (outcome.kind === 'not_found') {
@@ -123,6 +133,16 @@ export async function PUT(
         data: { bookingId: id },
         actionUrl: '/hub/guide/groups',
       });
+    }
+
+    // Лично в MAX или Telegram (05.11): гид, работающий в чате бота, иначе
+    // узнаёт о назначении, только открыв «Расписание», а о снятии — никогда.
+    if (outcome.changed) {
+      const about = { tourTitle: outcome.tourTitle, date: outcome.date };
+      if (outcome.previousGuideId) {
+        await notifyGuideAssignmentQuietly({ ...about, guidePartnerId: outcome.previousGuideId, change: 'removed' });
+      }
+      if (guideId) await notifyGuideAssignmentQuietly({ ...about, guidePartnerId: guideId, change: 'assigned' });
     }
 
     if (outcome.changed) {
