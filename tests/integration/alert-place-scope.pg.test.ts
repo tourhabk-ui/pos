@@ -768,6 +768,39 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(other)).not.toContain(MUT.id);
   });
 
+  it('закрытие Южно-Камчатского доходит до пещер Горелого: имя маршрута парка целиком в имени места (#2980)', async () => {
+    const CAVES = { id: 'Лавовые пещеры вулкана Горелый (тест)', ark: 'c0000000-0000-4000-8000-000000000041' };
+    const KURIL = { id: 'Курильская бухта острова Шумшу (тест)', ark: 'c0000000-0000-4000-8000-000000000042' };
+    for (const p of [CAVES, KURIL]) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $1, 52.55, 158.03, $2, 'cave', 'southern', TRUE)`,
+        [p.id, p.ark],
+      );
+      await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+    }
+    // Путевых точек нет; у места лишнее слово «лавовые», которого нет в маршруте.
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible)
+       VALUES ('d0000000-0000-4000-8000-000000000041', 'trekking', 'Пещеры вулкана Горелый', 'Южно-Камчатский', 'southern', TRUE),
+              ('d0000000-0000-4000-8000-000000000042', 'trekking', 'Курильское озеро', 'Южно-Камчатский', 'southern', TRUE)`,
+    );
+    const id = await insertAlert({
+      type: 'park_closure',
+      title: 'Закрыты туристские маршруты природного парка «Южно-Камчатский»',
+      zones: [],
+      parks: ['yuzhno-kamchatsky'],
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(CAVES.id);
+    // Одно значимое слово маршрута («курильское») место с ним не связывает.
+    expect(covered).not.toContain(KURIL.id);
+    expect(covered).not.toContain(CITY.id);
+    // Закрытие Налычево пещеры не трогает.
+    const other = await insertAlert({ type: 'park_closure', title: 'Налычево закрыт', zones: [], parks: ['nalychevo'] });
+    expect(await coveredBy(other)).not.toContain(CAVES.id);
+  });
+
   it('закрытие без названного парка не красит никого — «не установлено» ≠ «везде»', async () => {
     const id = await insertAlert({ type: 'park_closure', title: 'Маршруты закрыты', zones: ['avachinsky'], parks: null });
     expect(await coveredBy(id)).toEqual([]);
@@ -959,5 +992,5 @@ withPg('кого накрывает предупреждение', () => {
       await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [[MUTNOVSKY.ark, NO_STATUS.ark]]);
       await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [[MUTNOVSKY.id, NO_STATUS.id]]);
     }
-  });
+  }, 20_000); // прогоняет ALERT_MATCH_SQL по всем местам: 3–3,5 с на локальном PostgreSQL, на CI ближе к 5 (#2980)
 });

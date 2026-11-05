@@ -244,6 +244,28 @@ export const PARK_SCOPED_SQL = `
                    AND lower(kr.title) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
               )
          )
+         -- 5. Имя маршрута парка целиком стоит в имени места (#2980): маршрут
+         --    «Пещеры вулкана Горелый», место «Лавовые пещеры вулкана Горелый».
+         --    Путь 4 судит в обратную сторону и спотыкается о лишнее слово места
+         --    («лавовые»). Значимых слов в имени маршрута не меньше двух: одно
+         --    («Курильское озеро» → «курильское») назвало бы и Курильские острова.
+         OR EXISTS (
+           SELECT 1
+             FROM places pl
+             JOIN kamchatka_routes kr
+               ON kr.park_name ILIKE '%' || pk.search_term || '%'
+              AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
+            WHERE pl.ark_id = ark.id
+              AND (
+                SELECT COUNT(*) FROM regexp_split_to_table(lower(kr.title), '[^а-яёa-z]+') w
+                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+              ) >= 2
+              AND NOT EXISTS (
+                SELECT 1 FROM regexp_split_to_table(lower(kr.title), '[^а-яёa-z]+') w
+                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+                   AND lower(pl.name) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
+              )
+         )
        )
   )
 `;
