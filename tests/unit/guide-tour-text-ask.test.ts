@@ -107,3 +107,11 @@ describe('ответ — поля тура из базы', () => {
     expect(t).toContain('• Тур номер 13');
   });
 });
+
+describe('название тура словами гида: связки не мешают (05.11)', () => {
+  it('«Вачкажец и Озерки» — тур «Вачкажец + озёрки»', async () => {
+    db([row({}), row({ id: '76', title: 'Вачкажец + озёрки', description: 'Поход к озёрам.' })]);
+    const s = await captureGuideTourEdit({ channel: 'max', chatId: 1, partner: GUIDE, text: 'текст тура Вачкажец и Озерки' });
+    expect(unhtml(s!.text)).toContain('Текст тура «Вачкажец + озёрки»');
+  });
+});

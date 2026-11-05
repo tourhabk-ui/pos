@@ -11,6 +11,13 @@ import {
   normalizePartnerCategory,
   initialPartnerRating,
 } from '@/lib/partners/categories';
+import { escapeHtml } from '@/lib/text/escape-html';
+import { ROLE_HUB } from '@/lib/auth/role-routes';
+
+/** Кто зарегистрировался — словом для писем. */
+const PARTNER_KIND_WORDS: Record<string, string> = {
+  operator: 'туроператор', guide: 'гид', transfer: 'перевозчик', agent: 'турагент', stay: 'владелец жилья', gear: 'прокат снаряжения',
+};
 
 async function notifyAdminTelegram(companyName: string, contactName: string, phone: string, email: string, partnerId: string) {
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -135,7 +142,9 @@ export async function POST(request: NextRequest) {
     await client.query('COMMIT');
 
     // JWT cookie
-    const token = await new SignJWT({ userId: user.id, email: user.email, role: 'operator', roles: ['operator'] })
+    // Роль в токене — та же, что записана (05.11): прежде гид, зарегистрированный
+    // здесь, получал в токене и ответе «operator», а в базе — «guide».
+    const token = await new SignJWT({ userId: user.id, email: user.email, role: user.role, roles: [user.role] })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
       .setExpirationTime('7d')
@@ -144,45 +153,51 @@ export async function POST(request: NextRequest) {
     // Уведомления админу (fire-and-forget)
     notifyAdminTelegram(companyName, contactName, phone, email, partner.id).catch(() => {});
     const adminEmail = process.env.SMTP_USER;
+    const kind = PARTNER_KIND_WORDS[category] ?? 'партнёр';
     if (adminEmail) {
       emailService.sendEmail({
         to: adminEmail,
-        subject: `Новый оператор: ${companyName}`,
-        html: `<p>Зарегистрировался новый оператор.</p>
-               <p><b>Компания:</b> ${companyName}<br>
-               <b>Категория:</b> ${category}<br>
-               <b>Контакт:</b> ${contactName}, ${phone}<br>
-               <b>Email:</b> ${email}</p>
+        subject: `Новый ${kind}: ${companyName}`,
+        html: `<p>Зарегистрировался новый ${escapeHtml(kind)}.</p>
+               <p><b>Название:</b> ${escapeHtml(companyName)}<br>
+               <b>Категория:</b> ${escapeHtml(category)}<br>
+               <b>Контакт:</b> ${escapeHtml(contactName)}, ${escapeHtml(phone)}<br>
+               <b>Email:</b> ${escapeHtml(email)}</p>
                <p><a href="https://vedarai.ru/hub/admin/operators">Очередь заявок →</a></p>`,
-      }).catch(() => {});
+      }).catch((err: unknown) => console.error('[register-operator] письмо админу не ушло:', err instanceof Error ? err.message.slice(0, 120) : String(err)));
     }
 
-    // Приветственное письмо оператору
+    // Приветственное письмо — по роли (05.11). Прежнее звало каждого в кабинет
+    // оператора и обещало «комиссию 15%» и «выплаты по пятницам»: ставку
+    // назначает владелец (10%), а приём оплаты выключен с 05.10.
+    const hub = ROLE_HUB[category] ?? '/hub/operator';
+    const firstStep = category === 'guide'
+      ? 'В разделе «Свои туры» нажмите «Новый тур» — или напишите боту в MAX «новый тур: …»'
+      : 'Добавьте первый тур или услугу в кабинете';
     emailService.sendEmail({
       to: email,
-      subject: `Добро пожаловать в KamchatourHub, ${companyName}!`,
+      subject: `Добро пожаловать на Ведар, ${companyName}!`,
       html: `
-        <h2>Ваш кабинет оператора активирован</h2>
-        <p>Здравствуйте, ${contactName}!</p>
-        <p>Компания <b>${companyName}</b> успешно зарегистрирована на платформе KamchatourHub.</p>
+        <h2>Ваш кабинет на Ведаре открыт</h2>
+        <p>Здравствуйте, ${escapeHtml(contactName)}!</p>
+        <p>${escapeHtml(companyName)} — ${escapeHtml(kind)} на Ведаре, туристической платформе Камчатки.</p>
         <h3>Следующие шаги:</h3>
         <ol>
-          <li><a href="https://vedarai.ru/hub/operator">Войдите в личный кабинет</a></li>
-          <li>Добавьте первый тур (кнопка «Создать тур»)</li>
-          <li>Настройте расписание и доступность</li>
-          <li>Туристы увидят ваши туры в каталоге</li>
+          <li><a href="https://vedarai.ru${hub}">Войдите в личный кабинет</a></li>
+          <li>${escapeHtml(firstStep)}</li>
+          <li>Откройте даты, когда тур идёт</li>
+          <li>Опубликуйте — и туристы увидят его в каталоге</li>
         </ol>
-        <p>Комиссия платформы: <b>15%</b> от стоимости тура. Выплаты — еженедельно по пятницам.</p>
         <p>Вопросы? Пишите: <a href="mailto:${adminEmail ?? 'info@vedarai.ru'}">${adminEmail ?? 'info@vedarai.ru'}</a></p>
         <hr>
         <p style="color:#888;font-size:12px">Ведар — vedarai.ru</p>
       `,
-    }).catch(() => {});
+    }).catch((err: unknown) => console.error('[register-operator] приветственное письмо не ушло:', err instanceof Error ? err.message.slice(0, 120) : String(err)));
 
     const response = NextResponse.json({
       success: true,
       message: 'Регистрация успешна. Ваш кабинет активирован.',
-      user: { id: user.id, email: user.email, name: user.name, role: 'operator' },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
     }, { status: 201 });
 
     response.cookies.set('auth_token', token, {
