@@ -490,3 +490,49 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     });
   });
 });
+
+// ── Перепись пользы агентов (05.11): журнал прогонов кронов на схеме прода ──
+//
+// Крон добивки лидов — один из агентов, которых эта перепись судит; файл уже
+// поднимает схему прода из шаблона, а бюджет pg-файлов CI исчерпан
+// (pg-tests-run-in-ci), поэтому проверка живёт здесь, в своей базе.
+// AGENT_RUNS_SQL (lib/agents/agents-value-census) исполняется на baseline +
+// миграциях: make_interval с параметром, FILTER и агрегаты по колонкам 143 и
+// 705 статикой не судятся. Посев — полезный, холостой (меряли — ноль), без
+// меры (числа не названы) и старый прогон за окном.
+withPg('перепись пользы агентов на схеме прода', () => {
+  let pool: import('pg').Pool;
+
+  beforeAll(async () => {
+    const { Pool } = await import('pg');
+    const dbUrl = await createTestDatabase(PG_URL, 'agents_value_census_test');
+    pool = new Pool({ connectionString: dbUrl, max: 2 });
+    await pool.query(
+      `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, items_processed, items_created, llm_calls, estimated_cost_usd) VALUES
+         ('probe-useful', 'success', NOW() - interval '1 day', NOW() - interval '1 day', 5, 1, 2, 0.25),
+         ('probe-useful', 'failed',  NOW() - interval '2 day', NOW() - interval '2 day', NULL, NULL, NULL, NULL),
+         ('probe-idle',   'success', NOW() - interval '1 day', NOW() - interval '1 day', 0, 0, NULL, NULL),
+         ('probe-blind',  'success', NOW() - interval '1 day', NOW() - interval '1 day', NULL, NULL, NULL, NULL),
+         ('probe-old',    'success', NOW() - interval '60 day', NOW() - interval '60 day', 9, 0, NULL, NULL)`,
+    );
+  }, 300_000);
+
+  afterAll(async () => {
+    await pool?.end().catch(() => undefined);
+  });
+
+  it('исполняется и раскладывает полезного, холостого и без меры; старое за окном не считается', async () => {
+    // Импорт внутри теста: модуль тянет пул приложения, и статический импорт
+    // поднял бы его раньше, чем крон добивки выше задаёт DATABASE_URL.
+    const { AGENT_RUNS_SQL, toStats, classifyAgentValue } = await import('@/lib/agents/agents-value-census');
+    const { rows } = await pool.query(AGENT_RUNS_SQL, [30]);
+    const by = new Map(rows.map((r) => [r.agent_id as string, toStats(r)]));
+    const useful = by.get('probe-useful')!;
+    expect(useful).toMatchObject({ runs: 2, ok: 1, failed: 1, productive_runs: 1, items_processed: 5, items_created: 1, llm_calls: 2, cost_usd: 0.25 });
+    expect(useful.last_productive).not.toBeNull();
+    expect(classifyAgentValue('probe-useful', useful)).toBe('productive');
+    expect(classifyAgentValue('probe-idle', by.get('probe-idle')!)).toBe('idle');
+    expect(classifyAgentValue('probe-blind', by.get('probe-blind')!)).toBe('unmeasured');
+    expect(by.has('probe-old')).toBe(false);
+  });
+});

@@ -52,6 +52,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // (защита адреса — lib/security/public-address, lib/mcp/notify-send). ПД
   // наружу не уходят: тело собирается поимённо без них.
   'agent-request-notify': ['db_read', 'db_write', 'net_out'],
+  // 05.11: перепись пользы агентов — только чтение журнала прогонов
+  // (agent_run_history) за окно; ничего не пишет, наружу не ходит.
+  'agents-value-census': ['db_read'],
   'ai-channel-check': ['net_out', 'telegram', 'pd_direct'],
   'ai-models': ['db_read', 'db_write', 'net_out', 'ai'],
   'alert-scope-census': ['db_read'],
