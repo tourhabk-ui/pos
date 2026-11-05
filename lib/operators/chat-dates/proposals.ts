@@ -199,8 +199,13 @@ export async function createProposal(p: NewProposal): Promise<CreateResult> {
       [CHANNEL, String(p.chatId), p.sentAtMs],
     );
     if ((newer.rowCount ?? 0) > 0) {
+      // «Новее» может оказаться копией ЭТОГО же сообщения, закоммиченной
+      // после первой проверки повтора (#2977): у неё то же время отправки,
+      // и она не старше. Тогда это повтор — второе сообщение не шлётся, а не
+      // «устарело». Повтор проверяется заново: READ COMMITTED видит её теперь.
+      const repeated = await dupe();
       await client.query('ROLLBACK');
-      return { kind: 'stale' };
+      return repeated ? { kind: 'duplicate_mid' } : { kind: 'stale' };
     }
     const same = await client.query<{ id: string }>(
       `SELECT ${ACTIVE_COLS} FROM operator_chat_date_proposals

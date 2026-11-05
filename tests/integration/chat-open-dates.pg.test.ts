@@ -273,7 +273,7 @@ withPg('«открой даты словами» на настоящем Postgre
     await press(CHAT_A, `od:o:${id}`);
     expect(lastTo(CHAT_A)?.text).toMatch(/^Уже сделано в \d\d:\d\d \(по Камчатке\)/);
     expect((await rows(tour.gorely)).map((r) => r.updated_at)).toEqual(written.map((r) => r.updated_at));
-  });
+  }, 20_000); // первый тест файла грузит роут MAX холодным: 4,4–4,6 с локально при пределе 5 (#2977)
 
   it('одновременное двойное нажатие — одна запись, второй видит «уже сделано»', async () => {
     const d = day(14);
@@ -498,6 +498,56 @@ withPg('«открой даты словами» на настоящем Postgre
     const n = await pool.query(`SELECT COUNT(*)::int AS n FROM operator_chat_date_proposals WHERE source_mid = 'same-mid-1'`);
     expect(n.rows[0].n).toBe(1);
     expect(to(CHAT_A)).toHaveLength(1);
+  });
+
+  it('копия того же сообщения, зафиксированная между проверками, — повтор, а не «устарело» (#2977)', async () => {
+    // Окно гонки, которое Promise.all выше ловит раз на сотни прогонов, здесь
+    // открыто нарочно: сразу после первой проверки повтора в транзакции
+    // createProposal другое соединение фиксирует копию того же сообщения
+    // (тот же mid, то же время отправки). Следующая проверка «есть ли
+    // предложение новее» её видит, и прежде отвечала «устарело» — оператор
+    // получал второй ответ на одно сообщение.
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const { createProposal } = await import('@/lib/operators/chat-dates/proposals');
+    await pool.query(
+      `UPDATE operator_chat_date_proposals SET status = 'superseded' WHERE chat_id = $1 AND status IN ('draft', 'ready')`,
+      [CHAT_A],
+    );
+    const mid = 'race-mid-2977';
+    const sentAtMs = Date.now();
+    const realConnect = appPool.connect.bind(appPool);
+    const spy = vi.spyOn(appPool, 'connect').mockImplementationOnce((async () => {
+      const client = await realConnect();
+      const c = client as unknown as { query: (...a: unknown[]) => Promise<unknown> };
+      const realQuery = c.query.bind(client);
+      let injected = false;
+      c.query = async (...a: unknown[]) => {
+        const res = await realQuery(...a);
+        if (!injected && typeof a[0] === 'string' && a[0].includes('AND source_mid = $3')) {
+          injected = true;
+          await pool.query(
+            `INSERT INTO operator_chat_date_proposals
+               (partner_id, channel, chat_id, source_mid, dates, seats, status, expires_at, source_sent_at)
+             VALUES ($1::uuid, 'max', $2::bigint, $3, ARRAY[$4::date], 5, 'draft', NOW() + INTERVAL '30 minutes',
+                     to_timestamp($5::double precision / 1000))`,
+            [partner.a, String(CHAT_A), mid, day(29), sentAtMs],
+          );
+        }
+        return res;
+      };
+      return client;
+    }) as never);
+    try {
+      const result = await createProposal({
+        partnerId: partner.a, chatId: CHAT_A, sourceMid: mid, tourId: null, candidateIds: null,
+        dates: [day(29)], seats: 5, priceMentioned: false, weekdayWords: false, rule: null, sentAtMs,
+      });
+      expect(result).toEqual({ kind: 'duplicate_mid' });
+    } finally {
+      spy.mockRestore();
+    }
+    const n = await pool.query(`SELECT COUNT(*)::int AS n FROM operator_chat_date_proposals WHERE source_mid = $1`, [mid]);
+    expect(n.rows[0].n).toBe(1);
   });
 
   it('компания без кабинета — отказ; перевозчик — помощнику кабинета; строки предложения нет', async () => {
