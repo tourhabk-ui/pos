@@ -187,6 +187,9 @@ export function partnerGreeting(partner: PartnerChatContext): string {
  * уходит зарубежной модели (§8), а клиент у помощника теперь есть свой —
  * подписью «Анна П.» через инструменты CRM. Бронь называется номером.
  */
+/** Сколько своих туров помощник видит в контексте. */
+export const CONTEXT_TOURS_MAX = 50;
+
 /** Экспорт — для проверки окна на настоящей базе (crm-contacts.pg); база по умолчанию — пул приложения. */
 export async function buildOperatorContext(
   partnerId: string,
@@ -196,14 +199,19 @@ export async function buildOperatorContext(
   // в JS (now − getDay()): в воскресенье окно было пустым, и помощник уверенно
   // говорил «броней нет» при свежих бронях (проверка каналов 25.10).
   const [toursResult, bookingsResult, pendingResult] = await Promise.allSettled([
-    db.query<{ id: number; title: string; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null }>(
+    // Все туры партнёра, а не первые 10 (05.11): у гида Андрея Запорожца их 13
+    // с одинаковым created_at, и помощник уверенно отвечал «такого тура у вас
+    // нет» про отрезанный. Предел 50 — от размера промпта; total_count
+    // называет, сколько их всего, если предел всё же сработал.
+    db.query<{ id: number; title: string; base_price: number; is_active: boolean; is_published: boolean; available_slots: number | null; total_count: string }>(
       `SELECT id, title, base_price, is_active, is_published,
-              available_slots, next_available_date::text
+              available_slots, next_available_date::text,
+              COUNT(*) OVER ()::text AS total_count
        FROM operator_tours
        WHERE operator_id = $1
          AND deleted_at IS NULL
-       ORDER BY is_active DESC, created_at DESC
-       LIMIT 10`,
+       ORDER BY is_active DESC, created_at DESC, id
+       LIMIT ${CONTEXT_TOURS_MAX}`,
       [partnerId],
     ),
     db.query<{ id: string; booking_date: string; participants: number; final_price: number; booking_status: string }>(
@@ -253,8 +261,11 @@ export async function buildOperatorContext(
       ? parseInt(pendingResult.value.rows[0]?.awaiting ?? '0', 10)
       : null;
 
+  const toursTotal = tours.length ? parseInt(tours[0].total_count, 10) : 0;
   const toursText = tours.length
-    ? tours
+    ? (toursTotal > tours.length
+        ? `Показаны ${tours.length} из ${toursTotal} — остальные не перечислены: не утверждай, что тура нет, спроси инструментом с названием.\n`
+        : '') + tours
         .map(
           t =>
             `- "${t.title}" | ${Number(t.base_price).toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.is_published ? '' : ', скрыт с витрины'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
@@ -304,6 +315,10 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
     `Ты помощник партнёра туристической платформы Ведар (Камчатка). Партнёр: ${partner.partnerName}, роль — ${partnerCategoryLabel(partner.category)}.`,
     `Сегодня ${kamchatkaDate(new Date(nowMs))} по Камчатке (UTC+12).`,
     'Помогаешь вести дела и составлять ответы клиентам. Отвечай по-русски, коротко и по делу, без эмодзи.',
+    // 05.11: гид попросил «текст тура в формате word», модель пообещала .docx —
+    // выгрузки файлов на платформе нет. Обещание без исполнения хуже отказа.
+    'Файлов (Word, .docx, PDF, таблиц) ты не готовишь и не присылаешь и не обещаешь их. '
+    + 'Документ Word партнёр может прислать сам — его разберут по полям с кнопкой.',
   ];
   // «Открой даты словами» (22.10): даты открывает поток с кнопкой
   // подтверждения (lib/operators/chat-dates), а не модель. Без этой строки
@@ -320,7 +335,7 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
     lines.push(
       'Даты и места своих туров ты сам не меняешь и не говоришь, что открыл или закрыл их. '
       + 'В MAX гид открывает их фразой «открой субботы июля, 8 мест» с кнопкой «Открыть». '
-      + `На сайте даты, брони и заявки — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`,
+      + `На сайте даты, брони, заявки и тексты туров — в кабинете, раздел «Свои туры»: ${getPublicBaseUrl()}${GUIDE_OWN_PATH}`,
       // Правка текста и цены своего тура (30.10) — поток с кнопкой «Сохранить»
       // (lib/guides/tour-edit), а не модель: фразу «Горелый: описание: …» она
       // не получает. Без этой строки помощник на непохожую фразу ответил бы

@@ -238,10 +238,11 @@ describe('гид со своими турами (29.10): помощник зна
   /** Сводка туров и броней: брони без имён, как у туроператора. */
   function bizRows(): void {
     query.mockImplementation(async (sql: string) => {
-      if (/FROM operator_tours\s+WHERE operator_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY is_active DESC, created_at DESC\s+LIMIT 10/.test(sql)) {
-        return { rows: [{ id: 7, title: 'Авторский тур', base_price: 15000, is_active: true, is_published: false, available_slots: null }] };
+      if (/FROM operator_tours\s+WHERE operator_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY is_active DESC, created_at DESC, id\s+LIMIT 50/.test(sql)) {
+        return { rows: [{ id: 7, title: 'Авторский тур', base_price: 15000, is_active: true, is_published: false, available_slots: null, total_count: '1' }] };
       }
-      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ cnt: '1', awaiting: '1' }] };
+      // Сводка предстоящих броней (у инструмента туров COUNT(*) OVER () — не она).
+      if (/AS awaiting/.test(sql)) return { rows: [{ cnt: '1', awaiting: '1' }] };
       if (/ob\.participants/.test(sql)) {
         return { rows: [{ id: '501', booking_date: '2026-11-05', participants: 2, final_price: 30000, booking_status: 'new' }] };
       }

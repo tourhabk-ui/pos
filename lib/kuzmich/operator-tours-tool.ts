@@ -52,6 +52,8 @@ interface OwnTour {
   max_participants: number | null;
   season_start: string | null;
   season_end: string | null;
+  /** Сколько своих туров подошло всего, до LIMIT (05.11). */
+  total_count?: string;
 }
 
 export function parseDays(v: unknown): number {
@@ -73,12 +75,13 @@ export async function runMyToursSchedule(
   try {
     const { rows } = await pool.query<OwnTour>(
       `SELECT id, title, is_active, is_published, max_participants,
-              season_start::text, season_end::text
+              season_start::text, season_end::text,
+              COUNT(*) OVER ()::text AS total_count
          FROM operator_tours
         WHERE operator_id = $1::uuid
           AND deleted_at IS NULL
           AND ($2::text = '' OR id::text = $2::text OR title ILIKE $3::text)
-        ORDER BY is_active DESC, created_at DESC
+        ORDER BY is_active DESC, created_at DESC, id
         LIMIT ${TOURS_LIMIT}`,
       [partnerId, q, containsPattern(q)],
     );
@@ -94,7 +97,12 @@ export async function runMyToursSchedule(
   const from = kamchatkaToday(nowMs);
   const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
   const cache = createPlannerCache();
+  const total = parseInt(tours[0].total_count ?? String(tours.length), 10);
   const lines = [`Свои туры и открытые даты с ${from} по ${to} (свободные места — с учётом броней):`];
+  // Предел сработал — так и сказано (05.11): иначе «тура нет» про отрезанный.
+  if (total > tours.length) {
+    lines.push(`Показаны ${tours.length} из ${total} — остальные не перечислены; не утверждай, что тура нет, спроси с его названием.`);
+  }
   for (const t of tours) {
     const flags = [t.is_active ? 'активен' : 'неактивен', t.is_published ? 'на витрине' : 'скрыт с витрины'];
     const season = t.season_start || t.season_end ? ` | сезон ${t.season_start ?? '…'} — ${t.season_end ?? '…'}` : '';
