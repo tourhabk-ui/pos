@@ -9,9 +9,11 @@
  * «Снять с сайта» (`POST …/publish`) и «Править» — те же поля формой
  * (`PATCH /api/guide/own/tours/[id]`, общая запись тура `writeTourPatch`).
  *
- * Программу, что включено, что взять и правила безопасности форма не правит:
- * их гид пишет фразой в чате кабинета или документом Word в MAX — так и
- * сказано под формой. Форма оператора (components/operator/Tours/TourForm)
+ * С 05.11 правка тура несёт и программу дня, что включено / не входит / что
+ * взять, правила безопасности и фото (components/guide/OwnTourExtras): до
+ * этого их можно было поменять только фразой в чате или документом Word, и
+ * гид не нашёл, как это сделать. Новый тур — те же четыре поля, остальное —
+ * «Править» после создания. Форма оператора (components/operator/Tours/TourForm)
  * сюда не взята: она требует вид места, активность и маршрут, загружает фото
  * в хранилище оператора и шлёт в его кабинет, куда гида не пускают.
  */
@@ -22,6 +24,10 @@ import { Loader2, Plus, Globe, EyeOff, Pencil } from 'lucide-react';
 import type { OwnTour } from '@/lib/guides/own-tours';
 import { ownTourStateWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
+import {
+  ProgramEditor, ListField, PhotosField, extrasGaps, extrasBody, LIST_LABELS,
+  type ExtrasValues, type ListKey,
+} from '@/components/guide/OwnTourExtras';
 
 interface FormValues {
   title: string;
@@ -42,6 +48,18 @@ function valuesOf(t: OwnTour): FormValues {
     max_participants: t.max_participants === null ? '' : String(t.max_participants),
     short_description: t.short_description ?? '',
     description: t.description ?? '',
+  };
+}
+
+function extrasOf(t: OwnTour): ExtrasValues {
+  const lines = (a: string[] | null | undefined) => (a ?? []).join('\n');
+  return {
+    program: (t.program ?? []).map((s) => ({ title: s.title, text: s.text })),
+    included: lines(t.included),
+    not_included: lines(t.not_included),
+    what_to_bring: lines(t.what_to_bring),
+    safety_notes: lines(t.safety_notes),
+    photos: t.photos ?? [],
   };
 }
 
@@ -74,9 +92,10 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
   onCancel: () => void;
 }) {
   const [v, setV] = useState<FormValues>(tour ? valuesOf(tour) : EMPTY);
+  const [x, setX] = useState<ExtrasValues | null>(tour ? extrasOf(tour) : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const gaps = formGaps(v);
+  const gaps = [...formGaps(v), ...(x ? extrasGaps(x) : [])];
   const set = (k: keyof FormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setV((prev) => ({ ...prev, [k]: e.target.value }));
 
@@ -93,6 +112,7 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
     };
     if (tour) body.short_description = v.short_description.trim() || null;
     else if (v.short_description.trim()) body.short_description = v.short_description.trim();
+    if (tour && x) Object.assign(body, extrasBody(x));
     const r = tour
       ? await send(`/api/guide/own/tours/${tour.id}`, 'PATCH', body)
       : await send('/api/guide/own/tours', 'POST', body);
@@ -137,9 +157,19 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
         <span className="text-[var(--text-secondary)]">Описание — что за поездка; программу дня пишите отдельно</span>
         <textarea id={`${id}-desc`} className="ds-input mt-1 w-full min-h-32" value={v.description} onChange={set('description')} maxLength={4000} />
       </label>
-      <p className="text-sm text-[var(--text-muted)]">
-        Программу, что включено, что взять и правила безопасности пишите фразой в чате кабинета («Горелый: программа: …») или документом Word в MAX.
-      </p>
+      {x ? (
+        <>
+          <ProgramEditor idBase={id} steps={x.program} onChange={(program) => setX({ ...x, program })} />
+          {(Object.keys(LIST_LABELS) as ListKey[]).map((k) => (
+            <ListField key={k} idBase={id} field={k} value={x[k]} onChange={(text) => setX({ ...x, [k]: text })} />
+          ))}
+          <PhotosField idBase={id} photos={x.photos} onChange={(photos) => setX({ ...x, photos })} />
+        </>
+      ) : (
+        <p className="text-sm text-[var(--text-muted)]">
+          Программу, что включено, что взять, правила безопасности и фото добавите кнопкой «Править» после создания черновика.
+        </p>
+      )}
       {gaps.length > 0 && (
         <p className="text-sm text-[var(--text-secondary)]" data-testid="own-tour-gaps">Чтобы сохранить, не хватает: {gaps.join(', ')}.</p>
       )}

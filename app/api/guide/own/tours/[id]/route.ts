@@ -1,6 +1,12 @@
 /**
  * PATCH /api/guide/own/tours/[id] — гид правит поля своего тура на сайте:
- * название, цену и её единицу, размер группы, анонс и описание.
+ * название, цену и её единицу, размер группы, анонс и описание; с 05.11 —
+ * программу дня, что включено / не входит / что взять, правила безопасности
+ * и фото (гид Андрей Запорожец: «непонятно, как отредактировать программу
+ * или добавить фото к туру»). Пустой список или программа — null («снять»).
+ * Фото — только адреса, которые выдаёт загрузка своего тура
+ * (`POST /api/upload/tour-photo`): хранилище платформы или /images/, чужой
+ * сайт на витрину гида не поставить.
  *
  * Запись — общая функция правки тура (`writeTourPatch`, lib/tours/tour-write)
  * — та же, что у кабинета оператора и у «Сохранить» в чате гида; владелец
@@ -9,23 +15,16 @@
  * на сайт и с сайта — `POST …/publish`, через витринный гейт.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { transaction } from '@/lib/database';
 import { writeTourPatch } from '@/lib/tours/tour-write';
 import { pingTourChanged } from '@/lib/seo/indexnow';
-import { OwnTourDraftSchema } from '@/lib/guides/own-tour-create';
+import { OwnTourEditSchema as BodySchema } from '@/lib/guides/own-tour-edit';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export const dynamic = 'force-dynamic';
 
-const BodySchema = OwnTourDraftSchema.pick({
-  title: true, base_price: true, max_participants: true, description: true,
-}).extend({
-  price_unit: z.enum(['per_person', 'per_tour']),
-  short_description: z.string().trim().max(500).nullable(),
-}).partial().strict();
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(request, ['guide']);
@@ -39,7 +38,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!body.success) {
     return NextResponse.json({ success: false, error: zodErrorMessage(body.error) }, { status: 400 });
   }
-  const input = { ...body.data, short_description: body.data.short_description === '' ? null : body.data.short_description };
+  // «Снять список» — null от формы; колонки состава пишутся массивом, и
+  // пустой массив карточка тура читает как «не записано», как и null.
+  const emptied = (v: string[] | null | undefined) => (v === null ? [] : v);
+  const input = {
+    ...body.data,
+    short_description: body.data.short_description === '' ? null : body.data.short_description,
+    included: emptied(body.data.included),
+    not_included: emptied(body.data.not_included),
+    what_to_bring: emptied(body.data.what_to_bring),
+  };
 
   const partnerId = await getGuidePartnerId(auth.userId);
   if (!partnerId) {
