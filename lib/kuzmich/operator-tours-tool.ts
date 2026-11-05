@@ -41,7 +41,8 @@ export const MY_TOURS_TOOL = {
   },
 };
 
-const TOURS_LIMIT = 10;
+// 30, не 10 (05.11): у гида 13 туров, и «список моих туров» показывал 10.
+const TOURS_LIMIT = 30;
 const DATES_LIMIT = 20;
 
 interface OwnTour {

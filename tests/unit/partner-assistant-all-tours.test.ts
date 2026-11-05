@@ -74,6 +74,17 @@ describe('контекст помощника: свои туры', () => {
 });
 
 describe('инструмент «мои туры»: отсечка названа', () => {
+  it('13 туров гида — все 13 в ответе инструмента', async () => {
+    poolQuery.mockResolvedValue({ rows: tourRows(13, 13).map(({ id, title, is_active, is_published, total_count }) => ({
+      id, title, is_active, is_published, max_participants: 4, season_start: null, season_end: null, total_count,
+    })) });
+    const out = await runMyToursSchedule('11111111-1111-1111-1111-111111111111', {}, Date.parse('2026-11-05T00:00:00Z'));
+    for (const t of TITLES) expect(out).toContain(`«${t}»`);
+    const sql = String(poolQuery.mock.calls[0][0]);
+    const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1]);
+    expect(limit).toBeGreaterThanOrEqual(13);
+  });
+
   it('подошло больше, чем показано, — «показаны N из M»', async () => {
     poolQuery.mockResolvedValue({ rows: tourRows(10, 13).map(({ id, title, is_active, is_published, total_count }) => ({
       id, title, is_active, is_published, max_participants: 6, season_start: null, season_end: null, total_count,
@@ -99,6 +110,9 @@ describe('промпт: файлов помощник не обещает', () =
         Date.parse('2026-11-05T00:00:00Z'), true,
       );
       expect(prompt).toMatch(/Файлов \(Word, \.docx, PDF, таблиц\) ты не готовишь и не присылаешь и не обещаешь их/);
+      // Текст тура модель не сочиняет: его нет в её данных (05.11).
+      expect(prompt).toMatch(/Текстов туров \(описание, анонс, программа, что включено, что взять\) в твоих данных НЕТ/);
+      expect(prompt).toMatch(/Никогда не пиши их от себя/);
     });
   }
 });
