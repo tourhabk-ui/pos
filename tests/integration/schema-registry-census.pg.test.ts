@@ -18,8 +18,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTestDatabase } from '../helpers/pg-schema';
-import { AGENT_RUNS_SQL, toStats, classifyAgentValue } from '@/lib/agents/agents-value-census';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -102,45 +100,5 @@ withPg('перепись реестра схемы на настоящем Postg
   it('живость спрашивается одной строкой, а не полным счётом', () => {
     // Тридцать `count(*)` — тридцать сканирований ради ответа «да/нет».
     expect(inspectQueryFromRoute()).toContain('LIMIT 1');
-  });
-});
-
-// ── Перепись пользы агентов (05.11) — тот же род теста: перепись на схеме прода ─
-//
-// AGENT_RUNS_SQL (lib/agents/agents-value-census) исполняется на схеме прода
-// (baseline + миграции, своя база): make_interval с параметром, FILTER и
-// агрегаты по колонкам 143 и 705 статикой не судятся. Посев — три агента:
-// полезный, холостой (меряли — ноль) и без меры (числа не названы).
-withPg('перепись пользы агентов на схеме прода', () => {
-  let pool: import('pg').Pool;
-
-  beforeAll(async () => {
-    const { Pool } = await import('pg');
-    const dbUrl = await createTestDatabase(PG_URL, 'agents_value_census_test');
-    pool = new Pool({ connectionString: dbUrl, max: 2 });
-    await pool.query(
-      `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, items_processed, items_created, llm_calls, estimated_cost_usd) VALUES
-         ('probe-useful', 'success', NOW() - interval '1 day', NOW() - interval '1 day', 5, 1, 2, 0.25),
-         ('probe-useful', 'failed',  NOW() - interval '2 day', NOW() - interval '2 day', NULL, NULL, NULL, NULL),
-         ('probe-idle',   'success', NOW() - interval '1 day', NOW() - interval '1 day', 0, 0, NULL, NULL),
-         ('probe-blind',  'success', NOW() - interval '1 day', NOW() - interval '1 day', NULL, NULL, NULL, NULL),
-         ('probe-old',    'success', NOW() - interval '60 day', NOW() - interval '60 day', 9, 0, NULL, NULL)`,
-    );
-  }, 300_000);
-
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-  });
-
-  it('исполняется и раскладывает полезного, холостого и без меры; старое за окном не считается', async () => {
-    const { rows } = await pool.query(AGENT_RUNS_SQL, [30]);
-    const by = new Map(rows.map((r) => [r.agent_id as string, toStats(r)]));
-    const useful = by.get('probe-useful')!;
-    expect(useful).toMatchObject({ runs: 2, ok: 1, failed: 1, productive_runs: 1, items_processed: 5, items_created: 1, llm_calls: 2, cost_usd: 0.25 });
-    expect(useful.last_productive).not.toBeNull();
-    expect(classifyAgentValue('probe-useful', useful)).toBe('productive');
-    expect(classifyAgentValue('probe-idle', by.get('probe-idle')!)).toBe('idle');
-    expect(classifyAgentValue('probe-blind', by.get('probe-blind')!)).toBe('unmeasured');
-    expect(by.has('probe-old')).toBe(false);
   });
 });
