@@ -69,7 +69,7 @@ export interface RescueScanResult {
 }
 
 /** Результат одной проверки: тревоги ИЛИ честное «не смог». */
-interface CheckResult {
+export interface CheckResult {
   alerts: RescueAlert[];
   failure: string | null;
 }
@@ -120,7 +120,9 @@ export async function runRescueScan(): Promise<RescueScanResult> {
   take('отток операторов', await checkOperatorResponse());
 
   // Опасность по зонам — то, ради чего крон danger-analysis считает.
-  alerts.push(...await checkZoneDanger());
+  // Через take(), как остальные: до 05.11 отказ чтения оценки уходил только в
+  // лог, и крон отвечал «угроз нет», не прочитав ни одной зоны.
+  take('опасность по зонам', await checkZoneDanger());
 
   // Отказ проверки виден там же, где были бы её тревоги: иначе «не смотрели»
   // сольётся с «угроз нет» ровно в том месте, где это решает человек.
@@ -399,16 +401,19 @@ async function checkOperatorResponse(): Promise<CheckResult> {
  * выдавать пустоту за безопасность нельзя — поэтому отсутствие пишется в лог,
  * а не глотается.
  */
-async function checkZoneDanger(): Promise<RescueAlert[]> {
+export async function checkZoneDanger(): Promise<CheckResult> {
   const alerts: RescueAlert[] = [];
   const unassessed: string[] = [];
+  const unread: string[] = [];
 
   for (const zone of ZONES) {
     let risk;
     try {
       risk = await getZoneAssessment(zone);
     } catch (err) {
-      console.error('[rescue] оценка зоны не прочиталась:', zone, err instanceof Error ? err.message : err);
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error('[rescue] оценка зоны не прочиталась:', zone, reason);
+      unread.push(`${ZONE_NAMES[zone]} (${reason.slice(0, 120)})`);
       continue;
     }
     if (risk === null) { unassessed.push(zone); continue; }
@@ -421,8 +426,7 @@ async function checkZoneDanger(): Promise<RescueAlert[]> {
       title: `Опасность: ${ZONE_NAMES[zone]}`,
       body:
         `Уровень ${risk.risk_level}, оценка ${risk.risk_score}. ${threats}. ` +
-        `Туристов в зоне риска: ${risk.tourists_at_risk}, активных туров: ${risk.active_tours_count}.` +
-        (risk.similar_event ? ` Похожий случай: ${risk.similar_event}.` : ''),
+        `Туристов в зоне риска: ${risk.tourists_at_risk}, активных туров: ${risk.active_tours_count}.`,
       action: 'Проверить туры в зоне и связаться с операторами',
     });
   }
@@ -430,7 +434,10 @@ async function checkZoneDanger(): Promise<RescueAlert[]> {
   if (unassessed.length > 0) {
     console.error('[rescue] зоны без оценки опасности:', unassessed.join(', '));
   }
-  return alerts;
+  return {
+    alerts,
+    failure: unread.length > 0 ? `оценка не прочиталась: ${unread.join('; ')}` : null,
+  };
 }
 
 async function sendCriticalAlerts(alerts: RescueAlert[]): Promise<void> {
