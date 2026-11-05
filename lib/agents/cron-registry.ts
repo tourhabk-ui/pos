@@ -70,7 +70,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     // Адрес явно (10.10): тот же workflow второй ходкой зовёт
     // /api/cron/road-basis — снимки приказов к дорожным закрытиям.
     endpoint: 'safety-ingest',
-    workflow: 'cron-safety-ingest.yml', cron: '4,34 * * * *', schedule: 'каждые 5 мин (прод); GitHub — запасной раз в 30 мин',
+    workflow: 'cron-safety-ingest.yml', cron: '*/5 * * * *', schedule: 'каждые 5 мин',
     everyMin: 5, tier: 'safety', agentId: 'safety-ingest', triggerable: false,
   },
   {
