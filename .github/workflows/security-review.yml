@@ -85,6 +85,18 @@ jobs:
         with:
           fetch-depth: 2
 
+      # Ревьюер не получает настроек Claude Code из репозитория. В
+      # .claude/settings.json разрешены curl, npm и git для разработчика, а
+      # ревьюер читает дифф PR — недоверенный текст — с ключом API в окружении:
+      # разрешения проекта дали бы инъекции в диффе руки вне песочницы экшена.
+      # И с 03.11 (новый Claude Code на раннере) непринятые настройки проекта
+      # роняли запуск: «Ignoring 25 permissions.allow entries … workspace has
+      # not been trusted», код возврата 1 — ревью не состоялось ни на одном PR.
+      # Удаляется только из рабочей копии раннера, репозиторий не меняется.
+      - name: Настройки Claude Code репозитория — не ревьюеру
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: rm -f .claude/settings.json .claude/settings.local.json
+
       - name: Claude security review
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
         uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
