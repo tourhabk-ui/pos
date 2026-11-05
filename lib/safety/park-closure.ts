@@ -79,7 +79,7 @@ const CLOSURE_RE = new RegExp(
  * это его закрытие, а не парка: такой текст остаётся прежним веткам
  * (паводок, дороги) со своей зоной.
  */
-const NOT_WHOLE_PARK_RE = new RegExp(
+const REOPEN_RE = new RegExp(
   [
     'возобновл[её]н[а-яё]*\\s+(?:посещени|работ)',
     'вновь\\s+открыт',
@@ -87,10 +87,16 @@ const NOT_WHOLE_PARK_RE = new RegExp(
     'открыт[ыо]?\\s+для\\s+посещени',
     // «летние маршруты открыты», «маршруты парка открыты»
     'маршрут[а-яё]*\\s+(?:[а-яё]+\\s+)?открыт',
-    // закрыт конкретный маршрут: «закрыты автомобильный маршрут „…“»
-    'закрыт[а-яё]*\\s+(?:[а-яё]+\\s+){0,2}маршрут[а-яё]*\\s+[«"„]',
   ].join('|'),
 );
+/**
+ * Закрыт конкретный маршрут: «закрыты автомобильный маршрут „…“». Фраза «на
+ * всех территориях природных парков» этим правилом не отменяется: в сводке
+ * 02.11 кавычки после «маршрутов» — имя источника («Закрытие маршрутов
+ * «Вулканы Камчатки» сообщают…»), а не маршрута, и правило сочло закрытие
+ * всех парков частичным — 05.11 Налычево стояло ЗЕЛЁНЫМ при закрытии в ленте (#2980).
+ */
+const ONE_ROUTE_RE = /закрыт[а-яё]*\s+(?:[а-яё]+\s+){0,2}маршрут[а-яё]*\s+[«"„]/;
 
 /**
  * Природные парки края (не заповедники): «на всех территориях природных
@@ -111,10 +117,12 @@ export interface ParkClosure {
 export function detectParkClosure(text: string): ParkClosure | null {
   const lower = text.toLowerCase();
   if (!/парк|заповедник/.test(lower)) return null;
-  if (NOT_WHOLE_PARK_RE.test(lower)) return null;
+  if (REOPEN_RE.test(lower)) return null;
+  const allNaturalParks = ALL_NATURAL_PARKS_RE.test(lower);
+  if (!allNaturalParks && ONE_ROUTE_RE.test(lower)) return null;
   if (!CLOSURE_RE.test(lower)) return null;
   const parks = PARK_NAME_PATTERNS.filter((p) => p.re.test(lower)).map((p) => p.slug);
-  if (ALL_NATURAL_PARKS_RE.test(lower)) {
+  if (allNaturalParks) {
     for (const slug of NATURAL_PARK_SLUGS) if (!parks.includes(slug)) parks.push(slug);
   }
   return parks.length > 0 ? { parks } : null;

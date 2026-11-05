@@ -801,6 +801,40 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(other)).not.toContain(CAVES.id);
   });
 
+  it('1393: записанная тревога 02.11 «на всех территориях природных парков» получает парки и красит Налычево (#2980)', async () => {
+    const TITLE = 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья';
+    // Как её записал прежний классификатор: без парков и без зон.
+    const live = await insertAlert({ type: 'info', title: TITLE, zones: [], parks: null });
+    const reopened = await insertAlert({
+      type: 'info', title: 'Маршруты «Вулканы Камчатки»: возобновлено посещение на всех территориях природных парков', zones: [], parks: null,
+    });
+    const expired = (await pool.query<{ id: string }>(
+      `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, created_at, expires_at, source_url, external_id)
+       VALUES ('info', 2, $1, $2, '{}', NOW() - INTERVAL '10 days', NOW() - INTERVAL '1 day', 'https://example.test', 'expired-1393')
+       RETURNING id::text AS id`,
+      [TITLE, TITLE],
+    )).rows[0]!.id;
+    expect(await coveredBy(live)).not.toContain(PARK_NAMED.id);
+
+    const sql = readFileSync(join(process.cwd(), 'migrations', '1393_park_closure_all_natural_parks_backfill.sql'), 'utf8');
+    await pool.query(sql);
+    await pool.query(sql); // повтор — без изменений
+
+    expect(await coveredBy(live)).toContain(PARK_NAMED.id);
+    expect(await coveredBy(live)).not.toContain(CITY.id);
+    const parksOf = async (id: string) =>
+      (await pool.query<{ alert_type: string; affected_parks: string[] | null }>(
+        `SELECT alert_type, affected_parks FROM external_alerts WHERE id::text = $1`, [id],
+      )).rows[0];
+    expect(await parksOf(live)).toEqual({
+      alert_type: 'park_closure',
+      affected_parks: ['nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy', 'klyuchevskoy', 'vilyuchinsky'],
+    });
+    // Открытие и вышедшая из ленты тревога не тронуты.
+    expect(await parksOf(reopened)).toEqual({ alert_type: 'info', affected_parks: null });
+    expect(await parksOf(expired)).toEqual({ alert_type: 'info', affected_parks: null });
+  });
+
   it('закрытие без названного парка не красит никого — «не установлено» ≠ «везде»', async () => {
     const id = await insertAlert({ type: 'park_closure', title: 'Маршруты закрыты', zones: ['avachinsky'], parks: null });
     expect(await coveredBy(id)).toEqual([]);
