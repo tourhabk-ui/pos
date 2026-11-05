@@ -76,7 +76,7 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'watchdog', label: 'Watchdog',
     description: 'Единственный сторож: SOS-таймаут, брони без подтверждения, лиды, мёртвый сейсмо-крон.',
-    workflow: 'cron-watchdog.yml', cron: '*/30 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-watchdog.yml', cron: '27 * * * *', schedule: 'каждые 30 мин (прод); GitHub — запасной раз в час',
     everyMin: 30, tier: 'safety', agentId: 'watchdog', triggerable: true,
     // Свой эндпоинт назван явно. Заведено 21.09, когда `cron-watchdog.yml`
     // звал ТРИ адреса (ещё проверку вебхука Telegram и бюджета AI) и «чей это

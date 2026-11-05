@@ -24,6 +24,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runTaskReminders } from '@/lib/crm/reminders';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { runChatDigest } from '@/lib/chat-cabinet/digest';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,14 @@ export async function GET(req: Request) {
   const secret = getCronSecret(req);
   if (!process.env.CRON_SECRET) return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   if (!timingSafeCompare(secret, process.env.CRON_SECRET)) return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
+
+  // Аренда окна (05.11): у крона две ноги — шаг cron-safety-heartbeat.yml и
+  // супервизор start.js. GitHub запускал шаг 3–4 раза в сутки вместо 48, и
+  // напоминание о входящем без ответа 2 часа приходило через 6–8 часов, а
+  // окно сводки кабинета (08–12, 13–17, 18–22 по Камчатке) пропускалось
+  // целиком. Две ноги без замка разослали бы одно напоминание дважды.
+  const lease = await claimCronWindow('crm-reminders', 30, 'external');
+  if (!shouldRun(lease)) return Response.json(leaseSkipBody('crm-reminders', 30));
 
   const started = Date.now();
   try {

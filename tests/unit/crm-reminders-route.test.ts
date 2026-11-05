@@ -13,6 +13,12 @@ vi.mock('@/lib/crm/reminders', () => ({ runTaskReminders: (...a: unknown[]) => r
 vi.mock('@/lib/crm/inbox-reminders', () => ({ runInboxReminders: (...a: unknown[]) => runInbox(...a) }));
 vi.mock('@/lib/chat-cabinet/digest', () => ({ runChatDigest: (...a: unknown[]) => runDigest(...a) }));
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun: (...a: unknown[]) => recordCronRun(...a) }));
+// Аренда окна (05.11): две ноги — шаг workflow и супервизор start.js.
+const claim = vi.fn(async () => 'claimed' as const);
+vi.mock('@/lib/agents/cron-lease', async (orig) => ({
+  ...(await orig<typeof import('@/lib/agents/cron-lease')>()),
+  claimCronWindow: (...a: unknown[]) => claim(...(a as [])),
+}));
 
 const { GET } = await import('@/app/api/cron/crm-reminders/route');
 
@@ -31,6 +37,8 @@ describe('GET /api/cron/crm-reminders', () => {
 
   beforeEach(() => {
     process.env.CRON_SECRET = 's3cret';
+    claim.mockReset();
+    claim.mockResolvedValue('claimed');
     run.mockReset();
     runInbox.mockReset();
     runInbox.mockResolvedValue(inboxBase);
@@ -123,5 +131,19 @@ describe('GET /api/cron/crm-reminders', () => {
     const r = await call();
     expect(r.status).toBe(500);
     expect(JSON.stringify(await r.json())).not.toMatch(/relation/);
+  });
+  it('окно занято другой ногой — напоминаний нет, пропуск назван; базы не видно — работаем', async () => {
+    claim.mockResolvedValueOnce('held' as never);
+    const res = await call();
+    expect(await res.json()).toMatchObject({ success: true, skipped: 'lease_held', agent_id: 'crm-reminders', window_min: 30 });
+    expect(run).not.toHaveBeenCalled();
+    expect(runInbox).not.toHaveBeenCalled();
+    expect(runDigest).not.toHaveBeenCalled();
+    expect(claim).toHaveBeenCalledWith('crm-reminders', 30, 'external');
+
+    claim.mockResolvedValueOnce('unknown' as never);
+    run.mockResolvedValueOnce(base);
+    expect((await call()).status).toBe(200);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

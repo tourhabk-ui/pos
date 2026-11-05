@@ -48,6 +48,11 @@ describe('у дайджеста своё расписание', () => {
   });
 
   it('эволюция дайджест не дёргает вторым путём', () => {
-    expect(EVO_WF).not.toMatch(/scout-digest/);
+    // С 05.11 эволюция ЖДЁТ конца прогона дайджеста (scripts/wait-for-predecessors.sh
+    // cron-scout-digest.yml — порядок «решатель не раньше других»), и имя файла в
+    // ней есть. Запрет — на вызов: ни адреса дайджеста, ни его маркера.
+    expect(EVO_WF).not.toMatch(/api\/cron\/scout-digest|triggers\/scout-digest/);
+    const mentions = EVO_WF.split('\n').filter((l) => /scout-digest/.test(l));
+    for (const l of mentions) expect(l).toMatch(/wait-for-predecessors\.sh/);
   });
 });

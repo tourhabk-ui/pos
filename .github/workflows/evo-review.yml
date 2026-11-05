@@ -34,9 +34,20 @@ on:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 мин работы + до 15 мин ожидания предшественников (05.11).
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
+
+      # Порядок цепочки эволюции (05.11, владелец: «решатель не раньше других»):
+      # звено не стартует, пока идут или ждут очереди его предшественники.
+      - name: Порядок — предшественники уже закончились
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/wait-for-predecessors.sh cron-scout-digest.yml cron-intelligence.yml cron-evo.yml
 
       - uses: actions/setup-node@v7
         with:

@@ -10,7 +10,9 @@ name: Cron — Watchdog
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # каждые 30 минут
+    # Раз в час (05.11): каждые 30 мин Watchdog идёт супервизором start.js
+    # (SAFETY_JOBS); здесь — запасная нога, независимая от прода.
+    - cron: '27 * * * *'
   workflow_dispatch:
 
 jobs:
