@@ -883,6 +883,18 @@ body {
 /* SectionSwipeBar — полоса подразделов под шапкой. Высота шапки:
    10px + 44px кнопка + 10px (Header.tsx) + safe-area. */
 :root { --header-h: calc(env(safe-area-inset-top, 0px) + 64px); }
+
+/*
+ * Шрифты (05.11): семейства — из пакетов Fontsource, подключённых в
+ * app/layout.tsx; до этого переменные ставил next/font/google классами на
+ * <body>. Имена переменных прежние: их читают стили и tailwind.config.
+ * --font-outfit — исторически Inter (§2).
+ */
+:root {
+  --font-playfair: 'Playfair Display Variable', 'Playfair Display', Georgia, serif;
+  --font-outfit: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-jetbrains: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+}
 .section-swipebar {
   position: sticky;
   top: var(--header-h);

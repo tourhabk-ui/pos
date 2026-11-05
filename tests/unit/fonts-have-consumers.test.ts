@@ -1,11 +1,17 @@
 /**
- * Шрифт в layout объявлен — значит его кто-то читает (аудит vedarai.ru 01.10).
+ * Шрифт объявлен — значит его кто-то читает (аудит vedarai.ru 01.10), и
+ * сборка не ходит за шрифтами в Google (05.11).
  *
  * Unbounded и Manrope остались в app/layout.tsx от редизайнов v7/v8: их
  * переменные не читал ни один стиль, а preload скачивал четыре их файла на
  * каждой странице. Из 12 предзагрузок треть была мёртвым весом, страница
  * весила 370–474 КБ шрифтов. Объявление без потребителя (CLAUDE.md, правило
  * 10.09) — здесь оно ещё и платное.
+ *
+ * 05.11: next/font/google скачивал шрифты с Google при каждой сборке, и сбой
+ * его сети ронял сборку CI (#3046). Шрифты теперь из пакетов Fontsource
+ * (app/layout.tsx), переменные — в globals.css. Preload у Fontsource нет:
+ * @font-face без использования браузер не качает, лишнего веса нет.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -14,14 +20,15 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const LAYOUT = readFileSync(join(ROOT, 'app/layout.tsx'), 'utf-8');
 
-/** Все вызовы next/font в layout: имя функции и тело аргумента. */
-function fontCalls(src: string): Array<{ fn: string; body: string }> {
-  const out: Array<{ fn: string; body: string }> = [];
-  for (const m of src.matchAll(/=\s*([A-Z][A-Za-z_]+)\(\{([\s\S]*?)\}\);/g)) {
-    if (/variable:\s*'--font-/.test(m[2])) out.push({ fn: m[1], body: m[2] });
-  }
-  return out;
+const GLOBALS = readFileSync(join(ROOT, 'app/globals.css'), 'utf-8');
+
+/** Переменные шрифтов из globals.css: имя и первое семейство Fontsource. */
+function fontVars(css: string): Array<{ name: string; family: string }> {
+  return [...css.matchAll(/(--font-[\w-]+):\s*'([^']+) Variable'/g)].map((m) => ({ name: m[1], family: m[2] }));
 }
+
+/** «Playfair Display» → @fontsource-variable/playfair-display. */
+const packageOf = (family: string) => `@fontsource-variable/${family.toLowerCase().replace(/\s+/g, '-')}`;
 
 function sources(dir: string, acc: string[] = []): string[] {
   for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
@@ -39,32 +46,29 @@ const CONSUMERS = [...sources('app'), ...sources('components'), ...sources('lib'
   .map(f => readFileSync(join(ROOT, f), 'utf-8'))
   .join('\n') + readFileSync(join(ROOT, 'tailwind.config.ts'), 'utf-8');
 
-/** Шрифты, которые читает каждая страница: им preload, остальным — нет. */
-const PRELOADED = ['--font-playfair', '--font-outfit'];
-
-describe('шрифты layout', () => {
-  const calls = fontCalls(LAYOUT);
+describe('шрифты сайта', () => {
+  const vars = fontVars(GLOBALS);
 
   it('перепись нашла шрифты', () => {
-    expect(calls.length).toBeGreaterThan(0);
+    expect(vars.map((v) => v.name).sort()).toEqual(['--font-jetbrains', '--font-outfit', '--font-playfair']);
   });
 
-  it('у каждой переменной шрифта есть читатель вне layout', () => {
-    const dead = calls
-      .map(c => c.body.match(/variable:\s*'(--font-[\w-]+)'/)![1])
-      .filter(v => !CONSUMERS.includes(`var(${v}`));
+  it('у каждой переменной шрифта есть читатель', () => {
+    const consumers = CONSUMERS.replace(/(--font-[\w-]+):\s*'[^']+ Variable'/g, '');
+    const dead = vars.map((v) => v.name).filter((v) => !consumers.includes(`var(${v}`));
     expect(dead).toEqual([]);
   });
 
-  it('preload — только у шрифтов, которые читает каждая страница', () => {
-    const preloaded = calls
-      .filter(c => !/preload:\s*false/.test(c.body))
-      .map(c => c.body.match(/variable:\s*'(--font-[\w-]+)'/)![1])
-      .sort();
-    expect(preloaded).toEqual([...PRELOADED].sort());
+  it('семейство каждой переменной подключено пакетом в layout', () => {
+    for (const v of vars) expect(LAYOUT, v.family).toContain(`import '${packageOf(v.family)}/`);
+  });
+
+  it('сборка не ходит за шрифтами в Google', () => {
+    expect(LAYOUT).not.toMatch(/from 'next\/font\/google'/);
+    expect(GLOBALS).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);
   });
 
   it('снятых семейств нет', () => {
-    expect(LAYOUT).not.toMatch(/\bUnbounded\(|\bManrope\(/);
+    expect(LAYOUT).not.toMatch(/\bUnbounded\b|\bManrope\b/);
   });
 });
