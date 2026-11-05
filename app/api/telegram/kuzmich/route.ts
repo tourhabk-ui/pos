@@ -883,6 +883,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await processPartnerMessage({
           chatId, text, fromName, partner,
           reply: async (id, body, buttons) => { await say(body, buttons); void id; },
+          channel: 'telegram',
         });
       }
       return NextResponse.json({ ok: true });

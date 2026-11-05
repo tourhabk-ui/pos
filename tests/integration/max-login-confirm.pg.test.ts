@@ -118,6 +118,63 @@ withPg('вход через MAX подтверждается вопросом в
     sent.length = 0;
   });
 
+  // Ответ словами (05.11): гид набрал «Да, это я» вместо кнопки, и вход не
+  // прошёл — фраза ушла помощнику партнёра. Право то же, что у кнопки:
+  // пользователь MAX, за которым сессия закреплена «Стартом».
+  describe('ответ на вопрос о входе словами', () => {
+    let mid = 0;
+    const typed = (text: string, userId: number) => bot({
+      update_type: 'message_created', timestamp: Date.now(),
+      message: {
+        recipient: { chat_id: userId, chat_type: 'dialog' },
+        sender: { user_id: userId, name: 'Андрей' },
+        body: { mid: `typed-login-${userId}-${++mid}`, seq: mid, text },
+      },
+    });
+
+    it('«Да, это я» текстом тем же человеком — вход подтверждён', async () => {
+      const U = 711_001;
+      const nonce = await newSession();
+      await start(nonce, U);
+      sent.length = 0;
+      await typed('Да, это я', U);
+      expect(sent.map((m) => m.text)).toEqual(['Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.']);
+      expect((await status(nonce)).status).toBe('authenticated');
+    });
+
+    it('чужой «Да, это я» — не подтверждает; сказано, что входа не ждут', async () => {
+      const nonce = await newSession();
+      await start(nonce, 711_002);
+      sent.length = 0;
+      await typed('да это я!', 711_003);
+      expect(sent[0].text).toMatch(/Сейчас вход на сайт не ждёт подтверждения/);
+      expect((await status(nonce)).status).toBe('pending');
+    });
+
+    it('две живые сессии — словами не угадываем, обе ждут кнопки', async () => {
+      const U = 711_004;
+      const a = await newSession();
+      const b = await newSession();
+      await start(a, U);
+      await start(b, U);
+      sent.length = 0;
+      await typed('Да, это я', U);
+      expect(sent[0].text).toMatch(/Вопросов о входе сейчас несколько/);
+      expect((await status(a)).status).toBe('pending');
+      expect((await status(b)).status).toBe('pending');
+    });
+
+    it('«Нет, не я» текстом — вход отменён', async () => {
+      const U = 711_005;
+      const nonce = await newSession();
+      await start(nonce, U);
+      sent.length = 0;
+      await typed('Нет, не я', U);
+      expect(sent[0].text).toMatch(/^Вход отменён/);
+      expect((await status(nonce)).status).not.toBe('authenticated');
+    });
+  });
+
   it('«Старт» по ссылке — вопрос с кнопками «Да» и «Нет», сайт входа не получает', async () => {
     const nonce = await newSession();
     await start(nonce, VICTIM);

@@ -106,6 +106,37 @@ export async function confirmMaxLoginSession(nonce: string, maxUserId: number): 
 }
 
 /**
+ * Ответ на вопрос о входе словами (05.11): «Да, это я» / «Нет, не я» набраны,
+ * а не нажаты. Сессию выбирает тот же признак, что кнопку, — пользователь
+ * MAX, за которым она закреплена «Стартом»; nonce в тексте нет, поэтому
+ * живая закреплённая сессия должна быть РОВНО одна. Две и больше — не
+ * угадываем ('ambiguous'): одна из них могла прийти по чужой ссылке.
+ */
+export type TypedLoginOutcome = 'confirmed' | 'rejected' | 'none' | 'ambiguous';
+
+export async function answerMaxLoginByText(maxUserId: number, answer: 'confirm' | 'reject'): Promise<TypedLoginOutcome> {
+  if (!Number.isSafeInteger(maxUserId) || maxUserId <= 0) return 'none';
+  const live = await query<{ nonce: string }>(
+    `SELECT nonce FROM max_login_sessions
+      WHERE max_user_id = $1
+        AND status = 'pending'
+        AND consumed = FALSE
+        AND expires_at > NOW()
+      ORDER BY created_at DESC
+      LIMIT 2`,
+    [maxUserId],
+  );
+  if (live.rows.length === 0) return 'none';
+  if (live.rows.length > 1) return 'ambiguous';
+  const nonce = live.rows[0].nonce;
+  const done = answer === 'confirm'
+    ? await confirmMaxLoginSession(nonce, maxUserId)
+    : await rejectMaxLoginSession(nonce, maxUserId);
+  if (!done) return 'none';
+  return answer === 'confirm' ? 'confirmed' : 'rejected';
+}
+
+/**
  * «Нет, не я» — сессия гаснет сразу: браузер, начавший вход, получит
  * «истекла», а не вход. Погасить может только тот, за кем она закреплена.
  */
