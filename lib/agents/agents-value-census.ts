@@ -15,7 +15,13 @@
  *   idle         — прогоны меряли, и все дали ноль;
  *   productive   — хоть один прогон что-то обработал или создал.
  *
- * Только чтение, только числа и id агентов — ПД в журнале прогонов нет.
+ * Расход модели — из книг (llm_usage_log, колонка agent_id), а не из журнала
+ * (06.11): журнал называет деньги одного разведчика ($0,24 за месяц), а судья
+ * и ревью эволюции считают флагманом на раннере и в журнал не пишут вовсе.
+ * Книги видят каждый вызов; чей он — говорит agent_id. Строка без агента —
+ * «расход без хозяина», и она названа отдельно, а не растворена.
+ *
+ * Только чтение, только числа и id агентов — ПД в журнале и книгах нет.
  * Сторож: tests/unit/agents-value-census.test.ts.
  */
 
@@ -40,6 +46,15 @@ export interface AgentRunStats {
   last_productive: string | null;
 }
 
+/** Расход модели одного агента по книгам за окно. */
+export interface AgentLlmSpend {
+  calls: number;
+  /** Сумма по строкам с ценой; null — ни у одной строки цены нет. */
+  cost_usd: number | null;
+  /** Вызовы без цены (модели нет в каталоге и в запасе): сумма их не видит. */
+  unpriced_calls: number;
+}
+
 export interface AgentValueRow {
   key: string;
   label: string;
@@ -48,6 +63,8 @@ export interface AgentValueRow {
   agent_id: string | null;
   kind: AgentValueKind;
   stats: AgentRunStats | null;
+  /** Расход по книгам; null — вызовов модели от этого агента в окне нет. */
+  llm: AgentLlmSpend | null;
 }
 
 /** Окно по умолчанию и потолок: месяц говорит о пользе, год — уже археология. */
@@ -74,6 +91,33 @@ export const AGENT_RUNS_SQL = `
     FROM agent_run_history
    WHERE started_at > NOW() - make_interval(days => $1::int)
    GROUP BY agent_id`;
+
+/**
+ * Книги расхода по агентам за окно. agent_id NULL — одна строка «без хозяина».
+ */
+export const LLM_SPEND_SQL = `
+  SELECT agent_id,
+         COUNT(*)::int                                            AS calls,
+         SUM(estimated_cost_usd)::numeric(14, 6)                  AS cost_usd,
+         COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int  AS unpriced_calls
+    FROM llm_usage_log
+   WHERE created_at > NOW() - make_interval(days => $1::int)
+   GROUP BY agent_id`;
+
+interface RawSpendRow {
+  agent_id: string | null;
+  calls: number | string;
+  cost_usd: string | number | null;
+  unpriced_calls: number | string;
+}
+
+export function toSpend(r: RawSpendRow): AgentLlmSpend {
+  return {
+    calls: Number(r.calls),
+    cost_usd: r.cost_usd === null ? null : Number(r.cost_usd),
+    unpriced_calls: Number(r.unpriced_calls),
+  };
+}
 
 interface RawRow {
   agent_id: string;
@@ -107,19 +151,66 @@ export function classifyAgentValue(agentId: string | null, stats: AgentRunStats 
   return 'idle';
 }
 
-/** Сводит журнал с реестром: каждая запись реестра — одна строка, порядок реестра. */
-export function joinWithRegistry(statsById: ReadonlyMap<string, AgentRunStats>): AgentValueRow[] {
+/**
+ * Имя, под которым агент подписывает расход в книгах: agentId журнала, а у
+ * записи без журнала — ключ реестра (судья и ревью эволюции подписываются
+ * ключом, runWithUsageTracking в своих скриптах).
+ */
+export function spendIdOf(e: { key: string; agentId: string | null }): string {
+  return e.agentId ?? e.key;
+}
+
+/** Сводит журнал и книги с реестром: каждая запись реестра — одна строка, порядок реестра. */
+export function joinWithRegistry(
+  statsById: ReadonlyMap<string, AgentRunStats>,
+  spendById: ReadonlyMap<string, AgentLlmSpend> = new Map(),
+): AgentValueRow[] {
   return CRON_REGISTRY.map((e) => {
     const agentId = e.agentId ?? null;
     const stats = agentId ? statsById.get(agentId) ?? null : null;
     return {
       key: e.key, label: e.label, tier: e.tier, schedule: e.schedule,
       agent_id: agentId, kind: classifyAgentValue(agentId, stats), stats,
+      llm: spendById.get(spendIdOf(e)) ?? null,
     };
   });
 }
 
-export async function readAgentsValueCensus(days: number): Promise<AgentValueRow[]> {
-  const { rows } = await pool.query<RawRow>(AGENT_RUNS_SQL, [days]);
-  return joinWithRegistry(new Map(rows.map((r) => [r.agent_id, toStats(r)])));
+export interface AgentsValueCensus {
+  items: AgentValueRow[];
+  /** Расход строк без агента: вызов был, чей — книги не знают. null — таких нет. */
+  llm_unattributed: AgentLlmSpend | null;
+  /** Расход агентов, которых нет в реестре кронов (Кузьмич, оценщики и т.п.). */
+  llm_outside_registry: Array<{ agent_id: string } & AgentLlmSpend>;
+}
+
+/** Делит книги на реестр, «без хозяина» и «вне реестра» — чистая функция. */
+export function splitSpend(
+  spendRows: ReadonlyArray<{ agent_id: string | null } & AgentLlmSpend>,
+): { byId: Map<string, AgentLlmSpend>; unattributed: AgentLlmSpend | null; outside: Array<{ agent_id: string } & AgentLlmSpend> } {
+  const known = new Set(CRON_REGISTRY.map(spendIdOf));
+  const byId = new Map<string, AgentLlmSpend>();
+  let unattributed: AgentLlmSpend | null = null;
+  const outside: Array<{ agent_id: string } & AgentLlmSpend> = [];
+  for (const r of spendRows) {
+    const spend = { calls: r.calls, cost_usd: r.cost_usd, unpriced_calls: r.unpriced_calls };
+    if (r.agent_id === null) unattributed = spend;
+    else if (known.has(r.agent_id)) byId.set(r.agent_id, spend);
+    else outside.push({ agent_id: r.agent_id, ...spend });
+  }
+  outside.sort((a, b) => (b.cost_usd ?? 0) - (a.cost_usd ?? 0) || a.agent_id.localeCompare(b.agent_id));
+  return { byId, unattributed, outside };
+}
+
+export async function readAgentsValueCensus(days: number): Promise<AgentsValueCensus> {
+  const [runs, spend] = await Promise.all([
+    pool.query<RawRow>(AGENT_RUNS_SQL, [days]),
+    pool.query<RawSpendRow>(LLM_SPEND_SQL, [days]),
+  ]);
+  const split = splitSpend(spend.rows.map((r) => ({ agent_id: r.agent_id, ...toSpend(r) })));
+  return {
+    items: joinWithRegistry(new Map(runs.rows.map((r) => [r.agent_id, toStats(r)])), split.byId),
+    llm_unattributed: split.unattributed,
+    llm_outside_registry: split.outside,
+  };
 }
