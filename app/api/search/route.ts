@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
 import { noteSemanticSearchOff, semanticSearchEnabled } from '@/lib/ai/semantic-search-state';
-import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
+import { parksSearchQuery, placesSearchQuery, routesSearchQuery } from '@/lib/search/geo-query';
 import { findToursForQuery, tourPriceFrom } from '@/lib/search/tour-query-match';
 import { activityLabel } from '@/lib/tours/labels';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -79,7 +79,6 @@ export async function GET(request: NextRequest) {
   // маршруты ищутся ILIKE, и ответ говорит об этом полем degraded: решение
   // владельца выглядит для клиента так же, как отказ, но называется иначе.
   const semanticOn = semanticSearchEnabled();
-  const pattern = `%${q}%`;
 
   // Маршруты: сначала семантика (embeddings — «где увидеть медведей» находит
   // релевантное, а не только совпадение букв), при ошибке/пустоте — ILIKE.
@@ -122,16 +121,9 @@ export async function GET(request: NextRequest) {
     // стояла здесь в SELECT, и каждый ILIKE-запрос падал
     // `column "location_type" does not exist`, а вместе с ним — места.
     // Подпись маршрута берётся из category, иначе «Маршрут».
-    const { rows } = await query(
-      `SELECT COALESCE(ark_id, id) AS id, title, category
-       FROM kamchatka_routes
-       WHERE is_visible = TRUE AND merged_into_id IS NULL AND title ILIKE $1
-       ORDER BY
-         CASE WHEN title ILIKE $2 THEN 0 ELSE 1 END,
-         LENGTH(title) ASC
-       LIMIT $3`,
-      [pattern, q, perType]
-    );
+    // Без семантики — по словам запроса (lib/search/geo-query, 05.11).
+    const routesQ = routesSearchQuery(q, perType);
+    const { rows } = await query(routesQ.sql, routesQ.params);
     return rows;
   }
 
@@ -157,33 +149,16 @@ export async function GET(request: NextRequest) {
   // из выдачи, хотя их запрос отвечал. Отказ одной части называется в
   // `unavailable` ('places' | 'routes'), отказ обеих — прежним 'geo'.
   async function findGeo() {
+    const placesQ = placesSearchQuery(q, perType);
+    const parksQ = parksSearchQuery(q);
     const [placesSettled, routesSettled, parksResult] = await Promise.allSettled([
-      query(
-        // Ищем по имени И по псевдонимам: «Авачинский вулкан» обязан находить
-        // «Вулкан Авачинский» — это один вулкан, просто разные источники
-        // назвали его по-разному. Слитые записи из выдачи убраны: раньше
-        // публичный поиск про merged_into_id не знал вовсе и показывал дубль
-        // отдельной строкой.
-        `SELECT p.id, p.name AS title, p.location_type, LEFT(p.description, 80) AS subtitle
-         FROM places p
-         WHERE ${MATCHES_NAME_OR_ALIAS('p', '$1')}
-           AND ${NOT_MERGED('p')}
-         ORDER BY
-           CASE WHEN p.name ILIKE $2 THEN 0 ELSE 1 END,
-           LENGTH(p.name) ASC
-         LIMIT $3`,
-        [pattern, q, perType]
-      ),
+      // Места — по имени И по псевдонимам («Авачинский вулкан» находит
+      // «Вулкан Авачинский»), по каждому слову запроса, только видимые и не
+      // слитые (lib/search/geo-query, 05.11).
+      query(placesQ.sql, placesQ.params),
       findRoutes(),
       // Парки — справочник маленький (единицы строк), ошибка не роняет поиск
-      query(
-        `SELECT slug, display_name
-         FROM parks
-         WHERE is_active = true AND display_name ILIKE $1
-         ORDER BY display_name
-         LIMIT 3`,
-        [pattern]
-      ).catch((err: unknown) => {
+      query(parksQ.sql, parksQ.params).catch((err: unknown) => {
         console.error('[search] парки недоступны:', err instanceof Error ? err.message : String(err));
         return { rows: [] as Array<Record<string, unknown>> };
       }),
