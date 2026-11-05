@@ -53,6 +53,9 @@ describe('/api/search: маршруты и места падают незави�
     expect(json.data.some((r: { type: string }) => r.type === 'place')).toBe(true);
     expect(json.unavailable).toEqual(['routes']);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
+    // Причина отказа — в лог (§4.0): без неё на проде было бы видно только
+    // «unavailable: routes», а не то, какая колонка не нашлась.
+    expect(console.error).toHaveBeenCalledWith('[search] маршруты недоступны:', expect.stringContaining('location_type'));
   });
 
   it('отказ мест — маршруты отдаются, unavailable: places', async () => {
@@ -65,13 +68,20 @@ describe('/api/search: маршруты и места падают незави�
     const route = json.data.find((r: { type: string }) => r.type === 'route');
     expect(route.subtitle).toBe('Вулканы');
     expect(json.unavailable).toEqual(['places']);
+    expect(console.error).toHaveBeenCalledWith('[search] места недоступны:', 'down');
   });
 
-  it('отказ обеих частей — прежний geo', async () => {
-    queryMock.mockImplementation((sql: string) =>
-      sql.includes('FROM parks') ? Promise.resolve({ rows: [] }) : Promise.reject(new Error('down')));
+  it('отказ обеих частей — прежний geo, и в логе причины ОБЕИХ', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('FROM parks')) return Promise.resolve({ rows: [] });
+      if (sql.includes('kamchatka_routes')) return Promise.reject(new Error('column "location_type" does not exist'));
+      return Promise.reject(new Error('statement timeout'));
+    });
     const json = await (await GET(req('авач'))).json();
     expect(json.unavailable).toEqual(['geo']);
+    // Наружу уходит одна причина; причина маршрутов не должна теряться.
+    expect(console.error).toHaveBeenCalledWith('[search] места недоступны:', 'statement timeout');
+    expect(console.error).toHaveBeenCalledWith('[search] маршруты недоступны:', expect.stringContaining('location_type'));
   });
 
   it('отказ семантики: в ответе общая причина без путей и имён библиотек', async () => {

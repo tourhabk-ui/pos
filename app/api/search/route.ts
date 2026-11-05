@@ -188,9 +188,8 @@ export async function GET(request: NextRequest) {
         return { rows: [] as Array<Record<string, unknown>> };
       }),
     ]);
-    if (placesSettled.status === 'rejected' && routesSettled.status === 'rejected') {
-      throw placesSettled.reason;
-    }
+    // Обе причины — в лог ДО решения бросать: при двойном отказе наружу уходит
+    // одна (мест), и причина маршрутов иначе не попала бы никуда (§4.0).
     const failed: Array<'places' | 'routes'> = [];
     if (placesSettled.status === 'rejected') {
       failed.push('places');
@@ -199,6 +198,9 @@ export async function GET(request: NextRequest) {
     if (routesSettled.status === 'rejected') {
       failed.push('routes');
       console.error('[search] маршруты недоступны:', routesSettled.reason instanceof Error ? routesSettled.reason.message : String(routesSettled.reason));
+    }
+    if (placesSettled.status === 'rejected' && routesSettled.status === 'rejected') {
+      throw placesSettled.reason;
     }
     return {
       placesResult: placesSettled.status === 'fulfilled' ? placesSettled.value : { rows: [] as Array<Record<string, unknown>> },

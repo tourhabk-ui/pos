@@ -36,6 +36,25 @@ const QUICK_LINKS = [
   { title: 'Спросить Кузьмича',        href: '/ai-assistant', type: 'chat' as const },
 ];
 
+type SearchPart = 'tours' | 'geo' | 'places' | 'routes';
+
+/**
+ * Подпись частичного отказа называет КАЖДУЮ часть, что не ответила (04.11).
+ * Цепочка тернариев называла одну: при отказе туров и маршрутов разом турист
+ * читал только про туры и принимал пустоту маршрутов за «их нет».
+ * 'places' и 'routes' вместе сервер не шлёт — это 'geo'.
+ */
+function partialNote(partial: SearchPart[]): string {
+  const names = [
+    partial.includes('tours') ? 'туры' : null,
+    partial.includes('geo') ? 'места и маршруты' : null,
+    !partial.includes('geo') && partial.includes('places') ? 'места' : null,
+    !partial.includes('geo') && partial.includes('routes') ? 'маршруты' : null,
+  ].filter((n): n is string => n !== null);
+  const what = names.join(' и ');
+  return `${what.charAt(0).toUpperCase()}${what.slice(1)} сейчас не ищутся — это сбой, а не пустой результат.`;
+}
+
 export function GlobalSearchModal() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -242,7 +261,9 @@ export function GlobalSearchModal() {
               </div>
             )}
 
-            {query.trim() && !loading && status === 'ok' && allItems.length === 0 && (
+            {/* При частичном отказе «Ничего не найдено» было бы неправдой:
+                не нашлось среди того, что искалось, — о прочем сказано ниже. */}
+            {query.trim() && !loading && status === 'ok' && allItems.length === 0 && partial.length === 0 && (
               <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">
                 Ничего не найдено по &laquo;{query}&raquo;
               </div>
@@ -250,13 +271,7 @@ export function GlobalSearchModal() {
 
             {query.trim() && status === 'ok' && partial.length > 0 && (
               <p className="px-4 pt-3 text-xs text-[var(--text-secondary)]">
-                {partial.includes('tours')
-                  ? 'Туры сейчас не ищутся — это сбой, а не пустой каталог. '
-                  : partial.includes('geo')
-                    ? 'Места и маршруты сейчас не ищутся — показаны только туры.'
-                    : partial.includes('routes')
-                      ? 'Маршруты сейчас не ищутся — показано остальное.'
-                      : 'Места сейчас не ищутся — показано остальное.'}
+                {partialNote(partial)}{' '}
                 {partial.includes('tours') && (
                   <Link href="/catalog" onClick={closeModal} className="font-semibold text-[var(--accent)]">Каталог туров</Link>
                 )}
