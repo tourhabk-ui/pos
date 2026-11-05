@@ -70,13 +70,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     // Адрес явно (10.10): тот же workflow второй ходкой зовёт
     // /api/cron/road-basis — снимки приказов к дорожным закрытиям.
     endpoint: 'safety-ingest',
-    workflow: 'cron-safety-ingest.yml', cron: '*/5 * * * *', schedule: 'каждые 5 мин',
+    workflow: 'cron-safety-ingest.yml', cron: '4,34 * * * *', schedule: 'каждые 5 мин (прод); GitHub — запасной раз в 30 мин',
     everyMin: 5, tier: 'safety', agentId: 'safety-ingest', triggerable: false,
   },
   {
     key: 'watchdog', label: 'Watchdog',
     description: 'Единственный сторож: SOS-таймаут, брони без подтверждения, лиды, мёртвый сейсмо-крон.',
-    workflow: 'cron-watchdog.yml', cron: '*/30 * * * *', schedule: 'каждые 30 мин',
+    workflow: 'cron-watchdog.yml', cron: '27 * * * *', schedule: 'каждые 30 мин (прод); GitHub — запасной раз в час',
     everyMin: 30, tier: 'safety', agentId: 'watchdog', triggerable: true,
     // Свой эндпоинт назван явно. Заведено 21.09, когда `cron-watchdog.yml`
     // звал ТРИ адреса (ещё проверку вебхука Telegram и бюджета AI) и «чей это
