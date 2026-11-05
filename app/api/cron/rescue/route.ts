@@ -51,6 +51,11 @@ export async function GET(request: NextRequest) {
         : 'success',
       started_at: startedAt,
       duration_ms: Date.now() - startedAt.getTime(),
+      // Мера работы (перепись пользы агентов, 05.11): проверено — сколько
+      // проверок отработало, создано — сколько тревог собрано, без строк
+      // «проверка не отработала» (они уже в errors_count).
+      items_processed: result.checks_total - failed.length,
+      items_created: result.alerts.filter(a => a.type !== 'check_failed').length,
       errors_count: failed.length,
       error_msg: failed.length > 0 ? `проверки не отработали: ${failed.join('; ')}` : undefined,
       metadata: result as unknown as Record<string, unknown>,

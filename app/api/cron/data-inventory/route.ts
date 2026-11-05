@@ -31,6 +31,8 @@ export async function GET(request: NextRequest) {
       status: errors === 0 ? 'success' : 'partial',
       started_at: startedAt,
       duration_ms: result.duration_ms,
+      // Мера (перепись пользы агентов, 05.11): разделов описи прочитано.
+      items_processed: result.sections.length - errors,
       metadata: {
         sections: result.sections.map(s => ({ id: s.id, rows: s.rows.length, error: s.error })),
       },

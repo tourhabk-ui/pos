@@ -41,10 +41,13 @@ export async function GET(req: Request) {
   // Запись ждём: по ней следующая проверка узнаёт повтор ошибки доставки.
   // Отказ не глушится (§4.0) — без записи повтор не будет узнан.
   try {
+    // Мера (перепись пользы агентов, 05.11): проверено — сверка вебхука
+    // состоялась (1) или нет (0); создано — вебхук переустановлен.
     await pool.query(
-      `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, metadata)
-       VALUES ('telegram-webhook-watchdog', $1, $2, NOW(), $3, $4)`,
-      [agentStatus, startedAt, durationMs, JSON.stringify(result)],
+      `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, metadata, items_processed, items_created)
+       VALUES ('telegram-webhook-watchdog', $1, $2, NOW(), $3, $4, $5, $6)`,
+      [agentStatus, startedAt, durationMs, JSON.stringify(result),
+        result.status === 'failed' ? 0 : 1, result.status === 'restored' ? 1 : 0],
     );
   } catch (e) {
     const code = (e as { code?: string }).code ?? 'нет кода';

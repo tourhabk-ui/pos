@@ -81,7 +81,8 @@ export async function GET(req: Request) {
       });
     }
     const limitUsd = budget.usd;
-    recordCronRun('llm-budget', startedAt, 'success');
+    // Мера (перепись пользы агентов, 05.11): одна сверка трат дня с порогом.
+    recordCronRun('llm-budget', startedAt, 'success', { items: 1 });
 
     if (spentUsd >= limitUsd) {
       // Находка аудита 15.10 (P4-01): алерт уходил fire-and-forget, а ответ

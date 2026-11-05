@@ -41,6 +41,11 @@ export async function GET(req: Request) {
       status: failedChecks > 0 ? 'partial' : 'success',
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
+      // Мера работы (перепись пользы агентов, 05.11): проверено — сколько
+      // проверок отработало, создано — сколько тревог собрано. Без них прогон
+      // в журнале был «успех без чисел», и польза сторожа не читалась.
+      items_processed: result.checks.total - failedChecks,
+      items_created: result.alerts.length,
       errors_count: failedChecks,
       error_msg: failedChecks > 0
         ? `не смогли выполниться: ${result.checks.failed.map(f => f.check).join(', ')}`

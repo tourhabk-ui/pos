@@ -92,7 +92,7 @@ describe('GET /api/cron/llm-budget-check без порога', () => {
     process.env.AI_DAILY_BUDGET_USD = '10';
     const body = await (await call()).json() as Body;
     expect(body).toMatchObject({ ok: true, status: 'ok', spent_usd: 3.25, limit_usd: 10 });
-    expect(recordCronRun).toHaveBeenCalledWith('llm-budget', expect.any(Number), 'success');
+    expect(recordCronRun).toHaveBeenCalledWith('llm-budget', expect.any(Number), 'success', { items: 1 });
     expect(notifyBudgetAlert).not.toHaveBeenCalled();
   });
 

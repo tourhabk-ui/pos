@@ -110,7 +110,9 @@ describe('клиент кокпита: наблюдение без кнопок 
       orchestrator.indexOf('export interface OrchestratorResult'),
       orchestrator.indexOf('duration_ms: number'),
     );
-    const orchestratorStages = [...resultBlock.matchAll(/^\s*(\w+): unknown;/gm)].map((m) => m[1]);
+    // Тип стадии не важен (05.11 у `evolution` он назван — EvolutionResult |
+    // null): стадия — любое поле результата до duration_ms.
+    const orchestratorStages = [...resultBlock.matchAll(/^\s*(\w+): [^;\n]+;/gm)].map((m) => m[1]);
     // Пол, а не точное число: он защищает от пустого разбора (регулярка
     // перестала ловить — сверка ниже сравнила бы два пустых списка и
     // позеленела). 10 → 9 после снятия industryIntel вместе с MTProto 19.09.

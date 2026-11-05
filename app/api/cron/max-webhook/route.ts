@@ -265,7 +265,8 @@ export async function GET(req: Request): Promise<NextResponse> {
   const finish = (rawBody: Record<string, unknown>, status = 200): NextResponse => {
     const body = commandsRun.outcome ? { ...rawBody, bot_commands: commandsRun.outcome } : rawBody;
     if (status === 200) {
-      recordCronRun('max-webhook', t0, 'success');
+      // Мера (перепись пользы агентов, 05.11): одна сверка подписки бота.
+      recordCronRun('max-webhook', t0, 'success', { items: 1 });
     } else {
       const staleFailed = Array.isArray(body.stale_failed) ? (body.stale_failed as StaleFailure[]) : [];
       const foreignHooks = Array.isArray(body.foreign_webhooks) ? (body.foreign_webhooks as ForeignWebhook[]) : [];
