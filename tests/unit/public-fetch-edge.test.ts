@@ -53,6 +53,7 @@ const PROTECTED_COMPONENT_DIRS = [
  * отсутствия входа на клиенте. Формат: "METHOD путь" («X» — сегмент-параметр).
  */
 const KNOWN_PERSONAL_CALLS = new Set([
+  'POST /api/upload/tour-photo',    // кабинет гида «Свои туры»: фото тура — под входом гида (05.11)
   'GET /api/trips/active',          // главная: блок «активная поездка», гостю тихо не показывается
   'PATCH /api/trips/X',             // планер: сохранение поездки — под входом
   'POST /api/trips',                // планер: создание поездки

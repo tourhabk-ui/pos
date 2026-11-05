@@ -19,6 +19,8 @@ import { query } from '@/lib/database';
 import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
+import { normalizeField } from '@/lib/guides/tour-edit/store';
+import type { TourProgramStep } from '@/lib/tours/tour-write';
 
 export interface OwnTour {
   id: string;
@@ -33,6 +35,13 @@ export interface OwnTour {
   /** Тексты для правки на сайте: анонс и описание как записаны. */
   short_description: string | null;
   description: string | null;
+  /** Программа дня, списки и фото — для правки формой на сайте (05.11). null — не записано. */
+  program: TourProgramStep[] | null;
+  included: string[] | null;
+  not_included: string[] | null;
+  what_to_bring: string[] | null;
+  safety_notes: string[] | null;
+  photos: string[];
   season_start: string | null;
   season_end: string | null;
   /** Открытые будущие даты с местами — как их видит календарь тура. */
@@ -75,10 +84,12 @@ export interface OwnLead {
 
 /** Туры гида: опубликованные и черновики, с числом открытых будущих дат и тем, чего не хватает до сайта. */
 export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
-  const { rows } = await query<OwnTour>(
+  const { rows } = await query<OwnTour & { photos: unknown }>(
     `SELECT ot.id::text AS id, ot.title, ot.slug, COALESCE(ot.is_published, FALSE) AS is_published,
             COALESCE(ot.is_active, FALSE) AS is_active, ot.base_price::text AS base_price, ot.price_unit,
-            ot.max_participants, ot.short_description, ot.description, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+            ot.max_participants, ot.short_description, ot.description,
+            ot.program, ot.included, ot.not_included, ot.what_to_bring, ot.safety_notes, ot.photos,
+            ot.season_start::text AS season_start, ot.season_end::text AS season_end,
             (SELECT count(*)::int FROM tour_availability a
               WHERE a.operator_tour_id = ot.id AND a.date >= CURRENT_DATE
                 AND COALESCE(a.is_cancelled, FALSE) = FALSE AND a.deleted_at IS NULL
@@ -91,7 +102,17 @@ export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
       ORDER BY COALESCE(ot.is_published, FALSE) DESC, ot.title`,
     [partnerId],
   );
-  return rows;
+  // Списки на проде бывают и jsonb, и text[] — pg отдаёт их массивами;
+  // вид один — тот же, что у правки в чате (normalizeField).
+  return rows.map((r) => ({
+    ...r,
+    program: normalizeField('program', r.program) as TourProgramStep[] | null,
+    included: normalizeField('included', r.included) as string[] | null,
+    not_included: normalizeField('not_included', r.not_included) as string[] | null,
+    what_to_bring: normalizeField('what_to_bring', r.what_to_bring) as string[] | null,
+    safety_notes: normalizeField('safety_notes', r.safety_notes) as string[] | null,
+    photos: Array.isArray(r.photos) ? r.photos.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : [],
+  }));
 }
 
 /**

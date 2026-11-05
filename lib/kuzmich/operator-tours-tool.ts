@@ -20,6 +20,7 @@ import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { containsPattern } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const MY_TOURS_TOOL_NAME = 'my_tours_schedule';
@@ -55,6 +56,8 @@ interface OwnTour {
   season_end: string | null;
   /** Сколько своих туров подошло всего, до LIMIT (05.11). */
   total_count?: string;
+  /** Ближайшая дата со свободными местами в пределах года (правило 1в); null — нет. */
+  nearest_free?: string | null;
 }
 
 export function parseDays(v: unknown): number {
@@ -77,8 +80,9 @@ export async function runMyToursSchedule(
     const { rows } = await pool.query<OwnTour>(
       `SELECT id, title, is_active, is_published, max_participants,
               season_start::text, season_end::text,
-              COUNT(*) OVER ()::text AS total_count
-         FROM operator_tours
+              COUNT(*) OVER ()::text AS total_count,
+              ${nearestFreeDateSql('ot')} AS nearest_free
+         FROM operator_tours ot
         WHERE operator_id = $1::uuid
           AND deleted_at IS NULL
           AND ($2::text = '' OR id::text = $2::text OR title ILIKE $3::text)
@@ -110,8 +114,17 @@ export async function runMyToursSchedule(
     lines.push(`- ID${t.id} «${t.title}» | ${flags.join(', ')}${t.max_participants ? ` | до ${t.max_participants} чел` : ''}${season}`);
     try {
       const slots = await fetchAvailabilityForTour(String(t.id), from, to, cache);
-      if (slots.length === 0) {
-        lines.push('  Открытых дат со свободными местами нет: расписание в этом окне не заведено или места разобраны. '
+      if (slots.length === 0 && t.nearest_free && t.nearest_free > to) {
+        // Окно пусто, а даты дальше есть (05.11: в ноябре гид открыл июль
+        // 2027-го, и «дат нет» было бы неправдой). Показываем первые после окна.
+        const from2 = t.nearest_free;
+        const to2 = new Date(Date.parse(from2) + (days - 1) * 86400000).toISOString().slice(0, 10);
+        const later = await fetchAvailabilityForTour(String(t.id), from2, to2, cache);
+        const shown = later.slice(0, DATES_LIMIT).map((s) => `${s.date}: свободно ${s.remaining}`).join('; ');
+        lines.push(`  В окне до ${to} открытых дат нет. Даты ОТКРЫТЫ дальше — ближайшая ${from2}: `
+          + `${shown}${later.length > DATES_LIMIT ? `; и ещё ${later.length - DATES_LIMIT} дат до ${to2}` : ''}. Не говори, что дат нет.`);
+      } else if (slots.length === 0) {
+        lines.push('  Открытых дат со свободными местами нет ни в этом окне, ни в ближайший год: расписание не заведено или места разобраны. '
           + 'Без расписания запросы мест всё равно принимаются по сезону.');
       } else {
         const shown = slots.slice(0, DATES_LIMIT).map((s) => `${s.date}: свободно ${s.remaining}`).join('; ');

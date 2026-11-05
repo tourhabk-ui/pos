@@ -14,10 +14,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const poolQuery = vi.fn();
+const avail = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => poolQuery(...a) } }));
 vi.mock('@/lib/planner', () => ({
   createPlannerCache: () => new Map(),
-  fetchAvailabilityForTour: vi.fn().mockResolvedValue([]),
+  fetchAvailabilityForTour: (...a: unknown[]) => avail(...a),
 }));
 
 import { buildOperatorContext, partnerSystemPrompt, CONTEXT_TOURS_MAX } from '@/lib/kuzmich/operator-chat';
@@ -52,6 +53,7 @@ function fakeDb(rows: ReturnType<typeof tourRows>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  avail.mockResolvedValue([]);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
@@ -81,7 +83,8 @@ describe('инструмент «мои туры»: отсечка назван�
     const out = await runMyToursSchedule('11111111-1111-1111-1111-111111111111', {}, Date.parse('2026-11-05T00:00:00Z'));
     for (const t of TITLES) expect(out).toContain(`«${t}»`);
     const sql = String(poolQuery.mock.calls[0][0]);
-    const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1]);
+    // Последний LIMIT — у списка туров; первый — у подзапроса ближайшей даты.
+    const limit = Number([...sql.matchAll(/LIMIT (\d+)/g)].pop()?.[1]);
     expect(limit).toBeGreaterThanOrEqual(13);
   });
 
@@ -99,6 +102,29 @@ describe('инструмент «мои туры»: отсечка назван�
     const out = await runMyToursSchedule('11111111-1111-1111-1111-111111111111', { tour: 'Вачкажец' }, Date.parse('2026-11-05T00:00:00Z'));
     expect(out).toContain('Вачкажец + озёрки');
     expect(out).not.toMatch(/Показаны \d+ из/);
+  });
+});
+
+describe('инструмент «мои туры»: даты дальше окна', () => {
+  const GORELY = { id: 70, title: 'Восхождение на вулкан Горелый', is_active: true, is_published: true,
+    max_participants: 4, season_start: '2027-07-15', season_end: '2027-10-15', total_count: '1' };
+
+  it('в ноябре окно пусто, а июль открыт — названа ближайшая дата и даты с неё', async () => {
+    poolQuery.mockResolvedValue({ rows: [{ ...GORELY, nearest_free: '2027-07-15' }] });
+    avail.mockImplementation(async (_id: string, from: string) =>
+      from === '2027-07-15' ? [{ date: '2027-07-15', remaining: 4 }, { date: '2027-07-16', remaining: 4 }] : []);
+    const out = await runMyToursSchedule('11111111-1111-1111-1111-111111111111', { tour: 'Горелый' }, Date.parse('2026-11-05T00:00:00Z'));
+    expect(out).toMatch(/Даты ОТКРЫТЫ дальше — ближайшая 2027-07-15: 2027-07-15: свободно 4; 2027-07-16: свободно 4/);
+    expect(out).toMatch(/Не говори, что дат нет/);
+    expect(out).not.toMatch(/Открытых дат со свободными местами нет ни в этом окне/);
+    expect(String(poolQuery.mock.calls[0][0])).toMatch(/AS nearest_free/);
+  });
+
+  it('и в году дат нет — так и сказано', async () => {
+    poolQuery.mockResolvedValue({ rows: [{ ...GORELY, nearest_free: null }] });
+    const out = await runMyToursSchedule('11111111-1111-1111-1111-111111111111', { tour: 'Горелый' }, Date.parse('2026-11-05T00:00:00Z'));
+    expect(out).toMatch(/нет ни в этом окне, ни в ближайший год/);
+    expect(avail).toHaveBeenCalledTimes(1);
   });
 });
 

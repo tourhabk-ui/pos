@@ -9,9 +9,11 @@
  * «Снять с сайта» (`POST …/publish`) и «Править» — те же поля формой
  * (`PATCH /api/guide/own/tours/[id]`, общая запись тура `writeTourPatch`).
  *
- * Программу, что включено, что взять и правила безопасности форма не правит:
- * их гид пишет фразой в чате кабинета или документом Word в MAX — так и
- * сказано под формой. Форма оператора (components/operator/Tours/TourForm)
+ * С 05.11 правка тура несёт и программу дня, что включено / не входит / что
+ * взять, правила безопасности и фото (components/guide/OwnTourExtras): до
+ * этого их можно было поменять только фразой в чате или документом Word, и
+ * гид не нашёл, как это сделать. Новый тур — те же четыре поля, остальное —
+ * «Править» после создания. Форма оператора (components/operator/Tours/TourForm)
  * сюда не взята: она требует вид места, активность и маршрут, загружает фото
  * в хранилище оператора и шлёт в его кабинет, куда гида не пускают.
  */
@@ -22,6 +24,10 @@ import { Loader2, Plus, Globe, EyeOff, Pencil } from 'lucide-react';
 import type { OwnTour } from '@/lib/guides/own-tours';
 import { ownTourStateWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
+import {
+  ProgramEditor, ListField, PhotosField, extrasGaps, extrasBody, LIST_LABELS,
+  type ExtrasValues, type ListKey,
+} from '@/components/guide/OwnTourExtras';
 
 interface FormValues {
   title: string;
@@ -30,9 +36,14 @@ interface FormValues {
   max_participants: string;
   short_description: string;
   description: string;
+  season_start: string;
+  season_end: string;
 }
 
-const EMPTY: FormValues = { title: '', base_price: '', price_unit: 'per_person', max_participants: '', short_description: '', description: '' };
+const EMPTY: FormValues = {
+  title: '', base_price: '', price_unit: 'per_person', max_participants: '', short_description: '', description: '',
+  season_start: '', season_end: '',
+};
 
 function valuesOf(t: OwnTour): FormValues {
   return {
@@ -42,6 +53,20 @@ function valuesOf(t: OwnTour): FormValues {
     max_participants: t.max_participants === null ? '' : String(t.max_participants),
     short_description: t.short_description ?? '',
     description: t.description ?? '',
+    season_start: t.season_start?.slice(0, 10) ?? '',
+    season_end: t.season_end?.slice(0, 10) ?? '',
+  };
+}
+
+function extrasOf(t: OwnTour): ExtrasValues {
+  const lines = (a: string[] | null | undefined) => (a ?? []).join('\n');
+  return {
+    program: (t.program ?? []).map((s) => ({ title: s.title, text: s.text })),
+    included: lines(t.included),
+    not_included: lines(t.not_included),
+    what_to_bring: lines(t.what_to_bring),
+    safety_notes: lines(t.safety_notes),
+    photos: t.photos ?? [],
   };
 }
 
@@ -54,6 +79,7 @@ export function formGaps(v: FormValues): string[] {
   const group = Number(v.max_participants);
   if (!Number.isInteger(group) || group < 1) gaps.push('размер группы — сколько человек максимум');
   if (v.description.trim().length === 0) gaps.push('описание');
+  if (v.season_start && v.season_end && v.season_start > v.season_end) gaps.push('сезон кончается раньше, чем начинается');
   return gaps;
 }
 
@@ -74,9 +100,10 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
   onCancel: () => void;
 }) {
   const [v, setV] = useState<FormValues>(tour ? valuesOf(tour) : EMPTY);
+  const [x, setX] = useState<ExtrasValues | null>(tour ? extrasOf(tour) : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const gaps = formGaps(v);
+  const gaps = [...formGaps(v), ...(x ? extrasGaps(x) : [])];
   const set = (k: keyof FormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setV((prev) => ({ ...prev, [k]: e.target.value }));
 
@@ -93,6 +120,11 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
     };
     if (tour) body.short_description = v.short_description.trim() || null;
     else if (v.short_description.trim()) body.short_description = v.short_description.trim();
+    if (tour && x) Object.assign(body, extrasBody(x));
+    if (tour) {
+      body.season_start = v.season_start || null;
+      body.season_end = v.season_end || null;
+    }
     const r = tour
       ? await send(`/api/guide/own/tours/${tour.id}`, 'PATCH', body)
       : await send('/api/guide/own/tours', 'POST', body);
@@ -129,6 +161,19 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
           <input id={`${id}-group`} type="number" inputMode="numeric" min={1} className="ds-input mt-1 w-full" value={v.max_participants} onChange={set('max_participants')} />
         </label>
       </div>
+      {tour && (
+        <fieldset className="grid gap-3 sm:grid-cols-2">
+          <legend className="text-sm text-[var(--text-secondary)]">Сезон — в какие даты тур идёт; даты вне сезона не откроются</legend>
+          <label className="block text-sm" htmlFor={`${id}-season-start`}>
+            <span className="text-[var(--text-secondary)]">С</span>
+            <input id={`${id}-season-start`} type="date" className="ds-input mt-1 w-full" value={v.season_start} onChange={set('season_start')} />
+          </label>
+          <label className="block text-sm" htmlFor={`${id}-season-end`}>
+            <span className="text-[var(--text-secondary)]">По</span>
+            <input id={`${id}-season-end`} type="date" className="ds-input mt-1 w-full" value={v.season_end} onChange={set('season_end')} />
+          </label>
+        </fieldset>
+      )}
       <label className="block text-sm" htmlFor={`${id}-short`}>
         <span className="text-[var(--text-secondary)]">Анонс — строка под названием (можно пусто)</span>
         <input id={`${id}-short`} className="ds-input mt-1 w-full" value={v.short_description} onChange={set('short_description')} maxLength={500} />
@@ -137,9 +182,19 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
         <span className="text-[var(--text-secondary)]">Описание — что за поездка; программу дня пишите отдельно</span>
         <textarea id={`${id}-desc`} className="ds-input mt-1 w-full min-h-32" value={v.description} onChange={set('description')} maxLength={4000} />
       </label>
-      <p className="text-sm text-[var(--text-muted)]">
-        Программу, что включено, что взять и правила безопасности пишите фразой в чате кабинета («Горелый: программа: …») или документом Word в MAX.
-      </p>
+      {x ? (
+        <>
+          <ProgramEditor idBase={id} steps={x.program} onChange={(program) => setX({ ...x, program })} />
+          {(Object.keys(LIST_LABELS) as ListKey[]).map((k) => (
+            <ListField key={k} idBase={id} field={k} value={x[k]} onChange={(text) => setX({ ...x, [k]: text })} />
+          ))}
+          <PhotosField idBase={id} photos={x.photos} onChange={(photos) => setX({ ...x, photos })} />
+        </>
+      ) : (
+        <p className="text-sm text-[var(--text-muted)]">
+          Программу, что включено, что взять, правила безопасности и фото добавите кнопкой «Править» после создания черновика.
+        </p>
+      )}
       {gaps.length > 0 && (
         <p className="text-sm text-[var(--text-secondary)]" data-testid="own-tour-gaps">Чтобы сохранить, не хватает: {gaps.join(', ')}.</p>
       )}
