@@ -20,6 +20,7 @@ import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
 import { normalizeField } from '@/lib/guides/tour-edit/store';
+import { s3PublicUrl } from '@/lib/storage/s3';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 
 export interface OwnTour {
@@ -42,6 +43,12 @@ export interface OwnTour {
   what_to_bring: string[] | null;
   safety_notes: string[] | null;
   photos: string[];
+  /** Клипы тура (1194) — ключи хранилища и адреса для превью. */
+  video_clips: Array<{ key: string; poster: string; label: string; url: string; posterUrl: string }>;
+  /** Имя карточки гида — подпись «Фото: …» по умолчанию. */
+  partner_name: string;
+  /** Подписи снимков тура из карты партнёра (адрес → автор). */
+  photo_credits: Record<string, string>;
   season_start: string | null;
   season_end: string | null;
   /** Открытые будущие даты с местами — как их видит календарь тура. */
@@ -84,11 +91,12 @@ export interface OwnLead {
 
 /** Туры гида: опубликованные и черновики, с числом открытых будущих дат и тем, чего не хватает до сайта. */
 export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
-  const { rows } = await query<OwnTour & { photos: unknown }>(
+  const { rows } = await query<OwnTour & { photos: unknown; video_clips: unknown; photo_credits: unknown }>(
     `SELECT ot.id::text AS id, ot.title, ot.slug, COALESCE(ot.is_published, FALSE) AS is_published,
             COALESCE(ot.is_active, FALSE) AS is_active, ot.base_price::text AS base_price, ot.price_unit,
             ot.max_participants, ot.short_description, ot.description,
             ot.program, ot.included, ot.not_included, ot.what_to_bring, ot.safety_notes, ot.photos,
+            ot.video_clips, p.name AS partner_name, p.gallery_credits AS photo_credits,
             ot.season_start::text AS season_start, ot.season_end::text AS season_end,
             (SELECT count(*)::int FROM tour_availability a
               WHERE a.operator_tour_id = ot.id AND a.date >= CURRENT_DATE
@@ -112,7 +120,29 @@ export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
     what_to_bring: normalizeField('what_to_bring', r.what_to_bring) as string[] | null,
     safety_notes: normalizeField('safety_notes', r.safety_notes) as string[] | null,
     photos: Array.isArray(r.photos) ? r.photos.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : [],
+    video_clips: ownClips(r.video_clips),
+    photo_credits: credits(r.photo_credits),
   }));
+}
+
+/** Клипы своего тура: только ключи формы загрузки, с адресами для превью. */
+function ownClips(raw: unknown): OwnTour['video_clips'] {
+  if (!Array.isArray(raw)) return [];
+  const out: OwnTour['video_clips'] = [];
+  for (const c of raw) {
+    const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
+    if (typeof o.key !== 'string' || typeof o.poster !== 'string') continue;
+    const url = s3PublicUrl(o.key);
+    const posterUrl = s3PublicUrl(o.poster);
+    if (!url || !posterUrl) continue;
+    out.push({ key: o.key, poster: o.poster, label: typeof o.label === 'string' && o.label.trim() ? o.label : 'Видео тура', url, posterUrl });
+  }
+  return out;
+}
+
+function credits(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
 }
 
 /**

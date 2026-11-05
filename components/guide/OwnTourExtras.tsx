@@ -11,12 +11,17 @@
  */
 
 import { useState } from 'react';
-import { Loader2, Plus, Trash2, ArrowUp, ImagePlus, Star } from 'lucide-react';
+import { Loader2, Plus, Trash2, ArrowUp, ImagePlus, Star, Film, FileSignature } from 'lucide-react';
 import { LIMITS } from '@/lib/guides/tour-edit/parse';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 
 /** Сколько фото у тура — как у сервера (OWN_TOUR_PHOTOS_MAX). */
 export const PHOTOS_MAX = 20;
+
+export interface OwnClip { key: string; poster: string; label: string; url: string; posterUrl: string }
+
+/** Сколько видео у тура — как у карточки (MAX_TOUR_CLIPS). */
+export const CLIPS_MAX = 6;
 
 export interface ExtrasValues {
   program: TourProgramStep[];
@@ -25,6 +30,9 @@ export interface ExtrasValues {
   what_to_bring: string;
   safety_notes: string;
   photos: string[];
+  video_clips: OwnClip[];
+  /** Подпись «Фото: …» к снимкам без подписи. */
+  photo_credit: string;
 }
 
 export type ListKey = 'included' | 'not_included' | 'what_to_bring' | 'safety_notes';
@@ -52,6 +60,7 @@ export function extrasGaps(v: ExtrasValues): string[] {
     if (listLines(v[key]).length > LIMITS.listItems) gaps.push(`${LIST_LABELS[key].toLowerCase()} — не больше ${LIMITS.listItems} строк`);
   }
   if (v.photos.length > PHOTOS_MAX) gaps.push(`фото — не больше ${PHOTOS_MAX}`);
+  if (v.video_clips.length > CLIPS_MAX) gaps.push(`видео — не больше ${CLIPS_MAX}`);
   return gaps;
 }
 
@@ -60,7 +69,12 @@ export function extrasBody(v: ExtrasValues): Record<string, unknown> {
   const steps = v.program
     .map((s) => ({ title: s.title.trim(), text: s.text.trim() }))
     .filter((s) => s.title.length > 0);
-  const body: Record<string, unknown> = { program: steps.length > 0 ? steps : null, photos: v.photos };
+  const body: Record<string, unknown> = {
+    program: steps.length > 0 ? steps : null,
+    photos: v.photos,
+    video_clips: v.video_clips.map(({ key, poster, label }) => ({ key, poster, label: label.trim() || 'Видео тура' })),
+  };
+  if (v.photo_credit.trim().length >= 2 && v.photos.length > 0) body.photo_credit = v.photo_credit.trim();
   for (const key of Object.keys(LIST_LABELS) as ListKey[]) {
     const lines = listLines(v[key]);
     body[key] = lines.length > 0 ? lines : null;
@@ -142,10 +156,15 @@ async function uploadPhoto(file: File): Promise<{ url: string } | { error: strin
   }
 }
 
-export function PhotosField({ idBase, photos, onChange }: {
+export function PhotosField({ idBase, photos, onChange, credits = {}, credit, onCredit }: {
   idBase: string;
   photos: string[];
   onChange: (photos: string[]) => void;
+  /** Подписи снимков, уже записанные (адрес → автор). */
+  credits?: Record<string, string>;
+  /** Подпись «Фото: …» к снимкам без подписи. */
+  credit?: string;
+  onCredit?: (credit: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
@@ -179,6 +198,7 @@ export function PhotosField({ idBase, photos, onChange }: {
             <li key={url} className="space-y-1" data-testid={`own-tour-photo-${i}`}>
               {/* eslint-disable-next-line @next/next/no-img-element -- превью загруженного, без оптимизатора (images.unoptimized) */}
               <img src={url} alt={i === 0 ? 'Главное фото тура' : `Фото тура ${i + 1}`} className="aspect-[4/3] w-full rounded-lg object-cover" />
+              <p className="text-xs text-[var(--text-muted)]">{credits[url] ? `Фото: ${credits[url]}` : credit?.trim() ? `Фото: ${credit.trim()} — после «Сохранить»` : 'Без подписи'}</p>
               <div className="flex flex-wrap gap-1">
                 {i === 0
                   ? <span className="ds-badge"><Star size={12} aria-hidden /> Главное</span>
@@ -210,7 +230,150 @@ export function PhotosField({ idBase, photos, onChange }: {
           {problems.map((p) => <li key={p}>{p}</li>)}
         </ul>
       )}
-      <p className="text-sm text-[var(--text-muted)]">Фото сохранятся вместе с туром кнопкой «Сохранить». Видео через сайт пока не добавить — пришлите ролик менеджеру платформы.</p>
+      {onCredit && (
+        <label className="block text-sm" htmlFor={`${idBase}-credit`}>
+          <span className="text-[var(--text-secondary)]">Чьи снимки — подпись «Фото: …» под фото на странице тура</span>
+          <input id={`${idBase}-credit`} className="ds-input mt-1 w-full" value={credit ?? ''} maxLength={120}
+            onChange={(e) => onCredit(e.target.value)} />
+        </label>
+      )}
+      <p className="text-sm text-[var(--text-muted)]">Фото сохранятся вместе с туром кнопкой «Сохранить».</p>
     </fieldset>
+  );
+}
+
+/** Кадр ролика для обложки: браузер гида, а не сервер (ffmpeg на проде нет). */
+export async function grabVideoFrame(file: File): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error('видео не открылось в браузере'));
+    });
+    video.currentTime = Math.min(1, (video.duration || 2) / 2);
+    await new Promise<void>((resolve) => { video.onseeked = () => resolve(); });
+    const w = Math.min(960, video.videoWidth || 960);
+    const h = Math.round(w * ((video.videoHeight || 540) / (video.videoWidth || 960)));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d')?.drawImage(video, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    if (!blob) throw new Error('кадр не снялся');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function uploadClip(file: File, grab: (f: File) => Promise<Blob>): Promise<OwnClip | { error: string }> {
+  let poster: Blob;
+  try {
+    poster = await grab(file);
+  } catch (e) {
+    return { error: `обложку не снять (${e instanceof Error ? e.message : 'ошибка'}) — нужен MP4, который открывается в браузере` };
+  }
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('poster', poster, 'poster.jpg');
+    const res = await fetch('/api/upload/tour-video', { method: 'POST', body: form });
+    const json = await res.json().catch(() => null) as Record<string, unknown> | null;
+    if (res.ok && typeof json?.key === 'string' && typeof json.poster === 'string' && typeof json.url === 'string' && typeof json.posterUrl === 'string') {
+      return { key: json.key, poster: json.poster, url: json.url, posterUrl: json.posterUrl, label: file.name.replace(/\.[^.]+$/, '') };
+    }
+    return { error: typeof json?.error === 'string' ? json.error : `не загрузилось (HTTP ${res.status})` };
+  } catch {
+    return { error: 'сеть недоступна — не загрузилось' };
+  }
+}
+
+export function VideosField({ idBase, clips, onChange, grabFrame = grabVideoFrame }: {
+  idBase: string;
+  clips: OwnClip[];
+  onChange: (clips: OwnClip[]) => void;
+  /** Снять кадр-обложку; в тестах подменяется. */
+  grabFrame?: (f: File) => Promise<Blob>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const add = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    setBusy(true);
+    setProblem(null);
+    const r = await uploadClip(file, grabFrame);
+    setBusy(false);
+    if ('error' in r) { setProblem(`${file.name}: ${r.error}`); return; }
+    onChange([...clips, r]);
+  };
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm text-[var(--text-secondary)]">Видео — MP4 до 100 МБ, обложкой станет кадр из ролика</legend>
+      {clips.length === 0 && <p className="text-sm text-[var(--text-muted)]">Видео нет.</p>}
+      {clips.map((c, i) => (
+        <div key={c.key} className="space-y-1" data-testid={`own-tour-clip-${i}`}>
+          <video src={c.url} poster={c.posterUrl} controls preload="none" className="aspect-video w-full rounded-lg" aria-label={c.label} />
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="block flex-1 text-sm" htmlFor={`${idBase}-clip-${i}`}>
+              <span className="text-[var(--text-secondary)]">Подпись видео {i + 1}</span>
+              <input id={`${idBase}-clip-${i}`} className="ds-input mt-1 w-full" value={c.label} maxLength={120}
+                onChange={(e) => onChange(clips.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+            </label>
+            <button type="button" className="ds-btn ds-btn-secondary" aria-label={`Убрать видео ${i + 1}`}
+              onClick={() => onChange(clips.filter((_, j) => j !== i))}>
+              <Trash2 size={14} aria-hidden /> Убрать
+            </button>
+          </div>
+        </div>
+      ))}
+      {clips.length < CLIPS_MAX && (
+        <label className="ds-btn ds-btn-secondary cursor-pointer" htmlFor={`${idBase}-video`}>
+          {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Film size={14} aria-hidden />}
+          {busy ? 'Загружаю видео…' : 'Добавить видео'}
+          <input id={`${idBase}-video`} type="file" accept="video/mp4" className="sr-only" disabled={busy}
+            aria-label="Добавить видео" onChange={(e) => { void add(e.target.files); e.target.value = ''; }} />
+        </label>
+      )}
+      {problem && <p role="alert" className="text-sm text-[var(--danger)]">{problem}</p>}
+    </fieldset>
+  );
+}
+
+/**
+ * Согласие на показ фото и видео (§0, миграция 1321): записанный текст, а не
+ * слова. Кнопка открывает ту же страницу подписи, что ссылка менеджера.
+ */
+export function MaterialsConsent() {
+  const [state, setState] = useState<{ kind: 'idle' | 'busy' } | { kind: 'signed'; on: string } | { kind: 'opened' } | { kind: 'error'; text: string }>({ kind: 'idle' });
+  const ask = async () => {
+    setState({ kind: 'busy' });
+    try {
+      const res = await fetch('/api/guide/own/material-consent', { method: 'POST' });
+      const json = await res.json().catch(() => null) as { success?: boolean; url?: string; signedOn?: string; error?: string } | null;
+      if (res.ok && json?.signedOn) { setState({ kind: 'signed', on: json.signedOn.split('-').reverse().join('.') }); return; }
+      if (res.ok && json?.url) { window.open(json.url, '_blank', 'noopener'); setState({ kind: 'opened' }); return; }
+      setState({ kind: 'error', text: json?.error ?? `не получилось (HTTP ${res.status})` });
+    } catch {
+      setState({ kind: 'error', text: 'сеть недоступна' });
+    }
+  };
+  return (
+    <div className="space-y-1 text-sm">
+      <p className="text-[var(--text-secondary)]">
+        Ваши фото и видео Ведар показывает по записанному согласию — его подписываете вы сами, один раз.
+      </p>
+      <button type="button" className="ds-btn ds-btn-secondary" disabled={state.kind === 'busy'} onClick={() => void ask()}>
+        <FileSignature size={14} aria-hidden /> Согласие на показ фото и видео
+      </button>
+      {state.kind === 'signed' && <p className="text-[var(--text-secondary)]">Согласие подписано {state.on} — подписывать снова не нужно.</p>}
+      {state.kind === 'opened' && <p className="text-[var(--text-secondary)]">Открылась страница подписи — прочитайте текст и подпишите.</p>}
+      {state.kind === 'error' && <p role="alert" className="text-[var(--danger)]">Согласие: {state.text}</p>}
+    </div>
   );
 }
