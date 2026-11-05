@@ -1,49 +1,20 @@
 import { Metadata, Viewport } from 'next';
-import { Inter, Playfair_Display, JetBrains_Mono } from 'next/font/google';
+// Шрифты — с нашего сервера из пакетов Fontsource (05.11), не next/font/google:
+// тот скачивал их с Google при КАЖДОЙ сборке, и сбой сети Google ронял сборку
+// CI (05.11, #3046) и мог уронить выкат на Timeweb. Посетитель и раньше брал
+// шрифты с нашего сервера; теперь и сборка в Google не ходит. Подмножества
+// (latin, cyrillic …) с unicode-range — браузер качает только нужные.
+// Переменные --font-playfair / --font-outfit / --font-jetbrains — в globals.css.
+import '@fontsource-variable/playfair-display/wght.css';
+import '@fontsource-variable/playfair-display/wght-italic.css';
+import '@fontsource-variable/inter/wght.css';
+import '@fontsource-variable/jetbrains-mono/wght.css';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
 import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
 import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
 import { partnerSiteOfRequest } from '@/lib/partner-sites/request';
-
-const playfairDisplay = Playfair_Display({
-  subsets: ['latin', 'cyrillic'],
-  weight: ['400', '500', '600', '700'],
-  style: ['normal', 'italic'],
-  display: 'swap',
-  variable: '--font-playfair',
-});
-
-/*
- * Шрифты — по §2: Playfair Display (заголовки) и Inter под переменной
- * --font-outfit (текст). JetBrains Mono — метки и цифры на главной и в
- * карточке тура (--font-jetbrains).
- *
- * Unbounded и Manrope (редизайны v7/v8) сняты 01.10: переменные
- * --font-unbounded и --font-manrope не читал ни один стиль, а preload
- * скачивал четыре их файла на КАЖДОЙ странице — из 12 предзагрузок треть
- * была мёртвым весом (аудит vedarai.ru 01.10). Сторож:
- * tests/unit/fonts-have-consumers.test.ts.
- *
- * Preload только у шрифтов, которые читает каждая страница. JetBrains Mono
- * нужен двум экранам — без preload браузер скачает его там, где он
- * встретился в стилях, и нигде больше (display: swap — текст не ждёт).
- */
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin', 'cyrillic'],
-  weight: ['300', '400', '500'],
-  display: 'swap',
-  preload: false,
-  variable: '--font-jetbrains',
-});
-
-const inter = Inter({
-  subsets: ['latin', 'cyrillic'],
-  weight: ['300', '400', '500', '600', '700'],
-  display: 'swap',
-  variable: '--font-outfit', // переменная сохранена для обратной совместимости
-});
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -202,7 +173,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
       </head>
-      <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
+      <body className="min-h-screen transition-colors duration-300">
         <Providers>
           <OfflineBanner />
           {children}
