@@ -638,13 +638,18 @@ export async function runDangerAnalysis(): Promise<{
  */
 export type ZoneRisk = Pick<
   ZoneAssessment,
-  'zone' | 'risk_score' | 'risk_level' | 'threat_types' | 'tourists_at_risk' | 'active_tours_count' | 'confidence' | 'similar_event'
+  'zone' | 'risk_score' | 'risk_level' | 'threat_types' | 'tourists_at_risk' | 'active_tours_count' | 'confidence'
 >;
 
 /** Текущая оценка одной зоны. `null` — оценки нет; это не «спокойно». */
 export async function getZoneAssessment(zone: Zone): Promise<ZoneRisk | null> {
   const result = await query<ZoneRisk>(
-    `SELECT zone, risk_score, risk_level, threat_types, tourists_at_risk, active_tours_count, confidence, similar_event FROM v_current_danger WHERE zone = $1 LIMIT 1`,
+    // Без similar_event (05.11): колонка есть в таблице danger_assessments, но
+    // представление v_current_danger (069) её не отдаёт — запрос отвечал 42703
+    // на каждый вызов с 22.08, и тревога zone_danger не доходила ни разу.
+    // Значение никто не производит (оценка пишет null), вернуть его в вьюху —
+    // отдельное решение вместе с производителем.
+    `SELECT zone, risk_score, risk_level, threat_types, tourists_at_risk, active_tours_count, confidence FROM v_current_danger WHERE zone = $1 LIMIT 1`,
     [zone]
   );
   return result.rows[0] ?? null;
