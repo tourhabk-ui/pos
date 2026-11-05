@@ -44,6 +44,7 @@ import {
   type GrowthIssue,
 } from '@/lib/agents/evo/growth-agent';
 import { callAIDecisionDetailed } from '@/lib/ai/providers';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 interface ReviewJob {
@@ -153,7 +154,10 @@ async function main(): Promise<void> {
 
 // Запуск только как скрипт: при импорте из теста main не вызывается.
 if (process.argv[1] && process.argv[1].endsWith('evo-review.ts')) {
-  main().catch((err) => {
+  // Расход модели подписан именем агента (06.11): без этого строки книг
+  // уходили на прод с agent_id NULL, и перепись пользы агентов не видела,
+  // сколько стоит самый дорогой потребитель платформы.
+  runWithUsageTracking('evo-review', main).catch((err) => {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   });

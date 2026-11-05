@@ -26,17 +26,25 @@ export async function GET(request: NextRequest) {
   const raw = Number(new URL(request.url).searchParams.get('days'));
   const days = Number.isInteger(raw) && raw >= 1 ? Math.min(MAX_DAYS, raw) : DEFAULT_DAYS;
   try {
-    const rows = await readAgentsValueCensus(days);
+    const census = await readAgentsValueCensus(days);
+    const rows = census.items;
     const byKind: Record<AgentValueKind, number> = { productive: 0, idle: 0, unmeasured: 0, silent: 0, no_telemetry: 0 };
     for (const r of rows) byKind[r.kind]++;
     const cost = rows.reduce((s, r) => s + (r.stats?.cost_usd ?? 0), 0);
+    const booksCost = rows.reduce((s, r) => s + (r.llm?.cost_usd ?? 0), 0);
     return NextResponse.json({
       ok: true,
-      probe: 'agents_value_census_v1',
+      probe: 'agents_value_census_v2',
       days,
       agents: rows.length,
       by_kind: byKind,
+      // Деньги по журналу прогонов (как в v1) и по книгам расхода — разные
+      // источники, и расходятся они намеренно видимо: журнал знает только
+      // тех, кто сам называет свой расход.
       llm_cost_usd: Number(cost.toFixed(4)),
+      llm_books_registry_usd: Number(booksCost.toFixed(4)),
+      llm_unattributed: census.llm_unattributed,
+      llm_outside_registry: census.llm_outside_registry,
       // Сначала те, о ком решать: холостые, молчащие и без меры, потом польза.
       items: [...rows].sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || a.key.localeCompare(b.key)),
     });

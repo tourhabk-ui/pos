@@ -4,14 +4,17 @@
  * агентов?»). Сторож держит: род записи — пять исходов, «не меряли» не
  * равно «ноль»; каждая запись реестра — одна строка; роут закрыт секретом,
  * отдаёт числа без ПД, холостых — первыми; отказ журнала — 503, а не пусто.
- * SQL исполняется на настоящей схеме — tests/integration/agents-value-census.pg.test.ts.
+ * Расход модели — из книг (llm_usage_log) по agent_id: у записи без журнала
+ * (судья, ревью эволюции) — по ключу реестра; строки без агента и агенты вне
+ * реестра названы отдельно (06.11).
+ * SQL исполняется на настоящей схеме — tests/integration/leads-followup.pg.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const query = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
-import { classifyAgentValue, joinWithRegistry, toStats, type AgentRunStats } from '@/lib/agents/agents-value-census';
+import { classifyAgentValue, joinWithRegistry, splitSpend, spendIdOf, toSpend, toStats, type AgentRunStats } from '@/lib/agents/agents-value-census';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 
 const stats = (over: Partial<AgentRunStats>): AgentRunStats => ({
@@ -47,6 +50,35 @@ describe('род агента по журналу', () => {
   });
 });
 
+describe('расход модели по книгам', () => {
+  it('у записи без журнала расход ищется по ключу реестра (судья эволюции)', () => {
+    const judge = CRON_REGISTRY.find((e) => e.key === 'evo-judge')!;
+    expect(judge.agentId).toBeNull();
+    expect(spendIdOf(judge)).toBe('evo-judge');
+    const split = splitSpend([{ agent_id: 'evo-judge', calls: 46, cost_usd: 3.1, unpriced_calls: 0 }]);
+    const rows = joinWithRegistry(new Map(), split.byId);
+    const row = rows.find((r) => r.key === 'evo-judge')!;
+    expect(row.kind).toBe('no_telemetry');
+    expect(row.llm).toEqual({ calls: 46, cost_usd: 3.1, unpriced_calls: 0 });
+  });
+
+  it('строки без агента — «без хозяина», агенты вне реестра — отдельным списком, дороже первыми', () => {
+    const split = splitSpend([
+      { agent_id: null, calls: 120, cost_usd: 0.9, unpriced_calls: 3 },
+      { agent_id: 'kuzmich', calls: 500, cost_usd: 1.2, unpriced_calls: 0 },
+      { agent_id: 'grader', calls: 10, cost_usd: 2.5, unpriced_calls: 0 },
+    ]);
+    expect(split.unattributed).toEqual({ calls: 120, cost_usd: 0.9, unpriced_calls: 3 });
+    expect(split.outside.map((o) => o.agent_id)).toEqual(['grader', 'kuzmich']);
+    expect(split.byId.size).toBe(0);
+  });
+
+  it('цены нет ни у одной строки — null, а не ноль', () => {
+    expect(toSpend({ agent_id: 'a', calls: '4', cost_usd: null, unpriced_calls: '4' }))
+      .toEqual({ calls: 4, cost_usd: null, unpriced_calls: 4 });
+  });
+});
+
 describe('GET /api/cron/agents-value-census', () => {
   const call = async (auth: string | null, qs = '') => {
     const { GET } = await import('@/app/api/cron/agents-value-census/route');
@@ -68,17 +100,25 @@ describe('GET /api/cron/agents-value-census', () => {
 
   it('окно — из ?days с потолком 90; холостые первыми, полезные последними; в ответе нет текста прогонов', async () => {
     const [a, b] = CRON_REGISTRY.filter((e) => e.agentId).slice(0, 2);
-    query.mockResolvedValue({ rows: [
-      { agent_id: a.agentId, runs: 5, ok: 5, partial: 0, failed: 0, measured_runs: 5, productive_runs: 0, items_processed: 0, items_created: 0, llm_calls: 0, cost_usd: 0, last_run: null, last_productive: null },
-      { agent_id: b.agentId, runs: 5, ok: 5, partial: 0, failed: 0, measured_runs: 5, productive_runs: 5, items_processed: 9, items_created: 0, llm_calls: 2, cost_usd: '0.5', last_run: null, last_productive: null },
-    ] });
+    query.mockImplementation(async (sql: string) => (/FROM llm_usage_log/.test(sql)
+      ? { rows: [
+        { agent_id: 'evo-judge', calls: 46, cost_usd: '3.1', unpriced_calls: 0 },
+        { agent_id: null, calls: 7, cost_usd: '0.2', unpriced_calls: 1 },
+      ] }
+      : { rows: [
+        { agent_id: a.agentId, runs: 5, ok: 5, partial: 0, failed: 0, measured_runs: 5, productive_runs: 0, items_processed: 0, items_created: 0, llm_calls: 0, cost_usd: 0, last_run: null, last_productive: null },
+        { agent_id: b.agentId, runs: 5, ok: 5, partial: 0, failed: 0, measured_runs: 5, productive_runs: 5, items_processed: 9, items_created: 0, llm_calls: 2, cost_usd: '0.5', last_run: null, last_productive: null },
+      ] }));
     const res = await call('Bearer s3cret', '?days=365');
     const json = await res.json();
-    expect(query.mock.calls[0][1]).toEqual([90]);
+    for (const c of query.mock.calls) expect(c[1]).toEqual([90]);
     expect(json.days).toBe(90);
     expect(json.agents).toBe(CRON_REGISTRY.length);
     expect(json.by_kind.idle).toBeGreaterThanOrEqual(1);
     expect(json.llm_cost_usd).toBe(0.5);
+    expect(json.llm_books_registry_usd).toBe(3.1);
+    expect(json.llm_unattributed).toEqual({ calls: 7, cost_usd: 0.2, unpriced_calls: 1 });
+    expect(json.items.find((r: { key: string }) => r.key === 'evo-judge').llm.cost_usd).toBe(3.1);
     const kinds = json.items.map((r: { kind: string }) => r.kind);
     expect(kinds[0]).toBe('idle');
     expect(kinds[kinds.length - 1]).toBe('productive');

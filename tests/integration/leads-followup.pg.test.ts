@@ -535,4 +535,22 @@ withPg('перепись пользы агентов на схеме прода'
     expect(classifyAgentValue('probe-blind', by.get('probe-blind')!)).toBe('unmeasured');
     expect(by.has('probe-old')).toBe(false);
   });
+
+  it('книги расхода: сумма по агенту, строки без цены и без агента названы, старое за окном не считается', async () => {
+    await pool.query(
+      `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, agent_id, created_at) VALUES
+         ('m', 10, 5, 15, 1.5,  'evo-judge', NOW() - interval '1 day'),
+         ('m', 10, 5, 15, 1.25, 'evo-judge', NOW() - interval '2 day'),
+         ('m', 10, 5, 15, NULL, 'evo-judge', NOW() - interval '2 day'),
+         ('m', 10, 5, 15, 0.5,  NULL,        NOW() - interval '1 day'),
+         ('m', 10, 5, 15, NULL, 'probe-unpriced', NOW() - interval '1 day'),
+         ('m', 10, 5, 15, 9,    'evo-judge', NOW() - interval '60 day')`,
+    );
+    const { LLM_SPEND_SQL, toSpend } = await import('@/lib/agents/agents-value-census');
+    const { rows } = await pool.query(LLM_SPEND_SQL, [30]);
+    const by = new Map(rows.map((r) => [r.agent_id as string | null, toSpend(r)]));
+    expect(by.get('evo-judge')).toEqual({ calls: 3, cost_usd: 2.75, unpriced_calls: 1 });
+    expect(by.get(null)).toEqual({ calls: 1, cost_usd: 0.5, unpriced_calls: 0 });
+    expect(by.get('probe-unpriced')).toEqual({ calls: 1, cost_usd: null, unpriced_calls: 1 });
+  });
 });
