@@ -1627,6 +1627,11 @@ export async function notifyAdminNewLead(lead: {
   labelRu?: string;
   /** Свой лид (проверка владельца): уведомление идёт с пометкой, не прячется. */
   isSelf?: boolean;
+  /**
+   * Заявку оставил ИИ-агент через MCP, и согласие на данные пока подтвердил
+   * только он (`pd_consent_source = 'mcp'`), не человек (05.11).
+   */
+  byAgent?: boolean;
 }): Promise<void> {
   const sd = lead.sourceData as LeadSourceData | null | undefined;
   const interests = sd?.interests ?? [];
@@ -1634,8 +1639,16 @@ export async function notifyAdminNewLead(lead: {
   const dateTo    = sd?.date_to   ?? sd?.departure;
   const source    = sd?.source ? (LEAD_SOURCE_LABELS[sd.source] ?? sd.source) : null;
 
-  const scoreText = lead.score != null ? ` \u00b7 ${lead.score}/100` : '';
-  const label = lead.labelRu ? ` (${lead.labelRu})` : '';
+  // Заявка ИИ-агента (05.11, владелец: «мы пока не различаем лиды людей от
+  // mcp»): балл считает заполненность формы — имя с фамилией, телефон,
+  // длинный комментарий с цифрами, — а агент заполняет её целиком всегда, и
+  // любая его заявка выходила «Горячей». Балла и метки у неё нет; вместо них
+  // сказано, кто её оставил и подтвердил ли её человек.
+  const scoreText = lead.score != null && !lead.byAgent ? ` \u00b7 ${lead.score}/100` : '';
+  const label = lead.byAgent ? ' · человек не подтвердил' : lead.labelRu ? ` (${lead.labelRu})` : '';
+  const agentLine = lead.byAgent
+    ? 'Заявку оставил ИИ-агент от имени человека; согласие на данные пока подтвердил только агент. Когда человек подтвердит заявку на её странице, придёт отдельное сообщение.'
+    : null;
   const selfMark = lead.isSelf ? 'Свой тест · ' : '';
   const title = source
     ? `<b>${selfMark}Лид — ${esc(source)}${label}${scoreText}</b>`
@@ -1649,6 +1662,7 @@ export async function notifyAdminNewLead(lead: {
     `<b>Имя:</b> ${esc(lead.name)}`,
     `<b>Тел:</b> <code>${esc(lead.phone)}</code>`,
   ];
+  if (agentLine) lines.push(agentLine);
 
   if (interests.length > 0) {
     const labels = interests.map(i => LEAD_INTEREST_LABELS[i] ?? i).join(', ');
@@ -1686,6 +1700,7 @@ export async function notifyAdminNewLead(lead: {
     title,
     '',
     `Заявка <code>${esc(lead.id)}</code>${source ? ` — ${esc(source)}` : ''}.`,
+    agentLine ?? '',
     lead.routeTitle ? `Маршрут: ${esc(lead.routeTitle)}` : '',
     ...planLines,
     'Имя и телефон — в кабинете: MAX недоступен, в Telegram они не передаются.',
