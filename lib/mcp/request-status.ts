@@ -58,6 +58,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { maxBot } from '@/lib/partners/channel-link';
+import { notifyLeadHumanConfirmedQuietly } from '@/lib/notifications/lead-human-confirmed';
 import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
@@ -813,6 +814,8 @@ export const CONFIRM_CONSENT_SQL = `
     RETURNING id
   )
   SELECT ((SELECT COUNT(*) FROM l) + (SELECT COUNT(*) FROM r) + (SELECT COUNT(*) FROM s))::int AS updated,
+         (SELECT COUNT(*) FROM l)::int AS lead_updated,
+         lp.id::text AS lead_id,
          COALESCE(lp.pd_consent_source, rp.pd_consent_source, sp.pd_consent_source) AS prior_source,
          (lp.id IS NOT NULL OR rp.id IS NOT NULL OR sp.id IS NOT NULL) AS target_exists
     FROM k
@@ -820,7 +823,14 @@ export const CONFIRM_CONSENT_SQL = `
     LEFT JOIN tour_seat_requests rp ON rp.id = k.seat_request_id
     LEFT JOIN stay_requests sp ON sp.id = k.stay_request_id`;
 
-interface ConfirmRow { updated: number; prior_source: string | null; target_exists: boolean }
+interface ConfirmRow {
+  updated: number;
+  /** Сколько строк leads переписано этой командой (0 или 1). */
+  lead_updated?: number;
+  lead_id?: string | null;
+  prior_source: string | null;
+  target_exists: boolean;
+}
 
 /**
  * Человек подтвердил согласие на странице заявки. Ключ не найден или истёк —
@@ -840,7 +850,13 @@ export async function confirmConsent(rawKey: unknown, record: PdConsentRecord): 
   if (!row) {
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней).`, 'key_not_found');
   }
-  if (row.updated > 0) return 'recorded';
+  if (row.updated > 0) {
+    // Лид агента подтвердил человек (05.11): менеджеру — отдельным сообщением,
+    // иначе пометка «человек не подтвердил» у лида в рабочем чате оставалась
+    // навсегда. Заявки на места и жильё уходят адресату сами и сюда не входят.
+    if (row.lead_id && Number(row.lead_updated ?? 0) > 0) await notifyLeadHumanConfirmedQuietly(row.lead_id);
+    return 'recorded';
+  }
   return row.target_exists ? 'already' : 'gone';
 }
 

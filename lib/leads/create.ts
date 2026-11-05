@@ -12,6 +12,7 @@ import { normalizeLeadChannel } from '@/lib/leads/channel';
 import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { linkContactQuietly } from '@/lib/crm/contacts';
+import { AGENT_CONSENT_SOURCE } from '@/lib/mcp/request-status';
 
 export interface CreateLeadParams {
   /** Имя туриста */
@@ -228,6 +229,7 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
       score: quickScore,
       labelRu: quality.labelRu,
       isSelf: is_self === true,
+      byAgent: pd_consent?.source === AGENT_CONSENT_SOURCE,
     }).catch((e) => console.error('[createLead] notifyAdminNewLead failed:', e));
   }
 

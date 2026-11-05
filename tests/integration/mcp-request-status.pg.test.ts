@@ -44,8 +44,15 @@
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { createTestDatabase } from '../helpers/pg-schema';
+
+// Сообщение менеджеру «человек подтвердил заявку» (05.11): здесь — кому и
+// когда его просят отправить; текст — tests/unit/lead-agent-vs-human.test.ts.
+const humanConfirmed = vi.fn();
+vi.mock('@/lib/notifications/lead-human-confirmed', () => ({
+  notifyLeadHumanConfirmedQuietly: (...a: unknown[]) => humanConfirmed(...a),
+}));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -143,12 +150,16 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
 
     // Лид в сиде без согласия → none; после подтверждения → human, источник, версия и адрес записаны.
     expect((await readRequestStatus(leadKey)).consent).toBe('none');
+    humanConfirmed.mockReset();
     expect(await confirmConsent(leadKey, record)).toBe('recorded');
+    // Менеджеру — что заявку подтвердил человек; ровно один раз и по этому лиду.
+    expect(humanConfirmed.mock.calls).toEqual([[String(leadId)]]);
     const lead = await pool.query<{ pd_consent_source: string; pd_consent_version: string; pd_consent_ip: string }>(
       'SELECT pd_consent_source, pd_consent_version, pd_consent_ip FROM leads WHERE id = $1', [leadId]);
     expect(lead.rows[0]).toMatchObject({ pd_consent_source: HUMAN_CONSENT_SOURCE, pd_consent_version: record.version, pd_consent_ip: '203.0.113.7' });
     expect((await readRequestStatus(leadKey)).consent).toBe('human');
     expect(await confirmConsent(leadKey, record)).toBe('already');
+    expect(humanConfirmed).toHaveBeenCalledTimes(1);
 
     // Запрос мест с записью агента → agent; подтверждение человека ложится поверх.
     await pool.query(
@@ -158,6 +169,8 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     );
     expect((await readRequestStatus(seatKey)).consent).toBe('agent');
     expect(await confirmConsent(seatKey, record)).toBe('recorded');
+    // Запрос мест — не лид: его адресат узнаёт сам, менеджеру не пишется.
+    expect(humanConfirmed).toHaveBeenCalledTimes(1);
     expect((await readRequestStatus(seatKey)).consent).toBe('human');
 
     // Чужой ключ — отказ по входу, не «записано».
