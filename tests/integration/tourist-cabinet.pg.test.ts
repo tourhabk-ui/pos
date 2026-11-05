@@ -1364,7 +1364,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       expect(inSeason.status).toBe(200);
       expect((await inSeason.json()).message).toBe('Открыто дат: 3');
       const outOfSeason = await open({ tourId: String(guideTour), startDate: d.c, endDate: d.e, slots: 4 });
-      expect((await outOfSeason.json()).message).toBe('Открыто дат: 0, вне сезона тура: 2');
+      expect((await outOfSeason.json()).message).toBe('Открыто дат: 0, не открыто 2 вне сезона тура (10.11.2026 — 15.12.2026): расширьте сезон кнопкой «Править» у тура и откройте эти даты снова');
       expect((await open({ tourId: String(foreignTour), startDate: d.a, endDate: d.a, slots: 4 })).status).toBe(404);
       expect((await pool.query(
         `SELECT date::text AS date, available_slots, booked_slots FROM tour_availability WHERE operator_tour_id = $1 ORDER BY date`, [guideTour],

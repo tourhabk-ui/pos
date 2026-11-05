@@ -829,7 +829,7 @@ withPg('«открой даты словами» на настоящем Postgre
       const preview = lastTo(CHAT_GUIDE)!.text;
       expect(preview).toMatch(/Понял так:[\s\S]*Тур: «Толбачик гида»[\s\S]*Мест на каждый выезд: 3/);
       expect(preview).toMatch(/Откроются \(1\)/);
-      expect(preview).toMatch(/Вне сезона тура, не открою \(1\): .*сезон тура меняет менеджер Ведара\./);
+      expect(preview).toMatch(/Вне сезона тура, не открою \(1\): .*сезон меняется кнопкой «Править» у тура в кабинете, раздел «Свои туры»\./);
       expect(preview).toMatch(/Тур — черновик, туристы даты пока не видят: пришлите описание менеджеру Ведара/);
       expect(await rows(tour.guideDraft)).toEqual([]);
       const id = proposalId(CHAT_GUIDE);
