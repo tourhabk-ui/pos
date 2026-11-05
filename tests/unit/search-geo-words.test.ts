@@ -7,7 +7,7 @@
  * скрытое место (is_visible = false) находилось. Сторож держит вызов роута:
  * каждое слово — свой параметр-шаблон, английское — русской основой, «%» —
  * буквой, места — только видимые. Исполнение SQL на настоящей схеме —
- * tests/integration/search-geo-words.pg.test.ts.
+ * tests/integration/mcp-search.pg.test.ts (поиск в шапке).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';

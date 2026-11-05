@@ -18,7 +18,7 @@
  * запроса уходят параметрами, шаблоном «содержит» (`containsPattern`).
  *
  * Сторож: tests/unit/search-geo-words.test.ts, настоящий PostgreSQL —
- * tests/integration/search-geo-words.pg.test.ts.
+ * tests/integration/mcp-search.pg.test.ts (поиск в шапке).
  */
 import { containsPattern, escapeLike } from '@/lib/db/like';
 import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
