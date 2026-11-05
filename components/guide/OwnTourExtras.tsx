@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Loader2, Plus, Trash2, ArrowUp, ImagePlus, Star, Film, FileSignature } from 'lucide-react';
 import { LIMITS } from '@/lib/guides/tour-edit/parse';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
+import { MEDIA_CACHE_CONTROL } from '@/lib/storage/media-cache';
 
 /** Сколько фото у тура — как у сервера (OWN_TOUR_PHOTOS_MAX). */
 export const PHOTOS_MAX = 20;
@@ -271,7 +272,36 @@ export async function grabVideoFrame(file: File): Promise<Blob> {
   }
 }
 
-async function uploadClip(file: File, grab: (f: File) => Promise<Blob>): Promise<OwnClip | { error: string }> {
+/** Записать байты прямо в хранилище по подписанной ссылке, с процентами. */
+function putWithProgress(url: string, body: Blob, contentType: string, onProgress?: (pct: number) => void): Promise<boolean> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.setRequestHeader('Cache-Control', MEDIA_CACHE_CONTROL);
+    if (onProgress) xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+    xhr.onerror = () => resolve(false);
+    xhr.send(body);
+  });
+}
+
+async function answer(res: Response): Promise<{ ok: boolean; status: number; json: Record<string, unknown> | null }> {
+  return { ok: res.ok, status: res.status, json: await res.json().catch(() => null) as Record<string, unknown> | null };
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+/**
+ * Видео — из браузера прямо в хранилище (05.11): сервер только подписывает
+ * ссылки и потом проверяет, что объект лёг. Байты ролика через приложение не
+ * идут.
+ */
+export async function uploadClip(
+  file: File,
+  grab: (f: File) => Promise<Blob>,
+  onProgress?: (pct: number) => void,
+): Promise<OwnClip | { error: string }> {
   let poster: Blob;
   try {
     poster = await grab(file);
@@ -279,15 +309,17 @@ async function uploadClip(file: File, grab: (f: File) => Promise<Blob>): Promise
     return { error: `обложку не снять (${e instanceof Error ? e.message : 'ошибка'}) — нужен MP4, который открывается в браузере` };
   }
   try {
-    const form = new FormData();
-    form.append('file', file);
-    form.append('poster', poster, 'poster.jpg');
-    const res = await fetch('/api/upload/tour-video', { method: 'POST', body: form });
-    const json = await res.json().catch(() => null) as Record<string, unknown> | null;
-    if (res.ok && typeof json?.key === 'string' && typeof json.poster === 'string' && typeof json.url === 'string' && typeof json.posterUrl === 'string') {
-      return { key: json.key, poster: json.poster, url: json.url, posterUrl: json.posterUrl, label: file.name.replace(/\.[^.]+$/, '') };
+    const sign = await answer(await fetch('/api/upload/tour-video', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ videoSize: file.size, posterSize: poster.size }) }));
+    const j = sign.json;
+    if (!sign.ok || typeof j?.uploadUrl !== 'string' || typeof j.posterUploadUrl !== 'string' || typeof j.key !== 'string'
+      || typeof j.poster !== 'string' || typeof j.url !== 'string' || typeof j.posterUrl !== 'string') {
+      return { error: typeof j?.error === 'string' ? j.error : `не загрузилось (HTTP ${sign.status})` };
     }
-    return { error: typeof json?.error === 'string' ? json.error : `не загрузилось (HTTP ${res.status})` };
+    if (!await putWithProgress(j.uploadUrl, file, 'video/mp4', onProgress)) return { error: 'хранилище не приняло видео — попробуйте ещё раз' };
+    if (!await putWithProgress(j.posterUploadUrl, poster, 'image/jpeg')) return { error: 'хранилище не приняло обложку — попробуйте ещё раз' };
+    const done = await answer(await fetch('/api/upload/tour-video/confirm', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ key: j.key, poster: j.poster }) }));
+    if (!done.ok) return { error: typeof done.json?.error === 'string' ? done.json.error : `не проверить загрузку (HTTP ${done.status})` };
+    return { key: j.key, poster: j.poster, url: j.url, posterUrl: j.posterUrl, label: file.name.replace(/\.[^.]+$/, '') };
   } catch {
     return { error: 'сеть недоступна — не загрузилось' };
   }
@@ -301,20 +333,23 @@ export function VideosField({ idBase, clips, onChange, grabFrame = grabVideoFram
   grabFrame?: (f: File) => Promise<Blob>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [pct, setPct] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const add = async (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
     setBusy(true);
     setProblem(null);
-    const r = await uploadClip(file, grabFrame);
+    setPct(null);
+    const r = await uploadClip(file, grabFrame, setPct);
     setBusy(false);
+    setPct(null);
     if ('error' in r) { setProblem(`${file.name}: ${r.error}`); return; }
     onChange([...clips, r]);
   };
   return (
     <fieldset className="space-y-2">
-      <legend className="text-sm text-[var(--text-secondary)]">Видео — MP4 до 100 МБ, обложкой станет кадр из ролика</legend>
+      <legend className="text-sm text-[var(--text-secondary)]">Видео — MP4 до 500 МБ, обложкой станет кадр из ролика</legend>
       {clips.length === 0 && <p className="text-sm text-[var(--text-muted)]">Видео нет.</p>}
       {clips.map((c, i) => (
         <div key={c.key} className="space-y-1" data-testid={`own-tour-clip-${i}`}>
@@ -335,7 +370,7 @@ export function VideosField({ idBase, clips, onChange, grabFrame = grabVideoFram
       {clips.length < CLIPS_MAX && (
         <label className="ds-btn ds-btn-secondary cursor-pointer" htmlFor={`${idBase}-video`}>
           {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Film size={14} aria-hidden />}
-          {busy ? 'Загружаю видео…' : 'Добавить видео'}
+          {busy ? `Загружаю видео…${pct !== null ? ` ${pct}%` : ''}` : 'Добавить видео'}
           <input id={`${idBase}-video`} type="file" accept="video/mp4" className="sr-only" disabled={busy}
             aria-label="Добавить видео" onChange={(e) => { void add(e.target.files); e.target.value = ''; }} />
         </label>

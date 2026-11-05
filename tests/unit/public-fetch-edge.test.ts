@@ -54,6 +54,7 @@ const PROTECTED_COMPONENT_DIRS = [
  */
 const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/upload/tour-video',    // кабинет гида «Свои туры»: видео тура — под входом гида (05.11)
+  'POST /api/upload/tour-video/confirm', // кабинет гида: проверка, что видео легло в хранилище (05.11)
   'POST /api/guide/own/material-consent', // кабинет гида: ссылка на подпись согласия — под входом (05.11)
   'POST /api/upload/tour-photo',    // кабинет гида «Свои туры»: фото тура — под входом гида (05.11)
   'GET /api/trips/active',          // главная: блок «активная поездка», гостю тихо не показывается
