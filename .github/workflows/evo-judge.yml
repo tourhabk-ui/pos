@@ -69,13 +69,23 @@ concurrency:
 jobs:
   judge:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 25 мин работы + до 15 мин ожидания предшественников (05.11).
+    timeout-minutes: 40
     permissions:
       issues: write
+      # Порядок цепочки (05.11): чтение прогонов предшественников.
+      actions: read
     env:
       DAYS: ${{ github.event.inputs.days || '7' }}
     steps:
       - uses: actions/checkout@v7
+
+      # Порядок цепочки эволюции (05.11, владелец: «решатель не раньше других»):
+      # звено не стартует, пока идут или ждут очереди его предшественники.
+      - name: Порядок — предшественники уже закончились
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/wait-for-predecessors.sh cron-evo.yml evo-review.yml evo-report.yml
 
       - uses: actions/setup-node@v7
         with:
