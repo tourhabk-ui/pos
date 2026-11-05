@@ -163,7 +163,12 @@ export const TEAM_SQL = {
       FROM operator_tours ot
      WHERE ot.operator_id = $1
        AND ot.deleted_at IS NULL
-       AND ot.is_published = TRUE
+       -- Опубликованные туры оператора и те, где гиду назначена бронь, даже
+       -- если тур снят с сайта (аудит 05.11: назначение на тур 116 есть, а
+       -- «Мои туры» гида пусты — тур не опубликован).
+       AND (ot.is_published = TRUE
+            OR EXISTS (SELECT 1 FROM operator_bookings ob
+                        WHERE ob.operator_tour_id = ot.id AND ob.guide_partner_id = $2 AND ob.deleted_at IS NULL))
      ORDER BY my_assignments DESC, future_slots DESC, ot.title`,
 
   // ── Сторона оператора ────────────────────────────────────────────────────

@@ -147,6 +147,18 @@ withPg('команда оператора и кабинет гида на нас
     expect(team.rows[0]).toMatchObject({ id: ids.g1, tours_count: '1' });
   });
 
+  it('снятый с сайта тур с назначением гида — в «Моих турах» гида есть; без назначения — нет (05.11)', async () => {
+    await pool.query(`UPDATE operator_tours SET is_published = FALSE WHERE id = $1::bigint`, [ids.tourA]);
+    try {
+      const assigned = await pool.query(TEAM_SQL.operatorTours, [ids.opA, ids.g1]);
+      expect(assigned.rows.map((r: { id: string }) => r.id)).toEqual([ids.tourA]);
+      const other = await pool.query(TEAM_SQL.operatorTours, [ids.opA, ids.g2]);
+      expect(other.rows).toHaveLength(0);
+    } finally {
+      await pool.query(`UPDATE operator_tours SET is_published = TRUE WHERE id = $1::bigint`, [ids.tourA]);
+    }
+  });
+
   it('календарь: вставка, пересечение, одна запись на бронь, владение', async () => {
     const ins = await pool.query<{ id: string }>(SCHEDULE_SQL.insert, [
       ids.g1, date, '10:00', '12:00', 'Выход с группой', null, ids.bookingA, 10, 'Парковка', null,
