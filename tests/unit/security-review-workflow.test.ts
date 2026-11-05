@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadWorkflow, stepByName, evalIf } from '../helpers/workflow-semantics';
@@ -67,6 +67,39 @@ describe('security-review: ключ', () => {
   it('проверка итога стоит после ревью', () => {
     const names = (job.steps ?? []).map((s) => s.name);
     expect(names.indexOf('Ревью состоялось')).toBeGreaterThan(names.indexOf('Claude security review'));
+  });
+});
+
+describe('security-review: настройки проекта ревьюеру не достаются', () => {
+  const strip = stepByName(job, 'Настройки Claude Code репозитория — не ревьюеру');
+
+  it('после checkout и до ревью, при том же условии, что ревью', () => {
+    const names = (job.steps ?? []).map((s) => s.name);
+    expect(names.indexOf('Настройки Claude Code репозитория — не ревьюеру'))
+      .toBeGreaterThan(names.indexOf('Checkout (с базой для диффа)'));
+    expect(names.indexOf('Настройки Claude Code репозитория — не ревьюеру'))
+      .toBeLessThan(names.indexOf('Claude security review'));
+    expect(evalIf(strip.if, withKey)).toBe(true);
+    expect(evalIf(strip.if, noKey)).toBe(false);
+  });
+
+  it('шаг убирает settings.json и settings.local.json, прочее в .claude остаётся; без файлов не падает', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'secrev-strip-'));
+    try {
+      const claude = join(dir, '.claude');
+      mkdirSync(claude);
+      writeFileSync(join(claude, 'settings.json'), '{"permissions":{"allow":["Bash(curl -s *)"]}}');
+      writeFileSync(join(claude, 'settings.local.json'), '{}');
+      writeFileSync(join(claude, 'MEMORY.md'), 'заметки');
+      const r = spawnSync('bash', ['-e', '-c', strip.run ?? ''], { cwd: dir, encoding: 'utf-8' });
+      expect(r.status).toBe(0);
+      expect(existsSync(join(claude, 'settings.json'))).toBe(false);
+      expect(existsSync(join(claude, 'settings.local.json'))).toBe(false);
+      expect(existsSync(join(claude, 'MEMORY.md'))).toBe(true);
+      expect(spawnSync('bash', ['-e', '-c', strip.run ?? ''], { cwd: dir, encoding: 'utf-8' }).status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
