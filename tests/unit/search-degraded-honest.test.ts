@@ -22,7 +22,9 @@ describe('/api/search', () => {
   it('отказ семантики — в лог и в ответ третьим состоянием', () => {
     expect(ROUTE).toMatch(/semanticDown = \(err instanceof Error \? err\.message : String\(err\)\)/);
     expect(ROUTE).toMatch(/console\.error\('\[search\] семантический поиск недоступен/);
-    expect(ROUTE).toMatch(/degraded: \{ semantic: 'unavailable' as const, reason: semanticDown \}/);
+    expect(ROUTE).toMatch(/degraded: \{ semantic: 'unavailable' as const, reason: SEMANTIC_UNAVAILABLE_REASON \}/);
+    // Внутренний текст ошибки (пути, имена библиотек) наружу не уходит.
+    expect(ROUTE).not.toMatch(/reason: semanticDown/);
   });
 
   it('деградированный ответ не кэшируется', () => {
