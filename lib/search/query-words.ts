@@ -22,7 +22,13 @@
  * Чего в нём нет — остаётся латиницей и в русском тексте не найдётся; это
  * «не искал», а не «нет» (§4.0).
  *
- * Сторожа: tests/unit/mcp-search-terms.test.ts, tests/unit/tour-filter.test.ts.
+ * Нарезка строки запроса на слова (`searchTerms`) — общая у `search`
+ * коннектора и поиска в шапке сайта (/api/search, 05.11): до этого шапка
+ * искала всю строку одним ILIKE, и «озеро Курильское», «Kurile Lake» и любой
+ * запрос из двух слов не в том порядке не находили ничего.
+ *
+ * Сторожа: tests/unit/mcp-search-terms.test.ts, tests/unit/tour-filter.test.ts,
+ * tests/unit/search-geo-words.test.ts.
  */
 
 /** Слова, которые ничего не ищут: предлоги, союзы, артикли. */
@@ -113,4 +119,34 @@ export function translateEn(word: string): readonly string[] | null {
     if (hit) return hit;
   }
   return null;
+}
+
+/** Больше слов в SQL не уходит: каждое — свой параметр и своё слагаемое ранга. */
+export const MAX_TERMS = 6;
+
+const CYRILLIC = /^[а-яё]+$/i;
+const LATIN = /^[a-z]+$/i;
+
+/**
+ * Слова запроса → основы для ILIKE, каждая своим параметром. Русское слово —
+ * основа (`stemRu`), английское — русские основы словаря (`translateEn`),
+ * незнакомое английское остаётся как есть. Служебные слова отбрасываются.
+ * Пустой итог невозможен: если значимых слов не осталось, ищется вся строка.
+ */
+export function searchTerms(query: string): string[] {
+  const raw = query.toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-яё0-9-]+/i).filter((w) => w.length >= 2);
+  const out: string[] = [];
+  const push = (t: string) => { if (t.length >= 2 && !out.includes(t)) out.push(t); };
+  for (const w of raw) {
+    if (QUERY_STOP_WORDS.has(w)) continue;
+    if (CYRILLIC.test(w)) { push(stemRu(w)); continue; }
+    if (LATIN.test(w)) {
+      const ru = translateEn(w);
+      if (ru) ru.forEach(push); else push(w);
+      continue;
+    }
+    push(w);
+  }
+  if (out.length === 0) return [query.trim().replace(/\s+/g, ' ')];
+  return out.slice(0, MAX_TERMS);
 }

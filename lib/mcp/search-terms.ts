@@ -29,36 +29,6 @@
  * Сторож: tests/unit/mcp-search-terms.test.ts.
  */
 
-import { EN_TO_RU, QUERY_STOP_WORDS, stemRu, translateEn } from '@/lib/search/query-words';
-
-// Основа и словарь живут в движке ПОИСК (lib/search/query-words, 29.10): тем
-// же правилом ищет фильтр get_tours. Здесь — только нарезка запроса для SQL.
-export { EN_TO_RU, stemRu, translateEn };
-
-/** Больше слов в SQL не уходит: каждое — свой параметр и своё слагаемое ранга. */
-export const MAX_TERMS = 6;
-
-const CYRILLIC = /^[а-яё]+$/i;
-const LATIN = /^[a-z]+$/i;
-
-/**
- * Слова запроса → основы для ILIKE, каждая своим параметром. Пустой итог
- * невозможен: если значимых слов не осталось, ищется вся строка, как раньше.
- */
-export function searchTerms(query: string): string[] {
-  const raw = query.toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-яё0-9-]+/i).filter((w) => w.length >= 2);
-  const out: string[] = [];
-  const push = (t: string) => { if (t.length >= 2 && !out.includes(t)) out.push(t); };
-  for (const w of raw) {
-    if (QUERY_STOP_WORDS.has(w)) continue;
-    if (CYRILLIC.test(w)) { push(stemRu(w)); continue; }
-    if (LATIN.test(w)) {
-      const ru = translateEn(w);
-      if (ru) ru.forEach(push); else push(w);
-      continue;
-    }
-    push(w);
-  }
-  if (out.length === 0) return [query.trim().replace(/\s+/g, ' ')];
-  return out.slice(0, MAX_TERMS);
-}
+// Основа, словарь и нарезка запроса живут в движке ПОИСК (lib/search/query-words):
+// тем же правилом ищут фильтр get_tours (29.10) и поиск в шапке сайта (05.11).
+export { EN_TO_RU, MAX_TERMS, searchTerms, stemRu, translateEn } from '@/lib/search/query-words';

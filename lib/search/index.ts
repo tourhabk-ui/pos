@@ -53,4 +53,5 @@ export {
 } from './tour-match';
 
 // Основа слова и английский словарь — общие с search коннектора (lib/mcp/search-terms).
-export { stemRu, translateEn, EN_TO_RU, QUERY_STOP_WORDS, SHORT_STEMS, SHORT_STEMS_NOT_SEARCHED } from './query-words';
+export { stemRu, translateEn, searchTerms, MAX_TERMS, EN_TO_RU, QUERY_STOP_WORDS, SHORT_STEMS, SHORT_STEMS_NOT_SEARCHED } from './query-words';
+export { placesSearchQuery, routesSearchQuery, parksSearchQuery } from './geo-query';

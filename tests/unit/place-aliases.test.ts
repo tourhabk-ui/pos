@@ -95,7 +95,8 @@ describe('слияние сохраняет имя', () => {
 
 describe('публичные чтения знают про слияние', () => {
   const CASES: Array<[string, string]> = [
-    ['поиск Ctrl+K', 'app/api/search/route.ts'],
+    // Поиск в шапке с 05.11 собирает SQL в lib/search/geo-query (по словам).
+    ['поиск Ctrl+K', 'lib/search/geo-query.ts'],
     ['автокомплит мест', 'app/api/places/route.ts'],
     ['карточка места (API)', 'lib/places/place-detail.ts'],
   ];
@@ -145,7 +146,7 @@ describe('поиск по псевдонимам действительно по
     // Своя копия условия — это четвёртое правило об одном и том же; в этом
     // репозитории так уже разъехались стиль линии, сравнение секретов и адрес
     // формы МЧС.
-    expect(read('app/api/search/route.ts')).toMatch(/MATCHES_NAME_OR_ALIAS\('p', '\$1'\)/);
+    expect(read('lib/search/geo-query.ts')).toMatch(/MATCHES_NAME_OR_ALIAS\('p',/);
     expect(read('app/api/places/route.ts')).toMatch(/MATCHES_NAME_OR_ALIAS\('p',/);
   });
 });
