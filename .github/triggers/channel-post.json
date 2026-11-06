@@ -1,6 +1,9 @@
 {
-  "channel": "travel",
-  "toMax": false,
-  "video": "https://github.com/tourhabk-ui/pos/releases/download/media-harbin-video-2026-10-30/vedar-harbin-test-ru.mp4",
-  "text": "Прямой рейс Харбин → Петропавловск-Камчатский по субботам. Ведар — бесплатный информационный портал о Камчатке, не турагентство. 78 туров: https://vedarai.ru/catalog #Камчатка #Харбин"
+  "channel": "ai",
+  "toMax": true,
+  "photos": [
+    "https://github.com/tourhabk-ui/pos/releases/download/media-ai-hub-anthropic-2026-11-06/cover-anthropic-895b.jpg",
+    "https://github.com/tourhabk-ui/pos/releases/download/media-ai-hub-anthropic-2026-11-06/cover-anthropic-895b-b.jpg"
+  ],
+  "text": "💰 <b>Anthropic перед IPO: $895 млрд на железо</b>\n\nПо X News (5.11) вокруг S-1:\n\n• <b>$895,4 млрд</b> commitments (Broadcom ~$161B, Google $121B+$150B опция, SpaceX до $121B, Amazon ~$110B). Половина — к 2030.\n• Выручка <b>$16,3 млрд</b> за H1 2026 (2024: $386 млн). Q3 в чате ~$17 млрд, run-rate ~$68 млрд.\n• Тикер <b>ANT</b>, пре-IPO $1,5–2 трлн. Cat Wu (Claude Code) → OpenAI.\n\nПараллельно <b>fal</b>: <b>$1,65 млрд</b>, оценка $16 млрд (Sequoia, Bessemer, NVIDIA).\n\nРынок покупает гигаватты и длинные compute-контракты.\n\nX: <a href=\"https://x.com/i/trending/2118441520319680789\">$895B</a> · <a href=\"https://x.com/i/trending/2118080201225638224\">pre-IPO</a> · <a href=\"https://x.com/i/trending/2117579420454248497\">уходы</a> · <a href=\"https://x.com/i/trending/2117689407469674503\">fal</a>\n\nЦифры из X News — сверяй с SEC.\n\n💳 <a href=\"https://telegram.me/WantToPayBot?start=w17851188--XYBXD\">Карта для оплаты AI</a>"
 }
