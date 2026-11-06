@@ -78,6 +78,7 @@ import { tourMatchEntry, matchTour, matchTourPlace, parseTourQuery, type TourMat
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
@@ -2762,6 +2763,13 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     return 'Неизвестный инструмент.';
   } catch (err) {
+    // Отказ по входу (дата плана «30 февраля») — не падение инструмента: на
+    // MCP его ловит роут и отвечает isError с кодом причины в журнале, в чате
+    // модель получает ту же фразу и переспрашивает человека.
+    if (err instanceof McpUserError) {
+      if (opts.surface === 'mcp') throw err;
+      return err.message;
+    }
     // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
     const code = (err as { code?: unknown })?.code;
     console.error('[kuzmich-tool] исполнение упало:', logText(name), typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));

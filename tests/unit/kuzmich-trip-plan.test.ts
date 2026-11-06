@@ -17,7 +17,8 @@ import { join } from 'node:path';
 import {
   parseChatInterests, matchPreset, formatTripPlanForChat,
   buildRefusal, inSeasonInterests, parsePlanStart, startNote,
-  readPlanDays, parseChatInterestsDetailed,
+  readPlanDays, readPlanDaysFor, parseChatInterestsDetailed,
+  rangeDays, planStartRefusal, type PlanStart,
 } from '@/lib/kuzmich/trip-plan-tool';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
@@ -286,82 +287,235 @@ describe('отказ называет причину, а не гоняет по 
 });
 
 /**
- * Когда считать поездку (решение владельца 19.09: «2 исправляй»).
+ * Когда считать поездку (решение владельца 19.09: «2 исправляй»; аудит
+ * планировщика 07.11, M1 и M2; аудит MCP 25.10, п. 1).
  *
- * До этого дня старт был зашит как `now + 30 дней`: спросить план на июль
- * было нельзя ничем, и турист, спрашивающий зимой про лето, получал план на
- * закрытый сезон. Четыре исхода вместо двух — взяли по умолчанию, разобрали,
- * не разобрали, уже прошло — и три последних различимы снаружи.
+ * До 19.09 старт был зашит как `now + 30 дней`: спросить план на июль было
+ * нельзя ничем. Потом разбор понял месяц, но не число: «15 июля» и «10–17
+ * июля» считались на 10 июля без единого слова, «2027-02-30» — на 2 марта,
+ * сегодняшняя дата — прошедшей, а непонятое — «через месяц». Исходы теперь:
+ * по умолчанию, разобрано (с концом диапазона или без), уже прошло и отказ
+ * без плана — у отказа даты нет вовсе, подставить её нечем.
  */
 describe('parsePlanStart: когда ехать', () => {
+  // 19.09 12:00 UTC — на Камчатке уже 20.09.
   const NOW = Date.parse('2026-09-19T12:00:00Z');
+  // 06.11 13:00 UTC — на Камчатке 07.11, 01:00.
+  const NOV7 = Date.parse('2026-11-06T13:00:00Z');
+  const isoOf = (s: PlanStart) => ('date' in s ? s.date.toISOString().slice(0, 10) : null);
+  const endOf = (s: PlanStart) => (s.kind === 'parsed' && s.end ? s.end.toISOString().slice(0, 10) : null);
 
-  it('не сказано — прежнее «через месяц», и это отдельный исход', () => {
+  it('не сказано — через 30 камчатских суток, полночью этой даты', () => {
     const s = parsePlanStart(undefined, NOW);
     expect(s.kind).toBe('default');
-    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+    expect(isoOf(s)).toBe('2026-10-20');
+    expect(s.kind === 'default' && s.date.getTime()).toBe(Date.parse('2026-10-20T00:00:00Z'));
+    // Час назад на Камчатке было ещё 19.09 — и «через месяц» тоже на день раньше.
+    expect(isoOf(parsePlanStart('  ', Date.parse('2026-09-19T11:00:00Z')))).toBe('2026-10-19');
   });
 
   it('месяц словом — ближайший будущий, а не этого года любой ценой', () => {
     // Сентябрь 2026 уже идёт: «в июле» значит июль 2027, а не прошедший.
     const july = parsePlanStart('хотим в июле', NOW);
     expect(july.kind).toBe('parsed');
-    expect(july.date.getUTCFullYear()).toBe(2027);
-    expect(july.date.getUTCMonth() + 1).toBe(7);
-
+    expect(isoOf(july)).toBe('2027-07-10');
     // А декабрь того же года ещё впереди.
-    const dec = parsePlanStart('в декабре', NOW);
-    expect(dec.date.getUTCFullYear()).toBe(2026);
-    expect(dec.date.getUTCMonth() + 1).toBe(12);
+    expect(isoOf(parsePlanStart('в декабре', NOW))).toBe('2026-12-10');
+    // Год назван — он и берётся.
+    expect(isoOf(parsePlanStart('в июле 2028', NOW))).toBe('2028-07-10');
   });
 
-  it('«мае» не путается с «мартом»', () => {
-    // Корень «ма» поймал бы оба — поэтому формы месяцев записаны явно.
-    expect(parsePlanStart('в мае', NOW).date.getUTCMonth() + 1).toBe(5);
-    expect(parsePlanStart('в марте', NOW).date.getUTCMonth() + 1).toBe(3);
+  it('«мая» — май, «марта» — март, «маяк» и «майские» — не май', () => {
+    expect(isoOf(parsePlanStart('в мае', NOW))).toBe('2027-05-10');
+    expect(isoOf(parsePlanStart('в марте', NOW))).toBe('2027-03-10');
+    // Родительного падежа мая в старом списке форм не было вовсе (M1).
+    expect(isoOf(parsePlanStart('15 мая', NOW))).toBe('2027-05-15');
+    expect(isoOf(parsePlanStart('3 марта', NOW))).toBe('2027-03-03');
+    expect(parsePlanStart('к маяку', NOW)).toEqual({ kind: 'invalid', raw: 'к маяку', reason: 'not_a_date' });
+    expect(parsePlanStart('на майские', NOW).kind).toBe('invalid');
+  });
+
+  it('число месяца не теряется: «15 июля» — 15-е, а не 10-е (M1)', () => {
+    for (const said of ['15 июля', '15-го июля', 'с 15 июля', '15.07', '15.07.2027', '15.07.27']) {
+      const s = parsePlanStart(said, NOW);
+      expect(s.kind, said).toBe('parsed');
+      expect(isoOf(s), said).toBe('2027-07-15');
+      expect(endOf(s), said).toBeNull();
+    }
+  });
+
+  it('диапазон — начало и конец, длина считается с первым и последним днём (M1)', () => {
+    for (const said of [
+      '10–17 июля', 'с 10 по 17 июля', '10-17 июля 2027', 'между 10 и 17 июля',
+      '10 июля — 17 июля', '10–17.07', '10.07–17.07.2027', '2027-07-10 — 2027-07-17',
+    ]) {
+      const s = parsePlanStart(said, NOW);
+      expect(isoOf(s), said).toBe('2027-07-10');
+      expect(endOf(s), said).toBe('2027-07-17');
+      expect(rangeDays(s), said).toBe(8);
+    }
+  });
+
+  it('диапазон через месяц и через Новый год', () => {
+    const summer = parsePlanStart('28 июля — 3 августа', NOW);
+    expect([isoOf(summer), endOf(summer), rangeDays(summer)]).toEqual(['2027-07-28', '2027-08-03', 7]);
+    const ny = parsePlanStart('28 декабря — 5 января', NOW);
+    expect([isoOf(ny), endOf(ny), rangeDays(ny)]).toEqual(['2026-12-28', '2027-01-05', 9]);
+    // Год только у конца — начало в предыдущем году, а не за год до него.
+    const named = parsePlanStart('28 декабря — 5 января 2028', NOW);
+    expect([isoOf(named), endOf(named)]).toEqual(['2027-12-28', '2028-01-05']);
   });
 
   it('точная дата берётся как есть', () => {
     const s = parsePlanStart('2027-07-10', NOW);
     expect(s.kind).toBe('parsed');
-    expect(s.date.toISOString().slice(0, 10)).toBe('2027-07-10');
+    expect(isoOf(s)).toBe('2027-07-10');
+  });
+
+  it('такой даты нет — отказ без даты, а не соседний день (M2)', () => {
+    // 2027-02-30 движок дат JS молча переносил на 2 марта.
+    for (const said of ['2027-02-30', '30 февраля', '31.04', '31.04.2027', '2026-13-01', '31 июня 2027']) {
+      const s = parsePlanStart(said, NOW);
+      expect(s.kind, said).toBe('invalid');
+      expect(s, said).not.toHaveProperty('date');
+      expect(s.kind === 'invalid' && s.reason, said).toBe('no_such_date');
+    }
+    // 29 февраля без года — ближайший високосный, а не отказ.
+    expect(isoOf(parsePlanStart('29 февраля', NOW))).toBe('2028-02-29');
+  });
+
+  it('конец раньше начала — отказ, а не поездка на год', () => {
+    const s = parsePlanStart('17–10 июля', NOW);
+    expect(s).toEqual({ kind: 'invalid', raw: '17–10 июля', reason: 'bad_range' });
+  });
+
+  it('сегодня по Камчатке — не прошлое (M2)', () => {
+    // Сегодняшняя ISO-дата считалась прошедшей, и план уезжал на месяц вперёд.
+    expect(parsePlanStart('2026-11-07', NOV7)).toMatchObject({ kind: 'parsed' });
+    expect(isoOf(parsePlanStart('2026-11-07', NOV7))).toBe('2026-11-07');
+    expect(isoOf(parsePlanStart('7 ноября', NOV7))).toBe('2026-11-07');
+    expect(parsePlanStart('2026-11-06', NOV7).kind).toBe('past');
+    // Тот же 06.11 по UTC, но на Камчатке ещё 06.11 — не прошлое.
+    expect(parsePlanStart('2026-11-06', Date.parse('2026-11-06T11:00:00Z')).kind).toBe('parsed');
+    expect(isoOf(parsePlanStart('сегодня', NOV7))).toBe('2026-11-07');
+    expect(isoOf(parsePlanStart('завтра', NOV7))).toBe('2026-11-08');
+    expect(isoOf(parsePlanStart('послезавтра', NOV7))).toBe('2026-11-09');
+    // Число без года — ближайшее не раньше сегодня: 5 ноября уже было.
+    expect(isoOf(parsePlanStart('5 ноября', NOV7))).toBe('2027-11-05');
+    expect(isoOf(parsePlanStart('15 ноября', NOV7))).toBe('2026-11-15');
   });
 
   it('дата в прошлом — «так нельзя», а не «не понял»', () => {
     // Починка разная: одному надо назвать год, другому — сказать понятнее.
-    const s = parsePlanStart('2020-07-10', NOW);
-    expect(s.kind).toBe('past');
-    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+    for (const said of ['2020-07-10', '15 мая 2025', '10.07.2025']) {
+      const s = parsePlanStart(said, NOW);
+      expect(s.kind, said).toBe('past');
+      expect(isoOf(s), said).toBe('2026-10-20');
+    }
+    expect(parsePlanStart('в октябре 2026', NOV7).kind).toBe('past');
+    // Месяц назван с годом и ещё идёт — с сегодняшнего числа, а не «прошло».
+    const midNov = Date.parse('2026-11-14T13:00:00Z');
+    expect(isoOf(parsePlanStart('в ноябре 2026', midNov))).toBe('2026-11-15');
   });
 
-  it('непонятое НЕ выдаётся за понятое', () => {
-    // Молча подставить «через месяц» значит ответить про другую поездку и не
-    // сказать об этом (§4.0).
-    const s = parsePlanStart('когда-нибудь потом', NOW);
-    expect(s.kind).toBe('unparsed');
-    expect(s.date.getTime()).toBe(NOW + 30 * 86400000);
+  it('непонятое — отказ без даты, а не план «через месяц»', () => {
+    // Агент, получивший план на другую дату, продолжает так, будто его дата
+    // принята (аудит MCP 25.10, п. 1): это опаснее отказа.
+    for (const said of ['когда-нибудь потом', 'летом', '1.5 месяца']) {
+      const s = parsePlanStart(said, NOW);
+      expect(s.kind, said).toBe('invalid');
+      expect(s, said).not.toHaveProperty('date');
+      expect(s.kind === 'invalid' && s.reason, said).toBe('not_a_date');
+    }
+  });
+});
+
+describe('planStartRefusal: отказ называет, что не так и как сказать иначе', () => {
+  const NOW = Date.parse('2026-09-19T12:00:00Z');
+  const refuse = (said: string) => {
+    const s = parsePlanStart(said, NOW);
+    if (s.kind !== 'invalid') throw new Error(`ждали отказ: ${said}`);
+    return planStartRefusal(s);
+  };
+
+  it('нет в календаре', () => {
+    const text = refuse('2027-02-30');
+    expect(text).toContain('«2027-02-30» нет в календаре');
+    expect(text).toContain('план не собран');
+    expect(text).not.toMatch(/2027-03-0[12]|2 марта/);
+  });
+
+  it('не дата', () => {
+    const text = refuse('Когда-нибудь потом');
+    // Цитата — как сказано, без переделки регистра.
+    expect(text).toContain('«Когда-нибудь потом» не разобрал как дату поездки');
+    expect(text).toMatch(/«15 июля».*«10–17 июля».*2027-07-15/);
+  });
+
+  it('конец раньше начала', () => {
+    expect(refuse('17–10 июля')).toContain('конец раньше начала');
   });
 });
 
 describe('startNote: про подмену даты говорят вслух', () => {
   const NOW = Date.parse('2026-09-19T12:00:00Z');
+  const noted = (said: string | undefined, plannedFor: string) => {
+    const s = parsePlanStart(said, NOW);
+    if (s.kind === 'invalid') throw new Error(`отказ вместо даты: ${said}`);
+    return startNote(s, plannedFor);
+  };
 
   it('молчит там, где говорить не о чем', () => {
-    expect(startNote(parsePlanStart(undefined, NOW), '19 октября')).toBe('');
-    expect(startNote(parsePlanStart('в июле', NOW), '10 июля')).toBe('');
-  });
-
-  it('непонятое названо цитатой и вместе с тем, что посчитали', () => {
-    const note = startNote(parsePlanStart('когда-нибудь потом', NOW), '19 октября');
-    expect(note).toContain('когда-нибудь потом');
-    expect(note).toContain('19 октября');
-    expect(note).toContain('2027-07-10');
+    expect(noted(undefined, '20 октября')).toBe('');
+    expect(noted('в июле', '10 июля')).toBe('');
+    expect(noted('15 июля', '15 июля')).toBe('');
+    expect(noted('10–17 июля', '10 июля')).toBe('');
   });
 
   it('прошедшее названо прошедшим', () => {
-    const note = startNote(parsePlanStart('2020-07-10', NOW), '19 октября');
+    const note = noted('2020-07-10', '20 октября');
     expect(note).toContain('уже прошло');
-    expect(note).toContain('19 октября');
+    expect(note).toContain('20 октября');
+  });
+});
+
+describe('readPlanDaysFor: длительность и диапазон в «когда»', () => {
+  const NOW = Date.parse('2026-09-19T12:00:00Z');
+  const range = parsePlanStart('10–17 июля', NOW);
+
+  it('длительность не названа — длина диапазона', () => {
+    expect(readPlanDaysFor(undefined, range)).toEqual({ days: 8, note: null });
+    expect(readPlanDaysFor('  ', range)).toEqual({ days: 8, note: null });
+  });
+
+  it('совпадает с диапазоном — без слов', () => {
+    expect(readPlanDaysFor('8', range)).toEqual({ days: 8, note: null });
+  });
+
+  it('расходится — названная длительность, и расхождение сказано', () => {
+    // «10–17 июля» при days 7 — ночи вместо дней: последний день не теряется молча.
+    const r = readPlanDaysFor('7', range);
+    expect(r.days).toBe(7);
+    expect(r.note).toContain('это 8 дней');
+    expect(r.note).toContain('считаю 7 дней, 10 июля — 16 июля');
+    expect(r.note).toContain('передай длительность 8');
+  });
+
+  it('слово вместо числа — по датам', () => {
+    expect(readPlanDaysFor('неделю', range)).toEqual({
+      days: 8, note: 'Длительность «неделю» не разобрал — считаю по датам: 8 дней.',
+    });
+  });
+
+  it('диапазон длиннее 21 дня — граница вслух', () => {
+    const long = parsePlanStart('1–30 июля', NOW);
+    expect(rangeDays(long)).toBe(30);
+    expect(readPlanDaysFor(undefined, long)).toEqual({ days: 21, note: 'План собираю до 21 дня — считаю 21, а не 30.' });
+  });
+
+  it('без диапазона — как прежде', () => {
+    expect(readPlanDaysFor('10', parsePlanStart('15 июля', NOW))).toEqual({ days: 10, note: null });
+    expect(readPlanDaysFor(undefined, parsePlanStart(undefined, NOW))).toEqual({ days: 7, note: null });
   });
 });
 
