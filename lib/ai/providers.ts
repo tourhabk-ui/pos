@@ -49,7 +49,7 @@ import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { usageSinkEnabled, sendUsageToProd } from '@/lib/ai/usage-sink';
 import { parseProviderUsage, TOOLS_LOOP_AGENT_ID, type ParsedUsage } from '@/lib/ai/provider-usage';
-import { inputEquivalentTokens } from '@/lib/ai/cache-pricing';
+import { inputEquivalentTokens, isDirectDeepSeekLogKey } from '@/lib/ai/cache-pricing';
 import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
 import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
 import { openRouterAttribution } from '@/lib/ai/attribution';
@@ -106,8 +106,18 @@ const COST_PER_1K: Record<string, number> = {
   'anthropic/claude-opus-5.5':                 0.00600,
   // 4.8 оставлена: по ней считается стоимость исторических строк llm_usage_log.
   'anthropic/claude-opus-4-8':                 0.01500,
-  'anthropic/claude-haiku-4-5-20251001':       0.00025,
-  'anthropic/claude-haiku-4-5':                0.00025,
+  // Sonnet 5.5 и Sonnet 5 — $2/$10 за млн, Haiku 5.5 — $0.10/$0.50 (подсказка
+  // до 100 тыс. токенов; длиннее — $0.50/$2.50), Haiku 4.5 — $1/$5. Источник —
+  // таблица моделей API Anthropic. Бленд тот же: Sonnet 0.875·2 + 0.125·10 = 3
+  // за млн, Haiku 5.5 — 0.15, Haiku 4.5 — 1.5. Строка Haiku 4.5 стояла здесь
+  // ценой 0.00025 — это ставки Haiku 3 ($0.25/$1.25), вшестеро ниже правды.
+  // Руки (claude-code-action) с 03.11 зовут Haiku 5.5 и Sonnet 5.5, а их строк
+  // не знал ни каталог, ни запас (перепись 06.11, prod-check 181).
+  'anthropic/claude-sonnet-5.5':               0.00300,
+  'anthropic/claude-sonnet-5':                 0.00300,
+  'anthropic/claude-haiku-5.5':                0.00015,
+  'anthropic/claude-haiku-4-5-20251001':       0.00150,
+  'anthropic/claude-haiku-4-5':                0.00150,
   'openai/gpt-4o-mini':                        0.00040,
   'meta-llama/llama-3.3-70b-instruct':         0.00020,
   'gemini-2.0-flash':                          0.00010,
@@ -181,6 +191,13 @@ function priceCatalogReachable(): boolean {
  * не умолчание $0.0005: догадка — ровно то, из-за чего заведён #1862
  * (умолчание втрое завышало DeepSeek Flash и втрое с половиной занижало
  * GLM 5.3 — обе живые модели, ни одной из которых в старой таблице не было).
+ *
+ * Исключение — вызов у самого DeepSeek (06.11): цена его официальной страницы
+ * из запасной таблицы, а не каталога. В каталоге OpenRouter та же модель у
+ * другого продавца и по другой цене (05.11: deepseek/deepseek-v4-pro — $1.60
+ * вход / $3.20 выход, у DeepSeek — $1.32 / $3.96 и кэш по своей доле).
+ * Модели DeepSeek, которой в таблице нет, остаётся каталог: цена перепродавца
+ * для бюджета лучше «не знаем».
  */
 export async function resolveCostUsd(
   model: string,
@@ -189,6 +206,7 @@ export async function resolveCostUsd(
 ): Promise<{ cost: number | null; basis: CostBasis }> {
   const candidates = priceLookupIds(model);
   if (!priceCatalogReachable()) return fromCostTable(candidates);
+  if (isDirectDeepSeekLogKey(model) && candidates.some((id) => id in COST_PER_1K)) return fromCostTable(candidates);
   try {
     for (const id of candidates) {
       const { rows } = await pool.query<{ usd_per_mtok_in: string | null; usd_per_mtok_out: string | null }>(
@@ -257,6 +275,16 @@ export function priceLookupIds(loggedModel: string): string[] {
   if (sep > 0) {
     const vendor = loggedModel.slice(0, sep);
     const rest = loggedModel.slice(sep + 1);
+    // Руки (scripts/hands-usage.mjs) приклеивают `anthropic:` к имени модели из
+    // сводки экшена, а с 03.11 экшен сам называет модель слагом каталога —
+    // `anthropic/claude-opus-5`. Ключ `anthropic:anthropic/claude-opus-5` не
+    // знал никто, и Opus рук ложился в книги без цены (перепись 06.11). Хвост
+    // после двоеточия уже И ЕСТЬ слаг того же вендора — он и кандидат.
+    if (rest.startsWith(`${vendor}/`) && !rest.includes(':')) {
+      ids.push(rest);
+      const dotted = vendor === 'anthropic' ? anthropicCatalogSlug(rest.slice(vendor.length + 1)) : null;
+      if (dotted && dotted !== rest) ids.push(dotted);
+    }
     // Слаг вендора не содержит двоеточий и косых: `timeweb:<agent_id>` так и
     // останется неизвестным — у агента шлюза нет цены ни в одном каталоге, и
     // притворяться, что есть, значило бы выдумать её.
@@ -426,9 +454,10 @@ function sqlState(e: unknown): string {
 
 /**
  * Цена строки с кэшем — во входо-эквиваленте (lib/ai/cache-pricing): множители
- * известны только у Anthropic.
+ * известны у Anthropic и, с 06.11, у самого DeepSeek для моделей, чьи цены
+ * записаны с его страницы (V4 Pro, Flash).
  *
- * У прочих вендоров при прочитанном (и только прочитанном) кэше — ВЕРХНЯЯ
+ * У прочих вендоров и моделей при прочитанном (и только прочитанном) кэше — ВЕРХНЯЯ
  * граница: прочитанное по полной цене входа, с пометкой `*_cache_upper_bound`.
  * Чтение кэша не бывает дороже обычного входа, так что граница честная. Прежде
  * здесь стояла цена NULL, и это закрывало от дневного бюджета главный путь:

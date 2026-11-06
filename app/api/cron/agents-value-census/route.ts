@@ -12,7 +12,9 @@
  * `llm_outside_registry` (агенты вне реестра — Кузьмич, оценщики, «руки»).
  * v3 (06.11): `llm_by_agent_model` — пары «агент × модель», самые частые
  * первыми, не больше LLM_BY_MODEL_LIMIT: какая модель осталась без цены и чем
- * тратит дорогой агент.
+ * тратит дорогой агент. v4 (06.11): у пары — токены (вход, выход, прочитано из
+ * кэша) и число вызовов, оценённых верхней границей: по ним прошлую сумму
+ * пересчитывают по цене продавца (книги прошлое не переписывают).
  *
  * Только чтение, только числа — ПД нет. Ручной: зовёт проба (prod-check),
  * объявлен в lib/agents/cron-schedulers.ts.
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
     const booksCost = rows.reduce((s, r) => s + (r.llm?.cost_usd ?? 0), 0);
     return NextResponse.json({
       ok: true,
-      probe: 'agents_value_census_v3',
+      probe: 'agents_value_census_v4',
       days,
       agents: rows.length,
       by_kind: byKind,

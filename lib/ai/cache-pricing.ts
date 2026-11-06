@@ -56,7 +56,50 @@ export function isAnthropicLogKey(model: string): boolean {
 }
 
 /**
- * Сколько обычных входных токенов стоит вход вместе с кэшем.
+ * Модель вызвана у самого DeepSeek, а не у перепродавца. Текстовый путь
+ * (`callDeepSeek`) пишет голое имя `deepseek-…`, нога инструментов —
+ * `deepseek:<модель>`. Слаг `deepseek/<модель>` — это OpenRouter, а
+ * `qwen:deepseek-…` — та же модель у DashScope: у обоих свои цены и свой кэш.
+ */
+export function isDirectDeepSeekLogKey(model: string): boolean {
+  return model.startsWith('deepseek:') || /^deepseek-/.test(model);
+}
+
+/**
+ * Чтение кэша у DeepSeek — доля цены входа (промаха кэша). Цены — официальная
+ * страница https://api-docs.deepseek.com/quick_start/pricing, записанные
+ * 03.11 в запасной таблице `COST_PER_1K` (lib/ai/providers.ts), за 1М токенов:
+ *   deepseek-v4-pro — попадание $0.044 при промахе $1.32, то есть 1/30;
+ *   deepseek-flash (он же deepseek-v4-flash) — $0.006 при $0.30, то есть 1/50.
+ * Скидка вне пика у DeepSeek одна на попадание и промах, доля от неё не
+ * меняется. Записи в кэш отдельной платы нет: промах оплачивается как вход.
+ *
+ * Только модели, чьи цены названы на той странице. Иной модели DeepSeek доли
+ * нет — её строка с кэшем остаётся верхней границей (прочитанное по полной
+ * цене входа), а не получает чужую долю.
+ *
+ * До 06.11 доли не было ни у одной: каждое попадание считалось полной ценой
+ * входа, а Кузьмич попадает в кэш почти на каждом ходу — длинный неизменный
+ * префикс подсказки. Перепись 06.11 (`agents-value-census`, prod-check 181):
+ * проверка Кузьмича на вопросах о турах — $73 за два дня именно по такой
+ * верхней границе.
+ */
+const DEEPSEEK_CACHE_READ_SHARE: Readonly<Record<string, number>> = {
+  'deepseek-v4-pro': 0.044 / 1.32,
+  'deepseek-flash': 0.006 / 0.30,
+  'deepseek-v4-flash': 0.006 / 0.30,
+};
+
+/** Доля цены входа за прочитанное из кэша у DeepSeek; null — доли не знаем. */
+export function deepseekCacheReadShare(model: string): number | null {
+  if (!isDirectDeepSeekLogKey(model)) return null;
+  const name = model.startsWith('deepseek:') ? model.slice('deepseek:'.length) : model;
+  return Object.prototype.hasOwnProperty.call(DEEPSEEK_CACHE_READ_SHARE, name) ? DEEPSEEK_CACHE_READ_SHARE[name] : null;
+}
+
+/**
+ * Сколько обычных входных токенов стоит вход вместе с кэшем. Множители —
+ * Anthropic (запись и чтение) и прямой DeepSeek (чтение, `deepseekCacheReadShare`).
  *
  * null — кэш есть, а множителей вендора мы не знаем: цена такой строки —
  * честное «не знаем» (§4.0), а не вход без кэша, выданный за полную цену.
@@ -69,10 +112,15 @@ export function inputEquivalentTokens(
   const creation = cache.creation ?? 0;
   const read = cache.read ?? 0;
   if (creation === 0 && read === 0) return promptTokens;
-  if (!isAnthropicLogKey(model)) return null;
-  return (
-    promptTokens
-    + creation * ANTHROPIC_CACHE_WRITE_5M_MULTIPLIER
-    + read * ANTHROPIC_CACHE_READ_MULTIPLIER
-  );
+  if (isAnthropicLogKey(model)) {
+    return (
+      promptTokens
+      + creation * ANTHROPIC_CACHE_WRITE_5M_MULTIPLIER
+      + read * ANTHROPIC_CACHE_READ_MULTIPLIER
+    );
+  }
+  // У DeepSeek записи в кэш нет как платы; названная запись — не его форма,
+  // и угадывать её цену не берёмся.
+  const share = creation === 0 ? deepseekCacheReadShare(model) : null;
+  return share === null ? null : promptTokens + read * share;
 }

@@ -75,8 +75,9 @@ describe('resolveCostUsd: каталог первичен, запас — тол
   it('каталог не спросился (сеть/БД упала) — не выдумывает цену, падает на запас', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     queryMock.mockRejectedValueOnce(new Error('connection refused'));
-    const { cost, basis } = await resolveCostUsd('deepseek-chat', 1000, 200);
-    expect(cost).toBeCloseTo((0.00050 * 1200) / 1000, 10);
+    // Не DeepSeek: прямой DeepSeek с 06.11 каталог не спрашивает вовсе.
+    const { cost, basis } = await resolveCostUsd('anthropic/claude-opus-5', 1000, 200);
+    expect(cost).toBeCloseTo((0.00750 * 1200) / 1000, 10);
     expect(basis).toBe('cost_table_fallback');
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
@@ -252,6 +253,90 @@ describe('DeepSeek V4 в запасной таблице', () => {
       queryMock.mockResolvedValue({ rows: [] });
       const { cost, basis } = await resolveCostUsd(model, 1000, 200);
       expect(cost).not.toBeNull();
+      expect(cost).toBeCloseTo((per1k * 1200) / 1000, 10);
+      expect(basis).toBe('cost_table_fallback');
+    });
+  }
+});
+
+/**
+ * 06.11, перепись agents-value-census (prod-check 181), пары «агент × модель».
+ * Две дыры одной сводкой: вызовы самого DeepSeek оценивались ценой OpenRouter
+ * за ту же модель, а Opus рук с 03.11 ложился в книги без цены — ключом
+ * `anthropic:anthropic/claude-opus-5`.
+ */
+describe('прямой DeepSeek — цена его страницы, а не каталога перепродавца', () => {
+  const OPENROUTER_PRICE = { rows: [{ usd_per_mtok_in: '1.6', usd_per_mtok_out: '3.2' }] };
+
+  for (const model of ['deepseek:deepseek-v4-pro', 'deepseek-v4-pro']) {
+    it(`${model} — по запасной таблице, каталог не спрашивается`, async () => {
+      queryMock.mockResolvedValue(OPENROUTER_PRICE);
+      const { cost, basis } = await resolveCostUsd(model, 1000, 200);
+      expect(cost).toBeCloseTo((0.00165 * 1200) / 1000, 10);
+      expect(basis).toBe('cost_table_fallback');
+      expect(queryMock).not.toHaveBeenCalled();
+    });
+  }
+
+  it('слаг OpenRouter — вызов шёл через OpenRouter, и цена его каталога', async () => {
+    queryMock.mockResolvedValue(OPENROUTER_PRICE);
+    const { cost, basis } = await resolveCostUsd('deepseek/deepseek-v4-pro', 1000, 200);
+    expect(cost).toBeCloseTo((1000 * 1.6 + 200 * 3.2) / 1e6, 10);
+    expect(basis).toBe('model_catalog');
+  });
+
+  it('модели DeepSeek нет в таблице — остаётся каталог, а не «не знаем»', async () => {
+    queryMock.mockImplementation(async (_sql: string, params: unknown[]) => (
+      params[0] === 'deepseek/deepseek-v4.1-flash'
+        ? { rows: [{ usd_per_mtok_in: '0.045', usd_per_mtok_out: '0.5' }] }
+        : { rows: [] }
+    ));
+    const { cost, basis } = await resolveCostUsd('deepseek:deepseek-v4.1-flash', 1000, 200);
+    expect(cost).toBeCloseTo((1000 * 0.045 + 200 * 0.5) / 1e6, 10);
+    expect(basis).toBe('model_catalog');
+  });
+
+  it('та же модель у DashScope (qwen:deepseek-…) прямым DeepSeek не считается', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const { cost, basis } = await resolveCostUsd('qwen:deepseek-v4-pro-0813', 1000, 200);
+    expect(cost).toBeNull();
+    expect(basis).toBe('unknown');
+  });
+});
+
+describe('руки называют модель слагом: anthropic:anthropic/<модель>', () => {
+  it('хвост после вендора — уже слаг того же вендора, он и кандидат', () => {
+    expect(priceLookupIds('anthropic:anthropic/claude-opus-5'))
+      .toEqual(['anthropic:anthropic/claude-opus-5', 'anthropic/claude-opus-5']);
+    expect(priceLookupIds('anthropic:anthropic/claude-haiku-5.5'))
+      .toEqual(['anthropic:anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-5.5']);
+    expect(priceLookupIds('anthropic:anthropic/claude-opus-5-5'))
+      .toEqual(['anthropic:anthropic/claude-opus-5-5', 'anthropic/claude-opus-5-5', 'anthropic/claude-opus-5.5']);
+  });
+
+  it('слаг чужого вендора в хвосте кандидатом не становится', () => {
+    expect(priceLookupIds('qwen:anthropic/claude-opus-5')).toEqual(['qwen:anthropic/claude-opus-5']);
+  });
+
+  it('Opus 5 рук находит цену и без каталога (раннер)', async () => {
+    delete process.env.DATABASE_URL;
+    const { cost, basis } = await resolveCostUsd('anthropic:anthropic/claude-opus-5', 1000, 200);
+    expect(cost).toBeCloseTo((0.0075 * 1200) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+  });
+
+  const anthropicTable: Array<[string, number]> = [
+    ['anthropic:anthropic/claude-haiku-5.5', 0.00015],
+    ['anthropic:anthropic/claude-sonnet-5.5', 0.003],
+    ['anthropic:claude-sonnet-5-5', 0.003],
+    ['anthropic:claude-sonnet-5', 0.003],
+    // Haiku 4.5 — $1/$5 за млн; прежние 0.00025 были ставками Haiku 3.
+    ['anthropic:claude-haiku-4-5-20251001', 0.0015],
+  ];
+  for (const [model, per1k] of anthropicTable) {
+    it(`${model} — цена таблицы моделей Anthropic в запасе`, async () => {
+      delete process.env.DATABASE_URL;
+      const { cost, basis } = await resolveCostUsd(model, 1000, 200);
       expect(cost).toBeCloseTo((per1k * 1200) / 1000, 10);
       expect(basis).toBe('cost_table_fallback');
     });
