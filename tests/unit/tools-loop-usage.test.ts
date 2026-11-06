@@ -244,6 +244,39 @@ describe('каждая нога цикла пишет расход в книги
     expect(basis).toBe('cost_table_fallback');
   });
 
+  // 06.11, перепись agents-value-census (prod-check 181): проверка Кузьмича на
+  // вопросах о турах — $73 за два дня по верхней границе, где каждое попадание
+  // в кэш DeepSeek считалось полной ценой входа. У V4 Pro попадание — 1/30
+  // промаха (официальная страница DeepSeek, записана 03.11 в COST_PER_1K).
+  it('DeepSeek V4 Pro с кэшем: прочитанное — по доле DeepSeek, цена точная, без пометки границы', async () => {
+    const { fetchMock } = provider('deepseek-v4-pro', DS_USAGE);
+    vi.stubGlobal('fetch', fetchMock);
+    const providers = await import('@/lib/ai/providers');
+
+    await providers.callDeepSeekWithTools(MESSAGES, [], 'deepseek-v4-pro');
+    await vi.waitFor(() => expect(usageInserts()).toHaveLength(1));
+    const [route, , , , cost, basis] = usageInserts()[0];
+    expect(route).toBe('deepseek:deepseek-v4-pro');
+    // (2 520 промаха + 20 480 / 30 попаданий + 200 выхода) × 0.00165 / 1000.
+    expect(cost as number).toBeCloseTo(((2_520 + 20_480 / 30 + 200) * 0.00165) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+    // Против прежней верхней границы — всемеро дешевле на этой форме хода.
+    expect(cost as number).toBeLessThan(((2_520 + 20_480 + 200) * 0.00165) / 1000 / 6);
+  });
+
+  it('доля кэша — только у прямого DeepSeek и только у моделей с его страницы', async () => {
+    const providers = await import('@/lib/ai/providers');
+    const flash = await providers.resolveCostWithCache('deepseek-flash', 1000, 100, { creation: null, read: 5000 });
+    expect(flash.basis).toBe('cost_table_fallback');
+    expect(flash.cost as number).toBeCloseTo(((1000 + 5000 * 0.02 + 100) * 0.0004125) / 1000, 10);
+    // Модели нет на странице — доли нет, граница сверху.
+    expect((await providers.resolveCostWithCache('deepseek:deepseek-chat', 1000, 100, { creation: null, read: 5000 })).basis)
+      .toBe('cost_table_fallback_cache_upper_bound');
+    // Та же модель у DashScope — не DeepSeek: ни его цены, ни его доли.
+    expect(await providers.resolveCostWithCache('qwen:deepseek-v4-pro-0813', 1000, 100, { creation: null, read: 5000 }))
+      .toEqual({ cost: null, basis: 'unknown' });
+  });
+
   it('запись в кэш у чужого вендора — цена «не знаем»: граница сверху есть только у чтения', async () => {
     const providers = await import('@/lib/ai/providers');
     expect(await providers.resolveCostWithCache('deepseek:deepseek-chat', 100, 10, { creation: 50, read: 0 }))

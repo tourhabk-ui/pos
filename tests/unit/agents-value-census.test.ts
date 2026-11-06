@@ -77,10 +77,21 @@ describe('расход модели по книгам', () => {
     expect(toModelSpend({
       agent_id: 'kuzmich-eval-commercial', model: 'anthropic/claude-opus-5.5', calls: '120', cost_usd: null,
       unpriced_calls: '120', days_active: '3', first_at: new Date('2026-10-30T05:00:00Z'), last_at: '2026-11-03T10:00:00Z',
+      prompt_tokens: '5000', completion_tokens: '700', cache_read_tokens: '90000', upper_bound_calls: '118',
     })).toEqual({
       agent_id: 'kuzmich-eval-commercial', model: 'anthropic/claude-opus-5.5', calls: 120, cost_usd: null,
       unpriced_calls: 120, days_active: 3, first_at: '2026-10-30T05:00:00.000Z', last_at: '2026-11-03T10:00:00.000Z',
+      prompt_tokens: 5000, completion_tokens: 700, cache_read_tokens: 90000, upper_bound_calls: 118,
     });
+  });
+
+  it('кэш не сообщён ни одной строкой пары — null, а не ноль', () => {
+    const row = toModelSpend({
+      agent_id: null, model: 'm', calls: 1, cost_usd: 0.1, unpriced_calls: 0, days_active: 1,
+      first_at: null, last_at: null, prompt_tokens: 10, completion_tokens: 5, cache_read_tokens: null, upper_bound_calls: 0,
+    });
+    expect(row.cache_read_tokens).toBeNull();
+    expect(row.prompt_tokens).toBe(10);
   });
 
   it('цены нет ни у одной строки — null, а не ноль', () => {
@@ -133,7 +144,7 @@ describe('GET /api/cron/agents-value-census', () => {
     expect(json.llm_books_registry_usd).toBe(3.1);
     expect(json.llm_unattributed).toEqual({ calls: 7, cost_usd: 0.2, unpriced_calls: 1 });
     expect(json.items.find((r: { key: string }) => r.key === 'evo-judge').llm.cost_usd).toBe(3.1);
-    expect(json.probe).toBe('agents_value_census_v3');
+    expect(json.probe).toBe('agents_value_census_v4');
     expect(json.llm_by_agent_model).toEqual([expect.objectContaining({ agent_id: 'evo-judge', model: 'anthropic/claude-opus-5.5', calls: 46, days_active: 1 })]);
     const kinds = json.items.map((r: { kind: string }) => r.kind);
     expect(kinds[0]).toBe('idle');

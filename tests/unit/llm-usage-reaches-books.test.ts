@@ -218,7 +218,9 @@ describe('недостижимый каталог цен не выдаётся �
     // разбор немоты флагмана в сторону БД, хотя сломан был сток расхода.
     expect(PROVIDERS).toMatch(/function priceCatalogReachable\(\): boolean \{\s*\n\s*return Boolean\(process\.env\.DATABASE_URL\);/);
     const at = PROVIDERS.indexOf('export async function resolveCostUsd');
-    const head = PROVIDERS.slice(at, at + 400);
+    // 600, а не 400: с 06.11 перед запросом стоит строка прямого DeepSeek
+    // (цена его страницы, без каталога) — порядок проверяется тот же.
+    const head = PROVIDERS.slice(at, at + 600);
     expect(head).toContain('if (!priceCatalogReachable()) return fromCostTable(candidates);');
     // Проверка стоит ДО try с запросом, а не внутри.
     expect(head.indexOf('priceCatalogReachable()')).toBeLessThan(head.indexOf('pool.query'));

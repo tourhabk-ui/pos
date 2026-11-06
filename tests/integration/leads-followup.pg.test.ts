@@ -561,5 +561,19 @@ withPg('перепись пользы агентов на схеме прода'
     expect(list[0]).toMatchObject({ agent_id: 'evo-judge', model: 'm', calls: 3, cost_usd: 2.75, unpriced_calls: 1, days_active: 2 });
     expect(list.find((r) => r.agent_id === null)).toMatchObject({ model: 'm', calls: 1, days_active: 1 });
     expect(list.reduce((n, r) => n + r.calls, 0)).toBe(5);
+    // Токены пары и верхняя граница (v4): кэш не сообщён — null, не ноль.
+    expect(list[0]).toMatchObject({ prompt_tokens: 30, completion_tokens: 15, cache_read_tokens: null, upper_bound_calls: 0 });
+
+    await pool.query(
+      `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis,
+                                  agent_id, cache_read_tokens, created_at) VALUES
+         ('deepseek:deepseek-v4-pro', 400, 50, 450, 0.2, 'model_catalog_cache_upper_bound', 'eval-x', 9000, NOW() - interval '1 day'),
+         ('deepseek:deepseek-v4-pro', 600, 70, 670, 0.1, 'cost_table_fallback',             'eval-x', NULL, NOW() - interval '1 day')`,
+    );
+    const again = (await pool.query(LLM_SPEND_BY_MODEL_SQL, [30])).rows.map(toModelSpend);
+    expect(again.find((r) => r.agent_id === 'eval-x')).toMatchObject({
+      model: 'deepseek:deepseek-v4-pro', calls: 2,
+      prompt_tokens: 1000, completion_tokens: 120, cache_read_tokens: 9000, upper_bound_calls: 1,
+    });
   });
 });

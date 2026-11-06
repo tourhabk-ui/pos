@@ -111,6 +111,12 @@ export const LLM_SPEND_SQL = `
  * Дни — число календарных дней с вызовами: «одна неделя» и «весь месяц» —
  * разные истории за одни деньги. Потолок строк — LLM_BY_MODEL_LIMIT,
  * самые частые первыми.
+ *
+ * v4 (06.11): токены пары — вход без кэша, выход, прочитано из кэша — и сколько
+ * вызовов оценено верхней границей (кэш по полной цене входа, `cost_basis`
+ * `*_cache_upper_bound`). По ним сумму пересчитывают по цене продавца, не
+ * дожидаясь, пока книги перепишут: прошлое в книгах не пересчитывается.
+ * Кэш не сообщён ни разу — `cache_read_tokens` null, а не ноль.
  */
 export const LLM_BY_MODEL_LIMIT = 40;
 export const LLM_SPEND_BY_MODEL_SQL = `
@@ -121,7 +127,11 @@ export const LLM_SPEND_BY_MODEL_SQL = `
          COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int  AS unpriced_calls,
          COUNT(DISTINCT (created_at AT TIME ZONE 'UTC')::date)::int AS days_active,
          MIN(created_at)                                          AS first_at,
-         MAX(created_at)                                          AS last_at
+         MAX(created_at)                                          AS last_at,
+         SUM(prompt_tokens)::bigint                               AS prompt_tokens,
+         SUM(completion_tokens)::bigint                           AS completion_tokens,
+         SUM(cache_read_tokens)::bigint                           AS cache_read_tokens,
+         COUNT(*) FILTER (WHERE cost_basis LIKE '%cache_upper_bound')::int AS upper_bound_calls
     FROM llm_usage_log
    WHERE created_at > NOW() - make_interval(days => $1::int)
    GROUP BY agent_id, route
@@ -134,6 +144,11 @@ export interface AgentModelSpend extends AgentLlmSpend {
   days_active: number;
   first_at: string | null;
   last_at: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  /** null — кэш не сообщён ни одной строкой пары (это не ноль, миграция 1285). */
+  cache_read_tokens: number | null;
+  upper_bound_calls: number;
 }
 
 interface RawModelSpendRow {
@@ -145,6 +160,10 @@ interface RawModelSpendRow {
   days_active: number | string;
   first_at: Date | string | null;
   last_at: Date | string | null;
+  prompt_tokens: number | string | null;
+  completion_tokens: number | string | null;
+  cache_read_tokens: number | string | null;
+  upper_bound_calls: number | string;
 }
 
 export function toModelSpend(r: RawModelSpendRow): AgentModelSpend {
@@ -158,6 +177,10 @@ export function toModelSpend(r: RawModelSpendRow): AgentModelSpend {
     days_active: Number(r.days_active),
     first_at: at(r.first_at),
     last_at: at(r.last_at),
+    prompt_tokens: Number(r.prompt_tokens ?? 0),
+    completion_tokens: Number(r.completion_tokens ?? 0),
+    cache_read_tokens: r.cache_read_tokens === null ? null : Number(r.cache_read_tokens),
+    upper_bound_calls: Number(r.upper_bound_calls),
   };
 }
 
