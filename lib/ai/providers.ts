@@ -275,6 +275,18 @@ export function priceLookupIds(loggedModel: string): string[] {
   if (sep > 0) {
     const vendor = loggedModel.slice(0, sep);
     const rest = loggedModel.slice(sep + 1);
+    // Шлюз Timeweb продаёт модели по цене их производителя: каталог Cloud AI
+    // 06.11 даёт рубли за токен, ровно ×135 к долларовой цене на каждой строке
+    // (Opus 5.5 — 0,00054 ₽ = $4 за млн, Haiku 5.5 — 1,35e-05 ₽ = $0,10,
+    // DeepSeek V4 Pro — 1,782e-04 ₽ = $1,32). Хвост ключа — слаг производителя,
+    // и цена его строки — цена вызова.
+    if (vendor === 'timeweb-gateway' && /^[\w.-]+\/[\w.-]+$/.test(rest)) {
+      ids.push(rest);
+      const [owner, name] = rest.split('/');
+      const dotted = owner === 'anthropic' ? anthropicCatalogSlug(name) : null;
+      if (dotted && dotted !== rest) ids.push(dotted);
+      return ids;
+    }
     // Руки (scripts/hands-usage.mjs) приклеивают `anthropic:` к имени модели из
     // сводки экшена, а с 03.11 экшен сам называет модель слагом каталога —
     // `anthropic/claude-opus-5`. Ключ `anthropic:anthropic/claude-opus-5` не
@@ -1239,6 +1251,86 @@ export async function callDeepSeekWithTools(
   }
 }
 
+/**
+ * Шлюз Timeweb AI Gateway — вторая нога цикла инструментов Кузьмича (владелец
+ * 06.11: «ок 2 варик», ключ — `TIMEWEB_AI_GATEWAY_KEY` в переменных Timeweb).
+ *
+ * Зачем. Замер 06.11 (ai-debug run 14–17): с прода из четырёх ног жила одна,
+ * DeepSeek. Qwen — исчерпана бесплатная квота, xAI и OpenRouter — гео-блок,
+ * YandexGPT на вопрос об обстановке безопасности отвечает заглушкой
+ * модерации. Шлюз Timeweb — OpenAI-совместимый адрес `api.timeweb.ai/v1` с
+ * одним ключом на весь каталог Cloud AI (194 модели 06.11): модель — поле
+ * запроса, вызов функций поддерживается (спецификация API Timeweb, probe-url
+ * 1019), путь российский — гео-блока нет.
+ *
+ * Модель из конфига, без резолва — по той же причине, что у Qwen: это живой
+ * путь, ответа ждёт человек в поле. По умолчанию Claude Haiku 5.5 — дешёвая
+ * и быстрая модель с вызовом инструментов (каталог Timeweb: 1,35e-05 ₽ за
+ * токен входа, $0,10 за млн); сменить — `TIMEWEB_GATEWAY_TOOLS_MODEL`.
+ *
+ * Адрес зашит, а не из env: ключ уходит ровно на один известный хост.
+ */
+export const TIMEWEB_AI_GATEWAY_BASE = 'https://api.timeweb.ai/v1';
+export const TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT = 'anthropic/claude-haiku-5-5';
+
+export function timewebGatewayToolsModel(): string {
+  return process.env.TIMEWEB_GATEWAY_TOOLS_MODEL?.trim() || TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT;
+}
+
+export async function callTimewebGatewayWithTools(
+  messages: ToolMsg[],
+  tools: ToolDefinition[],
+  timeoutMs = 25_000,
+): Promise<ToolsCallResult | null> {
+  const apiKey = process.env.TIMEWEB_AI_GATEWAY_KEY?.trim();
+  if (!apiKey) { recordAiLegFailure('timeweb-gateway:tools', 'no_key'); return null; }
+  const model = timewebGatewayToolsModel();
+
+  try {
+    const res = await fetchWithRetry(`${TIMEWEB_AI_GATEWAY_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        max_tokens: 1000,
+        messages: withoutCacheBreak(messages),
+        tools,
+        tool_choice: 'auto',
+      }),
+    }, { timeoutMs, label: `timeweb-gateway-tools:${model}` });
+
+    if (!res.ok) {
+      recordAiLegFailure('timeweb-gateway:tools', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
+
+    const data = await res.json() as {
+      choices?: Array<{
+        message?: { content?: string | null; tool_calls?: ToolCall[] };
+      }>;
+      usage?: unknown;
+    };
+    // Ключ `timeweb-gateway:<слаг производителя>`: перепись видит путь, а цена
+    // ищется по слагу (шлюз продаёт по цене производителя, priceLookupIds).
+    const usage = logToolsLegUsage('timeweb-gateway:tools', `timeweb-gateway:${answeredModel(model, data)}`, data?.usage);
+    const msg = data?.choices?.[0]?.message;
+    if (!msg) { recordAiLegFailure('timeweb-gateway:tools', `empty (${model}): ${describeEmptyCompletion(data)}`); return null; }
+
+    return {
+      content: msg.content ?? null,
+      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+      usage,
+    };
+  } catch (e) {
+    recordAiLegFailure('timeweb-gateway:tools', errorFailureReason(e));
+    return null;
+  }
+}
+
 // xAI tool-calling (callXaiWithTools) — вторая живая нога этого цикла, но
 // живёт она ниже, вместе с остальным xAI: ей нужен resolveXaiModel, а
 // соседние пробы режут этот файл по границам функций и на имени-приставке
@@ -1386,6 +1478,7 @@ export async function callToolsWaterfall(
 ): Promise<ToolsCallResult | null> {
   const run = () => firstNonNullToolLabelled([
     { provider: 'deepseek',   run: () => callDeepSeekWithTools(messages, tools) },   // первичный: доступен из РФ
+    { provider: 'timeweb-gateway', run: () => callTimewebGatewayWithTools(messages, tools) }, // 06.11: шлюз Timeweb, путь российский
     { provider: 'qwen',       run: () => callQwenWithTools(messages, tools) },       // возвращён 24.09: из РФ напрямую, быстрее xAI
     { provider: 'xai',        run: () => callXaiWithTools(messages, tools) },        // вторая ЖИВАЯ нога (19.09)
     { provider: 'openrouter', run: () => callOpenRouterWithTools(messages, tools) }, // последний шанс (авто-восстановление если разблокируют)
@@ -5809,42 +5902,31 @@ export async function probeQwenTools(): Promise<WaterfallDebugResult[]> {
 }
 
 /**
- * Замер варианта «шлюз Timeweb» (владелец 06.11). Агенты заведены
- * (`TIMEWEB_AI_AGENTS`) — каждый, не больше трёх, получает вопрос пробы с
- * инструментом. Не заведены — спрашивается только дорога: запрос без токена к
- * несуществующему агенту. Ответ шлюза любым кодом — «дорога с прода открыта,
- * агента нет»; сеть — «шлюз с прода не отвечает». Так «не настроено» не
- * выдаётся ни за «работает», ни за «недоступно».
+ * Замер ноги шлюза Timeweb AI Gateway (владелец 06.11: «ок 2 варик»). Тот же
+ * вопрос с инструментом, что у остальных ног: модель ноги и, для сравнения,
+ * GPT-6 Luna — равная по цене модель другого производителя. Ключа нет — так и
+ * сказано: переменная не задана или прод не перезапущен после правки.
  */
-export async function probeTimewebTools(): Promise<WaterfallDebugResult[]> {
-  const agents = Object.entries(getTimewebAgents()).slice(0, 3);
-  if (agents.length > 0) {
-    const out: WaterfallDebugResult[] = [];
-    for (const [name, agent] of agents) {
-      out.push(await probeToolsCall({
-        provider: 'timeweb:tools', model: name, url: `${TIMEWEB_AGENT_BASE}/${agent.agentId}/v1/chat/completions`,
-        headers: { Authorization: `Bearer ${agent.token}` }, bodyModel: 'agent',
-      }));
-    }
-    return out;
-  }
-  const start = Date.now();
-  const base = { provider: 'timeweb:tools', model: 'агент не заведён' };
-  try {
-    const res = await fetch(`${TIMEWEB_AGENT_BASE}/reachability-probe/v1/chat/completions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(15_000),
-    });
-    const text = (await res.text().catch(() => '')).slice(0, 160);
+export const TIMEWEB_GATEWAY_PROBE_ALT_MODEL = 'openai/gpt-6-luna';
+
+export async function probeTimewebGatewayTools(): Promise<WaterfallDebugResult[]> {
+  const apiKey = process.env.TIMEWEB_AI_GATEWAY_KEY?.trim();
+  const model = timewebGatewayToolsModel();
+  if (!apiKey) {
     return [{
-      ...base, status: 'no_key', http_status: res.status, latency_ms: Date.now() - start,
-      note: `TIMEWEB_AI_AGENTS не задан — агента нет. Дорога с прода до шлюза открыта: HTTP ${res.status} ${text}`,
-    }];
-  } catch (e) {
-    return [{
-      ...base, status: 'no_key', latency_ms: Date.now() - start,
-      note: `TIMEWEB_AI_AGENTS не задан — агента нет; шлюз с прода не ответил: ${String(e).slice(0, 120)}`,
+      provider: 'timeweb-gateway:tools', model, status: 'no_key', latency_ms: 0,
+      note: 'TIMEWEB_AI_GATEWAY_KEY не задан — или прод не перезапущен после правки переменных',
     }];
   }
+  const models = model === TIMEWEB_GATEWAY_PROBE_ALT_MODEL ? [model] : [model, TIMEWEB_GATEWAY_PROBE_ALT_MODEL];
+  const out: WaterfallDebugResult[] = [];
+  for (const m of models) {
+    out.push(await probeToolsCall({
+      provider: 'timeweb-gateway:tools', model: m, url: `${TIMEWEB_AI_GATEWAY_BASE}/chat/completions`,
+      headers: { Authorization: `Bearer ${apiKey}` }, bodyModel: m,
+    }));
+  }
+  return out;
 }
 
 /**
@@ -5853,6 +5935,7 @@ export async function probeTimewebTools(): Promise<WaterfallDebugResult[]> {
  * тему» и инструмент не позвал. Текстовая нога водопада живёт на
  * `yandexgpt-5.1/latest` — прежде чем назвать YandexGPT негодным, спрашиваем
  * и её: отказ старшей модели и отказ той, что работает, — разные выводы.
+ * Run 16: обе ответили той же заглушкой — запасной ногой не годится.
  */
 export const YANDEX_TOOLS_PROBE_MODELS = ['yandexgpt-5.1/latest', 'yandexgpt/latest'] as const;
 export type YandexToolsProbeModel = typeof YANDEX_TOOLS_PROBE_MODELS[number];
@@ -5990,7 +6073,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
   for (const model of YANDEX_TOOLS_PROBE_MODELS) results.push(await probeYandexTools(model));
   // 3б. Запасная нога Кузьмичу — замер двух вариантов (владелец 06.11).
   results.push(...await probeQwenTools());
-  results.push(...await probeTimewebTools());
+  results.push(...await probeTimewebGatewayTools());
 
   // 4. DeepSeek direct — пригодные модели из /models и три формы запроса.
   //    run 6 (04.09): deepseek-v4-pro отдал finish_reason=length, content пуст,

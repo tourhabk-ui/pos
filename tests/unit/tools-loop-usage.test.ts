@@ -145,6 +145,12 @@ const LEGS: Leg[] = [
     route: 'deepseek:deepseek-chat', prompt: 2_520, completion: 200, cache: 20_480,
   },
   {
+    // 06.11, владелец: «ок 2 варик» — шлюз Timeweb второй ногой.
+    name: 'Шлюз Timeweb', model: 'anthropic/claude-haiku-5-5', usage: OAI_USAGE,
+    run: (p) => p.callTimewebGatewayWithTools(MESSAGES, []),
+    route: 'timeweb-gateway:anthropic/claude-haiku-5-5', prompt: 6_000, completion: 310, cache: 18_000,
+  },
+  {
     name: 'Qwen', model: 'qwen-plus', usage: OAI_USAGE,
     run: (p) => p.callQwenWithTools(MESSAGES, []),
     route: 'qwen:qwen-plus', prompt: 6_000, completion: 310, cache: 18_000,
@@ -175,6 +181,7 @@ describe('каждая нога цикла пишет расход в книги
     vi.stubEnv('XAI_API_KEY', 'xai-test');
     vi.stubEnv('XAI_FAST_MODEL', 'grok-build-0.1');
     vi.stubEnv('OR_API_KEY', 'sk-or-test');
+    vi.stubEnv('TIMEWEB_AI_GATEWAY_KEY', 'tw-gw-test');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -264,6 +271,14 @@ describe('каждая нога цикла пишет расход в книги
     expect(cost as number).toBeLessThan(((2_520 + 20_480 + 200) * 0.00165) / 1000 / 6);
   });
 
+  it('шлюз Timeweb: цена по слагу производителя, кэш Claude по его долям', async () => {
+    const providers = await import('@/lib/ai/providers');
+    const r = await providers.resolveCostWithCache('timeweb-gateway:anthropic/claude-haiku-5-5', 6_000, 310, { creation: null, read: 18_000 });
+    expect(r.basis).toBe('cost_table_fallback');
+    // Haiku 5.5 — бленд 0.00015 за 1К; прочитанное — 0,1 входа.
+    expect(r.cost as number).toBeCloseTo(((6_000 + 18_000 * 0.1 + 310) * 0.00015) / 1000, 10);
+  });
+
   it('доля кэша — только у прямого DeepSeek и только у моделей с его страницы', async () => {
     const providers = await import('@/lib/ai/providers');
     const flash = await providers.resolveCostWithCache('deepseek-flash', 1000, 100, { creation: null, read: 5000 });
@@ -301,7 +316,8 @@ describe('каждая нога цикла пишет расход в книги
 
     const turn: Array<import('@/lib/ai/provider-usage').ParsedUsage | null> = [];
     const r = await providers.callToolsWaterfall(MESSAGES, [], turn);
-    expect(r?.provider).toBe('qwen');
+    // Следующая за DeepSeek нога с 06.11 — шлюз Timeweb (ключ задан в beforeEach).
+    expect(r?.provider).toBe('timeweb-gateway');
     expect(turn).toEqual([
       { promptTokens: 2_520, completionTokens: 200, cacheReadTokens: 20_480 },
       { promptTokens: 6_000, completionTokens: 310, cacheReadTokens: 18_000 },

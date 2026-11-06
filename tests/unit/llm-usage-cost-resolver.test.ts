@@ -342,3 +342,19 @@ describe('руки называют модель слагом: anthropic:anthrop
     });
   }
 });
+
+describe('шлюз Timeweb продаёт по цене производителя', () => {
+  it('ключ timeweb-gateway:<слаг> ищет цену по слагу производителя', () => {
+    expect(priceLookupIds('timeweb-gateway:anthropic/claude-haiku-5-5'))
+      .toEqual(['timeweb-gateway:anthropic/claude-haiku-5-5', 'anthropic/claude-haiku-5-5', 'anthropic/claude-haiku-5.5']);
+    expect(priceLookupIds('timeweb-gateway:openai/gpt-6-luna'))
+      .toEqual(['timeweb-gateway:openai/gpt-6-luna', 'openai/gpt-6-luna']);
+  });
+
+  it('Haiku 5.5 через шлюз — цена запаса без каталога', async () => {
+    delete process.env.DATABASE_URL;
+    const { cost, basis } = await resolveCostUsd('timeweb-gateway:anthropic/claude-haiku-5-5', 1000, 200);
+    expect(cost).toBeCloseTo((0.00015 * 1200) / 1000, 10);
+    expect(basis).toBe('cost_table_fallback');
+  });
+});
