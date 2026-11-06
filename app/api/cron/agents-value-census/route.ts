@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     const booksCost = rows.reduce((s, r) => s + (r.llm?.cost_usd ?? 0), 0);
     return NextResponse.json({
       ok: true,
-      probe: 'agents_value_census_v2',
+      probe: 'agents_value_census_v3',
       days,
       agents: rows.length,
       by_kind: byKind,
@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       llm_books_registry_usd: Number(booksCost.toFixed(4)),
       llm_unattributed: census.llm_unattributed,
       llm_outside_registry: census.llm_outside_registry,
+      llm_by_agent_model: census.llm_by_agent_model,
       // Сначала те, о ком решать: холостые, молчащие и без меры, потом польза.
       items: [...rows].sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || a.key.localeCompare(b.key)),
     });

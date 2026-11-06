@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const query = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
-import { classifyAgentValue, joinWithRegistry, splitSpend, spendIdOf, toSpend, toStats, type AgentRunStats } from '@/lib/agents/agents-value-census';
+import { classifyAgentValue, joinWithRegistry, splitSpend, spendIdOf, toModelSpend, toSpend, toStats, type AgentRunStats } from '@/lib/agents/agents-value-census';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 
 const stats = (over: Partial<AgentRunStats>): AgentRunStats => ({
@@ -73,6 +73,16 @@ describe('расход модели по книгам', () => {
     expect(split.byId.size).toBe(0);
   });
 
+  it('строка «агент × модель»: числа из базы — числами, дни и даты — как есть, без цены — null', () => {
+    expect(toModelSpend({
+      agent_id: 'kuzmich-eval-commercial', model: 'anthropic/claude-opus-5.5', calls: '120', cost_usd: null,
+      unpriced_calls: '120', days_active: '3', first_at: new Date('2026-10-30T05:00:00Z'), last_at: '2026-11-03T10:00:00Z',
+    })).toEqual({
+      agent_id: 'kuzmich-eval-commercial', model: 'anthropic/claude-opus-5.5', calls: 120, cost_usd: null,
+      unpriced_calls: 120, days_active: 3, first_at: '2026-10-30T05:00:00.000Z', last_at: '2026-11-03T10:00:00.000Z',
+    });
+  });
+
   it('цены нет ни у одной строки — null, а не ноль', () => {
     expect(toSpend({ agent_id: 'a', calls: '4', cost_usd: null, unpriced_calls: '4' }))
       .toEqual({ calls: 4, cost_usd: null, unpriced_calls: 4 });
@@ -100,7 +110,11 @@ describe('GET /api/cron/agents-value-census', () => {
 
   it('окно — из ?days с потолком 90; холостые первыми, полезные последними; в ответе нет текста прогонов', async () => {
     const [a, b] = CRON_REGISTRY.filter((e) => e.agentId).slice(0, 2);
-    query.mockImplementation(async (sql: string) => (/FROM llm_usage_log/.test(sql)
+    query.mockImplementation(async (sql: string) => (/GROUP BY agent_id, route/.test(sql)
+      ? { rows: [
+        { agent_id: 'evo-judge', model: 'anthropic/claude-opus-5.5', calls: 46, cost_usd: '3.1', unpriced_calls: 0, days_active: 1, first_at: null, last_at: null },
+      ] }
+      : /FROM llm_usage_log/.test(sql)
       ? { rows: [
         { agent_id: 'evo-judge', calls: 46, cost_usd: '3.1', unpriced_calls: 0 },
         { agent_id: null, calls: 7, cost_usd: '0.2', unpriced_calls: 1 },
@@ -119,6 +133,8 @@ describe('GET /api/cron/agents-value-census', () => {
     expect(json.llm_books_registry_usd).toBe(3.1);
     expect(json.llm_unattributed).toEqual({ calls: 7, cost_usd: 0.2, unpriced_calls: 1 });
     expect(json.items.find((r: { key: string }) => r.key === 'evo-judge').llm.cost_usd).toBe(3.1);
+    expect(json.probe).toBe('agents_value_census_v3');
+    expect(json.llm_by_agent_model).toEqual([expect.objectContaining({ agent_id: 'evo-judge', model: 'anthropic/claude-opus-5.5', calls: 46, days_active: 1 })]);
     const kinds = json.items.map((r: { kind: string }) => r.kind);
     expect(kinds[0]).toBe('idle');
     expect(kinds[kinds.length - 1]).toBe('productive');

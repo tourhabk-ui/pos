@@ -553,4 +553,13 @@ withPg('перепись пользы агентов на схеме прода'
     expect(by.get(null)).toEqual({ calls: 1, cost_usd: 0.5, unpriced_calls: 0 });
     expect(by.get('probe-unpriced')).toEqual({ calls: 1, cost_usd: null, unpriced_calls: 1 });
   });
+
+  it('книги по агенту и модели: модель — из route, дни — календарные, частые первыми, старое за окном не считается', async () => {
+    const { LLM_SPEND_BY_MODEL_SQL, toModelSpend } = await import('@/lib/agents/agents-value-census');
+    const { rows } = await pool.query(LLM_SPEND_BY_MODEL_SQL, [30]);
+    const list = rows.map(toModelSpend);
+    expect(list[0]).toMatchObject({ agent_id: 'evo-judge', model: 'm', calls: 3, cost_usd: 2.75, unpriced_calls: 1, days_active: 2 });
+    expect(list.find((r) => r.agent_id === null)).toMatchObject({ model: 'm', calls: 1, days_active: 1 });
+    expect(list.reduce((n, r) => n + r.calls, 0)).toBe(5);
+  });
 });
