@@ -174,7 +174,9 @@ describe('замер шлюза Timeweb AI Gateway', () => {
 
   // ai-debug run 18 (06.11, прод): GPT-6 Luna через шлюз — HTTP 400
   // «'max_tokens' is not supported with this model. Use 'max_completion_tokens'».
-  it('модели OpenAI — max_completion_tokens без max_tokens и температуры; Claude — как прежде', async () => {
+  // ai-debug run 19: с max_completion_tokens — HTTP 400 «Function tools with
+  // reasoning_effort are not supported … set reasoning_effort to 'none'».
+  it('модели OpenAI — max_completion_tokens и reasoning_effort none, без max_tokens и температуры; Claude — как прежде', async () => {
     process.env.TIMEWEB_AI_GATEWAY_KEY = 'tw-gw-test';
     const bodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
@@ -183,11 +185,12 @@ describe('замер шлюза Timeweb AI Gateway', () => {
     }));
     await probeTimewebGatewayTools();
     const byModel = Object.fromEntries(bodies.map((b) => [b.model, b]));
-    expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).toMatchObject({ max_completion_tokens: 1000 });
+    expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).toMatchObject({ max_completion_tokens: 1000, reasoning_effort: 'none' });
     expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).not.toHaveProperty('max_tokens');
     expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).not.toHaveProperty('temperature');
     expect(byModel[TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT]).toMatchObject({ max_tokens: 1000, temperature: 0.1 });
     expect(byModel[TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT]).not.toHaveProperty('max_completion_tokens');
+    expect(byModel[TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT]).not.toHaveProperty('reasoning_effort');
   });
 
   it('живая нога на модели OpenAI (TIMEWEB_GATEWAY_TOOLS_MODEL) шлёт поле, которое шлюз принимает', async () => {
@@ -201,7 +204,7 @@ describe('замер шлюза Timeweb AI Gateway', () => {
     try {
       const r = await callTimewebGatewayWithTools([{ role: 'user', content: 'Обстановка?' }], [YANDEX_TOOLS_PROBE_TOOL]);
       expect(r?.tool_calls?.[0]?.function.name).toBe('get_safety_status');
-      expect(bodies[0]).toMatchObject({ model: TIMEWEB_GATEWAY_PROBE_ALT_MODEL, max_completion_tokens: 1000 });
+      expect(bodies[0]).toMatchObject({ model: TIMEWEB_GATEWAY_PROBE_ALT_MODEL, max_completion_tokens: 1000, reasoning_effort: 'none' });
       expect(bodies[0]).not.toHaveProperty('max_tokens');
       expect(bodies[0]).not.toHaveProperty('temperature');
     } finally {
