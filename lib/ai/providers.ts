@@ -1277,6 +1277,31 @@ export function timewebGatewayToolsModel(): string {
   return process.env.TIMEWEB_GATEWAY_TOOLS_MODEL?.trim() || TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT;
 }
 
+/**
+ * Лимит ответа и температура для модели шлюза — по производителю.
+ *
+ * Модели OpenAI шлюз отвергает с `max_tokens`. ai-debug run 18 (06.11, прод),
+ * GPT-6 Luna вернула HTTP 400: «Unsupported parameter: 'max_tokens' is not
+ * supported with this model. Use 'max_completion_tokens' instead».
+ *
+ * Температура им не передаётся. Рассуждающие модели OpenAI принимают только
+ * значение по умолчанию. Это знание о вендоре, а не замер шлюза; без этого поля
+ * запрос верен при любом ответе на вопрос о температуре.
+ *
+ * Без этой развилки смена `TIMEWEB_GATEWAY_TOOLS_MODEL` на модель OpenAI
+ * выключала бы ногу: каждый вызов — 400, причина видна только в
+ * failure-trace.
+ */
+export function timewebGatewaySampling(
+  model: string,
+  maxTokens: number,
+  temperature: number,
+): Record<string, number> {
+  return model.startsWith('openai/')
+    ? { max_completion_tokens: maxTokens }
+    : { temperature, max_tokens: maxTokens };
+}
+
 export async function callTimewebGatewayWithTools(
   messages: ToolMsg[],
   tools: ToolDefinition[],
@@ -1295,8 +1320,7 @@ export async function callTimewebGatewayWithTools(
       },
       body: JSON.stringify({
         model,
-        temperature: 0.3,
-        max_tokens: 1000,
+        ...timewebGatewaySampling(model, 1000, 0.3),
         messages: withoutCacheBreak(messages),
         tools,
         tool_choice: 'auto',
@@ -5852,6 +5876,8 @@ const TOOLS_PROBE_MESSAGES = [
  */
 async function probeToolsCall(opts: {
   provider: string; model: string; url: string; headers: Record<string, string>; bodyModel: string;
+  /** Лимит и температура, если поля у адреса свои (шлюз: `timewebGatewaySampling`). */
+  sampling?: Record<string, number>;
 }): Promise<WaterfallDebugResult> {
   const start = Date.now();
   try {
@@ -5860,8 +5886,7 @@ async function probeToolsCall(opts: {
       headers: { 'Content-Type': 'application/json', ...opts.headers },
       body: JSON.stringify({
         model: opts.bodyModel,
-        temperature: 0.1,
-        max_tokens: 200,
+        ...(opts.sampling ?? { temperature: 0.1, max_tokens: 200 }),
         messages: TOOLS_PROBE_MESSAGES,
         tools: [YANDEX_TOOLS_PROBE_TOOL],
         tool_choice: 'auto',
@@ -5921,9 +5946,12 @@ export async function probeTimewebGatewayTools(): Promise<WaterfallDebugResult[]
   const models = model === TIMEWEB_GATEWAY_PROBE_ALT_MODEL ? [model] : [model, TIMEWEB_GATEWAY_PROBE_ALT_MODEL];
   const out: WaterfallDebugResult[] = [];
   for (const m of models) {
+    // Лимит тот же, что у живой ноги: рассуждающей модели OpenAI 200 токенов
+    // могут уйти на размышление раньше вызова инструмента.
     out.push(await probeToolsCall({
       provider: 'timeweb-gateway:tools', model: m, url: `${TIMEWEB_AI_GATEWAY_BASE}/chat/completions`,
       headers: { Authorization: `Bearer ${apiKey}` }, bodyModel: m,
+      sampling: timewebGatewaySampling(m, 1000, 0.1),
     }));
   }
   return out;
