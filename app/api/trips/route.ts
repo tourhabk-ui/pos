@@ -10,6 +10,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import type { UserTripListRow, UserTripRow } from '@/lib/types/db-rows';
 import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { withCalendarDates } from '@/lib/trips/trip-dates';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
       LIMIT 50
     `, [userId]);
 
-    return NextResponse.json({ success: true, data: rows });
+    return NextResponse.json({ success: true, data: rows.map(withCalendarDates) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Ошибка при загрузке маршрутов';
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
       'plan_saved',
     );
 
-    return NextResponse.json({ success: true, data: rows[0] }, { status: 201 });
+    return NextResponse.json({ success: true, data: withCalendarDates(rows[0]) }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json(

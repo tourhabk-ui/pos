@@ -12,6 +12,7 @@ import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
 import { tourPath } from '@/lib/tours/tour-url';
 import { dayPriceLine } from '@/lib/planner/day-price';
+import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import { OfflineSave } from './_OfflineSave';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers';
@@ -171,8 +172,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
   };
 
   const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
+  // Календарные дни без перевода в пояс браузера (lib/trips/trip-dates, 07.11).
   const dateRange = trip.arrival_date && trip.departure_date
-    ? `${trip.arrival_date} – ${trip.departure_date}` : null;
+    ? `${ruCalendarDate(trip.arrival_date)} – ${ruCalendarDate(trip.departure_date)}` : null;
   const isDraft = trip.source === 'draft';
   const expiresLabel = (() => {
     if (!trip.expires_at) return null;

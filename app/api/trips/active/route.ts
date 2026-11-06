@@ -37,6 +37,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { tripProgress, type TripProgress } from '@/lib/home/trip-mode';
+import { calendarDay } from '@/lib/trips/trip-dates';
 import type { ApiResponse } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -50,12 +51,6 @@ export interface ActiveTripDto {
   progress: TripProgress;
 }
 
-/** DATE из pg приходит как Date или строка — нормализуем в YYYY-MM-DD или null. */
-function toIsoDate(value: unknown): string | null {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-  return null;
-}
 
 const NO_STORE = {
   'Cache-Control': 'private, no-store, max-age=0',
@@ -94,8 +89,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const arrivalDate = toIsoDate(row.arrival_date);
-    const departureDate = toIsoDate(row.departure_date);
+    // DATE из pg — Date на полуночи пояса сервера; день берётся по его местным
+    // частям (lib/trips/trip-dates, 07.11), а не UTC-срезом, который в поясе
+    // впереди UTC давал вчерашний день.
+    const arrivalDate = calendarDay(row.arrival_date);
+    const departureDate = calendarDay(row.departure_date);
     const today = new Date().toISOString().slice(0, 10);
 
     const data: ActiveTripDto = {

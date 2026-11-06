@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { TripShareClient, type Trip } from './_TripShareClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import { GET as shareGet } from '@/app/api/trips/share/[token]/route';
 
 // План читается из базы на каждый запрос (черновик живёт 7 дней и правится).
@@ -60,7 +61,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
   const dateRange = trip.arrival_date && trip.departure_date
-    ? ` · ${trip.arrival_date} – ${trip.departure_date}` : '';
+    ? ` · ${ruCalendarDate(trip.arrival_date, 'short')} – ${ruCalendarDate(trip.departure_date, 'short')}` : '';
   return {
     title: `${trip.title}${dateRange}`,
     description: `Маршрут по Камчатке на ${Array.isArray(trip.days) ? trip.days.length : 0} дней. Открой и создай свой!`,

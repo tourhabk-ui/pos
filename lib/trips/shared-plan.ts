@@ -22,6 +22,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { loadDraft } from '@/lib/planner/plan-drafts';
+import { calendarDay, withCalendarDates } from '@/lib/trips/trip-dates';
 import type { DayPlan } from '@/lib/planner/engine';
 
 export interface SharedPlan {
@@ -70,7 +71,7 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
 
   try {
     const { rows } = await pool.query<{
-      id: string; title: string; arrival_date: string | null; departure_date: string | null;
+      id: string; title: string; arrival_date: unknown; departure_date: unknown;
       places: string[]; activities: string[]; days: unknown; transport_by_day: unknown;
     }>(
       `SELECT id, title, arrival_date, departure_date, places, activities, days, transport_by_day
@@ -83,7 +84,11 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
       return {
         kind: 'found',
         plan: {
-          ...r,
+          // Даты — календарные дни строкой (lib/trips/trip-dates, 07.11):
+          // node-pg отдаёт DATE как Date, и страница по ссылке печатала его
+          // UTC-моментом «2027-07-10T00:00:00.000Z», а предзаполнение МЧС
+          // такую дату не узнавало и шло без дат.
+          ...withCalendarDates(r),
           source: 'trip',
           days: Array.isArray(r.days) ? r.days : [],
           transport_by_day: (r.transport_by_day && typeof r.transport_by_day === 'object' ? r.transport_by_day : {}) as Record<string, string>,
@@ -110,8 +115,8 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
       source: 'draft',
       id: draft.id,
       title: draftTitle(days.length),
-      arrival_date: draft.params.arrivalDate ?? null,
-      departure_date: draft.params.departureDate ?? null,
+      arrival_date: calendarDay(draft.params.arrivalDate),
+      departure_date: calendarDay(draft.params.departureDate),
       places: [],
       activities: draft.params.interests ?? [],
       days,

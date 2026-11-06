@@ -53,7 +53,7 @@ import type {
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
-import { tourPath } from '@/lib/tours/tour-url';
+import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -174,12 +174,7 @@ function trunc(s: string | null | undefined, len: number): string {
 }
 
 /** Дата дня плана: прилёт + номер дня; прилёт не задан — пусто, турист выберет сам. */
-function dayDateFrom(arrival: string, idx: number): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(arrival)) return '';
-  const d = new Date(`${arrival}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + idx);
-  return d.toISOString().slice(0, 10);
-}
+const dayDateFrom = planDayDate;
 
 function guessZone(lat: number, lng: number): DayPlan['zone'] {
   const entries = Object.entries(ZONE_COORDS) as [string, [number, number]][];
@@ -372,6 +367,12 @@ interface DayCardProps {
   /** Запрос свободных мест у оператора по туру дня (29.09). */
   onAskSeats?: (tour: TourPreview) => void;
   /**
+   * Дата этого дня и вся группа — в форму тура по ссылке «оставить заявку»
+   * (07.11: форма открывалась с одним участником и без даты).
+   */
+  requestArrival?: string;
+  requestGuests?: number;
+  /**
    * Открытый день не заменяют — почему, коротко (plan-ops,
    * replaceRefusalShort); null — заменяют, и строка дня говорит
    * «редактирование».
@@ -396,7 +397,7 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 }
 
 function DayCard({
-  day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour,
+  day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
   editRefusal = null,
 }: DayCardProps) {
@@ -544,7 +545,7 @@ function DayCard({
             (разведка 08.08). Оператор виден на самой карточке. */}
         {topTour && day.type === 'activity' && (
           <a
-            href={tourPath(topTour)}
+            href={planDayTourHref(topTour, requestArrival ?? '', idx, requestGuests ?? 0)}
             target="_blank"
             rel="noopener noreferrer"
             title="Открыть тур и оставить заявку"
@@ -2667,6 +2668,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     isConfirmed={confirmedDays.has(day.day)}
                     transport={getTransport(day)}
                     topTour={toursPerActivity[day.activityType]}
+                    requestArrival={arrival}
+                    requestGuests={(planProfile?.adults ?? adults) + (planProfile?.children ?? childAges).length}
                     flightBadge={
                       days.length >= 3 && idx === 0
                         ? (flightArrival || 'Прилёт')

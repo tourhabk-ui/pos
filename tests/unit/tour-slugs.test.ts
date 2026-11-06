@@ -94,7 +94,8 @@ describe('производители канонических ссылок ст�
     'app/kuzmich/_KuzmichClient.tsx',
     'components/kuzmich/KuzmichWidget.tsx',
     'lib/ai/rag-context.ts',
-    'app/planner/_PlannerClient.tsx',
+    // Ссылка тура из дня плана (07.11 переехала из app/planner/_PlannerClient.tsx).
+    'lib/planner/day-tour-link.ts',
     'app/api/search/route.ts',
     'components/search/ToursForQuery.tsx',
     'app/fish/[id]/page.tsx',

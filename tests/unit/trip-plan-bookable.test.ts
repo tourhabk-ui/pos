@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { planDayTourHref } from '@/lib/planner/day-tour-link';
 
 const ROOT = process.cwd();
 const PLANNER = readFileSync(join(ROOT, 'app/planner/_PlannerClient.tsx'), 'utf-8');
@@ -23,8 +24,13 @@ const SHARE_API = readFileSync(join(ROOT, 'app/api/trips/share/[token]/route.ts'
 const SHARE_UI = readFileSync(join(ROOT, 'app/trip/[token]/_TripShareClient.tsx'), 'utf-8');
 
 describe('план ведёт к брони', () => {
-  it('тур дня в планере — ссылка на карточку тура, не на страницу оператора', () => {
-    expect(PLANNER).toMatch(/href=\{tourPath\(topTour\)\}/);
+  it('тур дня в планере — ссылка на карточку тура с формой, не на страницу оператора', () => {
+    // С 07.11 ссылку строит planDayTourHref: карточка тура, #booking, дата
+    // этого дня и вся группа (путь человека: форма открывалась с одним
+    // участником и без даты).
+    expect(PLANNER).toMatch(/href=\{planDayTourHref\(topTour,/);
+    expect(planDayTourHref({ id: 5, slug: 'gorely' }, '2027-07-10', 0, 2))
+      .toBe('/catalog/tours/gorely?date=2027-07-10&guests=2#booking');
     expect(PLANNER).not.toMatch(/href=\{`\/operators\/\$\{topTour\.operator_slug\}`\}/);
   });
 
