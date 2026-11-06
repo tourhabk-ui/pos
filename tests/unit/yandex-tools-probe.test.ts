@@ -14,7 +14,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   classifyYandexToolsReply, probeYandexTools, YANDEX_TOOLS_PROBE_TOOL, YANDEX_TOOLS_PROBE_MODELS,
   probeQwenTools, probeTimewebGatewayTools, TIMEWEB_AI_GATEWAY_BASE, TIMEWEB_GATEWAY_PROBE_ALT_MODEL,
-  TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT,
+  TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT, callTimewebGatewayWithTools,
 } from '@/lib/ai/providers';
 
 afterEach(() => {
@@ -169,6 +169,43 @@ describe('замер шлюза Timeweb AI Gateway', () => {
     for (const call of fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) {
       expect(call[0]).toBe(`${TIMEWEB_AI_GATEWAY_BASE}/chat/completions`);
       expect(new Headers(call[1].headers).get('authorization')).toBe('Bearer tw-gw-test');
+    }
+  });
+
+  // ai-debug run 18 (06.11, прод): GPT-6 Luna через шлюз — HTTP 400
+  // «'max_tokens' is not supported with this model. Use 'max_completion_tokens'».
+  it('модели OpenAI — max_completion_tokens без max_tokens и температуры; Claude — как прежде', async () => {
+    process.env.TIMEWEB_AI_GATEWAY_KEY = 'tw-gw-test';
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ function: { name: 'get_safety_status' } }] } }] }), { status: 200 });
+    }));
+    await probeTimewebGatewayTools();
+    const byModel = Object.fromEntries(bodies.map((b) => [b.model, b]));
+    expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).toMatchObject({ max_completion_tokens: 1000 });
+    expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).not.toHaveProperty('max_tokens');
+    expect(byModel[TIMEWEB_GATEWAY_PROBE_ALT_MODEL]).not.toHaveProperty('temperature');
+    expect(byModel[TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT]).toMatchObject({ max_tokens: 1000, temperature: 0.1 });
+    expect(byModel[TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT]).not.toHaveProperty('max_completion_tokens');
+  });
+
+  it('живая нога на модели OpenAI (TIMEWEB_GATEWAY_TOOLS_MODEL) шлёт поле, которое шлюз принимает', async () => {
+    process.env.TIMEWEB_AI_GATEWAY_KEY = 'tw-gw-test';
+    process.env.TIMEWEB_GATEWAY_TOOLS_MODEL = TIMEWEB_GATEWAY_PROBE_ALT_MODEL;
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'get_safety_status', arguments: '{}' } }] } }] }), { status: 200 });
+    }));
+    try {
+      const r = await callTimewebGatewayWithTools([{ role: 'user', content: 'Обстановка?' }], [YANDEX_TOOLS_PROBE_TOOL]);
+      expect(r?.tool_calls?.[0]?.function.name).toBe('get_safety_status');
+      expect(bodies[0]).toMatchObject({ model: TIMEWEB_GATEWAY_PROBE_ALT_MODEL, max_completion_tokens: 1000 });
+      expect(bodies[0]).not.toHaveProperty('max_tokens');
+      expect(bodies[0]).not.toHaveProperty('temperature');
+    } finally {
+      delete process.env.TIMEWEB_GATEWAY_TOOLS_MODEL;
     }
   });
 });
