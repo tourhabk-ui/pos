@@ -225,6 +225,12 @@ describe('платное ревью — только где ошибка сто�
       'app/api/bookings/route.ts', 'middleware.ts', 'lib/auth.ts', 'lib/auth/middleware.ts',
       'lib/payments/commission.ts', 'lib/mcp/write-guard.ts', 'lib/notifications/pd-alert.ts',
       'lib/max/webhook-url.ts', '.github/workflows/ci.yml',
+      // Ревью PR #3087: обработчики вне app/api, OAuth-доверие, шифрование,
+      // роли, контакты броней — и путь с кириллицей (git берёт его в кавычки).
+      'app/.well-known/oauth-authorization-server/route.ts', 'app/video/[...path]/route.ts',
+      'lib/crm/partner-oauth-public.ts', 'lib/encryption.ts', 'lib/roles/role-telegram.ts',
+      'lib/admin/booking-contact.ts', 'lib/leads/create.ts', 'lib/bookings/auto-confirm.ts',
+      'lib/auth/вход.ts', 'app/api/оплата/route.ts',
     ]) {
       expect([f, runScope([f], false).run]).toEqual([f, 'true']);
     }

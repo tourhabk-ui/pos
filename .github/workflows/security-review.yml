@@ -113,14 +113,21 @@ jobs:
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
         env:
           LABELED: ${{ github.event.action == 'labeled' }}
-          SENSITIVE: '^(app/api/|middleware\.ts$|lib/auth\.ts$|lib/auth/|lib/payments/|lib/security/|lib/mcp/|lib/notifications/|lib/max/|lib/miniapp/|lib/agents/compliance/|\.github/workflows/)'
+          # Обработчики запросов где угодно под app/ (не только app/api:
+          # .well-known с OAuth, video с путём от человека), вход и роли,
+          # оплата, MCP, данные людей (лиды, брони, CRM, админка,
+          # уведомления, шифрование), сторожа 152-ФЗ, workflow.
+          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/auth\.ts$|lib/auth/|lib/roles/|lib/account/|lib/api/|lib/payments/|lib/security/|lib/encryption\.ts$|lib/mcp/|lib/crm/|lib/admin/|lib/leads/|lib/bookings/|lib/notifications/|lib/max/|lib/miniapp/|lib/agents/compliance/|\.github/workflows/)'
         run: |
           if [ "$LABELED" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "Ревью по метке security-review."
             exit 0
           fi
-          if ! CHANGED=$(git diff --name-only HEAD^1 HEAD); then
+          # quotePath=false: иначе git берёт путь с кириллицей в кавычки с
+          # восьмеричными кодами, и якорь ^ не срабатывает (lib/auth/вход.ts
+          # прошёл бы как «не чувствительный»).
+          if ! CHANGED=$(git -c core.quotePath=false diff --name-only HEAD^1 HEAD); then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "::warning::Список файлов PR не прочитан — ревью идёт."
             exit 0
@@ -130,7 +137,7 @@ jobs:
             echo "PR трогает чувствительные пути — ревью идёт."
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Ревью безопасности не запускалось: PR не трогает API, вход, оплату, MCP, ПД и workflow. Нужно — повесьте метку security-review."
+            echo "::notice::Ревью безопасности не запускалось: PR не трогает обработчики запросов, вход, оплату, MCP, данные людей и workflow. Нужно — повесьте метку security-review."
           fi
 
       # Ревьюер не получает настроек Claude Code из репозитория. В
