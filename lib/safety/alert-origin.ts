@@ -44,7 +44,17 @@ interface OriginRule {
 
 const MCHS = 'МЧС России по Камчатскому краю';
 
+/**
+ * Строка «статус парка не известен» — вывод Ведара, а не пост ленты
+ * (lib/services/safety/park-reopening.ts): закрытие на межсезонье истекло, а
+ * сводки об открытии не было. Её `source_url` — адрес той сводки о закрытии,
+ * поэтому правило стоит ПЕРВЫМ: по адресу поста в MAX строка иначе сошла бы
+ * за ленту MAX, а без правила подписывалась «источник не записан».
+ */
+export const PARK_UNKNOWN_ID_PREFIX = 'park-unknown/';
+
 const RULES: readonly OriginRule[] = [
+  { test: (id) => id.startsWith(PARK_UNKNOWN_ID_PREFIX), origin: { key: 'park_unknown', label: 'Ведар: вывод из сводок о закрытии парка' } },
   { test: (id) => id.startsWith('t.me/kbgsras/'),  origin: { key: 'kbgsras',  label: 'КБГС РАН' } },
   { test: (id) => id.startsWith('t.me/eqkam/'),    origin: { key: 'eqkam',    label: 'КФ ФИЦ ЕГС РАН (EQKam)' } },
   // Таблица землетрясений с главной emsd.ru (24.09). Ключ совпадает с

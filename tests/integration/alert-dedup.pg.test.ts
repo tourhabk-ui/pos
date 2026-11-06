@@ -89,7 +89,10 @@ function externalAlertsDdl(): string {
   // 1212 (10.10): основание пункта ленты — проверки «основания дорожного
   // закрытия» ниже пишут и читают его колонки.
   const m1212 = readFileSync(join(process.cwd(), 'migrations', '1212_external_alerts_basis.sql'), 'utf-8');
-  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}\n${m1212}`;
+  // 1394 (06.11): дата последней сводки и кто погасил — saveEvent пишет
+  // last_published_at и сверяет ended_by. Файл трогает только эту таблицу.
+  const m1394 = readFileSync(join(process.cwd(), 'migrations', '1394_external_alerts_park_status.sql'), 'utf-8');
+  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}\n${m1212}\n${m1394}`;
 }
 
 // Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила
@@ -384,6 +387,150 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
       ]) {
         await expect(pool.query(sql, [a.id])).rejects.toMatchObject({ code: '23514' });
       }
+    });
+  });
+
+  // ── Дата последней сводки и парки закрытия (06.11, миграция 1394) ──────
+  // Повтор сводки — подтверждение: «сообщение от», отсчёт прохода открытий и
+  // вывод «не знаю» считаются от последней публикации. Повтор закрытия после
+  // сводки об открытии возвращает снятый ею парк — но только более поздний
+  // повтор, а не тот же пост, перечитанный через пять минут. Здесь — настоящий
+  // saveEvent и настоящий проход applyParkReopenings на одной базе.
+  describe('последняя сводка и парки закрытия', () => {
+    const DAY = 24 * HOUR;
+    const SEASONAL = 'Маршруты природных парков «Налычево» и «Ключевской» закрыты на период межсезонья';
+    const closure = (n: number, publishedAt: Date): SeismicEvent => ({
+      source_id: `visitkamchatka/2026-11-0${n}/tpgpark${n}`,
+      source_url: `https://t.me/s/visitkamchatka41/${n}`,
+      published_at: publishedAt,
+      alert_type: 'park_closure',
+      severity: 2,
+      title: SEASONAL,
+      description: '',
+      affected_zones: [],
+      affected_parks: ['nalychevo', 'klyuchevskoy'],
+      expires_hours: 21 * 24,
+    });
+    const row = async () => (await pool.query<{ parks: string[]; same: boolean; last: Date; live: boolean; ended_by: string | null }>(
+      `SELECT affected_parks AS parks, last_published_at = created_at AS same, last_published_at AS last,
+              expires_at > (NOW() AT TIME ZONE 'UTC') AS live, ended_by
+         FROM external_alerts WHERE external_id = 'visitkamchatka/2026-11-01/tpgpark1'`,
+    )).rows[0];
+
+    beforeEach(async () => {
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'visitkamchatka/2026-11-0_/tpgpark%' OR external_id LIKE 'visitkamchatka/%/opgpark%'`);
+    });
+
+    it('вставка пишет дату последней сводки = публикации; повтор позже двигает её вперёд, раньше — нет', async () => {
+      const t0 = new Date(Date.now() - 3 * DAY);
+      expect(await parser.saveEvent(closure(1, t0))).toBe('inserted');
+      expect((await row()).same).toBe(true);
+      // Повтор раньше (перепечатка старого поста) дату назад не уводит.
+      expect(await parser.saveEvent(closure(2, new Date(t0.getTime() - DAY)))).toBe('skipped');
+      expect((await row()).same).toBe(true);
+      const t2 = new Date(t0.getTime() + DAY);
+      expect(await parser.saveEvent(closure(3, t2))).toBe('skipped');
+      const r = await row();
+      expect(r.same).toBe(false);
+      // Стенное UTC: колонка без пояса, как created_at.
+      const wall = (await pool.query<{ ok: boolean }>(
+        `SELECT last_published_at = $1::timestamp AS ok FROM external_alerts WHERE external_id = 'visitkamchatka/2026-11-01/tpgpark1'`, [t2],
+      )).rows[0].ok;
+      expect(wall).toBe(true);
+    });
+
+    it('открытие снимает парк; тот же пост закрытия его не возвращает; более поздняя сводка — возвращает, и проход её не трогает', async () => {
+      const { applyParkReopenings } = await import('@/lib/services/safety/park-reopening');
+      const q = async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] };
+      const events: Array<{ decisionReason?: string; details?: Record<string, unknown> }> = [];
+      const record = async (e: { decisionReason?: string; details?: Record<string, unknown> }) => { events.push(e); };
+      const t0 = new Date(Date.now() - 3 * DAY);
+      await parser.saveEvent(closure(1, t0));
+      // Сводка об открытии Налычево сутками позже — рождена истёкшей.
+      const opening: SeismicEvent = {
+        source_id: 'visitkamchatka/2026-11-04/opgpark1',
+        source_url: 'https://t.me/s/visitkamchatka41/9',
+        published_at: new Date(t0.getTime() + DAY),
+        alert_type: 'park_reopening', severity: 0,
+        title: 'Маршруты парка «Налычево» вновь открыты для посещения', description: '',
+        affected_zones: [], affected_parks: ['nalychevo'], expires_hours: 0,
+      };
+      expect(await parser.saveEvent(opening)).toBe('inserted');
+      const born = (await pool.query<{ dead: boolean }>(
+        `SELECT expires_at <= (NOW() AT TIME ZONE 'UTC') AS dead FROM external_alerts WHERE external_id = $1`, [opening.source_id],
+      )).rows[0].dead;
+      expect(born, 'открытие рождается истёкшим').toBe(true);
+
+      const first = await applyParkReopenings(q, record);
+      expect(first.narrowed).toBe(1);
+      expect((await row()).parks).toEqual(['klyuchevskoy']);
+      expect(events[0].details).toMatchObject({ prior_parks: ['nalychevo', 'klyuchevskoy'], parks: ['klyuchevskoy'], opened_parks: ['nalychevo'] });
+
+      // Тот же пост перечитан — парк не возвращается, проход идемпотентен.
+      expect(await parser.saveEvent(closure(1, t0))).toBe('skipped');
+      expect((await row()).parks).toEqual(['klyuchevskoy']);
+      expect((await applyParkReopenings(q, record)).narrowed + (await applyParkReopenings(q, record)).ended).toBe(0);
+
+      // Новая сводка о закрытии после открытия — парк вернулся в конец списка.
+      expect(await parser.saveEvent(closure(5, new Date(t0.getTime() + 2 * DAY)))).toBe('skipped');
+      expect((await row()).parks).toEqual(['klyuchevskoy', 'nalychevo']);
+      const reparked = (await pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM safety_decision_events
+          WHERE event_type = 'dedup_skipped' AND details ? 'reparked_from'`,
+      )).rows[0].n;
+      expect(reparked).toBeGreaterThan(0);
+      // Закрытие теперь опубликовано позже открытия — проход его не трогает.
+      const again = await applyParkReopenings(q, record);
+      expect(again.narrowed + again.ended).toBe(0);
+      expect((await row()).parks).toEqual(['klyuchevskoy', 'nalychevo']);
+    });
+
+    it('погашенное открытием дедуп не воскрешает: повтор после открытия — новая строка, а не продление', async () => {
+      const t0 = new Date(Date.now() - 3 * DAY);
+      await parser.saveEvent(closure(1, t0));
+      await pool.query(
+        `UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC'), ended_by = 'reopening'
+          WHERE external_id = 'visitkamchatka/2026-11-01/tpgpark1'`,
+      );
+      expect(await parser.saveEvent(closure(6, new Date(t0.getTime() + 2 * DAY)))).toBe('inserted');
+      const r = await row();
+      expect(r.live).toBe(false);
+      expect(r.ended_by).toBe('reopening');
+    });
+
+    it('пост MAX без даты: повтор не двигает дату последней сводки, а открытие из MAX не пишется вовсе (ревью 06.11)', async () => {
+      // Раннер шлёт посты MAX без даты, и ingestMaxItems подставляет «сейчас».
+      // Такая дата не подтверждает сводку: иначе «сообщение от» называло бы
+      // днём поста день нашего чтения, а открытие гасило бы более позднее
+      // закрытие датой чтения.
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'max_mchs/%'`);
+      const text = 'Посещение маршрутов природного парка «Налычево» приостановлено на период межсезонья.';
+      const first = await parser.ingestMaxItems([{ id: 'max/pg-closure', text }]);
+      expect(first.events.map((e) => e.alert_type)).toEqual(['park_closure']);
+      expect(first.inserted).toBe(1);
+      const lastOf = async () => (await pool.query<{ last: string }>(
+        `SELECT last_published_at::text AS last FROM external_alerts WHERE external_id LIKE 'max_mchs/%' AND alert_type = 'park_closure'`,
+      )).rows.map((r) => r.last);
+      const before = await lastOf();
+      expect(before).toHaveLength(1);
+      await new Promise((r) => setTimeout(r, 20));
+      await parser.ingestMaxItems([{ id: 'max/pg-closure', text }]);
+      expect(await lastOf()).toEqual(before);
+
+      const opening = await parser.ingestMaxItems([{ id: 'max/pg-open', text: 'Маршруты природного парка «Налычево» вновь открыты для посещения туристов.' }]);
+      expect(opening.events.some((e) => e.alert_type === 'park_reopening')).toBe(false);
+      const rows = (await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM external_alerts WHERE external_id LIKE 'max_mchs/%' AND alert_type = 'park_reopening'`,
+      )).rows[0].n;
+      expect(rows).toBe(0);
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'max_mchs/%'`);
+    });
+
+    it('CHECK миграции 1394: ended_by — только admin, reopening, legacy', async () => {
+      await parser.saveEvent(closure(1, new Date(Date.now() - DAY)));
+      await expect(pool.query(
+        `UPDATE external_alerts SET ended_by = 'expired' WHERE external_id = 'visitkamchatka/2026-11-01/tpgpark1'`,
+      )).rejects.toMatchObject({ code: '23514' });
     });
   });
 });

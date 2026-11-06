@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { REOPENING_WINDOW_DAYS } from '@/lib/services/safety/park-reopening';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,10 @@ function slugify(title: string): string {
 
 /**
  * GET /api/admin/external-alerts - Активные алерты (ручные и автоматические)
+ *
+ * И сводки об открытии парков за окно прохода (REOPENING_WINDOW_DAYS), не
+ * отклонённые: они рождаются истёкшими, но снимают парки с закрытий, и
+ * дежурный должен их видеть, чтобы отклонить ложную (DELETE по id).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -67,8 +72,12 @@ export async function GET(request: NextRequest) {
               basis_title, basis_url, basis_origin, basis_check_outcome
        FROM external_alerts
        WHERE expires_at > ${UTC_WALL_NOW_SQL}
+          OR (alert_type = 'park_reopening'
+              AND ended_by IS NULL
+              AND COALESCE(last_published_at, created_at) > ${UTC_WALL_NOW_SQL} - make_interval(days => $1::int))
        ORDER BY severity DESC, created_at DESC
-       LIMIT 100`
+       LIMIT 100`,
+      [REOPENING_WINDOW_DAYS]
     );
 
     return NextResponse.json({

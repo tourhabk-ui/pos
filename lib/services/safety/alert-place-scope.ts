@@ -89,7 +89,7 @@ export const GEO_SCOPED_SQL = `
  * Придуманный радиус здесь опаснее широкой зоны — он ГАСИТ настоящий сигнал
  * (§4.0: не знаем — не гадаем).
  */
-export const PLACE_SCOPED_TYPES = ['road_closure', 'fire_danger', 'volcanic_eruption', 'park_closure'] as const;
+export const PLACE_SCOPED_TYPES = ['road_closure', 'fire_danger', 'volcanic_eruption', 'park_closure', 'park_status_unknown'] as const;
 export const PLACE_SCOPED_SQL = `ea.alert_type IN (${PLACE_SCOPED_TYPES.map((t) => `'${t}'`).join(', ')})`;
 
 /**
@@ -198,8 +198,28 @@ const PLACE_GENERIC_WORDS = [
 ];
 const PLACE_GENERIC_WORDS_SQL = PLACE_GENERIC_WORDS.map((w) => `'${w}'`).join(', ');
 
+/**
+ * «Статус парка не известен» (решение владельца 06.11, «1 да»): закрытие на
+ * межсезонье истекло, а сводки об открытии не было
+ * (lib/services/safety/park-reopening.ts). Привязка — та же, что у закрытия
+ * этого парка (PARK_SCOPED_SQL ниже): «не знаю» о парке накрывает ровно то,
+ * что закрытие накрывало.
+ */
+export const PARK_STATUS_UNKNOWN_TYPE = 'park_status_unknown';
+
+/**
+ * Совпавшая с местом тревога — «не знаю» о парке. Крон пересчёта статуса
+ * (safety-ingest, updateRealTimeStatus) красит такое место ЖЁЛТЫМ отдельным
+ * правилом: уровень 1 прочих родов, привязанных к месту, жёлтого не даёт
+ * (пропуска на перевал, дорога), и общее «своё предупреждение 1 → жёлтый»
+ * перекрасило бы и их. Без правила место осталось бы ЗЕЛЁНЫМ рядом со словами
+ * «статус не известен». Предикат здесь, а не в роуте, чтобы pg-тест исполнял
+ * тот же SQL.
+ */
+export const PARK_STATUS_UNKNOWN_SQL = `ea.alert_type = '${PARK_STATUS_UNKNOWN_TYPE}'`;
+
 export const PARK_SCOPED_SQL = `
-  ea.alert_type = 'park_closure'
+  ea.alert_type IN ('park_closure', '${PARK_STATUS_UNKNOWN_TYPE}')
   AND ea.affected_parks IS NOT NULL
   AND EXISTS (
     SELECT 1

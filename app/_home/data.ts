@@ -268,12 +268,14 @@ async function fetchSafety(): Promise<SafetySnapshot> {
         // это и есть ответ туристу: не «новости 18 дней», а «действует до».
         // Время — ISO с «Z» (стенное время UTC, lib/db/timestamp-iso): строку
         // без пояса сервер (UTC) и телефон на Камчатке разбирали по-разному.
+        // «Сообщение от» — дата ПОСЛЕДНЕЙ сводки (миграция 1394): повтор
+        // подтверждает тревогу, и подпись первого поста состарила бы её.
         `SELECT title, description, alert_type, severity,
-                ${utcWallIsoSql('created_at')} AS created_at, ${utcWallIsoSql('expires_at')} AS expires_at,
+                ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS created_at, ${utcWallIsoSql('expires_at')} AS expires_at,
                 external_id, source_url, basis_title, basis_url, basis_origin
            FROM (
              SELECT DISTINCT ON (lower(title))
-                    title, description, alert_type, severity::int AS severity, created_at, expires_at,
+                    title, description, alert_type, severity::int AS severity, created_at, last_published_at, expires_at,
                     external_id, source_url, basis_title, basis_url, basis_origin
                FROM external_alerts
               WHERE expires_at > ${UTC_WALL_NOW_SQL}

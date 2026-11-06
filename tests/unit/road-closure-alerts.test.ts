@@ -22,6 +22,11 @@ vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 
+const ledgerMock = vi.fn(async () => ({ ok: true, id: 1 }));
+vi.mock('@/lib/safety/ledger', () => ({
+  appendSafetyEvent: (...args: unknown[]) => ledgerMock(...(args as [])),
+}));
+
 const requireAdminMock = vi.fn();
 vi.mock('@/lib/auth/middleware', () => ({
   requireAdmin: (...args: unknown[]) => requireAdminMock(...args),
@@ -190,7 +195,8 @@ const VALID_BODY_ROAD = {
 
 describe('DELETE /api/admin/external-alerts/[id]', () => {
   it('гасит алерт (срок = «сейчас»), не удаляет строку', async () => {
-    queryMock.mockResolvedValue({ rows: [{ id: 42 }] });
+    // Первый запрос — отклонение сводки об открытии: строка не она.
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 42 }] });
 
     const res = await deleteAlert(
       jsonReq('http://localhost/api/admin/external-alerts/42', 'DELETE'),
@@ -198,9 +204,46 @@ describe('DELETE /api/admin/external-alerts/[id]', () => {
     );
     expect(res.status).toBe(200);
 
-    const [sql] = queryMock.mock.calls[0];
+    const [sql] = queryMock.mock.calls[1];
     expect(String(sql)).toContain(`SET expires_at = ${UTC_WALL_NOW_SQL}`);
     expect(String(sql)).not.toContain('DELETE FROM');
+    // Снято человеком — помечено (миграция 1394): истёкшее само закрытие парка
+    // становится «статус не известен», а снятое админом — нет.
+    expect(String(sql)).toMatch(/ended_by = 'admin'/);
+  });
+
+  it('сводку об открытии парка (рождается истёкшей) DELETE отклоняет, а не ищет живой', async () => {
+    // Ревью 06.11: ложное открытие гасило закрытие, а DELETE брал только
+    // живые строки. Возврат закрытий по журналу — на настоящем PostgreSQL
+    // (tests/integration/alert-place-scope.pg.test.ts).
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: '77', parks: ['nalychevo'] }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const res = await deleteAlert(
+      jsonReq('http://localhost/api/admin/external-alerts/77', 'DELETE'),
+      { params: Promise.resolve({ id: '77' }) }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as { message: string };
+    expect(body.message).toMatch(/^Сводка об открытии отклонена/);
+    const [sql, params] = queryMock.mock.calls[0];
+    expect(String(sql)).toMatch(/SET ended_by = 'admin'/);
+    expect(String(sql)).toMatch(/alert_type = 'park_reopening'/);
+    expect(params).toEqual(['77']);
+    // Живую строку с этим id второй путь не искал.
+    expect(queryMock.mock.calls.some(([s]) => /expires_at > /.test(String(s)) && /RETURNING id$/m.test(String(s)))).toBe(false);
+  });
+
+  it('отказ базы не глушится: 500 и SQLSTATE в логе', async () => {
+    queryMock.mockRejectedValue(Object.assign(new Error('column "ended_by" does not exist'), { code: '42703' }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await deleteAlert(
+      jsonReq('http://localhost/api/admin/external-alerts/42', 'DELETE'),
+      { params: Promise.resolve({ id: '42' }) }
+    );
+    expect(res.status).toBe(500);
+    expect(err.mock.calls.some((c) => c.includes('42703'))).toBe(true);
+    err.mockRestore();
   });
 
   it('уже погашенный/несуществующий -> 404', async () => {

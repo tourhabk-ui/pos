@@ -62,7 +62,9 @@ export function alertTerm(a: { at: string | null; until: string | null; manual?:
   // по ней лента писала бы «действует до 30 нояб.», а такой даты источник не
   // называл. Названная дата хранится концом дня по Камчатке (12:00 UTC), и
   // подпись по ней выходила на день позже. «Сообщение от» верно всегда.
-  if (a.type === 'park_closure') return 'technical';
+  // «Статус парка не известен» (06.11) — тем же правилом: её срок — сутки,
+  // продлеваемые проходом приёма, а «сообщение от» — дата последней сводки.
+  if (a.type === 'park_closure' || a.type === 'park_status_unknown') return 'technical';
   return isTechnicalExpiry(a.at, a.until) ? 'technical' : 'source';
 }
 

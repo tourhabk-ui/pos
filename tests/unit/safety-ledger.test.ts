@@ -185,7 +185,8 @@ describe('журнал пишет о событиях, а перечитанна
     // старое значение читается подзапросом ДО записи.
     // Снимок берёт и affected_zones (17.09 — лечение строк со старым дефолтом
     // avachinsky, см. tests/unit/alert-zone-unknown.test.ts): та же суть.
-    expect(body).toMatch(/SELECT id, expires_at, severity, affected_zones\s*\n\s*FROM external_alerts/);
+    // И парки с датой последней сводки (06.11, миграция 1394) — та же суть.
+    expect(body).toMatch(/SELECT id, expires_at, severity, affected_zones(?:, [a-z_]+)*\s*\n\s*FROM external_alerts/);
     expect(body).toMatch(/external_alerts\.expires_at IS DISTINCT FROM prev\.expires_at\) AS extended/);
     const extendedCheck = body.indexOf('.extended');
     const dedupEmit = body.indexOf("eventType: 'dedup_skipped'");

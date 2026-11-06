@@ -60,6 +60,7 @@ const KIND: Record<string, { kind: ChangeKind; label: string }> = {
   weather: { kind: 'weather', label: 'погода' },
   bear: { kind: 'bear', label: 'медведи' },
   park_closure: { kind: 'park', label: 'парк закрыт' },
+  park_status_unknown: { kind: 'park', label: 'статус парка не известен' },
   warning_test: { kind: 'other', label: 'проверка сирен' },
 };
 
@@ -111,9 +112,9 @@ export async function loadPlanChanges(limit = DESK_CHANGES_LIMIT): Promise<PlanC
       created_iso: string | null; expires_iso: string | null; external_id: string | null; source_url: string | null;
     }>(`
       SELECT title, description, alert_type, external_id, source_url,
-             ${utcWallIsoSql('created_at')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
+             ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
         SELECT DISTINCT ON (lower(title))
-               title, description, alert_type, severity::int AS severity, created_at,
+               title, description, alert_type, severity::int AS severity, created_at, last_published_at,
                expires_at, external_id, source_url
           FROM external_alerts
          WHERE expires_at > ${UTC_WALL_NOW_SQL}

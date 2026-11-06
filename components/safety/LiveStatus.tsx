@@ -79,7 +79,7 @@ function fmtTime(iso: string | null): string {
  * Для остальных типов возраст осмыслен: сводка недельной давности и правда
  * стареет.
  */
-const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide', 'park_closure', 'warning_test']);
+const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide', 'park_closure', 'park_status_unknown', 'warning_test']);
 
 export function alertStamp(a: { type: string | null; at: string | null; until: string | null; manual?: boolean }): string {
   // Ручная запись (#2495): срок ставит человек, а когда окончание не объявлено —

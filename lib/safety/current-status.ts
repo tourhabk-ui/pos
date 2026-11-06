@@ -25,6 +25,7 @@ import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/ale
 import { basisLine, basisOf, type AlertBasis } from '@/lib/safety/alert-basis';
 import { RESOLUTION_SQL_PATTERN } from '@/lib/safety/resolution-notice';
 import { alertDayLabel } from '@/lib/safety/alert-dates';
+import { PARK_UNKNOWN_MAX_DAYS } from '@/lib/safety/park-closure-terms';
 import { FEED_ALERT_TYPES, isFeedAlertType } from '@/lib/services/safety/feed-types';
 
 export interface CurrentSafetyStatus {
@@ -77,11 +78,21 @@ export interface CurrentSafetyStatus {
 }
 
 export interface FeedWhen {
-  /** Когда запись появилась (ISO, UTC). */
+  /**
+   * Дата последней сводки, подтвердившей запись (ISO, UTC):
+   * COALESCE(last_published_at, created_at), миграция 1394. У ручной записи —
+   * когда внесли.
+   */
   createdAt: string | null;
   /** До какого момента запись держится в ленте (ISO, UTC). */
   expiresAt: string | null;
   manual: boolean;
+  /**
+   * Запись — вывод Ведара, а не пост ленты: «статус парка не известен»
+   * (06.11). Её никто не публиковал, и «опубликовано» о ней неправда.
+   * Только когда true: прежние места поля не знают.
+   */
+  derived?: boolean;
 }
 
 export interface OutsideFeed {
@@ -157,8 +168,8 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
         external_id: string | null; source_url: string | null;
       }>(`
         SELECT title, basis_title, basis_url, basis_origin, external_id, source_url,
-               ${utcWallIsoSql('created_at')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
-          SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at, expires_at,
+               ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
+          SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at, last_published_at, expires_at,
                  external_id, source_url,
                  basis_title, basis_url, basis_origin
             FROM external_alerts
@@ -174,11 +185,15 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       // Время в external_alerts — стенное UTC у всех писателей (миграция
       // external_alerts_utc_wall перевела ручные записи, писавшие NOW() в
       // поясе сессии; UTC_WALL_NOW_SQL держит это дальше).
-      feedWhen = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => ({
-        createdAt: r.created_iso,
-        expiresAt: r.expires_iso,
-        manual: alertOrigin(r.external_id, r.source_url)?.key === 'manual',
-      }));
+      feedWhen = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => {
+        const origin = alertOrigin(r.external_id, r.source_url)?.key;
+        return {
+          createdAt: r.created_iso,
+          expiresAt: r.expires_iso,
+          manual: origin === 'manual',
+          ...(origin === 'park_unknown' ? { derived: true } : {}),
+        };
+      });
     } catch (err) {
       console.error('[current-status] лента предупреждений не прочитана:', err instanceof Error ? err.message : err);
     }
@@ -247,6 +262,12 @@ export { ALERT_SEVERITY_WORDS, alertSeverityWord };
 export function feedWhenLine(when: FeedWhen | null | undefined, nowMs: number = Date.now()): string | null {
   if (!when) return null;
   const day = alertDayLabel(when.createdAt, nowMs);
+  // «Статус парка не известен»: дата — последней сводки о сезонном закрытии,
+  // а держится запись, пока мы не найдём сводку об открытии (не дольше
+  // предела от той сводки).
+  if (when.derived) {
+    return `вывод Ведара по сводке о сезонном закрытии${day ? ` от ${day}` : ', дата не записана'}; держится, пока не найдём сводку об открытии, но не дольше ${PARK_UNKNOWN_MAX_DAYS} суток от той сводки`;
+  }
   const origin = when.manual ? 'внесено вручную' : 'опубликовано';
   const since = day ? `${origin} ${day}` : `${origin}, дата не записана`;
   const until = alertDayLabel(when.expiresAt, nowMs);

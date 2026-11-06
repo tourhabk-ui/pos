@@ -8,7 +8,7 @@
  *   affected_zones: ['avachinsky','northern','eastern','western']
  */
 
-import { detectParkClosure, parkClosureHours, PARK_CLOSURE_DEFAULT_HOURS } from '@/lib/safety/park-closure';
+import { detectParkClosure, detectParkReopening, parkClosureHours, PARK_CLOSURE_DEFAULT_HOURS } from '@/lib/safety/park-closure';
 import { query } from '@/lib/database';
 import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
 import { zonesForEpicenter, distanceKm, PETROPAVLOVSK } from '@/lib/services/safety/seismic-zones';
@@ -33,12 +33,22 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure' | 'warning_test';
+  /**
+   * Дата публикации не пришла с постом и подставлена временем чтения (MAX,
+   * ingestMaxItems). Такая дата не подтверждает сводку: повтор не сдвигает
+   * last_published_at, и «сообщение от» не называет днём поста день нашего
+   * чтения (ревью 06.11).
+   */
+  published_at_inferred?: boolean;
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure' | 'park_reopening' | 'warning_test';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
   affected_zones: string[];
-  /** Слаги закрытых парков (parks.slug) — только у park_closure (#2133). */
+  /**
+   * Слаги парков (parks.slug): закрытых — у park_closure (#2133), открытых —
+   * у park_reopening (06.11).
+   */
   affected_parks?: string[];
   // Для землетрясений
   magnitude?: number;
@@ -757,10 +767,39 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     // трогается. Общее «всегда перезаписывать зоны» здесь нельзя по той же
     // причине, что и понижение разряда: сломанный регэксп сузил бы зону
     // молча, в сторону тишины.
+    //
+    // Дата последней публикации (06.11, миграция 1394). Повтор — это новое
+    // подтверждение, и «сообщение от» в ленте, отсчёт прохода открытий и
+    // вывод «не знаю» считаются от НЕГО, а не от первого поста: иначе сводка,
+    // повторённая вчера, читалась бы трёхнедельной. Только вверх, как срок.
+    // Дата, подставленная временем чтения (пост MAX без даты), уходит NULL:
+    // GREATEST её не берёт, и повтор такого поста ничего не подтверждает.
+    //
+    // Парки закрытия — ОБЪЕДИНЯЮТСЯ с парками повтора, но только если повтор
+    // опубликован ПОЗЖЕ прежней последней публикации. Сводка об открытии могла
+    // снять с закрытия Налычево (applyParkReopenings), и новая сводка «все
+    // парки закрыты» обязана его вернуть. Тот же пост, перечитанный через
+    // пять минут, — не новая сводка: без условия он возвращал бы парк каждым
+    // прогоном, а проход снимал бы снова. Порядок прежних парков не трогается.
+    //
+    // Условие «ещё жива и не снята» — и на самой строке, а не только в `prev`:
+    // при параллельном прогоне (GET и POST) снятая между снимком и записью
+    // строка перепроверяется по новой версии и не воскресает.
     const dup = await query(
       `UPDATE external_alerts
        SET expires_at = GREATEST(external_alerts.expires_at, $4),
            severity = GREATEST(external_alerts.severity, $5),
+           last_published_at = GREATEST(COALESCE(external_alerts.last_published_at, external_alerts.created_at), $8::timestamp),
+           affected_parks = CASE
+             WHEN external_alerts.alert_type = 'park_closure'
+              AND cardinality(COALESCE($9::text[], '{}')) > 0
+              AND $8::timestamp > COALESCE(external_alerts.last_published_at, external_alerts.created_at)
+              AND NOT ($9::text[] <@ COALESCE(external_alerts.affected_parks, '{}'))
+             THEN COALESCE(external_alerts.affected_parks, '{}'::text[])
+                  || ARRAY(SELECT p FROM unnest($9::text[]) AS p
+                            WHERE NOT (p = ANY(COALESCE(external_alerts.affected_parks, '{}'::text[]))))
+             ELSE external_alerts.affected_parks
+           END,
            affected_zones = CASE
              WHEN (external_alerts.affected_zones = ARRAY['avachinsky']::text[]
                    -- Пустые зоны — «не установлено»: сегодняшний разбор,
@@ -779,20 +818,28 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
              ELSE external_alerts.affected_zones
            END
        FROM (
-         SELECT id, expires_at, severity, affected_zones
+         SELECT id, expires_at, severity, affected_zones, affected_parks, last_published_at, created_at
            FROM external_alerts
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
             AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
             AND expires_at > ${UTC_WALL_NOW_SQL}
+            AND ended_by IS NULL
        ) prev
        WHERE external_alerts.id = prev.id
+         AND external_alerts.expires_at > ${UTC_WALL_NOW_SQL}
+         AND external_alerts.ended_by IS NULL
        RETURNING external_alerts.id,
                  (external_alerts.expires_at IS DISTINCT FROM prev.expires_at) AS extended,
                  (external_alerts.severity IS DISTINCT FROM prev.severity) AS regraded,
                  (external_alerts.affected_zones IS DISTINCT FROM prev.affected_zones) AS rezoned,
-                 prev.affected_zones AS prev_zones`,
-      [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones, [...KRAI_FAR_ZONES]]
+                 (external_alerts.affected_parks IS DISTINCT FROM prev.affected_parks) AS reparked,
+                 (external_alerts.last_published_at IS DISTINCT FROM COALESCE(prev.last_published_at, prev.created_at)) AS republished,
+                 prev.affected_zones AS prev_zones,
+                 prev.affected_parks AS prev_parks`,
+      [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones, [...KRAI_FAR_ZONES],
+        event.published_at_inferred ? null : event.published_at,
+        event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
@@ -807,14 +854,21 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
       // (или начинает) красить места. В журнале обязано остаться, откуда и
       // куда: без этого «почему сопка позеленела» не находится никогда.
       const rezoned = dup.rows[0]?.rezoned === true;
-      if (dup.rows[0]?.extended || regraded || rezoned) {
+      // Возврат парков — тоже событие: места парка снова красные, и в журнале
+      // обязано остаться, какой сводкой. Более поздняя публикация без других
+      // перемен — подтверждение, от которого считаются проходы парков.
+      const reparked = dup.rows[0]?.reparked === true;
+      const republished = dup.rows[0]?.republished === true;
+      if (dup.rows[0]?.extended || regraded || rezoned || reparked || republished) {
         await appendSafetyEvent({
           entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
           eventType: 'dedup_skipped',
           actorType: 'system',
           actorId: 'seismic-parser.saveEvent',
           payloadHash,
-          decisionReason: rezoned
+          decisionReason: reparked
+            ? 'контент совпал с активным закрытием парка — парки более поздней сводки возвращены в закрытие'
+            : rezoned
             ? 'контент совпал с активным алертом — зоны заменены текущей оценкой классификатора'
             : regraded
               ? 'контент совпал с активным алертом — разряд опасности поднят до текущей оценки классификатора'
@@ -826,6 +880,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
             // не только строки старого дефолта, но и разобранные до меток
             // дальних округов.
             ...(rezoned ? { rezoned_from: dup.rows[0]?.prev_zones ?? null, rezoned_to: event.affected_zones } : {}),
+            ...(reparked ? { reparked_from: dup.rows[0]?.prev_parks ?? null, reparked_with: event.affected_parks ?? null } : {}),
+            ...(republished ? { last_published_at: event.published_at.toISOString() } : {}),
           },
         });
       }
@@ -891,8 +947,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at,
         source_url, external_id,
-        magnitude, lat, lng, volcano_name, affected_parks
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        magnitude, lat, lng, volcano_name, affected_parks, last_published_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$6)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
       [
@@ -1584,7 +1640,8 @@ function topicKey(ev: SeismicEvent): string {
   // сводки о разных парках («Налычево закрыто до 24 октября», «Ключевской —
   // на зимний сезон», 21.10) по пустым зонам сходились в одну тему, и второй
   // парк терялся.
-  if (ev.alert_type === 'park_closure') return `${ev.alert_type}|p:${[...(ev.affected_parks ?? [])].sort().join(',')}`;
+  // Открытие — тем же ключом: «Ключевской открыт», «Быстринский открыт» — два события.
+  if (ev.alert_type === 'park_closure' || ev.alert_type === 'park_reopening') return `${ev.alert_type}|p:${[...(ev.affected_parks ?? [])].sort().join(',')}`;
   return `${ev.alert_type}|${[...ev.affected_zones].sort().join(',')}`;
 }
 
@@ -2313,6 +2370,19 @@ export function classifyMchsItem(
   // категории, и он отбрасывается как неинтересный.
   const tsunami = tsunamiStatus(text);
   const parkClosure = detectParkClosure(text);
+  // Сводка об открытии (решение владельца 06.11) — только когда закрытия в
+  // тексте нет: смешанное решается в пользу закрытия. Заголовок — отдельным
+  // предложением: склеенный с первой фразой, он отдал бы ей свой парк.
+  //
+  // И только из сводок о доступности (турпортал, Минтур — те же источники,
+  // что держат закрытие неделю, isWeeklyBulletinSource). Ленты МЧС пишут
+  // «возобновлено движение», «возобновлена работа», а посты MAX приходят без
+  // даты (ingestMaxItems подставляет «сейчас»): открытие оттуда погасило бы
+  // более позднее закрытие датой нашего чтения (ревью 06.11). Пропущенное
+  // открытие держит место красным, ложное — делает зелёным.
+  const parkReopening = parkClosure || !isWeeklyBulletinSource(sourcePrefix)
+    ? null
+    : detectParkReopening(`${title}\n${description}`, new Date(pubDate));
   if (warningTest === 'planned') {
     // Не опасность: severity 0 — без пуша, статуса края и вердикта маршрута,
     // но в ленте и у агентов. Срок — до конца названного дня проверки.
@@ -2338,8 +2408,10 @@ export function classifyMchsItem(
     // неделю: с 48 ч парк зеленел бы посреди недели при живом закрытии.
     // Названная дата («до 24 октября включительно», 22.10) остаётся как есть,
     // сезонное закрытие без даты держится 21 сутки от публикации, повтор
-    // сводки продлевает (решение владельца 06.11, park-closure-terms.ts;
-    // гашение по сводке об открытии — следующая правка).
+    // сводки продлевает (решение владельца 06.11, park-closure-terms.ts);
+    // сводка об открытии его гасит раньше (ветка park_reopening ниже и
+    // проход applyParkReopenings), а без неё после предела место —
+    // «статус не известен» (park-reopening.ts).
     if (expires_hours === PARK_CLOSURE_DEFAULT_HOURS && isWeeklyBulletinSource(sourcePrefix)) expires_hours = 168;
   } else if (/лавин/.test(text)) {
     // Лавины — ДО погодной ветки, а не после: лавинное предупреждение МЧС
@@ -2466,6 +2538,19 @@ export function classifyMchsItem(
     alert_type = 'landslide';
     severity = 1;
     expires_hours = 72;
+  } else if (parkReopening) {
+    // Открытие парка (06.11) — не тревога, а улика для прохода приёма
+    // applyParkReopenings: тот снимает открытые парки с более раннего
+    // закрытия. Ветка ПОСЛЕДНЯЯ: текст, который взяла другая ветка, остаётся
+    // ей — «доступны летние маршруты „Налычево“, но с перекрытием двух
+    // маршрутов» — это перекрытие маршрутов (сводка 06.08), и открытием,
+    // снимающим закрытие, его не читаем: смешанное — в пользу закрытия.
+    //
+    // Строка рождается ИСТЁКШЕЙ (срок 0 ч): живой уровень 0 протёк бы туда,
+    // где тип не фильтруют, — в общий счёт тревог края, в тревоги региона у
+    // Кузьмича, в «остальные» MCP. Проход читает её по дате публикации, а не
+    // по сроку.
+    alert_type = 'park_reopening'; severity = 0; expires_hours = 0;
   } else {
     return null; // не интересно
   }
@@ -2479,7 +2564,10 @@ export function classifyMchsItem(
   // Вместе с порогом — потолок срока: запрет живёт часами, а не неделей.
   // Пожарная ветка держит алерт 168 часов, и без потолка «туристам воздержаться
   // от посещения леса» висело бы красным всю неделю после того, как выгорело.
-  if (alert_type !== 'warning_test' && severity < 2 && addressesTouristsWithBan(text)) {
+  // Открытие парка порогам не подлежит: оно не тревога, и уровень 2 с живым
+  // сроком сделал бы из сводки «маршруты открыты» красный статус и пуш.
+  const notAlert = alert_type === 'warning_test' || alert_type === 'park_reopening';
+  if (!notAlert && severity < 2 && addressesTouristsWithBan(text)) {
     severity = 2;
     expires_hours = Math.min(expires_hours, 48);
   }
@@ -2490,7 +2578,7 @@ export function classifyMchsItem(
   // часами — его снимают отдельным сообщением; ОЯ живёт столько, сколько живёт
   // само явление, и паводковые 120 часов поставлены именно под него. Обрезав
   // их до 48, мы сняли бы красный статус с ещё не спавшей воды.
-  if (alert_type !== 'warning_test' && severity < 2 && declaresHazardGrade(text)) {
+  if (!notAlert && severity < 2 && declaresHazardGrade(text)) {
     severity = 2;
   }
 
@@ -2553,9 +2641,15 @@ export function classifyMchsItem(
     // с новыми id, и «Экстренное предупреждение на 16-20 июля» вставлялось
     // шестью строками (скрины владельца 2026-07-17). Одинаковый нормализованный
     // заголовок → одинаковый external_id → ON CONFLICT DO NOTHING.
-    source_id:     hadTitle
-      ? `${sourcePrefix}/t${fingerprint}`
-      : `${sourcePrefix}/${day}/t${fingerprint}`,
+    // Открытие — своим id, с днём даже у поста с заголовком: с id закрытия
+    // из того же пункта одно из двух молча ушло бы в «уже есть» (проверка
+    // external_id в saveEvent), а заголовок без дня («Еженедельная сводка…»,
+    // «Открытие зимних маршрутов») дал бы одно открытие на всю жизнь ленты.
+    source_id:     alert_type === 'park_reopening'
+      ? `${sourcePrefix}/${day}/o${fingerprint}`
+      : hadTitle
+        ? `${sourcePrefix}/t${fingerprint}`
+        : `${sourcePrefix}/${day}/t${fingerprint}`,
     source_url:    link || 'https://41.mchs.gov.ru',
     published_at:  publishedAt,
     alert_type,
@@ -2566,12 +2660,13 @@ export function classifyMchsItem(
     // «avachinsky» — это и Налычево, и город. Пустые зоны совпадают ни с кем.
     // Угроза цунами и её отбой — по названному округу, а без него весь край
     // (tsunamiAlertZones).
-    affected_zones: parkClosure && alert_type === 'park_closure'
+    affected_zones: (parkClosure && alert_type === 'park_closure') || alert_type === 'park_reopening'
       ? []
       : alert_type === 'tsunami_warning' || (alert_type === 'info' && tsunami === 'all_clear')
         ? tsunamiAlertZones(mchs_zones(`${title} ${description}`))
         : mchs_zones(`${title} ${description}`),
     ...(parkClosure && alert_type === 'park_closure' ? { affected_parks: parkClosure.parks } : {}),
+    ...(parkReopening && alert_type === 'park_reopening' ? { affected_parks: parkReopening.parks } : {}),
     expires_hours,
   };
 }
@@ -2934,14 +3029,16 @@ export async function ingestMaxItems(
     const text = (item.text ?? '').trim();
     if (!text) continue;
     const id = item.id || `max/${titleFingerprint(text)}`;
-    const pubDate = item.date && !isNaN(new Date(item.date).getTime())
-      ? new Date(item.date).toISOString()
+    const dated = Boolean(item.date && !isNaN(new Date(item.date).getTime()));
+    const pubDate = dated
+      ? new Date(item.date as string).toISOString()
       : new Date().toISOString();
     const link = item.link || 'https://max.ru/id4101120929_gos';
     // title пустой — у MAX-постов нет заголовка, весь текст в description.
     // classifyMchsItems вернёт пустой массив для мусора — это и есть сортировка,
     // и она же разбирает суточную сводку на самостоятельные темы.
     for (const event of classifyMchsItems(id, '', text, pubDate, link, MAX_MCHS_PREFIX)) {
+      if (!dated) event.published_at_inferred = true;
       result.events.push(event);
       try {
         const status = await saveEvent(event);

@@ -41,6 +41,11 @@ import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
 import { ZONE_CENSUS_SQL, summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/places/zone-census';
 import { readFileSync } from 'node:fs';
 import { holdParkClosures } from '@/lib/services/safety/park-closure-hold';
+import { applyParkReopenings, markParkStatusUnknown, rejectParkReopening } from '@/lib/services/safety/park-reopening';
+import { PARK_STATUS_UNKNOWN_SQL } from '@/lib/services/safety/alert-place-scope';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
+import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
@@ -1132,4 +1137,379 @@ withPg('кого накрывает предупреждение', () => {
       await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [[MUTNOVSKY.id, NO_STATUS.id]]);
     }
   }, 20_000); // прогоняет ALERT_MATCH_SQL по всем местам: 3–3,5 с на локальном PostgreSQL, на CI ближе к 5 (#2980)
+
+  // ── Сводка об открытии и «статус парка не известен» (решение владельца 06.11) ──
+  //
+  // Закрытие на межсезонье держится до сводки об открытии; истекло без неё —
+  // «не знаю», жёлтое, а не зелёное. Проходы приёма (park-reopening.ts) и
+  // НАСТОЯЩИЙ запрос пересчёта статуса крона — здесь, на сервере: правило
+  // жёлтого живёт в CASE, а вывод «не знаю» — в сверке строк по времени.
+  // Парки — свои, тестовые: живые закрытия Налычево из случаев выше файла
+  // не должны решать за эти проверки.
+  describe('открытие снимает закрытие, «не знаю» после предела (06.11)', () => {
+    const HOURS = (d: number) => d * 24;
+    const feedId = (tag: string) => `visitkamchatka/2026-11-02/ta2${tag}`;
+    const made: string[] = [];
+    const alertRow = async (o: {
+      type: 'park_closure' | 'park_reopening' | 'road_closure'; externalId: string; parks: string[] | null; title: string;
+      ageHours: number; leftHours?: number; endedBy?: string | null; severity?: number; lat?: number; lng?: number;
+    }) => {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                      created_at, last_published_at, expires_at, source_url, external_id, ended_by, lat, lng)
+         VALUES ($1, $2, $3, '', '{}', $4,
+                 (NOW() AT TIME ZONE 'UTC') - make_interval(hours => $5::int),
+                 (NOW() AT TIME ZONE 'UTC') - make_interval(hours => $5::int),
+                 (NOW() AT TIME ZONE 'UTC') + make_interval(hours => $6::int),
+                 'https://t.me/s/visitkamchatka41/1', $7, $8, $9, $10)
+         RETURNING id::text AS id`,
+        [o.type, o.severity ?? (o.type === 'park_reopening' ? 0 : 2), o.title, o.parks, o.ageHours,
+          o.leftHours ?? (o.type === 'park_reopening' ? -o.ageHours : HOURS(21)), o.externalId, o.endedBy ?? null, o.lat ?? null, o.lng ?? null],
+      );
+      made.push(r.rows[0]!.id);
+      return r.rows[0]!.id;
+    };
+    const state = async (id: string) => (await pool.query<{ parks: string[] | null; live: boolean; ended_by: string | null }>(
+      `SELECT affected_parks AS parks, expires_at > (NOW() AT TIME ZONE 'UTC') AS live, ended_by FROM external_alerts WHERE id::text = $1`, [id],
+    )).rows[0];
+    const q = async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] };
+
+    /**
+     * Пересчёт статуса мест — ТЕМ ЖЕ текстом, что в кроне (updateRealTimeStatus
+     * в safety-ingest): CASE не экспортирован, и копия в тесте судила бы копию.
+     * Подставляются только известные константы; новая — громкий отказ.
+     */
+    async function recomputeStatus(): Promise<void> {
+      const src = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf8');
+      const fn = src.slice(src.indexOf('async function updateRealTimeStatus'), src.indexOf('async function dispatchPushAlerts'));
+      const open = 'return client.query(`';
+      const start = fn.indexOf(open);
+      const end = fn.indexOf('`, [VOLCANO_STALE_DAYS', start);
+      expect(start, 'запрос пересчёта найден в кроне').toBeGreaterThan(0);
+      expect(end).toBeGreaterThan(start);
+      const subs: Record<string, string> = {
+        ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL, TOURIST_BAN_SQL, PARK_STATUS_UNKNOWN_SQL, UTC_WALL_NOW_SQL,
+      };
+      const sql = fn.slice(start + open.length, end).replace(/\$\{(\w+)\}/g, (_m, name: string) => {
+        if (!(name in subs)) throw new Error(`в запросе пересчёта новая подстановка \${${name}} — добавь её в тест`);
+        return subs[name];
+      });
+      await pool.query(sql, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1]);
+    }
+    const statusOf = async (ark: string) => (await pool.query<{ status: string; alerts: string[]; sev: number }>(
+      `SELECT recommender_status AS status, active_alerts AS alerts, alert_severity::int AS sev
+         FROM location_real_time_status WHERE agent_route_id = $1`, [ark],
+    )).rows[0];
+
+    const UNKNOWN_PARKS = [
+      { slug: 'a2-u-season', name: 'Природный парк «Сезонный»', term: 'Сезонный' },
+      { slug: 'a2-u-admin', name: 'Природный парк «Снятый»', term: 'Снятый' },
+      { slug: 'a2-u-legacy', name: 'Природный парк «Давний»', term: 'Давний' },
+      { slug: 'a2-u-cyclone', name: 'Природный парк «Циклонный»', term: 'Циклонный' },
+      { slug: 'a2-u-opened', name: 'Природный парк «Открытый»', term: 'Открытый' },
+      { slug: 'a2-u-live', name: 'Природный парк «Живой»', term: 'Живой' },
+      { slug: 'a2-u-old', name: 'Природный парк «Старый»', term: 'Старый' },
+      { slug: 'a2-u-manual', name: 'Природный парк «Ручной»', term: 'Ручной' },
+      { slug: 'a2-u-twice', name: 'Природный парк «Двойной»', term: 'Двойной' },
+      { slug: 'a2-u-rejected', name: 'Природный парк «Отклонённый»', term: 'Отклонённый' },
+    ];
+    const SEASON_PLACE = { id: 'Природный парк Сезонный (тест)', ark: 'c0000000-0000-4000-8000-0000000000a1', lat: 53.30, lng: 158.80 };
+    const ROAD_PLACE = { id: 'Дорожная развилка (тест)', ark: 'c0000000-0000-4000-8000-0000000000a2', lat: 53.70, lng: 158.40 };
+
+    beforeAll(async () => {
+      // Мир этих проверок — только свои тревоги. Случаи выше оставили живыми
+      // цунами, запреты и зональные погоды «по всему краю» — они накрыли бы и
+      // эти места, и цвет судил бы чужое. Блок последний в файле: гасить их
+      // можно, дальше их никто не читает.
+      await pool.query(`UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 second'
+                         WHERE expires_at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 second'`);
+      for (const p of UNKNOWN_PARKS) {
+        await pool.query(
+          `INSERT INTO parks (slug, display_name, search_term) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`,
+          [p.slug, p.name, p.term],
+        );
+      }
+      for (const p of [SEASON_PLACE, ROAD_PLACE]) {
+        await pool.query(
+          `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+           VALUES ($1, $1, $2, $3, $4, 'lake', 'avachinsky', TRUE)`,
+          [p.id, p.lat, p.lng, p.ark],
+        );
+        await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+      }
+    });
+
+    afterAll(async () => {
+      await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[]) OR external_id LIKE 'park-unknown/a2-%'`, [made]);
+      await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [[SEASON_PLACE.ark, ROAD_PLACE.ark]]);
+      await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [[SEASON_PLACE.id, ROAD_PLACE.id]]);
+      await pool.query(`DELETE FROM parks WHERE slug = ANY($1::text[])`, [UNKNOWN_PARKS.map((p) => p.slug)]);
+    });
+
+    it('открытие снимает свои парки с более раннего закрытия: частично — сужает, целиком — гасит; позднее, ручное и снятое не трогает', async () => {
+      const A = 'a2-park-a';
+      const B = 'a2-park-b';
+      const TITLE = 'Маршруты природных парков закрыты на период межсезонья';
+      await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-05/oa2open1', parks: [A], title: 'Маршруты парка открыты', ageHours: 24 });
+      const partial = await alertRow({ type: 'park_closure', externalId: feedId('p1'), parks: [A, B], title: TITLE, ageHours: 72 });
+      const full = await alertRow({ type: 'park_closure', externalId: feedId('p2'), parks: [A], title: TITLE, ageHours: 72 });
+      // Опубликовано ПОСЛЕ открытия: новая сводка о закрытии сильнее старой об открытии.
+      const after = await alertRow({ type: 'park_closure', externalId: feedId('p3'), parks: [A], title: TITLE, ageHours: 12 });
+      const manual = await alertRow({ type: 'park_closure', externalId: 'manual-a2-park-a', parks: [A], title: TITLE, ageHours: 72 });
+      const other = await alertRow({ type: 'park_closure', externalId: feedId('p5'), parks: [B], title: TITLE, ageHours: 72 });
+      // Снятое админом МЕЖДУ чтением и записью прохода — не «снято открытием».
+      const raced = await alertRow({ type: 'park_closure', externalId: feedId('p4'), parks: [A], title: TITLE, ageHours: 72 });
+
+      let reads = 0;
+      const racing = async <T,>(sql: string, params: unknown[]) => {
+        const r = await pool.query(sql, params);
+        if (++reads === 2) {
+          await pool.query(`UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC'), ended_by = 'admin' WHERE id::text = $1`, [raced]);
+        }
+        return r as unknown as { rows: T[] };
+      };
+      const events: Array<{ entityId: string | null; details?: Record<string, unknown> }> = [];
+      const record = async (e: { entityId: string | null; details?: Record<string, unknown> }) => { events.push(e); };
+
+      const res = await applyParkReopenings(racing, record);
+      expect(res.narrowed).toBe(1);
+      expect(res.ended).toBe(1);
+      expect([...res.changed_ids].sort()).toEqual([partial, full].sort());
+      expect(await state(partial)).toEqual({ parks: [B], live: true, ended_by: null });
+      // Погашенное целиком хранит, что было закрыто, и кто погасил.
+      expect(await state(full)).toEqual({ parks: [A], live: false, ended_by: 'reopening' });
+      for (const id of [after, manual]) expect(await state(id)).toEqual({ parks: [A], live: true, ended_by: null });
+      expect(await state(other)).toEqual({ parks: [B], live: true, ended_by: null });
+      expect(await state(raced)).toEqual({ parks: [A], live: false, ended_by: 'admin' });
+      // Каждое изменение — в журнале решений: прежние и новые парки.
+      expect(events.map((e) => e.entityId).sort()).toEqual([partial, full].sort());
+      expect(events.find((e) => e.entityId === partial)?.details).toMatchObject({ prior_parks: [A, B], parks: [B], opened_parks: [A] });
+      // Повтор прохода ничего не меняет.
+      const again = await applyParkReopenings(q, record);
+      expect(again.narrowed + again.ended).toBe(0);
+      expect(events).toHaveLength(2);
+    });
+
+    it('сезонное закрытие истекло без открытия — «статус не известен»: место ЖЁЛТОЕ настоящим CASE крона, уровень 1 дороги — по-прежнему зелёный', async () => {
+      const seasonal = (term: string) => `Маршруты природного парка «${term}» закрыты на период межсезонья`;
+      // Истекло само 4 дня назад, сводка — 25 дней назад.
+      const basis = await alertRow({ type: 'park_closure', externalId: feedId('u1'), parks: ['a2-u-season'], title: seasonal('Сезонный'), ageHours: HOURS(25), leftHours: -HOURS(4) });
+      await alertRow({ type: 'park_closure', externalId: feedId('u2'), parks: ['a2-u-admin'], title: seasonal('Снятый'), ageHours: HOURS(25), leftHours: -HOURS(4), endedBy: 'admin' });
+      await alertRow({ type: 'park_closure', externalId: feedId('u3'), parks: ['a2-u-legacy'], title: seasonal('Давний'), ageHours: HOURS(25), leftHours: -HOURS(4), endedBy: 'legacy' });
+      await alertRow({ type: 'park_closure', externalId: feedId('u4'), parks: ['a2-u-cyclone'], title: 'Приостановлено посещение маршрутов в природном парке «Циклонный» из-за циклона', ageHours: HOURS(5), leftHours: -HOURS(3) });
+      await alertRow({ type: 'park_closure', externalId: feedId('u5'), parks: ['a2-u-opened'], title: seasonal('Открытый'), ageHours: HOURS(25), leftHours: -HOURS(4) });
+      await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-01/oa2open2', parks: ['a2-u-opened'], title: 'Маршруты парка «Открытый» открыты', ageHours: HOURS(10) });
+      await alertRow({ type: 'park_closure', externalId: feedId('u6'), parks: ['a2-u-live'], title: seasonal('Живой'), ageHours: HOURS(25), leftHours: -HOURS(4) });
+      await alertRow({ type: 'park_closure', externalId: 'manual-a2-u-live', parks: ['a2-u-live'], title: 'Приостановлено посещение маршрутов в природном парке «Живой» из-за циклона', ageHours: 6, leftHours: 24 });
+      await alertRow({ type: 'park_closure', externalId: feedId('u7'), parks: ['a2-u-old'], title: seasonal('Старый'), ageHours: HOURS(130), leftHours: -HOURS(100) });
+      await alertRow({ type: 'park_closure', externalId: 'manual-a2-u-manual', parks: ['a2-u-manual'], title: seasonal('Ручной'), ageHours: HOURS(25), leftHours: -HOURS(4) });
+      // Дорожное ограничение уровня 1 у второго места — жёлтого не даёт.
+      await alertRow({ type: 'road_closure', externalId: 'visitkamchatka/2026-11-05/ta2road', parks: null, title: 'Проезд по пропускам (тест)', ageHours: 2, leftHours: 48, severity: 1, lat: ROAD_PLACE.lat, lng: ROAD_PLACE.lng });
+
+      const events: Array<{ entityId: string | null; decisionReason?: string; details?: Record<string, unknown> }> = [];
+      const record = async (e: { entityId: string | null; decisionReason?: string; details?: Record<string, unknown> }) => { events.push(e); };
+      const res = await markParkStatusUnknown(q, record);
+      const mine = (list: string[]) => list.filter((s) => s.startsWith('a2-'));
+      expect(mine(res.unknown)).toEqual(['a2-u-season']);
+      expect(mine(res.started)).toEqual(['a2-u-season']);
+      const rows = (await pool.query<{ external_id: string }>(`SELECT external_id FROM external_alerts WHERE external_id LIKE 'park-unknown/a2-%'`)).rows;
+      expect(rows.map((r) => r.external_id)).toEqual(['park-unknown/a2-u-season']);
+
+      const u = (await pool.query<{
+        id: string; alert_type: string; severity: number; title: string; description: string; parks: string[]; zones: string[];
+        same_base: boolean; live: boolean; ttl_ok: boolean; source_url: string;
+      }>(
+        `SELECT u.id::text AS id, u.alert_type, u.severity::int AS severity, u.title, u.description, u.affected_parks AS parks,
+                u.affected_zones AS zones, u.source_url,
+                (u.created_at = b.created_at AND u.last_published_at = b.created_at) AS same_base,
+                u.expires_at > (NOW() AT TIME ZONE 'UTC') AS live,
+                u.expires_at <= (NOW() AT TIME ZONE 'UTC') + INTERVAL '25 hours' AS ttl_ok
+           FROM external_alerts u, external_alerts b
+          WHERE u.external_id = 'park-unknown/a2-u-season' AND b.id::text = $1`, [basis],
+      )).rows[0]!;
+      expect(u).toMatchObject({ alert_type: 'park_status_unknown', severity: 1, parks: ['a2-u-season'], zones: [], same_base: true, live: true, ttl_ok: true });
+      expect(u.title).toMatch(/^Статус парка «Сезонный» не известен: последняя сезонная сводка от \d{2}\.\d{2}$/);
+      expect(u.description).toMatch(/сообщала о закрытии маршрутов на межсезонье; сводку об открытии в лентах, которые читает Ведар, мы не нашли\. Перед выходом уточните у дирекции парка\./);
+      expect(events.some((e) => e.entityId === u.id && e.details?.basis_id === basis)).toBe(true);
+
+      // Привязка — парком, не зоной: место парка — да, город той же зоны — нет.
+      expect(await coveredBy(u.id)).toContain(SEASON_PLACE.id);
+      expect(await coveredBy(u.id)).not.toContain(CITY.id);
+      expect(await zonalFor(u.id, SEASON_PLACE.id)).toBe(false);
+
+      await recomputeStatus();
+      const season = await statusOf(SEASON_PLACE.ark);
+      expect(season.status).toBe('yellow');
+      expect(season.alerts).toContain(u.title);
+      expect(season.sev).toBe(1);
+      const road = await statusOf(ROAD_PLACE.ark);
+      expect(road.alerts).toContain('Проезд по пропускам (тест)');
+      expect(road.status, 'уровень 1 прочих родов места жёлтым не стал').toBe('green');
+
+      // Повтор прохода — то же основание, ничего не начато.
+      const again = await markParkStatusUnknown(q, record);
+      expect(mine(again.started)).toEqual([]);
+      expect(mine(again.unknown)).toEqual(['a2-u-season']);
+    }, 30_000);
+
+    it('снятое админом не воскресает при том же основании; новое основание возвращает; открытие гасит — и место снова зелёное', async () => {
+      const record = async () => undefined;
+      // Админ снял строку «не знаю» (DELETE /api/admin/external-alerts/[id]).
+      await pool.query(
+        `UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC'), ended_by = 'admin' WHERE external_id = 'park-unknown/a2-u-season'`,
+      );
+      const held = await markParkStatusUnknown(q, record);
+      expect(held.held_by_admin).toContain('a2-u-season');
+      expect(held.unknown).not.toContain('a2-u-season');
+      const deadRow = async () => (await pool.query<{ live: boolean; ended_by: string | null }>(
+        `SELECT expires_at > (NOW() AT TIME ZONE 'UTC') AS live, ended_by FROM external_alerts WHERE external_id = 'park-unknown/a2-u-season'`,
+      )).rows[0];
+      expect(await deadRow()).toEqual({ live: false, ended_by: 'admin' });
+
+      // Новая сезонная сводка, тоже истёкшая, — новое основание: «не знаю» вернулось.
+      await alertRow({
+        type: 'park_closure', externalId: 'visitkamchatka/2026-11-03/ta2u8', parks: ['a2-u-season'],
+        title: 'Маршруты природного парка «Сезонный» закрыты на период межсезонья', ageHours: HOURS(22), leftHours: -1,
+      });
+      const back = await markParkStatusUnknown(q, record);
+      expect(back.started).toContain('a2-u-season');
+      expect(await deadRow()).toEqual({ live: true, ended_by: null });
+
+      // Сводка об открытии после основания — условие кончилось, строка гаснет сама.
+      await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-05/oa2open3', parks: ['a2-u-season'], title: 'Маршруты парка «Сезонный» открыты', ageHours: 6 });
+      const gone = await markParkStatusUnknown(q, record);
+      expect(gone.ended).toContain('a2-u-season');
+      expect(gone.unknown).not.toContain('a2-u-season');
+      expect(await deadRow()).toEqual({ live: false, ended_by: null });
+
+      await recomputeStatus();
+      const season = await statusOf(SEASON_PLACE.ark);
+      expect(season.status).toBe('green');
+      expect(season.alerts.some((t) => t.startsWith('Статус парка'))).toBe(false);
+    }, 30_000);
+
+    // Журнал решений — в эту же базу: отмена открытия находит тронутые
+    // закрытия по нему (rejectParkReopening), и копия журнала в памяти судила
+    // бы копию.
+    const ledger = async (e: { entityId: string | null; eventType: string; actorType: string; actorId?: string; decisionReason?: string; details?: Record<string, unknown> }) => {
+      await pool.query(
+        `INSERT INTO safety_decision_events (entity_id, event_type, actor_type, actor_id, decision_reason, details)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [e.entityId, e.eventType, e.actorType, e.actorId ?? null, e.decisionReason ?? null, JSON.stringify(e.details ?? {})],
+      );
+    };
+
+    it('ложное открытие отклоняется: проходы его не читают, погашенное закрытие снова живое, суженное — с парками (ревью 06.11)', async () => {
+      const A = 'a2-rj-a';
+      const B = 'a2-rj-b';
+      const TITLE = 'Маршруты природных парков закрыты на период межсезонья';
+      const full = await alertRow({ type: 'park_closure', externalId: feedId('rj1'), parks: [A], title: TITLE, ageHours: 72 });
+      const partial = await alertRow({ type: 'park_closure', externalId: feedId('rj2'), parks: [A, B], title: TITLE, ageHours: 72 });
+      const before = (await pool.query<{ e: string }>(`SELECT expires_at::text AS e FROM external_alerts WHERE id::text = $1`, [full])).rows[0]!.e;
+      const opening = await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-05/oa2rj', parks: [A], title: 'Маршруты парка открыты', ageHours: 24 });
+      // Другое, не отклонённое открытие в окне: проход идёт дальше счёта
+      // открытий, и отклонённое обязано отсеиваться в самом отборе.
+      await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-05/oa2rjother', parks: ['a2-rj-other'], title: 'Маршруты другого парка открыты', ageHours: 20 });
+
+      const applied = await applyParkReopenings(q, ledger);
+      expect(applied.ended + applied.narrowed).toBe(2);
+      expect(await state(full)).toEqual({ parks: [A], live: false, ended_by: 'reopening' });
+      expect(await state(partial)).toEqual({ parks: [B], live: true, ended_by: null });
+
+      const res = await rejectParkReopening(q, opening, ledger);
+      expect(res.rejected).toBe(true);
+      expect([...res.restored_ids].sort()).toEqual([full, partial].sort());
+      expect(await state(opening)).toMatchObject({ ended_by: 'admin' });
+      // Погашенное — живое с прежним сроком, суженное — с возвращённым парком.
+      expect(await state(full)).toEqual({ parks: [A], live: true, ended_by: null });
+      expect((await pool.query<{ e: string }>(`SELECT expires_at::text AS e FROM external_alerts WHERE id::text = $1`, [full])).rows[0]!.e).toBe(before);
+      expect(await state(partial)).toEqual({ parks: [B, A], live: true, ended_by: null });
+
+      // Отклонённое больше не читает ни один проход: повтор ничего не снимает.
+      const again = await applyParkReopenings(q, ledger);
+      expect(again.ended + again.narrowed).toBe(0);
+      expect(await state(full)).toEqual({ parks: [A], live: true, ended_by: null });
+      // Второй раз — уже отклонено; строка не открытие — тоже нет.
+      expect((await rejectParkReopening(q, opening, ledger)).rejected).toBe(false);
+      expect((await rejectParkReopening(q, full, ledger)).rejected).toBe(false);
+
+      // «Не знаю» отклонённое открытие тоже не глушит: сезонное закрытие
+      // истекло, открытие после него было, но его отклонили.
+      await alertRow({ type: 'park_closure', externalId: feedId('rj3'), parks: ['a2-u-rejected'], title: 'Маршруты природного парка «Отклонённый» закрыты на период межсезонья', ageHours: HOURS(25), leftHours: -HOURS(4) });
+      const late = await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-04/oa2rj2', parks: ['a2-u-rejected'], title: 'Маршруты парка «Отклонённый» открыты', ageHours: HOURS(2) });
+      expect((await markParkStatusUnknown(q, ledger)).unknown).not.toContain('a2-u-rejected');
+      expect((await rejectParkReopening(q, late, ledger)).rejected).toBe(true);
+      expect((await markParkStatusUnknown(q, ledger)).unknown).toContain('a2-u-rejected');
+    }, 30_000);
+
+    it('более поздняя сводка о закрытии между чтением и записью прохода — парк не снимается (сверка основания)', async () => {
+      const A = 'a2-rc-a';
+      const B = 'a2-rc-b';
+      const closure = await alertRow({ type: 'park_closure', externalId: feedId('rc1'), parks: [A, B], title: 'Маршруты природных парков закрыты на период межсезонья', ageHours: 72 });
+      await alertRow({ type: 'park_reopening', externalId: 'visitkamchatka/2026-11-05/oa2rc', parks: [A], title: 'Маршруты парка открыты', ageHours: 24 });
+      let reads = 0;
+      const racing = async <T,>(sql: string, params: unknown[]) => {
+        const r = await pool.query(sql, params);
+        // То, что делает saveEvent с повтором сводки, опубликованным ПОСЛЕ
+        // открытия: основание сдвигается вперёд.
+        if (++reads === 2) {
+          await pool.query(
+            `UPDATE external_alerts SET last_published_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 hour' WHERE id::text = $1`, [closure],
+          );
+        }
+        return r as unknown as { rows: T[] };
+      };
+      const res = await applyParkReopenings(racing, ledger);
+      expect(res.changed_ids).not.toContain(closure);
+      expect(await state(closure)).toEqual({ parks: [A, B], live: true, ended_by: null });
+    }, 30_000);
+
+    it('«не знаю» после сезонного и оперативного закрытия — дата СЕЗОННОЙ сводки, а не последней', async () => {
+      await alertRow({ type: 'park_closure', externalId: feedId('tw1'), parks: ['a2-u-twice'], title: 'Маршруты природного парка «Двойной» закрыты на период межсезонья', ageHours: HOURS(25), leftHours: -HOURS(4) });
+      await alertRow({ type: 'park_closure', externalId: feedId('tw2'), parks: ['a2-u-twice'], title: 'Приостановлено посещение маршрутов в природном парке «Двойной» из-за циклона', ageHours: HOURS(5), leftHours: -HOURS(3) });
+      const res = await markParkStatusUnknown(q, ledger);
+      expect(res.unknown).toContain('a2-u-twice');
+      const row = (await pool.query<{ title: string; base_days: number }>(
+        `SELECT title, round(EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - created_at)) / 86400)::int AS base_days
+           FROM external_alerts WHERE external_id = 'park-unknown/a2-u-twice'`,
+      )).rows[0]!;
+      expect(row.base_days, 'основание — сезонная сводка 25 суток назад, не циклон 5 суток назад').toBe(25);
+      expect(row.title).toMatch(/^Статус парка «Двойной» не известен: последняя сезонная сводка от /);
+    }, 30_000);
+
+    it('строку «не знаю», заведённую соседним прогоном после нашего чтения, наш проход не гасит', async () => {
+      // Живая строка без основания, которую наш проход прочитал: её он гасит
+      // законно — значит, гашение в этом прогоне идёт, и проверка ниже не
+      // пустая.
+      await pool.query(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                      created_at, last_published_at, expires_at, external_id)
+         VALUES ('park_status_unknown', 1, 'Статус парка «Прежний» не известен (тест)', '', '{}', ARRAY['a2-u-stale'],
+                 (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day',
+                 'park-unknown/a2-u-stale')`,
+      );
+      let reads = 0;
+      const racing = async <T,>(sql: string, params: unknown[]) => {
+        const r = await pool.query(sql, params);
+        // Пятый запрос прохода — чтение существующих строк «не знаю»; сразу
+        // после него соседний прогон заводит свою.
+        if (++reads === 5) {
+          await pool.query(
+            `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                          created_at, last_published_at, expires_at, external_id)
+             VALUES ('park_status_unknown', 1, 'Статус парка «Гонка» не известен (тест)', '', '{}', ARRAY['a2-u-race'],
+                     (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day',
+                     'park-unknown/a2-u-race')`,
+          );
+        }
+        return r as unknown as { rows: T[] };
+      };
+      const res = await markParkStatusUnknown(racing, ledger);
+      expect(res.ended).toContain('a2-u-stale');
+      const live = (await pool.query<{ live: boolean }>(
+        `SELECT expires_at > (NOW() AT TIME ZONE 'UTC') AS live FROM external_alerts WHERE external_id = 'park-unknown/a2-u-race'`,
+      )).rows[0];
+      expect(live?.live).toBe(true);
+    }, 30_000);
+  });
 });
