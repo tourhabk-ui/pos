@@ -156,8 +156,11 @@ describe('security-review: одно ревью при открытии, свеж
     expect(inputs['run-every-commit']).toBe(true);
   });
 
-  it('модель — Opus 5.5 по переключателю провайдера, как у рук', () => {
-    expect(inputs['claude-model']).toBe("${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}");
+  it('модель — Opus 5, не 5.5: экшен ставит Claude Code из npm (2.1.197), а Opus 5.5 принимается от 2.1.280', () => {
+    // Прогон на PR #3083 (07.11): «API Error: 400 Claude Code 2.1.197 does not
+    // support this model». Когда экшен научится ставить свежий Claude Code —
+    // перевести и ревьюера, вместе с этой строкой.
+    expect(inputs['claude-model']).toBe("${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}");
   });
 });
 

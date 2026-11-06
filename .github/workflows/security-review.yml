@@ -71,13 +71,15 @@ concurrency:
 # оупенррут»): Anthropic отвечает 403 verification_required (проверка
 # организации). По умолчанию руки идут через OpenRouter (его
 # Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5.5). Вернуть Anthropic без правки кода:
+# anthropic/claude-opus-5). Вернуть Anthropic без правки кода:
 # переменная репозитория AGENTS_PROVIDER=anthropic.
-# С 07.11 модель — Opus 5.5, а не Opus 5: новее и на 20% дешевле ($4/$20 за
-# млн против $5/$25, lib/ai/providers.ts). Карт-бланш владельца на удешевление
-# агентов: ревью остаётся на Opus, а не на Sonnet — экономия на лишнем, не на
-# качестве.
-# Сторож: tests/unit/issue-hand-model-pinned.test.ts.
+# Ревьюер остаётся на Opus 5, хотя руки с 07.11 на Opus 5.5. Экшен ставит
+# Claude Code из npm без версии (`npm install -g @anthropic-ai/claude-code`),
+# npm отдаёт 2.1.197, а Opus 5.5 принимается от 2.1.280: прогон на PR #3083
+# 07.11 ответил «API Error: 400 Claude Code 2.1.197 does not support this
+# model». Задать экшену версию нечем. Руки этим не задеты: claude-code-action
+# ставит Claude Code 2.1.288 сам.
+# Сторож: tests/unit/security-review-workflow.test.ts.
 jobs:
   review:
     # `labeled` приходит на ЛЮБУЮ метку — без этого условия каждый ярлык
@@ -119,7 +121,7 @@ jobs:
         uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
         with:
           claude-api-key: ${{ env.ANTHROPIC_API_KEY }}
-          claude-model: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
+          claude-model: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
           comment-pr: true
           # Свежее ревью по метке `security-review` — по-настоящему: без этого
           # экшен видит метку прошлого ревью в кэше и модель не зовёт (07.11).
