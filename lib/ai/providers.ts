@@ -1284,6 +1284,12 @@ export function timewebGatewayToolsModel(): string {
  * GPT-6 Luna вернула HTTP 400: «Unsupported parameter: 'max_tokens' is not
  * supported with this model. Use 'max_completion_tokens' instead».
  *
+ * Размышление выключено (`reasoning_effort: 'none'`). ai-debug run 19
+ * (06.11, прод): с `max_completion_tokens` Luna вернула HTTP 400 «Function tools
+ * with reasoning_effort are not supported for gpt-6-luna in /v1/chat/completions.
+ * To use function tools, use /v1/responses or set reasoning_effort to 'none'».
+ * Шлюз отдаёт только chat/completions, поэтому остаётся 'none'.
+ *
  * Температура им не передаётся. Рассуждающие модели OpenAI принимают только
  * значение по умолчанию. Это знание о вендоре, а не замер шлюза; без этого поля
  * запрос верен при любом ответе на вопрос о температуре.
@@ -1296,9 +1302,9 @@ export function timewebGatewaySampling(
   model: string,
   maxTokens: number,
   temperature: number,
-): Record<string, number> {
+): Record<string, number | string> {
   return model.startsWith('openai/')
-    ? { max_completion_tokens: maxTokens }
+    ? { max_completion_tokens: maxTokens, reasoning_effort: 'none' }
     : { temperature, max_tokens: maxTokens };
 }
 
@@ -5877,7 +5883,7 @@ const TOOLS_PROBE_MESSAGES = [
 async function probeToolsCall(opts: {
   provider: string; model: string; url: string; headers: Record<string, string>; bodyModel: string;
   /** Лимит и температура, если поля у адреса свои (шлюз: `timewebGatewaySampling`). */
-  sampling?: Record<string, number>;
+  sampling?: Record<string, number | string>;
 }): Promise<WaterfallDebugResult> {
   const start = Date.now();
   try {
