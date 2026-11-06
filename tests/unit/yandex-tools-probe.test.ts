@@ -11,7 +11,7 @@
  * несёт инструмент, адрес совместимости и каталог.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { classifyYandexToolsReply, probeYandexTools, YANDEX_TOOLS_PROBE_TOOL } from '@/lib/ai/providers';
+import { classifyYandexToolsReply, probeYandexTools, YANDEX_TOOLS_PROBE_TOOL, YANDEX_TOOLS_PROBE_MODELS } from '@/lib/ai/providers';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -68,6 +68,24 @@ describe('запрос пробы', () => {
     expect(body.tools).toEqual([YANDEX_TOOLS_PROBE_TOOL]);
     expect(body.tool_choice).toBe('auto');
     expect(JSON.stringify(body)).not.toMatch(/\+7|@/);
+  });
+
+  // ai-debug run 15: yandexgpt/latest ответил заглушкой модерации. Прежде чем
+  // назвать YandexGPT негодным — та же проба на модели текстовой ноги.
+  it('каждая модель пробы спрашивается своим адресом и подписана своим именем', async () => {
+    process.env.YANDEX_API_KEY = 'test-key';
+    process.env.YANDEX_FOLDER_ID = 'b1gtestfolder';
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: 'Я не могу обсуждать эту тему.' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(YANDEX_TOOLS_PROBE_MODELS).toContain('yandexgpt-5.1/latest');
+    for (const model of YANDEX_TOOLS_PROBE_MODELS) {
+      const r = await probeYandexTools(model);
+      expect(r).toMatchObject({ provider: 'yandex:tools', model, status: 'empty_response' });
+    }
+    const uris = fetchMock.mock.calls.map((c) => JSON.parse(String((c as unknown as [string, RequestInit])[1].body)).model);
+    expect(uris).toEqual(YANDEX_TOOLS_PROBE_MODELS.map((m) => `gpt://b1gtestfolder/${m}`));
   });
 
   it('тело не JSON (страница шлюза) — доходит до диагностики дословно, а не «ответа нет»', async () => {
