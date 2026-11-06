@@ -704,20 +704,21 @@ export function tourAvailabilityLine(
 
 const DAY_WARNINGS_SHOWN = 3;
 /**
- * Восемь, а не шесть (07.11): до агента теперь доходят и «зона не вошла», и
- * допущение счёта у местного — справки уровня info, которые раньше отсекались
- * фильтром. Порядок ниже держит важное впереди, потолок режет хвост.
+ * Восемь, а не шесть (07.11): до агента теперь доходит и «зона не вошла» —
+ * справка уровня info, которая раньше отсекалась фильтром. Порядок ниже
+ * держит важное впереди, потолок режет хвост.
  */
 const WARNINGS_SHOWN = 8;
 
 /**
- * Справки уровня info, которые агенту нужны: безопасность («территория
- * медведей», «нет сотовой связи» — проверка MCP 29.09), почему дальняя зона не
- * вошла (`zone_days`: рыбалку ИИ не объяснил, пруф 06.11) и допущение счёта у
- * местного (`home_nights`: без него смета читается как полная). Остальные
- * справки (загрузка, разрешения зон вне плана) агенту не нужны.
+ * Справки уровня info, которые агенту нужны в «Важно»: безопасность
+ * («территория медведей», «нет сотовой связи» — проверка MCP 29.09) и почему
+ * дальняя зона не вошла (`zone_days`: рыбалку ИИ не объяснил, пруф 06.11).
+ * Допущение счёта у местного (`home_nights`) стоит не здесь, а под сметой
+ * (planPriceLines). Остальные справки (загрузка, разрешения зон вне плана)
+ * агенту не нужны.
  */
-const INFO_FOR_AGENT: ReadonlySet<string> = new Set(['safety', 'zone_days', 'home_nights']);
+const INFO_FOR_AGENT: ReadonlySet<string> = new Set(['safety', 'zone_days']);
 
 /**
  * Строки «Важно» плана в порядке, который переживает потолок WARNINGS_SHOWN.
@@ -728,7 +729,7 @@ const INFO_FOR_AGENT: ReadonlySet<string> = new Set(['safety', 'zone_days', 'hom
  * перекрытая дорога уходили за потолок (аудит планировщика 07.11, K3). Затем —
  * что вышло из просьбы «как ехать / дни отдыха» (турист об этом просил, и
  * частичное исполнение не должно читаться как полное), почему зона не вошла,
- * безопасность, остальное важное и в конце — допущение счёта.
+ * безопасность и остальное важное. Допущение счёта — под сметой, не здесь.
  */
 export function planWarningLines(rec: {
   warnings: ReadonlyArray<{ type: string; severity: 'critical' | 'important' | 'info'; message: string }>;
@@ -745,8 +746,22 @@ export function planWarningLines(rec: {
     ...pick((w) => w.type === 'safety' && w.severity !== 'info'),
     ...pick((w) => w.type === 'safety' && w.severity === 'info'),
     ...pick((w) => !['mchs', 'zone_days', 'safety', 'home_nights'].includes(w.type)),
-    ...pick((w) => w.type === 'home_nights'),
   ];
+}
+
+/**
+ * Строки сметы плана и сразу под ними — допущение счёта у местного
+ * (`home_nights`: «ночи в Авачинской зоне в счёт не вошли»). Допущение — про
+ * смету: без него «Ориентир на человека» читается как полный счёт, а последней
+ * строкой «Важно» оно срезалось потолком (аудит планировщика 07.11, K4).
+ * Сметы нет — нет и допущения.
+ */
+export function planPriceLines(
+  priceLines: string[],
+  warnings: ReadonlyArray<{ type: string; message: string }>,
+): string[] {
+  if (priceLines.length === 0) return [];
+  return [...priceLines, ...warnings.filter((w) => w.type === 'home_nights').map((w) => w.message)];
 }
 
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
@@ -890,8 +905,11 @@ export async function makeTripPlanForKuzmich(
     {
       refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
-      priceLines: formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0,
-        estimateGroup(rec.days, { adults: group.adults, children: kids.children, budgetTier: budget.tier })),
+      priceLines: planPriceLines(
+        formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0,
+          estimateGroup(rec.days, { adults: group.adults, children: kids.children, budgetTier: budget.tier })),
+        rec.warnings,
+      ),
     },
   );
 

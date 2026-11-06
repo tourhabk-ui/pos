@@ -11,7 +11,8 @@
  *      обрезался до 2000 знаков, и строки сметы за обрезкой терялись.
  * K3 — сводка МЧС шла последней из важных строк «Важно» и уходила за потолок.
  * K4 — «зона не вошла» и допущение счёта у местного (уровень info) до агента
- *      не доходили вовсе.
+ *      не доходили вовсе. Теперь «зона не вошла» — в «Важно», допущение —
+ *      сразу под сметой, к которой оно относится.
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -22,7 +23,7 @@ import {
   type ComposeInput,
 } from '@/lib/kuzmich/answer-quality';
 import { journalToolOutput } from '@/lib/kuzmich/core';
-import { planWarningLines } from '@/lib/kuzmich/trip-plan-tool';
+import { planPriceLines, planWarningLines } from '@/lib/kuzmich/trip-plan-tool';
 
 const NOTHING = { tours: false, transfers: false, stays: false, stayZones: [] };
 
@@ -109,7 +110,7 @@ describe('K3, K4: «Важно» у агента — сводка МЧС впе�
     expect(lines[1]).toBe('МЧС: извержение вулкана Шивелуч, подход закрыт');
   });
 
-  it('«зона не вошла» и допущение счёта доходят и уровнем info; загрузка и чужие разрешения — нет', () => {
+  it('«зона не вошла» доходит и уровнем info; загрузка, чужие разрешения и допущение счёта в «Важно» — нет', () => {
     const lines = planWarningLines({
       warnings: [
         { type: 'crowd', severity: 'info', message: 'Умеренная загрузка' },
@@ -124,7 +125,18 @@ describe('K3, K4: «Важно» у агента — сводка МЧС впе�
       'Дни отдыха: один из двух',
       'Западная зона в план не вошла: на неё нужно 3 дня',
       'Территория медведей',
-      'Ночи дома в счёт не вошли',
     ]);
+  });
+
+  it('допущение счёта у местного — сразу под сметой, потолок «Важно» его не режет', () => {
+    const smeta = ['Ориентир на человека: 45 000 – 60 000 ₽ (уровень «Комфорт»). Из чего сложено:', '- жильё: 10 000 – 20 000 ₽'];
+    const warnings = [
+      ...filler(12),
+      { type: 'home_nights', severity: 'info' as const, message: 'Ночи дома в счёт не вошли' },
+    ];
+    expect(planPriceLines(smeta, warnings)).toEqual([...smeta, 'Ночи дома в счёт не вошли']);
+    // Не местный — допущения нет; сметы нет — нечего и уточнять.
+    expect(planPriceLines(smeta, filler(2))).toEqual(smeta);
+    expect(planPriceLines([], warnings)).toEqual([]);
   });
 });
