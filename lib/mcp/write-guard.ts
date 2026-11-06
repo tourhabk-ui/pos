@@ -77,15 +77,34 @@ export { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY };
  * одного инструмента. Подбор (create_lead), а потом бронь конкретной даты
  * (create_booking_request) от одного человека — два разных намерения, и
  * второе первым не отменяется.
+ *
+ * Так — у заявки без предмета (create_lead, жильё). У заявки с предметом
+ * (тур и дата, машина и даты) порог ниже.
  */
 export const PHONE_MAX_PER_DAY = 1;
+/**
+ * Заявка с предметом (аудит планировщика 07.11, M5). Порог на паре «телефон +
+ * инструмент» отвечал второму туру того же плана «на этот номер уже есть
+ * такая заявка», хотя такой не было. Теперь:
+ *  - повтор того же предмета за сутки — не новая заявка: допуск без нового
+ *    слота, второго лида роут не создаёт и отвечает тем же текстом;
+ *  - разных предметов на номер за сутки — не больше этого числа: тур на
+ *    каждый день активностей недельного плана с запасом. Сверх него — поток
+ *    на чужой номер с разных адресов, то, ради чего порог номера и заведён.
+ */
+export const PHONE_MAX_SUBJECTS_PER_DAY = 6;
 /** Окно, в котором о всплеске сообщается оператору один раз. */
 export const BURST_ALERT_WINDOW_MINUTES = 60;
 
-export type WriteOutcome = 'allowed' | 'rate_limited' | 'quarantined' | 'no_consent' | 'unknown';
+export type WriteOutcome = 'allowed' | 'repeat' | 'rate_limited' | 'quarantined' | 'no_consent' | 'unknown';
 
 export type WriteDecision =
-  | { decision: 'allow' }
+  /**
+   * `attemptId` — строка допуска: сбой сохранения после допуска отдаёт её
+   * `releaseWriteSlot`, и слот номера не сгорает. `repeat` — тот же предмет
+   * уже принят за сутки: новой заявки быть не должно.
+   */
+  | { decision: 'allow'; attemptId: string | null; repeat: boolean }
   | { decision: 'deny'; outcome: Exclude<WriteOutcome, 'allowed' | 'unknown'>; message: string }
   | { decision: 'unknown'; message: string };
 
@@ -126,6 +145,12 @@ export interface WriteGuardInput {
   phone: string | null;
   /** Прислал ли клиент явное согласие на обработку ПД. */
   consent: boolean;
+  /**
+   * Предмет заявки — тур и дата, перевозчик и направление с датой, машина и
+   * даты. Без предмета (подбор, жильё) действует порог «одна на номер».
+   * В журнал не попадает — только отпечаток.
+   */
+  subject?: string | null;
 }
 
 export interface Counts {
@@ -134,6 +159,8 @@ export interface Counts {
   by_phone_day: number;
   /** Отказов-карантинов этому номеру за окно оповещения: ноль — сообщаем. */
   phone_quarantined_recent: number;
+  /** Принятых заявок на тот же номер с тем же предметом за сутки. */
+  by_phone_subject_day?: number;
 }
 
 /**
@@ -149,6 +176,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
   // MCP 29.09). userAgent остаётся во входе: он нужен журналу вызовов.
   const clientKey = s ? fingerprint(input.ip, s) : null;
   const phoneHash = s && input.phone ? fingerprint(input.phone, s) : null;
+  const subjectHash = s && phoneHash && input.subject ? fingerprint(`${input.tool}:${input.subject}`, s) : null;
 
   // Согласие спрашивается ПЕРВЫМ и не зависит ни от базы, ни от настроек.
   //
@@ -220,7 +248,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     // а цена ошибки здесь — 42P08 на живом пути (случай 24.08 в CLAUDE.md).
     // Дедуп номера — в пределах инструмента ($4): подбор и бронь даты от
     // одного человека — разные намерения (см. PHONE_MAX_PER_DAY).
-    const { rows } = await client.query<{ a: string; b: string; c: string; d?: string }>(
+    const { rows } = await client.query<{ a: string; b: string; c: string; d?: string; e?: string }>(
       `SELECT
          COUNT(*) FILTER (WHERE client_key = $1::char(64)
                             AND created_at > NOW() - (INTERVAL '1 minute' * $3::int))::text AS a,
@@ -230,31 +258,41 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
                             AND outcome = 'allowed')::text AS c,
          COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64)
                             AND outcome = 'quarantined'
-                            AND created_at > NOW() - (INTERVAL '1 minute' * $5::int))::text AS d
+                            AND created_at > NOW() - (INTERVAL '1 minute' * $5::int))::text AS d,
+         COUNT(*) FILTER (WHERE $6::char(64) IS NOT NULL AND phone_hash = $2::char(64)
+                            AND tool = $4::varchar(64)
+                            AND subject_hash = $6::char(64)
+                            AND outcome = 'allowed')::text AS e
        FROM mcp_write_attempts
        WHERE created_at > NOW() - INTERVAL '24 hours'`,
-      [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES), input.tool, String(BURST_ALERT_WINDOW_MINUTES)],
+      [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES), input.tool, String(BURST_ALERT_WINDOW_MINUTES), subjectHash],
     );
     const counts: Counts = {
       by_client_window: Number(rows[0]?.a ?? 0),
       by_client_day: Number(rows[0]?.b ?? 0),
       by_phone_day: Number(rows[0]?.c ?? 0),
       phone_quarantined_recent: Number(rows[0]?.d ?? 0),
+      by_phone_subject_day: Number(rows[0]?.e ?? 0),
     };
 
-    const verdict = decide(counts);
+    const verdict = decide(counts, subjectHash !== null);
     // Пишется ВСЯКИЙ исход, включая отказ, и пишется в той же транзакции,
     // что и счёт: иначе поток отказов не занимает слот и обходит лимит
     // повторением того, что уже отвергли.
-    await client.query(
-      `INSERT INTO mcp_write_attempts (client_key, tool, phone_hash, outcome)
-       VALUES ($1::char(64), $2::varchar(64), $3::char(64), $4::varchar(16))`,
-      [clientKey, input.tool, phoneHash, verdict.outcome],
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO mcp_write_attempts (client_key, tool, phone_hash, outcome, subject_hash)
+       VALUES ($1::char(64), $2::varchar(64), $3::char(64), $4::varchar(16), $5::char(64))
+       RETURNING id::text AS id`,
+      [clientKey, input.tool, phoneHash, verdict.outcome, subjectHash],
     );
     await client.query('COMMIT');
     await sweepOld();
     const burst = burstToReport(counts, verdict.outcome);
     if (burst) await reportBurst(burst, input.tool, clientKey);
+    // Слот держит только принятая заявка: строку повтора освобождать нечего.
+    if (verdict.decision.decision === 'allow' && verdict.outcome === 'allowed') {
+      return { ...verdict.decision, attemptId: inserted.rows[0]?.id ?? null };
+    }
     return verdict.decision;
   } catch (err) {
     await client?.query('ROLLBACK').catch(() => {});
@@ -280,20 +318,31 @@ function lockKey(hash: string): number {
 }
 
 /** Решение по посчитанному. Отделено от ввода-вывода, чтобы читалось целиком. */
-function decide(counts: Counts): { outcome: WriteOutcome; decision: WriteDecision } {
-  if (counts.by_phone_day >= PHONE_MAX_PER_DAY) {
+function decide(counts: Counts, hasSubject = false): { outcome: WriteOutcome; decision: WriteDecision } {
+  const clientOver = counts.by_client_window >= CLIENT_MAX_PER_WINDOW || counts.by_client_day >= CLIENT_MAX_PER_DAY;
+  // Повтор того же предмета — не новая заявка: допуск без нового слота, а
+  // второго лида роут не создаёт (дубль заявки узнаётся там же) и отвечает
+  // тем же текстом, что на новую. До 07.11 повтор упирался в порог номера и
+  // слышал «уже есть такая заявка» — ветка «на повтор тот же ответ» в роуте
+  // была недостижима. Поток повторов с одного адреса держит лимит клиента.
+  if (hasSubject && (counts.by_phone_subject_day ?? 0) >= 1 && !clientOver) {
+    return { outcome: 'repeat', decision: { decision: 'allow', attemptId: null, repeat: true } };
+  }
+  if (counts.by_phone_day >= (hasSubject ? PHONE_MAX_SUBJECTS_PER_DAY : PHONE_MAX_PER_DAY)) {
     return {
       outcome: 'quarantined',
       decision: {
         decision: 'deny',
         outcome: 'quarantined',
-        message:
-          'На этот номер уже есть такая заявка за последние сутки — повторную не создаю. '
-          + 'Менеджер свяжется по первой.',
+        message: hasSubject
+          ? `На этот номер за сутки уже ${PHONE_MAX_SUBJECTS_PER_DAY} заявок этого вида на разные даты и предметы — `
+            + 'новую через ИИ-ассистента не создаю. Принятые заявки остаются в силе; ещё одну человек может назвать при звонке.'
+          : 'На этот номер уже есть такая заявка за последние сутки — повторную не создаю. '
+            + 'Менеджер свяжется по первой.',
       },
     };
   }
-  if (counts.by_client_window >= CLIENT_MAX_PER_WINDOW || counts.by_client_day >= CLIENT_MAX_PER_DAY) {
+  if (clientOver) {
     return {
       outcome: 'rate_limited',
       decision: {
@@ -305,7 +354,27 @@ function decide(counts: Counts): { outcome: WriteOutcome; decision: WriteDecisio
       },
     };
   }
-  return { outcome: 'allowed', decision: { decision: 'allow' } };
+  return { outcome: 'allowed', decision: { decision: 'allow', attemptId: null, repeat: false } };
+}
+
+/**
+ * Допуск был, а заявка не сохранилась — попытка не считается принятой
+ * (аудит планировщика 07.11, M6). Без этого сбой сохранения сжигал суточный
+ * слот номера: повтор слышал «такая заявка уже есть», а заявки не было.
+ * Отказ самой правки не глушится, но и решения не меняет: заявки нет при
+ * любом исходе.
+ */
+export async function releaseWriteSlot(attemptId: string | null): Promise<void> {
+  if (!attemptId) return;
+  try {
+    await pool.query(
+      `UPDATE mcp_write_attempts SET outcome = 'save_failed'
+        WHERE id = $1::bigint AND outcome = 'allowed'`,
+      [attemptId],
+    );
+  } catch (err) {
+    console.error('[mcp-write-guard] слот не освобождён после сбоя сохранения:', err);
+  }
 }
 
 export type BurstKind = 'client_window' | 'client_day' | 'phone_repeat';

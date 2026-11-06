@@ -21,6 +21,9 @@ import { join } from 'node:path';
 const createLeadMock = vi.hoisted(() => vi.fn(async () => 'lead-1'));
 const recentLeadMock = vi.hoisted(() => vi.fn(async () => null as string | null));
 const carriersMock = vi.hoisted(() => vi.fn());
+// Счёт сторожа записи: c — принятых на номер этим инструментом за сутки, e — из
+// них с тем же предметом (перевозчик и дата). По умолчанию ноль, как раньше.
+const guardState = vi.hoisted(() => ({ c: '0', e: '0', calls: [] as Array<[string, unknown[] | undefined]> }));
 
 // Личная доставка перевозчику (23.10) после записи — свой сторож; здесь она не нужна.
 vi.mock('@/lib/notifications/partner-request-notify', () => ({ notifyPartnerRequestPersonally: vi.fn(async () => ({ state: 'no_channel' })) }));
@@ -39,8 +42,12 @@ vi.mock('@/lib/transfers/charter', () => ({
   loadCharterCarriers: (...a: unknown[]) => carriersMock(...a),
 }));
 vi.mock('@/lib/db-pool', () => {
-  const q = async (sql: string) =>
-    /COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] };
+  const q = async (sql: string, params?: unknown[]) => {
+    guardState.calls.push([sql, params]);
+    if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: guardState.c, c: guardState.c, d: '0', e: guardState.e }] };
+    if (/INSERT INTO mcp_write_attempts/.test(sql)) return { rows: [{ id: '88' }] };
+    return { rows: [] };
+  };
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
 
@@ -100,6 +107,9 @@ const base = () => ({
 
 beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
+  guardState.c = '0';
+  guardState.e = '0';
+  guardState.calls = [];
   createLeadMock.mockReset();
   createLeadMock.mockResolvedValue('lead-1');
   recentLeadMock.mockReset();
@@ -365,5 +375,44 @@ describe('request_charter: границы по коду', () => {
     const svc = readFileSync(join(ROOT, 'lib/transfers/charter-request-service.ts'), 'utf-8');
     expect(svc).not.toMatch(/INSERT INTO|UPDATE |DELETE FROM/i);
     expect(svc).not.toMatch(/operator_bookings|lib\/payments|recordCommission/);
+  });
+});
+
+/**
+ * Предмет заявки на машину — перевозчик и дата выезда (аудит планировщика
+ * 07.11, M5 и M6): тот же ключ, по которому сохранение узнаёт повтор
+ * (charterDedupPrefix). Вторая машина плана на другой день — заявка, а не
+ * «уже есть такая»; повтор — тот же ответ без второго лида; сбой сохранения
+ * освобождает слот номера.
+ */
+describe('request_charter: предмет заявки, повтор и сбой сохранения', () => {
+  const attempts = () => guardState.calls.filter(([sql]) => /INSERT INTO mcp_write_attempts/.test(sql)).map(([, p]) => p ?? []);
+
+  it('вторая машина того же номера на другой день — заявка принята', async () => {
+    guardState.c = '1';
+    const r = await text(await POST(call({ ...base(), date_from: inDays(32) })));
+    expect(r.isError).toBe(false);
+    expect(r.text).not.toMatch(/уже есть такая заявка|по первой/);
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    expect(attempts()[0]?.[3]).toBe('allowed');
+    expect(String(attempts()[0]?.[4])).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('повтор той же машины и даты — тот же ответ, второго лида нет', async () => {
+    guardState.c = '1';
+    guardState.e = '1';
+    recentLeadMock.mockResolvedValue('lead-0');
+    const r = await text(await POST(call(base())));
+    expect(r.isError).toBe(false);
+    expect(createLeadMock).not.toHaveBeenCalled();
+    expect(attempts()[0]?.[3]).toBe('repeat');
+  });
+
+  it('сбой сохранения — отказ, слот освобождён', async () => {
+    createLeadMock.mockResolvedValueOnce(null as unknown as string);
+    const r = await text(await POST(call(base())));
+    expect(r.isError).toBe(true);
+    const release = guardState.calls.find(([sql]) => /UPDATE mcp_write_attempts SET outcome = 'save_failed'/.test(sql));
+    expect(release?.[1]).toEqual(['88']);
   });
 });
