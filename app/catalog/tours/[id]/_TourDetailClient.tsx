@@ -1,6 +1,7 @@
 'use client';
 
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
+import { tourAskQuestion } from '@/lib/kuzmich/tour-ask';
 import AskYourAi from '@/components/kuzmich/AskYourAi';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
@@ -1212,7 +1213,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   изменился только вид: единая система KuzmichActions в компактной плотности. */}
               <p className="text-xs text-[var(--text-secondary)] mb-3">Подходит ли детям, как одеться, что взять — Кузьмич знает Камчатку.</p>
               <KuzmichActions
-                primaryHref={kuzmichAskHref(`Расскажи про тур «${tour.title}»: подходит ли он мне, что взять и как оставить заявку?`)}
+                primaryHref={kuzmichAskHref(tourAskQuestion(tour.title))}
                 primaryLabel="Спросить Кузьмича"
                 compact
               />
