@@ -414,7 +414,9 @@ describe('схема: одна правда для MCP и Кузьмича', () 
     expect(tool).toMatch(/adults: group\.adults,\s*children: kids\.children,/);
     expect(tool).toMatch(/budgetTier: budget\.tier,/);
     // Итог на группу — тем же составом и уровнем, что ушли в движок (#2304).
-    expect(tool).toMatch(/priceLines: formatPlanPrice\(rec\.priceBreakdown, budget\.tier, rec\.days\.length > 0,\s*estimateGroup\(rec\.days, \{ adults: group\.adults, children: kids\.children, budgetTier: budget\.tier \}\)\)/);
+    // С 07.11 смета идёт через planPriceLines: под ней — допущение счёта у
+    // местного (аудит планировщика, K4); состав и уровень — те же.
+    expect(tool).toMatch(/priceLines: planPriceLines\(\s*formatPlanPrice\(rec\.priceBreakdown, budget\.tier, rec\.days\.length > 0,\s*estimateGroup\(rec\.days, \{ adults: group\.adults, children: kids\.children, budgetTier: budget\.tier \}\)\),\s*rec\.warnings,\s*\)/);
     expect(tool).toMatch(/formatPlanPrice\(planPrice\(plan\), plan\.params\.budgetTier, plan\.days\.length > 0, planEstimate\(plan\)\)/);
     expect(core).toMatch(/adults: args\.adults, children: args\.children, budget_tier: args\.budget_tier,/);
   });

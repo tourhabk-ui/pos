@@ -112,3 +112,34 @@ jobs:
           else:
               print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
           '
+
+      # Просьба собрать план (аудит планировщика 07.11, K1 и K2). До волны 1 её
+      # отвечала витрина — списком жилья, а строку сметы «Ориентир на человека»
+      # сверка цен вырезала с припиской «не называю». Теперь отвечает модель с
+      # make_trip_plan, и смета из вывода инструмента остаётся.
+      - name: E2E trip-plan question
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          RESP=$(curl -s --max-time 180 -X POST "$BASE/api/ai/chat" \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"Составь план на 5 дней в июле 2027 для двоих: рыбалка, вулкан, жильё и машина","role":"tourist"}') || true
+          echo "$RESP" | python3 -c '
+          import json, re, sys
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              print("RAW (not JSON)"); raise SystemExit(0)
+          answer = (d.get("data") or {}).get("answer") or ""
+          print("answer:", answer[:2500])
+          if answer.startswith("Извините, сервис временно недоступен"):
+              print("VERDICT: FALLBACK — весь waterfall упал на живом запросе")
+          elif not answer:
+              print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
+          elif not re.search(r"День\s*[1-5]", answer):
+              print("VERDICT: SHOWCASE — плана по дням в ответе нет")
+          elif "не называю" in answer:
+              print("VERDICT: PRICE_CUT — план есть, но сверка цен вырезала цену; смотреть ответ")
+          else:
+              print("VERDICT: OK — план по дням" + (", смета на месте" if "Ориентир" in answer else ", сметы в ответе нет"))
+          '
