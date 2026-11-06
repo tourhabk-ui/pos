@@ -47,8 +47,9 @@ function sqlLiterals(src: string): Array<{ text: string; line: number }> {
 
 /** Что запрещено в SQL со временем тревог. */
 const FORBIDDEN: Array<{ re: RegExp; what: string }> = [
-  { re: /\b(?:\w+\.)?(?:expires_at|created_at)\s*(?:<=|>=|<|>|=)\s*NOW\(\)(?!\s*AT TIME ZONE)/i, what: 'сравнение или запись с голым NOW()' },
-  { re: /NOW\(\)\s*-\s*(?:\w+\.)?created_at/i, what: 'возраст от голого NOW()' },
+  // last_published_at (1394) — того же рода: дата сводки, стенное UTC.
+  { re: /\b(?:\w+\.)?(?:expires_at|created_at|last_published_at)\s*(?:<=|>=|<|>|=)\s*NOW\(\)(?!\s*AT TIME ZONE)/i, what: 'сравнение или запись с голым NOW()' },
+  { re: /NOW\(\)\s*-\s*(?:\w+\.)?(?:created_at|last_published_at)/i, what: 'возраст от голого NOW()' },
   // updated_at — только у самой таблицы тревог: location_real_time_status.updated_at
   // пишется в поясе сессии намеренно и читается isoUtcSql (тот же запрос пересчёта).
   { re: /UPDATE\s+external_alerts\b[\s\S]*\bupdated_at\s*=\s*NOW\(\)(?!\s*AT TIME ZONE)/i, what: 'updated_at тревоги от голого NOW()' },
@@ -131,6 +132,7 @@ describe('время тревог — стенное UTC', () => {
     expect(FORBIDDEN.some(({ re }) => re.test('`SELECT 1 FROM external_alerts WHERE expires_at > (NOW() AT TIME ZONE \'UTC\')`'))).toBe(false);
     expect(LRTS_FORBIDDEN.test('rs.alert_expires_at > NOW()')).toBe(true);
     expect(INSERT_NOW.test('`INSERT INTO external_alerts (a, created_at) VALUES ($1, NOW())`')).toBe(true);
+    expect(FORBIDDEN.some(({ re }) => re.test('`SELECT 1 FROM external_alerts WHERE last_published_at > NOW() - INTERVAL \'14 days\'`'))).toBe(true);
   });
 
   it('на настоящих миграциях до 1269 сторож краснеет: гашение 1123 и ручная запись 718', () => {

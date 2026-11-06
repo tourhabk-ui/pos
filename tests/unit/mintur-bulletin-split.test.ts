@@ -82,8 +82,20 @@ describe('живая сводка 06.08 разбирается на событи
     expect(bear!.severity).toBeGreaterThanOrEqual(1);
   });
 
-  it('пункты «открыто» событий не порождают', () => {
-    expect(events.some(e => /Быстринск/i.test(e.title))).toBe(false);
+  it('пункты «открыто» тревог не порождают — только улику открытия, рождённую истёкшей (06.11)', () => {
+    // «Открыты летние маршруты природного парка «Быстринский»» — сводка об
+    // открытии: проход приёма снимет этим парком более раннее закрытие. Сама
+    // она не тревога: уровень 0 и срок 0 ч, ни лента, ни статус места её не
+    // читают.
+    const bystrinsky = events.filter(e => /Быстринск/i.test(e.title));
+    expect(bystrinsky.length).toBeGreaterThan(0);
+    for (const e of bystrinsky) {
+      expect(e.alert_type).toBe('park_reopening');
+      expect(e.severity).toBe(0);
+      expect(e.expires_hours).toBe(0);
+      expect(e.affected_parks).toEqual(['bystrinskiy']);
+      expect(e.affected_zones).toEqual([]);
+    }
   });
 });
 

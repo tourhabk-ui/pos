@@ -17,10 +17,12 @@
  * оперативному закрытию из сводки, правило без даты (48 ч) не должно срезать.
  *
  * Чего проход не трогает (ревью 06.11):
- *  - истёкшие строки: админ гасит тревогу тем же `expires_at = now`
- *    (DELETE /api/admin/external-alerts/[id]), и отличить снятое человеком от
- *    истёкшего нельзя. Условие «ещё жива» повторено и в самом UPDATE: строка,
- *    снятая между чтением и записью, не воскресает;
+ *  - истёкшие строки: продлевать погашенное нельзя. С миграции 1394 снятое
+ *    человеком помечено `ended_by = 'admin'`, снятое сводкой об открытии —
+ *    `'reopening'`; истёкшее само сезонное закрытие становится «статус не
+ *    известен» (park-reopening.ts), а не продлевается здесь. Условие «ещё
+ *    жива» повторено и в самом UPDATE: строка, снятая между чтением и
+ *    записью, не воскресает;
  *  - ручные записи: `manual-…` отсеивается ДО alertOrigin — тот узнаёт
  *    ручную запись со ссылкой на пост в MAX как ленту MAX по адресу;
  *  - строки, чей `external_id` не той формы, которую пишет классификатор
@@ -31,8 +33,9 @@
  *    800-м знаком в его срок вошла, а проход её бы не увидел и продлил
  *    закрытие мимо названного открытия.
  *
- * `created_at` у строки ленты — дата публикации первого поста (saveEvent
- * пишет его из `published_at`); читается строкой UTC, а не через Date
+ * Срок считается от ПОСЛЕДНЕЙ сводки — `COALESCE(last_published_at,
+ * created_at)` (миграция 1394): `created_at` — дата первого поста, а повтор
+ * той же сводки — новое подтверждение. Читается строкой UTC, а не через Date
  * драйвера, чтобы срок по названной дате не зависел от пояса процесса.
  * Каждое продление пишется в журнал решений (`risk_classified`): прежний и
  * новый срок, чтобы на вопрос «почему красное» был ответ.
@@ -88,10 +91,11 @@ export async function holdParkClosures(
 ): Promise<ParkHoldResult> {
   const res = await query<Row>(
     `SELECT id::text, title, description, external_id, source_url,
-            ${utcWallIsoSql('created_at')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso
+            ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso
        FROM external_alerts
       WHERE alert_type = 'park_closure'
-        AND expires_at > ${UTC_WALL_NOW_SQL}`,
+        AND expires_at > ${UTC_WALL_NOW_SQL}
+        AND ended_by IS NULL`,
     [],
   );
 
@@ -111,16 +115,17 @@ export async function holdParkClosures(
   }
   if (ids.length === 0) return { checked: res.rows.length, extended: 0, extended_ids: [], skipped };
 
-  // Сложение — в SQL, от того же created_at. Условие «ещё жива» — и здесь:
+  // Сложение — в SQL, от того же основания. Условие «ещё жива» — и здесь:
   // между SELECT и UPDATE админ мог тревогу снять.
   const updated = await query<{ id: string; expires_iso: string }>(
     `UPDATE external_alerts ea
-        SET expires_at = ea.created_at + make_interval(hours => v.hours)
+        SET expires_at = COALESCE(ea.last_published_at, ea.created_at) + make_interval(hours => v.hours)
        FROM unnest($1::text[], $2::int[]) AS v(id, hours)
       WHERE ea.id::text = v.id
         AND ea.alert_type = 'park_closure'
         AND ea.expires_at > ${UTC_WALL_NOW_SQL}
-        AND ea.created_at + make_interval(hours => v.hours) > ea.expires_at
+        AND ea.ended_by IS NULL
+        AND COALESCE(ea.last_published_at, ea.created_at) + make_interval(hours => v.hours) > ea.expires_at
       RETURNING ea.id::text AS id, ${utcWallIsoSql('ea.expires_at')} AS expires_iso`,
     [ids, hours],
   );
@@ -130,7 +135,7 @@ export async function holdParkClosures(
       eventType: 'risk_classified',
       actorType: 'system',
       actorId: 'safety-ingest.holdParkClosures',
-      decisionReason: 'закрытие парка: срок по правилу 06.11 (сезонное — 21 сутки от публикации, названная дата — до 60 суток)',
+      decisionReason: 'закрытие парка: срок по правилу 06.11 (сезонное — 21 сутки от последней сводки, названная дата — до 60 суток)',
       details: { prior_expires_at: before.get(r.id) ?? null, expires_at: r.expires_iso },
     });
   }

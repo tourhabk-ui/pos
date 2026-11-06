@@ -95,7 +95,7 @@ describe('оба SQL-предиката читают пустые зоны ка�
     // возвращается «Вилючинский перевал» на Курильском озере.
     const src = read(FILES[0]);
     expect(src).toMatch(/AND NOT \(\$\{PLACE_SCOPED_SQL\}\)/);
-    expect(src).toMatch(/PLACE_SCOPED_TYPES = \['road_closure', 'fire_danger', 'volcanic_eruption', 'park_closure'\]/);
+    expect(src).toMatch(/PLACE_SCOPED_TYPES = \['road_closure', 'fire_danger', 'volcanic_eruption', 'park_closure', 'park_status_unknown'\]/);
   });
 
   it('collect-signals: зональная ветка — та же, что у мест (03.10)', () => {
@@ -149,6 +149,7 @@ describe('уже сохранённые строки со старым дефо�
 
   it('строка, разобранная до меток дальних округов, получает их один раз (#2293)', () => {
     expect(upd).toMatch(/OR \(\$6::text\[\] && \$7::text\[\] AND NOT \(external_alerts\.affected_zones && \$7::text\[\]\)\)/);
-    expect(upd).toMatch(/\[\.\.\.KRAI_FAR_ZONES\]\]/);
+    // $6 — зоны события, $7 — метки дальних округов (дальше — дата и парки, 1394).
+    expect(upd).toMatch(/event\.affected_zones, \[\.\.\.KRAI_FAR_ZONES\]/);
   });
 });

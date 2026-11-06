@@ -13,6 +13,7 @@ import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, inges
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
 import { holdParkClosures, type ParkHoldResult } from '@/lib/services/safety/park-closure-hold';
+import { applyParkReopenings, markParkStatusUnknown, type ParkReopeningResult, type ParkStatusUnknownResult } from '@/lib/services/safety/park-reopening';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { ingestMeteoalert } from '@/lib/services/safety/meteoalert';
@@ -22,7 +23,7 @@ import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { pool } from '@/lib/db-pool';
 import { buildAnchorIndex, matchAlertAnchor } from '@/lib/safety/alert-anchor';
 import { buildVolcanoIndex, matchVolcanoPlace } from '@/lib/services/safety/volcano-match';
-import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL, TOURIST_BAN_SQL } from '@/lib/services/safety/alert-place-scope';
+import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL, PARK_STATUS_UNKNOWN_SQL, TOURIST_BAN_SQL } from '@/lib/services/safety/alert-place-scope';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
@@ -371,7 +372,10 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           -- #2195): зональный уровня 2 даёт жёлтый, а не красный.
           -- Прямой запрет туристам зональным не считается: он красный и по
           -- зоне (TOURIST_BAN_SQL).
-          COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false) AS zonal
+          COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false) AS zonal,
+          -- «Статус парка не известен» (06.11): закрытие на межсезонье истекло,
+          -- сводки об открытии не было. Жёлтый — своим правилом ниже.
+          COALESCE(${PARK_STATUS_UNKNOWN_SQL}, false) AS park_unknown
         FROM location_real_time_status lrs
         LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
         LEFT JOIN external_alerts ea
@@ -384,7 +388,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         -- Теперь дедуп отдельным шагом, чтобы ниже осталась ВОЗМОЖНОСТЬ
         -- отсортировать: у array_agg(DISTINCT ...) порядок задать нечем,
         -- кроме самого title.
-        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity, zonal
+        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity, zonal, park_unknown
         FROM matched
         ORDER BY lrs_id, title, severity DESC, zonal
       ),
@@ -412,7 +416,8 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           -- Уровень по алертам, привязанным к САМОМУ месту, и по зональным —
           -- раздельно: красный от зоны только при уровне 3 (цунами).
           COALESCE(MAX(severity) FILTER (WHERE NOT zonal), 0) AS place_severity,
-          COALESCE(MAX(severity) FILTER (WHERE zonal), 0) AS zonal_severity
+          COALESCE(MAX(severity) FILTER (WHERE zonal), 0) AS zonal_severity,
+          COALESCE(bool_or(park_unknown), false) AS park_unknown
         FROM dedup
         GROUP BY lrs_id
       ),
@@ -486,6 +491,10 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           ) THEN 'yellow'
           WHEN volc.level >= 1 THEN 'yellow'
           WHEN agg.zonal_severity >= 2 THEN 'yellow'
+          -- Статус парка не известен — жёлтый, а не зелёный: уровень 1 прочих
+          -- родов места жёлтого не даёт, а «не знаю» о закрытом парке — даёт.
+          -- После красных веток: живое закрытие того же парка красное.
+          WHEN agg.park_unknown THEN 'yellow'
           ELSE 'green'
         END,
         updated_at = NOW()
@@ -768,6 +777,10 @@ function buildResponse(
   // Сезонные закрытия парков: сколько живых проверено и скольким срок
   // продлён правилом 06.11 (park-closure-hold.ts).
   parkHolds?: ParkHoldResult | { error: string },
+  // Сводки об открытии: с каких закрытий сняты открытые парки (park-reopening.ts).
+  parkReopenings?: ParkReopeningResult | { error: string },
+  // «Статус парка не известен» после предела: какие парки, что начато и погашено.
+  parkUnknown?: ParkStatusUnknownResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -788,6 +801,8 @@ function buildResponse(
     ...(volcanoAnchors && 'error' in volcanoAnchors && volcanoAnchors.error ? [volcanoAnchors.error] : []),
     ...(datedCaps && 'error' in datedCaps ? [datedCaps.error] : []),
     ...(parkHolds && 'error' in parkHolds ? [parkHolds.error] : []),
+    ...(parkReopenings && 'error' in parkReopenings ? [parkReopenings.error] : []),
+    ...(parkUnknown && 'error' in parkUnknown ? [parkUnknown.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -906,6 +921,10 @@ function buildResponse(
     road_anchors: roadAnchors ?? null,
     dated_caps: datedCaps ?? null,
     park_holds: parkHolds ?? null,
+    // Отказ этих двух проходов открывает дорогу к зелёному: ошибка — в
+    // errors выше и здесь причиной, а не нулём (§4.0).
+    park_reopenings: parkReopenings ?? null,
+    park_status_unknown: parkUnknown ?? null,
     // Вулканическая привязка теми же тремя исходами: привязано / имя
     // неоднозначно / такого вулкана нет в каталоге. Непривязанное извержение
     // не красит места — цифра здесь единственный способ это заметить.
@@ -1159,6 +1178,14 @@ async function runGet(t0: number, startedAt: Date, pending: Set<string>): Promis
   // должно держаться по новому сроку уже в этом пересчёте, а не гаснуть
   // по прежнему недельному сроку (park-closure-hold.ts).
   const parkHolds = await tracked(pending, 'park-hold', safely('park-hold', () => holdParkClosures(query)));
+  // Тем же порядком (решение владельца 06.11): сводка об открытии снимает
+  // открытые парки с более раннего закрытия, а после — истёкшее сезонное
+  // закрытие без открытия становится «статус не известен». Оба — ДО
+  // пересчёта статуса и рассылки: закрытие, принятое сейчас, но опубликованное
+  // раньше открытия, гаснет до пуша, а место «не знаю» жёлтое уже в этом
+  // пересчёте.
+  const parkReopenings = await tracked(pending, 'park-reopening', safely('park-reopening', () => applyParkReopenings(query)));
+  const parkUnknown = await tracked(pending, 'park-unknown', safely('park-unknown', () => markParkStatusUnknown(query)));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
@@ -1272,7 +1299,7 @@ async function runGet(t0: number, startedAt: Date, pending: Set<string>): Promis
         skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
         problems: emsdOk ? emsdResult.table.problems : [],
       },
-    }, pruned, roadAnchors, volcanoAnchors, datedCaps, parkHolds);
+    }, pruned, roadAnchors, volcanoAnchors, datedCaps, parkHolds, parkReopenings, parkUnknown);
 }
 
 const HtmlBodySchema = z.object({
@@ -1453,6 +1480,8 @@ export async function POST(req: Request) {
   // должно красить места ещё один прогон.
   const datedCaps = await safely('dated-cap', () => capDatedWarnings(query));
   const parkHolds = await safely('park-hold', () => holdParkClosures(query));
+  const parkReopenings = await safely('park-reopening', () => applyParkReopenings(query));
+  const parkUnknown = await safely('park-unknown', () => markParkStatusUnknown(query));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
@@ -1505,5 +1534,5 @@ export async function POST(req: Request) {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms', 'meteoalert'],
     knownDormantSources: knownDormantPost,
     roadBasisNeeded,
-  }, pruned, roadAnchors, volcanoAnchors, datedCaps, parkHolds);
+  }, pruned, roadAnchors, volcanoAnchors, datedCaps, parkHolds, parkReopenings, parkUnknown);
 }

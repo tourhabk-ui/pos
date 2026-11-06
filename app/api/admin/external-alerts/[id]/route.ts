@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { rejectParkReopening } from '@/lib/services/safety/park-reopening';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,6 +73,19 @@ export async function PATCH(
  * DELETE /api/admin/external-alerts/[id] - Погасить алерт.
  * Не удаляем строку, а гасим (expires_at = NOW()) — паттерн миграции 710:
  * история остаётся, дедуп по external_id продолжает работать.
+ *
+ * Гашение помечается `ended_by = 'admin'` (миграция 1394): истёкшее само
+ * закрытие парка на межсезонье становится «статус не известен», а снятое
+ * человеком — нет. Без метки их было не различить, и вывод «не знаю»
+ * воскрешал бы снятое (lib/services/safety/park-reopening.ts). Снятая
+ * строка «статус не известен» тем же правилом больше не выводится из того
+ * же основания.
+ *
+ * Сводка об открытии парка (`park_reopening`) живой не бывает — она рождается
+ * истёкшей, — и снять её прежним путём было нельзя. DELETE по её id её
+ * ОТКЛОНЯЕТ: проходы парков её больше не читают, а закрытия, которые она
+ * сузила или погасила, получают парки и срок обратно (rejectParkReopening,
+ * ревью 06.11).
  */
 export async function DELETE(
   request: NextRequest,
@@ -89,9 +103,20 @@ export async function DELETE(
       );
     }
 
+    const reopening = await rejectParkReopening(query, String(parsedParams.data.id));
+    if (reopening.rejected) {
+      return NextResponse.json({
+        success: true,
+        message: reopening.restored_ids.length > 0
+          ? `Сводка об открытии отклонена. Закрытий возвращено: ${reopening.restored_ids.length}. Точки обновятся при ближайшем safety-ingest.`
+          : 'Сводка об открытии отклонена. Закрытий она не меняла.',
+      } as ApiResponse<null>);
+    }
+
     const result = await query(
       `UPDATE external_alerts
-       SET expires_at = ${UTC_WALL_NOW_SQL}
+       SET expires_at = ${UTC_WALL_NOW_SQL},
+           ended_by = 'admin'
        WHERE id = $1 AND expires_at > ${UTC_WALL_NOW_SQL}
        RETURNING id`,
       [parsedParams.data.id]
@@ -110,6 +135,9 @@ export async function DELETE(
     } as ApiResponse<null>);
 
   } catch (error) {
+    // Отказ не глушится (§4.0): без строки в логе «не погасили» не найти.
+    const code = (error as { code?: string })?.code ?? 'нет SQLSTATE';
+    console.error('[admin/external-alerts] алерт не погашен, SQLSTATE', code);
     return NextResponse.json(
       { success: false, error: 'Ошибка при гашении алерта' } as ApiResponse<null>,
       { status: 500 }

@@ -49,14 +49,14 @@ if (PG_URL) {
 const migration = (name: string) => readFileSync(join(process.cwd(), 'migrations', name), 'utf-8');
 
 /**
- * external_alerts — из самих миграций: CREATE TABLE из 070 и колонки
- * основания из 1212 (лента читает basis_*). Остальные колонки статус не
- * читает.
+ * external_alerts — из самих миграций: CREATE TABLE из 070, колонки
+ * основания из 1212 (лента читает basis_*) и дата последней сводки из 1394
+ * (лента пишет «сообщение от» по ней). Остальные колонки статус не читает.
  */
 function externalAlertsDdl(): string {
   const block = migration('070_safety_capacity_layer_fix.sql').match(/CREATE TABLE IF NOT EXISTS external_alerts \([\s\S]*?\);/);
   if (!block) throw new Error('в миграции 070 не найден CREATE TABLE external_alerts');
-  return `${block[0]}\n${migration('1212_external_alerts_basis.sql')}`;
+  return `${block[0]}\n${migration('1212_external_alerts_basis.sql')}\n${migration('1394_external_alerts_park_status.sql')}`;
 }
 
 /**
