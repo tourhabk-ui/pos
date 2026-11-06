@@ -126,6 +126,24 @@ describe('модель руки задана явно', () => {
 });
 
 /**
+ * Версию Claude Code руке ставит сам экшен — свою для каждого пина
+ * (`src/entrypoints/run.ts`): пин от 02.10 ставил 2.1.288, от 06.11 — 2.1.319.
+ * Рука, отставшая пином, тихо работала бы на старом клиенте: без новых правок
+ * расхода, а модель новее клиента отвечает 400 «Claude Code … does not
+ * support this model» (так у ревьюера на 2.1.197, PR #3083).
+ */
+describe('экшен рук — один пин на всех', () => {
+  it('все руки на одном sha claude-code-action, закреплённом полностью', () => {
+    const pins = HANDS.map((wf) => {
+      const src = readFileSync(join(process.cwd(), wf), 'utf-8');
+      return [...src.matchAll(/uses: anthropics\/claude-code-action@([0-9a-f]{40})\b/g)].map((m) => m[1]);
+    });
+    for (const p of pins) expect(p).toHaveLength(1);
+    expect(new Set(pins.flat()).size).toBe(1);
+  });
+});
+
+/**
  * Замер 06.09: прогон 59 issue-triage умер за две секунды с
  * «Action failed with error: Unsupported event type: push». Так же молча
  * умирал бы всякий запуск маркером — и у летописца тоже. Маркер обязан

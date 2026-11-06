@@ -77,7 +77,7 @@ jobs:
             echo 'HEREDOC'
           } >> "$GITHUB_OUTPUT"
 
-      # Claude Code 2.1.288 с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
+      # Claude Code (с 2.1.288) с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
       # bubblewrap («bubblewrap is required for subprocess env scrubbing»).
       # Экшен ставит его сам только при allowed_non_write_users — ставим здесь.
       - name: bubblewrap для изоляции подпроцессов
@@ -91,7 +91,7 @@ jobs:
 
       - name: Run Claude
         id: hand
-        uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        uses: anthropics/claude-code-action@115e0b2c49222c831de6748ccdf365bb8d3ea9a3 # v1 от 06.11.2026, ставит Claude Code 2.1.319
         env:
           ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
           ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.AGENTS_PROVIDER != 'anthropic' && 'anthropic/claude-haiku-5.5' || '' }}

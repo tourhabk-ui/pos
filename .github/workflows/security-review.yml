@@ -78,7 +78,7 @@ concurrency:
 # npm отдаёт 2.1.197, а Opus 5.5 принимается от 2.1.280: прогон на PR #3083
 # 07.11 ответил «API Error: 400 Claude Code 2.1.197 does not support this
 # model». Задать экшену версию нечем. Руки этим не задеты: claude-code-action
-# ставит Claude Code 2.1.288 сам.
+# ставит Claude Code 2.1.319 сам.
 # Сторож: tests/unit/security-review-workflow.test.ts.
 jobs:
   review:
