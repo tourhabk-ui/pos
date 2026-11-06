@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { buildPlanGpx, planGpxContentDisposition, planGpxPoints, type PlanGpxDay } from '@/lib/trips/plan-gpx';
+import { calendarDay } from '@/lib/trips/trip-dates';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   try {
-    const { rows } = await pool.query<{ title: string; arrival_date: string | null; days: unknown }>(
+    const { rows } = await pool.query<{ title: string; arrival_date: unknown; days: unknown }>(
       `SELECT title, arrival_date, days FROM user_trips
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, userId],
@@ -30,7 +31,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!trip) return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
 
     const raw = (Array.isArray(trip.days) ? trip.days : []) as Array<{ day?: number; title?: string; coords?: [number, number] }>;
-    const arrivalMs = trip.arrival_date ? new Date(trip.arrival_date).getTime() : NaN;
+    // Дата прилёта — календарный день (07.11): Date из драйвера — полночь пояса
+    // сервера, и в поясе впереди UTC день точки уходил на соседний.
+    const arrival = calendarDay(trip.arrival_date);
+    const arrivalMs = arrival ? Date.parse(arrival) : NaN;
     const days: PlanGpxDay[] = raw
       .filter((d) => typeof d.day === 'number' && typeof d.title === 'string')
       .map((d) => ({

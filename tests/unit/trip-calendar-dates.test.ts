@@ -11,6 +11,8 @@
  *
  * Сторож держит поведение: роут отдаёт календарный день строкой, страница
  * показывает тот же день в любом поясе, ссылка несёт дату дня и всю группу.
+ * Страница по ссылке «поделиться», её GPX и режим поездки читают даты тем же
+ * правилом (там DATE печатался UTC-моментом «2027-07-10T00:00:00.000Z»).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -27,10 +29,17 @@ vi.mock('@/lib/db-pool', () => ({
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: async () => ({ userId: 'u1' }) }));
 vi.mock('@/lib/mcp/handoff', () => ({ attachMcpAttribution: async () => {}, MCP_ATTRIBUTION: { cookieName: 'x' } }));
 
+import type { Mock } from 'vitest';
+import { pool } from '@/lib/db-pool';
 import { GET as getTrip } from '@/app/api/trips/[id]/route';
 import { GET as listTrips } from '@/app/api/trips/route';
+import { GET as tripGpx } from '@/app/api/trips/[id]/gpx/route';
+import { GET as activeTrip } from '@/app/api/trips/active/route';
+import { readSharedPlan } from '@/lib/trips/shared-plan';
 import { calendarDay, ruCalendarDate, withCalendarDates } from '@/lib/trips/trip-dates';
 import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
+
+const TRIP_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('даты сохранённой поездки — календарные дни (07.11)', () => {
   it('роут поездки отдаёт день строкой, а не UTC-момент полуночи сервера', async () => {
@@ -50,6 +59,35 @@ describe('даты сохранённой поездки — календарн�
     expect(ruCalendarDate('2027-07-10')).toBe('10 июля 2027 г.');
     expect(ruCalendarDate('2027-07-14', 'short')).toMatch(/^14 июл/);
     expect(ruCalendarDate(null)).toBe('');
+  });
+
+  it('страница по ссылке «поделиться» получает день строкой, а не UTC-момент', async () => {
+    const read = await readSharedPlan(TRIP_ID);
+    expect(read.kind).toBe('found');
+    if (read.kind !== 'found') return;
+    expect(read.plan.arrival_date).toBe('2027-07-10');
+    expect(read.plan.departure_date).toBe('2027-07-14');
+  });
+
+  it('GPX своей поездки датирует день 2 11 июля', async () => {
+    (pool.query as unknown as Mock).mockResolvedValueOnce({ rows: [{
+      ...ROW,
+      days: [
+        { day: 1, title: 'Прилёт', coords: [53.02, 158.65] },
+        { day: 2, title: 'Вулкан Горелый', coords: [52.56, 158.03] },
+      ],
+    }] });
+    const res = await tripGpx(new NextRequest(`https://vedarai.ru/api/trips/${TRIP_ID}/gpx`), { params: Promise.resolve({ id: TRIP_ID }) });
+    const gpx = await res.text();
+    expect(gpx).toContain('<desc>2027-07-10</desc>');
+    expect(gpx).toContain('<desc>2027-07-11</desc>');
+  });
+
+  it('режим поездки считает от того же календарного дня', async () => {
+    const res = await activeTrip(new NextRequest('https://vedarai.ru/api/trips/active'));
+    const body = await res.json() as { data: { arrivalDate: string; departureDate: string } };
+    expect(body.data.arrivalDate).toBe('2027-07-10');
+    expect(body.data.departureDate).toBe('2027-07-14');
   });
 
   it('день из Date — по местным частям, строка — первые десять знаков, иное — null', () => {
