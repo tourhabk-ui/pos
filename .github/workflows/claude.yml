@@ -31,7 +31,7 @@ concurrency:
 # оупенррут»): Anthropic отвечает 403 verification_required (проверка
 # организации). По умолчанию руки идут через OpenRouter (его
 # Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5 — та же голова). Вернуть Anthropic без правки кода:
+# anthropic/claude-opus-5.5). Вернуть Anthropic без правки кода:
 # переменная репозитория AGENTS_PROVIDER=anthropic.
 # Сторож: tests/unit/issue-hand-model-pinned.test.ts.
 jobs:
@@ -77,7 +77,7 @@ jobs:
             echo 'HEREDOC'
           } >> "$GITHUB_OUTPUT"
 
-      # Claude Code 2.1.288 с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
+      # Claude Code (с 2.1.288) с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
       # bubblewrap («bubblewrap is required for subprocess env scrubbing»).
       # Экшен ставит его сам только при allowed_non_write_users — ставим здесь.
       - name: bubblewrap для изоляции подпроцессов
@@ -91,7 +91,7 @@ jobs:
 
       - name: Run Claude
         id: hand
-        uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        uses: anthropics/claude-code-action@115e0b2c49222c831de6748ccdf365bb8d3ea9a3 # v1 от 06.11.2026, ставит Claude Code 2.1.319
         env:
           ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
           ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.AGENTS_PROVIDER != 'anthropic' && 'anthropic/claude-haiku-5.5' || '' }}
@@ -121,7 +121,7 @@ jobs:
           # в CLI как аргументы, и строка с решёткой стала бы аргументом «#»,
           # а не пояснением.
           claude_args: |
-            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
+            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
             --max-turns 60
           show_full_output: true
@@ -147,7 +147,9 @@ jobs:
             gh issue comment ${{ github.event.issue.number }} --body "..."
 
             ОБЯЗАТЕЛЬНО ПЕРЕД ЛЮБЫМИ ИЗМЕНЕНИЯМИ:
-            1. Прочитай CLAUDE.md полностью (он есть в корне репозитория)
+            1. CLAUDE.md уже у тебя в контексте — Claude Code кладёт его сам. Не
+               перечитывай его целиком (220 КБ на каждом следующем ходу — главная
+               статья расхода руки, разбор 07.11): нужный раздел ищи grep'ом.
             2. Найди и прочитай 2-3 похожих существующих файла — не угадывай паттерны
             3. Проверь типы: npx tsc --noEmit после всех изменений
 

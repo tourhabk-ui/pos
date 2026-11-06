@@ -29,7 +29,7 @@ concurrency:
 # оупенррут»): Anthropic отвечает 403 verification_required (проверка
 # организации). По умолчанию руки идут через OpenRouter (его
 # Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5 — та же голова). Вернуть Anthropic без правки кода:
+# anthropic/claude-opus-5.5). Вернуть Anthropic без правки кода:
 # переменная репозитория AGENTS_PROVIDER=anthropic.
 # Сторож: tests/unit/issue-hand-model-pinned.test.ts.
 jobs:
@@ -105,7 +105,7 @@ jobs:
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Непроразмеченных issues: $COUNT"
 
-      # Claude Code 2.1.288 с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
+      # Claude Code (с 2.1.288) с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
       # bubblewrap («bubblewrap is required for subprocess env scrubbing»).
       # Экшен ставит его сам только при allowed_non_write_users — ставим здесь.
       - name: bubblewrap для изоляции подпроцессов
@@ -121,7 +121,7 @@ jobs:
       - name: Run Claude triage
         id: hand
         if: steps.pending.outputs.count != '0'
-        uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        uses: anthropics/claude-code-action@115e0b2c49222c831de6748ccdf365bb8d3ea9a3 # v1 от 06.11.2026, ставит Claude Code 2.1.319
         # Токена GitHub у агента нет (аудит агентов 02.11, разрыв №1): ни
         # GH_TOKEN в env, ни учётки git в .git/config (persist-credentials:
         # false), а SUBPROCESS_ENV_SCRUB вычищает из окружения Bash и токен,
@@ -156,7 +156,7 @@ jobs:
           # репозиторий, а нам нужен один известный инициатор.
           allowed_bots: github-actions
           claude_args: |
-            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
+            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
             --allowedTools "Read,Write,Glob,Grep"
             --max-turns 60
           show_full_output: true
@@ -165,8 +165,9 @@ jobs:
             safety-платформа Камчатки; Next.js 15, TypeScript, PostgreSQL).
             Кода ты НЕ меняешь — только читаешь и размечаешь тикеты.
 
-            Прочитай CLAUDE.md (корень репозитория) — особенно §7 «НЕ ТРОГАТЬ»,
-            чтобы понимать, что относится к safety и деньгам.
+            CLAUDE.md уже у тебя в контексте (Claude Code кладёт его сам) — не
+            перечитывай его целиком. Опирайся на §7 «НЕ ТРОГАТЬ», чтобы понимать,
+            что относится к safety и деньгам.
 
             Список неразмеченных тикетов уже лежит в .agent-out/issues.json
             (number, title, body, author). Доступа к GitHub у тебя нет —

@@ -45,7 +45,7 @@ concurrency:
 # оупенррут»): Anthropic отвечает 403 verification_required (проверка
 # организации). По умолчанию руки идут через OpenRouter (его
 # Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5 — та же голова). Вернуть Anthropic без правки кода:
+# anthropic/claude-opus-5.5). Вернуть Anthropic без правки кода:
 # переменная репозитория AGENTS_PROVIDER=anthropic.
 # Сторож: tests/unit/issue-hand-model-pinned.test.ts.
 jobs:
@@ -200,7 +200,7 @@ jobs:
             echo 'HEREDOC'
           } >> "$GITHUB_OUTPUT"
 
-      # Claude Code 2.1.288 с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
+      # Claude Code (с 2.1.288) с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 требует
       # bubblewrap («bubblewrap is required for subprocess env scrubbing»).
       # Экшен ставит его сам только при allowed_non_write_users — ставим здесь.
       - name: bubblewrap для изоляции подпроцессов
@@ -216,7 +216,7 @@ jobs:
       - name: Run Claude sweeper
         id: hand
         if: steps.branch.outputs.exists == 'true'
-        uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
+        uses: anthropics/claude-code-action@115e0b2c49222c831de6748ccdf365bb8d3ea9a3 # v1 от 06.11.2026, ставит Claude Code 2.1.319
         # Токена GitHub у агента нет (аудит агентов 02.11, разрыв №1): ни
         # GH_TOKEN в env, ни учётки git в .git/config (persist-credentials:
         # false), а SUBPROCESS_ENV_SCRUB вычищает из окружения Bash и токен,
@@ -264,7 +264,7 @@ jobs:
           # Комментарии ТОЛЬКО снаружи блока: содержимое claude_args уходит в
           # CLI как аргументы, и строка с решёткой стала бы аргументом «#».
           claude_args: |
-            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
+            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
             --max-turns 50
           show_full_output: true
@@ -282,7 +282,8 @@ jobs:
             GitHub у тебя нет — ни gh, ни git push работать не будут, и это
             нарочно: запись делает следующий шаг по твоему выводу.
 
-            Затем прочитай CLAUDE.md и файлы вокруг места падения — не угадывай
+            Затем прочитай файлы вокруг места падения (CLAUDE.md уже в контексте —
+            целиком не перечитывай) — не угадывай
             паттерны. Почини корень падения минимальным диффом.
 
             ПРОВЕРКИ — ЦЕЛЕВЫЕ, НЕ ВЕСЬ НАБОР:
