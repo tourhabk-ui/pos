@@ -95,6 +95,26 @@ function isLodgingAsk(text: string): boolean {
   return /остановиться|где жить|жиль[её]|отел|гостиниц|на \d+ ноч/.test(t);
 }
 
+/**
+ * Просьба собрать или поправить план поездки по дням. Её отвечает модель с
+ * make_trip_plan / edit_trip_plan, а не витрина. Витрина видела в такой
+ * просьбе «жильё», «трансфер» или «что посмотреть» и отвечала списком, а
+ * плана человек не получал вовсе (аудит планировщика 07.11, K1:
+ * «составь план на 5 дней: рыбалка, вулкан, жильё и машина» — список жилья).
+ * «Что посмотреть» без срока поездки — по-прежнему вопрос к витрине.
+ */
+export function asksTripPlan(text: string): boolean {
+  const t = norm(text);
+  // «Спланируй», «распланируй» — просьба о плане уже сама по себе.
+  if (/(?:^|[^а-яa-z])(?:сплан|распланир)/.test(t)) return true;
+  const planWord = /(?:^|[^а-яa-z])(?:план|маршрут|программ|итинерар|поездк|путешеств)/.test(t);
+  const planVerb = /(?:^|[^а-яa-z])(?:состав|сплан|распланир|собер|собра|постро|продума|поправ|измени|исправ|пересобер|сдвин|перенес)/.test(t);
+  if (planWord && planVerb) return true;
+  const tripLength = /(?:^|[^а-яa-z0-9])(?:за|на)\s+(?:\d{1,2}\s*(?:дн|день|дня|сут)|недел|выходн)/.test(t);
+  const whatToDo = /что\s+посмотреть|что\s+увидеть|как\s+провести|чем\s+заняться|куда\s+(?:поехать|съездить|сходить)/.test(t);
+  return tripLength && whatToDo;
+}
+
 function isPriceFollowUp(text: string): boolean {
   const t = norm(text);
   if (/сколько\s+(это\s+|он[аи]?\s+|они\s+)?стоит/.test(t)) return true;
@@ -638,7 +658,8 @@ export function commercialSources(question: string): {
     return { tours: false, transfers: false, stays: false, stayZones: [] };
   }
   const follow = isPriceFollowUp(question) && !asksNewList(question);
-  if (follow || isCarRentalAsk(question)) {
+  // Просьба о плане поездки — модели с make_trip_plan, витрину не читаем (K1).
+  if (follow || isCarRentalAsk(question) || asksTripPlan(question)) {
     return { tours: false, transfers: false, stays: false, stayZones: [] };
   }
   const stays = isLodgingAsk(question);
@@ -653,6 +674,9 @@ export function commercialSources(question: string): {
 
 export function composeCommercial(input: ComposeInput): CommercialAnswer | null {
   if (detectEmergency(input.question).detected) return null;
+  // «Составь план… жильё и машина», «что посмотреть за 5 дней», «поправь
+  // план» — план поездки по дням, его собирает модель (аудит 07.11, K1).
+  if (asksTripPlan(input.question)) return null;
   const follow = isPriceFollowUp(input.question) && !asksNewList(input.question);
   if (isCarRentalAsk(input.question) && !follow) return composeRental(input);
   if (isTransferAsk(input.question) && !follow) return composeTransfers(input);
@@ -691,14 +715,33 @@ function sourceHasRange(source: string, left: string, right: string): boolean {
 }
 
 /**
- * Убирает цену, которой нет в источнике этого хода, и любую вилку-ориентир.
- * Диапазон остаётся, только если та же пара чисел уже стоит в источнике
- * через «до» или тире — так записана витрина, а не оценка.
+ * Строка-ориентир взята из источника слово в слово: все её числа стоят в
+ * выводе инструмента этого хода, а диапазон — тем же диапазоном.
+ */
+function orientationFromSource(line: string, source: string): boolean {
+  const numbers = [...line.matchAll(/\d[\d\s\u00a0\u202f]*\d|\d/g)]
+    .map((m) => digitsOf(m[0]))
+    .filter((n) => n.length >= 3);
+  if (numbers.length === 0) return false;
+  if (!numbers.every((n) => sourceHasAmount(source, n))) return false;
+  const range = /(\d[\d\s\u00a0\u202f]{0,14})\s*[–—-]\s*(\d[\d\s\u00a0\u202f]{0,14})/.exec(line);
+  return !range || sourceHasRange(source, digitsOf(range[1]), digitsOf(range[2]));
+}
+
+/**
+ * Убирает цену, которой нет в источнике этого хода, и вилку-ориентир, которой
+ * в нём нет. Диапазон остаётся, только если та же пара чисел уже стоит в
+ * источнике через «до» или тире — так записана витрина, а не оценка.
+ *
+ * Ориентир из источника остаётся (аудит планировщика 07.11, K2). Смету плана
+ * пишет сам инструмент («Ориентир на человека: …», make_trip_plan), и вырезать
+ * её с припиской «цены нет в данных» было неправдой: цена в данных была.
  */
 export function dropUnsourcedPrices(answer: string, source: string): { text: string; dropped: boolean } {
   let dropped = false;
   const kept = answer.split('\n').flatMap((line) => {
     if (/ориентир|вилк/i.test(line) && /\d{3,}|₽|руб/i.test(line)) {
+      if (orientationFromSource(line, source)) return [line];
       dropped = true;
       return [];
     }

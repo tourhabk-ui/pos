@@ -119,6 +119,8 @@ const SAFETY: Record<string, Record<string, unknown>> = {
   'r-volc-self': { id: 'r-volc-self', is_route: true, route_difficulty: 'easy', mchs_registration_required: false, route_registration_required: false, has_profile: false, sat_communicator_required: null, place_registration_required: null },
 };
 let safetyFails = false;
+/** Отказ чтения тревог платформы (`FROM safety_alerts`) — аудит 07.11, S1. */
+let alertsFail = false;
 /** Живые тревоги парков по ссылкам дней — то, что читает проверка парков плана. */
 let PARK_ALERTS: unknown[] = [];
 /** Строки сводки МЧС — то, что читает loadActiveWarnings. */
@@ -127,7 +129,10 @@ let MCHS_ROWS: unknown[] = [];
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes('FROM safety_alerts')) return { rows: [] };
+      if (sql.includes('FROM safety_alerts')) {
+        if (alertsFail) throw Object.assign(new Error('db down'), { code: '57P01' });
+        return { rows: [] };
+      }
       if (sql.includes('WITH refs AS')) return { rows: PARK_ALERTS };
       if (sql.includes("alert_type IN ('volcanic_eruption', 'road_closure')")) return { rows: MCHS_ROWS };
       if (sql.includes('FROM agent_route_knowledge')) {
@@ -147,7 +152,7 @@ vi.mock('@/lib/db-pool', () => ({
   },
 }));
 
-import { recommendTrip, type TripProfile } from '@/lib/planner/engine';
+import { recommendTrip, SAFETY_ALERTS_UNREAD_NOTE, type TripProfile } from '@/lib/planner/engine';
 import { planWarningLines } from '@/lib/kuzmich/trip-plan-tool';
 import {
   mchsBeforeTripNote, relevantUntilOf, splitWarningsForTrip, warningsFromRows,
@@ -179,6 +184,7 @@ beforeEach(() => {
   PARK_ALERTS = [];
   MCHS_ROWS = [];
   safetyFails = false;
+  alertsFail = false;
 });
 
 describe('просьба получает день: рыбалка не тонет в «свободном дне»', () => {
@@ -261,5 +267,45 @@ describe('сводка МЧС судится по датам поездки', ()
     expect(splitWarningsForTrip([w], '2030-07-10').forTrip).toHaveLength(1);
     expect(splitWarningsForTrip([w], null).forTrip).toHaveLength(1);
     expect(mchsBeforeTripNote([w], '2030-07-10')).toMatch(/с 10\.07/);
+  });
+});
+
+describe('что план говорит о себе (аудит планировщика 07.11, S1 и E10)', () => {
+  it('тревоги платформы не прочитались — строка в плане и в «Важно» агента, причина в логе', async () => {
+    alertsFail = true;
+    const errLog: unknown[][] = [];
+    const orig = console.error;
+    console.error = (...args: unknown[]) => { errLog.push(args); };
+    let rec: Awaited<ReturnType<typeof recommendTrip>>;
+    try {
+      rec = await recommendTrip(PROOF);
+    } finally {
+      console.error = orig;
+    }
+    expect(rec.warnings.filter((w) => w.message === SAFETY_ALERTS_UNREAD_NOTE)).toEqual([
+      { type: 'safety', severity: 'important', message: SAFETY_ALERTS_UNREAD_NOTE },
+    ]);
+    expect(planWarningLines(rec).slice(0, 8)).toContain(SAFETY_ALERTS_UNREAD_NOTE);
+    expect(errLog.some((a) => a.join(' ').includes('57P01'))).toBe(true);
+  });
+
+  it('тревоги прочитаны, их просто нет — строки «не прочитаны» нет', async () => {
+    const rec = await recommendTrip(PROOF);
+    expect(rec.warnings.some((w) => w.message === SAFETY_ALERTS_UNREAD_NOTE)).toBe(false);
+  });
+
+  it('вертолёт: «запасной день добавлен» — только когда он стоит в плане', async () => {
+    const heli = (departureDate: string) => recommendTrip({ ...PROOF, interests: ['helicopter'], departureDate });
+    const heliNote = (rec: Awaited<ReturnType<typeof recommendTrip>>) =>
+      rec.warnings.find((w) => w.type === 'weather' && w.message.startsWith('Вертолётные экскурсии'))?.message;
+
+    const week = await heli(`${NEXT_JULY}-07-16`);
+    expect(week.days.some((d) => d.type === 'buffer')).toBe(true);
+    expect(heliNote(week)).toMatch(/В план добавлен запасной день\.$/);
+
+    const twoDays = await heli(`${NEXT_JULY}-07-11`);
+    expect(twoDays.days.some((d) => d.type === 'buffer')).toBe(false);
+    expect(heliNote(twoDays)).toMatch(/Запасного дня в плане нет/);
+    expect(heliNote(twoDays)).not.toMatch(/добавлен запасной день/);
   });
 });

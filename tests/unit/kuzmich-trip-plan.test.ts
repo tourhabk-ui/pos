@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import {
   parseChatInterests, matchPreset, formatTripPlanForChat,
   buildRefusal, inSeasonInterests, parsePlanStart, startNote,
-  readPlanDays, readPlanDaysFor, parseChatInterestsDetailed,
+  readPlanDays, readPlanDaysFor, parseChatInterestsDetailed, planWarningLines,
   rangeDays, planStartRefusal, type PlanStart,
 } from '@/lib/kuzmich/trip-plan-tool';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
@@ -593,8 +593,17 @@ describe('план говорит то, что знает движок', () => {
   });
 
   it('инструмент оставляет safety-предупреждения уровня info и называет допущения', () => {
+    // Справка безопасности уровня info доходит до агента, прочий info — нет.
+    // Вызовом, а не литералом исходника (правило 13.10): весь состав «Важно»
+    // держит tests/unit/planner-audit-wave1.
+    expect(planWarningLines({
+      warnings: [
+        { type: 'crowd', severity: 'info', message: 'Умеренная загрузка' },
+        { type: 'safety', severity: 'info', message: 'Территория медведей' },
+      ],
+      preferences: null,
+    })).toEqual(['Территория медведей']);
     const src = readFileSync('lib/kuzmich/trip-plan-tool.ts', 'utf-8');
-    expect(src).toMatch(/w\.severity !== 'info' \|\| w\.type === 'safety'/);
     // С #2223 строка допущений считается из названного состава и бюджета
     // (planAssumptions) и стоит последней — после поправок к словам туриста.
     // Поправки к возрасту детей нет с 29.10: неразобранный возраст — отказ

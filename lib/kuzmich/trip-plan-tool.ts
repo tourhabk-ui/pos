@@ -703,26 +703,49 @@ export function tourAvailabilityLine(
 }
 
 const DAY_WARNINGS_SHOWN = 3;
-const WARNINGS_SHOWN = 6;
+/**
+ * Восемь, а не шесть (07.11): до агента теперь доходят и «зона не вошла», и
+ * допущение счёта у местного — справки уровня info, которые раньше отсекались
+ * фильтром. Порядок ниже держит важное впереди, потолок режет хвост.
+ */
+const WARNINGS_SHOWN = 8;
+
+/**
+ * Справки уровня info, которые агенту нужны: безопасность («территория
+ * медведей», «нет сотовой связи» — проверка MCP 29.09), почему дальняя зона не
+ * вошла (`zone_days`: рыбалку ИИ не объяснил, пруф 06.11) и допущение счёта у
+ * местного (`home_nights`: без него смета читается как полная). Остальные
+ * справки (загрузка, разрешения зон вне плана) агенту не нужны.
+ */
+const INFO_FOR_AGENT: ReadonlySet<string> = new Set(['safety', 'zone_days', 'home_nights']);
 
 /**
  * Строки «Важно» плана в порядке, который переживает потолок WARNINGS_SHOWN.
  * Критическое — первым: потолок режет хвост, и «парк закрыт» или «дня на
  * возвращение нет» уступали место справкам (разбор планера 06.11: в 68 из 272
- * планов такая строка до агента не доходила). Затем — что вышло из просьбы
- * «как ехать / дни отдыха» (турист об этом просил, и частичное исполнение не
- * должно читаться как полное), затем остальное. Безопасность — даже уровня
- * info: «территория медведей, гид с фальшфейером обязателен» и «нет сотовой
- * связи» отсекались фильтром вместе со справками о загрузке (проверка MCP 29.09).
+ * планов такая строка до агента не доходила). Сразу за ним — сводка МЧС: движок
+ * добавляет её последней из важных, и при длинном списке извержение или
+ * перекрытая дорога уходили за потолок (аудит планировщика 07.11, K3). Затем —
+ * что вышло из просьбы «как ехать / дни отдыха» (турист об этом просил, и
+ * частичное исполнение не должно читаться как полное), почему зона не вошла,
+ * безопасность, остальное важное и в конце — допущение счёта.
  */
 export function planWarningLines(rec: {
   warnings: ReadonlyArray<{ type: string; severity: 'critical' | 'important' | 'info'; message: string }>;
   preferences?: { notes: ReadonlyArray<{ status: string; message: string }> } | null;
 }): string[] {
+  const shown = rec.warnings.filter((w) => w.severity !== 'info' || INFO_FOR_AGENT.has(w.type));
+  const rest = shown.filter((w) => w.severity !== 'critical');
+  const pick = (keep: (w: { type: string; severity: string }) => boolean): string[] => rest.filter(keep).map((w) => w.message);
   return [
-    ...rec.warnings.filter((w) => w.severity === 'critical').map((w) => w.message),
+    ...shown.filter((w) => w.severity === 'critical').map((w) => w.message),
+    ...pick((w) => w.type === 'mchs'),
     ...(rec.preferences?.notes ?? []).filter((n) => n.status !== 'honoured').map((n) => n.message),
-    ...rec.warnings.filter((w) => w.severity !== 'critical' && (w.severity !== 'info' || w.type === 'safety')).map((w) => w.message),
+    ...pick((w) => w.type === 'zone_days'),
+    ...pick((w) => w.type === 'safety' && w.severity !== 'info'),
+    ...pick((w) => w.type === 'safety' && w.severity === 'info'),
+    ...pick((w) => !['mchs', 'zone_days', 'safety', 'home_nights'].includes(w.type)),
+    ...pick((w) => w.type === 'home_nights'),
   ];
 }
 

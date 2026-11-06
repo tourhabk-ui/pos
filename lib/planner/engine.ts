@@ -478,7 +478,11 @@ interface SafetyAlertRow {
 /** Число одно на платформу — lib/safety/alert-horizon. */
 export { UNDATED_ALERT_HORIZON_DAYS };
 
-async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): Promise<SafetyAlert[]> {
+/**
+ * Тревоги безопасности на даты поездки. `null` — прочитать не вышло: это не
+ * «тревог нет» (§4.0), и план говорит об этом строкой (SAFETY_ALERTS_UNREAD_NOTE).
+ */
+async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): Promise<SafetyAlert[] | null> {
   try {
     const params: string[] = [];
     let dateFilter = '';
@@ -514,9 +518,18 @@ async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): 
       `[planner] предупреждения безопасности не прочитаны, SQLSTATE ${code} — ` +
       'рекомендации строятся БЕЗ них',
     );
-    return [];
+    return null;
   }
 }
+
+/**
+ * Строка плана, когда тревоги безопасности не прочитались. До 07.11 отказ
+ * писался только в лог, и план выглядел как «тревог нет» — для человека и
+ * для агента одинаково (аудит планировщика 07.11, S1). У сводок МЧС такая
+ * строка была (MCHS_UNREAD_NOTE), у тревог платформы — нет.
+ */
+export const SAFETY_ALERTS_UNREAD_NOTE =
+  'Тревоги безопасности платформы не прочитаны — план собран без них, и называть его дни безопасными нельзя. Обстановку проверьте ближе к выезду; экстренный вызов — 112.';
 
 /**
  * Имя активности и уровень подготовки словами — для текста предупреждений.
@@ -686,6 +699,8 @@ function collectWarnings(
    * 30 дней» про зону, куда поездка не идёт.
    */
   plannedZones: Set<ZoneId>,
+  /** В план встал резервный день на нелётную погоду (он ставится, только если влез). */
+  bufferDayPlanned: boolean = false,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const month = getMonth(profile);
@@ -852,7 +867,12 @@ function collectWarnings(
   if (heliActivities.length > 0) {
     warnings.push({
       type: 'weather', severity: 'important',
-      message: `Вертолётные экскурсии (${heliActivities.join(', ')}): 30-50% рейсов отменяют из-за тумана. В план добавлен запасной день.`,
+      // «Запасной день добавлен» — только когда он добавлен: резервный день
+      // встаёт, лишь если влез до отъезда (аудит планировщика 07.11, E10).
+      message: `Вертолётные экскурсии (${heliActivities.join(', ')}): 30-50% рейсов отменяют из-за тумана. `
+        + (bufferDayPlanned
+          ? 'В план добавлен запасной день.'
+          : 'Запасного дня в плане нет — если рейс отменят, перенести экскурсию будет некуда. Добавьте день к поездке.'),
     });
   }
 
@@ -2037,10 +2057,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const cache = createPlannerCache();
 
   // Fetch context data in parallel
-  const [alerts, mchs] = await Promise.all([
+  const [alertsRead, mchs] = await Promise.all([
     fetchSafetyAlerts(profile.arrivalDate, profile.departureDate),
     loadActiveWarnings(),
   ]);
+  const alerts = alertsRead ?? [];
 
   // Каталог спрашивается ОДИН раз и кормит все три места, где решает
   // сезон: иначе они разошлись бы между собой (§10.09).
@@ -2080,7 +2101,10 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
   const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
+  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
+  if (alertsRead === null) {
+    warnings.push({ type: 'safety', severity: 'important', message: SAFETY_ALERTS_UNREAD_NOTE });
+  }
   // Закрытие парка и «статус парка не известен» (разбор 06.11): до этой правки
   // план читал из тревог только извержение и дорогу, и день в закрытом парке
   // собирался как обычный. Привязка — тем же предикатом, что красит места.

@@ -492,7 +492,10 @@ describe('оценка и пауза источника', () => {
       stays: true,
       stayZones: ['елизов'],
     });
-    expect(commercialSources('Что посмотреть за 5 дней в июле?').tours).toBe(true);
+    expect(commercialSources('Что посмотреть в июле?').tours).toBe(true);
+    // Со сроком поездки — это уже просьба о плане, её отвечает модель с
+    // make_trip_plan (аудит планировщика 07.11, K1; tests/unit/planner-audit-wave1).
+    expect(commercialSources('Что посмотреть за 5 дней в июле?').tours).toBe(false);
     expect(commercialSources('Где остановиться в Паратунке?').stayZones).toEqual(['паратунк']);
   });
 
