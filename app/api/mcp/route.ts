@@ -46,7 +46,7 @@ import { createLead, createLeadDetailed, findRecentLeadByCommentPrefix } from '@
 import { notifyPartnerNewLeadPersonally } from '@/lib/notifications/lead-notify';
 import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
-import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
+import { planFromDraft, planSourceFields, planAttachNote, planPeople, planWindowNote, type PlanAttach } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite, releaseWriteSlot, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
 import { buildConsentRecord, type ChatConsentFrom, type PdConsentPurpose } from '@/lib/legal/pd-consent';
@@ -182,6 +182,27 @@ async function admitWrite(
 
 /** Предмет заявки на тур: тур и дата — тот же ключ, что у повтора заявки. */
 const bookingSubject = (tourId: number | string, date: string) => `${tourId}|${date}`;
+
+/** Номер плана из make_trip_plan — одна форма у всех шести записей. */
+const planIdField = z.string().trim().max(64, 'ID плана длиннее 64 символов').optional();
+
+/**
+ * Что сказать агенту о плане заявки (аудит планировщика 07.11, M7): план не
+ * приложился; число людей взято из плана или расходится с ним; названные
+ * даты выходят за даты плана. Дата, взятая из плана, внутри него по
+ * построению — её не сверяют (`from`/`to` — только названные агентом).
+ */
+function planNotes(a: PlanAttach, peopleNote: string, from: string | null, to: string | null): string {
+  const named = from ?? to;
+  return planAttachNote(a) + peopleNote + (named ? planWindowNote(a, from ?? named, to) : '');
+}
+
+/** Строка о плане в комментарий партнёру: номер, даты и состав плана. */
+function planCommentLine(a: PlanAttach): string {
+  if (a.kind !== 'attached') return '';
+  const f = a.facts;
+  return `[План поездки ${a.planId}: ${f.arrivalDate} — ${f.departureDate}, ${f.people} чел.]`;
+}
 
 /**
  * Отказ «поля нет» отличается от отказа «согласия нет», и это намеренно.
@@ -538,14 +559,17 @@ const charterRequestArgsSchema = z.object({
   destination: z.string().trim().min(2, 'Укажите, куда ехать').max(200, 'Направление длиннее 200 символов'),
   date_from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата выезда в формате YYYY-MM-DD'),
   date_to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата возвращения в формате YYYY-MM-DD').optional(),
+  // Не названо — из плана (plan_id, аудит 07.11, M7); без плана — обязательно.
   passengers: z.coerce.number({ error: 'Число человек — целое число, например 8' })
     .int('Число человек — целое число')
     .min(1, 'Человек не меньше одного')
-    .max(60, 'Не больше 60 человек в одной заявке'),
+    .max(60, 'Не больше 60 человек в одной заявке')
+    .optional(),
   name: personName,
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   carrier: z.string().trim().max(120, 'Название перевозчика длиннее 120 символов').optional(),
   comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
+  plan_id: planIdField,
   notify_url: notifyUrlField,
   consent: consentField,
 });
@@ -555,8 +579,15 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   if (!parsed.success) {
     throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
-  const { destination, date_from: dateFrom, passengers, name } = parsed.data;
+  const { destination, date_from: dateFrom, name } = parsed.data;
   const dateTo = parsed.data.date_to ?? null;
+  // План (аудит 07.11, M7): число людей, которого агент не назвал, — из плана.
+  const planAttach = await planFromDraft(parsed.data.plan_id);
+  const people = planPeople(planAttach, parsed.data.passengers);
+  const passengers = people.value;
+  if (passengers === undefined) {
+    throw new McpUserError('Число человек — целое число, например 8 (или plan_id плана, из которого его взять) — заявка не создана.', 'invalid_args:passengers');
+  }
   const comment = parsed.data.comment || null;
 
   const phone = normalizePhone(parsed.data.phone);
@@ -609,6 +640,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   const facts = { carrier, plan, destination, dateFrom, dateTo, passengers, comment };
 
   const lead = buildCharterLead(facts, 'mcp');
+  Object.assign(lead.sourceData, planSourceFields(planAttach));
   refuseSilentLead(name, phone, lead.comment, lead.sourceData);
 
   // Телефон уходит перевозчику — согласие записывается текстом, который его и
@@ -631,7 +663,8 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // Переписку с перевозчиком (1350) открывает только ключ новой заявки; текст
   // ответа у повтора тот же (анти-оракул), как у заявки на бронь.
   const offersChat = !ctx.self;
-  return accepted + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
+  return accepted + planNotes(planAttach, people.note, dateFrom, dateTo)
+    + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
     + requestConfirmNote();
 }
 
@@ -644,14 +677,16 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
 const carRentalRequestArgsSchema = z.object({
   company: z.string().trim().max(100, 'Название прокатчика длиннее 100 символов').optional(),
   car: z.string().trim().min(1, 'Укажите машину из прайса search_car_rental').max(120, 'Название машины длиннее 120 символов'),
-  date_from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата начала аренды в формате YYYY-MM-DD'),
-  date_to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата возврата в формате YYYY-MM-DD'),
+  // Не названы — из плана (plan_id, аудит 07.11, M7); без плана — обязательны.
+  date_from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата начала аренды в формате YYYY-MM-DD').optional(),
+  date_to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата возврата в формате YYYY-MM-DD').optional(),
   pickup: z.string().trim().max(200, 'Место получения длиннее 200 символов').optional(),
   name: personName,
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
   test: z.boolean().optional(),
   confirmation: z.string().trim().max(64, 'Код подтверждения длиннее 64 символов').optional(),
+  plan_id: planIdField,
   // Проверяется уже на шаге 1 (черновик): ошибка видна сразу. Подписка — только
   // на шаге 2, вместе с ключом. В код подтверждения адрес не входит.
   notify_url: notifyUrlField,
@@ -685,7 +720,17 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   if (!parsed.success) {
     throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
-  const { date_from: dateFrom, date_to: dateTo, name } = parsed.data;
+  const { name } = parsed.data;
+  // План (аудит 07.11, M7): даты, которых агент не назвал, — первый и
+  // последний день плана. Одинаково на обоих шагах: код подтверждения
+  // привязан к датам, и второй шаг без дат даёт те же, что первый.
+  const planAttach = await planFromDraft(parsed.data.plan_id);
+  const planFacts = planAttach.kind === 'attached' ? planAttach.facts : null;
+  const dateFrom = parsed.data.date_from ?? planFacts?.arrivalDate;
+  const dateTo = parsed.data.date_to ?? planFacts?.departureDate;
+  if (!dateFrom) throw new McpUserError('Дата начала аренды в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:date_from');
+  if (!dateTo) throw new McpUserError('Дата возврата в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:date_to');
+  const datesFromPlan = !parsed.data.date_from || !parsed.data.date_to;
   const isTest = parsed.data.test === true;
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
@@ -730,6 +775,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const facts = { company, offer, dateFrom, dateTo, days: rentalDays(dateFrom, dateTo), comment: notes || null };
   const lead = buildRentalLead(facts, 'mcp');
   if (parsed.data.pickup) lead.sourceData.pickup = parsed.data.pickup;
+  Object.assign(lead.sourceData, planSourceFields(planAttach));
   // Пробная живёт под своим ключом повтора: настоящая заявка с тем же
   // телефоном и датой не должна склеиться с ней и остаться недоставленной.
   const TEST_MARK = 'ТЕСТ. ';
@@ -742,7 +788,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     company: company.slug, car: offer.title, dateFrom, dateTo, name, phone,
     pickup: parsed.data.pickup ?? '', comment: parsed.data.comment ?? '', test: isTest,
   };
-  const draft = `${isTest ? 'Пробная заявка (тест, прокатчику не передаётся)' : 'Заявка'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.)`
+  const draft = `${isTest ? 'Пробная заявка (тест, прокатчику не передаётся)' : 'Заявка'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.${datesFromPlan ? ', даты — из плана' : ''})`
     + `${parsed.data.pickup ? `, где забрать: ${parsed.data.pickup}` : ''}; имя: ${name}, телефон: ${phone}.`;
   const askHuman = 'Покажи это человеку и прямо спроси: «Согласны ли вы на обработку имени и телефона и их передачу прокатчику и отправить заявку?» '
     + 'Только после явного «да» самого человека повтори вызов с теми же полями, consent: true и confirmation';
@@ -791,7 +837,8 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   // Переписку с прокатом (1350) открывает только ключ новой заявки (текст
   // ответа у повтора тот же); пробная — без переписки.
   const offersChat = !ctx.self && !isTest;
-  return accepted + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
+  return accepted + planNotes(planAttach, '', parsed.data.date_from ? dateFrom : null, parsed.data.date_to ? dateTo : null)
+    + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
     + (isTest ? '' : requestConfirmNote());
 }
 
@@ -872,16 +919,20 @@ function refuseSilentLead(name: string, phone: string, comment: string, sourceDa
 // consent: true; записывается вариант текста «владельцу жилья».
 const stayRequestArgsSchema = z.object({
   accommodation: z.string().trim().min(1, 'Укажите объект: название или ID из search_accommodations').max(200, 'Название объекта длиннее 200 символов'),
-  check_in: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата заезда в формате YYYY-MM-DD'),
-  check_out: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата выезда в формате YYYY-MM-DD'),
+  // Не названы — из плана (plan_id, аудит 07.11, M7): даты — первый и
+  // последний день плана, гости — его состав; без плана даты обязательны,
+  // гостей — один, как прежде.
+  check_in: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата заезда в формате YYYY-MM-DD').optional(),
+  check_out: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата выезда в формате YYYY-MM-DD').optional(),
   guests: z.coerce.number({ error: 'Число гостей — целое число, например 4' })
     .int('Число гостей — целое число')
     .min(1, 'Гостей не меньше одного')
     .max(50, 'Не больше 50 гостей в одной заявке')
-    .default(1),
+    .optional(),
   name: personName,
   phone: z.string().trim().min(5, 'Телефон обязателен — по нему перезвонит владелец').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
+  plan_id: planIdField,
   consent: consentField,
 });
 
@@ -890,11 +941,19 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
   if (!parsed.success) {
     throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
-  const { accommodation, check_in, check_out, guests, name, comment } = parsed.data;
+  const { accommodation, name, comment } = parsed.data;
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
     throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
+  const planAttach = await planFromDraft(parsed.data.plan_id);
+  const planFacts = planAttach.kind === 'attached' ? planAttach.facts : null;
+  const check_in = parsed.data.check_in ?? planFacts?.arrivalDate;
+  const check_out = parsed.data.check_out ?? planFacts?.departureDate;
+  if (!check_in) throw new McpUserError('Дата заезда в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:check_in');
+  if (!check_out) throw new McpUserError('Дата выезда в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:check_out');
+  const people = planPeople(planAttach, parsed.data.guests);
+  const guests = people.value ?? 1;
   if (!isRealDate(check_in) || !isRealDate(check_out)) {
     throw new McpUserError('Такой даты нет в календаре — заявка не создана. Проверьте даты заезда и выезда.', 'date_not_in_calendar');
   }
@@ -935,7 +994,10 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
     guests,
     guestName: name,
     guestPhone: phone,
-    comment: comment || null,
+    // У строки заявки на жильё нет полей плана — номер плана и его рамка
+    // уходят владельцу строкой комментария: он видит, частью какой поездки
+    // стоит заявка (M7).
+    comment: [planCommentLine(planAttach), comment].filter(Boolean).join(' ') || null,
     consent,
     door: 'mcp',
   });
@@ -965,6 +1027,7 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
   return `Заявка передана ${who}: "${r.accommodationName}", заезд ${check_in}, выезд ${check_out} (ночей: ${dates.nights}), гостей ${guests}. `
     + 'Владелец перезвонит по указанному телефону и подтвердит даты и цену. Это заявка, не бронь и не оплата: расчёт — напрямую с владельцем. '
     + `Карточка объекта: ${base}/accommodations/${found.id}.`
+    + planNotes(planAttach, people.note, parsed.data.check_in ? check_in : null, parsed.data.check_out ? check_out : null)
     // Заявка на жильё всегда новая строка (склейки нет) — ключ открывает переписку с владельцем (1349).
     + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name, { opensChat: true }), 'stay')
     // Подписки у заявки на жильё нет (её состояние после передачи не
@@ -1004,6 +1067,7 @@ async function executeTool(
       requestCharter: (a) => executeRequestCharter(a, ctx),
       createLead: (a, tripPart) => executeCreateLead(a, ctx, tripPart),
       confirmNote: requestConfirmNote(),
+      readPlan: planFromDraft,
     });
     return r.text;
   }

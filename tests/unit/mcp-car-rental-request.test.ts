@@ -10,9 +10,10 @@ import { CAR_RENTAL_REQUEST_TOOL, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tool
 const ROUTE = readFileSync('app/api/mcp/route.ts', 'utf-8');
 
 describe('create_car_rental_request', () => {
-  it('пишущий, требует согласия, машины, дат и контакта', () => {
+  it('пишущий, требует согласия, машины и контакта; даты — названные или из плана', () => {
     expect(WRITE_TOOL_NAMES.has(CAR_RENTAL_REQUEST_TOOL.name)).toBe(true);
-    expect([...CAR_RENTAL_REQUEST_TOOL.inputSchema.required].sort()).toEqual(['car', 'consent', 'date_from', 'date_to', 'name', 'phone']);
+    expect([...CAR_RENTAL_REQUEST_TOOL.inputSchema.required].sort()).toEqual(['car', 'consent', 'name', 'phone']);
+    expect(CAR_RENTAL_REQUEST_TOOL.inputSchema.properties).toHaveProperty('plan_id');
     expect(CAR_RENTAL_REQUEST_TOOL.inputSchema.properties).toHaveProperty('test');
   });
 

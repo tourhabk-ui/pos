@@ -105,3 +105,58 @@ describe('chat: человеку — не агентский текст', () => 
     expect(plan?.args).toMatchObject({ stay_wanted: true, check_in: '2026-11-15', check_out: '2026-11-18', stay_dates_assumed: true });
   });
 });
+
+/**
+ * Поездка по плану (аудит планировщика 07.11, M7): план читается один раз;
+ * число людей, дата тура (по номеру тура из плана) и даты жилья, которых
+ * агент не назвал, берутся из плана, и ответ это говорит; номер плана
+ * уходит в каждую часть. План не прочитан — части идут без него, а агент
+ * слышит это один раз за поездку.
+ */
+describe('create_trip_request по плану', () => {
+  const PLAN = '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed';
+  const attached = {
+    kind: 'attached' as const, planId: PLAN, plan: { v: 1 } as never,
+    facts: { arrivalDate: '2027-07-10', departureDate: '2027-07-16', people: 3, tourDates: { '27': '2027-07-12' } },
+  };
+  const base = { name: 'Тест', phone: '+79990000000', consent: true, plan_id: PLAN };
+  const argsOf = (fn: ReturnType<typeof vi.fn>) => (fn.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+
+  it('люди, дата тура и даты жилья — из плана; номер плана — в каждой части; сказано один раз', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => attached) };
+    const r = await runTripRequest({ ...base, tour: '27', stay: 'Кутха' }, d as never);
+    expect(d.readPlan).toHaveBeenCalledTimes(1);
+    expect(argsOf(d.bookTour)).toMatchObject({ tour: '27', date: '2027-07-12', participants: 3, plan_id: PLAN });
+    expect(argsOf(d.requestStay)).toMatchObject({ check_in: '2027-07-10', check_out: '2027-07-16', guests: 3, plan_id: PLAN });
+    expect(r.text).toContain('Из плана взято: число людей — 3; дата тура — 2027-07-12; даты жилья — 2027-07-10 — 2027-07-16.');
+    expect(r.text).not.toMatch(/Не хватает дат/);
+  });
+
+  it('названное агентом остаётся; из плана — только недостающее', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => attached) };
+    const r = await runTripRequest({ ...base, participants: 5, tour: '27', tour_date: '2027-07-13' }, d as never);
+    expect(argsOf(d.bookTour)).toMatchObject({ date: '2027-07-13', participants: 5 });
+    expect(r.text).not.toMatch(/Из плана взято/);
+  });
+
+  it('тур не из плана по номеру — дата не подставляется, отказ «не хватает дат» прежний', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => attached) };
+    const r = await runTripRequest({ ...base, tour: 'Горелый' }, d as never);
+    expect(r.text).toContain('Не хватает дат: tour_date');
+    expect(d.bookTour).not.toHaveBeenCalled();
+  });
+
+  it('план не найден — части без номера плана, агент слышит это один раз', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => ({ kind: 'missing' as const, planId: PLAN })) };
+    const r = await runTripRequest({ ...base, participants: 2, tour: '27', tour_date: '2027-07-12', stay: 'Кутха', check_in: '2027-07-10', check_out: '2027-07-12' }, d as never);
+    expect(argsOf(d.bookTour)).not.toHaveProperty('plan_id');
+    expect(argsOf(d.requestStay)).not.toHaveProperty('plan_id');
+    expect(r.text.match(/не найден \(неверный ID или плану больше 7 дней\)/g)).toHaveLength(1);
+  });
+
+  it('без plan_id план не читается', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => attached) };
+    await runTripRequest({ name: 'Тест', phone: '+79990000000', consent: true, tour: '27', tour_date: '2027-07-12' }, d as never);
+    expect(d.readPlan).not.toHaveBeenCalled();
+  });
+});

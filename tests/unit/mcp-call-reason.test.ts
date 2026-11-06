@@ -50,7 +50,9 @@ describe('главный аргумент: имя всегда, значение
     expect(throws.length).toBeGreaterThanOrEqual(12);
     // Многострочный throw (refuseSilentLead) проверяется отдельно ниже.
     const oneLine = throws.filter(l => l.trimEnd().endsWith(');'));
-    for (const l of oneLine) expect(l, l.trim()).toMatch(/, (?:'[a-z_]+'|`[a-z_]+:?\$\{[^`]*\}`|`[a-z_]+_\$\{reason\}`|refusal\.code)\);$/);
+    // Код с уточнением поля (`'invalid_args:check_in'`) — та же форма, что у
+    // отказов разбора по полю (`invalid_args:${...}`).
+    for (const l of oneLine) expect(l, l.trim()).toMatch(/, (?:'[a-z_]+(?::[a-z_]+)?'|`[a-z_]+:?\$\{[^`]*\}`|`[a-z_]+_\$\{reason\}`|refusal\.code)\);$/);
     // refusal.code — только из argsRefusal (lib/mcp/tool-arguments): код есть
     // у каждого её исхода, это держит tests/unit/mcp-tool-arguments.test.ts.
     expect(ROUTE).toContain('const refusal = argsRefusal(read, validation.error);');

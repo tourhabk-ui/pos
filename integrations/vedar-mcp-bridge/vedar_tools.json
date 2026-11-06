@@ -700,21 +700,21 @@
           },
           "check_in": {
             "type": "string",
-            "description": "Check-in date, YYYY-MM-DD. Дата заезда, YYYY-MM-DD",
+            "description": "Check-in date, YYYY-MM-DD; with plan_id, omitted means the first day of the plan. Дата заезда, YYYY-MM-DD. С plan_id не сказано — первый день плана",
             "examples": [
               "2027-07-15"
             ]
           },
           "check_out": {
             "type": "string",
-            "description": "Check-out date, YYYY-MM-DD, after check-in, at most 60 nights. Дата выезда, YYYY-MM-DD (позже заезда, не больше 60 ночей)",
+            "description": "Check-out date, YYYY-MM-DD, after check-in, at most 60 nights; with plan_id, omitted means the last day of the plan. Дата выезда, YYYY-MM-DD (позже заезда, не больше 60 ночей). С plan_id не сказано — последний день плана",
             "examples": [
               "2027-07-17"
             ]
           },
           "guests": {
             "type": "string",
-            "description": "Number of guests, 1–50; default 1. Сколько гостей (1–50). Не сказано — 1.",
+            "description": "Number of guests, 1–50; default from the plan, otherwise 1. Сколько гостей (1–50). Не сказано — из плана, без плана — 1.",
             "examples": [
               "4"
             ]
@@ -731,6 +731,13 @@
             "type": "string",
             "description": "Wishes for the owner. Пожелания владельцу: баня, время заезда, дети"
           },
+          "plan_id": {
+            "type": "string",
+            "description": "Plan ID from make_trip_plan when the request belongs to that plan: the owner sees the whole trip; omitted dates and guests are taken from the plan, and a mismatch with the plan is named in the reply. Номер плана из make_trip_plan, если заявка — по этому плану: владелец увидит, частью какой поездки она стоит; даты и гости, если не названы, берутся из плана, а расхождение с планом ответ назовёт.",
+            "examples": [
+              "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+            ]
+          },
           "consent": {
             "type": "boolean",
             "description": "Explicit consent to process name and phone and pass them to the stay's owner; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу владельцу жилья для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
@@ -741,8 +748,6 @@
         },
         "required": [
           "accommodation",
-          "check_in",
-          "check_out",
           "name",
           "phone",
           "consent"
@@ -781,7 +786,7 @@
           },
           "passengers": {
             "type": "string",
-            "description": "Number of people, 1–60. Сколько человек (1–60)",
+            "description": "Number of people, 1–60; with plan_id, omitted means the people of the plan. Сколько человек (1–60). С plan_id не сказано — из плана",
             "examples": [
               "8"
             ]
@@ -805,6 +810,13 @@
             "type": "string",
             "description": "Wishes: how many days the vehicle is needed, what to carry, pickup place. Пожелания: сколько дней нужна машина, что везти, откуда забирать"
           },
+          "plan_id": {
+            "type": "string",
+            "description": "Plan ID from make_trip_plan when the request belongs to that plan: the manager and the carrier see the whole trip; an omitted number of people is taken from the plan, and a mismatch with the plan is named in the reply. Номер плана из make_trip_plan, если заявка — по этому плану: менеджер и перевозчик увидит, частью какой поездки она стоит; число людей, если не названо, берутся из плана, а расхождение с планом ответ назовёт.",
+            "examples": [
+              "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+            ]
+          },
           "consent": {
             "type": "boolean",
             "description": "Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу перевозчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
@@ -816,7 +828,6 @@
         "required": [
           "destination",
           "date_from",
-          "passengers",
           "name",
           "phone",
           "consent"
@@ -848,14 +859,14 @@
           },
           "date_from": {
             "type": "string",
-            "description": "Rental start, YYYY-MM-DD. С какого числа нужна машина, YYYY-MM-DD",
+            "description": "Rental start, YYYY-MM-DD; with plan_id, omitted means the first day of the plan. С какого числа нужна машина, YYYY-MM-DD. С plan_id не сказано — первый день плана",
             "examples": [
               "2026-11-10"
             ]
           },
           "date_to": {
             "type": "string",
-            "description": "Rental end, inclusive, YYYY-MM-DD. По какое число включительно, YYYY-MM-DD",
+            "description": "Rental end, inclusive, YYYY-MM-DD; with plan_id, omitted means the last day of the plan. По какое число включительно, YYYY-MM-DD. С plan_id не сказано — последний день плана",
             "examples": [
               "2026-11-14"
             ]
@@ -890,6 +901,13 @@
             "type": "string",
             "description": "Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created. Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик"
           },
+          "plan_id": {
+            "type": "string",
+            "description": "Plan ID from make_trip_plan when the request belongs to that plan: the manager and the rental company see the whole trip; omitted dates are taken from the plan, and a mismatch with the plan is named in the reply. Номер плана из make_trip_plan, если заявка — по этому плану: менеджер и прокатчик увидит, частью какой поездки она стоит; даты, если не названы, берутся из плана, а расхождение с планом ответ назовёт.",
+            "examples": [
+              "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+            ]
+          },
           "consent": {
             "type": "boolean",
             "description": "false on step 1. true only after the person themselves said yes to passing name and phone to the rental company; never set it on their behalf. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. На шаге 1 — false. true — только когда человек сам ответил «да» на вопрос о согласии; агент не ставит true за человека.",
@@ -900,8 +918,6 @@
         },
         "required": [
           "car",
-          "date_from",
-          "date_to",
           "name",
           "phone",
           "consent"
@@ -986,6 +1002,13 @@
           "comment": {
             "type": "string",
             "description": "Wishes for all partners of the trip. Пожелания ко всей поездке"
+          },
+          "plan_id": {
+            "type": "string",
+            "description": "Plan ID from make_trip_plan when the trip follows that plan: every part carries the plan; omitted people, tour date (for a tour ID from the plan) and stay dates are taken from the plan. Номер плана из make_trip_plan, если поездка — по этому плану: каждая часть уходит с планом; не названы — число людей, дата тура (по номеру тура из плана) и даты жилья берутся из плана, и ответ это скажет.",
+            "examples": [
+              "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+            ]
           },
           "consent": {
             "type": "boolean",
