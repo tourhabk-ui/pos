@@ -5664,6 +5664,88 @@ export interface WaterfallDebugResult {
   note?: string;
 }
 
+/**
+ * Проба: зовёт ли YandexGPT инструмент через адрес, совместимый с OpenAI
+ * (`llm.api.cloud.yandex.net/v1/chat/completions`, модель
+ * `gpt://<каталог>/yandexgpt/latest`). Документация Яндекса показывает пример с
+ * `tools`, но в перечне поддерживаемых параметров режима совместимости их не
+ * называет — значит, ответ даёт только вызов.
+ *
+ * Только диагностика: в живой путь нога не входит, пока проба не скажет «зовёт».
+ * Один вызов, один безобидный инструмент без аргументов, ПД нет.
+ */
+export const YANDEX_TOOLS_PROBE_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'get_safety_status',
+    description: 'Текущая обстановка безопасности в Камчатском крае: вулканы, сейсмика, предупреждения МЧС.',
+    parameters: { type: 'object', properties: {}, required: [] as string[] },
+  },
+};
+
+/** Ответ пробы → строка диагностики. Чистая функция: три исхода плюс отказ (§4.0). */
+export function classifyYandexToolsReply(
+  httpStatus: number, body: unknown, latencyMs: number,
+): WaterfallDebugResult {
+  const base = { provider: 'yandex:tools', model: 'yandexgpt/latest', latency_ms: latencyMs };
+  if (httpStatus < 200 || httpStatus >= 300) {
+    const text = typeof body === 'string' ? body : JSON.stringify(body ?? null);
+    return { ...base, status: 'http_error', http_status: httpStatus, error: text.slice(0, 200) };
+  }
+  const msg = (body as { choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ function?: { name?: string } }> } }> } | null)
+    ?.choices?.[0]?.message;
+  const called = msg?.tool_calls?.map((c) => c.function?.name).filter((n): n is string => typeof n === 'string') ?? [];
+  if (called.length > 0) {
+    return { ...base, status: 'success', answer_preview: `инструмент позван: ${called.join(', ')}` };
+  }
+  if (typeof msg?.content === 'string' && msg.content.trim()) {
+    return {
+      ...base, status: 'empty_response', answer_preview: msg.content.slice(0, 100),
+      error: 'ответил текстом, инструмент не позвал — запасной ногой цикла инструментов не годится',
+    };
+  }
+  return { ...base, status: 'empty_response', error: `ни текста, ни вызова инструмента: ${JSON.stringify(body ?? null).slice(0, 160)}` };
+}
+
+export async function probeYandexTools(): Promise<WaterfallDebugResult> {
+  const apiKey = process.env.YANDEX_API_KEY;
+  const folderId = process.env.YANDEX_FOLDER_ID;
+  if (!apiKey || !folderId) {
+    return { provider: 'yandex:tools', model: 'yandexgpt/latest', status: 'no_key', latency_ms: 0 };
+  }
+  const start = Date.now();
+  try {
+    const res = await fetch('https://llm.api.cloud.yandex.net/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Api-Key ${apiKey}`,
+        'OpenAI-Project': folderId,
+        'x-folder-id': folderId,
+      },
+      body: JSON.stringify({
+        model: `gpt://${folderId}/yandexgpt/latest`,
+        temperature: 0.1,
+        max_tokens: 200,
+        messages: [
+          { role: 'system', content: 'Ты помощник туриста на Камчатке. Факты об обстановке бери только из инструментов.' },
+          { role: 'user', content: 'Какая сейчас обстановка безопасности в крае?' },
+        ],
+        tools: [YANDEX_TOOLS_PROBE_TOOL],
+        tool_choice: 'auto',
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const ms = Date.now() - start;
+    const raw = await res.text().catch(() => '');
+    let body: unknown = raw;
+    try { body = JSON.parse(raw); } catch { /* тело не JSON — отдаём строкой */ }
+    return classifyYandexToolsReply(res.status, body, ms);
+  } catch (e) {
+    return { provider: 'yandex:tools', model: 'yandexgpt/latest', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start };
+  }
+}
+
 export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<WaterfallDebugResult[]> {
   const results: WaterfallDebugResult[] = [];
   const payload = messages.map(({ role, content }) => ({ role, content }));
@@ -5777,6 +5859,11 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
       }
     }
   }
+
+  // 3а. YandexGPT с инструментами (06.11, владелец «Делай»): годится ли он
+  //     запасной ногой цикла инструментов Кузьмича. С прода живая только
+  //     DeepSeek (ai-debug run 14: Qwen — квота, xAI — гео, OpenRouter — гео).
+  results.push(await probeYandexTools());
 
   // 4. DeepSeek direct — пригодные модели из /models и три формы запроса.
   //    run 6 (04.09): deepseek-v4-pro отдал finish_reason=length, content пуст,
