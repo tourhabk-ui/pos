@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-06 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1394_external_alerts_park_status.sql`.
+> Снято 2026-11-06 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1395_mcp_write_attempts_subject.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 319 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4169 |
+| Колонок | 4170 |
 | Внешних ключей | 379 |
 | Таблиц без единого FK в обе стороны | 89 |
 
@@ -1141,9 +1141,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=` `requested_tool varchar` `is_self boolean!=` `error_code varchar` `arg_key varchar` `arg_value varchar`
 
-**mcp_write_attempts** · 6 кол. · PK id · индексов 4
+**mcp_write_attempts** · 7 кол. · PK id · индексов 5
 
-`id bigint!=` `client_key character!` `tool varchar!` `phone_hash character` `outcome varchar!` `created_at timestamptz!=`
+`id bigint!=` `client_key character!` `tool varchar!` `phone_hash character` `outcome varchar!` `created_at timestamptz!=` `subject_hash character`
 
 **message_templates** · 11 кол. · PK id · user_id → users.id · индексов 3 · триггеры: update_message_templates_updated_at
 
