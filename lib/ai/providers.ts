@@ -5712,11 +5712,15 @@ export const YANDEX_TOOLS_PROBE_TOOL = {
   },
 };
 
-/** Ответ пробы → строка диагностики. Чистая функция: три исхода плюс отказ (§4.0). */
-export function classifyYandexToolsReply(
-  httpStatus: number, body: unknown, latencyMs: number, model: YandexToolsProbeModel = 'yandexgpt/latest',
+/**
+ * Ответ пробы ноги цикла инструментов → строка диагностики. Чистая функция:
+ * три исхода плюс отказ (§4.0). Одна на всех провайдеров (YandexGPT, Qwen,
+ * шлюз Timeweb), чтобы ответы сравнивались одним правилом.
+ */
+export function classifyToolsProbeReply(
+  provider: string, model: string, httpStatus: number, body: unknown, latencyMs: number,
 ): WaterfallDebugResult {
-  const base = { provider: 'yandex:tools', model, latency_ms: latencyMs };
+  const base = { provider, model, latency_ms: latencyMs };
   if (httpStatus < 200 || httpStatus >= 300) {
     const text = typeof body === 'string' ? body : JSON.stringify(body ?? null);
     return { ...base, status: 'http_error', http_status: httpStatus, error: text.slice(0, 200) };
@@ -5736,6 +5740,113 @@ export function classifyYandexToolsReply(
   return { ...base, status: 'empty_response', error: `ни текста, ни вызова инструмента: ${JSON.stringify(body ?? null).slice(0, 160)}` };
 }
 
+/** Ответ пробы YandexGPT — то же правило, что у всех ног. */
+export function classifyYandexToolsReply(
+  httpStatus: number, body: unknown, latencyMs: number, model: YandexToolsProbeModel = 'yandexgpt/latest',
+): WaterfallDebugResult {
+  return classifyToolsProbeReply('yandex:tools', model, httpStatus, body, latencyMs);
+}
+
+/** Вопрос пробы — один на всех: ответы разных ног сравниваются как есть. */
+const TOOLS_PROBE_MESSAGES = [
+  { role: 'system', content: 'Ты помощник туриста на Камчатке. Факты об обстановке бери только из инструментов.' },
+  { role: 'user', content: 'Какая сейчас обстановка безопасности в крае?' },
+];
+
+/**
+ * Один вызов OpenAI-совместимого `chat/completions` с инструментом пробы.
+ * Тело не JSON — уходит в классификатор строкой, дословно.
+ */
+async function probeToolsCall(opts: {
+  provider: string; model: string; url: string; headers: Record<string, string>; bodyModel: string;
+}): Promise<WaterfallDebugResult> {
+  const start = Date.now();
+  try {
+    const res = await fetch(opts.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...opts.headers },
+      body: JSON.stringify({
+        model: opts.bodyModel,
+        temperature: 0.1,
+        max_tokens: 200,
+        messages: TOOLS_PROBE_MESSAGES,
+        tools: [YANDEX_TOOLS_PROBE_TOOL],
+        tool_choice: 'auto',
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    const ms = Date.now() - start;
+    const raw = await res.text().catch(() => '');
+    let body: unknown = raw;
+    try { body = JSON.parse(raw); } catch { body = raw; }
+    return classifyToolsProbeReply(opts.provider, opts.model, res.status, body, ms);
+  } catch (e) {
+    return { provider: opts.provider, model: opts.model, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start };
+  }
+}
+
+/**
+ * Замер варианта «Qwen платно» (владелец 06.11: «замерь 1 и 2»). Спрашиваются
+ * модель ноги цикла инструментов (`QWEN_MODEL`) и её первая замена с отдельной
+ * бесплатной квотой (`freeQuotaSiblings`, тот же выбор, что у живой ноги).
+ * Отказ квоты у основной — тот самый замок, который снимает оплата; ответ
+ * замены — та же модель под другим id: зовёт ли она инструмент, не отказывает
+ * ли фильтр на вопрос о безопасности и сколько отвечает.
+ */
+export async function probeQwenTools(): Promise<WaterfallDebugResult[]> {
+  const { apiKey, base, model } = getQwenConfig();
+  if (!apiKey) return [{ provider: 'qwen:tools', model, status: 'no_key', latency_ms: 0 }];
+  const sibling = freeQuotaSiblings(model, await getProviderModelIds('qwen'))[0];
+  const out: WaterfallDebugResult[] = [];
+  for (const m of sibling ? [model, sibling] : [model]) {
+    out.push(await probeToolsCall({
+      provider: 'qwen:tools', model: m, url: `${base}/chat/completions`,
+      headers: { Authorization: `Bearer ${apiKey}` }, bodyModel: m,
+    }));
+  }
+  if (!sibling) out[0].note = 'замены с отдельной квотой в каталоге DashScope нет (или каталог не прочитан)';
+  return out;
+}
+
+/**
+ * Замер варианта «шлюз Timeweb» (владелец 06.11). Агенты заведены
+ * (`TIMEWEB_AI_AGENTS`) — каждый, не больше трёх, получает вопрос пробы с
+ * инструментом. Не заведены — спрашивается только дорога: запрос без токена к
+ * несуществующему агенту. Ответ шлюза любым кодом — «дорога с прода открыта,
+ * агента нет»; сеть — «шлюз с прода не отвечает». Так «не настроено» не
+ * выдаётся ни за «работает», ни за «недоступно».
+ */
+export async function probeTimewebTools(): Promise<WaterfallDebugResult[]> {
+  const agents = Object.entries(getTimewebAgents()).slice(0, 3);
+  if (agents.length > 0) {
+    const out: WaterfallDebugResult[] = [];
+    for (const [name, agent] of agents) {
+      out.push(await probeToolsCall({
+        provider: 'timeweb:tools', model: name, url: `${TIMEWEB_AGENT_BASE}/${agent.agentId}/v1/chat/completions`,
+        headers: { Authorization: `Bearer ${agent.token}` }, bodyModel: 'agent',
+      }));
+    }
+    return out;
+  }
+  const start = Date.now();
+  const base = { provider: 'timeweb:tools', model: 'агент не заведён' };
+  try {
+    const res = await fetch(`${TIMEWEB_AGENT_BASE}/reachability-probe/v1/chat/completions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(15_000),
+    });
+    const text = (await res.text().catch(() => '')).slice(0, 160);
+    return [{
+      ...base, status: 'no_key', http_status: res.status, latency_ms: Date.now() - start,
+      note: `TIMEWEB_AI_AGENTS не задан — агента нет. Дорога с прода до шлюза открыта: HTTP ${res.status} ${text}`,
+    }];
+  } catch (e) {
+    return [{
+      ...base, status: 'no_key', latency_ms: Date.now() - start,
+      note: `TIMEWEB_AI_AGENTS не задан — агента нет; шлюз с прода не ответил: ${String(e).slice(0, 120)}`,
+    }];
+  }
+}
+
 /**
  * Модели пробы. ai-debug run 15 (06.11): `yandexgpt/latest` на вопрос об
  * обстановке безопасности ответил заглушкой модерации «Я не могу обсуждать эту
@@ -5752,39 +5863,11 @@ export async function probeYandexTools(model: YandexToolsProbeModel = 'yandexgpt
   if (!apiKey || !folderId) {
     return { provider: 'yandex:tools', model, status: 'no_key', latency_ms: 0 };
   }
-  const start = Date.now();
-  try {
-    const res = await fetch('https://llm.api.cloud.yandex.net/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Api-Key ${apiKey}`,
-        'OpenAI-Project': folderId,
-        'x-folder-id': folderId,
-      },
-      body: JSON.stringify({
-        model: `gpt://${folderId}/${model}`,
-        temperature: 0.1,
-        max_tokens: 200,
-        messages: [
-          { role: 'system', content: 'Ты помощник туриста на Камчатке. Факты об обстановке бери только из инструментов.' },
-          { role: 'user', content: 'Какая сейчас обстановка безопасности в крае?' },
-        ],
-        tools: [YANDEX_TOOLS_PROBE_TOOL],
-        tool_choice: 'auto',
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    const ms = Date.now() - start;
-    const raw = await res.text().catch(() => '');
-    let body: unknown = raw;
-    // Тело не JSON — остаётся строкой, и классификатор отдаёт его дословно,
-    // а не «ответа нет» (§4.0): молчащего catch здесь быть не должно.
-    try { body = JSON.parse(raw); } catch { body = raw; }
-    return classifyYandexToolsReply(res.status, body, ms, model);
-  } catch (e) {
-    return { provider: 'yandex:tools', model, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start };
-  }
+  return probeToolsCall({
+    provider: 'yandex:tools', model, url: 'https://llm.api.cloud.yandex.net/v1/chat/completions',
+    headers: { Authorization: `Api-Key ${apiKey}`, 'OpenAI-Project': folderId, 'x-folder-id': folderId },
+    bodyModel: `gpt://${folderId}/${model}`,
+  });
 }
 
 export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<WaterfallDebugResult[]> {
@@ -5905,6 +5988,9 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
   //     запасной ногой цикла инструментов Кузьмича. С прода живая только
   //     DeepSeek (ai-debug run 14: Qwen — квота, xAI — гео, OpenRouter — гео).
   for (const model of YANDEX_TOOLS_PROBE_MODELS) results.push(await probeYandexTools(model));
+  // 3б. Запасная нога Кузьмичу — замер двух вариантов (владелец 06.11).
+  results.push(...await probeQwenTools());
+  results.push(...await probeTimewebTools());
 
   // 4. DeepSeek direct — пригодные модели из /models и три формы запроса.
   //    run 6 (04.09): deepseek-v4-pro отдал finish_reason=length, content пуст,
