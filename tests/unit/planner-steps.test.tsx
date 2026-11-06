@@ -262,3 +262,36 @@ describe('здоровье — только в recommend (по коду)', () =>
     expect(schema).not.toMatch(/health|mobility/i);
   });
 });
+
+describe('возраст ребёнка не подставляется (независимая проверка 07.11, Б4)', () => {
+  it('новый ребёнок — «Возраст?», а не 10 лет; без возраста план не собирается', async () => {
+    render(<PlannerClient />);
+    fillDates();
+    next();
+    fireEvent.change(screen.getByLabelText(/Детей/), { target: { value: '1' } });
+    const age = screen.getByLabelText('Возраст ребёнка 1') as HTMLSelectElement;
+    expect(age.value).toBe('');
+    expect(age.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText(/Укажите возраст каждого ребёнка/)).toBeTruthy();
+    next();
+    next();
+    fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Собрать маршрут/ }));
+    await waitFor(() => expect(screen.getAllByText(/Укажите возраст каждого ребёнка/).length).toBeGreaterThan(0));
+    expect(calls.some((c) => c.url === '/api/planner/recommend')).toBe(false);
+  });
+
+  it('возраст выбран — уходит в запрос как есть', async () => {
+    render(<PlannerClient />);
+    fillDates();
+    next();
+    fireEvent.change(screen.getByLabelText(/Детей/), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Возраст ребёнка 1'), { target: { value: '4' } });
+    next();
+    next();
+    fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Собрать маршрут/ }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/planner/recommend')).toBe(true));
+    expect(calls.find((c) => c.url === '/api/planner/recommend')?.body?.children).toEqual([4]);
+  });
+});
