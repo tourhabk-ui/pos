@@ -69,4 +69,13 @@ describe('запрос пробы', () => {
     expect(body.tool_choice).toBe('auto');
     expect(JSON.stringify(body)).not.toMatch(/\+7|@/);
   });
+
+  it('тело не JSON (страница шлюза) — доходит до диагностики дословно, а не «ответа нет»', async () => {
+    process.env.YANDEX_API_KEY = 'test-key';
+    process.env.YANDEX_FOLDER_ID = 'b1gtestfolder';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>502 Bad Gateway</html>', { status: 502 })));
+    const r = await probeYandexTools();
+    expect(r).toMatchObject({ status: 'http_error', http_status: 502 });
+    expect(r.error).toContain('502 Bad Gateway');
+  });
 });
