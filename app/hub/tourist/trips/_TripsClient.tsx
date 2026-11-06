@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
+import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import {
   MapPin, Calendar, Trash2, Plus, Loader, AlertTriangle, Route,
 } from 'lucide-react';
@@ -19,9 +20,9 @@ interface TripListItem {
   updated_at: string;
 }
 
+/** Календарный день без перевода в пояс браузера (lib/trips/trip-dates, 07.11). */
 function fmt(d: string | null): string {
-  if (!d) return '';
-  return new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+  return ruCalendarDate(d, 'short');
 }
 
 function TripCard({ trip, onDelete }: { trip: TripListItem; onDelete: (id: string) => void }) {

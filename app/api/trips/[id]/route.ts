@@ -10,6 +10,7 @@ import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import type { UserTripRow } from '@/lib/types/db-rows';
 import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { withCalendarDates } from '@/lib/trips/trip-dates';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, data: trip });
+  return NextResponse.json({ success: true, data: withCalendarDates(trip) });
 }
 
 // ─── PATCH ────────────────────────────────────────────────────────────────────
@@ -122,7 +123,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
       d.choices !== undefined ? JSON.stringify(d.choices) : null,
     ]);
 
-    return NextResponse.json({ success: true, data: rows[0] });
+    return NextResponse.json({ success: true, data: withCalendarDates(rows[0]) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Ошибка при обновлении маршрута';
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

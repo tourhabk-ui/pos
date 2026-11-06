@@ -11,6 +11,7 @@ import { dayPriceLine } from '@/lib/planner/day-price';
 import type { TripChoices, TripDayPlan, TripParty } from '@/lib/trips/trip-schema';
 import { stayLink } from '@/lib/stay/stay-link';
 import { TripActions } from '@/components/trips/TripActions';
+import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
@@ -130,9 +131,9 @@ function ChoicesBlock({ choices, party }: { choices: TripChoices; party: TripPar
   );
 }
 
+/** Календарный день без перевода в пояс браузера: «10 июля», а не «9 июля» (07.11). */
 function fmtDate(d: string | null): string {
-  if (!d) return '';
-  return new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  return ruCalendarDate(d);
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
