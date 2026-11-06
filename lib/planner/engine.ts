@@ -55,8 +55,8 @@ import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 import { loadActiveWarnings } from '@/lib/safety/active-warnings';
 import { applyPlanParkStatus } from '@/lib/planner/park-status';
 import {
-  appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, notesForPlanDay, warningDigest,
-  type ActiveWarning,
+  appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
+  splitWarningsForTrip, warningDigest, type ActiveWarning,
 } from '@/lib/safety/mchs-bulletin';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -1143,7 +1143,8 @@ async function generateDayPlans(
   const skippedLegs: Array<{ zone: ZoneId; cost: ZoneLegCost; daysLeft: number; interests: string[] }> = [];
 
   // Determine zone allocation
-  const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number }> = [];
+  /** `tail` — блок просьбы, которой не досталось дня (см. перед циклом блоков). */
+  const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number; tail?: boolean }> = [];
   const totalScore = zones.reduce((s, z) => s + z.score, 0) || 1;
 
   for (const z of zones) {
@@ -1187,7 +1188,42 @@ async function generateDayPlans(
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
 
-  for (let bi = 0; bi < zoneBlocks.length; bi++) {
+  // ── Просьба без дня получает оставшиеся дни, а не «свободный день» ──
+  //
+  // Пруф с прода 06.11: план агента на 10–14.07.2027, «вулканы и рыбалка».
+  // Блок Авачинской зоны получил два дня, второй ушёл на отдых после
+  // тяжёлого восхождения; рыбалку в Западной зоне связка не вместила — и
+  // день 4 стал свободным днём в городе с рыбным рынком, хотя рыбалка в
+  // Авачинской зоне есть. Теперь, когда блоки кончились, а дни
+  // остались, каждая просьба без единого дня, которую держит текущая зона и
+  // сезон, получает свой день — своим блоком из одного интереса (материал
+  // ищется по нему, а не по первому интересу чужого блока). Дни на
+  // возвращение из дальней зоны и на погодный резерв вертолёта остаются за
+  // ними. Хвост пробуется один раз.
+  const unservedTailBlocks = (): typeof zoneBlocks => {
+    const served = new Set(days.filter((d) => d.type === 'activity').map((d) => d.activityType));
+    let room = tripDays - departureDays - (dayNum - 1)
+      - (prevZone !== 'avachinsky' ? 1 : 0)
+      - (needsHeliBuffer ? 1 : 0);
+    const out: typeof zoneBlocks = [];
+    for (const i of profile.interests) {
+      if (room <= 0) break;
+      const c = ACTIVITY_CONSTRAINTS[i];
+      if (!c || served.has(i) || !c.bestZones.includes(prevZone) || !inSeason(i, month, catalogueOpen)) continue;
+      out.push({ zone: prevZone, interests: [i], activeDays: 1, tail: true });
+      room--;
+    }
+    return out;
+  };
+  let tailTried = false;
+
+  for (let bi = 0; ; bi++) {
+    if (bi >= zoneBlocks.length) {
+      if (tailTried) break;
+      tailTried = true;
+      zoneBlocks.push(...unservedTailBlocks());
+      if (bi >= zoneBlocks.length) break;
+    }
     const block = zoneBlocks[bi];
 
     // «Сам»: активности, куда без гида нельзя по нашим же данным, из блока
@@ -1259,10 +1295,17 @@ async function generateDayPlans(
     // «С оператором»: тур без свободных мест на даты поездки не ставится —
     // честная занятость (lib/planner/data), а не витрина. Туры, где мест
     // хватает на всю группу, идут первыми.
-    if (style === 'operator' && realTours.length > 0 && profile.arrivalDate && profile.departureDate) {
+    //
+    // «Вперемешку» (и план без выбора стиля — Кузьмич, MCP) тур без мест не
+    // снимает, но ставит ПОСЛЕДНИМ: пруф с прода 06.11 — план агента на
+    // 10–14.07.2027 поставил Горелый, у которого в эти даты мест нет, хотя
+    // выбор вулканов в зоне был. Без мест тур встаёт, только если другого
+    // нет, и тогда день говорит «мест нет» и ближайшую дату.
+    if ((style === 'operator' || style === 'mixed') && realTours.length > 0 && profile.arrivalDate && profile.departureDate) {
       const fits: RealTour[] = [];
       const tight: RealTour[] = [];
       const onRequest: RealTour[] = [];
+      const noSeats: RealTour[] = [];
       for (const t of realTours) {
         // Занятость не прочиталась — «мест нет» было бы враньём: тур остаётся
         // в плане, но не впереди тех, где места проверены.
@@ -1278,12 +1321,13 @@ async function generateDayPlans(
           const keeps = await fetchTourKeepsSchedule(t.tourId, cache);
           if (keeps === false) onRequest.push(t);
           else if (keeps === null) tight.push(t);
-          else noSlotTours.add(t.title);
+          else if (style === 'operator') noSlotTours.add(t.title);
+          else noSeats.push(t);
           continue;
         }
         (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
       }
-      realTours = [...fits, ...tight, ...onRequest];
+      realTours = [...fits, ...tight, ...onRequest, ...noSeats];
     }
 
     // Тур длиннее блока своей зоны (08.10). Блоки делятся между зонами
@@ -1294,7 +1338,9 @@ async function generateDayPlans(
     // Поэтому если в блок не влезает НИ ОДИН тур зоны, блок растягивается
     // под самый короткий тур, который вмещает остаток поездки, и это
     // называется: дни ушли туру, следующим зонам их осталось меньше.
-    if (style !== 'self' && realTours.length > 0) {
+    // Хвостовой блок не растягивается: его день — остаток поездки, и
+    // растяжка съела бы день возвращения или резерв.
+    if (style !== 'self' && realTours.length > 0 && !block.tail) {
       const room = tripDays - departureDays - (dayNum - 1);
       const spans = realTours.map((t) => tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1);
       if (!spans.some((sp) => sp <= block.activeDays)) {
@@ -2024,7 +2070,15 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
   // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
   // «Раздолье»).
-  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchs.ok ? mchs.warnings : []);
+  // Сводка МЧС говорит о сегодняшнем дне и своём сроке. Строка, срок
+  // которой кончается до начала поездки, к поездке не относится: сводка
+  // 06.11 о перекрытой на сутки дороге стояла в плане на июль следующего
+  // года фактом дня (разбор 06.11). Такие строки не красят дни и общую
+  // сводку плана; вместо них — одна строка «проверьте ближе к выезду».
+  const mchsTrip = mchs.ok
+    ? splitWarningsForTrip(mchs.warnings, profile.arrivalDate ?? null)
+    : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
+  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
   // Закрытие парка и «статус парка не известен» (разбор 06.11): до этой правки
@@ -2039,8 +2093,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   if (!mchs.ok) {
     warnings.push({ type: 'mchs', severity: 'important', message: MCHS_UNREAD_NOTE });
   } else {
-    const digest = warningDigest(mchs.warnings);
+    const digest = warningDigest(mchsTrip.forTrip);
     if (digest) warnings.push({ type: 'mchs', severity: 'important', message: digest });
+    if (mchsTrip.endedBefore.length > 0 && profile.arrivalDate) {
+      warnings.push({ type: 'safety', severity: 'info', message: mchsBeforeTripNote(mchsTrip.endedBefore, profile.arrivalDate) });
+    }
   }
 
   // Каталог открыл то, что зашитая таблица считает закрытым. Промолчать
@@ -2104,14 +2161,32 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     });
   }
 
+  // ── Просьба, которой в плане не досталось ни дня (разбор 06.11) ──
+  //
+  // Человек или агент просил «вулканы и рыбалку», а рыбалки в плане нет —
+  // это не справка, а неисполненная просьба: агент обязан её увидеть. До
+  // этой правки объяснение шло уровнем info, а info в «Важно» агента не
+  // проходит (planWarningLines): план молчал о рыбалке вовсе. Сезон,
+  // возраст детей и «только с гидом» в «Сам» говорят свои предупреждения —
+  // их здесь не повторяем.
+  const servedInterests = new Set(days.filter((d) => d.type === 'activity').map((d) => d.activityType));
+  const unservedInterests = planProfile.interests.filter((i) => ACTIVITY_CONSTRAINTS[i] !== undefined
+    && !servedInterests.has(i)
+    && inSeason(i, month, catalogueOpen)
+    && !((profile.travelStyle ?? 'mixed') === 'self' && activitySelfBlocker(i) !== null));
+
   // ── Зона, на которую не хватило дней, называется словами (27.09) ──
   //
   // Решение владельца: не ездить и сказать. Молчание читалось бы как «этого
-  // интереса у нас нет», хотя причина — арифметика календаря (§4.0).
+  // интереса у нас нет», хотя причина — арифметика календаря (§4.0). Если
+  // из-за этого просьба осталась без дня вовсе — строка важная.
+  const explainedByLeg = new Set<string>();
   for (const leg of skippedLegs) {
+    const dropsRequest = leg.interests.some((i) => unservedInterests.includes(i));
+    for (const i of leg.interests) explainedByLeg.add(i);
     warnings.push({
       type: 'zone_days',
-      severity: 'info',
+      severity: dropsRequest ? 'important' : 'info',
       message: legShortfallMessage(
         leg.zone,
         leg.cost,
@@ -2119,6 +2194,21 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
         leg.interests.map((i) => ACTIVITY_NAMES[i] ?? i),
       ),
     });
+  }
+  for (const i of unservedInterests) {
+    if (explainedByLeg.has(i)) continue;
+    warnings.push({
+      type: 'zone_days',
+      severity: 'important',
+      message: `«${ACTIVITY_NAMES[i] ?? i}» в этот план не вошла: дня для неё не нашлось. Добавьте день к поездке или уберите другой интерес — тогда соберём заново.`,
+    });
+  }
+  // Путёвка нужна рыбалке, а не плану без неё: строка о путёвке при плане
+  // без рыбалки читалась как «рыбалка в плане есть» (пруф 06.11).
+  if (!servedInterests.has('fishing')) {
+    for (let k = warnings.length - 1; k >= 0; k--) {
+      if (warnings[k].type === 'license') warnings.splice(k, 1);
+    }
   }
 
   // Допущение о доме местного — словами рядом со счётом, а не молча в цифре.
@@ -2329,7 +2419,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     }
   }
   itinerary = mchs.ok
-    ? appendOfferingFlags(itinerary, mchs.warnings)
+    ? appendOfferingFlags(itinerary, mchsTrip.forTrip)
     : appendUnreadSafety(itinerary, true);
 
   // Просьба была — ответ о ней обязателен, даже если заметок нет. Просьбы

@@ -6,6 +6,9 @@
  * нет участка дороги — соответствующее поле пустое, а не угаданное.
  */
 
+import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
+
 export interface BulletinPeriod {
   /** Как в сводке, без года, если источник год не написал: «06:00 24.10–06:00 25.10». */
   label: string;
@@ -86,6 +89,13 @@ export interface ActiveWarning {
   stems: string[];
   period: string | null;
   sourceUrl: string | null;
+  /**
+   * День Камчатки (YYYY-MM-DD), до которого строка о чём-то говорит: срок
+   * строки, а без срока — горизонт сводки от её даты
+   * (`UNDATED_ALERT_HORIZON_DAYS`). null или нет поля — не известно, и строка
+   * судится как действующая.
+   */
+  relevantUntil?: string | null;
 }
 
 export interface AlertWarningRow {
@@ -94,6 +104,23 @@ export interface AlertWarningRow {
   description?: string | null;
   source_url?: string | null;
   volcano_name?: string | null;
+  /** Срок строки (ISO, UTC) — у сводки с периодом это конец периода. */
+  expires_iso?: string | null;
+  /** Дата последней сводки (ISO, UTC). */
+  published_iso?: string | null;
+}
+
+/** До какого дня Камчатки строка о чём-то говорит; null — не известно. */
+export function relevantUntilOf(row: AlertWarningRow): string | null {
+  const at = (iso: string | null | undefined): Date | null => {
+    if (!iso) return null;
+    const t = Date.parse(iso);
+    return Number.isNaN(t) ? null : new Date(t);
+  };
+  const expires = at(row.expires_iso);
+  if (expires) return kamchatkaDate(expires);
+  const published = at(row.published_iso);
+  return published ? shiftDate(kamchatkaDate(published), UNDATED_ALERT_HORIZON_DAYS) : null;
 }
 
 const ROAD_STOP = new Set([
@@ -152,6 +179,7 @@ export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarnin
     const type = row.alert_type ?? '';
     const period = parseBulletinPeriod(row.description ?? '')?.label ?? null;
     const sourceUrl = row.source_url?.trim() || null;
+    const relevantUntil = relevantUntilOf(row);
     if (type === 'volcanic_eruption') {
       const place = row.volcano_name?.trim() || volcanoFromTitle(row.title ?? '') || '';
       if (!place) continue;
@@ -160,7 +188,7 @@ export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarnin
       const stems = stemsOf(place);
       if (stems.length === 0) continue;
       seen.add(key);
-      out.push({ kind: 'volcano', place, stems, period, sourceUrl });
+      out.push({ kind: 'volcano', place, stems, period, sourceUrl, relevantUntil });
     } else if (type === 'road_closure') {
       const place = roadPlace(row.title ?? '', row.description ?? '');
       if (!place) continue;
@@ -169,10 +197,38 @@ export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarnin
       const stems = roadStems(place);
       if (stems.length === 0) continue;
       seen.add(key);
-      out.push({ kind: 'road', place, stems, period, sourceUrl });
+      out.push({ kind: 'road', place, stems, period, sourceUrl, relevantUntil });
     }
   }
   return out;
+}
+
+/**
+ * Сводки МЧС, которые говорят о поездке с датой начала `tripStartIso`, и те,
+ * что кончаются до неё (разбор 06.11: сводка о перекрытой на сутки дороге
+ * стояла в плане на июль следующего года как факт дня). Без даты начала —
+ * всё «как сейчас»; срок строки не известен — строка остаётся.
+ */
+export function splitWarningsForTrip(
+  warnings: readonly ActiveWarning[],
+  tripStartIso: string | null,
+): { forTrip: ActiveWarning[]; endedBefore: ActiveWarning[] } {
+  if (!tripStartIso) return { forTrip: [...warnings], endedBefore: [] };
+  const forTrip: ActiveWarning[] = [];
+  const endedBefore: ActiveWarning[] = [];
+  for (const w of warnings) {
+    if (w.relevantUntil && w.relevantUntil < tripStartIso) endedBefore.push(w);
+    else forTrip.push(w);
+  }
+  return { forTrip, endedBefore };
+}
+
+/** Строка плана, когда сегодняшние сводки к датам поездки не относятся. */
+export function mchsBeforeTripNote(endedBefore: readonly ActiveWarning[], tripStartIso: string): string {
+  const places = [...new Set(endedBefore.map((w) => w.place))].slice(0, 4).join('; ');
+  const [, m, d] = tripStartIso.split('-');
+  return `Сводки МЧС на сегодня (${places}) к датам поездки с ${d}.${m} не относятся: их срок кончается раньше. `
+    + 'Обстановку на свои даты проверьте ближе к выезду — сводка выходит ежедневно.';
 }
 
 export function offeringMatches(text: string, warning: ActiveWarning): boolean {
