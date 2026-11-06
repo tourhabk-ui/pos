@@ -5739,7 +5739,9 @@ export async function probeYandexTools(): Promise<WaterfallDebugResult> {
     const ms = Date.now() - start;
     const raw = await res.text().catch(() => '');
     let body: unknown = raw;
-    try { body = JSON.parse(raw); } catch { /* тело не JSON — отдаём строкой */ }
+    // Тело не JSON — остаётся строкой, и классификатор отдаёт его дословно,
+    // а не «ответа нет» (§4.0): молчащего catch здесь быть не должно.
+    try { body = JSON.parse(raw); } catch { body = raw; }
     return classifyYandexToolsReply(res.status, body, ms);
   } catch (e) {
     return { provider: 'yandex:tools', model: 'yandexgpt/latest', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start };
