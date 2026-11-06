@@ -22,11 +22,22 @@ export interface TripLegResult {
   text: string;
 }
 
+/** Часть поездки, которую ведёт менеджер: номер поездки и что в ней. */
+export interface TripManagerPart {
+  tripId: string;
+  parts: Array<'transfer' | 'stay'>;
+}
+
 export interface TripDeps {
   bookTour(args: Record<string, unknown>): Promise<string>;
   requestStay(args: Record<string, unknown>): Promise<string>;
   requestCharter(args: Record<string, unknown>): Promise<string>;
-  createLead(args: Record<string, unknown>): Promise<string>;
+  /**
+   * Заявка менеджеру на части без адресата. `tripPart` — что это часть
+   * поездки, а не подбор тура: лид получает род `trip_manager`, и крон
+   * добивки не отдаёт его постороннему туроператору (разбор 06.11).
+   */
+  createLead(args: Record<string, unknown>, tripPart?: TripManagerPart): Promise<string>;
   /** Штатная фраза RU/EN/ZH (requestConfirmNote) — вырезается из частей и ставится один раз. */
   confirmNote: string;
   newTripId?: () => string;
@@ -148,6 +159,9 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
         comment: `${comment} ${manager.map((m) => m.line).join(' ')}`.slice(0, 2000),
         interest: manager.map((m) => (m.kind === 'stay' ? 'Жильё на подбор' : 'Трансфер / машина под заказ')).join(' + '),
         ...(people !== undefined ? { participants: people } : {}),
+      }, {
+        tripId,
+        parts: manager.map((m) => (m.kind === 'stay' ? 'stay' as const : 'transfer' as const)),
       });
       ok = !legFailed(leadText);
     } catch (err) {

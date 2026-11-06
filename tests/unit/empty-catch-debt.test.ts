@@ -111,7 +111,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/tools/[slug]/route.ts': 1,
   'app/api/tours/route.ts': 1,
   'app/api/trips/[id]/route.ts': 1,
-  'app/api/trips/share/[token]/route.ts': 3,
+  'app/api/trips/share/[token]/route.ts': 2,
   'app/api/whatsapp/kuzmich/route.ts': 1,
   'app/api/widget/chat/route.ts': 1,
   'app/api/widget/lead.js/route.ts': 1,

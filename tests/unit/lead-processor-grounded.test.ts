@@ -229,10 +229,9 @@ describe('исходники', () => {
     expect(svc).toMatch(/groundIntentNumbers\(/);
   });
 
-  it('MCP create_lead: заказ машины уходит менеджеру без AI-подбора, описание ведёт в request_charter', () => {
-    const route = read('app/api/mcp/route.ts');
-    const fn = route.slice(route.indexOf('async function executeCreateLead'), route.indexOf('function refuseSilentLead'));
-    expect(fn).toMatch(/skip_ai_processing:\s*isVehicleOrder\(leadComment\)/);
+  it('MCP create_lead: описание ведёт заказ машины в request_charter', () => {
+    // Сама заявка на машину уходит менеджеру без AI-подбора — проверено
+    // исполнением роута MCP (tests/unit/mcp-lead-tool.test.ts).
     const tools = read('lib/mcp/public-tools.ts');
     const createLead = tools.slice(tools.indexOf('export const CREATE_LEAD_TOOL'), tools.indexOf('export const BOOKING_REQUEST_TOOL'));
     expect(createLead).toMatch(/request_charter/);

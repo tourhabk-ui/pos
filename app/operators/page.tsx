@@ -4,6 +4,7 @@ import { Footer } from '@/components/layout/Footer';
 import OperatorsPageClient from './_OperatorsClient';
 import { queryOperatorsForPage, type OperatorsFilters, type OperatorsResult } from '@/lib/operators/list-query';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 12;
@@ -75,7 +76,7 @@ export default async function OperatorsPage() {
       {itemListJsonLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdHtml(itemListJsonLd) }}
         />
       )}
       <Header />

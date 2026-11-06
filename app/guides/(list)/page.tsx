@@ -4,6 +4,7 @@ import { pool } from '@/lib/db-pool';
 import { Shield, Award, Star } from 'lucide-react';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 // Рендер на каждый запрос: без этого Next собирал страницу на сборке Docker,
 // где базы нет, и до следующей сборки отдавал «Не удалось загрузить реестр гидов»
@@ -121,7 +122,7 @@ export default async function GuidesPage() {
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
 
       <div className="ds-page py-10">
         {/* Hero */}

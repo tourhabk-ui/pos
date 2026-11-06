@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { topToursByActivity, toursByIds, type TopTour } from '@/lib/tours/top-tour-by-activity';
 import { readSharedPlan } from '@/lib/trips/shared-plan';
+import { tourKeepsSchedule } from '@/lib/seat-requests/service';
+import type { TripDayAvailability } from '@/lib/trips/day-availability';
+
+/** Окно поиска ближайшей свободной даты тура без мест на дату дня. */
+const NEXT_FREE_WINDOW_DAYS = 60;
+
+function addDaysIso(dateIso: string, days: number): string {
+  return new Date(Date.parse(`${dateIso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -49,9 +58,18 @@ export async function GET(
 
     // Честная доступность на дату каждого дня («Мой план 2.0», B-4):
     // «на 12.08 — 4 места» из реальной занятости (fetchAvailabilityForTour —
-    // тот же расчёт, что у гейта брони). Только будущие даты; сбой подбора
-    // не роняет план — строка доступности просто не показывается.
-    const availability: Record<string, { date: string; remaining: number }> = {};
+    // тот же расчёт, что у гейта брони). Только будущие даты.
+    //
+    // Четыре исхода, а не «места есть» и тишина (пруф с прода 06.11: план
+    // агента на 10–14.07.2027, Горелый на 11.07 без мест — ответ агенту это
+    // говорил, а страница плана показывала цену и «оставить заявку» без слова):
+    //  - open — на дату есть места;
+    //  - none — тур ведёт расписание, на дату мест нет; next — ближайшая
+    //    свободная дата в 60 сутках, если есть;
+    //  - on_request — расписания в системе нет: дату подтверждает оператор
+    //    по заявке, и это не «мест нет»;
+    //  - unread — проверить не смогли; сбой называется, а не глушится (§4.0).
+    const availability: Record<string, TripDayAvailability> = {};
     const arrivalRaw = plan.arrival_date;
     const arrivalMs = arrivalRaw ? new Date(arrivalRaw).getTime() : NaN;
     if (Number.isFinite(arrivalMs)) {
@@ -66,8 +84,27 @@ export async function GET(
         try {
           const slots = await fetchAvailabilityForTour(tour.id, date, date, cache);
           const remaining = slots[0]?.remaining ?? 0;
-          if (remaining > 0) availability[String(d.day)] = { date, remaining };
-        } catch { /* строка доступности необязательна */ }
+          if (remaining > 0) {
+            availability[String(d.day)] = { date, remaining, state: 'open' };
+            return;
+          }
+          const keeps = await tourKeepsSchedule(Number(tour.id));
+          if (keeps === false) {
+            availability[String(d.day)] = { date, remaining: 0, state: 'on_request' };
+            return;
+          }
+          if (keeps === null) {
+            availability[String(d.day)] = { date, remaining: 0, state: 'unread' };
+            return;
+          }
+          const ahead = await fetchAvailabilityForTour(tour.id, addDaysIso(date, 1), addDaysIso(date, NEXT_FREE_WINDOW_DAYS), cache);
+          const next = ahead.find((s) => s.remaining > 0)?.date;
+          availability[String(d.day)] = { date, remaining: 0, state: 'none', ...(next ? { next } : {}) };
+        } catch (err) {
+          const code = (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
+          console.error('[trips/share] занятость тура на дату дня не прочиталась, SQLSTATE', code);
+          availability[String(d.day)] = { date, remaining: 0, state: 'unread' };
+        }
       }));
     }
 

@@ -22,6 +22,7 @@ import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/to
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogHreflang } from '@/lib/zh/pages';
 import { plural } from '@/lib/home/data-freshness';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,10 +120,10 @@ export default async function CatalogPage() {
       {structuredData && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
         />
       )}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(faqJsonLd) }} />
       <Header />
       <MarketplaceClient
         initialTours={initial?.tours ?? []}

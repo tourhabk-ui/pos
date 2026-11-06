@@ -84,7 +84,7 @@ const A_MAX_CHAT = '7000001';
 
 withPg('крон добивки лидов на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
-  const ids = { l1: '', l2: '', l3: '', l4: '', l5: '', l6: '', l7: '', l8: '' };
+  const ids = { l1: '', l2: '', l3: '', l4: '', l5: '', l6: '', l7: '', l8: '', l9: '' };
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
@@ -137,6 +137,12 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     ids.l7 = await lead('Арендатор машины', e, '3 hours', { kind: 'car_rental' }, PD_CONSENT_RENTAL_VERSION);
     ids.l8 = await lead('Прокат удалённого', f, '3 hours', { kind: 'car_rental' }, PD_CONSENT_RENTAL_VERSION);
     await pool.query(`DELETE FROM partners WHERE id = $1`, [f]);
+    // Часть поездки, которую ведёт менеджер (create_trip_request: машина без
+    // перевозчика, жильё на подбор), — без адресата и с согласием версии
+    // «туроператору», как её пишет executeCreateLead. До разбора 06.11 крон
+    // отдавал её имя и телефон первому туроператору.
+    ids.l9 = await lead('Поездка менеджеру', null, '3 hours',
+      { source: 'mcp', kind: 'trip_manager', trip_id: 'TRIP-abc123', trip_parts: ['transfer', 'stay'] }, '2026-10-08');
     // Так его писал чат виджета до 15.10: createLead без телефона и согласия.
     const pseudo = await pool.query<{ id: string }>(
       `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, source_channel, created_at)
@@ -192,16 +198,17 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     expect(params.text).not.toContain('Арендатор машины');
     expect(params.text).not.toContain('Прокат удалённого');
     expect(params.text).not.toContain('Widget: mestechko');
+    expect(params.text).not.toContain('Поездка менеджеру');
 
     const state = await pool.query<{ id: string; status: string; notified: unknown; last_followup: string | null }>(
       `SELECT id::text AS id, status, source_data->'notified_operators' AS notified,
               source_data->>'last_followup' AS last_followup
          FROM leads WHERE id = ANY($1::uuid[]) ORDER BY name`,
-      [[ids.l1, ids.l2, ids.l3, ids.l5, ids.l6, ids.l7, ids.l8]],
+      [[ids.l1, ids.l2, ids.l3, ids.l5, ids.l6, ids.l7, ids.l8, ids.l9]],
     );
     const byId = new Map(state.rows.map((r) => [r.id, r]));
     expect(byId.get(ids.l1)?.notified).toEqual(['op-a']);
-    for (const addressed of [ids.l2, ids.l3, ids.l5, ids.l6, ids.l7, ids.l8]) {
+    for (const addressed of [ids.l2, ids.l3, ids.l5, ids.l6, ids.l7, ids.l8, ids.l9]) {
       expect(byId.get(addressed)?.status).toBe('new');
       expect(byId.get(addressed)?.notified).toBeNull();
       expect(byId.get(addressed)?.last_followup).toBeNull();

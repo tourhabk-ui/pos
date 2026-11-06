@@ -15,6 +15,7 @@ import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
 import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
 import { partnerSiteOfRequest } from '@/lib/partner-sites/request';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -185,7 +186,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {!onPartnerSite && <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify([
+            __html: jsonLdHtml([
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",

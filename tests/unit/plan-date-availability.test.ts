@@ -19,7 +19,6 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const BOOKING = readFileSync(join(ROOT, 'components/marketplace/BookingFormClient.tsx'), 'utf-8');
 const SHARE_API = readFileSync(join(ROOT, 'app/api/trips/share/[token]/route.ts'), 'utf-8');
-const SHARE_UI = readFileSync(join(ROOT, 'app/trip/[token]/_TripShareClient.tsx'), 'utf-8');
 const PLANS_PAGE = readFileSync(join(ROOT, 'app/plans/[slug]/page.tsx'), 'utf-8');
 
 describe('B-3: дата дня доезжает до формы брони', () => {
@@ -40,8 +39,7 @@ describe('B-3: дата дня доезжает до формы брони', () 
     }
   });
 
-  it('публичный план и программатик-страницы шлют ?date= в ссылке брони', () => {
-    expect(SHARE_UI).toMatch(/\?date=\$\{avail\.date\}/);
+  it('программатик-страницы шлют ?date= в ссылке брони; страница плана — проверка рендером ниже', () => {
     expect(PLANS_PAGE).toMatch(/\?date=\$\{day\.availableDate \?\?/);
   });
 });
@@ -51,18 +49,8 @@ describe('B-4: честная доступность в дне плана', () =
     expect(SHARE_API).toMatch(/fetchAvailabilityForTour/);
     expect(SHARE_API).toMatch(/createPlannerCache/);
   });
-
-  it('только будущие даты и только remaining > 0 — прошлое и ноль не показываем', () => {
-    expect(SHARE_API).toMatch(/if \(date < today\) return;/);
-    expect(SHARE_API).toMatch(/if \(remaining > 0\) availability\[String\(d\.day\)\]/);
-  });
-
-  it('сбой подбора не роняет план', () => {
-    expect(SHARE_API).toMatch(/catch \{ \/\* строка доступности необязательна \*\/ \}/);
-  });
-
-  it('публичный план показывает «на дату — N мест» и склоняет честно', () => {
-    expect(SHARE_UI).toMatch(/на \{shortDate\(avail\.date\)\}/);
-    expect(SHARE_UI).toMatch(/'место' : avail\.remaining < 5 \? 'места' : 'мест'/);
-  });
+  // Исходы мест (open / none с ближайшей датой / on_request / unread), их
+  // строка и ссылка на странице — исполнением: share-API на заглушках и
+  // рендер страницы, tests/unit/trip-page-truth.test.tsx (пруф с прода 06.11:
+  // «только remaining > 0» превращал «мест нет» в «оставить заявку»).
 });

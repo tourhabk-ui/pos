@@ -54,7 +54,8 @@ import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { primaryArg, classifyExecutionError } from '@/lib/mcp/call-reason';
 import { normalizeToolHeadcount } from '@/lib/agent/headcount';
-import { runTripRequest } from '@/lib/agent/trip-request';
+import { runTripRequest, type TripManagerPart } from '@/lib/agent/trip-request';
+import { TRIP_MANAGER_LEAD_KIND } from '@/lib/leads/followup-scope';
 import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
@@ -766,7 +767,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     + (isTest ? '' : requestConfirmNote());
 }
 
-async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
+async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext, tripPart?: TripManagerPart): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
     throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
@@ -779,7 +780,17 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
   // План по plan_id (#2304, шаг 2): менеджер получает поездку целиком.
   const planAttach = await planFromDraft(parsed.data.plan_id);
-  const leadSource = { source: 'mcp', ...(parsed.data.participants ? { participants: parsed.data.participants } : {}), ...planSourceFields(planAttach) };
+  // Часть поездки без адресата (машина без перевозчика, жильё на подбор) —
+  // род `trip_manager`: её ведёт менеджер, и крон добивки не отдаёт её
+  // постороннему туроператору с именем и телефоном (разбор 06.11, проба на
+  // PostgreSQL). Подбор тура к ней не нужен — модель туры к заказу машины не
+  // ищет.
+  const leadSource = {
+    source: 'mcp',
+    ...(parsed.data.participants ? { participants: parsed.data.participants } : {}),
+    ...planSourceFields(planAttach),
+    ...(tripPart ? { kind: TRIP_MANAGER_LEAD_KIND, trip_id: tripPart.tripId, trip_parts: tripPart.parts } : {}),
+  };
   refuseSilentLead(name, phone, leadComment, leadSource);
   const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({
@@ -792,7 +803,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     is_self: ctx.self,
     // Заказ машины через create_lead (10.10: две вахтовки на Горелый) — не
     // подбор тура: менеджеру уходит как есть, без AI-подбора туров к нему.
-    skip_ai_processing: isVehicleOrder(leadComment),
+    skip_ai_processing: tripPart !== undefined || isVehicleOrder(leadComment),
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
@@ -959,7 +970,7 @@ async function executeTool(
       bookTour: (a) => executeCreateBookingRequest(a, ctx),
       requestStay: (a) => executeCreateStayRequest(a, ctx),
       requestCharter: (a) => executeRequestCharter(a, ctx),
-      createLead: (a) => executeCreateLead(a, ctx),
+      createLead: (a, tripPart) => executeCreateLead(a, ctx, tripPart),
       confirmNote: requestConfirmNote(),
     });
     return r.text;

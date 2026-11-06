@@ -28,6 +28,13 @@ describe('create_trip_request', () => {
     const r = await runTripRequest({ name: 'a', phone: '1', consent: true }, deps() as never);
     expect(r.tripId).toBeNull();
   });
+  it('часть менеджеру помечена частью поездки: номер и что в ней (крон добивки её не отдаёт туроператору)', async () => {
+    const d = deps();
+    const r = await runTripRequest({ participants: 2, transfer_destination: 'Елизово', transfer_date: '2027-07-10', stay_wanted: true, check_in: '2027-07-10', check_out: '2027-07-14', name: 'Тест', phone: '+79990000000', consent: true }, d as never);
+    expect(d.createLead).toHaveBeenCalledTimes(1);
+    const [, tripPart] = d.createLead.mock.calls[0] as unknown as [Record<string, unknown>, { tripId: string; parts: string[] }];
+    expect(tripPart).toEqual({ tripId: r.tripId, parts: ['transfer', 'stay'] });
+  });
 });
 
 describe('kuzmich chat request plan', () => {

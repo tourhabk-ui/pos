@@ -4,6 +4,7 @@ import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import { ZONE_PAGES } from '@/lib/routes/zone-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 /**
  * Зонный срез категории: /routes/[category]/[zone]
@@ -74,7 +75,7 @@ export default async function CategoryZonePage({ params }: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }}
       />
       <CategoryPage category={id} zone={zone} />
     </>

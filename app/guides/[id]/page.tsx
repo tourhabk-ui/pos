@@ -8,6 +8,7 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 import { Shield, Award, Star, ArrowLeft, Languages, Mountain, BadgeCheck, Phone, Clock, Compass } from 'lucide-react';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 // Публичный профиль гида — витрина доверия (паттерн 57hours): турист видит
 // ПОДТВЕРЖДЁННЫЕ аттестаты до брони, а не просто «112 аттестованных» цифрой.
@@ -162,7 +163,7 @@ export default async function GuideProfilePage({ params }: { params: Promise<{ i
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
 
       <div className="ds-page py-8">
         <Link href="/guides" className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors mb-6">

@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { Header } from '@/components/layout/Header';
 import FaqClient from './_FaqClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 // Рендер на каждый запрос. Без этого страница пререндерилась на сборке Docker,
 // где базы нет, и навсегда отдавала «Вопросов пока нет» при тридцати вопросах
@@ -89,7 +90,7 @@ export default async function FaqPage() {
       {faqSchema && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdHtml(faqSchema) }}
         />
       )}
       <Header />

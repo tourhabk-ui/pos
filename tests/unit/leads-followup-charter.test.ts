@@ -35,6 +35,7 @@ const CONSENT_ONLY = { id: 'l-consent', name: 'Пётр Согласов', phone
 // Заявка на прокат автомобиля (23.10): адресат — прокатчик, согласие «прокату автомобилей».
 const RENTAL = { id: 'l-rental', name: 'Олег Арендов', phone: '+79990000004', source_data: { kind: 'car_rental', company_slug: 'laguna' }, pd_consent_version: PD_CONSENT_RENTAL_VERSION };
 const RENTAL_CONSENT_ONLY = { id: 'l-rental-consent', name: 'Зоя Прокатова', phone: '+79990000005', source_data: {}, pd_consent_version: PD_CONSENT_RENTAL_VERSION };
+const TRIP_PART = { id: 'l-trip', name: 'Вера Поездкина', phone: '+79990000006', source_data: { source: 'mcp', kind: 'trip_manager', trip_id: 'TRIP-abc123', trip_parts: ['transfer'] }, pd_consent_version: '2026-10-08' };
 const PLAIN = { id: 'l-plain', name: 'Анна Обычная', phone: '+79990000003', source_data: { interests: ['volcano'] }, pd_consent_version: '2026-09-01' };
 const OPERATOR = { name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' };
 
@@ -51,7 +52,7 @@ beforeEach(() => {
     if (sql === FOLLOWUP_LEADS_SQL) {
       leadsParams = params;
       // Пул «пропустил» заявки на машину и на прокат — проверяется второй замок, в цикле.
-      return { rows: [CHARTER, CONSENT_ONLY, RENTAL, RENTAL_CONSENT_ONLY, PLAIN] };
+      return { rows: [CHARTER, CONSENT_ONLY, RENTAL, RENTAL_CONSENT_ONLY, TRIP_PART, PLAIN] };
     }
     if (/COUNT\(\*\) AS total/.test(sql)) return { rows: [{ total: '1', with_telegram: '0', with_max: '1' }] };
     if (/FROM partners p/.test(sql)) return { rows: [OPERATOR] };
@@ -81,7 +82,7 @@ describe('добивка лидов и заявка на машину', () => {
     expect(alertMock).toHaveBeenCalledTimes(1);
     const sent = JSON.stringify(alertMock.mock.calls);
     expect(sent).toContain('Анна Обычная');
-    expect(sent).not.toMatch(/Иван Машинов|Пётр Согласов|Олег Арендов|Зоя Прокатова|\+7999000000[1245]/);
+    expect(sent).not.toMatch(/Иван Машинов|Пётр Согласов|Олег Арендов|Зоя Прокатова|Вера Поездкина|\+7999000000[12456]/);
     expect(alertMock.mock.calls[0]![0]).toMatchObject({ to: { maxChatId: '555' } });
 
     // Заявки на машину и на прокат не помечены как добитые и не эскалированы: их ведёт менеджер.
@@ -109,6 +110,8 @@ describe('выборка добивки — первый замок', () => {
   it('исключает заявку на машину и на прокат по роду и по версии согласия', () => {
     expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(source_data->>'kind', ''\) <> 'charter'/);
     expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(source_data->>'kind', ''\) <> 'car_rental'/);
+    // Часть поездки, которую ведёт менеджер (разбор 06.11).
+    expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(source_data->>'kind', ''\) <> 'trip_manager'/);
     expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(pd_consent_version, ''\) <> \$1/);
     expect(FOLLOWUP_LEADS_SQL).toMatch(/COALESCE\(pd_consent_version, ''\) <> \$2/);
   });
@@ -120,6 +123,7 @@ describe('addressedToPartnerOnly', () => {
     expect(addressedToPartnerOnly({}, PD_CONSENT_CARRIER_VERSION)).toBe(true);
     expect(addressedToPartnerOnly({ kind: 'car_rental' }, null)).toBe(true);
     expect(addressedToPartnerOnly({}, PD_CONSENT_RENTAL_VERSION)).toBe(true);
+    expect(addressedToPartnerOnly({ kind: 'trip_manager' }, '2026-10-08')).toBe(true);
     expect(addressedToPartnerOnly({ kind: 'tour' }, '2026-09-01')).toBe(false);
     expect(addressedToPartnerOnly({ kind: 42 }, null)).toBe(false);
     expect(addressedToPartnerOnly(null, null)).toBe(false);

@@ -15,6 +15,7 @@ import { dayPriceLine } from '@/lib/planner/day-price';
 import { OfflineSave } from './_OfflineSave';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers';
+import { dayAvailabilityLine, type TripDayAvailability } from '@/lib/trips/day-availability';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -31,6 +32,12 @@ interface DayPlan {
   realPrice?: number;
   priceMissing?: string;
   realTour?: { priceUnit?: string; priceLabel?: string };
+  /**
+   * Предупреждения дня от движка: закрытие парка, «только с гидом», МЧС,
+   * лимит парка. До пруфа с прода 06.11 страница их не показывала вовсе, и
+   * то, что агент знал и говорил, человек на странице плана не видел.
+   */
+  dayWarnings?: string[];
 }
 
 /** Тур к дню — прикладывает share-API (top_tours по activityType). */
@@ -63,8 +70,8 @@ export interface Trip {
   top_tours?: Record<string, ShareTour>;
   /** Только у черновика: тур, который поставил в день сам план (номер дня → тур). */
   day_tours?: Record<string, ShareTour>;
-  /** Доступность на дату дня: day → {date, remaining} (share-API, B-4). */
-  availability?: Record<string, { date: string; remaining: number }>;
+  /** Места тура на дату дня: четыре исхода (lib/trips/day-availability, share-API). */
+  availability?: Record<string, TripDayAvailability>;
   /** Прогноз на дату дня (Open-Meteo, горизонт 16 суток; B-5). */
   weather?: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }>;
   /** Запасные туры дня при непогоде (contingency_rules операторов; B-5). */
@@ -384,29 +391,43 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     которые «plan brilliantly; do not book». Дата дня уходит
                     в ?date= — форма брони подхватит её сама (B-3), а строка
                     мест — честная занятость на эту дату (B-4). */}
+                {/* Предупреждения дня — первыми под заголовком: закрытие парка,
+                    «только с гидом», МЧС (пруф с прода 06.11). */}
+                {day.dayWarnings && day.dayWarnings.length > 0 && (
+                  <ul className="mt-3 space-y-1.5" aria-label={`Важно в день ${day.day}`}>
+                    {day.dayWarnings.map((w, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-primary)' }}>
+                        <ShieldAlert className="w-3.5 h-3.5 flex-none mt-0.5" style={{ color: 'var(--warning)' }} aria-hidden="true" />
+                        <span>{w}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {tour && (() => {
                   const avail = trip.availability?.[String(day.day)];
-                  const href = avail
-                    ? `${tourPath(tour)}?date=${avail.date}`
+                  const view = avail ? dayAvailabilityLine(avail) : null;
+                  const href = view?.ctaDate
+                    ? `${tourPath(tour)}?date=${view.ctaDate}`
                     : tourPath(tour);
+                  const toneColor = view?.tone === 'ok' ? 'var(--success)' : view?.tone === 'warn' ? 'var(--warning)' : 'var(--text-muted)';
                   return (
                     <div className="relative mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
                       style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
                       {/* Ссылка на тур — слоем, имя оператора — своей ссылкой поверх (13.10). */}
-                      <Link href={href} className="absolute inset-0 z-[1] rounded-md" aria-label={`${tour.title}: оставить заявку`} />
+                      <Link href={href} className="absolute inset-0 z-[1] rounded-md" aria-label={`${tour.title}: ${view?.cta ?? 'оставить заявку'}`} />
                       <div className="relative z-[2] pointer-events-none min-w-0">
                         <div className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{tour.title}</div>
                         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                           <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
-                          {avail && (
-                            <span style={{ color: 'var(--success)' }}>
-                              {' '}· на {shortDate(avail.date)} — {avail.remaining} {avail.remaining === 1 ? 'место' : avail.remaining < 5 ? 'места' : 'мест'}
+                          {view && (
+                            <span style={{ color: toneColor }}>
+                              {' '}· {view.text}
                             </span>
                           )}
                         </div>
                       </div>
                       <span className="relative z-[2] pointer-events-none text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
-                        от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
+                        от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · {view?.cta ?? 'оставить заявку'}
                       </span>
                     </div>
                   );

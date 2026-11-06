@@ -18,6 +18,7 @@ import { clampPage } from '@/lib/routes/catalog-return';
 import { withCardExcerpts } from '@/lib/routes/card-excerpt';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -221,7 +222,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
       {itemListJsonLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdHtml(itemListJsonLd) }}
         />
       )}
       <Suspense>
