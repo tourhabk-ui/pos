@@ -46,7 +46,7 @@ import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
-import { escapeHtml } from '@/lib/text/escape-html';
+import { buildPlanPrintHtml } from '@/lib/planner/print-html';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, Recommendation,
@@ -1655,61 +1655,29 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       rest: 'Отдых', buffer: 'Резерв', activity: 'Активность',
     };
 
-    const dateRange = arrival && departure ? `${arrival} — ${departure}` : '';
-
-    const html = `<!DOCTYPE html>
-<html lang="ru"><head><meta charset="UTF-8"/>
-<title>Маршрут по Камчатке${dateRange ? ` | ${dateRange}` : ''}</title>
-<style>
-  body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 40px; color: #1a1714; line-height: 1.5; }
-  h1 { font-size: 22px; margin-bottom: 4px; }
-  .subtitle { color: #6b6560; font-size: 13px; margin-bottom: 24px; }
-  .day { border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; page-break-inside: avoid; }
-  .day-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  .day-num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
-  .day-title { font-weight: 600; font-size: 14px; flex: 1; }
-  .day-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #f0f0f0; }
-  .day-price { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
-  .day-desc { font-size: 12px; color: #6b6560; margin-top: 4px; }
-  .day-meta { font-size: 11px; color: #9a9590; margin-top: 4px; }
-  .day-warn { font-size: 11px; color: #d29922; margin-top: 4px; padding: 4px 8px; background: #fef9ec; border-radius: 4px; }
-  .confirmed { border-color: var(--success); border-width: 2px; }
-  .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e5e5; font-size: 12px; color: #6b6560; }
-  .price-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
-  .price-total { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e5e5; color: var(--accent); }
-  .warnings { margin-top: 16px; }
-  .warning { padding: 6px 10px; border-radius: 6px; font-size: 12px; margin-bottom: 6px; }
-  .warning-critical { background: #fde8e8; color: #dc2626; }
-  .warning-important { background: #fef9ec; color: #d29922; }
-  .warning-info { background: #eef6ff; color: #2568b0; }
-  @media print { body { margin: 20px; } }
-</style></head><body>
-<h1>Маршрут по Камчатке</h1>
-<div class="subtitle">${dateRange ? `${dateRange} | ` : ''}${days.length} дней | ${adults} взрослых${childAges.length > 0 ? ` + дети: ${childAges.join(', ')} лет` : ''}</div>
-${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' : ''}">
-  <div class="day-header">
-    <div class="day-num">${i + 1}</div>
-    <div class="day-title">${d.title}</div>
-    ${d.type !== 'activity' ? `<span class="day-badge">${dayTypeLabels[d.type] ?? d.type}</span>` : d.activityMode ? `<span class="day-badge">${ACTIVITY_MODE_LABEL[d.activityMode].label}</span>` : ''}
-    <span class="day-price">${escapeHtml(dayPriceLine(d))}</span>
-  </div>
-  ${d.description ? `<div class="day-desc">${d.description}</div>` : ''}
-  <div class="day-meta">${escapeHtml(zoneName(shownZone(d)))}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>
-  ${d.dayWarnings.map(w => `<div class="day-warn">${w}</div>`).join('')}
-</div>`).join('\n')}
-${estimate ? `<div class="footer">
-  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${estimate.people} чел. — цены туров от операторов и выбранных предложений, остальное ориентир по средним ценам</div>
-  ${estimate.lines.map(l => `<div class="price-row"><span>${escapeHtml(l.label)} · ${escapeHtml(l.basis)}${l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? `${fmt(l.total[0])} — ${fmt(l.total[1])} ₽` : 'цена не указана'}</span></div>`).join('')}
-  <div class="price-total"><span>Итого на группу</span><span>${fmt(estimate.total[0])} — ${fmt(estimate.total[1])} ₽</span></div>
-  <div class="price-row"><span>На человека</span><span>${fmt(estimate.perPerson[0])} — ${fmt(estimate.perPerson[1])} ₽</span></div>
-  ${estimate.assumptions.map(a => `<div style="font-size:11px;color:#9a9590;margin-top:4px">${escapeHtml(a)}</div>`).join('')}
-  <div style="font-size:11px;color:#9a9590;margin-top:6px">Без авиабилетов Москва — Камчатка</div>
-</div>` : ''}
-${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="warnings">
-  ${recommendation.warnings.map(w => `<div class="warning warning-${w.severity}">${w.message}</div>`).join('')}
-</div>` : ''}
-<div style="margin-top:24px;font-size:11px;color:#9a9590;text-align:center">vedarai.ru — Камчатка с заботой</div>
-</body></html>`;
+    // Сборка документа — чистой функцией, и каждое значение экранирует она
+    // сама (lib/planner/print-html): название и описание тура пишет оператор,
+    // а документ открывается в окне того же источника, что сайт (разбор 06.11).
+    const html = buildPlanPrintHtml({
+      dateRange: arrival && departure ? `${arrival} — ${departure}` : '',
+      adults,
+      childAges,
+      days: days.map((d, i) => ({
+        num: i + 1,
+        confirmed: confirmedDays.has(d.day),
+        title: d.title,
+        badge: d.type !== 'activity'
+          ? (dayTypeLabels[d.type] ?? d.type)
+          : d.activityMode ? ACTIVITY_MODE_LABEL[d.activityMode].label : null,
+        priceLine: dayPriceLine(d),
+        description: d.description ?? '',
+        meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
+        warnings: d.dayWarnings ?? [],
+      })),
+      estimate: estimate ?? null,
+      warnings: recommendation?.warnings ?? [],
+      fmt,
+    });
 
     const win = window.open('', '_blank');
     if (!win) return;

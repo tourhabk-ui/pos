@@ -21,6 +21,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 /** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
 import { activityLabel } from '@/lib/tours/labels';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -130,7 +131,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
       />
       <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} placeOffers={placeOffers} />
     </>

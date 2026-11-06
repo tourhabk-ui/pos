@@ -27,7 +27,7 @@
  * Своя база `alert_scope_test`. Без KERNEL_PG_TEST_URL файл честно
  * пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { join } from 'node:path';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
@@ -49,6 +49,7 @@ import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
+import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -1511,5 +1512,103 @@ withPg('кого накрывает предупреждение', () => {
       )).rows[0];
       expect(live?.live).toBe(true);
     }, 30_000);
+  });
+
+  describe('планер видит закрытие парка на днях плана (разбор 06.11)', () => {
+    // До этой правки движок планера читал из тревог только извержение и
+    // дорогу: день в закрытом Налычево собирался как обычный — и на сайте, и у
+    // агента. Привязка дня к парку — тем же PARK_SCOPED_SQL, что красит места.
+    const q = async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] };
+    const ids: { op?: string; viaRoute?: string; viaPlace?: string; outside?: string; closure?: string; unknown?: string } = {};
+    const OUTSIDE_ROUTE_ID = 'd0000000-0000-4000-8000-0000000000f1';
+    const SEASONAL = 'Маршруты природного парка «Налычево» закрыты на период межсезонья (тест планера)';
+
+    beforeAll(async () => {
+      ids.op = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ('Оператор планера (тест)', 'operator', '{}') RETURNING id::text AS id`,
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible)
+         VALUES ($1, 'trekking', 'Прогулка по набережной (тест планера)', 'avachinsky', TRUE)`,
+        [OUTSIDE_ROUTE_ID],
+      );
+      const tour = async (title: string, routeId: string | null, placeId: string | null) => (await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, route_id, main_place_id) VALUES ($1::uuid, $2, $3::uuid, $4) RETURNING id::text AS id`,
+        [ids.op, title, routeId, placeId],
+      )).rows[0]!.id;
+      ids.viaRoute = await tour('Тур по маршруту парка (тест)', PARK_ROUTE_ID, null);
+      ids.viaPlace = await tour('Тур к месту парка (тест)', null, ON_PARK_ROUTE.id);
+      ids.outside = await tour('Тур по городу (тест)', OUTSIDE_ROUTE_ID, CITY.id);
+      // Сводка двое суток назад, срок — 21 сутки вперёд (держание A1).
+      ids.closure = (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                      created_at, last_published_at, expires_at, source_url, external_id)
+         VALUES ('park_closure', 2, $1, '', '{}', ARRAY['nalychevo'],
+                 (NOW() AT TIME ZONE 'UTC') - INTERVAL '2 days', (NOW() AT TIME ZONE 'UTC') - INTERVAL '2 days',
+                 (NOW() AT TIME ZONE 'UTC') + INTERVAL '19 days', 'https://t.me/s/visitkamchatka41/1', 'visitkamchatka/2026-11-04/tplanner')
+         RETURNING id::text AS id`,
+        [SEASONAL],
+      )).rows[0]!.id;
+    });
+
+    afterAll(async () => {
+      await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [[ids.closure, ids.unknown].filter(Boolean)]);
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [[ids.viaRoute, ids.viaPlace, ids.outside]]);
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1::uuid`, [OUTSIDE_ROUTE_ID]);
+      await pool.query(`DELETE FROM partners WHERE id = $1::uuid`, [ids.op]);
+    });
+
+    it('запрос находит маршрут дня, тур по маршруту и тур по главному месту — и не находит город', async () => {
+      const rows = await loadPlanParkAlerts(q, {
+        routeIds: [PARK_ROUTE_ID, OUTSIDE_ROUTE_ID],
+        tourIds: [ids.viaRoute!, ids.viaPlace!, ids.outside!],
+      });
+      const mine = rows.filter((r) => r.alert_id === ids.closure);
+      const refs = mine.map((r) => `${r.ref_kind}:${r.ref_id}`).sort();
+      expect(refs).toEqual([`route:${PARK_ROUTE_ID}`, `tour:${ids.viaRoute}`, `tour:${ids.viaPlace}`].sort());
+      expect(mine.every((r) => r.alert_type === 'park_closure' && r.title === SEASONAL)).toBe(true);
+    });
+
+    it('план: день в парке — закрытие первой строкой дня и критическим предупреждением; после срока — «статус не известен»; город — ничего', async () => {
+      const dayIso = (offset: number) => new Date(Date.now() + 12 * 3_600_000 + offset * 86_400_000).toISOString().slice(0, 10);
+      const days = [
+        { day: 1, title: 'Таловская тропа', dayWarnings: ['Возьмите треккинговые палки.'], routeId: PARK_ROUTE_ID },
+        { day: 2, title: 'Тур по маршруту парка', dayWarnings: [], realTour: { tourId: ids.viaRoute! } },
+        { day: 3, title: 'Тур по городу', dayWarnings: [], realTour: { tourId: ids.outside! } },
+      ];
+      // День 2 — через месяц: закрытие к тому дню уже истечёт, но оно сезонное.
+      const dates: Record<number, string> = { 1: dayIso(1), 2: dayIso(30), 3: dayIso(2) };
+      const res = await applyPlanParkStatus(days, (n) => dates[n] ?? null, q);
+      expect(res.unread).toBe(false);
+      expect(days[0]!.dayWarnings[0]).toMatch(/^Закрытие парка по сводке от \d{2}\.\d{2}: «Маршруты природного парка «Налычево» закрыты/);
+      expect(days[0]!.dayWarnings[1]).toBe('Возьмите треккинговые палки.');
+      expect(days[1]!.dayWarnings[0]).toMatch(/^Статус парка на этот день не известен: сводка от \d{2}\.\d{2} сообщала о закрытии маршрутов без даты открытия/);
+      expect(days[2]!.dayWarnings).toEqual([]);
+      expect(res.warnings[0]).toMatchObject({ severity: 'critical' });
+      expect(res.warnings[0]!.message).toMatch(/^День 1: Закрытие парка/);
+      expect(res.warnings.some((w) => w.severity === 'important' && /^День 2: Статус парка на этот день не известен/.test(w.message))).toBe(true);
+    });
+
+    it('«статус парка не известен» тоже доходит до дня плана; отказ чтения — «проверить не удалось», а не тишина', async () => {
+      ids.unknown = (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                      created_at, last_published_at, expires_at, external_id)
+         VALUES ('park_status_unknown', 1, 'Статус парка «Налычево» не известен: последняя сезонная сводка от 01.11 (тест)', '', '{}', ARRAY['nalychevo'],
+                 (NOW() AT TIME ZONE 'UTC') - INTERVAL '25 days', (NOW() AT TIME ZONE 'UTC') - INTERVAL '25 days',
+                 (NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day', 'park-unknown/planner-test')
+         RETURNING id::text AS id`,
+      )).rows[0]!.id;
+      const days = [{ day: 1, title: 'Тур к месту парка', dayWarnings: [] as string[], realTour: { tourId: ids.viaPlace! } }];
+      await applyPlanParkStatus(days, () => null, q);
+      expect(days[0]!.dayWarnings.some((w) => w.startsWith('Статус парка «Налычево» не известен: последняя сезонная сводка от 01.11 (тест). Уточните у дирекции парка'))).toBe(true);
+
+      const broken = async <T,>(): Promise<{ rows: T[] }> => { throw Object.assign(new Error('relation does not exist'), { code: '42P01' }); };
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const failed = await applyPlanParkStatus([{ day: 1, title: 'x', dayWarnings: [], routeId: PARK_ROUTE_ID }], () => null, broken);
+      expect(failed.unread).toBe(true);
+      expect(failed.warnings).toEqual([{ severity: 'important', message: PARK_STATUS_UNREAD_NOTE }]);
+      expect(err.mock.calls.some((c) => c.join(' ').includes('42P01'))).toBe(true);
+      err.mockRestore();
+    });
   });
 });

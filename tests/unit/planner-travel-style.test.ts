@@ -122,11 +122,14 @@ const SAFETY: Record<string, Record<string, unknown>> = {
   'r-volc-self': { id: 'r-volc-self', is_route: true, route_difficulty: 'easy', mchs_registration_required: false, route_registration_required: false, has_profile: false, sat_communicator_required: null, place_registration_required: null },
 };
 let safetyFails = false;
+/** Живые тревоги парков по ссылкам дней — то, что читает проверка парков плана. */
+let PARK_ALERTS: unknown[] = [];
 
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM safety_alerts')) return { rows: [] };
+      if (sql.includes('WITH refs AS')) return { rows: PARK_ALERTS };
       if (sql.includes('FROM agent_route_knowledge')) {
         const [zone, act, limit] = params as [string, string, number];
         const rows = ROUTES.filter((r) => r.zone === zone && r.activity_type === act)
@@ -164,6 +167,7 @@ const shape = (days: Array<{ type: string; activityMode?: string; title: string;
 
 beforeEach(() => {
   SLOTS = { 't-volc': 6, 't-fish-free': 4 };
+  PARK_ALERTS = [];
   safetyFails = false;
   aiPrompts.length = 0;
 });
@@ -471,3 +475,20 @@ describe('план без AI-пересказа — модель не зовёт
     expect(src).toMatch(/\}, \{ itinerary: 'plain' \}\);/);
   });
 });
+
+describe('закрытие парка доходит до дня плана и до «Важно» (разбор 06.11)', () => {
+  it('самостоятельный день в закрытом парке: строка дня первой, критическое предупреждение плана; без тревог — снимки прежние', async () => {
+    PARK_ALERTS = [{
+      ref_kind: 'route', ref_id: 'r-trek-ok', alert_id: 'a-park', alert_type: 'park_closure',
+      title: 'Маршруты природного парка закрыты на период межсезонья', description: '',
+      published_iso: '2026-07-30T03:00:00.000Z', expires_iso: '2026-08-20T03:00:00.000Z',
+    }];
+    const rec = await recommendTrip({ ...BASE, travelStyle: 'self' });
+    const parkDay = rec.days.find((d) => d.routeId === 'r-trek-ok');
+    expect(parkDay, 'день по маршруту в парке есть в плане').toBeTruthy();
+    expect(parkDay!.dayWarnings[0]).toMatch(/^Закрытие парка по сводке от 30\.07: «Маршруты природного парка закрыты/);
+    expect(rec.warnings[0]).toMatchObject({ type: 'safety', severity: 'critical' });
+    expect(rec.warnings[0]!.message).toMatch(new RegExp(`^День ${parkDay!.day}: Закрытие парка`));
+  });
+});
+

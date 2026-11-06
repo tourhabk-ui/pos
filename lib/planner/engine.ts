@@ -53,6 +53,7 @@ import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, slotOnTripDay
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 import { loadActiveWarnings } from '@/lib/safety/active-warnings';
+import { applyPlanParkStatus } from '@/lib/planner/park-status';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, notesForPlanDay, warningDigest,
   type ActiveWarning,
@@ -129,6 +130,12 @@ export interface DayPlan {
    * отдыха и резерва рода нет — их род и есть `type`.
    */
   activityMode?: ActivityMode;
+  /**
+   * Самостоятельный маршрут дня — id каталога маршрутов и мест (как
+   * `agent_route_knowledge.id`). По нему день проверяется на закрытие парка
+   * (lib/planner/park-status); у дня с туром ссылка — `realTour.tourId`.
+   */
+  routeId?: string;
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -1597,6 +1604,7 @@ async function generateDayPlans(
         minChildAge: c.minChildAge,
         dayWarnings,
         activityMode: activityMode({ realTour, route }),
+        ...(route ? { routeId: route.id } : {}),
         realTour: realTourData,
         realPrice,
         priceMissing,
@@ -2019,6 +2027,15 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchs.ok ? mchs.warnings : []);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
+  // Закрытие парка и «статус парка не известен» (разбор 06.11): до этой правки
+  // план читал из тревог только извержение и дорогу, и день в закрытом парке
+  // собирался как обычный. Привязка — тем же предикатом, что красит места.
+  const parkStatus = await applyPlanParkStatus(
+    days,
+    (dayNum) => (profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null),
+    async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] },
+  );
+  warnings.unshift(...parkStatus.warnings.map((w) => ({ type: 'safety' as const, severity: w.severity, message: w.message })));
   if (!mchs.ok) {
     warnings.push({ type: 'mchs', severity: 'important', message: MCHS_UNREAD_NOTE });
   } else {

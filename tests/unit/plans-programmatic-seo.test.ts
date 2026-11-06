@@ -14,6 +14,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { JsonLd } from '@/components/seo/JsonLd';
 import { join } from 'node:path';
 import {
   PLAN_PRESETS, findPlanPreset, PLANS_TEXT_REVISION, planLastModified, plansHubLastModified,
@@ -102,8 +105,12 @@ describe('страница /plans/[slug]', () => {
   it('JSON-LD — только через экранирующую обёртку (XSS: «<» из БД в script)', () => {
     expect(PAGE).toMatch(/<JsonLd data=\{jsonLd\} \/>/);
     expect(PAGE).not.toMatch(/dangerouslySetInnerHTML/);
-    const WRAPPER = readFileSync(join(ROOT, 'components/seo/JsonLd.tsx'), 'utf-8');
-    expect(WRAPPER).toMatch(/replace\(\/</);
+    // Обёртка — рендером на враждебной строке: тег не закрывается, данные те же.
+    const hostile = { '@type': 'TouristTrip', name: 'План</script><script>window.__x=1</script>' };
+    const html = renderToStaticMarkup(React.createElement(JsonLd, { data: hostile }));
+    const body = html.slice(html.indexOf('>') + 1, html.lastIndexOf('</script>'));
+    expect(body.toLowerCase()).not.toContain('</script');
+    expect(JSON.parse(body)).toEqual(hostile);
     const TRIP_PAGE = readFileSync(join(ROOT, 'app/trip/[token]/page.tsx'), 'utf-8');
     expect(TRIP_PAGE).toMatch(/<JsonLd data=\{jsonLd\} \/>/);
     expect(TRIP_PAGE).toMatch(/TouristTrip/);

@@ -15,6 +15,7 @@ import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { fishMetaDescription } from '@/lib/seo/fish-description';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 // Рендер на запросе. Прежде generateStaticParams + revalidate = 3600: двенадцать
 // карточек собирались на сборке Docker без базы, и блок туров на рыбалку
@@ -120,7 +121,7 @@ export default async function FishDetailPage({ params }: Props) {
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
       <Header />
       <main className="pt-16 pb-16">
 

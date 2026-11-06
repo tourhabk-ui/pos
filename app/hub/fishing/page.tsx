@@ -10,6 +10,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import { tourPath } from '@/lib/tours/tour-url';
 import { operatorPagePath } from '@/lib/operators/page-link';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 export const dynamic = 'force-dynamic';
 
@@ -173,11 +174,11 @@ export default async function FishingPage() {
       {structuredData && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
         />
       )}
       {structuredData && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(fishingFaqJsonLd()) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(fishingFaqJsonLd()) }} />
       )}
       {/* Шапка (с SOS, §2) и таб-бар: до 29.09 публичная посадочная «Рыбалка»
           была тупиком без навигации и без SOS (аудит UI/UX 29.09, P0). */}

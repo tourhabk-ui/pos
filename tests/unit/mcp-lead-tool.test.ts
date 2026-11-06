@@ -168,3 +168,53 @@ describe('MCP create_lead', () => {
     expect(json.description).toContain('create_lead');
   });
 });
+
+describe('create_trip_request: часть менеджеру — часть поездки, а не подбор тура (разбор 06.11)', () => {
+  // Свой адрес на каждый вызов: лимит записи считает заявки по адресу, а
+  // соседние проверки файла его уже исчерпали.
+  let ipSeq = 0;
+  const rpcFrom = (method: string, params: Record<string, unknown>) => new Request('http://localhost/api/mcp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-real-ip': `198.51.100.${(ipSeq += 1)}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  }) as unknown as Parameters<typeof POST>[0];
+  it('лид получает род trip_manager, номер поездки и состав; подбор туров моделью к нему не идёт', async () => {
+    const res = await POST(rpcFrom('tools/call', {
+      name: 'create_trip_request',
+      arguments: {
+        name: 'Иван', phone: '+7 900 000-00-00', consent: true, participants: '2',
+        lodging: 'на подбор', check_in: '2027-07-10', check_out: '2027-07-14',
+      },
+    }));
+    const json = await res.json();
+    expect(json.result.isError).toBeFalsy();
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
+    expect(arg.source_data).toMatchObject({ source: 'mcp', kind: 'trip_manager', trip_parts: ['stay'] });
+    expect(String(arg.source_data.trip_id)).toMatch(/^TRIP-/);
+    expect(arg.skip_ai_processing).toBe(true);
+  });
+
+  it('отдельный create_lead — подбор тура, рода у него нет', async () => {
+    await POST(rpcFrom('tools/call', {
+      name: 'create_lead',
+      arguments: { name: 'Иван', phone: '+7 900 000-00-01', comment: 'Хотим на Толбачик в августе, двое взрослых', consent: true },
+    }));
+    const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
+    expect(arg.source_data.kind).toBeUndefined();
+    expect(arg.skip_ai_processing).toBe(false);
+  });
+
+  it('заказ машины через create_lead уходит менеджеру без подбора туров моделью', async () => {
+    const res = await POST(rpcFrom('tools/call', {
+      name: 'create_lead',
+      arguments: { name: 'Иван', phone: '+7 900 000-00-02', comment: 'Нужны две вахтовки на Горелый 12.07, нас шестеро', consent: true },
+    }));
+    const json = await res.json();
+    expect(json.result.isError).toBeFalsy();
+    const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
+    expect(arg.skip_ai_processing).toBe(true);
+    expect(arg.source_data.kind).toBeUndefined();
+  });
+});
+

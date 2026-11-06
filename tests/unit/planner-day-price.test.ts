@@ -85,7 +85,8 @@ describe('все поверхности плана зовут одну подп�
   it('карточка дня, PDF, страница плана', () => {
     const client = read('app/planner/_PlannerClient.tsx');
     expect(client).toMatch(/dayPrice\(day\)/);
-    expect(client).toMatch(/escapeHtml\(dayPriceLine\(d\)\)/);
+    // PDF — исполнением: документ «Скачать PDF» несёт ту же строку цены, что
+    // карточка дня (tests/unit/planner-print-html.test.tsx).
     expect(client, 'карточка снова пишет «на человека» у тура').not.toMatch(/fmt\(day\.priceTo\)\} ₽ на человека/);
     expect(read('app/trip/[token]/_TripShareClient.tsx')).toMatch(/dayPriceLine\(day\)/);
   });

@@ -4,6 +4,7 @@ import ContactClient from './_ContactClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 export const metadata: Metadata = {
   // На странице и форма заявки, и реквизиты с почтой (аудит vedarai.ru 01.10).
@@ -50,7 +51,7 @@ export default function ContactPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(contactPageSchema) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdHtml(contactPageSchema) }}
       />
       <Header />
       <ContactClient />
