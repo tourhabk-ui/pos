@@ -179,7 +179,9 @@ export default function SelectionClient({ code }: { code: string }) {
   const [bookErr, setBookErr] = useState<string | null>(null);
   // Согласие на ПД (06.11): до этого форма слала имя, телефон и почту без
   // галочки, а сервер пропускал её по заголовку X-Vedar-Client. Теперь
-  // аноним без согласия получает 400 — гейт держат и кнопка, и обработчик.
+  // аноним без согласия получает 400, а форма без галочки запрос не шлёт и
+  // говорит, чего не хватает. Галочка общая на подборку одного оператора:
+  // текст согласия называет передачу ему, а не конкретный тур.
   const [pdConsent, setPdConsent] = useState(false);
   // До 04.10 эта форма email не спрашивала вовсе — письма со ссылкой на бронь
   // не было никогда, а без ссылки заявку не открыть по номеру (#1889). Теперь
@@ -437,7 +439,10 @@ export default function SelectionClient({ code }: { code: string }) {
                       <p role="alert" style={{ color: 'var(--danger)', fontSize: '13px' }}>{bookErr}</p>
                     )}
 
-                    <button className="ds-btn ds-btn-primary" type="submit" disabled={sending || !pdConsent} style={{ marginTop: '4px' }}>
+                    {/* Без галочки кнопка не выключается: выключенная выглядела бы
+                        здесь яркой и молчала (у ds-btn-primary нет вида :disabled).
+                        Гейт держит handleBook и говорит, чего не хватает (06.11). */}
+                    <button className="ds-btn ds-btn-primary" type="submit" disabled={sending} style={{ marginTop: '4px' }}>
                       {sending ? 'Отправляем…' : 'Отправить заявку'}
                     </button>
                     <button className="ds-btn ds-btn-secondary" type="button" onClick={() => setBookTour(null)}>

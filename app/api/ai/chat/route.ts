@@ -300,7 +300,7 @@ export async function POST(request: NextRequest) {
           if (plan) {
             writeStarted = true;
             const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
-              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false }));
+              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false, consentFrom: { source: 'kuzmich-web', ip } }));
             fastRequestText = chatToolReply(out, pick.tour?.title).text;
           }
         } catch (e) {
@@ -518,7 +518,7 @@ export async function POST(request: NextRequest) {
       if (plan) {
         try {
           const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
-              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false }));
+              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false, consentFrom: { source: 'kuzmich-web', ip } }));
           // Отказ текстом — тоже ответ человеку: «Заявка не создана: …» (#2967).
           chatRequestText = chatToolReply(out, bookingFormTour?.title).text;
         } catch (e) {

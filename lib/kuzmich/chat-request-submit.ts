@@ -15,8 +15,11 @@ export async function submitChatRequest(
     const { runPublicTool } = await import('@/app/api/mcp/route');
     const channel: WriteChannel = opts.channel ?? (opts.ip.startsWith('max:') ? 'max' : opts.ip.startsWith('tg:') ? 'tg' : 'web');
     const sessionRef = opts.sessionRef ?? opts.ip.slice(0, 120);
+    // Согласие дал человек в чате, а не агент (06.11): канал — чат, адрес у
+    // мессенджера неизвестен — id чата в поле адреса не пишется.
+    const consentFrom = { source: `kuzmich-${channel}` as const, ip: channel === 'web' ? opts.ip : null };
     const out = await journaledWrite({ channel, sessionRef, tool: plan.tool, args: plan.args },
-      () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip: opts.ip, userAgent: opts.userAgent, self: false }));
+      () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip: opts.ip, userAgent: opts.userAgent, self: false, consentFrom }));
     // ok — только если заявка правда записана: отказ текстом («мест нет —
     // заявка не создана») тоже приходит kind: 'ok' (#2967).
     const reply = chatToolReply(out, opts.tourTitle);

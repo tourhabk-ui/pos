@@ -395,3 +395,38 @@ describe('notify_url — адрес приёмника уведомлений (2
     expect(createLeadMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Согласие из чата Кузьмича — согласие человека, а не заявление агента
+ * (ревью правки ПД, 06.11). Заявка из чата идёт тем же runPublicTool, и до
+ * 06.11 согласие записывалось как 'mcp' («утверждение агента»: менеджер
+ * получал «согласие подтвердил только агент»), а в поле адреса ложился id
+ * чата в мессенджере. Внешний агент по-прежнему пишет 'mcp'.
+ */
+describe('канал согласия: чат Кузьмича — не агент', () => {
+  const consentOf = () => (createLeadMock.mock.calls.at(-1)?.[0] as { pd_consent?: { source: string; ip: string } }).pd_consent;
+
+  it('MAX: канал kuzmich-max, адрес «неизвестен», id чата в запись не попадает', async () => {
+    const out = await runPublicTool({
+      toolName: 'create_lead', rawArguments: LEAD, ip: 'max:900100200', userAgent: 'kuzmich-max-fast', self: false,
+      consentFrom: { source: 'kuzmich-max', ip: null },
+    });
+    expect(out.kind).toBe('ok');
+    expect(consentOf()?.source).toBe('kuzmich-max');
+    expect(consentOf()?.ip).toBe('неизвестен');
+    expect(JSON.stringify(consentOf())).not.toContain('900100200');
+  });
+
+  it('веб-чат: канал kuzmich-web и настоящий адрес', async () => {
+    await runPublicTool({
+      toolName: 'create_lead', rawArguments: LEAD, ip: '10.9.0.7', userAgent: 'kuzmich-web-chat', self: false,
+      consentFrom: { source: 'kuzmich-web', ip: '10.9.0.7' },
+    });
+    expect(consentOf()).toMatchObject({ source: 'kuzmich-web', ip: '10.9.0.7' });
+  });
+
+  it('внешний агент без канала чата — по-прежнему mcp', async () => {
+    await runPublicTool({ toolName: 'create_lead', rawArguments: LEAD, ip: '10.9.0.8', userAgent: 'some-agent', self: false });
+    expect(consentOf()?.source).toBe('mcp');
+  });
+});

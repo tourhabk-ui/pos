@@ -1,13 +1,17 @@
 /**
- * Согласие на ПД на двух поверхностях брони, которые до 06.11 слали имя,
- * телефон и почту без галочки: подборка /p/[code] и карточка брони в виджете
- * Кузьмича.
+ * Согласие на ПД на поверхностях брони Ведара (06.11).
  *
- * Сервер брони пропускал их по заголовку X-Vedar-Client, который мог прислать
- * кто угодно (docs/agents/LEAD_PLAN.md, направление 1, шаг 1). Теперь аноним
- * без `pd_consent: true` получает 400 (tests/unit/bookings-create-user-id.test.ts),
- * а эти формы гейт держат сами: кнопка выключена без галочки, обработчик без
- * неё запрос не шлёт, в теле уходит состояние галочки.
+ * Сервер брони пропускал анонима по заголовку X-Vedar-Client, который мог
+ * прислать кто угодно (docs/agents/LEAD_PLAN.md, направление 1, шаг 1):
+ * подборка /p/[code] слала имя, телефон и почту без галочки, так же написан
+ * виджет Кузьмича (на сайте он сейчас не рисуется). Теперь аноним без
+ * `pd_consent: true` получает 400 (tests/unit/bookings-create-user-id.test.ts),
+ * а формы гейт держат сами: без галочки нажатие запрос не шлёт и говорит,
+ * чего не хватает, — кнопка не выключается молча (ревью 06.11: выключенная
+ * `ds-btn-primary` выглядит яркой). В теле уходит состояние галочки.
+ *
+ * Страница /kuzmich: карточек брони в чате бывает несколько, и у каждой своя
+ * галочка — с общим id подпись второй отмечала согласие в первой.
  *
  * Судит рендер: что видит человек и что уходит на сервер.
  */
@@ -25,6 +29,7 @@ vi.mock('next/navigation', () => ({
 
 import SelectionClient from '@/app/p/[code]/_SelectionClient';
 import { BookingWidget } from '@/components/kuzmich/KuzmichWidget';
+import { BookingFormCard } from '@/app/kuzmich/_KuzmichClient';
 
 const SELECTION = {
   id: 'sel-1',
@@ -79,24 +84,18 @@ describe('подборка /p/[code]: бронь только с согласи�
     fireEvent.change(screen.getByLabelText(/Дата/), { target: { value: futureDate() } });
   }
 
-  it('без галочки кнопка выключена; с ней в теле уходит pd_consent: true', async () => {
+  it('без галочки нажатие запрос не шлёт и говорит, чего не хватает; с ней в теле уходит pd_consent: true', async () => {
     await openForm();
     const submit = screen.getByRole('button', { name: 'Отправить заявку' });
-    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/согласие на обработку персональных данных/);
+    expect(createCalls()).toHaveLength(0);
     fireEvent.click(screen.getByRole('checkbox'));
-    await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
     await waitFor(() => expect(createCalls()).toHaveLength(1));
     const [, init] = createCalls()[0];
     expect(JSON.parse(String(init?.body))).toMatchObject({ pd_consent: true, tour_id: 51 });
     expect((init?.headers as Record<string, string>)['X-Vedar-Client']).toBe('selection');
-  });
-
-  it('отправка мимо выключенной кнопки без галочки запрос не шлёт и говорит, чего не хватает', async () => {
-    await openForm();
-    fireEvent.submit(screen.getByRole('button', { name: 'Отправить заявку' }).closest('form') as HTMLFormElement);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/согласие на обработку персональных данных/);
-    expect(createCalls()).toHaveLength(0);
   });
 
   it('экран успеха не обещает, что почту не спрашивали: почта у формы обязательна', async () => {
@@ -120,14 +119,15 @@ describe('виджет Кузьмича: карточка брони тольк�
     fireEvent.change(date, { target: { value: futureDate() } });
   }
 
-  it('без галочки кнопка выключена; с ней в теле уходит pd_consent: true', async () => {
+  it('без галочки нажатие запрос не шлёт; с ней в теле уходит pd_consent: true', async () => {
     const onDone = vi.fn();
     render(<BookingWidget data={DATA} onDone={onDone} />);
     fill();
     const submit = screen.getByRole('button', { name: 'Отправить заявку' });
-    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/согласие на обработку персональных данных/);
+    expect(createCalls()).toHaveLength(0);
     fireEvent.click(screen.getByRole('checkbox'));
-    await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(77));
     const [, init] = createCalls()[0];
@@ -151,5 +151,20 @@ describe('виджет Кузьмича: карточка брони тольк�
     fireEvent.click(boxes[0]);
     expect((boxes[0] as HTMLInputElement).checked).toBe(true);
     expect((boxes[1] as HTMLInputElement).checked).toBe(false);
+  });
+});
+
+describe('страница /kuzmich: у каждой карточки брони своя галочка', () => {
+  const DATA = { tourId: 51, tourTitle: 'Тестовый тур на вулкан', tourPrice: 5000, tourImage: null, operatorName: 'Оператор' };
+
+  it('подпись второй карточки отмечает согласие во второй, а не в первой', () => {
+    render(<><BookingFormCard data={DATA} onConfirmed={vi.fn()} /><BookingFormCard data={DATA} onConfirmed={vi.fn()} /></>);
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0].id).not.toBe(boxes[1].id);
+    // Вся подпись — зона нажатия: клик по тексту согласия второй карточки.
+    fireEvent.click(screen.getAllByText(/политикой конфиденциальности/)[1].closest('label') as HTMLElement);
+    expect(boxes[1].checked).toBe(true);
+    expect(boxes[0].checked).toBe(false);
   });
 });

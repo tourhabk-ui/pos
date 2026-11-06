@@ -163,7 +163,7 @@ export function BookingWidget({ data, onDone }: { data: BookingFormData; onDone:
       </div>
       <PdConsentCheckbox id={consentId} checked={pdConsent} onChange={setPdConsent} />
       {err && <p role="alert" className="text-xs text-[var(--danger)]">{err}</p>}
-      <button type="submit" disabled={busy || !pdConsent}
+      <button type="submit" disabled={busy}
         className="w-full py-2 rounded-lg bg-[var(--accent)] text-white text-xs font-medium disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5">
         {busy ? <><Loader2 size={11} className="animate-spin" /> Отправляем...</> : 'Отправить заявку'}
       </button>

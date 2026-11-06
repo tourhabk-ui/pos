@@ -49,7 +49,7 @@ import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
-import { buildConsentRecord, type PdConsentPurpose } from '@/lib/legal/pd-consent';
+import { buildConsentRecord, type ChatConsentFrom, type PdConsentPurpose } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { primaryArg, classifyExecutionError } from '@/lib/mcp/call-reason';
@@ -126,6 +126,11 @@ interface McpCallContext {
   userAgent: string;
   /** Метка владельца в адресе коннектора: свой лид, вне счёта спроса (1145). */
   self: boolean;
+  /**
+   * Согласие дано человеком в чате Кузьмича, а не заявлено агентом (06.11):
+   * канал и адрес для записи согласия. `ip` выше остаётся ключом лимита.
+   */
+  consentFrom?: ChatConsentFrom;
 }
 
 /**
@@ -157,7 +162,9 @@ async function admitWrite(
   if (verdict.decision !== 'allow') {
     throw new McpUserError(verdict.message, 'write_guard');
   }
-  return buildConsentRecord(true, ctx.ip, 'mcp', purpose);
+  return ctx.consentFrom
+    ? buildConsentRecord(true, ctx.consentFrom.ip, ctx.consentFrom.source, purpose)
+    : buildConsentRecord(true, ctx.ip, 'mcp', purpose);
 }
 
 /**
@@ -1164,10 +1171,12 @@ export interface PublicToolCall {
   userAgent: string;
   /** Свой клиент (метка владельца в адресе коннектора) — вне счёта спроса. */
   self: boolean;
+  /** Чат Кузьмича: согласие дал человек в чате (lib/legal/pd-consent, ChatConsentFrom). */
+  consentFrom?: ChatConsentFrom;
 }
 
 export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOutcome> {
-  const { toolName, ip, userAgent, self } = call;
+  const { toolName, ip, userAgent, self, consentFrom } = call;
   // Строка с JSON-объектом читается как объект; прочее не-объектное — как
   // пустота, но с запомненной формой для отказа и журнала (tool-arguments).
   const read0 = readToolArguments(call.rawArguments);
@@ -1221,7 +1230,7 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
   const startedAt = Date.now();
   const invocationId = randomUUID();
   try {
-    const text = await executeTool(toolName, read, { ip, userAgent, self });
+    const text = await executeTool(toolName, read, { ip, userAgent, self, consentFrom });
 
     // Исполнитель Кузьмича ловит своё падение и возвращает этот текст — для
     // модели в чате. Здесь это отказ: isError, ok=false в журнале (его читают
