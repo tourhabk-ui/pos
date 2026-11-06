@@ -4,7 +4,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { UTC_WALL_NOW_SQL, utcWallIsoSql } from '@/lib/db/timestamp-iso';
 import {
   formatWarningBlock, MCHS_UNREAD_NOTE, warningsFromRows,
   type ActiveWarning, type AlertWarningRow,
@@ -14,17 +14,25 @@ export type ActiveWarningLoad =
   | { ok: true; warnings: ActiveWarning[] }
   | { ok: false; warnings: [] };
 
+/**
+ * Действующие строки вулканов и дорог. Срок строки и дата сводки идут в
+ * ответ: план поездки судит по ним, говорит ли сводка о его датах (разбор
+ * 06.11). Проверка на настоящей базе — tests/integration/alert-place-scope.pg.
+ */
+export const ACTIVE_MCHS_WARNINGS_SQL = `
+  SELECT alert_type, title, description, source_url, volcano_name,
+         ${utcWallIsoSql('expires_at')} AS expires_iso,
+         ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS published_iso
+    FROM external_alerts
+   WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})
+     AND severity >= 1
+     AND alert_type IN ('volcanic_eruption', 'road_closure')
+   ORDER BY severity DESC, created_at DESC
+   LIMIT 30`;
+
 export async function loadActiveWarnings(): Promise<ActiveWarningLoad> {
   try {
-    const res = await pool.query<AlertWarningRow>(
-      `SELECT alert_type, title, description, source_url, volcano_name
-         FROM external_alerts
-        WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})
-          AND severity >= 1
-          AND alert_type IN ('volcanic_eruption', 'road_closure')
-        ORDER BY severity DESC, created_at DESC
-        LIMIT 30`,
-    );
+    const res = await pool.query<AlertWarningRow>(ACTIVE_MCHS_WARNINGS_SQL);
     return { ok: true, warnings: warningsFromRows(res?.rows ?? []) };
   } catch (err) {
     const code = (err as { code?: string } | null)?.code ?? 'unknown';

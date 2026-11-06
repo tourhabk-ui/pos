@@ -50,6 +50,8 @@ import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-ki
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
+import { ACTIVE_MCHS_WARNINGS_SQL } from '@/lib/safety/active-warnings';
+import { warningsFromRows, type AlertWarningRow } from '@/lib/safety/mchs-bulletin';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -1609,6 +1611,30 @@ withPg('кого накрывает предупреждение', () => {
       expect(failed.warnings).toEqual([{ severity: 'important', message: PARK_STATUS_UNREAD_NOTE }]);
       expect(err.mock.calls.some((c) => c.join(' ').includes('42P01'))).toBe(true);
       err.mockRestore();
+    });
+  });
+
+  describe('сводка МЧС отдаёт свой срок: план судит по нему, говорит ли она о датах поездки (разбор 06.11)', () => {
+    it('строка со сроком — день Камчатки срока; без срока — горизонт от даты сводки', async () => {
+      const inserted = (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, volcano_name,
+                                      created_at, last_published_at, expires_at, external_id)
+         VALUES ('volcanic_eruption', 2, 'Вулкан Срочный (тест)', 'Не приближаться', '{}', 'Срочный',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-01 18:00:00', 'mchs-term/planner-1'),
+                ('volcanic_eruption', 2, 'Вулкан Бессрочный (тест)', 'Не приближаться', '{}', 'Бессрочный',
+                 TIMESTAMP '2098-12-31 00:00:00', TIMESTAMP '2099-01-01 00:00:00', NULL, 'mchs-term/planner-2')
+         RETURNING id::text AS id`,
+      )).rows.map((r) => r.id);
+      try {
+        const { rows } = await pool.query<AlertWarningRow>(ACTIVE_MCHS_WARNINGS_SQL);
+        const byPlace = new Map(warningsFromRows(rows).map((w) => [w.place, w.relevantUntil]));
+        // 18:00 UTC 01.01 — это 06:00 02.01 по Камчатке.
+        expect(byPlace.get('Срочный')).toBe('2099-01-02');
+        // Срока нет: дата последней сводки (01.01) плюс горизонт.
+        expect(byPlace.get('Бессрочный')).toBe(`2099-01-${String(1 + UNDATED_ALERT_HORIZON_DAYS).padStart(2, '0')}`);
+      } finally {
+        await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
+      }
     });
   });
 });
