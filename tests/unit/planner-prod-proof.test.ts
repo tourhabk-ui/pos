@@ -302,6 +302,10 @@ describe('что план говорит о себе (аудит планиро�
     const week = await heli(`${NEXT_JULY}-07-16`);
     expect(week.days.some((d) => d.type === 'buffer')).toBe(true);
     expect(heliNote(week)).toMatch(/В план добавлен запасной день\.$/);
+    // Вид — словами, а не ключом движка «(helicopter)».
+    expect(heliNote(week)).toMatch(/^Вертолётные экскурсии: /);
+    const geysers = await recommendTrip({ ...PROOF, interests: ['geyser'], departureDate: `${NEXT_JULY}-07-16` });
+    expect(heliNote(geysers)).toMatch(/^Вертолётные экскурсии \(гейзеры\): /);
 
     const twoDays = await heli(`${NEXT_JULY}-07-11`);
     expect(twoDays.days.some((d) => d.type === 'buffer')).toBe(false);

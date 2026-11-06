@@ -688,7 +688,10 @@ describe('турист: клавиатура, порядок ответов, д�
       }
       return { rows: [] };
     });
-    await post('Что посмотреть за 5 дней в июле?');
+    // Вопрос к витрине туров. «Что посмотреть за 5 дней в июле?» с 07.11 —
+    // просьба о плане: её отвечает модель с make_trip_plan (аудит
+    // планировщика, K1; tests/unit/planner-audit-wave1).
+    await post('Какие туры на 5 дней есть в июле?');
     expect(m.tools).not.toHaveBeenCalled();
     const out = sent().join('\n');
     expect(out).toContain('нет тура, который идёт');

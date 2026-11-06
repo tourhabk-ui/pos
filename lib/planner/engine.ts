@@ -865,11 +865,15 @@ function collectWarnings(
     return c?.requiredTransport === 'helicopter';
   });
   if (heliActivities.length > 0) {
+    // Виды — словами, не ключами движка: в строке стояло «(helicopter)»
+    // (независимая проверка 07.11). Сами «вертолётные экскурсии» в скобках
+    // не повторяются.
+    const heliWhat = heliActivities.filter((i) => i !== 'helicopter').map((i) => ACTIVITY_NAMES[i] ?? i);
     warnings.push({
       type: 'weather', severity: 'important',
       // «Запасной день добавлен» — только когда он добавлен: резервный день
       // встаёт, лишь если влез до отъезда (аудит планировщика 07.11, E10).
-      message: `Вертолётные экскурсии (${heliActivities.join(', ')}): 30-50% рейсов отменяют из-за тумана. `
+      message: `Вертолётные экскурсии${heliWhat.length > 0 ? ` (${heliWhat.join(', ')})` : ''}: 30-50% рейсов отменяют из-за тумана. `
         + (bufferDayPlanned
           ? 'В план добавлен запасной день.'
           : 'Запасного дня в плане нет — если рейс отменят, перенести экскурсию будет некуда. Добавьте день к поездке.'),
