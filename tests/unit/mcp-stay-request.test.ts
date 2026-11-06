@@ -82,10 +82,13 @@ beforeEach(() => {
 });
 
 describe('инструмент объявлен как заявка', () => {
-  it('пишущий, требует объект, даты, имя, телефон и согласие', () => {
+  it('пишущий, требует объект, имя, телефон и согласие; даты — названные или из плана', () => {
     expect(PUBLIC_MCP_TOOL_NAMES.has('create_stay_request')).toBe(true);
     expect(WRITE_TOOL_NAMES.has('create_stay_request')).toBe(true);
-    expect([...STAY_REQUEST_TOOL.inputSchema.required]).toEqual(['accommodation', 'check_in', 'check_out', 'name', 'phone', 'consent']);
+    // Даты обязательны без плана — это держит исполнение (отказ «Дата заезда»);
+    // с plan_id они берутся из плана (аудит планировщика 07.11, M7).
+    expect([...STAY_REQUEST_TOOL.inputSchema.required]).toEqual(['accommodation', 'name', 'phone', 'consent']);
+    expect(STAY_REQUEST_TOOL.inputSchema.properties).toHaveProperty('plan_id');
     // Согласие называет настоящего получателя — владельца жилья.
     expect(STAY_REQUEST_TOOL.inputSchema.properties.consent.description).toMatch(/передачу владельцу жилья/);
     expect(STAY_REQUEST_TOOL.description).toMatch(/не бронь и не оплата/);

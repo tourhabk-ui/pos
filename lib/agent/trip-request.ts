@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { pickHeadcount } from '@/lib/agent/headcount';
 import { getPublicBaseUrl } from '@/lib/config';
 import { textFailed } from '@/lib/agent/request-outcome';
+import { planAttachNote, type PlanAttach } from '@/lib/leads/plan-from-draft';
 
 export type LegKind = 'tour' | 'stay' | 'transfer';
 
@@ -41,6 +42,12 @@ export interface TripDeps {
   /** Штатная фраза RU/EN/ZH (requestConfirmNote) — вырезается из частей и ставится один раз. */
   confirmNote: string;
   newTripId?: () => string;
+  /**
+   * План по plan_id (аудит планировщика 07.11, M7). Читается один раз на
+   * поездку: из него — люди и даты, которых агент не назвал, и номер плана
+   * уходит в каждую часть. Нет зависимости — plan_id не читается.
+   */
+  readPlan?: (planId: string) => Promise<PlanAttach>;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
@@ -72,12 +79,35 @@ export function newTripId(): string {
 }
 
 export async function runTripRequest(raw: Record<string, unknown>, deps: TripDeps): Promise<{ text: string; tripId: string | null; legs: TripLegResult[]; tripUrl?: string | null }> {
-  const people = pickHeadcount(raw);
+  // План (M7): прочитан — его номер уходит в каждую часть, и из него берётся
+  // то, чего агент не назвал. Не прочитан — части идут без него, а агент
+  // слышит это один раз за поездку, а не в каждой части.
+  const planId = str(raw.plan_id);
+  const plan: PlanAttach = planId && deps.readPlan ? await deps.readPlan(planId) : { kind: 'none' };
+  const facts = plan.kind === 'attached' ? plan.facts : null;
+  const fromPlan: string[] = [];
+
+  let people = pickHeadcount(raw);
+  if (people === undefined && facts) {
+    people = facts.people;
+    fromPlan.push(`число людей — ${facts.people}`);
+  }
   const tour = str(raw.tour);
-  const tourDate = str(raw.tour_date) || str(raw.date);
+  let tourDate = str(raw.tour_date) || str(raw.date);
+  // Дата тура — по номеру тура в плане: название тура с планом не сличается.
+  if (!tourDate && tour && facts?.tourDates[tour]) {
+    tourDate = facts.tourDates[tour];
+    fromPlan.push(`дата тура — ${tourDate}`);
+  }
   const stay = str(raw.stay) || str(raw.accommodation);
-  const checkIn = str(raw.check_in);
-  const checkOut = str(raw.check_out);
+  let checkIn = str(raw.check_in);
+  let checkOut = str(raw.check_out);
+  const stayAsked = Boolean(stay) || raw.stay_wanted === true || raw.stay_wanted === 'true' || str(raw.lodging) !== '';
+  if (stayAsked && facts && (!checkIn || !checkOut)) {
+    checkIn ||= facts.arrivalDate;
+    checkOut ||= facts.departureDate;
+    fromPlan.push(`даты жилья — ${checkIn} — ${checkOut}`);
+  }
   const dest = str(raw.transfer_destination) || str(raw.destination);
   const tDate = str(raw.transfer_date) || str(raw.date_from);
   const tDateTo = str(raw.transfer_date_to) || str(raw.date_to);
@@ -111,7 +141,10 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   const userComment = str(raw.comment);
   const comment = (tripLine + (userComment ? ` ${userComment}` : '')).slice(0, 1000);
 
-  const common = { name: raw.name, phone: raw.phone, consent: raw.consent, comment };
+  const common = {
+    name: raw.name, phone: raw.phone, consent: raw.consent, comment,
+    ...(plan.kind === 'attached' ? { plan_id: plan.planId } : {}),
+  };
   const legs: TripLegResult[] = [];
   const run = async (kind: LegKind, fn: () => Promise<string>) => {
     try {
@@ -180,9 +213,11 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   const LABEL: Record<LegKind, string> = { tour: 'Тур', stay: 'Жильё', transfer: 'Машина' };
   const strip = (t: string) => (deps.confirmNote ? t.split(deps.confirmNote).join('') : t).trim();
   const okCount = legs.filter((l) => l.ok).length;
-  const head = okCount === 0
+  const head = (okCount === 0
     ? `Поездка ${tripId}: ни одна часть не создана.`
-    : `Поездка ${tripId}: создано частей ${okCount} из ${legs.length}. Каждый партнёр видит в заявке всю поездку (номер ${tripId}).`;
+    : `Поездка ${tripId}: создано частей ${okCount} из ${legs.length}. Каждый партнёр видит в заявке всю поездку (номер ${tripId}).`)
+    + (fromPlan.length ? ` Из плана взято: ${fromPlan.join('; ')}.` : '')
+    + planAttachNote(plan);
   const keys = [...new Set(legs.flatMap((l) => [...l.text.matchAll(/Ключ статуса заявки: ([\w-]{16,64})/g)].map((m) => m[1])))];
   const tripUrl = okCount > 0 && keys.length ? tripPageUrl(tripId, keys) : null;
   const tripNote = tripUrl ? `\nВся поездка одной ссылкой для человека: ${tripUrl} (части, статус каждой, согласие). Ссылку не публикуйте.` : '';

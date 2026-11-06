@@ -22,6 +22,7 @@ import { planForLead, planLeadLines, asPlanForLead, type PlanLeadInputDay } from
 import { estimateGroup } from '@/lib/planner/estimate';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
+import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
 const plain = (s: string) => s.replace(/ /g, ' ');
@@ -107,6 +108,20 @@ describe('MCP: план по plan_id', () => {
     expect(planAttachNote(a)).toBe('');
   });
 
+  // Аудит планировщика 07.11 (M7): факты плана — умолчания для заявок на
+  // жильё, машину, прокат и поездку целиком. Дата тура — его ПЕРВЫЙ день:
+  // недельный рыболовный тур со дня 2 стоит и на дне 3, заявка — на день 2.
+  it('факты плана: даты поездки, люди со взрослыми и детьми, первый день каждого тура', async () => {
+    DRAFT = { kind: 'found', draft: { id: ID, revision: 1, days: DAYS, params: {
+      interests: ['fishing'], arrivalDate: '2027-08-02', departureDate: '2027-08-06', adults: 2, children: [6], budgetTier: 'comfort',
+    } } };
+    const a = await planFromDraft(ID);
+    expect(a.kind === 'attached' && a.facts).toEqual({
+      arrivalDate: '2027-08-02', departureDate: '2027-08-06', people: 3,
+      tourDates: { '11': '2027-08-03', '41': '2027-08-05' },
+    });
+  });
+
   it('плана нет — заявка без плана, и агент это слышит', async () => {
     DRAFT = { kind: 'missing' };
     const a = await planFromDraft(ID);
@@ -173,12 +188,15 @@ describe('связка: производители и потребители с�
     expect(c).toMatch(/planLeadLines\(plan\)/);
   });
 
-  it('MCP: обе заявки принимают plan_id и говорят, если план не приложился', () => {
-    const route = read('app/api/mcp/route.ts');
-    expect(route.match(/planFromDraft\(parsed\.data\.plan_id\)/g)).toHaveLength(2);
-    expect(route.match(/planAttachNote\(planAttach\)/g)).toHaveLength(2);
-    expect(route.match(/plan_id: z\.string\(\)/g)).toHaveLength(2);
-    const tools = read('lib/mcp/public-tools.ts');
-    expect(tools.match(/plan_id: \{ type: 'string'/g)).toHaveLength(2);
+  // С аудита планировщика 07.11 (M7) план принимают все шесть записей, а
+  // не две: жильё, машина, прокат и поездка целиком — тоже. Поведение каждой
+  // держат mcp-plan-id-writes (через POST) и agent-trip-request; здесь —
+  // объявление в схеме, которую видит агент.
+  it('MCP: все шесть записей объявляют plan_id', () => {
+    for (const name of WRITE_TOOL_NAMES) {
+      const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === name);
+      expect((tool?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties, name).toHaveProperty('plan_id');
+    }
+    expect(WRITE_TOOL_NAMES.size).toBe(6);
   });
 });
