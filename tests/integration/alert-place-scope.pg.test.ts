@@ -40,6 +40,9 @@ import { classifyMchsItem, classifyMessage, mchs_zones } from '@/lib/services/sa
 import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
 import { ZONE_CENSUS_SQL, summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/places/zone-census';
 import { readFileSync } from 'node:fs';
+import { holdParkClosures } from '@/lib/services/safety/park-closure-hold';
+import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
+import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -833,6 +836,108 @@ withPg('кого накрывает предупреждение', () => {
     // Открытие и вышедшая из ленты тревога не тронуты.
     expect(await parksOf(reopened)).toEqual({ alert_type: 'info', affected_parks: null });
     expect(await parksOf(expired)).toEqual({ alert_type: 'info', affected_parks: null });
+  });
+
+  it('сезонное закрытие, записанное до правила 06.11, держится 21 сутки от публикации (проход приёма)', async () => {
+    const TITLE = 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья';
+    const PARKS = ['nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy', 'klyuchevskoy', 'vilyuchinsky'];
+    // created_at и expires_at — стенным UTC, как пишет приём (#2495).
+    const row = async (opts: { externalId: string; title: string; description?: string; sourceUrl?: string; ageDays: number; leftHours: number }) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                      created_at, expires_at, source_url, external_id)
+         VALUES ('park_closure', 2, $1, $6, '{}', $2,
+                 (NOW() AT TIME ZONE 'UTC') - make_interval(days => $3::int),
+                 (NOW() AT TIME ZONE 'UTC') + make_interval(hours => $4::int),
+                 $7, $5)
+         RETURNING id::text AS id`,
+        [opts.title, PARKS, opts.ageDays, opts.leftHours, opts.externalId, opts.description ?? '', opts.sourceUrl ?? 'https://example.test'],
+      )).rows[0]!.id;
+
+    // Сводка 02.11 из ленты: 4 дня назад, по прежнему сроку осталось 3 дня.
+    const seasonal = await row({ externalId: 'visitkamchatka/2026-11-02/thold1', title: TITLE, ageDays: 4, leftHours: 72 });
+    // То же закрытие, внесённое руками: срок ставит человек — не трогаем.
+    const manual = await row({ externalId: 'manual-zakrytie-parkov', title: TITLE, ageDays: 4, leftHours: 72 });
+    // Ручная со ссылкой на пост в MAX: alertOrigin узнал бы её лентой MAX по адресу.
+    const manualMax = await row({ externalId: 'manual-zakrytie-parkov-max', title: TITLE, sourceUrl: 'https://max.ru/mchs41/AZ123', ageDays: 4, leftHours: 72 });
+    // id, заданный администратором в форме канала: не форма классификатора.
+    const foreign = await row({ externalId: 't.me/minturkam/555', title: TITLE, ageDays: 4, leftHours: 72 });
+    // Описание обрезано до 800: дата открытия могла остаться за краем.
+    const clipped = await row({ externalId: 'vk_mchs/2026-11-04/tclip1', title: TITLE, description: 'а'.repeat(800), ageDays: 2, leftHours: 72 });
+    // Оперативное закрытие без даты (циклон) — правило не меняется.
+    const cyclone = await row({ externalId: 'max_mchs/2026-11-05/thold2', title: 'Приостановлено посещение маршрутов в природном парке «Налычево» из-за циклона', ageDays: 1, leftHours: 24 });
+    // Уже истёкшее сезонное — не воскрешаем: так же выглядит снятое админом.
+    const gone = await row({ externalId: 'visitkamchatka/2026-10-10/thold3', title: TITLE, ageDays: 20, leftHours: -1 });
+    // Снятое админом МЕЖДУ чтением и записью прохода — тоже не воскресает.
+    const raced = await row({ externalId: 'visitkamchatka/2026-11-03/thold4', title: TITLE, ageDays: 3, leftHours: 96 });
+
+    const termDays = async (id: string) =>
+      Number((await pool.query<{ d: string }>(
+        `SELECT EXTRACT(EPOCH FROM (expires_at - created_at)) / 86400 AS d FROM external_alerts WHERE id::text = $1`, [id],
+      )).rows[0]!.d);
+    const untouched = [manual, manualMax, foreign, clipped, cyclone, gone];
+    const before = new Map<string, number>();
+    for (const id of untouched) before.set(id, await termDays(id));
+
+    let reads = 0;
+    const query = async <T,>(sql: string, params: unknown[]) => {
+      const r = await pool.query(sql, params);
+      // Сразу после чтения — админский DELETE /api/admin/external-alerts/[id].
+      if (reads++ === 0) await pool.query(`UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC') WHERE id::text = $1`, [raced]);
+      return r as unknown as { rows: T[] };
+    };
+    const events: Array<{ entityId: string | null; details?: Record<string, unknown> }> = [];
+    const record = async (e: { entityId: string | null; details?: Record<string, unknown> }) => { events.push(e); };
+
+    const first = await holdParkClosures(query, record);
+    expect(first.extended).toBe(1);
+    expect(first.extended_ids).toEqual([seasonal]);
+    // Счёт пропусков видит и строки соседних тестов этого файла — судим не
+    // его, а сроки своих строк ниже; здесь — что каждая причина сработала.
+    expect(first.skipped.manual).toBeGreaterThanOrEqual(2);
+    expect(first.skipped.foreign_id).toBeGreaterThanOrEqual(1);
+    expect(first.skipped.clipped).toBeGreaterThanOrEqual(1);
+    expect(await termDays(seasonal)).toBeCloseTo(PARK_CLOSURE_HOLD_HOURS / 24, 3);
+    for (const id of untouched) expect(await termDays(id), id).toBeCloseTo(before.get(id)!, 6);
+    const racedLive = (await pool.query<{ live: boolean }>(
+      `SELECT expires_at > (NOW() AT TIME ZONE 'UTC') AS live FROM external_alerts WHERE id::text = $1`, [raced],
+    )).rows[0]!.live;
+    expect(racedLive).toBe(false);
+    // Продление названо в журнале решений: прежний и новый срок.
+    expect(events).toHaveLength(1);
+    expect(events[0].entityId).toBe(seasonal);
+    expect(events[0].details).toHaveProperty('prior_expires_at');
+    // Повтор ничего не меняет: продлевать уже нечего.
+    expect((await holdParkClosures((sql, params) => pool.query(sql, params), record)).extended).toBe(0);
+
+    // И главное: после прежнего срока тревога всё ещё красит место парка.
+    expect(await coveredBy(seasonal)).toContain(PARK_NAMED.id);
+    await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [[seasonal, raced, ...untouched]]);
+  });
+
+  it('звонок о закрытии парка глушится только закрытием тех же парков (push, 06.11)', async () => {
+    const pushed = (await pool.query<{ id: string }>(
+      `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, affected_parks,
+                                    created_at, expires_at, source_url, external_id, push_sent_at)
+       VALUES ('park_closure', 2, 'Парк «Ключевской»: маршруты закрыты на зимний сезон', '', '{}', ARRAY['klyuchevskoy'],
+               (NOW() AT TIME ZONE 'UTC') - INTERVAL '6 days', (NOW() AT TIME ZONE 'UTC') + INTERVAL '15 days',
+               'https://example.test', 'visitkamchatka/2026-10-31/tpush1', NOW())
+       RETURNING id::text AS id`,
+    )).rows[0]!.id;
+    const same = async (parks: string[] | null) =>
+      (await pool.query<{ id: string }>(
+        `SELECT id::text AS id FROM external_alerts
+          WHERE alert_type = 'park_closure' AND push_sent_at IS NOT NULL
+            AND expires_at > (NOW() AT TIME ZONE 'UTC') AND ${sameParksSql('$1')}`,
+        [parks],
+      )).rows.map((r) => r.id);
+    // Закрыли Налычево — звонок должен уйти, хотя о Ключевском уже звонили.
+    expect(await same(sameParksParam({ alert_type: 'park_closure', affected_parks: ['nalychevo'] }))).not.toContain(pushed);
+    // Повтор о Ключевском — тот же звонок, глушится.
+    expect(await same(sameParksParam({ alert_type: 'park_closure', affected_parks: ['klyuchevskoy'] }))).toContain(pushed);
+    // Прочие роды правила парков не знают — как раньше.
+    expect(await same(sameParksParam({ alert_type: 'flood', affected_parks: null }))).toContain(pushed);
+    await pool.query(`DELETE FROM external_alerts WHERE id::text = $1`, [pushed]);
   });
 
   it('закрытие без названного парка не красит никого — «не установлено» ≠ «везде»', async () => {

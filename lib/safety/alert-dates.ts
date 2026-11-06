@@ -15,12 +15,16 @@
  * «В ленте до» верно в обоих случаях.
  */
 
+import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure-terms';
+
 /**
  * Наши технические TTL из ingest (lib/services/safety/seismic-parser.ts):
- * дорожные ограничения живут неделю, прочее — сутки или двое. Это срок жизни
- * ЗАПИСИ, а не срок действия ограничения: МЧС таких дат не сообщает.
+ * дорожные ограничения живут неделю, прочее — сутки или двое, сезонное
+ * закрытие парка — 21 сутки от публикации (06.11). Это срок жизни
+ * ЗАПИСИ, а не срок действия ограничения: МЧС таких дат не сообщает, и
+ * «действует до» у них было бы датой, которой источник не называл.
  */
-export const TECHNICAL_TTL_HOURS = [24, 48, 24 * 7];
+export const TECHNICAL_TTL_HOURS = [24, 48, 24 * 7, PARK_CLOSURE_HOLD_HOURS];
 
 /**
  * Отличить срок из источника от нашего TTL. Совпал с техническим с точностью до
@@ -49,9 +53,16 @@ export function isTechnicalExpiry(at: string | null, until: string | null): bool
  */
 export type AlertTerm = 'source' | 'feed_window' | 'technical' | 'none';
 
-export function alertTerm(a: { at: string | null; until: string | null; manual?: boolean }): AlertTerm {
+export function alertTerm(a: { at: string | null; until: string | null; manual?: boolean; type?: string | null }): AlertTerm {
   if (!a.until) return 'none';
   if (a.manual) return 'feed_window';
+  // Закрытие парка (06.11): срок у него наш всегда. Сезонное держится 21
+  // сутки и продлевается повтором сводки (GREATEST в saveEvent), и разница
+  // «срок − публикация» после повтора уже не совпадает ни с одним TTL —
+  // по ней лента писала бы «действует до 30 нояб.», а такой даты источник не
+  // называл. Названная дата хранится концом дня по Камчатке (12:00 UTC), и
+  // подпись по ней выходила на день позже. «Сообщение от» верно всегда.
+  if (a.type === 'park_closure') return 'technical';
   return isTechnicalExpiry(a.at, a.until) ? 'technical' : 'source';
 }
 

@@ -81,8 +81,8 @@ export function splitAlertTitle(title: string, description: string | null): { pl
  * перевал выдавала заглушку ручной записи за окончание ограничения, а неделю
  * жизни записи ингеста — за срок дорожного закрытия.
  */
-export function planChangeTerm(at: string | null, until: string | null, manual: boolean, nowMs: number = Date.now()): string | null {
-  switch (alertTerm({ at, until, manual })) {
+export function planChangeTerm(at: string | null, until: string | null, manual: boolean, nowMs: number = Date.now(), type: string | null = null): string | null {
+  switch (alertTerm({ at, until, manual, type })) {
     case 'feed_window': {
       const day = alertDayLabel(until, nowMs);
       return day ? `в ленте до ${day}` : null;
@@ -130,7 +130,7 @@ export async function loadPlanChanges(limit = DESK_CHANGES_LIMIT): Promise<PlanC
         ...splitAlertTitle(row.title, row.description),
         kind: k.kind,
         kindLabel: k.label,
-        term: planChangeTerm(row.created_iso, row.expires_iso, manual),
+        term: planChangeTerm(row.created_iso, row.expires_iso, manual, Date.now(), row.alert_type),
         origin: alertOrigin(row.external_id, row.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT,
       };
     });
