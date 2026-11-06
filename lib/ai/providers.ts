@@ -5714,9 +5714,9 @@ export const YANDEX_TOOLS_PROBE_TOOL = {
 
 /** Ответ пробы → строка диагностики. Чистая функция: три исхода плюс отказ (§4.0). */
 export function classifyYandexToolsReply(
-  httpStatus: number, body: unknown, latencyMs: number,
+  httpStatus: number, body: unknown, latencyMs: number, model: YandexToolsProbeModel = 'yandexgpt/latest',
 ): WaterfallDebugResult {
-  const base = { provider: 'yandex:tools', model: 'yandexgpt/latest', latency_ms: latencyMs };
+  const base = { provider: 'yandex:tools', model, latency_ms: latencyMs };
   if (httpStatus < 200 || httpStatus >= 300) {
     const text = typeof body === 'string' ? body : JSON.stringify(body ?? null);
     return { ...base, status: 'http_error', http_status: httpStatus, error: text.slice(0, 200) };
@@ -5736,11 +5736,21 @@ export function classifyYandexToolsReply(
   return { ...base, status: 'empty_response', error: `ни текста, ни вызова инструмента: ${JSON.stringify(body ?? null).slice(0, 160)}` };
 }
 
-export async function probeYandexTools(): Promise<WaterfallDebugResult> {
+/**
+ * Модели пробы. ai-debug run 15 (06.11): `yandexgpt/latest` на вопрос об
+ * обстановке безопасности ответил заглушкой модерации «Я не могу обсуждать эту
+ * тему» и инструмент не позвал. Текстовая нога водопада живёт на
+ * `yandexgpt-5.1/latest` — прежде чем назвать YandexGPT негодным, спрашиваем
+ * и её: отказ старшей модели и отказ той, что работает, — разные выводы.
+ */
+export const YANDEX_TOOLS_PROBE_MODELS = ['yandexgpt-5.1/latest', 'yandexgpt/latest'] as const;
+export type YandexToolsProbeModel = typeof YANDEX_TOOLS_PROBE_MODELS[number];
+
+export async function probeYandexTools(model: YandexToolsProbeModel = 'yandexgpt/latest'): Promise<WaterfallDebugResult> {
   const apiKey = process.env.YANDEX_API_KEY;
   const folderId = process.env.YANDEX_FOLDER_ID;
   if (!apiKey || !folderId) {
-    return { provider: 'yandex:tools', model: 'yandexgpt/latest', status: 'no_key', latency_ms: 0 };
+    return { provider: 'yandex:tools', model, status: 'no_key', latency_ms: 0 };
   }
   const start = Date.now();
   try {
@@ -5753,7 +5763,7 @@ export async function probeYandexTools(): Promise<WaterfallDebugResult> {
         'x-folder-id': folderId,
       },
       body: JSON.stringify({
-        model: `gpt://${folderId}/yandexgpt/latest`,
+        model: `gpt://${folderId}/${model}`,
         temperature: 0.1,
         max_tokens: 200,
         messages: [
@@ -5771,9 +5781,9 @@ export async function probeYandexTools(): Promise<WaterfallDebugResult> {
     // Тело не JSON — остаётся строкой, и классификатор отдаёт его дословно,
     // а не «ответа нет» (§4.0): молчащего catch здесь быть не должно.
     try { body = JSON.parse(raw); } catch { body = raw; }
-    return classifyYandexToolsReply(res.status, body, ms);
+    return classifyYandexToolsReply(res.status, body, ms, model);
   } catch (e) {
-    return { provider: 'yandex:tools', model: 'yandexgpt/latest', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start };
+    return { provider: 'yandex:tools', model, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start };
   }
 }
 
@@ -5894,7 +5904,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
   // 3а. YandexGPT с инструментами (06.11, владелец «Делай»): годится ли он
   //     запасной ногой цикла инструментов Кузьмича. С прода живая только
   //     DeepSeek (ai-debug run 14: Qwen — квота, xAI — гео, OpenRouter — гео).
-  results.push(await probeYandexTools());
+  for (const model of YANDEX_TOOLS_PROBE_MODELS) results.push(await probeYandexTools(model));
 
   // 4. DeepSeek direct — пригодные модели из /models и три формы запроса.
   //    run 6 (04.09): deepseek-v4-pro отдал finish_reason=length, content пуст,
