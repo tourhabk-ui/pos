@@ -154,12 +154,44 @@ describe('POST /api/hub/bookings/create — user_id linkage', () => {
     expect(clientQueryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
   });
 
-  it('своя поверхность (X-Vedar-Client) без галочки — как раньше, бронь создаётся', async () => {
+  it('заголовок своей поверхности больше не пропуск: аноним без галочки — 400 на любой из пяти (06.11)', async () => {
+    // До 06.11 X-Vedar-Client пропускал анонима без согласия, и виджет Кузьмича
+    // с подборкой /p/[code] писали имя и телефон без галочки; подделать
+    // заголовок мог кто угодно.
     getUserFromRequestMock.mockResolvedValue(null);
     const { pd_consent: _drop, ...noConsent } = VALID_BODY;
     void _drop;
-    const res = await POST(postReq(noConsent, { 'X-Vedar-Client': 'kuzmich' }));
+    for (const client of ['tour-form', 'cart', 'kuzmich', 'kuzmich-widget', 'selection']) {
+      clientQueryMock.mockClear();
+      const res = await POST(postReq(noConsent, { 'X-Vedar-Client': client }));
+      expect(res.status, client).toBe(400);
+      expect(await res.json(), client).toMatchObject({ field: 'pd_consent' });
+      expect(clientQueryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO operator_bookings')), client).toBe(false);
+    }
+  });
+
+  it('заголовок — подпись канала согласия: форма записана словом из словаря, чужое значение — «api»', async () => {
+    getUserFromRequestMock.mockResolvedValue(null);
+    const insertParams = (): unknown[] => {
+      const call = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO operator_bookings'));
+      return (call?.[1] as unknown[] | undefined) ?? [];
+    };
+    for (const [client, source] of [['selection', 'selection'], ['kuzmich', 'kuzmich-page'], ['kuzmich-widget', 'kuzmich-widget']] as const) {
+      clientQueryMock.mockClear();
+      mockHappyPathQueries();
+      const res = await POST(postReq(VALID_BODY, { 'X-Vedar-Client': client }));
+      expect(res.status, client).toBe(200);
+      expect(insertParams(), client).toContain(source);
+    }
+    // Строка от клиента в базу как есть не попадает: колонка VARCHAR(64), а
+    // подделанный заголовок может быть любым.
+    clientQueryMock.mockClear();
+    mockHappyPathQueries();
+    const spoof = 'x'.repeat(200);
+    const res = await POST(postReq(VALID_BODY, { 'X-Vedar-Client': spoof }));
     expect(res.status).toBe(200);
+    expect(insertParams()).toContain('api');
+    expect(insertParams()).not.toContain(spoof);
   });
 
   it('вошедший без почты — бронь создаётся: у него есть каналы аккаунта', async () => {

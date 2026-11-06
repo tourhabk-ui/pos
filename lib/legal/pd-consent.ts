@@ -116,9 +116,34 @@ export const PD_CONSENT_POLICY_URL = '/legal/privacy';
 export interface PdConsentRecord {
   at: Date;
   ip: string;
-  /** Откуда пришло согласие: 'web-form', 'widget', 'operator-signup'. */
+  /** Откуда пришло согласие: 'web-form', 'widget', 'operator-signup', у брони — bookingConsentSource. */
   source: string;
   version: string;
+}
+
+/**
+ * Канал согласия у брони тура — по поверхности Ведара, которая её прислала
+ * (заголовок `X-Vedar-Client`).
+ *
+ * До 06.11 заголовок был ПРОПУСКОМ: с ним аноним заводил бронь без галочки,
+ * а подделать его мог кто угодно (docs/agents/LEAD_PLAN.md, направление 1,
+ * шаг 1). Теперь он только подпись: согласие решает галочка, а заголовок
+ * говорит, на какой форме её поставили. Словарь закрытый — строка от клиента
+ * не попадает в базу как есть (колонка VARCHAR(64) без CHECK, длинное
+ * значение уронило бы вставку брони). Нет заголовка или он чужой — 'api':
+ * это прямой вызов, а не форма Ведара.
+ */
+const BOOKING_CONSENT_SOURCES: Readonly<Record<string, string>> = {
+  'tour-form': 'tour-form',
+  cart: 'cart',
+  kuzmich: 'kuzmich-page',
+  'kuzmich-widget': 'kuzmich-widget',
+  selection: 'selection',
+};
+
+export function bookingConsentSource(client: string | null | undefined): string {
+  const key = (client ?? '').trim();
+  return Object.prototype.hasOwnProperty.call(BOOKING_CONSENT_SOURCES, key) ? BOOKING_CONSENT_SOURCES[key] : 'api';
 }
 
 /**

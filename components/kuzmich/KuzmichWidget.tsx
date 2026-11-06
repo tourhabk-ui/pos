@@ -1,7 +1,7 @@
 'use client';
 
 import ChatText from '@/components/kuzmich/ChatText';
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { usePathname } from 'next/navigation';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { Sparkles, Send, Loader2, X, MessageCircle, Camera, ExternalLink, Fish, Mountain, Droplets, Waves, CheckCircle, Minus, Plus } from 'lucide-react';
@@ -11,6 +11,7 @@ import { useGeo } from '@/contexts/GeoContext';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -33,7 +34,10 @@ interface Message {
 }
 
 // ── Компактная форма бронирования для виджета ──────────────────────────────────
-function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: number) => void }) {
+// Экспорт — для теста рендером: весь виджет сейчас не рисуется ни на одной
+// странице (HIDDEN_PATHS содержит '/', проверка startsWith), а форма брони
+// внутри него — проверяемый кусок сама по себе.
+export function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: number) => void }) {
   const [name,  setName]  = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -43,6 +47,11 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
   const [err,   setErr]   = useState('');
   const [done,  setDone]  = useState(false);
   const [bookingId, setBookingId] = useState<number | null>(null);
+  // Согласие на ПД (06.11): без галочки сервер брони анониму отказывает.
+  // id — свой у каждой карточки: в одном чате их может быть несколько.
+  const [pdConsent, setPdConsent] = useState(false);
+  const cardId = useId();
+  const consentId = `pd-consent-kuzmich-widget-${cardId}`;
   /** Ключ брони: номер её больше не открывает (миграция 943). */
   const [accessToken, setAccessToken] = useState('');
 
@@ -55,6 +64,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
     // Почта обязательна (владелец 04.10): ссылка на оплату после подтверждения
     // доходит до гостя только письмом.
     if (!name.trim() || !phone.trim() || !email.trim() || !date) { setErr('Заполните все поля'); return; }
+    if (!pdConsent) { setErr('Отметьте согласие на обработку персональных данных'); return; }
     setBusy(true); setErr('');
     try {
       const res = await fetch('/api/hub/bookings/create', {
@@ -67,6 +77,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           tourist_email: email.trim() || undefined,
           participants_count: qty,
           booking_date: date,
+          pd_consent: pdConsent,
         }),
       });
       const json = await res.json() as { id?: number; access_token?: string; error?: string };
@@ -150,8 +161,9 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           </button>
         </div>
       </div>
-      {err && <p className="text-xs text-[var(--danger)]">{err}</p>}
-      <button type="submit" disabled={busy}
+      <PdConsentCheckbox id={consentId} checked={pdConsent} onChange={setPdConsent} />
+      {err && <p role="alert" className="text-xs text-[var(--danger)]">{err}</p>}
+      <button type="submit" disabled={busy || !pdConsent}
         className="w-full py-2 rounded-lg bg-[var(--accent)] text-white text-xs font-medium disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5">
         {busy ? <><Loader2 size={11} className="animate-spin" /> Отправляем...</> : 'Отправить заявку'}
       </button>
