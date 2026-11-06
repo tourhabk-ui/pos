@@ -76,7 +76,14 @@ const SUPPORTED_EVENTS = [
  * в тот же день; записано так, чтобы через месяц не спорить, какое из двух
  * было последним.
  */
-const PINNED = 'claude-opus-5';
+const PINNED = 'claude-opus-5-5';
+/**
+ * 07.11: Opus 5 → Opus 5.5 по разбору расхода (карт-бланш владельца на
+ * удешевление агентов). Opus 5.5 новее и на 20% дешевле: $4/$20 за млн против
+ * $5/$25 (lib/ai/providers.ts). Слаг OpenRouter пишется с точкой, прямой путь
+ * Anthropic — с дефисом, поэтому имён два.
+ */
+const PINNED_OPENROUTER = 'anthropic/claude-opus-5.5';
 
 describe('модель руки задана явно', () => {
   for (const wf of HANDS) {
@@ -84,10 +91,10 @@ describe('модель руки задана явно', () => {
 
     it(`${wf} — модель в claude_args, а не по умолчанию action`, () => {
       // С 03.11 модель выбирается переключателем провайдера (AGENTS_PROVIDER):
-      // Anthropic — `claude-opus-5`, OpenRouter (по умолчанию) — та же голова
-      // `anthropic/claude-opus-5`. Строка замороженная целиком.
+      // Anthropic — `claude-opus-5-5`, OpenRouter (по умолчанию) — та же голова
+      // `anthropic/claude-opus-5.5`. Строка замороженная целиком.
       expect(src).toContain(
-        `--model \${{ vars.AGENTS_PROVIDER == 'anthropic' && '${PINNED}' || 'anthropic/${PINNED}' }}`,
+        `--model \${{ vars.AGENTS_PROVIDER == 'anthropic' && '${PINNED}' || '${PINNED_OPENROUTER}' }}`,
       );
     });
 

@@ -83,7 +83,7 @@ describe('security-review: настройки проекта ревьюеру н
     expect(evalIf(strip.if, noKey)).toBe(false);
   });
 
-  it('шаг убирает settings.json и settings.local.json, прочее в .claude остаётся; без файлов не падает', () => {
+  it('шаг убирает settings.json, settings.local.json и CLAUDE.md, прочее остаётся; без файлов не падает', () => {
     const dir = mkdtempSync(join(tmpdir(), 'secrev-strip-'));
     try {
       const claude = join(dir, '.claude');
@@ -91,10 +91,16 @@ describe('security-review: настройки проекта ревьюеру н
       writeFileSync(join(claude, 'settings.json'), '{"permissions":{"allow":["Bash(curl -s *)"]}}');
       writeFileSync(join(claude, 'settings.local.json'), '{}');
       writeFileSync(join(claude, 'MEMORY.md'), 'заметки');
+      // CLAUDE.md Claude Code кладёт в контекст сам и перечитывает на каждом
+      // ходу: 220 КБ истории проекта на каждом ревью (разбор расхода 07.11).
+      writeFileSync(join(dir, 'CLAUDE.md'), '# правила проекта');
+      writeFileSync(join(dir, 'README.md'), 'readme');
       const r = spawnSync('bash', ['-e', '-c', strip.run ?? ''], { cwd: dir, encoding: 'utf-8' });
       expect(r.status).toBe(0);
       expect(existsSync(join(claude, 'settings.json'))).toBe(false);
       expect(existsSync(join(claude, 'settings.local.json'))).toBe(false);
+      expect(existsSync(join(dir, 'CLAUDE.md'))).toBe(false);
+      expect(existsSync(join(dir, 'README.md'))).toBe(true);
       expect(existsSync(join(claude, 'MEMORY.md'))).toBe(true);
       expect(spawnSync('bash', ['-e', '-c', strip.run ?? ''], { cwd: dir, encoding: 'utf-8' }).status).toBe(0);
     } finally {
@@ -132,6 +138,26 @@ describe('security-review: «не смог» — красный (§4.0)', () => 
     const two = runVerdict(JSON.stringify({ findings: [{ title: 'a' }, { title: 'b' }] }));
     expect(two.code).toBe(0);
     expect(two.out).toContain('находок: 2');
+  });
+});
+
+describe('security-review: одно ревью при открытии, свежее — по метке (07.11)', () => {
+  const types = ((wf.on as { pull_request?: { types?: string[] } }).pull_request?.types) ?? [];
+  const inputs = (review as { with?: Record<string, string | boolean> }).with ?? {};
+
+  it('прогона при выводе из черновика нет: экшен его всё равно не делал и краснел пустым итогом', () => {
+    expect(types).toContain('opened');
+    expect(types).toContain('labeled');
+    expect(types).not.toContain('ready_for_review');
+  });
+
+  it('по метке ревью настоящее: экшен не отказывается от второго ревью того же PR', () => {
+    // Без этого экшен находит в кэше метку прошлого ревью и модель не зовёт.
+    expect(inputs['run-every-commit']).toBe(true);
+  });
+
+  it('модель — Opus 5.5 по переключателю провайдера, как у рук', () => {
+    expect(inputs['claude-model']).toBe("${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}");
   });
 });
 

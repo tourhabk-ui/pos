@@ -31,9 +31,18 @@ name: Security Review — AI-ревью диффа (Claude)
 # `cancel-in-progress` тут не спасает: он снимает только перекрытые прогоны,
 # а это были последовательные пуши.
 #
-# Теперь ревью идёт там, где его читают: при открытии PR, при выводе из
-# черновика и по метке `security-review` — её можно повесить перед мержем,
-# когда дифф дособран, и получить свежее ревью одним кликом.
+# Теперь ревью идёт там, где его читают: при открытии PR и по метке
+# `security-review` — её можно повесить перед мержем, когда дифф дособран, и
+# получить свежее ревью одним кликом.
+#
+# Вывода из черновика (`ready_for_review`) в списке нет с 07.11, а
+# `run-every-commit` включён. До этого экшен сам запрещал второе ревью того же
+# PR (метка в кэше, `run-every-commit: false`): прогон при выводе из
+# черновика и по метке видел «уже ревьюили», модель не звал, а шаг «Ревью
+# состоялось» краснел на пустом итоге — у каждого PR второй красный крестик и
+# ни одного обещанного свежего ревью. Теперь одно ревью при открытии и
+# настоящее свежее — по метке. Цена та же: одно ревью на PR, второе — только
+# по метке, то есть по решению человека.
 #
 # ЧЕСТНО О ЦЕНЕ РЕШЕНИЯ: PR, открытый пустым и дополненный коммитами, будет
 # отревьюен по первому состоянию, если не повесить метку. Статику на каждый
@@ -42,7 +51,7 @@ name: Security Review — AI-ревью диффа (Claude)
 # поведение — добавить `synchronize` в types обратно, одна строка.
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, labeled]
+    types: [opened, reopened, labeled]
     branches: [main]
     paths:
       - '**/*.ts'
@@ -62,8 +71,12 @@ concurrency:
 # оупенррут»): Anthropic отвечает 403 verification_required (проверка
 # организации). По умолчанию руки идут через OpenRouter (его
 # Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5 — та же голова). Вернуть Anthropic без правки кода:
+# anthropic/claude-opus-5.5). Вернуть Anthropic без правки кода:
 # переменная репозитория AGENTS_PROVIDER=anthropic.
+# С 07.11 модель — Opus 5.5, а не Opus 5: новее и на 20% дешевле ($4/$20 за
+# млн против $5/$25, lib/ai/providers.ts). Карт-бланш владельца на удешевление
+# агентов: ревью остаётся на Opus, а не на Sonnet — экономия на лишнем, не на
+# качестве.
 # Сторож: tests/unit/issue-hand-model-pinned.test.ts.
 jobs:
   review:
@@ -92,18 +105,25 @@ jobs:
       # И с 03.11 (новый Claude Code на раннере) непринятые настройки проекта
       # роняли запуск: «Ignoring 25 permissions.allow entries … workspace has
       # not been trusted», код возврата 1 — ревью не состоялось ни на одном PR.
+      # CLAUDE.md (220 КБ, ~60 тыс. токенов) Claude Code кладёт в контекст сам
+      # и перечитывает на каждом ходу. Ревьюеру история проекта не нужна — у
+      # экшена свой промпт безопасности, — а платили за неё на каждом ревью
+      # (разбор расхода 07.11). Правила ПД держат детерминированные сторожа CI.
       # Удаляется только из рабочей копии раннера, репозиторий не меняется.
       - name: Настройки Claude Code репозитория — не ревьюеру
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
-        run: rm -f .claude/settings.json .claude/settings.local.json
+        run: rm -f .claude/settings.json .claude/settings.local.json CLAUDE.md
 
       - name: Claude security review
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
         uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
         with:
           claude-api-key: ${{ env.ANTHROPIC_API_KEY }}
-          claude-model: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
+          claude-model: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
           comment-pr: true
+          # Свежее ревью по метке `security-review` — по-настоящему: без этого
+          # экшен видит метку прошлого ревью в кэше и модель не зовёт (07.11).
+          run-every-commit: true
           claudecode-timeout: '15'
           # Шум вне нашего кода — не гоняем ревью по зависимостям и билд-артефактам.
           exclude-directories: 'node_modules,.next,public,migrations'

@@ -29,7 +29,7 @@ concurrency:
 # оупенррут»): Anthropic отвечает 403 verification_required (проверка
 # организации). По умолчанию руки идут через OpenRouter (его
 # Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5 — та же голова). Вернуть Anthropic без правки кода:
+# anthropic/claude-opus-5.5). Вернуть Anthropic без правки кода:
 # переменная репозитория AGENTS_PROVIDER=anthropic.
 # Сторож: tests/unit/issue-hand-model-pinned.test.ts.
 jobs:
@@ -156,7 +156,7 @@ jobs:
           # репозиторий, а нам нужен один известный инициатор.
           allowed_bots: github-actions
           claude_args: |
-            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
+            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
             --allowedTools "Read,Write,Glob,Grep"
             --max-turns 60
           show_full_output: true
@@ -165,8 +165,9 @@ jobs:
             safety-платформа Камчатки; Next.js 15, TypeScript, PostgreSQL).
             Кода ты НЕ меняешь — только читаешь и размечаешь тикеты.
 
-            Прочитай CLAUDE.md (корень репозитория) — особенно §7 «НЕ ТРОГАТЬ»,
-            чтобы понимать, что относится к safety и деньгам.
+            CLAUDE.md уже у тебя в контексте (Claude Code кладёт его сам) — не
+            перечитывай его целиком. Опирайся на §7 «НЕ ТРОГАТЬ», чтобы понимать,
+            что относится к safety и деньгам.
 
             Список неразмеченных тикетов уже лежит в .agent-out/issues.json
             (number, title, body, author). Доступа к GitHub у тебя нет —

@@ -126,7 +126,7 @@ jobs:
           # github-actions. Разрешён именно он, не '*'.
           allowed_bots: github-actions
           claude_args: |
-            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
+            --model ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5-5' || 'anthropic/claude-opus-5.5' }}
             --allowedTools "Read,Write,Edit,Glob,Grep"
             --max-turns 40
           show_full_output: true
