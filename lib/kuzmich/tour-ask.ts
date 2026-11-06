@@ -27,6 +27,8 @@ export function tourAskQuestion(title: string): string {
  * «Какие туры есть, кроме «…»» — список, а не один тур: null.
  */
 export function namedTourInQuestion(text: string): string | null {
-  const m = /(?<![а-яё])тур(?:а|е|у|ом)?\s*[«"„“]([^»"”“]{3,160})[»"”“]/iu.exec(text);
+  // Без lookbehind: модуль читает и карточка тура в браузере, а Safari < 16.4
+  // падает на нём при загрузке (client-regex-no-lookbehind).
+  const m = /(?:^|[^а-яёa-z0-9])тур(?:а|е|у|ом)?\s*[«"„“]([^»"”“]{3,160})[»"”“]/iu.exec(text);
   return m ? m[1].trim() : null;
 }
