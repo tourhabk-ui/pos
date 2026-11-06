@@ -1110,9 +1110,8 @@ async function generateDayPlans(
 
   // ── Стиль поездки и дни отдыха (владелец 26.09, lib/planner/travel-style) ──
   //
-  // `mixed` и отсутствие стиля — прежний движок, кроме одного отличия: тур с
-  // расписанием без единой свободной даты за поездку не ставится (07.11, ниже).
-  // Остальные ветки включаются только при `style !== 'mixed'` или `restPlan > 0`.
+  // `mixed` и отсутствие стиля — прежний движок без единого отличия: все
+  // ветки ниже включаются только при `style !== 'mixed'` или `restPlan > 0`.
   const style: TravelStyle = profile.travelStyle ?? 'mixed';
   const restRequested = Math.max(0, Math.floor(profile.restDays ?? 0));
   const restPlan = fitRestDays(restRequested, activeBudget);
@@ -1127,7 +1126,7 @@ async function generateDayPlans(
   const selfSkipped = new Set<string>();
   /** Проверка безопасности мест не выполнилась хотя бы раз. */
   let selfSafetyUnchecked = false;
-  /** Туры, у которых в даты поездки нет свободных мест («С оператором» и «Вперемешку»). */
+  /** Туры, у которых в даты поездки нет свободных мест (стиль «С оператором»). */
   const noSlotTours = new Set<string>();
   /**
    * Зоны, не вошедшие в план: связка (переезд + день там + возвращение) не
@@ -1250,15 +1249,10 @@ async function generateDayPlans(
       : await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
     let realTours = toursOrNull ?? [];
 
-    // Тур с расписанием, у которого нет ни одной свободной даты за всю
-    // поездку, не ставится — честная занятость (lib/planner/data), а не
-    // витрина. «С оператором» вдобавок ставит первыми туры, где мест хватает
-    // на всю группу.
-    //
-    // «Вперемешку» с 07.11 тоже снимает такой тур, но порядок туров у неё
-    // прежний. Путь человека 07.11: поездка 10–14 июля, Горелый встал днём 2,
-    // а выезды у тура — только с 15 июля; заявку оператор подтвердить не мог.
-    if (style !== 'self' && realTours.length > 0 && profile.arrivalDate && profile.departureDate) {
+    // «С оператором»: тур без свободных мест на даты поездки не ставится —
+    // честная занятость (lib/planner/data), а не витрина. Туры, где мест
+    // хватает на всю группу, идут первыми.
+    if (style === 'operator' && realTours.length > 0 && profile.arrivalDate && profile.departureDate) {
       const fits: RealTour[] = [];
       const tight: RealTour[] = [];
       const onRequest: RealTour[] = [];
@@ -1282,9 +1276,7 @@ async function generateDayPlans(
         }
         (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
       }
-      realTours = style === 'operator'
-        ? [...fits, ...tight, ...onRequest]
-        : realTours.filter((t) => !noSlotTours.has(t.title));
+      realTours = [...fits, ...tight, ...onRequest];
     }
 
     // Тур длиннее блока своей зоны (08.10). Блоки делятся между зонами
@@ -1851,18 +1843,15 @@ function describePreferences(input: {
     }
   }
 
-  // Снятый тур называется в обоих стилях с турами: иначе интерес исчезает из
-  // плана молча (§4.0).
-  if (style !== 'self' && input.noSlotTours.size > 0) {
-    notes.push({
-      topic: 'travel_style', status: 'partial',
-      message: `В ваши даты нет свободных мест: ${listShort([...input.noSlotTours])} — эти туры не ставили.`,
-    });
-  }
-
   if (style === 'operator') {
     const withTour = active.filter((d) => d.activityMode === 'operator').length;
     const without = active.length - withTour;
+    if (input.noSlotTours.size > 0) {
+      notes.push({
+        topic: 'travel_style', status: 'partial',
+        message: `В ваши даты нет свободных мест: ${listShort([...input.noSlotTours])} — эти туры не ставили.`,
+      });
+    }
     if (withTour === 0) {
       notes.push({
         topic: 'travel_style', status: 'not_honoured',
