@@ -10,7 +10,8 @@ import { detectEmergency } from '@/lib/safety/sos-detector';
 const CRYPTO_RE = /крипт|биткоин|bitcoin|\bbtc\b|\beth\b|ethereum|блокчейн|blockchain|\bnft\b|airdrop|аирдроп|токен(?:ы|ов)?\b|\btokens?\b|\bcrypto|\busdt\b|инвестиц|\binvest(?:ment|ments|or|ors|ing)?\b|майнинг|\bmining\b|web3|\bdefi\b|presale/i;
 /** Викторины и задачки: отказ, если вопрос не про поездку. */
 const QUIZ_RE = /викторин|загадк|головоломк|ребус|квиз|\bquiz|\bpuzzle|\briddle|trivia|brain ?teaser|реши (?:задач|уравнен|пример)|solve (?:this|the)|сколько будет \d|what is \d+\s*[-+*/x×]\s*\d+|\d+\s*[-+*/×]\s*\d+\s*=\s*\?/i;
-const TRIP_RE = /камчат|kamchatka|вулкан|volcano|тур(?:ы|а|ов)?\b|\btours?\b|рыбал|fishing|медвед|bear|гейзер|geyser|заявк|booking|поездк|trip|петропавловск|petropavlovsk/i;
+/** Слова поездки: вопрос с ними — не викторина и не знакомство, а дело для инструментов. */
+export const TRIP_WORDS_RE = /камчат|kamchatka|вулкан|volcano|тур(?:ы|а|ов)?\b|\btours?\b|рыбал|fishing|медвед|bear|гейзер|geyser|заявк|booking|поездк|trip|петропавловск|petropavlovsk/i;
 
 /**
  * Признаки ЧП важнее отказа: вопрос про беду в поле (даже рядом со словом
@@ -19,7 +20,7 @@ const TRIP_RE = /камчат|kamchatka|вулкан|volcano|тур(?:ы|а|ов
 export function agentOffTopic(text: string): boolean {
   if (detectEmergency(text).detected) return false;
   if (CRYPTO_RE.test(text)) return true;
-  return QUIZ_RE.test(text) && !TRIP_RE.test(text);
+  return QUIZ_RE.test(text) && !TRIP_WORDS_RE.test(text);
 }
 
 const isEnglish = (text: string) => !/[а-яё]/i.test(text) && /[a-z]/i.test(text);

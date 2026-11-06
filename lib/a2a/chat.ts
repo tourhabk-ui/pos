@@ -19,6 +19,7 @@
  */
 
 import { agentOffTopic, offTopicReply } from '@/lib/kuzmich/agent-off-topic';
+import { agentHandshake, handshakeReply } from '@/lib/kuzmich/agent-handshake';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { buildRAGContext } from '@/lib/ai/rag-context';
@@ -66,6 +67,11 @@ export async function answerAgentMessage(
   // Викторины, загадки, крипто- и инвестпредложения от агентов — вежливый
   // отказ кодом, без модели: на них не отвечаем и деньги на LLM не тратим.
   if (agentOffTopic(text)) return { ok: true, text: offTopicReply(text) };
+  // Знакомство агента («кто ты, что умеешь», «выйти на контакт») — визитка
+  // кодом (разбор 07.11): модель на нём обещала «статус в реальном времени»
+  // без времени и источника. Визитка называет входы MCP/A2A/OpenAPI,
+  // ограничения и одно проверяемое действие (lib/kuzmich/agent-handshake).
+  if (agentHandshake(text)) return { ok: true, text: handshakeReply(text) };
   // RAG тот же, что у веб-чата (роль «турист» — туры и места). Его отказ не
   // отменяет ответ: цикл инструментов добудет данные сам, а отказ виден в логе.
   const [rag, mchsBlock] = await Promise.all([
