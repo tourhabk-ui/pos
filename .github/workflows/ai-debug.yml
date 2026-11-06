@@ -84,3 +84,31 @@ jobs:
           else:
               print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
           '
+
+      # Вопрос кнопки «Спросить Кузьмича» с карточки тура (lib/kuzmich/tour-ask.ts).
+      # До 07.11 на него отвечала витрина: «в каталоге нет тура, который идёт»
+      # или список чужих туров. Теперь отвечает модель по карточке этого тура.
+      - name: E2E tour-card question
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          RESP=$(curl -s --max-time 120 -X POST "$BASE/api/ai/chat" \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"Расскажи про тур «К Домашним вулканам на вездеходе Sever Truck»: подходит ли он мне, что взять и как оставить заявку?","role":"tourist"}') || true
+          echo "$RESP" | python3 -c '
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              print("RAW (not JSON)"); raise SystemExit(0)
+          answer = (d.get("data") or {}).get("answer") or ""
+          print("answer:", answer[:1200])
+          if "нет тура, который идёт" in answer or "Туры из каталога" in answer:
+              print("VERDICT: SHOWCASE — ответила витрина, а не карточка тура")
+          elif answer.startswith("Извините, сервис временно недоступен"):
+              print("VERDICT: FALLBACK — весь waterfall упал на живом запросе")
+          elif answer:
+              print("VERDICT: OK — ответ по туру")
+          else:
+              print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
+          '

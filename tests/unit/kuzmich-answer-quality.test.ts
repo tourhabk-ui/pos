@@ -28,6 +28,7 @@ import { questionWindow, catalogFacts } from '@/lib/telegram/tourist-tours';
 import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { calendarDay, overlapsWindow, seasonAccusative, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
+import { namedTourInQuestion, tourAskQuestion } from '@/lib/kuzmich/tour-ask';
 
 const NOW = new Date('2026-10-24T00:00:00Z');
 const BASE = 'https://vedarai.ru';
@@ -612,6 +613,31 @@ describe('не коммерция — отвечает модель', () => {
       expect(commercialSources(question).tours, question).toBe(false);
       expect(composeCommercial(input(question, '')), question).toBeNull();
     }
+    expect(composeCommercial(input('Какие туры на вулканы есть осенью?', ''))?.visible).toContain('Восхождение на Авачинский');
+  });
+
+  // Чат гостя 07.11: кнопка «Спросить Кузьмича» на карточке зимнего тура дала
+  // «На сегодня в каталоге нет тура, который идёт. Цену не называю» — о самом
+  // туре ни слова, хотя «что взять» и состав лежат в его карточке.
+  it('вопрос с карточки тура про один названный тур отвечает модель, а не витрина (чат гостя 07.11)', () => {
+    const WINTER: CatalogTour = {
+      id: 115,
+      slug: 'sever-truck',
+      title: 'К Домашним вулканам на вездеходе Sever Truck',
+      base_price: 22000,
+      price_unit: 'per_person',
+      multi_day_count: 1,
+      activity_type: 'jeep',
+      season_start: '2026-12-01',
+      season_end: '2027-04-30',
+    };
+    const question = tourAskQuestion(WINTER.title);
+    expect(namedTourInQuestion(question)).toBe(WINTER.title);
+    expect(commercialSources(question).tours).toBe(false);
+    expect(composeCommercial({ ...input(question, ''), tours: { ok: true, tours: [WINTER, AVA] } })).toBeNull();
+
+    // Список по-прежнему пишет витрина, и «туры, кроме «…»» — тоже список.
+    expect(namedTourInQuestion('Какие туры есть, кроме «Восхождение на Авачинский»?')).toBeNull();
     expect(composeCommercial(input('Какие туры на вулканы есть осенью?', ''))?.visible).toContain('Восхождение на Авачинский');
   });
 

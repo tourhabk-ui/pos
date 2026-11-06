@@ -12,6 +12,7 @@
 import { isCarRentalAsk, isSightseeingQuestion, wantsTourCards } from '@/lib/ai/booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { calendarDay, ruDate, seasonAccusative } from '@/lib/kuzmich/season-window';
+import { namedTourInQuestion } from '@/lib/kuzmich/tour-ask';
 import { rentalPauseForTourist } from '@/lib/rental/site-pause';
 import { touristRentalText } from '@/lib/telegram/tourist-keyboard';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
@@ -642,7 +643,8 @@ export function commercialSources(question: string): {
   }
   const stays = isLodgingAsk(question);
   return {
-    tours: asksTourOffer(question),
+    // Один названный тур — вопрос модели с get_tour_details, витрину не читаем.
+    tours: asksTourOffer(question) && namedTourInQuestion(question) === null,
     transfers: isTransferAsk(question),
     stays,
     stayZones: stays ? placeNeedles(question) : [],
@@ -655,7 +657,11 @@ export function composeCommercial(input: ComposeInput): CommercialAnswer | null 
   if (isCarRentalAsk(input.question) && !follow) return composeRental(input);
   if (isTransferAsk(input.question) && !follow) return composeTransfers(input);
   if (isLodgingAsk(input.question) && !follow) return composeStays(input);
-  if (asksTourOffer(input.question) && !follow) return composeTours(input);
+  if (asksTourOffer(input.question) && !follow) {
+    // «Расскажи про тур «…»» с карточки тура — про один тур, а не список:
+    // отвечает модель по карточке (lib/kuzmich/tour-ask.ts, чат гостя 07.11).
+    return namedTourInQuestion(input.question) === null ? composeTours(input) : null;
+  }
   if (follow) return composeFollowUp(input);
   return null;
 }
