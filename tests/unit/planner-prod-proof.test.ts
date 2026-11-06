@@ -313,3 +313,16 @@ describe('что план говорит о себе (аудит планиро�
     expect(heliNote(twoDays)).not.toMatch(/добавлен запасной день/);
   });
 });
+
+describe('несколько интересов в одной зоне: у каждого свои туры (независимая проверка 07.11, Б1)', () => {
+  it('день рыбалки получает тур рыбалки, день вулкана — тур вулкана', async () => {
+    TOURS = { 'avachinsky:volcano': [GORELY, AVACHA], 'avachinsky:fishing': [FISHING] };
+    SLOTS = { 't-gor': 10, 't-ava': 10, 't-fish-ava': 10 };
+    const rec = await recommendTrip({ ...PROOF, departureDate: `${NEXT_JULY}-07-16` });
+    const kinds: Record<string, string> = { 't-gor': 'volcano', 't-ava': 'volcano', 't-fish-ava': 'fishing' };
+    const withTour = activity(rec).filter((d) => d.realTour);
+    expect(withTour.length).toBeGreaterThan(0);
+    for (const d of withTour) expect([d.title, kinds[d.realTour!.tourId]]).toEqual([d.title, d.activityType]);
+    expect(withTour.some((d) => d.activityType === 'fishing' && d.realTour?.tourId === 't-fish-ava')).toBe(true);
+  });
+});
