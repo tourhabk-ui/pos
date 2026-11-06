@@ -100,6 +100,46 @@ jobs:
         with:
           fetch-depth: 2
 
+      # Платное ревью — только там, где ошибка стоит денег, входа или
+      # персональных данных (владелец 07.11: «быстро» — баланс OpenRouter таял
+      # на ревью каждого PR, около доллара за прогон). PR, где меняются только
+      # интерфейс, тесты, документы или прочий код, модель не зовут; нужно —
+      # метка `security-review`. Бесплатный CodeQL (security-extended) смотрит
+      # каждый PR, как и прежде. Фильтр `paths` вверху так не умеет: он
+      # отсекает и запуск по метке. Список файлов не прочитан — ревью идёт:
+      # «не смог проверить» не равно «можно не проверять» (§4.0).
+      - name: Нужно ли ревью
+        id: scope
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        env:
+          LABELED: ${{ github.event.action == 'labeled' }}
+          # Обработчики запросов где угодно под app/ (не только app/api:
+          # .well-known с OAuth, video с путём от человека), вход и роли,
+          # оплата, MCP, данные людей (лиды, брони, CRM, админка,
+          # уведомления, шифрование), сторожа 152-ФЗ, workflow.
+          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/auth\.ts$|lib/auth/|lib/roles/|lib/account/|lib/api/|lib/payments/|lib/security/|lib/encryption\.ts$|lib/mcp/|lib/crm/|lib/admin/|lib/leads/|lib/bookings/|lib/notifications/|lib/max/|lib/miniapp/|lib/agents/compliance/|\.github/workflows/)'
+        run: |
+          if [ "$LABELED" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Ревью по метке security-review."
+            exit 0
+          fi
+          # quotePath=false: иначе git берёт путь с кириллицей в кавычки с
+          # восьмеричными кодами, и якорь ^ не срабатывает (lib/auth/вход.ts
+          # прошёл бы как «не чувствительный»).
+          if ! CHANGED=$(git -c core.quotePath=false diff --name-only HEAD^1 HEAD); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Список файлов PR не прочитан — ревью идёт."
+            exit 0
+          fi
+          if printf '%s\n' "$CHANGED" | grep -qE "$SENSITIVE"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "PR трогает чувствительные пути — ревью идёт."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Ревью безопасности не запускалось: PR не трогает обработчики запросов, вход, оплату, MCP, данные людей и workflow. Нужно — повесьте метку security-review."
+          fi
+
       # Ревьюер не получает настроек Claude Code из репозитория. В
       # .claude/settings.json разрешены curl, npm и git для разработчика, а
       # ревьюер читает дифф PR — недоверенный текст — с ключом API в окружении:
@@ -113,11 +153,11 @@ jobs:
       # (разбор расхода 07.11). Правила ПД держат детерминированные сторожа CI.
       # Удаляется только из рабочей копии раннера, репозиторий не меняется.
       - name: Настройки Claude Code репозитория — не ревьюеру
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        if: ${{ env.ANTHROPIC_API_KEY != '' && steps.scope.outputs.run == 'true' }}
         run: rm -f .claude/settings.json .claude/settings.local.json CLAUDE.md
 
       - name: Claude security review
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        if: ${{ env.ANTHROPIC_API_KEY != '' && steps.scope.outputs.run == 'true' }}
         uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
         with:
           claude-api-key: ${{ env.ANTHROPIC_API_KEY }}
@@ -136,7 +176,7 @@ jobs:
       # «находок нет». Текст ошибки — одной строкой: перевод строки в нём
       # начал бы новую команду workflow.
       - name: Ревью состоялось
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        if: ${{ env.ANTHROPIC_API_KEY != '' && steps.scope.outputs.run == 'true' }}
         run: |
           F=claudecode-results.json
           if [ ! -s "$F" ]; then

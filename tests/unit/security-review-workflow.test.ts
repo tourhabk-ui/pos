@@ -13,8 +13,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadWorkflow, stepByName, evalIf } from '../helpers/workflow-semantics';
 
@@ -24,7 +24,8 @@ const review = stepByName(job, 'Claude security review');
 const verdict = stepByName(job, 'Ревью состоялось');
 const skip = stepByName(job, 'Ключ не задан — пропуск');
 
-const withKey = { env: { ANTHROPIC_API_KEY: 'sk-ant-test' } };
+// Ключ есть и шаг «Нужно ли ревью» решил, что ревью нужно (07.11).
+const withKey = { env: { ANTHROPIC_API_KEY: 'sk-ant-test' }, steps: { scope: { outputs: { run: 'true' } } } };
 const noKey = { env: { ANTHROPIC_API_KEY: '' } };
 
 /** Шаг «Ревью состоялось» на подложенном итоге экшена; null — файла нет. */
@@ -185,5 +186,79 @@ describe('security-review: триггер и права', () => {
     expect(evalIf(job.if, labeled('security-review'))).toBe(true);
     expect(evalIf(job.if, labeled('triaged'))).toBe(false);
     expect(evalIf(job.if, { github: { event: { action: 'opened' } } })).toBe(true);
+  });
+});
+
+describe('платное ревью — только где ошибка стоит денег, входа или ПД (07.11, «быстро»)', () => {
+  const scope = stepByName(job, 'Нужно ли ревью');
+  const scopeEnv = (scope as { env?: Record<string, string> }).env ?? {};
+
+  /** Шаг «Нужно ли ревью» настоящим bash: PR — один коммит с этими файлами поверх базы. */
+  function runScope(files: string[] | null, labeled: boolean): { run: string; out: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'secscope-'));
+    try {
+      if (files !== null) {
+        const git = (...a: string[]) => spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...a], { cwd: dir, encoding: 'utf-8' });
+        git('init', '-q');
+        git('commit', '-q', '--allow-empty', '-m', 'база');
+        for (const f of files) {
+          mkdirSync(dirname(join(dir, f)), { recursive: true });
+          writeFileSync(join(dir, f), 'x');
+        }
+        git('add', '-A');
+        git('commit', '-q', '-m', 'PR');
+      }
+      const out = join(dir, 'github_output');
+      const r = spawnSync('bash', ['-e', '-c', scope.run ?? ''], {
+        cwd: dir, encoding: 'utf-8',
+        env: { ...process.env, LABELED: String(labeled), SENSITIVE: scopeEnv.SENSITIVE ?? '', GITHUB_OUTPUT: out },
+      });
+      const run = existsSync(out) ? (/run=(\w+)/.exec(readFileSync(out, 'utf-8'))?.[1] ?? '') : '';
+      return { run, out: `${r.stdout}${r.stderr}` };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('API, вход, оплата, MCP, ПД и workflow — ревью идёт', () => {
+    for (const f of [
+      'app/api/bookings/route.ts', 'middleware.ts', 'lib/auth.ts', 'lib/auth/middleware.ts',
+      'lib/payments/commission.ts', 'lib/mcp/write-guard.ts', 'lib/notifications/pd-alert.ts',
+      'lib/max/webhook-url.ts', '.github/workflows/ci.yml',
+      // Ревью PR #3087: обработчики вне app/api, OAuth-доверие, шифрование,
+      // роли, контакты броней — и путь с кириллицей (git берёт его в кавычки).
+      'app/.well-known/oauth-authorization-server/route.ts', 'app/video/[...path]/route.ts',
+      'lib/crm/partner-oauth-public.ts', 'lib/encryption.ts', 'lib/roles/role-telegram.ts',
+      'lib/admin/booking-contact.ts', 'lib/leads/create.ts', 'lib/bookings/auto-confirm.ts',
+      'lib/auth/вход.ts', 'app/api/оплата/route.ts',
+    ]) {
+      expect([f, runScope([f], false).run]).toEqual([f, 'true']);
+    }
+  });
+
+  it('интерфейс, тесты и движок — модель не зовут, и это сказано', () => {
+    const r = runScope(['app/planner/_PlannerClient.tsx', 'tests/unit/x.test.ts', 'lib/planner/engine.ts'], false);
+    expect(r.run).toBe('false');
+    expect(r.out).toMatch(/метку security-review/);
+  });
+
+  it('по метке — ревью идёт всегда', () => {
+    expect(runScope(['tests/unit/x.test.ts'], true).run).toBe('true');
+  });
+
+  it('список файлов не прочитан — ревью идёт, а не «можно не проверять»', () => {
+    const r = runScope(null, false);
+    expect(r.run).toBe('true');
+    expect(r.out).toMatch(/не прочитан/);
+  });
+
+  it('шаги ревью, настроек и итога идут только при run=true', () => {
+    const off = { env: { ANTHROPIC_API_KEY: 'sk-ant-test' }, steps: { scope: { outputs: { run: 'false' } } } };
+    for (const name of ['Настройки Claude Code репозитория — не ревьюеру', 'Claude security review', 'Ревью состоялось']) {
+      expect([name, evalIf(stepByName(job, name).if, off)]).toEqual([name, false]);
+      expect([name, evalIf(stepByName(job, name).if, withKey)]).toEqual([name, true]);
+    }
+    const names = (job.steps ?? []).map((st) => st.name);
+    expect(names.indexOf('Нужно ли ревью')).toBeLessThan(names.indexOf('Claude security review'));
   });
 });
