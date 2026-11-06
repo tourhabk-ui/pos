@@ -7,6 +7,13 @@
  * денег, когда в последний раз что-то сделала. Род — productive / idle /
  * unmeasured / silent / no_telemetry (lib/agents/agents-value-census).
  *
+ * Деньги — из книг llm_usage_log, не из журнала (v2, 05.11): у каждой записи
+ * поле `llm`, рядом `llm_unattributed` (вызов без агента) и
+ * `llm_outside_registry` (агенты вне реестра — Кузьмич, оценщики, «руки»).
+ * v3 (06.11): `llm_by_agent_model` — пары «агент × модель», самые частые
+ * первыми, не больше LLM_BY_MODEL_LIMIT: какая модель осталась без цены и чем
+ * тратит дорогой агент.
+ *
  * Только чтение, только числа — ПД нет. Ручной: зовёт проба (prod-check),
  * объявлен в lib/agents/cron-schedulers.ts.
  */
