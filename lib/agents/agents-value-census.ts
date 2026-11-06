@@ -104,6 +104,63 @@ export const LLM_SPEND_SQL = `
    WHERE created_at > NOW() - make_interval(days => $1::int)
    GROUP BY agent_id`;
 
+/**
+ * Книги по агенту И модели (06.11, владелец: «Делай»): какие модели остались
+ * без цены (14,7 тыс. вызовов за 30 дней не оценены) и какой моделью тратит
+ * каждый дорогой агент. `route` в llm_usage_log — это id модели (logLLMUsage).
+ * Дни — число календарных дней с вызовами: «одна неделя» и «весь месяц» —
+ * разные истории за одни деньги. Потолок строк — LLM_BY_MODEL_LIMIT,
+ * самые частые первыми.
+ */
+export const LLM_BY_MODEL_LIMIT = 40;
+export const LLM_SPEND_BY_MODEL_SQL = `
+  SELECT agent_id,
+         route                                                    AS model,
+         COUNT(*)::int                                            AS calls,
+         SUM(estimated_cost_usd)::numeric(14, 6)                  AS cost_usd,
+         COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::int  AS unpriced_calls,
+         COUNT(DISTINCT (created_at AT TIME ZONE 'UTC')::date)::int AS days_active,
+         MIN(created_at)                                          AS first_at,
+         MAX(created_at)                                          AS last_at
+    FROM llm_usage_log
+   WHERE created_at > NOW() - make_interval(days => $1::int)
+   GROUP BY agent_id, route
+   ORDER BY COUNT(*) DESC, route
+   LIMIT ${LLM_BY_MODEL_LIMIT}`;
+
+export interface AgentModelSpend extends AgentLlmSpend {
+  agent_id: string | null;
+  model: string;
+  days_active: number;
+  first_at: string | null;
+  last_at: string | null;
+}
+
+interface RawModelSpendRow {
+  agent_id: string | null;
+  model: string;
+  calls: number | string;
+  cost_usd: string | number | null;
+  unpriced_calls: number | string;
+  days_active: number | string;
+  first_at: Date | string | null;
+  last_at: Date | string | null;
+}
+
+export function toModelSpend(r: RawModelSpendRow): AgentModelSpend {
+  const at = (v: Date | string | null) => (v === null ? null : (v instanceof Date ? v : new Date(v)).toISOString());
+  return {
+    agent_id: r.agent_id,
+    model: r.model,
+    calls: Number(r.calls),
+    cost_usd: r.cost_usd === null ? null : Number(r.cost_usd),
+    unpriced_calls: Number(r.unpriced_calls),
+    days_active: Number(r.days_active),
+    first_at: at(r.first_at),
+    last_at: at(r.last_at),
+  };
+}
+
 interface RawSpendRow {
   agent_id: string | null;
   calls: number | string;
@@ -182,6 +239,8 @@ export interface AgentsValueCensus {
   llm_unattributed: AgentLlmSpend | null;
   /** Расход агентов, которых нет в реестре кронов (Кузьмич, оценщики и т.п.). */
   llm_outside_registry: Array<{ agent_id: string } & AgentLlmSpend>;
+  /** Книги по агенту и модели, самые частые первыми, не больше LLM_BY_MODEL_LIMIT. */
+  llm_by_agent_model: AgentModelSpend[];
 }
 
 /** Делит книги на реестр, «без хозяина» и «вне реестра» — чистая функция. */
@@ -203,14 +262,16 @@ export function splitSpend(
 }
 
 export async function readAgentsValueCensus(days: number): Promise<AgentsValueCensus> {
-  const [runs, spend] = await Promise.all([
+  const [runs, spend, byModel] = await Promise.all([
     pool.query<RawRow>(AGENT_RUNS_SQL, [days]),
     pool.query<RawSpendRow>(LLM_SPEND_SQL, [days]),
+    pool.query<RawModelSpendRow>(LLM_SPEND_BY_MODEL_SQL, [days]),
   ]);
   const split = splitSpend(spend.rows.map((r) => ({ agent_id: r.agent_id, ...toSpend(r) })));
   return {
     items: joinWithRegistry(new Map(runs.rows.map((r) => [r.agent_id, toStats(r)])), split.byId),
     llm_unattributed: split.unattributed,
     llm_outside_registry: split.outside,
+    llm_by_agent_model: byModel.rows.map(toModelSpend),
   };
 }
