@@ -19,6 +19,8 @@
  * Налычево, и город.
  */
 
+import { PARK_CLOSURE_DEFAULT_HOURS, PARK_CLOSURE_MAX_HOURS, PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure-terms';
+
 /**
  * Слаг парка из справочника `parks` → как парк называют в новостях.
  *
@@ -85,10 +87,36 @@ const REOPEN_RE = new RegExp(
     'вновь\\s+открыт',
     'снят[ыо]?\\s+ограничени',
     'открыт[ыо]?\\s+для\\s+посещени',
-    // «летние маршруты открыты», «маршруты парка открыты»
-    'маршрут[а-яё]*\\s+(?:[а-яё]+\\s+)?открыт',
+    // «летние маршруты открыты», «маршруты парка открыты». Граница слова
+    // явная: «маршруты до открытия сезона закрыты» — не открытие (ревью 06.11).
+    'маршрут[а-яё]*\\s+(?:[а-яё]+\\s+)?открыт[ыоа]?(?![а-яё])',
   ].join('|'),
 );
+/**
+ * Открытие в будущем — не открытие (06.11). «Закрыты на период межсезонья,
+ * зимние маршруты будут открыты с 1 декабря» — это объявление закрытия с
+ * датой конца, а не отмена закрытия. Ветка `маршрут… открыт` ловила «будут
+ * открыты», и такой текст уходил мимо парка в дорожную ветку — то есть
+ * закрытие всех маршрутов парка не красило ни одного его места.
+ *
+ * Вычёркивается сам оборот будущего, а не всё предложение: «посещение вновь
+ * открыто, а маршрут на Корякский вулкан откроется позже» — открытие сейчас,
+ * и оговорка о другом маршруте его не отменяет (ревью 06.11).
+ */
+const FUTURE_OPENING_SRC =
+  '(?:будут|будет|планиру[а-яё]*|намечен[а-яё]*)\\s+(?:[а-яё]+\\s+)?(?:открыт|возобновл)[а-яё]*|откро(?:ют|ет|ется|ются)(?![а-яё])';
+const FUTURE_OPENING_G = new RegExp(FUTURE_OPENING_SRC, 'g');
+
+/** Предложения текста: граница — точка, «!», «?», «;» и перевод строки. */
+function sentencesOf(lower: string): string[] {
+  return lower.split(/[.!?;\n]+/);
+}
+
+/** Есть ли в тексте открытие, случившееся сейчас (будущее время вычеркнуто). */
+function isReopeningNow(lower: string): boolean {
+  return sentencesOf(lower).some((s) => REOPEN_RE.test(s.replace(FUTURE_OPENING_G, ' ')));
+}
+
 /**
  * Закрыт конкретный маршрут: «закрыты автомобильный маршрут „…“». Фраза «на
  * всех территориях природных парков» этим правилом не отменяется: в сводке
@@ -117,7 +145,7 @@ export interface ParkClosure {
 export function detectParkClosure(text: string): ParkClosure | null {
   const lower = text.toLowerCase();
   if (!/парк|заповедник/.test(lower)) return null;
-  if (REOPEN_RE.test(lower)) return null;
+  if (isReopeningNow(lower)) return null;
   const allNaturalParks = ALL_NATURAL_PARKS_RE.test(lower);
   if (!allNaturalParks && ONE_ROUTE_RE.test(lower)) return null;
   if (!CLOSURE_RE.test(lower)) return null;
@@ -132,34 +160,118 @@ const MONTHS: Record<string, number> = {
   января: 0, февраля: 1, марта: 2, апреля: 3, мая: 4, июня: 5,
   июля: 6, августа: 7, сентября: 8, октября: 9, ноября: 10, декабря: 11,
 };
+const MONTH_ALT = 'января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря';
 
-/** Срок без названной даты: решение переиздают, двое суток хватает до следующего. */
-export const PARK_CLOSURE_DEFAULT_HOURS = 48;
-/** Потолок: названная дата дальше двух недель — скорее опечатка, чем решение. */
-export const PARK_CLOSURE_MAX_HOURS = 14 * 24;
+export { PARK_CLOSURE_DEFAULT_HOURS, PARK_CLOSURE_MAX_HOURS, PARK_CLOSURE_HOLD_HOURS };
+
+/**
+ * Обороты закрытия без даты конца. Судятся в том же предложении, что и
+ * глагол закрытия и сам парк: «из-за циклона приостановлено посещение
+ * парка… Напоминаем, что в зимний период выход на маршруты без регистрации
+ * запрещён» — оперативное закрытие с правилом посещения, а не сезонное
+ * (ревью 06.11). Во втором предложении есть и «запрещён», и «зимний
+ * период», но парка нет — это правило, а не решение о парке.
+ */
+const INDEFINITE_RE = new RegExp(
+  [
+    'межсезон',
+    '(?:на|в)\\s+(?:период\\s+)?(?:зимн|летн|осенн|весенн)[а-яё-]*\\s+(?:сезон|период)',
+    'до\\s+(?:открыти|начал)[а-яё]*\\s+(?:[а-яё]+\\s+){0,2}сезон',
+    'до\\s+установлени[а-яё]*\\s+(?:[а-яё]+\\s+)?снежн[а-яё]*\\s+покров',
+    'до\\s+особого\\s+распоряжени',
+    'до\\s+(?:дальнейш|отдельн)[а-яё]*\\s+(?:уведомлени|распоряжени|решени)',
+  ].join('|'),
+);
+
+/** Закрытие без даты конца: оборот стоит в предложении с глаголом закрытия и парком. */
+export function isIndefiniteClosure(text: string): boolean {
+  return sentencesOf(text.toLowerCase())
+    .some((s) => /парк|заповедник/.test(s) && CLOSURE_RE.test(s) && INDEFINITE_RE.test(s));
+}
+
+/** Полдень UTC названного дня = конец этого дня по Камчатке (UTC+12). */
+function kamchatkaDayEndUtc(year: number, month: number, day: number): number {
+  return Date.UTC(year, month, day, 12, 0, 0);
+}
+
+/** Дальше полугода дата, перенесённая на следующий год, — прошедшая. */
+const ROLLED_FUTURE_MAX_HOURS = 183 * 24;
+
+interface NamedEnd {
+  /** Конец закрытия, мс UTC. */
+  end: number;
+  /** Дата перенесена на следующий год («до 5 января» в декабре). */
+  rolled: boolean;
+}
+
+function endOf(day: number, month: number, shift: number, publishedMs: number): NamedEnd {
+  const year = new Date(publishedMs).getUTCFullYear();
+  const end = kamchatkaDayEndUtc(year, month, day + shift);
+  if (end < publishedMs - 30 * 86_400_000) {
+    return { end: kamchatkaDayEndUtc(year + 1, month, day + shift), rolled: true };
+  }
+  return { end, rolled: false };
+}
+
+/** Оборот о маршрутах, посещении или сезоне — дата открытия должна быть о них. */
+const OPENING_SUBJECT_RE = /маршрут|посещени|сезон/;
+/** Открытие, объявленное вперёд: «будут открыты», «откроются», «открытие». */
+const OPENING_AHEAD_RE = new RegExp(`${FUTURE_OPENING_SRC}|открыти[еяю]`);
+const DATE_RE = new RegExp(`(\\d{1,2})\\s+(${MONTH_ALT})`, 'g');
+
+/**
+ * Конец закрытия, названный в тексте, или null.
+ *
+ *  - «до 1 октября» — включительно: до конца этого дня по Камчатке;
+ *  - дата объявленного открытия маршрутов, посещения или сезона — закрыто
+ *    до начала этого дня: «будут открыты с 1 декабря», «С 1 декабря
+ *    откроются зимние маршруты», «откроются 1 декабря», «открытие зимних
+ *    маршрутов — 1 декабря». Дата из того же предложения, что и оборот
+ *    открытия: «визит-центр парка открыт с 7 ноября» — не про маршруты и
+ *    срок закрытия не задаёт (ревью 06.11).
+ */
+function namedClosureEnd(lower: string, publishedMs: number): NamedEnd | null {
+  const until = lower.match(new RegExp(`до\\s+(\\d{1,2})\\s+(${MONTH_ALT})`));
+  if (until) return endOf(Number(until[1]), MONTHS[until[2]], 0, publishedMs);
+  for (const s of sentencesOf(lower)) {
+    if (!OPENING_AHEAD_RE.test(s) || !OPENING_SUBJECT_RE.test(s)) continue;
+    for (const m of s.matchAll(DATE_RE)) {
+      const before = s.slice(Math.max(0, (m.index ?? 0) - 4), m.index ?? 0);
+      if (/до\s+$/.test(before)) continue;
+      return endOf(Number(m[1]), MONTHS[m[2]], -1, publishedMs);
+    }
+  }
+  return null;
+}
 
 /**
  * Сколько часов держать закрытие от момента публикации.
  *
- * «До 1 октября» — включительно: закрытие живёт до конца этого дня по
- * Камчатке (UTC+12). Даты нет, она в прошлом или дальше потолка — срок по
- * умолчанию. Ошибиться в сторону «закрыто дольше» безопаснее, но потолок
- * держит опечатку от недели красного статуса.
+ *  - названная дата в пределах 60 суток — до неё;
+ *  - дата дальше потолка — закрытие держится как сезонное; но если она
+ *    ушла переносом на следующий год дальше чем на полгода, это дата в
+ *    прошлом;
+ *  - дата в прошлом (конец, названный источником, уже наступил, в том числе
+ *    объявленное открытие) — двое суток, как было до правила 06.11;
+ *  - даты нет, закрытие сезонное или «до особого распоряжения» — 21 сутки
+ *    (`PARK_CLOSURE_HOLD_HOURS`), продлевается каждой сводкой с ним;
+ *  - даты нет, закрытие оперативное (циклон) — 48 ч; у недельной сводки
+ *    его поднимает до 168 ч seismic-parser.
  */
 export function parkClosureHours(text: string, publishedAt: Date): number {
-  const m = text.toLowerCase().match(/до\s+(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)/);
-  if (!m || Number.isNaN(publishedAt.getTime())) return PARK_CLOSURE_DEFAULT_HOURS;
-  const day = Number(m[1]);
-  const month = MONTHS[m[2]];
-  // Конец названного дня по Камчатке (UTC+12) — это 12:00 UTC того же дня.
-  let year = publishedAt.getUTCFullYear();
-  let end = Date.UTC(year, month, day, 12, 0, 0);
-  // «До 5 января», опубликовано в декабре — это следующий год.
-  if (end < publishedAt.getTime() - 30 * 86_400_000) {
-    year += 1;
-    end = Date.UTC(year, month, day, 12, 0, 0);
+  const lower = text.toLowerCase();
+  const publishedMs = publishedAt.getTime();
+  const indefinite = isIndefiniteClosure(lower);
+  if (Number.isNaN(publishedMs)) return indefinite ? PARK_CLOSURE_HOLD_HOURS : PARK_CLOSURE_DEFAULT_HOURS;
+  const named = namedClosureEnd(lower, publishedMs);
+  if (named === null) return indefinite ? PARK_CLOSURE_HOLD_HOURS : PARK_CLOSURE_DEFAULT_HOURS;
+  const hours = Math.ceil((named.end - publishedMs) / 3_600_000);
+  if (hours <= 0) return PARK_CLOSURE_DEFAULT_HOURS;
+  // Дальше потолка. Перенос на следующий год больше чем на полгода — это
+  // прошедшая дата («ранее был закрыт до 1 октября» в ноябре), а не
+  // закрытие на год вперёд; «до 1 марта» в ноябре — длинное закрытие.
+  if (hours > PARK_CLOSURE_MAX_HOURS) {
+    return named.rolled && hours > ROLLED_FUTURE_MAX_HOURS ? PARK_CLOSURE_DEFAULT_HOURS : PARK_CLOSURE_HOLD_HOURS;
   }
-  const hours = Math.ceil((end - publishedAt.getTime()) / 3_600_000);
-  if (hours <= 0 || hours > PARK_CLOSURE_MAX_HOURS) return PARK_CLOSURE_DEFAULT_HOURS;
   return hours;
 }

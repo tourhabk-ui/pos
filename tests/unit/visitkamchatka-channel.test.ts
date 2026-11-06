@@ -38,7 +38,7 @@ import {
 import {
   isMinturBulletin, ingestNewsFeeds, NEWS_FEED_PREFIXES, VISITKAMCHATKA_PREFIX, detectRoadRestriction,
 } from '@/lib/services/safety/seismic-parser';
-import { detectParkClosure } from '@/lib/safety/park-closure';
+import { detectParkClosure, PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { alertOrigin } from '@/lib/safety/alert-origin';
 import { SAFETY_SOURCE_EXPECTATIONS } from '@/lib/services/safety/source-health';
 
@@ -172,7 +172,10 @@ describe('сводка 21.10 — два пункта о разных парка�
     const kl = parks.find((e) => e.affected_parks?.includes('klyuchevskoy'))!;
     expect(kl).toBeTruthy();
     expect(kl.affected_parks).toEqual(['klyuchevskoy']);
-    expect(kl.expires_hours).toBe(168);
+    // «На зимний сезон» — закрытие без даты конца: держится 21 сутки от
+    // публикации, повтор сводки продлевает (решение владельца 06.11), а не
+    // неделю — иначе посреди сезона парк зеленел бы при закрытых маршрутах.
+    expect(kl.expires_hours).toBe(PARK_CLOSURE_HOLD_HOURS);
     expect(events.some((e) => e.alert_type === 'road_closure' && /Ключевской/.test(e.title))).toBe(false);
   });
 

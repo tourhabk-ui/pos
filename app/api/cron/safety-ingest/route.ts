@@ -12,6 +12,8 @@ import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
+import { holdParkClosures, type ParkHoldResult } from '@/lib/services/safety/park-closure-hold';
+import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { ingestMeteoalert } from '@/lib/services/safety/meteoalert';
 import { query, transaction } from '@/lib/database';
@@ -524,8 +526,9 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: n
       magnitude: string | null;
       title: string;
       description: string | null;
+      affected_parks: string[] | null;
     }>(`
-      SELECT id, alert_type, severity, magnitude, title, description
+      SELECT id, alert_type, severity, magnitude, title, description, affected_parks
       FROM external_alerts
       -- road_closure убран из push (решение владельца 06.09, отменяет #836):
       -- одно и то же ограничение приходит сразу с нескольких источников
@@ -577,6 +580,8 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: n
       //     нести другую волну и другое время подхода, и цена ошибки в этом
       //     типе не такая, как в остальных.
       if (alert.alert_type !== 'tsunami_warning') {
+        // Закрытие парка глушится только закрытием тех же парков (06.11,
+        // push-same-kind.ts): тип один, а парки разные.
         const louder = await pool.query<{ id: number }>(
           `SELECT id FROM external_alerts
             WHERE alert_type = $1
@@ -584,8 +589,9 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: n
               AND push_sent_at IS NOT NULL
               AND expires_at > ${UTC_WALL_NOW_SQL}
               AND COALESCE(severity, 0) >= COALESCE($3::int, 0)
+              AND ${sameParksSql('$4')}
             LIMIT 1`,
-          [alert.alert_type, alert.id, alert.severity]
+          [alert.alert_type, alert.id, alert.severity, sameParksParam(alert)]
         );
         if ((louder.rowCount ?? 0) > 0) {
           const reason = `дубль по типу ${alert.alert_type}: push об алерте ${louder.rows[0].id} уже разослан и ещё действует`;
@@ -759,6 +765,9 @@ function buildResponse(
   // Предупреждения, назвавшие свой день: сколько живых проверено и скольким
   // срок сокращён до конца этого дня (lib/safety/dated-warning.ts).
   datedCaps?: DatedCapResult | { error: string },
+  // Сезонные закрытия парков: сколько живых проверено и скольким срок
+  // продлён правилом 06.11 (park-closure-hold.ts).
+  parkHolds?: ParkHoldResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -778,6 +787,7 @@ function buildResponse(
     ...(roadAnchors && 'error' in roadAnchors && roadAnchors.error ? [roadAnchors.error] : []),
     ...(volcanoAnchors && 'error' in volcanoAnchors && volcanoAnchors.error ? [volcanoAnchors.error] : []),
     ...(datedCaps && 'error' in datedCaps ? [datedCaps.error] : []),
+    ...(parkHolds && 'error' in parkHolds ? [parkHolds.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -895,6 +905,7 @@ function buildResponse(
     // по разным причинам чинится по-разному.
     road_anchors: roadAnchors ?? null,
     dated_caps: datedCaps ?? null,
+    park_holds: parkHolds ?? null,
     // Вулканическая привязка теми же тремя исходами: привязано / имя
     // неоднозначно / такого вулкана нет в каталоге. Непривязанное извержение
     // не красит места — цифра здесь единственный способ это заметить.
@@ -1144,6 +1155,10 @@ async function runGet(t0: number, startedAt: Date, pending: Set<string>): Promis
   // ДО пересчёта статуса: предупреждение «на 3 октября» после конца дня не
   // должно красить места ещё один прогон.
   const datedCaps = await tracked(pending, 'dated-cap', safely('dated-cap', () => capDatedWarnings(query)));
+  // Тем же порядком: сезонное закрытие парка, записанное до правила 06.11,
+  // должно держаться по новому сроку уже в этом пересчёте, а не гаснуть
+  // по прежнему недельному сроку (park-closure-hold.ts).
+  const parkHolds = await tracked(pending, 'park-hold', safely('park-hold', () => holdParkClosures(query)));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
@@ -1257,7 +1272,7 @@ async function runGet(t0: number, startedAt: Date, pending: Set<string>): Promis
         skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
         problems: emsdOk ? emsdResult.table.problems : [],
       },
-    }, pruned, roadAnchors, volcanoAnchors, datedCaps);
+    }, pruned, roadAnchors, volcanoAnchors, datedCaps, parkHolds);
 }
 
 const HtmlBodySchema = z.object({
@@ -1437,6 +1452,7 @@ export async function POST(req: Request) {
   // ДО пересчёта статуса: предупреждение «на 3 октября» после конца дня не
   // должно красить места ещё один прогон.
   const datedCaps = await safely('dated-cap', () => capDatedWarnings(query));
+  const parkHolds = await safely('park-hold', () => holdParkClosures(query));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
@@ -1489,5 +1505,5 @@ export async function POST(req: Request) {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms', 'meteoalert'],
     knownDormantSources: knownDormantPost,
     roadBasisNeeded,
-  }, pruned, roadAnchors, volcanoAnchors, datedCaps);
+  }, pruned, roadAnchors, volcanoAnchors, datedCaps, parkHolds);
 }
