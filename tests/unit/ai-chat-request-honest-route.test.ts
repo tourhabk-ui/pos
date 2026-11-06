@@ -109,6 +109,8 @@ describe('POST /api/ai/chat — исход заявки человеку', () =>
     expect(a).toContain('Тур в заявке: «Мутновский вулкан»');
     expect(runPublicToolMock).toHaveBeenCalledTimes(1);
     expect(runPublicToolMock.mock.calls[0]![0]).toMatchObject({ toolName: 'create_booking_request', rawArguments: { participants: 2, date: '2099-11-09' } });
+    // Согласие дал человек в нашем веб-чате, а не агент (06.11): канал чата.
+    expect(runPublicToolMock.mock.calls[0]![0]).toMatchObject({ consentFrom: { source: 'kuzmich-web' } });
   });
 
   it('быстрый путь: исполнитель упал после начала записи — «не могу подтвердить», без повтора', async () => {

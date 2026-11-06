@@ -13,7 +13,7 @@ import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
 import { sendTouristMail } from '@/lib/notifications/tourist-mail';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
-import { buildConsentRecord } from '@/lib/legal/pd-consent';
+import { bookingConsentSource, buildConsentRecord } from '@/lib/legal/pd-consent';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
 import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 import { autoConfirmIfAllowed } from '@/lib/bookings/auto-confirm';
@@ -47,15 +47,14 @@ const BookingSchema = z.object({
   booking_date:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат даты: YYYY-MM-DD'),
   special_requests:   z.string().max(2000).optional(),
   /**
-   * Согласие на обработку ПД — ОПЦИОНАЛЬНО, и это не послабление.
+   * Согласие на обработку ПД. В схеме — необязательное, потому что вошедшему
+   * его не задают (ниже); у анонима без `true` бронь не создаётся вовсе —
+   * на любой поверхности (06.11).
    *
-   * У эндпоинта пять клиентов: форма тура, корзина, Кузьмич, виджет Кузьмича
-   * и `/p/[code]`. Форма с галочкой есть ровно у первого; жёсткое
-   * `z.literal(true)`, как на `/api/leads`, сломало бы четырёх разом.
-   *
-   * Отсутствие согласия записывается как NULL — «не спрашивали», а не
-   * «отказано» (§4.0). Различить их в базе можно запросом, а выдать молчание
-   * бота за согласие человека нельзя.
+   * У эндпоинта пять клиентов: форма тура, корзина, страница Кузьмича, виджет
+   * Кузьмича и подборка `/p/[code]`; галочка есть у всех пяти. Отсутствие
+   * согласия у вошедшего записывается как NULL — «не спрашивали», а не
+   * «отказано» (§4.0).
    */
   pd_consent:         z.boolean().optional(),
   /**
@@ -139,10 +138,13 @@ export async function POST(req: NextRequest) {
   const authedUser = await getUserFromRequest(req);
   const userId = authedUser?.userId ?? null;
 
-  // Внешний вызов API (не наши поверхности, не вошедший юзер) — согласие на
-  // ПД обязательно, как в форме тура (152-ФЗ). Свои поверхности помечены
-  // X-Vedar-Client; у Кузьмича/корзины свой разговор о согласии (см. выше).
-  if (userId === null && !req.headers.get('x-vedar-client') && data.pd_consent !== true) {
+  // Аноним без согласия на ПД брони не заводит — ни через API, ни с формы
+  // Ведара (152-ФЗ). До 06.11 своя поверхность пропускалась по заголовку
+  // X-Vedar-Client: подборка /p/[code] слала имя и телефон без галочки, и
+  // так же написан виджет Кузьмича (на сайте он сейчас не рисуется);
+  // подделать заголовок мог любой. Теперь заголовок — только заявленный
+  // клиентом канал согласия (bookingConsentSource), а не пропуск.
+  if (userId === null && data.pd_consent !== true) {
     await rejected('INVALID_FORM', tourId);
     return NextResponse.json(
       { created: false, error: 'Нужно согласие на обработку персональных данных: pd_consent: true (https://vedarai.ru/legal/privacy).', field: 'pd_consent' },
@@ -176,9 +178,9 @@ export async function POST(req: NextRequest) {
       visitor,
       userId,
       // Обстоятельства согласия, а не булево: время, адрес, канал и версия
-      // формулировки. buildConsentRecord вернёт null, когда галочки не было —
-      // у Кузьмича и виджета её нет вовсе, и это честное «не спрашивали».
-      pdConsent:       buildConsentRecord(data.pd_consent, ip, 'web-form'),
+      // формулировки. Канал — форма, на которой поставили галочку. null —
+      // только у вошедшего без галочки: честное «не спрашивали».
+      pdConsent:       buildConsentRecord(data.pd_consent, ip, bookingConsentSource(req.headers.get('x-vedar-client'))),
       referralCode:    data.referral_code ?? null,
     });
 

@@ -2,7 +2,7 @@
 
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import ChatText from '@/components/kuzmich/ChatText';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -75,7 +75,8 @@ const CHIPS: { icon: LucideIcon; text: string }[] = [
 
 // ── BookingFormCard ────────────────────────────────────────────────
 
-function BookingFormCard({
+// Экспорт — для теста рендером: карточек в одном чате бывает несколько.
+export function BookingFormCard({
   data,
   onConfirmed,
 }: {
@@ -89,6 +90,9 @@ function BookingFormCard({
   const [participants, setParticipants] = useState(data.prefillGuests && data.prefillGuests > 0 ? data.prefillGuests : 1);
   // Согласие на ПД — как в форме тура: без галочки заявка не уходит (152-ФЗ).
   const [pdConsent, setPdConsent] = useState(false);
+  // id галочки — свой у каждой карточки (06.11): карточек брони в чате бывает
+  // несколько, и с общим id подпись второй отмечала согласие в первой.
+  const cardId = useId();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   /**
@@ -243,7 +247,7 @@ function BookingFormCard({
           Перед оплатой проверьте даты, состав программы и условия участия. Если что-то не подходит, заявку можно скорректировать.
         </p>
 
-        <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="kuzmich-pd-consent" />
+        <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id={`kuzmich-pd-consent-${cardId}`} />
 
         {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
 

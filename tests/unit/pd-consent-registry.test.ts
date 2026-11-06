@@ -149,6 +149,13 @@ const CONSENT_FORMS = [
   'components/rental/RentalRequestForm.tsx',
   // Согласие партнёра на материалы сайта (23.10, 1321): шлёт СОСТОЯНИЕ галочки подписанта.
   'components/partners/PartnerConsentForm.tsx',
+  // Бронь тура с корзины и со страницы Кузьмича — галочка с 24.09, в реестр
+  // не была внесена; подборка /p/[code] и виджет Кузьмича — с 06.11, когда
+  // сервер брони перестал пропускать анонима по заголовку X-Vedar-Client.
+  'app/hub/tourist/cart/checkout/_CheckoutClient.tsx',
+  'app/kuzmich/_KuzmichClient.tsx',
+  'app/p/[code]/_SelectionClient.tsx',
+  'components/kuzmich/KuzmichWidget.tsx',
 ];
 
 /**
@@ -236,10 +243,11 @@ describe('сервер записывает согласие, а не тольк
     }
   });
 
-  it('бронь: согласие опционально на сервере — «не спрашивали» ≠ «отказано»', () => {
+  it('бронь: согласие в схеме опционально — у вошедшего «не спрашивали» ≠ «отказано»', () => {
     const src = read('app/api/hub/bookings/create/route.ts');
-    // Жёсткое z.literal(true) сломало бы Кузьмича, виджет, корзину и /p/[code]
-    // — четыре из пяти клиентов эндпоинта, где формы с галочкой нет вовсе.
+    // Жёсткое z.literal(true) потребовало бы галочку и у вошедшего, которого
+    // роут сознательно пропускает. Аноним без `true` получает 400 кодом роута
+    // на любой из пяти поверхностей — это держит bookings-create-user-id.
     expect(src).not.toMatch(/pd_consent:\s*z\.literal\(true\)/);
     expect(src).toMatch(/pd_consent:\s*z\.boolean\(\)\.optional\(\)/);
     expect(src).toContain('buildConsentRecord');

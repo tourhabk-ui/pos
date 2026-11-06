@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { MapPin, Clock, Shield, AlertTriangle, Phone, ChevronRight, Users, Copy } from 'lucide-react';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 interface TourItem {
   item_id: string;
@@ -176,6 +177,12 @@ export default function SelectionClient({ code }: { code: string }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent]       = useState(false);
   const [bookErr, setBookErr] = useState<string | null>(null);
+  // Согласие на ПД (06.11): до этого форма слала имя, телефон и почту без
+  // галочки, а сервер пропускал её по заголовку X-Vedar-Client. Теперь
+  // аноним без согласия получает 400, а форма без галочки запрос не шлёт и
+  // говорит, чего не хватает. Галочка общая на подборку одного оператора:
+  // текст согласия называет передачу ему, а не конкретный тур.
+  const [pdConsent, setPdConsent] = useState(false);
   // До 04.10 эта форма email не спрашивала вовсе — письма со ссылкой на бронь
   // не было никогда, а без ссылки заявку не открыть по номеру (#1889). Теперь
   // почта обязательна (владелец 04.10): по ней приходит ссылка на оплату после
@@ -211,6 +218,10 @@ export default function SelectionClient({ code }: { code: string }) {
   const handleBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bookTour) return;
+    if (!pdConsent) {
+      setBookErr('Отметьте согласие на обработку персональных данных — без него заявку не передать оператору.');
+      return;
+    }
     setSending(true);
     setBookErr(null);
     try {
@@ -224,6 +235,7 @@ export default function SelectionClient({ code }: { code: string }) {
           tourist_email:      email.trim(),
           participants_count: people,
           booking_date:       date,
+          pd_consent:         pdConsent,
         }),
       });
       const data = await res.json() as { error?: string; id?: number; access_token?: string };
@@ -353,8 +365,8 @@ export default function SelectionClient({ code }: { code: string }) {
                       Сохрани эту ссылку сейчас
                     </p>
                     <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '10px' }}>
-                      Почту эта форма не спрашивает — письма со ссылкой не будет. Без неё вернуться
-                      к заявке, оплате и документам будет нечем.
+                      Ссылку пришлём и на почту, но письмо может задержаться или уйти в спам. Без
+                      ссылки вернуться к заявке, оплате и документам будет нечем.
                     </p>
                     <button
                       type="button"
@@ -385,28 +397,28 @@ export default function SelectionClient({ code }: { code: string }) {
                 <form onSubmit={(e) => { void handleBook(e); }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div>
-                      <label className="ds-label">Ваше имя *</label>
-                      <input className="ds-input" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Иван Петров" />
+                      <label className="ds-label" htmlFor="selection-name">Ваше имя *</label>
+                      <input id="selection-name" className="ds-input" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Иван Петров" />
                     </div>
                     <div>
-                      <label className="ds-label">Телефон *</label>
-                      <input className="ds-input" required type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 900 000 00 00" />
+                      <label className="ds-label" htmlFor="selection-phone">Телефон *</label>
+                      <input id="selection-phone" className="ds-input" required type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 900 000 00 00" />
                     </div>
                     <div>
-                      <label className="ds-label">Email *</label>
-                      <input className="ds-input" required type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="mail@example.com" />
+                      <label className="ds-label" htmlFor="selection-email">Email *</label>
+                      <input id="selection-email" className="ds-input" required type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="mail@example.com" />
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                         {platformAcceptsPayments() ? 'Пришлём ссылку на оплату, когда оператор подтвердит заявку.' : 'Пришлём ссылку на заявку и подтверждение оператора.'}
                       </p>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <div>
-                        <label className="ds-label">Дата *</label>
-                        <input className="ds-input" required type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} />
+                        <label className="ds-label" htmlFor="selection-date">Дата *</label>
+                        <input id="selection-date" className="ds-input" required type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} />
                       </div>
                       <div>
-                        <label className="ds-label">Участников</label>
-                        <input className="ds-input" type="number" min={1} max={20} value={people} onChange={(e) => setPeople(parseInt(e.target.value, 10) || 1)} />
+                        <label className="ds-label" htmlFor="selection-people">Участников</label>
+                        <input id="selection-people" className="ds-input" type="number" min={1} max={20} value={people} onChange={(e) => setPeople(parseInt(e.target.value, 10) || 1)} />
                       </div>
                     </div>
 
@@ -421,10 +433,15 @@ export default function SelectionClient({ code }: { code: string }) {
                       </div>
                     )}
 
+                    <PdConsentCheckbox id="pd-consent-selection" checked={pdConsent} onChange={setPdConsent} />
+
                     {bookErr && (
-                      <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{bookErr}</p>
+                      <p role="alert" style={{ color: 'var(--danger)', fontSize: '13px' }}>{bookErr}</p>
                     )}
 
+                    {/* Без галочки кнопка не выключается: выключенная выглядела бы
+                        здесь яркой и молчала (у ds-btn-primary нет вида :disabled).
+                        Гейт держит handleBook и говорит, чего не хватает (06.11). */}
                     <button className="ds-btn ds-btn-primary" type="submit" disabled={sending} style={{ marginTop: '4px' }}>
                       {sending ? 'Отправляем…' : 'Отправить заявку'}
                     </button>

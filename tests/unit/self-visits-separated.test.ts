@@ -143,7 +143,7 @@ describe('свои заявки отделены (1145)', () => {
     expect(charterRoute).toContain("const isSelf = isSelfVisit(req.headers.get('cookie'));");
     expect(charterRoute).toMatch(/saveCharterLeadDetailed\(\{[\s\S]*?isSelf,/);
     // Второй аргумент — разобранные аргументы с формой (lib/mcp/tool-arguments, 08.10); флаг self — в контексте, как был.
-    expect(mcp).toContain('executeTool(toolName, read, { ip, userAgent, self })');
+    expect(mcp).toContain('executeTool(toolName, read, { ip, userAgent, self, consentFrom })');
   });
 
   it('follow-up по своей заявке не шлётся; счёт заявок — без своих; уведомление с пометкой, не спрятано', () => {
