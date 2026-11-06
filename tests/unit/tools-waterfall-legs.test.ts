@@ -64,17 +64,20 @@ describe('цикл инструментов стоит не на одной но
     expect(order.indexOf('xai')).toBeLessThan(order.indexOf('openrouter'));
   });
 
-  it('Qwen возвращён (24.09) вторым: после DeepSeek, до xAI', () => {
-    // Решение владельца «верни Qwen в текстовые пути». Не первым — первичный
-    // DeepSeek отвечает за доли секунды; не после xAI — у того 13-43 с.
+  it('шлюз Timeweb (06.11) вторым, Qwen за ним — до xAI', () => {
+    // 06.11, владелец: «ок 2 варик». Замер ai-debug run 14–17: с прода жил один
+    // DeepSeek; Qwen — исчерпана квота, xAI и OpenRouter — гео-блок. Шлюз
+    // Timeweb — российский путь к Claude/GPT одним ключом. Qwen (возвращён
+    // 24.09) остаётся до xAI: у того 13-43 с.
     const order = legs().map(l => l.provider);
-    expect(order[1]).toBe('qwen');
+    expect(order[1]).toBe('timeweb-gateway');
+    expect(order[2]).toBe('qwen');
     expect(order.indexOf('qwen')).toBeLessThan(order.indexOf('xai'));
   });
 });
 
 describe('ни одна нога не молчит об отказе', () => {
-  const FNS = ['callDeepSeekWithTools', 'callQwenWithTools', 'callXaiWithTools', 'callOpenRouterWithTools'];
+  const FNS = ['callDeepSeekWithTools', 'callTimewebGatewayWithTools', 'callQwenWithTools', 'callXaiWithTools', 'callOpenRouterWithTools'];
 
   for (const fn of FNS) {
     it(`${fn}: у каждого выхода в null названа причина`, () => {

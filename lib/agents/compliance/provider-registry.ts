@@ -73,6 +73,11 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // первым. domestic:false намеренно: это по-прежнему трансграничная
   // передача, просто без гео-блока Cloudflare на сетевом пути к ней.
   { host: 'agent.timeweb.cloud', jurisdiction: 'Russia (host) → зависит от модели агента (получатель)', domestic: false, provider: 'Timeweb AI Agents (шлюз к Claude/GPT/…)' },
+  // Тот же Timeweb, другой вход (06.11, владелец: «ок 2 варик»): AI Gateway —
+  // OpenAI-совместимый адрес с ключом на весь каталог, модель — поле запроса.
+  // Вторая нога цикла инструментов Кузьмича: сюда уходит текст туриста, и
+  // получатель — производитель модели (Anthropic, OpenAI, …) за границей.
+  { host: 'api.timeweb.ai', jurisdiction: 'Russia (host) → зависит от модели запроса (получатель)', domestic: false, provider: 'Timeweb AI Gateway (шлюз к Claude/GPT/…)' },
   // Cloudflare AI Gateway — прокси Cloudflare к Anthropic (03.09, проба
   // /api/cron/anthropic-path-probe). Пока сюда уходит только замер без ПД;
   // но если ANTHROPIC_BASE_URL переставят на шлюз, сюда поедут те же промпты,

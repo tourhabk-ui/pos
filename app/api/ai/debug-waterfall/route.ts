@@ -35,7 +35,7 @@ const PROVIDER_KEYS = [
   'OPENROUTER_API_KEY', 'YANDEX_API_KEY', 'YANDEX_FOLDER_ID', 'XIAOMI_API_KEY',
   'GEMINI_API_KEY', 'XAI_API_KEY', 'ANTHROPIC_API_KEY', 'FUGU_API_KEY',
   'GLM_API_KEY', 'NVIDIA_API_KEY', 'GROQ_API_KEY', 'CEREBRAS_API_KEY',
-  'MISTRAL_API_KEY',
+  'MISTRAL_API_KEY', 'TIMEWEB_AI_GATEWAY_KEY',
 ] as const;
 
 /** Секрет принимается ТОЛЬКО заголовком: без него — как без секрета. */

@@ -52,7 +52,9 @@ export interface PromptCacheTokens {
  * Судим по вендору, а не по имени модели: имя меняется с каждым выпуском.
  */
 export function isAnthropicLogKey(model: string): boolean {
-  return /^anthropic[:/]/.test(model);
+  // Через шлюз Timeweb (`timeweb-gateway:anthropic/…`) кэш Claude стоит тех же
+  // долей: каталог 06.11 — чтение 0,1 и запись 1,25 цены входа (Haiku 5.5).
+  return /^(?:timeweb-gateway:)?anthropic[:/]/.test(model);
 }
 
 /**

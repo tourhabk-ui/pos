@@ -13,7 +13,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   classifyYandexToolsReply, probeYandexTools, YANDEX_TOOLS_PROBE_TOOL, YANDEX_TOOLS_PROBE_MODELS,
-  probeQwenTools, probeTimewebTools, TIMEWEB_AGENT_BASE,
+  probeQwenTools, probeTimewebGatewayTools, TIMEWEB_AI_GATEWAY_BASE, TIMEWEB_GATEWAY_PROBE_ALT_MODEL,
+  TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT,
 } from '@/lib/ai/providers';
 
 afterEach(() => {
@@ -22,7 +23,7 @@ afterEach(() => {
   delete process.env.YANDEX_FOLDER_ID;
   delete process.env.DASHSCOPE_API_KEY;
   delete process.env.QWEN_MODEL;
-  delete process.env.TIMEWEB_AI_AGENTS;
+  delete process.env.TIMEWEB_AI_GATEWAY_KEY;
 });
 
 describe('ответ пробы YandexGPT с инструментами', () => {
@@ -141,31 +142,33 @@ describe('замер Qwen: модель ноги и её замена с отд�
   });
 });
 
-describe('замер шлюза Timeweb', () => {
-  it('агента нет, шлюз ответил — «агента нет, дорога открыта», а не «работает» и не «недоступно»', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"message":"Unauthorized"}', { status: 401 })));
-    const [r] = await probeTimewebTools();
-    expect(r).toMatchObject({ provider: 'timeweb:tools', status: 'no_key', http_status: 401 });
-    expect(r.note).toMatch(/агента нет\. Дорога с прода до шлюза открыта: HTTP 401/);
-  });
-
-  it('агента нет и шлюз не ответил — так и сказано', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ENOTFOUND agent.timeweb.cloud'); }));
-    const [r] = await probeTimewebTools();
-    expect(r.status).toBe('no_key');
-    expect(r.note).toMatch(/шлюз с прода не ответил: .*ENOTFOUND/);
-  });
-
-  it('агент заведён — вопрос пробы уходит на адрес агента с его токеном', async () => {
-    process.env.TIMEWEB_AI_AGENTS = JSON.stringify({ 'claude-sonnet-5.5': { agentId: 'ag-1', token: 'tw-token' } });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      choices: [{ message: { content: null, tool_calls: [{ function: { name: 'get_safety_status' } }] } }],
-    }), { status: 200 }));
+describe('замер шлюза Timeweb AI Gateway', () => {
+  it('ключа нет — «нечем спросить» с причиной, сеть не трогается', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const [r] = await probeTimewebTools();
-    expect(r).toMatchObject({ provider: 'timeweb:tools', model: 'claude-sonnet-5.5', status: 'success' });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`${TIMEWEB_AGENT_BASE}/ag-1/v1/chat/completions`);
-    expect(new Headers(init.headers).get('authorization')).toBe('Bearer tw-token');
+    const [r] = await probeTimewebGatewayTools();
+    expect(r).toMatchObject({ provider: 'timeweb-gateway:tools', status: 'no_key', model: TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT });
+    expect(r.note).toMatch(/TIMEWEB_AI_GATEWAY_KEY не задан/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('ключ есть — модель ноги и для сравнения GPT-6 Luna, обе на адрес шлюза с ключом', async () => {
+    process.env.TIMEWEB_AI_GATEWAY_KEY = 'tw-gw-test';
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return body.model === TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT
+        ? new Response(JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ function: { name: 'get_safety_status' } }] } }] }), { status: 200 })
+        : new Response(JSON.stringify({ choices: [{ message: { content: 'Обстановка спокойная.' } }] }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const rows = await probeTimewebGatewayTools();
+    expect(rows.map((r) => [r.model, r.status])).toEqual([
+      [TIMEWEB_GATEWAY_TOOLS_MODEL_DEFAULT, 'success'],
+      [TIMEWEB_GATEWAY_PROBE_ALT_MODEL, 'empty_response'],
+    ]);
+    for (const call of fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) {
+      expect(call[0]).toBe(`${TIMEWEB_AI_GATEWAY_BASE}/chat/completions`);
+      expect(new Headers(call[1].headers).get('authorization')).toBe('Bearer tw-gw-test');
+    }
   });
 });
