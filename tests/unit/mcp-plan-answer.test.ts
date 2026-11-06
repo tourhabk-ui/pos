@@ -285,3 +285,80 @@ describe('edit_trip_plan flight_delay: выпавший день назван с
     expect(made.content[0].text).toMatch(/учесть задержку рейса \(flight_delay\)/);
   });
 });
+
+/**
+ * Дата плана (аудит планировщика 07.11, M1 и M2; аудит MCP 25.10, п. 1).
+ *
+ * «2027-02-30» считалось на 2 марта, непонятое «когда-нибудь потом» — на
+ * «через месяц», и агент получал план на другие даты обычным ответом.
+ * Теперь это отказ по входу: на MCP — isError и код invalid_date в журнале,
+ * в A2A — отказ того же исполнителя, в чате — та же фраза текстом. Плана и
+ * черновика нет. «10–17 июля» доходит до движка концом диапазона.
+ */
+describe('make_trip_plan: дата, которой нет, — отказ без плана', () => {
+  const journal = () => query.mock.calls
+    .filter(([sql]) => String(sql).includes('INSERT INTO mcp_tool_calls'))
+    .map(([, params]) => params as unknown[]);
+  const draftWrites = () => query.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO trip_plan_drafts'));
+
+  it.each([
+    ['2027-02-30', /«2027-02-30» нет в календаре/],
+    ['30 февраля', /«30 февраля» нет в календаре/],
+    ['когда-нибудь потом', /«когда-нибудь потом» не разобрал как дату поездки/],
+    ['17–10 июля', /конец раньше начала/],
+  ])('MCP: when «%s» — isError, журнал refused/invalid_date, ни плана, ни черновика', async (when, said) => {
+    const r = await callTool('make_trip_plan', { days: '5', interests: 'вулканы', when });
+    expect(r.isError).toBe(true);
+    expect(r.content).toHaveLength(1);
+    expect(r.content[0].text).toMatch(said);
+    expect(r.content[0].text).toContain('план не собран');
+    expect(r.content[0].text).not.toMatch(/Собрал план|ID плана|\/trip\//);
+    expect(recommendMock).not.toHaveBeenCalled();
+    expect(draftWrites()).toHaveLength(0);
+    const [row] = journal();
+    // tool, ok, error_kind … error_code (8-й), arg_key, arg_value — call-log.ts.
+    expect(row[0]).toBe('make_trip_plan');
+    expect(row[1]).toBe(false);
+    expect(row[2]).toBe('refused');
+    expect(row[7]).toBe('invalid_date');
+  });
+
+  it('A2A — тот же отказ, а не план', async () => {
+    const out = await runPublicTool({
+      toolName: 'make_trip_plan', rawArguments: { days: '5', when: '2027-02-30' },
+      ip: '10.22.1.2', userAgent: 'a2a-test', self: false,
+    });
+    expect(out.kind).toBe('refused');
+    expect(out.text).toContain('нет в календаре');
+    expect(recommendMock).not.toHaveBeenCalled();
+  });
+
+  it('чат туриста: та же фраза текстом, а не «инструмент упал»', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const text = await executeKuzmichTool('make_trip_plan', { days: '5', interests: 'вулканы', when: '30 февраля' });
+    expect(text).toMatch(/^Даты «30 февраля» нет в календаре — план не собран/);
+    expect(recommendMock).not.toHaveBeenCalled();
+    expect(draftWrites()).toHaveLength(0);
+    // Отказ по входу — не сбой: строки «исполнение упало» в логе нет.
+    expect(err.mock.calls.flat().join(' ')).not.toMatch(/исполнение упало/);
+    err.mockRestore();
+  });
+
+  it('«15 июля» — пятнадцатое, а не десятое (M1)', async () => {
+    const r = await callTool('make_trip_plan', { days: '3', interests: 'термальные', when: '15 июля 2027' });
+    expect(r.isError).toBeUndefined();
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ arrivalDate: '2027-07-15', departureDate: '2027-07-17' });
+    expect(r.content[0].text).toContain('считаю на 15 июля');
+  });
+
+  it('«10–17 июля» без длительности — восемь дней, с 10-го по 17-е', async () => {
+    await callTool('make_trip_plan', { interests: 'термальные', when: '10–17 июля 2027' });
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ arrivalDate: '2027-07-10', departureDate: '2027-07-17' });
+  });
+
+  it('«10–17 июля» и days 7 — семь дней, и расхождение сказано агенту', async () => {
+    const r = await callTool('make_trip_plan', { days: '7', interests: 'термальные', when: 'с 10 по 17 июля 2027' });
+    expect(recommendMock.mock.calls[0][0]).toMatchObject({ arrivalDate: '2027-07-10', departureDate: '2027-07-16' });
+    expect(r.content[0].text).toContain('Даты 10 июля — 17 июля: это 8 дней, а длительность — 7');
+  });
+});

@@ -27,6 +27,8 @@ import { applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams 
 import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
+import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -141,80 +143,24 @@ export function buildRefusal(
 }
 
 /**
- * Когда считать поездку.
- *
- * До 19.09 старт был зашит как `now + 30 дней`, и спросить план на июль было
- * нельзя ничем: Кузьмич всегда считал на месяц вперёд. В сентябре это значило
- * октябрь — то есть закрытый сезон вулканов, рыбалки и медведей у КАЖДОГО
- * туриста, кто спрашивал про Камчатку летом следующего года.
- *
- * Четыре исхода вместо двух (§4.0): взяли по умолчанию, разобрали сказанное,
- * не разобрали, сказанное уже прошло. Три последних различимы снаружи —
- * `kind` читает тот, кто пишет ответ человеку.
+ * Когда считать поездку — разбор поля `when` живёт в `lib/kuzmich/plan-start`
+ * (аудит планировщика 07.11, M1 и M2): число и диапазон, несуществующая дата
+ * и «не дата» — отказ без плана, «сегодня» и «через месяц» — по Камчатке.
+ * Здесь реэкспорт: тем же разбором ссылку в планер строит `handoff-targets`.
  */
-export type PlanStart =
-  | { kind: 'default'; date: Date }
-  | { kind: 'parsed'; date: Date }
-  | { kind: 'unparsed'; date: Date; raw: string }
-  | { kind: 'past'; date: Date; raw: string };
-
-/**
- * Формы месяцев — явным списком, а не корнем.
- *
- * Корень «ма» поймал бы и «март», и «маршрут»; общего корня у «мае» и «май»
- * нет. Список короткий и проверяемый, догадка — нет.
- */
-const MONTH_FORMS: string[][] = [
-  ['январ'], ['феврал'], ['март'], ['апрел'], ['мае', 'май', 'маю'], ['июн'],
-  ['июл'], ['август'], ['сентябр'], ['октябр'], ['ноябр'], ['декабр'],
-];
-
-/** День месяца для «хочу в июле»: середина, а не край с его погодой. */
-const MONTH_ANCHOR_DAY = 10;
-
-export function parsePlanStart(raw: string | undefined, now: number): PlanStart {
-  const fallback = new Date(now + 30 * 86400000);
-  const text = (raw ?? '').trim().toLowerCase();
-  if (!text) return { kind: 'default', date: fallback };
-
-  const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const d = new Date(`${iso[0]}T00:00:00Z`);
-    if (Number.isNaN(d.getTime())) return { kind: 'unparsed', date: fallback, raw: text };
-    // Дата в прошлом — не «не понял», а «так нельзя»: починка разная, и
-    // сказать надо разное.
-    if (d.getTime() <= now) return { kind: 'past', date: fallback, raw: text };
-    return { kind: 'parsed', date: d };
-  }
-
-  for (let m = 0; m < 12; m++) {
-    if (!MONTH_FORMS[m].some((f) => text.includes(f))) continue;
-    let year = new Date(now).getUTCFullYear();
-    if (Date.UTC(year, m, MONTH_ANCHOR_DAY) <= now) year += 1;
-    return { kind: 'parsed', date: new Date(Date.UTC(year, m, MONTH_ANCHOR_DAY)) };
-  }
-
-  return { kind: 'unparsed', date: fallback, raw: text };
-}
+export { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 
 /**
  * Что сказать человеку про выбранную дату. Пусто — когда говорить нечего.
  *
- * Молча подставлять `now + 30 дней` вместо неразобранного «через полгодика»
- * нельзя: турист спросил про одно, получил план про другое и не узнал об
- * этом. Само число дня при этом всё равно называется в первой строке плана —
- * здесь объясняется ПОЧЕМУ оно такое.
+ * Молча подставлять «через месяц» вместо прошедшей даты нельзя: турист
+ * спросил про одно, получил план про другое и не узнал об этом. Само число
+ * дня при этом всё равно называется в первой строке плана — здесь
+ * объясняется ПОЧЕМУ оно такое. Отказа («не дата», «нет в календаре») здесь
+ * нет: плана на него не собирается вовсе (`planStartRefusal`).
  */
-export function startNote(start: PlanStart, plannedFor: string): string {
-  switch (start.kind) {
-    case 'unparsed':
-      return `Не разобрал «${start.raw}» — считаю на ${plannedFor}. `
-        + 'Назови месяц («в июле») или дату (2027-07-10), и пересчитаю.';
-    case 'past':
-      return `«${start.raw}» уже прошло — считаю на ${plannedFor}.`;
-    default:
-      return '';
-  }
+export function startNote(start: Exclude<PlanStart, { kind: 'invalid' }>, plannedFor: string): string {
+  return start.kind === 'past' ? `«${start.raw}» уже прошло — считаю на ${plannedFor}.` : '';
 }
 
 /** Классика первой поездки — когда интересы не разобраны. */
@@ -252,6 +198,48 @@ export function readPlanDays(raw: string | undefined): { days: number; note: str
   if (n < 3) return { days: 3, note: `План собираю от 3 дней — считаю 3, а не ${n}.` };
   if (n > 21) return { days: 21, note: `План собираю до 21 дня — считаю 21, а не ${n}.` };
   return { days: n, note: null };
+}
+
+/** «10 июля» без пояса процесса: даты плана — полночь UTC, подпись — те же сутки. */
+function ruDayMonth(date: Date): string {
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+/**
+ * Длительность плана с диапазоном в `when` (аудит 07.11, M1).
+ *
+ * `days` названа — она главная: у поля это и есть смысл. Не названа — длина
+ * диапазона («10–17 июля» — 8 дней, считая первый и последний). Названы
+ * обе и расходятся — считаю названную и говорю, сколько дней в диапазоне:
+ * «10–17 июля» при days 7 — частая ошибка на единицу (ночи вместо дней), и
+ * молча потерять последний день нельзя.
+ */
+export function readPlanDaysFor(raw: string | undefined, start: PlanStart): { days: number; note: string | null } {
+  const span = rangeDays(start);
+  if (span === null || start.kind !== 'parsed' || !start.end) return readPlanDays(raw);
+  const bySpan = readPlanDays(String(span));
+  if (!raw?.trim()) return bySpan;
+  // «две недели» без числа — не длительность, а слово: даты точнее.
+  if (!/\d/.test(raw)) {
+    const said = `Длительность «${raw.trim()}» не разобрал — считаю по датам: ${bySpan.days} ${dayWord(bySpan.days)}.`;
+    return { days: bySpan.days, note: bySpan.note ? `${said} ${bySpan.note}` : said };
+  }
+  const named = readPlanDays(raw);
+  if (named.days === span) return named;
+  const last = new Date(start.date.getTime() + (named.days - 1) * 86400000);
+  const said = `Даты ${ruDayMonth(start.date)} — ${ruDayMonth(start.end)}: это ${span} ${dayWord(span)}, `
+    + `а длительность — ${named.days}: считаю ${named.days} ${dayWord(named.days)}, ${ruDayMonth(start.date)} — ${ruDayMonth(last)}. `
+    + `Нужны все даты — передай длительность ${span} или не передавай её.`;
+  return { days: named.days, note: named.note ? `${named.note} ${said}` : said };
+}
+
+/** «день», «дня», «дней» — для чисел плана (3–21 и длины диапазона). */
+function dayWord(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'день';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня';
+  return 'дней';
 }
 
 /** Потолок группы — тот же, что у заявки на бронь (1–30 человек). */
@@ -826,7 +814,13 @@ export async function makeTripPlanForKuzmich(
   },
   opts: { surface?: DraftSurface } = {},
 ): Promise<string> {
-  const { days: daysNum, note: daysNote } = readPlanDays(args.days);
+  const start = parsePlanStart(args.when, Date.now());
+  // Не дата, нет в календаре, конец раньше начала — плана нет и черновика
+  // нет: план на подставленную дату был бы ответом на другой вопрос (аудит
+  // 07.11, M2; аудит MCP 25.10, п. 1). Отказ по входу, а не падение: на MCP
+  // роут отвечает isError с кодом в журнале, в чате — та же фраза (core.ts).
+  if (start.kind === 'invalid') throw new McpUserError(planStartRefusal(start), 'invalid_date');
+  const { days: daysNum, note: daysNote } = readPlanDaysFor(args.days, start);
   const { interests, defaulted } = parseChatInterestsDetailed(args.interests ?? '');
   // Интересы не разобраны — берётся классика, и это говорится, как у дат.
   const interestsNote = defaulted
@@ -842,7 +836,6 @@ export async function makeTripPlanForKuzmich(
   if (kids.kind === 'unknown') return kids.refusal;
   const budget = readBudgetTier(args.budget_tier);
 
-  const start = parsePlanStart(args.when, Date.now());
   const arrival = start.date;
   // `daysNum` — КАЛЕНДАРНЫЕ дни, считая первый и последний, поэтому шагов
   // между датами на один меньше (движок считает так же с 27.09: до этого
@@ -865,7 +858,7 @@ export async function makeTripPlanForKuzmich(
   const keepsSchedule = await scheduleMap(rec.days);
 
   const month = arrival.getUTCMonth() + 1;
-  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const plannedFor = ruDayMonth(arrival);
 
   const text = formatTripPlanForChat(
     rec.days,
@@ -1040,7 +1033,7 @@ export async function editTripPlanForKuzmich(args: {
 
   const plan = result.plan;
   const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
-  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const plannedFor = ruDayMonth(arrival);
   const text = formatTripPlanForChat(
     plan.days,
     result.warnings ?? [],

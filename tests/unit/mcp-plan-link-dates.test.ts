@@ -26,6 +26,23 @@ describe('ссылка плана несёт дату старта', () => {
     const t = await handoffTargetForTool('make_trip_plan', { days: '7' });
     expect(t?.targetPath).not.toMatch(/from=/);
   });
+
+  // Аудит планировщика 07.11, M1: «15 июля» считалось на 10-е и в плане, и в ссылке.
+  it('число месяца — from того же числа', async () => {
+    const t = await handoffTargetForTool('make_trip_plan', { days: '5', when: '15 июля 2027' });
+    expect(t?.targetPath).toMatch(/[?&]from=2027-07-15(&|$)/);
+  });
+
+  it('диапазон без длительности — days из диапазона, как считает инструмент', async () => {
+    const t = await handoffTargetForTool('make_trip_plan', { when: '10–17 июля 2027' });
+    expect(t?.targetPath).toMatch(/[?&]days=8(&|$)/);
+    expect(t?.targetPath).toMatch(/[?&]from=2027-07-10(&|$)/);
+  });
+
+  it('несуществующая дата — без from: плана на неё не собиралось', async () => {
+    const t = await handoffTargetForTool('make_trip_plan', { days: '7', when: '2027-02-30' });
+    expect(t?.targetPath).not.toMatch(/from=/);
+  });
 });
 
 describe('планер: дни включительно, from — из ссылки', () => {

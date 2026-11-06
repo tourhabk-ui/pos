@@ -23,7 +23,7 @@ import type { HandoffTarget } from '@/lib/mcp/handoff';
 import { resolveTourChoice, type TourChoice } from '@/lib/kuzmich/tour-availability-tool';
 import { ruPlacePath } from '@/lib/zh/pages';
 import { tourPath } from '@/lib/tours/tour-url';
-import { parsePlanStart, planIdFromAnswer } from '@/lib/kuzmich/trip-plan-tool';
+import { parsePlanStart, planIdFromAnswer, rangeDays, readPlanDays } from '@/lib/kuzmich/trip-plan-tool';
 import { resolvePlaceForLink } from '@/lib/kuzmich/guardian-context';
 
 function str(v: unknown): string {
@@ -59,15 +59,20 @@ export async function handoffTargetForTool(
       const planId = planIdFromAnswer(answer);
       if (planId) return { targetType: 'plan', targetPath: `/trip/${planId}` };
       const query = new URLSearchParams();
+      const start = parsePlanStart(str(args.when) || undefined, Date.now());
       const days = str(args.days);
+      // Длительность из диапазона («10–17 июля» — 8 дней), если её не
+      // назвали отдельно: так считает и сам инструмент (readPlanDaysFor).
+      const span = rangeDays(start);
       if (/^\d{1,2}$/.test(days)) query.set('days', days);
+      else if (!days && span !== null) query.set('days', String(readPlanDays(String(span)).days));
       const interests = str(args.interests);
       if (interests) query.set('interests', interests.slice(0, 120));
       // Дата старта — та же, на которую посчитан план (parsePlanStart из
       // when). Без неё планер по ссылке ставил старт «через месяц», и план на
-      // июль 2027 открывался на другие даты (проверка MCP 29.09, T17).
-      const start = parsePlanStart(str(args.when) || undefined, Date.now());
-      if (start.kind !== 'default') query.set('from', start.date.toISOString().slice(0, 10));
+      // июль 2027 открывался на другие даты (проверка MCP 29.09, T17). У
+      // отказа («30 февраля») даты нет: плана на неё не собиралось.
+      if (start.kind === 'parsed' || start.kind === 'past') query.set('from', start.date.toISOString().slice(0, 10));
       const qs = query.toString();
       return { targetType: 'planner', targetPath: `/planner${qs ? `?${qs}` : ''}` };
     }

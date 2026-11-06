@@ -407,9 +407,9 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     price_max: { lead: 'Maximum price per day, RUB.', example: '1500' },
   },
   make_trip_plan: {
-    days: { lead: 'Trip length in days, 3–21; default 7.', example: '7' },
+    days: { lead: 'Trip length in days, 3–21; default — the length of a date range in when (10–17 July is 8 days), otherwise 7.', example: '7' },
     interests: { lead: 'Interests in free text.', example: 'вулканы и медведи' },
-    when: { lead: 'When the trip starts: a Russian month name or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today.', example: '2027-07-10' },
+    when: { lead: 'When the trip starts, by the Kamchatka calendar: a month or a day in Russian words, DD.MM.YYYY, a range of days (10–17 July) or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today. Text that is not a date, or a day that does not exist (2027-02-30), is an error and no plan is built.', example: '2027-07-10' },
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },

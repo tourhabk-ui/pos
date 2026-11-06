@@ -308,7 +308,7 @@
         "properties": {
           "days": {
             "type": "string",
-            "description": "Trip length in days, 3–21; default 7. Сколько дней поездка (число, 3–21). Не сказано — 7.",
+            "description": "Trip length in days, 3–21; default — the length of a date range in when (10–17 July is 8 days), otherwise 7. Сколько дней поездка (число, 3–21). Не сказано — длина диапазона из when («10–17 июля» — 8 дней), без диапазона — 7.",
             "examples": [
               "7"
             ]
@@ -322,7 +322,7 @@
           },
           "when": {
             "type": "string",
-            "description": "When the trip starts: a Russian month name or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today. Когда поездка: месяц («июль», «в августе») или дата YYYY-MM-DD. Сезон на Камчатке решает всё — если турист назвал месяц, передай его обязательно. Не сказано — через месяц от сегодня.",
+            "description": "When the trip starts, by the Kamchatka calendar: a month or a day in Russian words, DD.MM.YYYY, a range of days (10–17 July) or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today. Text that is not a date, or a day that does not exist (2027-02-30), is an error and no plan is built. Когда поездка: месяц («в июле»), число («15 июля», 15.07.2027), диапазон («10–17 июля») или дата YYYY-MM-DD; «сегодня» и «завтра» — по Камчатке. Сезон на Камчатке решает всё — если турист назвал месяц или даты, передай их обязательно. Не сказано — через месяц от сегодня. Не дата или несуществующая дата («30 февраля») — отказ без плана: переспроси человека.",
             "examples": [
               "2027-07-10"
             ]
