@@ -655,4 +655,60 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     const sub = await subscribeNotify(issued!, `https://${host}/in`);
     expect(sub.ok).toBe(true);
   });
+
+  // Аудит планировщика 07.11, M5 и M6 — на настоящей таблице (миграция 1395):
+  // второй тур того же плана — допуск, а не «уже есть такая заявка»; повтор
+  // того же тура и даты — допуск без нового слота; сбой сохранения слот не
+  // сжигает; сверх потолка разных заявок — карантин; без предмета — как прежде.
+  it('сторож записи: предмет заявки, повтор, освобождение слота и потолок номера', async () => {
+    const prevSalt = process.env.MCP_HASH_SALT;
+    process.env.MCP_HASH_SALT = 'pg-subject-salt';
+    try {
+      const { checkMcpWrite, releaseWriteSlot, PHONE_MAX_SUBJECTS_PER_DAY } = await import('@/lib/mcp/write-guard');
+      const call = (subject: string | null, ip = '198.51.100.7', tool = 'create_booking_request') =>
+        checkMcpWrite({ ip, userAgent: 'pg-subject', tool, phone: '+79990005566', consent: true, subject });
+
+      const first = await call('27|2027-07-10');
+      expect(first).toMatchObject({ decision: 'allow', repeat: false });
+      expect(first.decision === 'allow' && first.attemptId).toMatch(/^\d+$/);
+      // Второй тур того же плана — с другого адреса, чтобы лимит клиента не мешал.
+      const second = await call('31|2027-07-12', '198.51.100.8');
+      expect(second).toMatchObject({ decision: 'allow', repeat: false });
+      // Повтор первого — допуск без нового слота.
+      expect(await call('27|2027-07-10', '198.51.100.9')).toEqual({ decision: 'allow', attemptId: null, repeat: true });
+
+      // Сбой сохранения второго — слот освобождён: его повтор снова новая заявка.
+      await releaseWriteSlot(second.decision === 'allow' ? second.attemptId : null);
+      const again = await call('31|2027-07-12', '198.51.100.10');
+      expect(again).toMatchObject({ decision: 'allow', repeat: false });
+
+      const { rows } = await pool.query<{ outcome: string; n: string; with_subject: string }>(
+        `SELECT outcome, COUNT(*)::text AS n, COUNT(subject_hash)::text AS with_subject
+           FROM mcp_write_attempts WHERE tool = 'create_booking_request' GROUP BY outcome ORDER BY outcome`,
+      );
+      expect(rows).toEqual([
+        { outcome: 'allowed', n: '2', with_subject: '2' },
+        { outcome: 'repeat', n: '1', with_subject: '1' },
+        { outcome: 'save_failed', n: '1', with_subject: '1' },
+      ]);
+      // Отпечаток, не текст: ни номера тура, ни даты в таблице нет.
+      const { rows: [raw] } = await pool.query<{ t: string }>(`SELECT string_agg(subject_hash, ',') AS t FROM mcp_write_attempts`);
+      expect(raw.t).not.toMatch(/2027|\|/);
+
+      // Принято 2 разных — добираем до потолка, следующий — карантин.
+      for (let i = 2; i < PHONE_MAX_SUBJECTS_PER_DAY; i += 1) {
+        expect(await call(`40|2027-08-${String(10 + i)}`, `198.51.100.${20 + i}`)).toMatchObject({ decision: 'allow', repeat: false });
+      }
+      const over = await call('50|2027-09-01', '198.51.100.60');
+      expect(over.decision === 'deny' && over.outcome).toBe('quarantined');
+
+      // Без предмета (подбор) — прежний порог: вторая заявка на номер — карантин.
+      expect(await call(null, '198.51.100.70', 'create_lead')).toMatchObject({ decision: 'allow' });
+      const lead2 = await call(null, '198.51.100.71', 'create_lead');
+      expect(lead2.decision === 'deny' && lead2.message).toMatch(/по первой/);
+    } finally {
+      if (prevSalt === undefined) delete process.env.MCP_HASH_SALT;
+      else process.env.MCP_HASH_SALT = prevSalt;
+    }
+  });
 });

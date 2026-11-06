@@ -31,7 +31,8 @@ const tgSendMock = vi.fn(async () => ({ ok: true as const }));
 vi.mock('@/lib/notifications/tg-send', () => ({ tgSend: (...a: unknown[]) => tgSendMock(...(a as [])) }));
 
 const {
-  checkMcpWrite, burstToReport, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, PHONE_MAX_PER_DAY,
+  checkMcpWrite, burstToReport, releaseWriteSlot, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, PHONE_MAX_PER_DAY,
+  PHONE_MAX_SUBJECTS_PER_DAY,
 } = await import('@/lib/mcp/write-guard');
 
 const GUARD = readFileSync(join(process.cwd(), 'lib/mcp/write-guard.ts'), 'utf-8');
@@ -42,11 +43,19 @@ const base = { ip: '203.0.113.9', userAgent: 'agent/1.0', tool: 'create_lead', p
 function txNoise(sql: string): boolean {
   return /^(BEGIN|COMMIT|ROLLBACK)$/.test(sql.trim()) || /pg_advisory_xact_lock/.test(sql);
 }
-function stubCounts(a: number, b: number, c: number, d = 0) {
-  poolQueryMock.mockImplementation((sql: string) =>
-    !txNoise(sql) && /COUNT\(\*\)/.test(sql)
-      ? Promise.resolve({ rows: [{ a: String(a), b: String(b), c: String(c), d: String(d) }] })
-      : Promise.resolve({ rows: [] }));
+function stubCounts(a: number, b: number, c: number, d = 0, e = 0) {
+  poolQueryMock.mockImplementation((sql: string) => {
+    if (!txNoise(sql) && /COUNT\(\*\)/.test(sql)) {
+      return Promise.resolve({ rows: [{ a: String(a), b: String(b), c: String(c), d: String(d), e: String(e) }] });
+    }
+    if (/INSERT INTO mcp_write_attempts/.test(sql)) return Promise.resolve({ rows: [{ id: '42' }] });
+    return Promise.resolve({ rows: [] });
+  });
+}
+/** Параметры последней записи попытки: client_key, tool, phone_hash, outcome, subject_hash. */
+function lastAttempt(): unknown[] {
+  const calls = poolQueryMock.mock.calls.filter(([sql]) => /INSERT INTO mcp_write_attempts/.test(String(sql)));
+  return calls[calls.length - 1]?.[1] as unknown[];
 }
 
 beforeEach(() => { poolQueryMock.mockReset(); tgSendMock.mockClear(); });
@@ -124,5 +133,100 @@ describe('всплеск — оператору, один раз', () => {
     expect(v.decision === 'deny' && v.outcome).toBe('rate_limited');
     expect(err).toHaveBeenCalledWith('[mcp-write-guard] сигнал о всплеске не отправлен:', 'нет токена');
     err.mockRestore();
+  });
+});
+
+/**
+ * Предмет заявки (аудит планировщика 07.11, M5 и M6).
+ *
+ * Порог «одна заявка на номер в сутки» стоял на паре «телефон + инструмент»:
+ * второй тур того же плана слышал «на этот номер уже есть такая заявка…
+ * менеджер свяжется по первой» — а такой заявки не было. Повтор той же
+ * заявки при этом тоже упирался в порог, и ветка роута «на повтор — тот же
+ * ответ, что на новую» была недостижима. А сбой сохранения после допуска
+ * сжигал суточный слот: повтор слышал «уже есть», а заявки не было.
+ */
+describe('предмет заявки: повтор, следующий тур плана и сбой сохранения', () => {
+  const booking = { ...base, tool: 'create_booking_request' };
+
+  it('другой тур того же номера — допуск, а не «уже есть такая заявка»', async () => {
+    stubCounts(0, 1, 1, 0, 0);
+    const v = await checkMcpWrite({ ...booking, subject: '27|2027-07-12' });
+    expect(v).toEqual({ decision: 'allow', attemptId: '42', repeat: false });
+    expect(lastAttempt()[3]).toBe('allowed');
+  });
+
+  it('повтор того же тура и даты — допуск без нового слота: второй лид не создаётся в роуте', async () => {
+    stubCounts(0, 1, 1, 0, 1);
+    const v = await checkMcpWrite({ ...booking, subject: '27|2027-07-10' });
+    expect(v).toEqual({ decision: 'allow', attemptId: null, repeat: true });
+    // Строка повтора — не «принятая»: в порог номера не идёт и освобождать её нечего.
+    expect(lastAttempt()[3]).toBe('repeat');
+  });
+
+  it(`разных предметов на номер за сутки — не больше ${PHONE_MAX_SUBJECTS_PER_DAY}: дальше карантин с правдивой причиной`, async () => {
+    stubCounts(0, 2, PHONE_MAX_SUBJECTS_PER_DAY, 0, 0);
+    const v = await checkMcpWrite({ ...booking, subject: '31|2027-07-20' });
+    expect(v.decision === 'deny' && v.outcome).toBe('quarantined');
+    expect(v.decision === 'deny' && v.message).toContain(`уже ${PHONE_MAX_SUBJECTS_PER_DAY} заявок`);
+    expect(v.decision === 'deny' && v.message).not.toMatch(/по первой/);
+  });
+
+  it('поток повторов с одного адреса держит лимит клиента', async () => {
+    stubCounts(CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_WINDOW, 1, 0, 1);
+    const v = await checkMcpWrite({ ...booking, subject: '27|2027-07-10' });
+    expect(v.decision === 'deny' && v.outcome).toBe('rate_limited');
+  });
+
+  it('без предмета — как прежде: одна заявка на номер в сутки', async () => {
+    stubCounts(0, 1, 1, 0, 0);
+    const v = await checkMcpWrite(base);
+    expect(v.decision === 'deny' && v.message).toMatch(/Менеджер свяжется по первой/);
+  });
+
+  it('предмет в журнале — отпечатком, а не номером тура и датой', async () => {
+    stubCounts(0, 0, 0);
+    await checkMcpWrite({ ...booking, subject: '27|2027-07-10' });
+    const subjectHash = String(lastAttempt()[4]);
+    expect(subjectHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(poolQueryMock.mock.calls)).not.toContain('2027-07-10');
+    // Без предмета колонка пуста — порог «одна на номер» считает свои строки.
+    stubCounts(0, 0, 0);
+    await checkMcpWrite(base);
+    expect(lastAttempt()[4]).toBeNull();
+  });
+
+  it('сбой сохранения после допуска освобождает слот: строка допуска становится save_failed', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [] });
+    await releaseWriteSlot('42');
+    const [sql, params] = poolQueryMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/UPDATE mcp_write_attempts SET outcome = 'save_failed'/);
+    expect(sql).toMatch(/AND outcome = 'allowed'/);
+    expect(params).toEqual(['42']);
+  });
+
+  it('нечего освобождать — запроса нет; отказ правки не глушится и не бросается', async () => {
+    await releaseWriteSlot(null);
+    expect(poolQueryMock).not.toHaveBeenCalled();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    poolQueryMock.mockRejectedValueOnce(Object.assign(new Error('down'), { code: '57P01' }));
+    await expect(releaseWriteSlot('42')).resolves.toBeUndefined();
+    expect(err.mock.calls[0]?.[0]).toBe('[mcp-write-guard] слот не освобождён после сбоя сохранения:');
+    err.mockRestore();
+  });
+});
+
+describe('запрет: «не удалось сохранить» без освобождения слота', () => {
+  // Сбой сохранения после допуска сжигал суточный слот номера (аудит 07.11,
+  // M6). Сценарий через POST собран для брони и машины; у проката, жилья и
+  // подбора он дорогой (два шага проката, доставка жилья) — здесь держится
+  // запрет: каждый отказ save_failed в роуте идёт сразу после освобождения.
+  it('каждый throw save_failed в роуте стоит сразу после releaseWriteSlot', () => {
+    const sites = [...ROUTE.matchAll(/throw new McpUserError\([^;]*'save_failed'\);/g)];
+    expect(sites.length).toBe(5);
+    for (const m of sites) {
+      const before = ROUTE.slice(0, m.index).trimEnd().split('\n').pop() ?? '';
+      expect(before.trim(), ROUTE.slice(m.index!, m.index! + 80)).toBe('await releaseWriteSlot(admitted.slot);');
+    }
   });
 });

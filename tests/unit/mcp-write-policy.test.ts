@@ -200,7 +200,8 @@ describe('согласие доезжает до лида всеми путям�
     // Заявка хозяину жилья — вариант текста «владельцу жилья», а не туроператору.
     expect(ROUTE).toMatch(/admitWrite\(ctx, STAY_REQUEST_TOOL\.name, phone, parsed\.data\.consent, 'stay'\)/);
     // Заявка на машину — «перевозчику»: телефон уходит ему (13.10).
-    expect(ROUTE).toMatch(/admitWrite\(ctx, REQUEST_CHARTER_TOOL\.name, phone, parsed\.data\.consent, 'carrier'\)/);
+    // Шестой аргумент — предмет заявки (аудит 07.11, M5): получатель от него не меняется.
+    expect(ROUTE).toMatch(/admitWrite\(ctx, REQUEST_CHARTER_TOOL\.name, phone, parsed\.data\.consent, 'carrier'[,)]/);
   });
 
   it('интервал параметризован, а не склеен строкой', () => {

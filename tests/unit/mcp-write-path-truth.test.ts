@@ -21,15 +21,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { createLeadMock, query } = vi.hoisted(() => ({
-  createLeadMock: vi.fn(async (_: Record<string, unknown>) => 'lead-1'),
+const { createLeadMock, query, recentLeadMock } = vi.hoisted(() => ({
+  createLeadMock: vi.fn(async (_: Record<string, unknown>) => 'lead-1' as string | null),
   query: vi.fn(),
+  recentLeadMock: vi.fn(async (..._: unknown[]) => null as string | null),
 }));
 
 vi.mock('@/lib/leads/create', () => ({
   createLead: (p: Record<string, unknown>) => createLeadMock(p),
   createLeadDetailed: async (p: Record<string, unknown>) => { const id = await createLeadMock(p); return id ? { id, created: true } : null; },
-  findRecentLeadByCommentPrefix: async () => null,
+  findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
 }));
 vi.mock('@/lib/kuzmich/core', () => ({ executeKuzmichTool: async () => 'ok' }));
 vi.mock('@/lib/planner', () => ({
@@ -69,6 +70,7 @@ const LEAD = { name: 'Иван Петров', phone: '+79001234567', comment: '�
 beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
   createLeadMock.mockClear();
+  recentLeadMock.mockReset().mockResolvedValue(null);
   query.mockReset().mockImplementation(async (sql: string) => {
     if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
     if (/FROM operator_tours/.test(sql)) return { rows: [TOUR] };
@@ -428,5 +430,63 @@ describe('канал согласия: чат Кузьмича — не аген
   it('внешний агент без канала чата — по-прежнему mcp', async () => {
     await runPublicTool({ toolName: 'create_lead', rawArguments: LEAD, ip: '10.9.0.8', userAgent: 'some-agent', self: false });
     expect(consentOf()?.source).toBe('mcp');
+  });
+});
+
+/**
+ * Предмет заявки на бронь (аудит планировщика 07.11, M5 и M6) — через POST
+ * роута: сторож считает настоящим кодом, база подменена.
+ *   M5 — второй тур того же плана на тот же телефон слышал «на этот номер уже
+ *        есть такая заявка… менеджер свяжется по первой», а такой не было;
+ *   M6 — сбой сохранения после допуска сжигал суточный слот номера, и повтор
+ *        слышал «уже есть», а заявки не было.
+ */
+describe('M5/M6: заявка на бронь — тур и дата, повтор и сбой сохранения', () => {
+  // c — принятых на номер этим инструментом за сутки, e — из них с тем же предметом.
+  const guard = (c: string, e: string) => query.mockImplementation(async (sql: string) => {
+    if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: c, c, d: '0', e }] };
+    if (/FROM operator_tours/.test(sql)) return { rows: [TOUR] };
+    if (/INSERT INTO mcp_write_attempts/.test(sql)) return { rows: [{ id: '77' }] };
+    return { rows: [] };
+  });
+  const attempts = () => query.mock.calls.filter((c) => /INSERT INTO mcp_write_attempts/.test(String(c[0]))).map((c) => c[1] as unknown[]);
+
+  it('второй тур того же номера за сутки — заявка принята, а не «уже есть такая заявка»', async () => {
+    guard('1', '0');
+    const r = await result(await call('create_booking_request', { ...BOOKING, date: '2027-07-12' }));
+    expect(r.isError).toBeUndefined();
+    expect(r.content[0]!.text).toContain('Заявка оператору принята');
+    expect(r.content[0]!.text).not.toMatch(/по первой/);
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    // В журнал попыток — отпечаток предмета, а не пусто и не «27|2027-07-12».
+    const [row] = attempts();
+    expect(row[3]).toBe('allowed');
+    expect(String(row[4])).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('повтор того же тура и даты — тот же ответ, второго лида нет', async () => {
+    guard('1', '1');
+    recentLeadMock.mockResolvedValue('lead-0');
+    const r = await result(await call('create_booking_request', BOOKING));
+    expect(r.isError).toBeUndefined();
+    expect(r.content[0]!.text).toContain('Заявка оператору принята');
+    expect(createLeadMock).not.toHaveBeenCalled();
+    expect(attempts()[0][3]).toBe('repeat');
+  });
+
+  it('сбой сохранения — отказ, и слот номера освобождён', async () => {
+    guard('0', '0');
+    createLeadMock.mockResolvedValueOnce(null);
+    const r = await result(await call('create_booking_request', BOOKING));
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('Не удалось сохранить заявку');
+    const release = query.mock.calls.find((c) => /UPDATE mcp_write_attempts SET outcome = 'save_failed'/.test(String(c[0])));
+    expect(release?.[1]).toEqual(['77']);
+  });
+
+  it('сохранилось — слот не трогается', async () => {
+    guard('0', '0');
+    await call('create_booking_request', BOOKING);
+    expect(query.mock.calls.some((c) => /save_failed/.test(String(c[0])))).toBe(false);
   });
 });

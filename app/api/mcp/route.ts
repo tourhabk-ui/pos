@@ -48,7 +48,7 @@ import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
-import { checkMcpWrite, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
+import { checkMcpWrite, releaseWriteSlot, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
 import { buildConsentRecord, type ChatConsentFrom, type PdConsentPurpose } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
@@ -135,11 +135,20 @@ interface McpCallContext {
 }
 
 /**
- * Допуск к записи — одна дверь на оба заявочных инструмента.
+ * Допуск к записи — одна дверь на все заявочные инструменты.
  *
- * Возвращает готовую запись согласия, если пускать можно, и бросает с
- * человеческим объяснением, если нет. Бросок, а не тихий возврат: заявка,
- * не созданная молча, для агента неотличима от созданной.
+ * Возвращает готовую запись согласия и строку допуска, если пускать можно,
+ * и бросает с человеческим объяснением, если нет. Бросок, а не тихий
+ * возврат: заявка, не созданная молча, для агента неотличима от созданной.
+ *
+ * `subject` — предмет заявки (тур и дата, перевозчик и дата, прокатчик и
+ * дата): повтор того же предмета не упирается в порог номера, а разные
+ * предметы одного плана — разные заявки (аудит планировщика 07.11, M5).
+ * Ключ тот же, по которому сохранение узнаёт повтор, — иначе сторож и
+ * сохранение разошлись бы в том, что считать повтором.
+ *
+ * Не сохранилось после допуска — `releaseWriteSlot(admitted.slot)`: сбой
+ * не сжигает суточный слот номера (M6).
  */
 async function admitWrite(
   ctx: McpCallContext,
@@ -149,6 +158,7 @@ async function admitWrite(
   // Кому уходят ПД: оператору тура (по умолчанию) или владельцу жилья —
   // версия текста согласия должна называть настоящего получателя.
   purpose: PdConsentPurpose = 'operator',
+  subject: string | null = null,
 ) {
   const verdict = await checkMcpWrite({
     ip: ctx.ip,
@@ -156,6 +166,7 @@ async function admitWrite(
     tool,
     phone,
     consent: consent === true,
+    subject,
   });
   // «Не смог проверить» здесь читается как отказ, и это решение вызывающего,
   // а не сторожа: анонимный приём ПД — не то место, где непроверенное
@@ -163,10 +174,14 @@ async function admitWrite(
   if (verdict.decision !== 'allow') {
     throw new McpUserError(verdict.message, 'write_guard');
   }
-  return ctx.consentFrom
+  const record = ctx.consentFrom
     ? buildConsentRecord(true, ctx.consentFrom.ip, ctx.consentFrom.source, purpose)
     : buildConsentRecord(true, ctx.ip, 'mcp', purpose);
+  return { consent: record, slot: verdict.attemptId };
 }
+
+/** Предмет заявки на тур: тур и дата — тот же ключ, что у повтора заявки. */
+const bookingSubject = (tourId: number | string, date: string) => `${tourId}|${date}`;
 
 /**
  * Отказ «поля нет» отличается от отказа «согласия нет», и это намеренно.
@@ -256,7 +271,8 @@ async function requestSeatsFromOperator(a: {
   ctx: McpCallContext; tourId: number; tourTitle: string; date: string; participants: number;
   name: string; phone: string; hasComment: boolean; consent: boolean | undefined; notifyUrl: string | undefined;
 }): Promise<string> {
-  const pd_consent = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent);
+  const admitted = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent, 'operator', bookingSubject(a.tourId, a.date));
+  const pd_consent = admitted.consent;
   if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
   const result = await createSeatRequest({
     tourId: a.tourId,
@@ -273,6 +289,8 @@ async function requestSeatsFromOperator(a: {
     // текстом: второй говорил бы анониму, знающему номер, где его владелец
     // будет в этот день (проверка MCP 29.09).
     const reason = result.reason === 'already_confirmed' ? 'duplicate' : result.reason;
+    // Запрос не создан — слот номера не сгорает (M6). Повтор — запрос есть.
+    if (reason !== 'duplicate') await releaseWriteSlot(admitted.slot);
     // Сбой проверки или доставки — не деловой исход, а отказ: isError и
     // ok=false в журнале (до 29.09 журнал считал его успехом).
     if (reason === 'check_failed' || reason === 'delivery_failed') {
@@ -440,7 +458,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const leadSource = { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach) };
   refuseSilentLead(name, phone, leadComment, leadSource);
 
-  const pd_consent = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent);
+  const admitted = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent, 'operator', bookingSubject(tour.id, date));
+  const pd_consent = admitted.consent;
 
   // Аудит 08.08, замечание 3 — явная идемпотентность по (телефон, тур, дата):
   // общий дедуп createLead требует ТОЧНОГО совпадения комментария, а агент при
@@ -485,6 +504,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     is_self: ctx.self,
   });
   if (!saved) {
+    await releaseWriteSlot(admitted.slot);
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
   const leadId = saved.id;
@@ -593,7 +613,9 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
 
   // Телефон уходит перевозчику — согласие записывается текстом, который его и
   // называет (purpose 'carrier', 13.10; до этого — версия «туроператору»).
-  const pd_consent = await admitWrite(ctx, REQUEST_CHARTER_TOOL.name, phone, parsed.data.consent, 'carrier');
+  // Предмет — перевозчик и дата выезда: по ним сохранение узнаёт повтор (charterDedupPrefix).
+  const admitted = await admitWrite(ctx, REQUEST_CHARTER_TOOL.name, phone, parsed.data.consent, 'carrier', `${carrier.partnerId}|${dateFrom}`);
+  const pd_consent = admitted.consent;
 
   // Ответ на повтор совпадает с ответом на новую заявку (оракул «этот телефон
   // уже просил эту машину»): см. charterAcceptedText и заявку на бронь.
@@ -603,6 +625,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
     facts, lead, name, phone, consent: pd_consent, isSelf: ctx.self, sourceUrl: 'mcp://vedar/charter',
   });
   if (!saved) {
+    await releaseWriteSlot(admitted.slot);
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
   // Переписку с перевозчиком (1350) открывает только ключ новой заявки; текст
@@ -739,7 +762,9 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   }
 
   // Телефон уходит прокатчику — согласие текстом, который его и называет.
-  const pd_consent = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental');
+  // Предмет — прокатчик и дата начала (пробная — отдельно): по ним сохранение узнаёт повтор (rentalDedupPrefix).
+  const admitted = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental', `${isTest ? 'test|' : ''}${company.slug}|${dateFrom}`);
+  const pd_consent = admitted.consent;
   const saved = await saveRentalLeadDetailed({
     facts, lead, name, phone, consent: pd_consent,
     // Пробная заявка — как свой визит владельца: с пометкой, вне счёта спроса, прокатчика не будит.
@@ -747,7 +772,10 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     sourceUrl: 'mcp://vedar/car-rental',
     ...(isTest ? { dedupPrefix: TEST_MARK + rentalDedupPrefix(company.name, dateFrom) } : {}),
   });
-  if (!saved) throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  if (!saved) {
+    await releaseWriteSlot(admitted.slot);
+    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  }
   const leadId = saved.id;
 
   // Журнал CRM прокатчика: без имени и телефона.
@@ -792,7 +820,8 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     ...(tripPart ? { kind: TRIP_MANAGER_LEAD_KIND, trip_id: tripPart.tripId, trip_parts: tripPart.parts } : {}),
   };
   refuseSilentLead(name, phone, leadComment, leadSource);
-  const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
+  const admitted = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
+  const pd_consent = admitted.consent;
   const leadId = await createLead({
     name,
     phone,
@@ -806,6 +835,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     skip_ai_processing: tripPart !== undefined || isVehicleOrder(leadComment),
   });
   if (!leadId) {
+    await releaseWriteSlot(admitted.slot);
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
   // Номер не называется, как и у заявки на бронь: createLead на точном дубле
@@ -894,7 +924,8 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
   }
 
   // Согласие и квота записи — после всех проверок без ПД, как у заявки на тур.
-  const consent = await admitWrite(ctx, STAY_REQUEST_TOOL.name, phone, parsed.data.consent, 'stay');
+  const admitted = await admitWrite(ctx, STAY_REQUEST_TOOL.name, phone, parsed.data.consent, 'stay');
+  const consent = admitted.consent;
   if (!consent) throw new McpUserError('Согласие на обработку персональных данных не получено — заявка не отправлена.', 'no_consent');
   const r = await submitStayRequest({
     accommodationId: found.id,
@@ -917,6 +948,7 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
       // Хозяин отметил даты занятыми (30.10): заявка не создана, даты названы.
       return `"${found.name}": ${guestBusyText(busyWithin(r.busyDates, check_in, check_out))} Заявка не создана. Карточка: ${base}/accommodations/${found.id}.`;
     }
+    await releaseWriteSlot(admitted.slot);
     throw new McpUserError(`Не удалось сохранить заявку — попробуйте позже или позвоните владельцу: телефон на карточке ${base}/accommodations/${found.id}.`, 'save_failed');
   }
   // Три исхода доставки (lib/stay/stay-request). «Не дошло никому» — отказ:
