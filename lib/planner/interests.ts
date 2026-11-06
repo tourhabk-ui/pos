@@ -3,6 +3,9 @@
  * Поддерживает: сезонность, расширенный словарь активностей
  */
 
+import { futureTripDates } from '@/lib/planner/future-trip-dates';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
+
 // ── Словарь: ключевые слова → activity_type ───────────────────────────────────
 
 const INTEREST_KEYWORDS: Record<string, string[]> = {
@@ -194,9 +197,12 @@ export function parseInterestsFromText(text: string): ParsedInterests {
       const dayTo = m[2] ? parseInt(m[2]) : dayFrom + 7;
       const monthNum = getMonthNumber(m[m[2] ? 3 : 2]);
       if (monthNum) {
+        // Год — ближайший, где даты ещё впереди (Б3, 07.11): текущий год
+        // в ноябре делал «с 10 по 14 июля» прошедшими датами.
         const year = new Date().getFullYear();
-        dateFrom = formatDate(year, monthNum, dayFrom);
-        dateTo = formatDate(year, monthNum, dayTo);
+        const next = futureTripDates(formatDate(year, monthNum, dayFrom), formatDate(year, monthNum, dayTo), kamchatkaToday());
+        dateFrom = next.arrival ?? undefined;
+        dateTo = next.departure ?? undefined;
       }
       break;
     }
