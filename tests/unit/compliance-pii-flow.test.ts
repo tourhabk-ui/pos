@@ -706,6 +706,10 @@ describe('D1 — третье ревью PR #3104: строка из функц�
     const src = [IMPORT, "const url = `${process.env.TG_BASE || 'https://api.telegram.org'}/file/${path}`;", "await callAIFast([{ role: 'user', content: url }]);"].join('\n');
     expect(found(src)).toEqual([]);
     expect(found(src.replace('${path}', '${lead.telegram}'))).toEqual([['contact', 'url']]);
+    // То же для чистимых слов: `.phone` в адресе внутри строки — не поле.
+    const phoneUrl = [IMPORT, "const url = `${process.env.SMS_BASE || 'https://api.phone.example'}/send/${path}`;", "await callAIFast([{ role: 'user', content: url }]);"].join('\n');
+    expect(found(phoneUrl)).toEqual([]);
+    expect(found(phoneUrl.replace('${path}', '${lead.phone}'))).toEqual([['contact', 'url']]);
   });
 });
 
