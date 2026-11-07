@@ -47,6 +47,8 @@ interface TripDetail {
   needs_car?: boolean | null;
   /** Предупреждения плана снимком на день сохранения; null — не записано. */
   warnings?: TripWarning[] | null;
+  /** Открыта ли ссылка для близких (H15: её можно закрыть в «Перед поездкой»). */
+  is_public?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -4,21 +4,27 @@
  * (app/api/trips/share/[token]/route.ts), потребитель — страница
  * (app/trip/[token]/_TripShareClient.tsx) и её строка `dayAvailabilityLine`.
  *
- * Четыре исхода (§4.0): места есть; мест нет (тур ведёт расписание) и, если
+ * Пять исходов (§4.0): места есть; мест нет (тур ведёт расписание) и, если
  * нашлась, ближайшая свободная дата; расписания нет — дату подтвердит оператор;
  * проверить не смогли. До пруфа с прода 06.11 страница знала только первый, а
- * остальные три молча превращались в «от … ₽ · оставить заявку».
+ * остальные три молча превращались в «от … ₽ · оставить заявку». Пятый — с
+ * 07.11 (аудит планировщика, H14): места есть, но на всю группу не хватает;
+ * до этого одно место на двоих было «места есть».
  */
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 
-export type TripDayAvailabilityState = 'open' | 'none' | 'on_request' | 'unread';
+/**
+ * `short` (аудит 07.11, H14) — места на дату есть, но на всю группу не
+ * хватает. Число людей в ответ не входит: состав группы по ссылке не виден.
+ */
+export type TripDayAvailabilityState = 'open' | 'none' | 'on_request' | 'unread' | 'short';
 
 export interface TripDayAvailability {
   date: string;
   remaining: number;
   /** Нет поля — старый ответ API: только «места есть». */
   state?: TripDayAvailabilityState;
-  /** Только у `none`: ближайшая свободная дата в окне поиска. */
+  /** У `none` и `short`: ближайшая дата в окне поиска, где хватит мест на всю группу. */
   next?: string;
   /**
    * Когда share-API прочитал места (ISO). Дата, ответ наличия и время
@@ -70,6 +76,14 @@ export function dayAvailabilityLine(a: TripDayAvailability): DayAvailabilityView
       text: `на ${ddmmOf(a.date)} свободных мест нет${a.next ? `; ближайшая свободная дата — ${ddmmOf(a.next)}` : '; в ближайшие два месяца свободных дат не нашли'}${checkedWords(a)}`,
       cta: a.next ? `заявка на ${ddmmOf(a.next)}` : 'другие даты',
       ctaDate: a.next ?? null,
+    };
+  }
+  if (state === 'short') {
+    return {
+      tone: 'warn',
+      text: `на ${ddmmOf(a.date)} свободно ${a.remaining} ${seatsWord(a.remaining)} — на всю группу не хватит${a.next ? `; ближайшая дата, где хватит на всех, — ${ddmmOf(a.next)}` : ''}${checkedWords(a)}`,
+      cta: a.next ? `заявка на ${ddmmOf(a.next)}` : 'спросить оператора',
+      ctaDate: a.next ?? a.date,
     };
   }
   if (state === 'on_request') {

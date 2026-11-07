@@ -1463,6 +1463,8 @@ export interface UserTripRow {
   choices: TripChoices | null;
   /** Предупреждения плана снимком на день сохранения; null — не записано (миграция 1397). */
   warnings: TripWarning[] | null;
+  /** Открыта ли ссылка для близких (миграция 664); закрыть — DELETE /api/trips/[id]/share. */
+  is_public: boolean;
   deleted_at: Date | null;
   created_at: Date;
   updated_at: Date;
