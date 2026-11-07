@@ -50,12 +50,24 @@ function realTour(t: Tour) {
   };
 }
 
+/** Даты с `from` по `to` включительно (YYYY-MM-DD). */
+function tripDates(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
 vi.mock('@/lib/planner/data', () => ({
   createPlannerCache: () => new Map(),
   fetchRealToursForZone: vi.fn(async (zone: string, act: string, limit: number) =>
     (TOURS[`${zone}:${act}`] ?? []).slice(0, limit).map(realTour)),
-  fetchAvailabilityForTour: vi.fn(async (tourId: string, from: string) =>
-    SLOTS[tourId] ? [{ date: from, availableSlots: 10, bookedSlots: 10 - SLOTS[tourId], remaining: SLOTS[tourId], priceOverride: null }] : []),
+  // Места — на КАЖДУЮ дату окна поездки: тур встаёт только на день, где у
+  // него есть выезд (волна 3 аудита 07.11, 3.2). Одна дата `from` — день
+  // прилёта, и тур с ней на дни занятий не встал бы.
+  fetchAvailabilityForTour: vi.fn(async (tourId: string, from: string, to: string) =>
+    SLOTS[tourId] ? tripDates(from, to).map((date) => ({ date, availableSlots: 10, bookedSlots: 10 - SLOTS[tourId], remaining: SLOTS[tourId], priceOverride: null })) : []),
   fetchZoneCapacity: vi.fn(async () => ({ tourCount: 0, totalSlots: 0, totalBooked: 0, utilizationPercent: 0 })),
   fetchContingencyAlternatives: vi.fn(async () => []),
   fetchReviewSignals: vi.fn(async () => null),
