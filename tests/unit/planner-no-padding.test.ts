@@ -26,6 +26,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ACTIVITY_NAMES, ACTIVITY_CONSTRAINTS } from '@/lib/planner';
+import { presetPlanDates } from '@/lib/plans/preset-plan';
+import { PLAN_PRESETS } from '@/lib/plans/presets';
 
 const ENGINE = readFileSync(join(process.cwd(), 'lib/planner/engine.ts'), 'utf-8');
 
@@ -107,14 +109,25 @@ describe('недобор назван словами', () => {
 });
 
 describe('обещание страницы /plans держится сезоном', () => {
-  const PAGE = readFileSync(join(process.cwd(), 'app/plans/[slug]/page.tsx'), 'utf-8');
-
-  it('старт плана ищется в сезонном окне интересов пресета', () => {
-    // Без этого «Камчатка за 7 дней: вулканы», пересобранная ISR в октябре,
-    // показывала бы дни без единого вулкана — и теперь, когда движок не
-    // добивает копиями, читатель увидел бы это глазами.
-    expect(PAGE).toContain('ACTIVITY_CONSTRAINTS');
-    expect(PAGE).toMatch(/months\.includes\(candidate\.getUTCMonth\(\) \+ 1\)/);
-    expect(PAGE).toMatch(/planDates\(preset\.days, preset\.interests\)/);
+  // Без этого «Камчатка за 7 дней: вулканы», пересобранная ISR в октябре,
+  // показывала бы дни без единого вулкана — и теперь, когда движок не
+  // добивает копиями, читатель увидел бы это глазами. Правило дат —
+  // lib/plans/preset-plan (вызовом); что страница зовёт его — рендер,
+  // tests/unit/plans-preset-plan.test.tsx.
+  it('старт плана — в сезонном окне главного интереса пресета, в любой месяц пересборки', () => {
+    let checked = 0;
+    for (const preset of PLAN_PRESETS) {
+      const months = ACTIVITY_CONSTRAINTS[preset.interests[0] ?? '']?.months ?? [];
+      if (months.length === 0) continue;
+      for (let m = 0; m < 12; m++) {
+        const now = new Date(Date.UTC(2026, m, 15));
+        const { arrival } = presetPlanDates(preset.days, preset.interests, now);
+        const month = new Date(`${arrival}T00:00:00Z`).getUTCMonth() + 1;
+        expect(months, `${preset.slug}, пересборка ${m + 1}-го месяца: старт ${arrival}`).toContain(month);
+        expect(Date.parse(`${arrival}T00:00:00Z`)).toBeGreaterThan(now.getTime());
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });

@@ -176,6 +176,8 @@ describe('API страницы плана для черновика', () => {
     db({ draft: DRAFT_ROW });
     const res = await gpxGet(req(`/api/trips/share/${ID}/gpx`), params(ID));
     expect(res.status).toBe(200);
+    // Закрытая ссылка (H15) не отдаёт план из общего кэша.
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     const gpx = await res.text();
     expect(gpx.match(/<wpt /g)?.length).toBe(3);
     expect(gpx).toContain('<desc>2026-01-11</desc>');

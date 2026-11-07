@@ -64,7 +64,9 @@ export async function GET(
         // Заголовок собирает plan-gpx: ASCII-имя обязательно — кириллица в
         // ByteString роняла ответ, и каждое скачивание GPX было 500.
         'Content-Disposition': planGpxContentDisposition(plan.title),
-        'Cache-Control': 'public, max-age=3600',
+        // Ссылку можно закрыть (H15, волна 2.6): общий кэш не должен отдавать
+        // план по старому токену ещё час после закрытия.
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (err) {
