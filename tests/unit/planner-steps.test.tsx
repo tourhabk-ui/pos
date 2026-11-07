@@ -93,7 +93,9 @@ describe('четыре шага по порядку', () => {
     // Быстрый путь — сверху первого шага.
     expect(screen.getByLabelText(/Опишите поездку/)).toBeTruthy();
     fillDates();
-    expect(screen.getByText('9 дней на Камчатке')).toBeTruthy();
+    // 3→12 августа — десять дней поездки, девять ночей: дни по календарю, как
+    // у движка (волна 2 аудита 07.11, H3). Прежнее «9 дней» были ночи.
+    expect(screen.getByText('10 дней (9 ночей) на Камчатке')).toBeTruthy();
     next();
     expect(screen.getByText('шаг 2 из 4')).toBeTruthy();
     expect(heading()).toBe('Кто едет');
@@ -155,10 +157,12 @@ describe('новое доходит до движка', () => {
     expect(body.healthNotes).toBe('колено, астма');
     expect(body.mobilityLevel).toBe('limited');
     expect(body.travelStyle).toBe('self');
-    // 3–12 августа: по датам 1 день отдыха (lib/planner/travel-style,
-    // suggestRestDays), плюс один нажатием «+» — 2 (владелец 26.09: «от дат,
-    // с возможностью корректировки»).
-    expect(body.restDays).toBe(2);
+    // 3–12 августа — десять дней поездки по календарю (H3): по датам 2 дня
+    // отдыха, один на каждые пять дней (lib/planner/travel-style,
+    // suggestRestDays), плюс один нажатием «+» — 3 (владелец 26.09: «от дат,
+    // с возможностью корректировки»). До волны 2 форма считала ночи (9) и
+    // предлагала один.
+    expect(body.restDays).toBe(3);
     expect(body.interests).toEqual(['volcano']);
 
     // Заметки движка — на экране результата.

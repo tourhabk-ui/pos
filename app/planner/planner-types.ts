@@ -67,6 +67,12 @@ export interface DayPlan {
   priceMissing?: string;
   /** Ближайшая свободная дата тура в окне поездки (от движка). */
   availableDate?: string;
+  /**
+   * Ключ карточки на экране планировщика — постоянный, в отличие от номера
+   * дня, который после перестановки меняется (lib/planner/calendar-days).
+   * Схема сохранённой поездки его не хранит.
+   */
+  uiKey?: string;
 }
 
 export interface TripWarning {
