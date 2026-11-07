@@ -10,6 +10,7 @@
  * не придумываются: нет цены в строке — цены нет и в дописке.
  */
 import { detectEmergency } from '@/lib/safety/sos-detector';
+import { asksTripPlan } from '@/lib/kuzmich/answer-quality';
 import {
   mentionsOperator, namedTours, parseTourLines, questionNumbers, referenceTours,
   UNIT_CAVEAT_RE, type TourLine,
@@ -125,6 +126,10 @@ export function questionQueries(question: string, catalogText: string, max = 4):
 export function completeTourList(answer: string, question: string, calls: readonly ToursCall[], catalogText = ''): string {
   // SOS (разбор 03.11, п.6): к экстренному ответу список туров не дописывается.
   if (detectEmergency(question).detected) return answer;
+  // Просьба о плане (аудит планировщика 07.11, K1): ответ — сам план, туры в
+  // нём выбраны по дням и датам. Дописка «Ещё по запросу» прицепляла к плану
+  // на июль весь список вида, зимнюю рыбалку тоже (ai-debug run 22).
+  if (asksTripPlan(question)) return answer;
   const byId = new Map<string, TourLine>();
   for (const c of calls) {
     if (!c.query.trim()) continue;
