@@ -1057,21 +1057,29 @@ export function sqlRow(sql: string): SqlRowShape {
     const t = tables.get(q.toLowerCase());
     return t !== undefined && !ctes.has(t.toLowerCase()) ? PERSON_WORD.test(t) : PERSON_WORD.test(q) || anyPerson;
   };
-  // Колонки — по запятым верхнего уровня в коде; рядом — тот же отрезок исходника (ключи `->>'phone'`).
-  const cols: Array<{ code: string; raw: string }> = [];
-  for (const [listFrom, listTo] of projections) {
+  // Колонки — по запятым верхнего уровня в коде; рядом — тот же отрезок
+  // исходника (ключи `->>'phone'`) и номер колонки в ветке.
+  const cols: Array<{ code: string; raw: string; branch: number; pos: number }> = [];
+  projections.forEach(([listFrom, listTo], branch) => {
     let depth = 0;
     let start = listFrom;
+    let pos = 0;
     for (let i = listFrom; i <= listTo; i++) {
       const ch = plain[i];
       if (ch === '(') depth++;
       if (ch === ')') depth--;
-      if (i === listTo || (ch === ',' && depth === 0)) { cols.push({ code: plain.slice(start, i), raw: text.slice(start, i) }); start = i + 1; }
+      if (i === listTo || (ch === ',' && depth === 0)) {
+        cols.push({ code: plain.slice(start, i), raw: text.slice(start, i), branch, pos: pos++ });
+        start = i + 1;
+      }
     }
-  }
+  });
   const kinds = new Set<Kind>();
   const fields = new Map<string, Kind[]>();
-  for (const { code: codeCol, raw } of cols) {
+  // Имена колонок результата даёт первая ветка `UNION`: в `SELECT title … UNION
+  // SELECT tourist_phone …` телефоны лежат в поле `title`.
+  const firstNames: Array<string | null> = [];
+  for (const { code: codeCol, raw, branch, pos } of cols) {
     const col = codeCol.trim().replace(/^distinct\s+(?:on\s*\((?:[^()]|\([^()]*\))*\)\s*)?/i, '');
     if (!col) continue;
     const star = /^(?:([A-Za-z_]\w*)\s*\.\s*)?\*$/.exec(col);
@@ -1115,7 +1123,9 @@ export function sqlRow(sql: string): SqlRowShape {
     // Выходное имя: псевдоним; `t.col` и `col::text` — col; вызов — имя функции.
     const bare = /^\s*(?:[A-Za-z_]\w*\s*\.\s*)?"?([A-Za-z_]\w*)"?\s*$/.exec(expr);
     const call = /^\s*([A-Za-z_]\w*)\s*\(/.exec(expr);
-    const field = alias ?? bare?.[1] ?? call?.[1].toLowerCase() ?? null;
+    const own = alias ?? bare?.[1] ?? call?.[1].toLowerCase() ?? null;
+    if (branch === 0) firstNames[pos] = own;
+    const field = branch === 0 ? own : firstNames[pos] ?? own;
     if (colKinds.size === 0) continue;
     for (const k of colKinds) kinds.add(k);
     if (field) fields.set(field, [...new Set([...(fields.get(field) ?? []), ...colKinds])]);

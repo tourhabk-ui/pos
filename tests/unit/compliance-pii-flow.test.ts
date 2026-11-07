@@ -1387,6 +1387,12 @@ describe('D1 — четырнадцатое ревью PR #3104: что запр
     expect(kinds("'INSERT INTO leads (name, phone) VALUES ($1, $2) RETURNING id, phone;'")).toEqual(['contact']);
     // Псевдоним CTE — не таблица: имя из тела CTE с лидами.
     expect(kinds("'WITH f AS (SELECT * FROM leads) SELECT f.name FROM f'")).toEqual(['name']);
+    // Имена колонок UNION даёт первая ветка: телефоны второй ветки лежат в поле `title`.
+    expect(sqlRow("'SELECT title FROM operator_tours UNION SELECT tourist_phone FROM operator_bookings'").fields.get('title')).toEqual(['contact']);
+    expect(sqlRow("`SELECT 'нет' AS title UNION SELECT tourist_phone FROM operator_bookings`").fields.get('title')).toEqual(['contact']);
+    expect(sqlRow("`(SELECT 'нет' AS title) UNION (SELECT tourist_name FROM operator_bookings)`").fields.get('title')).toEqual(['name']);
+    expect(found(ask('const { rows } = await pool.query(`SELECT title FROM operator_tours UNION SELECT tourist_phone FROM operator_bookings`);',
+      'await callAIFast(`Строка: ${rows[0].title}`);'))).toEqual([['contact', 'rows[0].title']]);
   });
 
   it('узость находки 1: тело CTE и подзапрос, которых нет в выходе', () => {
