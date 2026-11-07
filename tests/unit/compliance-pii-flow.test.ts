@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { scanSource, pdAliases, promptFlowOf, maskCode, sqlRowKinds, sqlRow, snakeId, bracketsToDots, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS, CONTACT_WORD, REDACTABLE_WORD, IDENT_WORD } from '@/lib/agents/compliance/pii-flow-scanner';
-import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
+import { findViolations, ALLOWLIST, scanSources } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
   LLM_EGRESS_FILES,
@@ -1453,5 +1453,120 @@ describe('D1 — шестнадцатое ревью PR #3104: дверь под
   it('узость находки 2: fetch не к модели и YandexGPT не стоки', () => {
     expect(found(["import { callAIFast } from '@/lib/ai/providers';", "await fetch('https://api.telegram.org/bot/sendMessage', { body: JSON.stringify({ text: `Тел: ${lead.phone}` }) });"].join('\n'))).toEqual([]);
     expect(found(["await fetch(`${YA}/foundationModels/v1/completion`, { body: JSON.stringify({ messages: [{ text: `Тел: ${lead.phone}` }] }) });"].join('\n'))).toEqual([]);
+  });
+});
+
+describe('D1 — семнадцатое ревью PR #3125: псевдоним — правилом, запрос к модели — по аргументам', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.expr]);
+  const FAST = "import { callAIFast, callAIQuality } from '@/lib/ai/providers';";
+  const PHONE = [['contact', 'lead.phone']];
+  const via = (...lines: string[]) => found([FAST, ...lines, 'await ask(`Тел: ${lead.phone}`);'].join('\n'));
+
+  it('находка 1: дверь значением в любом написании — дверь', () => {
+    // Все написания из ревью дословно.
+    expect(found(["import * as providers from '@/lib/ai/providers';", 'const ask = providers.callAIFast;', 'await ask(`Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    expect(via('const ask = callAIFast as AskFn;')).toEqual(PHONE);
+    expect(via('const ask = (callAIFast);')).toEqual(PHONE);
+    expect(via('const ask = callAIFast!;')).toEqual(PHONE);
+    expect(via('const ask = callAIFast satisfies Door;')).toEqual(PHONE);
+    expect(via('let ask;', 'ask = callAIFast;')).toEqual(PHONE);
+    expect(found([FAST, 'const ask = callAIFast;', 'const ask2 = ask;', 'await ask2(`Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    expect(found(["import providers, { callAIFast as ask } from '@/lib/ai/providers';", 'await ask(`Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    // То же правило шире перечня ревью: тернарий, ключ объекта, поле, скобки-индекс, call/apply.
+    expect(via('const ask = fast ? callAIFast : callAIQuality;')).toEqual(PHONE);
+    expect(via('const ask = fast ? other : callAIFast;')).toEqual(PHONE);
+    expect(found([FAST, 'const api = { ask: callAIFast };', 'await api.ask(`Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    expect(found([FAST, 'this.ask = callAIFast.bind(null);', 'await this.ask(`Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    expect(found(["import * as providers from '@/lib/ai/providers';", "const ask = providers['callAIFast'];", 'await ask(`Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    expect(found([FAST, 'await callAIFast.call(null, `Тел: ${lead.phone}`);'].join('\n'))).toEqual(PHONE);
+    expect(found([FAST, 'await callAIFast.apply(null, [`Тел: ${lead.phone}`]);'].join('\n'))).toEqual(PHONE);
+  });
+
+  it('узость находки 1: результат вызова, член двери и не-дверь под новым именем — не двери', () => {
+    expect(via('const ask = formatPhone;')).toEqual([]);
+    expect(via('const ask = await callAIFast(question);')).toEqual([]);
+    expect(via('const ask = callAIFast.length;')).toEqual([]);
+    expect(via('const ask = () => callAIFast;', 'const unrelated = 1;')).toEqual([]);
+    expect(via('const { callAIFast: other } = mod;', 'const ask = other.name;')).toEqual([]);
+    // Получатель ищется назад по выражению и не перескакивает границы:
+    // аргумент вызова, ключ объекта, тело блока, конец инструкции (и без `;`).
+    expect(via('const ask = register(callAIFast);')).toEqual([]);
+    expect(via("const opts = { ask: 'x', callAIFast: fake };")).toEqual([]);
+    expect(via('const ask = { callAIFast };')).toEqual([]);
+    expect(via('let ask = 1;', 'void callAIFast;')).toEqual([]);
+    expect(via('let ask = 1', 'return callAIFast')).toEqual([]);
+    expect(via('const pick = ask => callAIFast;')).toEqual([]);
+    // Ветка тернария — не ключ объекта: `other` дверью не становится.
+    expect(found([FAST, 'const ask = fast ? other : callAIFast;', 'await other(`Тел: ${lead.phone}`);'].join('\n'))).toEqual([]);
+  });
+
+  it('находка 2: дверь, переэкспортированная модулем-обёрткой, — дверь в каждом файле-потребителе', () => {
+    const consumer = (head: string) => ({ rel: 'lib/agents/lead-note.ts', src: [head, '',
+      'export const describe = (lead: { phone: string }) => ask(`Клиент: ${lead.phone}`);'].join('\n') });
+    const fromFiles = (files: Array<{ rel: string; src: string }>) => scanSources(files).map((x) => [x.file, x.kind, x.expr]);
+    const RELAY = { rel: 'lib/ai/relay-ask.ts', src: "export { callAIFast as ask } from '@/lib/ai/providers';" };
+    // Дословно сценарий ревьюера.
+    expect(fromFiles([RELAY, consumer("import { ask } from '@/lib/ai/relay-ask';")])).toEqual([['lib/agents/lead-note.ts', 'contact', 'lead.phone']]);
+    // Обёртка присваиванием и цепочка обёрток.
+    expect(fromFiles([{ rel: 'lib/ai/relay-ask.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport const ask = callAIFast;" },
+      consumer("import { ask } from '@/lib/ai/relay-ask';")])).toEqual([['lib/agents/lead-note.ts', 'contact', 'lead.phone']]);
+    expect(fromFiles([{ rel: 'lib/ai/relay-ask.ts', src: "export { callAIFast as askOne } from '@/lib/ai/providers';" },
+      { rel: 'lib/ai/relay-two.ts', src: "export { askOne as ask } from './relay-ask';" },
+      consumer("import { ask } from '@/lib/ai/relay-two';")])).toEqual([['lib/agents/lead-note.ts', 'contact', 'lead.phone']]);
+    // Дверь по умолчанию: имя у потребителя своё — статический и динамический импорт.
+    const DEF = { rel: 'lib/ai/relay/index.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport default callAIFast;" };
+    expect(fromFiles([DEF, consumer("import ask from '../ai/relay';")])).toEqual([['lib/agents/lead-note.ts', 'contact', 'lead.phone']]);
+    expect(fromFiles([DEF, consumer("const { default: ask } = await import('@/lib/ai/relay');")])).toEqual([['lib/agents/lead-note.ts', 'contact', 'lead.phone']]);
+  });
+
+  it('узость находки 2: экспорт не-двери и страница с именем двери в тексте — не двери', () => {
+    const consumer = { rel: 'lib/agents/lead-note.ts', src: "import ask from '@/app/hub/page';\nimport { send } from '@/lib/tg';\nexport const d = (lead: { phone: string }) => [ask(`Тел: ${lead.phone}`), send(`Тел: ${lead.phone}`)];" };
+    expect(scanSources([
+      { rel: 'app/hub/page.tsx', src: 'export default function Page() {\n  return <p>Нагрузка callAIWaterfall/Fast</p>;\n}' },
+      { rel: 'lib/tg.ts', src: "import { sendMessage } from './bot';\nexport { sendMessage as send };" },
+      consumer,
+    ])).toEqual([]);
+  });
+
+  it('находка 3: запрос к модели узнаётся по адресу, а не по имени клиента', () => {
+    // Дословно сценарий ревьюера: клиент — параметр, адрес — параметр, ключ input.
+    const MODEL_FILE = "const PATH = '/chat/completions';";
+    expect(found([MODEL_FILE, 'export async function send(deps: { fetchImpl: typeof fetch }, url: string, booking: { phone: string }) {',
+      '  return deps.fetchImpl(url, { body: JSON.stringify({ model, input: `Тел: ${booking.phone}` }) });', '}'].join('\n')))
+      .toEqual([['contact', 'booking.phone']]);
+    // Тот же вызов с ключом, который сам стоком не является: решает адрес.
+    expect(found([MODEL_FILE, 'await deps.fetchImpl(url, { body: JSON.stringify({ data: `Тел: ${lead.phone}` }) });'].join('\n'))).toEqual(PHONE);
+    expect(found(['await post(`${BASE}/chat/completions`, { data: `Тел: ${lead.phone}` });'].join('\n'))).toEqual(PHONE);
+    expect(found(['await relayFetch(`${BASE}/chat/completions`, { body: JSON.stringify({ input: `Тел: ${lead.phone}` }) });'].join('\n'))).toEqual(PHONE);
+    expect(found([MODEL_FILE, 'await globalThis.fetch(endpoint, { body: JSON.stringify({ data: `Тел: ${lead.phone}` }) });'].join('\n'))).toEqual(PHONE);
+    // Адрес — поле: `this.endpoint`; объявление адреса — не первое по тексту.
+    expect(found(['class C { endpoint = BASE + "/v1/messages";', '  run(lead) { return send(this.endpoint, { data: `Тел: ${lead.phone}` }); } }'].join('\n'))).toEqual(PHONE);
+    expect(found(["function health() { const url = '/health'; return fetch(url); }",
+      'function ask() { const url = `${BASE}/chat/completions`; return post(url, { data: `Тел: ${lead.phone}` }); }'].join('\n'))).toEqual(PHONE);
+    // `new URL(путь, база)` — тоже адрес.
+    expect(found(["const url = new URL('/chat/completions', base);", 'await post(url, { data: `Тел: ${lead.phone}` });'].join('\n'))).toEqual(PHONE);
+    // Ключ в кавычках — тот же сток.
+    expect(found([FAST, "const body = { 'contents': [{ 'parts': [{ 'text': `Тел: ${booking.phone}` }] }] };", 'await send(body);'].join('\n')))
+      .toEqual([['contact', 'booking.phone']]);
+    // Новые ключи тела: `input` (Responses API) и `parts` (Gemini) — каждый сам по себе.
+    expect(found([FAST, 'const body = { input: `Тел: ${lead.phone}` };', 'await send(body);'].join('\n'))).toEqual(PHONE);
+    expect(found([FAST, 'const body = { parts: [{ text: `Тел: ${lead.phone}` }] };', 'await send(body);'].join('\n'))).toEqual(PHONE);
+  });
+
+  it('узость находки 3: запрос не к модели, ключ внутри строки и файл без адреса модели — не стоки', () => {
+    expect(found(["const PATH = '/chat/completions';", "await deps.fetchImpl('https://api.telegram.org/bot/sendMessage', { body: JSON.stringify({ text: `Тел: ${lead.phone}` }) });"].join('\n'))).toEqual([]);
+    expect(found(["const PATH = '/chat/completions';", "const TG = 'https://api.telegram.org/bot/sendMessage';", 'await fetch(TG, { body: JSON.stringify({ text: `Тел: ${lead.phone}` }) });'].join('\n'))).toEqual([]);
+    expect(found([FAST, "log(\"x 'content': y\", `Тел: ${lead.phone}`);"].join('\n'))).toEqual([]);
+    expect(found([FAST, '// content: см. ниже', 'log(`Тел: ${lead.phone}`);'].join('\n'))).toEqual([]);
+    expect(found([FAST, "switch (k) { case 'content': return `Тел: ${lead.phone}`; }"].join('\n'))).toEqual([]);
+    expect(found([FAST, 'const body = { user_input: `Тел: ${lead.phone}` };', 'await send(body);'].join('\n'))).toEqual([]);
+    // Объявление — не вызов, даже у функции с `fetch` в имени и ПД в значении по умолчанию.
+    expect(found(["const PATH = '/chat/completions';", 'class C { async fetchNote(url, note = `Тел: ${lead.phone}`) { return note; } }'].join('\n'))).toEqual([]);
+    expect(found(["const PATH = '/chat/completions';", 'function fetchNote(url, note = `Тел: ${lead.phone}`): string { return note; }'].join('\n'))).toEqual([]);
+    expect(found(['await deps.fetchImpl(url, { body: JSON.stringify({ text: `Тел: ${lead.phone}` }) });'].join('\n'))).toEqual([]);
+    // Адрес модели внутри вызова (ответы проб) — не адрес: перепись нашла это на
+    // app/api/admin/net-diag, где ответ отдаёт настройки рядом с пробами.
+    expect(found(["const probes = await Promise.all([probe('or', 'https://openrouter.ai/api/v1/models')]);",
+      'return NextResponse.json({ network: probes, note: `Тел: ${lead.phone}` });'].join('\n'))).toEqual([]);
   });
 });
