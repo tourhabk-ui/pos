@@ -92,6 +92,18 @@ jobs:
           npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.319 > /dev/null
           claude --version
 
+      # Claude Code с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (шаг «Ревью») без
+      # bubblewrap не стартует вовсе: run 1 пробы (07.11) — девять работ упали
+      # за секунду, ни одного запроса к модели. Шаг тот же, что у рук.
+      - name: bubblewrap для изоляции подпроцессов
+        run: |
+          # Вне раннера GitHub (симуляция шагов в tests/unit) — не ставим ничего.
+          [ "${GITHUB_ACTIONS:-}" = "true" ] || exit 0
+          command -v bwrap >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat; }
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       # /security-review сравнивает рабочую ветку с origin/HEAD — им становится
       # база случая. Ревьюеру не достаются ни CLAUDE.md, ни настройки, навыки и
       # агенты проекта: как у боевого ревьюера, судится дифф, а не история.
