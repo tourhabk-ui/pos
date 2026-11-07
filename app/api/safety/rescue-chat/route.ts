@@ -12,6 +12,8 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { openRouterAttribution } from '@/lib/ai/attribution';
+import { coarseCoordsInText, coarsePointText } from '@/lib/geo/kamchatka';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -31,7 +33,8 @@ const BodySchema = z.object({
   // передача данных настоящим спасателям идёт через /api/safety/sos. Свои
   // клиенты (components/safety/RescueChat, /hub/safety) их не слали никогда;
   // лишние ключи в теле zod отбрасывает. Координаты остаются — без них совет
-  // «где ближайшая помощь» невозможен.
+  // «где ближайшая помощь» невозможен; модели они уходят огрублёнными до
+  // километра (buildMessages).
   lat:           z.number().optional(),
   lng:           z.number().optional(),
   stream:        z.boolean().optional().default(false),
@@ -57,6 +60,12 @@ const SYSTEM_PROMPT = `Ты — AI Спасатель Камчатки. Подг
 • Сначала САМОЕ важное (жизнь → здоровье → ориентирование → связь)
 • Тон: спокойный, уверенный, тёплый. Ты рядом.
 • Конкретные цифры и расстояния лучше абстракций
+
+═══ ТОЧКА ЧЕЛОВЕКА ═══
+Точка, которую ты видишь (в данных собеседника или в его словах), огрублена
+до ~1 км — не диктуй её для вызова помощи. Точную точку спасателям передаёт
+кнопка SOS; в разговоре с 112 человек называет ориентиры и точку со своего
+телефона.
 
 ═══ ПЕРВЫЕ ВОПРОСЫ (если ситуация неясна) ═══
 1. Где вы? (ориентиры, вулкан, река, перевал)
@@ -128,13 +137,20 @@ function buildMessages(
   const ctx: string[] = [];
   // В системный промпт из тела запроса попадают только координаты — числа,
   // которые формируются здесь, а не текст человека (issue #328, js/system-prompt-injection).
-  if (lat && lng)    ctx.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  // До километра (ревью 07.11): совету «где ближайшая помощь» точнее не нужно,
+  // а точная точка — ПД человека в беде у зарубежных моделей. Спасателям точку
+  // передаёт /api/safety/sos.
+  if (lat && lng)    ctx.push(`Координаты: ${coarsePointText(lat, lng)}`);
   if (ctx.length)    systemContent += `\n\nСОБЕСЕДНИК:\n${ctx.join('\n')}`;
 
+  // Текст реплик — та же граница (ревью безопасности PR #3127): точку и
+  // телефон человек пишет и в самом сообщении («я на 53.23912, 158.77123, тел
+  // …»). История приходит от клиента, и роль «assistant» в ней — тоже его
+  // текст, поэтому чистятся все реплики, а не только реплики человека.
+  const turns = [...history.slice(-6), { role: 'user' as const, content: message }];
   return [
     { role: 'system', content: systemContent },
-    ...history.slice(-6).map(m => ({ role: m.role, content: m.content })),
-    { role: 'user', content: message },
+    ...turns.map(m => ({ role: m.role, content: coarseCoordsInText(redactPII(m.content)) })),
   ];
 }
 

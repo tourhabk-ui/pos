@@ -19,6 +19,7 @@
 import { pool } from '@/lib/db-pool';
 import { fetchForecastDays, type ForecastDay } from '@/lib/planner/intelligence';
 import { insideKrai } from '@/lib/geo/krai-envelope';
+import { coarseDegrees } from '@/lib/geo/kamchatka';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
@@ -123,8 +124,8 @@ export function weatherTarget(args: { place?: string; lat?: string; lng?: string
     // Огрубление до сотых (~1 км): агент может прислать геопозицию человека,
     // а прогнозу хватает сетки Open-Meteo. Точная координата не уходит ни в
     // зарубежный сервис, ни в лог прода (проверка MCP 29.09).
-    const cLat = coarse(lat);
-    const cLng = coarse(lng);
+    const cLat = coarseDegrees(lat);
+    const cLng = coarseDegrees(lng);
     return {
       kind: 'point',
       name: `точка ${cLat.toFixed(2)}, ${cLng.toFixed(2)}`,
@@ -136,10 +137,6 @@ export function weatherTarget(args: { place?: string; lat?: string; lng?: string
   return { kind: 'default' };
 }
 
-/** Сотые градуса — около километра: точнее прогноз не бывает, а человека выдаёт. */
-function coarse(v: number): number {
-  return Math.round(v * 100) / 100;
-}
 
 export function parseDays(raw: string | undefined): number {
   const n = raw === undefined ? NaN : Math.round(Number(raw));

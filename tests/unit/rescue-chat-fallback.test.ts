@@ -99,7 +99,7 @@ describe('rescue-chat: фолбэк при отказе провайдеров',
     expect(messages.find(m => m.role === 'system')?.content).not.toContain('Координаты');
   });
 
-  it('потоковый путь (OpenRouter) тоже не несёт имя и телефон, координаты несёт', async () => {
+  it('потоковый путь (OpenRouter) тоже не несёт имя и телефон, координаты — до километра', async () => {
     openRouterKeyMock.mockReturnValue('test-key');
     const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -112,7 +112,60 @@ describe('rescue-chat: фолбэк при отказе провайдеров',
       const body = String(init.body);
       expect(body).not.toContain('Пупкин');
       expect(body).not.toContain('123-45-67');
-      expect(body).toContain('Координаты: 53.12346, 158.65432');
+      // Точка человека в беде — ПД; модели хватает километра (ревью 07.11).
+      expect(body).toContain('Координаты: 53.12, 158.65 (около 1 км)');
+      expect(body).not.toMatch(/53\.123|158\.654/);
+    } finally {
+      vi.unstubAllGlobals();
+      openRouterKeyMock.mockReturnValue(null);
+    }
+  });
+
+  // Ревью безопасности PR #3127: lat/lng огрублялись, а ту же точку и телефон
+  // человек пишет в самом сообщении. История — текст клиента, и роль
+  // «assistant» в ней тоже его, поэтому чистятся все реплики.
+  const TEXT_BODY = {
+    message: 'Заблудился у Авачинского, я на 53.23912, 158.77123, тел +7 914 123-45-67',
+    history: [
+      { role: 'user', content: 'Почта для связи anna.k@example.ru, точка 53°14\'20.8" 158°46\'16"' },
+      { role: 'assistant', content: 'Вы у точки 53.23912, 158.77123. Звоните 112.' },
+    ],
+  };
+  const textRequest = (stream: boolean) => new NextRequest('http://localhost/api/safety/rescue-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...TEXT_BODY, stream }),
+  });
+  const noExact = (text: string) => {
+    expect(text).not.toMatch(/53\.239|158\.771|20\.8|46'16/);
+    expect(text).not.toContain('123-45-67');
+    expect(text).not.toContain('anna.k@example.ru');
+    expect(text).toContain('53.24, 158.77');
+    expect(text).toContain('112');
+  };
+
+  it('точка и телефон в тексте реплик уходят модели огрублёнными и вырезанными (водопад)', async () => {
+    callAIWaterfallMock.mockResolvedValue('Стойте на месте.');
+    const res = await POST(textRequest(false));
+    expect(res.status).toBe(200);
+    const messages = callAIWaterfallMock.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    expect(messages.map(m => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+    noExact(messages.slice(1).map(m => m.content).join('\n'));
+    // Модель знает, что точка неточная, и не диктует её для вызова помощи.
+    expect(messages[3].content).toContain('огрублены до ~1 км');
+    expect(messages[0].content).toContain('не диктуй её для вызова помощи');
+  });
+
+  it('потоковый путь (OpenRouter) — то же тело без точной точки, телефона и почты', async () => {
+    openRouterKeyMock.mockReturnValue('test-key');
+    const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
+    vi.stubGlobal('fetch', fetchMock);
+    callAIWaterfallMock.mockResolvedValue('Стойте на месте.');
+    try {
+      const res = await POST(textRequest(true));
+      expect(res.status).toBe(200);
+      const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { messages: Array<{ content: string }> };
+      noExact(body.messages.slice(1).map(m => m.content).join('\n'));
     } finally {
       vi.unstubAllGlobals();
       openRouterKeyMock.mockReturnValue(null);

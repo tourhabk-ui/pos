@@ -15,6 +15,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
+import { sourceDataForModel } from '@/lib/leads/source-for-model';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { tourDays } from '@/lib/tours/catalog-availability';
 import { groundIntentNumbers } from '@/lib/leads/intent-grounding';
@@ -357,11 +358,11 @@ export class LeadProcessorService {
 
 Заявка (152-ФЗ: имя/телефон туриста в модель не передаём):
 - Комментарий: ${redactPII(lead.comment) || 'не указан'}
-- Интересующий маршрут: ${lead.route_title ?? 'не указан'}
+- Интересующий маршрут: ${redactPII(lead.route_title) || 'не указан'}
 - Размер группы: ${lead.group_size ?? 'не указан'}
 - Бюджет (руб): ${lead.budget_rub ?? 'не указан'}
-- Желаемые даты: ${lead.desired_dates ?? 'не указаны'}
-- Доп. данные: ${redactPII(JSON.stringify(lead.source_data ?? {}))}
+- Желаемые даты: ${redactPII(lead.desired_dates) || 'не указаны'}
+- Доп. данные: ${JSON.stringify(sourceDataForModel(lead.source_data))}
 
 Верни ТОЛЬКО валидный JSON без markdown и комментариев:
 {
