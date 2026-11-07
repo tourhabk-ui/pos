@@ -10,8 +10,8 @@
  * Это НЕ ИИ-«юрист». Это узкий детерминированный страж в пределах одного
  * файла: он читает исходник, находит ТЕКСТ ПРОМПТА (template literal у
  * переменной `*prompt*`, значение `content:`, аргумент вызова зарубежной
- * модели — и то, что течёт в них через переменные, массивы и склейки внутри
- * файла, `promptFlow`) и ловит в нём интерполяцию однозначных ПД-полей
+ * модели — и то, что течёт в них через переменные, массивы, склейки и
+ * функции внутри файла, `promptFlow`) и ловит в нём интерполяцию однозначных ПД-полей
  * (`.phone`, `.email`, персональные `*_name`/`lead.name`), переменных с именем
  * контакта и их псевдонимов без чистки. Поток между файлами (сборщик в одном,
  * вызов в другом) он не видит — это добивает ревью.
@@ -473,7 +473,15 @@ export function maskCode(src: string): string {
 }
 
 /** Области видимости файла: имя в позиции → ключ «область:имя». */
-interface Scopes { key(name: string, at: number): string }
+interface Scopes {
+  key(name: string, at: number): string;
+  /** Тела функций файла по имени: от вызова `line(lead)` — к тому, что она возвращает. */
+  functions: Map<string, FnBody[]>;
+  /** Все тела функций, и безымянных: `return` вложенной функции — не свой. */
+  bodies: FnBody[];
+}
+/** Тело функции: блок `{…}` или выражение-тело стрелки. */
+interface FnBody { from: number; to: number; block: boolean }
 interface Scope { from: number; to: number; parent: number; names: Set<string> }
 
 const nameOfKey = (key: string): string => key.slice(key.indexOf(':') + 1);
@@ -597,6 +605,19 @@ function isFunctionHead(code: string, open: number): boolean {
 }
 
 /**
+ * Имя функции по тексту перед `(` её параметров: `function line(`, метод
+ * `describe(`, `const line = (`, `line = async (`, `const f = function (`.
+ * Безымянный колбэк (`map((l) =>`) — пустая строка.
+ */
+function functionName(code: string, open: number): string {
+  const before = code.slice(Math.max(0, open - 160), open);
+  const own = /(?:^|[^\w$.])(?:function\s*\*?\s*)?([A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*$/.exec(before)?.[1] ?? '';
+  if (own && !CONTROL_WORDS.has(own) && !NOT_ROOT.has(own) && own !== 'catch') return own;
+  const assigned = /([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:async\s*)?(?:function\b\s*\*?\s*(?:[A-Za-z_$][\w$]*)?\s*)?(?:<[^()]*>\s*)?$/.exec(before);
+  return assigned?.[1] ?? '';
+}
+
+/**
  * Области видимости: каждый блок `{…}` и выражение-тело стрелки. Объявления
  * (`const`/`let`/`var`, с деструктуризацией) — в самую внутреннюю область,
  * параметры функций и стрелок — в их тело. Имя в позиции принадлежит
@@ -631,6 +652,14 @@ function buildScopes(code: string): Scopes {
     return scopes.length - 1;
   };
   const bind = (scope: number, names: string[]) => { for (const n of names) scopes[scope].names.add(n); };
+  const functions = new Map<string, FnBody[]>();
+  const bodies: FnBody[] = [];
+  const fn = (name: string, scope: number) => {
+    const s = scopes[scope];
+    const body: FnBody = { from: s.from, to: s.to, block: code[s.from] === '{' && blockAt.get(s.from) === scope };
+    bodies.push(body);
+    if (name) functions.set(name, [...(functions.get(name) ?? []), body]);
+  };
 
   for (const [open, close] of parens) {
     const k = skipWs(code, close + 1);
@@ -641,11 +670,16 @@ function buildScopes(code: string): Scopes {
       if (t?.arrow) body = bodyAt(t.at);
       else if (t) body = blockAt.get(t.at) ?? -1;
     } else if (code[k] === '{' && isFunctionHead(code, open)) body = blockAt.get(k) ?? -1;
-    if (body >= 0) for (const part of splitTop(code.slice(open + 1, close))) bind(body, bindingNames(part));
+    if (body < 0) continue;
+    for (const part of splitTop(code.slice(open + 1, close))) bind(body, bindingNames(part));
+    fn(functionName(code, open), body);
   }
   ARROW_ONE.lastIndex = 0;
   for (let m = ARROW_ONE.exec(code); m; m = ARROW_ONE.exec(code)) {
-    if (!NOT_ROOT.has(m[1])) bind(bodyAt(m.index + m[0].length), [m[1]]);
+    if (NOT_ROOT.has(m[1])) continue;
+    const body = bodyAt(m.index + m[0].length);
+    bind(body, [m[1]]);
+    fn(functionName(code, m.index), body);
   }
 
   // Вложенность: снаружи внутрь, внутренняя область перекрашивает внешнюю.
@@ -674,6 +708,8 @@ function buildScopes(code: string): Scopes {
       }
       return `-1:${name}`;
     },
+    functions,
+    bodies,
   };
 }
 
@@ -825,8 +861,6 @@ function argsAfter(src: string, open: number): string {
   return src.slice(open + 1, Math.max(open + 1, i - 1));
 }
 
-/** Вызовы, чей результат несёт текст колбэка: литерал в `.map((l) => \`…\`)` — часть результата. */
-const PASS_THROUGH = new Set(['map', 'flatMap']);
 /** Обёртки, после которых ПД в тексте уже нет. */
 const SAFE_CALLEES = new Set(['redactPII', 'redact']);
 /** `X.push(…)`, `X.unshift(…)`, `X.add(…)`, `X.concat(…)` — X получает текст аргументов. */
@@ -836,31 +870,59 @@ const PUSH_CALL = /(?<![\w$])([A-Za-z_$][\w$]*)\s*\.\s*(?:push|unshift|add|conca
 interface FlowSpan { from: number; to: number; intoCalls: boolean }
 
 /**
- * Начала бэктиков, чей текст становится значением отрезка: где бы ни стояли
- * (`[…]`, колбэк map). Правило вызовов — как у rootsAt: литерал в аргументах
- * вызова — только при intoCalls; колбэк map/flatMap — часть результата;
- * внутри redactPII ПД уже нет.
+ * Литералы отрезка и вызовы функций в нём.
+ *
+ * Литерал — где бы ни стоял: элемент `[…]`, колбэк `map` или `reduce`,
+ * аргумент любого вызова. Что вызов делает с текстом, страж не знает, и
+ * перечень «несущих» вызовов (был `map`/`flatMap`) обходился следующим же
+ * (`reduce`, третье ревью PR #3104) — поэтому проверяется всякий литерал, кроме
+ * литерала внутри redactPII. Узость держат имена: переменная из аргументов
+ * вызова в поток не идёт (`rows = query(SQL, …)`), а находка — только
+ * однозначное поле ПД, имя-контакт или псевдоним.
+ *
+ * Вызов `name(…)` или `this.name(…)` — кандидат в функцию файла: её результат
+ * часть отрезка (`content: line(lead)`, то же ревью).
  */
-function literalsIn(code: string, span: FlowSpan): number[] {
+function literalsIn(code: string, span: FlowSpan): { literals: number[]; callees: string[] } {
   const frames: Array<{ call: boolean; callee: string }> = [];
-  const starts: number[] = [];
-  const passes = () => frames.every((f) => !f.call || (!SAFE_CALLEES.has(f.callee) && (span.intoCalls || PASS_THROUGH.has(f.callee))));
+  const literals: number[] = [];
+  const callees: string[] = [];
+  const passes = () => frames.every((f) => !f.call || !SAFE_CALLEES.has(f.callee));
   let i = span.from;
   while (i < span.to) {
     const c = code[i];
     if (c === '"' || c === "'") { i = skipString(code, i); continue; }
-    if (c === '`') { if (passes()) starts.push(i); i = templateParts(code, i).end; continue; }
+    if (c === '`') { if (passes()) literals.push(i); i = templateParts(code, i).end; continue; }
     if (c === '(' || c === '[' || c === '{') {
       const before = tailBefore(code, span.from, i);
       const call = c === '(' && CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before);
-      frames.push({ call, callee: call ? (/([A-Za-z_$][\w$]*)$/.exec(before)?.[1] ?? '') : '' });
+      const callee = call ? (/([A-Za-z_$][\w$]*)$/.exec(before)?.[1] ?? '') : '';
+      // Своё имя или метод через this — не `obj.method(`: чужой объект файлом не описан.
+      if (callee && passes() && !SAFE_CALLEES.has(callee) && /(?:^|[^\w$.])(?:this\s*\??\.\s*)?[A-Za-z_$][\w$]*$/.test(before)) callees.push(callee);
+      frames.push({ call, callee });
       i++;
       continue;
     }
     if (c === ')' || c === ']' || c === '}') { frames.pop(); i++; continue; }
     i++;
   }
-  return starts;
+  return { literals, callees };
+}
+
+/** Что функция возвращает: выражение-тело стрелки или выражения её `return` (не вложенных функций). */
+function returnSpans(code: string, body: FnBody, all: FnBody[]): FlowSpan[] {
+  if (!body.block) return [{ from: body.from, to: body.to, intoCalls: false }];
+  const nested = all.filter((b) => b !== body && b.from > body.from && b.to <= body.to);
+  const spans: FlowSpan[] = [];
+  const re = /\breturn\b/g;
+  re.lastIndex = body.from;
+  for (let m = re.exec(code); m && m.index < body.to; m = re.exec(code)) {
+    const at = m.index;
+    if (nested.some((b) => at > b.from && at < b.to)) continue;
+    const from = at + m[0].length;
+    spans.push({ from, to: from + rhsAfter(code, from).length, intoCalls: false });
+  }
+  return spans;
 }
 
 /** Поток в промпт: переменные (ключи областей) и литералы (по началу), доходящие до модели. */
@@ -880,15 +942,18 @@ interface PromptFlow { reach: Set<string>; literalStarts: Set<number> }
  * рвали цепочку: цепочка методов и `this.ctx`, промежуточная переменная,
  * значение стока не голым именем; `lines.push(line)`, литерал в колбэке
  * `map`, элемент литерала массива, `unshift`/`add`, получатель-свойство
- * `box.lines`. Это один класс, и закрыт он не узорами, а отрезками кода:
+ * `box.lines`; литерал в колбэке `reduce`, строка из функции-помощника. Это
+ * один класс, и закрыт он не узорами, а отрезками кода:
  * - начало — значения `content:`/`system:` и аргументы зарубежного вызова
  *   (вместе с аргументами вложенных вызовов: `withContext(x)` несёт x),
  *   `${…}` промптов по метке и присваивания имени с prompt/instruction;
- * - переменная в потоке — её правая часть (без аргументов вызовов, кроме
- *   колбэка map/flatMap: `rows = query(SQL, …)` SQL в rows не несёт) и
- *   аргументы `push`/`unshift`/`add`/`concat` в неё; литералы, записанные в неё;
- * - из каждого такого отрезка — корни (`rootsAt`) и литералы внутри него, где
- *   бы ни стояли (`[…]`, колбэк map). `redactPII(…)` — конец ПД.
+ * - переменная в потоке — её правая часть (имена из аргументов вызовов в
+ *   поток не идут: `rows = query(SQL, …)` SQL в rows не несёт) и аргументы
+ *   `push`/`unshift`/`add`/`concat` в неё; литералы, записанные в неё;
+ * - из каждого такого отрезка — корни (`rootsAt`), литералы внутри него, где
+ *   бы ни стояли (`[…]`, колбэк `map`/`reduce`, аргумент любого вызова), и
+ *   то, что возвращают вызванные в нём функции файла (`content: line(lead)`).
+ *   `redactPII(…)` — конец ПД.
  * Отрезки берутся из кода без прозы (`maskCode`), переменные — по областям
  * видимости (`buildScopes`): `text` из вопроса туриста и `text` уведомления
  * оператору в соседней функции — разные переменные.
@@ -908,19 +973,28 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
     }
     return grew;
   };
-  const interpolationRoots = (lit: TemplateLiteral): Root[] => {
-    const roots: Root[] = [];
-    for (const { expr, at } of interpolations(lit.body)) {
-      const from = lit.start + 1 + at + 2;
-      rootsAt(code, from, from + expr.length, true, roots);
+  const returns = new Map<string, FlowSpan[]>();
+  const returnsOf = (name: string): FlowSpan[] => {
+    let spans = returns.get(name);
+    if (!spans) {
+      spans = (sc.functions.get(name) ?? []).flatMap((b) => returnSpans(code, b, sc.bodies));
+      returns.set(name, spans);
     }
-    return roots;
+    return spans;
   };
+  // Литерал в потоке: его `${…}` — тоже отрезки потока (корни, вложенные
+  // литералы, вызовы функций файла: `${line(lead)}`).
   const literalIn = (at: number): boolean => {
     if (literalStarts.has(at)) return false;
     literalStarts.add(at);
     const lit = byStart.get(at);
-    return lit ? add(interpolationRoots(lit)) : false;
+    if (!lit) return false;
+    let grew = false;
+    for (const { expr, at: off } of interpolations(lit.body)) {
+      const from = at + 1 + off + 2;
+      if (take({ from, to: from + expr.length, intoCalls: true })) grew = true;
+    }
+    return grew;
   };
   const taken = new Set<string>();
   const take = (span: FlowSpan): boolean => {
@@ -928,7 +1002,9 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
     if (taken.has(id)) return false;
     taken.add(id);
     let grew = add(rootsAt(code, span.from, span.to, span.intoCalls));
-    for (const at of literalsIn(code, span)) if (literalIn(at)) grew = true;
+    const inner = literalsIn(code, span);
+    for (const at of inner.literals) if (literalIn(at)) grew = true;
+    for (const name of inner.callees) for (const r of returnsOf(name)) if (take(r)) grew = true;
     return grew;
   };
 
@@ -949,7 +1025,7 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
     }
   }
   for (const lit of literals) {
-    if (isPromptLiteral(lit.label, hasForeign)) add(interpolationRoots(lit));
+    if (isPromptLiteral(lit.label, hasForeign)) literalIn(lit.start);
   }
 
   const edges: Array<{ key: string; span: FlowSpan }> = [];
@@ -1022,9 +1098,13 @@ export function scanSource(file: string, src: string): PIIFinding[] {
 
     for (const { expr, at } of interpolations(lit.body)) {
       if (SAFE_WRAP.test(expr)) continue;
+      // Поле ПД — обращение в коде, а не текст строки: `'https://api.telegram.org'`
+      // полем `.telegram` не является.
+      const base = lit.start + 1 + at + 2;
+      const exprCode = code.slice(base, base + expr.length);
       let kind: 'contact' | 'name' | null = null;
-      if (CONTACT_FIELD.test(expr.replace(SERVICE_CONTACT, ''))) kind = 'contact';
-      else if (PERSONAL_NAME_FIELD.test(expr) || PERSONAL_OWNER_NAME.test(expr)) kind = 'name';
+      if (CONTACT_FIELD.test(exprCode.replace(SERVICE_CONTACT, ''))) kind = 'contact';
+      else if (PERSONAL_NAME_FIELD.test(exprCode) || PERSONAL_OWNER_NAME.test(exprCode)) kind = 'name';
       if (!kind) {
         // Переменная с именем контакта или псевдоним: `${name}`, где выше `const name = l.name`.
         for (const v of interpolatedVars(`\${${expr}}`, lit.start + 1 + at, code)) {

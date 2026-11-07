@@ -547,13 +547,16 @@ describe('D1 — второе ревью PR #3104: формы находки 3 �
     // Переменная `*prompt*` — промпт и без зарубежного вызова в файле, как литерал с такой меткой.
     const viaArray = "const prompt = [`Тел: ${lead.phone}`, 'Ответь кратко'].join('\\n');";
     expect(found(viaArray)).toEqual([['contact', 'выражение']]);
-    // map в аргументах обычного вызова при присваивании — не промпт (узко, как у SQL).
-    const intoCall = [
+    // Колбэк reduce и аргумент незнакомого вызова — тоже (третье ревью #3104):
+    // что вызов делает с текстом, страж не знает, и литерал проверяет.
+    const viaReduce = [
       "import { callAIFast } from '@/lib/ai/providers';",
-      "const sent = await sendMax(leads.map((l) => `Тел: ${l.phone}`).join('\\n'));",
-      "await callAIFast([{ role: 'user', content: sent.status }]);",
+      "const text = leads.reduce((acc, l) => acc + `\\nТел: ${l.phone}`, '');",
+      "await callAIFast([{ role: 'user', content: text }]);",
     ].join('\n');
-    expect(found(intoCall)).toEqual([]);
+    expect(found(viaReduce)).toEqual([['contact', 'выражение']]);
+    const viaCall = viaReduce.replace("leads.reduce((acc, l) => acc + `\\nТел: ${l.phone}`, '')", 'fmt(`Тел: ${lead.phone}`)');
+    expect(found(viaCall)).toEqual([['contact', 'fmt']]);
   });
 
   it('unshift, add и получатель-свойство `box.lines` — находки', () => {
@@ -640,5 +643,59 @@ describe('D1 — второе ревью PR #3104: формы находки 3 �
     ].join('\n');
     expect(found(src)).toEqual([]);
     expect(promptFlowOf(src).reach).toEqual([]);
+  });
+});
+
+describe('D1 — третье ревью PR #3104: строка из функции файла', () => {
+  const found = (src: string) => scanSource('m.ts', src).map((x) => [x.kind, x.context]);
+  const CALL = "await callAIFast([{ role: 'user', content: line(lead) }]);";
+  const IMPORT = "import { callAIFast } from '@/lib/ai/providers';";
+
+  it('функция-помощник, вызванная в стоке, — её строка в потоке', () => {
+    const decl = [IMPORT, 'function line(l: { phone: string }) {', '  return `Тел: ${l.phone}`;', '}', CALL].join('\n');
+    expect(found(decl)).toEqual([['contact', 'выражение']]);
+    // Стрелка-выражение; стрелка-блок, возвращающая переменную.
+    const arrow = [IMPORT, 'const line = (l: Lead) => `Тел: ${l.phone}`;', CALL].join('\n');
+    expect(found(arrow)).toEqual([['contact', 'выражение']]);
+    const viaVar = [IMPORT, 'const line = async (l: Lead) => {', '  const s = `Тел: ${l.phone}`;', '  return s;', '};', CALL].join('\n');
+    expect(found(viaVar)).toEqual([['contact', 's']]);
+  });
+
+  it('метод через this и вызов внутри промпта по метке', () => {
+    const method = [
+      IMPORT,
+      'class Digest {',
+      '  describe(l: Lead) { return `Тел: ${l.phone}`; }',
+      "  ask(l: Lead) { return callAIFast([{ role: 'user', content: this.describe(l) }]); }",
+      '}',
+    ].join('\n');
+    expect(found(method)).toEqual([['contact', 'выражение']]);
+    const inPrompt = ['function line(l: Lead) { return `Тел: ${l.phone}`; }', 'const prompt = `Данные: ${line(lead)}`;'].join('\n');
+    expect(found(inPrompt)).toEqual([['contact', 'выражение']]);
+  });
+
+  it('узко: помощник для Telegram и `return` вложенной функции — не находки', () => {
+    const telegram = [IMPORT, 'function card(l: Lead) { return `Тел: ${l.phone}`; }', 'await sendMax(card(lead));', "await callAIFast('Сводка без контактов');"].join('\n');
+    expect(found(telegram)).toEqual([]);
+    const nested = [
+      IMPORT,
+      'function outer(x: Lead) {',
+      '  const f = () => { return `Тел: ${x.phone}`; };',
+      '  void sendMax(f());',
+      "  return 'готово';",
+      '}',
+      "await callAIFast([{ role: 'user', content: outer(lead) }]);",
+    ].join('\n');
+    expect(found(nested)).toEqual([]);
+    // Литерал, отданный redactPII, очищен: проверять в нём нечего.
+    expect(found([IMPORT, "await callAIFast([{ role: 'user', content: redactPII(`Тел: ${lead.phone}`) }]);"].join('\n'))).toEqual([]);
+    expect(found([IMPORT, "await callAIFast([{ role: 'user', content: trim(`Тел: ${lead.phone}`) }]);"].join('\n'))).toEqual([['contact', 'trim']]);
+  });
+
+  it('поле ПД — обращение в коде, а не текст строки', () => {
+    // Фото из Telegram уходит модели зрения; адрес API с `.telegram.org` — не ПД.
+    const src = [IMPORT, "const url = `${process.env.TG_BASE || 'https://api.telegram.org'}/file/${path}`;", "await callAIFast([{ role: 'user', content: url }]);"].join('\n');
+    expect(found(src)).toEqual([]);
+    expect(found(src.replace('${path}', '${lead.telegram}'))).toEqual([['contact', 'url']]);
   });
 });
